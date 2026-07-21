@@ -85,6 +85,8 @@
     end
 ).
 
+-define(rest_started, emqx_cth_suite_start_result).
+
 %%
 
 -type appname() :: atom().
@@ -150,18 +152,31 @@ start(Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     % 3. Verify that we're running with a clean state.
     ok = filelib:ensure_dir(filename:join(WorkDir, foo)),
     ok = verify_clean_suite_state(SuiteOpts),
-    % 4. Setup isolated mnesia directory
+    % 4. Setup directories for persistent data:
     ok = emqx_common_test_helpers:load(mnesia),
     ok = application:set_env(mnesia, dir, filename:join([WorkDir, mnesia])),
     ok = application:set_env(emqx_durable_storage, db_data_dir, filename:join([WorkDir, ds])),
-    % 5. Start ekka separately.
-    % For some reason it's designed to be started in non-regular way, so we have to track
-    % applications started in the process manually.
-    EkkaSpecs = [{App, proplists:get_value(App, AppSpecs, #{})} || App <- [gen_rpc, mria, ekka]],
-    EkkaApps = start_apps(EkkaSpecs, SuiteOpts),
+    application:set_env(classy, table_dir, filename:join([WorkDir, classy])),
+    % 5. Setup classy:
+    ClassySpecs = [{App, proplists:get_value(App, AppSpecs, #{})} || App <- [gen_rpc, classy]],
+    RestSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, ClassySpecs)],
+    application:set_env(
+        classy,
+        setup_hooks,
+        {emqx_machine, setup_classy_hooks, [on_run_level(RestSpecs, SuiteOpts)]}
+    ),
+    ClassyApps = start_apps(ClassySpecs, SuiteOpts),
     % 6. Start apps following instructions.
-    RestSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, EkkaSpecs)],
-    EkkaApps ++ start_appspecs(RestSpecs).
+    ClassyApps ++ optvar:read(?rest_started).
+
+on_run_level(RestSpecs, SuiteOpts) ->
+    fun
+        (single, cluster) ->
+            Result = start_apps(RestSpecs, SuiteOpts),
+            optvar:set(?rest_started, Result);
+        (_, _) ->
+            ok
+    end.
 
 load_apps(Apps) ->
     lists:foreach(fun load_appspec/1, [mk_appspec(App, #{}) || App <- Apps]).
@@ -317,10 +332,6 @@ merge_config(_C, false) ->
 merge_config(C1, C2) ->
     [render_config(C1), "\n", render_config(C2)].
 
-default_appspec(ekka, _SuiteOpts) ->
-    #{
-        start => fun start_ekka/0
-    };
 default_appspec(emqx, SuiteOpts) ->
     #{
         override_env => [{data_dir, maps:get(work_dir, SuiteOpts, "data")}],
@@ -434,10 +445,6 @@ clean_work_dir(WorkDir) ->
 
 %%
 
-start_ekka() ->
-    ok = emqx_common_test_helpers:start_ekka(),
-    {ok, [mnesia, ekka]}.
-
 inhibit_config_loader(_App, #{config := Config}) when Config /= false ->
     ok = emqx_app:set_config_loader(?MODULE);
 inhibit_config_loader(_App, #{}) ->
@@ -448,6 +455,8 @@ inhibit_config_loader(_App, #{}) ->
 -spec stop(_StartedApps :: [appname()]) ->
     ok.
 stop(Apps) ->
+    optvar:unset(?rest_started),
+    classy:prep_stop(),
     ok = stop_apps(Apps),
     clean_suite_state().
 
