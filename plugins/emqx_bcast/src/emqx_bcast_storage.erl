@@ -40,6 +40,7 @@ lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
                     {created, ApiMsgId, MsgId};
                 [#bcast_message_hash{msg_id = ExistingMsgId}] ->
                     [Existing] = mnesia:read(bcast_message, ExistingMsgId, read),
+                    mnesia:write(Existing#bcast_message{expires_at = Now + TTL}),
                     {existing, Existing#bcast_message.api_msg_id, ExistingMsgId}
             end
         end)
