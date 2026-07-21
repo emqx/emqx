@@ -51,7 +51,8 @@
 -export([
     db_info/1,
     handle_db_config_change/2,
-    handle_schema_event/3
+    handle_schema_event/3,
+    migrate_schema/4
 ]).
 
 -behaviour(emqx_ds_beamformer).
@@ -572,6 +573,13 @@ handle_db_config_change(DB, _) ->
 -spec handle_schema_event(emqx_ds:db(), emqx_dsch:pending_id(), emqx_dsch:pending()) -> ok.
 handle_schema_event(_DB, PendingId, _Pending) ->
     emqx_dsch:del_pending(PendingId).
+
+-spec migrate_schema(
+    emqx_ds:db(), _From :: pos_integer(), _To :: pos_integer(), emqx_dsch:db_schema()
+) ->
+    [emqx_dsch:op()].
+migrate_schema(_, _, _, _) ->
+    error(todo).
 
 %%================================================================================
 %% Internal functions
