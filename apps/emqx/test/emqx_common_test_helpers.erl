@@ -69,7 +69,6 @@
 ]).
 
 -export([
-    start_ekka/0,
     start_epmd/0,
     start_peer/2,
     stop_peer/1,
@@ -345,7 +344,6 @@ start_apps(Apps, SpecAppConfig, Opts) when is_function(SpecAppConfig) ->
     %% Load all application code to beam vm first
     %% Because, minirest, ekka etc.. application will scan these modules
     lists:foreach(fun load/1, [emqx | Apps]),
-    ok = start_ekka(),
     lists:foreach(fun(App) -> start_app(App, SpecAppConfig, Opts) end, [emqx | Apps]).
 
 load(App) ->
@@ -477,7 +475,7 @@ stop_apps(Apps) ->
     stop_apps(Apps, #{}).
 
 stop_apps(Apps, Opts) ->
-    [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
+    [application:stop(App) || App <- Apps ++ [emqx, mria, mnesia]],
     ok = mria_mnesia:delete_schema(),
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, config_loader),
@@ -744,16 +742,6 @@ is_tcp_server_available(Host, Port, Timeout) ->
             true;
         {error, _} ->
             false
-    end.
-
-start_ekka() ->
-    try mnesia_hook:module_info(module) of
-        _ -> ekka:start()
-    catch
-        _:_ ->
-            %% Falling back to using Mnesia DB backend.
-            application:set_env(mria, db_backend, mnesia),
-            ekka:start()
     end.
 
 -spec ensure_quic_listener(Name :: atom(), UdpPort :: inet:port_number()) -> ok.

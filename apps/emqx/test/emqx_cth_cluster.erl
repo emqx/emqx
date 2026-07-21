@@ -609,7 +609,7 @@ maybe_join_cluster(start, Node, Spec) ->
     end.
 
 join_cluster(Node, JoinTo) ->
-    case erpc:call(Node, ekka, join, [JoinTo]) of
+    case erpc:call(Node, emqx_cluster, join, [JoinTo, join]) of
         ok ->
             ok;
         ignore ->

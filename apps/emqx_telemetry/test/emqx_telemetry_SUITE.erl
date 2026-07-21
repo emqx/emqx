@@ -771,7 +771,7 @@ start_peer(Name) ->
         fun
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),
-                emqx_cluster:join(TestNode),
+                emqx_cluster:join(TestNode, join),
                 emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
                 ok;
             (_App) ->
