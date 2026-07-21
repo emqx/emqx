@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2019-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ is_running(App) ->
 %% @doc Is the application running?
 -spec is_running(node(), atom()) -> boolean().
 is_running(Node, App) ->
-    case rpc:call(Node, ekka_node, is_running, [App]) of
+    case ekka_proto_v1:is_running(Node, App) of
         {badrpc, _} -> false;
         Result -> Result
     end.
