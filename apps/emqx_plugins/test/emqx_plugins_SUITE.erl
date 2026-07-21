@@ -1206,7 +1206,7 @@ group_t_copy_plugin_to_a_new_node(Config) ->
             rpc:call(CopyToNode, application, which_applications, [])
         )
     ),
-    ok = rpc:call(CopyToNode, ekka, join, [CopyFromNode]),
+    ok = rpc:call(CopyToNode, classy, join_node, [CopyFromNode, join]),
     %% Mimic cluster-override conf copying
     ok = rpc:call(CopyToNode, emqx_plugins, put_config_internal, [[states], CopyFromPluginsState]),
     %% Plugin copying is triggered upon app restart on a new node.
@@ -1347,7 +1347,7 @@ group_t_cluster_leave(Config) ->
     ),
 
     %% Now, one node leaves the cluster.
-    ok = erpc:call(N2, ekka, leave, []),
+    ok = erpc:call(N2, emqx_cluster, leave, [leave]),
 
     %% Each node will no longer ask the plugin status to the other.
     ?assertMatch(
@@ -1460,7 +1460,7 @@ group_t_cluster_force_sync_vsn(Config) ->
         erpc:call(NodeWithNew, emqx_mgmt_api_plugins, list_plugins, [get, Params])
     ),
 
-    ok = erpc:call(NodeWithNew, ekka, join, [NodeWithOld]),
+    ok = erpc:call(NodeWithNew, classy, join_node, [NodeWithOld, join]),
     %% After `NodeWithNew` joined `NodeWithOld`,
     %% The node: `NodeWithNew` should have the same plugin version as `NodeWithOld`
     %% but the new version plugin directory should still exist

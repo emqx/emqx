@@ -1012,7 +1012,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
                     set_envs(Node, Env),
                     ok = erpc:call(Node, emqx_machine_boot, start_autocluster, [])
                 end,
-            case rpc:call(Node, ekka, join, [JoinTo]) of
+            case rpc:call(Node, classy, join_node, [JoinTo, join]) of
                 ok ->
                     ok;
                 ignore ->

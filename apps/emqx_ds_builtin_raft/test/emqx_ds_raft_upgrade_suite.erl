@@ -274,7 +274,9 @@ start_cluster(WorkDir, Releases) ->
             ?retry(
                 1000,
                 10,
-                ?assertMatch(ok, peer:call(whereis(Node), ekka, join, [Seed#peer.n], 15_000))
+                ?assertMatch(
+                    ok, peer:call(whereis(Node), classy, join_node, [Seed#peer.n, join], 15_000)
+                )
             ),
             ?assertMatch(ok, peer:call(whereis(Node), emqx_license, unload, []))
         end,
