@@ -49,28 +49,6 @@ This module separates state of the durable storage in three parts:
   about the DB. Gvars are also not saved and are erased when DB is
   closed.
 
-## Pending actions
-
-This module implements a mechanism that allows to schedule
-long-running operations (such as data migrations, shard rebalancing,
-etc.) using "pending" mechanism.
-
-Pending actions are encoded as a map containing fields `scope`,
-`command` and arbitrary others, that can be used to pass parameters of
-the command. Pending actions are added to the persistent state, where
-they remain until explicitly deleted.
-
-There are two types of scope: `site` and `{db, _}`. `site` actions are
-global, and they used by emqx_durable_storage application internally.
-Actions scoped by DB are executed when the corresponding durable
-storage is open. The durable storage is completely responsible for
-their lifetime.
-
-There is a number of predefined pending events that are create
-automatically to each existing (but not necessarily open) DBs by the
-schema manager itself when it changes the cluster or DB schema. See
-documentation for `handle_schema_event` callback for more details.
-
 ## Cluster tracking
 
 All functionality related to cluster and peer tracking is optional,
@@ -79,22 +57,6 @@ and it's designed to stay dormant until some backend requests uses it.
 It's activated using `need_cluster(Nnodes)` API.
 If cluster ID wasn't previously created, it is initialized from
 `emqx_durable_storage.cluster_id` application environment variable.
-
-## Implementation
-
-OTP's `disk_log` is used as the persistence mechanism.
-Contents of the schema are mirrored in a persistent term.
-This makes scheama very cheap to read and hard to update.
-So don't update it often.
-
-All operations that mutate the scheama are synchronously written to
-the WAL. For simplicity, WAL is not truncated or compressed while the
-application is running. It is happens when the server starts.
-
-When the server starts, it first completely replays the WAL to get to
-the latest schema state, then this state is potentially migrated, and
-dumped to another WAL. The latter is read again to initialize the
-server state.
 """.
 
 -behaviour(gen_server).
@@ -109,15 +71,6 @@ server state.
     get_site_schema/1,
     get_site_schema/2,
 
-    %% Cluster API:
-    whereis_site/1,
-
-    %% Pending action API:
-    add_pending/3,
-    list_pending/0,
-    list_pending/1,
-    del_pending/1,
-
     %% DB API:
     ensure_db_schema/2,
     get_db_schema/1,
@@ -128,7 +81,8 @@ server state.
     close_db/1,
     update_db_config/2,
     get_db_runtime/1,
-    db_gvars/1,
+
+    %% Gvars
     gvar_set/4,
     gvar_unset/3,
     gvar_get/3,
@@ -144,22 +98,16 @@ server state.
 %% internal exports:
 -export([
     start_link/0,
-    schema_file/0,
-    restore_from_wal/1,
-    dump/2,
+    register_hooks/0,
+    on_table_update/2
 
-    %% Low-level cluster API:
-    set_cluster/1,
-    set_peer/2,
-    delete_peer/1,
-
-    start_link_pending/2,
-    pending_task_entrypoint/2
+    %% 2PC callbacks
 ]).
 
 -export_type([
     site/0,
-    cluster/0,
+    maybe_cluster/0,
+    op/0,
     peer_state/0,
     schema/0,
     db_schema/0,
@@ -167,11 +115,6 @@ server state.
     db_runtime/0,
     db_runtime_config/0,
 
-    pending_id/0,
-    pending_scope/0,
-    pending/0,
-
-    wal/0,
     dbshard/0,
     human_readable/0
 ]).
@@ -179,6 +122,7 @@ server state.
 -include("emqx_ds.hrl").
 -include("emqx_dsch.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("classy/include/classy.hrl").
 
 -elvis([{elvis_style, no_single_clause_case, disable}]).
 
@@ -190,9 +134,16 @@ server state.
 %% Schema
 %%--------------------------------------------------------------------------------
 
--type site() :: binary().
+-define(root, root).
 
--type cluster() :: binary().
+-type op() ::
+    {w, emqx_ds:db(), term()}
+    | {w, emqx_ds:db(), emqx_ds:shard(), term()}
+    | {d, emqx_ds:db()}
+    | {d, emqx_ds:db(), emqx_ds:shard()}
+    | {then, _Effect}.
+
+-type site() :: binary().
 
 -type peer_state() :: atom().
 
@@ -203,78 +154,44 @@ It is unaffected by `update_config` operation.
 """.
 -type db_schema() :: #{backend := emqx_ds:backend(), atom() => _}.
 
--type pending_scope() :: site | {db, emqx_ds:db()}.
-
-%% Pending command:
--type pending_id() :: pos_integer().
-
--type pending() :: #{
-    start_time := integer(),
-    scope := pending_scope(),
-    command := atom(),
-    atom() => _
-}.
-
--doc """
-Global schema of the site (visible to the world).
-
-It encapsulates schema of all DBs and shards, as well as pending
-operations and other metadata.
-""".
 -type schema() :: #{
     site := site(),
-    cluster := cluster() | singleton,
-    peers := #{site() => peer_state()},
+    cluster := maybe_cluster(),
+    peers := [site()],
     dbs := #{emqx_ds:db() => db_schema()}
 }.
 
 -doc """
-Persistent state of the node including some private data.
-""".
--type pstate() :: #{
-    ver := 1,
-    pending_ctr := pending_id(),
-    pending := #{pending_id() => pending()},
-    schema := schema()
-}.
+Cluster parameter is used to separate persistent data created at
+different clusters. When a node leaves previous cluster and joins the
+new one, we should avoid mixing up the data.
+Data from the previous clusters is always preserved in the schema,
+and data directories (or analogues) include cluster ID.
 
-%% Schema operations:
-%%    Create a new site and schema:
--record(sop_init, {ver = 1 :: 1, id :: site(), next_pending_id :: pending_id()}).
-%%%   Operation with the cluster
--record(sop_set_cluster, {cluster :: cluster() | singleton}).
--record(sop_set_peer, {peer :: site(), state :: peer_state()}).
--record(sop_delete_peer, {peer :: site()}).
-%%    Set DB schema:
--record(sop_set_db, {db :: emqx_ds:db(), schema :: db_schema()}).
--record(sop_drop_db, {db :: emqx_ds:db()}).
-%%    Pending actions:
--record(sop_add_pending, {id = new :: pending_id() | new, p :: pending()}).
--record(sop_del_pending, {id :: pending_id()}).
-
--doc """
-A type of WAL entries.
+In the old releases localy persistent data was indexed only by site
+ID, rather than site + cluster. Special value `root` indicates that
+the old style is in use.
+In this case, cluster switching is not supported.
 """.
--type schema_op() ::
-    #sop_init{}
-    | #sop_set_cluster{}
-    | #sop_set_db{}
-    | #sop_drop_db{}
-    | #sop_set_peer{}
-    | #sop_delete_peer{}
-    | #sop_add_pending{}
-    | #sop_del_pending{}.
+-type maybe_cluster() :: classy:cluster_id() | ?root.
+
+%%--------------------------------------------------------------------------------
+%% Table keys and values
+%%--------------------------------------------------------------------------------
+
+%% Local persistent schema table:
+-define(ptab, emqx_dsch_schema_tab).
+%% Mria merge table holding non-persistent runtime data
+
+-define(schema_ver, ver).
+-record(db, {cluster :: maybe_cluster(), db :: emqx_ds:db()}).
+-record(shard, {cluster :: maybe_cluster(), db :: emqx_ds:db(), shard :: emqx_ds:shard()}).
+
+-define(pt_cluster, emqx_dsch_cluster).
 
 %%--------------------------------------------------------------------------------
 %% Server state and misc. types
 %%--------------------------------------------------------------------------------
-
--define(schema, "ds_schema").
-
--doc """
-Name of the disk log, as in `disk_log:open([{name, Name}, ...])`
-""".
--type wal() :: term().
 
 -type dbshard() :: {emqx_ds:db(), emqx_ds:shard()}.
 
@@ -289,24 +206,18 @@ Name of the disk log, as in `disk_log:open([{name, Name}, ...])`
     runtime := db_runtime_config()
 }.
 
--define(log_new, emqx_ds_dbschema_new).
--define(log_old, emqx_ds_dbschema_old).
--define(log_current, emqx_ds_dbschema_current).
-
 %% Calls:
 -record(call_register_backend, {alias :: atom(), cbm :: module()}).
 -record(call_ensure_db_schema, {
     db :: emqx_ds:db(), backend :: emqx_ds:backend(), schema :: db_schema()
 }).
--record(call_add_pending, {scope :: pending_scope(), cmd :: atom(), data :: #{atom() => _}}).
--record(call_list_pending, {scope :: pending_scope() | all}).
 -record(call_open_db, {db :: emqx_ds:db(), conf :: db_runtime_config()}).
 -record(call_close_db, {db :: emqx_ds:db()}).
+-record(call_drop_db, {db :: emqx_ds:db()}).
 -record(call_update_db_schema, {
     db :: emqx_ds:db(), backend :: emqx_ds:backend(), schema :: db_schema()
 }).
 -record(call_update_db_config, {db :: emqx_ds:db(), conf :: db_runtime_config()}).
--record(dispatch_pending, {scope :: pending_scope()}).
 
 -define(SERVER, ?MODULE).
 
@@ -330,21 +241,12 @@ Backends should re-register themselves on restart of DS application.
 
 -doc "Server's internal state.".
 -record(s, {
-    sch :: pstate(),
     %% Backend registrations:
     backends = #{} :: #{atom() => bs()},
     %% Transient DB and shard configuration:
-    dbs = #{} :: #{emqx_ds:db() => dbs()},
-    %% Tracking of pending tasks:
-    pending = #{} :: #{pending_id() => pid()}
+    open_dbs = #{} :: #{emqx_ds:db() => dbs()}
 }).
 -type s() :: #s{}.
-
--ifdef(TEST).
--define(replay_chunk_size, 2).
--else.
--define(replay_chunk_size, 1000).
--endif.
 
 -type human_readable() :: string().
 
@@ -363,56 +265,10 @@ This is called when runtime config changes.
 -callback handle_db_config_change(emqx_ds:db(), db_runtime_config()) -> ok.
 
 -doc """
-Process schema event.
-
-This callback is called when a schema change affecting the DB is
-created either explicitly, by calling `add_pending` API, or implicitly
-via cluster change event.
-
-### Implementation details
-
-- This callback runs in a temporary process under an internal DS
-  supervisor. If backend intends to trap exits, it must take care of
-  OTP shutdown protocol.
-
-- These callbacks run while DB is open and are cancelled when it's closed.
-
-- Upon successful execution of the pending action, the backend must
-  call `emqx_dsch:del_pending` API with the ID passed as the first
-  argument to delete the task. Otherwise it will be retried.
-
-- If backend either throws an exception or exits without deleting the
-  pending task, then the pending task is considered failed and it may
-  be retried at an unspecified time in the future.
-
-### Predefined tasks
-
-1. Cluster is created or deleted:
-
-```
-#{command := set_cluster, cluster := binary() | singleton}
-```
-
-2. A new peer was added or peer state has changed:
-
-```
-#{command := set_peer, site := site(), state := _}
-```
-
-3. Peer has been deleted:
-
-```
-#{command := delete_peer, site := site()}
-```
-
-4. Database schema has been updated:
-
-```
-#{command := change_schema, old := db_schema(), new := db_schema(), originator := site()}
-```
-
+Called by DS during startup.
 """.
--callback handle_schema_event(emqx_ds:db(), pending_id(), pending()) -> _.
+-callback migrate_schema(emqx_ds:db(), _From :: pos_integer(), _To :: pos_integer(), db_schema()) ->
+    [op()].
 
 %%================================================================================
 %% API functions
@@ -420,24 +276,31 @@ via cluster change event.
 
 -spec this_site() -> binary().
 this_site() ->
-    #{site := Site} = get_site_schema(),
+    {ok, Site} = classy:the_site(),
     Site.
 
--spec whereis_site(site()) -> node() | undefined.
-whereis_site(Site) ->
-    case global:whereis_name(?global_name(Site)) of
-        undefined ->
-            undefined;
-        Pid ->
-            node(Pid)
-    end.
+-spec cluster() -> maybe_cluster().
+cluster() ->
+    persistent_term:get(?pt_cluster).
 
 -doc """
 Get the entire schema of the site.
 """.
 -spec get_site_schema() -> schema() | ?empty_schema.
 get_site_schema() ->
-    persistent_term:get(?dsch_pt_schema, ?empty_schema).
+    maybe
+        {ok, Site} ?= classy:the_site(),
+        Cluster = cluster(),
+        MS = {#classy_kv{k = #db{cluster = Cluster, db = '$1'}, v = '$2', _ = '_'}, [], [
+            {{'$1', '$2'}}
+        ]},
+        L = classy_table:select(?ptab, [MS]),
+        #{
+            site => Site,
+            cluster => Cluster,
+            dbs => maps:from_list(L)
+        }
+    end.
 
 -doc """
 Equivalent to `get_site_schema(NodeOrSite, 5_000)`
@@ -452,11 +315,11 @@ Get schema of a remote site.
 """.
 -spec get_site_schema(node() | site(), timeout()) -> {ok, schema() | ?empty_schema} | {error, _}.
 get_site_schema(Site, Timeout) when is_binary(Site) ->
-    case whereis_site(Site) of
+    case classy:node_of_site(Site) of
+        {ok, Node} ->
+            get_site_schema(Node, Timeout);
         undefined ->
-            {error, down};
-        Node ->
-            get_site_schema(Node, Timeout)
+            {error, down}
     end;
 get_site_schema(Node, Timeout) when is_atom(Node) ->
     case emqx_dsch_proto_v1:get_site_schemas([Node], Timeout) of
@@ -468,52 +331,21 @@ get_site_schema(Node, Timeout) when is_atom(Node) ->
     end.
 
 -doc """
-Update cluster ID.
-
-Setting cluster to a special value `singleton` prevents peers from
-joining.
-
-Cluster ID isn't used by this module directly, but it's stored in the
-schema anyway, because most backends likely want to make sure that
-they share data and communicate only with the nodes that belong to the
-same cluster.
-
-Cluster cannot be set to `singleton` when there are peers, they should
-be removed first.
+A fast query that for the database schema.
+NOTE: This function returns the results only when DB is open.
 """.
--spec set_cluster(cluster() | singleton) -> ok | {error, badarg}.
-set_cluster(Cluster) when is_binary(Cluster); Cluster =:= singleton ->
-    gen_server:call(?SERVER, #sop_set_cluster{cluster = Cluster});
-set_cluster(_) ->
-    {error, badarg}.
-
--doc """
-Unconditionally add peer site to the cluster.
-
-WARNING: This function doesn't check if the peer belongs to the same
-cluster and therefore it's unsafe for general use.
-""".
--spec set_peer(site(), peer_state()) -> ok | {error, _}.
-set_peer(Site, State) when is_binary(Site), is_atom(State) ->
-    gen_server:call(?SERVER, #sop_set_peer{peer = Site, state = State}).
-
--spec delete_peer(site()) -> ok | {error, _}.
-delete_peer(Site) when is_binary(Site) ->
-    gen_server:call(?SERVER, #sop_delete_peer{peer = Site}).
-
 -spec get_db_schema(emqx_ds:db()) -> db_schema() | undefined.
 get_db_schema(DB) ->
     maybe
-        #{dbs := DBs} ?= get_site_schema(),
-        #{DB := DBSchema} ?= DBs,
-        DBSchema
+        #{schema := Schema} ?= persistent_term:get(?dsch_pt_db_runtime(DB), undefined),
+        Schema
     else
         _ -> undefined
     end.
 
 -spec register_backend(emqx_ds:backend(), module()) -> ok | {error, _}.
 register_backend(Alias, CBM) when is_atom(Alias), is_atom(CBM) ->
-    gen_server:call(?SERVER, #call_register_backend{alias = Alias, cbm = CBM}).
+    gen_server:call(?SERVER, #call_register_backend{alias = Alias, cbm = CBM}, infinity).
 
 -spec get_backend_cbm(emqx_ds:backend()) -> {ok, module()} | {error, _}.
 get_backend_cbm(Backend) ->
@@ -523,29 +355,6 @@ get_backend_cbm(Backend) ->
         #{} ->
             {error, {no_such_backend, Backend}}
     end.
-
--doc """
-Add a pending action.
-""".
--spec add_pending(pending_scope(), Command, Data) -> ok | {error, _} when
-    Command :: atom(), Data :: #{atom() => _}.
-add_pending(Scope, Command, Data) ->
-    gen_server:call(?SERVER, #call_add_pending{scope = Scope, cmd = Command, data = Data}).
-
--spec list_pending() -> #{pending_id() => pending()}.
-list_pending() ->
-    list_pending(all).
-
--spec list_pending(pending_scope() | all) -> #{pending_id() => pending()}.
-list_pending(Scope) ->
-    gen_server:call(?SERVER, #call_list_pending{scope = Scope}).
-
--doc """
-Delete pending operation with the given ID.
-""".
--spec del_pending(pending_id()) -> ok.
-del_pending(Id) ->
-    gen_server:call(?SERVER, #sop_del_pending{id = Id}).
 
 -doc """
 If database schema wasn't present before, create schema it (equal to the
@@ -572,7 +381,7 @@ update_db_schema(DB, NewSchema = #{backend := Backend}) when is_atom(Backend) ->
 
 -spec drop_db_schema(emqx_ds:db()) -> ok | {error, _}.
 drop_db_schema(DB) ->
-    gen_server:call(?SERVER, #sop_drop_db{db = DB}).
+    gen_server:call(?SERVER, #call_drop_db{db = DB}).
 
 -spec open_db(emqx_ds:db(), db_runtime_config()) -> ok | {error, _}.
 open_db(DB, RuntimeConfig) ->
@@ -662,67 +471,25 @@ gvar_unset_all(DB, Shard, Scope) ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec start_link_pending(pending_id(), pending()) -> {ok, pid()}.
-start_link_pending(Id, TaskDefn) ->
-    proc_lib:start_link(?MODULE, pending_task_entrypoint, [Id, TaskDefn]).
+-spec register_hooks() -> [classy:hook()].
+register_hooks() ->
+    [].
 
--spec pending_task_entrypoint(pending_id(), pending()) -> {ok, pid()}.
-pending_task_entrypoint(Id, TaskDefn) ->
-    ?tp(debug, emqx_dsch_spawn_pending, #{id => Id, defn => TaskDefn}),
-    proc_lib:init_ack({ok, self()}),
-    case TaskDefn of
-        #{scope := {db, DB}} ->
-            #{cbm := CBM} = get_db_runtime(DB),
-            case erlang:function_exported(CBM, handle_schema_event, 3) of
-                true ->
-                    CBM:handle_schema_event(DB, Id, TaskDefn);
-                false ->
-                    del_pending(Id)
-            end
-    end.
-
--doc """
-Re-create the schema state by reading the WAL.
-
-WAL should be opened using `disk_log:open(...)`.
-""".
--spec restore_from_wal(wal()) -> pstate() | ?empty_schema.
-restore_from_wal(Log) ->
-    replay_wal(Log, ?empty_schema, start).
-
--doc """
-Return location of the node's schema file.
-(For debugging and troubleshooting).
-""".
--spec schema_file() -> file:filename().
-schema_file() ->
-    filename:join(emqx_ds_storage_layer:base_dir(), ?schema).
-
--doc """
-Dump schema to a WAL.
-The WAL should be open; all data previously stored there is discarded.
-""".
--spec dump(pstate(), wal()) -> ok | {error, _}.
-dump(Pstate, WAL) ->
-    ok = disk_log:truncate(WAL),
-    #{ver := Ver, schema := Schema, pending_ctr := PendingCtr, pending := Pending} = Pstate,
-    #{site := Site, cluster := Cluster, dbs := DBs, peers := Peers} = Schema,
-    Ops =
-        [
-            #sop_init{ver = Ver, id = Site, next_pending_id = PendingCtr},
-            #sop_set_cluster{cluster = Cluster}
-        ] ++
-            [#sop_set_db{db = DB, schema = DBSchema} || {DB, DBSchema} <- maps:to_list(DBs)] ++
-            [
-                #sop_set_peer{peer = Peer, state = PeerState}
-             || {Peer, PeerState} <- maps:to_list(Peers)
-            ] ++
-            dump_pending(Pending),
-    case safe_add_l(WAL, Ops, ?empty_schema) of
-        {ok, _} ->
-            ok;
-        {error, _} = Err ->
-            Err
+-spec on_table_update(?ptab, classy_table:on_update_op()) -> ok.
+on_table_update(?ptab, Op) ->
+    %% Update site metadata, so schema is propagated to the peers via classy gossip:
+    Cluster = cluster(),
+    case Op of
+        {w, #db{cluster = Cluster, db = DB}, Val} ->
+            classy_site_metadata:set({ds, DB}, Val);
+        {d, #db{cluster = Cluster, db = DB}} ->
+            classy_site_metadata:delete({ds, DB});
+        {w, #shard{cluster = Cluster, db = DB, shard = Shard}, Val} ->
+            classy_site_metadata:set({ds, DB, Shard}, Val);
+        {d, #shard{cluster = Cluster, db = DB, shard = Shard}} ->
+            classy_site_metadata:delete({ds, DB, Shard});
+        _ ->
+            ok
     end.
 
 %%================================================================================
@@ -731,11 +498,20 @@ dump(Pstate, WAL) ->
 
 init(_) ->
     process_flag(trap_exit, true),
-    Pstate = #{} = restore_or_init_pstate(),
-    persistent_term:put(?dsch_pt_schema, maps:get(schema, Pstate)),
-    S = #s{sch = Pstate},
-    #{schema := #{site := Site}} = Pstate,
-    global:register_name(?global_name(Site), self(), fun global:random_notify_name/3),
+    ok = classy_table:open(?ptab, #{
+        ets => [ordered_set, {read_concurrency, true}],
+        on_update => fun ?MODULE:on_table_update/2
+    }),
+    maybe_migrate(),
+    case classy_table:lookup(?ptab, ?root) of
+        [true] ->
+            Cluster = ?root;
+        [] ->
+            %% FIXME: currently the logic to handle this is missing!!
+            {ok, Cluster} = classy:the_cluster()
+    end,
+    persistent_term:put(?pt_cluster, Cluster),
+    S = #s{},
     {ok, S}.
 
 handle_call(#call_open_db{db = DB, conf = RuntimeConf}, _From, S0) ->
@@ -754,30 +530,10 @@ handle_call(#call_ensure_db_schema{db = DB, backend = Backend, schema = NewDBSch
     do_ensure_db_schema(DB, Backend, NewDBSchema, S);
 handle_call(#call_update_db_schema{db = DB, backend = NewBackend, schema = NewSchema}, _From, S) ->
     do_update_db_schema(DB, NewBackend, NewSchema, S);
-handle_call(#sop_drop_db{db = DB}, _From, S) ->
+handle_call(#call_drop_db{db = DB}, _From, S) ->
     do_drop_db(DB, S);
 handle_call(#call_register_backend{alias = Alias, cbm = CBM}, _From, S) ->
     do_register_backend(Alias, CBM, S);
-handle_call(#call_add_pending{scope = Scope, cmd = Command, data = Data}, _From, S0) ->
-    case do_add_pending(Scope, Command, Data, S0) of
-        {ok, S} -> {reply, ok, S};
-        {error, _} = Err -> {reply, Err, S0}
-    end;
-handle_call(#call_list_pending{scope = Scope}, _From, S) ->
-    {reply, do_list_pending(Scope, S), S};
-handle_call(#sop_del_pending{id = Id}, _From, S) ->
-    {reply, ok, do_del_pending(Id, S)};
-handle_call(SchemaOp, _From, S0) when
-    is_record(SchemaOp, sop_set_peer);
-    is_record(SchemaOp, sop_delete_peer);
-    is_record(SchemaOp, sop_set_cluster)
-->
-    case do_update_cluster(SchemaOp, S0) of
-        {ok, S} ->
-            {reply, ok, S};
-        {error, _} = Err ->
-            {reply, Err, S0}
-    end;
 handle_call(Call, From, S) ->
     ?tp(error, emqx_dsch_unkown_call, #{from => From, call => Call, state => S}),
     {reply, {error, unknown_call}, S}.
@@ -786,19 +542,6 @@ handle_cast(Cast, S) ->
     ?tp(error, emqx_dsch_unkown_cast, #{call => Cast, state => S}),
     {noreply, S}.
 
-handle_info(#dispatch_pending{scope = Scope}, S0) ->
-    S = do_dispatch_db_pending(Scope, S0),
-    {noreply, S};
-handle_info({global_name_conflict, ?global_name(Site)}, S = #s{sch = Pstate}) ->
-    #{schema := #{site := MySite}} = Pstate,
-    case Site =:= MySite of
-        true ->
-            Expl = "Another node claimed site ID. All sites must be unique",
-            ?tp(error, global_site_conflict, #{site => Site, exlanation => Expl}),
-            {stop, site_conflict, S};
-        false ->
-            {noreply, S}
-    end;
 handle_info({'EXIT', From, Reason}, S) ->
     case Reason of
         normal ->
@@ -810,7 +553,7 @@ handle_info({'EXIT', From, Reason}, S) ->
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(Reason, S0 = #s{dbs = DBs}) ->
+terminate(Reason, S0 = #s{open_dbs = DBs}) ->
     %% Close all DBs:
     _ = maps:fold(
         fun(DB, _, S) ->
@@ -821,19 +564,72 @@ terminate(Reason, S0 = #s{dbs = DBs}) ->
     ),
     terminate(Reason, undefined);
 terminate(_Reason, undefined) ->
-    persistent_term:erase(?dsch_pt_schema),
     persistent_term:erase(?dsch_pt_backends),
-    _ = disk_log:close(?log_current),
-    _ = disk_log:close(?log_new),
-    _ = disk_log:close(?log_old),
+    classy_table:stop(?ptab, 1_000),
     ok.
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
+-spec maybe_migrate() -> ok.
+maybe_migrate() ->
+    case classy_table:lookup(?ptab, ?schema_ver) of
+        [2] ->
+            ok;
+        [] ->
+            %% Migrate from dsch WAL format + mria:
+            case emqx_dsch_migrate:read_old() of
+                {ok, ?empty_schema} ->
+                    ok;
+                {ok, Envelope} ->
+                    %% TODO: Make it debug:
+                    ?tp(warning, "Migrating data DS to classy", #{}),
+                    #{ver := FromVersion, schema := Schema} = Envelope,
+                    ?tp(warning, "Old DS schema", Schema),
+                    ToVersion = 2,
+                    %% Set a special flag indicating that schema
+                    %% doesn't support multiple clusters:
+                    ok = classy_table:dirty_write(?ptab, ?root, true),
+                    ok = classy_table:dirty_write(?ptab, ?schema_ver, ToVersion),
+                    ok = migrate_schema(FromVersion, ToVersion, Schema),
+                    ok = classy_table:flush(?ptab)
+            end
+    end.
+
+-spec migrate_schema(pos_integer(), pos_integer(), emqx_dsch_migrate:schema()) -> ok.
+migrate_schema(FromVer, ToVer, #{dbs := DBs}) ->
+    maps:foreach(
+        fun(DB, DBSchema = #{backend := Backend}) ->
+            Ops = Backend:migrate_schema(DB, FromVer, ToVer, DBSchema),
+            {ok, Actions} = update(DB, Ops),
+            [Fun() || Fun <- Actions]
+        end,
+        DBs
+    ).
+
+-spec update(emqx_ds:db(), [op()]) -> {ok, [_Effect]} | {error, _}.
+update(DB, Ops0) ->
+    Cluster = cluster(),
+    Ops = [
+        case I of
+            {w, Val} ->
+                {w, #db{cluster = Cluster, db = DB}, Val};
+            {w, Shard, Val} ->
+                {w, #shard{cluster = Cluster, db = DB, shard = Shard}, Val};
+            d ->
+                {d, #db{cluster = Cluster, db = DB}};
+            {d, Shard} ->
+                {d, #shard{cluster = Cluster, db = DB, shard = Shard}};
+            {then, _} ->
+                I
+        end
+     || I <- Ops0
+    ],
+    classy_table:atomically(?ptab, Ops).
+
 -spec do_open_db(emqx_ds:db(), db_runtime_config(), s()) -> {ok, s()} | {error, _}.
-do_open_db(DB, RuntimeConf, S0 = #s{dbs = DBs}) ->
+do_open_db(DB, RuntimeConf, S0 = #s{open_dbs = DBs}) ->
     maybe
         false ?= maps:is_key(DB, DBs) andalso
             {error, already_open},
@@ -844,17 +640,16 @@ do_open_db(DB, RuntimeConf, S0 = #s{dbs = DBs}) ->
             set, public, {read_concurrency, true}, {write_concurrency, false}
         ]),
         S = S0#s{
-            dbs = DBs#{
+            open_dbs = DBs#{
                 DB => #dbs{rtconf = RuntimeConf, gvars = GVars}
             }
         },
-        set_db_runtime(DB, CBM, GVars, RuntimeConf),
-        self() ! #dispatch_pending{scope = {db, DB}},
+        set_db_runtime(DB, CBM, GVars, DBSchema, RuntimeConf),
         {ok, S}
     end.
 
 -spec do_update_db_config(emqx_ds:db(), db_runtime_config(), s()) -> {ok, s()} | {error, _}.
-do_update_db_config(DB, NewConf, S0 = #s{dbs = DBs}) ->
+do_update_db_config(DB, NewConf, S0 = #s{open_dbs = DBs}) ->
     maybe
         #{DB := DBstate0 = #dbs{gvars = GVars}} ?= DBs,
         {ok, DBSchema} ?= lookup_db_schema(DB, S0),
@@ -862,9 +657,9 @@ do_update_db_config(DB, NewConf, S0 = #s{dbs = DBs}) ->
         {ok, CBM} ?= lookup_backend_cbm(Backend, S0),
         DBstate = DBstate0#dbs{rtconf = NewConf},
         S = S0#s{
-            dbs = DBs#{DB := DBstate}
+            open_dbs = DBs#{DB := DBstate}
         },
-        set_db_runtime(DB, CBM, GVars, NewConf),
+        set_db_runtime(DB, CBM, GVars, DBSchema, NewConf),
         %% Notify backend:
         try
             _ = CBM:handle_db_config_change(DB, NewConf)
@@ -883,14 +678,13 @@ do_update_db_config(DB, NewConf, S0 = #s{dbs = DBs}) ->
     end.
 
 -spec do_close_db(emqx_ds:db(), s()) -> s().
-do_close_db(DB, S0 = #s{dbs = DBs}) ->
-    S = shutdown_db_pending(DB, S0),
+do_close_db(DB, S = #s{open_dbs = DBs}) ->
     case DBs of
         #{DB := #dbs{gvars = GVars}} ->
             erase_db_consts(DB),
             ets:delete(GVars),
             S#s{
-                dbs = maps:remove(DB, DBs)
+                open_dbs = maps:remove(DB, DBs)
             };
         #{} ->
             S
@@ -913,105 +707,6 @@ do_register_backend(Alias, CBM, S = #s{backends = Backends0}) ->
 set_backend_cbms_pt(Backends) ->
     persistent_term:put(?dsch_pt_backends, Backends).
 
-do_list_pending(Scope, #s{sch = #{pending := Pending}}) ->
-    maps:filter(
-        fun(_Id, #{scope := Sc}) ->
-            Scope =:= all orelse Sc =:= Scope
-        end,
-        Pending
-    ).
-
-do_add_pending(Scope, Command, Data, S0) ->
-    maybe
-        {ok, Wrapper} ?= verify_pending(Scope, Command, Data),
-        self() ! #dispatch_pending{scope = Scope},
-        modify_schema([#sop_add_pending{id = new, p = Wrapper}], S0)
-    end.
-
--spec dump_pending(#{pending_id() => pending()}) -> [schema_op()].
-dump_pending(Pending) ->
-    maps:fold(
-        fun(Id, Val, Acc) ->
-            [#sop_add_pending{id = Id, p = Val} | Acc]
-        end,
-        [],
-        Pending
-    ).
-
-verify_pending(site, Command, Data) when is_atom(Command), is_map(Data) ->
-    case Command of
-        _ ->
-            {error, unknown_site_command}
-    end;
-verify_pending(Scope = {db, DB}, Command, Data) when is_atom(Command), is_map(Data) ->
-    %% Note: this function runs before command is persisted, and while
-    %% server is running, so it's safe to use persistent term:
-    maybe
-        %% DB should exist, other than that we don't run additional
-        %% checks: backend should cancel actions it doesn't
-        %% understand.
-        #{} ?= get_db_schema(DB),
-        {ok, Data#{
-            start_time => os:system_time(millisecond),
-            scope => Scope,
-            command => Command
-        }}
-    else
-        _ -> {error, no_db}
-    end;
-verify_pending(_, _, _) ->
-    {error, badarg}.
-
-do_del_pending(Id, S0 = #s{sch = Pdata, pending = Tasks0}) ->
-    #{pending := Pend0} = Pdata,
-    case Pend0 of
-        #{Id := _} ->
-            Tasks = emqx_ds_pending_task_sup:terminate_task(Id, Tasks0),
-            ?tp(info, "Completed schema change", #{id => Id}),
-            {ok, S} = modify_schema([#sop_del_pending{id = Id}], S0),
-            S#s{pending = Tasks};
-        #{} ->
-            S0
-    end.
-
--doc """
-Spawn executors for all pending tasks in the given DB.
-""".
-do_dispatch_db_pending(site, S) ->
-    S;
-do_dispatch_db_pending({db, DB}, S = #s{pending = Tasks0, dbs = OpenDBs}) ->
-    case maps:is_key(DB, OpenDBs) of
-        true ->
-            Tasks = maps:fold(
-                fun(Id, TaskDefn, Acc) ->
-                    case Acc of
-                        #{Id := _} ->
-                            Acc;
-                        #{} ->
-                            emqx_ds_pending_task_sup:spawn_task(Id, TaskDefn, Acc)
-                    end
-                end,
-                Tasks0,
-                do_list_pending({db, DB}, S)
-            ),
-            S#s{pending = Tasks};
-        false ->
-            S
-    end.
-
--doc """
-Stop execution of all pending tasks that belong to a DB.
-""".
-shutdown_db_pending(DB, S = #s{pending = Tasks0}) ->
-    Tasks = maps:fold(
-        fun(Id, _, Acc) ->
-            emqx_ds_pending_task_sup:terminate_task(Id, Acc)
-        end,
-        Tasks0,
-        do_list_pending({db, DB}, S)
-    ),
-    S#s{pending = Tasks}.
-
 -spec do_ensure_db_schema(emqx_ds:db(), emqx_ds:backend(), db_schema(), s()) ->
     {reply, {ok, boolean(), db_schema()} | {error, _}, s()}.
 do_ensure_db_schema(DB, Backend, NewDBSchema, S0) ->
@@ -1019,7 +714,7 @@ do_ensure_db_schema(DB, Backend, NewDBSchema, S0) ->
         %% Handle creation path:
         {error, no_db_schema} ?= lookup_db_schema(DB, S0),
         {ok, _} ?= lookup_backend_cbm(Backend, S0),
-        {ok, S} ?= modify_schema([#sop_set_db{db = DB, schema = NewDBSchema}], S0),
+        {ok, S} ?= set_db_schema(DB, NewDBSchema, S0),
         Reply = {ok, true, NewDBSchema},
         {reply, Reply, S}
     else
@@ -1041,18 +736,19 @@ do_update_db_schema(DB, NewBackend, NewDBSchema, S0) ->
         {ok, OldDBSchema} ?= lookup_db_schema(DB, S0),
         #{backend := OldBackend} = OldDBSchema,
         true ?= OldBackend =:= NewBackend orelse {error, backend_cannot_be_changed},
-        {ok, S1} ?= modify_schema([#sop_set_db{db = DB, schema = NewDBSchema}], S0),
-        {ok, S} ?=
-            do_add_pending(
-                {db, DB},
-                change_schema,
-                #{
-                    old => OldDBSchema,
-                    new => NewDBSchema,
-                    originator => this_site()
-                },
-                S1
-            ),
+        {ok, S1} ?= set_db_schema(DB, NewDBSchema, S0),
+        %% {ok, S} ?=
+        %%     do_add_pending(
+        %%         {db, DB},
+        %%         change_schema,
+        %%         #{
+        %%             old => OldDBSchema,
+        %%             new => NewDBSchema,
+        %%             originator => this_site()
+        %%         },
+        %%         S1
+        %%     ),
+        S = S1,
         {reply, ok, S}
     else
         Err ->
@@ -1060,11 +756,11 @@ do_update_db_schema(DB, NewBackend, NewDBSchema, S0) ->
     end.
 
 -spec do_drop_db(emqx_ds:db(), s()) -> {reply, ok | {error, _}, s()}.
-do_drop_db(DB, S0 = #s{dbs = OpenDBs}) ->
+do_drop_db(DB, S0 = #s{open_dbs = OpenDBs}) ->
     maybe
         {ok, _} ?= lookup_db_schema(DB, S0),
         false ?= maps:is_key(DB, OpenDBs),
-        {ok, S} ?= modify_schema([#sop_drop_db{db = DB}], S0),
+        {ok, S} ?= del_db_schema(DB, S0),
         {reply, ok, S}
     else
         true ->
@@ -1073,269 +769,15 @@ do_drop_db(DB, S0 = #s{dbs = OpenDBs}) ->
             {reply, Err, S0}
     end.
 
--spec do_update_cluster(schema_op(), s()) -> {ok, s()} | {error, _}.
-do_update_cluster(Op, S0 = #s{sch = Pstate}) ->
-    #{schema := #{cluster := OldCID, peers := Peers0, dbs := DBs}} = Pstate,
-    HasPeers = maps:size(Peers0) > 0,
-    case Op of
-        #sop_set_cluster{cluster = NewCID} when is_binary(OldCID), NewCID =:= singleton, HasPeers ->
-            {error, has_peers};
-        #sop_set_cluster{cluster = NewCID} when
-            is_binary(NewCID), is_binary(OldCID), NewCID =/= OldCID
-        ->
-            %% TODO: ask backends if they're ok with the change
-            %% instead of simply rejecting?
-            {error, cannot_change_cluster_existing_id};
-        #sop_set_peer{} when OldCID =:= singleton ->
-            {error, cannot_add_peers_while_in_singleton_mode};
-        _ ->
-            Ops = notify_cluster_change(Op, DBs),
-            modify_schema(Ops, S0)
-    end.
-
-notify_cluster_change(Op, DBs) ->
-    %% Create a pending event from the cluster update operation for
-    %% every open DB.
-    Prototype =
-        case Op of
-            #sop_set_cluster{cluster = Cluster} ->
-                #{
-                    command => set_cluster,
-                    cluster => Cluster
-                };
-            #sop_set_peer{peer = Site, state = State} ->
-                #{
-                    command => set_peer,
-                    site => Site,
-                    state => State
-                };
-            #sop_delete_peer{peer = Site} ->
-                #{
-                    command => delete_peer,
-                    site => Site
-                }
-        end,
-    %% Broadcast it to each DB schema:
-    PendingOps = maps:fold(
-        fun(DB, _, Acc) ->
-            self() ! #dispatch_pending{scope = {db, DB}},
-            SOp = #sop_add_pending{
-                id = new,
-                p = Prototype#{
-                    start_time => os:system_time(millisecond),
-                    scope => {db, DB}
-                }
-            },
-            [SOp | Acc]
-        end,
-        [],
-        DBs
-    ),
-    [Op | PendingOps].
-
--doc """
-A wrapper over `safe_add_l` that automatically puts the updated schema
-to the persistent term.
-""".
--spec modify_schema([schema_op()], s()) -> {ok, s()} | {error, _}.
-modify_schema(Ops, S = #s{sch = Pstate0}) ->
-    maybe
-        {ok, Pstate} ?= safe_add_l(?log_current, Ops, Pstate0),
-        persistent_term:put(?dsch_pt_schema, maps:get(schema, Pstate)),
-        {ok, S#s{sch = Pstate}}
-    end.
-
--doc """
-Open `current` log and apply all entries contained there to the empty
-state, thus re-creating the state before shutdown of the node.
-
-If the log is empty, then initialize the schema by creating a new
-random site ID.
-""".
--spec restore_or_init_pstate() -> pstate().
-restore_or_init_pstate() ->
-    ok = compress_and_migrate_pstate(1),
-    File = schema_file(),
-    _ = filelib:ensure_dir(File),
-    case open_log(read_write, ?log_current, File) of
-        ok ->
-            ensure_site_schema(restore_from_wal(?log_current));
-        {error, Reason} ->
-            ?tp(critical, "Failed to read durable storage schema", #{
-                reason => Reason, file => File
-            }),
-            exit(badschema)
-    end.
-
--doc """
-A pure function that mutates the state record accoring to a command.
-
-Note: this function has to maintain backward-compatibility.
-""".
--spec pure_mutate(schema_op(), pstate() | ?empty_schema) ->
-    {ok, pstate() | ?empty_schema} | {error, _}.
-pure_mutate(Command, ?empty_schema) ->
-    %% Only one command is allowed in the empty state:
-    case Command of
-        #sop_init{ver = Ver, id = Site, next_pending_id = PendingCtr} ->
-            {ok, new_empty_pstate(Ver, Site, PendingCtr)};
-        _ ->
-            {error, site_schema_is_not_initialized}
-    end;
-pure_mutate(#sop_set_db{db = DB, schema = DBSchema}, S) ->
-    with_schema(
-        dbs,
-        S,
-        fun(DBs) ->
-            DBs#{DB => DBSchema}
-        end
-    );
-pure_mutate(#sop_drop_db{db = DB}, S) ->
-    with_schema(
-        dbs,
-        S,
-        fun(DBs) ->
-            maps:remove(DB, DBs)
-        end
-    );
-pure_mutate(#sop_set_cluster{cluster = Cluster}, S) ->
-    with_schema(
-        cluster,
-        S,
-        fun(_) ->
-            Cluster
-        end
-    );
-pure_mutate(#sop_set_peer{peer = Site, state = State}, S) ->
-    with_schema(
-        peers,
-        S,
-        fun(Peers) ->
-            Peers#{Site => State}
-        end
-    );
-pure_mutate(#sop_delete_peer{peer = Site}, S) ->
-    with_schema(
-        peers,
-        S,
-        fun(Peers) ->
-            maps:remove(Site, Peers)
-        end
-    );
-pure_mutate(
-    #sop_add_pending{id = MaybeId, p = Pending}, S0 = #{pending := Pend0, pending_ctr := NextId}
-) ->
-    case MaybeId of
-        new ->
-            Id = NextId,
-            S1 = S0#{pending_ctr := NextId + 1};
-        Id ->
-            S1 = S0
-    end,
-    S = S1#{pending := Pend0#{Id => Pending}},
-    {ok, S};
-pure_mutate(#sop_del_pending{id = Id}, S0 = #{pending := Pend0}) ->
-    S = S0#{pending := maps:remove(Id, Pend0)},
-    {ok, S};
-pure_mutate(Cmd, _S) ->
-    {error, {unknown_comand, Cmd}}.
-
--spec with_schema(atom(), pstate(), Fun) -> {ok, pstate()} | {error, Err} when
-    Fun :: fun((A) -> {ok, A} | {error, Err}).
-with_schema(Key, Pstate = #{schema := Schema}, Fun) ->
-    #{Key := Val0} = Schema,
-    Val = Fun(Val0),
-    {ok, Pstate#{schema := Schema#{Key := Val}}}.
-
--spec new_empty_pstate(1, site(), pending_id()) -> pstate().
-new_empty_pstate(Ver, Site, PendingCtr) ->
-    #{
-        ver => Ver,
-        pending_ctr => PendingCtr,
-        pending => #{},
-        schema => #{
-            site => Site,
-            cluster => singleton,
-            peers => #{},
-            dbs => #{}
-        }
-    }.
-
--spec pure_mutate_l([schema_op()], pstate() | ?empty_schema) ->
-    {ok, pstate() | ?empty_schema} | {error, _}.
-pure_mutate_l([], S) ->
-    {ok, S};
-pure_mutate_l([Command | L], S0) ->
-    case pure_mutate(Command, S0) of
-        {ok, S} -> pure_mutate_l(L, S);
-        {error, _} = Err -> Err
-    end.
-
--spec replay_wal(wal(), pstate() | ?empty_schema, disk_log:continuation() | start) ->
-    pstate() | ?empty_schema.
-replay_wal(Log, Schema0, Cont0) ->
-    case disk_log:chunk(Log, Cont0, ?replay_chunk_size) of
-        {Cont, Cmds} ->
-            case pure_mutate_l(Cmds, Schema0) of
-                {ok, Schema} ->
-                    replay_wal(Log, Schema, Cont);
-                {error, Err} ->
-                    ?tp(
-                        critical,
-                        "Failed to restore schema. Database schema has been created by a later version of EMQX?",
-                        #{error => Err}
-                    ),
-                    exit(cannot_process_schema_command)
-            end;
-        eof ->
-            Schema0
-    end.
-
--spec ensure_site_schema(pstate() | ?empty_schema) -> pstate().
-ensure_site_schema(?empty_schema) ->
-    Site = binary:encode_hex(crypto:strong_rand_bytes(8)),
-    ?tp(notice, "Initializing durable storage for the first time", #{site => binary_to_list(Site)}),
-    Pstate = new_empty_pstate(1, Site, 1),
-    ok = dump(Pstate, ?log_current),
-    Pstate;
-ensure_site_schema(Pstate = #{ver := _}) ->
-    Pstate.
-
--doc """
-A safe way to permanently change the schema.
-
-This function does it in three steps:
-
-1. Verify that sequence of commands is valid.
-2. Append the commands to the WAL.
-3. Return the mutated schema.
-""".
--spec safe_add_l(wal(), [schema_op()], pstate() | ?empty_schema) ->
-    {ok, pstate() | ?empty_schema} | {error, _}.
-safe_add_l(WAL, Commands, Pstate0) ->
-    try pure_mutate_l(Commands, Pstate0) of
-        {ok, Pstate = #{ver := _, schema := #{site := _}}} ->
-            ok = disk_log:log_terms(WAL, Commands),
-            ok = disk_log:sync(WAL),
-            {ok, Pstate};
-        {error, _} = Err ->
-            Err
-    catch
-        EC:Err:Stack ->
-            ?tp(warning, ds_schema_command_crash, #{
-                EC => Err, stacktrace => Stack, commands => Commands, s => Pstate0
-            }),
-            {error, unknown}
-    end.
-
--spec set_db_runtime(emqx_ds:db(), module(), ets:tid(), db_runtime_config()) -> ok.
-set_db_runtime(DB, CBM, GVars, RuntimeConf) ->
+-spec set_db_runtime(emqx_ds:db(), module(), ets:tid(), db_schema(), db_runtime_config()) -> ok.
+set_db_runtime(DB, CBM, GVars, DBSchema, RuntimeConf) ->
     persistent_term:put(
         ?dsch_pt_db_runtime(DB),
         #{
             cbm => CBM,
             gvars => GVars,
-            runtime => RuntimeConf
+            runtime => RuntimeConf,
+            schema => DBSchema
         }
     ).
 
@@ -1345,13 +787,23 @@ erase_db_consts(DB) ->
     ok.
 
 -spec lookup_db_schema(emqx_ds:db(), s()) -> {ok, db_schema()} | {error, no_db_schema}.
-lookup_db_schema(DB, #s{sch = #{schema := #{dbs := DBs}}}) ->
-    case DBs of
-        #{DB := DBSchema} ->
+lookup_db_schema(DB, _) ->
+    case classy_table:lookup(?ptab, #db{cluster = cluster(), db = DB}) of
+        [DBSchema] ->
             {ok, DBSchema};
-        #{} ->
+        [] ->
             {error, no_db_schema}
     end.
+
+-spec set_db_schema(emqx_ds:db(), db_schema(), s()) -> {ok, s()}.
+set_db_schema(DB, Schema, S) ->
+    classy_table:write(?ptab, #db{cluster = cluster(), db = DB}, Schema),
+    {ok, S}.
+
+-spec del_db_schema(emqx_ds:db(), s()) -> {ok, s()}.
+del_db_schema(DB, S) ->
+    classy_table:delete(?ptab, #db{cluster = cluster(), db = DB}),
+    {ok, S}.
 
 -spec lookup_backend_cbm(emqx_ds:backend(), s()) -> {ok, module()} | {error, _}.
 lookup_backend_cbm(Backend, #s{backends = Backends}) ->
@@ -1361,96 +813,3 @@ lookup_backend_cbm(Backend, #s{backends = Backends}) ->
         #{} ->
             {error, {no_such_backend, Backend}}
     end.
-
--spec compress_and_migrate_pstate(Attempt) -> ok when
-    Attempt :: pos_integer().
-compress_and_migrate_pstate(Attempt) when Attempt < 3 ->
-    %% Compressed and migrated schema will be dumped to a temporary
-    %% log. Once everything's complete, it will replace the current
-    %% schema dump:
-    New = schema_file() ++ ".NEW",
-    HasCurrent = filelib:is_file(schema_file()),
-    HasNew = filelib:is_file(New),
-    case {HasCurrent, HasNew} of
-        {false, false} ->
-            %% This is a new deployment:
-            ok;
-        {true, false} ->
-            %% Normal situation:
-            ok = open_log(read_only, ?log_old, schema_file()),
-            ok = open_log(read_write, ?log_new, New),
-            Pstate = perform_migration(restore_from_wal(?log_old)),
-            case dump(Pstate, ?log_new) of
-                ok ->
-                    ok = disk_log:close(?log_old),
-                    ok = disk_log:close(?log_new),
-                    %% At this point we are certain that .NEW log has
-                    %% complete data. Old log can be discarded:
-                    file:rename(New, schema_file());
-                Wrong ->
-                    ?tp(
-                        critical,
-                        "Failed to read or migrate old durable storage schema",
-                        #{
-                            old_schema => Pstate,
-                            result => Wrong
-                        }
-                    ),
-                    %% Migration went wrong.
-                    _ = disk_log:close(?log_old),
-                    _ = disk_log:close(?log_new),
-                    exit(failed_to_migrate_schema)
-            end;
-        {true, true} ->
-            %% There's a NEW log from the previous migration attempt
-            %% that was aborted. Discard the it (since it may be
-            %% incomplete or otherwise broken) and migrate again:
-            ?tp(debug, emqx_dsch_discard_new_schema, #{file => New}),
-            ok = file:rename(New, file_backup(New)),
-            compress_and_migrate_pstate(Attempt + 1);
-        {false, true} ->
-            %% This shouldn't really happen (rename failed?). But make NEW log current
-            %% and attempt again (back it up first):
-            Bak = file_backup(New),
-            _ = file:copy(New, Bak),
-            ?tp(warning, "Restoring schema from NEW file", #{file => New, backup => Bak}),
-            ok = file:rename(New, schema_file()),
-            compress_and_migrate_pstate(Attempt + 1)
-    end;
-compress_and_migrate_pstate(Attempt) ->
-    %% Prevent infinite loop and fail:
-    ?tp(critical, "Too many attempts to migrate durable storage schema. Exiting.", #{
-        attempts => Attempt
-    }),
-    exit(failed_to_migrate_schema).
-
--spec perform_migration(#{ver := pos_integer(), _ => _}) -> pstate().
-perform_migration(Pstate = #{ver := 1}) ->
-    Pstate.
-
-open_log(Mode, Name, File) ->
-    case
-        disk_log:open([
-            {mode, Mode},
-            {name, Name},
-            {file, File},
-            {repair, true},
-            {type, halt}
-        ])
-    of
-        {ok, _} ->
-            ok;
-        {repaired, _, _, _} = Result ->
-            ?tp(warning, "Durable storage schema repaired", #{result => Result, file => File}),
-            ok;
-        Other ->
-            Other
-    end.
-
--spec file_backup(file:filename()) -> file:filename().
-file_backup(Filename) ->
-    binary_to_list(
-        iolist_to_binary(
-            io_lib:format("~s.BAK.~p", [Filename, os:system_time(millisecond)])
-        )
-    ).

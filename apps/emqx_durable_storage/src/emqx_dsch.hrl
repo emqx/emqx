@@ -8,10 +8,7 @@
 
 -define(empty_schema, no_schema).
 
--define(global_name(SITE), {emqx_dsch_global_name, SITE}).
-
 %% Persistent terms:
--define(dsch_pt_schema, emqx_dsch_schema).
 -define(dsch_pt_backends, emqx_dsch_backend_cbms).
 -define(dsch_pt_db_runtime(DB), {emqx_dsch_db_runtime, DB}).
 
