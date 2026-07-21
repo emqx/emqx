@@ -62,8 +62,7 @@ defmodule EMQXUmbrella.MixProject do
   def deps(_profile_info, _version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
-    [common_dep(:classy)] ++
-      common_deps() ++
+    common_deps() ++
       quicer_dep() ++
       jq_dep() ++
       extra_release_apps() ++
