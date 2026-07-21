@@ -139,65 +139,89 @@ broker_audit_args(Args) -> Args.
 %% @doc Cluster with other nodes
 
 cluster(["join" | Args]) ->
-    Intent =
-        case Args of
-            [SNode] -> join;
-            ["--force", SNode] -> force_join
-        end,
-    case emqx_cluster:join(ekka_node:parse_name(SNode), Intent) of
-        ok ->
-            emqx_ctl:print("Join the cluster successfully.~n"),
-            %% FIXME: running status on the replicant immediately
-            %% after join produces stale output
-            mria_rlog:role() =:= core andalso
-                cluster(["status"]),
-            ok;
-        ignore ->
-            emqx_ctl:print("Ignore.~n");
-        {error, Reason} = Error ->
-            format_cluster_error(
-                "Failed to join the cluster",
-                Reason
-            ),
-            Error
+    maybe
+        {ok, SNode, Intent} ?=
+            case Args of
+                [N] ->
+                    {ok, N, join};
+                ["--force", N] ->
+                    {ok, N, force_join};
+                _ ->
+                    %% Print usage:
+                    cluster([]),
+                    error
+            end,
+        case emqx_cluster:join(ekka_node:parse_name(SNode), Intent) of
+            ok ->
+                emqx_ctl:print("Join the cluster successfully.~n"),
+                %% FIXME: running status on the replicant immediately
+                %% after join produces stale output
+                mria_rlog:role() =:= core andalso
+                    cluster(["status"]),
+                ok;
+            ignore ->
+                emqx_ctl:print("Ignore.~n");
+            {error, Reason} = Error ->
+                format_cluster_error(
+                    "Failed to join the cluster",
+                    Reason
+                ),
+                Error
+        end
     end;
 cluster(["leave" | Args]) ->
-    Intent =
-        case Args of
-            [] -> leave;
-            ["--force"] -> force_kick
-        end,
-    _ = maybe_disable_autocluster(),
-    case emqx_cluster:leave(Intent) of
-        ok ->
-            emqx_ctl:print("Leave the cluster successfully.~n"),
-            cluster(["status"]);
-        {error, Reason} = Error ->
-            format_cluster_error(
-                "Failed to leave the cluster",
-                Reason
-            ),
-            Error
+    maybe
+        {ok, Intent} ?=
+            case Args of
+                [] ->
+                    {ok, leave};
+                ["--force"] ->
+                    {ok, force_kick};
+                _ ->
+                    %% Print usage:
+                    cluster([]),
+                    error
+            end,
+        _ = maybe_disable_autocluster(),
+        case emqx_cluster:leave(Intent) of
+            ok ->
+                emqx_ctl:print("Leave the cluster successfully.~n"),
+                cluster(["status"]);
+            {error, Reason} = Error ->
+                format_cluster_error(
+                    "Failed to leave the cluster",
+                    Reason
+                ),
+                Error
+        end
     end;
 cluster(["force-leave" | Args]) ->
-    Intent =
-        case Args of
-            [SNode] -> by_remote;
-            ["--force", SNode] -> force_kick
-        end,
-    Node = ekka_node:parse_name(SNode),
-    case emqx_cluster:force_leave(Node, Intent) of
-        ok ->
-            emqx_ctl:print("Remove the node from cluster successfully.~n"),
-            cluster(["status"]);
-        ignore ->
-            emqx_ctl:print("Ignore.~n");
-        {error, Reason} = Error ->
-            format_cluster_error(
-                "Failed to remove the node from cluster",
-                Reason
-            ),
-            Error
+    maybe
+        {ok, SNode, Intent} ?=
+            case Args of
+                [N] ->
+                    {ok, N, by_remote};
+                ["--force", N] ->
+                    {ok, N, force_kick};
+                _ ->
+                    %% Print usage:
+                    cluster([]),
+                    error
+            end,
+        Node = ekka_node:parse_name(SNode),
+        case emqx_cluster:force_leave(Node, Intent) of
+            ok ->
+                emqx_ctl:print("Remove the node from cluster successfully.~n"),
+                cluster(["status"]);
+            ignore ->
+                emqx_ctl:print("Ignore.~n");
+            {error, Reason} = Error ->
+                format_cluster_error(
+                    "Failed to remove the node from cluster",
+                    Reason
+                ),
+                Error
+        end
     end;
 cluster(["status"]) ->
     emqx_ctl:print("Cluster status: ~p~n", [cluster_info()]);
