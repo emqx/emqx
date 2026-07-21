@@ -164,7 +164,7 @@ cluster(["join" | Args]) ->
 cluster(["leave" | Args]) ->
     Intent =
         case Args of
-            [] -> kick;
+            [] -> leave;
             ["--force"] -> force_kick
         end,
     _ = maybe_disable_autocluster(),
@@ -182,7 +182,7 @@ cluster(["leave" | Args]) ->
 cluster(["force-leave" | Args]) ->
     Intent =
         case Args of
-            [SNode] -> kick;
+            [SNode] -> by_remote;
             ["--force", SNode] -> force_kick
         end,
     Node = ekka_node:parse_name(SNode),
