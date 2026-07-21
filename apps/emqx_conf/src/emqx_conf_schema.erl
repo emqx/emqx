@@ -331,7 +331,7 @@ fields("cluster") ->
             sc(
                 atom(),
                 #{
-                    mapping => "ekka.cluster_name",
+                    mapping => "emqx.emqx_cluster_name",
                     default => emqxcl,
                     desc => ?DESC(cluster_name),
                     'readOnly' => true
