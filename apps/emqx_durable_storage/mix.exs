@@ -45,7 +45,6 @@ defmodule EMQXDurableStorage.MixProject do
       {:emqx_mix_utils, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true},
       {:emqx_bpapi, in_umbrella: true},
-      {:classy, runtime: false},
       :rocksdb,
       :gproc,
       :gen_rpc,
