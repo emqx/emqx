@@ -174,63 +174,56 @@ deliver_qos1(DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgI
     {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
 
 %% Deliver to devices connected to the local node only.
-%% Invoked directly for local devices and via emqx_rpc:cast for remote ones.
+%% Invoked directly for local devices and via emqx_rpc:call for remote ones.
+%% Returns the list of device names that were actually delivered on this node,
+%% so the dispatching node can compute how many devices were offline cluster-wide.
 deliver_local(Qos, ProductKey, TopicTemplate, Payload, DeviceNames, Opts) ->
-    lists:foreach(
-        fun(DN) -> deliver_one(Qos, ProductKey, TopicTemplate, Payload, DN, Opts) end,
-        DeviceNames
-    ).
+    [DN || DN <- DeviceNames, deliver_one(Qos, ProductKey, TopicTemplate, Payload, DN, Opts)].
 
+%% Fan out delivery to every running node. Each node checks its own node-local
+%% device ETS and subscription table, so a device connected on a peer node is
+%% delivered there instead of being misclassified as offline.
 dispatch(Qos, DeviceNames, ProductKey, TopicTemplate, Payload, Opts) ->
-    {Local, Remote, OfflineCount} = partition_devices(DeviceNames),
-    count_offline(Qos, OfflineCount),
-    deliver_local(Qos, ProductKey, TopicTemplate, Payload, Local, Opts),
-    maps:foreach(
-        fun(Node, DNs) ->
-            emqx_rpc:cast(Node, ?MODULE, deliver_local, [
-                Qos, ProductKey, TopicTemplate, Payload, DNs, Opts
-            ])
-        end,
-        Remote
-    ).
-
-partition_devices(DeviceNames) ->
-    lists:foldl(
-        fun(DN, {Local, Remote, Offline}) ->
-            case emqx_cm:lookup_channels(DN) of
-                [] ->
-                    {Local, Remote, Offline + 1};
-                [Pid | _] ->
-                    Node = node(Pid),
-                    case Node =:= node() of
-                        true ->
-                            {[DN | Local], Remote, Offline};
-                        false ->
-                            {Local, maps:update_with(Node, fun(L) -> [DN | L] end, [DN], Remote),
-                                Offline}
+    Self = node(),
+    Delivered =
+        lists:concat([
+            case Node of
+                Self ->
+                    deliver_local(Qos, ProductKey, TopicTemplate, Payload, DeviceNames, Opts);
+                _ ->
+                    case emqx_rpc:call(
+                        Node, ?MODULE, deliver_local,
+                        [Qos, ProductKey, TopicTemplate, Payload, DeviceNames, Opts]
+                    ) of
+                        {badrpc, _} -> [];
+                        DNs when is_list(DNs) -> DNs
                     end
             end
-        end,
-        {[], #{}, 0},
-        DeviceNames
-    ).
+         || Node <- emqx:running_nodes()
+        ]),
+    OfflineCount = length(DeviceNames) - length(lists:usort(Delivered)),
+    count_offline(Qos, OfflineCount).
 
 count_offline(_Qos, 0) -> ok;
 count_offline(0, N) -> emqx_bcast_metrics:qos0_skipped(N);
 count_offline(1, N) -> emqx_bcast_metrics:qos1_stored_offline(N).
 
+%% Returns true when the device was delivered on this node, false otherwise.
+%% A device that is not connected here, or whose subscription does not match the
+%% target topic, returns false so the dispatching node can count it as offline.
 deliver_one(Qos, ProductKey, TopicTemplate, Payload, DN, Opts) ->
     case emqx_bcast:lookup_device({ProductKey, DN}) of
         {ok, Pid} ->
             Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
             case emqx_bcast_subscription:match(DN, Topic) of
                 {ok, SubQos} ->
-                    do_deliver(Qos, Pid, Topic, ProductKey, DN, Payload, SubQos, Opts);
+                    do_deliver(Qos, Pid, Topic, ProductKey, DN, Payload, SubQos, Opts),
+                    true;
                 false ->
-                    count_offline(Qos, 1)
+                    false
             end;
         {error, not_found} ->
-            count_offline(Qos, 1)
+            false
     end.
 
 do_deliver(0, Pid, Topic, _ProductKey, DN, Payload, _SubQos, _Opts) ->

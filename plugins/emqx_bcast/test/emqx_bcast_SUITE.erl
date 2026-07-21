@@ -251,6 +251,100 @@ t_sub_match_no_match(_Config) ->
     emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D2/user/get">>, 1}),
     ?assertEqual(false, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
 
+t_sub_takeover_pid_guard(_Config) ->
+    emqx_bcast_subscription:init(),
+    Old = spawn(fun() -> receive stop -> ok end end),
+    New = spawn(fun() -> receive stop -> ok end end),
+    Topic = <<"/P1/DT/user/get">>,
+    emqx_bcast_subscription:add(<<"devT">>, Old, {Topic, 1}),
+    %% takeover: new connection re-registers under the same ClientId
+    emqx_bcast_subscription:add(<<"devT">>, New, {Topic, 1}),
+    %% stale unsubscribe from the old connection must not remove the entry
+    emqx_bcast_subscription:remove(<<"devT">>, Old, {Topic, 1}),
+    ?assertEqual({ok, 1}, emqx_bcast_subscription:match(<<"devT">>, Topic)),
+    %% stale disconnect from the old connection must not clear the entry
+    emqx_bcast_subscription:clear(<<"devT">>, Old),
+    ?assertEqual({ok, 1}, emqx_bcast_subscription:match(<<"devT">>, Topic)),
+    %% the current owner's disconnect clears the entry
+    emqx_bcast_subscription:clear(<<"devT">>, New),
+    ?assertEqual(false, emqx_bcast_subscription:match(<<"devT">>, Topic)),
+    Old ! stop,
+    New ! stop.
+
+t_delivery_completed_hook(_Config) ->
+    PK = <<"PC">>,
+    DN = <<"DC1">>,
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = <<"delivery completed test">>,
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    Before = metric(<<"batch_pub_qos1_acked">>),
+    Msg = emqx_message:make(
+        DeliveryId,
+        DN,
+        0,
+        <<"/PC/DC1/user/get">>,
+        Payload,
+        #{},
+        #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
+    ),
+    ok = emqx_bcast:on_delivery_completed(Msg, #{clientid => DN}),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_acked">>) - Before),
+    %% duplicate completion does not double count
+    ok = emqx_bcast:on_delivery_completed(Msg, #{clientid => DN}),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_acked">>) - Before),
+    %% delivery record removed after all acks
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    %% messages without plugin headers pass through untouched
+    Plain = emqx_message:make(DN, 0, <<"/t">>, <<"p">>),
+    ok = emqx_bcast:on_delivery_completed(Plain, #{clientid => DN}),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_acked">>) - Before).
+
+t_register_message_concurrent_dedup(_Config) ->
+    Content = base64:encode(crypto:strong_rand_bytes(16)),
+    Body = #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => Content
+    },
+    Parent = self(),
+    N = 20,
+    Pids = [
+        spawn(fun() ->
+            Res = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+            Parent ! {reg_result, self(), Res}
+        end)
+     || _ <- lists:seq(1, N)
+    ],
+    Results = [receive {reg_result, P, R} -> R end || P <- Pids],
+    ?assertEqual(N, length(Results)),
+    lists:foreach(fun(R) -> ?assertMatch({ok, 200, _, _}, R) end, Results),
+    Ids = lists:usort([maps:get(<<"MessageId">>, Resp) || {ok, 200, _, Resp} <- Results]),
+    ?assertEqual(1, length(Ids)).
+
+t_register_message_ttl_refresh(_Config) ->
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = crypto:strong_rand_bytes(16),
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+    TTL = emqx_bcast_utils:ttl(),
+    Now = emqx_bcast_utils:now_sec(),
+    %% backdate expiry so a refresh is observable
+    {atomic, ok} = mnesia:transaction(fun() ->
+        [M] = mnesia:wread({bcast_message, MsgGuid}),
+        mnesia:write(M#bcast_message{expires_at = Now - 100})
+    end),
+    [#bcast_message{expires_at = OldExpiry}] = mnesia:dirty_read(bcast_message, MsgGuid),
+    ?assertEqual(Now - 100, OldExpiry),
+    Body = #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(Payload)
+    },
+    {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    [#bcast_message{expires_at = NewExpiry}] = mnesia:dirty_read(bcast_message, MsgGuid),
+    ?assert(NewExpiry >= Now + TTL - 5).
+
 %%--------------------------------------------------------------------
 %% Force upgrade QoS tests
 %%--------------------------------------------------------------------
