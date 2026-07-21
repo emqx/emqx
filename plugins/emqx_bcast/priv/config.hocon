@@ -6,3 +6,4 @@ max_device_count = 10000
 max_message_size_broadcast = 65536
 max_message_size_batch = 10240
 msg_warn_threshold = 100000
+force_upgrade_qos = true
