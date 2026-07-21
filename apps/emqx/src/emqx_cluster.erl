@@ -41,18 +41,28 @@ Not to be confused with the cluster ID which is set automatically by classy.
 name() ->
     application:get_env(emqx, emqx_cluster_name, undefined).
 
--spec join(node(), join) -> ok.
+-spec join(node(), join) -> ok | ignore | {error, _}.
+join(Node, _) when Node =:= node() ->
+    ignore;
 join(Node, Intent) ->
     classy:join_node(Node, Intent).
 
--spec leave(leave | force_leave) -> ok.
+-doc """
+Special intent `force_kick` bypasses some checks.
+""".
+-spec leave(leave | force_kick) -> ok | {error, _}.
 leave(Intent) ->
     classy:kick_node(node(), Intent).
 
 pre_join(_Cluster, _Remote, PeerNode, _Intent) ->
     check_permission(PeerNode).
 
--spec force_leave(node(), leave | force_leave) -> ok.
+-doc """
+Special intent `force_kick` bypasses some checks.
+""".
+-spec force_leave(node(), by_remote | force_kick) -> ok | ignore | {error, _}.
+force_leave(Node, _) when Node =:= node() ->
+    ignore;
 force_leave(Node, Intent) ->
     classy:kick_node(Node, Intent).
 
