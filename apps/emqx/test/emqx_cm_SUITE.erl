@@ -515,28 +515,7 @@ t_clientid_registration_throttled(_) ->
         username => <<"username">>,
         peerhost => {127, 0, 0, 1}
     },
-    {DeadPid, MRef} = spawn_monitor(fun() -> exit(normal) end),
-    ChanInfo = ?ChanInfo,
-    #{conninfo := ConnInfo} = ChanInfo,
-    ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
-    %% Suspend emqx_cm so the {registered, DeadPid} cast from
-    %% register_channel sits in its mailbox: the monitor is not set up,
-    %% no DOWN fires, the cm-pool cleanup cannot race us, the chan-conn
-    %% row stays, and the throttle has the conditions it is meant to
-    %% detect.
-    ok = sys:suspend(emqx_cm),
-    try
-        ok = emqx_cm:register_channel(
-            ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}
-        ),
-        ?assertEqual(
-            {error, client_id_unavailable},
-            open_session(true, ClientInfo, ConnInfo)
-        )
-    after
-        ok = sys:resume(emqx_cm),
-        ok = emqx_cm:do_unregister_channel({ClientId, DeadPid})
-    end.
+    assert_open_session_throttled(ClientId, ClientInfo).
 
 %% Stale registry rows can survive a partition + autoheal (the unregister
 %% dirty_delete was on the loser side and got thrown away). When a kick or
@@ -590,29 +569,7 @@ t_open_session_throttled_on_inflight_local_cleanup(_) ->
         username => <<"username">>,
         peerhost => {127, 0, 0, 1}
     },
-    {DeadPid, MRef} = spawn_monitor(fun() -> exit(normal) end),
-    ChanInfo = ?ChanInfo,
-    #{conninfo := ConnInfo} = ChanInfo,
-    ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
-    %% Suspend emqx_cm so the {registered, DeadPid} cast from
-    %% register_channel sits in its mailbox: the monitor is not set up,
-    %% no DOWN fires, the cm-pool cleanup cannot race us, the chan-conn
-    %% row stays, and the throttle has the conditions it is meant to
-    %% detect.
-    ok = sys:suspend(emqx_cm),
-    try
-        ok = emqx_cm:register_channel(
-            ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}
-        ),
-        ?assertEqual(
-            {error, client_id_unavailable},
-            open_session(true, ClientInfo, ConnInfo)
-        )
-    after
-        ok = sys:resume(emqx_cm),
-        %% Idempotent cleanup in case cm pool didn't get there first.
-        ok = emqx_cm:do_unregister_channel({ClientId, DeadPid})
-    end.
+    assert_open_session_throttled(ClientId, ClientInfo).
 
 %% A stale local tombstone (registry row pointing at a dead pid that this
 %% node never registered) used to block the same clientid on this node
@@ -639,6 +596,45 @@ t_open_session_reaps_local_tombstone(_) ->
     %% Stale tombstone is gone; open_session does not register the new pid
     %% (that happens later in the channel's connect handler).
     ?assertEqual([], emqx_cm_registry:lookup_all_channels(ClientId)).
+
+%% Drive the production registration path (emqx_cm:register_channel/3) for a
+%% channel whose process has already exited, then assert open_session throttles
+%% the reconnect with client_id_unavailable.
+%%
+%% register_channel/3 casts {registered, Pid}, which makes emqx_cm monitor the
+%% (already dead) pid. That fires a DOWN immediately and emqx_cm asynchronously
+%% submits clean_down/1, which deletes the chan-conn row the throttle keys on.
+%% Whether the throttle fires therefore races that async cleanup. force_ordering
+%% holds clean_down (at the emqx_cm_clean_down_start trace point, before the row
+%% is deleted) until the assertion has run, so open_session deterministically
+%% observes the transient "pid dead, row still present" state. We then release
+%% the cleanup, wait for it to complete, and confirm the row is reaped.
+assert_open_session_throttled(ClientId, ClientInfo) ->
+    ?check_trace(
+        begin
+            #{conninfo := ConnInfo} = ChanInfo = ?ChanInfo,
+            {DeadPid, MRef} = spawn_monitor(fun() -> exit(normal) end),
+            ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
+            ?force_ordering(
+                #{?snk_kind := open_session_throttle_asserted},
+                #{?snk_kind := emqx_cm_clean_down_start, pid := DeadPid}
+            ),
+            ok = emqx_cm:register_channel(
+                ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}
+            ),
+            ?assertEqual(
+                {error, client_id_unavailable},
+                open_session(true, ClientInfo, ConnInfo)
+            ),
+            ?tp(open_session_throttle_asserted, #{}),
+            {ok, _} = ?block_until(
+                #{?snk_kind := emqx_cm_clean_down, client_id := ClientId}
+            ),
+            ?assertEqual([], emqx_cm:lookup_channels(ClientId)),
+            ok
+        end,
+        []
+    ).
 
 spawn_dummy_chann(Mod, Count) ->
     #{conninfo := ConnInfo0} = ?ChanInfo,
