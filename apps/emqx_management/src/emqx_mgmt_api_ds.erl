@@ -28,7 +28,7 @@
 ]).
 
 %% Internal exports:
--export([is_enabled/0]).
+-export([is_enabled/0, pre_kick/3]).
 
 %% behavior callbacks:
 -export([
@@ -480,6 +480,14 @@ shards_of_this_site() ->
         Site -> shards_of_site(Site)
     catch
         error:badarg -> []
+    end.
+
+pre_kick(_Cluster, _Site, force_kick) ->
+    ok;
+pre_kick(_Cluster, Site, _Intent) ->
+    case is_enabled() andalso shards_of_site(Site) of
+        [_ | _] -> {error, nonempty_ds_site};
+        _ -> ok
     end.
 
 -spec shards_of_site(emqx_ds_builtin_raft_meta:site()) -> [sites_shard()].

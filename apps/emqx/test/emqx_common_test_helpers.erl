@@ -61,7 +61,6 @@
 ]).
 
 -export([
-    start_ekka/0,
     start_epmd/0,
     ebin_path/0,
     listener_port/1
@@ -564,16 +563,6 @@ is_tcp_server_available(Host, Port, Timeout) ->
             true;
         {error, _} ->
             false
-    end.
-
-start_ekka() ->
-    try mnesia_hook:module_info(module) of
-        _ -> ekka:start()
-    catch
-        _:_ ->
-            %% Falling back to using Mnesia DB backend.
-            application:set_env(mria, db_backend, mnesia),
-            ekka:start()
     end.
 
 -spec ensure_quic_listener(Name :: atom(), UdpPort :: inet:port_number()) -> ok.
