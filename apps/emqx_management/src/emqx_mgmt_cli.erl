@@ -138,36 +138,23 @@ broker_audit_args(Args) -> Args.
 %%-----------------------------------------------------------------------------
 %% @doc Cluster with other nodes
 
-cluster(["join" | Args]) ->
-    maybe
-        {ok, SNode, Intent} ?=
-            case Args of
-                [N] ->
-                    {ok, N, join};
-                ["--force", N] ->
-                    {ok, N, force_join};
-                _ ->
-                    %% Print usage:
-                    cluster([]),
-                    error
-            end,
-        case emqx_cluster:join(ekka_node:parse_name(SNode), Intent) of
-            ok ->
-                emqx_ctl:print("Join the cluster successfully.~n"),
-                %% FIXME: running status on the replicant immediately
-                %% after join produces stale output
-                mria_rlog:role() =:= core andalso
-                    cluster(["status"]),
-                ok;
-            ignore ->
-                emqx_ctl:print("Ignore.~n");
-            {error, Reason} = Error ->
-                format_cluster_error(
-                    "Failed to join the cluster",
-                    Reason
-                ),
-                Error
-        end
+cluster(["join", SNode]) ->
+    case emqx_cluster:join(ekka_node:parse_name(SNode), join) of
+        ok ->
+            emqx_ctl:print("Join the cluster successfully.~n"),
+            %% FIXME: running status on the replicant immediately
+            %% after join produces stale output
+            mria_rlog:role() =:= core andalso
+                cluster(["status"]),
+            ok;
+        ignore ->
+            emqx_ctl:print("Ignore.~n");
+        {error, Reason} = Error ->
+            format_cluster_error(
+                "Failed to join the cluster",
+                Reason
+            ),
+            Error
     end;
 cluster(["leave" | Args]) ->
     maybe
@@ -244,7 +231,7 @@ cluster(["core", "rebalance", "abort"]) ->
     emqx_ctl:print("~p~n", [Result]);
 cluster(_) ->
     emqx_ctl:usage([
-        {"cluster join [--force] <Node>", "Join the cluster"},
+        {"cluster join <Node>", "Join the cluster"},
         {"cluster leave [--force]", "Leave the cluster"},
         {"cluster force-leave [--force] <Node>", "Force the node leave from cluster"},
         {"cluster status [--json]", "Cluster status"},
