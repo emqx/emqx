@@ -164,6 +164,10 @@ emqx_test(){
                     # el9 is fine with python3
                     true
                     ;;
+                "el10")
+                    # el10 is fine with python3
+                    true
+                    ;;
                 *)
                     alternatives --list | grep python && alternatives --set python /usr/bin/python2
                     ;;
