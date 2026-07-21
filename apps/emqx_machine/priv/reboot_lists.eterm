@@ -1,10 +1,14 @@
 %% -*- mode: erlang; -*-
+%%
+%% WARNING: apps should not appear in more than one list, as these lists are passed to systools.
+%% If mix release fails with `Duplicated modules:' error, it's likely
+%% because an app is listed here more than once.
+%%
 #{
     %% Permanent apps that should never get restarted.
     %% They are dependencies of classy and emqx_machine
     protected =>
         [
-            classy,
             gproc,
             optvar
         ],
@@ -13,7 +17,6 @@
         [
             mnesia_rocksdb,
             mnesia,
-            classy,
             mria
         ],
     system_apps =>
