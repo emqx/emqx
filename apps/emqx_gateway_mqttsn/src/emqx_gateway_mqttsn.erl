@@ -24,7 +24,7 @@
     on_gateway_unload/2
 ]).
 
--define(MOD_CFG, #{
+-define(DEFAULT_MOD_CFG, #{
     frame_mod => emqx_mqttsn_frame,
     chann_mod => emqx_mqttsn_channel
 }).
@@ -42,9 +42,10 @@ on_gateway_load(
 ) ->
     ensure_broadcast_started(Config),
     ensure_predefined_topics(Config),
+    ModConfig = mod_cfg(),
     NConfig = maps:without([broadcast, predefined], Config),
     ListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
-        GwName, NConfig, ?MOD_CFG, Ctx
+        GwName, NConfig, ModConfig, Ctx
     ),
     case emqx_gateway_utils:start_listeners(ListenerConfigs) of
         {ok, ListenerPids} ->
@@ -68,11 +69,12 @@ on_gateway_update(
         ensure_predefined_topics(Config),
         Config1 = maps:without([broadcast, predefined], Config),
         OldConfig1 = maps:without([broadcast, predefined], OldConfig),
+        ModConfig = mod_cfg(),
         OldListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
-            GwName, OldConfig1, ?MOD_CFG, Ctx
+            GwName, OldConfig1, ModConfig, Ctx
         ),
         NewListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
-            GwName, Config1, ?MOD_CFG, Ctx
+            GwName, Config1, ModConfig, Ctx
         ),
         case
             emqx_gateway_utils:update_gateway_listeners(
@@ -110,6 +112,17 @@ on_gateway_unload(
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+mod_cfg() ->
+    #{
+        udp => maps:merge(?DEFAULT_MOD_CFG, #{
+            connection_mod => esockd_udp_proxy,
+            esockd_proxy_opts => #{
+                connection_mod => emqx_mqttsn_proxy_conn
+            }
+        }),
+        default => ?DEFAULT_MOD_CFG
+    }.
 
 ensure_broadcast_started(Config) ->
     case maps:get(broadcast, Config, false) of
