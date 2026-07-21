@@ -33,6 +33,8 @@
 -define(MIN_RAND_PORT, 10000).
 -define(MAX_PORT_LIMIT, 60000).
 
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
+
 %% This is not called since OTP 23 if listen/2 is exported.
 %% kept for backward compatibility.
 listen(Name) ->

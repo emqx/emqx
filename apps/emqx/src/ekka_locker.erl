@@ -105,6 +105,12 @@
 -define(LEASE_TIME, 15000).
 -define(MC_TIMEOUT, 30000).
 
+-elvis([
+    {elvis_style, atom_naming_convention, disable},
+    {elvis_style, no_common_caveats_call, disable},
+    {elvis_style, nesting_level, disable}
+]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
