@@ -348,7 +348,7 @@ get_invitation_status(get, _) ->
 
 force_leave(delete, #{bindings := #{node := Node0}}) ->
     Node = ekka_node:parse_name(binary_to_list(Node0)),
-    case emqx_cluster:force_leave(Node, force_leave) of
+    case emqx_cluster:force_leave(Node, by_remote) of
         ok ->
             {204};
         ignore ->
