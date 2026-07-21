@@ -1372,6 +1372,21 @@ test_max_packet_size_update() ->
     ?assertNotReceive({update, _, default, _}, 200),
     %% restore the original value
     emqx_config:put_zone_conf(default, KeyPath, MaxPacketSize),
+    ?assertReceive({update, Type, default, _} when Type =:= tcp orelse Type =:= ssl, 1000),
+    ?assertReceive({update, Type, default, _} when Type =:= tcp orelse Type =:= ssl, 1000),
+    %% Zone updates must not touch listeners when listener boot is disabled.
+    BootModules = application:get_env(emqx, boot_modules),
+    try
+        ok = application:set_env(emqx, boot_modules, [broker]),
+        emqx_config:put_zone_conf(default, KeyPath, MaxPacketSize + 1),
+        ?assertNotReceive({update, _, default, _}, 200)
+    after
+        emqx_config:put_zone_conf(default, KeyPath, MaxPacketSize),
+        case BootModules of
+            {ok, Value} -> application:set_env(emqx, boot_modules, Value);
+            undefined -> application:unset_env(emqx, boot_modules)
+        end
+    end,
     ok.
 
 t_symlink_certs(Config) ->

@@ -347,6 +347,8 @@ t_install_plugin_matching_exisiting_name(_Config) ->
     ok = install_plugin(PackagePath),
     _ = describe_plugin(NameVsn),
     _ = describe_plugin(NameVsn1),
+    {ok, _} = update_plugin(NameVsn1, "start"),
+    {ok, _} = update_plugin(NameVsn, "start"),
     _ = uninstall_plugin(NameVsn),
     _ = uninstall_plugin(NameVsn1).
 
