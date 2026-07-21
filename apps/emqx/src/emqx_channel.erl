@@ -3067,7 +3067,20 @@ check_sub_caps(
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
     CheckResult = do_check_sub_caps(ClientInfo, TopicFilters),
-    {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel}.
+    case lists:any(fun is_shared_sub_not_supported/1, CheckResult) of
+        true ->
+            %% [MQTT-4.13.1-1]: attempting a shared subscription when shared
+            %% subscriptions are not supported is a protocol error, the
+            %% network connection must be closed.
+            {error, {disconnect, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}, Channel};
+        false ->
+            {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel}
+    end.
+
+is_shared_sub_not_supported({{_Topic, _SubOpts}, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}) ->
+    true;
+is_shared_sub_not_supported(_) ->
+    false.
 
 do_check_sub_caps(ClientInfo, TopicFilters) ->
     do_check_sub_caps(ClientInfo, TopicFilters, []).
