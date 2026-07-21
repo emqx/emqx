@@ -1607,13 +1607,20 @@ t_frame_error_shutdown_count_is_bounded(Config) ->
         ]
     ),
     %% ... while an atom cause keeps its own.
-    ?assertEqual(NamedBefore + 1, shutdown_count(Config, bad_subqos)).
+    ?WAIT(?assertEqual(NamedBefore + 1, shutdown_count(Config, bad_subqos)), 5).
 
 send_malformed_when_connected(Config, Malformed) ->
     Socket = socket_connect(Config, [{active, true}, binary]),
+    %% Each connection needs its own clientid: reusing one would trip the
+    %% clientid registration throttle and let a takeover, rather than the frame
+    %% error, decide the exit reason.
+    ClientId = iolist_to_binary([
+        "send_malformed_when_connected-",
+        integer_to_binary(erlang:unique_integer([positive]))
+    ]),
     ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{
         proto_ver = ?MQTT_PROTO_V5,
-        clientid = atom_to_binary(?FUNCTION_NAME)
+        clientid = ClientId
     }),
     ok = socket_send(Socket, emqx_frame:serialize(ConnPacket)),
     receive
