@@ -131,6 +131,7 @@
 -export([
     parse_server/2,
     parse_servers/2,
+    mqtt_host_opts/0,
     servers_validator/2,
     servers_sc/2,
     latency_histogram_buckets_sc/1,
@@ -3531,6 +3532,24 @@ servers_validator(Opts, Required) ->
                 ok
         end
     end.
+
+-doc """
+`parse_server/2' and `servers_sc/2' options for an MQTT broker endpoint.
+
+The official MQTT URI schemes are `mqtt' for plain TCP and `mqtts' for TLS, see
+https://github.com/mqtt/mqtt.org/wiki/URI-Scheme.  A scheme-less `host[:port]' is
+accepted and defaults to `mqtt'.
+
+Everything that parses an MQTT endpoint must use these options, otherwise a value
+accepted by one parse is rejected by another.
+""".
+-spec mqtt_host_opts() -> server_parse_option().
+mqtt_host_opts() ->
+    #{
+        default_port => 1883,
+        default_scheme => "mqtt",
+        supported_schemes => ["mqtt", "mqtts"]
+    }.
 
 %% @doc Parse `host[:port]' endpoint to a `{Host, Port}' tuple or just `Host' string.
 %% `Opt' is a `map()' with below options supported:
