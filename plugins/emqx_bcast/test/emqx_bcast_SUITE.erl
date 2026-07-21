@@ -166,7 +166,7 @@ t_process_ack_all_devices(_Config) ->
     PK = <<"PX">>,
     emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 1),
     emqx_bcast_storage:process_ack(PK, <<"DX">>, DeliveryId),
-    ?assertEqual({error, not_found}, emqx_bcast_storage:lookup_message(DeliveryId)).
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
 
 t_process_ack_duplicate(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
@@ -193,7 +193,7 @@ t_cleanup_expired_delivery(_Config) ->
     D = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 1),
     mnesia:dirty_write(D#bcast_msg{expires_at = 0}),
     emqx_bcast_storage:cleanup_expired(),
-    ?assertEqual({error, not_found}, emqx_bcast_storage:lookup_message(DeliveryId)).
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
 
 %%--------------------------------------------------------------------
 %% Utils tests
