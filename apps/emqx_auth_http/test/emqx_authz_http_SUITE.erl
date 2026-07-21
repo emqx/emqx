@@ -13,7 +13,10 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(HTTP_PORT, 33333).
+%% Keep below the ephemeral port range (net.ipv4.ip_local_port_range, 32768-60999
+%% on CI): a port inside that range can be picked as the source port of an
+%% outbound connection, making this listener fail to bind with eaddrinuse.
+-define(HTTP_PORT, 32335).
 -define(HTTP_PATH, "/authz/[...]").
 
 -define(AUTHZ_HTTP_RESP(Result, Req),
@@ -219,7 +222,7 @@ t_query_params(_Config) ->
         end,
         #{
             <<"url">> => <<
-                "http://127.0.0.1:33333/authz/users/?"
+                "http://127.0.0.1:32335/authz/users/?"
                 "username=${username}&"
                 "clientid=${clientid}&"
                 "peerhost=${peerhost}&"
@@ -272,7 +275,7 @@ t_path(_Config) ->
         end,
         #{
             <<"url">> => <<
-                "http://127.0.0.1:33333/authz/use+rs/"
+                "http://127.0.0.1:32335/authz/use+rs/"
                 "${username}/"
                 "${clientid}/"
                 "${peerhost}/"
@@ -635,7 +638,7 @@ t_node_cache(_Config) ->
         end,
         #{
             <<"method">> => <<"get">>,
-            <<"url">> => <<"http://127.0.0.1:33333/authz/${clientid}?username=${username}">>,
+            <<"url">> => <<"http://127.0.0.1:32335/authz/${clientid}?username=${username}">>,
             <<"body">> => #{<<"cn">> => <<"${cert_common_name}">>}
         }
     ),
@@ -728,7 +731,7 @@ t_disallowed_placeholders_path(_Config) ->
             {ok, ?AUTHZ_HTTP_RESP(allow, Req), State}
         end,
         #{
-            <<"url">> => <<"http://127.0.0.1:33333/authz/use+rs/${typo}">>
+            <<"url">> => <<"http://127.0.0.1:32335/authz/use+rs/${typo}">>
         }
     ),
 
@@ -765,7 +768,7 @@ t_create_replace(_Config) ->
         end,
         #{
             <<"url">> =>
-                <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>
+                <<"http://127.0.0.1:32335/authz/users/?topic=${topic}&action=${action}">>
         }
     ),
 
@@ -777,7 +780,7 @@ t_create_replace(_Config) ->
     %% Changing to valid config
     OkConfig = ValidConfig#{
         <<"url">> =>
-            <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>
+            <<"http://127.0.0.1:32335/authz/users/?topic=${topic}&action=${action}">>
     },
 
     ?assertMatch(
@@ -808,7 +811,7 @@ t_create_replace(_Config) ->
         {error, _},
         emqx_authz:update({?CMD_REPLACE, http}, ValidConfig#{
             <<"url">> =>
-                <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}#fragment">>
+                <<"http://127.0.0.1:32335/authz/users/?topic=${topic}&action=${action}#fragment">>
         })
     ).
 
@@ -848,7 +851,7 @@ t_uri_normalization(_Config) ->
         raw_http_authz_config(),
         #{
             <<"url">> =>
-                <<"http://127.0.0.1:33333?topic=${topic}&action=${action}">>
+                <<"http://127.0.0.1:32335?topic=${topic}&action=${action}">>
         }
     ).
 
@@ -862,7 +865,7 @@ raw_http_authz_config() ->
         <<"type">> => <<"http">>,
         <<"max_inactive">> => <<"10s">>,
         <<"method">> => <<"get">>,
-        <<"url">> => <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>,
+        <<"url">> => <<"http://127.0.0.1:32335/authz/users/?topic=${topic}&action=${action}">>,
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
     }.
 
