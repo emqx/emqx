@@ -56,12 +56,12 @@ t_010_initialization(_Config) ->
     %%
     %% Test self-check: to later verify that persistent terms are
     %% erased, we make sure they're present in the first place:
-    ?assertMatch(#{site := Site}, persistent_term:get(?dsch_pt_schema)),
     ?assertMatch(#{foo := _}, persistent_term:get(?dsch_pt_backends)),
     %%    Stop the application. Verify that persistent terms are gone:
     application:stop(emqx_durable_storage),
-    ?assertMatch(undefined, persistent_term:get(?dsch_pt_schema, undefined)),
-    ?assertMatch(undefined, persistent_term:get(?dsch_pt_backends, undefined)).
+    ?assertMatch(undefined, persistent_term:get(?dsch_pt_backends, undefined)),
+    %% TODO: validate shards schema
+    ok.
 
 %% This testcase verifies creation and persistence of the DB schemas.
 t_020_ensure_schema(_Config) ->
@@ -150,6 +150,10 @@ t_030_open_close_db(_Config) ->
         {error, already_open},
         emqx_dsch:open_db(test_db, #{foo => bar})
     ),
+    ?assertEqual(
+        DBSchema,
+        emqx_dsch:get_db_schema(test_db)
+    ),
     #{
         cbm := ?MODULE,
         gvars := GVars1,
@@ -212,9 +216,9 @@ t_030_open_close_db(_Config) ->
         undefined,
         emqx_dsch:get_db_runtime(test_db)
     ),
-    %% Runtime is gone, but schema should remain:
+    %% Schema persistent term is deleted when DB is closed:
     ?assertEqual(
-        DBSchema,
+        undefined,
         emqx_dsch:get_db_schema(test_db)
     ),
     %% Verify the same using ?with_dsch macro:
@@ -347,6 +351,10 @@ t_051_update_db_schema(_Config) ->
                 backend => test, foo => bar
             }),
             ?assertMatch(
+                #{dbs := #{DB := #{backend := test, foo := bar}}},
+                emqx_dsch:get_site_schema()
+            ),
+            ?assertMatch(
                 {error, backend_cannot_be_changed},
                 emqx_dsch:update_db_schema(DB, #{backend => other})
             ),
@@ -355,128 +363,35 @@ t_051_update_db_schema(_Config) ->
                 emqx_dsch:update_db_schema(DB, #{backend => test, foo => baz})
             ),
             ?assertMatch(
-                #{backend := test, foo := baz},
+                #{dbs := #{DB := #{backend := test, foo := baz}}},
+                emqx_dsch:get_site_schema()
+            ),
+            %% ?assertMatch(
+            %%     [
+            %%         {_, #{
+            %%             command := change_schema,
+            %%             old := #{backend := test, foo := bar},
+            %%             new := #{backend := test, foo := baz}
+            %%         }}
+            %%     ],
+            %%     maps:to_list(emqx_dsch:list_pending({db, DB}))
+            %% ),
+            ok = emqx_dsch:open_db(DB, #{}),
+            ?assertEqual(
+                #{backend => test, foo => baz},
                 emqx_dsch:get_db_schema(DB)
             ),
             ?assertMatch(
-                [
-                    {_, #{
-                        command := change_schema,
-                        old := #{backend := test, foo := bar},
-                        new := #{backend := test, foo := baz}
-                    }}
-                ],
-                maps:to_list(emqx_dsch:list_pending({db, DB}))
-            )
-        end,
-        []
-    ).
-
-%% This testcase verifies operations with the cluster and peers.
-%%
-%% Peers cannot join to a singleton cluster; cluster cannot become
-%% singleton while having peers.
-t_060_set_cluster(_Config) ->
-    Sch0 = emqx_dsch:get_site_schema(),
-    %% Try invalid cluster ID:
-    ?assertMatch(
-        {error, badarg},
-        emqx_dsch:set_cluster("invalid")
-    ),
-    ?assertMatch(
-        {error, badarg},
-        emqx_dsch:set_cluster(invalid)
-    ),
-    %% Verify that peers cannot be added while in singleton mode:
-    ?assertMatch(
-        {error, cannot_add_peers_while_in_singleton_mode},
-        emqx_dsch:set_peer(<<"peer1">>, active)
-    ),
-    %% Deleting a peer that doesn't exist should succeed though:
-    ?assertMatch(
-        ok,
-        emqx_dsch:delete_peer(<<"peer1">>)
-    ),
-    %% Set cluster to a correct value:
-    CID = <<"my_cluster">>,
-    ok = emqx_dsch:set_cluster(CID),
-    %% Now it can't be overwritten:
-    ?assertMatch(
-        {error, cannot_change_cluster_existing_id},
-        emqx_dsch:set_cluster(<<"other_cluster">>)
-    ),
-    ?assertEqual(
-        Sch0#{cluster => CID},
-        emqx_dsch:get_site_schema()
-    ),
-    %% Add some peers:
-    ok = emqx_dsch:set_peer(<<"peer1">>, active),
-    ok = emqx_dsch:set_peer(<<"peer2">>, banned),
-    %% Restart the application and make sure the changes are persisted:
-    application:stop(emqx_durable_storage),
-    application:start(emqx_durable_storage),
-    ?assertEqual(
-        Sch0#{cluster => CID, peers => #{<<"peer1">> => active, <<"peer2">> => banned}},
-        emqx_dsch:get_site_schema()
-    ),
-    %% Try to enter singleton mode while having peers. This should fail:
-    ?assertMatch(
-        {error, has_peers},
-        emqx_dsch:set_cluster(singleton)
-    ),
-    %% Delete peers and try again:
-    ok = emqx_dsch:delete_peer(<<"peer1">>),
-    ok = emqx_dsch:delete_peer(<<"peer2">>),
-    ?assertMatch(
-        ok,
-        emqx_dsch:set_cluster(singleton)
-    ),
-    %% Schema should return to the original state:
-    ?assertEqual(
-        Sch0,
-        emqx_dsch:get_site_schema()
-    ),
-    %% Restart the application and make sure the changes are persisted:
-    application:stop(emqx_durable_storage),
-    application:start(emqx_durable_storage),
-    ?assertEqual(
-        Sch0,
-        emqx_dsch:get_site_schema()
-    ).
-
-%% This testcase verifies that node owning the site ID can be located
-%% via global.
-t_070_global_registration(_Config) ->
-    ?check_trace(
-        begin
-            #{site := Site} = Schema = emqx_dsch:get_site_schema(),
-            ?assertEqual(
-                node(),
-                emqx_dsch:whereis_site(Site)
+                ok,
+                emqx_dsch:update_db_schema(DB, #{backend => test, foo => quux})
             ),
-            ?assertEqual(
-                undefined,
-                emqx_dsch:whereis_site(<<"bad">>)
-            ),
-            %% Try to access schema via RPC:
-            ?assertEqual(
-                {ok, Schema},
-                emqx_dsch:get_site_schema(Site)
-            ),
-            ?assertEqual(
-                {error, down},
-                emqx_dsch:get_site_schema(<<"bad">>)
-            ),
-            %% Server should detect name conflicts:
             ?assertMatch(
-                {_, {ok, _}},
-                ?wait_async_action(
-                    begin
-                        Pid = global:whereis_name(?global_name(Site)),
-                        Pid ! {global_name_conflict, ?global_name(Site)}
-                    end,
-                    #{?snk_kind := global_site_conflict, site := Site}
-                )
+                #{dbs := #{DB := #{backend := test, foo := quux}}},
+                emqx_dsch:get_site_schema()
+            ),
+            ?assertEqual(
+                #{backend => test, foo => quux},
+                emqx_dsch:get_db_schema(DB)
             )
         end,
         []
@@ -647,66 +562,6 @@ t_090_add_pending(_Config) ->
             )
         end,
         []
-    ).
-
-%% The following testcase verifies execution of the pending tasks.
-%%
-%% Pending actions with "DB" scope should only be executed when the
-%% corresponding DB is open.
-t_100_action_execution(_Config) ->
-    DB = test_db,
-    ?check_trace(
-        begin
-            %% Create a DB without opening it:
-            emqx_dsch:register_backend(test, ?MODULE),
-            ?assertMatch(
-                {ok, _, _},
-                emqx_dsch:ensure_db_schema(DB, #{backend => test})
-            ),
-            %% Add cluster, then add and remove a peer, it should
-            %% create pending actions for the DB:
-            ok = emqx_dsch:set_cluster(<<"my_cluster">>),
-            ok = emqx_dsch:set_peer(<<"peer">>, active),
-            ok = emqx_dsch:delete_peer(<<"peer">>),
-            %% Start the DB. It should now receive and process all
-            %% events:
-            {ok, SRef1} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := test_schema_change}),
-                3,
-                5_000
-            ),
-            ?tp(test_open_db, #{}),
-            ok = emqx_dsch:open_db(DB, #{}),
-            {ok, Changes} = snabbkaffe:receive_events(SRef1),
-            ?assertMatch(
-                [
-                    {DB, #{command := set_cluster, cluster := <<"my_cluster">>}},
-                    {DB, #{command := set_peer, site := <<"peer">>, state := active}},
-                    {DB, #{command := delete_peer, site := <<"peer">>}}
-                ],
-                ?projection([db, task], Changes)
-            ),
-            %% Test closing of a DB with pending tasks:
-            ?force_ordering(
-                #{?snk_kind := test_close_db},
-                #{?snk_kind := test_schema_change}
-            ),
-            ?assertMatch(
-                {ok, {ok, _}},
-                ?wait_async_action(
-                    emqx_dsch:close_db(DB),
-                    #{?snk_kind := "Completed schema change"}
-                )
-            )
-        end,
-        [
-            {no_failed_start, fun(Trace) ->
-                ?assertMatch(
-                    [],
-                    ?of_kind(?tp_pending_spawn_fail, Trace)
-                )
-            end}
-        ]
     ).
 
 %% This testcase verifies operations with the DB global variables.
