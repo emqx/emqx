@@ -172,6 +172,7 @@
     inflight_max,
     mqueue_len,
     mqueue_max,
+    total_payload_bytes,
     mqueue_dropped,
     next_pkt_id,
     awaiting_rel_cnt,
@@ -402,6 +403,8 @@ info(mqueue_len, #session{mqueue = MQueue}) ->
     emqx_mqueue:len(MQueue);
 info(mqueue_max, #session{mqueue = MQueue}) ->
     emqx_mqueue:max_len(MQueue);
+info(total_payload_bytes, #session{inflight = Inflight, mqueue = MQueue}) ->
+    inflight_payload_bytes(Inflight) + emqx_mqueue:payload_bytes(MQueue);
 info(mqueue_dropped, #session{mqueue = MQueue}) ->
     emqx_mqueue:dropped(MQueue);
 info({mqueue_msgs, PagerParams}, #session{mqueue = MQueue}) ->
@@ -786,6 +789,15 @@ deliver(
 insert_inflight(PktId, Msg, Inflight) ->
     MarkedMsg = mark_begin_deliver(Msg),
     emqx_inflight:insert(PktId, with_ts(MarkedMsg), Inflight).
+
+inflight_payload_bytes(Inflight) ->
+    emqx_inflight:fold(
+        fun(_PacketId, #inflight_data{message = Msg}, Acc) ->
+            Acc + emqx_message:payload_size(Msg)
+        end,
+        0,
+        Inflight
+    ).
 
 -spec enqueue(clientinfo(), [emqx_types:message()], session()) ->
     session().

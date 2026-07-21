@@ -104,6 +104,39 @@ t_get_set_chan_stats(_) ->
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
 
+t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
+    ClientId = <<"session-buffer-check">>,
+    Stats = [{mqueue_len, 1}, {inflight_cnt, 1}, {total_payload_bytes, 2}],
+    Info = #{conninfo := ConnInfo} = ?ChanInfo,
+    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+    ok = emqx_cm:insert_channel_info(ClientId, Info, []),
+    Path = [sysmon, session, total_payload_bytes_high_watermark],
+    PreviousHighWatermark = emqx_config:get(Path, 0),
+    try
+        ChanPid = self(),
+        ok = emqx_config:put(Path, 1),
+        Logs = emqx_cth_log_capture:capture(fun() ->
+            true = emqx_cm:set_chan_stats(ClientId, Stats)
+        end),
+        ?assertMatch(
+            [
+                #{
+                    msg := session_buffer_high_watermark,
+                    clientid := ClientId,
+                    pid := ChanPid,
+                    mqueue_length := 1,
+                    inflight_count := 1,
+                    total_payload_bytes := 2,
+                    total_payload_bytes_high_watermark := 1
+                }
+            ],
+            [Log || #{msg := session_buffer_high_watermark} = Log <- Logs]
+        )
+    after
+        ok = emqx_config:put(Path, PreviousHighWatermark),
+        ok = emqx_cm:unregister_channel(ClientId)
+    end.
+
 t_open_session(_) ->
     ok = meck:new(emqx_connection, [passthrough, no_history]),
     ok = meck:expect(emqx_connection, call, fun(_, _) -> ok end),

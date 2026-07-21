@@ -37,6 +37,8 @@
 
 -module(emqx_mqueue).
 
+-compile({inline, [payload_bytes/1]}).
+
 -include("emqx.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
@@ -55,6 +57,7 @@
     out/1,
     stats/1,
     dropped/1,
+    payload_bytes/1,
     to_list/1,
     filter/2,
     query/2
@@ -98,6 +101,7 @@
     store_qos0 = false :: boolean(),
     max_len = ?MAX_LEN_INFINITY :: count(),
     dropped = 0 :: count(),
+    payload_bytes = 0 :: count(),
     q = emqx_pqueue:new() :: pq(),
     prios = ?NO_PRIORITY_TABLE :: #prios{} | ?NO_PRIORITY_TABLE,
     p_credit :: non_neg_integer() | undefined
@@ -166,7 +170,11 @@ filter(Pred, #mqueue{q = Q, dropped = Dropped} = MQ) ->
         L0 ->
             MQ;
         L1 ->
-            MQ#mqueue{q = Q1, dropped = Dropped + (L0 - L1)}
+            MQ#mqueue{
+                q = Q1,
+                dropped = Dropped + (L0 - L1),
+                payload_bytes = pqueue_payload_bytes(Q1)
+            }
     end.
 
 -spec query(mqueue(), #{position => Pos, limit := Limit}) ->
@@ -258,6 +266,10 @@ to_list(MQ, Acc) ->
 -spec dropped(mqueue()) -> count().
 dropped(#mqueue{dropped = Dropped}) -> Dropped.
 
+-spec payload_bytes(mqueue()) -> non_neg_integer().
+payload_bytes(#mqueue{payload_bytes = PayloadBytes}) ->
+    PayloadBytes.
+
 %% @doc Stats of the mqueue
 -spec stats(mqueue()) -> [stat()].
 stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
@@ -274,7 +286,8 @@ in(
             prios = Prios,
             q = Q0,
             max_len = MaxLen,
-            dropped = Dropped
+            dropped = Dropped,
+            payload_bytes = PayloadBytes
         } = MQ
 ) ->
     Class =
@@ -293,29 +306,48 @@ in(
             #prios{t = PTab, default = Dp} ->
                 maps:get(Topic, PTab, Dp)
         end,
-    Q1 = emqx_pqueue:in(with_ts(Msg), Prio, Class, Q0),
+    Msg1 = with_ts(Msg),
+    Q1 = emqx_pqueue:in(Msg1, Prio, Class, Q0),
     case MaxLen =/= ?MAX_LEN_INFINITY andalso emqx_pqueue:plen(Prio, Q1) > MaxLen of
         false ->
-            {_DroppedMsg = undefined, MQ#mqueue{q = Q1}};
+            {_DroppedMsg = undefined, MQ#mqueue{
+                q = Q1,
+                payload_bytes = PayloadBytes + emqx_message:payload_size(Msg1)
+            }};
         true ->
             %% Reached max length: drop the oldest least important message.
             {{value, DroppedMsg}, Q2} = emqx_pqueue:drop(Prio, Q1),
-            {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}}
+            PayloadBytes1 =
+                PayloadBytes - emqx_message:payload_size(DroppedMsg) +
+                    emqx_message:payload_size(Msg1),
+            {DroppedMsg, MQ#mqueue{
+                q = Q2,
+                dropped = Dropped + 1,
+                payload_bytes = PayloadBytes1
+            }}
     end.
 
 -spec out(mqueue()) -> {empty | {value, message()}, mqueue()}.
-out(MQ = #mqueue{q = Q, prios = ?NO_PRIORITY_TABLE}) ->
+out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, prios = ?NO_PRIORITY_TABLE}) ->
     case emqx_pqueue:out(Q) of
         {{value, V}, Q1} ->
-            {{value, without_ts(V)}, MQ#mqueue{q = Q1}};
+            {{value, without_ts(V)}, MQ#mqueue{
+                q = Q1,
+                payload_bytes = PayloadBytes - emqx_message:payload_size(V)
+            }};
         {empty, _} ->
             {empty, MQ}
     end;
-out(MQ = #mqueue{q = Q, p_credit = undefined, prios = Prios}) ->
+out(
+    MQ = #mqueue{
+        q = Q, payload_bytes = PayloadBytes, p_credit = undefined, prios = Prios
+    }
+) ->
     case emqx_pqueue:out_p(Q) of
         {{value, V, Prio}, Q1} ->
             MQ1 = MQ#mqueue{
                 q = Q1,
+                payload_bytes = PayloadBytes - emqx_message:payload_size(V),
                 p_credit = get_credits(Prio, Prios)
             },
             {{value, without_ts(V)}, MQ1};
@@ -327,13 +359,26 @@ out(MQ = #mqueue{q = Q, p_credit = 0}) ->
         q = emqx_pqueue:shift(Q),
         p_credit = undefined
     });
-out(MQ = #mqueue{q = Q, p_credit = C}) ->
+out(MQ = #mqueue{q = Q, payload_bytes = PayloadBytes, p_credit = C}) ->
     case emqx_pqueue:out(Q) of
         {{value, V}, Q1} ->
-            {{value, without_ts(V)}, MQ#mqueue{q = Q1, p_credit = C - 1}};
+            {{value, without_ts(V)}, MQ#mqueue{
+                q = Q1,
+                payload_bytes = PayloadBytes - emqx_message:payload_size(V),
+                p_credit = C - 1
+            }};
         {empty, _} ->
             {empty, MQ}
     end.
+
+pqueue_payload_bytes(Q) ->
+    emqx_pqueue:fold(
+        fun(Msg, _Priority, Acc) ->
+            Acc + emqx_message:payload_size(Msg)
+        end,
+        0,
+        Q
+    ).
 
 get_opt(Key, Opts, Default) ->
     case maps:get(Key, Opts, Default) of

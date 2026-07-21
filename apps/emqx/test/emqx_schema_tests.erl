@@ -1119,6 +1119,43 @@ max_packet_size_test_() ->
             )}
     ].
 
+session_total_payload_bytes_high_watermark_test_() ->
+    Check = fun(Input) ->
+        {ok, Hocon} = hocon:binary(Input),
+        hocon_tconf:check_plain(emqx_schema, Hocon, #{required => false}, [sysmon])
+    end,
+    [
+        {"0 disables warning logs",
+            ?_assertMatch(
+                #{
+                    <<"sysmon">> := #{
+                        <<"session">> := #{<<"total_payload_bytes_high_watermark">> := 0}
+                    }
+                },
+                Check(<<"sysmon.session.total_payload_bytes_high_watermark = 0">>)
+            )},
+        {"bytesize units are accepted",
+            ?_assertMatch(
+                #{
+                    <<"sysmon">> := #{
+                        <<"session">> := #{<<"total_payload_bytes_high_watermark">> := 1024}
+                    }
+                },
+                Check(<<"sysmon.session.total_payload_bytes_high_watermark = 1KB">>)
+            )},
+        {"negative values are rejected",
+            ?_assertThrow(
+                {emqx_schema, [
+                    #{
+                        kind := validation_error,
+                        path := "sysmon.session.total_payload_bytes_high_watermark",
+                        reason := #{minimum := 0}
+                    }
+                ]},
+                Check(<<"sysmon.session.total_payload_bytes_high_watermark = -1">>)
+            )}
+    ].
+
 max_heap_size_test_() ->
     WordSize = erlang:system_info(wordsize),
     MaxWords = 128 * 1024 * 1024 * 1024 div WordSize,

@@ -431,27 +431,23 @@ t_message_expiry(Config) ->
         Conf#{<<"delivery_rate">> := <<"infinity">>}
     end,
     Case = fun() ->
+        ExpireSoon = 10,
+        ExpireLater = 60,
         {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
         {ok, _} = emqtt:connect(C1),
 
-        emqtt:publish(
-            C1,
-            <<"retained/0">>,
-            #{'Message-Expiry-Interval' => 0},
-            <<"don't expire">>,
-            [{qos, 0}, {retain, true}]
-        ),
+        emqtt:publish(C1, <<"retained/0">>, <<"don't expire">>, [{qos, 0}, {retain, true}]),
         emqtt:publish(
             C1,
             <<"retained/1">>,
-            #{'Message-Expiry-Interval' => 2},
+            #{'Message-Expiry-Interval' => ExpireSoon},
             <<"expire">>,
             [{qos, 0}, {retain, true}]
         ),
         emqtt:publish(
             C1,
             <<"retained/2">>,
-            #{'Message-Expiry-Interval' => 5},
+            #{'Message-Expiry-Interval' => ExpireLater},
             <<"don't expire">>,
             [{qos, 0}, {retain, true}]
         ),
@@ -475,7 +471,7 @@ t_message_expiry(Config) ->
         {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained/+">>),
         {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"$SYS/retained/+">>),
 
-        timer:sleep(3000),
+        timer:sleep(timer:seconds(ExpireSoon + 1)),
         {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, 0),
         {ok, #{}, [0]} = emqtt:subscribe(C1, <<"$SYS/retained/+">>, 0),
         ?assertEqual(4, length(receive_messages(5))),

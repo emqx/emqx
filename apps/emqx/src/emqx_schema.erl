@@ -86,6 +86,7 @@
 -export([
     validate_heap_size/1,
     validate_max_packet_size/1,
+    validate_non_negative_bytesize/1,
     convert_max_packet_size/2,
     user_lookup_fun_tr/2,
     validate_keepalive_multiplier/1,
@@ -1627,6 +1628,11 @@ fields("sysmon") ->
                 ref("sysmon_os"),
                 #{}
             )},
+        {"session",
+            sc(
+                ref("sysmon_session"),
+                #{}
+            )},
         {"mnesia_tm_mailbox_size_alarm_threshold",
             sc(
                 pos_integer(),
@@ -1641,6 +1647,18 @@ fields("sysmon") ->
                 #{
                     default => 500,
                     desc => ?DESC("sysmon_broker_pool_mailbox_size_alarm_threshold")
+                }
+            )}
+    ];
+fields("sysmon_session") ->
+    [
+        {"total_payload_bytes_high_watermark",
+            sc(
+                bytesize(),
+                #{
+                    default => 0,
+                    validator => fun ?MODULE:validate_non_negative_bytesize/1,
+                    desc => ?DESC(sysmon_session_total_payload_bytes_high_watermark)
                 }
             )}
     ];
@@ -2392,6 +2410,8 @@ desc("sysmon_vm") ->
 desc("sysmon_os") ->
     "This part of the configuration is responsible for monitoring\n"
     " the host OS health, such as free memory, disk space, CPU load, etc.";
+desc("sysmon_session") ->
+    "This part of the configuration monitors memory session runtime signals.";
 desc("alarm") ->
     "Settings for the alarms.";
 desc("trace") ->
@@ -3230,6 +3250,11 @@ validate_max_packet_size(Siz) when is_integer(Siz) ->
     ok;
 validate_max_packet_size(_SizStr) ->
     {error, invalid_packet_size}.
+
+validate_non_negative_bytesize(Bytes) when is_integer(Bytes), Bytes >= 0 ->
+    ok;
+validate_non_negative_bytesize(_Bytes) ->
+    {error, #{minimum => 0}}.
 
 %% This is for backward compatibility.
 %% We used to allow setting 256MB, but in fact the limit is one byte less.

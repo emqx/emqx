@@ -2007,6 +2007,11 @@ socket_tcp_keepalive.label:
     - Check if intra-cluster network bandwidth is reaching a maximum.~"""
   }
 
+  sysmon_session_total_payload_bytes_high_watermark {
+    label: "Total Payload Bytes High Watermark"
+    desc: "Per-session total_payload_bytes threshold for emitting throttled warning logs. Set to 0 to disable the warning log."
+  }
+
   config_backup_interval {
     label: "Config Backup Interval"
     desc: """~
