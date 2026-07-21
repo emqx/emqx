@@ -67,7 +67,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.6-2'
+        default: '6.1-8'
 
 permissions:
   contents: read
@@ -122,6 +122,7 @@ jobs:
           - debian13
           - debian12
           - debian11
+          - el10
           - el9
           - el8
           - el7
