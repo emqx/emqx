@@ -1236,8 +1236,7 @@ local_raft_leader(DB, Shard) ->
     end.
 
 list_nodes() ->
-    %% TODO: list sites via dsch
-    mria:running_nodes().
+    classy:nodes(connected).
 
 ra_retries(DB) ->
     #{runtime := #{ra_retries := Val}} = emqx_dsch:get_db_runtime(DB),
