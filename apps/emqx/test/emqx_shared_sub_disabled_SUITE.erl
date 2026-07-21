@@ -11,6 +11,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SHARED_TOPIC, <<"$share/g/t/1">>).
 -define(NORMAL_TOPIC, <<"t/1">>).
@@ -51,7 +52,7 @@ t_v5_shared_sub_disabled(_Config) ->
         {'DOWN', MRef, process, C,
             {shutdown, {disconnected, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED, _}}}
     ),
-    ?assertEqual([], emqx_cm:lookup_channels(clientid(v5))).
+    assert_channel_gone(clientid(v5)).
 
 -doc """
 An MQTT v3.1.1 client attempting a shared subscription while shared
@@ -64,7 +65,7 @@ t_v3_shared_sub_disabled(_Config) ->
     MRef = erlang:monitor(process, C),
     _ = catch emqtt:subscribe(C, ?SHARED_TOPIC, 0),
     ?assertReceive({'DOWN', MRef, process, C, {shutdown, tcp_closed}}),
-    ?assertEqual([], emqx_cm:lookup_channels(clientid(v4))).
+    assert_channel_gone(clientid(v4)).
 
 -doc """
 A SUBSCRIBE carrying both a normal and a shared topic filter still closes the
@@ -101,6 +102,14 @@ t_shared_sub_enabled(_Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+%% Channel deregistration happens after the socket is closed, so retry.
+assert_channel_gone(ClientId) ->
+    ?retry(
+        _Interval = 100,
+        _Attempts = 20,
+        ?assertEqual([], emqx_cm:lookup_channels(ClientId))
+    ).
 
 disable_shared_subscription() ->
     emqx_config:put_zone_conf(default, [mqtt, shared_subscription], false).
