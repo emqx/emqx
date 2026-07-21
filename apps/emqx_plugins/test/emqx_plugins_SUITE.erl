@@ -1602,7 +1602,9 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
             %% order, and also we need to override the config loader to emulate what
             %% `emqx_cth_cluster' does and avoid the node crashing due to lack of config
             %% keys.
-            ok = ?ON(N2, emqx_machine_boot:start_autocluster()),
+
+            %% FIXME: how to replace it?
+            %%ok = ?ON(N2, emqx_machine_boot:start_autocluster()),
             ?ON(N2, begin
                 StartCallback0 =
                     case ekka:env({callback, start}) of

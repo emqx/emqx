@@ -805,12 +805,12 @@ stop_peer(Node) ->
 
 leave_cluster() ->
     try mnesia_hook:module_info(module) of
-        _ -> emqx_cluster:leave()
+        _ -> emqx_cluster:leave(leave)
     catch
         _:_ ->
             %% We have to set the db_backend to mnesia even for `ekka:leave/0`!!
             application:set_env(mria, db_backend, mnesia),
-            emqx_cluster:leave()
+            emqx_cluster:leave(leave)
     end.
 
 is_official_version(V) ->
