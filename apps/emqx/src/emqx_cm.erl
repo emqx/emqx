@@ -160,10 +160,18 @@ start_link() ->
     emqx_types:stats()
 ) -> ok.
 insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
-    Chan = {ClientId, self()},
-    true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
-    ?tp(debug, insert_channel_info, #{clientid => ClientId}),
-    ok.
+    %% `?CHAN_INFO_TAB` is a read model for the client-info REST API. When that
+    %% API is disabled we skip it entirely; eviction/rebalance enumeration falls
+    %% back to fetching info live from channel processes (see all_channels_stream/1).
+    case emqx_features:client_info_enabled() of
+        false ->
+            ok;
+        true ->
+            Chan = {ClientId, self()},
+            true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
+            ?tp(debug, insert_channel_info, #{clientid => ClientId}),
+            ok
+    end.
 
 %% @private
 %% @doc Register a channel with pid and conn_mod.
@@ -673,6 +681,18 @@ all_channels() ->
         emqx_types:clientinfo()
     }).
 all_channels_stream(ConnModuleList) ->
+    case emqx_features:client_info_enabled() of
+        true ->
+            all_channels_stream_from_info_tab(ConnModuleList);
+        false ->
+            %% The info table is not maintained; reconstruct entries on demand
+            %% from the always-present pid registry. NOTE: this issues one
+            %% process call per channel and is intended for infrequent
+            %% enumeration (eviction/rebalance), not API listing.
+            all_channels_stream_live(ConnModuleList)
+    end.
+
+all_channels_stream_from_info_tab(ConnModuleList) ->
     Ms = ets:fun2ms(
         fun({{ClientId, ChanPid}, Info, _Stats}) ->
             {ClientId, ChanPid, Info}
@@ -702,6 +722,38 @@ all_channels_stream(ConnModuleList) ->
         end,
         WithModulesFilteredStream
     ).
+
+all_channels_stream_live(ConnModuleList) ->
+    ConnModules = sets:from_list(ConnModuleList, [{version, 2}]),
+    Ms = ets:fun2ms(
+        fun(#chan_conn{clientid = ClientId, pid = Pid, mod = Mod}) ->
+            {ClientId, Pid, Mod}
+        end
+    ),
+    ConnStream = emqx_utils_stream:ets(fun
+        (undefined) -> ets:select(?CHAN_CONN_TAB, Ms, ?CHAN_INFO_SELECT_LIMIT);
+        (Cont) -> ets:select(Cont)
+    end),
+    FilteredStream = emqx_utils_stream:filter(
+        fun({_ClientId, _Pid, Mod}) -> sets:is_element(Mod, ConnModules) end,
+        ConnStream
+    ),
+    WithInfoStream = emqx_utils_stream:map(
+        fun({ClientId, Pid, Mod}) -> fetch_live_channel_tuple(ClientId, Pid, Mod) end,
+        FilteredStream
+    ),
+    %% Drop channels that died (or timed out) while being enumerated.
+    emqx_utils_stream:filter(fun(Tuple) -> Tuple =/= undefined end, WithInfoStream).
+
+fetch_live_channel_tuple(ClientId, Pid, Mod) ->
+    try Mod:call(Pid, info, 5_000) of
+        #{conn_state := ConnState, conninfo := ConnInfo, clientinfo := ClientInfo} ->
+            {ClientId, Pid, ConnState, ConnInfo, ClientInfo};
+        _ ->
+            undefined
+    catch
+        _:_ -> undefined
+    end.
 
 %% @doc Get all local connection query handle
 -spec live_connection_stream([module()]) -> emqx_utils_stream:stream(pid()).

@@ -1726,9 +1726,16 @@ handle_cast(
     NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
-    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
-    ChanInfo1 = info(NChannel),
-    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
+    %% Refresh the client-info read model only when it is maintained; when the
+    %% client-info API is disabled the info table is not populated.
+    case emqx_features:client_info_enabled() of
+        true ->
+            SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
+            ChanInfo1 = info(NChannel),
+            emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo});
+        false ->
+            ok
+    end,
     reset_timer(keepalive, NChannel);
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
