@@ -39,7 +39,7 @@
 -define(IGNORED_APPS,
     "gen_rpc, recon, redbug, observer_cli, snabbkaffe,"
     " classy, mria, amqp_client, rabbit_common, esaml, ra,"
-    " proper, ranch"
+    " proper, ranch, familiar"
 ).
 -define(IGNORED_MODULES, "emqx_rpc").
 -define(FORCE_DELETED_MODULES, [
