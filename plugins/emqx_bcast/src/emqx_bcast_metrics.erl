@@ -5,13 +5,14 @@
 
 -export([init/0]).
 -export([qos0_in/0, qos0_error/0]).
--export([qos0_targeted/1, qos0_delivered/0, qos0_skipped/0]).
+-export([qos0_targeted/1, qos0_delivered/0, qos0_skipped/0, qos0_skipped/1]).
 -export([qos1_in/0]).
 -export([
     qos1_wanted/1,
     qos1_acked/0,
     qos1_delivered_inline/0,
     qos1_stored_offline/0,
+    qos1_stored_offline/1,
     qos1_replayed/0
 ]).
 -export([broadcast_in/0, broadcast_error/0]).
@@ -89,12 +90,14 @@ qos0_error() -> c("batch_pub_qos0_error").
 qos0_targeted(N) -> c("batch_pub_qos0_targeted", N).
 qos0_delivered() -> c("batch_pub_qos0_delivered").
 qos0_skipped() -> c("batch_pub_qos0_skipped").
+qos0_skipped(N) -> c("batch_pub_qos0_skipped", N).
 
 qos1_in() -> c("batch_pub_qos1_in").
 qos1_wanted(N) -> c("batch_pub_qos1_wanted", N).
 qos1_acked() -> c("batch_pub_qos1_acked").
 qos1_delivered_inline() -> c("batch_pub_qos1_delivered_inline").
 qos1_stored_offline() -> c("batch_pub_qos1_stored_offline").
+qos1_stored_offline(N) -> c("batch_pub_qos1_stored_offline", N).
 qos1_replayed() -> c("batch_pub_qos1_replayed").
 
 broadcast_in() -> c("broadcast_pub_in").
