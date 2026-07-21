@@ -432,6 +432,19 @@
       letter-spacing: 0.25px;
     }
 
+    .panel-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .panel-actions .btn {
+      height: 28px;
+      padding: 0 9px;
+      font-size: 12px;
+    }
+
     .panel-hd-toggle {
       cursor: pointer;
       user-select: none;
@@ -579,14 +592,56 @@
       background: rgba(255, 255, 255, 0.02);
     }
 
+    .endpoint-list {
+      display: grid;
+      gap: 8px;
+    }
+
     .endpoint-hd {
       display: grid;
-      grid-template-columns: auto 1fr auto;
+      grid-template-columns: auto minmax(0, 1fr) minmax(0, 300px) auto;
       align-items: center;
       gap: 10px;
       padding: 10px;
-      border-bottom: 1px solid var(--color-border-primary);
       background: rgba(255, 255, 255, 0.03);
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+
+    .endpoint-hd::-webkit-details-marker {
+      display: none;
+    }
+
+    .endpoint-hd::marker {
+      content: "";
+    }
+
+    .endpoint-hd::after {
+      content: "\203A";
+      grid-column: 4;
+      grid-row: 1;
+      color: var(--color-text-secondary);
+      font-size: 20px;
+      line-height: 1;
+      transition: transform 0.15s ease;
+    }
+
+    .endpoint-hd:hover {
+      background: rgba(94, 123, 255, 0.08);
+    }
+
+    .endpoint-hd:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: -2px;
+    }
+
+    .endpoint-card[open] > .endpoint-hd {
+      border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    .endpoint-card[open] > .endpoint-hd::after {
+      transform: rotate(90deg);
     }
 
     .endpoint-hd .title {
@@ -943,9 +998,16 @@
         grid-template-columns: 1fr;
       }
 
-      .op-row,
-      .endpoint-hd {
+      .op-row {
         grid-template-columns: auto 1fr;
+      }
+
+      .endpoint-hd {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+      }
+
+      .endpoint-hd::after {
+        grid-column: 3;
       }
 
       .op-row .summary,
@@ -1382,7 +1444,9 @@
 
     function renderEndpointsPanel(paths) {
       const panel = panelEl('Endpoints');
+      const hd = panel.querySelector('.panel-hd');
       const bd = panel.querySelector('.panel-bd');
+      bd.classList.add('endpoint-list');
 
       const methodOrder = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head'];
       const cards = [];
@@ -1408,11 +1472,30 @@
       }
 
       for (const c of cards) bd.appendChild(c);
+
+      const actions = document.createElement('div');
+      actions.className = 'panel-actions';
+      actions.innerHTML = `
+        <button type="button" class="btn" data-action="expand-all">Expand All</button>
+        <button type="button" class="btn" data-action="collapse-all">Collapse All</button>
+      `;
+      actions.querySelector('[data-action="expand-all"]').addEventListener('click', () => {
+        bd.querySelectorAll('.endpoint-card').forEach((card) => {
+          card.open = true;
+        });
+      });
+      actions.querySelector('[data-action="collapse-all"]').addEventListener('click', () => {
+        bd.querySelectorAll('.endpoint-card').forEach((card) => {
+          card.open = false;
+        });
+      });
+      hd.appendChild(actions);
+
       return panel;
     }
 
     function endpointCard(path, method, op) {
-      const card = document.createElement('article');
+      const card = document.createElement('details');
       card.className = 'endpoint-card';
 
       const m = method.toLowerCase();
@@ -1425,11 +1508,11 @@
       const respCodes = Object.keys(responses).sort();
 
       card.innerHTML = `
-        <header class="endpoint-hd">
+        <summary class="endpoint-hd">
           <span class="method ${methodClass}">${escapeHtml(method.toUpperCase())}</span>
-          <h4 class="title">${escapeHtml(path)}</h4>
+          <span class="title">${escapeHtml(path)}</span>
           <span class="summary" title="${escapeHtml(summary)}">${escapeHtml(summary || '-')}</span>
-        </header>
+        </summary>
         <div class="endpoint-bd"></div>
       `;
 

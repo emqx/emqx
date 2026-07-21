@@ -1922,6 +1922,41 @@ t_proxy_conn_keep_bound_clientid_on_different_clientid(_) ->
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2)
     ).
 
+t_proxy_conn_close_passes_proxy_owner(_) ->
+    ProxyId = self(),
+    ?assertEqual(ok, emqx_coap_proxy_conn:close(self(), ProxyId, #{})),
+    receive
+        {udp_proxy_closed, ProxyId} ->
+            ok
+    after 100 ->
+        error(missing_udp_proxy_closed)
+    end.
+
+t_legacy_proxy_close_closes_transport(_) ->
+    {ok, Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    _Token = connection(Channel),
+    [Pid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+    try
+        ?assertEqual(ok, emqx_coap_proxy_conn:close(Pid, #{})),
+        ?retry(
+            100,
+            10,
+            ?assertMatch(
+                #{sockinfo := #{sockstate := closed}},
+                emqx_gateway_conn:info(Pid)
+            )
+        )
+    after
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client1">>),
+        ?retry(
+            100,
+            10,
+            ?assertEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
+        ),
+        er_coap_channel:close(Channel),
+        er_coap_udp_socket:close(Sock)
+    end.
+
 %%--------------------------------------------------------------------
 %% helpers
 

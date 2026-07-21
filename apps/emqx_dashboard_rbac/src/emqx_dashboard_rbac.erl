@@ -345,6 +345,10 @@ do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?RULE_
     %% is enforced by the handlers themselves, by only fetching/acting on the appropriate
     %% namespace.
     true;
+do_check_rbac(#{?namespace := Namespace}, _Req, ?TRACE_API(put, config)) when
+    is_binary(Namespace)
+->
+    {error, <<"Namespaced users may not update global tracing configuration">>};
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?TRACE_API(_, _)) when
     is_binary(Namespace)
 ->

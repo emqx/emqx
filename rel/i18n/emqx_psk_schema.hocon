@@ -16,7 +16,8 @@ psk_authentication.desc:
 This config to enable TLS-PSK authentication.
 
 Important! Make sure the SSL listener with only <code>tlsv1.2</code> enabled, and also PSK cipher suites
-configured, such as <code>RSA-PSK-AES256-GCM-SHA384</code>.
+ configured, such as <code>RSA-PSK-AES256-GCM-SHA384</code> or
+ <code>ECDHE-PSK-CHACHA20-POLY1305</code>.
 
 See listener SSL options config for more details.
 
