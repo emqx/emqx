@@ -149,6 +149,9 @@ t_5105_catalog_covers_saml_xxe_backup_plugin_api_postgresql_oracle_and_lwm2m_fix
             {load_module, emqx_relup_oracle_upgrade},
             {apply, emqx_relup_oracle_upgrade, restart_oracle_connectors, []},
             {load_module, emqx_utils_redact},
+            {load_module, emqx_coap_frame},
+            {load_module, emqx_coap_channel},
+            {load_module, emqx_lwm2m_channel},
             {load_module, emqx_lwm2m_session}
         ]
     ),
