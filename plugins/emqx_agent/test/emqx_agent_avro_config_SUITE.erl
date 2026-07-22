@@ -57,6 +57,30 @@ t_publish_payload_schema_default_materialized(_Config) ->
         PayloadSchema
     ).
 
+t_postgresql_ssl_record_default_materialized(_Config) ->
+    #{<<"ConnectionPostgresql">> := Connection0} = postgresql_connection(),
+    Config0 = maps:get(<<"config">>, Connection0),
+    Connection = #{
+        <<"ConnectionPostgresql">> => Connection0#{
+            <<"config">> => maps:remove(<<"ssl">>, Config0)
+        }
+    },
+    {ok, Config} = encode_with_defaults((sample_config())#{<<"connections">> => [Connection]}),
+    [#{<<"ConnectionPostgresql">> := MaterializedConnection}] = maps:get(
+        <<"connections">>, Config
+    ),
+    ?assertEqual(
+        #{
+            <<"enable">> => false,
+            <<"server_name_indication">> => <<"disable">>,
+            <<"verify">> => <<"verify_none">>,
+            <<"cacertfile">> => <<>>,
+            <<"certfile">> => <<>>,
+            <<"keyfile">> => <<>>
+        },
+        emqx_utils_maps:deep_get([<<"config">>, <<"ssl">>], MaterializedConnection)
+    ).
+
 t_all_config_oai_schemas_valid(_Config) ->
     {ok, Config} = encode_with_defaults(sample_config()),
     ?assertEqual([], oai_schema_errors(Config)).

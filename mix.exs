@@ -54,7 +54,7 @@ defmodule EMQXUmbrella.MixProject do
 
   Here, transitive dependencies from our app dependencies should be placed when there's a
   need to override them.  For example, since `jsone` is a dependency to `rocketmq` and to
-  `erlavro`, which are both dependencies and not umbrella apps, we need to add the
+  `ekka`, which are both dependencies and not umbrella apps, we need to add the
   override here.  Also, there are cases where adding `override: true` to the umbrella
   application dependency simply won't satisfy mix.  In such cases, it's fine to add it
   here.
@@ -287,7 +287,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
 
   def common_dep(:erlavro),
-    do: {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-3", override: true}
+    do: {:erlavro, github: "emqx/erlavro", tag: "2.11.2-emqx-1", override: true}
 
   def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.2"}
 
