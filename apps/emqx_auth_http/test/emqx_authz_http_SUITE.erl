@@ -854,6 +854,7 @@ t_uri_normalization(_Config) ->
 
 t_oauth2_client_credentials(_Config) ->
     Token = <<"authz-oauth2-token">>,
+    BaseURL = iolist_to_binary(["http://127.0.0.1:", integer_to_list(?HTTP_PORT)]),
     Handler = fun(Req0, State) ->
         case cowboy_req:path(Req0) of
             <<"/authz/token">> ->
@@ -878,8 +879,8 @@ t_oauth2_client_credentials(_Config) ->
         end
     end,
     ok = setup_handler_and_config(Handler, #{
-        <<"url">> => <<"http://127.0.0.1:33333/authz/check">>,
-        <<"oauth2">> => oauth2_config(<<"http://127.0.0.1:33333/authz/token">>)
+        <<"url">> => <<BaseURL/binary, "/authz/check">>,
+        <<"oauth2">> => oauth2_config(<<BaseURL/binary, "/authz/token">>)
     }),
     ClientInfo = #{
         clientid => <<"clientid">>,
