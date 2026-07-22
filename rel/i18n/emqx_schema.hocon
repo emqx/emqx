@@ -1698,6 +1698,20 @@ For example:
 mqtt_listener_access_rules.label:
 """Access rules"""
 
+base_listener_allow_log_packet_data_from.desc:
+"""~
+A comma-separated allowlist of client IP addresses and CIDR ranges for logging raw MQTT packet data.
+Packet data from other addresses is redacted. This option may expose credentials and other sensitive data in logs and should only be enabled temporarily for trusted client addresses.
+
+For example:
+
+```
+listeners.tcp.default.allow_log_packet_data_from = "127.0.0.1, 192.168.1.0/24, 2001:db8::/32"
+```~"""
+
+base_listener_allow_log_packet_data_from.label:
+"""Allow Packet Data Logging From"""
+
 server_ssl_opts_schema_enable_ocsp_stapling.desc:
 """Whether to enable Online Certificate Status Protocol (OCSP) stapling for the listener.  If set to true, requires defining the OCSP responder URL and issuer PEM path."""
 

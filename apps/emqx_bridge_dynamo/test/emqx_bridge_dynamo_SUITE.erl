@@ -12,6 +12,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("erlcloud/include/erlcloud_ddb2.hrl").
+-include_lib("erlcloud/include/erlcloud_aws.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
 %%------------------------------------------------------------------------------
@@ -88,6 +89,12 @@ init_per_group(_Group, TCConfig) ->
 end_per_group(_Group, _TCConfig) ->
     ok.
 
+init_per_testcase(TestCase, TCConfig) when
+    TestCase =:= t_connector_client_uses_refreshed_metadata_credentials;
+    TestCase =:= t_connector_client_marks_metadata_refresh_errors_recoverable;
+    TestCase =:= t_credentials_validator
+->
+    TCConfig;
 init_per_testcase(TestCase, TCConfig) ->
     reset_proxy(),
     Path = group_path(TCConfig, no_groups),
@@ -115,6 +122,12 @@ init_per_testcase(TestCase, TCConfig) ->
         | TCConfig
     ].
 
+end_per_testcase(TestCase, _TCConfig) when
+    TestCase =:= t_connector_client_uses_refreshed_metadata_credentials;
+    TestCase =:= t_connector_client_marks_metadata_refresh_errors_recoverable;
+    TestCase =:= t_credentials_validator
+->
+    ok;
 end_per_testcase(_TestCase, _TCConfig) ->
     snabbkaffe:stop(),
     reset_proxy(),
@@ -192,7 +205,8 @@ setup_dynamo_direct() ->
 
 directly_query(Query) ->
     setup_dynamo(),
-    emqx_bridge_dynamo_connector_client:execute(Query, ?TABLE, #{}).
+    AWSConfig = erlcloud_ddb2:new("root", "public", "toxiproxy", 8000, "http://"),
+    emqx_bridge_dynamo_connector_client:execute(Query, ?TABLE, #{}, AWSConfig).
 
 directly_get_payload(Key) ->
     directly_get_field(Key, <<"payload">>).
@@ -314,6 +328,170 @@ json_encode(X) ->
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
+
+t_connector_client_uses_refreshed_metadata_credentials(_TCConfig) ->
+    TestPid = self(),
+    CredentialGeneration = atomics:new(1, []),
+    meck:new(erlcloud_aws, [passthrough, no_link]),
+    meck:new(erlcloud_httpc, [passthrough, no_link]),
+    meck:expect(
+        erlcloud_aws,
+        update_config,
+        fun
+            (AWSConfig = #aws_config{access_key_id = AccessKeyID}) when
+                AccessKeyID =:= undefined; AccessKeyID =:= []
+            ->
+                Generation = atomics:add_get(CredentialGeneration, 1, 1),
+                {ok, AWSConfig#aws_config{
+                    access_key_id = "imds_key_" ++ integer_to_list(Generation),
+                    secret_access_key = "imds_secret_" ++ integer_to_list(Generation),
+                    security_token = "imds_token_" ++ integer_to_list(Generation)
+                }};
+            (AWSConfig) ->
+                {ok, AWSConfig}
+        end
+    ),
+    meck:expect(
+        erlcloud_httpc,
+        request,
+        fun(_URL, post, Headers, _Body, _Timeout, _AWSConfig) ->
+            TestPid ! {ddb_request_headers, Headers},
+            {ok, {{200, "OK"}, [], <<"{}">>}}
+        end
+    ),
+    try
+        {ok, Pid} = emqx_bridge_dynamo_connector_client:start_link(#{
+            host => "127.0.0.1", port => 8000, scheme => "http://"
+        }),
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_dynamo_connector_client:query(
+                Pid,
+                ?TABLE,
+                {send_message, #{<<"clientid">> => <<"value">>}},
+                #{},
+                emqx_trace:make_rendered_action_template_trace_context(<<"test-action">>),
+                #{}
+            )
+        ),
+        receive
+            {ddb_request_headers, Headers} ->
+                Authorization = proplists:get_value("Authorization", Headers),
+                ?assertNotEqual(nomatch, string:find(Authorization, "Credential=imds_key_2/")),
+                ?assertEqual("imds_token_2", proplists:get_value("x-amz-security-token", Headers))
+        after 1_000 ->
+            ct:fail(ddb_request_not_received)
+        end,
+        ?assertEqual(2, atomics:get(CredentialGeneration, 1)),
+        gen_server:stop(Pid)
+    after
+        meck:unload(erlcloud_httpc),
+        meck:unload(erlcloud_aws)
+    end.
+
+t_connector_client_marks_metadata_refresh_errors_recoverable(_TCConfig) ->
+    CredentialGeneration = atomics:new(1, []),
+    meck:new(erlcloud_aws, [passthrough, no_link]),
+    meck:expect(
+        erlcloud_aws,
+        update_config,
+        fun(AWSConfig) ->
+            case atomics:add_get(CredentialGeneration, 1, 1) of
+                1 ->
+                    {ok, AWSConfig#aws_config{
+                        access_key_id = "imds_key",
+                        secret_access_key = "imds_secret",
+                        security_token = "imds_token"
+                    }};
+                2 ->
+                    {error, metadata_not_available}
+            end
+        end
+    ),
+    try
+        {ok, Pid} = emqx_bridge_dynamo_connector_client:start_link(#{
+            host => "127.0.0.1", port => 8000, scheme => "http://"
+        }),
+        ?assertEqual(
+            {error, {recoverable_error, {failed_to_obtain_credentials, metadata_not_available}}},
+            emqx_bridge_dynamo_connector_client:query(
+                Pid,
+                ?TABLE,
+                {get_item, {<<"clientid">>, <<"value">>}},
+                #{},
+                emqx_trace:make_rendered_action_template_trace_context(<<"test-action">>),
+                #{}
+            )
+        ),
+        gen_server:stop(Pid)
+    after
+        meck:unload(erlcloud_aws)
+    end.
+
+t_credentials_validator(_TCConfig) ->
+    ValidConfig = #{
+        <<"enable">> => true,
+        <<"url">> => <<"http://127.0.0.1:8000">>,
+        <<"region">> => <<"us-west-2">>,
+        <<"aws_access_key_id">> => <<"access_key">>,
+        <<"aws_secret_access_key">> => <<"secret_key">>,
+        <<"pool_size">> => 8,
+        <<"resource_opts">> => #{}
+    },
+    ?assertMatch(
+        #{<<"aws_access_key_id">> := <<"access_key">>},
+        emqx_bridge_v2_testlib:parse_and_check_connector(<<"dynamo">>, <<"test">>, ValidConfig)
+    ),
+    WithoutCredentials = maps:without(
+        [<<"aws_access_key_id">>, <<"aws_secret_access_key">>], ValidConfig
+    ),
+    ?assertNot(
+        maps:is_key(
+            <<"aws_access_key_id">>,
+            emqx_bridge_v2_testlib:parse_and_check_connector(
+                <<"dynamo">>, <<"test">>, WithoutCredentials
+            )
+        )
+    ),
+    lists:foreach(
+        fun(ConnectorName) ->
+            Checked = emqx_bridge_v2_testlib:parse_and_check_connector(
+                <<"dynamo">>, ConnectorName, WithoutCredentials
+            ),
+            ?assertNot(maps:is_key(<<"aws_access_key_id">>, Checked)),
+            ?assertNot(maps:is_key(<<"aws_secret_access_key">>, Checked))
+        end,
+        [<<"aws_access_key_id">>, <<"aws_secret_access_key">>]
+    ),
+    assert_invalid_credentials(fun() ->
+        emqx_bridge_v2_testlib:parse_and_check_connector(
+            <<"dynamo">>, <<"test">>, maps:remove(<<"aws_secret_access_key">>, ValidConfig)
+        )
+    end),
+    assert_invalid_credentials(fun() ->
+        emqx_bridge_v2_testlib:parse_and_check_connector(
+            <<"dynamo">>, <<"test">>, maps:remove(<<"aws_access_key_id">>, ValidConfig)
+        )
+    end).
+
+assert_invalid_credentials(Check) ->
+    try Check() of
+        _ -> ct:fail(expected_invalid_credentials)
+    catch
+        throw:{_Schema, Errors} ->
+            ?assert(
+                lists:any(
+                    fun
+                        (#{reason := Reason}) ->
+                            Reason =:=
+                                <<"aws_access_key_id and aws_secret_access_key must be provided together">>;
+                        (_) ->
+                            false
+                    end,
+                    Errors
+                )
+            )
+    end.
 
 t_start_stop(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_start_stop(TCConfig, dynamo_connector_on_stop).

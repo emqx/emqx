@@ -163,7 +163,6 @@ update(Namespace, Type, Name, {OldConf, Conf0}, Opts) ->
     %% without restarting the connector.
     %%
     Conf = Conf0#{connector_type => bin(Type), connector_name => bin(Name)},
-    TypeBin = bin(Type),
     case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf0) of
         false ->
             ?SLOG(info, #{
@@ -194,10 +193,6 @@ update(Namespace, Type, Name, {OldConf, Conf0}, Opts) ->
             _ =
                 case maps:get(enable, Conf, true) of
                     true ->
-                        %% Re-validate the connector (incl. SSRF policy) before
-                        %% re-enabling; disabling is always allowed so admins can
-                        %% always take down a now-denied connector.
-                        _ = parse_confs(TypeBin, Name, Conf),
                         restart(Namespace, Type, Name);
                     false ->
                         stop(Namespace, Type, Name)
@@ -365,9 +360,13 @@ check_ssrf(Host) ->
     end.
 
 parse_mqtt_host(Server) ->
-    case emqx_schema:parse_server(Server, #{default_port => 1883}) of
+    %% The server has already been validated by the schema at this point; if parsing
+    %% still fails, there is no host to check and the schema reports the real error.
+    try emqx_schema:parse_server(Server, emqx_schema:mqtt_host_opts()) of
         #{hostname := Host} -> Host;
         _ -> undefined
+    catch
+        throw:_ -> undefined
     end.
 
 -spec invalid_data(binary()) -> no_return().

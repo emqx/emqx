@@ -1,0 +1,50 @@
+{
+  "type": "record",
+  "name": "SyncRequestConfig",
+  "fields": [
+    {
+      "name": "default_timeout",
+      "type": "string",
+      "default": "10s",
+      "$ui": {
+        "component": "input",
+        "required": true,
+        "label": "$default_timeout_label",
+        "description": "$default_timeout_desc"
+      }
+    },
+    {
+      "name": "max_timeout",
+      "type": "string",
+      "default": "60s",
+      "$ui": {
+        "component": "input",
+        "required": true,
+        "label": "$max_timeout_label",
+        "description": "$max_timeout_desc"
+      }
+    },
+    {
+      "name": "max_inflight_requests",
+      "type": "int",
+      "default": 10000,
+      "$ui": {
+        "component": "input-number",
+        "required": true,
+        "label": "$max_inflight_requests_label",
+        "description": "$max_inflight_requests_desc"
+      }
+    },
+    {
+      "name": "max_payload_size",
+      "type": "string",
+      "default": "64KB",
+      "$ui": {
+        "component": "input",
+        "required": true,
+        "label": "$max_payload_size_label",
+        "description": "$max_payload_size_desc"
+      }
+    }
+  ]
+}

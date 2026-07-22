@@ -39,8 +39,7 @@
 -export([do_get_status/1]).
 
 -define(MYSQL_HOST_OPTIONS, #{
-    default_port => ?MYSQL_DEFAULT_PORT,
-    ssrf_check => true
+    default_port => ?MYSQL_DEFAULT_PORT
 }).
 
 -type state() ::
