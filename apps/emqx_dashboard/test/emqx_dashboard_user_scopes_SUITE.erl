@@ -291,6 +291,175 @@ t_put_users_response_includes_updated_scopes(_Config) ->
     ?assertEqual([<<"mfa_management">>], maps:get(<<"scopes">>, Resp)),
     ?assertEqual(<<"updated">>, maps:get(<<"description">>, Resp)).
 
+%%--------------------------------------------------------------------
+%% "unset"-equivalent write handling (issue #17931)
+%%
+%% The default administrator holds no explicit scopes (GET => "unset");
+%% a read-modify-write from the dashboard round-trips GET's *expanded*
+%% full catalog. The write paths must treat that expanded list (and the
+%% `unset' sentinel) as "no explicit scopes" so a plain note edit does
+%% not fail, and such users keep their forward-compatible implicit set
+%% rather than a frozen explicit list.
+%%--------------------------------------------------------------------
+
+%% Editing only the note of the default admin while sending back GET's
+%% expanded full catalog list succeeds (200) and does not sediment: GET
+%% keeps returning "unset".
+t_default_admin_note_only_edit_full_list(_Config) ->
+    Default = emqx_dashboard_admin:default_username(),
+    add_admin(Default),
+    Token = jwt(Default, test_password()),
+    FullList = emqx_dashboard_admin:role_default_scopes(?ROLE_SUPERUSER),
+    PutBody = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"edited note">>,
+        <<"scopes">> => FullList
+    },
+    {ok, 200, RespBody} = request_api(
+        put, api_path(["users", binary_to_list(Default)]), auth_header(Token), PutBody
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ?assertEqual(<<"edited note">>, maps:get(<<"description">>, Resp)),
+    ?assertEqual(<<"unset">>, maps:get(<<"scopes">>, Resp)),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Default)).
+
+%% The default admin can round-trip the `unset' sentinel verbatim; it
+%% stays unset.
+t_default_admin_put_unset_sentinel(_Config) ->
+    Default = emqx_dashboard_admin:default_username(),
+    add_admin(Default),
+    Token = jwt(Default, test_password()),
+    PutBody = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"note">>,
+        <<"scopes">> => <<"unset">>
+    },
+    {ok, 200, RespBody} = request_api(
+        put, api_path(["users", binary_to_list(Default)]), auth_header(Token), PutBody
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ?assertEqual(<<"unset">>, maps:get(<<"scopes">>, Resp)),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Default)).
+
+%% The role-default equivalence is order-insensitive: the full catalog
+%% sent in a shuffled order is still recognised as "unset".
+t_default_admin_put_full_list_shuffled(_Config) ->
+    Default = emqx_dashboard_admin:default_username(),
+    add_admin(Default),
+    Token = jwt(Default, test_password()),
+    Shuffled = lists:reverse(emqx_dashboard_admin:role_default_scopes(?ROLE_SUPERUSER)),
+    PutBody = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"note">>,
+        <<"scopes">> => Shuffled
+    },
+    {ok, 200, RespBody} = request_api(
+        put, api_path(["users", binary_to_list(Default)]), auth_header(Token), PutBody
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ?assertEqual(<<"unset">>, maps:get(<<"scopes">>, Resp)),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Default)).
+
+%% A genuinely different explicit list (a strict subset of the catalog)
+%% for the default admin is still rejected with 400 NOT_ALLOWED.
+t_default_admin_put_different_list_rejected(_Config) ->
+    Default = emqx_dashboard_admin:default_username(),
+    add_admin(Default),
+    Token = jwt(Default, test_password()),
+    PutBody = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"note">>,
+        <<"scopes">> => [?SCOPE_USER_MGMT]
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(
+            put, api_path(["users", binary_to_list(Default)]), auth_header(Token), PutBody
+        )
+    ),
+    %% Storage untouched — still no explicit scopes.
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Default)).
+
+%% Changing the default admin's role away from administrator is still
+%% rejected (unchanged break-glass protection).
+t_default_admin_role_change_rejected(_Config) ->
+    Default = emqx_dashboard_admin:default_username(),
+    add_admin(Default),
+    Token = jwt(Default, test_password()),
+    PutBody = #{
+        <<"role">> => ?ROLE_VIEWER,
+        <<"description">> => <<"note">>
+    },
+    ?assertMatch(
+        {ok, 400, _},
+        request_api(
+            put, api_path(["users", binary_to_list(Default)]), auth_header(Token), PutBody
+        )
+    ).
+
+%% A regular (non-default) user with unset scopes round-tripping the
+%% expanded full catalog stays unset — the implicit set is not sedimented.
+t_regular_user_round_trip_full_list_stays_unset(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"reguser">>, test_password(), ?ROLE_SUPERUSER, "u"
+    ),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(<<"reguser">>)),
+    FullList = emqx_dashboard_admin:role_default_scopes(?ROLE_SUPERUSER),
+    PutBody = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"note">>,
+        <<"scopes">> => FullList
+    },
+    {ok, 200, RespBody} = request_api(
+        put, api_path(["users", "reguser"]), auth_header(Token), PutBody
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ?assertEqual(<<"unset">>, maps:get(<<"scopes">>, Resp)),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(<<"reguser">>)).
+
+%% PUT `scopes: "unset"' on a regular user clears a previously-explicit
+%% list back to the unset state.
+t_regular_user_put_unset_clears_explicit(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"reguser2">>, test_password(), ?ROLE_SUPERUSER, "u"
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"reguser2">>, [?SCOPE_MFA_MGMT]),
+    ?assertEqual([?SCOPE_MFA_MGMT], emqx_dashboard_admin:scopes_of(<<"reguser2">>)),
+    PutBody = #{
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"note">>,
+        <<"scopes">> => <<"unset">>
+    },
+    {ok, 200, RespBody} = request_api(
+        put, api_path(["users", "reguser2"]), auth_header(Token), PutBody
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ?assertEqual(<<"unset">>, maps:get(<<"scopes">>, Resp)),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(<<"reguser2">>)).
+
+%% POST create with `scopes: "unset"' creates the user with no explicit
+%% scopes (GET returns "unset").
+t_post_create_unset_sentinel(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    Body = #{
+        <<"username">> => <<"created_unset">>,
+        <<"password">> => test_password(),
+        <<"role">> => ?ROLE_SUPERUSER,
+        <<"description">> => <<"u">>,
+        <<"scopes">> => <<"unset">>
+    },
+    {ok, 200, RespBody} = request_api(
+        post, api_path(["users"]), auth_header(Token), Body
+    ),
+    Resp = emqx_utils_json:decode(RespBody),
+    ?assertEqual(<<"unset">>, maps:get(<<"scopes">>, Resp)),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(<<"created_unset">>)).
+
 %% Viewer cannot hold user_management.
 t_viewer_cannot_hold_user_management(_Config) ->
     add_admin(<<"admin">>),
