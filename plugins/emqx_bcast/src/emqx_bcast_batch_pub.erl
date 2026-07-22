@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bcast_batch_pub).
 
--export([handle/2, deliver_local/6]).
+-export([handle/2, resolve_local/3]).
 
 -include("emqx_bcast.hrl").
 
@@ -37,17 +37,16 @@ handle(Body, RequestId) ->
                     case validate(ProductKey, DeviceNames, MessageContent, MessageId) of
                         {error, Code, Msg} ->
                             {ok, 400, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg)};
-                        {ok, ApiMsgId, MsgGuid} ->
+                        {ok, Prepared} ->
                             TopicTemplate = resolve_topic(
                                 TopicTemplateName, TopicShortName, ProductKey
                             ),
                             deliver_qos1(
+                                Prepared,
                                 DeviceNames,
                                 ProductKey,
                                 TopicTemplate,
-                                MsgGuid,
-                                RequestId,
-                                ApiMsgId
+                                RequestId
                             )
                     end
             end
@@ -115,12 +114,17 @@ validate(_PK, DeviceNames, _MC, _MI) when is_list(DeviceNames) ->
             {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
         false ->
             case has_duplicates(DeviceNames) of
-                true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
-                false -> resolve_content(DeviceNames, _MC, _MI)
+                true ->
+                    {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
+                false ->
+                    prepare_content(_MC, _MI)
             end
     end.
 
-resolve_content(_DeviceNames, MessageContent, _MessageId) when MessageContent =/= undefined ->
+%% Prepare the message reference without touching storage. Storage writes
+%% happen only after the queue capacity check passes, so a 429 response
+%% leaves no records behind.
+prepare_content(MessageContent, _MessageId) when MessageContent =/= undefined ->
     case emqx_bcast_utils:decode_base64(MessageContent) of
         {ok, Payload} ->
             MaxSize = get_max_message_size_batch(),
@@ -128,132 +132,151 @@ resolve_content(_DeviceNames, MessageContent, _MessageId) when MessageContent =/
                 true ->
                     Hash = emqx_bcast_utils:sha256(Payload),
                     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
-                    case
-                        emqx_bcast_storage:lookup_or_create_message(
-                            Payload, Hash, ApiMsgId, MsgGuid
-                        )
-                    of
-                        {created, Id, Guid} -> {ok, Id, Guid};
-                        {existing, Id, Guid} -> {ok, Id, Guid};
-                        {error, _} -> {error, <<"InternalError">>, <<"Storage error">>}
-                    end;
+                    {ok, {content, Payload, Hash, ApiMsgId, MsgGuid}};
                 false ->
                     {error, <<"MessageTooLarge">>, <<"Message too large">>}
             end;
         {error, _} ->
             {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
     end;
-resolve_content(_DeviceNames, _MC, MessageId) when MessageId =/= undefined ->
+prepare_content(_MC, MessageId) when MessageId =/= undefined ->
     case emqx_bcast_id:resolve_message_id(MessageId) of
         {ok, MsgGuid} ->
-            _ = emqx_bcast_storage:refresh_message_ttl(MsgGuid),
-            {ok, MessageId, MsgGuid};
+            {ok, {reuse, MessageId, MsgGuid}};
         {error, not_found} ->
             {error, <<"MessageNotFound">>, <<"MessageId not found">>}
     end.
 
 deliver_qos0(DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgId) ->
-    dispatch(0, DeviceNames, ProductKey, TopicTemplate, Payload, #{}),
-    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
+    {Targets, Offline} = resolve(DeviceNames, ProductKey, TopicTemplate),
+    ok = count_offline(0, Offline),
+    case emqx_bcast_deliver:has_capacity(length(Targets)) of
+        false ->
+            queue_full_response(RequestId);
+        true ->
+            _ = emqx_bcast_deliver:submit_targets(Targets, #{qos => 0, payload => Payload}),
+            {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}
+    end.
 
-deliver_qos1(DeviceNames, ProductKey, TopicTemplate, MsgGuid, RequestId, ApiMsgId) ->
+deliver_qos1({content, Payload, Hash, ApiMsgId0, MsgGuid}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
     emqx_bcast_metrics:qos1_in(),
     emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
-    DeliveryId = emqx_bcast_utils:gen_guid(),
-    N = length(DeviceNames),
-    _Delivery = emqx_bcast_storage:create_delivery(
-        DeliveryId, MsgGuid, ProductKey, TopicTemplate, DeviceNames, N
-    ),
-    {ok, PayloadMsg} = emqx_bcast_storage:lookup_message(MsgGuid),
-    Payload = PayloadMsg#bcast_message.payload,
+    {Targets, Offline} = resolve(DeviceNames, ProductKey, TopicTemplate),
+    case emqx_bcast_deliver:has_capacity(length(Targets)) of
+        false ->
+            queue_full_response(RequestId);
+        true ->
+            DeliveryId = emqx_bcast_utils:gen_guid(),
+            case
+                emqx_bcast_storage:create_message_and_delivery(
+                    Payload, Hash, ApiMsgId0, MsgGuid,
+                    DeliveryId, ProductKey, TopicTemplate, DeviceNames
+                )
+            of
+                {ok, ApiMsgId, _Delivery} ->
+                    ok = count_offline(1, Offline),
+                    _ = submit_qos1(Targets, Payload, DeliveryId, ProductKey),
+                    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
+                {error, _} ->
+                    {ok, 500, #{},
+                        emqx_bcast_api:error_response(
+                            RequestId, <<"InternalError">>, <<"Storage error">>
+                        )}
+            end
+    end;
+deliver_qos1({reuse, ApiMsgId, MsgGuid}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
+    emqx_bcast_metrics:qos1_in(),
+    emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
+    {Targets, Offline} = resolve(DeviceNames, ProductKey, TopicTemplate),
+    case emqx_bcast_deliver:has_capacity(length(Targets)) of
+        false ->
+            queue_full_response(RequestId);
+        true ->
+            DeliveryId = emqx_bcast_utils:gen_guid(),
+            _Delivery = emqx_bcast_storage:create_delivery(
+                DeliveryId, MsgGuid, ProductKey, TopicTemplate,
+                DeviceNames, length(DeviceNames)
+            ),
+            %% Best-effort TTL refresh; skipped silently when the queue is full.
+            _ = emqx_bcast_deliver:submit_task(fun() ->
+                _ = emqx_bcast_storage:refresh_message_ttl(MsgGuid),
+                ok
+            end),
+            {ok, Msg} = emqx_bcast_storage:lookup_message(MsgGuid),
+            Payload = Msg#bcast_message.payload,
+            ok = count_offline(1, Offline),
+            _ = submit_qos1(Targets, Payload, DeliveryId, ProductKey),
+            {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}
+    end.
+
+submit_qos1(Targets, Payload, DeliveryId, ProductKey) ->
     Config = persistent_term:get({?APP, config}, #{}),
     ForceUpgrade = maps:get(force_upgrade_qos, Config, true),
-    dispatch(1, DeviceNames, ProductKey, TopicTemplate, Payload, #{
-        delivery_id => DeliveryId, force_upgrade_qos => ForceUpgrade
-    }),
-    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
+    emqx_bcast_deliver:submit_targets(Targets, #{
+        qos => 1,
+        payload => Payload,
+        delivery_id => DeliveryId,
+        product_key => ProductKey,
+        force_upgrade_qos => ForceUpgrade
+    }).
 
-%% Deliver to devices connected to the local node only.
-%% Invoked directly for local devices and via emqx_rpc:call for remote ones.
-%% Returns the list of device names that were actually delivered on this node,
-%% so the dispatching node can compute how many devices were offline cluster-wide.
-deliver_local(Qos, ProductKey, TopicTemplate, Payload, DeviceNames, Opts) ->
-    [DN || DN <- DeviceNames, deliver_one(Qos, ProductKey, TopicTemplate, Payload, DN, Opts)].
+queue_full_response(RequestId) ->
+    {ok, 429, #{},
+        emqx_bcast_api:error_response(
+            RequestId, <<"DeliveryQueueFull">>, <<"Delivery queue is full, retry later">>
+        )}.
 
-%% Fan out delivery to every running node. Each node checks its own node-local
-%% device ETS and subscription table, so a device connected on a peer node is
-%% delivered there instead of being misclassified as offline.
-dispatch(Qos, DeviceNames, ProductKey, TopicTemplate, Payload, Opts) ->
+%% Resolve devices to node-local delivery targets: pid, concrete topic and
+%% matched subscription QoS. Pure ETS reads, so it is cheap enough to run
+%% synchronously in the API handler. Devices that are not connected to this
+%% node, or whose subscription does not match the target topic, are skipped
+%% here and counted as offline by the caller.
+resolve_local(DeviceNames, ProductKey, TopicTemplate) ->
+    lists:filtermap(
+        fun(DN) ->
+            case emqx_bcast:lookup_device({ProductKey, DN}) of
+                {ok, Pid} ->
+                    Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
+                    case emqx_bcast_subscription:match(DN, Topic) of
+                        {ok, SubQos} ->
+                            {true, {DN, Pid, Topic, SubQos}};
+                        false ->
+                            false
+                    end;
+                {error, not_found} ->
+                    false
+            end
+        end,
+        DeviceNames
+    ).
+
+%% Resolve across the cluster: each node checks its own node-local device
+%% and subscription ETS. Returns {Targets, OfflineCount}.
+resolve(DeviceNames, ProductKey, TopicTemplate) ->
     Self = node(),
-    Delivered =
+    Targets =
         lists:concat([
             case Node of
                 Self ->
-                    deliver_local(Qos, ProductKey, TopicTemplate, Payload, DeviceNames, Opts);
+                    resolve_local(DeviceNames, ProductKey, TopicTemplate);
                 _ ->
-                    case emqx_rpc:call(
-                        Node, ?MODULE, deliver_local,
-                        [Qos, ProductKey, TopicTemplate, Payload, DeviceNames, Opts]
-                    ) of
+                    case
+                        emqx_rpc:call(
+                            Node, ?MODULE, resolve_local,
+                            [DeviceNames, ProductKey, TopicTemplate]
+                        )
+                    of
                         {badrpc, _} -> [];
-                        DNs when is_list(DNs) -> DNs
+                        L when is_list(L) -> L
                     end
             end
          || Node <- emqx:running_nodes()
         ]),
-    OfflineCount = length(DeviceNames) - length(lists:usort(Delivered)),
-    count_offline(Qos, OfflineCount).
+    {Targets, length(DeviceNames) - length(Targets)}.
 
 count_offline(_Qos, 0) -> ok;
 count_offline(0, N) -> emqx_bcast_metrics:qos0_skipped(N);
 count_offline(1, N) -> emqx_bcast_metrics:qos1_stored_offline(N).
-
-%% Returns true when the device was delivered on this node, false otherwise.
-%% A device that is not connected here, or whose subscription does not match the
-%% target topic, returns false so the dispatching node can count it as offline.
-deliver_one(Qos, ProductKey, TopicTemplate, Payload, DN, Opts) ->
-    case emqx_bcast:lookup_device({ProductKey, DN}) of
-        {ok, Pid} ->
-            Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DN),
-            case emqx_bcast_subscription:match(DN, Topic) of
-                {ok, SubQos} ->
-                    do_deliver(Qos, Pid, Topic, ProductKey, DN, Payload, SubQos, Opts),
-                    true;
-                false ->
-                    false
-            end;
-        {error, not_found} ->
-            false
-    end.
-
-do_deliver(0, Pid, Topic, _ProductKey, DN, Payload, _SubQos, _Opts) ->
-    emqx_bcast_metrics:qos0_delivered(),
-    Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
-    Pid ! #deliver{topic = Topic, message = Msg};
-do_deliver(1, Pid, Topic, ProductKey, DN, Payload, SubQos, Opts) ->
-    DeliveryId = maps:get(delivery_id, Opts),
-    ForceUpgrade = maps:get(force_upgrade_qos, Opts, true),
-    case ForceUpgrade orelse SubQos >= 1 of
-        true ->
-            emqx_bcast_metrics:qos1_delivered_inline(),
-            Msg = emqx_message:make(
-                DeliveryId,
-                DN,
-                ?QOS_1,
-                Topic,
-                Payload,
-                #{},
-                #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => ProductKey}
-            ),
-            Pid ! #deliver{topic = Topic, message = Msg};
-        false ->
-            Msg = emqx_message:make(DN, ?QOS_0, Topic, Payload),
-            Pid ! #deliver{topic = Topic, message = Msg},
-            case emqx_bcast_storage:process_ack(ProductKey, DN, DeliveryId) of
-                counted -> emqx_bcast_metrics:qos1_acked();
-                _ -> ok
-            end
-    end.
 
 has_duplicates(List) ->
     length(lists:usort(List)) =/= length(List).
