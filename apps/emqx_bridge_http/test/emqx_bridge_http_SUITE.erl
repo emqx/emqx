@@ -421,37 +421,36 @@ t_oauth2_async_retry_uses_latest_token(TCConfig) ->
     #{topic := Topic} = simple_create_rule_api(TCConfig),
     ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
     SecondToken = <<"oauth2-access-token-2">>,
-    AttemptsKey = {?MODULE, ?FUNCTION_NAME, attempts},
-    persistent_term:put(AttemptsKey, 0),
-    on_exit(fun() -> persistent_term:erase(AttemptsKey) end),
-    emqx_common_test_helpers:with_mock(
-        emqx_bridge_http_connector,
-        reply_delegator,
-        fun(Context, ReplyFunAndArgs, Result) ->
-            case persistent_term:get(AttemptsKey) of
-                0 ->
-                    persistent_term:put(AttemptsKey, 1),
+    Counter = counters:new(1, []),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+        {ok, Body, Req1} = cowboy_req:read_body(Req0),
+        Headers = cowboy_req:headers(Req1),
+        ok = counters:add(Counter, 1, 1),
+        N = counters:get(Counter, 1),
+        TestPid ! {http, Headers, Body},
+        Status =
+            case N of
+                1 ->
                     set_oauth2_token(TestPid, SecondToken),
                     ok = emqx_connector_oauth2:clear_cache(ConnectorResId),
-                    meck:passthrough([Context, ReplyFunAndArgs, {error, closed}]);
+                    503;
                 _ ->
-                    meck:passthrough([Context, ReplyFunAndArgs, Result])
-            end
-        end,
-        fun() ->
-            Client = start_client(),
-            emqtt:publish(Client, Topic, <<"retry">>, [{qos, 1}]),
-            {http, FirstHeaders, _} = ?assertReceive({http, _, _}, 2_000),
-            {http, SecondHeaders, _} = ?assertReceive({http, _, _}, 2_000),
-            ?assertEqual(
-                <<"Bearer ", FirstToken/binary>>,
-                maps:get(<<"authorization">>, FirstHeaders)
-            ),
-            ?assertEqual(
-                <<"Bearer ", SecondToken/binary>>,
-                maps:get(<<"authorization">>, SecondHeaders)
-            )
-        end
+                    200
+            end,
+        Req = cowboy_req:reply(Status, #{}, <<>>, Req1),
+        {ok, Req, State}
+    end),
+    Client = start_client(),
+    emqtt:publish(Client, Topic, <<"retry">>, [{qos, 1}]),
+    {http, FirstHeaders, _} = ?assertReceive({http, _, _}, 2_000),
+    {http, SecondHeaders, _} = ?assertReceive({http, _, _}, 2_000),
+    ?assertEqual(
+        <<"Bearer ", FirstToken/binary>>,
+        maps:get(<<"authorization">>, FirstHeaders)
+    ),
+    ?assertEqual(
+        <<"Bearer ", SecondToken/binary>>,
+        maps:get(<<"authorization">>, SecondHeaders)
     ).
 
 t_oauth2_rejects_action_authorization_header(_TCConfig) ->

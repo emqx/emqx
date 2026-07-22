@@ -100,7 +100,19 @@ get_token(ResourceId) ->
 %% instance.  Called from the connector `on_stop'.
 -spec unregister(term()) -> ok.
 unregister(ResourceId) ->
-    call(#unregister{resource_id = ResourceId}).
+    %% Delete the supervisor-owned persistent entries first.  If the manager
+    %% is restarting, its next incarnation will not restore this registration.
+    clear_cache(ResourceId),
+    delete_registration(ResourceId),
+    try
+        call(#unregister{resource_id = ResourceId})
+    catch
+        exit:Reason ->
+            ?tp(warning, "oauth2_unregister_manager_unavailable", #{
+                resource_id => ResourceId, reason => Reason
+            }),
+            ok
+    end.
 
 %% For debug/test/manual ops
 clear_cache() ->
@@ -359,8 +371,11 @@ store_registration(ResourceId, Params) ->
     ok.
 
 delete_registration(ResourceId) ->
-    true = ets:delete(?OAUTH2_REGISTRY_TAB, ResourceId),
-    ok.
+    try ets:delete(?OAUTH2_REGISTRY_TAB, ResourceId) of
+        true -> ok
+    catch
+        error:badarg -> ok
+    end.
 
 restore_refresh_timers(Registered, State0) ->
     maps:fold(

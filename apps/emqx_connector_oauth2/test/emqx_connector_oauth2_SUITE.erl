@@ -8,6 +8,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
 %%------------------------------------------------------------------------------
@@ -29,6 +30,7 @@ end_per_suite(TCConfig) ->
     ok.
 
 init_per_testcase(_TestCase, TCConfig) ->
+    ok = snabbkaffe:start_trace(),
     emqx_connector_oauth2:clear_cache(),
     Table = ets:new(?MODULE, [set, public]),
     true = ets:insert(Table, [{request_count, 0}, {handler, fun unexpected_request/1}]),
@@ -43,6 +45,7 @@ end_per_testcase(_TestCase, TCConfig) ->
     ok = emqx_utils_http_test_server:stop(),
     true = ets:delete(token_server_table(TCConfig)),
     emqx_connector_oauth2:clear_cache(),
+    ok = snabbkaffe:stop(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -80,13 +83,9 @@ t_refresh_failure_keeps_valid_token(TCConfig) ->
     ok = set_token_handler(TCConfig, fun(_Request) ->
         {503, #{}, <<"unavailable">>}
     end),
-    ok = wait_for(fun() -> token_request_count(TCConfig) >= 2 end, 8_000),
-    ok = wait_for(
-        fun() ->
-            State = sys:get_state(emqx_connector_oauth2),
-            not maps:is_key(ResourceId, maps:get(inflight, State))
-        end,
-        1_000
+    {ok, _} = ?block_until(
+        #{?snk_kind := "oauth2_token_refresh_failed", resource_id := ResourceId},
+        8_000
     ),
     %% A failed proactive refresh must not replace the still-valid token with
     %% an error entry.
@@ -162,6 +161,20 @@ t_get_token_handles_manager_unavailable(TCConfig) ->
         {ok, _} = supervisor:restart_child(emqx_connector_oauth2_sup, emqx_connector_oauth2)
     end,
     ok = emqx_connector_oauth2:unregister(ResourceId).
+
+t_unregister_handles_manager_unavailable(TCConfig) ->
+    ResourceId = <<"res:unregister-manager-unavailable">>,
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
+    ok = supervisor:terminate_child(emqx_connector_oauth2_sup, emqx_connector_oauth2),
+    try
+        ?assertEqual(ok, emqx_connector_oauth2:unregister(ResourceId))
+    after
+        {ok, _} = supervisor:restart_child(emqx_connector_oauth2_sup, emqx_connector_oauth2)
+    end,
+    ?assertEqual(
+        {error, oauth2_not_registered},
+        emqx_connector_oauth2:get_token(ResourceId)
+    ).
 
 t_different_resources_fetch_concurrently(TCConfig) ->
     SlowId = <<"res:slow">>,
