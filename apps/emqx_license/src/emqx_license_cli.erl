@@ -4,6 +4,8 @@
 
 -module(emqx_license_cli).
 
+-behaviour(emqx_ctl).
+
 -include("emqx_license.hrl").
 
 -export([load/0, license/1, license_audit_args/1, unload/0, print_warnings/1]).

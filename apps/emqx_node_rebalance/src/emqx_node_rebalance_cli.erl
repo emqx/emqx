@@ -4,6 +4,8 @@
 
 -module(emqx_node_rebalance_cli).
 
+-behaviour(emqx_ctl).
+
 %% APIs
 -export([
     load/0,

@@ -4,20 +4,22 @@
 
 -module(emqx_observer_cli).
 
+-behaviour(emqx_ctl).
+
 -export([
-    enable/0,
-    disable/0
+    load/0,
+    unload/0
 ]).
 
 -export([cmd/1, cmd_audit_args/1]).
 
 %%--------------------------------------------------------------------
-%% enable/disable
+%% load/unload
 %%--------------------------------------------------------------------
-enable() ->
+load() ->
     emqx_ctl:register_command(observer, {?MODULE, cmd}, []).
 
-disable() ->
+unload() ->
     emqx_ctl:unregister_command(observer).
 
 cmd(["status"]) ->

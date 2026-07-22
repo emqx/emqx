@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_conf_cli).
 
+-behaviour(emqx_ctl).
+
 -include("emqx_conf.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 -include_lib("emqx/include/logger.hrl").

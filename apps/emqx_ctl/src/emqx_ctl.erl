@@ -18,6 +18,9 @@
 
 -behaviour(gen_server).
 
+-callback load() -> ok.
+-callback unload() -> ok.
+
 -include_lib("kernel/include/logger.hrl").
 
 -export([start_link/0, stop/0]).

@@ -4,6 +4,8 @@
 
 -module(emqx_eviction_agent_cli).
 
+-behaviour(emqx_ctl).
+
 %% APIs
 -export([
     load/0,

@@ -5,6 +5,8 @@
 %% @doc The Command-Line-Interface module for Gateway Application
 -module(emqx_gateway_cli).
 
+-behaviour(emqx_ctl).
+
 -export([
     load/0,
     unload/0

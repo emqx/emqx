@@ -4,6 +4,8 @@
 
 -module(emqx_retainer_cli).
 
+-behaviour(emqx_ctl).
+
 -include_lib("emqx/include/logger.hrl").
 
 -export([load/0, retainer/1, retainer_audit_args/1, unload/0]).

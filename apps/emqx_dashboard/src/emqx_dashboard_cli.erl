@@ -4,6 +4,8 @@
 
 -module(emqx_dashboard_cli).
 
+-behaviour(emqx_ctl).
+
 -include("emqx_dashboard.hrl").
 
 -export([
@@ -16,10 +18,10 @@
 
 -export([bin/1, print_error/1]).
 
--define(CLI_MOD, emqx_dashboard_sso_cli).
+-define(ADMINS_CLI_MOD, emqx_dashboard_sso_admins).
 
 load() ->
-    emqx_ctl:register_command(admins, {?CLI_MOD, admins}, []),
+    emqx_ctl:register_command(admins, {?ADMINS_CLI_MOD, admins}, []),
     emqx_ctl:register_command(api_keys, {?MODULE, api_keys}, []).
 
 admins(["add", Username, Password]) ->

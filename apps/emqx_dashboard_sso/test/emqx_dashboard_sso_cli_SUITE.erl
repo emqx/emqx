@@ -12,7 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--import(emqx_dashboard_sso_cli, [admins/1]).
+-import(emqx_dashboard_sso_admins, [admins/1]).
 
 -define(RETRY(Action),
     ?retry(
@@ -112,21 +112,21 @@ t_redact({'end', _Config}) ->
 t_redact(_) ->
     ?assertEqual(
         ["add", "user", "******", "description", "viewer"],
-        emqx_dashboard_sso_cli:admins_audit_args([
+        emqx_dashboard_sso_admins:admins_audit_args([
             "add", "user", "password", "description", "viewer"
         ])
     ),
     ?assertEqual(
         ["passwd", "user", "******"],
-        emqx_dashboard_sso_cli:admins_audit_args(["passwd", "user", "password"])
+        emqx_dashboard_sso_admins:admins_audit_args(["passwd", "user", "password"])
     ),
     ?assertEqual(
         ["del", "user"],
-        emqx_dashboard_sso_cli:admins_audit_args(["del", "user"])
+        emqx_dashboard_sso_admins:admins_audit_args(["del", "user"])
     ),
     ?assertEqual(
         ["add", "user"],
-        emqx_dashboard_sso_cli:admins_audit_args(["add", "user"])
+        emqx_dashboard_sso_admins:admins_audit_args(["add", "user"])
     ).
 
 t_del({init, Config}) ->

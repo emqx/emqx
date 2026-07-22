@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_rule_engine_cli).
 
+-behaviour(emqx_ctl).
+
 %% API:
 -export([load/0, unload/0]).
 
