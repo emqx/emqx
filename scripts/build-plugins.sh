@@ -5,6 +5,11 @@ set -euo pipefail
 ROOT_DIR="$(cd -P -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
+COMPILE_ONLY=false
+if [ "${1:-}" = "--compile-only" ]; then
+    COMPILE_ONLY=true
+fi
+
 mkdir -p _build/plugins
 
 for plugin_app_dir in plugins/*; do
@@ -17,6 +22,14 @@ for plugin_app_dir in plugins/*; do
 
     plugin_app="$(basename "$plugin_app_dir")"
     echo "Building plugin ${plugin_app}"
+    if [ "$COMPILE_ONLY" = true ]; then
+        (
+            cd "$plugin_app_dir"
+            MIX_ENV="$PROFILE" "$ROOT_DIR/mix" "do" deps.get + compile
+        )
+        continue
+    fi
+
     make "plugin-${plugin_app}"
 
     if ! find _build/plugins -maxdepth 1 -type f -name "${plugin_app}-*.tar.gz" | grep -q .; then
