@@ -119,30 +119,30 @@ run_command(help, []) ->
     help();
 run_command(Cmd, Args) when is_atom(Cmd) ->
     Start = erlang:monotonic_time(),
-    {Result, CliHandler} =
-        case lookup_command(Cmd) of
-            {ok, {Mod, Fun}} ->
-                CommandResult =
-                    try
-                        apply(Mod, Fun, [Args])
-                    catch
-                        _:Reason:Stacktrace ->
-                            ?LOG_ERROR(#{
-                                msg => "ctl_command_crashed",
-                                stacktrace => Stacktrace,
-                                reason => Reason,
-                                module => Mod,
-                                function => Fun
-                            }),
-                            {error, Reason}
-                    end,
-                {CommandResult, {Mod, Fun}};
-            {error, Reason} ->
-                help(),
-                {{error, Reason}, undefined}
+    case lookup_command(Cmd) of
+        {ok, CliHandler} ->
+            execute_command(Cmd, Args, CliHandler, Start);
+        {error, Reason} ->
+            help(),
+            {error, Reason}
+    end.
+
+execute_command(Cmd, Args, {Mod, Fun} = CliHandler, Start) ->
+    Result =
+        try
+            apply(Mod, Fun, [Args])
+        catch
+            _:Reason:Stacktrace ->
+                ?LOG_ERROR(#{
+                    msg => "ctl_command_crashed",
+                    stacktrace => Stacktrace,
+                    reason => Reason,
+                    module => Mod,
+                    function => Fun
+                }),
+                {error, Reason}
         end,
     Duration = erlang:convert_time_unit(erlang:monotonic_time() - Start, native, millisecond),
-
     audit_log(
         audit_level(Result, Duration),
         cli,
@@ -356,8 +356,6 @@ audit_log(Level, From, CliHandler, Log) ->
             end
     end.
 
-apply_audit_args_callback(undefined, Log) ->
-    Log;
 apply_audit_args_callback({CliModule, CliFunction} = CliHandler, Log = #{args := Args}) ->
     case audit_args_function(CliModule, CliFunction) of
         undefined ->

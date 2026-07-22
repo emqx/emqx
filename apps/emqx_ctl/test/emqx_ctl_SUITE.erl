@@ -75,6 +75,19 @@ t_audit_redaction(_) ->
             emqx_ctl:register_command(cmd3, {?MODULE, cmd3_fun}),
             emqx_ctl:register_command(cmd4, {?MODULE, cmd4_fun}),
 
+            ?assertEqual(
+                {error, cmd_not_found},
+                emqx_ctl:run_command(unregistered_cmd, ["secret", "value"])
+            ),
+            ?assertEqual(undefined, get(audit_log)),
+            ?assertEqual(
+                {error, cmd_not_found},
+                emqx_ctl:run_command(
+                    ["unknown_cli_command_7f42d9", "secret", "value"]
+                )
+            ),
+            ?assertEqual(undefined, get(audit_log)),
+
             ok = emqx_ctl:run_command(["cmd3", "secret", "value"]),
             ?assertEqual(["secret", "value"], get(command_args)),
             ?assertEqual(["secret", "value"], get(callback_args)),
@@ -189,6 +202,9 @@ cmd4_fun(_Args) ->
 
 cmd4_fun_audit_args(_Args) ->
     ["selected-audit-callback"].
+
+audit_fun(usage) ->
+    ok.
 
 audit_fun(_Level, _From, Log) ->
     put(audit_log, Log),
