@@ -468,6 +468,7 @@ eval_erl([String]) ->
     print("~p~n", [Value]).
 
 eval_erl_audit_args(Args) ->
+    %% Intentionally do not redact eval expressions: auditing requires the exact code executed.
     Args.
 
 eval_expr(Parsed) ->
