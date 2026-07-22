@@ -11,8 +11,8 @@
 -export([on_handle_api_call/4]).
 
 start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_bcast_sup:start_link(),
     ok = emqx_bcast_config:load(),
+    {ok, Sup} = emqx_bcast_sup:start_link(),
     ok = emqx_bcast_metrics:init(),
     ok = emqx_bcast:init_tables(),
     ok = emqx_bcast:rebuild_index(),
@@ -24,7 +24,22 @@ stop(_State) ->
     ok.
 
 on_config_changed(_OldConf, NewConf) ->
-    emqx_bcast_config:update(NewConf).
+    OldSize = normalized_pool_size(),
+    ok = emqx_bcast_config:update(NewConf),
+    NewSize = normalized_pool_size(),
+    case OldSize =:= NewSize of
+        true ->
+            ok;
+        false ->
+            %% Pool worker count is fixed at supervisor start; restart the
+            %% pool child to apply the new size. Queue max is read from
+            %% persistent_term on every submit, so it applies immediately.
+            emqx_bcast_sup:restart_deliver_pool(NewSize)
+    end.
+
+normalized_pool_size() ->
+    Config = persistent_term:get({emqx_bcast, config}, #{}),
+    maps:get(delivery_pool_size, Config, erlang:system_info(schedulers)).
 
 on_handle_api_call(Method, PathRemainder, Request, _Context) ->
     emqx_bcast_api:handle(Method, PathRemainder, Request).

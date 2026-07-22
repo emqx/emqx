@@ -26,27 +26,17 @@ init_per_suite(Config) ->
         [{emqx, ?EMQX_CONF}, mria],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    ok = emqx_bcast:init_tables(),
+    %% Start the plugin application so it owns the ETS/Mnesia tables, hooks and
+    %% metrics registry. This exercises the normal startup path instead of the
+    %% suite wiring each resource by hand.
+    {ok, _} = application:ensure_all_started(prometheus),
+    {ok, _} = application:ensure_all_started(emqx_bcast),
     init_test_config(),
-    ok = emqx_bcast:hook(),
-    catch emqx_bcast_metrics:init(),
-    _ =
-        try
-            ets:new(bcast_msg_index, [
-                named_table,
-                public,
-                set,
-                {keypos, 2},
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ])
-        catch
-            _:_ -> ok
-        end,
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    emqx_bcast:unhook(),
+    ok = application:stop(emqx_bcast),
+    ok = application:stop(prometheus),
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_test_config() ->
@@ -57,23 +47,11 @@ init_test_config() ->
         max_message_size_batch => 10240,
         max_message_size_broadcast => 65536,
         broadcast_topic => <<"/sys/broadcast/${productKey}">>,
-        batch_topic => <<"/${productKey}/${deviceName}/user/get">>
+        batch_topic => <<"/${productKey}/${deviceName}/user/get">>,
+        force_upgrade_qos => true
     }).
 
 init_per_testcase(_Case, Config) ->
-    _ =
-        try
-            ets:new(bcast_msg_index, [
-                named_table,
-                public,
-                set,
-                {keypos, 2},
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ])
-        catch
-            _:_ -> ok
-        end,
     emqx_bcast_metrics:init(),
     emqx_bcast_subscription:init(),
     Config.

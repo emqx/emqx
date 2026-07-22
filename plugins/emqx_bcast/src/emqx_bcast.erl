@@ -55,36 +55,24 @@ init_tables() ->
 
 create_mnesia_tables() ->
     Tables = [
-        {?TAB_MSG, [
-            {record_name, bcast_message},
-            {attributes, record_info(fields, bcast_message)},
-            {disc_copies, [node()]},
-            {type, set}
-        ]},
-        {?TAB_MSG_API_ID, [
-            {record_name, bcast_message_api_id},
-            {attributes, record_info(fields, bcast_message_api_id)},
-            {disc_copies, [node()]},
-            {type, set}
-        ]},
-        {?TAB_MSG_HASH, [
-            {record_name, bcast_message_hash},
-            {attributes, record_info(fields, bcast_message_hash)},
-            {disc_copies, [node()]},
-            {type, set}
-        ]},
-        {?TAB_MSG_REC, [
-            {record_name, bcast_msg},
-            {attributes, record_info(fields, bcast_msg)},
-            {disc_copies, [node()]},
-            {type, set}
-        ]}
+        {?TAB_MSG, bcast_message, record_info(fields, bcast_message)},
+        {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id)},
+        {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash)},
+        {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg)}
     ],
-    [
-        mnesia:create_table(Tab, Opts)
-     || {Tab, Opts} <- Tables, mnesia:create_table(Tab, Opts) =/= {aborted, {already_exists, Tab}}
-    ],
-    ok.
+    lists:foreach(
+        fun({Tab, RecordName, Attributes}) ->
+            ok = mria:create_table(Tab, [
+                {rlog_shard, ?BCAST_SHARD},
+                {storage, disc_copies},
+                {record_name, RecordName},
+                {attributes, Attributes},
+                {type, set}
+            ])
+        end,
+        Tables
+    ),
+    ok = mria:wait_for_tables([Tab || {Tab, _, _} <- Tables]).
 
 create_ets_tables() ->
     ensure_ets(?TAB_DEV_SUB, [

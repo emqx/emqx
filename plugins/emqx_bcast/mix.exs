@@ -46,7 +46,7 @@ defmodule EMQXBcast.MixProject do
 
   def application do
     [
-      extra_applications: [],
+      extra_applications: [:prometheus],
       mod: {:emqx_bcast_app, []}
     ]
   end

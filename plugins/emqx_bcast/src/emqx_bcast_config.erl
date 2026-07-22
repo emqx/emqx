@@ -37,8 +37,14 @@ normalize(Config) ->
         max_message_size_broadcast => maps:get(max_message_size_broadcast, Config, 65536),
         max_message_size_batch => maps:get(max_message_size_batch, Config, 10240),
         msg_warn_threshold => maps:get(msg_warn_threshold, Config, 100000),
-        force_upgrade_qos => maps:get(force_upgrade_qos, Config, true)
+        force_upgrade_qos => maps:get(force_upgrade_qos, Config, true),
+        delivery_pool_size => pool_size(maps:get(delivery_pool_size, Config, 0)),
+        delivery_queue_max => maps:get(delivery_queue_max, Config, 10000)
     }.
+
+pool_size(0) -> erlang:system_info(schedulers);
+pool_size(N) when is_integer(N), N > 0 -> N;
+pool_size(_) -> erlang:system_info(schedulers).
 
 duration_to_sec(Field, Value) when is_binary(Value) ->
     case parse_duration(Value) of
