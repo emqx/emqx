@@ -1386,6 +1386,38 @@ t_alarm_events_hash(Config) ->
     ?assertNotReceive({rule_called, _}),
     ok.
 
+%% Smoke tests for `$events/sys/alarm_activated' and `$events/sys/alarm_deactivated', when
+%% `limit_selects_in_namespace = true`.
+t_alarm_events_limit_selects_in_namespace(Config) ->
+    on_exit(fun() ->
+        {ok, _} = emqx_conf:update(
+            [rule_engine, limit_selects_in_namespace],
+            false,
+            #{override_to => cluster}
+        )
+    end),
+    {ok, _} = emqx_conf:update(
+        [rule_engine, limit_selects_in_namespace],
+        true,
+        #{override_to => cluster}
+    ),
+    TestPidBin = list_to_binary(pid_to_list(self())),
+    {201, _} = create_rule(#{
+        <<"id">> => <<"alarms">>,
+        <<"sql">> => iolist_to_binary([
+            <<" select * from ">>,
+            <<" \"$events/sys/alarm_activated\", ">>,
+            <<" \"$events/sys/alarm_deactivated\" ">>
+        ]),
+        <<"actions">> => [
+            #{
+                <<"function">> => <<?MODULE_STRING, ":spy_action">>,
+                <<"args">> => #{<<"pid">> => TestPidBin}
+            }
+        ]
+    }),
+    do_t_alarm_events(Config).
+
 do_t_alarm_events(_Config) ->
     AlarmName = <<"some_alarm">>,
     Details = #{more => details},
