@@ -125,7 +125,7 @@ t_request_conflicts_when_exact_subscribers_exist_on_multiple_nodes(Config) ->
 cluster_specs() ->
     Apps = [
         {emqx_conf, #{
-            schema_mod => emqx_enterprise_schema,
+            schema_mod => emqx_conf_schema,
             config => cluster_broker_config()
         }},
         {emqx, #{config => cluster_broker_config()}},
@@ -148,7 +148,7 @@ cluster_dashboard() ->
     {emqx_dashboard, #{
         config => "dashboard.listeners.http { enable = true, bind = 10183 }",
         before_start => fun() ->
-            true = os:putenv("SCHEMA_MOD", "emqx_enterprise_schema"),
+            true = os:putenv("SCHEMA_MOD", "emqx_conf_schema"),
             {ok, _} = emqx_common_test_http:create_default_app()
         end
     }}.

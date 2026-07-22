@@ -167,6 +167,7 @@ init_per_group(_GroupName, Config) ->
 emqx_config() ->
     """
     listeners.tcp.default {
+        allow_log_packet_data_from = "127.0.0.0/8, ::1"
         tcp_options { send_timeout = 2500
                       sndbuf = 4KB
                       recbuf = 4KB
@@ -176,6 +177,7 @@ emqx_config() ->
                     }
     }
     listeners.ssl.default {
+        allow_log_packet_data_from = "127.0.0.0/8, ::1"
         tcp_options { send_timeout = 2500
                       sndbuf = 4KB
                       recbuf = 4KB
