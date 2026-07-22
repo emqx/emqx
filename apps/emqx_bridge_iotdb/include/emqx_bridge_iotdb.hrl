@@ -13,8 +13,7 @@
 -define(VSN_0_13_X, 'v0.13.x').
 
 -define(THRIFT_HOST_OPTIONS, #{
-    default_port => 6667,
-    ssrf_check => true
+    default_port => 6667
 }).
 
 -define(PROTOCOL_V1, 'protocol_v1').
