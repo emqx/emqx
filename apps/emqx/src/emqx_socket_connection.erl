@@ -840,7 +840,7 @@ handle_data_ready(Socket, State) ->
         {ok, Data} ->
             handle_data(Data, true, State);
         {select, {_Info, Data}} ->
-            handle_data(Data, true, State);
+            handle_data(Data, false, State);
         {select, _Info} ->
             {ok, State};
         {error, {closed, Data}} ->
