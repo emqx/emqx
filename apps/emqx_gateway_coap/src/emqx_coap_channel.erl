@@ -422,7 +422,10 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
             URIQuery = emqx_coap_message:extract_uri_query(Msg),
             case get_query_value(<<"token">>, URIQuery) of
                 undefined ->
-                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
+                    ?SLOG(debug, #{
+                        msg => "token_required_in_conn_mode",
+                        message => emqx_utils_redact:redact(Msg)
+                    }),
                     missing_token_or_clientid_reply(Msg, Channel);
                 _ ->
                     check_token(Msg, Channel)

@@ -400,13 +400,13 @@ make_timer(Name, Time, Msg, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 update_life_timer(#channel{session = Session, timers = Timers} = Channel) ->
-    LifeTime = emqx_lwm2m_session:info(lifetime, Session),
+    Lifetime = emqx_lwm2m_session:info(lifetime, Session),
     _ =
         case maps:get(lifetime, Timers, undefined) of
             undefined -> ok;
             Ref -> erlang:cancel_timer(Ref)
         end,
-    make_timer(lifetime, LifeTime, lifetime, Channel).
+    make_timer(lifetime, Lifetime, lifetime, Channel).
 
 check_location(Location, #channel{session = Session}) ->
     SLocation = emqx_lwm2m_session:info(location_path, Session),
@@ -545,7 +545,7 @@ enrich_clientinfo(
         _ ->
             ?SLOG(error, #{
                 msg => "reject_REGISTER_request",
-                reason => {wrong_paramters, Query}
+                reason => {wrong_paramters, emqx_utils_redact:redact(Query)}
             }),
             {error, "invalid queries", Channel}
     end.
