@@ -105,7 +105,7 @@ t_audit_redaction(_) ->
             emqx_ctl:register_command(missing_callback, {lists, reverse}),
             ["value", "plain"] = emqx_ctl:run_command(["missing_callback", "plain", "value"]),
             ?assertMatch(
-                #{args := [<<"plain">>, <<"value">>]},
+                #{args := [<<"******">>, <<"******">>]},
                 get(audit_log)
             ),
 

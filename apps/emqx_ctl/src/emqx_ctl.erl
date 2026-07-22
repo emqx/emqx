@@ -359,7 +359,7 @@ audit_log(Level, From, CliHandler, Log) ->
 apply_audit_args_callback({CliModule, CliFunction} = CliHandler, Log = #{args := Args}) ->
     case audit_args_function(CliModule, CliFunction) of
         undefined ->
-            Log;
+            Log#{args => emqx_cli_redact:redact_all(Args)};
         AuditArgsFunction ->
             try apply(CliModule, AuditArgsFunction, [Args]) of
                 RedactedArgs when is_list(RedactedArgs) ->
