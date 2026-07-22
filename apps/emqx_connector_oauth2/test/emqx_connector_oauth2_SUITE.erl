@@ -30,11 +30,18 @@ end_per_suite(TCConfig) ->
 
 init_per_testcase(_TestCase, TCConfig) ->
     emqx_connector_oauth2:clear_cache(),
-    meck:new(emqx_connector_oauth2, [passthrough, no_link]),
-    TCConfig.
+    Table = ets:new(?MODULE, [set, public]),
+    true = ets:insert(Table, [{request_count, 0}, {handler, fun unexpected_request/1}]),
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/[...]", false),
+    ok = emqx_utils_http_test_server:set_handler(fun(Req, State) ->
+        token_server_handler(Table, Req, State)
+    end),
+    BaseURL = iolist_to_binary(["http://127.0.0.1:", integer_to_list(Port)]),
+    [{token_server, #{table => Table, base_url => BaseURL}} | TCConfig].
 
-end_per_testcase(_TestCase, _TCConfig) ->
-    meck:unload(emqx_connector_oauth2),
+end_per_testcase(_TestCase, TCConfig) ->
+    ok = emqx_utils_http_test_server:stop(),
+    true = ets:delete(token_server_table(TCConfig)),
     emqx_connector_oauth2:clear_cache(),
     ok.
 
@@ -42,66 +49,66 @@ end_per_testcase(_TestCase, _TCConfig) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_get_token_fetches_and_caches(_TCConfig) ->
+t_get_token_fetches_and_caches(TCConfig) ->
     ResourceId = <<"res:1">>,
-    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
-    ok = expect_token(<<"access-1">>, 3600),
+    ok = set_token_response(TCConfig, <<"access-1">>, 3600),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
     ?assertEqual({ok, <<"access-1">>}, emqx_connector_oauth2:get_token(ResourceId)),
     %% Second call must hit the ETS cache, not the token endpoint.
     ?assertEqual({ok, <<"access-1">>}, emqx_connector_oauth2:get_token(ResourceId)),
-    ?assertEqual(1, meck:num_calls(emqx_connector_oauth2, do_request, 1)),
+    ?assertEqual(1, token_request_count(TCConfig)),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
-t_refresh_renews_token_before_expiry(_TCConfig) ->
+t_refresh_renews_token_before_expiry(TCConfig) ->
     ResourceId = <<"res:2">>,
-    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
+    ok = set_token_response(TCConfig, <<"access-2a">>, 2),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
     %% Short lifetime so the refresh timer fires quickly (75% of 2s = 1.5s).
-    ok = expect_token(<<"access-2a">>, 2),
     ?assertEqual({ok, <<"access-2a">>}, emqx_connector_oauth2:get_token(ResourceId)),
-    ok = expect_token(<<"access-2b">>, 3600),
+    ok = set_token_response(TCConfig, <<"access-2b">>, 3600),
     ok = wait_for(
         fun() -> emqx_connector_oauth2:get_token(ResourceId) =:= {ok, <<"access-2b">>} end,
         10_000
     ),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
-t_fetch_failure_is_cached_briefly(_TCConfig) ->
+t_fetch_failure_is_cached_briefly(TCConfig) ->
     ResourceId = <<"res:3">>,
-    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
-    meck:expect(emqx_connector_oauth2, do_request, 1, {error, mocked}),
+    ok = set_token_handler(TCConfig, fun(_Request) ->
+        {503, #{}, <<"unavailable">>}
+    end),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
     ?assertMatch({error, _}, emqx_connector_oauth2:get_token(ResourceId)),
-    %% A second call within the short failure-cache window must not hit the
-    %% endpoint again.
+    %% A second call within the short failure-cache window reuses the error.
     ?assertMatch({error, _}, emqx_connector_oauth2:get_token(ResourceId)),
-    ?assertEqual(1, meck:num_calls(emqx_connector_oauth2, do_request, 1)),
+    ?assertEqual(1, token_request_count(TCConfig)),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
-t_unregister_clears_cache(_TCConfig) ->
+t_unregister_clears_cache(TCConfig) ->
     ResourceId = <<"res:4">>,
-    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
-    ok = expect_token(<<"access-4">>, 3600),
+    ok = set_token_response(TCConfig, <<"access-4">>, 3600),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
     ?assertEqual({ok, <<"access-4">>}, emqx_connector_oauth2:get_token(ResourceId)),
     ok = emqx_connector_oauth2:unregister(ResourceId),
-    %% After unregister the RefreshFn is gone, so get_token returns an error
-    %% without hitting the token endpoint.
-    ?assertEqual(1, meck:num_calls(emqx_connector_oauth2, do_request, 1)),
+    ?assertEqual(1, token_request_count(TCConfig)),
     ?assertMatch({error, _}, emqx_connector_oauth2:get_token(ResourceId)).
 
-t_register_invalidates_cached_token(_TCConfig) ->
+t_register_invalidates_cached_token(TCConfig) ->
     ResourceId = <<"res:config-update">>,
-    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
-    ok = expect_token(<<"old-token">>, 3600),
+    ok = set_token_response(TCConfig, <<"old-token">>, 3600),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
     ?assertEqual({ok, <<"old-token">>}, emqx_connector_oauth2:get_token(ResourceId)),
-    UpdatedConfig = (oauth2_config())#{client_id := <<"updated-client-id">>},
+    ok = set_token_response(TCConfig, <<"new-token">>, 3600),
+    UpdatedConfig = (oauth2_config(TCConfig))#{client_id := <<"updated-client-id">>},
     ok = emqx_connector_oauth2:register(ResourceId, UpdatedConfig),
-    ok = expect_token(<<"new-token">>, 3600),
     ?assertEqual({ok, <<"new-token">>}, emqx_connector_oauth2:get_token(ResourceId)),
-    ?assertEqual(2, meck:num_calls(emqx_connector_oauth2, do_request, 1)),
+    ?assertEqual(2, token_request_count(TCConfig)),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
-t_manager_restart_recovers_registration(_TCConfig) ->
+t_manager_restart_recovers_registration(TCConfig) ->
     ResourceId = <<"res:manager-restart">>,
-    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
+    ok = set_token_response(TCConfig, <<"after-restart">>, 3600),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
     OldPid = whereis(emqx_connector_oauth2),
     exit(OldPid, kill),
     ok = wait_for(
@@ -113,114 +120,137 @@ t_manager_restart_recovers_registration(_TCConfig) ->
         end,
         5_000
     ),
-    ok = expect_token(<<"after-restart">>, 3600),
     ?assertEqual({ok, <<"after-restart">>}, emqx_connector_oauth2:get_token(ResourceId)),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
-t_different_resources_fetch_concurrently(_TCConfig) ->
+t_get_token_handles_manager_unavailable(TCConfig) ->
+    ResourceId = <<"res:manager-unavailable">>,
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
+    ok = supervisor:terminate_child(emqx_connector_oauth2_sup, emqx_connector_oauth2),
+    try
+        ?assertMatch(
+            {error, {oauth2_manager_unavailable, _}},
+            emqx_connector_oauth2:get_token(ResourceId)
+        )
+    after
+        {ok, _} = supervisor:restart_child(emqx_connector_oauth2_sup, emqx_connector_oauth2)
+    end,
+    ok = emqx_connector_oauth2:unregister(ResourceId).
+
+t_different_resources_fetch_concurrently(TCConfig) ->
     SlowId = <<"res:slow">>,
     FastId = <<"res:fast">>,
-    SlowEndpoint = <<"https://auth.example.com/slow">>,
-    FastEndpoint = <<"https://auth.example.com/fast">>,
+    SlowEndpoint = token_endpoint(TCConfig, <<"/slow">>),
+    FastEndpoint = token_endpoint(TCConfig, <<"/fast">>),
     ok = emqx_connector_oauth2:register(
-        SlowId, (oauth2_config())#{token_endpoint := SlowEndpoint}
+        SlowId, (oauth2_config(TCConfig))#{token_endpoint := SlowEndpoint}
     ),
     ok = emqx_connector_oauth2:register(
-        FastId, (oauth2_config())#{token_endpoint := FastEndpoint}
+        FastId, (oauth2_config(TCConfig))#{token_endpoint := FastEndpoint}
     ),
     TestPid = self(),
-    meck:expect(emqx_connector_oauth2, do_request, fun(#{uri := Endpoint}) ->
-        TestPid ! {fetch_started, Endpoint, self()},
+    ok = set_token_handler(TCConfig, fun(#{path := Path}) ->
+        TestPid ! {fetch_started, Path, self()},
         receive
-            continue -> token_http_response(Endpoint, 3600)
+            continue -> token_response(Path, 3600)
         end
     end),
     spawn(fun() -> TestPid ! {fetch_done, SlowId, emqx_connector_oauth2:get_token(SlowId)} end),
-    SlowFetchPid = ?assertReceive({fetch_started, SlowEndpoint, _}, 1_000),
-    {fetch_started, SlowEndpoint, SlowWorker} = SlowFetchPid,
+    SlowFetch = ?assertReceive({fetch_started, <<"/slow">>, _}, 1_000),
+    {fetch_started, <<"/slow">>, SlowWorker} = SlowFetch,
     spawn(fun() -> TestPid ! {fetch_done, FastId, emqx_connector_oauth2:get_token(FastId)} end),
-    FastFetchPid = ?assertReceive({fetch_started, FastEndpoint, _}, 1_000),
-    {fetch_started, FastEndpoint, FastWorker} = FastFetchPid,
+    FastFetch = ?assertReceive({fetch_started, <<"/fast">>, _}, 1_000),
+    {fetch_started, <<"/fast">>, FastWorker} = FastFetch,
     SlowWorker ! continue,
     FastWorker ! continue,
-    ?assertReceive({fetch_done, SlowId, {ok, SlowEndpoint}}, 1_000),
-    ?assertReceive({fetch_done, FastId, {ok, FastEndpoint}}, 1_000),
+    ?assertReceive({fetch_done, SlowId, {ok, <<"/slow">>}}, 1_000),
+    ?assertReceive({fetch_done, FastId, {ok, <<"/fast">>}}, 1_000),
     ok = emqx_connector_oauth2:unregister(SlowId),
     ok = emqx_connector_oauth2:unregister(FastId).
 
-t_concurrent_get_token_fetches_once(_TCConfig) ->
-    %% Many callers racing on a cache miss must share a single token fetch:
-    %% `get_token/1' reads ETS first, and the GenServer re-checks ETS inside
-    %% `handle_call(#fetch{})' before fetching.  This is a behavior the Kafka
-    %% bridge relied on (its `t_smoke_cache_concurrency') and that Kafka will
-    %% inherit from this module once migrated, so it is locked down here.
+t_concurrent_get_token_fetches_once(TCConfig) ->
     ResourceId = <<"res:conc">>,
-    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config()),
-    ok = expect_token(<<"access-conc">>, 3600),
-    Responses =
-        emqx_utils:pmap(
-            fun(_) -> emqx_connector_oauth2:get_token(ResourceId) end,
-            lists:seq(1, 10)
-        ),
+    TestPid = self(),
+    ok = set_token_handler(TCConfig, fun(_Request) ->
+        TestPid ! {fetch_started, self()},
+        receive
+            continue -> token_response(<<"access-conc">>, 3600)
+        end
+    end),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
+    spawn(fun() ->
+        Responses0 =
+            emqx_utils:pmap(
+                fun(_) -> emqx_connector_oauth2:get_token(ResourceId) end,
+                lists:seq(1, 10)
+            ),
+        TestPid ! {responses, Responses0}
+    end),
+    {fetch_started, FetchWorker} = ?assertReceive({fetch_started, _}, 1_000),
+    FetchWorker ! continue,
+    {responses, Responses} = ?assertReceive({responses, _}, 2_000),
     ?assertMatch([_ | _], Responses),
     ?assert(lists:all(fun(R) -> R =:= {ok, <<"access-conc">>} end, Responses)),
-    %% The token endpoint is hit once, not once per caller.
-    ?assertEqual(1, meck:num_calls(emqx_connector_oauth2, do_request, 1)),
+    ?assertEqual(1, token_request_count(TCConfig)),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
-t_fetch_token_derives_expiry_from_jwt_exp(_TCConfig) ->
-    %% A token response whose `access_token' is a JWT carrying an `exp' claim,
-    %% but with no `expires_in'.  This exercises `get_expiry_ms', which must
-    %% peek the JWT `exp' instead of falling back to the short default.  This
-    %% is a regression guard for the `jose_jwt:peek' pattern: the result is a
-    %% `#jose_jwt{}' record, not a bare map.
-    ExpSec = os:system_time(second) + 3600,
-    JWT = make_jwt(#{<<"exp">> => ExpSec}),
-    Body = emqx_utils_json:encode(#{
-        <<"access_token">> => JWT,
-        <<"token_type">> => <<"Bearer">>
-    }),
-    meck:expect(
-        emqx_connector_oauth2,
-        do_request,
-        1,
-        {ok, {{<<"HTTP/1.1">>, 200, <<"OK">>}, [], Body}}
-    ),
-    {ok, ExpiryMS, JWT} = emqx_connector_oauth2:fetch_token(fetch_params()),
-    %% Derived from the JWT `exp' (~1h), not the 15s default.
-    ?assert(ExpiryMS > 3_500_000),
-    ?assert(ExpiryMS =< 3_600_000),
-    ok.
-
-t_fetch_token_returns_error_on_bad_status(_TCConfig) ->
-    meck:expect(
-        emqx_connector_oauth2,
-        do_request,
-        1,
-        {ok, {{<<"HTTP/1.1">>, 401, <<"Unauthorized">>}, [], <<"nope">>}}
-    ),
-    ?assertMatch(
-        {error, {bad_token_response, _}},
-        emqx_connector_oauth2:fetch_token(fetch_params())
-    ),
-    ok.
-
-t_fetch_token_rejects_malformed_success_response(_TCConfig) ->
-    lists:foreach(
-        fun(Response) ->
-            meck:expect(
-                emqx_connector_oauth2,
-                do_request,
-                1,
-                {ok, {{<<"HTTP/1.1">>, 200, <<"OK">>}, [], emqx_utils_json:encode(Response)}}
-            ),
-            ?assertMatch({error, {bad_token_response, _}}, fetch_token())
+t_token_expiry_is_derived_from_jwt(TCConfig) ->
+    ResourceId = <<"res:jwt-expiry">>,
+    JWT = make_jwt(#{<<"exp">> => os:system_time(second) + 3}),
+    ok = set_token_handler(TCConfig, fun(_Request) ->
+        {200, json_headers(),
+            emqx_utils_json:encode(#{
+                <<"access_token">> => JWT,
+                <<"token_type">> => <<"Bearer">>
+            })}
+    end),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
+    ?assertEqual({ok, JWT}, emqx_connector_oauth2:get_token(ResourceId)),
+    ok = set_token_response(TCConfig, <<"refreshed-after-jwt">>, 3600),
+    ok = wait_for(
+        fun() ->
+            emqx_connector_oauth2:get_token(ResourceId) =:= {ok, <<"refreshed-after-jwt">>}
         end,
-        [
-            #{<<"access_token">> => 42, <<"expires_in">> => 3600},
-            #{<<"access_token">> => <<"token">>, <<"expires_in">> => <<"3600">>},
-            #{<<"access_token">> => <<"token">>, <<"token_type">> => <<"MAC">>}
-        ]
+        6_000
+    ),
+    ok = emqx_connector_oauth2:unregister(ResourceId).
+
+t_token_endpoint_error_is_sanitized(TCConfig) ->
+    ResourceId = <<"res:bad-status">>,
+    SensitiveBody = emqx_utils_json:encode(#{
+        <<"error">> => <<"invalid_client">>,
+        <<"error_description">> => <<"sensitive provider details">>
+    }),
+    ok = set_token_handler(TCConfig, fun(_Request) ->
+        {401, #{<<"x-sensitive-header">> => <<"secret-value">>}, SensitiveBody}
+    end),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
+    ?assertEqual(
+        {error, {token_endpoint_error, 401, <<"invalid_client">>}},
+        emqx_connector_oauth2:get_token(ResourceId)
+    ),
+    ok = emqx_connector_oauth2:unregister(ResourceId).
+
+t_rejects_malformed_success_response(TCConfig) ->
+    Responses = [
+        #{<<"access_token">> => 42, <<"expires_in">> => 3600},
+        #{<<"access_token">> => <<"token">>, <<"expires_in">> => <<"3600">>},
+        #{<<"access_token">> => <<"token">>, <<"token_type">> => <<"MAC">>}
+    ],
+    lists:foreach(
+        fun({I, Response}) ->
+            ResourceId = <<"res:malformed:", (integer_to_binary(I))/binary>>,
+            ok = set_token_handler(TCConfig, fun(_Request) ->
+                {200, json_headers(), emqx_utils_json:encode(Response)}
+            end),
+            ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
+            ?assertMatch(
+                {error, {bad_token_response, _}},
+                emqx_connector_oauth2:get_token(ResourceId)
+            ),
+            ok = emqx_connector_oauth2:unregister(ResourceId)
+        end,
+        lists:enumerate(Responses)
     ).
 
 t_validate_rejects_missing_fields(_TCConfig) ->
@@ -269,7 +299,9 @@ t_validate_accepts_when_disabled_or_absent(_TCConfig) ->
         client_secret => emqx_secret:wrap(<<"s">>)
     },
     ?assertEqual(ok, emqx_connector_oauth2_schema:validate(#{}, undefined)),
+    ?assertEqual(ok, emqx_connector_oauth2_schema:validate(#{}, #{})),
     ?assertEqual(ok, emqx_connector_oauth2_schema:validate(#{}, #{enable => false})),
+    ?assertMatch({ok, #{oauth2 := #{}}}, check_oauth2(#{})),
     ?assertMatch({ok, #{oauth2 := #{enable := false}}}, check_oauth2(#{enable => false})),
     ?assertMatch(
         {ok, #{oauth2 := #{enable := true, ssl := #{enable := true}}}},
@@ -281,15 +313,24 @@ t_validate_accepts_when_disabled_or_absent(_TCConfig) ->
     ),
     ?assertEqual(ok, emqx_connector_oauth2_schema:validate(#{}, FullOauth2)).
 
+t_omitted_oauth2_is_not_materialized(_TCConfig) ->
+    Schema = #{roots => [emqx_connector_oauth2_schema:oauth2_field()]},
+    Checked = hocon_tconf:check_plain(
+        Schema,
+        #{},
+        #{atom_key => true, required => false}
+    ),
+    ?assertEqual(#{}, Checked).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
-oauth2_config() ->
+oauth2_config(TCConfig) ->
     #{
         enable => true,
         grant_type => client_credentials,
-        token_endpoint => <<"https://auth.example.com/oauth/token">>,
+        token_endpoint => token_endpoint(TCConfig, <<"/oauth/token">>),
         client_id => <<"client-id">>,
         client_secret => emqx_secret:wrap(<<"client-secret">>),
         scope => <<"read">>,
@@ -319,38 +360,51 @@ check_oauth2(Oauth2) ->
             {error, Reason}
     end.
 
-expect_token(Token, ExpiresInSec) ->
-    Body = emqx_utils_json:encode(#{
-        <<"access_token">> => Token,
-        <<"expires_in">> => ExpiresInSec,
-        <<"token_type">> => <<"Bearer">>
-    }),
-    meck:expect(
-        emqx_connector_oauth2, do_request, 1, {ok, {{<<"HTTP/1.1">>, 200, <<"OK">>}, [], Body}}
-    ).
+set_token_response(TCConfig, Token, ExpiresInSec) ->
+    set_token_handler(TCConfig, fun(_Request) -> token_response(Token, ExpiresInSec) end).
 
-%% Plain fetch parameters (the shape `make_fetch_params/1' produces), used to
-%% exercise `fetch_token/1' directly without going through the GenServer.
-fetch_params() ->
-    #{
-        token_endpoint => <<"https://auth.example.com/oauth/token">>,
-        client_id => <<"client-id">>,
-        client_secret => emqx_secret:wrap(<<"client-secret">>),
-        scope => <<"read">>,
-        timeout => 5_000,
-        ssl => #{}
-    }.
+token_response(Token, ExpiresInSec) ->
+    {200, json_headers(),
+        emqx_utils_json:encode(#{
+            <<"access_token">> => Token,
+            <<"expires_in">> => ExpiresInSec,
+            <<"token_type">> => <<"Bearer">>
+        })}.
 
-fetch_token() ->
-    emqx_connector_oauth2:fetch_token(fetch_params()).
+json_headers() ->
+    #{<<"content-type">> => <<"application/json">>}.
 
-token_http_response(Token, ExpiresInSec) ->
-    Body = emqx_utils_json:encode(#{
-        <<"access_token">> => Token,
-        <<"expires_in">> => ExpiresInSec,
-        <<"token_type">> => <<"Bearer">>
-    }),
-    {ok, {{<<"HTTP/1.1">>, 200, <<"OK">>}, [], Body}}.
+set_token_handler(TCConfig, Handler) ->
+    true = ets:insert(token_server_table(TCConfig), {handler, Handler}),
+    ok.
+
+token_request_count(TCConfig) ->
+    ets:lookup_element(token_server_table(TCConfig), request_count, 2).
+
+token_endpoint(TCConfig, Path) ->
+    #{base_url := BaseURL} = ?config(token_server, TCConfig),
+    <<BaseURL/binary, Path/binary>>.
+
+token_server_table(TCConfig) ->
+    #{table := Table} = ?config(token_server, TCConfig),
+    Table.
+
+token_server_handler(Table, Req0, State) ->
+    {ok, Body, Req1} = cowboy_req:read_body(Req0),
+    Count = ets:update_counter(Table, request_count, 1),
+    Handler = ets:lookup_element(Table, handler, 2),
+    Request = #{
+        body => Body,
+        count => Count,
+        headers => cowboy_req:headers(Req1),
+        path => cowboy_req:path(Req1)
+    },
+    {Status, Headers, ResponseBody} = Handler(Request),
+    Req = cowboy_req:reply(Status, Headers, ResponseBody, Req1),
+    {ok, Req, State}.
+
+unexpected_request(Request) ->
+    error({unexpected_token_request, Request}).
 
 %% Builds an unsigned (`alg=none') compact JWT carrying the given claims, just
 %% enough for `jose_jwt:peek/1' to decode the payload.

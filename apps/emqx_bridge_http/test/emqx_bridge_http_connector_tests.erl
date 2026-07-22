@@ -4,7 +4,6 @@
 -module(emqx_bridge_http_connector_tests).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -define(MY_SECRET, <<"my_precious">>).
 

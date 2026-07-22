@@ -14,8 +14,7 @@
     fields/1,
     desc/1,
     oauth2_field/0,
-    validate/2,
-    validate_no_auth_header_conflict/2
+    validate/2
 ]).
 
 -define(ENABLED_HEADERS, [<<"authorization">>]).
@@ -39,8 +38,7 @@ fields(oauth2_disabled) ->
     [
         {enable,
             mk(false, #{
-                default => false,
-                required => true,
+                required => false,
                 desc => ?DESC("oauth2_enable")
             })}
     ];
@@ -100,31 +98,19 @@ desc(_) ->
 %% Validations
 %%------------------------------------------------------------------------------
 
-%% Check used from the HTTP connector / authn_http / authz_http config assembly
-%% points.  Structural constraints are enforced by the union schema above; this
-%% cross-field check rejects a manually configured `authorization' header.
+%% Reject an HTTP header that would be overwritten by OAuth2 token injection.
 -spec validate(Headers, Oauth2) -> ok | {error, term()} when
     Headers :: map() | undefined,
     Oauth2 :: map() | undefined.
-validate(Headers, Oauth2) ->
-    validate_no_auth_header_conflict(Headers, Oauth2).
-
-%% Checks that the user did not configure an HTTP header that OAuth2 owns.
-%% When OAuth2 is enabled, the connector injects `Authorization: Bearer <token>`
-%% on every request; a manually configured `authorization` header would
-%% therefore be a conflict and must be rejected at config-check time.
--spec validate_no_auth_header_conflict(Headers, Oauth2) -> ok | {error, term()} when
-    Headers :: map() | undefined,
-    Oauth2 :: map() | undefined.
-validate_no_auth_header_conflict(_Headers, undefined) ->
+validate(_Headers, undefined) ->
     ok;
-validate_no_auth_header_conflict(_Headers, #{enable := false}) ->
+validate(_Headers, #{enable := false}) ->
     ok;
-validate_no_auth_header_conflict(Headers, #{enable := true}) when
+validate(Headers, #{enable := true}) when
     Headers =:= undefined; Headers =:= #{}
 ->
     ok;
-validate_no_auth_header_conflict(Headers, #{enable := true}) when is_map(Headers) ->
+validate(Headers, #{enable := true}) when is_map(Headers) ->
     Conflicting = [
         K
      || K <- maps:keys(Headers),
@@ -145,7 +131,7 @@ validate_no_auth_header_conflict(Headers, #{enable := true}) when is_map(Headers
                     >>
             }}
     end;
-validate_no_auth_header_conflict(_, _) ->
+validate(_, _) ->
     ok.
 
 %%------------------------------------------------------------------------------

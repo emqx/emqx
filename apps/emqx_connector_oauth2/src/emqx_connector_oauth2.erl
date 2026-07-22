@@ -25,10 +25,9 @@
     handle_info/2
 ]).
 
-%% Internal exports (for mocking/tests).  `fetch_token/1' is also exported
-%% because it is invoked via `?MODULE:fetch_token/1' (dynamic dispatch) so a
-%% hot code upgrade runs the new implementation.
--export([do_request/1, fetch_token/1]).
+%% Invoked through the module name from fetch workers so hot upgrades use the
+%% current implementation.
+-export([fetch_token/1]).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -89,7 +88,12 @@ get_token(ResourceId) ->
         {ok, Response} ->
             Response;
         error ->
-            call(#fetch{resource_id = ResourceId})
+            try
+                call(#fetch{resource_id = ResourceId})
+            catch
+                exit:Reason ->
+                    {error, {oauth2_manager_unavailable, Reason}}
+            end
     end.
 
 %% Removes the cached token and cancels the refresh timer for a connector
@@ -165,10 +169,9 @@ handle_cast(_Cast, State) ->
     {noreply, State}.
 
 handle_info(
-    {timeout, _TRef, #refresh{resource_id = ResourceId}}, #{?TIMERS := Timers0} = State0
-) when
-    is_map_key(ResourceId, Timers0)
-->
+    {timeout, TRef, #refresh{resource_id = ResourceId}},
+    #{?TIMERS := Timers0} = State0
+) when map_get(ResourceId, Timers0) =:= TRef ->
     Timers = maps:remove(ResourceId, Timers0),
     State1 = State0#{?TIMERS := Timers},
     State = handle_refresh(ResourceId, State1),
@@ -469,7 +472,7 @@ fetch_token(Params) ->
         [{"scope", str(Scope)} || Scope =/= undefined]
     ]),
     Body = uri_string:compose_query(BodyParams),
-    Resp = ?MODULE:do_request(#{
+    Resp = do_request(#{
         uri => Endpoint,
         body => Body,
         timeout => Timeout,
@@ -483,13 +486,12 @@ fetch_token(Params) ->
                 {error, Reason} ->
                     {error, {bad_token_response, Reason}}
             end;
-        {ok, {{_, Status, _}, Headers, BadResp}} ->
-            {error, {bad_token_response, #{status => Status, headers => Headers, body => BadResp}}};
+        {ok, {{_, Status, _}, _Headers, BadResp}} ->
+            {error, {token_endpoint_error, Status, oauth_error(BadResp)}};
         {error, Reason} ->
             {error, {failed_to_fetch_token, Reason}}
     end.
 
-%% Only exposed for mocking/tests.
 do_request(#{uri := URI, body := Body, timeout := Timeout, ssl := SSL}) ->
     httpc:request(
         post,
@@ -497,6 +499,14 @@ do_request(#{uri := URI, body := Body, timeout := Timeout, ssl := SSL}) ->
         http_options(URI, SSL, Timeout),
         [{body_format, binary}]
     ).
+
+oauth_error(Body) ->
+    case emqx_utils_json:safe_decode(Body) of
+        {ok, #{<<"error">> := Error}} when is_binary(Error), byte_size(Error) =< 128 ->
+            Error;
+        _ ->
+            undefined
+    end.
 
 http_options(URI, SSL, Timeout) ->
     Opts = [

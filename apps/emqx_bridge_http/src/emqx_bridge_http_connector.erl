@@ -251,7 +251,7 @@ maybe_register_oauth2(InstId, Config, State) ->
     case maps:get(oauth2, Config, undefined) of
         #{enable := true} = Oauth2 ->
             ok = emqx_connector_oauth2:register(InstId, Oauth2),
-            State#{oauth2 => Oauth2};
+            State#{oauth2 => #{enable => true}};
         _ ->
             State
     end.
@@ -479,12 +479,7 @@ on_query(
                 _Success ->
                     Result
             end;
-        {error, Reason} = Error ->
-            ?SLOG(error, #{
-                msg => "http_connector_oauth2_token_unavailable",
-                connector => InstId,
-                reason => Reason
-            }),
+        {error, _Reason} = Error ->
             Error
     end.
 
@@ -580,12 +575,7 @@ on_query_async(
                 {fun ?MODULE:reply_delegator/3, [Context, ReplyFunAndArgs]}
             ),
             {ok, Worker};
-        {error, Reason} = Error ->
-            ?SLOG(error, #{
-                msg => "http_connector_oauth2_token_unavailable",
-                connector => InstId,
-                reason => Reason
-            }),
+        {error, _Reason} = Error ->
             Error
     end.
 

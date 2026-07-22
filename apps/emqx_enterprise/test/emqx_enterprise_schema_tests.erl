@@ -68,6 +68,12 @@ injected_roots_test() ->
     }),
     ok.
 
+http_oauth2_is_not_exposed_by_derived_connectors_test() ->
+    ?assertNot(proplists:is_defined(oauth2, emqx_bridge_es_connector:fields(config))),
+    ?assertNot(
+        proplists:is_defined(oauth2, emqx_bridge_iotdb_connector:fields("config_restapi"))
+    ).
+
 ee_schema_roots() ->
     #{ee_business_apps := Apps} = emqx_machine_boot:read_apps(),
     lists:append([ee_schema_roots(atom_to_list(App)) || App <- Apps]).
