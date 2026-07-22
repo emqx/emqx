@@ -72,6 +72,32 @@ t_refresh_renews_token_before_expiry(TCConfig) ->
     ),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
+t_refresh_failure_keeps_valid_token(TCConfig) ->
+    ResourceId = <<"res:refresh-failure">>,
+    ok = set_token_response(TCConfig, <<"old-token">>, 8),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
+    ?assertEqual({ok, <<"old-token">>}, emqx_connector_oauth2:get_token(ResourceId)),
+    ok = set_token_handler(TCConfig, fun(_Request) ->
+        {503, #{}, <<"unavailable">>}
+    end),
+    ok = wait_for(fun() -> token_request_count(TCConfig) >= 2 end, 8_000),
+    ok = wait_for(
+        fun() ->
+            State = sys:get_state(emqx_connector_oauth2),
+            not maps:is_key(ResourceId, maps:get(inflight, State))
+        end,
+        1_000
+    ),
+    %% A failed proactive refresh must not replace the still-valid token with
+    %% an error entry.
+    ?assertEqual({ok, <<"old-token">>}, emqx_connector_oauth2:get_token(ResourceId)),
+    ok = set_token_response(TCConfig, <<"new-token">>, 3600),
+    ok = wait_for(
+        fun() -> emqx_connector_oauth2:get_token(ResourceId) =:= {ok, <<"new-token">>} end,
+        5_000
+    ),
+    ok = emqx_connector_oauth2:unregister(ResourceId).
+
 t_fetch_failure_is_cached_briefly(TCConfig) ->
     ResourceId = <<"res:3">>,
     ok = set_token_handler(TCConfig, fun(_Request) ->

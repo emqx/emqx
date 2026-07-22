@@ -166,13 +166,8 @@ start_oauth2_token_server(TestPid) ->
     ),
     on_exit(fun emqx_utils_http_test_server:stop/0),
     Token = <<"oauth2-access-token">>,
-    ResponseBody = emqx_utils_json:encode(#{
-        <<"access_token">> => Token,
-        <<"expires_in">> => 3600,
-        <<"token_type">> => <<"Bearer">>
-    }),
     ModeKey = {?MODULE, oauth2_token_mode, TestPid},
-    persistent_term:put(ModeKey, available),
+    persistent_term:put(ModeKey, {available, Token}),
     on_exit(fun() -> persistent_term:erase(ModeKey) end),
     ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
@@ -180,7 +175,12 @@ start_oauth2_token_server(TestPid) ->
             TestPid ! {oauth2_token_request, RequestBody},
             Req =
                 case persistent_term:get(ModeKey) of
-                    available ->
+                    {available, CurrentToken} ->
+                        ResponseBody = emqx_utils_json:encode(#{
+                            <<"access_token">> => CurrentToken,
+                            <<"expires_in">> => 3600,
+                            <<"token_type">> => <<"Bearer">>
+                        }),
                         cowboy_req:reply(
                             200,
                             #{<<"content-type">> => <<"application/json">>},
@@ -200,6 +200,9 @@ start_oauth2_token_server(TestPid) ->
 
 set_oauth2_token_mode(TestPid, Mode) ->
     persistent_term:put({?MODULE, oauth2_token_mode, TestPid}, Mode).
+
+set_oauth2_token(TestPid, Token) ->
+    set_oauth2_token_mode(TestPid, {available, Token}).
 
 not_found_http_handler() ->
     TestPid = self(),
@@ -397,6 +400,58 @@ t_oauth2_token_failure_is_recoverable(TCConfig) ->
             ConnectorResId,
             {post, {<<"/path">>, [], <<"body">>}, 1_000}
         )
+    ).
+
+t_oauth2_async_retry_uses_latest_token(TCConfig) ->
+    TestPid = self(),
+    {TokenEndpoint, FirstToken} = start_oauth2_token_server(TestPid),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"query_mode">> => <<"async">>}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    SecondToken = <<"oauth2-access-token-2">>,
+    AttemptsKey = {?MODULE, ?FUNCTION_NAME, attempts},
+    persistent_term:put(AttemptsKey, 0),
+    on_exit(fun() -> persistent_term:erase(AttemptsKey) end),
+    emqx_common_test_helpers:with_mock(
+        emqx_bridge_http_connector,
+        reply_delegator,
+        fun(Context, ReplyFunAndArgs, Result) ->
+            case persistent_term:get(AttemptsKey) of
+                0 ->
+                    persistent_term:put(AttemptsKey, 1),
+                    set_oauth2_token(TestPid, SecondToken),
+                    ok = emqx_connector_oauth2:clear_cache(ConnectorResId),
+                    meck:passthrough([Context, ReplyFunAndArgs, {error, closed}]);
+                _ ->
+                    meck:passthrough([Context, ReplyFunAndArgs, Result])
+            end
+        end,
+        fun() ->
+            Client = start_client(),
+            emqtt:publish(Client, Topic, <<"retry">>, [{qos, 1}]),
+            {http, FirstHeaders, _} = ?assertReceive({http, _, _}, 2_000),
+            {http, SecondHeaders, _} = ?assertReceive({http, _, _}, 2_000),
+            ?assertEqual(
+                <<"Bearer ", FirstToken/binary>>,
+                maps:get(<<"authorization">>, FirstHeaders)
+            ),
+            ?assertEqual(
+                <<"Bearer ", SecondToken/binary>>,
+                maps:get(<<"authorization">>, SecondHeaders)
+            )
+        end
     ).
 
 t_oauth2_rejects_action_authorization_header(_TCConfig) ->

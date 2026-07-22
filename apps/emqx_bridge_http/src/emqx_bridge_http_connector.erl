@@ -337,6 +337,12 @@ maybe_inject_oauth_token(Request, #{oauth2 := #{enable := true}, pool_name := Re
 maybe_inject_oauth_token(Request, _State) ->
     {ok, Request}.
 
+prepare_request(Method, Request, State) ->
+    case maybe_inject_oauth_token(Request, State) of
+        {ok, RequestWithToken} -> {ok, formalize_request(Method, RequestWithToken)};
+        {error, _Reason} = Error -> Error
+    end.
+
 inject_authorization({Path, Headers}, Token) ->
     {Path, set_authorization_header(Headers, Token)};
 inject_authorization({Path, Headers, Body}, Token) ->
@@ -437,9 +443,8 @@ on_query(
             state => redact(State)
         }
     ),
-    case maybe_inject_oauth_token(Request0, State) of
-        {ok, Request} ->
-            NRequest = formalize_request(Method, Request),
+    case prepare_request(Method, Request0, State) of
+        {ok, NRequest} ->
             trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
             Worker = resolve_pool_worker(State, KeyOrNum),
             Result0 = ehttpc:request(
@@ -551,10 +556,9 @@ on_query_async(
             state => redact(State)
         }
     ),
-    case maybe_inject_oauth_token(Request0, State) of
-        {ok, Request} ->
+    case prepare_request(Method, Request0, State) of
+        {ok, NRequest} ->
             Worker = resolve_pool_worker(State, KeyOrNum),
-            NRequest = formalize_request(Method, Request),
             trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
             MaxAttempts = maps:get(max_attempts, State, 3),
             Context = #{
@@ -563,7 +567,7 @@ on_query_async(
                 state => State,
                 key_or_num => KeyOrNum,
                 method => Method,
-                request => NRequest,
+                request => Request0,
                 timeout => Timeout,
                 trace_metadata => logger:get_process_metadata()
             },
@@ -1081,14 +1085,19 @@ maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
             false -> Context#{attempt := Attempt + 1}
         end,
     ?tp(http_will_retry_async, #{}),
-    Worker = resolve_pool_worker(State, KeyOrNum),
-    ok = ehttpc:request_async(
-        Worker,
-        Method,
-        Request,
-        Timeout,
-        {fun ?MODULE:reply_delegator/3, [NContext, ReplyFunAndArgs]}
-    ),
+    case prepare_request(Method, Request, State) of
+        {ok, NRequest} ->
+            Worker = resolve_pool_worker(State, KeyOrNum),
+            ok = ehttpc:request_async(
+                Worker,
+                Method,
+                NRequest,
+                Timeout,
+                {fun ?MODULE:reply_delegator/3, [NContext, ReplyFunAndArgs]}
+            );
+        {error, _Reason} = Error ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Error)
+    end,
     ok;
 maybe_retry(Result, _Context, ReplyFunAndArgs) ->
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
