@@ -789,17 +789,17 @@ init_metrics() ->
     lists:foreach(
         fun(Name) ->
             ok = emqx_metrics:ensure(Name),
-            ok = emqx_metrics:set(Name, 0)
+            ok = emqx_metrics:set_global(Name, 0)
         end,
         ?METRICS
     ).
 
 record_request_result(Result) ->
-    ok = emqx_metrics:inc('sync_request.requests.total'),
+    ok = emqx_metrics:inc_global('sync_request.requests.total'),
     ok =
         case Result of
-            {ok, _} -> emqx_metrics:inc('sync_request.requests.succeeded');
-            _ -> emqx_metrics:inc('sync_request.requests.failed')
+            {ok, _} -> emqx_metrics:inc_global('sync_request.requests.succeeded');
+            _ -> emqx_metrics:inc_global('sync_request.requests.failed')
         end,
     ok = maybe_inc_result_metric(Result),
     Result.
@@ -807,22 +807,22 @@ record_request_result(Result) ->
 maybe_inc_result_metric({ok, _}) ->
     ok;
 maybe_inc_result_metric({error, {bad_request, _}}) ->
-    emqx_metrics:inc('sync_request.requests.bad_request');
+    emqx_metrics:inc_global('sync_request.requests.bad_request');
 maybe_inc_result_metric({error, no_subscribers}) ->
-    emqx_metrics:inc('sync_request.requests.no_subscribers');
+    emqx_metrics:inc_global('sync_request.requests.no_subscribers');
 maybe_inc_result_metric({error, multiple_subscribers}) ->
-    emqx_metrics:inc('sync_request.requests.conflict');
+    emqx_metrics:inc_global('sync_request.requests.conflict');
 maybe_inc_result_metric({error, too_many_inflight_requests}) ->
-    emqx_metrics:inc('sync_request.requests.too_many_requests');
+    emqx_metrics:inc_global('sync_request.requests.too_many_requests');
 maybe_inc_result_metric({error, failed_to_dispatch_request}) ->
-    emqx_metrics:inc('sync_request.requests.dispatch_failed');
+    emqx_metrics:inc_global('sync_request.requests.dispatch_failed');
 maybe_inc_result_metric({error, timeout}) ->
-    emqx_metrics:inc('sync_request.requests.timeout');
+    emqx_metrics:inc_global('sync_request.requests.timeout');
 maybe_inc_result_metric({error, _}) ->
-    emqx_metrics:inc('sync_request.requests.internal_error').
+    emqx_metrics:inc_global('sync_request.requests.internal_error').
 
 metric(Name) ->
-    emqx_metrics:val(Name).
+    emqx_metrics:val_global(Name).
 
 table_size(Tab) ->
     case ets:info(Tab, size) of
