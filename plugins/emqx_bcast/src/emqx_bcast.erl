@@ -72,6 +72,7 @@ create_mnesia_tables() ->
         end,
         Tables
     ),
+    ok = mria_rlog:ensure_shard(?BCAST_SHARD),
     ok = mria:wait_for_tables([Tab || {Tab, _, _} <- Tables]).
 
 create_ets_tables() ->
