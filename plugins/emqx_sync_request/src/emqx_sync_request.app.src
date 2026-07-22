@@ -1,0 +1,18 @@
+%% -*- mode: erlang -*-
+{application, emqx_sync_request, [
+    {description, "EMQX Sync Request Plugin"},
+    {vsn, {file, "VERSION"}},
+    {modules, []},
+    {registered, [emqx_sync_request_sup, emqx_sync_request]},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        emqx_ctl,
+        emqx_plugins
+    ]},
+    {mod, {emqx_sync_request_app, []}},
+    {env, []},
+    {licenses, ["Apache-2.0"]},
+    {maintainers, ["EMQX <emqx@emqx.io>"]}
+]}.

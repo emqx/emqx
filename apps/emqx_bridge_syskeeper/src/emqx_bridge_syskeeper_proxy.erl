@@ -26,8 +26,7 @@
 -define(CONNECTOR_TYPE, syskeeper_proxy).
 
 -define(SYSKEEPER_HOST_OPTIONS, #{
-    default_port => 9092,
-    ssrf_check => true
+    default_port => 9092
 }).
 
 %% -------------------------------------------------------------------------------------------------

@@ -2,10 +2,16 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Regression tests for two SSRF-policy bugs:
-%%   #17483 — HTTP enable/disable toggle bypassed SSRF re-validation.
-%%   #17484 — Creating a new MQTT connector failed when an unrelated
-%%            existing MQTT connector targeted a denied server.
+%% Lifecycle tests for the connector SSRF policy.
+%%
+%% The policy is enforced only for HTTP (`url') and MQTT (`server') connectors,
+%% and only when a connector is created or updated. Enabling/disabling and
+%% deleting a connector, and any other connector's re-validation, are never
+%% blocked by it. Other connector types are not subject to the policy at all.
+%%
+%% Includes a regression for #17940: with SSRF enabled, deleting or otherwise
+%% touching a connector must not fail because an unrelated connector's stored
+%% address is now denied.
 -module(emqx_connector_ssrf_lifecycle_SUITE).
 
 -compile(nowarn_export_all).
@@ -29,6 +35,7 @@ init_per_suite(Config) ->
             emqx_connector,
             emqx_bridge_http,
             emqx_bridge_mqtt,
+            emqx_bridge_greptimedb,
             emqx_bridge
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -114,6 +121,15 @@ mqtt_config(Server) ->
         <<"resource_opts">> => #{<<"health_check_interval">> => <<"15s">>}
     }.
 
+%% A connector type that is NOT http/mqtt, i.e. not subject to the SSRF policy.
+greptimedb_config(Server) ->
+    #{
+        <<"server">> => Server,
+        <<"dbname">> => <<"public">>,
+        <<"enable">> => true,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"15s">>}
+    }.
+
 %%--------------------------------------------------------------------
 %% HTTP cases
 %%--------------------------------------------------------------------
@@ -133,12 +149,11 @@ t_http_create_denied_rejected(_Config) ->
     ok.
 
 -doc """
-Regression for #17483: `PUT /connectors/{id}/enable/true` must re-validate
-the connector against the current SSRF policy. The toggle fast-path
-previously skipped `parse_confs/3`, so a connector created under a
-permissive policy could be re-enabled after the policy tightened.
+Enabling a connector whose stored URL is now denied is allowed: the SSRF
+policy is enforced only when creating or updating a connector, not on the
+enable/disable toggle.
 """.
-t_http_enable_re_validates(_Config) ->
+t_http_enable_now_allowed(_Config) ->
     {ok, _} = emqx_connector:create(
         ?global_ns,
         http,
@@ -148,7 +163,7 @@ t_http_enable_re_validates(_Config) ->
     set_ssrf_deny([<<"127.0.0.0/8">>]),
     {ok, _} = emqx_connector:disable_enable(?global_ns, disable, http, http_revalidate),
     ?assertMatch(
-        {error, #{kind := validation_error}},
+        {ok, _},
         emqx_connector:disable_enable(?global_ns, enable, http, http_revalidate)
     ),
     ok.
@@ -215,8 +230,8 @@ t_mqtt_create_valid_with_existing_denied(_Config) ->
     ?assert(lists:member(mqtt_valid_new, Names)),
     ok.
 
--doc "Mirror of #17483 for MQTT: re-enable toggle re-runs SSRF validation.".
-t_mqtt_enable_re_validates(_Config) ->
+-doc "Mirror for MQTT: enabling a now-denied connector is allowed.".
+t_mqtt_enable_now_allowed(_Config) ->
     {ok, _} = emqx_connector:create(
         ?global_ns,
         mqtt,
@@ -226,7 +241,7 @@ t_mqtt_enable_re_validates(_Config) ->
     set_ssrf_deny([<<"127.0.0.0/8">>]),
     {ok, _} = emqx_connector:disable_enable(?global_ns, disable, mqtt, mqtt_revalidate),
     ?assertMatch(
-        {error, #{kind := validation_error}},
+        {ok, _},
         emqx_connector:disable_enable(?global_ns, enable, mqtt, mqtt_revalidate)
     ),
     ok.
@@ -244,4 +259,73 @@ t_mqtt_disable_always_allowed(_Config) ->
         {ok, _},
         emqx_connector:disable_enable(?global_ns, disable, mqtt, mqtt_disable_ok)
     ),
+    ok.
+
+-doc "Updating an HTTP connector to a denied URL is rejected.".
+t_http_update_denied_rejected(_Config) ->
+    {ok, _} = emqx_connector:create(
+        ?global_ns,
+        http,
+        http_upd,
+        http_config(<<"http://8.8.8.8:18083">>)
+    ),
+    set_ssrf_deny([<<"127.0.0.0/8">>]),
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_connector:create(
+            ?global_ns,
+            http,
+            http_upd,
+            http_config(<<"http://127.0.0.1:18083">>)
+        )
+    ),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Other connector types (not subject to the SSRF policy) and #17940
+%%--------------------------------------------------------------------
+
+-doc """
+Connector types other than http/mqtt are not subject to the SSRF policy:
+creating one targeting a denied address succeeds, and it remains deletable.
+""".
+t_schema_connector_not_ssrf_checked(_Config) ->
+    set_ssrf_deny([<<"127.0.0.0/8">>]),
+    ?assertMatch(
+        {ok, _},
+        emqx_connector:create(
+            ?global_ns,
+            greptimedb,
+            greptime_denied,
+            greptimedb_config(<<"127.0.0.1:4001">>)
+        )
+    ),
+    ?assertEqual(ok, emqx_connector:remove(?global_ns, greptimedb, greptime_denied)),
+    ok.
+
+-doc """
+Regression for #17940: with SSRF enabled, deleting a connector must succeed
+even when an unrelated, pre-existing connector's stored address is now denied.
+The whole `connectors' subtree is re-validated on every change, and a denied
+sibling used to abort the delete and leave a residual connector.
+""".
+t_delete_unrelated_with_denied_sibling(_Config) ->
+    %% pre-existing connectors, created while the policy is permissive
+    {ok, _} = emqx_connector:create(
+        ?global_ns,
+        greptimedb,
+        denied_sibling,
+        greptimedb_config(<<"127.0.0.1:4001">>)
+    ),
+    {ok, _} = emqx_connector:create(
+        ?global_ns,
+        mqtt,
+        to_delete,
+        mqtt_config(<<"8.8.8.8:1883">>)
+    ),
+    set_ssrf_deny([<<"127.0.0.0/8">>]),
+    ?assertEqual(ok, emqx_connector:remove(?global_ns, mqtt, to_delete)),
+    Names = [Name || #{name := Name} <- emqx_connector:list(?global_ns)],
+    ?assertNot(lists:member(to_delete, Names)),
+    ?assert(lists:member(denied_sibling, Names)),
     ok.

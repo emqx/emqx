@@ -601,7 +601,8 @@ do_subscribe(ClientId, TopicTables) ->
             %% Hand the subscription straight to the channel process.
             %% No emqx_access_control:authorize/3 call is made on this path -- the
             %% ACL bypass is intentional; see -doc on subscribe/2.
-            Pid ! {subscribe, TopicTables}
+            Pid ! {force_subscribe, TopicTables},
+            {subscribe, TopicTables}
     end.
 
 publish(Message) ->
