@@ -195,7 +195,8 @@ handle_info(_Info, State) ->
 %%------------------------------------------------------------------------------
 
 channel_name(ActionResId, N) ->
-    <<ActionResId/binary, ":", (integer_to_binary(N))/binary>>.
+    NodeBin = atom_to_binary(node()),
+    <<NodeBin/binary, ":", ActionResId/binary, ":", (integer_to_binary(N))/binary>>.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
