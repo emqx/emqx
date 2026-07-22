@@ -473,7 +473,16 @@ verify_clean_suite_state(#{work_dir_dirty := true}) ->
     %% Use with care.
     ok;
 verify_clean_suite_state(#{work_dir := WorkDir}) ->
-    {ok, []} = file:list_dir(WorkDir),
+    {ok, Files} = file:list_dir(WorkDir),
+    %% Some files are allowed in the working directory, like log
+    %% files. Check if any file doesn't match the exception:
+    true = lists:all(
+        fun
+            ("erlang.log") -> true;
+            (_) -> false
+        end,
+        Files
+    ),
     false = emqx_schema_hooks:any_injections(),
     [] = emqx_config:get_root_names(),
     ok.
