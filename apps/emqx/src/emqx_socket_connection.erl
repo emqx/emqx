@@ -574,6 +574,13 @@ handle_msg({recv, Data}, State) ->
     handle_data(Data, false, State);
 handle_msg({recv_more, Data}, State) ->
     handle_data(Data, true, State);
+handle_msg({request_more_data, More}, State = #state{socket = Socket, sockstate = SS}) ->
+    case SS =/= closed of
+        true ->
+            request_more_data(Socket, More, State);
+        false ->
+            {ok, State}
+    end;
 handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     handle_incoming(Packet, State);
@@ -767,7 +774,6 @@ handle_data(
     Data,
     RequestMore,
     State0 = #state{
-        socket = Socket,
         sockstate = SS,
         thresholds = T0,
         channel = Channel
@@ -787,41 +793,34 @@ handle_data(
         gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
     },
     State = trigger_gc(State1#state{thresholds = Thresholds}),
-    Msgs = next_incoming_msgs(Packets),
-    case RequestMore of
-        false ->
-            {ok, Msgs, State};
-        true when SS =/= closed ->
-            request_more_data(Socket, More, Msgs, State);
-        _ ->
-            {ok, Msgs, State}
-    end.
+    Msgs = next_incoming_msgs(RequestMore andalso SS =/= closed, More, Packets),
+    {ok, Msgs, State}.
 
 %% Dialyzer warns that {error, {closed, DataMore}} can never match, but this pattern
 %% can occur at runtime in OTP 27 or under certain error conditions where the socket
 %% closes with data available. We keep this clause for backward compatibility.
--dialyzer({nowarn_function, request_more_data/4}).
--compile({inline, [request_more_data/4]}).
-request_more_data(Socket, More, Acc, State) ->
+-dialyzer({nowarn_function, request_more_data/3}).
+-compile({inline, [request_more_data/3]}).
+request_more_data(Socket, More, State) ->
     %% TODO: `{otp, select_read}`.
     case sock_async_recv(Socket, More) of
         {ok, DataMore} ->
-            {ok, [Acc, {recv_more, DataMore}], State};
+            {ok, {recv_more, DataMore}, State};
         {select, {_Info, DataMore}} ->
-            {ok, [Acc, {recv, DataMore}], State};
+            {ok, {recv, DataMore}, State};
         {select, _Info} ->
-            {ok, Acc, State};
+            {ok, State};
         {error, {closed, DataMore}} ->
             %% This is dead code starting from OTP 28
             NState = socket_closed(State),
-            {ok, [Acc, {recv, DataMore}, {sock_closed, tcp_closed}], NState};
+            {ok, [{recv, DataMore}, {sock_closed, tcp_closed}], NState};
         {error, closed} ->
             NState = socket_closed(State),
-            {ok, [Acc, {sock_closed, tcp_closed}], NState};
+            {ok, {sock_closed, tcp_closed}, NState};
         {error, {Reason, DataMore}} ->
-            {ok, [Acc, {recv, DataMore}, {sock_error, Reason}], State};
+            {ok, [{recv, DataMore}, {sock_error, Reason}], State};
         {error, Reason} ->
-            {ok, [Acc, {sock_error, Reason}], State}
+            {ok, {sock_error, Reason}, State}
     end.
 
 %% Dialyzer warns that {error, {closed, Data}} can never match, but this pattern
@@ -855,12 +854,19 @@ handle_data_ready(Socket, State) ->
     end.
 
 %% @doc: return a reversed Msg list
--compile({inline, [next_incoming_msgs/1]}).
-next_incoming_msgs([Packet]) ->
+-compile({inline, [next_incoming_msgs/3]}).
+next_incoming_msgs(false, _More, [Packet]) ->
     {incoming, Packet};
-next_incoming_msgs(Packets) ->
+next_incoming_msgs(true, More, [Packet]) ->
+    [{incoming, Packet}, {request_more_data, More}];
+next_incoming_msgs(RequestMore, More, Packets) ->
     Fun = fun(Packet, Acc) -> [{incoming, Packet} | Acc] end,
-    lists:foldl(Fun, [], Packets).
+    Acc0 =
+        case RequestMore of
+            false -> [];
+            true -> [{request_more_data, More}]
+        end,
+    lists:foldl(Fun, Acc0, Packets).
 
 parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
     try
