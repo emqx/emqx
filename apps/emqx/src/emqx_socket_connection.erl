@@ -587,12 +587,16 @@ handle_msg({incoming, Packet}, State) ->
 handle_msg({outgoing, Packets}, State) ->
     case handle_outgoing(Packets, State) of
         {ok, NState} ->
+            run_minor_gc(),
             maybe_signal_congestion(NState);
         {ok, {sock_error, _}, _State} = Error ->
             Error
     end;
+handle_msg(run_minor_gc, State) ->
+    run_minor_gc(),
+    {ok, State};
 handle_msg(
-    Deliver = {deliver, _Topic, _Msg},
+    Deliver = #deliver{message = _Msg},
     #state{conf = #conf{active_n = ActiveN}} = State
 ) ->
     ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
@@ -793,7 +797,9 @@ handle_data(
         gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
     },
     State = trigger_gc(State1#state{thresholds = Thresholds}),
-    Msgs = next_incoming_msgs(RequestMore andalso SS =/= closed, More, Packets),
+    NeedMore = RequestMore andalso SS =/= closed,
+    Tail = [run_minor_gc || N > 0] ++ [{request_more_data, More} || NeedMore],
+    Msgs = next_incoming_msgs(Tail, Packets),
     {ok, Msgs, State}.
 
 %% Dialyzer warns that {error, {closed, DataMore}} can never match, but this pattern
@@ -854,19 +860,12 @@ handle_data_ready(Socket, State) ->
     end.
 
 %% @doc: return a reversed Msg list
--compile({inline, [next_incoming_msgs/3]}).
-next_incoming_msgs(false, _More, [Packet]) ->
-    {incoming, Packet};
-next_incoming_msgs(true, More, [Packet]) ->
-    [{incoming, Packet}, {request_more_data, More}];
-next_incoming_msgs(RequestMore, More, Packets) ->
+-compile({inline, [next_incoming_msgs/2]}).
+next_incoming_msgs(Tail, [Packet]) ->
+    [{incoming, Packet} | Tail];
+next_incoming_msgs(Tail, Packets) ->
     Fun = fun(Packet, Acc) -> [{incoming, Packet} | Acc] end,
-    Acc0 =
-        case RequestMore of
-            false -> [];
-            true -> [{request_more_data, More}]
-        end,
-    lists:foldl(Fun, Acc0, Packets).
+    lists:foldl(Fun, Tail, Packets).
 
 parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
     try
@@ -1359,11 +1358,16 @@ handle_cast(Req, State) ->
 %%--------------------------------------------------------------------
 %% Run GC and Check OOM
 
+-compile({inline, [run_minor_gc/0]}).
+
 run_gc(#state{conf = #conf{zone = Zone}}) ->
     case emqx_olp:backoff_gc(Zone) of
         false -> erlang:garbage_collect();
         true -> ok
     end.
+
+run_minor_gc() ->
+    erlang:garbage_collect(self(), [{type, minor}]).
 
 check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
     case emqx_utils:check_oom(ShutdownPolicy) of
