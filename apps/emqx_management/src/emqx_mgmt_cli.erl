@@ -453,7 +453,7 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
                 emqx_ctl:print("Error: Channel not found!");
             [{_, Pid}] ->
                 {Topic1, Options} = emqx_topic:parse(bin(Topic)),
-                Pid ! {subscribe, [{Topic1, Options#{qos => IntQos}}]},
+                Pid ! {force_subscribe, [{Topic1, Options#{qos => IntQos}}]},
                 emqx_ctl:print("ok~n")
         end
     end);

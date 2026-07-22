@@ -112,6 +112,16 @@
     pendings :: [emqx_types:deliver()]
 }).
 
+-type subscribe_filter() ::
+    {emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}.
+-type subscribe_topic_filters() ::
+    [subscribe_filter() | {subscribe_filter(), emqx_types:reason_code()}].
+-record(subscribe_operation, {
+    properties = #{} :: emqx_types:properties(),
+    topic_filters = [] :: subscribe_topic_filters()
+}).
+-type subscribe_operation() :: #subscribe_operation{}.
+
 -opaque channel() :: #channel{}.
 
 -type opts() :: #{
@@ -957,21 +967,11 @@ after_message_acked(Msg, PubAckProps, Channel) ->
 %%--------------------------------------------------------------------
 
 process_subscribe(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, _TopicFilters0), Channel0) ->
-    Pipe = emqx_utils:pipeline(
-        [
-            fun check_subscribe/2,
-            fun enrich_subscribe/2,
-            %% TODO && FIXME (EMQX-10786): mount topic before authz check.
-            fun check_sub_authzs/2,
-            fun check_sub_caps/2
-        ],
-        SubPkt,
-        Channel0
-    ),
-    case Pipe of
-        {ok, NPkt = ?SUBSCRIBE_PACKET(_PacketId, TFChecked), Channel} ->
+    Operation0 = subscribe_operation(SubPkt),
+    case prepare_subscribe(Operation0, Channel0) of
+        {ok, Operation = #subscribe_operation{topic_filters = TFChecked}, Channel} ->
             {TFSubedWithNRC, NChannel} = post_process_subscribe(
-                run_sub_hooks(NPkt, Channel), Channel
+                run_sub_hooks(Operation, Channel), Channel
             ),
             ReasonCodes = gen_reason_codes(TFChecked, TFSubedWithNRC),
             handle_out(suback, {PacketId, ReasonCodes}, NChannel);
@@ -980,6 +980,26 @@ process_subscribe(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, _TopicFilter
             %% And Only one ReasonCode in DISCONNECT packet
             handle_out(disconnect, RC, Channel)
     end.
+
+prepare_subscribe(Operation, Channel) ->
+    emqx_utils:pipeline(
+        [
+            fun check_subscribe/2,
+            fun enrich_subscribe/2,
+            %% TODO && FIXME (EMQX-10786): mount topic before authz check.
+            fun check_sub_authzs/2,
+            fun check_sub_caps/2
+        ],
+        Operation,
+        Channel
+    ).
+
+-spec subscribe_operation(emqx_types:packet() | [subscribe_filter()]) ->
+    subscribe_operation().
+subscribe_operation(?SUBSCRIBE_PACKET(_PacketId, Properties, TopicFilters)) ->
+    #subscribe_operation{properties = Properties, topic_filters = TopicFilters};
+subscribe_operation(TopicFilters) when is_list(TopicFilters) ->
+    #subscribe_operation{topic_filters = TopicFilters}.
 
 -compile(
     {inline, [
@@ -1748,7 +1768,35 @@ handle_info({subscribe, TopicFilters}, Channel) ->
             maps:merge(basic_attrs(Channel), topic_attrs({subscribe, TopicFilters}))
         ),
         fun() ->
-            NTopicFilters = enrich_subscribe(TopicFilters, Channel),
+            case emqx_security_profile:policy(internal_subscription_checks) of
+                true ->
+                    Operation = subscribe_operation(TopicFilters),
+                    case prepare_subscribe(Operation, Channel) of
+                        {ok, NOperation, Channel1} ->
+                            {_TopicFiltersWithRC, Channel2} = post_process_subscribe(
+                                run_sub_hooks(NOperation, Channel1), Channel1
+                            ),
+                            {ok, Channel2};
+                        {error, {disconnect, RC}, Channel1} ->
+                            handle_out(disconnect, RC, Channel1)
+                    end;
+                false ->
+                    NTopicFilters = do_enrich_subscribe(#{}, TopicFilters, Channel),
+                    {_TopicFiltersWithRC, NChannel} = post_process_subscribe(
+                        NTopicFilters, Channel
+                    ),
+                    {ok, NChannel}
+            end
+        end,
+        []
+    );
+handle_info({force_subscribe, TopicFilters}, Channel) ->
+    ?EXT_TRACE_BROKER_SUBSCRIBE(
+        ?EXT_TRACE_ATTR(
+            maps:merge(basic_attrs(Channel), topic_attrs({subscribe, TopicFilters}))
+        ),
+        fun() ->
+            NTopicFilters = do_enrich_subscribe(#{}, TopicFilters, Channel),
             {_TopicFiltersWithRC, NChannel} = post_process_subscribe(NTopicFilters, Channel),
             {ok, NChannel}
         end,
@@ -2840,10 +2888,14 @@ check_pub_caps(
 %%--------------------------------------------------------------------
 %% Check Subscribe Packet
 
-check_subscribe(SubPkt, #channel{clientinfo = #{zone := Zone}}) ->
+check_subscribe(
+    #subscribe_operation{properties = Properties, topic_filters = TopicFilters},
+    #channel{clientinfo = #{zone := Zone}}
+) ->
     case
-        emqx_packet:check(
-            SubPkt,
+        emqx_packet:check_subscribe(
+            Properties,
+            TopicFilters,
             #{
                 subscription_message_filter => get_mqtt_conf(
                     Zone, subscription_message_filter, disable
@@ -2858,15 +2910,15 @@ check_subscribe(SubPkt, #channel{clientinfo = #{zone := Zone}}) ->
 %%--------------------------------------------------------------------
 %% Check Sub Authorization
 
-check_sub_authzs(Packet, Channel) ->
+check_sub_authzs(Operation, Channel) ->
     ?EXT_TRACE_CLIENT_AUTHZ(
         ?EXT_TRACE_ATTR((basic_attrs(Channel))#{'authz.action_type' => subscribe}),
-        fun(NPacket) -> _Res = do_check_sub_authzs(NPacket, Channel) end,
-        [Packet]
+        fun(NOperation) -> _Res = do_check_sub_authzs(NOperation, Channel) end,
+        [Operation]
     ).
 
 do_check_sub_authzs(
-    ?SUBSCRIBE_PACKET(PacketId, SubProps, TopicFilters0),
+    Operation = #subscribe_operation{topic_filters = TopicFilters0},
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
     CheckResult = do_check_sub_authzs2(TopicFilters0, ClientInfo),
@@ -2889,10 +2941,10 @@ do_check_sub_authzs(
                 'authz.deny_action' => ignore
             }),
             ?EXT_TRACE_SET_STATUS_ERROR(),
-            {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel};
+            {ok, Operation#subscribe_operation{topic_filters = CheckResult}, Channel};
         {false, _} ->
             ?EXT_TRACE_SET_STATUS_OK(),
-            {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel}
+            {ok, Operation#subscribe_operation{topic_filters = CheckResult}, Channel}
     end.
 
 do_check_sub_authzs2(TopicFilters, ClientInfo) ->
@@ -2926,11 +2978,11 @@ do_check_sub_authzs2(ClientInfo, [TopicFilter = {Topic, _SubOpts} | More], Acc) 
 %% Check Sub Caps
 
 check_sub_caps(
-    ?SUBSCRIBE_PACKET(PacketId, SubProps, TopicFilters),
+    Operation = #subscribe_operation{topic_filters = TopicFilters},
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
     CheckResult = do_check_sub_caps(ClientInfo, TopicFilters),
-    {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel}.
+    {ok, Operation#subscribe_operation{topic_filters = CheckResult}, Channel}.
 
 do_check_sub_caps(ClientInfo, TopicFilters) ->
     do_check_sub_caps(ClientInfo, TopicFilters, []).
@@ -2971,7 +3023,7 @@ do_check_sub_caps(ClientInfo, [TopicFilter = {{_Topic, _SubOpts}, _OtherRC} | Mo
 %% Run Subscribe Hooks
 
 run_sub_hooks(
-    ?SUBSCRIBE_PACKET(_PacketId, Properties, TopicFilters0),
+    #subscribe_operation{properties = Properties, topic_filters = TopicFilters0},
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
     TopicFilters = [
@@ -2983,13 +3035,12 @@ run_sub_hooks(
 %%--------------------------------------------------------------------
 %% Enrich SubOpts
 
-%% for api subscribe without sub-authz check and sub-caps check.
-enrich_subscribe(TopicFilters, Channel) when is_list(TopicFilters) ->
-    do_enrich_subscribe(#{}, TopicFilters, Channel);
-%% for mqtt clients sent subscribe packet.
-enrich_subscribe(?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters), Channel) ->
+enrich_subscribe(
+    Operation = #subscribe_operation{properties = Properties, topic_filters = TopicFilters},
+    Channel
+) ->
     NTopicFilters = do_enrich_subscribe(Properties, TopicFilters, Channel),
-    {ok, ?SUBSCRIBE_PACKET(PacketId, Properties, NTopicFilters), Channel}.
+    {ok, Operation#subscribe_operation{topic_filters = NTopicFilters}, Channel}.
 
 do_enrich_subscribe(Properties, TopicFilters, Channel) ->
     _NTopicFilters = emqx_utils:run_fold(

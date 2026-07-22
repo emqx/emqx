@@ -30,7 +30,8 @@
 %% Check API
 -export([
     check/1,
-    check/2
+    check/2,
+    check_subscribe/3
 ]).
 
 -export([
@@ -279,21 +280,8 @@ check(#mqtt_packet{variable = #mqtt_packet_subscribe{} = SubPkt}, Opts) ->
     check(SubPkt, Opts);
 check(#mqtt_packet{variable = #mqtt_packet_unsubscribe{} = UnsubPkt}, Opts) ->
     check(UnsubPkt, Opts);
-check(#mqtt_packet_subscribe{properties = #{'Subscription-Identifier' := I}}, _Opts) when
-    I =< 0; I > 16#FFFFFFF
-->
-    {error, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED};
-check(#mqtt_packet_subscribe{topic_filters = []}, _Opts) ->
-    {error, ?RC_TOPIC_FILTER_INVALID};
-check(#mqtt_packet_subscribe{topic_filters = TopicFilters}, Opts) ->
-    try
-        validate_subscribe_topic_filters(TopicFilters, Opts)
-    catch
-        error:{error, RC} ->
-            {error, RC};
-        error:_Error ->
-            {error, ?RC_TOPIC_FILTER_INVALID}
-    end;
+check(#mqtt_packet_subscribe{properties = Properties, topic_filters = TopicFilters}, Opts) ->
+    check_subscribe(Properties, TopicFilters, Opts);
 check(#mqtt_packet_unsubscribe{topic_filters = []}, _Opts) ->
     {error, ?RC_TOPIC_FILTER_INVALID};
 check(#mqtt_packet_unsubscribe{topic_filters = TopicFilters}, Opts) ->
@@ -316,6 +304,28 @@ check(ConnPkt, Opts) when is_record(ConnPkt, mqtt_packet_connect) ->
         ConnPkt,
         Opts
     ).
+
+-spec check_subscribe(
+    emqx_types:properties(),
+    [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}],
+    map()
+) ->
+    ok | {error, emqx_types:reason_code()}.
+check_subscribe(#{'Subscription-Identifier' := I}, _TopicFilters, _Opts) when
+    I =< 0; I > 16#FFFFFFF
+->
+    {error, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED};
+check_subscribe(_Properties, [], _Opts) ->
+    {error, ?RC_TOPIC_FILTER_INVALID};
+check_subscribe(_Properties, TopicFilters, Opts) ->
+    try
+        validate_subscribe_topic_filters(TopicFilters, Opts)
+    catch
+        error:{error, RC} ->
+            {error, RC};
+        error:_Error ->
+            {error, ?RC_TOPIC_FILTER_INVALID}
+    end.
 
 check_pub_props(#{'Topic-Alias' := 0}) ->
     {error, ?RC_TOPIC_ALIAS_INVALID};
@@ -431,6 +441,8 @@ run_checks([Check | More], Packet, Options) ->
 validate_subscribe_topic_filters(TopicFilters, Opts) ->
     lists:foreach(
         fun
+            ({#share{}, #{nl := 1}}) ->
+                error({error, ?RC_PROTOCOL_ERROR});
             %% Protocol Error and Should Disconnect
             %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1]
             ({TopicFilter, #{nl := 1}}) ->
