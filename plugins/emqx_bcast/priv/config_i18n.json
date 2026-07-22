@@ -84,7 +84,7 @@
   "zh": "投递队列上限"
  },
  "$delivery_queue_max_desc": {
-  "en": "Maximum number of queued delivery tasks. When exceeded, new BatchPub requests are rejected with 429.",
-  "zh": "排队投递任务的最大数量。超过后新的 BatchPub 请求将被拒绝并返回 429。"
+  "en": "Maximum number of queued delivery tasks. Each task handles at most 200 devices (a BatchPub request with N online devices consumes ceil(N/200) tasks). When exceeded, new BatchPub requests are rejected with 429.",
+  "zh": "排队投递任务的最大数量。每个投递任务处理至多 200 个设备 (每次 BatchPub 请求占用 ceil(在线设备数/200) 个任务)。超过后新的 BatchPub 请求将被拒绝并返回 429。"
  }
 }

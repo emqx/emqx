@@ -87,7 +87,7 @@ Backpressure is an atomic queue-depth counter: submissions beyond
 | `msg_warn_threshold` | `100000` | Warn when pending messages exceed this |
 | `force_upgrade_qos` | `true` | See QoS Semantics above |
 | `delivery_pool_size` | `0` | Async delivery workers; 0 = one per scheduler |
-| `delivery_queue_max` | `10000` | Max queued delivery tasks before 429 |
+| `delivery_queue_max` | `10000` (tasks) | Max queued delivery tasks (each task = up to 200 devices). BatchPub with N online devices uses ceil(N/200) tasks. Rejected with 429 when full |
 
 ## Metrics
 
