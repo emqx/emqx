@@ -947,7 +947,9 @@ t_mgmt_delete_message_cascade(_Config) ->
     ?assert(maps:get(<<"Success">>, Resp)),
     {error, 404, _, _} = emqx_bcast_api:handle(get, [<<"messages">>, ApiMsgId], #{}),
     ?assertEqual({error, not_found}, emqx_bcast_storage:lookup_message(MsgGuid)),
-    {error, 404, _, _} = emqx_bcast_api:handle(get, [<<"deliveries">>, DeliveryId], #{}),
+    {error, 404, _, _} = emqx_bcast_api:handle(
+        get, [<<"deliveries">>, emqx_bcast_utils:guid_to_uuid(DeliveryId)], #{}
+    ),
     {ok, []} = emqx_bcast_storage:get_device_deliveries({<<"PMGMT">>, <<"DD1">>}),
     {ok, []} = emqx_bcast_storage:get_device_deliveries({<<"PMGMT">>, <<"DD2">>}),
     {error, 404, _, Again} = emqx_bcast_api:handle(delete, [<<"messages">>, ApiMsgId], #{}),
@@ -965,7 +967,11 @@ t_mgmt_deliveries_for_device(_Config) ->
     Deliveries = maps:get(<<"Deliveries">>, Resp),
     ?assertEqual(2, length(Deliveries)),
     Ids = lists:sort([maps:get(<<"DeliveryId">>, D) || D <- Deliveries]),
-    ?assertEqual(lists:sort([D1, D2]), Ids),
+    ?assertEqual(
+        lists:sort([emqx_bcast_utils:guid_to_uuid(D1), emqx_bcast_utils:guid_to_uuid(D2)]),
+        Ids
+    ),
+    [?assertMatch(<<_:8/binary, $-, _:4/binary, $-, _:4/binary, $-, _:4/binary, $-, _:12/binary>>, Id) || Id <- Ids],
     [begin
         ?assertEqual(ApiMsgId, maps:get(<<"MessageId">>, D)),
         ?assertEqual(1, maps:get(<<"TargetCount">>, D)),
@@ -984,13 +990,18 @@ t_mgmt_delete_delivery(_Config) ->
         DeliveryId, MsgGuid, <<"PMGMT">>, <<"tpl">>, [<<"DE1">>], 1
     ),
     {ok, [_]} = emqx_bcast_storage:get_device_deliveries({<<"PMGMT">>, <<"DE1">>}),
-    {ok, 200, _, _} = emqx_bcast_api:handle(delete, [<<"deliveries">>, DeliveryId], #{}),
+    IdStr = emqx_bcast_utils:guid_to_uuid(DeliveryId),
+    {ok, 200, _, _} = emqx_bcast_api:handle(delete, [<<"deliveries">>, IdStr], #{}),
     {error, 404, _, NotFound} = emqx_bcast_api:handle(
-        get, [<<"deliveries">>, DeliveryId], #{}
+        get, [<<"deliveries">>, IdStr], #{}
     ),
     ?assertEqual(<<"DeliveryNotFound">>, maps:get(<<"Code">>, NotFound)),
     {ok, []} = emqx_bcast_storage:get_device_deliveries({<<"PMGMT">>, <<"DE1">>}),
-    {error, 404, _, _} = emqx_bcast_api:handle(delete, [<<"deliveries">>, DeliveryId], #{}).
+    {error, 404, _, _} = emqx_bcast_api:handle(delete, [<<"deliveries">>, IdStr], #{}),
+    {error, 404, _, BadId} = emqx_bcast_api:handle(
+        get, [<<"deliveries">>, <<"not-a-uuid">>], #{}
+    ),
+    ?assertEqual(<<"DeliveryNotFound">>, maps:get(<<"Code">>, BadId)).
 
 create_test_msg(Payload) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
