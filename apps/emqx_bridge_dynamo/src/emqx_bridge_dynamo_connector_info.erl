@@ -30,6 +30,7 @@ config_schema() ->
             hoconsc:map(name, hoconsc:ref(emqx_bridge_dynamo, "config_connector")),
             #{
                 desc => <<"DynamoDB Connector Config">>,
+                validator => fun emqx_bridge_dynamo_connector:credentials_validator/1,
                 required => false
             }
         )}.

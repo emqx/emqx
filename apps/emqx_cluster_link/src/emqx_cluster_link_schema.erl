@@ -42,14 +42,7 @@
     atom() => _
 }.
 
-%% The official MQTT URI schemes: `mqtt' for plain TCP and `mqtts' for TLS.
-%% See https://github.com/mqtt/mqtt.org/wiki/URI-Scheme
-%% A scheme-less `host:port' is accepted and defaults to `mqtt'.
--define(MQTT_HOST_OPTS, #{
-    default_port => 1883,
-    default_scheme => "mqtt",
-    supported_schemes => ["mqtt", "mqtts"]
-}).
+-define(MQTT_HOST_OPTS, emqx_schema:mqtt_host_opts()).
 
 namespace() -> "cluster".
 

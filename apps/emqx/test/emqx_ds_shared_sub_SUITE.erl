@@ -1077,8 +1077,19 @@ clean_local(Config) ->
     ].
 
 start_cluster(Config) ->
+    %% NOTE
+    %% The election-timing knobs (`heartbeat_interval', `realloc_interval',
+    %% `leader_timeout', `checkpoint_interval') are kept short so that the
+    %% events asserted by the tests happen promptly. The durable commit
+    %% budgets, on the other hand, are deliberately generous: they only bound
+    %% how long a transaction may take to reach consensus among the 3 sites,
+    %% and blowing them is fatal rather than slow -- an exhausted budget takes
+    %% down the session or the shared sub leader. In particular the retry
+    %% window (`commit_retries' * `commit_retry_interval') has to outlast a
+    %% DS leader re-election, which the tests trigger by killing a node.
     Conf = #{
         <<"durable_sessions">> => #{
+            <<"commit_timeout">> => 15_000,
             <<"shared_subs">> =>
                 #{
                     <<"heartbeat_interval">> => 100,
@@ -1086,9 +1097,9 @@ start_cluster(Config) ->
                     <<"leader_timeout">> => 100,
                     <<"checkpoint_interval">> => 10,
                     <<"revocation_timeout">> => 1000,
-                    <<"commit_retries">> => 10,
-                    <<"commit_retry_interval">> => 100,
-                    <<"commit_timeout">> => 1000
+                    <<"commit_retries">> => 8,
+                    <<"commit_retry_interval">> => 500,
+                    <<"commit_timeout">> => 3000
                 }
         },
         <<"log">> => #{

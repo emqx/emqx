@@ -759,13 +759,17 @@ try_set_chan_stats(State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Parse incoming data
 -compile({inline, [on_bytes_in/3]}).
-on_bytes_in(Oct, Data, State = #state{gc_tracker = {ActiveN, {Pkts, Bytes}, Out}}) ->
-    ?LOG(debug, #{
-        msg => "raw_bin_received",
-        size => Oct,
-        bin => binary_to_list(binary:encode_hex(Data)),
-        type => "hex"
-    }),
+on_bytes_in(
+    Oct,
+    Data,
+    State = #state{channel = Channel, gc_tracker = {ActiveN, {Pkts, Bytes}, Out}}
+) ->
+    ?LOG(
+        debug,
+        emqx_packet_data_logger:add_packet_data(
+            #{msg => "raw_bin_received", size => Oct}, bin, Data, Channel, hex
+        )
+    ),
     {N, Packets, NState} = parse_incoming(Data, State),
     FState = NState#state{gc_tracker = {ActiveN, {Pkts + N, Bytes + Oct}, Out}},
     {ok, next_incoming_msgs(Packets), FState}.
@@ -778,29 +782,45 @@ next_incoming_msgs(Packets) ->
     Fun = fun(Packet, Acc) -> [{incoming, Packet} | Acc] end,
     lists:foldl(Fun, [], Packets).
 
-parse_incoming(Data, State = #state{parser = Parser}) ->
+parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
     try
         run_parser(Data, Parser, State)
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
             NReason = maybe_enrich_first_packet_error(Data, Reason, State),
-            ?LOG(info, #{
-                msg => "frame_parse_error",
-                reason => NReason,
-                at_state => describe_parser_state(Parser),
-                input_bytes => Data
-            }),
+            ?LOG(
+                info,
+                emqx_packet_data_logger:add_packet_data(
+                    #{
+                        msg => "frame_parse_error",
+                        reason => NReason,
+                        at_state => describe_parser_state(Parser)
+                    },
+                    input_bytes,
+                    Data,
+                    Channel,
+                    raw
+                )
+            ),
             NState = update_state_on_parse_error(Parser, NReason, State),
             {0, [{frame_error, NReason}], NState};
         error:Reason:Stacktrace ->
             NReason = maybe_enrich_first_packet_error(Data, Reason, State),
-            ?LOG(error, #{
-                msg => "frame_parse_failed",
-                at_state => describe_parser_state(Parser),
-                input_bytes => Data,
-                reason => NReason,
-                stacktrace => Stacktrace
-            }),
+            ?LOG(
+                error,
+                emqx_packet_data_logger:add_packet_data(
+                    #{
+                        msg => "frame_parse_failed",
+                        at_state => describe_parser_state(Parser),
+                        reason => NReason,
+                        stacktrace => Stacktrace
+                    },
+                    input_bytes,
+                    Data,
+                    Channel,
+                    raw
+                )
+            ),
             {0, [{frame_error, NReason}], State}
     end.
 

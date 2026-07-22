@@ -50,6 +50,7 @@
     effective_scopes_of_admin/1,
     role_default_scopes/1,
     set_user_scopes/2,
+    clear_user_scopes/1,
     all_users/0,
     admin_users/0,
     check/2,
@@ -506,6 +507,19 @@ role_default_scopes(Role) ->
 set_user_scopes(Username, Scopes) when is_list(Scopes) ->
     Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
         update_extra(Username, fun(Extra) -> Extra#{scopes => Scopes} end)
+    end),
+    return(Res).
+
+%% @doc Clear a user's explicit scope list back to the "unset" state, i.e.
+%% remove the `scopes' field from the extra map entirely so `scopes_of/1'
+%% returns `undefined' and the runtime falls back to the role default.
+%% Used by the write paths when a request is "unset"-equivalent so a
+%% read-modify-write never sediments the implicit full set into a frozen
+%% explicit list.
+-spec clear_user_scopes(dashboard_username()) -> {ok, ok} | {error, term()}.
+clear_user_scopes(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> maps:remove(scopes, Extra) end)
     end),
     return(Res).
 

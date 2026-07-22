@@ -368,6 +368,16 @@ t_get_status(Config) ->
 t_write_failure(Config) ->
     create_both_bridges(Config),
     delete_connectors(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
+    %% wait until the forwarder actually notices the proxy is gone, otherwise the
+    %% write can race ahead of the connection teardown and succeed
+    ?retry(
+        _Sleep = 500,
+        _Attempts = 10,
+        ?assertMatch(
+            #{status := disconnected},
+            health_check(syskeeper_forwarder, ?SYSKEEPER_NAME)
+        )
+    ),
     SentData = make_message(),
     Result =
         ?wait_async_action(
