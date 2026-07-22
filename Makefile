@@ -88,6 +88,10 @@ test-compile: $(REBAR) merge-config
 	env PROFILE=$(PROFILE)-test $(MIX) deps.compile cth_readable
 	env PROFILE=$(PROFILE)-test $(MIX) compile
 
+.PHONY: test-compile-plugins
+test-compile-plugins: $(REBAR) merge-config
+	env TEST=1 PROFILE=$(PROFILE)-test $(SCRIPTS)/build-plugins.sh --compile-only
+
 .PHONY: $(REL_PROFILES:%=%-compile)
 $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
 	env PROFILE=$(@:%-compile=%) $(SCRIPTS)/mix-deps-quiet.sh $(MIX) deps.get
