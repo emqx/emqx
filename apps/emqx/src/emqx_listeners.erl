@@ -589,6 +589,15 @@ post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 post_zone_config_update(OldZones, NewZones) ->
+    %% Cluster config may update zones before listener dependencies start; skip runtime refreshes.
+    case emqx:is_running() andalso emqx_boot:is_enabled(listeners) of
+        false ->
+            ok;
+        true ->
+            do_post_zone_config_update(true, OldZones, NewZones)
+    end.
+
+do_post_zone_config_update(true, OldZones, NewZones) ->
     Zones0 = maps:keys(OldZones),
     case find_zones_with_relevant_changes(Zones0, OldZones, NewZones, []) of
         [] ->
