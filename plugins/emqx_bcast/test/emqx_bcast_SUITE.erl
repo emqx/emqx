@@ -269,8 +269,16 @@ t_sub_match_no_match(_Config) ->
 
 t_sub_takeover_pid_guard(_Config) ->
     emqx_bcast_subscription:init(),
-    Old = spawn(fun() -> receive stop -> ok end end),
-    New = spawn(fun() -> receive stop -> ok end end),
+    Old = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    New = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
     Topic = <<"/P1/DT/user/get">>,
     emqx_bcast_subscription:add(<<"devT">>, Old, {Topic, 1}),
     %% takeover: new connection re-registers under the same ClientId
@@ -333,7 +341,12 @@ t_register_message_concurrent_dedup(_Config) ->
         end)
      || _ <- lists:seq(1, N)
     ],
-    Results = [receive {reg_result, P, R} -> R end || P <- Pids],
+    Results = [
+        receive
+            {reg_result, P, R} -> R
+        end
+     || P <- Pids
+    ],
     ?assertEqual(N, length(Results)),
     lists:foreach(fun(R) -> ?assertMatch({ok, 200, _, _}, R) end, Results),
     Ids = lists:usort([maps:get(<<"MessageId">>, Resp) || {ok, 200, _, Resp} <- Results]),
@@ -439,7 +452,8 @@ wait_until(_F, 0) ->
     false;
 wait_until(F, N) ->
     case F() of
-        true -> true;
+        true ->
+            true;
         false ->
             timer:sleep(50),
             wait_until(F, N - 1)
@@ -905,13 +919,16 @@ t_mgmt_list_messages_pagination(_Config) ->
     ?assertEqual(Total, maps:get(<<"TotalCount">>, Page1)),
     Items1 = maps:get(<<"Messages">>, Page1),
     ?assertEqual(2, length(Items1)),
-    [begin
-        ?assert(maps:is_key(<<"MessageId">>, Item)),
-        ?assert(maps:is_key(<<"CreatedAt">>, Item)),
-        ?assert(maps:is_key(<<"ExpiresAt">>, Item)),
-        ?assert(maps:is_key(<<"PayloadSize">>, Item)),
-        ?assertNot(maps:is_key(<<"Payload">>, Item))
-    end || Item <- Items1],
+    [
+        begin
+            ?assert(maps:is_key(<<"MessageId">>, Item)),
+            ?assert(maps:is_key(<<"CreatedAt">>, Item)),
+            ?assert(maps:is_key(<<"ExpiresAt">>, Item)),
+            ?assert(maps:is_key(<<"PayloadSize">>, Item)),
+            ?assertNot(maps:is_key(<<"Payload">>, Item))
+        end
+     || Item <- Items1
+    ],
     {ok, 200, _, Page2} = emqx_bcast_api:handle(get, [<<"messages">>], #{
         query_string => #{<<"limit">> => <<"2">>, <<"offset">> => <<"2">>}
     }),
@@ -971,13 +988,21 @@ t_mgmt_deliveries_for_device(_Config) ->
         lists:sort([emqx_bcast_utils:guid_to_uuid(D1), emqx_bcast_utils:guid_to_uuid(D2)]),
         Ids
     ),
-    [?assertMatch(<<_:8/binary, $-, _:4/binary, $-, _:4/binary, $-, _:4/binary, $-, _:12/binary>>, Id) || Id <- Ids],
-    [begin
-        ?assertEqual(ApiMsgId, maps:get(<<"MessageId">>, D)),
-        ?assertEqual(1, maps:get(<<"TargetCount">>, D)),
-        ?assertEqual(1, maps:get(<<"PendingCount">>, D)),
-        ?assertEqual(<<"PMGMT">>, maps:get(<<"ProductKey">>, D))
-    end || D <- Deliveries],
+    [
+        ?assertMatch(
+            <<_:8/binary, $-, _:4/binary, $-, _:4/binary, $-, _:4/binary, $-, _:12/binary>>, Id
+        )
+     || Id <- Ids
+    ],
+    [
+        begin
+            ?assertEqual(ApiMsgId, maps:get(<<"MessageId">>, D)),
+            ?assertEqual(1, maps:get(<<"TargetCount">>, D)),
+            ?assertEqual(1, maps:get(<<"PendingCount">>, D)),
+            ?assertEqual(<<"PMGMT">>, maps:get(<<"ProductKey">>, D))
+        end
+     || D <- Deliveries
+    ],
     {error, 400, _, BadReq} = emqx_bcast_api:handle(get, [<<"deliveries">>], #{
         query_string => #{<<"product_key">> => <<"PMGMT">>}
     }),

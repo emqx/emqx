@@ -93,8 +93,10 @@ validate_input(_PK, DeviceNames, _MC, _MI, _Qos) when is_list(DeviceNames) ->
                     {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
                 false ->
                     case has_duplicates(DeviceNames) of
-                        true -> {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
-                        false -> ok
+                        true ->
+                            {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
+                        false ->
+                            ok
                     end
             end
     end;
@@ -158,7 +160,9 @@ deliver_qos0(DeviceNames, ProductKey, TopicTemplate, Payload, RequestId, ApiMsgI
             {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}
     end.
 
-deliver_qos1({content, Payload, Hash, ApiMsgId0, MsgGuid}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
+deliver_qos1(
+    {content, Payload, Hash, ApiMsgId0, MsgGuid}, DeviceNames, ProductKey, TopicTemplate, RequestId
+) ->
     emqx_bcast_metrics:qos1_in(),
     emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
     {Targets, Offline} = resolve(DeviceNames, ProductKey, TopicTemplate),
@@ -169,8 +173,14 @@ deliver_qos1({content, Payload, Hash, ApiMsgId0, MsgGuid}, DeviceNames, ProductK
             DeliveryId = emqx_bcast_utils:gen_guid(),
             case
                 emqx_bcast_storage:create_message_and_delivery(
-                    Payload, Hash, ApiMsgId0, MsgGuid,
-                    DeliveryId, ProductKey, TopicTemplate, DeviceNames
+                    Payload,
+                    Hash,
+                    ApiMsgId0,
+                    MsgGuid,
+                    DeliveryId,
+                    ProductKey,
+                    TopicTemplate,
+                    DeviceNames
                 )
             of
                 {ok, ApiMsgId, _Delivery} ->
@@ -194,8 +204,12 @@ deliver_qos1({reuse, ApiMsgId, MsgGuid}, DeviceNames, ProductKey, TopicTemplate,
         true ->
             DeliveryId = emqx_bcast_utils:gen_guid(),
             _Delivery = emqx_bcast_storage:create_delivery(
-                DeliveryId, MsgGuid, ProductKey, TopicTemplate,
-                DeviceNames, length(DeviceNames)
+                DeliveryId,
+                MsgGuid,
+                ProductKey,
+                TopicTemplate,
+                DeviceNames,
+                length(DeviceNames)
             ),
             %% Best-effort TTL refresh; skipped silently when the queue is full.
             _ = emqx_bcast_deliver:submit_task(fun() ->
@@ -262,7 +276,9 @@ resolve(DeviceNames, ProductKey, TopicTemplate) ->
                 _ ->
                     case
                         emqx_rpc:call(
-                            Node, ?MODULE, resolve_local,
+                            Node,
+                            ?MODULE,
+                            resolve_local,
                             [DeviceNames, ProductKey, TopicTemplate]
                         )
                     of

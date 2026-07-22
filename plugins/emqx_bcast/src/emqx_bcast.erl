@@ -301,7 +301,10 @@ replay_delivery(Pid, ProductKey, DeviceName, DeliveryId, SubQos) ->
                                 Topic,
                                 Payload,
                                 #{},
-                                #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => ProductKey}
+                                #{
+                                    ?BCAST_DELIVERY_ID => DeliveryId,
+                                    ?BCAST_PRODUCT_KEY => ProductKey
+                                }
                             ),
                             Pid ! #deliver{topic = Topic, message = Msg},
                             emqx_bcast_metrics:qos1_replayed();

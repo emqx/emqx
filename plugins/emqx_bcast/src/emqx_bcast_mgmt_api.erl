@@ -39,8 +39,10 @@ handle(get, [<<"deliveries">>], Request) ->
     QS = maps:get(query_string, Request, #{}),
     case {maps:get(<<"product_key">>, QS, undefined), maps:get(<<"device_name">>, QS, undefined)} of
         {ProductKey, DeviceName} when
-            is_binary(ProductKey), ProductKey =/= <<>>,
-            is_binary(DeviceName), DeviceName =/= <<>>
+            is_binary(ProductKey),
+            ProductKey =/= <<>>,
+            is_binary(DeviceName),
+            DeviceName =/= <<>>
         ->
             {ok, Deliveries} = emqx_bcast_storage:deliveries_for_device(ProductKey, DeviceName),
             ok_response(#{
@@ -95,15 +97,18 @@ message_json(#bcast_message{
         <<"PayloadSize">> => byte_size(Payload)
     }.
 
-delivery_json(#bcast_msg{
-    delivery_id = DeliveryId,
-    product_key = ProductKey,
-    target_ack_count = Target,
-    counter = Counter,
-    device_names = DeviceNames,
-    created_at = CreatedAt,
-    expires_at = ExpiresAt
-}, ApiMsgId) ->
+delivery_json(
+    #bcast_msg{
+        delivery_id = DeliveryId,
+        product_key = ProductKey,
+        target_ack_count = Target,
+        counter = Counter,
+        device_names = DeviceNames,
+        created_at = CreatedAt,
+        expires_at = ExpiresAt
+    },
+    ApiMsgId
+) ->
     #{
         <<"DeliveryId">> => emqx_bcast_utils:guid_to_uuid(DeliveryId),
         <<"MessageId">> => ApiMsgId,
