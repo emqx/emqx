@@ -12,6 +12,7 @@
 -define(BCAST_DELIVERY_ID, bcast_delivery_id).
 -define(BCAST_PRODUCT_KEY, bcast_product_key).
 -define(BCAST_REGISTRY, bcast).
+-define(BCAST_SHARD, emqx_bcast_shard).
 
 -record(bcast_message, {
     msg_id :: binary(),
