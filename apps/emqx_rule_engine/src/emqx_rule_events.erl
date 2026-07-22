@@ -158,9 +158,12 @@ unload(EventName) ->
 on_alarm_activated(AlarmActivatedContext, Conf) ->
     case get_limit_selects_in_namespace() of
         true ->
-            %% we don't trigger alarm events when limiting events to namespaces, as these
-            %% events do not belong to a particular namespace other than `?global_ns`.
-            ok;
+            apply_event_namespaced(
+                ?global_ns,
+                'alarm.activated',
+                fun() -> eventmsg_alarm_activated(AlarmActivatedContext) end,
+                Conf
+            );
         false ->
             apply_event_all_namespaces(
                 'alarm.activated',
@@ -172,9 +175,12 @@ on_alarm_activated(AlarmActivatedContext, Conf) ->
 on_alarm_deactivated(AlarmDeactivatedContext, Conf) ->
     case get_limit_selects_in_namespace() of
         true ->
-            %% we don't trigger alarm events when limiting events to namespaces, as these
-            %% events do not belong to a particular namespace other than `?global_ns`.
-            ok;
+            apply_event_namespaced(
+                ?global_ns,
+                'alarm.deactivated',
+                fun() -> eventmsg_alarm_deactivated(AlarmDeactivatedContext) end,
+                Conf
+            );
         false ->
             apply_event_all_namespaces(
                 'alarm.deactivated',
