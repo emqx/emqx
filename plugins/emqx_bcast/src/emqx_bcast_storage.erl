@@ -15,6 +15,12 @@
     get_device_deliveries/1,
     add_index_entries/3,
     remove_index_entries/3,
+    list_messages/2,
+    get_message_by_api_id/1,
+    delete_message/1,
+    get_delivery/1,
+    deliveries_for_device/2,
+    delete_delivery/1,
     cleanup_expired/0
 ]).
 
@@ -274,6 +280,109 @@ get_device_deliveries({ProductKey, DeviceName}) ->
             {ok, Ids};
         [] ->
             {ok, []}
+    end.
+
+%% Management queries. Read paths use dirty operations; records are
+%% replicated to every core node by the mria shard.
+
+list_messages(Limit, Offset) ->
+    All = mnesia:dirty_match_object(#bcast_message{_ = '_'}),
+    Sorted = lists:reverse(lists:keysort(#bcast_message.created_at, All)),
+    Page = lists:sublist(lists:nthtail(Offset, Sorted), Limit),
+    {length(All), Page}.
+
+get_message_by_api_id(ApiMsgId) ->
+    case mnesia:dirty_read(bcast_message_api_id, ApiMsgId) of
+        [#bcast_message_api_id{msg_id = MsgId}] ->
+            case lookup_message(MsgId) of
+                {ok, Msg} ->
+                    Count = length(
+                        mnesia:dirty_match_object(#bcast_msg{msg_id = MsgId, _ = '_'})
+                    ),
+                    {ok, Msg, Count};
+                Error ->
+                    Error
+            end;
+        [] ->
+            {error, not_found}
+    end.
+
+delete_message(ApiMsgId) ->
+    case mnesia:dirty_read(bcast_message_api_id, ApiMsgId) of
+        [] ->
+            {error, not_found};
+        [#bcast_message_api_id{msg_id = MsgId}] ->
+            case
+                mria:transaction(?BCAST_SHARD, fun() ->
+                    Deliveries = mnesia:match_object(#bcast_msg{msg_id = MsgId, _ = '_'}),
+                    lists:foreach(
+                        fun(D) -> mnesia:delete({bcast_msg, D#bcast_msg.delivery_id}) end,
+                        Deliveries
+                    ),
+                    case mnesia:read(bcast_message, MsgId, write) of
+                        [#bcast_message{content_hash = Hash}] ->
+                            mnesia:delete({bcast_message, MsgId}),
+                            mnesia:delete({bcast_message_hash, Hash}),
+                            mnesia:delete({bcast_message_api_id, ApiMsgId});
+                        [] ->
+                            ok
+                    end,
+                    Deliveries
+                end)
+            of
+                {atomic, Deliveries} ->
+                    lists:foreach(
+                        fun(D) ->
+                            propagate_index_remove(
+                                D#bcast_msg.product_key,
+                                D#bcast_msg.device_names,
+                                D#bcast_msg.delivery_id
+                            )
+                        end,
+                        Deliveries
+                    ),
+                    ok;
+                {aborted, Reason} ->
+                    {error, Reason}
+            end
+    end.
+
+get_delivery(DeliveryId) ->
+    case mnesia:dirty_read(bcast_msg, DeliveryId) of
+        [#bcast_msg{} = D] ->
+            ApiMsgId =
+                case lookup_message(D#bcast_msg.msg_id) of
+                    {ok, M} -> M#bcast_message.api_msg_id;
+                    _ -> undefined
+                end,
+            {ok, D, ApiMsgId};
+        [] ->
+            {error, not_found}
+    end.
+
+deliveries_for_device(ProductKey, DeviceName) ->
+    {ok, Ids} = get_device_deliveries({ProductKey, DeviceName}),
+    Found = lists:filtermap(
+        fun(Id) ->
+            case get_delivery(Id) of
+                {ok, D, ApiMsgId} -> {true, {D, ApiMsgId}};
+                {error, not_found} -> false
+            end
+        end,
+        Ids
+    ),
+    {ok, Found}.
+
+delete_delivery(DeliveryId) ->
+    case mnesia:dirty_read(bcast_msg, DeliveryId) of
+        [] ->
+            {error, not_found};
+        [#bcast_msg{product_key = ProductKey, device_names = DeviceNames}] ->
+            {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
+                mnesia:delete({bcast_msg, DeliveryId})
+            end),
+            propagate_index_remove(ProductKey, DeviceNames, DeliveryId),
+            ok
     end.
 
 cleanup_expired() ->

@@ -14,6 +14,10 @@
 handle(get, [<<"metrics">>], _Request) ->
     Body = emqx_bcast_metrics:collect(),
     {ok, 200, #{<<"content-type">> => <<"text/plain; version=0.0.4">>}, Body};
+handle(Method, [<<"messages">> | _] = Path, Request) ->
+    emqx_bcast_mgmt_api:handle(Method, Path, Request);
+handle(Method, [<<"deliveries">> | _] = Path, Request) ->
+    emqx_bcast_mgmt_api:handle(Method, Path, Request);
 handle(post, [<<"pub">>], Request) ->
     Body = maps:get(body, Request, #{}),
     RequestId = emqx_bcast_utils:gen_api_uuid(),
