@@ -32,10 +32,13 @@
 
 -define(CALL(Msg), gen_server:call(?MODULE, {?FUNCTION_NAME, Msg}, 15000)).
 
--define(AUTHN_HTTP_PORT, 37333).
+%% Keep below the ephemeral port range (net.ipv4.ip_local_port_range, 32768-60999
+%% on CI): a port inside that range can be picked as the source port of an
+%% outbound connection, making these listeners fail to bind with eaddrinuse.
+-define(AUTHN_HTTP_PORT, 32337).
 -define(AUTHN_HTTP_PATH, "/auth").
 
--define(AUTHZ_HTTP_PORT, 38333).
+-define(AUTHZ_HTTP_PORT, 32338).
 -define(AUTHZ_HTTP_PATH, "/authz/[...]").
 
 -define(GATEWAYS, [coap, lwm2m, mqttsn, stomp, exproto]).
@@ -216,7 +219,7 @@ http_authn_config() ->
         <<"enable">> => <<"true">>,
         <<"backend">> => <<"http">>,
         <<"method">> => <<"get">>,
-        <<"url">> => <<"http://127.0.0.1:37333/auth">>,
+        <<"url">> => <<"http://127.0.0.1:32337/auth">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
     }.
@@ -227,7 +230,7 @@ http_authz_config() ->
         <<"type">> => <<"http">>,
         <<"method">> => <<"get">>,
         <<"url">> =>
-            <<"http://127.0.0.1:38333/authz/users/?topic=${topic}&action=${action}&username=${username}">>,
+            <<"http://127.0.0.1:32338/authz/users/?topic=${topic}&action=${action}&username=${username}">>,
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
     }.
 

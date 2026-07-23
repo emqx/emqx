@@ -24,10 +24,13 @@
 ]).
 
 -ifdef(TEST).
--export([execute/3]).
+-export([execute/4]).
 -endif.
 
 -include_lib("emqx/include/emqx_trace.hrl").
+-include_lib("erlcloud/include/erlcloud_aws.hrl").
+
+-type state() :: #{aws_config := #aws_config{}}.
 
 %%%===================================================================
 %%% API
@@ -60,6 +63,7 @@ start_link(Options) ->
 %%%===================================================================
 
 %% Initialize dynamodb data bridge
+-spec init(map()) -> {ok, state()} | {stop, term()}.
 init(#{
     aws_access_key_id := AccessKeyID,
     aws_secret_access_key := Secret,
@@ -69,26 +73,46 @@ init(#{
 }) ->
     %% TODO: teach `erlcloud` to to accept 0-arity closures as passwords.
     SecretAccessKey = to_str(emqx_secret:unwrap(Secret)),
-    erlcloud_ddb2:configure(AccessKeyID, SecretAccessKey, Host, Port, Scheme),
-    {ok, #{}}.
+    AWSConfig = (new_aws_config(Host, Port, Scheme))#aws_config{
+        access_key_id = to_str(AccessKeyID),
+        secret_access_key = SecretAccessKey
+    },
+    {ok, #{aws_config => AWSConfig}};
+init(#{host := Host, port := Port, scheme := Scheme}) ->
+    AWSConfig = new_aws_config(Host, Port, Scheme),
+    case check_metadata_credentials_available(AWSConfig) of
+        ok ->
+            {ok, #{aws_config => AWSConfig}};
+        {error, Reason} ->
+            {stop, {failed_to_obtain_credentials, Reason}}
+    end.
 
-handle_call(is_connected, _From, State) ->
+handle_call(is_connected, _From, State = #{aws_config := AWSConfig}) ->
     IsConnected =
-        case erlcloud_ddb2:list_tables([{limit, 1}]) of
+        case erlcloud_ddb2:list_tables([{limit, 1}], AWSConfig) of
             {ok, _} ->
                 true;
             Error ->
                 {false, Error}
         end,
     {reply, IsConnected, State};
-handle_call({query, Table, Query, Templates, TraceRenderedCTX, ChannelState}, _From, State) ->
-    Result = do_query(Table, Query, Templates, TraceRenderedCTX, ChannelState),
+handle_call(
+    {query, Table, Query, Templates, TraceRenderedCTX, ChannelState},
+    _From,
+    State = #{aws_config := AWSConfig}
+) ->
+    Result = do_query(Table, Query, Templates, TraceRenderedCTX, ChannelState, AWSConfig),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({query, Table, Query, Templates, {ReplyFun, [Context]}, ChannelState}, State) ->
-    Result = do_query(Table, Query, Templates, {fun(_, _) -> ok end, none}, ChannelState),
+handle_cast(
+    {query, Table, Query, Templates, {ReplyFun, [Context]}, ChannelState},
+    State = #{aws_config := AWSConfig}
+) ->
+    Result = do_query(
+        Table, Query, Templates, {fun(_, _) -> ok end, none}, ChannelState, AWSConfig
+    ),
     ReplyFun(Context, Result),
     {noreply, State};
 handle_cast(_Request, State) ->
@@ -106,7 +130,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-do_query(Table, Query0, Templates, TraceRenderedCTX, ChannelState) ->
+do_query(Table, Query0, Templates, TraceRenderedCTX, ChannelState, AWSConfig) ->
     try
         Query = apply_template(Query0, Templates, ChannelState),
         emqx_trace:rendered_action_template_with_ctx(TraceRenderedCTX, #{
@@ -116,7 +140,14 @@ do_query(Table, Query0, Templates, TraceRenderedCTX, ChannelState) ->
                 data = Query
             }
         }),
-        execute(Query, Table, ChannelState)
+        %% Resolve before entering erlcloud's DDB request path so credential-fetch failures
+        %% can be classified as recoverable.  Only this request receives the resolved snapshot.
+        case erlcloud_aws:update_config(AWSConfig) of
+            {ok, ResolvedAWSConfig} ->
+                execute(Query, Table, ChannelState, ResolvedAWSConfig);
+            {error, CredentialError} ->
+                {error, {recoverable_error, {failed_to_obtain_credentials, CredentialError}}}
+        end
     catch
         error:{unrecoverable_error, Reason} ->
             {error, {unrecoverable_error, Reason}};
@@ -133,23 +164,44 @@ trace_format_query(Query) ->
     Query.
 
 %% some simple query commands for authn/authz or test
-execute({insert_item, Msg}, Table, ChannelState) ->
+execute({insert_item, Msg}, Table, ChannelState, AWSConfig) ->
     Item = convert_to_item(Msg, ChannelState),
-    erlcloud_ddb2:put_item(Table, Item);
-execute({delete_item, Key}, Table, _) ->
-    erlcloud_ddb2:delete_item(Table, Key);
-execute({get_item, Key}, Table, _) ->
-    erlcloud_ddb2:get_item(Table, Key);
+    erlcloud_ddb2:put_item(Table, Item, [], AWSConfig);
+execute({delete_item, Key}, Table, _, AWSConfig) ->
+    erlcloud_ddb2:delete_item(Table, Key, [], AWSConfig);
+execute({get_item, Key}, Table, _, AWSConfig) ->
+    erlcloud_ddb2:get_item(Table, Key, [], AWSConfig);
 %% commands for data bridge query or batch query
-execute({send_message, Msg}, Table, ChannelState) ->
+execute({send_message, Msg}, Table, ChannelState, AWSConfig) ->
     Item = convert_to_item(Msg, ChannelState),
-    erlcloud_ddb2:put_item(Table, Item);
-execute([{put, _} | _] = Msgs, Table, _) ->
+    erlcloud_ddb2:put_item(Table, Item, [], AWSConfig);
+execute([{put, _} | _] = Msgs, Table, _, AWSConfig) ->
     %% type of batch_write_item argument :: batch_write_item_request_items()
     %% batch_write_item_request_items() :: maybe_list(batch_write_item_request_item())
     %% batch_write_item_request_item() :: {table_name(), list(batch_write_item_request())}
     %% batch_write_item_request() :: {put, item()} | {delete, key()}
-    erlcloud_ddb2:batch_write_item({Table, Msgs}).
+    erlcloud_ddb2:batch_write_item({Table, Msgs}, [], AWSConfig).
+
+new_aws_config(Host, Port, Scheme) ->
+    #aws_config{
+        ddb_host = to_str(Host),
+        ddb_port = Port,
+        ddb_scheme = to_str(Scheme)
+    }.
+
+check_metadata_credentials_available(AWSConfig) ->
+    %% Keep the AWS config unresolved in the worker state.  Every query resolves a temporary
+    %% snapshot explicitly, while the unresolved config remains available for the next query.
+    %%
+    %% erlcloud caches ECS task-role and EC2 instance-role credentials, including their
+    %% expiration, in the node-wide application environment key
+    %% `{erlcloud, metadata_credentials}'.  All IAM-role clients in this BEAM node share
+    %% that cache.  Calling `update_config/1' here only checks that credentials are initially
+    %% available; query-time snapshots must not be retained in the worker state.
+    case erlcloud_aws:update_config(AWSConfig) of
+        {ok, _ResolvedAWSConfig} -> ok;
+        {error, Reason} -> {error, Reason}
+    end.
 
 apply_template({Key, Msg} = Req, Templates, _) ->
     case maps:find(Key, Templates) of

@@ -141,7 +141,9 @@ handle_stream_data(
     Channel =/= undefined
 ->
     inc_metrics('bytes.received', State, iolist_size(Bin)),
-    {MQTTPackets, NewPS} = parse_incoming(list_to_binary(lists:reverse([Bin | QueuedData])), PS),
+    {MQTTPackets, NewPS} = parse_incoming(
+        list_to_binary(lists:reverse([Bin | QueuedData])), PS, Channel
+    ),
     NewTQ = lists:foldl(
         fun(Item, Acc) ->
             queue:in(Item, Acc)
@@ -383,24 +385,37 @@ do_handle_call(_Call, _S) ->
     {error, unimpl}.
 
 %% @doc return reserved order of Packets
-parse_incoming(Data, PS) ->
+parse_incoming(Data, PS, Channel) ->
     try
         do_parse_incoming(Data, [], PS)
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
-            ?SLOG(info, #{
-                msg => "frame_parse_error",
-                reason => Reason,
-                input_bytes => Data
-            }),
+            ?SLOG(
+                info,
+                emqx_packet_data_logger:add_packet_data(
+                    #{msg => "frame_parse_error", reason => Reason},
+                    input_bytes,
+                    Data,
+                    Channel,
+                    raw
+                )
+            ),
             {[{frame_error, Reason}], PS};
         error:Reason:Stacktrace ->
-            ?SLOG(error, #{
-                msg => "frame_parse_failed",
-                input_bytes => Data,
-                reason => Reason,
-                stacktrace => Stacktrace
-            }),
+            ?SLOG(
+                error,
+                emqx_packet_data_logger:add_packet_data(
+                    #{
+                        msg => "frame_parse_failed",
+                        reason => Reason,
+                        stacktrace => Stacktrace
+                    },
+                    input_bytes,
+                    Data,
+                    Channel,
+                    raw
+                )
+            ),
             {[{frame_error, Reason}], PS}
     end.
 
