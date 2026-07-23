@@ -2,11 +2,11 @@
 %% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_dashboard_sso_cli).
+-module(emqx_dashboard_sso_admins).
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
--export([admins/1]).
+-export([admins/1, admins_audit_args/1]).
 
 admins(["add", Username, Password]) ->
     admins(["add", Username, Password, ""]);
@@ -79,6 +79,13 @@ admins(_) ->
                 "Default mechanism is 'totp' (Authenticator App)"}
         ]
     ).
+
+admins_audit_args(["add", Username, _Password | Rest]) ->
+    ["add", Username, "******" | Rest];
+admins_audit_args(["passwd", Username, _Password | Rest]) ->
+    ["passwd", Username, "******" | Rest];
+admins_audit_args(Args) ->
+    Args.
 
 atom(S) ->
     emqx_utils:safe_to_existing_atom(S).

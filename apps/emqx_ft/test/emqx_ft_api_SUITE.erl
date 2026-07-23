@@ -98,6 +98,35 @@ t_list_files(Config) ->
         request_json(get, uri(["file_transfer", "files", ClientId, <<"no-such-file">>]), Config)
     ).
 
+-doc """
+Files whose names contain non-ASCII (e.g. Chinese) characters are listed
+correctly by both the global and the per-transfer file listing APIs.
+""".
+t_list_files_unicode_name(Config) ->
+    ClientId = client_id(Config),
+    FileId = <<"f1">>,
+    Name = "视觉安防产品手册.pdf",
+    NameBin = unicode:characters_to_binary(Name),
+
+    Node = lists:last(test_nodes(Config)),
+    ok = emqx_ft_test_helpers:upload_file(sync, ClientId, FileId, Name, <<"data">>, Node),
+
+    {ok, 200, #{<<"files">> := Files}} =
+        request_json(get, uri(["file_transfer", "files"]), Config),
+
+    ?assertMatch(
+        [#{<<"fileid">> := FileId, <<"name">> := NameBin}],
+        [File || File = #{<<"clientid">> := CId} <- Files, CId == ClientId]
+    ),
+
+    {ok, 200, #{<<"files">> := FilesTransfer}} =
+        request_json(get, uri(["file_transfer", "files", ClientId, FileId]), Config),
+
+    ?assertMatch(
+        [#{<<"fileid">> := FileId, <<"name">> := NameBin}],
+        FilesTransfer
+    ).
+
 t_download_transfer(Config) ->
     ClientId = client_id(Config),
     FileId = <<"f1">>,

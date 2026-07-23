@@ -210,7 +210,7 @@ t_demo_install_start_stop_uninstall(Config) ->
     ?assertNot(is_app_loaded(map_sets)),
     ?assertEqual([], emqx_plugins:list()),
     ?assertEqual([], emqx_plugins:list_active()),
-    ?assertMatch([<<"[]">>], emqx_plugins_cli:list(fun(_, L) -> L end)),
+    ?assertMatch([<<"[]">>], emqx_plugins_cli_utils:list(fun(_, L) -> L end)),
     ok.
 
 %% help function to create a info file.
