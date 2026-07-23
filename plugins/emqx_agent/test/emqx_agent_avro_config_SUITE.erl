@@ -8,11 +8,38 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
+init_per_suite(Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx_resource, emqx_agent],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
+
 t_valid_full_config(_Config) ->
     ?assertMatch({ok, _}, decode(sample_config())).
+
+t_unwrap_avro_union_record(_Config) ->
+    Value = #{<<"id">> => <<"x">>},
+    ?assertEqual(Value, emqx_agent_config:unwrap_union(#{<<"Message_Publish">> => Value})),
+    ?assertEqual(Value, emqx_agent_config:unwrap_union(#{<<"ConnectionPostgresql">> => Value})).
+
+t_do_not_unwrap_non_avro_union_record(_Config) ->
+    Value = #{<<"id">> => <<"x">>},
+    Invalid = [
+        #{<<"message_publish">> => Value},
+        #{<<"Message-Publish">> => Value},
+        #{<<"1Message">> => Value},
+        #{message_publish => Value},
+        #{<<"Message_Publish">> => <<"not-a-record">>}
+    ],
+    [?assertEqual(Map, emqx_agent_config:unwrap_union(Map)) || Map <- Invalid].
 
 t_publish_payload_schema_default_materialized(_Config) ->
     Publish0 = maps:get(<<"Message_Publish">>, publish_tool()),
@@ -30,6 +57,30 @@ t_publish_payload_schema_default_materialized(_Config) ->
         PayloadSchema
     ).
 
+t_postgresql_ssl_record_default_materialized(_Config) ->
+    #{<<"ConnectionPostgresql">> := Connection0} = postgresql_connection(),
+    Config0 = maps:get(<<"config">>, Connection0),
+    Connection = #{
+        <<"ConnectionPostgresql">> => Connection0#{
+            <<"config">> => maps:remove(<<"ssl">>, Config0)
+        }
+    },
+    {ok, Config} = encode_with_defaults((sample_config())#{<<"connections">> => [Connection]}),
+    [#{<<"ConnectionPostgresql">> := MaterializedConnection}] = maps:get(
+        <<"connections">>, Config
+    ),
+    ?assertEqual(
+        #{
+            <<"enable">> => false,
+            <<"server_name_indication">> => <<"disable">>,
+            <<"verify">> => <<"verify_none">>,
+            <<"cacertfile">> => <<>>,
+            <<"certfile">> => <<>>,
+            <<"keyfile">> => <<>>
+        },
+        emqx_utils_maps:deep_get([<<"config">>, <<"ssl">>], MaterializedConnection)
+    ).
+
 t_all_config_oai_schemas_valid(_Config) ->
     {ok, Config} = encode_with_defaults(sample_config()),
     ?assertEqual([], oai_schema_errors(Config)).
@@ -42,6 +93,12 @@ t_reject_missing_required_tool_field(_Config) ->
     },
     Config = sample_config_with_tool(Tool),
     ?assertMatch({error, _}, decode(Config)).
+
+t_tool_format_is_required_enum(_Config) ->
+    ?assertMatch({ok, _}, decode(sample_config_with_tool(stream_write_tool(<<"json">>)))),
+    ?assertMatch({ok, _}, decode(sample_config_with_tool(stream_write_tool(<<"binary">>)))),
+    ?assertMatch({error, _}, decode(sample_config_with_tool(stream_write_tool(<<"xml">>)))),
+    ?assertMatch({error, _}, decode(sample_config_with_tool(stream_write_tool(undefined)))).
 
 t_reject_invalid_connection_enable_type(_Config) ->
     [Conn0] = maps:get(<<"connections">>, sample_config()),
@@ -167,6 +224,20 @@ unwrap_union(Value) ->
 
 sample_config_with_tool(Tool) ->
     (sample_config())#{<<"tools">> => [Tool]}.
+
+stream_write_tool(Format) ->
+    Tool0 = #{
+        <<"type">> => <<"stream__write">>,
+        <<"id">> => <<"stream-writer">>,
+        <<"desc">> => <<"Write stream">>,
+        <<"stream">> => <<"stream">>
+    },
+    Tool =
+        case Format of
+            undefined -> Tool0;
+            _ -> Tool0#{<<"format">> => Format}
+        end,
+    #{<<"Stream_Write">> => Tool}.
 
 sample_config() ->
     #{

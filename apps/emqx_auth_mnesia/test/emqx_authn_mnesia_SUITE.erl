@@ -229,6 +229,18 @@ read_tables() ->
     Rows = ets:tab2list(emqx_authn_mnesia) ++ ets:tab2list(emqx_authn_mnesia_ns),
     lists:map(fun emqx_authn_mnesia:rec_to_map/1, Rows).
 
+reset_tables() ->
+    mria:clear_table(emqx_authn_mnesia),
+    mria:clear_table(emqx_authn_mnesia_ns),
+    ok.
+
+namespaced_superusers() ->
+    [
+        User
+     || #{namespace := Namespace, is_superuser := true} = User <- read_tables(),
+        Namespace =/= ?global_ns
+    ].
+
 t_update(_) ->
     Config0 = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config0),
@@ -757,6 +769,102 @@ t_import_users_duplicated_records(_) ->
     ),
 
     ok.
+
+-doc """
+A built-in-database user in a non-global namespace must never be a superuser.
+Bulk import (prepared list, JSON file and CSV file) rejects such rows while
+keeping global-namespace superusers and non-superuser namespaced users.
+""".
+t_import_users_superuser_in_namespace_rejected(_) ->
+    Config0 = config(),
+    Config = Config0#{password_hash_algorithm => #{name => sha256, salt_position => suffix}},
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+
+    %% prepared list: global superuser ok, namespaced superuser rejected,
+    %% namespaced non-superuser ok.
+    Users = [
+        #{<<"user_id">> => <<"gsuper">>, <<"password">> => <<"p">>, <<"is_superuser">> => true},
+        #{
+            <<"user_id">> => <<"nssuper">>,
+            <<"password">> => <<"p">>,
+            <<"is_superuser">> => true,
+            <<"namespace">> => <<"ns1">>
+        },
+        #{
+            <<"user_id">> => <<"nsplain">>,
+            <<"password">> => <<"p">>,
+            <<"is_superuser">> => false,
+            <<"namespace">> => <<"ns1">>
+        }
+    ],
+    ?assertMatch(
+        {ok, #{success := 2, failed := 1}},
+        emqx_authn_mnesia:import_users({plain, prepared_user_list, Users}, State)
+    ),
+    ?assertMatch(
+        [
+            #{namespace := ?global, user_id := <<"gsuper">>, is_superuser := true},
+            #{namespace := <<"ns1">>, user_id := <<"nsplain">>, is_superuser := false}
+        ],
+        read_tables()
+    ),
+    ?assertEqual([], namespaced_superusers()),
+
+    %% JSON file: global superuser ok, namespaced superuser rejected.
+    reset_tables(),
+    ?assertMatch(
+        {ok, #{success := 1, failed := 1}},
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(hash, <<"user-credentials-ns-superuser.json">>),
+            State
+        )
+    ),
+    ?assertEqual([], namespaced_superusers()),
+    ?assertMatch(
+        [#{namespace := ?global, user_id := <<"globalsuper">>, is_superuser := true}],
+        read_tables()
+    ),
+
+    %% CSV file: same expectation.
+    reset_tables(),
+    ?assertMatch(
+        {ok, #{success := 1, failed := 1}},
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(hash, <<"user-credentials-ns-superuser.csv">>),
+            State
+        )
+    ),
+    ?assertEqual([], namespaced_superusers()),
+    ?assertMatch(
+        [#{namespace := ?global, user_id := <<"globalsuper">>, is_superuser := true}],
+        read_tables()
+    ),
+
+    ok = emqx_authn_mnesia:destroy(State).
+
+-doc """
+A bootstrap file that contains a superuser row in a non-global namespace does
+not prevent the node from booting; the offending row is rejected and no
+namespaced superuser is persisted, while the global-namespace superuser is
+still imported.
+""".
+t_bootstrap_file_superuser_in_namespace_rejected(_) ->
+    Config0 = config(),
+    Config = Config0#{password_hash_algorithm => #{name => sha256, salt_position => suffix}},
+    {Type, Filename, _} = sample_filename_and_data(
+        hash, <<"user-credentials-ns-superuser.json">>
+    ),
+    BootstrapConfig = Config#{
+        bootstrap_file => Filename,
+        bootstrap_type => Type
+    },
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, BootstrapConfig),
+    ?assertEqual([], namespaced_superusers()),
+    ?assertMatch(
+        [#{namespace := ?global, user_id := <<"globalsuper">>, is_superuser := true}],
+        read_tables()
+    ),
+    ok = emqx_authn_mnesia:destroy(State).
 
 -doc """
 Verifies that, if we don't find an username in the desired namespace, we fallback the

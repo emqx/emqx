@@ -76,6 +76,7 @@ schema("/a2a/cards/list") ->
                             array(ref(card_out)),
                             example_card_list()
                         ),
+                    404 => error_schema(?NOT_FOUND, ?DESC("not_found")),
                     503 => error_schema(?SERVICE_UNAVAILABLE, ?DESC("service_unavailable"))
                 }
         }
@@ -116,6 +117,7 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
             responses =>
                 #{
                     204 => <<"">>,
+                    404 => error_schema(?NOT_FOUND, ?DESC("not_found")),
                     503 => error_schema(?SERVICE_UNAVAILABLE, ?DESC("service_unavailable"))
                 }
         },
@@ -136,6 +138,7 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
                 #{
                     204 => <<"">>,
                     400 => error_schema(?BAD_REQUEST, ?DESC("bad_request")),
+                    404 => error_schema(?NOT_FOUND, ?DESC("not_found")),
                     500 => error_schema(?INTERNAL_ERROR, ?DESC("internal_error")),
                     503 => error_schema(?SERVICE_UNAVAILABLE, ?DESC("service_unavailable"))
                 }
@@ -266,24 +269,34 @@ agent_id_path() ->
 handle_list_cards(Namespace, QueryParams) ->
     Opts0 = parse_query_params(QueryParams),
     Opts = Opts0#{namespace => Namespace},
-    Cards = emqx_a2a_registry:list_cards(Opts),
-    ?OK(lists:map(fun card_out/1, Cards)).
+    case emqx_a2a_registry:list_cards(Opts) of
+        {ok, Cards} ->
+            ?OK(lists:map(fun card_out/1, Cards));
+        {error, retainer_disabled} ->
+            ?NOT_FOUND(retainer_disabled_message())
+    end.
 
 handle_get_card(Namespace, Bindings) ->
     Opts0 = maps:with([org_id, unit_id, agent_id], Bindings),
     Opts = Opts0#{namespace => Namespace},
     case emqx_a2a_registry:list_cards(Opts) of
-        [] ->
+        {ok, []} ->
             ?NOT_FOUND(<<"Card not found">>);
-        [Card | _] ->
-            ?OK(card_out(Card))
+        {ok, [Card | _]} ->
+            ?OK(card_out(Card));
+        {error, retainer_disabled} ->
+            ?NOT_FOUND(retainer_disabled_message())
     end.
 
 handle_delete_card(Namespace, Bindings) ->
     Opts0 = maps:with([org_id, unit_id, agent_id], Bindings),
     Opts = Opts0#{namespace => Namespace},
-    ok = emqx_a2a_registry:delete_card(Opts),
-    ?NO_CONTENT.
+    case emqx_a2a_registry:delete_card(Opts) of
+        ok ->
+            ?NO_CONTENT;
+        {error, retainer_disabled} ->
+            ?NOT_FOUND(retainer_disabled_message())
+    end.
 
 handle_register_card(Namespace, Bindings, Body) ->
     #{<<"card">> := CardBin} = Body,
@@ -292,6 +305,8 @@ handle_register_card(Namespace, Bindings, Body) ->
     case emqx_a2a_registry:write_card(Opts) of
         ok ->
             ?NO_CONTENT;
+        {error, retainer_disabled} ->
+            ?NOT_FOUND(retainer_disabled_message());
         {error, Reason} ->
             case emqx_a2a_registry_adapter:format_register_error(Reason) of
                 {ok, Msg} ->
@@ -301,6 +316,14 @@ handle_register_card(Namespace, Bindings, Body) ->
                     ?INTERNAL_ERROR(Msg)
             end
     end.
+
+retainer_disabled_message() ->
+    <<
+        "A2A registry requires the retainer feature. "
+        "Enable retainer under 'Retained Messages' in the Dashboard, "
+        "or set `retainer.enable = true` in the configuration, "
+        "and try again."
+    >>.
 
 %%-------------------------------------------------------------------------------------------------
 %% Internal exports

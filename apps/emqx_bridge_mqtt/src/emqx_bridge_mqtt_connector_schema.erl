@@ -39,7 +39,7 @@
 %% reject creating an unrelated valid connector whenever any sibling connector's
 %% `server' is denied by the current SSRF policy. The check is enforced per
 %% connector in `emqx_connector_resource:parse_confs/3' instead.
--define(MQTT_HOST_OPTS, #{default_port => 1883}).
+-define(MQTT_HOST_OPTS, emqx_schema:mqtt_host_opts()).
 
 namespace() -> "connector_mqtt".
 

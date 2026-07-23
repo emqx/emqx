@@ -9,9 +9,15 @@ BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 include env.sh
 
+.DEFAULT_GOAL := default
+
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= 2.3.0-beta.1
+export EMQX_DASHBOARD_VERSION ?= 2.3.0-beta.2
+
+.PHONY: print-dashboard-version
+print-dashboard-version:
+	@echo $(EMQX_DASHBOARD_VERSION)
 
 export EMQX_REL_FORM ?= tgz
 export QUICER_TLS_VER ?= sys
@@ -211,7 +217,7 @@ plugin-%:
 		echo "Error: $(PLUGIN_APP_DIR) is not an EMQX plugin app (missing :emqx_plugin)."; \
 		exit 1; \
 	}
-	cd "$(PLUGIN_APP_DIR)" && MIX_ENV="$(PROFILE)" PROFILE="$(PROFILE)" $(MIX) do deps.get, emqx.plugin
+	cd "$(PLUGIN_APP_DIR)" && MIX_ENV="$(PROFILE)" PROFILE="$(PROFILE)" $(MIX) do deps.get + emqx.plugin
 
 .PHONY: plugins
 plugins: $(REBAR)

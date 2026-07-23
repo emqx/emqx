@@ -4,10 +4,14 @@
 
 -module(emqx_plugins_cli).
 
+-export([load/0, unload/0]).
+-export([plugins/1]).
+
 -export([
     list/1,
     describe/2,
     ensure_installed/2,
+    ensure_installed_cluster/2,
     ensure_uninstalled/2,
     ensure_started/2,
     ensure_stopped/2,
@@ -19,6 +23,7 @@
     disallow_installation/2
 ]).
 
+-include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -define(BPAPI_NAME, emqx_plugins).
@@ -26,6 +31,93 @@
 -define(PRINT(EXPR, LOG_FUN),
     print(NameVsn, fun() -> EXPR end(), LOG_FUN, ?FUNCTION_NAME)
 ).
+
+load() ->
+    emqx_ctl:register_command(plugins, {?MODULE, plugins}, []),
+    ok.
+
+unload() ->
+    emqx_ctl:unregister_command(plugins),
+    ok.
+
+plugins(["list"]) ->
+    list(fun emqx_ctl:print/2);
+plugins(["describe", NameVsn]) ->
+    describe(NameVsn, fun emqx_ctl:print/2);
+plugins(["allow", NameVsn]) ->
+    allow_installation(NameVsn, fun emqx_ctl:print/2);
+plugins(["allow", NameVsn, "sha256:" ++ Hex]) ->
+    case parse_sha256_hex(Hex) of
+        {ok, Sha256} ->
+            allow_installation(NameVsn, Sha256, fun emqx_ctl:print/2);
+        error ->
+            emqx_ctl:print(
+                "sha256 must be 64 lowercase hex characters, e.g. sha256:abc...~n"
+            )
+    end;
+plugins(["disallow", NameVsn]) ->
+    disallow_installation(NameVsn, fun emqx_ctl:print/2);
+plugins(["install", NameVsn]) ->
+    ensure_installed(NameVsn, fun emqx_ctl:print/2);
+plugins(["uninstall", NameVsn]) ->
+    ensure_uninstalled(NameVsn, fun emqx_ctl:print/2);
+plugins(["start", NameVsn]) ->
+    ensure_started(NameVsn, fun emqx_ctl:print/2);
+plugins(["stop", NameVsn]) ->
+    ensure_stopped(NameVsn, fun emqx_ctl:print/2);
+plugins(["restart", NameVsn]) ->
+    restart(NameVsn, fun emqx_ctl:print/2);
+plugins(["disable", NameVsn]) ->
+    ensure_disabled(NameVsn, fun emqx_ctl:print/2);
+plugins(["enable", NameVsn]) ->
+    ensure_enabled(NameVsn, no_move, fun emqx_ctl:print/2);
+plugins(["enable", NameVsn, "front"]) ->
+    ensure_enabled(NameVsn, front, fun emqx_ctl:print/2);
+plugins(["enable", NameVsn, "rear"]) ->
+    ensure_enabled(NameVsn, rear, fun emqx_ctl:print/2);
+plugins(["enable", NameVsn, "before", Other]) ->
+    ensure_enabled(NameVsn, {before, Other}, fun emqx_ctl:print/2);
+plugins(_) ->
+    emqx_ctl:usage(
+        [
+            {"plugins <command> [Name-Vsn]", "e.g. 'start emqx_plugin_template-5.0-rc.1'"},
+            {"plugins list", "List all installed plugins"},
+            {"plugins describe  Name-Vsn", "Describe an installed plugins"},
+            {"plugins allow     Name-Vsn [sha256:HEX]",
+                "Allows installation of a plugin in the cluster from Dashboard or API.\n"
+                "The grant expires 5 minutes after issue.\n"
+                "If sha256:HEX (64 lowercase hex chars) is given, the upload bytes\n"
+                "must hash to that value or the install is rejected."},
+            {"plugins disallow  Name-Vsn",
+                "Disallows installation of a plugin in the cluster from Dashboard or API"},
+            {"plugins install   Name-Vsn",
+                "Install a plugin package placed\n"
+                "in plugin's install_dir"},
+            {"plugins uninstall Name-Vsn",
+                "Uninstall a plugin. NOTE: it deletes\n"
+                "all files in install_dir/Name-Vsn"},
+            {"plugins start     Name-Vsn", "Start a plugin"},
+            {"plugins stop      Name-Vsn", "Stop a plugin"},
+            {"plugins restart   Name-Vsn", "Stop then start a plugin"},
+            {"plugins disable   Name-Vsn", "Disable auto-boot"},
+            {"plugins enable    Name-Vsn [Position]",
+                "Enable auto-boot at Position in the boot list, where Position could be\n"
+                "'front', 'rear', or 'before Other-Vsn' to specify a relative position.\n"
+                "The Position parameter can be used to adjust the boot order.\n"
+                "If no Position is given, an already configured plugin\n"
+                "will stay at is old position; a newly plugin is appended to the rear\n"
+                "e.g. plugins disable foo-0.1.0 front\n"
+                "     plugins enable bar-0.2.0 before foo-0.1.0"}
+        ]
+    ).
+
+parse_sha256_hex(Hex) when length(Hex) =:= 64 ->
+    case re:run(Hex, "^[0-9a-f]{64}$", [{capture, none}]) of
+        match -> {ok, list_to_binary(Hex)};
+        nomatch -> error
+    end;
+parse_sha256_hex(_) ->
+    error.
 
 list(LogFun) ->
     LogFun("~ts~n", [to_json(emqx_plugins:list())]).
@@ -98,6 +190,22 @@ print_allow_result(Nodes, Results, NameVsn, LogFun) ->
         end,
     print(NameVsn, Result, LogFun, allow_installation).
 
+print_cluster_result(Nodes, Results, NameVsn, LogFun) ->
+    Errors =
+        lists:filter(
+            fun
+                ({_Node, {ok, ok}}) -> false;
+                ({_Node, _}) -> true
+            end,
+            lists:zip(Nodes, Results)
+        ),
+    Result =
+        case Errors of
+            [] -> ok;
+            _ -> {error, maps:from_list(Errors)}
+        end,
+    print(NameVsn, Result, LogFun, ensure_installed_cluster).
+
 disallow_installation(NameVsn, LogFun) ->
     try emqx_plugins_utils:parse_name_vsn(NameVsn) of
         {_AppName, _Vsn} ->
@@ -128,7 +236,37 @@ do_disallow_installation(NameVsn, LogFun) ->
     ?PRINT(Result, LogFun).
 
 ensure_installed(NameVsn, LogFun) ->
-    ?PRINT(emqx_plugins:ensure_installed(NameVsn), LogFun).
+    case emqx_plugins:describe(NameVsn, #{}) of
+        {ok, _} ->
+            ?PRINT(
+                {error, #{
+                    msg => "plugin_already_installed", name_vsn => NameVsn
+                }},
+                LogFun
+            );
+        {error, _} ->
+            ?PRINT(emqx_plugins:ensure_installed(NameVsn, ?fresh_install), LogFun)
+    end.
+
+ensure_installed_cluster(NameVsn, LogFun) ->
+    case emqx_plugins_fs:get_tar(NameVsn) of
+        {ok, TarBin} ->
+            Running = emqx:running_nodes(),
+            V5Nodes = nodes_supporting_bpapi_version(5),
+            case Running -- V5Nodes of
+                [] ->
+                    Results = emqx_plugins_proto_v5:install_package(V5Nodes, NameVsn, TarBin),
+                    print_cluster_result(V5Nodes, Results, NameVsn, LogFun);
+                Missing ->
+                    Reason = #{
+                        hint => <<"cluster install requires all nodes to support proto v5">>,
+                        nodes_missing_v5 => Missing
+                    },
+                    ?PRINT({error, Reason}, LogFun)
+            end;
+        {error, Reason} ->
+            ?PRINT({error, Reason}, LogFun)
+    end.
 
 ensure_uninstalled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_uninstalled(NameVsn), LogFun).

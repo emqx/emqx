@@ -92,7 +92,7 @@ application_name() ->
     hoconsc:mk(binary(), #{
         default => <<"emqx">>,
         desc => ?DESC("application_name"),
-        validator => fun emqx_schema:non_empty_string/1
+        validator => fun emqx_postgresql:validate_application_name/1
     }).
 
 %% Examples

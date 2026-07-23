@@ -88,7 +88,8 @@
     mark_channel_disconnected/1,
     is_channel_connected/1,
     get_connected_client_count/0,
-    get_sessions_count/0
+    get_sessions_count/0,
+    request_stepdown/4
 ]).
 
 %% RPC targets
@@ -114,8 +115,6 @@
     _Info :: emqx_types:infos(),
     _Stats :: emqx_types:stats()
 }.
-
--type takeover_state() :: {_ConnMod :: module(), _ChanPid :: pid()}.
 
 -define(BPAPI_NAME, emqx_cm).
 
@@ -276,9 +275,42 @@ set_chan_stats(ClientId, Stats) when ?IS_CLIENTID(ClientId) ->
 set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, ChanPid},
     try
-        ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats})
+        case ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats}) of
+            true ->
+                ok = maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats),
+                true;
+            false ->
+                false
+        end
     catch
         error:badarg -> false
+    end.
+
+maybe_log_session_buffer_high_watermark(ClientId, ChanPid, Stats) ->
+    case emqx_config:get([sysmon, session, total_payload_bytes_high_watermark], 0) of
+        HighWatermark when HighWatermark > 0 ->
+            TotalPayloadBytes = proplists:get_value(total_payload_bytes, Stats, 0),
+            case TotalPayloadBytes > HighWatermark of
+                true ->
+                    ?SLOG_THROTTLE(
+                        warning,
+                        ClientId,
+                        #{
+                            msg => session_buffer_high_watermark,
+                            clientid => ClientId,
+                            pid => ChanPid,
+                            mqueue_length => proplists:get_value(mqueue_len, Stats, 0),
+                            inflight_count => proplists:get_value(inflight_cnt, Stats, 0),
+                            total_payload_bytes => TotalPayloadBytes,
+                            total_payload_bytes_high_watermark => HighWatermark
+                        },
+                        #{clientid => ClientId}
+                    );
+                false ->
+                    ok
+            end;
+        _ ->
+            ok
     end.
 
 %% @doc Open a session.
@@ -359,30 +391,20 @@ do_open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnI
 
 %% @doc Try to takeover a session from existing channel.
 -spec takeover_session_begin(emqx_types:clientid()) ->
-    {ok, emqx_session_mem:session(), takeover_state()} | none.
+    {ok, emqx_cm_takeover:channelref(), emqx_cm_takeover:state()} | none.
 takeover_session_begin(ClientId) ->
-    takeover_session_begin(ClientId, pick_channel(ClientId)).
-
-takeover_session_begin(ClientId, ChanPid) when is_pid(ChanPid) ->
-    case takeover_session(ClientId, ChanPid) of
-        {living, ConnMod, ChanPid, Session} ->
-            {ok, Session, {ConnMod, ChanPid}};
-        _ ->
+    case pick_channel(ClientId) of
+        ChanPid when is_pid(ChanPid) ->
+            emqx_cm_takeover:begin_(ClientId, ChanPid);
+        undefined ->
             none
-    end;
-takeover_session_begin(_ClientId, undefined) ->
-    none.
+    end.
 
 %% @doc Conclude the session takeover process.
--spec takeover_session_end(takeover_state()) ->
+-spec takeover_session_end(emqx_cm_takeover:channelref()) ->
     {ok, _ReplayContext} | {error, _Reason}.
-takeover_session_end({ConnMod, ChanPid}) ->
-    case emqx_cm_proto_v3:takeover_finish(ConnMod, ChanPid) of
-        {ok, Pendings} ->
-            {ok, Pendings};
-        {error, _} = Error ->
-            Error
-    end.
+takeover_session_end(ChannelRef) ->
+    emqx_cm_takeover:finish(ChannelRef).
 
 -spec pick_channel(emqx_types:clientid()) ->
     option(pid()).
@@ -394,7 +416,14 @@ pick_channel(ClientId) ->
             ChanPid;
         ChanPids ->
             [ChanPid | StalePids] = lists:reverse(ChanPids),
-            ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
+            ?SLOG(
+                warning,
+                #{
+                    msg => "more_than_one_channel_found",
+                    chan_pids => ChanPids
+                },
+                #{clientid => ClientId}
+            ),
             lists:foreach(
                 fun(StalePid) ->
                     discard_session(ClientId, StalePid)
@@ -413,7 +442,7 @@ takeover_kick(ClientId) ->
         ChanPids ->
             lists:foreach(
                 fun(Pid) ->
-                    do_takeover_session(ClientId, Pid)
+                    takeover_kick(ClientId, Pid)
                 end,
                 ChanPids
             )
@@ -423,7 +452,7 @@ takeover_kick(ClientId) ->
 %% We stop any running channels with reason `takenover' so that correct reason codes and
 %% will message processing may take place.  For older BPAPI nodes, we don't have much
 %% choice other than calling the old `discard_session' code.
-do_takeover_session(ClientId, Pid) ->
+takeover_kick(ClientId, Pid) ->
     Node = node(Pid),
     case emqx_bpapi:supported_version(Node, ?BPAPI_NAME) of
         undefined ->
@@ -435,37 +464,15 @@ do_takeover_session(ClientId, Pid) ->
             takeover_kick_session(ClientId, Pid)
     end.
 
+%% @doc RPC Target @ `emqx_cm_proto_v{1..3}:takeover_session/2`
+%% Used only by `emqx_session_mem'
+takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
+    emqx_cm_takeover:begin_rpc_legacy(ClientId, ChanPid).
+
+%% @doc RPC target @ `emqx_cm_proto_v{1..3}:takeover_finish/2`
 %% Used only by `emqx_session_mem'
 takeover_finish(ConnMod, ChanPid) ->
-    request_stepdown({takeover, 'end'}, ConnMod, ChanPid, ?T_TAKEOVER).
-
-%% @doc RPC Target @ emqx_cm_proto_v2:takeover_session/2
-%% Used only by `emqx_session_mem'
-takeover_session(ClientId, Pid) ->
-    try
-        do_takeover_begin(ClientId, Pid)
-    catch
-        %% request_stepdown/3
-        error:R when R == noproc; R == timeout; R == unexpected_exception ->
-            none;
-        error:{erpc, _} ->
-            none
-    end.
-
-do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
-    case do_get_chann_conn_mod(ClientId, ChanPid) of
-        undefined ->
-            none;
-        ConnMod when is_atom(ConnMod) ->
-            case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid, ?T_TAKEOVER) of
-                {ok, Session} ->
-                    {living, ConnMod, ChanPid, Session};
-                {error, Reason} ->
-                    error(Reason)
-            end
-    end;
-do_takeover_begin(ClientId, ChanPid) ->
-    emqx_cm_proto_v3:takeover_session(ClientId, ChanPid).
+    emqx_cm_takeover:finish_rpc_legacy(ConnMod, ChanPid).
 
 %% @doc Discard all the sessions identified by the ClientId.
 -spec discard_session(emqx_types:clientid()) -> ok.
@@ -486,7 +493,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
 when
     Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'} | takeover_kick.
 request_stepdown(Action, ConnMod, Pid, Timeout) ->
-    try apply(ConnMod, call, [Pid, Action, Timeout]) of
+    try ConnMod:call(Pid, Action, Timeout) of
         ok -> ok;
         Reply -> {ok, Reply}
     catch

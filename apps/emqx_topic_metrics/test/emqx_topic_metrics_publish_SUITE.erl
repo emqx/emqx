@@ -19,7 +19,7 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
-            {emqx, #{override_env => [{boot_modules, [broker]}]}},
+            {emqx, #{override_env => [{boot_modules, [broker, listeners]}]}},
             emqx_topic_metrics
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -103,6 +103,38 @@ t_delivered_and_dropped(_Config) ->
             'messages.in.count' := 0
         }
     }} = emqx_topic_metrics2:lookup(<<"a">>, ?global_ns).
+
+-doc """
+A plain-topic collection (sensor/1) counts a real publish under
+messages.in and a delivery to a $share/group/sensor/1 subscriber
+under messages.out — the delivered hook sees the real topic.
+""".
+t_shared_subscription_delivery_counted(_Config) ->
+    ok = emqx_topic_metrics2:register(<<"s">>, <<"sensor/1">>, ?global_ns),
+    {ok, Sub} = emqtt:start_link(#{clientid => <<"sub">>, proto_ver => v5}),
+    {ok, _} = emqtt:connect(Sub),
+    {ok, _, [0]} = emqtt:subscribe(Sub, <<"$share/group/sensor/1">>, ?QOS_0),
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"pub">>, proto_ver => v5}),
+    {ok, _} = emqtt:connect(Pub),
+    {ok, _} = emqtt:publish(Pub, <<"sensor/1">>, <<"payload">>, ?QOS_1),
+    %% Wait for the message to reach the shared subscriber, which is
+    %% when the `message.delivered' hook has run.
+    receive
+        {publish, #{topic := <<"sensor/1">>}} -> ok
+    after 5000 ->
+        ct:fail(delivery_timeout)
+    end,
+    ok = emqtt:disconnect(Sub),
+    ok = emqtt:disconnect(Pub),
+    ?assertMatch(
+        {ok, #{
+            metrics := #{
+                'messages.in.count' := 1,
+                'messages.out.count' := 1
+            }
+        }},
+        emqx_topic_metrics2:lookup(<<"s">>, ?global_ns)
+    ).
 
 %%--------------------------------------------------------------------
 %% Helpers

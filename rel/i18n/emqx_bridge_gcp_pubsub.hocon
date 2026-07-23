@@ -139,6 +139,10 @@ consumer_mqtt_payload.label:
     label: "GCP PubSub Consumer"
   }
 
+  consumer_ack_deadline {
+    desc: "The approximate amount of time (on a best-effort basis) Pub/Sub waits for the subscriber to acknowledge receipt before resending the message.  See the [official GCP docs](https://docs.cloud.google.com/pubsub/docs/reference/rest/v1/projects.subscriptions/create) for more info."
+    label: "Ack Dealine"
+  }
 
 request_timeout.desc:
 """Request timeout for calling GCP Pub/Sub."""

@@ -27,7 +27,7 @@
 -define(SESSION_HOOK, {?MODULE, on_session_created, []}).
 -define(AUTHN_HOOK, {?MODULE, on_authenticate, []}).
 -define(POST_AUTHN_HOOK, {?MODULE, on_post_authn, []}).
--define(LIMITER_HOOK, {emqx_mt_limiter, adjust_limiter, []}).
+-define(LIMITER_HOOK(LEVEL), {emqx_mt_limiter, adjust_limiter, [LEVEL]}).
 -define(USER_CREATION_HOOK, {?MODULE, on_api_actor_will_be_created, []}).
 -define(MSG_DROPPED_HOOK, {?MODULE, on_message_dropped, []}).
 -define(DELIVERY_DROPPED_HOOK, {?MODULE, on_delivery_dropped, []}).
@@ -36,7 +36,8 @@ register_hooks() ->
     ok = emqx_hooks:add('session.created', ?SESSION_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.authenticate', ?AUTHN_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.post_authn', ?POST_AUTHN_HOOK, ?HP_HIGHEST),
-    ok = emqx_hooks:add('channel.limiter_adjustment', ?LIMITER_HOOK, ?HP_HIGHEST),
+    ok = emqx_hooks:add('channel.limiter_adjustment', ?LIMITER_HOOK(channel), ?HP_HIGHEST),
+    ok = emqx_hooks:add('session.limiter_adjustment', ?LIMITER_HOOK(session), ?HP_HIGHEST),
     ok = emqx_hooks:add('api_actor.pre_create', ?USER_CREATION_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add(
         'namespace.resource_pre_create',
@@ -53,7 +54,8 @@ unregister_hooks() ->
     ok = emqx_hooks:del('session.created', ?SESSION_HOOK),
     ok = emqx_hooks:del('client.authenticate', ?AUTHN_HOOK),
     ok = emqx_hooks:del('client.post_authn', ?POST_AUTHN_HOOK),
-    ok = emqx_hooks:del('channel.limiter_adjustment', ?LIMITER_HOOK),
+    ok = emqx_hooks:del('channel.limiter_adjustment', ?LIMITER_HOOK(channel)),
+    ok = emqx_hooks:del('session.limiter_adjustment', ?LIMITER_HOOK(session)),
     ok = emqx_hooks:del('api_actor.pre_create', ?USER_CREATION_HOOK),
     ok = emqx_hooks:del(
         'namespace.resource_pre_create', {?MODULE, on_namespace_resource_pre_create}

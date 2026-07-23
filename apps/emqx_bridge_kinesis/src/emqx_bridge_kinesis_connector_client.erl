@@ -103,8 +103,7 @@ init(#{
             Endpoint,
             #{
                 default_port => ?DEFAULT_PORT,
-                supported_schemes => ["http", "https"],
-                ssrf_check => true
+                supported_schemes => ["http", "https"]
             }
         ),
     State = #{

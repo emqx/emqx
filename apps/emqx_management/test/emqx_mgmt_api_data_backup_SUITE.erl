@@ -366,6 +366,78 @@ t_import_dashboard_token_allows_sensitive_tables(Config) ->
     ?assertMatch({ok, _}, import_backup(?NODE1_PORT, DashboardAuth, ?UPLOAD_CE_BACKUP)),
     ok.
 
+%% A Dashboard administrator whose effective scope set does not include both
+%% `user_management' and `api_key_management' must be rejected with 403 when
+%% importing a backup that contains the dashboard_users / api_keys tables,
+%% the same as an API-key caller.
+t_import_restricted_dashboard_token_blocks_sensitive_tables(Config) ->
+    ApiAuth = ?config(auth, Config),
+    [Core1 | _] = ?config(cluster, Config),
+    %% `system' is what lets the caller reach the data-backup endpoint at
+    %% all; it does NOT include the credential-management scopes that govern
+    %% the sensitive tables.
+    RestrictedAuth = scoped_dashboard_token_auth(
+        Core1, <<"restricted_admin_for_test">>, ?DASHBOARD_PASS, [<<"system">>]
+    ),
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, ApiAuth, UploadFile)),
+    {Status, Body} = import_backup_full(?NODE1_PORT, RestrictedAuth, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(403, Status),
+    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
+    ok.
+
+%% A Dashboard administrator whose effective scope set includes both
+%% `user_management' and `api_key_management' may import a backup that
+%% contains the dashboard_users / api_keys tables. (`system' is also required,
+%% otherwise the login-user scope check blocks the data-backup endpoint
+%% before the sensitive-table check runs.)
+t_import_dashboard_token_with_credential_scopes_allows_sensitive_tables(Config) ->
+    ApiAuth = ?config(auth, Config),
+    [Core1 | _] = ?config(cluster, Config),
+    PrivilegedAuth = scoped_dashboard_token_auth(
+        Core1,
+        <<"privileged_admin_for_test">>,
+        ?DASHBOARD_PASS,
+        [<<"system">>, <<"user_management">>, <<"api_key_management">>]
+    ),
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, ApiAuth, UploadFile)),
+    ?assertMatch({ok, _}, import_backup(?NODE1_PORT, PrivilegedAuth, ?UPLOAD_CE_BACKUP)),
+    ok.
+
+%% A restricted Dashboard administrator's export must omit the sensitive table
+%% sets, mirroring the API-key export behaviour.
+t_export_restricted_dashboard_token_omits_sensitive_tables(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    RestrictedAuth = scoped_dashboard_token_auth(
+        Core1, <<"restricted_exporter_for_test">>, ?DASHBOARD_PASS, [<<"system">>]
+    ),
+    {200, #{<<"filename">> := Filename, <<"node">> := NodeBin}} =
+        export_backup2(?NODE1_PORT, RestrictedAuth, #{}),
+    Node = binary_to_atom(NodeBin, utf8),
+    {ok, BinContents} = ?ON(
+        Node, emqx_mgmt_data_backup:read_file(unicode:characters_to_binary(Filename))
+    ),
+    {ok, TmpFile} = write_tmp_tar(BinContents),
+    try
+        {ok, Entries} = erl_tar:table(TmpFile, [compressed]),
+        SensitiveTabs = ["mnesia/emqx_admin", "mnesia/emqx_app"],
+        FoundSensitive = [
+            E
+         || E <- Entries,
+            S <- SensitiveTabs,
+            string:find(E, S) =/= nomatch
+        ],
+        ?assertEqual(
+            [],
+            FoundSensitive,
+            "restricted dashboard export must not contain dashboard_users / api_keys mnesia tables"
+        )
+    after
+        file:delete(TmpFile)
+    end,
+    ok.
+
 %% API-key callers may download archives that do not contain dashboard users or
 %% API-key records. This keeps backup-sync working: its API-key export path
 %% already filters those sensitive table sets.
@@ -426,17 +498,177 @@ t_download_viewer_forbidden(Config) ->
     ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
     ok.
 
-%% Namespaced administrators must be rejected with 403 when downloading a
-%% backup file. Backups span all namespaces; downloading one would leak
-%% cross-namespace dashboard accounts and API-key records.
-t_download_ns_admin_forbidden(Config) ->
+%% Namespaced administrators get an isolated backup space under
+%% `<backup>/ns/<Namespace>/'. Export, list, download and delete only ever act
+%% on that space: a namespaced administrator cannot see or touch global (or
+%% legacy) backups, nor another namespace's backups.
+t_namespaced_backup_isolation(Config) ->
+    [Core1, _Core2, _Repl] = ?config(cluster, Config),
     ApiAuth = ?config(auth, Config),
-    NsAdminAuth = ?config(ns_admin_auth, Config),
-    {200, #{<<"filename">> := Filename}} =
-        export_backup2(?NODE1_PORT, ApiAuth, #{}),
-    {Status, Body} = download_backup(?NODE1_PORT, NsAdminAuth, Filename),
-    ?assertEqual(403, Status),
-    ?assertMatch(#{<<"code">> := <<"FORBIDDEN">>}, Body),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Ns2Auth = ns_admin_auth_header(Core1, <<"ns2">>, <<"ns2_admin_for_test">>, ?NS_ADMIN_PASS),
+
+    %% Global export lands in the flat/global space; each namespace exports into
+    %% its own space.
+    {200, #{<<"filename">> := GFile}} = export_backup2(?NODE1_PORT, ApiAuth, #{}),
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+    {200, #{<<"filename">> := N2File}} = export_backup2(?NODE1_PORT, Ns2Auth, #{}),
+
+    %% Listing is scoped: each namespace sees only its own file.
+    ?assertEqual([N1File], list_filenames(?NODE1_PORT, Ns1Auth)),
+    ?assertEqual([N2File], list_filenames(?NODE1_PORT, Ns2Auth)),
+    %% A namespaced API key resolves to the same isolated space as the
+    %% namespaced dashboard administrator.
+    Ns1ApiKeyAuth = ns_api_key_auth_header(Core1),
+    ?assertEqual([N1File], list_filenames(?NODE1_PORT, Ns1ApiKeyAuth)),
+    %% Global listing sees the global file, never the namespaced ones.
+    GlobalFiles = list_filenames(?NODE1_PORT, DashboardAuth),
+    ?assert(lists:member(GFile, GlobalFiles)),
+    ?assertNot(lists:member(N1File, GlobalFiles)),
+    ?assertNot(lists:member(N2File, GlobalFiles)),
+
+    %% ns1 can download its own file, but not the global one nor ns2's --
+    %% those are invisible in its space and resolve to 404.
+    ?assertMatch({200, _}, download_backup(?NODE1_PORT, Ns1Auth, N1File)),
+    ?assertMatch({404, _}, download_backup(?NODE1_PORT, Ns1Auth, GFile)),
+    ?assertMatch({404, _}, download_backup(?NODE1_PORT, Ns1Auth, N2File)),
+
+    %% ns1 cannot delete another space's file, but can delete its own.
+    ?assertMatch({404, _}, delete_backup(?NODE1_PORT, Ns1Auth, GFile)),
+    ?assertMatch({404, _}, delete_backup(?NODE1_PORT, Ns1Auth, N2File)),
+    ?assertMatch({204, _}, delete_backup(?NODE1_PORT, Ns1Auth, N1File)),
+    ?assertEqual([], list_filenames(?NODE1_PORT, Ns1Auth)),
+
+    %% Global download of the global file still works (regression).
+    ?assertMatch({200, _}, download_backup(?NODE1_PORT, DashboardAuth, GFile)),
+    ok.
+
+%% A namespaced administrator can round-trip its own configuration: export then
+%% re-import, scoped entirely to its namespace.
+t_namespaced_export_import(Config) ->
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+    ?assertMatch({204, _}, import_backup_full(?NODE1_PORT, Ns1Auth, N1File)),
+    ok.
+
+%% A namespaced administrator uploading a backup lands it in its own space; the
+%% global administrator never sees it.
+t_namespaced_upload_isolation(Config) ->
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, Ns1Auth, UploadFile)),
+    Base = list_to_binary(?UPLOAD_CE_BACKUP),
+    ?assert(lists:member(Base, list_filenames(?NODE1_PORT, Ns1Auth))),
+    ?assertNot(lists:member(Base, list_filenames(?NODE1_PORT, DashboardAuth))),
+    ok.
+
+%% A global administrator may opt in to a specific namespace's backup space with
+%% the `namespace' query parameter -- to inspect or clean up after a tenant --
+%% while the default (no parameter) stays on the global backups.
+t_global_admin_scoped_namespace(Config) ->
+    DashboardAuth = ?config(dashboard_auth, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Ns1 = #{<<"namespace">> => <<"ns1">>},
+
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+
+    %% Default global listing does not see the namespaced backup...
+    ?assertNot(lists:member(N1File, list_filenames(?NODE1_PORT, DashboardAuth))),
+    %% ...but opting into ns1 does.
+    ?assertEqual([N1File], list_filenames(?NODE1_PORT, DashboardAuth, Ns1)),
+
+    %% Global admin can download and delete within the opted-in namespace.
+    ?assertMatch({200, _}, download_backup(?NODE1_PORT, DashboardAuth, N1File, Ns1)),
+    ?assertMatch({204, _}, delete_backup(?NODE1_PORT, DashboardAuth, N1File, Ns1)),
+    ?assertEqual([], list_filenames(?NODE1_PORT, DashboardAuth, Ns1)),
+    ok.
+
+%% A namespaced administrator cannot escape its namespace by supplying the
+%% `namespace' query parameter -- it is ignored for namespaced callers.
+t_namespaced_admin_cannot_override_namespace(Config) ->
+    [Core1, _Core2, _Repl] = ?config(cluster, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Ns2Auth = ns_admin_auth_header(Core1, <<"ns2">>, <<"ns2_admin_for_test">>, ?NS_ADMIN_PASS),
+
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+    {200, #{<<"filename">> := N2File}} = export_backup2(?NODE1_PORT, Ns2Auth, #{}),
+
+    %% ns1 asking for ns2 still only sees (and can only act on) its own space.
+    ?assertEqual([N1File], list_filenames(?NODE1_PORT, Ns1Auth, #{<<"namespace">> => <<"ns2">>})),
+    ?assertMatch(
+        {404, _}, download_backup(?NODE1_PORT, Ns1Auth, N2File, #{<<"namespace">> => <<"ns2">>})
+    ),
+    ?assertMatch(
+        {404, _}, delete_backup(?NODE1_PORT, Ns1Auth, N2File, #{<<"namespace">> => <<"ns2">>})
+    ),
+    ok.
+
+%% A global administrator can import a namespaced backup directly by opting into
+%% the namespace with the `namespace' query parameter -- consistent with
+%% listing / downloading. Without the parameter the file is not in the global
+%% scope, so the import fails.
+t_global_admin_import_scoped_namespace(Config) ->
+    DashboardAuth = ?config(dashboard_auth, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Ns1 = #{<<"namespace">> => <<"ns1">>},
+
+    %% ns1 admin exports its own backup; it lands under `ns/ns1'.
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+
+    %% Global admin without the parameter looks in the global scope and cannot
+    %% find the namespaced file -> 400.
+    ?assertMatch({400, _}, import_backup_ns(?NODE1_PORT, DashboardAuth, N1File, #{})),
+
+    %% Opting into ns1 finds and imports it -> 204.
+    ?assertMatch({204, _}, import_backup_ns(?NODE1_PORT, DashboardAuth, N1File, Ns1)),
+    ok.
+
+%% A global administrator uploading with `namespace=ns1' lands the file in the
+%% namespace's space (not the global one), and can then import it scoped to that
+%% namespace. Uploading without the parameter stays on the global scope.
+t_global_admin_upload_scoped_namespace(Config) ->
+    DashboardAuth = ?config(dashboard_auth, Config),
+    Ns1 = #{<<"namespace">> => <<"ns1">>},
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    Base = list_to_binary(?UPLOAD_CE_BACKUP),
+
+    %% Upload into ns1's space.
+    ?assertEqual(ok, upload_backup_ns(?NODE1_PORT, DashboardAuth, UploadFile, Ns1)),
+    %% The file is visible in ns1's space, but not in the global listing.
+    ?assert(lists:member(Base, list_filenames(?NODE1_PORT, DashboardAuth, Ns1))),
+    ?assertNot(lists:member(Base, list_filenames(?NODE1_PORT, DashboardAuth))),
+    %% And a scoped import of the uploaded file succeeds.
+    ?assertMatch({204, _}, import_backup_ns(?NODE1_PORT, DashboardAuth, Base, Ns1)),
+
+    %% Uploading without the parameter stays on the global scope (regression).
+    ?assertEqual(ok, upload_backup(?NODE2_PORT, DashboardAuth, UploadFile)),
+    ?assert(lists:member(Base, list_filenames(?NODE2_PORT, DashboardAuth))),
+    ok.
+
+%% A namespaced administrator cannot import or upload into another namespace by
+%% supplying the `namespace' query parameter -- it is ignored for namespaced
+%% callers, so both operations stay confined to the caller's own namespace.
+t_namespaced_admin_import_upload_confined(Config) ->
+    [Core1, _Core2, _Repl] = ?config(cluster, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Ns2Auth = ns_admin_auth_header(Core1, <<"ns2">>, <<"ns2_admin_for_test">>, ?NS_ADMIN_PASS),
+    ForceNs1 = #{<<"namespace">> => <<"ns1">>},
+
+    %% ns1 admin exports its own backup (lands under `ns/ns1').
+    {200, #{<<"filename">> := N1File}} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+
+    %% ns2 admin asking for ns1 stays confined to ns2, so ns1's file is not
+    %% found in its own space -> 400. It cannot reach ns1's backup.
+    ?assertMatch({400, _}, import_backup_ns(?NODE1_PORT, Ns2Auth, N1File, ForceNs1)),
+
+    %% Uploading with `namespace=ns1' lands in ns2's own space, never ns1's.
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    Base = list_to_binary(?UPLOAD_CE_BACKUP),
+    ?assertEqual(ok, upload_backup_ns(?NODE1_PORT, Ns2Auth, UploadFile, ForceNs1)),
+    ?assertNot(lists:member(Base, list_filenames(?NODE1_PORT, Ns1Auth))),
+    ?assert(lists:member(Base, list_filenames(?NODE1_PORT, Ns2Auth))),
     ok.
 
 %% Global dashboard administrators must still be able to download a backup
@@ -450,28 +682,24 @@ t_download_global_admin_allowed(Config) ->
     ?assertEqual(200, Status),
     ok.
 
-%% Listing the backup directory remains open to dashboard viewers and
-%% namespaced administrators: the listing only exposes filenames / sizes /
-%% timestamps, not the archive contents. The download is the dangerous
-%% operation and is gated separately above.
+%% Listing the backup directory remains open to global dashboard viewers: the
+%% listing only exposes filenames / sizes / timestamps, not the archive
+%% contents, and the download is gated separately above. Namespaced callers see
+%% only their own namespace's backups (see t_namespaced_backup_isolation).
 t_list_files_viewer_allowed(Config) ->
     ApiAuth = ?config(auth, Config),
     ViewerAuth = ?config(viewer_auth, Config),
-    NsAdminAuth = ?config(ns_admin_auth, Config),
     {ok, _} = export_backup(?NODE1_PORT, ApiAuth),
-    lists:foreach(
-        fun(Auth) ->
-            {ok, _} = list_backups(?NODE1_PORT, Auth, <<"1">>, <<"100">>)
-        end,
-        [ViewerAuth, NsAdminAuth]
-    ),
+    {ok, _} = list_backups(?NODE1_PORT, ViewerAuth, <<"1">>, <<"100">>),
     ok.
 
 download_backup(NodeApiPort, Auth, BackupName) ->
-    Path = emqx_mgmt_api_test_util:api_path(
-        ?api_base_url(NodeApiPort), ["data", "files", to_list(BackupName)]
-    ),
-    emqx_mgmt_api_test_util:simple_request(get, Path, [], Auth).
+    download_backup(NodeApiPort, Auth, BackupName, #{}).
+
+download_backup(NodeApiPort, Auth, BackupName, QueryParams) ->
+    data_backup_simple_request(
+        get, NodeApiPort, ["data", "files", to_list(BackupName)], [], Auth, QueryParams
+    ).
 
 to_list(B) when is_binary(B) -> unicode:characters_to_list(B);
 to_list(L) when is_list(L) -> L.
@@ -488,6 +716,49 @@ import_backup_full(NodeApiPort, Auth, BackupName) ->
     Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "import"]),
     Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
     emqx_mgmt_api_test_util:simple_request(post, Path, Body, Auth).
+
+%% Import a backup, optionally scoped to a namespace via the `namespace' query
+%% parameter. Returns `{Status, Body}'.
+import_backup_ns(NodeApiPort, Auth, BackupName, QueryParams) ->
+    Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "import"]),
+    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => post,
+        url => Path,
+        body => Body,
+        auth_header => Auth,
+        query_params => QueryParams
+    }).
+
+%% Upload a backup file, optionally scoped to a namespace via the `namespace'
+%% query parameter.
+upload_backup_ns(NodeApiPort, Auth, BackupFilePath, QueryParams) ->
+    Path0 = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "files"]),
+    Path =
+        case maps:to_list(QueryParams) of
+            [] ->
+                Path0;
+            QueryList ->
+                Query = unicode:characters_to_list(uri_string:compose_query(QueryList)),
+                Path0 ++ "?" ++ Query
+        end,
+    Res = emqx_mgmt_api_test_util:upload_request(
+        Path,
+        BackupFilePath,
+        "filename",
+        <<"application/octet-stream">>,
+        [],
+        Auth
+    ),
+    case Res of
+        {ok, {{"HTTP/1.1", 204, _}, _Headers, _}} ->
+            ok;
+        {ok, {{"HTTP/1.1", 400, _}, _Headers, _} = Resp} ->
+            ct:pal("Backup upload failed: ~p", [Resp]),
+            {error, bad_request};
+        Err ->
+            Err
+    end.
 
 do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
@@ -763,9 +1034,11 @@ viewer_auth_header(Node) ->
     dashboard_token_auth(Node, ?VIEWER_USER, ?VIEWER_PASS, <<"viewer">>).
 
 ns_admin_auth_header(Node) ->
-    dashboard_token_auth(
-        Node, ?NS_ADMIN_USER, ?NS_ADMIN_PASS, <<"ns:ns1::administrator">>
-    ).
+    ns_admin_auth_header(Node, <<"ns1">>, ?NS_ADMIN_USER, ?NS_ADMIN_PASS).
+
+ns_admin_auth_header(Node, Namespace, User, Pass) ->
+    Role = <<"ns:", Namespace/binary, "::administrator">>,
+    dashboard_token_auth(Node, User, Pass, Role).
 
 dashboard_token_auth(Node, User, Pass, Role) ->
     _ = erpc:call(Node, emqx_dashboard_admin, add_user, [
@@ -773,6 +1046,57 @@ dashboard_token_auth(Node, User, Pass, Role) ->
     ]),
     {ok, #{token := Token}} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+%% Create a global dashboard administrator with an explicit scope set and
+%% return its bearer-token auth header.
+scoped_dashboard_token_auth(Node, User, Pass, Scopes) ->
+    _ = erpc:call(Node, emqx_dashboard_admin, add_user, [
+        User, Pass, <<"administrator">>, <<"data backup test user">>
+    ]),
+    {ok, ok} = erpc:call(Node, emqx_dashboard_admin, set_user_scopes, [User, Scopes]),
+    {ok, #{token := Token}} = erpc:call(Node, emqx_dashboard_admin, sign_token, [User, Pass]),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+ns_api_key_auth_header(Node) ->
+    Name = <<"ns_api_key_for_test">>,
+    {ok, #{api_key := Key, api_secret := Secret}} = erpc:call(Node, emqx_mgmt_auth, create, [
+        Name,
+        true,
+        _NeverExpire = undefined,
+        <<"data backup test ns api key">>,
+        <<"ns:ns1::administrator">>
+    ]),
+    emqx_common_test_http:auth_header(binary_to_list(Key), binary_to_list(Secret)).
+
+%% Return the basenames of the backups visible to `Auth'.
+list_filenames(Port, Auth) ->
+    list_filenames(Port, Auth, #{}).
+
+list_filenames(Port, Auth, QueryParams) ->
+    {200, #{<<"data">> := Data}} =
+        data_backup_simple_request(get, Port, ["data", "files"], [], Auth, QueryParams),
+    [maps:get(<<"filename">>, D) || D <- Data].
+
+delete_backup(Port, Auth, BackupName) ->
+    delete_backup(Port, Auth, BackupName, #{}).
+
+delete_backup(Port, Auth, BackupName, QueryParams) ->
+    data_backup_simple_request(
+        delete, Port, ["data", "files", to_list(BackupName)], [], Auth, QueryParams
+    ).
+
+data_backup_simple_request(Method, Port, PathParts, Body, Auth) ->
+    data_backup_simple_request(Method, Port, PathParts, Body, Auth, #{}).
+
+data_backup_simple_request(Method, Port, PathParts, Body, Auth, QueryParams) ->
+    Path = emqx_mgmt_api_test_util:api_path(?api_base_url(Port), PathParts),
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => Method,
+        url => Path,
+        body => Body,
+        auth_header => Auth,
+        query_params => QueryParams
+    }).
 
 fresh_dashboard_auth(Config) ->
     [Core1, _Core2, Repl] = ?config(cluster, Config),
@@ -849,7 +1173,12 @@ test_case_specific_apps_spec(TC) when
     TC =:= t_upload_ce_backup;
     TC =:= t_import_ce_backup;
     TC =:= t_import_api_key_blocks_sensitive_tables;
-    TC =:= t_import_dashboard_token_allows_sensitive_tables
+    TC =:= t_import_dashboard_token_allows_sensitive_tables;
+    TC =:= t_import_restricted_dashboard_token_blocks_sensitive_tables;
+    TC =:= t_import_dashboard_token_with_credential_scopes_allows_sensitive_tables;
+    TC =:= t_namespaced_upload_isolation;
+    TC =:= t_global_admin_upload_scoped_namespace;
+    TC =:= t_namespaced_admin_import_upload_confined
 ->
     [
         emqx_auth,

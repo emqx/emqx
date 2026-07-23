@@ -17,6 +17,7 @@
 {emqx_cm,1}.
 {emqx_cm,2}.
 {emqx_cm,3}.
+{emqx_cm,4}.
 {emqx_conf,1}.
 {emqx_conf,2}.
 {emqx_conf,3}.
@@ -47,6 +48,7 @@
 {emqx_ft_storage_fs_reader,1}.
 {emqx_gateway_api_listeners,1}.
 {emqx_gateway_cm,1}.
+{emqx_gateway_cm,2}.
 {emqx_gateway_http,1}.
 {emqx_license,2}.
 {emqx_license,3}.
@@ -69,6 +71,7 @@
 {emqx_mgmt_cluster,3}.
 {emqx_mgmt_data_backup,1}.
 {emqx_mgmt_data_backup,2}.
+{emqx_mgmt_data_backup,3}.
 {emqx_mgmt_trace,2}.
 {emqx_mgmt_trace,3}.
 {emqx_mq_consumer,1}.
@@ -87,6 +90,7 @@
 {emqx_plugins,2}.
 {emqx_plugins,3}.
 {emqx_plugins,4}.
+{emqx_plugins,5}.
 {emqx_prometheus,2}.
 {emqx_prometheus,3}.
 {emqx_resource,1}.
@@ -96,6 +100,7 @@
 {emqx_rule_engine,1}.
 {emqx_schema_registry_http_api,1}.
 {emqx_session_tool,1}.
+{emqx_session_top,1}.
 {emqx_setopts,1}.
 {emqx_shared_sub,1}.
 {emqx_slow_subs,1}.

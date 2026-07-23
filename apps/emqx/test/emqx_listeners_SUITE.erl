@@ -224,7 +224,7 @@ t_tcp_chunk_parsing_conn(_Config) ->
         Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
         pong = emqtt:ping(Client),
         CState = emqx_cth_broker:connection_state(Client),
-        ?assertMatch(#{listener := {tcp, ?FUNCTION_NAME}}, CState),
+        ?assertMatch({tcp, ?FUNCTION_NAME}, emqx_cth_broker:connection_info(listener, Client)),
         ?assertMatch(#{parser := Tuple} when element(1, Tuple) =:= options, CState)
     end).
 
@@ -258,10 +258,8 @@ t_ssl_chunk_parsing_conn(Config) ->
     with_listener(ssl, ?FUNCTION_NAME, Conf, fun() ->
         Client = emqtt_connect_ssl({127, 0, 0, 1}, Port, [{verify, verify_none}]),
         pong = emqtt:ping(Client),
-        ClientId = proplists:get_value(clientid, emqtt:info(Client)),
-        [CPid] = emqx_cm:lookup_channels(ClientId),
-        CState = emqx_connection:get_state(CPid),
-        ?assertMatch(#{listener := {ssl, ?FUNCTION_NAME}}, CState),
+        CState = emqx_cth_broker:connection_state(Client),
+        ?assertMatch({ssl, ?FUNCTION_NAME}, emqx_cth_broker:connection_info(listener, Client)),
         ?assertMatch(#{parser := Tuple} when element(1, Tuple) =:= options, CState)
     end).
 
@@ -1374,6 +1372,21 @@ test_max_packet_size_update() ->
     ?assertNotReceive({update, _, default, _}, 200),
     %% restore the original value
     emqx_config:put_zone_conf(default, KeyPath, MaxPacketSize),
+    ?assertReceive({update, Type, default, _} when Type =:= tcp orelse Type =:= ssl, 1000),
+    ?assertReceive({update, Type, default, _} when Type =:= tcp orelse Type =:= ssl, 1000),
+    %% Zone updates must not touch listeners when listener boot is disabled.
+    BootModules = application:get_env(emqx, boot_modules),
+    try
+        ok = application:set_env(emqx, boot_modules, [broker]),
+        emqx_config:put_zone_conf(default, KeyPath, MaxPacketSize + 1),
+        ?assertNotReceive({update, _, default, _}, 200)
+    after
+        emqx_config:put_zone_conf(default, KeyPath, MaxPacketSize),
+        case BootModules of
+            {ok, Value} -> application:set_env(emqx, boot_modules, Value);
+            undefined -> application:unset_env(emqx, boot_modules)
+        end
+    end,
     ok.
 
 t_symlink_certs(Config) ->

@@ -102,7 +102,7 @@ t_binary_format_roundtrip(_Config) ->
 
 t_write_input_schema_matches_format(_Config) ->
     {ok, #{input_schema := JsonSchema}} = emqx_agent_tool_stream:create(
-        tool(<<"stream__write">>, <<"json-schema-writer">>, <<"Write JSON stream">>)
+        tool(<<"stream__write">>, <<"json-schema-writer">>, <<"Write JSON stream">>, <<"json">>)
     ),
     ?assertMatch(
         #{<<"properties">> := #{<<"data">> := #{<<"type">> := <<"object">>}}},
@@ -117,6 +117,20 @@ t_write_input_schema_matches_format(_Config) ->
     ?assertMatch(
         #{<<"properties">> := #{<<"data">> := #{<<"type">> := <<"string">>}}},
         BinarySchema
+    ).
+
+t_create_rejects_invalid_format(_Config) ->
+    ?assertEqual(
+        {error, {invalid_format, <<"xml">>}},
+        emqx_agent_tool_stream:create(
+            tool(<<"stream__write">>, <<"invalid-format">>, <<"Invalid format">>, <<"xml">>)
+        )
+    ),
+    ?assertEqual(
+        {error, {missing_field, <<"format">>}},
+        emqx_agent_tool_stream:create(
+            tool(<<"stream__write">>, <<"missing-format">>, <<"Missing format">>)
+        )
     ).
 
 t_write_returns_error_on_json_encode_failure(_Config) ->
@@ -210,8 +224,12 @@ write(Key, Data) ->
     ok.
 
 register_tools() ->
-    ok = emqx_agent_config:create_tool(tool(<<"stream__write">>, ?WRITE_ID, <<"Write stream">>)),
-    ok = emqx_agent_config:create_tool(tool(<<"stream__read">>, ?READ_ID, <<"Read stream">>)),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"stream__write">>, ?WRITE_ID, <<"Write stream">>, <<"json">>)
+    ),
+    ok = emqx_agent_config:create_tool(
+        tool(<<"stream__read">>, ?READ_ID, <<"Read stream">>, <<"json">>)
+    ),
     ok = emqx_agent_config:create_tool(tool(<<"stream__del">>, ?DEL_ID, <<"Delete stream">>)),
     ok = emqx_agent_config:create_tool(
         tool(<<"stream__write">>, ?BIN_WRITE_ID, <<"Write binary stream">>, <<"binary">>)

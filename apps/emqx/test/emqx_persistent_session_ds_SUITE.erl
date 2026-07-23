@@ -1319,8 +1319,13 @@ t_session_replay_retry(_Config) ->
                 ClientsPub
             ),
             %% 3. The subscriber receives them, but doesn't ack. This
-            %% sets the stage for message replay:
-            Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 5_000),
+            %% sets the stage for message replay. Delivery through the
+            %% persistent-session DS stream-polling path can lag under CI load;
+            %% since every message was acked it is durably stored, so nothing is
+            %% lost. `wait_publishes' returns as soon as all NClients arrive, so
+            %% a generous per-message-gap timeout only stretches the rare slow
+            %% tail and costs nothing in the happy path:
+            Pubs0 = emqx_common_test_helpers:wait_publishes(NClients, 30_000),
             NPubs = length(Pubs0),
             ?assertEqual(NClients, NPubs, ?drainMailbox(2_500)),
 
@@ -1344,6 +1349,10 @@ t_session_replay_retry(_Config) ->
             %% 5. Reconnect the client and let it receive *some* messages:
             _ClientSub = start_connect_client(ClientSubOpts#{clean_start => false}),
 
+            %% The mocked shards stay unavailable, so only *some* messages are
+            %% delivered here; this wait is expected to end on the per-message
+            %% gap timeout, hence it is kept short on purpose (bumping it would
+            %% add dead wait time to every run):
             Pubs1 = emqx_common_test_helpers:wait_publishes(NPubs, 5_000),
             ?assert(length(Pubs1) < length(Pubs0), #{
                 num_pubs1 => length(Pubs1),
@@ -1352,10 +1361,13 @@ t_session_replay_retry(_Config) ->
                 pubs0 => Pubs0
             }),
 
-            %% 6. Recover the shards and receive the rest of the messages:
+            %% 6. Recover the shards and receive the rest of the messages.
+            %% Same delivery-latency exposure as step 3: this wait also returns
+            %% as soon as the remaining durable messages arrive, so a generous
+            %% timeout only guards the slow tail.
             meck:unload(emqx_ds),
 
-            Pubs2 = emqx_common_test_helpers:wait_publishes(NPubs - length(Pubs1), 5_000),
+            Pubs2 = emqx_common_test_helpers:wait_publishes(NPubs - length(Pubs1), 30_000),
             snabbkaffe_diff:assert_lists_eq(
                 [maps:with([topic, payload, qos], P) || P <- Pubs0],
                 [maps:with([topic, payload, qos], P) || P <- Pubs1 ++ Pubs2],

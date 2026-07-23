@@ -25,7 +25,14 @@
 ]).
 
 -export([get_subscription/1]).
--export([reply_delegator/4, pull_async/1, process_pull_response/2, ensure_subscription/1]).
+-export([
+    reply_delegator/4,
+    stream_ref/3,
+    register_stream_ref/3,
+    pull_async/1,
+    process_pull_response/2,
+    ensure_subscription/1
+]).
 
 -type subscription_id() :: binary().
 -type bridge_name() :: atom() | binary().
@@ -65,6 +72,7 @@
     project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pull_max_messages := non_neg_integer(),
     pull_retry_interval := emqx_schema:timeout_duration_ms(),
+    pull_stream_ref := undefined | {reference(), pid()},
     pull_timer := undefined | reference(),
     request_ttl := emqx_schema:duration_ms() | infinity,
     %% In order to avoid re-processing the same message twice due to race conditions
@@ -84,6 +92,8 @@
 -define(HEALTH_CHECK_TIMEOUT, 10_000).
 -define(OPTVAR_SUB_OK(PID), {?MODULE, subscription_ok, PID}).
 
+-record(register_stream_ref, {stream_ref :: reference(), pid :: pid()}).
+
 %%-------------------------------------------------------------------------------------------------
 %% API used by `reply_delegator'
 %%-------------------------------------------------------------------------------------------------
@@ -99,6 +109,10 @@ process_pull_response(WorkerPid, RespBody) ->
 -spec ensure_subscription(pid()) -> ok.
 ensure_subscription(WorkerPid) ->
     gen_server:cast(WorkerPid, ensure_subscription).
+
+-spec register_stream_ref(_WorkerPid :: pid(), reference(), _ClientPid :: pid()) -> ok.
+register_stream_ref(WorkerPid, StreamRef, ClientPid) ->
+    gen_server:cast(WorkerPid, #register_stream_ref{stream_ref = StreamRef, pid = ClientPid}).
 
 -spec reply_delegator(pid(), pull_async, binary(), {ok, map()} | {error, timeout | term()}) -> ok.
 reply_delegator(WorkerPid, pull_async = _Action, SourceResId, Result) ->
@@ -141,6 +155,10 @@ reply_delegator(WorkerPid, pull_async = _Action, SourceResId, Result) ->
         {ok, #{status_code := 200, body := RespBody}} ->
             ?MODULE:process_pull_response(WorkerPid, RespBody)
     end.
+
+stream_ref(StreamRef, ClientPid, Ctx) ->
+    #{worker := WorkerPid} = Ctx,
+    register_stream_ref(WorkerPid, StreamRef, ClientPid).
 
 %%-------------------------------------------------------------------------------------------------
 %% Debugging API
@@ -225,6 +243,7 @@ init(Config) ->
         ack_timer => undefined,
         async_workers => #{},
         pending_acks => #{},
+        pull_stream_ref => undefined,
         pull_timer => undefined,
         seen_message_ids => sets:new([{version, 2}]),
         backoff => 0
@@ -304,6 +323,9 @@ handle_cast({process_pull_response, RespBody}, State0) ->
     {noreply, State};
 handle_cast(ensure_subscription, State0) ->
     {noreply, State0, {continue, ?ensure_subscription}};
+handle_cast(#register_stream_ref{stream_ref = StreamRef, pid = ClientPid}, State0) ->
+    State = handle_register_stream_ref(State0, StreamRef, ClientPid),
+    {noreply, State};
 handle_cast(_Request, State0) ->
     {noreply, State0}.
 
@@ -311,6 +333,7 @@ handle_info({timeout, TRef, ack}, State0 = #{ack_timer := TRef}) ->
     State = acknowledge(State0),
     {noreply, State};
 handle_info({timeout, TRef, pull}, State0 = #{pull_timer := TRef}) ->
+    ?tp("gcp_consumer_worker_pull_timeout", #{}),
     State1 = State0#{pull_timer := undefined},
     State = do_pull_async(State1),
     {noreply, State};
@@ -384,9 +407,9 @@ ensure_ack_timer(State = #{ack_timer := TRef, pending_acks := PendingAcks}) ->
             State
     end.
 
--spec ensure_pull_timer(state()) -> state().
-ensure_pull_timer(State = #{pull_retry_interval := PullRetryInterval}) ->
-    State#{pull_timer := emqx_utils:start_timer(PullRetryInterval, pull)}.
+-spec ensure_pull_timer(state(), timeout()) -> state().
+ensure_pull_timer(State, TimeoutMS) ->
+    State#{pull_timer := emqx_utils:start_timer(TimeoutMS, pull)}.
 
 cancel_pull_timer(State = #{pull_timer := TRef}) ->
     emqx_utils:cancel_timer(TRef),
@@ -539,17 +562,32 @@ do_pull_async(State0) ->
         gcp_pubsub_consumer_worker_pull_async,
         #{topic => maps:get(topic, State0), subscription_id => maps:get(subscription_id, State0)},
         begin
+            State1 = cancel_pull_stream(State0),
             #{
+                ack_deadline := AckDeadlineSeconds,
                 client := Client,
-                source_resource_id := SourceResId,
-                request_ttl := RequestTTL
-            } = State0,
+                source_resource_id := SourceResId
+            } = State1,
             Method = post,
-            Path = path(State0, pull),
-            Body = body(State0, pull),
-            ReqOpts = #{request_ttl => RequestTTL},
+            Path = path(State1, pull),
+            Body = body(State1, pull),
+            %% We should link the request TTL to the ack deadline: after the latter, the pull
+            %% request _should_ be disconnected by the server as expected.  But, if the former is
+            %% shorter than the ack deadline used in the pull lease, we'll start a new pull
+            %% request that might timeout because the older request is still the "owner" of the
+            %% lease.
+            AckDeadlineMS = erlang:convert_time_unit(AckDeadlineSeconds, second, millisecond),
+            ReqOpts = #{request_ttl => AckDeadlineMS},
             PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
-            ReplyFunAndArgs = {fun ?MODULE:reply_delegator/4, [self(), pull_async, SourceResId]},
+            ReplyFunAndArgs = #{
+                final_reply => {fun ?MODULE:reply_delegator/4, [self(), pull_async, SourceResId]},
+                stream_ref => {fun ?MODULE:stream_ref/3, [
+                    #{
+                        worker => self(),
+                        source_res_id => SourceResId
+                    }
+                ]}
+            },
             Res = emqx_bridge_gcp_pubsub_client:query_async(
                 PreparedRequest,
                 ReplyFunAndArgs,
@@ -557,13 +595,36 @@ do_pull_async(State0) ->
             ),
             case Res of
                 {ok, AsyncWorkerPid} ->
-                    State1 = ensure_pull_timer(State0),
-                    ensure_async_worker_monitored(State1, AsyncWorkerPid);
+                    %% A pull is in flight.  `ehttpc' never expires a request once it has
+                    %% been sent, so this timer is what bounds the long poll, and firing it
+                    %% cancels the request.  It must therefore allow the server the full
+                    %% lease duration to answer: cancelling earlier tears down a healthy long
+                    %% poll and discards any messages the server already leased into its
+                    %% response, which then stay invisible until the lease expires.
+                    State2 = ensure_pull_timer(State1, AckDeadlineMS),
+                    ensure_async_worker_monitored(State2, AsyncWorkerPid);
                 {error, no_pool_worker_available} ->
-                    ensure_pull_timer(State0)
+                    %% Nothing is in flight, so there is nothing to lose by retrying soon.
+                    #{pull_retry_interval := PullRetryInterval} = State1,
+                    ensure_pull_timer(State1, PullRetryInterval)
             end
         end
     ).
+
+handle_register_stream_ref(State0, StreamRef, ClientPid) ->
+    %% There shouldn't be a stream here, but we cancel it anyway if there is.
+    State1 = cancel_pull_stream(State0),
+    State1#{pull_stream_ref := {StreamRef, ClientPid}}.
+
+cancel_pull_stream(#{pull_stream_ref := {StreamRef, ClientPid}} = State0) ->
+    ehttpc:cancel(ClientPid, StreamRef),
+    ?tp("gcp_consumer_worker_pull_stream_cancelled", #{}),
+    clear_pull_stream_ref(State0);
+cancel_pull_stream(State0) ->
+    clear_pull_stream_ref(State0).
+
+clear_pull_stream_ref(State0) ->
+    State0#{pull_stream_ref := undefined}.
 
 -spec ensure_async_worker_monitored(state(), pid()) -> state().
 ensure_async_worker_monitored(State = #{async_workers := Workers0}, AsyncWorkerPid) ->
@@ -578,10 +639,11 @@ ensure_async_worker_monitored(State = #{async_workers := Workers0}, AsyncWorkerP
 
 -spec do_process_pull_response(state(), binary()) -> state().
 do_process_pull_response(State0, RespBody) ->
+    State1 = clear_pull_stream_ref(State0),
     #{
         pending_acks := PendingAcks,
         seen_message_ids := SeenMsgIds
-    } = State0,
+    } = State1,
     Messages = decode_response(RespBody),
     ?tp(gcp_pubsub_consumer_worker_decoded_messages, #{messages => Messages}),
     {NewPendingAcks, NewSeenMsgIds} =
@@ -600,17 +662,17 @@ do_process_pull_response(State0, RespBody) ->
                         %% id...  we should ack this latest value.
                         {AccAck#{MsgId => AckId}, AccSeen};
                     false ->
-                        _ = handle_message(State0, Msg),
+                        _ = handle_message(State1, Msg),
                         {AccAck#{MsgId => AckId}, sets:add_element(MsgId, AccSeen)}
                 end
             end,
             {PendingAcks, SeenMsgIds},
             Messages
         ),
-    State1 = State0#{pending_acks := NewPendingAcks, seen_message_ids := NewSeenMsgIds},
-    State2 = acknowledge(State1),
+    State2 = State1#{pending_acks := NewPendingAcks, seen_message_ids := NewSeenMsgIds},
+    State3 = acknowledge(State2),
     pull_async(self()),
-    State2.
+    State3.
 
 -spec acknowledge(state()) -> state().
 acknowledge(State0 = #{pending_acks := PendingAcks}) ->

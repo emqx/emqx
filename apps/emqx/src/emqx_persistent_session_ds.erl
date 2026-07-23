@@ -53,8 +53,8 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 ]).
 
 -export([
-    subscribe/3,
-    unsubscribe/2,
+    subscribe/4,
+    unsubscribe/3,
     get_subscription/2
 ]).
 
@@ -67,10 +67,11 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 ]).
 
 -export([
-    deliver/3,
+    deliver/4,
     replay/3,
     handle_timeout/3,
     handle_info/3,
+    handle_signal/3,
     disconnect/2,
     terminate/3
 ]).
@@ -268,6 +269,7 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
     inflight_cnt,
     inflight_max,
     mqueue_len,
+    total_payload_bytes,
     mqueue_dropped,
     seqno_q1_comm,
     seqno_q1_dup,
@@ -352,8 +354,6 @@ info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(id, #{id := ClientID}) ->
     ClientID;
-info(clientid, #{id := ClientID}) ->
-    ClientID;
 info(durable, _) ->
     true;
 info(created_at, #{s := S}) ->
@@ -381,6 +381,8 @@ info(retry_interval, #{props := Conf}) ->
     maps:get(retry_interval, Conf);
 info(mqueue_len, #{inflight := Inflight}) ->
     emqx_persistent_session_ds_inflight:n_buffered(all, Inflight);
+info(total_payload_bytes, _Session) ->
+    0;
 info(mqueue_dropped, _Session) ->
     0;
 info(awaiting_rel, #{s := S}) ->
@@ -453,16 +455,16 @@ print_session(ClientID) ->
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE
 %%--------------------------------------------------------------------
 
--spec subscribe(topic_filter(), emqx_types:subopts(), session()) ->
+-spec subscribe(emqx_types:clientinfo(), topic_filter(), emqx_types:subopts(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
-subscribe(#share{} = TopicFilter, SubOpts, Session0) ->
+subscribe(_ClientInfo, #share{} = TopicFilter, SubOpts, Session0) ->
     case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
         {ok, Session} ->
             {ok, async_checkpoint(Session)};
         Error = {error, _} ->
             Error
     end;
-subscribe(TopicFilter, SubOpts, Session0) ->
+subscribe(_ClientInfo, TopicFilter, SubOpts, Session0) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
         {Ok, NewMode, Session, _Subscription} when
             Ok =:= ok;
@@ -479,9 +481,9 @@ subscribe(TopicFilter, SubOpts, Session0) ->
             Error
     end.
 
--spec unsubscribe(topic_filter(), session()) ->
+-spec unsubscribe(emqx_types:clientinfo(), topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
-unsubscribe(TopicFilter, Session0) ->
+unsubscribe(_ClientInfo, TopicFilter, Session0) ->
     Ret =
         case TopicFilter of
             #share{} ->
@@ -649,9 +651,9 @@ pubcomp(ClientInfo, PacketId, Session0) ->
 %% Delivers
 %%--------------------------------------------------------------------
 
--spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
+-spec deliver(clientinfo(), [emqx_types:deliver()], [emqx_session:connflag()], session()) ->
     {ok, replies(), session()}.
-deliver(ClientInfo, Delivers, Session0) ->
+deliver(ClientInfo, Delivers, _Flags, Session0) ->
     %% Durable sessions still have to handle some transient messages.
     %% For example, retainer sends messages to the session directly.
     Session = lists:foldl(
@@ -685,31 +687,33 @@ handle_timeout(_ClientInfo, Timeout, Session) ->
 %% Generic messages
 %%--------------------------------------------------------------------
 
--spec handle_info(term(), session(), clientinfo()) -> session().
+-spec handle_info(clientinfo(), term(), session()) -> session().
+handle_info(ClientInfo, zone_changed, Session) ->
+    Conf = emqx_session:get_session_conf(ClientInfo),
+    Session#{props := Conf};
 handle_info(
+    ClientInfo,
     ?shared_sub_message = Msg,
-    Session,
-    ClientInfo
+    Session
 ) ->
     schedule_delivery(emqx_persistent_session_ds_shared_subs:on_info(Msg, Session, ClientInfo));
-handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
+handle_info(_ClientInfo, #req_sync{from = From, ref = Ref}, Session0) ->
     Session = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
     Session;
-handle_info(Message, Session0 = #{dscli := DSCli0}, ClientInfo) ->
+handle_info(ClientInfo, Message, Session0 = #{dscli := DSCli0}) ->
     case emqx_ds_client:dispatch_message(Message, DSCli0, Session0) of
         {data, SubId, Stream, DSSubHandle, AsyncReply} ->
             handle_ds_reply(SubId, Stream, DSSubHandle, AsyncReply, Session0, ClientInfo);
         {DSCli, Session} ->
             Session#{dscli := DSCli};
         ignore ->
-            handle_info1(Message, Session0, ClientInfo)
+            handle_info1(Message, Session0)
     end.
 
 handle_info1(
     Info,
-    Session = #{s := S0},
-    _ClientInfo
+    Session = #{s := S0}
 ) ->
     %% Handle all the other messages.
     %%
@@ -726,6 +730,12 @@ handle_info1(
             ?tp(debug, ?sessds_unknown_message, #{message => Info}),
             Session
     end.
+
+-spec handle_signal(clientinfo(), term(), session()) ->
+    {ok, session()}
+    | {ok, emqx_session:replies(), session()}.
+handle_signal(_ClientInfo, _Signal, Session) ->
+    {ok, Session}.
 
 %%--------------------------------------------------------------------
 %% Replay of old messages during session restart
@@ -1062,7 +1072,7 @@ sync(ClientID) ->
     case emqx_cm:lookup_channels(ClientID) of
         [Pid] ->
             Ref = monitor(process, Pid),
-            Pid ! #req_sync{from = self(), ref = Ref},
+            Pid ! {session, #req_sync{from = self(), ref = Ref}},
             receive
                 {'DOWN', Ref, process, _Pid, Reason} ->
                     {error, Reason};

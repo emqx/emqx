@@ -159,14 +159,16 @@ tool_format(#{<<"type">> := Type, <<"format">> := Format}) when
         (Format =:= <<"json">> orelse Format =:= <<"binary">>)
 ->
     {ok, Format};
+tool_format(#{<<"type">> := Type, <<"format">> := Format}) when
+    Type =:= ?WRITE_TYPE; Type =:= ?READ_TYPE; Type =:= ?READ_ALL_TYPE
+->
+    {error, {invalid_format, Format}};
 tool_format(#{<<"type">> := Type}) when
     Type =:= ?WRITE_TYPE; Type =:= ?READ_TYPE; Type =:= ?READ_ALL_TYPE
 ->
-    {ok, <<"json">>};
+    {error, {missing_field, <<"format">>}};
 tool_format(#{<<"type">> := Type}) when Type =:= ?DEL_TYPE; Type =:= ?CLEAR_TYPE ->
-    {ok, undefined};
-tool_format(#{<<"format">> := Format}) ->
-    {error, {invalid_format, Format}}.
+    {ok, undefined}.
 
 display_name(Desc, ?WRITE_TYPE) -> <<Desc/binary, " — KV Write">>;
 display_name(Desc, ?READ_TYPE) -> <<Desc/binary, " — KV Read">>;

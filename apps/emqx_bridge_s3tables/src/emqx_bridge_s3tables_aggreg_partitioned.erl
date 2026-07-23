@@ -48,7 +48,7 @@ Tracks one or more Avro files for different partition keys.
 -type partition_out() :: #{[partition_key()] => iodata()}.
 -type write_metadata() :: #{[partition_key()] => #{?num_records := pos_integer()}}.
 
--type inner_container_opts() :: emqx_bridge_s3tables_aggreg_avro:options().
+-type inner_container_opts() :: emqx_bridge_s3tables_aggreg_unpartitioned:options().
 
 %%------------------------------------------------------------------------------
 %% `emqx_connector_aggreg_container' API

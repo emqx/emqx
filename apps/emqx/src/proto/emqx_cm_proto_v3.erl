@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     lookup_client/2,
     kickout_client/2,
@@ -29,6 +30,9 @@
 
 introduced_in() ->
     "5.7.0".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec kickout_client(node(), emqx_types:clientid()) -> ok | {badrpc, _}.
 kickout_client(Node, ClientId) ->
@@ -56,10 +60,10 @@ get_chann_conn_mod(ClientId, ChanPid) ->
 
 -spec takeover_session(emqx_types:clientid(), emqx_cm:chan_pid()) ->
     none
-    | {living, _ConnMod :: atom(), emqx_cm:chan_pid(), emqx_session:session()}
+    | {living, _ConnMod :: atom(), emqx_cm:chan_pid(), emqx_cm_takeover:session_legacy()}
     %% NOTE: v5.3.0
-    | {living, _ConnMod :: atom(), emqx_session:session()}
-    | {expired | persistent, emqx_session:session()}.
+    | {living, _ConnMod :: atom(), emqx_cm_takeover:session_legacy()}
+    | {expired | persistent, emqx_cm_takeover:session_legacy()}.
 takeover_session(ClientId, ChanPid) ->
     erpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
 

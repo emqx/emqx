@@ -42,7 +42,7 @@
     atom() => _
 }.
 
--define(MQTT_HOST_OPTS, #{default_port => 1883}).
+-define(MQTT_HOST_OPTS, emqx_schema:mqtt_host_opts()).
 
 namespace() -> "cluster".
 

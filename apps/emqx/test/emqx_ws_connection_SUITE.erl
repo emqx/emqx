@@ -25,6 +25,7 @@ init_per_suite(Config) ->
         [emqx],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    ok = emqx_limiter:create_listener_limiters('ws:default', #{}),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -283,11 +284,13 @@ t_websocket_handle_packet_order(_) ->
     ).
 
 t_websocket_handle_ping(_) ->
-    {ok, St} = ?ws_conn:websocket_handle(ping, St = st()),
+    St = st(),
+    {ok, St} = ?ws_conn:websocket_handle(ping, St),
     {ok, St} = ?ws_conn:websocket_handle({ping, <<>>}, St).
 
 t_websocket_handle_pong(_) ->
-    {ok, St} = ?ws_conn:websocket_handle(pong, St = st()),
+    St = st(),
+    {ok, St} = ?ws_conn:websocket_handle(pong, St),
     {ok, St} = ?ws_conn:websocket_handle({pong, <<>>}, St).
 
 t_websocket_handle_bad_frame(_) ->
@@ -339,7 +342,7 @@ t_websocket_incoming(_) ->
     {[{binary, IoData4}, {close, CauseReq}], _St4} =
         ?ws_conn:handle_incoming([FrameError], St3),
     ?assertEqual(<<224, 2, ?RC_MALFORMED_PACKET, 0>>, iolist_to_binary(IoData4)),
-    ?assertEqual(<<"invalid_property_code">>, CauseReq).
+    ?assertEqual(<<"frame_error">>, CauseReq).
 
 t_websocket_info_check_gc(_) ->
     Stats = #{cnt => 10, oct => 1000},
@@ -435,7 +438,7 @@ t_parse_incoming_fragment_then_bad_subqos_idle(_) ->
     ?assertEqual([], Packets1),
     {Packets2, St2} = ?ws_conn:parse_incoming(Frag2, Packets1, St1),
     ?assertMatch([{frame_error, bad_subqos}], Packets2),
-    {[{shutdown, #{shutdown_count := invalid_connect_packet, reason := bad_subqos}}], _St3} =
+    {[{shutdown, #{shutdown_count := bad_subqos, reason := bad_subqos}}], _St3} =
         ?ws_conn:handle_incoming(Packets2, St2).
 
 t_handle_incomming_frame_error(_) ->
@@ -491,6 +494,7 @@ st(InitFields) when is_map(InitFields) ->
 
 channel() -> channel(#{}).
 channel(InitFields) ->
+    Listener = 'ws:default',
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 3456},
         sockname => {{127, 0, 0, 1}, 18083},
@@ -506,7 +510,7 @@ channel(InitFields) ->
     },
     ClientInfo = #{
         zone => default,
-        listener => {ws, default},
+        listener => Listener,
         protocol => mqtt,
         peerhost => {127, 0, 0, 1},
         clientid => <<"clientid">>,
@@ -519,6 +523,7 @@ channel(InitFields) ->
         #{receive_maximum => 0, expiry_interval => 0},
         _WillMsg = undefined
     ),
+    Limiter = emqx_limiter:create_channel_client_container(default, Listener),
     maps:fold(
         fun(Field, Value, Channel) ->
             emqx_channel:set_field(Field, Value, Channel)
@@ -532,6 +537,7 @@ channel(InitFields) ->
             #{
                 clientinfo => ClientInfo,
                 session => Session,
+                quota => Limiter,
                 conn_state => connected
             },
             InitFields

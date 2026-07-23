@@ -99,6 +99,14 @@ t_top_k_limits_result(_Config) ->
     ?assertEqual(5, length(Rows)),
     ?assertEqual([50, 49, 48, 47, 46], values(Rows)).
 
+-doc "When values tie, top_k keeps client IDs in ascending order.".
+t_top_k_tie_breaks_by_row_key(_Config) ->
+    insert_session(<<"c1">>, [{mqueue_len, 10}]),
+    insert_session(<<"c2">>, [{mqueue_len, 10}]),
+    insert_session(<<"c3">>, [{mqueue_len, 10}]),
+    Rows = emqx_session_tool:top_by(mqueue_len, #{top_k => 2}),
+    ?assertEqual([<<"c1">>, <<"c2">>], clientids(Rows)).
+
 -doc "extra_keys attaches cached info fields (session/clientinfo/conninfo) to each row.".
 t_extra_keys_populate_extras(_Config) ->
     Info = #{
@@ -132,7 +140,68 @@ t_available_metrics(_Config) ->
     Metrics = emqx_session_tool:available_metrics(),
     lists:foreach(
         fun(M) -> ?assert(lists:member(M, Metrics)) end,
-        [mqueue_len, mqueue_dropped, inflight_cnt, recv_msg, send_msg]
+        [mqueue_len, mqueue_dropped, inflight_cnt, total_payload_bytes, recv_msg, send_msg]
+    ).
+
+-doc "total_payload_bytes is rankable and stats extras are attached to top rows.".
+t_total_payload_bytes_stats_extras(_Config) ->
+    insert_session(<<"c1">>, [
+        {mqueue_len, 10},
+        {total_payload_bytes, 100},
+        {inflight_cnt, 1}
+    ]),
+    insert_session(<<"c2">>, [
+        {mqueue_len, 5},
+        {total_payload_bytes, 300},
+        {inflight_cnt, 2}
+    ]),
+    insert_session(<<"c3">>, [
+        {mqueue_len, 20},
+        {total_payload_bytes, 200},
+        {inflight_cnt, 3}
+    ]),
+    Rows = emqx_session_tool:top_by(total_payload_bytes, #{
+        top_k => 2,
+        min_value => 0,
+        extra_stats => [mqueue_len, total_payload_bytes, inflight_cnt]
+    }),
+    ?assertEqual([<<"c2">>, <<"c3">>], clientids(Rows)),
+    ?assertEqual([300, 200], values(Rows)),
+    ?assertEqual([self(), self()], [maps:get(pid, Row) || Row <- Rows]),
+    ?assertEqual(
+        #{
+            mqueue_len => 5,
+            total_payload_bytes => 300,
+            inflight_cnt => 2
+        },
+        maps:get(extras, hd(Rows))
+    ).
+
+-doc "Stats extras retain the same snapshot that was used to rank the row.".
+t_stats_extras_match_ranked_snapshot(_Config) ->
+    ClientId = <<"c1">>,
+    InitialStats = [
+        {mqueue_len, 10},
+        {total_payload_bytes, 42000},
+        {inflight_cnt, 2}
+    ],
+    insert_session(ClientId, InitialStats),
+    Acc0 = emqx_session_tool:scan_acc_new(#{
+        metric => total_payload_bytes,
+        top_k => 1,
+        extra_stats => [mqueue_len, total_payload_bytes, inflight_cnt]
+    }),
+    {done, Acc} = emqx_session_tool:scan_acc(Acc0),
+    insert_session(ClientId, [
+        {mqueue_len, 0},
+        {total_payload_bytes, 0},
+        {inflight_cnt, 0}
+    ]),
+    [Row] = emqx_session_tool:scan_acc_rows(Acc),
+    ?assertEqual(42000, maps:get(value, Row)),
+    ?assertEqual(
+        #{mqueue_len => 10, total_payload_bytes => 42000, inflight_cnt => 2},
+        maps:get(extras, Row)
     ).
 
 -doc "scan rejects a metric that is not advertised by available_metrics/0.".

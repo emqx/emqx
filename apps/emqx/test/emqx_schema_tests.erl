@@ -22,6 +22,25 @@ ssl_opts_dtls_test() ->
         Checked
     ).
 
+ssl_opts_dtls_ecdhe_psk_chacha20_cipher_test() ->
+    Sc = emqx_schema:server_ssl_opts_schema(
+        #{
+            versions => dtls_all_available
+        },
+        false
+    ),
+    Checked = validate(Sc, #{
+        <<"versions">> => [<<"dtlsv1.2">>],
+        <<"ciphers">> => [<<"ECDHE-PSK-CHACHA20-POLY1305">>]
+    }),
+    ?assertMatch(
+        #{
+            versions := ['dtlsv1.2'],
+            ciphers := ["ECDHE-PSK-CHACHA20-POLY1305"]
+        },
+        Checked
+    ).
+
 ssl_opts_tls_1_3_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.3">>]}),
@@ -104,7 +123,7 @@ ssl_opts_cert_depth_test() ->
 
 bad_cipher_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
-    Reason = {bad_ciphers, ["foo"]},
+    Reason = #{cause => bad_ciphers, ciphers => [<<"foo">>]},
     ?assertThrow(
         {_Sc, [#{kind := validation_error, reason := Reason}]},
         validate(Sc, #{
@@ -113,6 +132,50 @@ bad_cipher_test() ->
         })
     ),
     ok.
+
+validate_ciphers_accepts_both_formats_test_() ->
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
+    Check = fun(Ciphers) ->
+        validate(Sc, #{
+            <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>],
+            <<"ciphers">> => Ciphers
+        })
+    end,
+    [
+        %% OpenSSL-format TLS 1.2 cipher
+        ?_assertMatch(
+            #{ciphers := ["ECDHE-ECDSA-AES256-GCM-SHA384"]},
+            Check([<<"ECDHE-ECDSA-AES256-GCM-SHA384">>])
+        ),
+        %% IANA/RFC-format TLS 1.2 cipher
+        ?_assertMatch(
+            #{ciphers := ["TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"]},
+            Check([<<"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384">>])
+        ),
+        %% TLS 1.3 cipher (same name in both formats)
+        ?_assertMatch(
+            #{ciphers := ["TLS_AES_256_GCM_SHA384"]},
+            Check([<<"TLS_AES_256_GCM_SHA384">>])
+        )
+    ].
+
+mqtt_tcp_listener_backend_default_test() ->
+    Opts = #{atom_key => true, required => false},
+    Sc = #{
+        roots => [mqtt_tcp_listener],
+        fields => #{mqtt_tcp_listener => emqx_schema:fields("mqtt_tcp_listener")}
+    },
+    Backend = default_mqtt_tcp_backend(),
+    ?assertMatch(
+        #{mqtt_tcp_listener := #{tcp_backend := Backend}},
+        hocon_tconf:check_plain(Sc, #{<<"mqtt_tcp_listener">> => #{}}, Opts)
+    ).
+
+default_mqtt_tcp_backend() ->
+    case os:type() of
+        {unix, _} -> socket;
+        {win32, _} -> gen_tcp
+    end.
 
 fail_if_no_peer_cert_test_() ->
     Sc = #{
@@ -172,6 +235,48 @@ fail_if_no_peer_cert_test_() ->
         ?_assertMatch(
             #{<<"mqtt_ssl_listener">> := #{}},
             hocon_tconf:check_plain(Sc, ValidListener1, Opts)
+        )
+    ].
+
+listener_allow_log_packet_data_from_test_() ->
+    Sc = #{
+        roots => [mqtt_tcp_listener],
+        fields => #{mqtt_tcp_listener => emqx_schema:fields("mqtt_tcp_listener")}
+    },
+    Check = fun(Listener) ->
+        hocon_tconf:check_plain(
+            Sc,
+            #{<<"mqtt_tcp_listener">> => Listener},
+            #{atom_key => true, required => false}
+        )
+    end,
+    [
+        ?_assertMatch(
+            #{mqtt_tcp_listener := #{allow_log_packet_data_from := []}},
+            Check(#{})
+        ),
+        ?_assertMatch(
+            #{
+                mqtt_tcp_listener := #{
+                    allow_log_packet_data_from := [
+                        {{127, 0, 0, 1}, {127, 0, 0, 1}, 32},
+                        {{10, 20, 0, 0}, {10, 20, 255, 255}, 16},
+                        {
+                            {16#2001, 16#db8, 0, 0, 0, 0, 0, 0},
+                            {16#2001, 16#db8, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff},
+                            32
+                        }
+                    ]
+                }
+            },
+            Check(#{
+                <<"allow_log_packet_data_from">> =>
+                    <<"127.0.0.1, 10.20.0.0/16, 2001:db8::/32">>
+            })
+        ),
+        ?_assertThrow(
+            {_, [#{kind := validation_error}]},
+            Check(#{<<"allow_log_packet_data_from">> => <<"127.0.0.1, invalid">>})
         )
     ].
 
@@ -771,6 +876,50 @@ parse_server_test_() ->
                     }
                 )
             )
+        ),
+        ?T(
+            "ipv6 in brackets, no port",
+            ?assertEqual(
+                [#{hostname => "::1", port => DefaultPort}],
+                Parse(<<"[::1]">>)
+            )
+        ),
+        ?T(
+            "ipv6 in brackets, with port",
+            ?assertEqual(
+                [#{hostname => "::1", port => 9999}],
+                Parse(<<"[::1]:9999">>)
+            )
+        ),
+        ?T(
+            "full ipv6 in brackets, with port",
+            ?assertEqual(
+                [#{hostname => "2a00:1098:2b::1:2e12:3a1f", port => 1877}],
+                Parse(<<"[2a00:1098:2b::1:2e12:3a1f]:1877">>)
+            )
+        ),
+        ?T(
+            "ipv6 in brackets with scheme and port",
+            ?assertEqual(
+                #{scheme => "pulsar+ssl", hostname => "::1", port => 6651},
+                emqx_schema:parse_server(
+                    "pulsar+ssl://[::1]:6651",
+                    #{
+                        default_port => 6650,
+                        supported_schemes => ["pulsar", "pulsar+ssl"]
+                    }
+                )
+            )
+        ),
+        ?T(
+            "multiple ipv6 servers in brackets, with ports",
+            ?assertEqual(
+                [
+                    #{hostname => "::1", port => 1234},
+                    #{hostname => "fe80::1", port => 2345}
+                ],
+                Parse("[::1]:1234, [fe80::1]:2345")
+            )
         )
     ].
 
@@ -1028,6 +1177,43 @@ max_packet_size_test_() ->
                     #{reason := #{cause := max_mqtt_packet_size_too_small, minimum := 1}}
                 ]},
                 Check(<<"mqtt.max_packet_size = 0">>)
+            )}
+    ].
+
+session_total_payload_bytes_high_watermark_test_() ->
+    Check = fun(Input) ->
+        {ok, Hocon} = hocon:binary(Input),
+        hocon_tconf:check_plain(emqx_schema, Hocon, #{required => false}, [sysmon])
+    end,
+    [
+        {"0 disables warning logs",
+            ?_assertMatch(
+                #{
+                    <<"sysmon">> := #{
+                        <<"session">> := #{<<"total_payload_bytes_high_watermark">> := 0}
+                    }
+                },
+                Check(<<"sysmon.session.total_payload_bytes_high_watermark = 0">>)
+            )},
+        {"bytesize units are accepted",
+            ?_assertMatch(
+                #{
+                    <<"sysmon">> := #{
+                        <<"session">> := #{<<"total_payload_bytes_high_watermark">> := 1024}
+                    }
+                },
+                Check(<<"sysmon.session.total_payload_bytes_high_watermark = 1KB">>)
+            )},
+        {"negative values are rejected",
+            ?_assertThrow(
+                {emqx_schema, [
+                    #{
+                        kind := validation_error,
+                        path := "sysmon.session.total_payload_bytes_high_watermark",
+                        reason := #{minimum := 0}
+                    }
+                ]},
+                Check(<<"sysmon.session.total_payload_bytes_high_watermark = -1">>)
             )}
     ].
 

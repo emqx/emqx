@@ -98,9 +98,11 @@ query_mode(_Config) -> no_queries.
 on_start(ConnectorResId, Config0) ->
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(pubsub),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{
-        default_port => 443, ssrf_check => true
+        default_port => 443
     }),
     Config = Config0#{
+        %% important to use http2 here, so we can cancel inflight requests if needed.
+        protocols => [http2],
         jwt_opts => #{
             %% fixed for pubsub; trailing slash is important.
             aud => <<"https://pubsub.googleapis.com/">>

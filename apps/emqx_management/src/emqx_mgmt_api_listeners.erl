@@ -411,7 +411,11 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
                 undefined ->
                     {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
                 PrevConf ->
-                    MergeConf = emqx_utils_maps:deep_merge(PrevConf, Conf),
+                    MergeConf0 = emqx_utils_maps:deep_merge(PrevConf, Conf),
+                    %% The merge above cannot drop keys, so a switch away from a managed
+                    %% certificate bundle would retain the stale `managed_certs'.  Let the
+                    %% raw request decide the certificate source.
+                    MergeConf = emqx_listeners:reconcile_cert_source(Conf, MergeConf0),
                     case update(Type, Name, MergeConf) of
                         {ok, #{raw_config := _RawConf}} ->
                             crud_listeners_by_id(get, #{bindings => #{id => Id}});
@@ -824,6 +828,7 @@ tcp_schema_example() ->
         proxy_protocol => false,
         proxy_protocol_timeout => <<"3s">>,
         running => true,
+        tcp_backend => socket,
         zone => default,
         tcp_options => #{
             active_n => 100,

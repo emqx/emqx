@@ -24,20 +24,7 @@ all() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    %% CM Meck
-    ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
-    ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
-    %% Broker Meck
-    ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
-    %% Session Meck
-    ok = meck:new(emqx_session, [passthrough, no_history, no_link]),
-    %% Ban
-    ok = meck:new(emqx_banned, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_banned, check, fun(_ConnInfo) -> false end),
     %% Authz
-    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
     Apps = emqx_cth_suite:start(
         [
             {emqx, #{
@@ -66,21 +53,51 @@ init_per_suite(Config) ->
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
-    meck:unload([
-        emqx_session,
-        emqx_broker,
-        emqx_cm,
-        emqx_banned,
-        emqx_access_control
-    ]).
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
-init_per_testcase(_TestCase, TCConfig) ->
+init_per_testcase(TestCase, TCConfig) ->
+    case internal_subscribe_test_profile(TestCase) of
+        undefined -> ok;
+        Profile -> emqx_common_test_helpers:set_security_profile(Profile)
+    end,
+    %% Authz Meck
+    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
+    %% CM Meck
+    ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
+    ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
+    %% Broker Meck
+    ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
+    %% Session Meck
+    ok = meck:new(emqx_session, [passthrough, no_history, no_link]),
+    %% Ban
+    ok = meck:new(emqx_banned, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_banned, check, fun(_ConnInfo) -> false end),
     TCConfig.
 
 end_per_testcase(_TestCase, _TCConfig) ->
+    meck:unload([
+        emqx_access_control,
+        emqx_session,
+        emqx_broker,
+        emqx_cm,
+        emqx_banned
+    ]),
+    emqx_common_test_helpers:clear_security_profile(),
     emqx_common_test_helpers:call_janitor(),
     ok.
+
+internal_subscribe_test_profile(t_internal_subscribe_bypasses_checks_in_legacy) ->
+    "legacy";
+internal_subscribe_test_profile(t_internal_subscribe_checks_authz_and_runs_hook) ->
+    "hardened";
+internal_subscribe_test_profile(t_internal_subscribe_checks_caps) ->
+    "hardened";
+internal_subscribe_test_profile(t_handle_info_subscribe_honors_disconnect_deny_action) ->
+    "hardened";
+internal_subscribe_test_profile(_) ->
+    undefined.
 
 %%--------------------------------------------------------------------
 %% Test cases for channel info/stats/caps
@@ -94,7 +111,7 @@ t_chan_info(_) ->
     ?assertMatch(
         #{
             zone := default,
-            listener := {tcp, default},
+            listener := 'tcp:default',
             protocol := mqtt,
             peername := {{127, 0, 0, 1}, 3456},
             peerhost := {127, 0, 0, 1},
@@ -333,7 +350,7 @@ t_handle_in_qos0_publish(_) ->
 t_handle_in_qos1_publish(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
-    {ok, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS), _Channel} =
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS)}, _Channel} =
         emqx_channel:handle_in(Publish, channel(#{conn_state => connected})).
 
 t_handle_in_qos2_publish(_) ->
@@ -342,11 +359,11 @@ t_handle_in_qos2_publish(_) ->
     %% waiting limiter server
     timer:sleep(200),
     Publish1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
-    {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), Channel1} =
+    {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_SUCCESS)}, Channel1} =
         emqx_channel:handle_in(Publish1, Channel),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Publish2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
-    {ok, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS), Channel2} =
+    {ok, {outgoing, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS)}, Channel2} =
         emqx_channel:handle_in(Publish2, Channel1),
     ?assertEqual(2, proplists:get_value(awaiting_rel_cnt, emqx_channel:stats(Channel2))).
 
@@ -358,10 +375,10 @@ t_handle_in_qos2_publish_with_error_return(_) ->
     timer:sleep(200),
     M1 = emqx_metrics:val_global('messages.dropped.receive_maximum'),
     Publish1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
-    {ok, ?PUBREC_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), Channel} =
+    {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE)}, Channel} =
         emqx_channel:handle_in(Publish1, Channel),
     Publish2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
-    {ok, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS), Channel1} =
+    {ok, {outgoing, ?PUBREC_PACKET(2, ?RC_NO_MATCHING_SUBSCRIBERS)}, Channel1} =
         emqx_channel:handle_in(Publish2, Channel),
     Publish3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
     {ok,
@@ -434,7 +451,7 @@ t_handle_in_pubrec_ok(_) ->
     Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<"payload">>),
     ok = meck:expect(emqx_session, pubrec, fun(_, _, Session) -> {ok, Msg, Session} end),
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBREL_PACKET(1, ?RC_SUCCESS), _Channel1} =
+    {ok, {outgoing, ?PUBREL_PACKET(1, ?RC_SUCCESS)}, _Channel1} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubrec_id_in_use(_) ->
@@ -445,7 +462,7 @@ t_handle_in_pubrec_id_in_use(_) ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE}
         end
     ),
-    {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), _Channel} =
+    {ok, {outgoing, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE)}, _Channel} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubrec_id_not_found(_) ->
@@ -456,13 +473,13 @@ t_handle_in_pubrec_id_not_found(_) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
-    {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel} =
+    {ok, {outgoing, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND)}, _Channel} =
         emqx_channel:handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubrel_ok(_) ->
     ok = meck:expect(emqx_session, pubrel, fun(_, _, Session) -> {ok, Session} end),
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBCOMP_PACKET(1, ?RC_SUCCESS), _Channel1} =
+    {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_SUCCESS)}, _Channel1} =
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), Channel).
 
 t_handle_in_pubrel_not_found_error(_) ->
@@ -473,7 +490,7 @@ t_handle_in_pubrel_not_found_error(_) ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
         end
     ),
-    {ok, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), _Channel} =
+    {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND)}, _Channel} =
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubcomp_ok(_) ->
@@ -517,7 +534,7 @@ t_handle_in_unsubscribe(_) ->
         emqx_channel:handle_in(?UNSUBSCRIBE_PACKET(1, #{}, [<<"+">>]), Channel).
 
 t_handle_in_pingreq(_) ->
-    {ok, ?PACKET(?PINGRESP), _Channel} =
+    {ok, {outgoing, ?PACKET(?PINGRESP)}, _Channel} =
         emqx_channel:handle_in(?PACKET(?PINGREQ), channel()).
 
 t_handle_in_disconnect(_) ->
@@ -535,7 +552,7 @@ t_handle_in_auth(_) ->
 t_handle_in_frame_error(_) ->
     IdleChannelV5 = channel(#{conn_state => idle}),
     ?assertMatch(
-        {shutdown, #{shutdown_count := invalid_connect_packet, reason := bad_subqos}, _Chan},
+        {shutdown, #{shutdown_count := bad_subqos, reason := bad_subqos}, _Chan},
         emqx_channel:handle_in({frame_error, bad_subqos}, IdleChannelV5)
     ),
     %% no CONNACK packet for v4
@@ -569,6 +586,16 @@ t_handle_in_frame_error(_) ->
         {ok, [{outgoing, DisconnectPacket}, {close, frame_too_large}], _},
         emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, ConnectedChan)
     ),
+    %% Any other frame error on an established connection closes under the
+    %% single `frame_error' kind, never under a client-derived name.
+    MalformedPacket = ?DISCONNECT_PACKET(?RC_MALFORMED_PACKET),
+    ?assertMatch(
+        {ok, [{outgoing, MalformedPacket}, {close, frame_error}], _},
+        emqx_channel:handle_in(
+            {frame_error, #{cause => invalid_property_code, property_code => 16#2B}},
+            channel(#{conn_state => connected})
+        )
+    ),
     DisconnectedChan = channel(#{conn_state => disconnected}),
     {ok, DisconnectedChan} =
         emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, DisconnectedChan).
@@ -597,7 +624,7 @@ t_process_publish_qos0(_) ->
 t_process_publish_qos1(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
-    {ok, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS), _Channel} =
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS)}, _Channel} =
         emqx_channel:process_publish(Publish, channel()).
 
 t_process_subscribe(_) ->
@@ -615,9 +642,9 @@ t_quota_qos0(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(
-        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
-            listener => {tcp, low_message_rate}
-        }
+        clientinfo(#{listener => 'tcp:low_message_rate'}),
+        #{conn_state => connected},
+        #{listener => {tcp, low_message_rate}}
     ),
     Pub = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
 
@@ -640,55 +667,69 @@ t_quota_qos1(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(
-        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
-            listener => {tcp, low_message_rate}
-        }
+        clientinfo(#{listener => 'tcp:low_message_rate'}),
+        #{conn_state => connected},
+        #{listener => {tcp, low_message_rate}}
     ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     %% Quota per connections
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
-    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub, Chann1),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+        emqx_channel:handle_in(Pub, Chann),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, Chann2} =
+        emqx_channel:handle_in(Pub, Chann1),
     timer:sleep(1200),
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub, Chann2),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
+        emqx_channel:handle_in(Pub, Chann2),
     %% Quota in overall
-    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann3),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+        emqx_channel:handle_in(Pub, Chann3),
     ok.
 
 t_quota_qos2(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
     Chann = channel(
-        clientinfo(#{listener => {tcp, low_message_rate}}), #{conn_state => connected}, #{
-            listener => {tcp, low_message_rate}
-        }
+        clientinfo(#{listener => 'tcp:low_message_rate'}),
+        #{conn_state => connected},
+        #{listener => {tcp, low_message_rate}}
     ),
     Pub1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
     Pub2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
     Pub3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
     Pub4 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 4, <<"payload">>),
     %% Quota per connections
-    {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub1, Chann),
-    {ok, ?PUBREC_PACKET(2, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub2, Chann1),
+    {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+        emqx_channel:handle_in(Pub1, Chann),
+    {ok, {outgoing, ?PUBREC_PACKET(2, ?RC_QUOTA_EXCEEDED)}, Chann2} =
+        emqx_channel:handle_in(Pub2, Chann1),
     timer:sleep(1200),
-    {ok, ?PUBREC_PACKET(3, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub3, Chann2),
+    {ok, {outgoing, ?PUBREC_PACKET(3, ?RC_SUCCESS)}, Chann3} =
+        emqx_channel:handle_in(Pub3, Chann2),
     %% Quota in overall
-    {ok, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub4, Chann3),
+    {ok, {outgoing, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED)}, _} =
+        emqx_channel:handle_in(Pub4, Chann3),
     ok.
 
 t_quota_bytes(_) ->
     timer:sleep(1200),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    Chann = channel(clientinfo(#{listener => {tcp, low_byte_rate}}), #{conn_state => connected}, #{
-        listener => {tcp, low_byte_rate}
-    }),
+    Chann = channel(
+        clientinfo(#{listener => 'tcp:low_byte_rate'}),
+        #{conn_state => connected},
+        #{listener => {tcp, low_byte_rate}}
+    ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
     %% Quota per connections
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann1} = emqx_channel:handle_in(Pub, Chann),
-    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), Chann2} = emqx_channel:handle_in(Pub, Chann1),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+        emqx_channel:handle_in(Pub, Chann),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, Chann2} =
+        emqx_channel:handle_in(Pub, Chann1),
     timer:sleep(1200),
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), Chann3} = emqx_channel:handle_in(Pub, Chann2),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
+        emqx_channel:handle_in(Pub, Chann2),
     %% Quota in overall
-    {ok, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED), _} = emqx_channel:handle_in(Pub, Chann3),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+        emqx_channel:handle_in(Pub, Chann3),
     ok.
 
 t_mount_will_msg(_) ->
@@ -792,23 +833,23 @@ t_handle_out_connack_failure(_) ->
 
 t_handle_out_puback(_) ->
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), _NChannel} =
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, _NChannel} =
         emqx_channel:handle_out(puback, {1, ?RC_SUCCESS}, Channel).
 
 t_handle_out_pubrec(_) ->
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBREC_PACKET(1, ?RC_SUCCESS), _NChannel} =
+    {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_SUCCESS)}, _NChannel} =
         emqx_channel:handle_out(pubrec, {1, ?RC_SUCCESS}, Channel).
 
 t_handle_out_pubrel(_) ->
     Channel = channel(#{conn_state => connected}),
-    {ok, ?PUBREL_PACKET(1), Channel1} =
+    {ok, {outgoing, ?PUBREL_PACKET(1)}, Channel1} =
         emqx_channel:handle_out(pubrel, {1, ?RC_SUCCESS}, Channel),
-    {ok, ?PUBREL_PACKET(2, ?RC_SUCCESS), _Channel2} =
+    {ok, {outgoing, ?PUBREL_PACKET(2, ?RC_SUCCESS)}, _Channel2} =
         emqx_channel:handle_out(pubrel, {2, ?RC_SUCCESS}, Channel1).
 
 t_handle_out_pubcomp(_) ->
-    {ok, ?PUBCOMP_PACKET(1, ?RC_SUCCESS), _Channel} =
+    {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_SUCCESS)}, _Channel} =
         emqx_channel:handle_out(pubcomp, {1, ?RC_SUCCESS}, channel()).
 
 t_handle_out_suback(_) ->
@@ -875,12 +916,16 @@ t_handle_call_discard(_) ->
         emqx_channel:handle_call(discard, channel()).
 
 t_handle_call_takeover_begin(_) ->
-    {reply, _Session, _Chan} = emqx_channel:handle_call({takeover, 'begin'}, channel()).
+    {reply, Session, _Chan} = emqx_channel:handle_call({takeover, 'begin'}, channel()),
+    ?assertMatch(#{}, Session).
 
 t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
+    Chan0 = channel(),
+    {reply, _, Chan1} =
+        emqx_channel:handle_call({takeover, 'begin'}, Chan0),
     {shutdown, takenover, [], _, _Chan} =
-        emqx_channel:handle_call({takeover, 'end'}, channel()).
+        emqx_channel:handle_call({takeover, 'end'}, Chan1).
 
 t_handle_call_unexpected(_) ->
     {reply, ignored, _Chan} = emqx_channel:handle_call(unexpected_req, channel()).
@@ -892,6 +937,139 @@ t_handle_call_unexpected(_) ->
 t_handle_info_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
     {ok, _Chan} = emqx_channel:handle_info({subscribe, topic_filters()}, channel()).
+
+t_internal_subscribe_bypasses_checks_in_legacy(_) ->
+    TestPid = self(),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) ->
+        TestPid ! authorization_checked,
+        deny
+    end),
+    ok = meck:expect(emqx_session, subscribe, fun(_, Topic, _, Session) ->
+        TestPid ! {subscribed, Topic},
+        {ok, Session}
+    end),
+    ok = emqx_hooks:add(
+        'client.subscribe', {?MODULE, on_client_subscribe, [TestPid]}, ?HP_HIGHEST
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe})
+    end),
+    {ok, _Channel} = emqx_channel:handle_info(
+        {subscribe, [{<<"legacy">>, ?DEFAULT_SUBOPTS}]}, channel()
+    ),
+    ?assertReceive({subscribed, <<"legacy">>}),
+    ?assertNotReceive(authorization_checked),
+    ?assertNotReceive({client_subscribe, _, _}).
+
+t_internal_subscribe_checks_authz_and_runs_hook(_) ->
+    TestPid = self(),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    AllowedTopic = <<"regular/allowed">>,
+    DeniedTopic = <<"regular/denied">>,
+    AllowedSharedTopic = <<"shared/allowed">>,
+    DeniedSharedTopic = <<"shared/denied">>,
+    AllowedShare = #share{group = <<"group">>, topic = AllowedSharedTopic},
+    AllowedTopics = [AllowedTopic, AllowedShare],
+    on_exit(fun() ->
+        emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe})
+    end),
+    ok = meck:expect(emqx_access_control, authorize, fun
+        (_, _, Denied) when Denied =:= DeniedTopic; Denied =:= DeniedSharedTopic -> deny;
+        (_, _, _) -> allow
+    end),
+    ok = emqx_hooks:add(
+        'client.subscribe', {?MODULE, on_client_subscribe, [TestPid]}, ?HP_HIGHEST
+    ),
+    TopicFilters = [
+        {AllowedTopic, ?DEFAULT_SUBOPTS},
+        {DeniedTopic, ?DEFAULT_SUBOPTS},
+        {<<"$share/group/", AllowedSharedTopic/binary>>, ?DEFAULT_SUBOPTS},
+        {<<"$share/group/", DeniedSharedTopic/binary>>, ?DEFAULT_SUBOPTS}
+    ],
+    ListenerId = 'tcp:default',
+    ok = emqx_listeners:start_listener(ListenerId),
+    on_exit(fun() ->
+        emqx_listeners:stop_listener(ListenerId),
+        emqx_limiter:create_listener_limiters(ListenerId, #{})
+    end),
+    {ok, Client} = emqtt:start_link(#{clientid => ClientId}),
+    {ok, _} = emqtt:connect(Client),
+    [ChannelPid] = emqx_cm:lookup_channels(ClientId),
+    ChannelPid ! {subscribe, TopicFilters},
+    {client_subscribe, #{}, HookTopicFilters} = ?assertReceive(
+        {client_subscribe, #{}, _}, 1_000
+    ),
+    ok = snabbkaffe_diff:assert_lists_eq(
+        AllowedTopics,
+        [Topic || {Topic, _SubOpts} <- HookTopicFilters]
+    ),
+    snabbkaffe_diff:assert_lists_eq(
+        lists:sort(AllowedTopics),
+        channel_subscriptions(ChannelPid)
+    ),
+    emqtt:disconnect(Client).
+
+t_internal_subscribe_checks_caps(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    SimpleTopic = <<"simple">>,
+    WildcardTopic = <<"wildcard/#">>,
+    OldValue = emqx_config:get_zone_conf(default, [mqtt, wildcard_subscription]),
+    on_exit(fun() ->
+        emqx_config:put_zone_conf(default, [mqtt, wildcard_subscription], OldValue)
+    end),
+    emqx_config:put_zone_conf(default, [mqtt, wildcard_subscription], false),
+    ListenerId = 'tcp:default',
+    ok = emqx_listeners:start_listener(ListenerId),
+    on_exit(fun() ->
+        emqx_listeners:stop_listener(ListenerId),
+        emqx_limiter:create_listener_limiters(ListenerId, #{})
+    end),
+    {ok, Client} = emqtt:start_link(#{clientid => ClientId}),
+    {ok, _} = emqtt:connect(Client),
+    [ChannelPid] = emqx_cm:lookup_channels(ClientId),
+    ChannelPid !
+        {subscribe, [
+            {SimpleTopic, ?DEFAULT_SUBOPTS},
+            {WildcardTopic, ?DEFAULT_SUBOPTS}
+        ]},
+    snabbkaffe_diff:assert_lists_eq(
+        [SimpleTopic],
+        channel_subscriptions(ChannelPid)
+    ),
+    emqtt:disconnect(Client).
+
+t_handle_info_subscribe_honors_disconnect_deny_action(_) ->
+    OldDenyAction = emqx:get_config([authorization, deny_action], ignore),
+    {ok, _} = emqx:update_config([authorization, deny_action], disconnect),
+    on_exit(fun() ->
+        {ok, _} = emqx:update_config([authorization, deny_action], OldDenyAction)
+    end),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
+    ?assertMatch(
+        {ok, [{outgoing, ?DISCONNECT_PACKET(?RC_NOT_AUTHORIZED)}, {close, not_authorized}], _},
+        emqx_channel:handle_info(
+            {subscribe, [{<<"deny">>, ?DEFAULT_SUBOPTS}]}, channel()
+        )
+    ).
+
+t_handle_info_force_subscribe_bypasses_checks_and_hooks(_) ->
+    TestPid = self(),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
+    ok = meck:expect(emqx_session, subscribe, fun(_, Topic, _, Session) ->
+        TestPid ! {subscribed, Topic},
+        {ok, Session}
+    end),
+    ok = emqx_hooks:add(
+        'client.subscribe', {?MODULE, on_client_subscribe, [TestPid]}, ?HP_HIGHEST
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe})
+    end),
+    {ok, _Channel} = emqx_channel:handle_info(
+        {force_subscribe, [{<<"forced">>, ?DEFAULT_SUBOPTS}]}, channel()
+    ),
+    ?assertReceive({subscribed, <<"forced">>}),
+    ?assertNotReceive({client_subscribe, _, _}).
 
 t_handle_info_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
@@ -905,9 +1083,9 @@ t_handle_info_sock_closed(_) ->
 %% Test cases for handle_timeout
 %%--------------------------------------------------------------------
 
--define(CUSTOM_TIMER1_TIMEOUT, 100).
--define(CUSTOM_TIMER2_TIMEOUT, 20).
--define(CUSTOM_TIMER3_TIMEOUT, 50).
+-define(CUSTOM_TIMER_TIMEOUT_LONG, 500).
+-define(CUSTOM_TIMER_TIMEOUT, 100).
+-define(CUSTOM_TIMER_TIMEOUT_SHORT, 20).
 
 t_handle_timeout_keepalive(_) ->
     TRef = make_ref(),
@@ -935,53 +1113,63 @@ t_handle_timeout_will_message(_) ->
 t_handle_custom_timers(_) ->
     Channel = channel(#{
         conn_state => connected,
+        conn_flags => [],
         session => {?MODULE, #{}}
     }),
-    {ok, [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])} | _], Chan1} =
-        emqx_channel:handle_in(
-            ?SUBSCRIBE_PACKET(1, #{}, [{<<"+/+">>, ?DEFAULT_SUBOPTS}]),
-            Channel
-        ),
-    {timeout, T1Ref, T1Msg} = ?assertReceive({timeout, _, _}, ?CUSTOM_TIMER1_TIMEOUT * 2),
-    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"a/b">>, 1, <<"t1">>)]}, Chan2} =
-        emqx_channel:handle_timeout(T1Ref, T1Msg, Chan1),
-    {timeout, T2Ref, T2Msg} = ?assertReceive({timeout, _, _}, ?CUSTOM_TIMER2_TIMEOUT * 2),
-    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"t2">>)]}, _Chan} =
-        emqx_channel:handle_timeout(T2Ref, T2Msg, Chan2),
-    ok = ?assertNotReceive({timeout, _, _}, ?CUSTOM_TIMER3_TIMEOUT * 2).
+    %% Sets `signal1` timer:
+    {ok, Chan1} = emqx_channel:handle_signal(
+        {connection, congested, #{retry => ?CUSTOM_TIMER_TIMEOUT}},
+        Channel
+    ),
+    %% Sets `signal2` timer:
+    {ok, Chan2} = emqx_channel:handle_signal(
+        {connection, decongested, #{retry => ?CUSTOM_TIMER_TIMEOUT_LONG}},
+        Chan1
+    ),
+    %% Changing timeout is ignored for `set_timer`:
+    {ok, Chan3} = emqx_channel:handle_signal(
+        {connection, congested, #{retry => ?CUSTOM_TIMER_TIMEOUT_LONG}},
+        Chan2
+    ),
+    {timeout, T1Ref, T1Msg} =
+        ?assertReceive({timeout, _, {emqx_session, signal1}}, ?CUSTOM_TIMER_TIMEOUT * 2),
+    %% Sets `msg1` timer:
+    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"a/b">>, 1, <<"1">>)]}, Chan4} =
+        emqx_channel:handle_timeout(T1Ref, T1Msg, Chan3),
+    %% Resets `msg1` timer to a shorter timeout:
+    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"2">>)]}, Chan5} =
+        emqx_channel:handle_timeout(make_ref(), retry_delivery, Chan4),
+    {timeout, T2Ref, T2Msg} =
+        ?assertReceive({timeout, _, {emqx_session, msg1}}, ?CUSTOM_TIMER_TIMEOUT_SHORT * 2),
+    %% Clears `signal2` timer:
+    {ok, _Chan} = emqx_channel:handle_timeout(T2Ref, T2Msg, Chan5),
+    ?assertNotReceive({timeout, _, _}, ?CUSTOM_TIMER_TIMEOUT_LONG * 2).
 
 %%--------------------------------------------------------------------
 %% Mocked session module
 %%--------------------------------------------------------------------
 
-subscribe(_TopicFilter, _SubOpts = #{}, {?MODULE, Session0}) ->
-    % NOTE: Only this one should be triggered
-    Session1 = emqx_session:ensure_timer(t1, ?CUSTOM_TIMER1_TIMEOUT, Session0),
-    Session = emqx_session:ensure_timer(t1, ?CUSTOM_TIMER1_TIMEOUT * 5, Session1),
-    {ok, {?MODULE, Session}}.
-
-get_subscription(_TopicFilter, {?MODULE, _Session}) ->
-    undefined.
+handle_signal(_ClientInfo, {connection, congested, #{retry := Timeout}}, {?MODULE, Session}) ->
+    Effect = {set_timer, signal1, Timeout},
+    {Effect, [], {?MODULE, Session}};
+handle_signal(_ClientInfo, {connection, decongested, #{retry := Timeout}}, {?MODULE, Session}) ->
+    Effect = {set_timer, signal2, Timeout},
+    {Effect, [], {?MODULE, Session}}.
 
 info(created_at, {?MODULE, _Session}) ->
     0.
 
-handle_timeout(_ClientInfo, t1, {?MODULE, Session0}) ->
-    Msg = emqx_message:make(<<"a/b">>, <<"t1">>),
-    Session1 = maps:remove(t1, Session0),
-    % NOTE: Only this one should be reset by the second call.
-    Session2 = emqx_session:reset_timer(t2, ?CUSTOM_TIMER2_TIMEOUT * 5, Session1),
-    Session3 = emqx_session:reset_timer(t2, ?CUSTOM_TIMER2_TIMEOUT, Session2),
-    Session = emqx_session:reset_timer(t3, ?CUSTOM_TIMER3_TIMEOUT, Session3),
-    {ok, [{1, Msg}], {?MODULE, Session}};
-handle_timeout(_ClientInfo, t2, {?MODULE, Session0}) ->
-    Msg = emqx_message:make(<<"c/d">>, <<"t2">>),
-    Session1 = maps:remove(t2, Session0),
-    Session2 = emqx_session:cancel_timer(t2, Session1),
-    % NOTE: Thus `t3` should not be triggered, see `?assertNotReceive` above.
-    Session = emqx_session:cancel_timer(t3, Session2),
-    ok = ?assertEqual(#{}, Session),
-    {ok, [{2, Msg}], {?MODULE, Session}}.
+handle_timeout(_ClientInfo, signal1, {?MODULE, Session}) ->
+    Msg = emqx_message:make(<<"a/b">>, <<"1">>),
+    Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_LONG},
+    {Effect, [{1, Msg}], {?MODULE, Session}};
+handle_timeout(_ClientInfo, retry_delivery, {?MODULE, Session}) ->
+    Msg = emqx_message:make(<<"c/d">>, <<"2">>),
+    Effect = {reset_timer, msg1, ?CUSTOM_TIMER_TIMEOUT_SHORT},
+    {Effect, [{2, Msg}], {?MODULE, Session}};
+handle_timeout(_ClientInfo, msg1, {?MODULE, Session}) ->
+    Effect = {reset_timer, signal2, infinity},
+    {Effect, [], {?MODULE, Session}}.
 
 %%--------------------------------------------------------------------
 %% Test cases for internal functions
@@ -1093,12 +1281,9 @@ t_check_sub_authzs(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
     SubPkt = ?SUBSCRIBE_PACKET(1, #{}, [TopicFilter]),
-    CheckedSubPkt = ?SUBSCRIBE_PACKET(1, #{}, [{TopicFilter, ?RC_SUCCESS}]),
+    Operation = emqx_channel:subscribe_operation(SubPkt),
     Channel = channel(),
-    ?assertEqual(
-        {ok, CheckedSubPkt, Channel},
-        emqx_channel:check_sub_authzs(SubPkt, Channel)
-    ).
+    ?assertMatch({ok, _, Channel}, emqx_channel:check_sub_authzs(Operation, Channel)).
 
 t_parse_raw_topic_filters_subscription_filter_enabled(_) ->
     OldMode = emqx_config:get_zone_conf(default, [mqtt, subscription_message_filter], disable),
@@ -1386,18 +1571,22 @@ channel(ClientInfo, InitFields, ListenerOpts) ->
             #{
                 clientinfo => ClientInfo,
                 session => session(ClientInfo, #{}),
+                quota => channel_quota(ClientInfo),
                 conn_state => connected
             },
             InitFields
         )
     ).
 
+channel_quota(#{zone := Zone, listener := ListenerId}) ->
+    emqx_limiter:create_channel_client_container(Zone, ListenerId).
+
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
     maps:merge(
         #{
             zone => default,
-            listener => {tcp, default},
+            listener => 'tcp:default',
             protocol => mqtt,
             peername => {{127, 0, 0, 1}, 3456},
             peerhost => {127, 0, 0, 1},
@@ -1429,8 +1618,8 @@ connpkt(Props) ->
         password = <<"passwd">>
     }.
 
-session() -> session(#{zone => default, clientid => <<"fake-test">>}, #{}).
-session(InitFields) -> session(#{zone => default, clientid => <<"fake-test">>}, InitFields).
+session() -> session(clientinfo(), #{}).
+session(InitFields) -> session(clientinfo(), InitFields).
 session(ClientInfo, InitFields) when is_map(InitFields) ->
     Session = emqx_session:create(
         ClientInfo,
@@ -1470,3 +1659,11 @@ v4(Channel) ->
 authenticate_continue(Credential, _DefaultRes, TestRunnerPid, Agent) ->
     TestRunnerPid ! {authenticate, Credential},
     emqx_utils_agent:get(Agent).
+
+on_client_subscribe(_ClientInfo, Properties, TopicFilters, TestPid) ->
+    TestPid ! {client_subscribe, Properties, TopicFilters},
+    {ok, TopicFilters}.
+
+channel_subscriptions(ChannelPid) ->
+    #{session := #{subscriptions := Subscriptions}} = emqx_connection:info(ChannelPid),
+    lists:sort(maps:keys(Subscriptions)).

@@ -27,7 +27,8 @@
     topic/1,
     payload/1,
     timestamp/1,
-    timestamp/2
+    timestamp/2,
+    payload_size/1
 ]).
 
 %% Flags
@@ -181,6 +182,10 @@ estimate_size(#message{topic = Topic, payload = Payload}) ->
     PacketIdSize = 2,
     TopicLengthSize = 2,
     FixedHeaderSize + VarLenSize + TopicLengthSize + TopicSize + PacketIdSize + PayloadSize.
+
+-spec payload_size(emqx_types:message()) -> non_neg_integer().
+payload_size(#message{payload = Payload}) ->
+    iolist_size(Payload).
 
 -spec id(emqx_types:message()) -> option(binary()).
 id(#message{id = Id}) -> Id.

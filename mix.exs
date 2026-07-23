@@ -54,7 +54,7 @@ defmodule EMQXUmbrella.MixProject do
 
   Here, transitive dependencies from our app dependencies should be placed when there's a
   need to override them.  For example, since `jsone` is a dependency to `rocketmq` and to
-  `erlavro`, which are both dependencies and not umbrella apps, we need to add the
+  `ekka`, which are both dependencies and not umbrella apps, we need to add the
   override here.  Also, there are cases where adding `override: true` to the umbrella
   application dependency simply won't satisfy mix.  In such cases, it's fine to add it
   here.
@@ -132,12 +132,9 @@ defmodule EMQXUmbrella.MixProject do
       # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
       common_dep(:murmerl3),
       common_dep(:unicode_util_compat),
-      # Used by :sbom, remove after https://github.com/erlef/mix_sbom/pull/84 or similar is merged & released
-      {:optimus, "~> 0.6.1", override: true},
-      # Used by :sbom
-      # The revision is v0.16.0 + commit with Elixir 1.19 fixes
-      # Remove after protobuf releases a new version and mix_sbom is updated to use it
-      {:protobuf, github: "elixir-protobuf/protobuf", ref: "4328993", override: true},
+      # Used by :sbom, we need the fixes with Elixir 1.19 warnings, and the security fix
+      # about the ':max_nesting_depth' option
+      {:protobuf, github: "elixir-protobuf/protobuf", tag: "v0.17.0", override: true},
       # transitive dep of iotdb-client-erl; pin our fork for OTP 28 compat
       common_dep(:thrift)
     ]
@@ -178,7 +175,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.0", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.0", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.1", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
@@ -188,7 +185,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-3", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.4", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.5", override: true}
 
   def common_dep(:jiffy), do: {:jiffy, "2.0.1", override: true}
 
@@ -290,7 +287,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
 
   def common_dep(:erlavro),
-    do: {:erlavro, github: "emqx/erlavro", tag: "2.10.2-emqx-3", override: true}
+    do: {:erlavro, github: "emqx/erlavro", tag: "2.11.2-emqx-1", override: true}
 
   def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.2"}
 
@@ -316,10 +313,10 @@ defmodule EMQXUmbrella.MixProject do
     do: {:parquer, github: "emqx/parquer", tag: "0.1.8", manager: :rebar3}
 
   def common_dep(:greptimedb),
-    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
+    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.1"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.11"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.12"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
