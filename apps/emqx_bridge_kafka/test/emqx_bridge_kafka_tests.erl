@@ -56,6 +56,66 @@ test_keepalive_validation(Kind, Conf) ->
     [?_assertMatch(#{}, Check(C)) || C <- ValidConfs] ++
         [?_assertThrow(_, Check(C)) || C <- InvalidConfs].
 
+%% `max_batch_age' and `max_retries' accept `infinity' (the default) or a
+%% duration / non-negative integer, and are rejected otherwise.
+producer_max_batch_age_max_retries_schema_test_() ->
+    Check = fun(Overrides) ->
+        emqx_bridge_kafka_testlib:action_config(#{<<"parameters">> => Overrides})
+    end,
+    [
+        {"defaults are infinity",
+            ?_assertMatch(
+                #{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := <<"infinity">>,
+                        <<"max_retries">> := <<"infinity">>
+                    }
+                },
+                Check(#{})
+            )},
+        {"duration and integer accepted",
+            ?_assertMatch(
+                #{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := <<"500ms">>,
+                        <<"max_retries">> := 3
+                    }
+                },
+                Check(#{<<"max_batch_age">> => <<"500ms">>, <<"max_retries">> => 3})
+            )},
+        {"zero retries accepted",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"max_retries">> := 0}},
+                Check(#{<<"max_retries">> => 0})
+            )},
+        {"negative retries rejected", ?_assertThrow(_, Check(#{<<"max_retries">> => -1}))},
+        {"bad duration rejected",
+            ?_assertThrow(_, Check(#{<<"max_batch_age">> => <<"not_a_duration">>}))}
+    ].
+
+%% The wolff ack callback for the wolff 4.2.0 drop reasons: `message_expired'
+%% is reported as `request_expired' (concludes the rule action without bumping
+%% resource metrics; `dropped'/`dropped.expired' are bumped via the
+%% [wolff, dropped_expired] telemetry handler), while `max_retry_exceeded' is
+%% reported as a regular error (counted as `failed' by the reply path).
+on_kafka_ack_drop_reasons_test_() ->
+    AckResult = fun(Reason) ->
+        Ref = make_ref(),
+        Self = self(),
+        ReplyFn = {fun(R) -> Self ! {Ref, R} end, []},
+        ok = emqx_bridge_kafka_impl_producer:on_kafka_ack(0, Reason, ReplyFn),
+        receive
+            {Ref, Result} -> Result
+        after 1_000 -> timeout
+        end
+    end,
+    [
+        {"message_expired -> request_expired",
+            ?_assertEqual({error, request_expired}, AckResult(message_expired))},
+        {"max_retry_exceeded -> max_retry_exceeded",
+            ?_assertEqual({error, max_retry_exceeded}, AckResult(max_retry_exceeded))}
+    ].
+
 custom_group_id_test() ->
     BadSourceConfig = emqx_bridge_kafka_testlib:source_config(#{
         <<"parameters">> =>

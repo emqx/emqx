@@ -115,6 +115,22 @@ max_linger_bytes.desc:
 
 max_linger_bytes.label: "Max Linger Bytes"
 
+max_batch_age.desc:
+"""Maximum duration a message may stay in the producer buffer before it is dropped instead of being sent to Confluent.
+A message batch is dropped only when all of its messages have stayed in the buffer longer than this duration; this applies both to messages still queued (including while the connection is down) and to messages awaiting acknowledgement when the connection is lost.
+Each dropped message counts towards the <code>dropped.expired</code> metric.
+The default value <code>infinity</code> means messages never expire (retained until sent or the buffer overflows)."""
+
+max_batch_age.label: "Max Batch Age"
+
+max_retries.desc:
+"""Maximum number of times to retry sending a message batch after Confluent responds with a retryable error (for example, when the partition leader has changed).
+After the initial attempt and this many retries have all failed, the batch is dropped and each of its messages counts towards the <code>failed</code> metric.
+Reconnect-triggered resends after a connection loss are not counted against this limit; they are bounded by <code>max_batch_age</code> instead.
+The default value <code>infinity</code> means retry forever."""
+
+max_retries.label: "Max Retries"
+
 max_batch_bytes.desc:
 """Maximum bytes to collect in a Confluent message batch. Most of the Kafka brokers default to a limit of 1 MB batch size. EMQX's default value is less than 1 MB in order to compensate Kafka message encoding overheads (especially when each individual message is very small). When a single message is over the limit, it is still sent (as a single element batch)."""
 

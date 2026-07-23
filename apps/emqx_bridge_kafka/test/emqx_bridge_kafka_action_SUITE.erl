@@ -315,6 +315,21 @@ get_kafka_messages(Opts, TCConfig) ->
         {ok, {NewOffset, Msgs}}
     end.
 
+-doc """
+Fetch the state of the partition-0 wolff producer worker of the action under
+test, to assert config values that EMQX passed through to wolff.
+""".
+get_wolff_producer_state(TCConfig) ->
+    ActionResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    #{<<"parameters">> := #{<<"topic">> := Topic}} =
+        get_config(action_config, TCConfig),
+    %% The client id argument is irrelevant: producers are namespaced by the
+    %% group (the action resource id).
+    {ok, Pid} = wolff_producers:find_producer_by_partition(
+        <<"unused">>, ActionResId, Topic, _Partition = 0
+    ),
+    sys:get_state(Pid).
+
 kpro_message_to_map(#kafka_message{} = Msg) ->
     lists:foldl(
         fun({I, Name}, Acc) ->
@@ -687,6 +702,148 @@ t_smoke_metrics(TCConfig) ->
             get_rule_metrics(RuleId)
         )
     ),
+    ok.
+
+-doc """
+`max_batch_age` and `max_retries` action parameters are translated and passed
+through to the wolff producer config (`max_batch_age` in milliseconds,
+`max_retries` as wolff's `max_retry`).
+""".
+t_max_batch_age_max_retries_passthrough(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"max_batch_age">> => <<"500ms">>,
+            <<"max_retries">> => 3
+        }
+    }),
+    ?assertMatch(
+        #{config := #{max_batch_age := 500, max_retry := 3}},
+        get_wolff_producer_state(TCConfig)
+    ),
+    ok.
+
+-doc """
+Actions created without the new `max_batch_age` / `max_retries` parameters
+behave as before: wolff gets `infinity` for both (never drop by age, retry
+forever) and messages are produced as usual.
+""".
+t_max_batch_age_max_retries_defaults(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    ?assertMatch(
+        #{config := #{max_batch_age := infinity, max_retry := infinity}},
+        get_wolff_producer_state(TCConfig)
+    ),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {ok, Offset} = resolve_kafka_offset(TCConfig),
+    emqtt:publish(C, RuleTopic, <<"hey">>, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, {_, [#{value := <<"hey">>}]}},
+            get_kafka_messages(#{offset => Offset}, TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+End-to-end `max_batch_age` expiry: messages buffered while the brokers are
+unreachable are dropped once they are older than `max_batch_age` instead of
+being sent on reconnect.  Each dropped message bumps `dropped` and
+`dropped.expired` exactly once and must NOT be counted as `failed` or
+`success` (the rule action is concluded via the `request_expired` reply,
+which bypasses resource metrics).  Fresh messages produced after recovery
+are delivered normally.
+""".
+t_max_batch_age_expiry_drop() ->
+    [{matrix, true}].
+t_max_batch_age_expiry_drop(matrix) ->
+    [[?tcp_plain, ?no_auth]];
+t_max_batch_age_expiry_drop(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"max_batch_age">> => <<"700ms">>,
+            <<"query_mode">> => <<"async">>
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {ok, Offset} = resolve_kafka_offset(TCConfig),
+    with_brokers_down(TCConfig, fun() ->
+        %% Buffer messages while the connection is down.
+        lists:foreach(
+            fun(_) -> emqtt:publish(C, RuleTopic, <<"stale">>, [{qos, 1}]) end,
+            lists:seq(1, 3)
+        ),
+        %% Let the buffered messages grow older than `max_batch_age'.
+        ct:sleep(1_000),
+        ok
+    end),
+    %% On reconnect, wolff drops the expired messages instead of sending them.
+    ?retry(
+        1_000,
+        20,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"dropped">> := 3,
+                    <<"dropped.expired">> := 3,
+                    <<"failed">> := 0,
+                    <<"success">> := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+    %% The expired messages never reach Kafka; fresh ones do.
+    emqtt:publish(C, RuleTopic, <<"fresh">>, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, {_, [#{value := <<"fresh">>}]}},
+            get_kafka_messages(#{offset => Offset}, TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+The `[wolff, dropped_expired]` telemetry handler bumps the action's `dropped`
+and `dropped.expired` counters and nothing else.  wolff emits `[wolff,
+dropped]` alongside `[wolff, dropped_expired]` for the same messages; that
+event is intentionally NOT subscribed, so expired messages are counted as
+dropped exactly once (the double-count guard).
+""".
+t_dropped_expired_metrics_split(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    ActionResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    %% wolff carries `partition_id' in the event metadata alongside `bridge_id';
+    %% the handler must match on `bridge_id' regardless.
+    Meta = #{bridge_id => ActionResId, partition_id => 1},
+    ?assertEqual(0, emqx_resource_metrics:dropped_get(ActionResId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_expired_get(ActionResId)),
+    Success0 = emqx_resource_metrics:success_get(ActionResId),
+    Failed0 = emqx_resource_metrics:failed_get(ActionResId),
+    %% Simulate wolff's expiry-drop telemetry: both events fire for the same
+    %% two messages.
+    telemetry:execute([wolff, dropped_expired], #{counter_inc => 2}, Meta),
+    telemetry:execute([wolff, dropped], #{counter_inc => 2}, Meta),
+    ?retry(
+        100,
+        10,
+        begin
+            ?assertEqual(2, emqx_resource_metrics:dropped_expired_get(ActionResId)),
+            ?assertEqual(2, emqx_resource_metrics:dropped_get(ActionResId))
+        end
+    ),
+    %% Double-count guard: expiry drops must not move success/failed.
+    ?assertEqual(Success0, emqx_resource_metrics:success_get(ActionResId)),
+    ?assertEqual(Failed0, emqx_resource_metrics:failed_get(ActionResId)),
     ok.
 
 -doc """

@@ -156,5 +156,32 @@ aeh_producer_test_() ->
             ?_assertThrow(
                 ?action_validation_error("Expected: no_compression" ++ _, <<"gzip">>),
                 check_action(#{<<"parameters">> => #{<<"compression">> => <<"gzip">>}})
+            )},
+        {"max_batch_age and max_retries default to infinity",
+            ?_assertMatch(
+                #{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := <<"infinity">>,
+                        <<"max_retries">> := <<"infinity">>
+                    }
+                },
+                check_action(#{})
+            )},
+        {"max_batch_age and max_retries are settable",
+            ?_assertMatch(
+                #{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := <<"500ms">>,
+                        <<"max_retries">> := 3
+                    }
+                },
+                check_action(
+                    #{
+                        <<"parameters">> => #{
+                            <<"max_batch_age">> => <<"500ms">>,
+                            <<"max_retries">> => 3
+                        }
+                    }
+                )
             )}
     ].

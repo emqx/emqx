@@ -412,6 +412,22 @@ fields(producer_kafka_opts) ->
                     desc => ?DESC(max_inflight)
                 }
             )},
+        {max_batch_age,
+            mk(
+                hoconsc:union([infinity, emqx_schema:duration_ms()]),
+                #{
+                    default => infinity,
+                    desc => ?DESC(max_batch_age)
+                }
+            )},
+        {max_retries,
+            mk(
+                hoconsc:union([infinity, non_neg_integer()]),
+                #{
+                    default => infinity,
+                    desc => ?DESC(max_retries)
+                }
+            )},
         {buffer,
             mk(ref(producer_buffer), #{
                 required => false,
