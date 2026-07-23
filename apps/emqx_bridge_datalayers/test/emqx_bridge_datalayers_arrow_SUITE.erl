@@ -342,6 +342,44 @@ t_on_get_status(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config1),
     ok.
 
+t_reconnect_and_write(Config) ->
+    ResourceOpts = #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}},
+    Config1 = [
+        {connector_overrides, ResourceOpts},
+        {action_overrides, ResourceOpts}
+        | Config
+    ],
+    ConnOverrides = proplists:get_value(connector_overrides, Config1, #{}),
+    KindOverrides = proplists:get_value(action_overrides, Config1, #{}),
+    ProxyHost = ?config(proxy_host, Config1),
+    ProxyPort = ?config(proxy_port, Config1),
+    ProxyName = ?config(proxy_name, Config1),
+    ?assertMatch({201, _}, emqx_bridge_v2_testlib:create_connector_api2(Config1, ConnOverrides)),
+    ?assertMatch({201, _}, emqx_bridge_v2_testlib:create_action_api2(Config1, KindOverrides)),
+    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config1),
+    ResourceId = emqx_bridge_v2_testlib:connector_resource_id(Config1),
+    ?retry(
+        _Sleep1 = 200,
+        _Attempts1 = 100,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+    {ok, _} = emqx_resource:simple_sync_query(ResourceId, {BridgeId, make_message()}),
+    %% Simulate Datalayers restart
+    emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort),
+    ?retry(
+        _Sleep2 = 100,
+        _Attempts2 = 20,
+        ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+    emqx_common_test_helpers:heal_failure(down, ProxyName, ProxyHost, ProxyPort),
+    ?retry(
+        _Sleep3 = 200,
+        _Attempts3 = 100,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+    {ok, _} = emqx_resource:simple_sync_query(ResourceId, {BridgeId, make_message()}),
+    ok.
+
 t_start_action_or_source_with_disabled_connector(Config) ->
     ok = emqx_bridge_v2_testlib:t_start_action_or_source_with_disabled_connector(Config),
     ok.
@@ -550,6 +588,20 @@ make_message(ClientId, Topic, Payload) ->
     From = emqx_message:from(Message),
     Msg = emqx_message:to_map(Message),
     Msg#{id => Id, clientid => From}.
+
+t_prune_dead_refs(_Config) ->
+    DeadPid = spawn(fun() -> ok end),
+    AlivePid = self(),
+    timer:sleep(100),
+    ?assert(not is_process_alive(DeadPid)),
+    ?assert(is_process_alive(AlivePid)),
+    RefMap = #{AlivePid => ref1, DeadPid => ref2, self() => ref3},
+    Pruned = emqx_bridge_datalayers_arrow_flight_connector:prune_dead_refs(self(), RefMap),
+    ?assertEqual(2, map_size(Pruned)),
+    ?assert(is_map_key(AlivePid, Pruned)),
+    ?assert(is_map_key(self(), Pruned)),
+    ?assertNot(is_map_key(DeadPid, Pruned)),
+    ok.
 
 cacert_file() ->
     %% XXX:

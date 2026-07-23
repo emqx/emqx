@@ -38,6 +38,10 @@
     prepare_sql_to_conn/2
 ]).
 
+-ifdef(TEST).
+-export([prune_dead_refs/2]).
+-endif.
+
 -type state() :: #{
     driver_type := atom(),
     channels => #{channel_id() := channel_state()},
