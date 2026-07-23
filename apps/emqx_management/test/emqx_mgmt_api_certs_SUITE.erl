@@ -1136,3 +1136,87 @@ t_switch_to_missing_managed_bundle(_TCConfig) ->
     ),
 
     ok.
+
+-doc """
+Verifies that a listener using a managed certificate bundle can be switched back to
+file-based certificates when the update request clears `managed_certs` by sending it
+as JSON `null` (how the Dashboard clears it), even after the bundle has been
+force-deleted.
+""".
+t_switch_off_deleted_managed_bundle_null() ->
+    [{matrix, true}].
+t_switch_off_deleted_managed_bundle_null(matrix) ->
+    [[?local]];
+t_switch_off_deleted_managed_bundle_null(_TCConfig) ->
+    #{cert_key := CertKeyRoot} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Cert, key_pem := Key} = gen_cert(#{key => ec, issuer => CertKeyRoot}),
+
+    Bundle = <<"switch_off_null_bundle">>,
+    Files = [
+        {?FILE_KIND_CA_BIN, <<"ca.pem">>, CA},
+        {?FILE_KIND_CHAIN_BIN, <<"chain.pem">>, Cert},
+        {?FILE_KIND_KEY_BIN, <<"key.pem">>, Key}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle, Files)),
+
+    %% Original config uses file-based (default) certs.
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    on_exit(fun() -> {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener0) end),
+
+    %% Switch the listener to the managed bundle.
+    TLSListenerManaged = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        [#{<<"bundle_name">> => Bundle}]
+    ),
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerManaged)),
+
+    %% Force-delete the bundle while the listener still references it.
+    ?assertMatch({204, _}, force_delete_bundle_global(Bundle)),
+
+    %% Switch back to file-based certs with an explicit `managed_certs: null` in the
+    %% request, as the Dashboard sends it.  The update must succeed and the resulting
+    %% config must no longer reference managed certs.
+    TLSListenerNull = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        null
+    ),
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerNull)),
+    {200, TLSListenerFinal} = get_listener_api(<<"ssl">>, <<"default">>),
+    ?assertNot(
+        is_map_key(<<"managed_certs">>, maps:get(<<"ssl_options">>, TLSListenerFinal)),
+        TLSListenerFinal
+    ),
+
+    ok.
+
+-doc """
+Verifies that a listener update request carrying an empty `managed_certs` list is
+rejected at the API schema boundary with a clear validation error; an empty list
+never reaches the config merge.
+""".
+t_managed_certs_empty_list_rejected() ->
+    [{matrix, true}].
+t_managed_certs_empty_list_rejected(matrix) ->
+    [[?local]];
+t_managed_certs_empty_list_rejected(_TCConfig) ->
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    on_exit(fun() -> {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener0) end),
+
+    TLSListenerEmpty = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        []
+    ),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"reason">> := <<"must define at least one managed cert bundle">>
+            }
+        }},
+        update_listener_api(<<"ssl">>, <<"default">>, TLSListenerEmpty)
+    ),
+
+    ok.
