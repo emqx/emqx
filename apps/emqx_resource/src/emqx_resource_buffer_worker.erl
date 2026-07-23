@@ -148,7 +148,8 @@
     queue := replayq:q(),
     resume_interval := timeout_ms(),
     tref := undefined | {reference(), reference()},
-    metrics_tref := undefined | {reference(), reference()}
+    metrics_tref := undefined | {reference(), reference()},
+    sweep_tref := undefined | {reference(), reference()}
 }.
 -type minimized_queue_query() :: queue_query().
 -type async_reply_context() :: #{
@@ -350,9 +351,10 @@ init({Id, Index, Opts}) ->
         queue => Queue,
         resume_interval => ResumeInterval,
         tref => undefined,
-        metrics_tref => undefined
+        metrics_tref => undefined,
+        sweep_tref => undefined
     },
-    Data = ensure_metrics_flush_timer(Data0),
+    Data = ensure_sweep_timer(ensure_metrics_flush_timer(Data0)),
     ?tp(buffer_worker_init, #{id => Id, index => Index, queue_opts => QueueOpts}),
     {ok, running, Data}.
 
@@ -381,6 +383,10 @@ running(info, {flush_metrics, Ref}, Data0 = #{metrics_tref := {_TRef, Ref}}) ->
     Data = flush_metrics(Data0#{metrics_tref := undefined}),
     {keep_state, Data};
 running(info, {flush_metrics, _Ref}, _Data) ->
+    keep_state_and_data;
+running(info, {sweep_expired, Ref}, Data = #{sweep_tref := {_TRef, Ref}}) ->
+    handle_sweep_expired(Data#{sweep_tref := undefined});
+running(info, {sweep_expired, _Ref}, _Data) ->
     keep_state_and_data;
 running(info, {'DOWN', _MRef, process, Pid, Reason}, Data0 = #{async_workers := AsyncWorkers0}) when
     is_map_key(Pid, AsyncWorkers0)
@@ -414,6 +420,10 @@ blocked(info, {flush_metrics, Ref}, Data0 = #{metrics_tref := {_TRef, Ref}}) ->
     Data = flush_metrics(Data0#{metrics_tref := undefined}),
     {keep_state, Data};
 blocked(info, {flush_metrics, _Ref}, _Data) ->
+    keep_state_and_data;
+blocked(info, {sweep_expired, Ref}, Data = #{sweep_tref := {_TRef, Ref}}) ->
+    handle_sweep_expired(Data#{sweep_tref := undefined});
+blocked(info, {sweep_expired, _Ref}, _Data) ->
     keep_state_and_data;
 blocked(info, {'DOWN', _MRef, process, Pid, Reason}, Data0 = #{async_workers := AsyncWorkers0}) when
     is_map_key(Pid, AsyncWorkers0)
@@ -491,7 +501,11 @@ resume_from_blocked(Data) ->
         none ->
             case is_inflight_full(InflightTID) of
                 true ->
-                    {keep_state, Data};
+                    %% All inflight requests are async requests still awaiting
+                    %% their replies; re-arm the resume timer so this worker
+                    %% keeps checking instead of going dormant.
+                    #{resume_interval := ResumeT} = Data,
+                    {keep_state, Data, {state_timeout, ResumeT, unblock}};
                 false ->
                     {next_state, running, Data}
             end;
@@ -590,6 +604,63 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
                 }
             ),
             resume_from_blocked(Data1)
+    end.
+
+%% Periodic proactive expiration of *queued* (not yet sent) requests, called in
+%% both `running' and `blocked' states; it takes effect only while the inflight
+%% window is full.  When the inflight window is saturated and the replies never
+%% arrive (e.g. a remote broker that accepts requests but stops responding),
+%% `flush' cannot pop the queue, so queued requests are never sieved for expiry
+%% and would accumulate uncounted until the buffer overflows.
+%%
+%% Requests that have already been sent (inflight) are deliberately NOT expired
+%% here: once delivery has started, the request must be settled by its reply
+%% (counted as `late_reply' if the reply arrives past the TTL).  E.g. for MQTT,
+%% an unacknowledged QoS 1/2 PUBLISH must be completed or resent, never
+%% abandoned [MQTT-4.4.0-1]; message expiry only applies to messages whose
+%% delivery has not started [MQTT-3.3.2-5].
+-spec handle_sweep_expired(data()) -> gen_statem:event_handler_result(state(), data()).
+handle_sweep_expired(Data0) ->
+    #{inflight_tid := InflightTID} = Data0,
+    Data1 =
+        case is_inflight_full(InflightTID) of
+            true ->
+                sweep_expired_queued(Data0);
+            false ->
+                %% `flush' pops the queue and sieves expired requests as usual.
+                Data0
+        end,
+    {keep_state, ensure_sweep_timer(Data1)}.
+
+-spec sweep_expired_queued(data()) -> data().
+sweep_expired_queued(Data0) ->
+    #{id := Id, queue := Q0} = Data0,
+    Now = now_(),
+    {NumExpired, Q} = pop_expired_queued(Q0, Id, Now, 0),
+    case NumExpired > 0 of
+        true ->
+            ?tp(buffer_worker_sweep_expired, #{dropped_expired => NumExpired}),
+            aggregate_counters(Data0#{queue := Q}, #{dropped_expired => NumExpired});
+        false ->
+            Data0
+    end.
+
+%% Pop expired requests off the queue head, stopping at the first request that
+%% has not yet expired (the queue is not reordered).
+pop_expired_queued(Q, Id, Now, Acc) ->
+    case replayq:peek(Q) of
+        ?QUERY(_, _, _, ExpireAt, _, _) ->
+            case is_expired(ExpireAt, Now) of
+                true ->
+                    {Q1, QAckRef, [Query]} = replayq:pop(Q, #{count_limit => 1}),
+                    ok = replayq:ack(Q1, QAckRef),
+                    reply_dropped(Id, Query, {error, request_expired}),
+                    pop_expired_queued(Q1, Id, Now, Acc + 1);
+                false ->
+                    {Acc, Q}
+            end;
+        empty ->
+            {Acc, Q}
     end.
 
 %% Called during the `running' state only.
@@ -2351,6 +2422,18 @@ cancel_flush_timer(St = #{tref := undefined}) ->
 cancel_flush_timer(St = #{tref := {TRef, _Ref}}) ->
     _ = erlang:cancel_timer(TRef),
     St#{tref => undefined}.
+
+%% Timer for proactively expiring queued requests stuck behind a saturated
+%% inflight window; see `handle_sweep_expired'.  The resume interval is bounded
+%% by `request_ttl', so expired queued requests are aged out with at most
+%% roughly one `resume_interval' of delay.
+-spec ensure_sweep_timer(data()) -> data().
+ensure_sweep_timer(Data = #{sweep_tref := undefined, resume_interval := T}) ->
+    Ref = make_ref(),
+    TRef = erlang:send_after(T, self(), {sweep_expired, Ref}),
+    Data#{sweep_tref := {TRef, Ref}};
+ensure_sweep_timer(Data) ->
+    Data.
 
 -spec make_request_ref() -> inflight_key().
 make_request_ref() ->

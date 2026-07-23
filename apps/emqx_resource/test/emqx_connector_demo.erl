@@ -244,6 +244,15 @@ on_query(_InstId, {sync_sleep_before_reply, SleepFor}, _State) ->
     %% This simulates a slow sync call
     timer:sleep(SleepFor),
     {ok, slept};
+on_query(_InstId, release_swallowed, #{pid := Pid}) ->
+    ReqRef = make_ref(),
+    From = {self(), ReqRef},
+    Pid ! {From, release_swallowed},
+    receive
+        {ReqRef, Result} -> Result
+    after 1000 ->
+        {error, timeout}
+    end;
 on_query(_InstId, {_ChanId, #{q := ask, fn := _, ctx := _}} = Query, #{pid := Pid}) ->
     ReqRef = make_ref(),
     From = {self(), ReqRef},
@@ -279,6 +288,9 @@ on_query_async(_InstId, {individual_reply, IsSuccess}, ReplyFun, #{pid := Pid}) 
 on_query_async(_InstId, {sleep_before_reply, For}, ReplyFun, #{pid := Pid}) ->
     ?tp(connector_demo_sleep, #{mode => async, for => For}),
     Pid ! {{sleep_before_reply, For}, ReplyFun},
+    {ok, Pid};
+on_query_async(_InstId, {swallow, _} = Query, ReplyFun, #{pid := Pid}) ->
+    Pid ! {swallow, Query, ReplyFun},
     {ok, Pid};
 on_query_async(_InstId, {_ChanId, #{q := ask, fn := _, ctx := _}} = Query, ReplyFun, #{pid := Pid}) ->
     Pid ! {Query, ReplyFun},
@@ -319,6 +331,9 @@ on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) -
             batch_individual_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {_ChanId, #{q := ask, fn := _Fn, ctx := _Ctx}} ->
             batch_ask_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
+        {swallow, _} ->
+            Pid ! {swallow, BatchReq, ReplyFunAndArgs},
+            {ok, Pid};
         {random_reply, Num, ReplyTab} ->
             %% only take the first Num in the batch should be random enough
             Pid ! {{random_reply, Num, ReplyTab}, ReplyFunAndArgs},
@@ -531,7 +546,8 @@ counter_loop() ->
     counter_loop(#{
         counter => 0,
         status => running,
-        incorrect_status_count => 0
+        incorrect_status_count => 0,
+        swallowed => []
     }).
 
 counter_loop(
@@ -588,6 +604,21 @@ counter_loop(
             {get, ReplyFun} ->
                 apply_reply(ReplyFun, Num),
                 State;
+            {swallow, Query, ReplyFun} ->
+                %% Swallow the request: never call the reply function, like a
+                %% remote service that accepts requests but stops responding.
+                ?tp(connector_demo_swallowed, #{query => Query}),
+                Swallowed = maps:get(swallowed, State, []),
+                State#{swallowed => [ReplyFun | Swallowed]};
+            {{FromPid, ReqRef}, release_swallowed} ->
+                %% Late replies: call back all previously swallowed requests.
+                Swallowed = maps:get(swallowed, State, []),
+                lists:foreach(
+                    fun(SwallowedReplyFun) -> apply_reply(SwallowedReplyFun, ok) end,
+                    lists:reverse(Swallowed)
+                ),
+                FromPid ! {ReqRef, {ok, length(Swallowed)}},
+                State#{swallowed => []};
             {{FromPid, ReqRef}, get_incorrect_status_count} ->
                 FromPid ! {ReqRef, IncorrectCount},
                 State;

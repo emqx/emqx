@@ -3509,6 +3509,213 @@ t_expiration_retry_batch_multiple_times(_Config) ->
     ),
     ok.
 
+-doc """
+When async requests get no replies (e.g. a remote MQTT broker that accepts
+PUBLISH but stops sending PUBACK), the inflight window fills up and the worker
+can no longer flush.  Queued requests stuck behind the saturated window must
+still be aged out by the periodic sweep once they exceed the request TTL and
+counted as `dropped.expired`.  Inflight (already sent) requests must NOT be
+dropped: once delivery has started they must be settled by their replies —
+counted as `late_reply` when the reply finally arrives past the TTL — after
+which the worker resumes normal operation.
+""".
+t_expiration_async_inflight_no_reply(_Config) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, force_query_mode => async},
+        #{
+            batch_size => 1,
+            worker_pool_size => 1,
+            inflight_window => 2,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    install_telemetry_handler(?FUNCTION_NAME),
+    TimeoutMS = 500,
+    ?check_trace(
+        begin
+            %% 2 requests fill the inflight window and are swallowed by the
+            %% connector (no reply arrives); 2 more stay in the queue because
+            %% the inflight window is full.
+            lists:foreach(
+                fun(N) ->
+                    ?assertEqual(
+                        ok, emqx_resource:query(?ID, {swallow, N}, #{timeout => TimeoutMS})
+                    )
+                end,
+                lists:seq(1, 4)
+            ),
+            {ok, _} = ?block_until(
+                #{?snk_kind := buffer_worker_sweep_expired}, ResumeInterval * 10
+            ),
+            %% The queued requests are aged out by the sweep; the inflight ones
+            %% are kept (they are still awaiting their replies).
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 4,
+                            success := 0,
+                            failed := 0,
+                            late_reply := 0,
+                            'dropped.expired' := 2
+                        },
+                        gauges := #{
+                            inflight := 2,
+                            queuing := 0
+                        }
+                    },
+                    tap_metrics(?LINE)
+                )
+            ),
+            %% When the replies finally arrive (past the TTL), the inflight
+            %% requests are settled as late replies and the slots are freed.
+            ?assertEqual({ok, 2}, emqx_resource:simple_sync_query(?ID, release_swallowed)),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    #{
+                        counters := #{late_reply := 2},
+                        gauges := #{inflight := 0}
+                    },
+                    tap_metrics(?LINE)
+                )
+            ),
+            %% The worker is unwedged: new requests flow normally again.
+            ?assertEqual(ok, emqx_resource:query(?ID, {inc_counter, 1})),
+            wait_telemetry_event(success, #{n_events => 1, timeout => 4_000}),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_sweep_expired, Trace)),
+            %% All replies landed on known inflight entries: nothing discarded,
+            %% no double counting.
+            ?assertEqual([], ?of_kind(unknown_async_reply_discarded, Trace)),
+            ?assertMatch(
+                #{
+                    counters := #{
+                        %% 4 queries + `release_swallowed' + `inc_counter'
+                        matched := 6,
+                        %% `release_swallowed' + `inc_counter'
+                        success := 2,
+                        failed := 0,
+                        late_reply := 2,
+                        'dropped.expired' := 2
+                    }
+                },
+                tap_metrics(?LINE)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
+Same as `t_expiration_async_inflight_no_reply', but with batching: the sent
+batch stays inflight until its reply arrives (and still succeeds, since its
+requests have infinite timeout), while the queued requests stuck behind the
+saturated inflight window are aged out by the sweep.
+""".
+t_expiration_async_inflight_no_reply_batch(_Config) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource, force_query_mode => async},
+        #{
+            batch_size => 2,
+            batch_time => 100,
+            worker_pool_size => 1,
+            inflight_window => 1,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    TimeoutMS = 500,
+    ?check_trace(
+        begin
+            %% Block the worker so that the first two requests are collected
+            %% into a single batch when flushing.
+            [WorkerPid] = emqx_resource_buffer_worker_sup:worker_pids(?ID),
+            ok = emqx_resource_buffer_worker:block(WorkerPid),
+            ?assertEqual(ok, emqx_resource:query(?ID, {swallow, 1}, #{timeout => infinity})),
+            ?assertEqual(ok, emqx_resource:query(?ID, {swallow, 2}, #{timeout => infinity})),
+            ok = emqx_resource_buffer_worker:resume(WorkerPid),
+            %% The batch is sent, swallowed by the connector (no reply arrives)
+            %% and saturates the inflight window.
+            {ok, _} = ?block_until(
+                #{?snk_kind := buffer_worker_appended_to_inflight}, 5_000
+            ),
+            %% These requests stay in the queue behind the saturated window
+            %% and must be aged out by the sweep once they exceed their TTL.
+            ?assertEqual(ok, emqx_resource:query(?ID, {swallow, 3}, #{timeout => TimeoutMS})),
+            ?assertEqual(ok, emqx_resource:query(?ID, {swallow, 4}, #{timeout => TimeoutMS})),
+            {ok, _} = ?block_until(
+                #{?snk_kind := buffer_worker_sweep_expired}, ResumeInterval * 10
+            ),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 4,
+                            success := 0,
+                            failed := 0,
+                            late_reply := 0,
+                            'dropped.expired' := 2
+                        },
+                        gauges := #{
+                            inflight := 2,
+                            queuing := 0
+                        }
+                    },
+                    tap_metrics(?LINE)
+                )
+            ),
+            %% The inflight batch is settled normally once its reply arrives
+            %% (within TTL, since its requests have infinite timeout).
+            ?assertMatch({ok, _}, emqx_resource:simple_sync_query(?ID, release_swallowed)),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            %% `{swallow, 1}', `{swallow, 2}' and the
+                            %% `release_swallowed' call
+                            success := 3,
+                            failed := 0,
+                            late_reply := 0,
+                            'dropped.expired' := 2
+                        },
+                        gauges := #{inflight := 0}
+                    },
+                    tap_metrics(?LINE)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            NumSwept = lists:sum(
+                [N || #{dropped_expired := N} <- ?of_kind(buffer_worker_sweep_expired, Trace)]
+            ),
+            ?assertEqual(2, NumSwept),
+            ok
+        end
+    ),
+    ok.
+
 t_batch_individual_reply_sync(_Config) ->
     ResumeInterval = 300,
     emqx_connector_demo:set_callback_mode(always_sync),
