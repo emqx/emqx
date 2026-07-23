@@ -363,6 +363,7 @@ proc_sql_params(
     emqx_trace:rendered_action_template(ChannelId, #{record_rows => RenderedRows}),
     [
         maps:get(prepared_refs, ChannelState),
+        PrepStmtTemplate,
         RenderedRows
         | InitArgs
     ];
@@ -434,9 +435,16 @@ connect(Opts) ->
     end.
 
 call_driver(Client, {_QueryMode, true} = FuncMode, Args0) ->
-    [PreparedRefs | Args] = Args0,
-    %% Prepared statements
-    PreparedRef = maps:get(Client, PreparedRefs),
+    [PreparedRefs, {SqlStatement0, _RowTemplates} | Args] = Args0,
+    PreparedRef =
+        case maps:find(Client, PreparedRefs) of
+            {ok, Ref} ->
+                Ref;
+            error ->
+                SqlStatement = bin(SqlStatement0),
+                {ok, Ref0} = prepare_sql_to_conn(Client, SqlStatement),
+                Ref0
+        end,
     do_call_driver(Client, driver_fun_name(FuncMode), [PreparedRef | Args]);
 call_driver(Client, {_QueryMode, false} = FuncMode, Args) ->
     do_call_driver(Client, driver_fun_name(FuncMode), Args).
