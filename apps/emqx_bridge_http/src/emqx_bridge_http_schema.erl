@@ -114,7 +114,7 @@ desc(_) ->
 %% helpers for v2 only
 
 connector_url_headers() ->
-    [url_field(), headers_field()].
+    [url_field(), headers_field(), emqx_connector_oauth2_schema:oauth2_field()].
 
 %%--------------------------------------------------------------------
 %% common funcs
