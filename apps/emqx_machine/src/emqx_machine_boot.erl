@@ -43,6 +43,9 @@ post_boot() ->
     ok = ensure_apps_started(),
     ok = print_vsn(),
     ok = start_autocluster(),
+    %% Boot is complete and the ekka join callbacks are registered
+    %% (start_autocluster/0 above): joining is safe from here on.
+    ok = emqx_cluster:set_booting(false),
     ignore.
 
 -ifdef(TEST).
