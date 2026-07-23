@@ -121,6 +121,7 @@ usage() {
         ;;
     eval)
         echo "Evaluate an Erlang expression in the EMQX node."
+        echo "Warning: When audit logging is enabled, the expression is logged without redaction."
         ;;
     eval-ex)
         echo "Evaluate an Elixir expression in the EMQX node. Only applies to Elixir node"

@@ -5,7 +5,7 @@ defmodule EMQXAuthHTTP.MixProject do
   def project do
     [
       app: :emqx_auth_http,
-      version: "6.2.1",
+      version: "6.2.2",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),
@@ -31,6 +31,7 @@ defmodule EMQXAuthHTTP.MixProject do
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector, in_umbrella: true},
       {:emqx_bridge_http, in_umbrella: true},
+      {:emqx_connector_oauth2, in_umbrella: true},
       :hocon
     ])
   end

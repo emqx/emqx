@@ -1021,17 +1021,25 @@ certificates would keep the stale `managed_certs' reference and fail to resolve 
 
 When `Request' supplies file-based certificate material and does not itself reference
 `managed_certs', drop any residual `managed_certs' from `MergedConf' so the result
-uses only the requested certificate source.  Both arguments are raw (binary-keyed)
-configs.
+uses only the requested certificate source.  A `managed_certs' explicitly set to JSON
+`null' (how the Dashboard clears it) or to an empty list is a request to stop using
+managed certificates, so the residual reference is dropped as well.  Both arguments
+are raw (binary-keyed) configs.
 """.
 reconcile_cert_source(Request, MergedConf) ->
     case get_ssl_options(Request) of
         RequestSSL when is_map(RequestSSL) ->
-            RequestSetsManaged = maps:is_key(<<"managed_certs">>, RequestSSL),
             RequestSetsFileCerts =
                 maps:is_key(<<"certfile">>, RequestSSL) orelse
                     maps:is_key(<<"keyfile">>, RequestSSL),
-            case (not RequestSetsManaged) andalso RequestSetsFileCerts of
+            DropManaged =
+                case maps:get(<<"managed_certs">>, RequestSSL, undefined) of
+                    undefined -> RequestSetsFileCerts;
+                    null -> true;
+                    [] -> true;
+                    _ -> false
+                end,
+            case DropManaged of
                 true -> drop_managed_certs(MergedConf);
                 false -> MergedConf
             end;

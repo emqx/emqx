@@ -66,6 +66,7 @@ emqx_conf: all
 emqx_connector: all
 emqx_connector_aggregator: emqx_bridge_azure_blob_storage emqx_bridge_s3 emqx_bridge_s3tables emqx_bridge_snowflake
 emqx_connector_jwt: all
+emqx_connector_oauth2: all
 emqx_ctl: all
 emqx_dashboard: all
 emqx_dashboard_rbac: all

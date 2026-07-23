@@ -132,7 +132,7 @@ roots() ->
 
 fields("config_restapi") ->
     proplists_without(
-        [url, request, retry_interval, headers],
+        [url, request, retry_interval, headers, oauth2],
         emqx_bridge_http_schema:fields("config_connector")
     ) ++ common_fields(restapi) ++
         fields("connection_fields");

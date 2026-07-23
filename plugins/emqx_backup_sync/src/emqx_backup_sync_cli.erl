@@ -7,7 +7,8 @@
 -export([
     load/0,
     unload/0,
-    cmd/1
+    cmd/1,
+    cmd_audit_args/1
 ]).
 
 load() ->
@@ -20,6 +21,9 @@ cmd(["status"]) ->
     print_status(emqx_backup_sync:status());
 cmd(_) ->
     emqx_ctl:usage("backup_sync status", "Show backup synchronization status.").
+
+cmd_audit_args(Args) ->
+    Args.
 
 print_status(Status) ->
     Config = maps:get(config, Status, #{}),

@@ -4,9 +4,11 @@
 
 -module(emqx_license_cli).
 
+-behaviour(emqx_ctl).
+
 -include("emqx_license.hrl").
 
--export([load/0, license/1, unload/0, print_warnings/1]).
+-export([load/0, license/1, license_audit_args/1, unload/0, print_warnings/1]).
 
 -define(PRINT_MSG(Msg), io:format(Msg)).
 
@@ -50,6 +52,11 @@ license(["history" | Args]) ->
     end;
 license(_) ->
     usage().
+
+license_audit_args(["update", _License | Rest]) ->
+    ["update", "******" | Rest];
+license_audit_args(Args) ->
+    Args.
 
 unload() ->
     ok = emqx_ctl:unregister_command(license).

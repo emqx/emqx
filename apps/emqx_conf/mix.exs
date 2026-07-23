@@ -5,7 +5,7 @@ defmodule EMQXConf.MixProject do
   def project do
     [
       app: :emqx_conf,
-      version: "6.2.2",
+      version: "6.2.3",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),
@@ -26,7 +26,8 @@ defmodule EMQXConf.MixProject do
   def deps() do
     UMP.deps([
       {:emqx, in_umbrella: true, runtime: false},
-      {:emqx_auth, in_umbrella: true, runtime: false}
+      {:emqx_auth, in_umbrella: true, runtime: false},
+      {:emqx_ctl, in_umbrella: true}
     ])
   end
 end

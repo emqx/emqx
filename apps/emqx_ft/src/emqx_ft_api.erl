@@ -252,7 +252,12 @@ format_timestamp(Timestamp) ->
 format_name(NameBin) when is_binary(NameBin) ->
     NameBin;
 format_name(Name) when is_list(Name) ->
-    iolist_to_binary(Name).
+    case unicode:characters_to_binary(Name) of
+        NameBin when is_binary(NameBin) ->
+            NameBin;
+        _Error ->
+            iolist_to_binary(Name)
+    end.
 
 limit(QueryString) ->
     maps:get(<<"limit">>, QueryString, emqx_mgmt:default_row_limit()).
