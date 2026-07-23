@@ -117,6 +117,27 @@ t_cluster(_Config) ->
     meck:unload(mria_mnesia),
     ok.
 
+-doc """
+Verifies that `cluster join' is refused with a readable error while node
+boot is still in progress, and allowed again once boot is complete.
+""".
+t_cluster_join_refused_while_booting(_Config) ->
+    ok = emqx_cluster:set_booting(true),
+    try
+        ?assertMatch(
+            {error, "This node has not fully booted" ++ _},
+            emqx_ctl:run_command(["cluster", "join", "nosuchnode@127.0.0.1"])
+        )
+    after
+        ok = emqx_cluster:set_booting(false)
+    end,
+    %% after boot completes the same command proceeds to the peer check
+    ?assertEqual(
+        {error, {node_down, 'nosuchnode@127.0.0.1'}},
+        emqx_ctl:run_command(["cluster", "join", "nosuchnode@127.0.0.1"])
+    ),
+    ok.
+
 t_clients(_Config) ->
     %% clients list            # List all clients
     emqx_ctl:run_command(["clients", "list"]),
