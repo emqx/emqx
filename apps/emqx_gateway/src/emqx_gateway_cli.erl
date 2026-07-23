@@ -5,6 +5,8 @@
 %% @doc The Command-Line-Interface module for Gateway Application
 -module(emqx_gateway_cli).
 
+-behaviour(emqx_ctl).
+
 -export([
     load/0,
     unload/0
@@ -12,9 +14,13 @@
 
 -export([
     gateway/1,
+    gateway_audit_args/1,
     'gateway-registry'/1,
+    'gateway-registry_audit_args'/1,
     'gateway-clients'/1,
-    'gateway-metrics'/1
+    'gateway-clients_audit_args'/1,
+    'gateway-metrics'/1,
+    'gateway-metrics_audit_args'/1
     %, 'gateway-banned'/1
 ]).
 
@@ -36,9 +42,12 @@ unload() ->
     lists:foreach(fun(Cmd) -> emqx_ctl:unregister_command(Cmd) end, Cmds).
 
 is_cmd(Fun) ->
-    case atom_to_list(Fun) of
-        "gateway" ++ _ -> true;
-        _ -> false
+    Name = atom_to_list(Fun),
+    case lists:suffix("_audit_args", Name) of
+        true ->
+            false;
+        false ->
+            lists:prefix("gateway", Name)
     end.
 
 %%--------------------------------------------------------------------
@@ -113,6 +122,19 @@ gateway(_) ->
         ]
     ).
 
+gateway_audit_args(["load", Name, JSON | Rest]) ->
+    ["load", Name, redact_json(JSON) | Rest];
+gateway_audit_args(Args) ->
+    Args.
+
+redact_json(JSON) ->
+    try
+        Decoded = #{} = emqx_utils_json:decode(JSON),
+        emqx_utils_json:encode(emqx_utils:redact(Decoded))
+    catch
+        _:_ -> "******"
+    end.
+
 'gateway-registry'(["list"]) ->
     lists:foreach(
         fun({Name, #{cbkmod := CbMod}}) ->
@@ -122,6 +144,9 @@ gateway(_) ->
     );
 'gateway-registry'(_) ->
     emqx_ctl:usage([{"gateway-registry list", "List all registered gateways"}]).
+
+'gateway-registry_audit_args'(Args) ->
+    Args.
 
 'gateway-clients'(["list", Name]) ->
     %% XXX: page me?
@@ -159,6 +184,9 @@ gateway(_) ->
         {"gateway-clients kick   <Name> <ClientId>", "Kick out a client"}
     ]).
 
+'gateway-clients_audit_args'(Args) ->
+    Args.
+
 'gateway-metrics'([Name]) ->
     case emqx_gateway_metrics:lookup(atom(Name)) of
         undefined ->
@@ -171,6 +199,9 @@ gateway(_) ->
     end;
 'gateway-metrics'(_) ->
     emqx_ctl:usage([{"gateway-metrics <Name>", "List all metrics for a gateway"}]).
+
+'gateway-metrics_audit_args'(Args) ->
+    Args.
 
 atom(Id) ->
     try

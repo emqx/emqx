@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_conf_cli).
 
+-behaviour(emqx_ctl).
+
 -include("emqx_conf.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -17,7 +19,9 @@
 -export([
     load/0,
     admins/1,
+    admins_audit_args/1,
     conf/1,
+    conf_audit_args/1,
     audit/3,
     unload/0,
     mark_fix_log/2
@@ -123,6 +127,9 @@ conf(["reload"]) ->
 conf(_) ->
     conf_usage().
 
+conf_audit_args(Args) ->
+    Args.
+
 conf_usage() ->
     emqx_ctl:usage(usage_conf() ++ usage_sync()).
 
@@ -191,6 +198,9 @@ admins(["fast_forward" | Args]) ->
 admins(_) ->
     emqx_ctl:usage(usage_sync()).
 
+admins_audit_args(Args) ->
+    Args.
+
 fix_lagging_with_raw(ToTxId, Node, Keys) ->
     Confs = lists:foldl(
         fun(Key, Acc) ->
@@ -249,16 +259,7 @@ reload_all_namespaced_configs() ->
     end.
 
 audit(Level, From, Log) ->
-    ?AUDIT(Level, redact(Log#{from => From})).
-
-redact(Logs = #{cmd := admins, args := [<<"add">>, Username, _Password | Rest]}) ->
-    Logs#{args => [<<"add">>, Username, <<"******">> | Rest]};
-redact(Logs = #{cmd := admins, args := [<<"passwd">>, Username, _Password]}) ->
-    Logs#{args => [<<"passwd">>, Username, <<"******">>]};
-redact(Logs = #{cmd := license, args := [<<"update">>, _License]}) ->
-    Logs#{args => [<<"update">>, "******"]};
-redact(Logs) ->
-    Logs.
+    ?AUDIT(Level, Log#{from => From}).
 
 print_error(Reason) ->
     case io_lib:printable_unicode_list(Reason) of

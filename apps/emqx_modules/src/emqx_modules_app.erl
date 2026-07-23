@@ -23,7 +23,7 @@ stop(_State) ->
 
 maybe_enable_modules() ->
     emqx_conf:get([delayed, enable], true) andalso emqx_delayed:load(),
-    emqx_observer_cli:enable(),
+    emqx_observer_cli:load(),
     emqx_conf_cli:load(),
     ok = emqx_rewrite:enable(),
     emqx_topic_metrics:enable(),
@@ -31,7 +31,7 @@ maybe_enable_modules() ->
 
 maybe_disable_modules() ->
     emqx_conf:get([delayed, enable], true) andalso emqx_delayed:unload(),
-    emqx_conf:get([observer_cli, enable], true) andalso emqx_observer_cli:disable(),
+    emqx_conf:get([observer_cli, enable], true) andalso emqx_observer_cli:unload(),
     emqx_rewrite:disable(),
     emqx_conf_cli:unload(),
     emqx_topic_metrics:disable(),
