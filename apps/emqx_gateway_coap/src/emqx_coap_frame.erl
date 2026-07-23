@@ -592,7 +592,8 @@ class_code_to_method({5, 04}) -> {error, gateway_timeout};
 class_code_to_method({5, 05}) -> {error, proxying_not_supported};
 class_code_to_method(_) -> undefined.
 
-format(Msg) -> io_lib:format("~p", [Msg]).
+format(Msg) ->
+    io_lib:format("~p", [emqx_utils:redact(Msg)]).
 
 type(#coap_message{}) -> coap;
 type({coap_ignore, _}) -> undefined;

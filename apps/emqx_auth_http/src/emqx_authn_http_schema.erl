@@ -57,12 +57,14 @@ select_union_member(_Value) ->
 fields(http_get) ->
     [
         {method, #{type => get, required => true, desc => ?DESC(method)}},
-        {headers, fun headers_no_content_type/1}
+        {headers, fun headers_no_content_type/1},
+        emqx_connector_oauth2_schema:oauth2_field()
     ] ++ common_fields();
 fields(http_post) ->
     [
         {method, #{type => post, required => true, desc => ?DESC(method)}},
-        {headers, fun headers/1}
+        {headers, fun headers/1},
+        emqx_connector_oauth2_schema:oauth2_field()
     ] ++ common_fields().
 
 desc(http_get) ->
