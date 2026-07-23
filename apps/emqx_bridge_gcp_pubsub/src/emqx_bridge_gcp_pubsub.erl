@@ -135,7 +135,15 @@ fields(consumer) ->
                 emqx_schema:timeout_duration_s(),
                 #{
                     default => <<"60s">>,
-                    desc => ?DESC("consumer_ack_deadline")
+                    desc => ?DESC("consumer_ack_deadline"),
+                    validator => fun(X) ->
+                        case X > 600 orelse X < 10 of
+                            true ->
+                                {error, <<"Value must be between 10 s and 600 s">>};
+                            false ->
+                                ok
+                        end
+                    end
                 }
             )},
         {ack_retry_interval,

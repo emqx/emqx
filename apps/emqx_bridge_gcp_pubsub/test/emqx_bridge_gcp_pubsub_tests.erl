@@ -31,6 +31,13 @@ check_action(Overrides0) when is_map(Overrides0) ->
     Overrides = emqx_utils_maps:deep_merge(DefaultOverrides, Overrides0),
     emqx_bridge_gcp_pubsub_producer_SUITE:action_config(Overrides).
 
+check_source(Overrides0) ->
+    DefaultOverrides = #{
+        <<"connector">> => <<"x">>
+    },
+    Overrides = emqx_utils_maps:deep_merge(DefaultOverrides, Overrides0),
+    emqx_bridge_gcp_pubsub_consumer_SUITE:source_config(Overrides).
+
 -define(validation_error(Reason, Value),
     {emqx_bridge_v2_schema, [
         #{
@@ -84,4 +91,28 @@ producer_attributes_validator_test_() ->
                     }
                 )
             )}
+    ].
+
+-doc """
+Verifies that we clamp the allowed range for ack deadline.
+""".
+consumer_ack_deadline_test_() ->
+    ErrorMsg = <<"Value must be between 10 s and 600 s">>,
+    [
+        ?_assertThrow(
+            ?validation_error(ErrorMsg, 9),
+            check_source(#{<<"parameters">> => #{<<"ack_deadline">> => <<"9s">>}})
+        ),
+        ?_assertThrow(
+            ?validation_error(ErrorMsg, 601),
+            check_source(#{<<"parameters">> => #{<<"ack_deadline">> => <<"601s">>}})
+        ),
+        ?_assertMatch(
+            #{},
+            check_source(#{<<"parameters">> => #{<<"ack_deadline">> => <<"600s">>}})
+        ),
+        ?_assertMatch(
+            #{},
+            check_source(#{<<"parameters">> => #{<<"ack_deadline">> => <<"10s">>}})
+        )
     ].
