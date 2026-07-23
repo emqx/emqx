@@ -23,7 +23,8 @@
     local => #{
         topic => emqx_types:topic()
     },
-    remote := emqx_bridge_mqtt_msg:msgvars()
+    remote := emqx_bridge_mqtt_msg:msgvars(),
+    request_ttl => timeout()
 }.
 
 -spec config(map()) ->
@@ -46,9 +47,13 @@ send(Pid, TraceRenderedCTX, MsgIn, Egress) ->
     {ok, pid()} | {error, {unrecoverable_error, term()}}.
 send_async(Pid, TraceRenderedCTX, MsgIn, Callback, Egress) ->
     ?tp("mqtt_action_about_to_publish", #{}),
+    %% Bound how long the message may sit in the client's pending queue
+    %% awaiting its turn to be sent: past the request TTL the buffer worker
+    %% has already given up on the request, so sending it is pointless.
+    Timeout = maps:get(request_ttl, Egress, infinity),
     try
         ok = emqtt:publish_async(
-            Pid, export_msg(MsgIn, Egress, TraceRenderedCTX), _Timeout = infinity, Callback
+            Pid, export_msg(MsgIn, Egress, TraceRenderedCTX), Timeout, Callback
         ),
         {ok, Pid}
     catch

@@ -155,7 +155,11 @@ on_add_channel(
     end,
     RemoteParams0 = maps:get(parameters, ChannelConfig),
     {LocalParams, RemoteParams} = take(local, RemoteParams0, #{}),
-    ChannelState = emqx_bridge_mqtt_egress:config(#{remote => RemoteParams, local => LocalParams}),
+    RequestTTL = emqx_utils_maps:deep_get(
+        [resource_opts, request_ttl], ChannelConfig, infinity
+    ),
+    ChannelState0 = emqx_bridge_mqtt_egress:config(#{remote => RemoteParams, local => LocalParams}),
+    ChannelState = ChannelState0#{request_ttl => RequestTTL},
     NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState};
