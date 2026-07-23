@@ -1491,6 +1491,59 @@ t_format_bind(_) ->
         lists:flatten(emqx_listeners:format_bind(":1883"))
     ).
 
+-doc """
+Tests `emqx_listeners:reconcile_cert_source/2`: a residual `managed_certs` in the
+merged config is dropped when the update request switches to file-based certificates
+or explicitly clears `managed_certs` (JSON `null` or an empty list), and is kept when
+the request references a managed bundle or touches neither certificate source.
+""".
+t_reconcile_cert_source(_Config) ->
+    Managed = [#{<<"bundle_name">> => <<"bundle">>}],
+    Merged = #{
+        <<"ssl_options">> => #{
+            <<"certfile">> => <<"cert.pem">>,
+            <<"keyfile">> => <<"key.pem">>,
+            <<"managed_certs">> => Managed
+        }
+    },
+    Dropped = emqx_utils_maps:deep_remove([<<"ssl_options">>, <<"managed_certs">>], Merged),
+    ReqSSL = fun(SSL) -> #{<<"ssl_options">> => SSL} end,
+    %% Request sets file certs without mentioning managed certs: drop.
+    ?assertEqual(
+        Dropped,
+        emqx_listeners:reconcile_cert_source(ReqSSL(#{<<"certfile">> => <<"cert.pem">>}), Merged)
+    ),
+    %% Request explicitly clears managed certs (JSON `null' or empty list): drop,
+    %% with or without accompanying file certs.
+    ?assertEqual(
+        Dropped,
+        emqx_listeners:reconcile_cert_source(ReqSSL(#{<<"managed_certs">> => null}), Merged)
+    ),
+    ?assertEqual(
+        Dropped,
+        emqx_listeners:reconcile_cert_source(
+            ReqSSL(#{<<"certfile">> => <<"cert.pem">>, <<"managed_certs">> => null}), Merged
+        )
+    ),
+    ?assertEqual(
+        Dropped,
+        emqx_listeners:reconcile_cert_source(ReqSSL(#{<<"managed_certs">> => []}), Merged)
+    ),
+    %% Request references a managed bundle: keep.
+    ?assertEqual(
+        Merged,
+        emqx_listeners:reconcile_cert_source(ReqSSL(#{<<"managed_certs">> => Managed}), Merged)
+    ),
+    %% Request touches neither certificate source: keep.
+    ?assertEqual(
+        Merged,
+        emqx_listeners:reconcile_cert_source(ReqSSL(#{<<"verify">> => <<"verify_none">>}), Merged)
+    ),
+    ?assertEqual(
+        Merged,
+        emqx_listeners:reconcile_cert_source(#{<<"bind">> => <<"0.0.0.0:8883">>}, Merged)
+    ).
+
 generate_tls_certs(Config) ->
     PrivDir = ?config(priv_dir, Config),
     emqx_common_test_helpers:gen_ca(PrivDir, "ca"),
