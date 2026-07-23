@@ -446,7 +446,7 @@ handle_event({event, _Other}, State = #state{channel = Channel}) ->
             ok;
         ClientId ->
             emqx_cm:set_chan_info(ClientId, info(State)),
-            emqx_cm:set_chan_stats(ClientId, stats(State))
+            maybe_set_chan_stats(ClientId, State)
     end,
     State.
 
@@ -465,10 +465,19 @@ handle_timeout(
     }
 ) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    maybe_set_chan_stats(ClientId, State),
     {ok, State#state{stats_timer = undefined}};
 handle_timeout(TRef, TMsg, State) ->
     commands(with_channel(handle_timeout, [TRef, TMsg], {[], State})).
+
+%% Report per-connection stats to the client-info table, unless the client-info
+%% REST API (`GET /clients`) is disabled -- then nothing reads them, so skip both
+%% the stats gathering and the ETS write.
+maybe_set_chan_stats(ClientId, State) ->
+    case emqx_features:client_info_enabled() of
+        true -> emqx_cm:set_chan_stats(ClientId, stats(State));
+        false -> ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Run GC, Check OOM

@@ -275,7 +275,30 @@ cache_features() ->
                 parse_features(Str)
         end,
     _ = persistent_term:put(?PT_KEY, Features),
+    ok = publish_capabilities(Features),
     Features.
+
+%% Push boot-time capability flags down into the base `emqx` application so the
+%% hot path can gate optional book-keeping without depending on `emqx_machine`.
+%% Keyed on the governance features rather than concrete app names, so moving or
+%% renaming an app within a feature does not change the resolved capabilities.
+%% `observability` follows the metrics/dashboard-monitor sinks (the `metrics`
+%% feature, or `dashboard` for the dashboard monitor); `client_info` follows the
+%% dashboard/management client-info REST API (the `dashboard` feature, which
+%% owns `emqx_management`).
+publish_capabilities(Features) ->
+    Observability = any_feature_enabled([metrics, dashboard], Features),
+    ClientInfo = any_feature_enabled([dashboard], Features),
+    ok = emqx_features:set_capability(observability, Observability),
+    ok = emqx_features:set_capability(client_info, ClientInfo),
+    ok.
+
+any_feature_enabled(_Features, #{preset := full}) ->
+    true;
+any_feature_enabled(Features, #{enabled_features := Enabled}) ->
+    lists:any(fun(Feature) -> is_map_key(Feature, Enabled) end, Features);
+any_feature_enabled(_Features, _Other) ->
+    false.
 
 resolve_dependent_apps(Feature, KnownFeatures) ->
     #{apps := Apps, deps := FeatDeps} = maps:get(Feature, KnownFeatures),
