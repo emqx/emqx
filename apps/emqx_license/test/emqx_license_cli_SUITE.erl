@@ -145,6 +145,28 @@ t_update(_Config) ->
     _ = emqx_license_cli:license(["reload"]),
     _ = emqx_license_cli:license(["update", "Invalid License Value"]).
 
+t_redact({init, Config}) ->
+    Config;
+t_redact({'end', _Config}) ->
+    ok;
+t_redact(_) ->
+    ?assertEqual(
+        ["update", "******"],
+        emqx_license_cli:license_audit_args(["update", "license"])
+    ),
+    ?assertEqual(
+        ["info"],
+        emqx_license_cli:license_audit_args(["info"])
+    ),
+    ?assertEqual(
+        ["update"],
+        emqx_license_cli:license_audit_args(["update"])
+    ),
+    ?assertEqual(
+        ["update", "******", "unexpected"],
+        emqx_license_cli:license_audit_args(["update", "license", "unexpected"])
+    ).
+
 -doc "Reject single-node license keys in multi-node cluster.".
 t_update_with_invalid_license_value({init, Config}) ->
     _ = emqx_license_cli:license(["update", "evaluation"]),

@@ -4,9 +4,11 @@
 
 -module(emqx_retainer_cli).
 
+-behaviour(emqx_ctl).
+
 -include_lib("emqx/include/logger.hrl").
 
--export([load/0, retainer/1, unload/0]).
+-export([load/0, retainer/1, retainer_audit_args/1, unload/0]).
 
 -define(PRINT_MSG(Msg), io:format(Msg)).
 
@@ -83,6 +85,9 @@ retainer(_) ->
                 "Only available for built-in backend."}
         ]
     ).
+
+retainer_audit_args(Args) ->
+    Args.
 
 unload() ->
     ok = emqx_ctl:unregister_command(retainer).

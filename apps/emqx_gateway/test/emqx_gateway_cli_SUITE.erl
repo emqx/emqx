@@ -109,6 +109,45 @@ t_gateway_usage(_) ->
         emqx_gateway_cli:gateway(usage)
     ).
 
+t_redact(_) ->
+    JSON = binary_to_list(
+        emqx_utils_json:encode(#{
+            <<"mountpoint">> => <<"mqttsn/">>,
+            <<"clientinfo_override">> => #{<<"password">> => <<"secret">>},
+            <<"api_secret">> => <<"api-secret">>
+        })
+    ),
+    ["load", "mqttsn", RedactedJSON] =
+        emqx_gateway_cli:gateway_audit_args(["load", "mqttsn", JSON]),
+    ?assertEqual(
+        #{
+            <<"mountpoint">> => <<"mqttsn/">>,
+            <<"clientinfo_override">> => #{<<"password">> => <<"******">>},
+            <<"api_secret">> => <<"******">>
+        },
+        emqx_utils_json:decode(RedactedJSON)
+    ),
+    ?assertEqual(
+        ["load", "mqttsn", "******"],
+        emqx_gateway_cli:gateway_audit_args(["load", "mqttsn", "invalid-json"])
+    ),
+    ?assertEqual(
+        ["load", "mqttsn", "******"],
+        emqx_gateway_cli:gateway_audit_args(["load", "mqttsn", "\"secret\""])
+    ),
+    ?assertEqual(
+        ["lookup", "mqttsn"],
+        emqx_gateway_cli:gateway_audit_args(["lookup", "mqttsn"])
+    ),
+    ?assertEqual(
+        [],
+        [
+            Cmd
+         || {Cmd, emqx_gateway_cli, _} <- emqx_ctl:get_commands(),
+            lists:suffix("_audit_args", atom_to_list(Cmd))
+        ]
+    ).
+
 t_gateway_list(_) ->
     emqx_gateway_cli:gateway(["list"]),
     %% TODO: assert it.
