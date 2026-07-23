@@ -251,11 +251,19 @@ haproxy_cid=$(docker run -d --name haproxy \
 
 haproxy_ssl_port=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "8884/tcp") 0).HostPort}}' "$haproxy_cid")
 
+## Wait until the node is fully booted, not merely reachable. `emqx ctl status`
+## answers as soon as the CLI is registered (early in boot, before post_boot
+## runs the reboot app list), printing "is starting". Joining a cluster at that
+## point makes mria restart underneath the still-in-progress app boot, and any
+## mria-backed app being started right then (emqx_retainer, exclusive
+## subscription, ...) crashes with a `mria_schema` noproc, taking the node down.
+## Gate on the "is started" state so `emqx ctl cluster join` runs only against a
+## fully booted node.
 wait_for_emqx() {
     container="$1"
     wait_limit="$2"
     wait_sec=0
-    while ! docker exec "$container" emqx ctl status >/dev/null 2>&1; do
+    while ! docker exec "$container" emqx ctl status 2>/dev/null | grep -q 'is started'; do
         wait_sec=$(( wait_sec + 1 ))
         if [ $wait_sec -gt "$wait_limit" ]; then
             echo "timeout wait for EMQX"
@@ -322,7 +330,7 @@ wait_for_running_nodes() {
 }
 
 wait_for_emqx "$NODE1" 60
-wait_for_emqx "$NODE2" 30
+wait_for_emqx "$NODE2" 60
 wait_for_haproxy 30
 
 echo

@@ -574,6 +574,12 @@ def test_feature_gate_full(emqx_bin_path):
 
 def test_feature_gate_essential(emqx_bin_path):
     """Verifies that essential preset starts the node successfully and with nothing enabled.
+
+    The node must also finish booting cleanly: the essential preset keeps the
+    mria-backed core apps (emqx_retainer, exclusive subscription, ...) enabled,
+    so a node that started mria only for gated features would crash their table
+    creation. Waiting for `emqx_is_running` asserts the whole reboot app list
+    started, not just that feature gates resolved.
     """
     with open_emqx_console(
             emqx_bin_path,
@@ -597,6 +603,8 @@ def test_feature_gate_essential(emqx_bin_path):
                     pass;
                 case _:
                     raise AssertionError(f"bad disabled: {disabled}")
+            # The node boots all the way through the reboot app list.
+            assert wait_until_stdout(emqx, "emqx_is_running", 30)
         finally:
             emqx.kill()
 
