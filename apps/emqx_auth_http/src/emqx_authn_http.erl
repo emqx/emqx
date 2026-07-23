@@ -123,6 +123,7 @@ create_state(ResourceId, Config) ->
         fun check_ssl_opts/1,
         fun normalize_headers/1,
         fun check_method_headers/1,
+        fun check_oauth2_headers/1,
         fun parse_config/1
     ],
     maybe
@@ -154,6 +155,15 @@ check_method_headers(#{headers := Headers, method := post} = Config) ->
                 maps:merge(#{<<"content-type">> => ?DEFAULT_CONTENT_TYPE}, Headers)
         },
         undefined}.
+
+check_oauth2_headers(Config) ->
+    Headers = maps:get(headers, Config, #{}),
+    case emqx_connector_oauth2_schema:validate(Headers, maps:get(oauth2, Config, undefined)) of
+        ok ->
+            ok;
+        {error, #{message := Msg}} ->
+            {error, {invalid_headers, Msg}}
+    end.
 
 parse_config(
     #{

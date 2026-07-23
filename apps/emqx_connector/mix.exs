@@ -5,7 +5,7 @@ defmodule EMQXConnector.MixProject do
   def project do
     [
       app: :emqx_connector,
-      version: "6.1.2",
+      version: "6.1.3",
       build_path: "../../_build",
       # erlc_options: [
       #   # config_path: "../../config/config.exs",
@@ -37,6 +37,7 @@ defmodule EMQXConnector.MixProject do
       {:emqx_resource, in_umbrella: true},
       {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_connector_jwt, in_umbrella: true},
+      {:emqx_connector_oauth2, in_umbrella: true},
       :minirest,
       :jose,
       :ecpool,

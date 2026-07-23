@@ -879,6 +879,45 @@ t_uri_normalization(TCConfig) ->
         }
     ).
 
+t_oauth2_client_credentials(TCConfig) ->
+    Token = <<"authz-oauth2-token">>,
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    Handler = fun(Req0, State) ->
+        case cowboy_req:path(Req0) of
+            <<"/authz/token">> ->
+                {ok, Body, Req1} = cowboy_req:read_body(Req0),
+                Form = uri_string:dissect_query(Body),
+                ?assert(lists:member({<<"grant_type">>, <<"client_credentials">>}, Form)),
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(#{
+                        access_token => Token,
+                        expires_in => 3600,
+                        token_type => <<"Bearer">>
+                    }),
+                    Req1
+                ),
+                {ok, Req, State};
+            <<"/authz/check">> ->
+                Headers = cowboy_req:headers(Req0),
+                ?assertEqual(<<"Bearer ", Token/binary>>, maps:get(<<"authorization">>, Headers)),
+                {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
+        end
+    end,
+    ok = setup_handler_and_config(TCConfig, Handler, #{
+        <<"url">> => <<BaseURL/binary, "/authz/check">>,
+        <<"oauth2">> => oauth2_config(<<BaseURL/binary, "/authz/token">>)
+    }),
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => 'tcp:default'
+    },
+    ?assertEqual(allow, emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -893,6 +932,15 @@ raw_http_authz_config(TCConfig) ->
             <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary,
                 "/authz/users/?topic=${topic}&action=${action}">>,
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
+    }.
+
+oauth2_config(TokenEndpoint) ->
+    #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>
     }.
 
 setup_handler_and_config(TCConfig, Handler, Config) ->

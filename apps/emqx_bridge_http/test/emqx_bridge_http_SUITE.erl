@@ -190,6 +190,50 @@ success_http_handler(Opts) ->
         {ok, Rep, State}
     end.
 
+start_oauth2_token_server(TestPid) ->
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(
+        random, "/oauth/token", false
+    ),
+    on_exit(fun emqx_utils_http_test_server:stop/0),
+    Token = <<"oauth2-access-token">>,
+    ModeKey = {?MODULE, oauth2_token_mode, TestPid},
+    persistent_term:put(ModeKey, {available, Token}),
+    on_exit(fun() -> persistent_term:erase(ModeKey) end),
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            {ok, RequestBody, Req1} = cowboy_req:read_body(Req0),
+            TestPid ! {oauth2_token_request, RequestBody},
+            Req =
+                case persistent_term:get(ModeKey) of
+                    {available, CurrentToken} ->
+                        ResponseBody = emqx_utils_json:encode(#{
+                            <<"access_token">> => CurrentToken,
+                            <<"expires_in">> => 3600,
+                            <<"token_type">> => <<"Bearer">>
+                        }),
+                        cowboy_req:reply(
+                            200,
+                            #{<<"content-type">> => <<"application/json">>},
+                            ResponseBody,
+                            Req1
+                        );
+                    unavailable ->
+                        cowboy_req:reply(503, #{}, <<"unavailable">>, Req1)
+                end,
+            {ok, Req, State}
+        end
+    ),
+    TokenEndpoint = emqx_bridge_v2_testlib:fmt(
+        <<"http://127.0.0.1:${port}/oauth/token">>, #{port => Port}
+    ),
+    {TokenEndpoint, Token}.
+
+set_oauth2_token_mode(TestPid, Mode) ->
+    persistent_term:put({?MODULE, oauth2_token_mode, TestPid}, Mode).
+
+set_oauth2_token(TestPid, Token) ->
+    set_oauth2_token_mode(TestPid, {available, Token}).
+
 not_found_http_handler() ->
     TestPid = self(),
     fun(Req0, State) ->
@@ -358,6 +402,129 @@ t_rule_action(Config) when is_list(Config) ->
         post_publish_fn => PostPublishFn
     },
     emqx_bridge_v2_testlib:t_rule_action(Config, Opts).
+
+t_oauth2_client_credentials(TCConfig) ->
+    {TokenEndpoint, Token} = start_oauth2_token_server(self()),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>,
+        <<"scope">> => <<"read write">>
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    TokenRequestBody = ?assertReceive({oauth2_token_request, _}, 2_000),
+    {oauth2_token_request, FormBody} = TokenRequestBody,
+    Form = uri_string:dissect_query(FormBody),
+    ?assert(lists:member({<<"grant_type">>, <<"client_credentials">>}, Form)),
+    ?assert(lists:member({<<"client_id">>, <<"client-id">>}, Form)),
+    ?assert(lists:member({<<"client_secret">>, <<"client-secret">>}, Form)),
+    ?assert(lists:member({<<"scope">>, <<"read write">>}, Form)),
+
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Client = start_client(),
+    lists:foreach(
+        fun(Payload) -> emqtt:publish(Client, Topic, Payload, [{qos, 1}]) end,
+        [<<"first">>, <<"second">>]
+    ),
+    lists:foreach(
+        fun(_) ->
+            {http, Headers, _Body} = ?assertReceive({http, _, _}, 2_000),
+            ?assertEqual(<<"Bearer ", Token/binary>>, maps:get(<<"authorization">>, Headers))
+        end,
+        [first, second]
+    ),
+    ?assertNotReceive({oauth2_token_request, _}, 200),
+    ok.
+
+t_oauth2_token_failure_is_recoverable(TCConfig) ->
+    {TokenEndpoint, _Token} = start_oauth2_token_server(self()),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    set_oauth2_token_mode(self(), unavailable),
+    ok = emqx_connector_oauth2:clear_cache(ConnectorResId),
+    ?assertMatch(
+        {error, {recoverable_error, {oauth2_token_unavailable, _}}},
+        emqx_resource:simple_sync_query(
+            ConnectorResId,
+            {post, {<<"/path">>, [], <<"body">>}, 1_000}
+        )
+    ).
+
+t_oauth2_async_retry_uses_latest_token(TCConfig) ->
+    TestPid = self(),
+    {TokenEndpoint, FirstToken} = start_oauth2_token_server(TestPid),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    _ = ?assertReceive({oauth2_token_request, _}, 2_000),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"query_mode">> => <<"async">>}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ConnectorResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    SecondToken = <<"oauth2-access-token-2">>,
+    Counter = counters:new(1, []),
+    ok = emqx_bridge_http_connector_test_server:set_handler(fun(Req0, State) ->
+        {ok, Body, Req1} = cowboy_req:read_body(Req0),
+        Headers = cowboy_req:headers(Req1),
+        ok = counters:add(Counter, 1, 1),
+        N = counters:get(Counter, 1),
+        TestPid ! {http, Headers, Body},
+        Status =
+            case N of
+                1 ->
+                    set_oauth2_token(TestPid, SecondToken),
+                    ok = emqx_connector_oauth2:clear_cache(ConnectorResId),
+                    503;
+                _ ->
+                    200
+            end,
+        Req = cowboy_req:reply(Status, #{}, <<>>, Req1),
+        {ok, Req, State}
+    end),
+    Client = start_client(),
+    emqtt:publish(Client, Topic, <<"retry">>, [{qos, 1}]),
+    {http, FirstHeaders, _} = ?assertReceive({http, _, _}, 2_000),
+    {http, SecondHeaders, _} = ?assertReceive({http, _, _}, 2_000),
+    ?assertEqual(
+        <<"Bearer ", FirstToken/binary>>,
+        maps:get(<<"authorization">>, FirstHeaders)
+    ),
+    ?assertEqual(
+        <<"Bearer ", SecondToken/binary>>,
+        maps:get(<<"authorization">>, SecondHeaders)
+    ).
+
+t_oauth2_rejects_action_authorization_header(_TCConfig) ->
+    State = #{oauth2 => #{enable => true}, installed_actions => #{}},
+    ActionConfig = #{
+        parameters => #{headers => #{<<"Authorization">> => <<"Basic credentials">>}}
+    },
+    ?assertMatch(
+        {error, #{reason := oauth2_auth_header_conflict}},
+        emqx_bridge_http_connector:on_add_channel(
+            <<"connector">>, State, <<"action">>, ActionConfig
+        )
+    ).
 
 %% This test ensures that https://emqx.atlassian.net/browse/CI-62 is fixed.
 %% When the connection time out all the queued requests where dropped in

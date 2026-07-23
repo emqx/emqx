@@ -151,6 +151,14 @@ log_nomtach_msg(Status, Headers, _Body) ->
         }
     ).
 
+check_oauth2_headers_conflict(Headers, Oauth2) ->
+    case emqx_connector_oauth2_schema:validate(Headers, Oauth2) of
+        ok ->
+            ok;
+        {error, #{message := Msg}} ->
+            throw(#{kind => validation_error, reason => Msg})
+    end.
+
 new_state(
     ResourceId,
     #{
@@ -160,6 +168,7 @@ new_state(
         request_timeout := ReqTimeout
     } = Source
 ) ->
+    ok = check_oauth2_headers_conflict(Headers0, maps:get(oauth2, Source, undefined)),
     {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
     {BasePathVars, BasePathTemplate} = emqx_auth_template:parse_str(Path, ?ALLOWED_VARS),
     {BaseQueryVars, BaseQueryTemplate} = emqx_auth_template:parse_deep(
