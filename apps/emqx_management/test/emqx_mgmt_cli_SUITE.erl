@@ -48,6 +48,16 @@ t_status(_Config) ->
     emqx_ctl:run_command(["status"]),
     ok.
 
+t_audit_args_not_commands(_Config) ->
+    ?assertEqual(
+        [],
+        [
+            Cmd
+         || {Cmd, emqx_mgmt_cli, _} <- emqx_ctl:get_commands(),
+            lists:suffix("_audit_args", atom_to_list(Cmd))
+        ]
+    ).
+
 t_broker(_Config) ->
     %% broker         # Show broker version, uptime and description
     emqx_ctl:run_command(["broker"]),

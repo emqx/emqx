@@ -1,6 +1,6 @@
 -module(emqx_relup_cli).
 
--export([cmd/1]).
+-export([cmd/1, cmd_audit_args/1]).
 
 cmd(["upgrade", TarballPath]) ->
     do_upgrade(TarballPath, #{});
@@ -61,6 +61,9 @@ cmd(_) ->
             "one row per attempt, oldest first."},
         {"relup logs-clear", "Wipe this node's upgrade log table."}
     ]).
+
+cmd_audit_args(Args) ->
+    Args.
 
 do_upgrade(TarballPath, Opts) ->
     case emqx_relup_main:upgrade(TarballPath, Opts) of

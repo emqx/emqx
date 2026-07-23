@@ -4,21 +4,24 @@
 
 -module(emqx_dashboard_cli).
 
+-behaviour(emqx_ctl).
+
 -include("emqx_dashboard.hrl").
 
 -export([
     load/0,
     admins/1,
     api_keys/1,
+    api_keys_audit_args/1,
     unload/0
 ]).
 
 -export([bin/1, print_error/1]).
 
--define(CLI_MOD, emqx_dashboard_sso_cli).
+-define(ADMINS_CLI_MOD, emqx_dashboard_sso_admins).
 
 load() ->
-    emqx_ctl:register_command(admins, {?CLI_MOD, admins}, []),
+    emqx_ctl:register_command(admins, {?ADMINS_CLI_MOD, admins}, []),
     emqx_ctl:register_command(api_keys, {?MODULE, api_keys}, []).
 
 admins(["add", Username, Password]) ->
@@ -106,6 +109,9 @@ api_keys(_) ->
             {"api_keys del --name <Name>", "Delete API key"}
         ]
     ).
+
+api_keys_audit_args(Args) ->
+    emqx_cli_redact:redact_options(Args, ["--api-secret"]).
 
 unload() ->
     emqx_ctl:unregister_command(admins),
