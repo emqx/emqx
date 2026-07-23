@@ -45,6 +45,8 @@
 -define(TIMEOUT_NODE_STOP_S, 15).
 -define(TIMEOUT_CLUSTER_WAIT_MS, timer:seconds(10)).
 
+-define(log_handler, emqx_cth_cluster_log_handler).
+
 %%
 
 -type nodespec() :: {_ShortName :: atom(), #{
@@ -152,13 +154,19 @@ wait_clustered(Nodes, Timeout) ->
         case Nodes -- Running of
             [] ->
                 case erpc:call(Node, classy, run_level, []) of
-                    quorum ->
-                        true;
+                    Level when Level =:= cluster; Level =:= quorum ->
+                        %% TODO: proper API
+                        case erpc:call(Node, optvar, peek, [emqx_cth_suite_start_result]) of
+                            {ok, _} ->
+                                true;
+                            undefined ->
+                                {false, waiting_for_business_apps}
+                        end;
                     RunLevel ->
-                        {false, RunLevel}
+                        {false, {run_level, RunLevel}}
                 end;
             NotRunning ->
-                {false, NotRunning}
+                {false, {missing_peers, NotRunning}}
         end
     end,
     wait_clustered(Nodes, Check, deadline(Timeout)).
@@ -170,14 +178,14 @@ wait_clustered([Node | Nodes] = All, Check, Deadline) ->
     case Check(Node) of
         true ->
             wait_clustered(Nodes, Check, Deadline);
-        {false, NodesNotRunnging} when IsOverdue ->
+        {false, Reason} when IsOverdue ->
             error(
                 {timeout, #{
                     checking_from_node => Node,
-                    nodes_not_running => NodesNotRunnging
+                    reason => Reason
                 }}
             );
-        {false, _Nodes} ->
+        {false, _Reason} ->
             timer:sleep(100),
             wait_clustered(All, Check, Deadline)
     end.
@@ -407,7 +415,7 @@ node_init(#{name := Node, work_dir := WorkDir}) ->
     end),
     ok.
 
-do_setup_logging(#{workdir := WD}) ->
+do_setup_logging(#{work_dir := WD}) ->
     LogFile = filename:join(WD, "erlang.log"),
     Level = debug,
     HandlerConf = #{
@@ -424,14 +432,14 @@ do_setup_logging(#{workdir := WD}) ->
             }}
     },
     ok = logger:update_primary_config(#{level => Level}),
-    ok = logger:add_handler(?MODULE, logger_std_h, HandlerConf),
+    ok = logger:add_handler(?log_handler, logger_std_h, HandlerConf),
     ok.
 
 %% Helper function that sets up logging on remote node to a temporary
 %% files. Useful for debugging. Note: this function is NOT used by
 %% default for nodes started using functions from this module.
 setup_logging(Specs) ->
-    _ = [erpc:call(Node, ?MODULE, do_setup_logging, [Spec]) || Spec = #{node := Node} <- Specs],
+    _ = [erpc:call(Node, ?MODULE, do_setup_logging, [Spec]) || Spec = #{name := Node} <- Specs],
     ok.
 
 -spec get_tcp_mqtt_port(node()) -> pos_integer().
@@ -564,7 +572,7 @@ stop(Nodes) ->
 stop_node(Name) when is_atom(Name) ->
     Node = node_name(Name),
     when_cover_enabled(fun() -> ok = cover:flush([Node]) end),
-    _ = rpc:call(Node, logger_std_h, filesync, [?MODULE]),
+    _ = rpc:call(Node, logger_std_h, filesync, [?log_handler]),
     ok = emqx_cth_peer:stop(Node);
 stop_node(#{name := Name}) ->
     stop_node(Name).
