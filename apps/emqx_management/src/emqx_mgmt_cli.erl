@@ -31,6 +31,7 @@
     clients/1,
     clients_audit_args/1,
     'session-top'/1,
+    'session-top_audit_args'/1,
     topics/1,
     topics_audit_args/1,
     subscriptions/1,
@@ -323,6 +324,8 @@ clients_audit_args(Args) -> Args.
             maybe_print_session_top_arg_error(Msg),
             session_top_usage()
     end.
+
+'session-top_audit_args'(Args) -> Args.
 
 maybe_print_session_top_arg_error(Msg) ->
     case iolist_to_binary(Msg) of
