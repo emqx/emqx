@@ -688,6 +688,36 @@ t_cli(_Config) ->
     ?assertMatch(#{<<"error">> := _}, json(iolist_to_binary(BadScopeError))),
     ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-bad-scope">>)).
 
+t_cli_redact(_Config) ->
+    ?assertEqual(
+        [
+            "add",
+            "--name",
+            "key",
+            "--api-secret",
+            "******",
+            "--role",
+            "viewer",
+            "--api-secret",
+            "******"
+        ],
+        emqx_dashboard_cli:api_keys_audit_args([
+            "add",
+            "--name",
+            "key",
+            "--api-secret",
+            "first-secret",
+            "--role",
+            "viewer",
+            "--api-secret",
+            "second-secret"
+        ])
+    ),
+    ?assertEqual(
+        ["add", "--api-secret"],
+        emqx_dashboard_cli:api_keys_audit_args(["add", "--api-secret"])
+    ).
+
 t_lookup_by_username_jwt(_Config) ->
     User = bin(["user-", integer_to_list(random_num())]),
     emqx_dashboard_token:sign(#?ADMIN{username = User}),
