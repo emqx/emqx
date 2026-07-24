@@ -123,6 +123,19 @@ end_per_group(common, Config) ->
     emqx_cth_suite:stop(Apps),
     ok.
 
+init_per_testcase(t_monitor_current_node_restarting_apps = TestCase, Config) ->
+    Port = 28085,
+    NodeSpecs = [
+        {monitor_node_restarting1, #{apps => cluster_node_appspec(true, Port)}},
+        {monitor_node_restarting2, #{apps => cluster_node_appspec(false, Port)}}
+    ],
+    Nodes =
+        [N1 | _] = emqx_cth_cluster:start(
+            NodeSpecs,
+            #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+        ),
+    ok = snabbkaffe:start_trace(),
+    [{nodes, Nodes}, {api_node, N1} | Config];
 init_per_testcase(t_smoke_test_monitor_multiple_windows = TestCase, Config) ->
     Port = 28083,
     NodeSpecs = [
@@ -141,6 +154,11 @@ init_per_testcase(_TestCase, Config) ->
     ct:timetrap({seconds, 30}),
     Config.
 
+end_per_testcase(t_monitor_current_node_restarting_apps, Config) ->
+    Nodes = ?config(nodes, Config),
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(Nodes),
+    ok;
 end_per_testcase(t_smoke_test_monitor_multiple_windows, Config) ->
     Nodes = ?config(nodes, Config),
     ok = snabbkaffe:stop(),
@@ -858,6 +876,28 @@ t_smoke_test_monitor_multiple_windows(Config) ->
         )
     end),
     ok = emqtt:stop(PSClient2),
+    ok.
+
+%% Regression test for emqx/emqx#17747: `GET /monitor_current` must not return 500 when
+%% a cluster node is restarting its applications (as happens on `emqx ctl cluster join`).
+%% While the joining node's `emqx` application is down its stats ETS tables are absent,
+%% so sampling on that node crashes with `badarg`.  The proto module used erpc, which
+%% re-raised the crash on the API node instead of returning the {badrpc, _} the callers
+%% tolerate, so it escaped `current_rate_cluster/0` and surfaced as 500 INTERNAL_ERROR.
+t_monitor_current_node_restarting_apps(Config) ->
+    [N1, N2 | _] = ?config(nodes, Config),
+    %% Simulate the mid-join window: N2 is alive and still a running mria cluster
+    %% node, but its `emqx' application (and thus the `emqx_stats' table) is down.
+    ok = ?ON(N2, application:stop(emqx)),
+    ?assert(lists:member(N2, ?ON(N1, mria:cluster_nodes(running)))),
+    %% The cluster-wide aggregate must degrade instead of crashing.
+    ?assertMatch({ok, #{}}, ?ON(N1, emqx_dashboard_monitor:current_rate(all))),
+    %% And the REST endpoint must respond 200 with the aggregate of healthy nodes.
+    ?assertMatch(
+        {ok, #{<<"connections">> := _}},
+        get_req_cluster(Config, ["monitor_current"], "")
+    ),
+    ok = ?ON(N2, application:start(emqx)),
     ok.
 
 request(Path) ->
