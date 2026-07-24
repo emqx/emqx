@@ -1632,6 +1632,70 @@ t_post_auth_tns_expression_error_gates(_Config) ->
         emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})
     ).
 
+-doc """
+When the post-auth expression renders empty, a client whose pre-auth
+`client_attrs.tns` is a denied namespace name (default
+`multi_tenancy.deny_namespaces`: `global`, `undefined`, `null`, `none`) is
+denied even under `allow_only_managed_namespaces = false`, while a client
+with a non-denied pre-auth tns still passes through.
+""".
+t_post_auth_reserved_tns_empty_render({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"client_attrs.missing">>),
+    Config;
+t_post_auth_reserved_tns_empty_render({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression();
+t_post_auth_reserved_tns_empty_render(_Config) ->
+    ?assertNot(emqx_mt_config:get_allow_only_managed_namespaces()),
+    %% `mqtt.client_attrs_init' maps `username' to `tns', so a denied
+    %% username makes the pre-auth `tns' denied; the expression renders
+    %% empty, and the leftover denied tns must be rejected.
+    lists:foreach(
+        fun(Ns) ->
+            ClientId = ?NEW_CLIENTID(),
+            ?assertError(
+                {error, {not_authorized, _}},
+                connect(ClientId, Ns),
+                #{ns => Ns}
+            )
+        end,
+        [<<"global">>, <<"undefined">>, <<"null">>, <<"none">>]
+    ),
+    %% Regression guard: a non-denied pre-auth tns is stripped and the
+    %% client connects without a namespace.
+    ClientId = ?NEW_CLIENTID(),
+    Pid = connect(ClientId, <<"tenant-a">>),
+    ok = emqtt:stop(Pid),
+    ok.
+
+-doc """
+When the post-auth expression raises a render error, a client whose pre-auth
+`client_attrs.tns` is a denied namespace name is denied even under
+`allow_only_managed_namespaces = false`, while a client with a non-denied
+pre-auth tns still passes through.
+""".
+t_post_auth_reserved_tns_expression_error({init, Config}) ->
+    ok = set_post_auth_tns_expression(<<"nth(100, tokens('a', ','))">>),
+    Config;
+t_post_auth_reserved_tns_expression_error({'end', _Config}) ->
+    ok = clear_post_auth_tns_expression();
+t_post_auth_reserved_tns_expression_error(_Config) ->
+    ?assertNot(emqx_mt_config:get_allow_only_managed_namespaces()),
+    lists:foreach(
+        fun(Ns) ->
+            ClientId = ?NEW_CLIENTID(),
+            ?assertError(
+                {error, {not_authorized, _}},
+                connect(ClientId, Ns),
+                #{ns => Ns}
+            )
+        end,
+        [<<"global">>, <<"undefined">>, <<"null">>, <<"none">>]
+    ),
+    ClientId = ?NEW_CLIENTID(),
+    Pid = connect(ClientId, <<"tenant-a">>),
+    ok = emqtt:stop(Pid),
+    ok.
+
 -doc "After rewriting tns, decide/3 enforces the namespace quota.".
 t_post_auth_tns_expression_quota_enforced({init, Config}) ->
     ok = set_post_auth_tns_expression(<<"coalesce(client_attrs.tag, username)">>),
