@@ -457,12 +457,14 @@ now_ms() ->
 %% out of crash reports.
 -spec make_fetch_params(map()) -> map().
 make_fetch_params(Oauth2Config) ->
+    Timeout = maps:get(timeout, Oauth2Config, 5_000),
     #{
         token_endpoint => maps:get(token_endpoint, Oauth2Config),
         client_id => maps:get(client_id, Oauth2Config),
         client_secret => maps:get(client_secret, Oauth2Config),
         scope => maps:get(scope, Oauth2Config, undefined),
-        timeout => maps:get(timeout, Oauth2Config, 5_000),
+        timeout => Timeout,
+        connect_timeout => maps:get(connect_timeout, Oauth2Config, Timeout),
         ssl => maps:get(ssl, Oauth2Config, #{})
     }.
 
@@ -478,6 +480,7 @@ fetch_token(Params) ->
         client_secret := Secret,
         scope := Scope,
         timeout := Timeout,
+        connect_timeout := ConnectTimeout,
         ssl := SSL
     } = Params,
     BodyParams = lists:flatten([
@@ -491,6 +494,7 @@ fetch_token(Params) ->
         uri => Endpoint,
         body => Body,
         timeout => Timeout,
+        connect_timeout => ConnectTimeout,
         ssl => SSL
     }),
     case Resp of
@@ -507,11 +511,17 @@ fetch_token(Params) ->
             {error, {failed_to_fetch_token, Reason}}
     end.
 
-do_request(#{uri := URI, body := Body, timeout := Timeout, ssl := SSL}) ->
+do_request(#{
+    uri := URI,
+    body := Body,
+    timeout := Timeout,
+    connect_timeout := ConnectTimeout,
+    ssl := SSL
+}) ->
     httpc:request(
         post,
         {str(URI), _Headers = [], "application/x-www-form-urlencoded", Body},
-        http_options(URI, SSL, Timeout),
+        http_options(URI, SSL, Timeout, ConnectTimeout),
         [{body_format, binary}]
     ).
 
@@ -523,10 +533,10 @@ oauth_error(Body) ->
             undefined
     end.
 
-http_options(URI, SSL, Timeout) ->
+http_options(URI, SSL, Timeout, ConnectTimeout) ->
     Opts = [
         {timeout, Timeout},
-        {connect_timeout, Timeout}
+        {connect_timeout, ConnectTimeout}
     ],
     case emqx_utils_uri:parse(URI) of
         #{scheme := <<"https">>} ->
@@ -558,7 +568,8 @@ parse_token_expiry(_Response, Token) ->
     {ok, get_expiry_ms(Token), Token}.
 
 valid_token_type(TokenType) when is_binary(TokenType) ->
-    string:equal(TokenType, <<"Bearer">>, true);
+    string:equal(TokenType, <<"Bearer">>, true) orelse
+        string:equal(TokenType, <<"JWT">>, true);
 valid_token_type(_TokenType) ->
     false.
 
@@ -579,3 +590,32 @@ get_expiry_ms(Token) ->
 str(X) -> emqx_utils_conv:str(X).
 
 wall_clock_ms() -> erlang:system_time(millisecond).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+separate_connect_timeout_test() ->
+    Params = make_fetch_params(#{
+        token_endpoint => <<"http://127.0.0.1/token">>,
+        client_id => <<"client">>,
+        client_secret => emqx_secret:wrap(<<"secret">>),
+        timeout => 10_000,
+        connect_timeout => 2_000
+    }),
+    ?assertEqual(10_000, maps:get(timeout, Params)),
+    ?assertEqual(2_000, maps:get(connect_timeout, Params)),
+    ?assertEqual(
+        [{timeout, 10_000}, {connect_timeout, 2_000}],
+        http_options(<<"http://127.0.0.1/token">>, #{}, 10_000, 2_000)
+    ).
+
+connect_timeout_defaults_to_request_timeout_test() ->
+    Params = make_fetch_params(#{
+        token_endpoint => <<"http://127.0.0.1/token">>,
+        client_id => <<"client">>,
+        client_secret => emqx_secret:wrap(<<"secret">>),
+        timeout => 10_000
+    }),
+    ?assertEqual(10_000, maps:get(connect_timeout, Params)).
+
+-endif.
