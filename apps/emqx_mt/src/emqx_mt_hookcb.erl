@@ -187,12 +187,29 @@ eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
     end.
 
 %% The post-auth expression did not yield a namespace (it rendered empty or
-%% raised). Treat the client as having no tenant namespace and run the same
-%% gate as the pre-auth no-tns clause of `do_on_authenticate/2': reject when
-%% `allow_only_managed_namespaces' is set, otherwise pass through. Any pre-auth
-%% `client_attrs.tns' is stripped so it cannot linger after the expression
-%% declined to assign one.
+%% raised). A leftover pre-auth `client_attrs.tns' holding a reserved namespace
+%% name is rejected outright: a no-namespace client operates in the global
+%% context, so silently stripping a reserved claim would grant what the claim
+%% asked for. Otherwise treat the client as having no tenant namespace and run
+%% the same gate as the pre-auth no-tns clause of `do_on_authenticate/2':
+%% reject when `allow_only_managed_namespaces' is set, otherwise pass through.
+%% Any pre-auth `client_attrs.tns' is stripped so it cannot linger after the
+%% expression declined to assign one.
 gate_with_no_tns(ClientInfo, Ctx) ->
+    case pre_auth_tns(ClientInfo) of
+        Tns when is_binary(Tns) ->
+            case emqx:is_reserved_namespace(Tns) of
+                true ->
+                    ?TRACE("deny_due_to_reserved_namespace", #{tns => Tns}),
+                    {stop, {error, not_authorized}};
+                false ->
+                    gate_managed_only(ClientInfo, Ctx)
+            end;
+        undefined ->
+            gate_managed_only(ClientInfo, Ctx)
+    end.
+
+gate_managed_only(ClientInfo, Ctx) ->
     case emqx_mt_config:get_allow_only_managed_namespaces() of
         true ->
             ?TRACE("deny_due_to_no_tenant_namespace_post_authn", #{}),
@@ -201,6 +218,11 @@ gate_with_no_tns(ClientInfo, Ctx) ->
             ?TRACE("no_tenant_namespace_post_authn", #{}),
             {ok, Ctx#{client_info := strip_tns(ClientInfo)}}
     end.
+
+pre_auth_tns(#{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}}) ->
+    Tns;
+pre_auth_tns(_) ->
+    undefined.
 
 strip_tns(#{client_attrs := Attrs} = ClientInfo) ->
     ClientInfo#{client_attrs => maps:remove(?CLIENT_ATTR_NAME_TNS, Attrs)};
