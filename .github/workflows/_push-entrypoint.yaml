@@ -36,7 +36,7 @@ jobs:
       ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
       BUILDER: ${{ steps.env.outputs.BUILDER }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Set up environment
@@ -61,7 +61,7 @@ jobs:
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
@@ -135,7 +135,7 @@ jobs:
           - emqx-enterprise
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
