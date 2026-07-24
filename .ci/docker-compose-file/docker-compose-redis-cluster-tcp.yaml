@@ -33,19 +33,39 @@ services:
   redis-cluster-create:
     <<: *redis-node
     container_name: redis-cluster-create
-    command: >
-      redis-cli
+    # NOTE: keep this service alive after the one-shot cluster-create succeeds:
+    # `docker compose up --wait` fails when a waited container has exited, even
+    # with exit code 0, so exiting here is a startup race (whether the create
+    # finishes before or after the wait resolves decides pass/fail).
+    # The healthcheck also makes the wait assert the cluster actually formed,
+    # instead of merely that the create command was started.
+    command:
+      - sh
+      - -c
+      - >-
+        redis-cli
         --cluster create
-          redis-cluster-1:6379
-          redis-cluster-2:6379
-          redis-cluster-3:6379
-          redis-cluster-4:6379
-          redis-cluster-5:6379
-          redis-cluster-6:6379
+        redis-cluster-1:6379
+        redis-cluster-2:6379
+        redis-cluster-3:6379
+        redis-cluster-4:6379
+        redis-cluster-5:6379
+        redis-cluster-6:6379
         --cluster-replicas 1
         --cluster-yes
-        --pass "public"
+        --pass public
         --no-auth-warning
+        && exec tail -f /dev/null
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          redis-cli -h redis-cluster-1 -p 6379 -a public --no-auth-warning
+          cluster info | grep -q cluster_state:ok
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
     depends_on:
       - redis-cluster-1
       - redis-cluster-2
