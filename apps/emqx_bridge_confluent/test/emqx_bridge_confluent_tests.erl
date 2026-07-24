@@ -165,10 +165,54 @@ confluent_producer_connector_test_() ->
 confluent_producer_action_test_() ->
     emqx_utils:interactive_load(emqx_bridge_enterprise),
     BaseConf = parse(confluent_producer_action_hocon()),
+    Override = fun(Params) ->
+        emqx_utils_maps:deep_merge(
+            BaseConf,
+            #{
+                <<"actions">> => #{
+                    <<"confluent_producer">> => #{
+                        <<"my_producer">> => #{<<"parameters">> => Params}
+                    }
+                }
+            }
+        )
+    end,
     [
         {"base config",
             ?_assertMatch(
                 ?ok_action_config(_),
                 check_action(BaseConf)
+            )},
+        {"max_batch_age and max_retries default to infinity",
+            ?_assertMatch(
+                ?ok_action_config(#{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := infinity,
+                        <<"max_retries">> := infinity
+                    }
+                }),
+                check_action(BaseConf)
+            )},
+        {"max_batch_age and max_retries are settable",
+            ?_assertMatch(
+                ?ok_action_config(#{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := 500,
+                        <<"max_retries">> := 3
+                    }
+                }),
+                check_action(
+                    Override(#{<<"max_batch_age">> => <<"500ms">>, <<"max_retries">> => 3})
+                )
+            )},
+        {"reconnect_delay defaults to 2s",
+            ?_assertMatch(
+                ?ok_action_config(#{<<"parameters">> := #{<<"reconnect_delay">> := 2000}}),
+                check_action(BaseConf)
+            )},
+        {"reconnect_delay is settable",
+            ?_assertMatch(
+                ?ok_action_config(#{<<"parameters">> := #{<<"reconnect_delay">> := 1500}}),
+                check_action(Override(#{<<"reconnect_delay">> => <<"1500ms">>}))
             )}
     ].
