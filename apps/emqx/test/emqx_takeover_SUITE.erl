@@ -135,6 +135,7 @@ t_takeover(Config) ->
     Client1Msgs = messages(ClientId, 0, Middle),
     Client2Msgs = messages(ClientId, Middle, ?CNT div 2),
     AllMsgs = Client1Msgs ++ Client2Msgs,
+    AllPayloads = [emqx_message:payload(M) || M <- AllMsgs],
     meck:new(emqx_cm, [non_strict, passthrough]),
     meck:expect(emqx_cm, takeover_session_end, fun(Arg) ->
         %% trigger more complex takeover conditions during 2-phase takeover protocol:
@@ -181,7 +182,7 @@ t_takeover(Config) ->
     %% late and out of order, so a single fixed-window drain may return before
     %% every message arrives. Accumulate until all expected payloads are
     %% received (or a deadline), so a genuine loss still fails.
-    Received = drain_until_received(AllMsgs, undefined, 30_000),
+    Received = drain_until_received(AllPayloads, 30_000),
     ct:pal("middle: ~p", [Middle]),
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     assert_messages_missed(AllMsgs, Received),
@@ -199,6 +200,7 @@ t_takeover_willmsg(Config) ->
     Client1Msgs = messages(ClientId, 0, Middle),
     Client2Msgs = messages(ClientId, Middle, ?CNT div 2),
     AllMsgs = Client1Msgs ++ Client2Msgs,
+    AllPayloads = [emqx_message:payload(M) || M <- AllMsgs],
     ClientOpts = [
         {proto_ver, ?config(mqtt_vsn, Config)},
         {clean_start, false},
@@ -236,9 +238,9 @@ t_takeover_willmsg(Config) ->
     ?assertReceive({'EXIT', CPid2, normal}),
     %% Durable-session replay around a takeover can deliver the boundary batch
     %% late and out of order, so a single fixed-window drain may return before
-    %% every message arrives. Accumulate until all expected payloads plus the
-    %% will are received (or a deadline), so a genuine loss still fails.
-    Received = drain_until_received(AllMsgs, <<"willpayload">>, 30_000),
+    %% every message arrives. Accumulate until all expected payloads (the will
+    %% included) are received (or a deadline), so a genuine loss still fails.
+    Received = drain_until_received([<<"willpayload">> | AllPayloads], 30_000),
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload">>),
     assert_messages_missed(AllMsgs, ReceivedNoWill),
@@ -1073,31 +1075,27 @@ start_connect_client(ClientId, Opts) ->
     end.
 
 %% Drain published messages, accumulating across short quiet-window rounds,
-%% until every expected payload (and the will payload, unless `undefined`) has
-%% been received, or a hard deadline passes. Returns whatever was collected so
-%% the usual missed/order assertions still run (and fail) on a genuine loss.
-drain_until_received(ExpectedMsgs, WillPayload, MaxWaitMs) ->
+%% until every expected payload has been received, or a hard deadline passes.
+%% Returns whatever was collected so the usual missed/order assertions still
+%% run (and fail) on a genuine loss.
+drain_until_received(ExpectedPayloads, MaxWaitMs) ->
     Deadline = erlang:monotonic_time(millisecond) + MaxWaitMs,
-    drain_until_received(ExpectedMsgs, WillPayload, Deadline, []).
+    drain_until_received(ExpectedPayloads, Deadline, []).
 
-drain_until_received(ExpectedMsgs, WillPayload, Deadline, Acc0) ->
+drain_until_received(ExpectedPayloads, Deadline, Acc0) ->
     Acc = Acc0 ++ [Msg || {publish, Msg} <- ?drainMailbox(200)],
-    WillPresent =
-        WillPayload == undefined orelse
-            lists:any(fun(#{payload := P}) -> P == WillPayload end, Acc),
-    Complete = all_payloads_present(ExpectedMsgs, Acc) andalso WillPresent,
+    Complete = all_payloads_present(ExpectedPayloads, Acc),
     case Complete orelse erlang:monotonic_time(millisecond) >= Deadline of
         true -> Acc;
-        false -> drain_until_received(ExpectedMsgs, WillPayload, Deadline, Acc)
+        false -> drain_until_received(ExpectedPayloads, Deadline, Acc)
     end.
 
-all_payloads_present(Expected, Received) ->
+all_payloads_present(ExpectedPayloads, Received) ->
     lists:all(
-        fun(Msg) ->
-            P = emqx_message:payload(Msg),
+        fun(P) ->
             lists:any(fun(#{payload := P1}) -> P1 == P end, Received)
         end,
-        Expected
+        ExpectedPayloads
     ).
 
 assert_messages_missed(Ls1, Ls2) ->
