@@ -1150,13 +1150,13 @@ handle_send_ready(
 ) ->
     IoVec = flatten_reverse_iovec(SQ, []),
     Handle = make_ref(),
-    case socket:send(Socket, IoVec, [], Handle) of
+    case send_iovec(Socket, IoVec, Handle) of
         ok ->
             Signal = {connection, decongested, #{sendq_size => 0}},
             signal_channel(Signal, State#state{sockstate = idle});
         {select, {_Info, Rest}} ->
             %% Partially accepted, renew deadline.
-            NState = queue_send(Handle, [Rest], iolist_size(Rest), WM, State),
+            NState = queue_send(Handle, Rest, iolist_size(Rest), WM, State),
             maybe_signal_congestion(NState);
         {select, _Info} ->
             %% Totally congested, keep the deadline.
