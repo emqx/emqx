@@ -374,6 +374,7 @@ t_json_body(TCConfig) ->
     ).
 
 t_placeholder_and_body(TCConfig) ->
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
     ok = setup_handler_and_config(
         TCConfig,
         fun(Req0, State) ->
@@ -390,6 +391,7 @@ t_placeholder_and_body(TCConfig) ->
                     <<"username">> := <<"user name">>,
                     <<"clientid">> := <<"client id">>,
                     <<"peerhost">> := <<"127.0.0.1">>,
+                    <<"peerport">> := <<"1883">>,
                     <<"proto_name">> := <<"MQTT">>,
                     <<"mountpoint">> := <<"MOUNTPOINT">>,
                     <<"topic">> := <<"t">>,
@@ -398,6 +400,8 @@ t_placeholder_and_body(TCConfig) ->
                     <<"the_group">> := <<"g1">>,
                     <<"CN">> := ?PH_CERT_CN_NAME,
                     <<"CS">> := ?PH_CERT_SUBJECT,
+                        <<"cert_pem">> := <<"Y2VydGlmaWNhdGU=">>,
+                    <<"zone">> := <<"default">>,
                     <<"listener_id">> := <<"tcp:default">>
                 },
                 maps:from_list(PostVars)
@@ -410,6 +414,7 @@ t_placeholder_and_body(TCConfig) ->
                 <<"username">> => <<"${username}">>,
                 <<"clientid">> => <<"${clientid}">>,
                 <<"peerhost">> => <<"${peerhost}">>,
+                <<"peerport">> => <<"${peerport}">>,
                 <<"proto_name">> => <<"${proto_name}">>,
                 <<"mountpoint">> => <<"${mountpoint}">>,
                 <<"topic">> => <<"${topic}">>,
@@ -418,6 +423,8 @@ t_placeholder_and_body(TCConfig) ->
                 <<"the_group">> => <<"${client_attrs.group}">>,
                 <<"CN">> => ?PH_CERT_CN_NAME,
                 <<"CS">> => ?PH_CERT_SUBJECT,
+                <<"cert_pem">> => <<"${cert_pem}">>,
+                <<"zone">> => <<"${zone}">>,
                 <<"listener_id">> => <<"${listener}">>
             },
             <<"headers">> => #{
@@ -431,19 +438,22 @@ t_placeholder_and_body(TCConfig) ->
         clientid => <<"client id">>,
         username => <<"user name">>,
         peerhost => {127, 0, 0, 1},
+        peername => {{127, 0, 0, 1}, 1883},
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
         listener => 'tcp:default',
         client_attrs => #{<<"group">> => <<"g1">>},
         cn => ?PH_CERT_CN_NAME,
-        dn => ?PH_CERT_SUBJECT
+        dn => ?PH_CERT_SUBJECT,
+        cert_pem => <<"certificate">>
     },
 
     ?assertEqual(
         allow,
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
-    ).
+    )
+    end).
 
 %% Checks that we don't crash when receiving an unsupported content-type back.
 t_bad_response_content_type(TCConfig) ->

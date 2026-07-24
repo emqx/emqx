@@ -29,6 +29,10 @@ groups() ->
     [].
 
 init_per_testcase(TestCase, Config) ->
+    case lists:member(TestCase, authz_context_testcases()) of
+        true -> emqx_common_test_helpers:set_security_profile("hardened");
+        false -> ok
+    end,
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -40,6 +44,7 @@ init_per_testcase(TestCase, Config) ->
     [{tc_apps, Apps} | Config].
 
 end_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
     emqx_cth_suite:stop(?config(tc_apps, Config)).
 
 %%------------------------------------------------------------------------------
@@ -279,6 +284,28 @@ t_zone_in_topic_template(_Config) ->
     ),
     ok.
 
+t_authz_context_variables(_Config) ->
+    ClientInfo0 = emqx_authz_test_lib:base_client_info(),
+    ClientInfo = ClientInfo0#{
+        cn => <<"mycn">>,
+        zone => zone1,
+        client_attrs => #{<<"device_id">> => <<"id1">>}
+    },
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> =>
+            <<"{allow, all, all, "
+                "[\"${username}/${clientid}/${cert_common_name}/${zone}/"
+                "${client_attrs.device_id}/#\"]}.">>
+    }),
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(
+            ClientInfo,
+            ?AUTHZ_PUBLISH,
+            <<"username/clientid/mycn/zone1/id1/topic">>
+        )
+    ).
+
 t_extended_actions(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 
@@ -358,6 +385,19 @@ setup_config(SpecialParams) ->
         ?RAW_SOURCE,
         SpecialParams
     ).
+
+authz_context_testcases() ->
+    [
+        t_ok,
+        t_client_attrs,
+        t_zone_as_who_condition,
+        t_zone_as_who_condition_re,
+        t_listener,
+        t_listener_re,
+        t_cert_common_name,
+        t_zone_in_topic_template,
+        t_authz_context_variables
+    ].
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).

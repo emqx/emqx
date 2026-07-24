@@ -422,7 +422,7 @@ do_publish(
         allow ->
             ?SLOG(debug, #{msg => "publish_msg", to_topic => Topic, farme => Frame}),
             Msg = emqx_message:make(jt808, ?QOS_1, Topic, emqx_utils_json:encode(Frame)),
-            emqx:publish(emqx_message:set_authz_context(ClientInfo, Msg));
+            emqx:publish(emqx_authz_context:maybe_attach(ClientInfo, Msg));
         deny ->
             ?SLOG(info, #{msg => "publish_msg_denied", to_topic => Topic}),
             ok

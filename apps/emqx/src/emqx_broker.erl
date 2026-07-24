@@ -291,13 +291,10 @@ eval_hook_and_publish(Msg, Opts) ->
                     []
             end;
         Msg1 = #message{} ->
-            do_publish(cleanup_publish_context(Msg1));
+            do_publish(Msg1);
         Msgs when is_list(Msgs) ->
-            do_publish_many([cleanup_publish_context(Msg1) || Msg1 <- Msgs])
+            do_publish_many(Msgs)
     end.
-
-cleanup_publish_context(Msg) ->
-    emqx_message:remove_header(authz_context, Msg).
 
 do_publish_many([]) ->
     [];

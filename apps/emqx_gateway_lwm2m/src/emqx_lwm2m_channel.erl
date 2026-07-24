@@ -661,7 +661,9 @@ with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
     Action = publish_action(Msg),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
         allow ->
-            _ = emqx_broker:publish(emqx_message:set_authz_context(ClientInfo, Msg)),
+            _ = emqx_broker:publish(
+                emqx_authz_context:maybe_attach(ClientInfo, Msg)
+            ),
             ok;
         _ ->
             ?SLOG(error, #{

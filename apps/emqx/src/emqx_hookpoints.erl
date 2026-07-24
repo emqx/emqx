@@ -136,7 +136,7 @@ when
     callback_result().
 
 -callback 'client.authorize'(
-    emqx_types:clientinfo(),
+    emqx_authz_context:t(),
     emqx_types:pubsub(),
     emqx_types:topic(),
     emqx_access_control:authorize_hook_result()
@@ -144,7 +144,7 @@ when
     fold_callback_result(emqx_access_control:authorize_hook_result()).
 
 -callback 'client.check_authz_complete'(
-    emqx_types:clientinfo(),
+    emqx_authz_context:t(),
     emqx_types:pubsub(),
     emqx_types:topic(),
     emqx_access_control:authz_result(),

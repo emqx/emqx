@@ -122,29 +122,6 @@ t_get_set_header(_) ->
     Msg4 = emqx_message:remove_header(a, Msg4),
     ?assertEqual(#{b => 2, c => 3}, emqx_message:get_headers(Msg4)).
 
-t_set_authz_context(_) ->
-    ClientInfo = #{
-        zone => default,
-        protocol => mqtt,
-        peerhost => {127, 0, 0, 1},
-        sockport => 1883,
-        clientid => <<"clientid">>,
-        username => <<"username">>,
-        is_bridge => false,
-        is_superuser => false,
-        mountpoint => undefined,
-        acl => #{rules => []},
-        client_attrs => #{<<"role">> => <<"reader">>},
-        password => <<"secret">>,
-        conn_state => connected
-    },
-    Msg0 = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
-    Msg = emqx_message:set_authz_context(ClientInfo, Msg0),
-    ?assertEqual(
-        maps:without([password, conn_state], ClientInfo#{is_superuser => false}),
-        emqx_message:get_header(authz_context, Msg)
-    ).
-
 t_undefined_headers(_) ->
     Msg = #message{id = <<"id">>, qos = ?QOS_0},
     Msg1 = emqx_message:set_headers(#{a => 1, b => 2}, Msg),

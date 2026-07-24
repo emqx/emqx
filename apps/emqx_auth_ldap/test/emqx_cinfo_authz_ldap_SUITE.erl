@@ -51,6 +51,7 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_, Config) ->
+    emqx_common_test_helpers:set_security_profile("hardened"),
     ok = emqx_authn_test_lib:enable_node_cache(false),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
@@ -59,6 +60,7 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
@@ -71,7 +73,7 @@ end_per_testcase(_, Config) ->
 %%------------------------------------------------------------------------------
 
 t_run_case(Config) ->
-    Case0 = ?config(test_case, Config),
+    Case0 = (?config(test_case, Config))#{security_profile => hardened},
     ok = setup_authenticator(Case0),
     Case = create_client_info(Case0),
     ok = maybe_make_delay(Case),

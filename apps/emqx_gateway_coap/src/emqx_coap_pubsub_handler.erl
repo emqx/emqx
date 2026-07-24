@@ -58,7 +58,7 @@ handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo, _
             MountTopic = mount(CInfo, Topic),
             MQTTMsg = emqx_message:make(ClientId, QoS, MountTopic, Payload),
             MQTTMsg1 = apply_publish_opts(PublishOpts, MQTTMsg),
-            MQTTMsg2 = emqx_message:set_authz_context(CInfo, MQTTMsg1),
+            MQTTMsg2 = emqx_authz_context:maybe_attach(CInfo, MQTTMsg1),
             _ = emqx_broker:publish(MQTTMsg2),
             reply({ok, changed}, Msg);
         _ ->

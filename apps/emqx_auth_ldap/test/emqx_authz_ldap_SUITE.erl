@@ -57,7 +57,7 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_run_case(Config) ->
     Case = ?config(test_case, Config),
-    ok = setup_authz_source(),
+    ok = setup_config(maps:get(config, Case, #{})),
     ok = emqx_authz_test_lib:run_checks(Case).
 
 t_create_invalid(_Config) ->
@@ -185,6 +185,35 @@ t_conn_error_hardened_denies(_Config) ->
 %%------------------------------------------------------------------------------
 cases() ->
     [
+        #{
+            name => authz_context_variables,
+            security_profile => hardened,
+            config => #{
+                <<"filter">> =>
+                    <<"(&"
+                        "(objectClass=mqttUser)"
+                        "(authzContextValue=${clientid})"
+                        "(authzContextValue=${peerhost})"
+                        "(authzContextValue=${cert_common_name})"
+                        "(authzContextValue=${cert_subject})"
+                        "(authzContextValue=${zone})"
+                        "(authzContextValue=${client_attrs.group})"
+                        "(authzContextValue=${listener})"
+                        ")">>
+            },
+            client_info => #{
+                username => <<"mqttuser0001">>,
+                clientid => <<"clientid-value">>,
+                cn => <<"cn-value">>,
+                dn => <<"dn-value">>,
+                zone => 'zone-value',
+                client_attrs => #{<<"group">> => <<"attr-value">>},
+                listener => 'listener-value'
+            },
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"mqttuser0001/pub/1">>}
+            ]
+        },
         #{
             name => simple_publish,
             client_info => #{username => <<"mqttuser0001">>},

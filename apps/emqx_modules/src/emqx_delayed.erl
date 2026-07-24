@@ -469,47 +469,43 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
     do_publish(mnesia:dirty_next(?TAB, Key), Now, [Key | Acc]).
 
 publish_delayed_message(Msg = #message{from = ClientId, topic = Topic, qos = Qos}) ->
-    ClientInfo = get_authz_context(Msg),
-    case is_banned(ClientInfo, ClientId) of
+    case emqx_security_profile:policy(delayed_publish_reauthorization) of
+        false ->
+            publish_delayed_message_legacy(Msg, ClientId, Topic);
+        true ->
+            publish_delayed_message_hardened(Msg, ClientId, Topic, Qos)
+    end.
+
+publish_delayed_message_legacy(Msg, ClientId, Topic) ->
+    case emqx_banned:check_clientid(ClientId) of
+        false -> emqx:publish(Msg);
+        true -> ignore_delayed_message_publish("client is banned", ClientId, Topic)
+    end.
+
+publish_delayed_message_hardened(Msg, ClientId, Topic, Qos) ->
+    case emqx_authz_context:get(Msg) of
+        undefined ->
+            ignore_delayed_message_publish("authorization context missing", ClientId, Topic);
+        AuthzContext ->
+            maybe_publish_hardened(AuthzContext, Msg, ClientId, Topic, Qos)
+    end.
+
+maybe_publish_hardened(AuthzContext, Msg, ClientId, Topic, Qos) ->
+    case emqx_banned:check(AuthzContext) of
         true ->
             ignore_delayed_message_publish("client is banned", ClientId, Topic);
         false ->
-            maybe_publish_authorized(ClientInfo, Msg, ClientId, Topic, Qos)
+            maybe_publish_authorized(AuthzContext, Msg, ClientId, Topic, Qos)
     end.
-
-is_banned(undefined, ClientId) ->
-    emqx_banned:check_clientid(ClientId);
-is_banned(ClientInfo, _ClientId) ->
-    emqx_banned:check(ClientInfo).
-
-get_authz_context(Msg = #message{from = ClientId, headers = Headers}) ->
-    case emqx_message:get_header(authz_context, Msg, undefined) of
-        undefined ->
-            case
-                maps:is_key(protocol, Headers) orelse
-                    maps:is_key(username, Headers) orelse
-                    maps:is_key(peerhost, Headers)
-            of
-                true ->
-                    emqx_message:make_authz_context(Headers#{clientid => ClientId});
-                false when is_binary(ClientId); ClientId =:= jt808 ->
-                    emqx_message:make_authz_context(#{clientid => ClientId});
-                false ->
-                    undefined
-            end;
-        ClientInfo ->
-            ClientInfo
-    end.
-
-maybe_publish_authorized(undefined, Msg, _ClientId, _Topic, _Qos) ->
-    emqx:publish(Msg);
-maybe_publish_authorized(ClientInfo, Msg, ClientId, Topic, Qos) ->
+maybe_publish_authorized(AuthzContext, Msg, ClientId, Topic, Qos) ->
     Retain = emqx_message:get_flag(retain, Msg),
     Action = ?AUTHZ_PUBLISH(Qos, Retain),
-    case emqx_access_control:authorize(ClientInfo, Action, Topic, #{cache => false}) of
+    case emqx_access_control:authorize_with_context(
+        AuthzContext, Action, Topic, #{cache => false}
+    ) of
         allow ->
-            case emqx_banned:check(ClientInfo) of
-                false -> emqx:publish(Msg);
+            case emqx_banned:check(AuthzContext) of
+                false -> emqx:publish(emqx_authz_context:remove(Msg));
                 true -> ignore_delayed_message_publish("client is banned", ClientId, Topic)
             end;
         deny ->

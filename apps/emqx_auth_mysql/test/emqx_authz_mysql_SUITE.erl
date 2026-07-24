@@ -229,28 +229,38 @@ cases() ->
             ]
         },
         #{
-            name => rule_by_clientid_cn_dn_peerhost,
+            name => rule_by_authz_context_variables,
+            security_profile => hardened,
             setup => [
                 """
-                CREATE TABLE acl(clientid VARCHAR(255), cn VARCHAR(255), dn VARCHAR(255),
-                peerhost VARCHAR(255), topic VARCHAR(255), permission VARCHAR(255), action VARCHAR(255))
+                CREATE TABLE acl(username VARCHAR(255), clientid VARCHAR(255), cn VARCHAR(255), dn VARCHAR(255),
+                peerhost VARCHAR(255), peerport INT, zone VARCHAR(255), listener VARCHAR(255),
+                client_group VARCHAR(255), topic VARCHAR(255), permission VARCHAR(255), action VARCHAR(255))
                 """,
                 """
-                INSERT INTO acl(clientid, cn, dn, peerhost, topic, permission, action)
-                VALUES('clientid', 'cn', 'dn', '127.0.0.1', 'a', 'allow', 'publish')
+                INSERT INTO acl(username, clientid, cn, dn, peerhost, peerport, zone, listener,
+                client_group, topic, permission, action)
+                VALUES('username', 'clientid', 'cn', 'dn', '127.0.0.1', 1883, 'default', 'tcp:default',
+                'g1', 'a', 'allow', 'publish')
                 """
             ],
             query =>
                 ~b"""
                 SELECT permission, action, topic FROM acl WHERE
-                clientid = ${clientid} AND cn = ${cert_common_name}
+                username = ${username} AND clientid = ${clientid} AND cn = ${cert_common_name}
                 AND dn = ${cert_subject} AND peerhost = ${peerhost}
+                AND peerport = ${peerport} AND zone = ${zone} AND listener = ${listener}
+                AND client_group = ${client_attrs.group}
                 """,
             client_info => #{
                 clientid => <<"clientid">>,
                 cn => <<"cn">>,
                 dn => <<"dn">>,
-                peerhost => {127, 0, 0, 1}
+                peerhost => {127, 0, 0, 1},
+                peername => {{127, 0, 0, 1}, 1883},
+                zone => default,
+                listener => 'tcp:default',
+                client_attrs => #{<<"group">> => <<"g1">>}
             },
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"a">>},

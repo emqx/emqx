@@ -778,7 +778,9 @@ packet_to_message(Packet, #channel{
             peerhost => PeerHost
         }
     ),
-    emqx_message:set_authz_context(ClientInfo, emqx_mountpoint:mount(MountPoint, Msg)).
+    emqx_authz_context:maybe_attach(
+        ClientInfo, emqx_mountpoint:mount(MountPoint, Msg)
+    ).
 
 do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
     Result = emqx_broker:publish(Msg),
@@ -3565,7 +3567,9 @@ prepare_will_message_for_publishing(
         false ->
             NMsg = emqx_mountpoint:mount(MountPoint, Msg),
             PreparedMessage0 = NMsg#message{timestamp = emqx_message:timestamp_now()},
-            PreparedMessage = emqx_message:set_authz_context(ClientInfo, PreparedMessage0),
+            PreparedMessage = emqx_authz_context:maybe_attach(
+                ClientInfo, PreparedMessage0
+            ),
             {ok, PreparedMessage}
     end.
 

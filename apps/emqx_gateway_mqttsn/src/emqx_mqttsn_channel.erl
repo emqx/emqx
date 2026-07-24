@@ -1138,7 +1138,7 @@ maybe_publish_idle_negative_qos(Packet, Publish = {TopicName, _Flags, Data}, Cha
         {ok, NChannel} ->
             case check_pub_authz(Publish, NChannel) of
                 ok ->
-                    Msg = emqx_message:set_authz_context(
+                    Msg = emqx_authz_context:maybe_attach(
                         NChannel#channel.clientinfo,
                         emqx_message:make(
                             ?NEG_QOS_CLIENT_ID,
@@ -1217,7 +1217,7 @@ put_message_headers(Msg, #channel{
         },
         Msg
     ),
-    emqx_message:set_authz_context(ClientInfo, Msg1).
+    emqx_authz_context:maybe_attach(ClientInfo, Msg1).
 
 get_corrected_qos(?QOS_NEG1) -> ?QOS_0;
 get_corrected_qos(QoS) -> QoS.

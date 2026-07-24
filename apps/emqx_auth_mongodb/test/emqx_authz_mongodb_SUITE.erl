@@ -374,13 +374,19 @@ cases() ->
             ]
         },
         #{
-            name => rule_by_clientid_cn_dn_peerhost,
+            name => rule_by_authz_context_variables,
+            security_profile => hardened,
             records => [
                 #{
+                    <<"username">> => <<"username">>,
                     <<"cn">> => <<"cn">>,
                     <<"dn">> => <<"dn">>,
                     <<"clientid">> => <<"clientid">>,
                     <<"peerhost">> => <<"127.0.0.1">>,
+                    <<"peerport">> => <<"1883">>,
+                    <<"zone">> => <<"default">>,
+                    <<"listener">> => <<"tcp:default">>,
+                    <<"client_group">> => <<"g1">>,
                     <<"action">> => <<"publish">>,
                     <<"topic">> => <<"a">>,
                     <<"permission">> => <<"allow">>
@@ -388,13 +394,19 @@ cases() ->
             ],
             client_info => #{
                 cn => <<"cn">>,
-                dn => <<"dn">>
+                dn => <<"dn">>,
+                client_attrs => #{<<"group">> => <<"g1">>}
             },
             filter => #{
+                <<"username">> => <<"${username}">>,
                 <<"cn">> => <<"${cert_common_name}">>,
                 <<"dn">> => <<"${cert_subject}">>,
                 <<"clientid">> => <<"${clientid}">>,
-                <<"peerhost">> => <<"${peerhost}">>
+                <<"peerhost">> => <<"${peerhost}">>,
+                <<"peerport">> => <<"${peerport}">>,
+                <<"zone">> => <<"${zone}">>,
+                <<"listener">> => <<"${listener}">>,
+                <<"client_group">> => <<"${client_attrs.group}">>
             },
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"a">>}

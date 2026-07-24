@@ -35,6 +35,7 @@ end_per_testcase(_, _Config) ->
     ok = emqx_hooks:del('client.authorize', {?MODULE, crashing_authz}),
     ok = emqx_hooks:del('client.authorize', {?MODULE, permissive_authz_stop}),
     ok = emqx_hooks:del('client.authorize', {?MODULE, permissive_authz_ok}),
+    ok = emqx_hooks:del('client.authorize', {?MODULE, capture_authz_context}),
     ok = emqx_hooks:del('client.authenticate', {?MODULE, quick_deny_anonymous_authn}),
     ok = emqx_hooks:del('client.authenticate', {?MODULE, crashing_authn}),
     ok = emqx_hooks:del('client.authenticate', {?MODULE, permissive_authn_stop}),
@@ -93,6 +94,41 @@ t_authorize_cache_bypass(_) ->
         emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, Topic, #{cache => false})
     ),
     ?assertEqual(deny, emqx_authz_cache:get_authz_cache(?AUTHZ_PUBLISH, Topic)).
+
+t_authz_context_security_profile(_) ->
+    ClientInfo = clientinfo(#{
+        is_superuser => true,
+        peername => {{127, 0, 0, 1}, 1883},
+        cert_pem => <<"certificate">>,
+        client_attrs => #{<<"role">> => <<"reader">>},
+        custom_authz_field => custom_value
+    }),
+    RestrictedContext = maps:remove(custom_authz_field, maps:remove(password, ClientInfo)),
+    Cases = [
+        {"legacy", ClientInfo},
+        {"hardened", RestrictedContext#{peerport => 1883}}
+    ],
+    lists:foreach(
+        fun({Profile, ExpectedContext}) ->
+            emqx_common_test_helpers:with_security_profile(Profile, fun() ->
+                ok = emqx_hooks:put(
+                    'client.authorize', {?MODULE, capture_authz_context, []}, ?HP_AUTHZ
+                ),
+                ?assertEqual(
+                    allow,
+                    emqx_access_control:authorize(
+                        ClientInfo, ?AUTHZ_PUBLISH, <<"context/topic">>, #{cache => false}
+                    )
+                ),
+                receive
+                    {authz_context, Context} -> ?assertEqual(ExpectedContext, Context)
+                after 1000 ->
+                    ct:fail(authz_context_not_captured)
+                end
+            end)
+        end,
+        Cases
+    ).
 
 t_quick_deny_anonymous(_) ->
     ok = emqx_hooks:put(
@@ -224,6 +260,10 @@ permissive_authz_stop(_ClientInfo, _Action, _Topic, _AuthzResult) ->
 permissive_authz_ok(_ClientInfo, _Action, _Topic, _AuthzResult) ->
     {ok, #{result => allow, from => test}}.
 
+capture_authz_context(ClientInfo, _Action, _Topic, _AuthzResult) ->
+    self() ! {authz_context, ClientInfo},
+    {stop, #{result => allow, from => test}}.
+
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
     maps:merge(
@@ -232,9 +272,11 @@ clientinfo(InitProps) ->
             listener => 'tcp:default',
             protocol => mqtt,
             peerhost => {127, 0, 0, 1},
+            sockport => 1883,
             clientid => <<"clientid">>,
             username => <<"username">>,
             password => <<"passwd">>,
+            is_bridge => false,
             is_superuser => false,
             mountpoint => undefined
         },

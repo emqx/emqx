@@ -33,12 +33,17 @@ end_per_suite(_Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     emqx_cth_suite:stop(?config(suite_apps, _Config)).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) ->
+    case TestCase of
+        t_authz -> emqx_common_test_helpers:set_security_profile("hardened");
+        _ -> ok
+    end,
     ok = emqx_authz_test_lib:reset_authorizers(),
     ok = setup_config(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
     ok = emqx_authz_mnesia:purge_rules(?global_ns).
 
 %%------------------------------------------------------------------------------

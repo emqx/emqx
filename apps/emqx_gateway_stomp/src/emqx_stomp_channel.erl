@@ -1287,7 +1287,9 @@ frame2message(
         },
         Msg
     ),
-    emqx_message:set_authz_context(ClientInfo, emqx_mountpoint:mount(Mountpoint, NMsg)).
+    emqx_authz_context:maybe_attach(
+        ClientInfo, emqx_mountpoint:mount(Mountpoint, NMsg)
+    ).
 
 receipt_id(Headers) ->
     header(<<"receipt">>, Headers).

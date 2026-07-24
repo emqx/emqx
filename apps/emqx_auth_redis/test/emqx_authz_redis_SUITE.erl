@@ -276,14 +276,23 @@ cases() ->
             ]
         },
         #{
-            name => rule_by_clientid_cn_dn_peerhost,
+            name => rule_by_authz_context_variables,
+            security_profile => hardened,
             setup => [
-                ["HMSET", "acl:clientid:cn:dn:127.0.0.1", "a", "publish"]
+                [
+                    "HMSET",
+                    "acl:username:clientid:cn:dn:127.0.0.1:1883:default:tcp:default:g1",
+                    "a",
+                    "publish"
+                ]
             ],
-            cmd => "HGETALL acl:${clientid}:${cert_common_name}:${cert_subject}:${peerhost}",
+            cmd =>
+                "HGETALL acl:${username}:${clientid}:${cert_common_name}:${cert_subject}:${peerhost}:"
+                "${peerport}:${zone}:${listener}:${client_attrs.group}",
             client_info => #{
                 cn => <<"cn">>,
-                dn => <<"dn">>
+                dn => <<"dn">>,
+                client_attrs => #{<<"group">> => <<"g1">>}
             },
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"a">>}

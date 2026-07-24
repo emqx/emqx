@@ -1205,7 +1205,7 @@ frame2message(
         end,
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload, #{}, Headers1),
     MountedMsg = emqx_mountpoint:mount(Mountpoint, Msg),
-    {emqx_message:set_authz_context(ClientInfo, MountedMsg), ReplyTo}.
+    {emqx_authz_context:maybe_attach(ClientInfo, MountedMsg), ReplyTo}.
 
 process_pub_frame(Frame, Topic, Channel) ->
     {Msg, ReplyToSubject} = frame2message(Frame, Topic, Channel),

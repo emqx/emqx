@@ -379,7 +379,7 @@ publish(
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic0) of
         allow ->
             emqx_broker:publish(
-                emqx_message:set_authz_context(
+                emqx_authz_context:maybe_attach(
                     ClientInfo,
                     emqx_message:make(
                         ClientId,
