@@ -184,7 +184,12 @@ aeh_producer_test_() ->
                     }
                 )
             )},
-        {"reconnect_delay defaults to 2s and is settable",
+        {"reconnect_delay defaults to 2s",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"reconnect_delay">> := <<"2s">>}},
+                check_action(#{})
+            )},
+        {"reconnect_delay is settable",
             ?_assertMatch(
                 #{<<"parameters">> := #{<<"reconnect_delay">> := <<"1500ms">>}},
                 check_action(#{<<"parameters">> => #{<<"reconnect_delay">> => <<"1500ms">>}})

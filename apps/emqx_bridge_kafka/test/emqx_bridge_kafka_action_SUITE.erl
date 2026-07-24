@@ -796,13 +796,17 @@ are delivered normally.
 t_max_batch_age_expiry_drop() ->
     [{matrix, true}].
 t_max_batch_age_expiry_drop(matrix) ->
-    [[?tcp_plain, ?no_auth]];
+    [
+        [?tcp_plain, ?no_auth, Sync]
+     || Sync <- [?sync, ?async]
+    ];
 t_max_batch_age_expiry_drop(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{
         <<"parameters">> => #{
             <<"max_batch_age">> => <<"700ms">>,
-            <<"query_mode">> => <<"async">>
+            %% keep sync-mode publishes fast while the brokers are down
+            <<"sync_query_timeout">> => <<"1s">>
         }
     }),
     #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
@@ -842,6 +846,58 @@ t_max_batch_age_expiry_drop(TCConfig) ->
         ?assertMatch(
             {ok, {_, [#{value := <<"fresh">>}]}},
             get_kafka_messages(#{offset => Offset}, TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+End-to-end `max_retries`: a batch that keeps getting explicit error responses
+from Kafka is dropped after the configured number of retries.  The error is
+provoked without mocking, by producing to a topic whose
+`min.insync.replicas` exceeds its replication factor, which makes every
+produce request fail with `not_enough_replicas` while `required_acks` is
+`all_isr`.  The dropped message is counted as `failed` via the
+`max_retry_exceeded` ack reply, and must NOT be counted as `dropped` (wolff's
+parent `dropped` counter is not mapped for this reason).
+""".
+t_max_retries_exceeded_drop() ->
+    [{matrix, true}].
+t_max_retries_exceeded_drop(matrix) ->
+    [
+        [?tcp_plain, ?no_auth, Sync]
+     || Sync <- [?sync, ?async]
+    ];
+t_max_retries_exceeded_drop(TCConfig) ->
+    %% This topic can never satisfy `all_isr': every produce request is
+    %% rejected with the retryable `not_enough_replicas' error.
+    Topic = <<"t_max_retries_exceeded_drop_isr">>,
+    emqx_bridge_kafka_testlib:ensure_kafka_topic(Topic, #{
+        configs => [#{name => <<"min.insync.replicas">>, value => <<"2">>}]
+    }),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"topic">> => Topic,
+            <<"max_retries">> => 1,
+            %% the final ack takes a couple of reconnect cycles to arrive
+            <<"sync_query_timeout">> => <<"15s">>
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    emqtt:publish(C, RuleTopic, <<"doomed">>, [{qos, 1}]),
+    ?retry(
+        1_000,
+        20,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"failed">> := 1,
+                    <<"dropped">> := 0,
+                    <<"success">> := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
         )
     ),
     ok.
