@@ -379,6 +379,38 @@ t_oauth2_client_credentials(TCConfig) ->
     ?assertNotReceive({oauth2_token_request, _}, 200),
     ok.
 
+t_oauth2_ssl_certs_are_saved(TCConfig) ->
+    {TokenEndpoint, _Token} = start_oauth2_token_server(self()),
+    SSL = inline_ssl_certs(),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>,
+        <<"ssl">> => SSL
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    #{
+        connector_type := Type,
+        connector_name := Name
+    } = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    {200, #{<<"oauth2">> := #{<<"ssl">> := SavedSSL}}} =
+        emqx_bridge_v2_testlib:simplify_result(
+            emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+        ),
+    CertDir = filename:join([emqx:mutable_certs_dir(), connectors, Type, Name, oauth2]),
+    ?assertMatch({ok, [_, _, _]}, file:list_dir(CertDir)),
+    lists:foreach(
+        fun(Key) ->
+            SavedPath = maps:get(Key, SavedSSL),
+            ?assertNotEqual(maps:get(Key, SSL), SavedPath),
+            ?assert(filelib:is_regular(SavedPath))
+        end,
+        [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>]
+    ).
+
 t_oauth2_token_failure_is_recoverable(TCConfig) ->
     {TokenEndpoint, _Token} = start_oauth2_token_server(self()),
     OAuth2 = #{
@@ -491,6 +523,21 @@ t_oauth2_rejects_action_authorization_header_at_runtime(_TCConfig) ->
         emqx_bridge_http_connector:on_add_channel(
             <<"connector">>, State, <<"action">>, ActionConfig
         )
+    ).
+
+inline_ssl_certs() ->
+    maps:from_list(
+        [
+            begin
+                {ok, Content} = file:read_file(Path),
+                {atom_to_binary(Key), Content}
+            end
+         || {Key, Path} <- certs()
+        ] ++
+            [
+                {<<"enable">>, true},
+                {<<"verify">>, <<"verify_peer">>}
+            ]
     ).
 
 %% This test ensures that https://emqx.atlassian.net/browse/CI-62 is fixed.
