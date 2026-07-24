@@ -57,6 +57,8 @@ Therefore, we spawn one of these clients for each channel used.
 -define(continuation_token, continuation_token).
 -define(open_channel_error, open_channel_error).
 -define(undefined, undefined).
+-define(continue, continue).
+-define(reopen_channel, reopen_channel).
 
 -type start_opts() :: #{
     ecpool_worker_id := pos_integer(),
@@ -179,8 +181,13 @@ handle_call(#open_channel{}, _From, State0) ->
     {Reply, State} = do_open_channel(State0),
     {reply, Reply, State};
 handle_call(#append_rows{records = Records}, _From, State0) ->
-    {Reply, State} = do_append_rows(State0, Records),
-    {reply, Reply, State};
+    {Action, Reply, State} = do_append_rows(State0, Records),
+    case Action of
+        ?continue ->
+            {reply, Reply, State};
+        ?reopen_channel ->
+            {reply, Reply, State, {continue, #open_channel{}}}
+    end;
 handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
@@ -307,19 +314,27 @@ do_append_rows(State0, Records) ->
         {ok, 200, _Headers, BodyRaw} ?= emqx_bridge_http_connector:transform_result(Resp),
         #{<<"next_continuation_token">> := NextContinuationToken} =
             RespBody = emqx_utils_json:decode(BodyRaw),
-        ?SLOG(debug, #{msg => "snowflake_streaming_append_rows_success", response => RespBody}),
+        ?tp(debug, "snowflake_streaming_append_rows_success", #{response => RespBody}),
         State = State0#{?continuation_token := NextContinuationToken},
-        {{ok, Body}, State}
+        {?continue, {ok, Body}, State}
     else
+        {error, {unrecoverable_error, #{status_code := 400, body := RespBody0} = Reason}} = Error ->
+            case emqx_utils_json:safe_decode(RespBody0) of
+                {ok, #{<<"code">> := <<"STALE_CONTINUATION_TOKEN_SEQUENCER">>}} ->
+                    ?tp("snowflake_streaming_stale_continuation_token_sequencer", #{}),
+                    {?reopen_channel, {error, {recoverable_error, Reason}}, State0};
+                _ ->
+                    {?continue, Error, State0}
+            end;
         {error, Reason} ->
-            {{error, Reason}, State0};
+            {?continue, {error, Reason}, State0};
         Response ->
             Error =
                 {error,
                     {unrecoverable_error, #{
                         reason => <<"append_rows_unexpected_response">>, response => Response
                     }}},
-            {Error, State0}
+            {?continue, Error, State0}
     end.
 
 %% Internal export exposed ONLY for mocking
