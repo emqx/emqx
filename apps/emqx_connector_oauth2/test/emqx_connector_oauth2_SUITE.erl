@@ -372,8 +372,12 @@ t_validate_accepts_when_disabled_or_absent(_TCConfig) ->
     ?assertMatch({ok, #{oauth2 := #{}}}, check_oauth2(#{})),
     ?assertMatch({ok, #{oauth2 := #{enable := false}}}, check_oauth2(#{enable => false})),
     ?assertMatch(
-        {ok, #{oauth2 := #{enable := true, ssl := #{enable := true}}}},
+        {ok, #{oauth2 := #{enable := true, ssl := #{enable := false}}}},
         check_oauth2(raw_oauth2_config())
+    ),
+    ?assertMatch(
+        {ok, #{oauth2 := #{enable := true, ssl := #{enable := true}}}},
+        check_oauth2((raw_oauth2_config())#{ssl => #{enable => true}})
     ),
     ?assertEqual(
         ok,
