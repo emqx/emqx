@@ -444,7 +444,15 @@ rehydrate() ->
 %% row already exists locally with a live counter_ref, the counter_ref
 %% is preserved — re-registering or rehydrating must never zero a live
 %% counter.
+%%
+%% The message hooks are installed lazily on the 0 -> 1 transition, so
+%% a node with no collections pays nothing per message. `?REGISTRY_TAB'
+%% is kept in lockstep with `?INDEX_TAB', so its emptiness is the
+%% signal. `ets:first/1' (not `ets:info(_, size)') is used because the
+%% table has decentralized counters, for which `size' is not cheap;
+%% this only runs on admin create/delete, never per message.
 install_local(#topic_metric{} = Rec) ->
+    WasEmpty = is_registry_empty(),
     #topic_metric{
         name = Name,
         topic_filter = TopicFilter,
@@ -462,19 +470,25 @@ install_local(#topic_metric{} = Rec) ->
     },
     true = ets:insert(?REGISTRY_TAB, {Name, LocalRec}),
     true = emqx_topic_index:insert(TopicFilter, Name, CRef, ?INDEX_TAB),
+    WasEmpty andalso emqx_topic_metrics_hooks:enable(),
     ok.
 
 %% Idempotent: a missing local row is fine (e.g. a deregister on a
-%% node that never had this collection installed).
+%% node that never had this collection installed). The message hooks
+%% are uninstalled on the 1 -> 0 transition — see `install_local/1'.
 uninstall_local(Name) ->
     case ets:lookup(?REGISTRY_TAB, Name) of
         [{Name, #{topic_filter := TF}}] ->
             true = emqx_topic_index:delete(TF, Name, ?INDEX_TAB),
             true = ets:delete(?REGISTRY_TAB, Name),
+            is_registry_empty() andalso emqx_topic_metrics_hooks:disable(),
             ok;
         [] ->
             ok
     end.
+
+is_registry_empty() ->
+    ets:first(?REGISTRY_TAB) =:= '$end_of_table'.
 
 clear_local_counters(Name) ->
     case ets:lookup(?REGISTRY_TAB, Name) of

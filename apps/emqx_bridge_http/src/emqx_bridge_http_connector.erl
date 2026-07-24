@@ -234,13 +234,26 @@ on_start(
         ok ->
             case do_get_status(InstId, ConnectTimeout) of
                 ok ->
-                    {ok, State};
+                    {ok, maybe_register_oauth2(InstId, Config, State)};
                 Error ->
                     ok = ehttpc_sup:stop_pool(InstId),
                     Error
             end;
         Error ->
             Error
+    end.
+
+%% When OAuth2 (Client Credentials) is enabled, register the connector
+%% instance with the shared token manager so an `access_token' is fetched,
+%% cached and refreshed before expiry.  The token is injected into outgoing
+%% requests in `maybe_inject_oauth_token/2'.
+maybe_register_oauth2(InstId, Config, State) ->
+    case maps:get(oauth2, Config, undefined) of
+        #{enable := true} = Oauth2 ->
+            ok = emqx_connector_oauth2:register(InstId, Oauth2),
+            State#{oauth2 => #{enable => true}};
+        _ ->
+            State
     end.
 
 start_pool(PoolName, PoolOpts) ->
@@ -264,13 +277,25 @@ on_add_channel(
     ActionId,
     ActionConfig
 ) ->
-    InstalledActions = maps:get(installed_actions, OldState, #{}),
-    {ok, ActionState} = do_create_http_action(ActionConfig),
-    RenderTmplFunc = maps:get(render_template_func, ActionConfig, fun ?MODULE:render_template/2),
-    ActionState1 = ActionState#{render_template_func => RenderTmplFunc},
-    NewInstalledActions = maps:put(ActionId, ActionState1, InstalledActions),
-    NewState = maps:put(installed_actions, NewInstalledActions, OldState),
-    {ok, NewState}.
+    case validate_action_oauth2_headers(OldState, ActionConfig) of
+        ok ->
+            InstalledActions = maps:get(installed_actions, OldState, #{}),
+            {ok, ActionState} = do_create_http_action(ActionConfig),
+            RenderTmplFunc = maps:get(
+                render_template_func, ActionConfig, fun ?MODULE:render_template/2
+            ),
+            ActionState1 = ActionState#{render_template_func => RenderTmplFunc},
+            NewInstalledActions = maps:put(ActionId, ActionState1, InstalledActions),
+            NewState = maps:put(installed_actions, NewInstalledActions, OldState),
+            {ok, NewState};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+validate_action_oauth2_headers(State, ActionConfig) ->
+    Headers = emqx_utils_maps:deep_get([parameters, headers], ActionConfig, #{}),
+    Oauth2 = maps:get(oauth2, State, undefined),
+    emqx_connector_oauth2_schema:validate(Headers, Oauth2).
 
 do_create_http_action(#{parameters := Params} = ActionConfig) ->
     case preprocess_request(Params) of
@@ -291,9 +316,48 @@ on_stop(InstId, _State) ->
         msg => "stopping_http_connector",
         connector => InstId
     }),
+    ok = emqx_connector_oauth2:unregister(InstId),
     Res = ehttpc_sup:stop_pool(InstId),
     ?tp(emqx_connector_http_stopped, #{instance_id => InstId}),
     Res.
+
+%% Injects the OAuth2 `Authorization: Bearer <token>' header into the request
+%% just before it is sent.  Called from the sync and async query chokepoints
+%% so it covers bridge V1/V2 actions as well as `authn_http'/`authz_http'
+%% queries.  Any pre-existing `authorization' header is replaced (the config
+%% validator already rejects a conflicting header at the connector / authn /
+%% authz level; this also defends against action-level headers).
+maybe_inject_oauth_token(Request, #{oauth2 := #{enable := true}, pool_name := ResourceId}) ->
+    case emqx_connector_oauth2:get_token(ResourceId) of
+        {ok, Token} ->
+            {ok, inject_authorization(Request, Token)};
+        {error, Reason} ->
+            {error, {recoverable_error, {oauth2_token_unavailable, Reason}}}
+    end;
+maybe_inject_oauth_token(Request, _State) ->
+    {ok, Request}.
+
+prepare_request(Method, Request, State) ->
+    case maybe_inject_oauth_token(Request, State) of
+        {ok, RequestWithToken} -> {ok, formalize_request(Method, RequestWithToken)};
+        {error, _Reason} = Error -> Error
+    end.
+
+inject_authorization({Path, Headers}, Token) ->
+    {Path, set_authorization_header(Headers, Token)};
+inject_authorization({Path, Headers, Body}, Token) ->
+    {Path, set_authorization_header(Headers, Token), Body}.
+
+set_authorization_header(Headers, Token) ->
+    Filtered = [{K, V} || {K, V} <- Headers, not is_authorization_header(K)],
+    [{<<"authorization">>, <<"Bearer ", Token/binary>>} | Filtered].
+
+is_authorization_header(K) ->
+    try iolist_to_binary(string:lowercase(K)) of
+        Lower -> Lower =:= <<"authorization">>
+    catch
+        _:_ -> false
+    end.
 
 on_remove_channel(
     _InstId,
@@ -341,59 +405,63 @@ on_query(InstId, {Method, Request, Timeout}, State) ->
     on_query(InstId, {undefined, undefined, Method, Request, Timeout, _Retry = 2}, State);
 on_query(
     InstId,
-    {ActionId, KeyOrNum, Method, Request, Timeout, Retry},
+    {ActionId, KeyOrNum, Method, Request0, Timeout, Retry},
     #{host := Host, port := Port, scheme := Scheme} = State
 ) ->
     ?TRACE(
         "QUERY",
         "http_connector_received",
         #{
-            request => redact_request(Request),
+            request => redact_request(Request0),
             note => ?READACT_REQUEST_NOTE,
             connector => InstId,
             action_id => ActionId,
             state => redact(State)
         }
     ),
-    NRequest = formalize_request(Method, Request),
-    trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
-    Worker = resolve_pool_worker(State, KeyOrNum),
-    Result0 = ehttpc:request(
-        Worker,
-        Method,
-        NRequest,
-        Timeout,
-        Retry
-    ),
-    Result = transform_result(Result0),
-    case Result of
-        {error, {recoverable_error, Reason}} ->
-            ?SLOG(warning, #{
-                msg => "http_connector_do_request_failed",
-                reason => Reason,
-                connector => InstId
-            }),
-            {error, {recoverable_error, Reason}};
-        {error, #{status_code := StatusCode}} ->
-            ?SLOG(error, #{
-                msg => "http_connector_do_request_received_error_response",
-                note => ?READACT_REQUEST_NOTE,
-                request => redact_request(NRequest),
-                connector => InstId,
-                status_code => StatusCode
-            }),
-            Result;
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "http_connector_do_request_failed",
-                note => ?READACT_REQUEST_NOTE,
-                request => redact_request(NRequest),
-                reason => Reason,
-                connector => InstId
-            }),
-            Result;
-        _Success ->
-            Result
+    case prepare_request(Method, Request0, State) of
+        {ok, NRequest} ->
+            trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
+            Worker = resolve_pool_worker(State, KeyOrNum),
+            Result0 = ehttpc:request(
+                Worker,
+                Method,
+                NRequest,
+                Timeout,
+                Retry
+            ),
+            Result = transform_result(Result0),
+            case Result of
+                {error, {recoverable_error, Reason}} ->
+                    ?SLOG(warning, #{
+                        msg => "http_connector_do_request_failed",
+                        reason => Reason,
+                        connector => InstId
+                    }),
+                    {error, {recoverable_error, Reason}};
+                {error, #{status_code := StatusCode}} ->
+                    ?SLOG(error, #{
+                        msg => "http_connector_do_request_received_error_response",
+                        note => ?READACT_REQUEST_NOTE,
+                        request => redact_request(NRequest),
+                        connector => InstId,
+                        status_code => StatusCode
+                    }),
+                    Result;
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "http_connector_do_request_failed",
+                        note => ?READACT_REQUEST_NOTE,
+                        request => redact_request(NRequest),
+                        reason => Reason,
+                        connector => InstId
+                    }),
+                    Result;
+                _Success ->
+                    Result
+            end;
+        {error, _Reason} = Error ->
+            Error
     end.
 
 %% BridgeV1 entrypoint
@@ -450,42 +518,46 @@ on_query_async(
     end;
 on_query_async(
     InstId,
-    {ActionId, KeyOrNum, Method, Request, Timeout},
+    {ActionId, KeyOrNum, Method, Request0, Timeout},
     ReplyFunAndArgs,
     #{host := Host, port := Port, scheme := Scheme} = State
 ) ->
-    Worker = resolve_pool_worker(State, KeyOrNum),
     ?TRACE(
         "QUERY_ASYNC",
         "http_connector_received",
         #{
-            request => redact_request(Request),
+            request => redact_request(Request0),
             note => ?READACT_REQUEST_NOTE,
             connector => InstId,
             state => redact(State)
         }
     ),
-    NRequest = formalize_request(Method, Request),
-    trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
-    MaxAttempts = maps:get(max_attempts, State, 3),
-    Context = #{
-        attempt => 1,
-        max_attempts => MaxAttempts,
-        state => State,
-        key_or_num => KeyOrNum,
-        method => Method,
-        request => NRequest,
-        timeout => Timeout,
-        trace_metadata => logger:get_process_metadata()
-    },
-    ok = ehttpc:request_async(
-        Worker,
-        Method,
-        NRequest,
-        Timeout,
-        {fun ?MODULE:reply_delegator/3, [Context, ReplyFunAndArgs]}
-    ),
-    {ok, Worker}.
+    case prepare_request(Method, Request0, State) of
+        {ok, NRequest} ->
+            Worker = resolve_pool_worker(State, KeyOrNum),
+            trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout),
+            MaxAttempts = maps:get(max_attempts, State, 3),
+            Context = #{
+                attempt => 1,
+                max_attempts => MaxAttempts,
+                state => State,
+                key_or_num => KeyOrNum,
+                method => Method,
+                request => Request0,
+                timeout => Timeout,
+                trace_metadata => logger:get_process_metadata()
+            },
+            ok = ehttpc:request_async(
+                Worker,
+                Method,
+                NRequest,
+                Timeout,
+                {fun ?MODULE:reply_delegator/3, [Context, ReplyFunAndArgs]}
+            ),
+            {ok, Worker};
+        {error, _Reason} = Error ->
+            Error
+    end.
 
 trace_rendered_action_template(ActionId, Scheme, Host, Port, Method, NRequest, Timeout) ->
     case NRequest of
@@ -568,14 +640,34 @@ on_get_channels(ResId) ->
 on_get_status(InstId, State) ->
     on_get_status(InstId, State, fun default_health_checker/2).
 
-on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout}, DoPerWorker) ->
+on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout} = State, DoPerWorker) ->
     case do_get_status(InstId, Timeout, DoPerWorker) of
         ok ->
-            ?status_connected;
+            check_oauth2_status(InstId, State);
         {error, still_connecting} ->
             ?status_connecting;
         {error, Reason} ->
             {?status_disconnected, Reason}
+    end.
+
+%% When OAuth2 is enabled, the connection-level check alone is not enough: the
+%% connector also needs a usable `access_token'.  Probe the token manager on
+%% every health check so a misconfigured or unreachable token endpoint surfaces
+%% as `disconnected' instead of being discovered only on the first request.
+%% `get_token/1' reads the ETS cache first (cheap) and only fetches from the
+%% token endpoint on a miss/expiry, so this also warms the cache right after
+%% the connector starts.
+check_oauth2_status(InstId, State) ->
+    case maps:get(oauth2, State, undefined) of
+        #{enable := true} ->
+            case emqx_connector_oauth2:get_token(InstId) of
+                {ok, _Token} ->
+                    ?status_connected;
+                {error, Reason} ->
+                    {?status_disconnected, {oauth2_token_unavailable, Reason}}
+            end;
+        _ ->
+            ?status_connected
     end.
 
 do_get_status(PoolName, Timeout) ->
@@ -969,14 +1061,19 @@ maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
             false -> Context#{attempt := Attempt + 1}
         end,
     ?tp(http_will_retry_async, #{}),
-    Worker = resolve_pool_worker(State, KeyOrNum),
-    ok = ehttpc:request_async(
-        Worker,
-        Method,
-        Request,
-        Timeout,
-        {fun ?MODULE:reply_delegator/3, [NContext, ReplyFunAndArgs]}
-    ),
+    case prepare_request(Method, Request, State) of
+        {ok, NRequest} ->
+            Worker = resolve_pool_worker(State, KeyOrNum),
+            ok = ehttpc:request_async(
+                Worker,
+                Method,
+                NRequest,
+                Timeout,
+                {fun ?MODULE:reply_delegator/3, [NContext, ReplyFunAndArgs]}
+            );
+        {error, _Reason} = Error ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Error)
+    end,
     ok;
 maybe_retry(Result, _Context, ReplyFunAndArgs) ->
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).

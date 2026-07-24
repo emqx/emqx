@@ -67,6 +67,7 @@ emqx_conf
 emqx_connector
 emqx_connector_aggregator
 emqx_connector_jwt
+emqx_connector_oauth2
 emqx_ctl
 emqx_dashboard
 emqx_dashboard_rbac

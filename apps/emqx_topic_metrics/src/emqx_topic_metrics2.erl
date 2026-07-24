@@ -64,11 +64,13 @@ cluster via the read-side proto when it wants aggregated counters.
 
 -spec load() -> ok.
 load() ->
-    %% Hooks are installed after the registry has rehydrated from
-    %% mria (which happens synchronously in
-    %% emqx_topic_metrics_registry:init/1). The supervisor brings
-    %% the registry up before this call returns.
-    ok = emqx_topic_metrics_hooks:enable(),
+    %% Hooks are NOT installed here. They are installed lazily by
+    %% emqx_topic_metrics_registry when the first collection appears
+    %% on this node — either from
+    %% `emqx_topic_metrics_registry:rehydrate/0' (which runs
+    %% synchronously in the registry's `init/1', before this call
+    %% returns) or from a later create. With zero collections the
+    %% message hooks stay off the hot path entirely.
     ok.
 
 -spec unload() -> ok.

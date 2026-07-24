@@ -2,7 +2,7 @@
 %% Copyright (c) 2017-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_plugins_cli).
+-module(emqx_plugins_cli_utils).
 
 -export([load/0, unload/0]).
 -export([plugins/1]).

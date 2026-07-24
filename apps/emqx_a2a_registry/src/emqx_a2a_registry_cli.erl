@@ -3,12 +3,15 @@
 %%--------------------------------------------------------------------
 -module(emqx_a2a_registry_cli).
 
+-behaviour(emqx_ctl).
+
 %% API
 -export([
     load/0,
     unload/0,
 
-    a2a/1
+    a2a/1,
+    a2a_audit_args/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -44,6 +47,8 @@ a2a(["stats" | Args]) ->
     if_enabled(fun() -> handle_stats(Args) end);
 a2a(_) ->
     usage().
+
+a2a_audit_args(Args) -> Args.
 
 %%------------------------------------------------------------------------------
 %% Internal fns

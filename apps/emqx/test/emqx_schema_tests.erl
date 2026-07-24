@@ -1426,3 +1426,10 @@ mkunion_test_() ->
             end)
         }
     ].
+
+%% taken from `apps/emqx_enterprise/test/emqx_enterprise_schema_tests.erl` when syncing
+http_oauth2_is_not_exposed_by_derived_connectors_test() ->
+    ?assertNot(proplists:is_defined(oauth2, emqx_bridge_es_connector:fields(config))),
+    ?assertNot(
+        proplists:is_defined(oauth2, emqx_bridge_iotdb_connector:fields("config_restapi"))
+    ).

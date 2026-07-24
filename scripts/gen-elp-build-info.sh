@@ -11,10 +11,12 @@ endfmt='\033[0m'
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
+ELP_BUILD_ROOT="_build/emqx-enterprise-test/lib"
+
 usage() {
     echo    "Usage: $0 [-h | -t | -w]"
     echo    "  -h: Show this help message."
-    echo -e "  -t: Test generation and show the output via ${beginfmt}'less'${endfmt}. Does not write any files."
+    echo -e "  -t: Test generation and show the output via ${beginfmt}'less'${endfmt}. Does not write build_info.json or .elp.toml."
     echo -e "  -w: Write the output to ${beginfmt}build_info.json${endfmt} (Will overwrite the existing file)"
     echo -e "      And create/check ${beginfmt}.elp.toml${endfmt}."
 }
@@ -28,7 +30,13 @@ process_app() {
     # shellcheck disable=SC2155
     local app_name=$(basename "$app_path")
     local src_dirs_json="[]"
-    if [ -d "$app_path/src" ]; then src_dirs_json='["src"]'; fi
+    if [ -d "$app_path/src" ] && [ -d "$app_path/gen_src" ]; then
+        src_dirs_json='["src", "gen_src"]'
+    elif [ -d "$app_path/src" ]; then
+        src_dirs_json='["src"]'
+    elif [ -d "$app_path/gen_src" ]; then
+        src_dirs_json='["gen_src"]'
+    fi
     local include_dirs_json="[]"
     if [ -d "$app_path/include" ]; then include_dirs_json='["include"]'; fi
     local extra_src_dirs_json="[]"
@@ -42,35 +50,28 @@ process_app() {
       '{name: $name, dir: $dir, src_dirs: $src_dirs, extra_src_dirs: $extra_src_dirs, include_dirs: $include_dirs, macros: $macros}'
 }
 
-plugin_packages_ready() {
-    local plugin_app
-    if [ ! -d "plugins" ]; then
-        return 0
+process_app_code_path() {
+    local app_path=$1
+    local app_name
+    local ebin
+    app_name=$(basename "$app_path")
+    if [ ! -d "$ELP_BUILD_ROOT/$app_name/ebin" ]; then
+        return
     fi
-    if [ ! -d "_build/plugins" ]; then
-        return 1
-    fi
+    ebin=$(realpath --relative-to="$app_path" "$ELP_BUILD_ROOT/$app_name/ebin")
 
-    for plugin_dir in plugins/*;
-    do
-        if [ ! -d "$plugin_dir" ] || [ ! -f "$plugin_dir/mix.exs" ]; then
-            continue
-        fi
-        if ! grep -q "emqx_plugin:" "$plugin_dir/mix.exs"; then
-            continue
-        fi
-
-        plugin_app=$(basename "$plugin_dir")
-        if ! find _build/plugins -maxdepth 1 -type f -name "${plugin_app}-*.tar.gz" | grep -q .; then
-            return 1
-        fi
-    done
-
-    return 0
+    jq -n \
+      --arg name "${app_name}_elp_code_path" --arg dir "$app_path" --arg ebin "$ebin" \
+      '{name: $name, dir: $dir, src_dirs: [], extra_src_dirs: [], include_dirs: [], macros: {}, ebin: $ebin}'
 }
 
 # This function wraps the entire discovery and generation process.
 generate_json_content() {
+    echo -e "Preparing the test build with ${beginfmt}'make test-compile'...${endfmt}\n"
+    make test-compile
+    echo -e "Preparing plugin test builds with ${beginfmt}'make test-compile-plugins'...${endfmt}\n"
+    make test-compile-plugins
+
     # shellcheck disable=SC2155
     local TMP_APPS_FILE=$(mktemp)
     # shellcheck disable=SC2155
@@ -82,6 +83,7 @@ generate_json_content() {
     find apps -mindepth 1 -maxdepth 1 -type d | while read -r app_dir;
     do
         process_app "$app_dir" >> "$TMP_APPS_FILE"
+        process_app_code_path "$app_dir" >> "$TMP_DEPS_FILE"
     done
 
     # 2. Process in-project plugin applications
@@ -91,24 +93,12 @@ generate_json_content() {
         do
             if [ -f "$plugin_dir/mix.exs" ] && grep -q "emqx_plugin:" "$plugin_dir/mix.exs"; then
                 process_app "$plugin_dir" >> "$TMP_APPS_FILE"
+                process_app_code_path "$plugin_dir" >> "$TMP_DEPS_FILE"
             fi
         done
     fi
 
-    # 3. Conditionally compile dependencies and plugins
-    if [ -d "_build/emqx-enterprise/lib" ] && [ -d "_build/emqx-enterprise-test/lib" ]; then
-        echo -e "Build directories found, skipping compilation."
-    else
-        echo -e "Build directories not found or incomplete. Running ${beginfmt}'make test-compile'...${endfmt}\n"
-        make test-compile
-    fi
-
-    if ! plugin_packages_ready; then
-        echo -e "Plugin packages not found or incomplete. Running ${beginfmt}'make plugins'...${endfmt}\n"
-        make plugins
-    fi
-
-    # 4. Process dependencies from the 'deps' directory
+    # 3. Process dependencies from the 'deps' directory
     local DEP_ROOTS=('deps')
     echo -e "Processing dependencies in ${beginfmt}${DEP_ROOTS[*]}${endfmt}..."
     for dep_root in "${DEP_ROOTS[@]}";
@@ -134,7 +124,7 @@ generate_json_content() {
         done
     done
 
-    # 5. Assemble and output the final JSON
+    # 4. Assemble and output the final JSON
     echo "Assembling final JSON..."
     json_content=$(jq -n --slurpfile apps "$TMP_APPS_FILE" --slurpfile deps "$TMP_DEPS_FILE" \
                         '{apps: $apps, deps: $deps}')
