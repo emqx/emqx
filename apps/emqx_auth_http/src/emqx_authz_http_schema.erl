@@ -37,14 +37,16 @@ fields(http_get) ->
         http_common_fields() ++
         [
             {method, method(get)},
-            {headers, fun headers_no_content_type/1}
+            {headers, fun headers_no_content_type/1},
+            emqx_connector_oauth2_schema:oauth2_field()
         ];
 fields(http_post) ->
     emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
         http_common_fields() ++
         [
             {method, method(post)},
-            {headers, fun headers/1}
+            {headers, fun headers/1},
+            emqx_connector_oauth2_schema:oauth2_field()
         ].
 
 desc(http_get) ->

@@ -171,6 +171,52 @@ t_create_invalid(TCConfig) ->
         InvalidConfigs
     ).
 
+t_oauth2_client_credentials(TCConfig) ->
+    Token = <<"authn-oauth2-token">>,
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            case cowboy_req:path(Req0) of
+                <<"/auth/token">> ->
+                    {ok, Body, Req1} = cowboy_req:read_body(Req0),
+                    Form = uri_string:dissect_query(Body),
+                    ?assert(lists:member({<<"grant_type">>, <<"client_credentials">>}, Form)),
+                    Req = cowboy_req:reply(
+                        200,
+                        #{<<"content-type">> => <<"application/json">>},
+                        emqx_utils_json:encode(#{
+                            access_token => Token,
+                            expires_in => 3600,
+                            token_type => <<"Bearer">>
+                        }),
+                        Req1
+                    ),
+                    {ok, Req, State};
+                <<"/auth/check">> ->
+                    Headers = cowboy_req:headers(Req0),
+                    ?assertEqual(
+                        <<"Bearer ", Token/binary>>, maps:get(<<"authorization">>, Headers)
+                    ),
+                    Req = cowboy_req:reply(
+                        200,
+                        #{<<"content-type">> => <<"application/json">>},
+                        ?SERVER_RESPONSE_JSON(allow),
+                        Req0
+                    ),
+                    {ok, Req, State}
+            end
+        end
+    ),
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"url">> => <<BaseURL/binary, "/auth/check">>,
+        <<"oauth2">> => oauth2_config(<<BaseURL/binary, "/auth/token">>)
+    },
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    ?assertEqual(
+        {ok, #{is_superuser => false, client_attrs => #{}}},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ).
+
 t_authenticate(TCConfig) ->
     ok = emqx_logger:set_primary_log_level(debug),
     ok = lists:foreach(
@@ -1182,6 +1228,15 @@ raw_http_auth_config(TCConfig) ->
         <<"url">> => <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary, "/auth">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
+    }.
+
+oauth2_config(TokenEndpoint) ->
+    #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>
     }.
 
 samples() ->

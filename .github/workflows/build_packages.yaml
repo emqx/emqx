@@ -73,6 +73,27 @@ permissions:
   contents: read
 
 jobs:
+  # scripts/rel/build_matrix.py is the single source of truth for the platforms
+  # offered as emqx.com downloads (it also drives the download-links script).
+  # The linux and mac jobs below read their os/arch dimensions from these
+  # outputs via fromJSON, so the build matrix cannot drift from the
+  # download-links matrix. (Snap is not an emqx.com download; its matrix stays
+  # inline in the snap job.)
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      linux_os: ${{ steps.matrix.outputs.linux_os }}
+      linux_arch: ${{ steps.matrix.outputs.linux_arch }}
+      linux_exclude: ${{ steps.matrix.outputs.linux_exclude }}
+      mac_os: ${{ steps.matrix.outputs.mac_os }}
+    steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        ref: ${{ github.event.inputs.ref }}
+    - name: compute package matrix
+      id: matrix
+      run: ./scripts/rel/build_matrix.py --github >> "$GITHUB_OUTPUT"
+
   plugins-linux-debian13-amd64:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     defaults:
@@ -101,14 +122,13 @@ jobs:
         retention-days: 7
 
   mac:
+    needs: prepare-matrix
     strategy:
       fail-fast: false
       matrix:
         profile:
           - ${{ inputs.profile }}
-        os:
-          - macos-14
-          - macos-15
+        os: ${{ fromJSON(needs.prepare-matrix.outputs.mac_os) }}
         otp:
           - ${{ inputs.otp_vsn }}
         elixir:
@@ -137,15 +157,15 @@ jobs:
         retention-days: 7
 
   test-mac:
-    needs: mac
+    needs:
+      - mac
+      - prepare-matrix
     strategy:
       fail-fast: false
       matrix:
         profile:
           - ${{ inputs.profile }}
-        os:
-          - macos-14
-          - macos-15
+        os: ${{ fromJSON(needs.prepare-matrix.outputs.mac_os) }}
         otp:
           - ${{ inputs.otp_vsn }}
 
@@ -171,38 +191,22 @@ jobs:
         ./emqx/bin/emqx stop || cat emqx/log/erlang.log.1
 
   linux:
+    needs: prepare-matrix
     runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     strategy:
       fail-fast: false
       matrix:
         profile:
           - ${{ inputs.profile }}
-        os:
-          - ubuntu24.04
-          - ubuntu22.04
-          - debian13
-          - debian12
-          - debian11
-          - el10
-          - el9
-          - el8
-          - amzn2023
-        arch:
-          - amd64
-          - arm64
+        os: ${{ fromJSON(needs.prepare-matrix.outputs.linux_os) }}
+        arch: ${{ fromJSON(needs.prepare-matrix.outputs.linux_arch) }}
         otp:
           - ${{ inputs.otp_vsn }}
         builder:
           - ${{ inputs.builder_vsn }}
         elixir:
           - ${{ inputs.elixir_vsn }}
-        include:
-          - profile: ${{ inputs.profile }}
-            os: el7
-            arch: amd64
-            otp: ${{ inputs.otp_vsn }}
-            builder: ${{ inputs.builder_vsn }}
-            elixir: ${{ inputs.elixir_vsn }}
+        exclude: ${{ fromJSON(needs.prepare-matrix.outputs.linux_exclude) }}
 
     defaults:
       run:
@@ -252,6 +256,9 @@ jobs:
       matrix:
         profile:
           - ${{ inputs.profile }}
+        # Snap is published to the Snap Store, not emqx.com, so it is not part
+        # of the download-links matrix in scripts/rel/build_matrix.py; its arch
+        # list is kept inline here.
         arch:
           - amd64
           - arm64
