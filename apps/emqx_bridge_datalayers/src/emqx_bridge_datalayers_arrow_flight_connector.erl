@@ -449,6 +449,11 @@ call_driver(Client, {_QueryMode, true} = FuncMode, Args0) ->
                 {ok, Ref0} = prepare_sql_to_conn(Client, SqlStatement),
                 Ref0
         end,
+    %% Clean up dead pids from the local PreparedRefs copy.
+    %% Worker pids that are no longer alive still hold prepared statement
+    %% handles on the Datalayers server (no Close action was sent).
+    %% They will be cleaned up by the server-side TTL (~1 day).
+    _ = prune_dead_refs(Client, PreparedRefs),
     do_call_driver(Client, driver_fun_name(FuncMode), [PreparedRef | Args]);
 call_driver(Client, {_QueryMode, false} = FuncMode, Args) ->
     do_call_driver(Client, driver_fun_name(FuncMode), Args).
@@ -585,6 +590,14 @@ prepare_sql_to_conn(Client, SqlStatement) ->
 
 close_statement_on_conn(Client, PrepareRef) ->
     datalayers:close_prepared(Client, PrepareRef).
+
+prune_dead_refs(CurrentClient, PreparedRefs) ->
+    maps:filter(
+        fun(Client, _Ref) ->
+            Client =:= CurrentClient orelse is_process_alive(Client)
+        end,
+        PreparedRefs
+    ).
 
 ssl_opts(InstId, #{enable := true, verify := verify_none}) ->
     ?SLOG(error, #{msg => "ssl_verify_none_not_supported", connector => InstId}),

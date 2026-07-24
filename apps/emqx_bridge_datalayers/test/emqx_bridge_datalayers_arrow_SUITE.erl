@@ -35,12 +35,13 @@
 
 all() ->
     [
+        t_prune_dead_refs,
         {group, with_batch},
         {group, without_batch}
     ].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
+    TCs = emqx_common_test_helpers:all(?MODULE) -- [t_prune_dead_refs],
     [
         {with_batch, [
             {group, sync_query},
@@ -181,6 +182,9 @@ end_per_group(GroupName, Config) when
 end_per_group(_Group, _Config) ->
     ok.
 
+%% t_prune_dead_refs is a pure unit test, no EMQX infra needed
+init_per_testcase(t_prune_dead_refs, Config) ->
+    Config;
 init_per_testcase(Testcase, Config) when
     Testcase =/= t_start_ok
 ->
@@ -193,6 +197,8 @@ init_per_testcase(Config) ->
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     Config.
 
+end_per_testcase(t_prune_dead_refs, _Config) ->
+    ok;
 end_per_testcase(_Testcase, Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
@@ -591,16 +597,18 @@ make_message(ClientId, Topic, Payload) ->
 
 t_prune_dead_refs(_Config) ->
     DeadPid = spawn(fun() -> ok end),
-    AlivePid = self(),
+    CurrentPid = self(),
+    AlivePid = spawn(fun() -> timer:sleep(infinity) end),
     timer:sleep(100),
     ?assert(not is_process_alive(DeadPid)),
     ?assert(is_process_alive(AlivePid)),
-    RefMap = #{AlivePid => ref1, DeadPid => ref2, self() => ref3},
-    Pruned = emqx_bridge_datalayers_arrow_flight_connector:prune_dead_refs(self(), RefMap),
+    RefMap = #{AlivePid => ref1, DeadPid => ref2, CurrentPid => ref3},
+    Pruned = emqx_bridge_datalayers_arrow_flight_connector:prune_dead_refs(CurrentPid, RefMap),
     ?assertEqual(2, map_size(Pruned)),
     ?assert(is_map_key(AlivePid, Pruned)),
-    ?assert(is_map_key(self(), Pruned)),
+    ?assert(is_map_key(CurrentPid, Pruned)),
     ?assertNot(is_map_key(DeadPid, Pruned)),
+    exit(AlivePid, kill),
     ok.
 
 cacert_file() ->
