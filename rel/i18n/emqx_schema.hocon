@@ -560,11 +560,11 @@ server_ssl_opts_schema_ocsp_refresh_http_timeout.label:
 """OCSP Refresh HTTP Timeout"""
 
 fields_tcp_opts_send_timeout.desc:
-"""The maximum time a process is suspended for sending data to a busy socket. After the timeout, the TCP connection and the process will be closed.
+"""The maximum time EMQX waits for queued outgoing data to make progress before treating the connection as timed out.
 
-The process is unsuspended only when the socket is unbusy, that is, the data accumulated in the Erlang internal buffer drops from the high watermark (specified by `high_watermark`) to the low watermark (default 4 KB).
+For the default `socket` TCP backend, the timeout starts after EMQX's internal send queue grows beyond `high_watermark`.
 
-Therefore, `(high_watermark - 4 KB) / send_timeout` must be a suitable message outflow speed, otherwise the suspended process will never be able to recover before the timeout."""
+For the `gen_tcp` backend, the timeout applies while Erlang suspends the process because the socket is busy. The process resumes only after the queued data drops from `high_watermark` to the low watermark."""
 
 fields_tcp_opts_send_timeout.label:
 """TCP send timeout"""
@@ -597,10 +597,10 @@ fields_mqtt_opts_parse_unit.label:
 fields_mqtt_opts_tcp_backend.desc:
 """Indicates which TCP backend should be used by the listener.
 
-- `gen_tcp`: Standard backend, in use since EMQX 5.0 release.
+- `socket`: Default backend starting from 6.3.0 (for Unix/Linux), with improved message latency and compute resource usage.
+    Some `tcp_options` have backend-specific behavior. For example, `high_watermark` is used by EMQX for send-queue congestion handling, while `send_timeout_close` has no effect with this backend.
 
-- `socket`: Experimental backend, looking to improve message latency and compute resource usage.
-    Note that some `tcp_options` settings will have no effect when using this backend, e.g.: `high_watermark` and `send_timeout_close`.
+- `gen_tcp`: Default for non-Unix systems.
 
 Changing the backend require restarting the listener, which will terminate all its active connections."""
 
@@ -831,15 +831,13 @@ sysmon_os_sysmem_high_watermark.label:
 """SysMem high wartermark"""
 
 fields_tcp_opts_high_watermark.desc:
-"""When EMQX tries to send more data than the OS has allocated for the socket's send buffer, the remaining data will be temporarily stored in Erlang's internal buffer and then sent in the background.
+"""Controls how much outgoing data can be queued before EMQX treats a connection as congested.
 
-If the amount of data queued in the internal buffer exceeds `high_watermark`, the corresponding socket will be marked as busy.
+A lower value makes EMQX react to slow clients sooner; a higher value allows more data to queue before the connection is considered congested. When a connection is congested, EMQX slows down QoS 0 delivery for that client to help the connection recover.
 
-The process sending data to this busy socket will be suspended until the socket is no longer busy, or the suspension time exceeds `send_timeout`.
+For the default `socket` TCP backend, this value controls EMQX's internal send queue. If queued data continues to grow beyond this limit, the `send_timeout` deadline starts.
 
-The socket will only be unbusy when the data in the internal buffer is below the low watermark.
-
-While the process is suspended, the message queue of the process may accumulate, see `max_mailbox_len` for details."""
+For the `gen_tcp` backend, this value also controls Erlang's socket-busy threshold. If the Erlang internal socket buffer grows beyond `high_watermark`, the sending process may be suspended until the socket is no longer busy or `send_timeout` expires. While the process is suspended, the process message queue may accumulate; see `max_mailbox_len` for details."""
 
 fields_tcp_opts_high_watermark.label:
 """TCP high watermark"""
@@ -1705,6 +1703,20 @@ For example:
 mqtt_listener_access_rules.label:
 """Access rules"""
 
+base_listener_allow_log_packet_data_from.desc:
+"""~
+A comma-separated allowlist of client IP addresses and CIDR ranges for logging raw MQTT packet data.
+Packet data from other addresses is redacted. This option may expose credentials and other sensitive data in logs and should only be enabled temporarily for trusted client addresses.
+
+For example:
+
+```
+listeners.tcp.default.allow_log_packet_data_from = "127.0.0.1, 192.168.1.0/24, 2001:db8::/32"
+```~"""
+
+base_listener_allow_log_packet_data_from.label:
+"""Allow Packet Data Logging From"""
+
 server_ssl_opts_schema_enable_ocsp_stapling.desc:
 """Whether to enable Online Certificate Status Protocol (OCSP) stapling for the listener.  If set to true, requires defining the OCSP responder URL and issuer PEM path."""
 
@@ -2007,6 +2019,11 @@ socket_tcp_keepalive.label:
     - Increase CPU / RAM resources for EMQX;
     - Review the subscriptions that clients are doing, for example, try to compact topic filters;
     - Check if intra-cluster network bandwidth is reaching a maximum.~"""
+  }
+
+  sysmon_session_total_payload_bytes_high_watermark {
+    label: "Total Payload Bytes High Watermark"
+    desc: "Per-session total_payload_bytes threshold for emitting throttled warning logs. Set to 0 to disable the warning log."
   }
 
   config_backup_interval {

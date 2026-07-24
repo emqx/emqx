@@ -123,12 +123,11 @@ Smoke tests for listing features via the HTTP API.  Essential preset.
 """.
 t_list_essential(TCConfig) when is_list(TCConfig) ->
     start_apps("ESSENTIAL", ?FUNCTION_NAME, TCConfig),
+    %% the management feature, which contains the handler for this endpoint, is disabled,
+    %% hence the 404.  this test case is actually a bit artificial, since we can't have
+    %% dashboard enabled in essential mode, currently.
     ?assertMatch(
-        {200, #{
-            <<"preset">> := <<"essential">>,
-            <<"enabled">> := [],
-            <<"disabled">> := [_ | _]
-        }},
+        {404, _},
         list_features()
     ),
     ok.

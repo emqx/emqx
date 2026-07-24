@@ -86,6 +86,7 @@
 -export([
     validate_heap_size/1,
     validate_max_packet_size/1,
+    validate_non_negative_bytesize/1,
     convert_max_packet_size/2,
     user_lookup_fun_tr/2,
     validate_keepalive_multiplier/1,
@@ -130,6 +131,7 @@
 -export([
     parse_server/2,
     parse_servers/2,
+    mqtt_host_opts/0,
     servers_validator/2,
     servers_sc/2,
     latency_histogram_buckets_sc/1,
@@ -641,7 +643,11 @@ fields("mqtt_tcp_listener") ->
                         {win32, _} -> hoconsc:enum([gen_tcp])
                     end,
                     #{
-                        default => <<"gen_tcp">>,
+                        default =>
+                            case os:type() of
+                                {unix, _} -> <<"socket">>;
+                                {win32, _} -> <<"gen_tcp">>
+                            end,
                         desc => ?DESC(fields_mqtt_opts_tcp_backend),
                         importance => ?IMPORTANCE_LOW
                     }
@@ -1623,6 +1629,11 @@ fields("sysmon") ->
                 ref("sysmon_os"),
                 #{}
             )},
+        {"session",
+            sc(
+                ref("sysmon_session"),
+                #{}
+            )},
         {"mnesia_tm_mailbox_size_alarm_threshold",
             sc(
                 pos_integer(),
@@ -1637,6 +1648,18 @@ fields("sysmon") ->
                 #{
                     default => 500,
                     desc => ?DESC("sysmon_broker_pool_mailbox_size_alarm_threshold")
+                }
+            )}
+    ];
+fields("sysmon_session") ->
+    [
+        {"total_payload_bytes_high_watermark",
+            sc(
+                bytesize(),
+                #{
+                    default => 0,
+                    validator => fun ?MODULE:validate_non_negative_bytesize/1,
+                    desc => ?DESC(sysmon_session_total_payload_bytes_high_watermark)
                 }
             )}
     ];
@@ -2156,6 +2179,24 @@ access_rules_validator(AccessRules) ->
             {error, MsgBin}
     end.
 
+ip_masks_converter(undefined, _Opts) ->
+    undefined;
+ip_masks_converter(IPMasks, #{make_serializable := true}) when is_binary(IPMasks) ->
+    IPMasks;
+ip_masks_converter(IPMasks, #{make_serializable := true}) ->
+    iolist_to_binary(lists:join(<<", ">>, [esockd_cidr:to_string(IPMask) || IPMask <- IPMasks]));
+ip_masks_converter(IPMasks, _Opts) when is_binary(IPMasks) ->
+    [parse_ip_mask(IPMask) || IPMask <- string:tokens(binary_to_list(IPMasks), ", ")];
+ip_masks_converter(IPMasks, _Opts) ->
+    throw({invalid_ip_address_or_cidr, IPMasks}).
+
+parse_ip_mask(IPMask) ->
+    try esockd_cidr:parse(IPMask, true) of
+        CIDR -> CIDR
+    catch
+        _:_ -> throw({invalid_ip_address_or_cidr, IPMask})
+    end.
+
 is_invalid_rule(S) ->
     try
         [Action, CIDR] = string:tokens(S, " "),
@@ -2237,6 +2278,16 @@ base_listener(Bind) ->
                 #{
                     desc => ?DESC(base_listener_enable_authn),
                     default => true
+                }
+            )},
+        {"allow_log_packet_data_from",
+            sc(
+                typerefl:alias("string", any()),
+                #{
+                    desc => ?DESC(base_listener_allow_log_packet_data_from),
+                    default => <<>>,
+                    importance => ?IMPORTANCE_LOW,
+                    converter => fun ip_masks_converter/2
                 }
             )}
     ] ++ emqx_limiter_schema:fields(mqtt).
@@ -2388,6 +2439,8 @@ desc("sysmon_vm") ->
 desc("sysmon_os") ->
     "This part of the configuration is responsible for monitoring\n"
     " the host OS health, such as free memory, disk space, CPU load, etc.";
+desc("sysmon_session") ->
+    "This part of the configuration monitors memory session runtime signals.";
 desc("alarm") ->
     "Settings for the alarms.";
 desc("trace") ->
@@ -3227,6 +3280,11 @@ validate_max_packet_size(Siz) when is_integer(Siz) ->
 validate_max_packet_size(_SizStr) ->
     {error, invalid_packet_size}.
 
+validate_non_negative_bytesize(Bytes) when is_integer(Bytes), Bytes >= 0 ->
+    ok;
+validate_non_negative_bytesize(_Bytes) ->
+    {error, #{minimum => 0}}.
+
 %% This is for backward compatibility.
 %% We used to allow setting 256MB, but in fact the limit is one byte less.
 convert_max_packet_size(<<"256MB">>, _) ->
@@ -3361,7 +3419,7 @@ validate_ciphers(Ciphers) ->
     Set = emqx_tls_lib:all_ciphers_set_cached(),
     case lists:filter(fun(Cipher) -> not sets:is_element(Cipher, Set) end, Ciphers) of
         [] -> ok;
-        Bad -> {error, {bad_ciphers, Bad}}
+        Bad -> {error, #{cause => bad_ciphers, ciphers => [iolist_to_binary(C) || C <- Bad]}}
     end.
 
 validate_tls_versions(Collection, Versions) ->
@@ -3524,6 +3582,24 @@ servers_validator(Opts, Required) ->
         end
     end.
 
+-doc """
+`parse_server/2' and `servers_sc/2' options for an MQTT broker endpoint.
+
+The official MQTT URI schemes are `mqtt' for plain TCP and `mqtts' for TLS, see
+https://github.com/mqtt/mqtt.org/wiki/URI-Scheme.  A scheme-less `host[:port]' is
+accepted and defaults to `mqtt'.
+
+Everything that parses an MQTT endpoint must use these options, otherwise a value
+accepted by one parse is rejected by another.
+""".
+-spec mqtt_host_opts() -> server_parse_option().
+mqtt_host_opts() ->
+    #{
+        default_port => 1883,
+        default_scheme => "mqtt",
+        supported_schemes => ["mqtt", "mqtts"]
+    }.
+
 %% @doc Parse `host[:port]' endpoint to a `{Host, Port}' tuple or just `Host' string.
 %% `Opt' is a `map()' with below options supported:
 %%
@@ -3610,8 +3686,6 @@ do_parse_server(Str, Opts) ->
         false ->
             ok
     end,
-    %% do not split with space, there should be no space allowed between host and port
-    Tokens = string:tokens(Str, ":"),
     Context = #{
         not_expecting_port => NotExpectingPort,
         not_expecting_scheme => NotExpectingScheme,
@@ -3619,106 +3693,83 @@ do_parse_server(Str, Opts) ->
         default_scheme => DefaultScheme,
         opts => Opts
     },
-    Parsed = check_server_parts(Tokens, Context),
+    Parsed = check_server_parts(parse_server_uri(Str), Context),
     maybe_check_ssrf(Parsed, Opts),
     Parsed.
 
-check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
-    #{
-        not_expecting_scheme := NotExpectingScheme,
-        not_expecting_port := NotExpectingPort,
-        opts := Opts
-    } = Context,
+%% @doc Split `[scheme://]host[:port]' via emqx_utils_uri:parse/1 (URI-aware, handles `[ipv6]').
+parse_server_uri(Str) ->
+    Bin = iolist_to_binary(Str),
+    %% parse/1 only sees host/port inside a `//' authority; add one when scheme-less.
+    URIString =
+        case binary:match(Bin, <<"//">>) of
+            nomatch -> <<"//", Bin/binary>>;
+            _ -> Bin
+        end,
+    #{scheme := Scheme, authority := Authority} = emqx_utils_uri:parse(URIString),
+    {uri_scheme(Scheme), Authority}.
+
+uri_scheme(undefined) -> undefined;
+uri_scheme(Scheme) -> binary_to_list(Scheme).
+
+%% parse/1 only splits; connector-specific validation and error reasons live here.
+check_server_parts({_Scheme, undefined}, _Context) ->
+    %% no authority parsed at all (e.g. empty input)
+    throw("bad_host_port");
+check_server_parts({Scheme, #{host_type := HostType, host := HostBin, port := Port}}, Context) ->
+    check_authority(Scheme, HostType, binary_to_list(HostBin), Port, Context).
+
+%% Empty host, e.g. ":1883" — keep the historical numeric-hostname error.
+check_authority(_Scheme, _HostType, "", Port, _Context) when is_integer(Port) ->
+    throw("expecting_hostname_but_got_a_number");
+check_authority(_Scheme, _HostType, "", _Port, _Context) ->
+    throw("bad_host_port");
+%% `loose' = stray colon that isn't a valid `:port' (e.g. "host:33x", "host:name:80").
+check_authority(_Scheme, loose, Host, Port, Context) ->
+    #{not_expecting_port := NotExpectingPort} = Context,
     NotExpectingPort andalso throw("not_expecting_port_number"),
-    NotExpectingScheme andalso throw("not_expecting_scheme"),
-    #{
-        scheme => check_scheme(Scheme, Opts),
-        hostname => check_hostname(Hostname),
-        port => parse_port_(Port)
-    };
-check_server_parts([Scheme, "//" ++ Hostname], Context) ->
+    case {Port, string:tokens(Host, ":")} of
+        {undefined, [_Host, _BadPort]} -> throw("bad_port_number");
+        _ -> throw("bad_host_port")
+    end;
+check_authority(Scheme, _HostType, Host, Port, Context) ->
     #{
         not_expecting_scheme := NotExpectingScheme,
         not_expecting_port := NotExpectingPort,
         default_port := DefaultPort,
+        default_scheme := DefaultScheme,
         opts := Opts
     } = Context,
+    SchemePart = check_server_scheme(Scheme, NotExpectingScheme, DefaultScheme, Opts),
+    PortPart = check_server_port(Port, NotExpectingPort, DefaultPort),
+    maps:merge(#{hostname => check_hostname(Host)}, maps:merge(SchemePart, PortPart)).
+
+check_server_scheme(undefined, _NotExpectingScheme, DefaultScheme, _Opts) when
+    is_list(DefaultScheme)
+->
+    #{scheme => DefaultScheme};
+check_server_scheme(undefined, true, _DefaultScheme, _Opts) ->
+    #{};
+check_server_scheme(undefined, false, _DefaultScheme, _Opts) ->
+    throw("missing_scheme");
+check_server_scheme(Scheme, NotExpectingScheme, _DefaultScheme, Opts) ->
     NotExpectingScheme andalso throw("not_expecting_scheme"),
-    case is_integer(DefaultPort) of
-        true ->
-            #{
-                scheme => check_scheme(Scheme, Opts),
-                hostname => check_hostname(Hostname),
-                port => DefaultPort
-            };
-        false when NotExpectingPort ->
-            #{
-                scheme => check_scheme(Scheme, Opts),
-                hostname => check_hostname(Hostname)
-            };
-        false ->
-            throw("missing_port_number")
-    end;
-check_server_parts([Hostname, Port], Context) ->
-    #{
-        not_expecting_port := NotExpectingPort,
-        default_scheme := DefaultScheme
-    } = Context,
+    #{scheme => check_scheme(Scheme, Opts)}.
+
+check_server_port(undefined, _NotExpectingPort, DefaultPort) when is_integer(DefaultPort) ->
+    #{port => DefaultPort};
+check_server_port(undefined, true, _DefaultPort) ->
+    #{};
+check_server_port(undefined, false, _DefaultPort) ->
+    throw("missing_port_number");
+check_server_port(Port, NotExpectingPort, _DefaultPort) when is_integer(Port) ->
     NotExpectingPort andalso throw("not_expecting_port_number"),
-    case is_list(DefaultScheme) of
-        false ->
-            #{
-                hostname => check_hostname(Hostname),
-                port => parse_port_(Port)
-            };
-        true ->
-            #{
-                scheme => DefaultScheme,
-                hostname => check_hostname(Hostname),
-                port => parse_port_(Port)
-            }
-    end;
-check_server_parts([Hostname], Context) ->
-    #{
-        not_expecting_scheme := NotExpectingScheme,
-        not_expecting_port := NotExpectingPort,
-        default_port := DefaultPort,
-        default_scheme := DefaultScheme
-    } = Context,
-    case is_integer(DefaultPort) orelse NotExpectingPort of
-        true ->
-            ok;
-        false ->
-            throw("missing_port_number")
-    end,
-    case is_list(DefaultScheme) orelse NotExpectingScheme of
-        true ->
-            ok;
-        false ->
-            throw("missing_scheme")
-    end,
-    case {is_integer(DefaultPort), is_list(DefaultScheme)} of
-        {true, true} ->
-            #{
-                scheme => DefaultScheme,
-                hostname => check_hostname(Hostname),
-                port => DefaultPort
-            };
-        {true, false} ->
-            #{
-                hostname => check_hostname(Hostname),
-                port => DefaultPort
-            };
-        {false, true} ->
-            #{
-                scheme => DefaultScheme,
-                hostname => check_hostname(Hostname)
-            };
-        {false, false} ->
-            #{hostname => check_hostname(Hostname)}
-    end;
-check_server_parts(_Tokens, _Context) ->
-    throw("bad_host_port").
+    #{port => check_port_range(Port)}.
+
+check_port_range(Port) when Port > 65535 ->
+    throw("port_number_too_large");
+check_port_range(Port) ->
+    Port.
 
 check_scheme(Str, Opts) ->
     SupportedSchemes = maps:get(supported_schemes, Opts, []),
@@ -3775,12 +3826,6 @@ convert_hocon_map_host_port(Map) ->
 is_port_number(Str) ->
     {Status, _} = parse_port(Str),
     Status == ok.
-
-parse_port_(Str) ->
-    case parse_port(Str) of
-        {ok, Port} -> Port;
-        {error, Reason} -> throw(Reason)
-    end.
 
 parse_port(Port) ->
     case string:to_integer(string:strip(Port)) of

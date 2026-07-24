@@ -24,9 +24,9 @@
     broker/1,
     cluster/1,
     clients/1,
+    'session-top'/1,
     topics/1,
     subscriptions/1,
-    plugins/1,
     listeners/1,
     vm/1,
     mnesia/1,
@@ -45,13 +45,31 @@
     cluster_info/0
 ]).
 
+-define(COMMANDS, [
+    authz,
+    broker,
+    clients,
+    cluster,
+    data,
+    ds,
+    exclusive,
+    listeners,
+    log,
+    mnesia,
+    olp,
+    pem_cache,
+    'session-top',
+    status,
+    subscriptions,
+    topics,
+    trace,
+    traces,
+    vm
+]).
+
 -spec load() -> ok.
 load() ->
-    Cmds = [Fun || {Fun, 1} <- ?MODULE:module_info(exports), is_cmd(Fun)],
-    lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
-
-is_cmd(Fun) ->
-    not lists:member(Fun, [init, load, module_info]).
+    lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, ?COMMANDS).
 
 %%--------------------------------------------------------------------
 %% @doc Node status
@@ -256,6 +274,220 @@ clients(_) ->
         {"clients kick <ClientId>", "Kick out a client"}
     ]).
 
+'session-top'(["status"]) ->
+    print_session_top_status(emqx_session_top_collector:status());
+'session-top'(["cancel"]) ->
+    case emqx_session_top_collector:cancel() of
+        {ok, cancelled} ->
+            emqx_ctl:print("Session top scan cancelled.~n");
+        {error, not_running} ->
+            emqx_ctl:print("[error] No session-top scan is running.~n")
+    end;
+'session-top'(Args) ->
+    case parse_session_top_args(Args) of
+        {ok, Opts} ->
+            run_session_top(Opts);
+        {error, Msg} ->
+            maybe_print_session_top_arg_error(Msg),
+            session_top_usage()
+    end.
+
+maybe_print_session_top_arg_error(Msg) ->
+    case iolist_to_binary(Msg) of
+        <<"Invalid ", _/binary>> ->
+            emqx_ctl:print("[error] ~s~n", [Msg]);
+        _ ->
+            ok
+    end.
+
+session_top_usage() ->
+    emqx_ctl:usage([
+        {
+            "session-top status",
+            "Show the running scan or the latest finished scan.\n"
+            "The latest finished status is kept until the next scan starts."
+        },
+        {
+            "session-top cancel",
+            "Cancel the running session-top scan."
+        },
+        {
+            "session-top --out <File>\n"
+            "  [--count <K>]\n"
+            "  [--sort <SortBy>]\n"
+            "  [--batch <Size>]\n"
+            "  [--sleep <Ms>]",
+            "Write cluster top sessions to a new CSV file.\n"
+            "Result row limit, default: 10, max: 1000.\n"
+            "SortBy: mqueue_length | total_payload_bytes.\n"
+            "Rows per local scan batch, default: 1000.\n"
+            "Delay between batches, default: 1ms."
+        }
+    ]).
+
+run_session_top(Opts) ->
+    OutFile = maps:get(out, Opts),
+    case ensure_out_file_absent(OutFile) of
+        ok ->
+            Completion = fun(Rows) -> complete_session_top(OutFile, Rows) end,
+            case emqx_session_top_collector:run(maps:remove(out, Opts), Completion) of
+                {ok, _Pid} ->
+                    print_session_top_started(Opts);
+                {error, busy} ->
+                    emqx_ctl:print("[error] A session-top scan is already running.~n");
+                {error, {busy, Collector}} ->
+                    emqx_ctl:print(
+                        "[error] A session-top scan initiated on ~p is already running "
+                        "on this node.~n",
+                        [Collector]
+                    )
+            end;
+        {error, eexist} ->
+            emqx_ctl:print("[error] Output file already exists: ~ts~n", [OutFile]);
+        {error, Reason} ->
+            emqx_ctl:print("[error] Failed to check output file: ~p~n", [Reason])
+    end.
+
+complete_session_top(OutFile, Rows) ->
+    case write_session_top_csv(OutFile, Rows) of
+        ok ->
+            ?SLOG(info, #{
+                msg => session_top_written,
+                file => OutFile,
+                rows => length(Rows)
+            }),
+            ok;
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => session_top_write_failed,
+                file => OutFile,
+                reason => Reason
+            }),
+            Error
+    end.
+
+write_session_top_csv(OutFile, Rows) ->
+    case file:open(OutFile, [write, exclusive, raw, binary]) of
+        {ok, IoDev} ->
+            try
+                write_session_top_csv_chunks(IoDev, [
+                    <<"clientid,node,mqueue_length,total_payload_bytes,inflight_count\n">>,
+                    session_top_csv_rows(Rows)
+                ])
+            after
+                _ = file:close(IoDev)
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+write_session_top_csv_chunks(_IoDev, []) ->
+    ok;
+write_session_top_csv_chunks(IoDev, [Chunk | More]) ->
+    case file:write(IoDev, Chunk) of
+        ok -> write_session_top_csv_chunks(IoDev, More);
+        {error, Reason} -> {error, Reason}
+    end.
+
+session_top_csv_rows(Rows) ->
+    [session_top_csv_row(Row) || Row <- Rows].
+
+session_top_csv_row(Row) ->
+    [
+        session_top_csv_cell(maps:get(clientid, Row)),
+        <<",">>,
+        session_top_csv_cell(maps:get(node, Row)),
+        <<",">>,
+        integer_to_binary(maps:get(mqueue_length, Row)),
+        <<",">>,
+        integer_to_binary(maps:get(total_payload_bytes, Row)),
+        <<",">>,
+        integer_to_binary(maps:get(inflight_count, Row)),
+        $\n
+    ].
+
+session_top_csv_cell(Value) when is_binary(Value) ->
+    quote_session_top_csv_cell(Value);
+session_top_csv_cell(Value) when is_atom(Value) ->
+    quote_session_top_csv_cell(atom_to_binary(Value, utf8)).
+
+quote_session_top_csv_cell(Bin) ->
+    case
+        lists:any(
+            fun(Pattern) -> binary:match(Bin, Pattern) =/= nomatch end,
+            [<<",">>, <<"\"">>, <<"\n">>, <<"\r">>]
+        )
+    of
+        true -> [$", binary:replace(Bin, <<"\"">>, <<"\"\"">>, [global]), $"];
+        false -> Bin
+    end.
+
+print_session_top_started(Opts) ->
+    emqx_ctl:print(
+        "Session top scan started.~n"
+        "Status: running~n"
+        "Output: ~ts~n"
+        "Batch size: ~B~n"
+        "Sleep: ~B ms~n"
+        "Run 'emqx ctl session-top status' to check progress.~n",
+        [
+            maps:get(out, Opts),
+            maps:get(batch_size, Opts, 1000),
+            maps:get(sleep_ms, Opts, 1)
+        ]
+    ).
+
+print_session_top_status(#{status := idle}) ->
+    emqx_ctl:print("Status: idle~nNo session-top scan is running.~n");
+print_session_top_status(
+    #{
+        status := running,
+        count := Count,
+        sort := Sort,
+        batch_size := BatchSize,
+        sleep_ms := SleepMs,
+        cluster_nodes := ClusterNodes
+    } = Status
+) ->
+    emqx_ctl:print(
+        "Status: running~n"
+        "Limit: ~B~n"
+        "Sort by: ~s~n"
+        "Batch size: ~B~n"
+        "Sleep: ~B ms~n"
+        "Cluster nodes: ~B~n",
+        [Count, atom_to_list(Sort), BatchSize, SleepMs, ClusterNodes]
+    ),
+    maybe_print_session_top_bad_replies(Status);
+print_session_top_status(#{
+    status := cancelled,
+    reason := Reason
+}) ->
+    emqx_ctl:print(
+        "Status: cancelled~n"
+        "Reason: ~p~n",
+        [Reason]
+    );
+print_session_top_status(Status = #{status := completed, rows := Rows}) ->
+    emqx_ctl:print(
+        "Status: completed~n"
+        "Result rows: ~B~n",
+        [Rows]
+    ),
+    maybe_print_session_top_bad_replies(Status);
+print_session_top_status(Status = #{status := failed, reason := Reason}) ->
+    emqx_ctl:print(
+        "Status: failed~n"
+        "Reason: ~p~n",
+        [Reason]
+    ),
+    maybe_print_session_top_bad_replies(Status).
+
+maybe_print_session_top_bad_replies(#{bad_replies := BadReplies}) ->
+    emqx_ctl:print("Bad replies: ~p~n", [BadReplies]);
+maybe_print_session_top_bad_replies(_Status) ->
+    ok.
+
 %%--------------------------------------------------------------------
 %% @private Dump client statistics to CSV file
 
@@ -454,7 +686,7 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
                 emqx_ctl:print("Error: Channel not found!");
             [{_, Pid}] ->
                 {Topic1, Options} = emqx_topic:parse(bin(Topic)),
-                Pid ! {subscribe, [{Topic1, Options#{qos => IntQos}}]},
+                Pid ! {force_subscribe, [{Topic1, Options#{qos => IntQos}}]},
                 emqx_ctl:print("ok~n")
         end
     end);
@@ -484,85 +716,6 @@ if_valid_qos(QoS, Fun) ->
         _:_ ->
             emqx_ctl:print("QoS should be 0, 1, 2~n")
     end.
-
-plugins(["list"]) ->
-    emqx_plugins_cli:list(fun emqx_ctl:print/2);
-plugins(["describe", NameVsn]) ->
-    emqx_plugins_cli:describe(NameVsn, fun emqx_ctl:print/2);
-plugins(["allow", NameVsn]) ->
-    emqx_plugins_cli:allow_installation(NameVsn, fun emqx_ctl:print/2);
-plugins(["allow", NameVsn, "sha256:" ++ Hex]) ->
-    case parse_sha256_hex(Hex) of
-        {ok, Sha256} ->
-            emqx_plugins_cli:allow_installation(NameVsn, Sha256, fun emqx_ctl:print/2);
-        error ->
-            emqx_ctl:print(
-                "sha256 must be 64 lowercase hex characters, e.g. sha256:abc...~n"
-            )
-    end;
-plugins(["disallow", NameVsn]) ->
-    emqx_plugins_cli:disallow_installation(NameVsn, fun emqx_ctl:print/2);
-plugins(["install", NameVsn]) ->
-    emqx_plugins_cli:ensure_installed(NameVsn, fun emqx_ctl:print/2);
-plugins(["uninstall", NameVsn]) ->
-    emqx_plugins_cli:ensure_uninstalled(NameVsn, fun emqx_ctl:print/2);
-plugins(["start", NameVsn]) ->
-    emqx_plugins_cli:ensure_started(NameVsn, fun emqx_ctl:print/2);
-plugins(["stop", NameVsn]) ->
-    emqx_plugins_cli:ensure_stopped(NameVsn, fun emqx_ctl:print/2);
-plugins(["restart", NameVsn]) ->
-    emqx_plugins_cli:restart(NameVsn, fun emqx_ctl:print/2);
-plugins(["disable", NameVsn]) ->
-    emqx_plugins_cli:ensure_disabled(NameVsn, fun emqx_ctl:print/2);
-plugins(["enable", NameVsn]) ->
-    emqx_plugins_cli:ensure_enabled(NameVsn, no_move, fun emqx_ctl:print/2);
-plugins(["enable", NameVsn, "front"]) ->
-    emqx_plugins_cli:ensure_enabled(NameVsn, front, fun emqx_ctl:print/2);
-plugins(["enable", NameVsn, "rear"]) ->
-    emqx_plugins_cli:ensure_enabled(NameVsn, rear, fun emqx_ctl:print/2);
-plugins(["enable", NameVsn, "before", Other]) ->
-    emqx_plugins_cli:ensure_enabled(NameVsn, {before, Other}, fun emqx_ctl:print/2);
-plugins(_) ->
-    emqx_ctl:usage(
-        [
-            {"plugins <command> [Name-Vsn]", "e.g. 'start emqx_plugin_template-5.0-rc.1'"},
-            {"plugins list", "List all installed plugins"},
-            {"plugins describe  Name-Vsn", "Describe an installed plugins"},
-            {"plugins allow     Name-Vsn [sha256:HEX]",
-                "Allows installation of a plugin in the cluster from Dashboard or API.\n"
-                "The grant expires 5 minutes after issue.\n"
-                "If sha256:HEX (64 lowercase hex chars) is given, the upload bytes\n"
-                "must hash to that value or the install is rejected."},
-            {"plugins disallow  Name-Vsn",
-                "Disallows installation of a plugin in the cluster from Dashboard or API"},
-            {"plugins install   Name-Vsn",
-                "Install a plugin package placed\n"
-                "in plugin's install_dir"},
-            {"plugins uninstall Name-Vsn",
-                "Uninstall a plugin. NOTE: it deletes\n"
-                "all files in install_dir/Name-Vsn"},
-            {"plugins start     Name-Vsn", "Start a plugin"},
-            {"plugins stop      Name-Vsn", "Stop a plugin"},
-            {"plugins restart   Name-Vsn", "Stop then start a plugin"},
-            {"plugins disable   Name-Vsn", "Disable auto-boot"},
-            {"plugins enable    Name-Vsn [Position]",
-                "Enable auto-boot at Position in the boot list, where Position could be\n"
-                "'front', 'rear', or 'before Other-Vsn' to specify a relative position.\n"
-                "The Position parameter can be used to adjust the boot order.\n"
-                "If no Position is given, an already configured plugin\n"
-                "will stay at is old position; a newly plugin is appended to the rear\n"
-                "e.g. plugins disable foo-0.1.0 front\n"
-                "     plugins enable bar-0.2.0 before foo-0.1.0"}
-        ]
-    ).
-
-parse_sha256_hex(Hex) when length(Hex) =:= 64 ->
-    case re:run(Hex, "^[0-9a-f]{64}$", [{capture, none}]) of
-        match -> {ok, list_to_binary(Hex)};
-        nomatch -> error
-    end;
-parse_sha256_hex(_) ->
-    error.
 
 %%--------------------------------------------------------------------
 %% @doc vm command
@@ -1324,6 +1477,81 @@ validate_dump_stats_args(Opts) ->
             ok;
         false ->
             {error, "Invalid parameters"}
+    end.
+
+parse_session_top_args(Args) ->
+    maybe
+        {ok, Opts} ?=
+            collect_session_top_args(Args, #{
+                count => 10,
+                sort => total_payload_bytes,
+                batch_size => 1000,
+                sleep_ms => 1
+            }),
+        ok ?= validate_session_top_args(Opts),
+        {ok, Opts}
+    end.
+
+collect_session_top_args([], Acc) ->
+    {ok, Acc};
+collect_session_top_args(["--out", Out | Rest], Acc) ->
+    collect_session_top_args(Rest, Acc#{out => Out});
+collect_session_top_args(["--count", CountStr | Rest], Acc) ->
+    case string:to_integer(CountStr) of
+        {Count, []} when Count > 0, Count =< 1000 ->
+            collect_session_top_args(Rest, Acc#{count => Count});
+        {Count, []} when Count > 1000 ->
+            {error, "Invalid count: maximum is 1000."};
+        _ ->
+            {error, io_lib:format("Invalid count: ~s. Must be a positive integer.", [CountStr])}
+    end;
+collect_session_top_args(["--sort", SortStr | Rest], Acc) ->
+    case parse_session_top_sort(SortStr) of
+        {ok, Sort} ->
+            collect_session_top_args(Rest, Acc#{sort => Sort});
+        error ->
+            {error, "Invalid sort key. Supported values are mqueue_length and total_payload_bytes."}
+    end;
+collect_session_top_args(["--batch", BatchSizeStr | Rest], Acc) ->
+    case string:to_integer(BatchSizeStr) of
+        {BatchSize, []} when BatchSize > 0 ->
+            collect_session_top_args(Rest, Acc#{batch_size => BatchSize});
+        _ ->
+            {error,
+                io_lib:format("Invalid batch size: ~s. Must be a positive integer.", [
+                    BatchSizeStr
+                ])}
+    end;
+collect_session_top_args(["--sleep", SleepStr | Rest], Acc) ->
+    case string:to_integer(SleepStr) of
+        {SleepMs, []} when SleepMs >= 0 ->
+            collect_session_top_args(Rest, Acc#{sleep_ms => SleepMs});
+        _ ->
+            {error,
+                io_lib:format("Invalid sleep value: ~s. Must be a non-negative integer.", [
+                    SleepStr
+                ])}
+    end;
+collect_session_top_args(Args, _Acc) ->
+    {error, io_lib:format("unknown arguments: ~p", [Args])}.
+
+parse_session_top_sort("mqueue_length") ->
+    {ok, mqueue_length};
+parse_session_top_sort("total_payload_bytes") ->
+    {ok, total_payload_bytes};
+parse_session_top_sort(_) ->
+    error.
+
+validate_session_top_args(#{out := _Out}) ->
+    ok;
+validate_session_top_args(_Opts) ->
+    {error, "--out <File> is required."}.
+
+ensure_out_file_absent(OutFile) ->
+    case file:read_file_info(OutFile) of
+        {ok, _Info} -> {error, eexist};
+        {error, enoent} -> ok;
+        {error, Reason} -> {error, Reason}
     end.
 
 %%--------------------------------------------------------------------

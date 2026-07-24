@@ -87,6 +87,23 @@ fi
 
 cleanup
 
+# Forward EMQX_* environment variables set by the caller (e.g. EMQX_FEATURES,
+# EMQX_AUTHORIZATION__*) to both node containers. Variables managed by this
+# script are never forwarded: node identity/cookie, clustering/RPC, the license
+# key (this script pins it via LICENSE_KEY1/2, and the CI runner may export a
+# single-node community key that would otherwise break clustering), and the
+# EMQX_NAME CI artifact-naming variable. The forwarded vars are also placed
+# before the script's own `-e` flags below, so the pinned values always win.
+EXTRA_EMQX_ENV=()
+while IFS= read -r _emqx_var; do
+    case "${_emqx_var}" in
+        EMQX_NAME) ;;
+        EMQX_NODE_NAME|EMQX_NODE_COOKIE|EMQX_NODE__NAME|EMQX_NODE__COOKIE) ;;
+        EMQX_CLUSTER__*|EMQX_RPC__*|EMQX_LICENSE__*) ;;
+        EMQX_*) EXTRA_EMQX_ENV+=(-e "${_emqx_var}") ;;
+    esac
+done < <(compgen -e)
+
 if [ -z "${USE_NET}" ]; then
     if [ ${IPV6} = 1 ]; then
         docker network create --ipv6 --subnet 2001:0DB8::/112 "$NET"
@@ -105,6 +122,7 @@ fi
 
 docker run -d -t --restart=always --name "$NODE1" \
   --net "$NET" \
+  ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
@@ -120,6 +138,7 @@ docker run -d -t --restart=always --name "$NODE1" \
 
 docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
+  ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
@@ -272,26 +291,34 @@ wait_for_haproxy() {
     done
 }
 
+## Dump logs from both nodes, so a cluster-formation failure shows the state of
+## every node (the node that failed to join is usually not the one being polled).
+dump_all_node_logs() {
+    for node in "$NODE1" "$NODE2"; do
+        echo "==============  ${node}  =============="
+        docker logs "$node" 2>&1 || true
+    done
+}
+
 wait_for_running_nodes() {
     local container="$1"
     local expected_running_nodes="$2"
     local wait_limit="$3"
     local wait_sec=0
+    local running_nodes=0
     while [ "${wait_sec}" -lt "${wait_limit}" ]; do
         running_nodes="$(docker exec -t "$container" emqx ctl cluster status --json | jq '.running_nodes | length')"
         if [ "${running_nodes}" -eq "${expected_running_nodes}" ]; then
             echo "Successfully confirmed ${running_nodes} running nodes"
-            exit 0
-        fi
-        if [ "$wait_sec" -gt "$wait_limit" ]; then
-            echo "Expected running nodes is ${expected_running_nodes}, but got ${running_nodes} after ${wait_limit} seconds"
-            docker logs "$container"
-            exit 1
+            return 0
         fi
         wait_sec=$(( wait_sec + 1 ))
         echo -n '.'
         sleep 1
     done
+    echo "Expected running nodes is ${expected_running_nodes}, but got ${running_nodes} after ${wait_limit} seconds"
+    dump_all_node_logs
+    exit 1
 }
 
 wait_for_emqx "$NODE1" 60
@@ -300,6 +327,26 @@ wait_for_haproxy 30
 
 echo
 
-docker exec "${NODE2}" emqx ctl cluster join "emqx@$NODE1"
+## `emqx ctl` answers before the node has fully booted, and a join issued at
+## that point is refused with a non-zero exit and a readable error (joining
+## restarts mria, which is fatal to applications that are still starting).
+## Retry until the join is accepted.
+join_cluster() {
+    local joiner="$1"
+    local seed="$2"
+    local wait_limit="$3"
+    local wait_sec=0
+    until docker exec "$joiner" emqx ctl cluster join "$seed"; do
+        wait_sec=$(( wait_sec + 1 ))
+        if [ $wait_sec -gt "$wait_limit" ]; then
+            echo "timeout waiting for cluster join to be accepted"
+            docker logs "$joiner"
+            exit 1
+        fi
+        sleep 1
+    done
+}
 
-wait_for_running_nodes "$NODE1" "${EXPECTED_RUNNING_NODES:-2}" 30
+join_cluster "$NODE2" "emqx@$NODE1" 60
+
+wait_for_running_nodes "$NODE1" "${EXPECTED_RUNNING_NODES:-2}" 60

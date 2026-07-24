@@ -1,0 +1,4 @@
+default_timeout = "10s"
+max_timeout = "60s"
+max_inflight_requests = 10000
+max_payload_size = "64KB"

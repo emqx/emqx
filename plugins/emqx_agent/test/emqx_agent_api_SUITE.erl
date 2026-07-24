@@ -240,6 +240,7 @@ t_connections_crud(Config) ->
     Id = ?config(tc_id, Config),
 
     ?assertMatch({ok, 200, []}, api_get([agent, connections])),
+    ?assertMatch({ok, 400, _}, api_post([agent, connections], #{<<"id">> => Id})),
     ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(Id))),
 
     {ok, 200, Conn} = api_get([agent, connections, Id]),
@@ -349,11 +350,46 @@ t_tool_statuses(Config) ->
     ),
     ?assertEqual({error, not_found}, emqx_agent_tool_registry:lookup(<<"postgresql__query">>, Id)).
 
+t_tool_rejects_invalid_format(Config) ->
+    Id = ?config(tc_id, Config),
+    MissingId = <<Id/binary, "-missing">>,
+
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([agent, tools], #{
+            <<"type">> => <<"stream__write">>,
+            <<"id">> => Id,
+            <<"desc">> => <<"invalid format">>,
+            <<"stream">> => <<"stream">>,
+            <<"format">> => <<"xml">>
+        })
+    ),
+    ?assertMatch(
+        {ok, 404, _},
+        api_get([agent, tools, <<"stream__write">>, Id])
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([agent, tools], #{
+            <<"type">> => <<"stream__write">>,
+            <<"id">> => MissingId,
+            <<"desc">> => <<"missing format">>,
+            <<"stream">> => <<"stream">>
+        })
+    ),
+    ?assertMatch(
+        {ok, 404, _},
+        api_get([agent, tools, <<"stream__write">>, MissingId])
+    ),
+    {ok, 200, Statuses} = api_get([agent, tools, statuses]),
+    ?assertNot(maps:is_key(<<"stream__write@", Id/binary>>, Statuses)),
+    ?assertNot(maps:is_key(<<"stream__write@", MissingId/binary>>, Statuses)).
+
 t_tools_validation(_Config) ->
     %% Missing type field
     ?assertMatch(
         {ok, 400, _},
-        api_post([agent, tools], #{<<"id">> => <<"x">>, <<"desc">> => <<"x">>})
+        api_post([agent, tools], #{<<"id">> => <<"x">>})
     ),
 
     %% Unknown tool type
@@ -461,6 +497,10 @@ t_pipelines_crud(Config) ->
     ?assertMatch({ok, 404, _}, api_get([agent, pipelines, Id])).
 
 t_pipelines_validation(_Config) ->
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([agent, pipelines], #{<<"pipeline_id">> => <<"x">>})
+    ),
     ?assertMatch(
         {ok, 400, _},
         api_post([agent, pipelines], #{

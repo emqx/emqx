@@ -988,6 +988,51 @@ t_namespaced_user_cross_ns_isolation(_TCConfig) ->
     ?assertMatch({200, []}, list_traces_simple(NsViewer)),
     ok.
 
+-doc """
+Checks the namespace boundary on `PUT /tracing` (the global trace
+configuration endpoint).
+
+A namespaced administrator must not mutate the global `[trace]`
+configuration; RBAC gates the operation on `?global_ns` and
+returns `403 UNAUTHORIZED_ROLE`. A namespaced viewer is also
+rejected (RBAC blocks `PUT` for viewers before the handler is reached).
+A global administrator retains full read/write access (regression) and
+the namespaced write leaves the config unchanged.
+""".
+t_namespaced_user_cannot_update_config(_TCConfig) ->
+    %% Snapshot the current global trace config; we'll assert it is
+    %% unchanged after the rejected namespaced write, and restore it
+    %% at the end.
+    GlobalAdmin = emqx_bridge_v2_testlib:create_superuser(),
+    {200, Conf0} = tracing_simple(get, GlobalAdmin),
+    try
+        %% Namespaced administrator: 403 UNAUTHORIZED_ROLE from RBAC.
+        NsAdmin = namespaced_admin_headers(),
+        {StatusAdm, BodyAdm} = tracing_simple(put, #{<<"max_traces">> => 1}, NsAdmin),
+        ?assertEqual(403, StatusAdm),
+        ?assertMatch(#{<<"code">> := <<"UNAUTHORIZED_ROLE">>}, BodyAdm),
+        %% Config is left untouched.
+        {200, Conf1} = tracing_simple(get, GlobalAdmin),
+        ?assertEqual(Conf0, Conf1),
+        %% Namespaced viewer: RBAC rejects `PUT` for viewers before the
+        %% handler is reached; the response is still a 403.
+        NsViewer = namespaced_viewer_headers(),
+        {StatusViewer, _} = tracing_simple(put, #{<<"max_traces">> => 1}, NsViewer),
+        ?assertEqual(403, StatusViewer),
+        %% Positive regression: a global dashboard administrator can
+        %% update both visible fields, and each update persists on GET.
+        {200, Conf2} = tracing_simple(put, #{<<"max_traces">> => 1}, GlobalAdmin),
+        ?assertMatch(#{<<"max_traces">> := 1}, Conf2),
+        {200, Conf3} = tracing_simple(get, GlobalAdmin),
+        ?assertMatch(#{<<"max_traces">> := 1}, Conf3),
+        {200, Conf4} = tracing_simple(put, #{<<"max_file_size">> => <<"64MB">>}, GlobalAdmin),
+        ?assertMatch(#{<<"max_file_size">> := 64 * 1024 * 1024}, Conf4),
+        {200, Conf5} = tracing_simple(get, GlobalAdmin),
+        ?assertMatch(#{<<"max_file_size">> := 64 * 1024 * 1024}, Conf5)
+    after
+        {200, _} = tracing_simple(put, Conf0, GlobalAdmin)
+    end.
+
 namespaced_admin_headers() ->
     emqx_bridge_v2_testlib:create_namespaced_admin_headers(#{}).
 
@@ -1045,6 +1090,21 @@ clear_traces_simple(AuthHeader) ->
     emqx_mgmt_api_test_util:simple_request(#{
         method => delete,
         url => emqx_mgmt_api_test_util:api_path(["trace"]),
+        auth_header => AuthHeader
+    }).
+
+tracing_simple(get, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["tracing"]),
+        auth_header => AuthHeader
+    }).
+
+tracing_simple(put, Body, AuthHeader) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => put,
+        url => emqx_mgmt_api_test_util:api_path(["tracing"]),
+        body => Body,
         auth_header => AuthHeader
     }).
 

@@ -1,7 +1,7 @@
 services:
   gcp_emulator_pubsub:
     container_name: gcp_emulator_pubsub
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:533.0.0-emulators
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:576.0.0-emulators
     restart: always
     expose:
       - "8085"
@@ -19,3 +19,19 @@ services:
       - "-c"
       - |
         gcloud beta emulators pubsub start --project=emqx-pubsub --host-port=0.0.0.0:8085 --impersonate-service-account test@emqx.iam.gserviceaccount.com
+
+  # The sole purpose of this is to downgrade http2 requests to http1.1 for the emulator.
+  # Real gcp supports rest api with http2, but the emulator takes it to mean grpc.....
+  gcp_emulator_pubsub_proxy:
+    container_name: gcp_emulator_pubsub_proxy
+    image: public.ecr.aws/nginx/nginx:1.27-bookworm
+    depends_on:
+      gcp_emulator_pubsub:
+        condition: service_healthy
+    expose:
+      - 8085
+    networks:
+      - emqx_bridge
+    volumes:
+      - ./gcp_emulator_pubsub/nginx-downgrade-http.conf:/etc/nginx/conf.d/default.conf
+    command: [nginx-debug, '-g', 'daemon off;']

@@ -77,7 +77,7 @@
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
               {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
-              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
+              {"name": "format", "type": {"type": "enum", "name": "StreamWriteFormat", "symbols": ["json", "binary"]}, "description": "$tool_format_desc"}
             ]
           },
           {
@@ -88,7 +88,7 @@
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
               {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
-              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
+              {"name": "format", "type": {"type": "enum", "name": "StreamReadFormat", "symbols": ["json", "binary"]}, "description": "$tool_format_desc"}
             ]
           },
           {
@@ -109,7 +109,7 @@
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
               {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
-              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
+              {"name": "format", "type": {"type": "enum", "name": "KvWriteFormat", "symbols": ["json", "binary"]}, "description": "$tool_format_desc"}
             ]
           },
           {
@@ -120,7 +120,7 @@
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
               {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
-              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
+              {"name": "format", "type": {"type": "enum", "name": "KvReadFormat", "symbols": ["json", "binary"]}, "description": "$tool_format_desc"}
             ]
           },
           {
@@ -131,7 +131,7 @@
               {"name": "id", "type": "string", "description": "$tool_id_desc"},
               {"name": "desc", "type": "string", "description": "$tool_desc_desc"},
               {"name": "stream", "type": "string", "description": "$tool_stream_desc"},
-              {"name": "format", "type": "string", "default": "json", "description": "$tool_format_desc"}
+              {"name": "format", "type": {"type": "enum", "name": "KvReadAllFormat", "symbols": ["json", "binary"]}, "description": "$tool_format_desc"}
             ]
           },
           {

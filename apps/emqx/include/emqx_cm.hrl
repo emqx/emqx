@@ -20,6 +20,12 @@
 
 -define(CM_POOL, emqx_cm_pool).
 
+-define(CHAN_CONN_MODULES, [
+    emqx_connection,
+    emqx_socket_connection,
+    emqx_ws_connection
+]).
+
 %% Registered sessions.
 -record(channel, {
     chid :: emqx_types:clientid() | '_',

@@ -35,9 +35,23 @@ validate_topic_filter(Filter) when is_binary(Filter) ->
     %% path.
     try
         true = emqx_topic:validate({filter, Filter}),
-        ok
+        case is_shared_filter(Filter) of
+            false -> ok;
+            true -> {error, #{cause => shared_topic_filter_not_allowed, filter => Filter}}
+        end
     catch
         _:Reason -> {error, #{cause => bad_topic_filter, reason => Reason}}
     end;
 validate_topic_filter(_) ->
     {error, #{cause => bad_topic_filter}}.
+
+%% Shared-subscription filters (`$share/<group>/<topic>' and the
+%% `$queue/<topic>' alias) are valid *subscription* filters but never
+%% match a published `#message.topic' (the share prefix lives on the
+%% subscription, not the message). A collection stored with such a
+%% filter would silently count nothing, so we reject it at creation.
+%% Deliveries to shared subscribers are still counted under the plain
+%% topic filter via the `message.delivered' hook.
+is_shared_filter(<<"$share/", _/binary>>) -> true;
+is_shared_filter(<<"$queue/", _/binary>>) -> true;
+is_shared_filter(_) -> false.

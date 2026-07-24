@@ -53,7 +53,7 @@
         channels := #{}
     }.
 
--define(DEFAULT_SERVER_OPTION, #{default_port => ?CASSANDRA_DEFAULT_PORT, ssrf_check => true}).
+-define(DEFAULT_SERVER_OPTION, #{default_port => ?CASSANDRA_DEFAULT_PORT}).
 
 %%--------------------------------------------------------------------
 %% schema

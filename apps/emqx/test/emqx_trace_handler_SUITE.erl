@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("emqx/include/emqx_schema.hrl").
 
 -define(CLIENT, [
     {host, "localhost"},
@@ -33,13 +34,11 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(Apps),
     ok.
 
-init_per_testcase(t_trace_clientid, Config) ->
-    Config;
 init_per_testcase(_Case, Config) ->
-    _ = [logger:remove_handler(Id) || #{id := Id} <- emqx_trace_handler:running()],
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    [logger:remove_handler(Id) || #{id := Id} <- emqx_trace_handler:running()],
     ok.
 
 t_trace_clientid(_Config) ->
@@ -208,14 +207,38 @@ t_trace_topic(_Config) ->
     emqtt:disconnect(T).
 
 t_trace_ip_address(_Config) ->
-    {ok, T} = emqtt:start_link(?CLIENT),
-    emqtt:connect(T),
+    test_trace_ip_address("tcp_default", tcp, get_listener_port(tcp, default)).
+
+t_trace_ip_address_gen_tcp(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    ConfPath = [listeners, tcp, gen_tcp],
+    RawConf = maps:merge(
+        emqx:get_raw_config([listeners, tcp, default]),
+        #{
+            <<"bind">> => format_bind({{127, 0, 0, 1}, Port}),
+            <<"tcp_backend">> => <<"gen_tcp">>
+        }
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(ConfPath, {create, RawConf})),
+    try
+        test_trace_ip_address("gen_tcp", tcp, Port)
+    after
+        _ = emqx:update_config(ConfPath, ?TOMBSTONE_CONFIG_CHANGE_REQ)
+    end.
+
+t_trace_ip_address_ws(_Config) ->
+    test_trace_ip_address("ws", ws, get_listener_port(ws, default)).
+
+test_trace_ip_address(Name, Transport, Port) ->
+    T = connect_client(Transport, Port, [{clientid, Name}]),
 
     %% Start tracing
-    Filename1 = "tmp/ip_trace_x.log",
-    Filename2 = "tmp/ip_trace_y.log",
-    ok = install_handler("CLI-IP-1", {ip_address, "127.0.0.1"}, all, Filename1),
-    ok = install_handler("CLI-IP-2", {ip_address, "192.168.1.1"}, all, Filename2),
+    Filename1 = "tmp/ip_trace_" ++ Name ++ "_x.log",
+    Filename2 = "tmp/ip_trace_" ++ Name ++ "_y.log",
+    Handler1 = emqx_utils:format("CLI-IP-~s-1", [Name]),
+    Handler2 = emqx_utils:format("CLI-IP-~s-2", [Name]),
+    ok = install_handler(Handler1, {ip_address, "127.0.0.1"}, all, Filename1),
+    ok = install_handler(Handler2, {ip_address, "192.168.1.1"}, all, Filename2),
     emqx_trace:check(),
 
     %% Verify the topmost tracing file exits
@@ -229,14 +252,14 @@ t_trace_ip_address(_Config) ->
     ?assertMatch(
         [
             #{
-                name := <<"CLI-IP-1">>,
-                filter := {ip_address, "127.0.0.1"},
+                name := Handler1,
+                filter := {ip_address, <<"127.0.0.1">>},
                 level := debug,
                 dst := Filepath1
             },
             #{
-                name := <<"CLI-IP-2">>,
-                filter := {ip_address, "192.168.1.1"},
+                name := Handler2,
+                filter := {ip_address, <<"192.168.1.1">>},
                 level := debug,
                 dst := Filepath2
             }
@@ -262,11 +285,31 @@ t_trace_ip_address(_Config) ->
     ?assert(filelib:file_size(Filename2) =:= 0),
 
     %% Stop tracing
-    ok = uninstall_handler("CLI-IP-1"),
-    ok = uninstall_handler("CLI-IP-2"),
-    {error, _Reason} = uninstall_handler("127.0.0.2"),
     emqtt:disconnect(T),
+    ok = uninstall_handler(Handler1),
+    ok = uninstall_handler(Handler2),
     ?assertEqual([], emqx_trace_handler:running()).
+
+connect_client(Transport, Port, Opts0) ->
+    {ok, Client} = emqtt:start_link([
+        {hosts, [{"127.0.0.1", Port}]},
+        {username, <<"testuser">>},
+        {password, <<"pass">>}
+        | Opts0
+    ]),
+    case Transport of
+        tcp -> {ok, _} = emqtt:connect(Client);
+        ws -> {ok, _} = emqtt:ws_connect(Client)
+    end,
+    Client.
+
+get_listener_port(Type, Name) ->
+    case emqx_config:get([listeners, Type, Name, bind]) of
+        Port when is_integer(Port) ->
+            Port;
+        {_Host, Port} ->
+            Port
+    end.
 
 t_trace_max_file_size(_Config) ->
     Name = <<"CLI-trace_max_file_size">>,
@@ -353,9 +396,12 @@ sorted_running_handlers() ->
     ).
 
 install_handler(Name, Filter, Level, LogFile) ->
-    HandlerId = list_to_atom(?MODULE_STRING ++ ":" ++ Name),
+    HandlerId = binary_to_atom(iolist_to_binary([?MODULE_STRING, ":", Name])),
     emqx_trace_handler:install(HandlerId, Name, Filter, Level, LogFile, text).
 
 uninstall_handler(Name) ->
-    HandlerId = list_to_atom(?MODULE_STRING ++ ":" ++ Name),
+    HandlerId = binary_to_atom(iolist_to_binary([?MODULE_STRING, ":", Name])),
     emqx_trace_handler:uninstall(HandlerId).
+
+format_bind(Bind) ->
+    iolist_to_binary(emqx_listeners:format_bind(Bind)).

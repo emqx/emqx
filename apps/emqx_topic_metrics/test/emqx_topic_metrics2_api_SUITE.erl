@@ -128,6 +128,42 @@ t_create_bad_topic_filter(Config) ->
 t_wildcard_filter_ok(Config) ->
     {201, _} = create(Config, ?global_ns, <<"wild">>, <<"sensor/+/temp">>).
 
+-doc "Ordinary and wildcard topic filters are accepted (no regression).".
+t_ordinary_filters_ok(Config) ->
+    {201, _} = create(Config, ?global_ns, <<"exact">>, <<"sensor/1">>),
+    {201, _} = create(Config, ?global_ns, <<"hash">>, <<"sensor/#">>),
+    {201, _} = create(Config, ?global_ns, <<"plus">>, <<"sensor/+/temp">>).
+
+-doc """
+Creating a collection with a shared-subscription topic filter
+($share/, $queue/) is rejected with 400 BAD_TOPIC_FILTER.
+""".
+t_create_shared_filter_rejected(Config) ->
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_TOPIC_FILTER">>}},
+        create(Config, ?global_ns, <<"s1">>, <<"$share/group/sensor/1">>)
+    ),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_TOPIC_FILTER">>}},
+        create(Config, ?global_ns, <<"s2">>, <<"$queue/sensor/1">>)
+    ),
+    %% Rejected shared filters must not leave a collection behind.
+    ?assertEqual({200, []}, list(Config, ?global_ns)).
+
+-doc """
+The facade register/3 path also rejects shared-subscription topic
+filters (config/import/rehydrate share this validator).
+""".
+t_register_shared_filter_rejected(_Config) ->
+    ?assertMatch(
+        {error, #{cause := shared_topic_filter_not_allowed}},
+        emqx_topic_metrics2:register(<<"s">>, <<"$share/g/sensor/1">>, ?global_ns)
+    ),
+    ?assertMatch(
+        {error, #{cause := shared_topic_filter_not_allowed}},
+        emqx_topic_metrics2:register(<<"q">>, <<"$queue/sensor/1">>, ?global_ns)
+    ).
+
 t_delete_all(Config) ->
     [
         {201, _} =
@@ -216,6 +252,51 @@ t_namespace_isolation(Config) ->
     ?assertEqual(lists:sort(Keys), lists:usort(Keys)),
     ?assertEqual(4, length(AllForGlobal)).
 
+-doc "Global admin GETs/resets/deletes a namespaced collection via `?ns='.".
+t_global_targets_namespace_via_ns_param(Config) ->
+    %% acme owns a collection.
+    {201, _} = create(Config, ?NS_ACME, <<"n">>, <<"acme/n/#">>),
+    %% Global admin, no ns -> its own (global) namespace, which has no `n'.
+    ?assertMatch({404, _}, get_one(Config, ?global_ns, <<"n">>)),
+    %% Global admin with ?ns=acme -> reaches acme's collection.
+    {200, One} = get_one_ns(Config, ?global_ns, <<"n">>, ?NS_ACME),
+    ?assertMatch(#{<<"name">> := <<"n">>, <<"namespace">> := ?NS_ACME}, One),
+    %% Reset it (204), then delete it (204), then it's gone.
+    {204, _} = reset_one_ns(Config, ?global_ns, <<"n">>, ?NS_ACME),
+    {204, _} = delete_one_ns(Config, ?global_ns, <<"n">>, ?NS_ACME),
+    ?assertMatch({404, _}, get_one_ns(Config, ?global_ns, <<"n">>, ?NS_ACME)).
+
+-doc "Namespaced admin naming a FOREIGN ns is rejected with 403 and mutates nothing.".
+t_namespaced_admin_foreign_ns_forbidden(Config) ->
+    %% acme owns a collection.
+    {201, _} = create(Config, ?NS_ACME, <<"n">>, <<"acme/n/#">>),
+    %% bravo tries to reach acme's collection by passing ?ns=acme.
+    ?assertMatch(
+        {403, #{<<"code">> := <<"FORBIDDEN">>}},
+        get_one_ns(Config, ?NS_BRAVO, <<"n">>, ?NS_ACME)
+    ),
+    ?assertMatch(
+        {403, #{<<"code">> := <<"FORBIDDEN">>}},
+        reset_one_ns(Config, ?NS_BRAVO, <<"n">>, ?NS_ACME)
+    ),
+    ?assertMatch(
+        {403, #{<<"code">> := <<"FORBIDDEN">>}},
+        delete_one_ns(Config, ?NS_BRAVO, <<"n">>, ?NS_ACME)
+    ),
+    %% acme's collection is untouched.
+    {200, Still} = get_one(Config, ?NS_ACME, <<"n">>),
+    ?assertMatch(#{<<"name">> := <<"n">>, <<"namespace">> := ?NS_ACME}, Still).
+
+-doc "Namespaced admin naming their OWN ns behaves exactly like no param.".
+t_namespaced_admin_own_ns_ok(Config) ->
+    {201, _} = create(Config, ?NS_ACME, <<"n">>, <<"acme/n/#">>),
+    {200, ViaParam} = get_one_ns(Config, ?NS_ACME, <<"n">>, ?NS_ACME),
+    {200, ViaNoParam} = get_one(Config, ?NS_ACME, <<"n">>),
+    ?assertEqual(ViaNoParam, ViaParam),
+    {204, _} = reset_one_ns(Config, ?NS_ACME, <<"n">>, ?NS_ACME),
+    {204, _} = delete_one_ns(Config, ?NS_ACME, <<"n">>, ?NS_ACME),
+    ?assertMatch({404, _}, get_one(Config, ?NS_ACME, <<"n">>)).
+
 %%------------------------------------------------------------------------------
 %% Helpers — real HTTP via dashboard listener
 %%------------------------------------------------------------------------------
@@ -240,12 +321,34 @@ reset_one(Config, Ns, Name) ->
     %% PUT with no body — `[]' tells the helper to take the body-less branch.
     request(Config, Ns, put, ["mqtt", "topic_metrics2", b2l(Name), "reset"], []).
 
+%% Same as get_one/delete_one/reset_one, but keep the actor's token
+%% (`Ns') while addressing `TargetNs' via the `?ns=' query parameter.
+get_one_ns(Config, Ns, Name, TargetNs) ->
+    request_ns(Config, Ns, get, ["mqtt", "topic_metrics2", b2l(Name)], TargetNs, []).
+
+delete_one_ns(Config, Ns, Name, TargetNs) ->
+    request_ns(Config, Ns, delete, ["mqtt", "topic_metrics2", b2l(Name)], TargetNs, []).
+
+reset_one_ns(Config, Ns, Name, TargetNs) ->
+    request_ns(Config, Ns, put, ["mqtt", "topic_metrics2", b2l(Name), "reset"], TargetNs, []).
+
 %% Real HTTP request through the dashboard listener. Returns
 %% `{StatusCode, DecodedBody}'.
 request(Config, Ns, Method, PathParts, Body) ->
     emqx_mgmt_api_test_util:simple_request(#{
         method => Method,
         url => emqx_mgmt_api_test_util:api_path(PathParts),
+        body => Body,
+        auth_header => auth_header(Config, Ns)
+    }).
+
+%% Like request/5 but adds an `ns=<TargetNs>' query parameter, keeping
+%% the actor's own token from `Ns'.
+request_ns(Config, Ns, Method, PathParts, TargetNs, Body) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => Method,
+        url => emqx_mgmt_api_test_util:api_path(PathParts),
+        query_params => #{<<"ns">> => TargetNs},
         body => Body,
         auth_header => auth_header(Config, Ns)
     }).

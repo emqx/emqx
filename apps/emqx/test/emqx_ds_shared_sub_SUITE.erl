@@ -636,8 +636,6 @@ t_disconnect_no_double_replay1(_Config) ->
         publish_done -> ok
     end,
 
-    Pubs = drain_publishes(),
-
     ClientByBid = fun(Pid) ->
         case Pid of
             ConnShared1 -> <<"client_shared1">>;
@@ -645,6 +643,14 @@ t_disconnect_no_double_replay1(_Config) ->
         end
     end,
 
+    %% After ConnShared2 disconnects mid-replay, its streams are reassigned to
+    %% ConnShared1, which then has to (re)deliver the whole backlog. Under load
+    %% this redelivery can stall for more than a few seconds, so a fixed
+    %% silence-based drain may return before the last messages arrive. Instead
+    %% wait until every expected payload has been received, bounded by a
+    %% deadline: if a message is genuinely never delivered the deadline still
+    %% expires and the missing list is reported.
+    Pubs = drain_until_received(2 * NPubs, 60_000),
     {Missing, _Duplicate} = verify_received_pubs(Pubs, 2 * NPubs, ClientByBid),
 
     ?assertEqual([], Missing),
@@ -696,7 +702,7 @@ t_disconnect_no_double_replay2(_Config) ->
 t_lease_reconnect('init', Config) ->
     declare_group_if_needed(<<"gr2">>, <<"topic2/#">>, start_local(Config));
 t_lease_reconnect('end', Config) ->
-    meck:unload(),
+    safe_meck_unload(emqx_ds_shared_sub_registry),
     destroy_group(Config).
 
 t_lease_reconnect(_Config) ->
@@ -722,7 +728,7 @@ t_lease_reconnect(_Config) ->
 
             %% Agent should retry after some time and find the leader.
             ?assertWaitEvent(
-                ok = meck:unload(emqx_ds_shared_sub_registry),
+                ok = safe_meck_unload(emqx_ds_shared_sub_registry),
                 #{?snk_kind := ?tp_leader_borrower_connect},
                 5_000
             ),
@@ -736,6 +742,25 @@ t_lease_reconnect(_Config) ->
         end,
         []
     ).
+
+%% Unload a mocked module, tolerating cover re-instrumentation flakes.
+%%
+%% When CT runs with coverage, `meck:unload/1' re-instruments the original
+%% (cover-compiled) module via `cover:compile_beam/1', which can intermittently
+%% return `{error, Beam}' under cover-server contention and crash meck's
+%% terminate with a badmatch. `cleanup/1' has already purged+deleted the module
+%% by then, so we make sure the real module is loaded again afterwards. Cover
+%% instrumentation for the module may be dropped for the rest of the suite when
+%% this path is hit, which is acceptable for a single module in a single suite.
+safe_meck_unload(Mod) ->
+    try
+        meck:unload(Mod)
+    catch
+        _:_ ->
+            ok
+    end,
+    _ = code:ensure_loaded(Mod),
+    ok.
 
 t_renew_lease_timeout('init', Config) ->
     declare_group_if_needed(<<"gr3">>, <<"topic3/#">>, start_local(Config));
@@ -962,6 +987,37 @@ drain_publishes(Acc) ->
         lists:reverse(Acc)
     end.
 
+%% Collect received publishes until `NExpect' distinct payloads have been seen
+%% or `TimeoutMs' elapses, whichever comes first. Unlike `drain_publishes/0',
+%% this does not stop on a silence gap, so it tolerates delivery stalls during
+%% stream reassignment without losing late messages. If some payloads are never
+%% delivered, the deadline expires and they are simply absent from the result,
+%% so a genuine message loss is still surfaced by the caller's assertion.
+drain_until_received(NExpect, TimeoutMs) ->
+    Deadline = erlang:monotonic_time(millisecond) + TimeoutMs,
+    drain_until_received(#{}, [], NExpect, Deadline).
+
+drain_until_received(Seen, Acc, NExpect, Deadline) ->
+    case map_size(Seen) >= NExpect of
+        true ->
+            lists:reverse(Acc);
+        false ->
+            Remaining = Deadline - erlang:monotonic_time(millisecond),
+            case Remaining =< 0 of
+                true ->
+                    lists:reverse(Acc);
+                false ->
+                    receive
+                        {publish, #{payload := Payload} = Msg} ->
+                            drain_until_received(
+                                Seen#{Payload => true}, [Msg | Acc], NExpect, Deadline
+                            )
+                    after Remaining ->
+                        lists:reverse(Acc)
+                    end
+            end
+    end.
+
 verify_received_pubs(Pubs, NPubs, ClientByBid) ->
     Messages = lists:foldl(
         fun(#{payload := Payload, client_pid := Pid}, Acc) ->
@@ -1021,8 +1077,19 @@ clean_local(Config) ->
     ].
 
 start_cluster(Config) ->
+    %% NOTE
+    %% The election-timing knobs (`heartbeat_interval', `realloc_interval',
+    %% `leader_timeout', `checkpoint_interval') are kept short so that the
+    %% events asserted by the tests happen promptly. The durable commit
+    %% budgets, on the other hand, are deliberately generous: they only bound
+    %% how long a transaction may take to reach consensus among the 3 sites,
+    %% and blowing them is fatal rather than slow -- an exhausted budget takes
+    %% down the session or the shared sub leader. In particular the retry
+    %% window (`commit_retries' * `commit_retry_interval') has to outlast a
+    %% DS leader re-election, which the tests trigger by killing a node.
     Conf = #{
         <<"durable_sessions">> => #{
+            <<"commit_timeout">> => 15_000,
             <<"shared_subs">> =>
                 #{
                     <<"heartbeat_interval">> => 100,
@@ -1030,9 +1097,9 @@ start_cluster(Config) ->
                     <<"leader_timeout">> => 100,
                     <<"checkpoint_interval">> => 10,
                     <<"revocation_timeout">> => 1000,
-                    <<"commit_retries">> => 10,
-                    <<"commit_retry_interval">> => 100,
-                    <<"commit_timeout">> => 1000
+                    <<"commit_retries">> => 8,
+                    <<"commit_retry_interval">> => 500,
+                    <<"commit_timeout">> => 3000
                 }
         },
         <<"log">> => #{

@@ -8,6 +8,7 @@
 
 -include_lib("proper/include/proper.hrl").
 -include("emqx.hrl").
+-include("emqx_cm.hrl").
 -include("emqx_session_mem.hrl").
 -include("emqx_access_control.hrl").
 
@@ -129,7 +130,6 @@ sessioninfo() ->
     ?LET(
         Session,
         #session{
-            clientid = clientid(),
             id = sessionid(),
             is_persistent = boolean(),
             subscriptions = subscriptions(),
@@ -191,8 +191,10 @@ mqueue() ->
                     Q = emqx_mqueue:init(#{max_len => MaxLen, store_qos0 => IsStoreQos0}),
                     lists:foldl(
                         fun(Msg, Acc) ->
-                            {_Dropped, NQ} = emqx_mqueue:in(Msg, Acc),
-                            NQ
+                            case emqx_mqueue:in(Msg, Acc) of
+                                {_Dropped, NQ} -> NQ;
+                                false -> Acc
+                            end
                         end,
                         Q,
                         Msgs
@@ -505,10 +507,7 @@ peercert() ->
     oneof([nossl, undefined]).
 
 conn_mod() ->
-    oneof([
-        emqx_connection,
-        emqx_ws_connection
-    ]).
+    oneof(?CHAN_CONN_MODULES).
 
 proto_name() ->
     oneof([<<"MQTT">>, <<"MQTT-SN">>, <<"CoAP">>, <<"LwM2M">>, utf8()]).

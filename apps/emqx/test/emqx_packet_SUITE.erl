@@ -9,6 +9,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -479,3 +480,16 @@ t_parse_empty_publish(_) ->
     %% 52: 0011(type=PUBLISH) 0100 (QoS=2)
     Packet = #mqtt_packet_publish{topic_name = <<>>},
     ?assertEqual({error, ?RC_PROTOCOL_ERROR}, emqx_packet:check(Packet)).
+
+-doc "Input bytes are kept verbatim when small, and capped with the original size when large.".
+t_format_input_bytes(_) ->
+    Small = <<1, 2, 3>>,
+    ?assertEqual(Small, emqx_packet:format_input_bytes(Small)),
+    AtLimit = binary:copy(<<0>>, ?TRUNCATED_PAYLOAD_SIZE),
+    ?assertEqual(AtLimit, emqx_packet:format_input_bytes(AtLimit)),
+    TotalSize = ?TRUNCATED_PAYLOAD_SIZE * 10,
+    Large = binary:copy(<<7>>, TotalSize),
+    ?assertEqual(
+        #{bytes => binary:copy(<<7>>, ?TRUNCATED_PAYLOAD_SIZE), total_size => TotalSize},
+        emqx_packet:format_input_bytes(Large)
+    ).

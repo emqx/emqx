@@ -11,7 +11,7 @@
 -define(LINKS_PATH, [cluster, links]).
 -define(CERTS_PATH(LinkName), filename:join(["cluster", "links", LinkName])).
 
--define(MQTT_HOST_OPTS, #{default_port => 1883}).
+-define(MQTT_HOST_OPTS, emqx_schema:mqtt_host_opts()).
 
 -ifndef(TEST).
 -define(DEFAULT_ACTOR_TTL, 30_000).

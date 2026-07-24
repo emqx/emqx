@@ -352,5 +352,54 @@ schema_test_() ->
                 ?assertEqual([], emqx_schema:client_tcp_opts_to_proplist(undefined)),
                 Partial = emqx_schema:client_tcp_opts_to_proplist(#{nodelay => false}),
                 ?assertEqual([{nodelay, false}], Partial)
-            end)}
+            end)},
+        %% The official MQTT URI schemes are `mqtt' (plain TCP) and `mqtts' (TLS).
+        %% See https://github.com/mqtt/mqtt.org/wiki/URI-Scheme
+        {"server : bare host:port (no scheme) is accepted",
+            ?_assertMatch(
+                #{<<"server">> := <<"127.0.0.1:1883">>},
+                parse_and_check_connector(
+                    connector_config(#{<<"server">> => <<"127.0.0.1:1883">>})
+                )
+            )},
+        {"server : mqtt://host:port is accepted",
+            ?_assertMatch(
+                #{<<"server">> := <<"mqtt://broker.example:1883">>},
+                parse_and_check_connector(
+                    connector_config(#{<<"server">> => <<"mqtt://broker.example:1883">>})
+                )
+            )},
+        {"server : mqtt://ip:port is accepted",
+            ?_assertMatch(
+                #{<<"server">> := <<"mqtt://127.0.0.1:1883">>},
+                parse_and_check_connector(
+                    connector_config(#{<<"server">> => <<"mqtt://127.0.0.1:1883">>})
+                )
+            )},
+        {"server : mqtts://host:port is accepted",
+            ?_assertMatch(
+                #{<<"server">> := <<"mqtts://broker.example:8883">>},
+                parse_and_check_connector(
+                    connector_config(#{<<"server">> => <<"mqtts://broker.example:8883">>})
+                )
+            )},
+        {"server : mqtt://[ipv6]:port is accepted",
+            ?_assertMatch(
+                #{<<"server">> := <<"mqtt://[::1]:1883">>},
+                parse_and_check_connector(
+                    connector_config(#{<<"server">> => <<"mqtt://[::1]:1883">>})
+                )
+            )},
+        {"server : unsupported scheme is rejected",
+            ?_assertThrow(
+                {_SchemaMod, [
+                    #{
+                        reason := "unsupported_scheme",
+                        kind := validation_error
+                    }
+                ]},
+                parse_and_check_connector(
+                    connector_config(#{<<"server">> => <<"tcp://broker.example:1883">>})
+                )
+            )}
     ].

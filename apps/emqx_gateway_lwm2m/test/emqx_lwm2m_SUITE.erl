@@ -799,7 +799,11 @@ case02_update_deregister(Config) ->
     test_send_coap_request(
         UdpSock,
         post,
-        sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
+        sprintf(
+            "coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1" ++
+                "&password=public&secret=top&private_key=priv&access_token=token",
+            [?PORT, Epn]
+        ),
         #coap_content{
             content_format = <<"text/plain">>,
             payload = <<"</1>, </2>, </3>, </4>, </5>">>
@@ -817,15 +821,16 @@ case02_update_deregister(Config) ->
 
     ?LOGT("Options got: ~p", [Opts]),
     Location = maps:get(location_path, Opts),
-    Register = emqx_utils_json:encode(
+    Register = emqx_utils_json:decode(test_recv_mqtt_response(ReportTopic)),
+    ?assertMatch(
         #{
-            <<"msgType">> => <<"register">>,
-            <<"data">> => #{
-                <<"alternatePath">> => <<"/">>,
-                <<"ep">> => list_to_binary(Epn),
-                <<"lt">> => 345,
-                <<"lwm2m">> => <<"1">>,
-                <<"objectList">> => [
+            <<"msgType">> := <<"register">>,
+            <<"data">> := #{
+                <<"alternatePath">> := <<"/">>,
+                <<"ep">> := <<"urn:oma:lwm2m:oma:3">>,
+                <<"lt">> := 345,
+                <<"lwm2m">> := <<"1">>,
+                <<"objectList">> := [
                     <<"/1">>,
                     <<"/2">>,
                     <<"/3">>,
@@ -833,9 +838,10 @@ case02_update_deregister(Config) ->
                     <<"/5">>
                 ]
             }
-        }
+        },
+        Register
     ),
-    ?assertEqual(Register, test_recv_mqtt_response(ReportTopic)),
+    assert_no_secret_register_fields(Register),
 
     %%----------------------------------------
     %% UPDATE command
@@ -845,11 +851,8 @@ case02_update_deregister(Config) ->
     test_send_coap_request(
         UdpSock,
         post,
-        sprintf("coap://127.0.0.1:~b~ts?lt=789", [?PORT, join_path(Location, <<>>)]),
-        #coap_content{
-            content_format = <<"text/plain">>,
-            payload = <<"</1>, </2>, </3>, </4>, </5>, </6>">>
-        },
+        sprintf("coap://127.0.0.1:~b~ts", [?PORT, join_path(Location, <<>>)]),
+        #coap_content{payload = <<>>},
         [],
         MsgId2
     ),
@@ -860,26 +863,27 @@ case02_update_deregister(Config) ->
     } = test_recv_coap_response(UdpSock),
     {ok, changed} = Method2,
     MsgId2 = RspId2,
-    Update = emqx_utils_json:encode(
+    Update = emqx_utils_json:decode(test_recv_mqtt_response(ReportTopic)),
+    ?assertMatch(
         #{
-            <<"msgType">> => <<"update">>,
-            <<"data">> => #{
-                <<"alternatePath">> => <<"/">>,
-                <<"ep">> => list_to_binary(Epn),
-                <<"lt">> => 789,
-                <<"lwm2m">> => <<"1">>,
-                <<"objectList">> => [
+            <<"msgType">> := <<"update">>,
+            <<"data">> := #{
+                <<"alternatePath">> := <<"/">>,
+                <<"ep">> := <<"urn:oma:lwm2m:oma:3">>,
+                <<"lt">> := 345,
+                <<"lwm2m">> := <<"1">>,
+                <<"objectList">> := [
                     <<"/1">>,
                     <<"/2">>,
                     <<"/3">>,
                     <<"/4">>,
-                    <<"/5">>,
-                    <<"/6">>
+                    <<"/5">>
                 ]
             }
-        }
+        },
+        Update
     ),
-    ?assertEqual(Update, test_recv_mqtt_response(ReportTopic)),
+    assert_no_secret_register_fields(Update),
 
     %%----------------------------------------
     %% DE-REGISTER command
@@ -6201,6 +6205,20 @@ test_recv_mqtt_response(RespTopic) ->
             RM
     after 1000 -> timeout_test_recv_mqtt_response
     end.
+
+assert_no_secret_register_fields(#{<<"data">> := Data}) ->
+    ?assertEqual(
+        #{},
+        maps:with(
+            [
+                <<"password">>,
+                <<"secret">>,
+                <<"private_key">>,
+                <<"access_token">>
+            ],
+            Data
+        )
+    ).
 
 test_send_coap_request(UdpSock, Method, Uri, Content, Options, MsgId) ->
     is_record(Content, coap_content) orelse

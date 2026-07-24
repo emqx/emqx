@@ -45,7 +45,8 @@ t_start_no_session(_Config) ->
     Opts = #{
         clientinfo => #{
             clientid => ?CLIENT_ID,
-            zone => default
+            zone => default,
+            listener => 'tcp:default'
         },
         conninfo => #{
             clientid => ?CLIENT_ID,
@@ -62,18 +63,8 @@ t_start_no_expire(_Config) ->
     erlang:process_flag(trap_exit, true),
 
     _ = emqtt_connect(?CLIENT_ID, false),
-
-    Opts = #{
-        clientinfo => #{
-            clientid => ?CLIENT_ID,
-            zone => default
-        },
-        conninfo => #{
-            clientid => ?CLIENT_ID,
-            receive_maximum => 32,
-            expiry_interval => 0
-        }
-    },
+    Opts0 = #{conninfo := ConnInfo} = evict_session_opts(?CLIENT_ID),
+    Opts = Opts0#{conninfo => ConnInfo#{expiry_interval => 0}},
     ?assertMatch(
         {error, {should_be_expired, _}},
         emqx_eviction_agent_channel:start_supervised(Opts)
@@ -83,18 +74,8 @@ t_start_infinite_expire(_Config) ->
     erlang:process_flag(trap_exit, true),
 
     _ = emqtt_connect(?CLIENT_ID, false),
-
-    Opts = #{
-        clientinfo => #{
-            clientid => ?CLIENT_ID,
-            zone => default
-        },
-        conninfo => #{
-            clientid => ?CLIENT_ID,
-            receive_maximum => 32,
-            expiry_interval => ?EXPIRE_INTERVAL_INFINITE
-        }
-    },
+    Opts0 = #{conninfo := ConnInfo} = evict_session_opts(?CLIENT_ID),
+    Opts = Opts0#{conninfo => ConnInfo#{expiry_interval => ?EXPIRE_INTERVAL_INFINITE}},
     ?assertMatch(
         {ok, _},
         emqx_eviction_agent_channel:start_supervised(Opts)

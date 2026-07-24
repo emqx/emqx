@@ -1950,7 +1950,6 @@ http_publish(TraceParent, Topic, Payload, QoS) ->
         properties => #{
             content_type => <<"text/plain">>,
             correlation_data => <<"string">>,
-            message_expiry_interval => 0,
             payload_format_indicator => 0,
             user_properties => #{
                 traceparent => TraceParent,

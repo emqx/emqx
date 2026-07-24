@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_schema.hrl").
 
 all() ->
     [
@@ -44,7 +45,7 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_cert_san_as_client_attrs(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    {Port, SslOpts, ListenerConf} = start_san_listener(
+    {Port, SslOpts} = start_san_listener(
         ?FUNCTION_NAME,
         Config,
         [
@@ -99,13 +100,13 @@ t_cert_san_as_client_attrs(Config) ->
         ?assertNot(maps:is_key(cert_san, ClientInfo)),
         emqtt:disconnect(Client)
     after
-        stop_san_listener(?FUNCTION_NAME, ListenerConf)
+        stop_san_listener(?FUNCTION_NAME)
     end.
 
 t_invalid_cert_san_rejected(Config) ->
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    {Port, SslOpts, ListenerConf} = start_san_listener(
+    {Port, SslOpts} = start_san_listener(
         ?FUNCTION_NAME,
         Config,
         [{dns, "tenant-a\r\nX-Override-Result: allow"}]
@@ -132,12 +133,12 @@ t_invalid_cert_san_rejected(Config) ->
                 ct:fail(invalid_cert_san_accepted)
         end
     after
-        stop_san_listener(?FUNCTION_NAME, ListenerConf)
+        stop_san_listener(?FUNCTION_NAME)
     end.
 
 t_empty_cert_san_do_not_set_attr(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    {Port, SslOpts, ListenerConf} = start_san_listener(?FUNCTION_NAME, Config, []),
+    {Port, SslOpts} = start_san_listener(?FUNCTION_NAME, Config, []),
     {ok, DNS} = emqx_variform:compile("nth(1, cert_san.dns)"),
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
         #{expression => DNS, set_as_attr => <<"san_dns">>}
@@ -157,7 +158,7 @@ t_empty_cert_san_do_not_set_attr(Config) ->
         ?assertNot(maps:is_key(cert_san, ClientInfo)),
         emqtt:disconnect(Client)
     after
-        stop_san_listener(?FUNCTION_NAME, ListenerConf)
+        stop_san_listener(?FUNCTION_NAME)
     end.
 
 start_san_listener(Name, Config, ClientSANList) ->
@@ -186,21 +187,16 @@ start_san_listener(Name, Config, ClientSANList) ->
     {ClientCertFile, ClientKeyFile} = emqx_cth_tls:write_cert(CertDir, "client", CertKeyClient),
     Port = emqx_common_test_helpers:select_free_port(ssl),
     ListenerConf = #{
-        enable => true,
-        bind => {{127, 0, 0, 1}, Port},
-        mountpoint => <<>>,
-        zone => default,
-        tcp_options => #{active_n => 100},
-        ssl_options => #{
-            cacertfile => CACertFile,
-            certfile => ServerCertFile,
-            keyfile => ServerKeyFile,
-            verify => verify_peer,
-            fail_if_no_peer_cert => true
+        ~"bind" => format_bind({{127, 0, 0, 1}, Port}),
+        ~"ssl_options" => #{
+            ~"cacertfile" => CACertFile,
+            ~"certfile" => ServerCertFile,
+            ~"keyfile" => ServerKeyFile,
+            ~"verify" => ~"verify_peer",
+            ~"fail_if_no_peer_cert" => true
         }
     },
-    ok = emqx_config:put_listener_conf(ssl, Name, [], ListenerConf),
-    ok = emqx_listeners:start_listener(ssl, Name, ListenerConf),
+    {ok, _} = emqx:update_config([listeners, ssl, Name], {create, ListenerConf}),
     SslOpts =
         emqx_common_test_helpers:ssl_verify_fun_allow_any_host() ++
             [
@@ -208,11 +204,13 @@ start_san_listener(Name, Config, ClientSANList) ->
                 {certfile, ClientCertFile},
                 {keyfile, ClientKeyFile}
             ],
-    {Port, SslOpts, ListenerConf}.
+    {Port, SslOpts}.
 
-stop_san_listener(Name, ListenerConf) ->
-    _ = emqx_listeners:stop_listener(ssl, Name, ListenerConf),
-    ok.
+stop_san_listener(Name) ->
+    {ok, _} = emqx:update_config([listeners, ssl, Name], ?TOMBSTONE_CONFIG_CHANGE_REQ).
+
+format_bind(Bind) ->
+    iolist_to_binary(emqx_listeners:format_bind(Bind)).
 
 get_chan_info(ClientId) ->
     ?retry(

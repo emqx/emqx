@@ -67,6 +67,22 @@ t_custom_application_name_connect_option(_Config) ->
         "emqx-test-app"
     ).
 
+t_bad_application_name_config(_Config) ->
+    [
+        ?assertMatch(
+            {error, _},
+            emqx_resource:check_config(
+                ?PGSQL_RESOURCE_MOD, pgsql_config(#{application_name => Name})
+            )
+        )
+     || Name <- [
+            <<>>,
+            <<"bad", 0, "name">>,
+            binary:copy(<<"a">>, 64)
+        ]
+    ],
+    ok.
+
 assert_application_name_connect_option(ResourceId, Overrides, ExpectedApplicationName) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(

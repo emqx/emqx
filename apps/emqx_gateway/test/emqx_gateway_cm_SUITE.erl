@@ -175,6 +175,14 @@ t_get_set_chan_info_stats(_) ->
         NInfo,
         emqx_gateway_cm:get_chan_info(?GWNAME, ?CLIENTID, self())
     ),
+    ?assertEqual(
+        NInfo,
+        emqx_gateway_cm:get_chan_info(?GWNAME, ?CLIENTID, self(), 1000)
+    ),
+    ?assertEqual(
+        NInfo,
+        emqx_gateway_cm_proto_v2:get_chan_info(?GWNAME, ?CLIENTID, self(), 1000)
+    ),
     %% Stats: get/set
     NStats = [{newstats, true}],
     emqx_gateway_cm:set_chan_stats(?GWNAME, ?CLIENTID, NStats),
@@ -189,6 +197,38 @@ t_get_set_chan_info_stats(_) ->
 
     emqx_gateway_cm:connection_closed(?GWNAME, ?CLIENTID),
     emqx_gateway_cm:unregister_channel(?GWNAME, ?CLIENTID).
+
+t_connection_closed_defers_cleanup_until_unregister(_) ->
+    {ok, _} = emqx_gateway_cm:open_session(
+        ?GWNAME,
+        true,
+        clientinfo(),
+        conninfo(),
+        fun(_, _) -> #{no => 1} end
+    ),
+    emqx_gateway_cm:insert_channel_info(
+        ?GWNAME,
+        ?CLIENTID,
+        #{clientinfo => clientinfo(), conninfo => conninfo()},
+        []
+    ),
+
+    true = emqx_gateway_cm:connection_closed(?GWNAME, ?CLIENTID),
+    ok = emqx_gateway_cm:kick_session(?GWNAME, ?CLIENTID),
+    receive
+        kick -> ok
+    after 100 ->
+        ?assert(false, "waiting kick msg timeout")
+    end,
+
+    ?assertEqual(1, ets:info(emqx_gateway_cm:tabname(chan, ?GWNAME), size)),
+    ?assertEqual(1, ets:info(emqx_gateway_cm:tabname(conn, ?GWNAME), size)),
+    ?assertEqual(1, ets:info(emqx_gateway_cm:tabname(info, ?GWNAME), size)),
+
+    emqx_gateway_cm:unregister_channel(?GWNAME, ?CLIENTID),
+    ?assertEqual(0, ets:info(emqx_gateway_cm:tabname(chan, ?GWNAME), size)),
+    ?assertEqual(0, ets:info(emqx_gateway_cm:tabname(conn, ?GWNAME), size)),
+    ?assertEqual(0, ets:info(emqx_gateway_cm:tabname(info, ?GWNAME), size)).
 
 t_handle_process_down(Conf) ->
     Pid = proplists:get_value(cm, Conf),
@@ -317,6 +357,27 @@ t_unexpected_handle(Conf) ->
     _ = Pid ! unexpected_info,
     ok = gen_server:call(Pid, unexpected_call),
     ok = gen_server:cast(Pid, unexpected_cast).
+
+-doc """
+A gateway load that aborts partway through can leave its locker process
+registered. cm:init/1 must reclaim such an orphan so the gateway can still be
+(re)started instead of crashing with `{already_started, _}'.
+""".
+t_init_reclaims_orphan_locker(_) ->
+    GwName = orphan_gw,
+    LockerName = list_to_atom(lists:concat(['emqx_gateway_', GwName, '_locker'])),
+    %% Simulate a locker left behind by a previously aborted load.
+    {ok, Orphan} = ekka_locker:start_link(LockerName),
+    ?assertEqual(Orphan, whereis(LockerName)),
+    %% A fresh cm for the same gateway must still start cleanly.
+    {ok, CMPid} = emqx_gateway_cm:start_link([{gwname, GwName}]),
+    ?assert(is_process_alive(CMPid)),
+    %% The orphan was reclaimed and a live locker is registered under the name.
+    ?assertNot(is_process_alive(Orphan)),
+    NewLocker = whereis(LockerName),
+    ?assert(is_pid(NewLocker) andalso is_process_alive(NewLocker)),
+    ?assertNotEqual(Orphan, NewLocker),
+    ok = gen_server:stop(CMPid).
 
 %%--------------------------------------------------------------------
 %% helpers

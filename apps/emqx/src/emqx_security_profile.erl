@@ -52,7 +52,9 @@ Returns policy depending on the current security profile.
     (dashboard_unchanged_default_credentials) -> allow | deny;
     (access_control_hook_failure) -> ignore | interrupt;
     (outbound_tls_verify) -> verify_none | verify_peer;
-    (authn_jwt_missing) -> ignore | deny.
+    (authn_jwt_missing) -> ignore | deny;
+    (saml_signature_verification) -> boolean();
+    (internal_subscription_checks) -> boolean().
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -97,6 +99,16 @@ policy(authn_jwt_missing) ->
     case profile() of
         legacy -> ignore;
         hardened -> deny
+    end;
+policy(saml_signature_verification) ->
+    case profile() of
+        legacy -> false;
+        hardened -> true
+    end;
+policy(internal_subscription_checks) ->
+    case profile() of
+        legacy -> false;
+        hardened -> true
     end.
 
 -doc """

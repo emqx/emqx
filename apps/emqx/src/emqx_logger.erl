@@ -53,7 +53,7 @@
     stop_log_handler/1
 ]).
 
--type peername_str() :: list().
+-type peername_str() :: iodata().
 -type logger_dst() :: file:filename() | console | unknown.
 -type logger_handler_info() :: #{
     id := logger:handler_id(),
@@ -144,7 +144,7 @@ set_metadata_username(Username) ->
 
 -spec set_metadata_peername(peername_str()) -> ok.
 set_metadata_peername(Peername) ->
-    set_proc_metadata(#{peername => Peername}).
+    set_proc_metadata(#{peername => iolist_to_binary(Peername)}).
 
 -spec set_proc_metadata(list({atom(), _}) | logger:metadata()) -> ok.
 set_proc_metadata(Meta) when is_list(Meta) ->

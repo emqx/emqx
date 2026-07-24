@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_plugins/include/emqx_plugins.hrl").
 
 -define(EMQX_PLUGIN_APP_NAME, my_emqx_plugin).
 -define(EMQX_PLUGIN_APP_NAME_BIN, <<"my_emqx_plugin">>).
@@ -52,7 +53,8 @@ groups() ->
             group_t_copy_plugin_to_a_new_node,
             group_t_copy_plugin_to_a_new_node_single_node,
             group_t_cluster_leave,
-            group_t_cluster_force_sync_vsn
+            group_t_cluster_force_sync_vsn,
+            group_t_cluster_install
         ]},
         {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
     ].
@@ -509,6 +511,185 @@ t_bad_tar_gz2(Config) ->
     %% but the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
     ok.
+
+t_rejects_invalid_schema({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(NameVsn, "config_schema.avsc", <<"not an avro schema">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_schema({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_schema(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_invalid_application({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(NameVsn, "invalid_plugin.app", <<"invalid app">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_application({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_application(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_application_version_mismatch({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(
+        NameVsn,
+        "invalid_plugin.app",
+        <<"{application, invalid_plugin, [{vsn, \"2.0.0\"}]}.\n">>
+    ),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_application_version_mismatch({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_application_version_mismatch(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_invalid_application_version({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(
+        NameVsn,
+        "invalid_plugin.app",
+        <<"{application, invalid_plugin, [{vsn, {invalid}}]}.\n">>
+    ),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_application_version({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_application_version(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_externally_loaded_application({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_externally_loaded_application({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_externally_loaded_application(Config) ->
+    ok = application:load({application, invalid_plugin, [{vsn, "0.1.0"}]}),
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_rejects_invalid_default_config({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(NameVsn, "config.hocon", <<"foo = {">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_default_config({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_default_config(Config) ->
+    assert_invalid_plugin_package(?config(name_vsn, Config)).
+
+t_allows_missing_default_config({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = remove_tar_entry(NameVsn, "config.hocon"),
+    [{name_vsn, NameVsn} | Config];
+t_allows_missing_default_config({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_allows_missing_default_config(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch({ok, #{config_status := disabled}}, emqx_plugins:describe(NameVsn)),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(invalid_plugin)),
+    ok = emqx_plugins:ensure_stopped(NameVsn).
+
+t_rejects_invalid_schema_on_reconfigure({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = file:write_file(
+        filename:join([filename:dirname(plugin_ebin_dir(NameVsn)), "priv", "config_schema.avsc"]),
+        <<"not an avro schema">>
+    ),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_schema_on_reconfigure({'end', Config}) ->
+    _ = emqx_plugins:ensure_stopped(?config(name_vsn, Config)),
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_rejects_invalid_schema_on_reconfigure(Config) ->
+    ?assertMatch({error, _}, emqx_plugins:ensure_installed(?config(name_vsn, Config))).
+
+t_rejects_invalid_local_config_on_start({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ok = file:write_file(emqx_plugins_fs:config_file_path(NameVsn), <<"foo = 42\n">>),
+    [{name_vsn, NameVsn} | Config];
+t_rejects_invalid_local_config_on_start({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+    cleanup_invalid_plugin(NameVsn);
+t_rejects_invalid_local_config_on_start(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
+    ?assertMatch({error, _}, emqx_plugins:ensure_started(NameVsn)),
+    ?assertNot(is_app_running(invalid_plugin)).
+
+assert_invalid_plugin_package(NameVsn) ->
+    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ?assertNot(lists:member(plugin_ebin_dir(NameVsn), code:get_path())).
+
+cleanup_invalid_plugin(NameVsn) ->
+    _ = application:unload(invalid_plugin),
+    _ = code:del_path(plugin_ebin_dir(NameVsn)),
+    ok = emqx_plugins:purge(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn).
+
+plugin_ebin_dir(NameVsn) ->
+    filename:join([emqx_plugins_fs:lib_dir(NameVsn), "invalid_plugin-0.1.0", "ebin"]).
+
+make_plugin_tar(NameVsn) ->
+    PluginApp = "invalid_plugin-0.1.0",
+    PrivDir = filename:join([NameVsn, PluginApp, "priv"]),
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    Info = <<
+        "{\"name\":\"invalid_plugin\",\"rel_vsn\":\"1.0.0\","
+        "\"rel_apps\":[\"invalid_plugin-0.1.0\"],\"description\":\"test\","
+        "\"with_config_schema\":true}"
+    >>,
+    Schema =
+        <<"{\"type\":\"record\",\"name\":\"invalid_plugin\",\"fields\":[{\"name\":\"foo\",\"type\":\"string\"}]}">>,
+    erl_tar:create(
+        Tar,
+        [
+            {filename:join(NameVsn, "release.json"), Info},
+            {
+                filename:join([NameVsn, PluginApp, "ebin", "invalid_plugin.app"]),
+                <<"{application, invalid_plugin, [{vsn, \"0.1.0\"}]}.\n">>
+            },
+            {filename:join(PrivDir, "config_schema.avsc"), Schema},
+            {filename:join(PrivDir, "config.hocon"), <<"foo = \"bar\"\n">>}
+        ],
+        [compressed]
+    ).
+
+replace_tar_entry(NameVsn, Filename, Content) ->
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarContent} = erl_tar:extract(Tar, [compressed, memory]),
+    {NewTarContent, true} = lists:mapfoldl(
+        fun({Path, _} = Entry, Found) ->
+            case filename:basename(Path) of
+                Filename -> {{Path, Content}, true};
+                _ -> {Entry, Found}
+            end
+        end,
+        false,
+        TarContent
+    ),
+    erl_tar:create(Tar, NewTarContent, [compressed]).
+
+remove_tar_entry(NameVsn, Filename) ->
+    Tar = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarContent} = erl_tar:extract(Tar, [compressed, memory]),
+    {NewTarContent, [_]} = lists:partition(
+        fun({Path, _}) -> filename:basename(Path) =/= Filename end, TarContent
+    ),
+    erl_tar:create(Tar, NewTarContent, [compressed]).
 
 %% test that we even cleanup content that doesn't match the expected name-vsn
 %% pattern
@@ -1328,4 +1509,130 @@ t_tar_path_traversal(Config) ->
     ?assertEqual({error, enoent}, file:read_file_info(EvilTarget)),
     %% And no plugin dir should have been created either.
     ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Phase 1: CLI install uses ?fresh_install — no cluster config lookup
+%%--------------------------------------------------------------------
+
+t_cli_install_no_warning({init, Config}) ->
+    Config;
+t_cli_install_no_warning({'end', _Config}) ->
+    ok;
+t_cli_install_no_warning(_Config) ->
+    #{name_vsn := NameVsn} = get_demo_plugin_package(),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch(
+        {ok, #{config_status := disabled}},
+        emqx_plugins:describe(NameVsn)
+    ),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok.
+
+t_install_package_rpc({init, Config}) ->
+    Config;
+t_install_package_rpc({'end', _Config}) ->
+    ok;
+t_install_package_rpc(_Config) ->
+    #{name_vsn := NameVsn} = get_demo_plugin_package(),
+    TarPath = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, TarBin} = file:read_file(TarPath),
+    ok = emqx_plugins:delete_package(NameVsn),
+    ok = emqx_plugins:purge(NameVsn),
+    ok = emqx_plugins:install_package(NameVsn, TarBin),
+    ?assertMatch(
+        {ok, #{config_status := disabled}},
+        emqx_plugins:describe(NameVsn)
+    ),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok.
+
+t_fresh_install_skips_peer_config({init, Config}) ->
+    Config;
+t_fresh_install_skips_peer_config({'end', _Config}) ->
+    ok;
+t_fresh_install_skips_peer_config(_Config) ->
+    #{name_vsn := NameVsn} = get_demo_plugin_package(),
+    ?check_trace(
+        emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+        fun(Trace) ->
+            ?assertMatch(
+                [],
+                ?of_kind(failed_to_get_plugin_config_from_cluster, Trace)
+            ),
+            ok
+        end
+    ),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Phase 2: cluster install via --cluster flag
+%%--------------------------------------------------------------------
+
+group_t_cluster_install({init, Config}) ->
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {group_t_cluster_install1, #{
+                role => core, apps => [emqx, emqx_conf, emqx_ctl]
+            }},
+            {group_t_cluster_install2, #{
+                role => core, apps => [emqx, emqx_conf, emqx_ctl]
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    InstallRelDir = "plugins_cluster_install",
+    InstallDirs = [filename:join(WD, InstallRelDir) || #{work_dir := WD} <- Specs],
+    ok = lists:foreach(fun filelib:ensure_path/1, InstallDirs),
+    #{package := Package, name_vsn := NameVsn0} =
+        emqx_plugins_test_helpers:get_demo_plugin_package(#{
+            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
+            vsn => ?EMQX_PLUGIN_TEMPLATE_VSN,
+            tag => ?EMQX_PLUGIN_TEMPLATE_TAG,
+            shdir => hd(InstallDirs)
+        }),
+    NameVsn = bin(NameVsn0),
+    {ok, TarBin} = file:read_file(Package),
+    [{ok, _}, {ok, _}] = erpc:multicall(Nodes, emqx_cth_suite, start_app, [
+        emqx_plugins,
+        #{config => #{plugins => #{install_dir => InstallRelDir}}}
+    ]),
+    [
+        {nodes, Nodes},
+        {name_vsn, NameVsn},
+        {tar_bin, TarBin}
+        | Config
+    ];
+group_t_cluster_install({'end', Config}) ->
+    Nodes = ?config(nodes, Config),
+    ok = emqx_cth_cluster:stop(Nodes);
+group_t_cluster_install(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    NameVsn = ?config(name_vsn, Config),
+    TarBin = ?config(tar_bin, Config),
+
+    %% Verify both nodes start with no plugins
+    ?assertEqual([], erpc:call(N1, emqx_plugins, list, [])),
+    ?assertEqual([], erpc:call(N2, emqx_plugins, list, [])),
+
+    %% Install on both nodes via RPC (simulates --cluster)
+    Results = emqx_plugins_proto_v5:install_package([N1, N2], NameVsn, TarBin),
+    ?assertMatch([{ok, ok}, {ok, ok}], lists:sort(Results)),
+
+    %% Both nodes should have the plugin
+    ?assertMatch(
+        [#{config_status := disabled}],
+        erpc:call(N1, emqx_plugins, list, [])
+    ),
+    ?assertMatch(
+        [#{config_status := disabled}],
+        erpc:call(N2, emqx_plugins, list, [])
+    ),
+
+    %% Cleanup
+    ok = erpc:call(N1, emqx_plugins, ensure_uninstalled, [NameVsn]),
+    ok = erpc:call(N2, emqx_plugins, ensure_uninstalled, [NameVsn]),
     ok.
