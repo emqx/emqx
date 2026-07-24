@@ -152,11 +152,14 @@ end_per_testcase(_Testcase, Config) ->
     emqx_bridge_snowflake_aggregated_SUITE:stop_odbc_client(Config),
     emqx_common_test_helpers:call_janitor(),
     ok = snabbkaffe:stop(),
+    meck:unload(),
     ok.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
 
 timetrap(Config) ->
     case ?config(mock, Config) of
@@ -217,13 +220,14 @@ mock_snowflake() ->
         ?tp("mock_snowflake_get_streaming_hostname", #{}),
         {ok, 200, Headers, Body}
     end),
-    meck:expect(?CHAN_CLIENT_MOD, do_open_channel, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
+    DoOpenChannel = fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
         Headers = [],
         Body = emqx_utils_json:encode(#{<<"next_continuation_token">> => <<"0_1">>}),
         ?tp("mock_snowflake_open_channel", #{}),
         {ok, 200, Headers, Body}
-    end),
-    meck:expect(?CHAN_CLIENT_MOD, do_append_rows, fun(_HTTPPool, Req, _RequestTTL, _MaxRetries) ->
+    end,
+    meck:expect(?CHAN_CLIENT_MOD, do_open_channel, DoOpenChannel),
+    DoAppendRows = fun(_HTTPPool, Req, _RequestTTL, _MaxRetries) ->
         {_, _, BodyRaw} = Req,
         Records = emqx_connector_aggreg_json_lines_test_utils:decode(iolist_to_binary(BodyRaw)),
         Rows = lists:map(fun streaming_record_to_mocked_row/1, Records),
@@ -231,9 +235,15 @@ mock_snowflake() ->
         Headers = [],
         Body = emqx_utils_json:encode(#{<<"next_continuation_token">> => <<"1_1">>}),
         ?tp("mock_snowflake_append_rows", #{}),
+        ?tp("snowflake_streaming_append_rows_success", #{}),
         {ok, 200, Headers, Body}
-    end),
-    [{mocked_table, TId}].
+    end,
+    meck:expect(?CHAN_CLIENT_MOD, do_append_rows, DoAppendRows),
+    [
+        {mocked_table, TId},
+        {mocked_do_append_rows, DoAppendRows},
+        {mocked_do_open_channel, DoOpenChannel}
+    ].
 
 generate_dummy_jwt() ->
     NowS = erlang:system_time(second),
@@ -487,6 +497,21 @@ create_connector_api(Config, Overrides) ->
         emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
     ).
 
+create_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
+    ).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+start_client(Opts0) ->
+    Opts = maps:merge(#{proto_ver => v5}, Opts0),
+    {ok, C} = emqtt:start_link(Opts),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -533,3 +558,62 @@ t_streaming(TCConfig) when is_list(TCConfig) ->
         post_publish_fn => PostPublishFn
     },
     emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
+
+-doc """
+If a client receives an STALE_CONTINUATION_TOKEN_SEQUENCER error when appending rows, for
+whatever reason, it needs to reopen the channel to recover.
+
+Also, this error may be treated as recoverable.
+""".
+t_reopen_channel_if_continuation_token_is_stale(TCConfig) ->
+    IsMock = get_config(mock, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    {ok, Agent} = emqx_utils_agent:start_link(error),
+    meck:expect(?CHAN_CLIENT_MOD, do_append_rows, fun(HTTPPoolAndId, Req, RequestTTL, MaxRetries) ->
+        case emqx_utils_agent:get(Agent) of
+            error ->
+                Error = emqx_utils_json:encode(#{
+                    <<"code">> => <<"STALE_CONTINUATION_TOKEN_SEQUENCER">>,
+                    <<"message">> =>
+                        <<
+                            "Channel sequencer in the continuation token is stale."
+                            "Please reopen the channel"
+                        >>
+                }),
+                {ok, 400, [], Error};
+            continue when IsMock ->
+                DoAppendRows = get_config(mocked_do_append_rows, TCConfig),
+                DoAppendRows(HTTPPoolAndId, Req, RequestTTL, MaxRetries);
+            continue ->
+                meck:passthrough([HTTPPoolAndId, Req, RequestTTL, MaxRetries])
+        end
+    end),
+    meck:expect(?CHAN_CLIENT_MOD, do_open_channel, fun(HTTPPool, Req, RequestTTL, MaxRetries) ->
+        emqx_utils_agent:set(Agent, continue),
+        case IsMock of
+            true ->
+                DoOpenChannel = get_config(mocked_do_open_channel, TCConfig),
+                DoOpenChannel(HTTPPool, Req, RequestTTL, MaxRetries);
+            false ->
+                meck:passthrough([HTTPPool, Req, RequestTTL, MaxRetries])
+        end
+    end),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(#{}),
+    ?check_trace(
+        ?wait_async_action(
+            emqtt:publish(C, Topic, <<"hey">>, [{qos, 1}]),
+            #{?snk_kind := "snowflake_streaming_append_rows_success"},
+            10_000
+        ),
+        fun(Res, Trace) ->
+            ?assertMatch({_, {ok, _}}, Res),
+            ?assertMatch(
+                [_],
+                ?of_kind(["snowflake_streaming_open_channel_success"], Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
