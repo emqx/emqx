@@ -1293,7 +1293,7 @@ replay_wal(Log, Schema0, Cont0) ->
 
 -spec ensure_site_schema(pstate() | ?empty_schema) -> pstate().
 ensure_site_schema(?empty_schema) ->
-    Site = binary:encode_hex(crypto:strong_rand_bytes(8)),
+    {ok, Site} = classy:the_site(),
     ?tp(notice, "Initializing durable storage for the first time", #{site => binary_to_list(Site)}),
     Pstate = new_empty_pstate(1, Site, 1),
     ok = dump(Pstate, ?log_current),
