@@ -20,7 +20,8 @@ min_metadata_refresh_interval.label:
 
 request_timeout.desc:
 """Maximum duration to wait for a reply from Confluent for a pending request.
-When exceeded, the connection is considered stale and is re-established."""
+When exceeded, the connection is considered stale and is re-established.
+Note: if set too small, Confluent may have ingested a produce request while the acknowledgement is delayed; EMQX then resends the already-accepted batch after reconnecting, which can result in duplicates and an overwhelming data volume for downstream consumers."""
 
 request_timeout.label: "Request Timeout"
 
@@ -112,7 +113,8 @@ partition_count_refresh_interval.label:
 
 max_linger_time.desc:
 """Maximum duration a per-partition producer waits to accumulate more messages into a larger batch.
-The default value `0` means no wait (messages are sent as soon as they arrive).
+The default value `0` means no wait (messages are sent as soon as they arrive); it is optimized for messaging latency.
+If a small delay is acceptable, configuring one is encouraged to help lower the number of requests per second towards Confluent.
 The wait ends early as soon as a full batch's worth of data has accumulated, so a busy producer is never delayed.
 When buffering to disk, the wait happens before writing to the buffer; configuring at least `5ms` is advised there to reduce disk IOPS."""
 
@@ -127,15 +129,15 @@ max_batch_age.desc:
 """Maximum duration a message may stay in the producer buffer before it is dropped instead of being sent to Confluent.
 A message batch is dropped only when all of its messages have stayed in the buffer longer than this duration; this applies both to messages still queued (including while the connection is down) and to messages awaiting acknowledgement when the connection is lost.
 Each dropped message counts towards the <code>dropped.expired</code> metric.
-The default value <code>infinity</code> means messages never expire (retained until sent or the buffer overflows)."""
+When set to <code>infinity</code>, messages never expire (they are retained until sent, or until the buffer overflows)."""
 
 max_batch_age.label: "Max Batch Age"
 
 max_retries.desc:
 """Maximum number of times to retry sending a message batch after Confluent responds with a retryable error (for example, when the partition leader has changed).
 After the initial attempt and this many retries have all failed, the batch is dropped and each of its messages counts towards the <code>failed</code> metric.
-Reconnect-triggered resends after a connection loss are not counted against this limit; they are bounded by <code>max_batch_age</code> instead.
-The default value <code>infinity</code> means retry forever."""
+The retry counter is incremented only when Confluent explicitly responds with an error code; resends triggered by a connection loss do not increment it (those are bounded by <code>max_batch_age</code>).
+When set to <code>infinity</code>, retries are unlimited."""
 
 max_retries.label: "Max Retries"
 

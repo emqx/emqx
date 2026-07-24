@@ -559,14 +559,12 @@ render_timestamp(Template, Message) ->
 do_send_msg(sync, KafkaTopic, KafkaMessage, Producers, SyncTimeout) ->
     try
         case wolff:send_sync2(Producers, KafkaTopic, [KafkaMessage], SyncTimeout) of
+            {_Partition, Offset} when is_integer(Offset) ->
+                ok;
             {_Partition, message_expired} ->
-                %% dropped because it stayed in the buffer longer than 'max_batch_age'
                 {error, request_expired};
-            {_Partition, max_retry_exceeded} ->
-                %% dropped after 'max_retries' Kafka error responses
-                {error, max_retry_exceeded};
-            {_Partition, _Offset} ->
-                ok
+            {_Partition, DropReason} ->
+                {error, DropReason}
         end
     catch
         error:{producer_down, _} = Reason ->
