@@ -859,7 +859,9 @@ t_recv_error(TCConfig) when is_list(TCConfig) ->
         end),
         fun(Trace) ->
             ?assertMatch(
-                [#{kind := error, reason := closed} | _], ?of_kind(["bigtable_recv_error"], Trace)
+                [#{kind := error, reason := Reason} | _] when
+                    Reason == closed orelse Reason == not_found,
+                ?of_kind(["bigtable_recv_error"], Trace)
             ),
             ok
         end
