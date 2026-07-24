@@ -141,31 +141,26 @@ on_start(ConnectorResId, Config) ->
     ClientOpts1 = [{extra_sock_opts, SocketOpts} | ClientOpts],
     ok = emqx_resource:allocate_resource(ConnectorResId, ?MODULE, ?kafka_client_id, ClientID),
     ok = emqx_bridge_kafka_oauth_authn:register(ConnectorResId, Auth),
-    try
-        case brod:start_client(BootstrapHosts, ClientID, ClientOpts1) of
-            ok ->
-                ?tp(
-                    kafka_consumer_client_started,
-                    #{client_id => ClientID, resource_id => ConnectorResId}
-                ),
-                ?SLOG(info, #{
-                    msg => "kafka_consumer_client_started",
-                    resource_id => ConnectorResId,
-                    kafka_hosts => BootstrapHosts
-                });
-            {error, Reason} ->
-                ?SLOG(error, #{
-                    msg => "failed_to_start_kafka_consumer_client",
-                    resource_id => ConnectorResId,
-                    kafka_hosts => BootstrapHosts,
-                    reason => emqx_utils:redact(Reason)
-                }),
-                throw(?CLIENT_DOWN_MESSAGE)
-        end
-    catch
-        Class:CatchReason:Stacktrace ->
+    case brod:start_client(BootstrapHosts, ClientID, ClientOpts1) of
+        ok ->
+            ?tp(
+                kafka_consumer_client_started,
+                #{client_id => ClientID, resource_id => ConnectorResId}
+            ),
+            ?SLOG(info, #{
+                msg => "kafka_consumer_client_started",
+                resource_id => ConnectorResId,
+                kafka_hosts => BootstrapHosts
+            });
+        {error, Reason} ->
             ok = emqx_bridge_kafka_oauth_authn:unregister(ConnectorResId),
-            erlang:raise(Class, CatchReason, Stacktrace)
+            ?SLOG(error, #{
+                msg => "failed_to_start_kafka_consumer_client",
+                resource_id => ConnectorResId,
+                kafka_hosts => BootstrapHosts,
+                reason => emqx_utils:redact(Reason)
+            }),
+            throw(?CLIENT_DOWN_MESSAGE)
     end,
     {ok, #{
         kafka_client_id => ClientID,
@@ -179,7 +174,6 @@ on_stop(ConnectorResId, _State) ->
             fun
                 (?kafka_client_id, ClientID, Acc) ->
                     stop_client(ClientID),
-                    ok = emqx_bridge_kafka_oauth_authn:unregister(ConnectorResId),
                     Acc;
                 ({?kafka_subscriber_id, _SourceResId}, SubscriberId, Acc) ->
                     stop_subscriber(SubscriberId),
@@ -188,6 +182,7 @@ on_stop(ConnectorResId, _State) ->
             0,
             emqx_resource:get_allocated_resources(ConnectorResId)
         ),
+    ok = emqx_bridge_kafka_oauth_authn:unregister(ConnectorResId),
     case SubscribersStopped > 0 of
         true ->
             ?tp(kafka_consumer_subcriber_and_client_stopped, #{instance_id => ConnectorResId}),

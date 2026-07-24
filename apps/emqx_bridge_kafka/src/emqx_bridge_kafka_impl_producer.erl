@@ -91,7 +91,7 @@ on_start(InstId, Config) ->
     C = fun(Key) -> check_config(Key, Config) end,
     Hosts = C(bootstrap_hosts),
     MetadataRequestTimeout = C(metadata_request_timeout),
-    Auth = maps:get(authentication, Config, none),
+    Auth = C(authentication),
     ClientConfig = #{
         min_metadata_refresh_interval => C(min_metadata_refresh_interval),
         connect_timeout => C(connect_timeout),
@@ -125,12 +125,12 @@ on_start(InstId, Config) ->
                 },
                 {ok, ConnectorState};
             {error, _ConnReason} = Error ->
-                ok = deallocate_client(ClientId),
+                ok = emqx_bridge_kafka_oauth_authn:unregister(ClientId),
                 Error
         end
     catch
         Class:CatchReason:Stacktrace ->
-            ok = deallocate_client(ClientId),
+            ok = emqx_bridge_kafka_oauth_authn:unregister(ClientId),
             erlang:raise(Class, CatchReason, Stacktrace)
     end.
 

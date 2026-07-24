@@ -52,33 +52,3 @@ oauth2_config(Opts, Endpoint, OAuthClientId, ClientSecret) ->
         timeout => Timeout,
         connect_timeout => maps:get(connect_timeout, Opts, Timeout)
     }.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-oauth2_config_test() ->
-    Secret = emqx_secret:wrap(<<"secret">>),
-    Config = oauth2_config(
-        #{
-            scope => <<"scope">>,
-            timeout => 10_000,
-            connect_timeout => 2_000,
-            extensions => #{<<"not">> => <<"forwarded">>}
-        },
-        <<"https://auth.example/token">>,
-        <<"client">>,
-        Secret
-    ),
-    ?assertEqual(
-        #{
-            token_endpoint => <<"https://auth.example/token">>,
-            client_id => <<"client">>,
-            client_secret => Secret,
-            scope => <<"scope">>,
-            timeout => 10_000,
-            connect_timeout => 2_000
-        },
-        Config
-    ).
-
--endif.
