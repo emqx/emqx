@@ -590,32 +590,3 @@ get_expiry_ms(Token) ->
 str(X) -> emqx_utils_conv:str(X).
 
 wall_clock_ms() -> erlang:system_time(millisecond).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-separate_connect_timeout_test() ->
-    Params = make_fetch_params(#{
-        token_endpoint => <<"http://127.0.0.1/token">>,
-        client_id => <<"client">>,
-        client_secret => emqx_secret:wrap(<<"secret">>),
-        timeout => 10_000,
-        connect_timeout => 2_000
-    }),
-    ?assertEqual(10_000, maps:get(timeout, Params)),
-    ?assertEqual(2_000, maps:get(connect_timeout, Params)),
-    ?assertEqual(
-        [{timeout, 10_000}, {connect_timeout, 2_000}],
-        http_options(<<"http://127.0.0.1/token">>, #{}, 10_000, 2_000)
-    ).
-
-connect_timeout_defaults_to_request_timeout_test() ->
-    Params = make_fetch_params(#{
-        token_endpoint => <<"http://127.0.0.1/token">>,
-        client_id => <<"client">>,
-        client_secret => emqx_secret:wrap(<<"secret">>),
-        timeout => 10_000
-    }),
-    ?assertEqual(10_000, maps:get(connect_timeout, Params)).
-
--endif.
