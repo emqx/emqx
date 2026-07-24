@@ -60,12 +60,14 @@ t_ok(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>
+        )
     ).
 
 t_client_attrs(_Config) ->
@@ -78,17 +80,23 @@ t_client_attrs(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/id1/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t/id1/1">>
+        )
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/id1/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/id1/#">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/id2/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/id2/#">>
+        )
     ),
     ok.
 
@@ -102,22 +110,30 @@ t_zone_as_who_condition(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t/1">>
+        )
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/1/#">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo#{zone => ''}, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo#{zone => ''}), ?AUTHZ_SUBSCRIBE, <<"t/1/#">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/#">>
+        )
     ),
     ok.
 
@@ -131,22 +147,30 @@ t_zone_as_who_condition_re(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t/1">>
+        )
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/1/#">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo#{zone => zone2}, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo#{zone => zone2}), ?AUTHZ_SUBSCRIBE, <<"t/1/#">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/#">>
+        )
     ),
     ok.
 
@@ -160,24 +184,32 @@ t_listener(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t/1">>
+        )
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>)
-    ),
-
-    ?assertEqual(
-        deny,
         emqx_access_control:authorize(
-            ClientInfo#{listener => 'ssl:a'}, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/1/#">>
         )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo#{listener => 'ssl:a'}),
+            ?AUTHZ_SUBSCRIBE,
+            <<"t/1/#">>
+        )
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/#">>
+        )
     ),
     ok.
 
@@ -191,24 +223,32 @@ t_listener_re(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t/1">>
+        )
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>)
-    ),
-
-    ?assertEqual(
-        deny,
         emqx_access_control:authorize(
-            ClientInfo#{listener => 'ssl:a'}, ?AUTHZ_SUBSCRIBE, <<"t/1/#">>
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/1/#">>
         )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo#{listener => 'ssl:a'}),
+            ?AUTHZ_SUBSCRIBE,
+            <<"t/1/#">>
+        )
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/#">>
+        )
     ),
     ok.
 
@@ -222,14 +262,18 @@ t_security_profile(_Config) ->
     emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         ?assertEqual(
             allow,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t/1">>
+            )
         )
     end),
 
     emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         ?assertEqual(
             deny,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>)
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t/1">>
+            )
         )
     end).
 
@@ -242,17 +286,23 @@ t_cert_common_name(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/mycn/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t/mycn/1">>
+        )
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/mycn/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/mycn/#">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/othercn/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/othercn/1">>
+        )
     ),
     ok.
 
@@ -265,22 +315,32 @@ t_zone_in_topic_template(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/zone1/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t/zone1/1">>
+        )
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/zone1/#">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/zone1/#">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo#{zone => other}, ?AUTHZ_SUBSCRIBE, <<"t/zone1/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo#{zone => other}),
+            ?AUTHZ_SUBSCRIBE,
+            <<"t/zone1/1">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/otherzone/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t/otherzone/1">>
+        )
     ),
     ok.
 
@@ -300,7 +360,7 @@ t_authz_context_variables(_Config) ->
     ?assertEqual(
         allow,
         emqx_access_control:authorize(
-            ClientInfo,
+            emqx_authz_context:make(ClientInfo),
             ?AUTHZ_PUBLISH,
             <<"username/clientid/mycn/zone1/id1/topic">>
         )
@@ -316,17 +376,23 @@ t_extended_actions(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(1, false), <<"t">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(0, false), <<"t">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(0, false), <<"t">>
+        )
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>
+        )
     ).
 
 t_superuser(_Config) ->
@@ -340,12 +406,14 @@ t_superuser(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>
+        )
     ).
 
 t_invalid_file(_Config) ->

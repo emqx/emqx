@@ -4,14 +4,7 @@
 
 -module(emqx_authz_context).
 
--include("emqx.hrl").
-
--export([
-    make/1,
-    maybe_attach/2,
-    get/1,
-    remove/1
-]).
+-export([make/1]).
 
 -export_type([
     t/0,
@@ -44,7 +37,6 @@
 }.
 -type t() :: legacy() | restricted().
 
--define(HEADER, authz_context).
 -define(RESTRICTED_KEYS, [
     acl,
     anonymous,
@@ -72,26 +64,6 @@ make(ClientInfo) ->
         legacy -> ClientInfo;
         restricted -> make_restricted(ClientInfo)
     end.
-
--spec maybe_attach(emqx_types:clientinfo(), emqx_types:message()) -> emqx_types:message().
-maybe_attach(ClientInfo, Msg = #message{topic = <<"$delayed/", _/binary>>}) ->
-    maybe_attach_delayed(ClientInfo, Msg);
-maybe_attach(_ClientInfo, Msg) ->
-    Msg.
-
-maybe_attach_delayed(ClientInfo, Msg) ->
-    case emqx_security_profile:policy(delayed_publish_reauthorization) of
-        false -> Msg;
-        true -> emqx_message:set_header(?HEADER, make(ClientInfo), Msg)
-    end.
-
--spec get(emqx_types:message()) -> t() | undefined.
-get(Msg) ->
-    emqx_message:get_header(?HEADER, Msg, undefined).
-
--spec remove(emqx_types:message()) -> emqx_types:message().
-remove(Msg) ->
-    emqx_message:remove_header(?HEADER, Msg).
 
 make_restricted(ClientInfo) ->
     Context = maps:with(?RESTRICTED_KEYS, ClientInfo),

@@ -418,13 +418,17 @@ do_publish(
     }
 ) ->
     Action = ?AUTHZ_PUBLISH(?QOS_1, false),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
-        allow ->
-            ?SLOG(debug, #{msg => "publish_msg", to_topic => Topic, farme => Frame}),
-            Msg = emqx_message:make(jt808, ?QOS_1, Topic, emqx_utils_json:encode(Frame)),
-            emqx:publish(emqx_authz_context:maybe_attach(ClientInfo, Msg));
+    case emqx_gateway_ctx:authorize_publish(Ctx, Frame, ClientInfo, Action, Topic) of
+        {allow, #{action := #{retain := Retain}, topic := NTopic, headers := Headers}} ->
+            ?SLOG(debug, #{msg => "publish_msg", to_topic => NTopic, farme => Frame}),
+            Msg0 = emqx_message:make(jt808, ?QOS_1, NTopic, emqx_utils_json:encode(Frame)),
+            Msg1 = emqx_message:set_flag(retain, Retain, Msg0),
+            emqx:publish(emqx_message:set_headers(Headers, Msg1));
         deny ->
             ?SLOG(info, #{msg => "publish_msg_denied", to_topic => Topic}),
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{msg => "publish_pre_authz_failed", to_topic => Topic, reason => Reason}),
             ok
     end.
 

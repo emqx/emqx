@@ -823,6 +823,39 @@ t_publish_negqos_idle_allows_authn_in_hardened_profile(_) ->
         emqx:unsubscribe(Topic)
     end.
 
+t_publish_negqos_idle_mountpoint(_) ->
+    Mountpoint = <<"mp/">>,
+    Topic = <<"ab">>,
+    RewrittenTopic = <<"cd">>,
+    MountedTopic = <<Mountpoint/binary, RewrittenTopic/binary>>,
+    Payload = <<"idle-negqos-mountpoint">>,
+    update_mqttsn_with_mountpoint(Mountpoint),
+    ok = emqx:subscribe(MountedTopic),
+    ok = emqx:subscribe(Topic),
+    ok = emqx:subscribe(RewrittenTopic),
+    emqx_hooks:put(
+        'client.publish_pre_authz',
+        {?MODULE, rewrite_publish_topic, [RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+        ?assertReceive({deliver, MountedTopic, #message{payload = Payload}}, 1000),
+        ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 100),
+        ?assertNotReceive({deliver, RewrittenTopic, #message{payload = Payload}}, 100)
+    after
+        gen_udp:close(Socket),
+        emqx_hooks:del('client.publish_pre_authz', {?MODULE, rewrite_publish_topic}),
+        emqx:unsubscribe(Topic),
+        emqx:unsubscribe(RewrittenTopic),
+        emqx:unsubscribe(MountedTopic),
+        update_mqttsn_with_mountpoint(<<>>)
+    end.
+
+rewrite_publish_topic(_Packet, _Context, {ok, Overrides}, Topic) ->
+    {ok, {ok, Overrides#{topic => Topic}}}.
+
 t_publish_negqos_idle_rejects_bad_authn_in_hardened_profile(_) ->
     Topic = <<"ab">>,
     Payload = <<"idle-negqos-authn-bad">>,
@@ -1602,6 +1635,36 @@ t_will_publish_allowed_by_authz(_) ->
         end)
     after
         ok = emqx_broker:unsubscribe(WillTopic)
+    end.
+
+t_will_publish_mountpoint(_) ->
+    QoS = 1,
+    Duration = 1,
+    Mountpoint = <<"mp/">>,
+    WillMsg = <<"will-mountpoint">>,
+    WillTopic = <<"will/mountpoint">>,
+    MountedTopic = <<Mountpoint/binary, WillTopic/binary>>,
+    update_mqttsn_with_mountpoint(Mountpoint),
+    ok = emqx_broker:subscribe(MountedTopic),
+    ok = emqx_broker:subscribe(WillTopic),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg_with_will(Socket, Duration, ?CLIENTID),
+        ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+        send_willtopic_msg(Socket, WillTopic, QoS),
+        ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+        send_willmsg_msg(Socket, WillMsg),
+        ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+        send_pingreq_msg(Socket, undefined),
+        ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket)),
+        timer:sleep(3000),
+        ?assertReceive({deliver, MountedTopic, #message{payload = WillMsg}}, 1000),
+        ?assertNotReceive({deliver, WillTopic, #message{payload = WillMsg}}, 100)
+    after
+        gen_udp:close(Socket),
+        emqx_broker:unsubscribe(WillTopic),
+        emqx_broker:unsubscribe(MountedTopic),
+        update_mqttsn_with_mountpoint(<<>>)
     end.
 
 t_will_test2(_) ->

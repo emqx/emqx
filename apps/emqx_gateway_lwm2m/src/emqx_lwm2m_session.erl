@@ -859,17 +859,16 @@ proto_publish(
     WithContext,
     #session{endpoint_name = Epn} = Session
 ) ->
-    MountedTopic = mount(Topic, Session),
     %% TODO: Append message metadata into headers
     Msg = emqx_message:make(
         Epn,
         Qos,
-        MountedTopic,
+        Topic,
         emqx_utils_json:encode(Payload),
         #{},
         Headers
     ),
-    _ = WithContext(publish, [MountedTopic, Msg]),
+    _ = WithContext(publish, [Topic, Msg]),
     Session.
 
 mount(Topic, #session{mountpoint = MountPoint}) when is_binary(Topic) ->

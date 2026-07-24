@@ -137,7 +137,7 @@ run_check(ClientInfo, {ExpectedPermission, Action, Topic}) ->
     ?assertEqual(
         ExpectedPermission,
         emqx_access_control:authorize(
-            ClientInfo,
+            emqx_authz_context:make(ClientInfo),
             Action,
             Topic
         )

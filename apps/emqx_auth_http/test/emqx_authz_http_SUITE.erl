@@ -94,7 +94,7 @@ t_response_handling(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Not OK, get, no body
@@ -107,7 +107,9 @@ t_response_handling(TCConfig) ->
         #{}
     ),
 
-    deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>),
+    deny = emqx_access_control:authorize(
+        emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+    ),
 
     %% OK, get, 204
     ok = setup_handler_and_config(
@@ -121,7 +123,7 @@ t_response_handling(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Not OK, get, 400
@@ -136,7 +138,7 @@ t_response_handling(TCConfig) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Not OK, get, 400 + body & headers
@@ -156,7 +158,7 @@ t_response_handling(TCConfig) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% the server cannot be reached; should skip to the next
@@ -166,7 +168,9 @@ t_response_handling(TCConfig) ->
     ?check_trace(
         ?assertEqual(
             deny,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+            )
         ),
         fun(Trace) ->
             ?assertMatch(
@@ -254,7 +258,9 @@ t_query_params(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(1, false), <<"t/1">>
+        )
     ).
 
 t_path(TCConfig) ->
@@ -310,7 +316,9 @@ t_path(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t/1">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(1, false), <<"t/1">>
+        )
     ).
 
 t_json_body(TCConfig) ->
@@ -370,7 +378,9 @@ t_json_body(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(1, false), <<"t">>
+        )
     ).
 
 t_placeholder_and_body(TCConfig) ->
@@ -451,7 +461,7 @@ t_placeholder_and_body(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     )
     end).
 
@@ -511,7 +521,9 @@ t_bad_response_content_type(TCConfig) ->
     ?check_trace(
         ?assertEqual(
             deny,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+            )
         ),
         fun(Trace) ->
             ?assertMatch(
@@ -539,7 +551,9 @@ t_bad_response_content_type_legacy_ignores(TCConfig) ->
     emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         ?assertEqual(
             allow,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+            )
         )
     end).
 
@@ -560,7 +574,9 @@ t_bad_response_content_type_hardened_denies(TCConfig) ->
     emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         ?assertEqual(
             deny,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+            )
         )
     end).
 
@@ -607,7 +623,7 @@ t_bad_response(TCConfig) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
     ?assertMatch(
         #{
@@ -688,7 +704,7 @@ t_no_value_for_placeholder(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_node_cache(TCConfig) ->
@@ -725,11 +741,11 @@ t_node_cache(TCConfig) ->
     },
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
     ?assertMatch(
         #{hits := #{value := 1}, misses := #{value := 1}},
@@ -738,18 +754,24 @@ t_node_cache(TCConfig) ->
     %% Now change a var in each interpolated part, the cache should NOT be hit
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo#{cn => <<"cn2">>}, ?AUTHZ_PUBLISH, <<"t">>)
-    ),
-    ?assertEqual(
-        deny,
         emqx_access_control:authorize(
-            ClientInfo#{clientid => <<"clientid2">>}, ?AUTHZ_PUBLISH, <<"t">>
+            emqx_authz_context:make(ClientInfo#{cn => <<"cn2">>}), ?AUTHZ_PUBLISH, <<"t">>
         )
     ),
     ?assertEqual(
         deny,
         emqx_access_control:authorize(
-            ClientInfo#{username => <<"username2">>}, ?AUTHZ_PUBLISH, <<"t">>
+            emqx_authz_context:make(ClientInfo#{clientid => <<"clientid2">>}),
+            ?AUTHZ_PUBLISH,
+            <<"t">>
+        )
+    ),
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo#{username => <<"username2">>}),
+            ?AUTHZ_PUBLISH,
+            <<"t">>
         )
     ),
     ?assertMatch(
@@ -791,7 +813,7 @@ t_disallowed_placeholders_preserved(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_disallowed_placeholders_path(TCConfig) ->
@@ -818,7 +840,7 @@ t_disallowed_placeholders_path(TCConfig) ->
     % % NOTE: disallowed placeholder left intact, which makes the URL invalid
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_create_replace(TCConfig) ->
@@ -847,7 +869,7 @@ t_create_replace(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Changing to valid config
@@ -864,7 +886,7 @@ t_create_replace(TCConfig) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ?assertMatch(

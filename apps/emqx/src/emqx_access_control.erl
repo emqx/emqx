@@ -12,7 +12,6 @@
     authenticate/1,
     authorize/3,
     authorize/4,
-    authorize_with_context/4,
     format_action/1
 ]).
 
@@ -150,34 +149,15 @@ authenticate(Credential) ->
     end.
 
 %% @doc Check Authorization
--spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic()) ->
+-spec authorize(emqx_authz_context:t(), emqx_types:pubsub(), emqx_types:topic()) ->
     authz_result().
-authorize(ClientInfo, Action, Topic) ->
-    authorize(ClientInfo, Action, Topic, #{}).
+authorize(AuthzContext, Action, Topic) ->
+    authorize(AuthzContext, Action, Topic, #{}).
 
 -spec authorize(
-    emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), #{cache => boolean()}
-) -> authz_result().
-authorize(ClientInfo, Action, Topic, Opts) ->
-    authorize_with_context(emqx_authz_context:make(ClientInfo), Action, Topic, Opts).
-
--spec authorize_with_context(
     emqx_authz_context:t(), emqx_types:pubsub(), emqx_types:topic(), #{cache => boolean()}
 ) -> authz_result().
-authorize_with_context(AuthzContext, Action, <<"$delayed/", Data/binary>> = RawTopic, Opts) ->
-    case binary:split(Data, <<"/">>) of
-        [_, Topic] ->
-            authorize_with_context(AuthzContext, Action, Topic, Opts);
-        _ ->
-            ?SLOG(warning, #{
-                msg => "invalid_delayed_topic_format",
-                expected_example => "$delayed/1/t/foo",
-                got => RawTopic
-            }),
-            inc_authz_metrics(deny),
-            deny
-    end;
-authorize_with_context(AuthzContext, Action, Topic0, Opts) ->
+authorize(AuthzContext, Action, Topic0, Opts) ->
     IncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
     Topic = maybe_mount_prefix(IncludeMountpoint, AuthzContext, Topic0),
     {Result, _Cacheable} =

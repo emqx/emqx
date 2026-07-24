@@ -105,7 +105,9 @@ t_redis_error(_Config) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"a">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"a">>
+        )
     ).
 
 t_invalid_command(_Config) ->
@@ -175,7 +177,7 @@ t_resource_failure_legacy_ignores(_Config) ->
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )
@@ -194,7 +196,7 @@ t_resource_failure_hardened_denies(_Config) ->
             ?assertEqual(
                 deny,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )

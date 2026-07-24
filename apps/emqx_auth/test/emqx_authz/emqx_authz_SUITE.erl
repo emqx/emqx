@@ -720,27 +720,39 @@ t_skipped_as_superuser(_Config) ->
         begin
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_0), <<"p/t/0">>)
+                emqx_access_control:authorize(
+                    emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(?QOS_0), <<"p/t/0">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_1), <<"p/t/1">>)
+                emqx_access_control:authorize(
+                    emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(?QOS_1), <<"p/t/1">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_2), <<"p/t/2">>)
+                emqx_access_control:authorize(
+                    emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(?QOS_2), <<"p/t/2">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_0), <<"s/t/0">>)
+                emqx_access_control:authorize(
+                    emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE(?QOS_0), <<"s/t/0">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_1), <<"s/t/1">>)
+                emqx_access_control:authorize(
+                    emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE(?QOS_1), <<"s/t/1">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_2), <<"s/t/2">>)
+                emqx_access_control:authorize(
+                    emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE(?QOS_2), <<"s/t/2">>
+                )
             )
         end,
         fun(Trace) ->
@@ -820,7 +832,9 @@ t_mount_prefix_for_authz(_TCConfig) ->
     MountedTopic4 = <<Username/binary, "/", Topic4/binary>>,
     ?check_trace(
         begin
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_2), Topic1),
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE(?QOS_2), Topic1
+            ),
             ?assertReceive({authz, #{topic := MountedTopic1}}),
             %% Check that real client works
             _ = emqtt:subscribe(C1, Topic2, [{qos, 1}]),
@@ -880,7 +894,7 @@ authorize_with_crashing_http_and_allowing_redis() ->
         ),
         {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_HTTP, ?SOURCE_REDIS]),
         Result = emqx_access_control:authorize(
-            emqx_authz_test_lib:base_client_info(),
+            emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
             ?AUTHZ_PUBLISH,
             <<"t">>
         ),

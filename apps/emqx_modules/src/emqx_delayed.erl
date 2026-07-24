@@ -17,6 +17,7 @@
 -export([
     create_tables/0,
     start_link/0,
+    on_client_publish_pre_authz/3,
     on_message_publish/1
 ]).
 
@@ -102,6 +103,7 @@
 %% be 42949670 seconds earlier or later than the current system time.
 -define(MAX_INTERVAL, 42949670).
 -define(FORMAT_FUN, {?MODULE, format_delayed}).
+-define(DELAYED_HEADER, delayed).
 -define(NOW, erlang:system_time(milli_seconds)).
 
 -ifndef(TEST).
@@ -131,35 +133,99 @@ create_tables() ->
 %%------------------------------------------------------------------------------
 %% Hooks
 %%------------------------------------------------------------------------------
+on_client_publish_pre_authz(
+    _PacketOrFrame,
+    #{authz_context := AuthzContext, topic := <<"$delayed/", Data/binary>>},
+    {ok, Overrides0}
+) ->
+    case parse_delayed_topic(Data) of
+        {ok, Delay, Topic} ->
+            Headers0 = maps:get(headers, Overrides0, #{}),
+            Delayed0 = #{delay => Delay, authz_topic => Topic},
+            Delayed = maybe_put_authz_context(AuthzContext, Delayed0),
+            Overrides = Overrides0#{
+                topic => Topic,
+                headers => Headers0#{?DELAYED_HEADER => Delayed}
+            },
+            {ok, {ok, Overrides}};
+        {error, Reason} ->
+            {stop, {error, Reason}}
+    end;
+on_client_publish_pre_authz(_PacketOrFrame, _Context, Acc) ->
+    {ok, Acc}.
+
 on_message_publish(
     Msg = #message{
         id = Id,
-        topic = <<"$delayed/", Topic/binary>>,
+        headers = #{?DELAYED_HEADER := #{delay := Delay}},
         timestamp = Ts
     }
 ) ->
-    [Delay, Topic1] = binary:split(Topic, <<"/">>),
-    {PubAt, Delayed} =
-        case binary_to_integer(Delay) of
-            Interval when Interval < ?MAX_INTERVAL ->
-                {Interval * 1000 + Ts, Interval};
-            Timestamp ->
-                %% Check malicious timestamp?
-                Interval = Timestamp - erlang:round(Ts / 1000),
-                case abs(Interval) > ?MAX_INTERVAL of
-                    true -> error(invalid_delayed_timestamp);
-                    false -> {Timestamp * 1000, Interval}
-                end
-        end,
-    PubMsg = Msg#message{topic = Topic1},
-    Headers = PubMsg#message.headers,
-    case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = PubMsg}) of
-        ok -> ok;
-        {error, Error} -> ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error})
+    case delayed_publish_at(Delay, Ts) of
+        {ok, PubAt, Delayed} ->
+            case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = Msg}) of
+                ok -> ok;
+                {error, Error} ->
+                    ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error})
+            end;
+        error ->
+            ?SLOG(error, #{msg => "invalid_delayed_message_metadata"})
     end,
-    {stop, PubMsg#message{headers = Headers#{allow_publish => false}}};
+    {stop, emqx_message:set_header(allow_publish, false, Msg)};
+on_message_publish(Msg = #message{headers = #{?DELAYED_HEADER := _Invalid}}) ->
+    ?SLOG(error, #{msg => "invalid_delayed_message_metadata"}),
+    {stop, emqx_message:set_header(allow_publish, false, Msg)};
 on_message_publish(Msg) ->
     {ok, Msg}.
+
+parse_delayed_topic(Data) ->
+    case binary:split(Data, <<"/">>) of
+        [DelayBin, Topic] when Topic =/= <<>> ->
+            case {parse_delay(DelayBin), is_valid_topic(Topic)} of
+                {{ok, Delay}, true} -> {ok, Delay, Topic};
+                _ -> {error, invalid_topic_name}
+            end;
+        _ ->
+            {error, invalid_topic_name}
+    end.
+
+parse_delay(DelayBin) ->
+    try binary_to_integer(DelayBin) of
+        Interval when Interval >= 0, Interval < ?MAX_INTERVAL ->
+            {ok, {interval, Interval}};
+        Timestamp when Timestamp >= ?MAX_INTERVAL ->
+            Now = erlang:system_time(second),
+            case abs(Timestamp - Now) =< ?MAX_INTERVAL of
+                true -> {ok, {absolute, Timestamp}};
+                false -> error
+            end;
+        _ ->
+            error
+    catch
+        error:badarg -> error
+    end.
+
+is_valid_topic(Topic) ->
+    try emqx_topic:validate(name, Topic) of
+        true -> true
+    catch
+        error:_ -> false
+    end.
+
+maybe_put_authz_context(AuthzContext, Delayed) ->
+    case emqx_security_profile:policy(delayed_publish_reauthorization) of
+        false -> Delayed;
+        true -> Delayed#{authz_context => AuthzContext}
+    end.
+
+delayed_publish_at({interval, Interval}, Timestamp) when
+    is_integer(Interval), Interval >= 0, Interval < ?MAX_INTERVAL
+->
+    {ok, Interval * 1000 + Timestamp, Interval};
+delayed_publish_at({absolute, PublishAt}, Timestamp) when is_integer(PublishAt) ->
+    {ok, PublishAt * 1000, PublishAt - erlang:round(Timestamp / 1000)};
+delayed_publish_at(_Invalid, _Timestamp) ->
+    error.
 
 %%------------------------------------------------------------------------------
 %% Start delayed publish server
@@ -478,34 +544,32 @@ publish_delayed_message(Msg = #message{from = ClientId, topic = Topic, qos = Qos
 
 publish_delayed_message_legacy(Msg, ClientId, Topic) ->
     case emqx_banned:check_clientid(ClientId) of
-        false -> emqx:publish(Msg);
+        false -> emqx:publish(remove_delayed_header(Msg));
         true -> ignore_delayed_message_publish("client is banned", ClientId, Topic)
     end.
 
 publish_delayed_message_hardened(Msg, ClientId, Topic, Qos) ->
-    case emqx_authz_context:get(Msg) of
-        undefined ->
-            ignore_delayed_message_publish("authorization context missing", ClientId, Topic);
-        AuthzContext ->
-            maybe_publish_hardened(AuthzContext, Msg, ClientId, Topic, Qos)
+    case emqx_message:get_header(?DELAYED_HEADER, Msg, undefined) of
+        #{authz_context := AuthzContext, authz_topic := AuthzTopic} ->
+            maybe_publish_hardened(AuthzContext, AuthzTopic, Msg, ClientId, Topic, Qos);
+        _ ->
+            ignore_delayed_message_publish("authorization context missing", ClientId, Topic)
     end.
 
-maybe_publish_hardened(AuthzContext, Msg, ClientId, Topic, Qos) ->
+maybe_publish_hardened(AuthzContext, AuthzTopic, Msg, ClientId, Topic, Qos) ->
     case emqx_banned:check(AuthzContext) of
         true ->
             ignore_delayed_message_publish("client is banned", ClientId, Topic);
         false ->
-            maybe_publish_authorized(AuthzContext, Msg, ClientId, Topic, Qos)
+            maybe_publish_authorized(AuthzContext, AuthzTopic, Msg, ClientId, Topic, Qos)
     end.
-maybe_publish_authorized(AuthzContext, Msg, ClientId, Topic, Qos) ->
+maybe_publish_authorized(AuthzContext, AuthzTopic, Msg, ClientId, Topic, Qos) ->
     Retain = emqx_message:get_flag(retain, Msg),
     Action = ?AUTHZ_PUBLISH(Qos, Retain),
-    case emqx_access_control:authorize_with_context(
-        AuthzContext, Action, Topic, #{cache => false}
-    ) of
+    case emqx_access_control:authorize(AuthzContext, Action, AuthzTopic, #{cache => false}) of
         allow ->
             case emqx_banned:check(AuthzContext) of
-                false -> emqx:publish(emqx_authz_context:remove(Msg));
+                false -> emqx:publish(remove_delayed_header(Msg));
                 true -> ignore_delayed_message_publish("client is banned", ClientId, Topic)
             end;
         deny ->
@@ -520,10 +584,17 @@ ignore_delayed_message_publish(Reason, ClientId, Topic) ->
     }),
     ok.
 
+remove_delayed_header(Msg) ->
+    emqx_message:remove_header(?DELAYED_HEADER, Msg).
+
 do_load_or_unload(true, State) ->
+    emqx_hooks:put(
+        'client.publish_pre_authz', {?MODULE, on_client_publish_pre_authz, []}, ?HP_DELAY_PUB
+    ),
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_DELAY_PUB),
     State;
 do_load_or_unload(false, #{publish_timer := PubTimer} = State) ->
+    emqx_hooks:del('client.publish_pre_authz', {?MODULE, on_client_publish_pre_authz}),
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     emqx_utils:cancel_timer(PubTimer),
     ets:delete_all_objects(?TAB),

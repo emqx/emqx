@@ -659,16 +659,24 @@ with_context(Ctx, ClientInfo) ->
 
 with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
     Action = publish_action(Msg),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
-        allow ->
-            _ = emqx_broker:publish(
-                emqx_authz_context:maybe_attach(ClientInfo, Msg)
-            ),
+    case emqx_gateway_ctx:authorize_publish(Ctx, Msg, ClientInfo, Action, Topic) of
+        {allow, #{action := #{retain := Retain}, topic := NTopic, headers := Headers}} ->
+            Mountpoint = maps:get(mountpoint, ClientInfo, <<>>),
+            Msg0 = Msg#message{topic = emqx_mountpoint:mount(Mountpoint, NTopic)},
+            Msg1 = emqx_message:set_flag(retain, Retain, Msg0),
+            _ = emqx_broker:publish(emqx_message:set_headers(Headers, Msg1)),
             ok;
-        _ ->
+        deny ->
             ?SLOG(error, #{
                 msg => "publish_denied",
                 topic => Topic
+            }),
+            {error, deny};
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "publish_pre_authz_failed",
+                topic => Topic,
+                reason => Reason
             }),
             {error, deny}
     end;

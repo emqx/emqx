@@ -334,7 +334,10 @@ test_authz(Expected, Namespace, {Who, Rule}, {ClientInfo, Action, Topic}) ->
     ]),
     try
         ok = store_rules(Namespace, Who, [Rule]),
-        ?assertEqual(Expected, emqx_access_control:authorize(ClientInfo, Action, Topic))
+        ?assertEqual(
+            Expected,
+            emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), Action, Topic)
+        )
     after
         ok = emqx_authz_mnesia:purge_rules(Namespace)
     end.
@@ -349,7 +352,7 @@ t_normalize_rules(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ?assertException(
@@ -406,7 +409,7 @@ t_legacy_rules(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_destroy(_Config) ->
@@ -419,14 +422,14 @@ t_destroy(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ok = emqx_authz_test_lib:reset_authorizers(),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ok = setup_config(),
@@ -435,7 +438,7 @@ t_destroy(_Config) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_conf_cli_load(_Config) ->
@@ -448,7 +451,7 @@ t_conf_cli_load(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ),
     PrevRules = ets:tab2list(emqx_acl),
     Hocon = emqx_conf_cli:get_config_namespaced(?global_ns, "authorization"),
@@ -459,7 +462,7 @@ t_conf_cli_load(_Config) ->
     %% still working
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 %%------------------------------------------------------------------------------

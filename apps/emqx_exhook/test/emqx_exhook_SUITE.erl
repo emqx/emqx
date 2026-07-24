@@ -104,7 +104,7 @@ t_access_failed_if_no_server_running(Config) ->
     ?assertMatch(
         allow,
         emqx_access_control:authorize(
-            ClientInfo#{username => <<"gooduser">>},
+            emqx_authz_context:make(ClientInfo#{username => <<"gooduser">>}),
             ?AUTHZ_PUBLISH,
             <<"acl/1">>
         )
@@ -113,7 +113,7 @@ t_access_failed_if_no_server_running(Config) ->
     ?assertMatch(
         deny,
         emqx_access_control:authorize(
-            ClientInfo#{username => <<"baduser">>},
+            emqx_authz_context:make(ClientInfo#{username => <<"baduser">>}),
             ?AUTHZ_PUBLISH,
             <<"acl/2">>
         )

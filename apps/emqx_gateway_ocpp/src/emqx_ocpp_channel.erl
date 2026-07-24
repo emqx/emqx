@@ -373,31 +373,31 @@ publish(
     is_map(Frame)
 ->
     Topic0 = upstream_topic(Frame, Channel),
-    Topic = emqx_mountpoint:mount(Mountpoint, Topic0),
     Payload = frame2payload(Frame),
     Action = ?AUTHZ_PUBLISH(?QOS_2, false),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic0) of
-        allow ->
-            emqx_broker:publish(
-                emqx_authz_context:maybe_attach(
-                    ClientInfo,
-                    emqx_message:make(
-                        ClientId,
-                        ?QOS_2,
-                        Topic,
-                        Payload,
-                        #{},
-                        #{
-                            protocol => Protocol,
-                            proto_ver => ProtoVer,
-                            username => Username,
-                            peerhost => PeerHost
-                        }
-                    )
-                )
-            );
+    case emqx_gateway_ctx:authorize_publish(Ctx, Frame, ClientInfo, Action, Topic0) of
+        {allow, #{action := #{retain := Retain}, topic := NTopic, headers := Headers}} ->
+            Topic = emqx_mountpoint:mount(Mountpoint, NTopic),
+            Msg0 = emqx_message:make(
+                ClientId,
+                ?QOS_2,
+                Topic,
+                Payload,
+                #{},
+                #{
+                    protocol => Protocol,
+                    proto_ver => ProtoVer,
+                    username => Username,
+                    peerhost => PeerHost
+                }
+            ),
+            Msg1 = emqx_message:set_flag(retain, Retain, Msg0),
+            emqx_broker:publish(emqx_message:set_headers(Headers, Msg1));
         deny ->
             ?SLOG(info, #{msg => "publish_denied", topic => Topic0}),
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{msg => "publish_pre_authz_failed", topic => Topic0, reason => Reason}),
             ok
     end.
 

@@ -52,16 +52,19 @@ handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo, _
     PublishOpts = get_publish_opts(Msg),
     QoS = get_publish_qos(Msg, PublishOpts),
     Action = ?AUTHZ_PUBLISH(QoS, get_publish_retain(PublishOpts)),
-    case emqx_coap_channel:validator(Action, Topic, Ctx, CInfo) of
-        allow ->
+    case emqx_gateway_ctx:authorize_publish(Ctx, Msg, CInfo, Action, Topic) of
+        {allow, #{action := #{retain := Retain}, topic := NTopic, headers := Headers}} ->
             #{clientid := ClientId} = CInfo,
-            MountTopic = mount(CInfo, Topic),
-            MQTTMsg = emqx_message:make(ClientId, QoS, MountTopic, Payload),
-            MQTTMsg1 = apply_publish_opts(PublishOpts, MQTTMsg),
-            MQTTMsg2 = emqx_authz_context:maybe_attach(CInfo, MQTTMsg1),
-            _ = emqx_broker:publish(MQTTMsg2),
+            MountTopic = mount(CInfo, NTopic),
+            MQTTMsg0 = emqx_message:make(ClientId, QoS, MountTopic, Payload),
+            MQTTMsg1 = apply_publish_opts(PublishOpts, MQTTMsg0),
+            MQTTMsg2 = emqx_message:set_flag(retain, Retain, MQTTMsg1),
+            MQTTMsg3 = emqx_message:set_headers(Headers, MQTTMsg2),
+            _ = emqx_broker:publish(MQTTMsg3),
             reply({ok, changed}, Msg);
-        _ ->
+        deny ->
+            reply({error, unauthorized}, Msg);
+        {error, _Reason} ->
             reply({error, unauthorized}, Msg)
     end;
 handle_method(_, _, Msg, _, _, _) ->

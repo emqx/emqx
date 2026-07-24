@@ -149,7 +149,7 @@ t_conn_error_legacy_ignores(_Config) ->
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )
@@ -165,7 +165,7 @@ t_conn_error_hardened_denies(_Config) ->
             ?assertEqual(
                 deny,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )

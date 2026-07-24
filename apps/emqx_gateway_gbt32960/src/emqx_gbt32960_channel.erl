@@ -760,15 +760,23 @@ upstreaming(
 ) ->
     {Topic, Payload} = transform(Frame, Mountpoint),
     Action = ?AUTHZ_PUBLISH(?QOS_1, false),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
-        allow ->
+    case emqx_gateway_ctx:authorize_publish(Ctx, Frame, ClientInfo, Action, Topic) of
+        {allow, #{action := #{retain := Retain}, topic := NTopic, headers := Headers}} ->
             log(
-                debug, #{msg => "upstreaming_to_topic", topic => Topic, payload => Payload}, Channel
+                debug, #{msg => "upstreaming_to_topic", topic => NTopic, payload => Payload}, Channel
             ),
-            Msg = emqx_message:make(ClientId, ?QOS_1, Topic, Payload),
-            emqx:publish(emqx_authz_context:maybe_attach(ClientInfo, Msg));
+            Msg0 = emqx_message:make(ClientId, ?QOS_1, NTopic, Payload),
+            Msg1 = emqx_message:set_flag(retain, Retain, Msg0),
+            emqx:publish(emqx_message:set_headers(Headers, Msg1));
         deny ->
             log(info, #{msg => "upstream_publish_denied", topic => Topic}, Channel),
+            ok;
+        {error, Reason} ->
+            log(
+                warning,
+                #{msg => "upstream_publish_pre_authz_failed", topic => Topic, reason => Reason},
+                Channel
+            ),
             ok
     end.
 

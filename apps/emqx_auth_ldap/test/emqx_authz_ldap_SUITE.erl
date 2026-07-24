@@ -127,7 +127,7 @@ t_invalid_acl_rules_legacy_ignores(_Config) ->
         ?assertEqual(
             allow,
             emqx_access_control:authorize(
-                #{username => <<"mqttuser0011">>},
+                emqx_authz_context:make(#{username => <<"mqttuser0011">>}),
                 ?AUTHZ_PUBLISH,
                 <<"t">>
             )
@@ -141,7 +141,7 @@ t_invalid_acl_rules_hardened_denies(_Config) ->
         ?assertEqual(
             deny,
             emqx_access_control:authorize(
-                #{username => <<"mqttuser0011">>},
+                emqx_authz_context:make(#{username => <<"mqttuser0011">>}),
                 ?AUTHZ_PUBLISH,
                 <<"t">>
             )
@@ -156,7 +156,7 @@ t_conn_error_legacy_ignores(_Config) ->
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    #{username => <<"mqttuser0001">>},
+                    emqx_authz_context:make(#{username => <<"mqttuser0001">>}),
                     ?AUTHZ_PUBLISH,
                     <<"mqttuser0001/pub/1">>
                 )
@@ -172,7 +172,7 @@ t_conn_error_hardened_denies(_Config) ->
             ?assertEqual(
                 deny,
                 emqx_access_control:authorize(
-                    #{username => <<"mqttuser0001">>},
+                    emqx_authz_context:make(#{username => <<"mqttuser0001">>}),
                     ?AUTHZ_PUBLISH,
                     <<"mqttuser0001/pub/1">>
                 )

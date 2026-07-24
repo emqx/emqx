@@ -37,6 +37,7 @@
     'client.check_authn_complete',
     'client.authenticate',
     'client.post_authn',
+    'client.publish_pre_authz',
     'client.subscribe',
     'client.unsubscribe',
     'client.timeout',
@@ -142,6 +143,13 @@ when
     emqx_access_control:authorize_hook_result()
 ) ->
     fold_callback_result(emqx_access_control:authorize_hook_result()).
+
+-callback 'client.publish_pre_authz'(
+    PacketOrFrame :: term(),
+    emqx_publish:pre_authz_context(),
+    emqx_publish:pre_authz_result()
+) ->
+    fold_callback_result(emqx_publish:pre_authz_result()).
 
 -callback 'client.check_authz_complete'(
     emqx_authz_context:t(),

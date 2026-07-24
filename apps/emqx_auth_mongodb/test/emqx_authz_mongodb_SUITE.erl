@@ -174,7 +174,7 @@ t_render_filter_failure_legacy_ignores(Config) ->
         ?assertEqual(
             allow,
             emqx_access_control:authorize(
-                #{username => <<255>>},
+                emqx_authz_context:make(#{username => <<255>>}),
                 ?AUTHZ_PUBLISH,
                 <<"a">>
             )
@@ -191,7 +191,7 @@ t_render_filter_failure_hardened_denies(Config) ->
         ?assertEqual(
             deny,
             emqx_access_control:authorize(
-                #{username => <<255>>},
+                emqx_authz_context:make(#{username => <<255>>}),
                 ?AUTHZ_PUBLISH,
                 <<"a">>
             )
@@ -210,7 +210,7 @@ t_resource_failure_legacy_ignores(Config) ->
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )
@@ -230,7 +230,7 @@ t_resource_failure_hardened_denies(Config) ->
             ?assertEqual(
                 deny,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )
