@@ -183,5 +183,15 @@ aeh_producer_test_() ->
                         }
                     }
                 )
+            )},
+        {"reconnect_delay defaults to 2s and is settable",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"reconnect_delay">> := <<"1500ms">>}},
+                check_action(#{<<"parameters">> => #{<<"reconnect_delay">> => <<"1500ms">>}})
+            )},
+        {"connector request_timeout defaults to 30s",
+            ?_assertMatch(
+                #{<<"request_timeout">> := <<"30s">>},
+                check_connector(#{})
             )}
     ].

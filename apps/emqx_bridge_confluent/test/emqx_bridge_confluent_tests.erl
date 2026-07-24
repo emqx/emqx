@@ -204,5 +204,10 @@ confluent_producer_action_test_() ->
                 check_action(
                     Override(#{<<"max_batch_age">> => <<"500ms">>, <<"max_retries">> => 3})
                 )
+            )},
+        {"reconnect_delay defaults to 2s and is settable",
+            ?_assertMatch(
+                ?ok_action_config(#{<<"parameters">> := #{<<"reconnect_delay">> := 1500}}),
+                check_action(Override(#{<<"reconnect_delay">> => <<"1500ms">>}))
             )}
     ].

@@ -330,6 +330,15 @@ get_wolff_producer_state(TCConfig) ->
     ),
     sys:get_state(Pid).
 
+-doc """
+Fetch the state of the wolff client of the connector under test, to assert
+config values that EMQX passed through to wolff.
+""".
+get_wolff_client_state(TCConfig) ->
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, Pid} = wolff_client_sup:find_client(ConnResId),
+    sys:get_state(Pid).
+
 kpro_message_to_map(#kafka_message{} = Msg) ->
     lists:foldl(
         fun({I, Name}, Acc) ->
@@ -705,35 +714,61 @@ t_smoke_metrics(TCConfig) ->
     ok.
 
 -doc """
-`max_batch_age` and `max_retries` action parameters are translated and passed
-through to the wolff producer config (`max_batch_age` in milliseconds,
-`max_retries` as wolff's `max_retry`).
+The `max_batch_age`, `max_retries` and `reconnect_delay` action parameters and
+the connector `request_timeout` are translated and passed through to the wolff
+producer / client configs (`max_batch_age` and `reconnect_delay` in
+milliseconds, `max_retries` as wolff's `max_retry`).
 """.
-t_max_batch_age_max_retries_passthrough(TCConfig) ->
-    {201, _} = create_connector_api(TCConfig, #{}),
+t_wolff_producer_opts_passthrough(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"request_timeout">> => <<"45s">>
+    }),
     {201, _} = create_action_api(TCConfig, #{
         <<"parameters">> => #{
             <<"max_batch_age">> => <<"500ms">>,
-            <<"max_retries">> => 3
+            <<"max_retries">> => 3,
+            <<"reconnect_delay">> => <<"1500ms">>
         }
     }),
     ?assertMatch(
-        #{config := #{max_batch_age := 500, max_retry := 3}},
+        #{
+            config := #{
+                max_batch_age := 500,
+                max_retry := 3,
+                reconnect_delay_ms := 1500
+            }
+        },
         get_wolff_producer_state(TCConfig)
+    ),
+    ?assertMatch(
+        #{conn_config := #{request_timeout := 45_000}},
+        get_wolff_client_state(TCConfig)
     ),
     ok.
 
 -doc """
-Actions created without the new `max_batch_age` / `max_retries` parameters
-behave as before: wolff gets `infinity` for both (never drop by age, retry
-forever) and messages are produced as usual.
+Connectors and actions created without the new `max_batch_age` /
+`max_retries` / `reconnect_delay` / `request_timeout` fields behave as
+before: wolff gets `infinity` for the first two (never drop by age, retry
+forever), 2s reconnect delay, 30s client request timeout, and messages are
+produced as usual.
 """.
-t_max_batch_age_max_retries_defaults(TCConfig) ->
+t_wolff_producer_opts_defaults(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{}),
     ?assertMatch(
-        #{config := #{max_batch_age := infinity, max_retry := infinity}},
+        #{
+            config := #{
+                max_batch_age := infinity,
+                max_retry := infinity,
+                reconnect_delay_ms := 2_000
+            }
+        },
         get_wolff_producer_state(TCConfig)
+    ),
+    ?assertMatch(
+        #{conn_config := #{request_timeout := 30_000}},
+        get_wolff_client_state(TCConfig)
     ),
     #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
     C = start_client(),

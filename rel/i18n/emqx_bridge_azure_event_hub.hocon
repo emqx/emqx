@@ -18,6 +18,12 @@ min_metadata_refresh_interval.desc:
 min_metadata_refresh_interval.label:
 """Min Metadata Refresh Interval"""
 
+request_timeout.desc:
+"""Maximum duration to wait for a reply from Azure Event Hubs for a pending request.
+When exceeded, the connection is considered stale and is re-established."""
+
+request_timeout.label: "Request Timeout"
+
 kafka_producer.desc:
 """Azure Event Hubs Producer configuration."""
 
@@ -130,6 +136,12 @@ Reconnect-triggered resends after a connection loss are not counted against this
 The default value <code>infinity</code> means retry forever."""
 
 max_retries.label: "Max Retries"
+
+reconnect_delay.desc:
+"""Delay before the producer attempts to reconnect to Azure Event Hubs after a connection loss.
+While disconnected, messages continue to accumulate in the buffer, subject to the buffer limits and <code>max_batch_age</code>."""
+
+reconnect_delay.label: "Reconnect Delay"
 
 max_batch_bytes.desc:
 """Maximum bytes to collect in an Azure Event Hubs message batch."""

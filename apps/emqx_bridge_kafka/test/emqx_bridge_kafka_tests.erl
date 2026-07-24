@@ -93,6 +93,42 @@ producer_max_batch_age_max_retries_schema_test_() ->
             ?_assertThrow(_, Check(#{<<"max_batch_age">> => <<"not_a_duration">>}))}
     ].
 
+%% `reconnect_delay' (producer) defaults to 2s; `request_timeout' (connector)
+%% defaults to 30s; both accept durations.
+producer_reconnect_delay_request_timeout_schema_test_() ->
+    CheckAction = fun(Overrides) ->
+        emqx_bridge_kafka_testlib:action_config(#{<<"parameters">> => Overrides})
+    end,
+    CheckConnector = fun(Overrides) ->
+        check_action_connector(
+            emqx_utils_maps:deep_merge(
+                emqx_bridge_kafka_testlib:action_connector_config(#{}), Overrides
+            )
+        )
+    end,
+    [
+        {"reconnect_delay default is 2s",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"reconnect_delay">> := <<"2s">>}},
+                CheckAction(#{})
+            )},
+        {"reconnect_delay is settable",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"reconnect_delay">> := <<"1500ms">>}},
+                CheckAction(#{<<"reconnect_delay">> => <<"1500ms">>})
+            )},
+        {"request_timeout default is 30s",
+            ?_assertMatch(
+                #{<<"request_timeout">> := <<"30s">>},
+                CheckConnector(#{})
+            )},
+        {"request_timeout is settable",
+            ?_assertMatch(
+                #{<<"request_timeout">> := <<"1m">>},
+                CheckConnector(#{<<"request_timeout">> => <<"1m">>})
+            )}
+    ].
+
 %% The wolff ack callback for the wolff 4.2.0 drop reasons: `message_expired'
 %% is reported as `request_expired' (concludes the rule action without bumping
 %% resource metrics; `dropped'/`dropped.expired' are bumped via the

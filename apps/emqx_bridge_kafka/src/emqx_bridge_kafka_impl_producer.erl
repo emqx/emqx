@@ -92,14 +92,13 @@ on_start(InstId, Config) ->
     }),
     C = fun(Key) -> check_config(Key, Config) end,
     Hosts = C(bootstrap_hosts),
-    MetadataRequestTimeout = C(metadata_request_timeout),
     ClientConfig = #{
         min_metadata_refresh_interval => C(min_metadata_refresh_interval),
         connect_timeout => C(connect_timeout),
-        metadata_request_timeout => MetadataRequestTimeout,
+        metadata_request_timeout => C(metadata_request_timeout),
         %% Request timeout is the max age limit for a pending reply from Kafka
         %% once reached, wolff_client will force reconnect
-        request_timeout => max(MetadataRequestTimeout * 2, timer:seconds(30)),
+        request_timeout => C(request_timeout),
         extra_sock_opts => C(socket_opts),
         sasl => C(authentication),
         ssl => C(ssl),
@@ -559,10 +558,16 @@ render_timestamp(Template, Message) ->
 
 do_send_msg(sync, KafkaTopic, KafkaMessage, Producers, SyncTimeout) ->
     try
-        {_Partition, _Offset} = wolff:send_sync2(
-            Producers, KafkaTopic, [KafkaMessage], SyncTimeout
-        ),
-        ok
+        case wolff:send_sync2(Producers, KafkaTopic, [KafkaMessage], SyncTimeout) of
+            {_Partition, message_expired} ->
+                %% dropped because it stayed in the buffer longer than 'max_batch_age'
+                {error, request_expired};
+            {_Partition, max_retry_exceeded} ->
+                %% dropped after 'max_retries' Kafka error responses
+                {error, max_retry_exceeded};
+            {_Partition, _Offset} ->
+                ok
+        end
     catch
         error:{producer_down, _} = Reason ->
             {error, Reason};
@@ -796,6 +801,7 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, ActionResId) ->
         max_inflight := MaxInflight,
         max_batch_age := MaxBatchAge,
         max_retries := MaxRetries,
+        reconnect_delay := ReconnectDelay,
         partitions_limit := MaxPartitions,
         buffer := #{
             mode := BufferMode0,
@@ -832,6 +838,7 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, ActionResId) ->
         max_batch_bytes => MaxBatchBytes,
         max_batch_age => MaxBatchAge,
         max_retry => MaxRetries,
+        reconnect_delay_ms => ReconnectDelay,
         max_send_ahead => MaxInflight - 1,
         compression => Compression,
         group => ActionResId,
