@@ -1961,3 +1961,152 @@ t_msk_iam_authn(TCConfig) ->
         end
     ),
     ok.
+
+t_oauth_client_credentials_authn(TCConfig) ->
+    on_exit(fun emqx_utils_http_test_server:stop/0),
+    on_exit(fun emqx_connector_oauth2:clear_cache/0),
+    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/oauth/token", false),
+    TestPid = self(),
+    NowS = erlang:system_time(second),
+    JWT = emqx_bridge_kafka_action_SUITE:generate_unsigned_jwt(#{
+        <<"exp">> => NowS + 60,
+        <<"iat">> => NowS,
+        <<"sub">> => <<"admin">>
+    }),
+    ok = emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        {ok, RequestBody, Req1} = cowboy_req:read_body(Req0),
+        TestPid ! {oauth2_token_request, cow_qs:parse_qs(RequestBody)},
+        ResponseBody = emqx_utils_json:encode(#{
+            <<"access_token">> => JWT,
+            <<"expires_in">> => 60,
+            <<"token_type">> => <<"JWT">>
+        }),
+        Req = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            ResponseBody,
+            Req1
+        ),
+        {ok, Req, State}
+    end),
+    Endpoint = emqx_bridge_v2_testlib:fmt(
+        <<"http://127.0.0.1:${port}/oauth/token">>, #{port => Port}
+    ),
+    Authentication = #{
+        <<"mechanism">> => <<"oauth">>,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"client_id">> => <<"oauth_client_id">>,
+        <<"client_secret">> => <<"oauth_client_secret">>,
+        <<"endpoint_uri">> => Endpoint,
+        <<"scope">> => <<"oauth_server_specific_scope">>,
+        <<"extensions">> => #{<<"logicalCluster">> => <<"kafka-cluster">>}
+    },
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"bootstrap_hosts">> => <<"kafka-3.emqx.net:9092">>,
+        <<"authentication">> => Authentication
+    }),
+    #{connector_type := ConnectorType, connector_name := ConnectorName} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            emqx_bridge_v2_testlib:simplify_result(
+                emqx_bridge_v2_testlib:get_connector_api(ConnectorType, ConnectorName)
+            )
+        )
+    ),
+    {oauth2_token_request, Params} = ?assertReceive({oauth2_token_request, _}, 5_000),
+    ?assertEqual(<<"client_credentials">>, proplists:get_value(<<"grant_type">>, Params)),
+    ?assertEqual(<<"oauth_client_id">>, proplists:get_value(<<"client_id">>, Params)),
+    ?assertEqual(<<"oauth_client_secret">>, proplists:get_value(<<"client_secret">>, Params)),
+    ?assertEqual(
+        <<"oauth_server_specific_scope">>,
+        proplists:get_value(<<"scope">>, Params)
+    ),
+    ?assertEqual(undefined, proplists:get_value(<<"logicalCluster">>, Params)),
+    ok.
+
+t_oauth_resource_id_is_independent_from_brod_client_id(_TCConfig) ->
+    on_exit(fun emqx_utils_http_test_server:stop/0),
+    on_exit(fun emqx_connector_oauth2:clear_cache/0),
+    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/oauth/token", false),
+    ok = emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        {ok, _RequestBody, Req1} = cowboy_req:read_body(Req0),
+        Req = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            emqx_utils_json:encode(#{
+                <<"access_token">> => <<"token-b">>,
+                <<"expires_in">> => 60,
+                <<"token_type">> => <<"JWT">>
+            }),
+            Req1
+        ),
+        {ok, Req, State}
+    end),
+    Endpoint = emqx_bridge_v2_testlib:fmt(
+        <<"http://127.0.0.1:${port}/oauth/token">>, #{port => Port}
+    ),
+    Auth = oauth_auth(Endpoint),
+    ResourceIdA = ?PROBE_ID_NEW(),
+    ResourceIdB = ?PROBE_ID_NEW(),
+    ok = emqx_bridge_kafka_oauth_authn:register(ResourceIdA, Auth),
+    ok = emqx_bridge_kafka_oauth_authn:register(ResourceIdB, Auth),
+    CallbackB = emqx_bridge_kafka_oauth_authn:mk_token_callback(ResourceIdB),
+    ok = emqx_bridge_kafka_oauth_authn:unregister(ResourceIdA),
+    ?assertEqual(
+        {ok, #{token => <<"token-b">>}},
+        CallbackB(#{client_id => <<"probing_brod_consumers">>})
+    ),
+    ok = emqx_bridge_kafka_oauth_authn:unregister(ResourceIdB),
+    ok.
+
+t_oauth_failed_consumer_start_unregisters(_TCConfig) ->
+    on_exit(fun emqx_connector_oauth2:clear_cache/0),
+    ConnectorResId = ?PROBE_ID_NEW(),
+    Auth = oauth_auth(<<"http://127.0.0.1/oauth/token">>),
+    Config = #{
+        authentication => Auth,
+        bootstrap_hosts => <<"127.0.0.1:9092">>,
+        socket_opts => [],
+        ssl => #{enable => false}
+    },
+    try
+        emqx_common_test_helpers:with_mock(
+            brod,
+            start_client,
+            fun(_BootstrapHosts, _ClientID, _ClientOpts) ->
+                {error, injected_start_failure}
+            end,
+            fun() ->
+                try emqx_bridge_kafka_impl_consumer:on_start(ConnectorResId, Config) of
+                    Unexpected ->
+                        ct:fail({unexpected_start_result, Unexpected})
+                catch
+                    throw:_ ->
+                        ok
+                end
+            end
+        ),
+        ?assertEqual(
+            {error, oauth2_not_registered},
+            emqx_connector_oauth2:get_token(ConnectorResId)
+        )
+    after
+        emqx_resource:forget_allocated_resources(ConnectorResId)
+    end.
+
+oauth_auth(Endpoint) ->
+    #{
+        mechanism => oauth,
+        grant_type => client_credentials,
+        client_id => <<"oauth_client_id">>,
+        client_secret => emqx_secret:wrap(<<"oauth_client_secret">>),
+        endpoint_uri => Endpoint,
+        scope => <<"oauth_server_specific_scope">>,
+        extensions => #{},
+        timeout => 5_000,
+        connect_timeout => 5_000
+    }.

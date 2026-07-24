@@ -74,8 +74,6 @@ check_config(Key, _Config) ->
 
 tr_config(bootstrap_hosts, Hosts) ->
     emqx_bridge_kafka_impl:hosts(Hosts);
-tr_config(authentication, Auth) ->
-    emqx_bridge_kafka_impl:sasl(Auth);
 tr_config(ssl, SSL) ->
     ssl(SSL);
 tr_config(socket_opts, Opts) ->
@@ -93,6 +91,7 @@ on_start(InstId, Config) ->
     C = fun(Key) -> check_config(Key, Config) end,
     Hosts = C(bootstrap_hosts),
     MetadataRequestTimeout = C(metadata_request_timeout),
+    Auth = maps:get(authentication, Config, none),
     ClientConfig = #{
         min_metadata_refresh_interval => C(min_metadata_refresh_interval),
         connect_timeout => C(connect_timeout),
@@ -101,30 +100,38 @@ on_start(InstId, Config) ->
         %% once reached, wolff_client will force reconnect
         request_timeout => max(MetadataRequestTimeout * 2, timer:seconds(30)),
         extra_sock_opts => C(socket_opts),
-        sasl => C(authentication),
+        sasl => emqx_bridge_kafka_impl:sasl(Auth, InstId),
         ssl => C(ssl),
         allow_auto_topic_creation => C(allow_auto_topic_creation)
     },
     ClientId = InstId,
     emqx_resource:allocate_resource(InstId, ?MODULE, ?kafka_client_id, ClientId),
-    ok = ensure_client(ClientId, Hosts, ClientConfig),
-    %% Note: we must return `{error, _}' here if the client cannot connect so that the
-    %% connector will immediately enter the `?status_disconnected' state, and then avoid
-    %% giving the impression that channels/actions may be added immediately and start
-    %% buffering, which won't happen if it's `?status_connecting'.  That would lead to
-    %% data loss, since Kafka Producer uses wolff's internal buffering, which is started
-    %% only when its producers start.
-    HealthCheckTopic = maps:get(health_check_topic, Config, ?PROBE_TOPIC_NAME),
-    case check_client_connectivity(InstId, ClientId, HealthCheckTopic) of
-        ok ->
-            ConnectorState = #{
-                client_id => ClientId,
-                health_check_topic => HealthCheckTopic,
-                installed_bridge_v2s => #{}
-            },
-            {ok, ConnectorState};
-        {error, Reason} ->
-            {error, Reason}
+    ok = emqx_bridge_kafka_oauth_authn:register(ClientId, Auth),
+    try
+        ok = ensure_client(ClientId, Hosts, ClientConfig),
+        %% Note: we must return `{error, _}' here if the client cannot connect so that the
+        %% connector will immediately enter the `?status_disconnected' state, and then avoid
+        %% giving the impression that channels/actions may be added immediately and start
+        %% buffering, which won't happen if it's `?status_connecting'.  That would lead to
+        %% data loss, since Kafka Producer uses wolff's internal buffering, which is started
+        %% only when its producers start.
+        HealthCheckTopic = maps:get(health_check_topic, Config, ?PROBE_TOPIC_NAME),
+        case check_client_connectivity(InstId, ClientId, HealthCheckTopic) of
+            ok ->
+                ConnectorState = #{
+                    client_id => ClientId,
+                    health_check_topic => HealthCheckTopic,
+                    installed_bridge_v2s => #{}
+                },
+                {ok, ConnectorState};
+            {error, _ConnReason} = Error ->
+                ok = deallocate_client(ClientId),
+                Error
+        end
+    catch
+        Class:CatchReason:Stacktrace ->
+            ok = deallocate_client(ClientId),
+            erlang:raise(Class, CatchReason, Stacktrace)
     end.
 
 on_add_channel(
@@ -290,9 +297,9 @@ deallocate_client(ClientId) ->
         }
     ),
     _ = with_log_at_error(
-        fun() -> emqx_bridge_kafka_token_cache:unregister(ClientId) end,
+        fun() -> emqx_bridge_kafka_oauth_authn:unregister(ClientId) end,
         #{
-            msg => "failed_to_unregister_token_cache",
+            msg => "failed_to_unregister_oauth2_client",
             client_id => ClientId
         }
     ),

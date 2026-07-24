@@ -526,7 +526,7 @@ setup_oauth_scenario(TCConfig0) ->
         )
     end),
     on_exit(fun emqx_utils_http_test_server:stop/0),
-    on_exit(fun emqx_bridge_kafka_token_cache:clear_cache/0),
+    on_exit(fun emqx_connector_oauth2:clear_cache/0),
     {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/oauth/token", false),
     NowS = erlang:system_time(second),
     JWT = generate_unsigned_jwt(#{
@@ -539,13 +539,16 @@ setup_oauth_scenario(TCConfig0) ->
         <<"access_token">> => JWT,
         <<"expires_in">> => 2
     }),
+    TestPid = self(),
     SetHandlerFn = fun(StatusCode, Body0) when is_binary(Body0) ->
-        emqx_utils_http_test_server:set_handler(fun(Req, State) ->
+        emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+            {ok, RequestBody, Req1} = cowboy_req:read_body(Req0),
+            TestPid ! {oauth2_token_request, cow_qs:parse_qs(RequestBody)},
             Rep = cowboy_req:reply(
                 StatusCode,
                 #{<<"content-type">> => <<"application/json">>},
                 Body0,
-                Req
+                Req1
             ),
             {ok, Rep, State}
         end)
@@ -2181,6 +2184,16 @@ t_oauth_client_credentials_authn(TCConfig0) ->
         create_connector_fn := CreateConnectorFn
     } = setup_oauth_scenario(TCConfig0),
     ?assertMatch({201, #{<<"status">> := <<"connected">>}}, CreateConnectorFn()),
+    {oauth2_token_request, Params} = ?assertReceive({oauth2_token_request, _}, 5_000),
+    ?assertEqual(<<"client_credentials">>, proplists:get_value(<<"grant_type">>, Params)),
+    ?assertEqual(<<"oauth_client_id">>, proplists:get_value(<<"client_id">>, Params)),
+    ?assertEqual(<<"oauth_client_secret">>, proplists:get_value(<<"client_secret">>, Params)),
+    ?assertEqual(
+        <<"oauth_server_specific_scope">>,
+        proplists:get_value(<<"scope">>, Params)
+    ),
+    ?assertEqual(undefined, proplists:get_value(<<"logicalCluster">>, Params)),
+    ?assertEqual(undefined, proplists:get_value(<<"identityPoolId">>, Params)),
     ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_action_api(TCConfig, #{})),
     #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
     C = start_client(),
@@ -2224,31 +2237,31 @@ t_oauth_client_credentials_authn_errors(TCConfig0) ->
             SetHandlerFn(200, emqx_utils_json:encode(#{token => JWT})),
             ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn()),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-            emqx_bridge_kafka_token_cache:clear_cache(),
+            emqx_connector_oauth2:clear_cache(),
 
             ct:pal("not a json response"),
             SetHandlerFn(200, <<"huh?!">>),
             ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn()),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-            emqx_bridge_kafka_token_cache:clear_cache(),
+            emqx_connector_oauth2:clear_cache(),
 
             ct:pal("non-200 response"),
             SetHandlerFn(301, <<"Redirecting...">>),
             ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn()),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-            emqx_bridge_kafka_token_cache:clear_cache(),
+            emqx_connector_oauth2:clear_cache(),
 
             ct:pal("http request error"),
             emqx_common_test_helpers:with_mock(
-                emqx_bridge_kafka_oauth_authn,
-                do_request,
+                emqx_connector_oauth2,
+                fetch_token,
                 fun(_Params) -> {error, timeout} end,
                 fun() ->
                     ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn())
                 end
             ),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-            emqx_bridge_kafka_token_cache:clear_cache(),
+            emqx_connector_oauth2:clear_cache(),
 
             ok
         end,
@@ -2270,19 +2283,19 @@ t_oauth_client_credentials_authn_expiry_time(TCConfig0) ->
     SetHandlerFn(200, emqx_utils_json:encode(#{access_token => JWT})),
     ?assertMatch({201, #{<<"status">> := <<"connected">>}}, CreateConnectorFn()),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    emqx_bridge_kafka_token_cache:clear_cache(),
+    emqx_connector_oauth2:clear_cache(),
 
     ct:pal("token without `exp`"),
     JWTNoExp = generate_unsigned_jwt(#{<<"sub">> => <<"admin">>}),
     SetHandlerFn(200, emqx_utils_json:encode(#{access_token => JWTNoExp})),
     ?assertMatch({201, #{<<"status">> := _}}, CreateConnectorFn()),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    emqx_bridge_kafka_token_cache:clear_cache(),
+    emqx_connector_oauth2:clear_cache(),
 
     ct:pal("token that is not a jwt"),
     SetHandlerFn(200, emqx_utils_json:encode(#{access_token => <<"notajwt">>})),
     ?assertMatch({201, #{<<"status">> := _}}, CreateConnectorFn()),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    emqx_bridge_kafka_token_cache:clear_cache(),
+    emqx_connector_oauth2:clear_cache(),
 
     ok.
