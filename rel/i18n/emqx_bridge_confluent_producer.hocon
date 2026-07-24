@@ -105,13 +105,15 @@ partition_count_refresh_interval.label:
 """Partition Count Refresh Interval"""
 
 max_linger_time.desc:
-"""Maximum duration for a per-partition producer to wait for messages in order to collect a batch to buffer.
-The default value `0` means no wait. For non-memory buffer mode, it's advised to configure at least `5ms` for less IOPS."""
+"""Maximum duration a per-partition producer waits to accumulate more messages into a larger batch.
+The default value `0` means no wait (messages are sent as soon as they arrive).
+The wait ends early as soon as a full batch's worth of data has accumulated, so a busy producer is never delayed.
+When buffering to disk, the wait happens before writing to the buffer; configuring at least `5ms` is advised there to reduce disk IOPS."""
 
 max_linger_time.label: "Max Linger Time"
 
 max_linger_bytes.desc:
-"""Maximum number of bytes for a per-partition producer to wait for messages in order to collect a batch to buffer."""
+"""Maximum number of bytes a per-partition producer accumulates while waiting before it stops waiting and sends the batch."""
 
 max_linger_bytes.label: "Max Linger Bytes"
 
