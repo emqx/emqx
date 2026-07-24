@@ -75,7 +75,7 @@ jobs:
       ARCH: ${{ matrix.arch }}
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.ref }}
 
@@ -158,7 +158,7 @@ jobs:
       PROFILE: ${{ inputs.profile }}
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.ref }}
 
@@ -167,7 +167,7 @@ jobs:
           driver-opts: network=host
 
       - name: Login to hub.docker.com
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4.5.0
         if: inputs.publish
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
@@ -226,7 +226,7 @@ jobs:
           echo "PKG_VSN=$PKG_VSN" | tee -a $GITHUB_ENV
           echo "FILENAME=$FILENAME" | tee -a $GITHUB_ENV
 
-      - uses: aws-actions/configure-aws-credentials@517a711dbcd0e402f90c77e7e2f81e849156e31d # v6.2.2
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
