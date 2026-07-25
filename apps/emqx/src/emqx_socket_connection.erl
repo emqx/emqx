@@ -89,7 +89,11 @@
     %% Forced GC thresholds, `false` if disabled
     force_gc = false :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
     %% Forced shutdown policy
-    force_shutdown :: undefined | emqx_types:oom_policy()
+    force_shutdown :: undefined | emqx_types:oom_policy(),
+    %% Whether observability sinks (Prometheus/metrics, `$SYS`, dashboard
+    %% monitor) are enabled. When `false`, the global message counters that
+    %% only feed those sinks are skipped on the hot path.
+    observability = true :: boolean()
 }).
 
 -record(thresholds, {
@@ -1056,7 +1060,10 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
             <<>>;
         Data ->
             ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
-            emqx_metrics:inc_sent(Packet, State#state.namespace),
+            case is_observability_enabled(State) of
+                true -> emqx_metrics:inc_sent(Packet, State#state.namespace);
+                false -> ok
+            end,
             inc_outgoing_stats(Packet),
             Data
     catch
@@ -1390,8 +1397,14 @@ socket_closed(State) ->
 %%--------------------------------------------------------------------
 %% Inc incoming/outgoing stats
 
+-compile({inline, [is_observability_enabled/1]}).
+is_observability_enabled(#state{conf = #conf{observability = Enabled}}) ->
+    Enabled.
+
 -compile({inline, [inc_incoming_stats/2]}).
 inc_incoming_stats(Packet = ?PACKET(Type), State) ->
+    %% `recv_pkt` drives keepalive detection and must always be tracked; the
+    %% remaining counters only feed observability sinks.
     inc_counter(recv_pkt, 1),
     case Type of
         ?PUBLISH ->
@@ -1400,7 +1413,10 @@ inc_incoming_stats(Packet = ?PACKET(Type), State) ->
         _ ->
             ok
     end,
-    emqx_metrics:inc_recv(Packet, State#state.namespace).
+    case is_observability_enabled(State) of
+        true -> emqx_metrics:inc_recv(Packet, State#state.namespace);
+        false -> ok
+    end.
 
 -compile({inline, [inc_dropped_stats/0]}).
 inc_dropped_stats() ->
@@ -1432,13 +1448,19 @@ inc_qos_stats(Type, Packet) ->
     end.
 
 inc_metrics(Name, State, Val) ->
-    emqx_metrics:inc(?global_ns, Name, Val),
-    case State#state.namespace of
-        ?global_ns ->
+    %% `bytes.received` / `bytes.sent` are observability-only byte counters.
+    case is_observability_enabled(State) of
+        false ->
             ok;
-        Namespace ->
-            _ = emqx_metrics:inc_safe(Namespace, Name, Val),
-            ok
+        true ->
+            emqx_metrics:inc(?global_ns, Name, Val),
+            case State#state.namespace of
+                ?global_ns ->
+                    ok;
+                Namespace ->
+                    _ = emqx_metrics:inc_safe(Namespace, Name, Val),
+                    ok
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -1513,7 +1535,8 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
         active_n = get_active_n(Conf0),
         hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
         force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
-        force_gc = GcThresholds
+        force_gc = GcThresholds,
+        observability = emqx_features:observability_enabled()
     },
     State0#state{
         parser = Parser,

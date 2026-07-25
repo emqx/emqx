@@ -72,6 +72,11 @@
     %% Tenant Namespace
     namespace = ?global_ns :: emqx_config:maybe_namespace(),
 
+    %% Whether observability sinks (Prometheus/metrics, `$SYS`, dashboard
+    %% monitor) are enabled. When `false`, the global message counters that
+    %% only feed those sinks are skipped on the hot path.
+    observability = true :: boolean(),
+
     %% Extra field for future hot-upgrade support
     extra = []
 }).
@@ -270,6 +275,7 @@ init_connection(
         mqtt_piggyback = MQTTPiggyback,
         channel = Channel,
         listener = {Type, Listener},
+        observability = emqx_features:observability_enabled(),
         extra = []
     },
     State = init_zone_specific_state(Zone, Opts, State0),
@@ -790,6 +796,9 @@ framelist_bytesize({binary, Data}, Oct) ->
     ]}
 ).
 
+is_observability_enabled(#state{observability = Enabled}) ->
+    Enabled.
+
 inc_recv_stats(Cnt, Oct, State) ->
     _ = emqx_pd:inc_counter(recv_cnt, Cnt),
     _ = emqx_pd:inc_counter(recv_oct, Oct),
@@ -805,7 +814,10 @@ inc_incoming_stats(Packet = ?PACKET(Type), State) ->
             _ ->
                 ok
         end,
-    emqx_metrics:inc_recv(Packet, State#state.namespace).
+    case is_observability_enabled(State) of
+        true -> emqx_metrics:inc_recv(Packet, State#state.namespace);
+        false -> ok
+    end.
 
 inc_outgoing_stats({error, message_too_large}, _State) ->
     _ = emqx_pd:inc_counter('send_msg.dropped', 1),
@@ -820,7 +832,10 @@ inc_outgoing_stats(Packet = ?PACKET(Type), State) ->
             _ ->
                 ok
         end,
-    emqx_metrics:inc_sent(Packet, State#state.namespace).
+    case is_observability_enabled(State) of
+        true -> emqx_metrics:inc_sent(Packet, State#state.namespace);
+        false -> ok
+    end.
 
 inc_sent_stats(Cnt, Oct, State) ->
     _ = emqx_pd:inc_counter(send_cnt, Cnt),
@@ -915,13 +930,19 @@ get_peer(Req, #{listener := {Type, Listener}}) ->
 %%--------------------------------------------------------------------
 
 inc_metrics(Name, State, Val) ->
-    case State#state.namespace of
-        ?global_ns ->
-            emqx_metrics:inc(?global_ns, Name, Val);
-        Namespace ->
-            emqx_metrics:inc(?global_ns, Name, Val),
-            _ = emqx_metrics:inc_safe(Namespace, Name, Val),
-            ok
+    %% `bytes.received` / `bytes.sent` are observability-only byte counters.
+    case is_observability_enabled(State) of
+        false ->
+            ok;
+        true ->
+            case State#state.namespace of
+                ?global_ns ->
+                    emqx_metrics:inc(?global_ns, Name, Val);
+                Namespace ->
+                    emqx_metrics:inc(?global_ns, Name, Val),
+                    _ = emqx_metrics:inc_safe(Namespace, Name, Val),
+                    ok
+            end
     end.
 
 %%--------------------------------------------------------------------
