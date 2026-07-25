@@ -645,57 +645,63 @@ parse_properties(Bin, ?MQTT_PROTO_V5, StrictMode) ->
 parse_property(<<>>, Props, _StrictMode) ->
     Props;
 parse_property(<<16#01, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Payload-Format-Indicator' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Payload-Format-Indicator', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#02, Val:32/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Message-Expiry-Interval' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Message-Expiry-Interval', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#03, Bin/binary>>, Props, StrictMode) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_content_type),
-    parse_property(Rest, Props#{'Content-Type' => Val}, StrictMode);
+    parse_property(Rest, put_prop('Content-Type', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#08, Bin/binary>>, Props, StrictMode) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_response_topic),
-    parse_property(Rest, Props#{'Response-Topic' => Val}, StrictMode);
+    parse_property(Rest, put_prop('Response-Topic', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#09, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Correlation-Data' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Correlation-Data', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#0B, Bin/binary>>, Props, StrictMode) ->
     {Val, Rest} = parse_variable_byte_integer(Bin),
-    parse_property(Rest, Props#{'Subscription-Identifier' => Val}, StrictMode);
+    parse_property(Rest, put_prop('Subscription-Identifier', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#11, Val:32/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Session-Expiry-Interval' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Session-Expiry-Interval', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#12, Bin/binary>>, Props, StrictMode) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_assigned_client_id),
-    parse_property(Rest, Props#{'Assigned-Client-Identifier' => Val}, StrictMode);
+    parse_property(
+        Rest, put_prop('Assigned-Client-Identifier', Val, Props, StrictMode), StrictMode
+    );
 parse_property(<<16#13, Val:16, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Server-Keep-Alive' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Server-Keep-Alive', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#15, Bin/binary>>, Props, StrictMode) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_authn_method),
-    parse_property(Rest, Props#{'Authentication-Method' => Val}, StrictMode);
+    parse_property(Rest, put_prop('Authentication-Method', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#16, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Authentication-Data' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Authentication-Data', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#17, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Request-Problem-Information' => Val}, StrictMode);
+    parse_property(
+        Bin, put_prop('Request-Problem-Information', Val, Props, StrictMode), StrictMode
+    );
 parse_property(<<16#18, Val:32, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Will-Delay-Interval' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Will-Delay-Interval', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#19, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Request-Response-Information' => Val}, StrictMode);
+    parse_property(
+        Bin, put_prop('Request-Response-Information', Val, Props, StrictMode), StrictMode
+    );
 parse_property(<<16#1A, Bin/binary>>, Props, StrictMode) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_response_info),
-    parse_property(Rest, Props#{'Response-Information' => Val}, StrictMode);
+    parse_property(Rest, put_prop('Response-Information', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#1C, Bin/binary>>, Props, StrictMode) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_server_reference),
-    parse_property(Rest, Props#{'Server-Reference' => Val}, StrictMode);
+    parse_property(Rest, put_prop('Server-Reference', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#1F, Bin/binary>>, Props, StrictMode) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_reason_string),
-    parse_property(Rest, Props#{'Reason-String' => Val}, StrictMode);
+    parse_property(Rest, put_prop('Reason-String', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#21, Val:16/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Receive-Maximum' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Receive-Maximum', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#22, Val:16/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Topic-Alias-Maximum' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Topic-Alias-Maximum', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#23, Val:16/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Topic-Alias' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Topic-Alias', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#24, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Maximum-QoS' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Maximum-QoS', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#25, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Retain-Available' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Retain-Available', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#26, Bin/binary>>, Props, StrictMode) ->
     {Pair, Rest} = parse_utf8_pair(Bin, StrictMode),
     %% Accumulate in reverse order to keep this O(1) per entry; the list is
@@ -707,16 +713,34 @@ parse_property(<<16#26, Bin/binary>>, Props, StrictMode) ->
             parse_property(Rest, Props#{'User-Property' => [Pair]}, StrictMode)
     end;
 parse_property(<<16#27, Val:32, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Maximum-Packet-Size' => Val}, StrictMode);
+    parse_property(Bin, put_prop('Maximum-Packet-Size', Val, Props, StrictMode), StrictMode);
 parse_property(<<16#28, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Wildcard-Subscription-Available' => Val}, StrictMode);
+    parse_property(
+        Bin, put_prop('Wildcard-Subscription-Available', Val, Props, StrictMode), StrictMode
+    );
 parse_property(<<16#29, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Subscription-Identifier-Available' => Val}, StrictMode);
+    parse_property(
+        Bin, put_prop('Subscription-Identifier-Available', Val, Props, StrictMode), StrictMode
+    );
 parse_property(<<16#2A, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, Props#{'Shared-Subscription-Available' => Val}, StrictMode);
+    parse_property(
+        Bin, put_prop('Shared-Subscription-Available', Val, Props, StrictMode), StrictMode
+    );
 parse_property(<<Property:8, _Rest/binary>>, _Props, _StrictMode) ->
     ?PARSE_ERR(#{cause => invalid_property_code, property_code => Property}).
 %% TODO: invalid property in specific packet.
+
+-doc """
+Insert a non-repeatable property into the properties map.
+
+Only 'User-Property' may appear more than once in a packet [MQTT-2.2.2-2];
+in strict mode a duplicate of any other property is a Protocol Error.
+In non-strict mode the last occurrence wins.
+""".
+put_prop(Key, _Val, Props, _StrictMode = true) when is_map_key(Key, Props) ->
+    ?PARSE_ERR(#{cause => duplicate_property, property => Key});
+put_prop(Key, Val, Props, _StrictMode) ->
+    Props#{Key => Val}.
 
 -doc """
 Restore wire order for the 'User-Property' list, which parse_property/3

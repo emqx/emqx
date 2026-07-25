@@ -1396,7 +1396,7 @@ handle_frame_error(
 ->
     handle_out(
         disconnect,
-        {?RC_MALFORMED_PACKET, frame_error_kind(Reason, frame_error)},
+        {frame_error_reason_code(Reason), frame_error_kind(Reason, frame_error)},
         Channel
     );
 handle_frame_error(
@@ -3897,6 +3897,7 @@ proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
 
 frame_error_reason_code(#{cause := frame_too_large}) -> ?RC_PACKET_TOO_LARGE;
+frame_error_reason_code(#{cause := duplicate_property}) -> ?RC_PROTOCOL_ERROR;
 frame_error_reason_code(_) -> ?RC_MALFORMED_PACKET.
 
 handle_heal_partition(
