@@ -334,6 +334,36 @@ test_authz(Expected, Namespace, {Who, Rule}, {ClientInfo, Action, Topic}) ->
         ok = emqx_authz_mnesia:purge_rules(Namespace)
     end.
 
+-doc """
+Tests that `purge_rules/1` with a namespace deletes only that namespace's rules, leaving
+global and other-namespace rules intact.
+""".
+t_purge_namespace_rules(_Config) ->
+    Rule = #{
+        <<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"t">>
+    },
+    Ns1 = <<"tns1">>,
+    Ns2 = <<"tns2">>,
+    ok = store_rules(?global_ns, {username, <<"username">>}, [Rule]),
+    ok = store_rules(Ns1, {username, <<"username">>}, [Rule]),
+    ok = store_rules(Ns1, {clientid, <<"clientid">>}, [Rule]),
+    ok = store_rules(Ns1, all, [Rule]),
+    ok = store_rules(Ns2, {username, <<"username">>}, [Rule]),
+
+    ok = emqx_authz_mnesia:purge_rules(Ns1),
+
+    not_found = emqx_authz_mnesia:get_rules(Ns1, {username, <<"username">>}),
+    not_found = emqx_authz_mnesia:get_rules(Ns1, {clientid, <<"clientid">>}),
+    not_found = emqx_authz_mnesia:get_rules(Ns1, all),
+    {ok, _} = emqx_authz_mnesia:get_rules(?global_ns, {username, <<"username">>}),
+    {ok, _} = emqx_authz_mnesia:get_rules(Ns2, {username, <<"username">>}),
+    ?assertEqual(0, emqx_authz_mnesia:record_count(Ns1)),
+
+    %% Idempotent
+    ok = emqx_authz_mnesia:purge_rules(Ns1),
+    ok = emqx_authz_mnesia:purge_rules(Ns2),
+    ok.
+
 t_normalize_rules(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 
