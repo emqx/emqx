@@ -1344,17 +1344,15 @@ validate_connect_will(false, WillRetain, _) when WillRetain -> ?PARSE_ERR(invali
 validate_connect_will(_, _, _) -> ok.
 
 -compile({inline, [validate_connect_password_flag/4]}).
-%% MQTT-v3.1
-%% Username flag and password flag are not strongly related
+%% MQTT-v3.1: "It is not valid to supply a password without supplying a user name."
 %% https://public.dhe.ibm.com/software/dw/webservices/ws-mqtt/mqtt-v3r1.html#connect
-validate_connect_password_flag(true, ?MQTT_PROTO_V3, _, _) ->
-    ok;
-%% MQTT-v3.1.1-[MQTT-3.1.2-22]
-validate_connect_password_flag(true, ?MQTT_PROTO_V4, UsernameFlag, PasswordFlag) ->
-    %% BUG-FOR-BUG compatible, only check when `strict-mode`
+%% MQTT-v3.1.1: [MQTT-3.1.2-22]
+%% MQTT-v5 allows password without username.
+%% Only check when `strict-mode` (BUG-FOR-BUG compatible otherwise).
+validate_connect_password_flag(true, Ver, UsernameFlag, PasswordFlag) when
+    Ver =:= ?MQTT_PROTO_V3 orelse Ver =:= ?MQTT_PROTO_V4
+->
     UsernameFlag orelse PasswordFlag andalso ?PARSE_ERR(invalid_password_flag);
-validate_connect_password_flag(true, ?MQTT_PROTO_V5, _, _) ->
-    ok;
 validate_connect_password_flag(_, _, _, _) ->
     ok.
 
