@@ -325,10 +325,13 @@ wait_for_cluster_rpc() ->
     end,
     Msg2 = #{msg => "wait_for_cluster_rpc_tables"},
     case mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]) of
-        ok -> ?SLOG(info, Msg2#{result => ok});
-        Error1 -> ?SLOG(error, Msg2#{result => Error1})
-    end,
-    ok.
+        ok ->
+            ?SLOG(info, Msg2#{result => ok}),
+            ok;
+        Error1 ->
+            ?SLOG(error, Msg2#{result => Error1}),
+            Error1
+    end.
 
 on_kick_decided(_Cluster, Target, _Intent) ->
     %% TODO: do it in on_membership_change instead?
@@ -358,9 +361,12 @@ init([Node, RetryMs]) ->
 handle_continue({?CATCH_UP, init}, State) ->
     %% emqx app must be started before
     %% trying to catch up the rpc commit logs
-    ok = wait_for_emqx_ready(),
-    ok = wait_for_cluster_rpc(),
-    {noreply, State, catch_up(State)};
+    case wait_for_cluster_rpc() of
+        ok ->
+            {noreply, State, catch_up(State)};
+        {error, stopping} ->
+            {stop, normal, undefined}
+    end;
 handle_continue(?CATCH_UP, State) ->
     {noreply, State, catch_up(State)}.
 
@@ -403,7 +409,12 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% It is necessary to clean this node commit record in the cluster
 on_leave() ->
-    gen_server:call(?MODULE, on_leave).
+    try
+        gen_server:call(?MODULE, on_leave)
+    catch
+        exit:{timeout, _} ->
+            {error, timeout}
+    end.
 
 catch_up(State) -> catch_up(State, false).
 
@@ -761,37 +772,3 @@ maybe_init_tnx_id(_Node, TnxId) when TnxId < 0 -> ok;
 maybe_init_tnx_id(Node, TnxId) ->
     {atomic, _} = transaction(fun ?MODULE:commit/2, [Node, TnxId]),
     ok.
-
-%% @private Cannot proceed until emqx app is ready.
-%% Otherwise the committed transaction catch up may fail.
-wait_for_emqx_ready() ->
-    %% wait 10 seconds for emqx to start
-    ok = do_wait_for_emqx_ready(10).
-
-%% Wait for emqx app to be ready,
-%% write a log message every 1 second
-do_wait_for_emqx_ready(0) ->
-    timeout;
-do_wait_for_emqx_ready(N) ->
-    %% check interval is 100ms
-    %% makes the total wait time 1 second
-    case do_wait_for_emqx_ready2(10) of
-        ok ->
-            ok;
-        timeout ->
-            ?SLOG(warning, #{msg => "still_waiting_for_emqx_app_to_be_ready"}),
-            do_wait_for_emqx_ready(N - 1)
-    end.
-
-%% Wait for emqx app to be ready,
-%% check interval is 100ms
-do_wait_for_emqx_ready2(0) ->
-    timeout;
-do_wait_for_emqx_ready2(N) ->
-    case emqx:is_running() of
-        true ->
-            ok;
-        false ->
-            timer:sleep(100),
-            do_wait_for_emqx_ready2(N - 1)
-    end.

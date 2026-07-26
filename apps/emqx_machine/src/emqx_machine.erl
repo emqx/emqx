@@ -33,10 +33,6 @@
 
 %% @doc EMQX boot entrypoint.
 start() ->
-    %% Refuse cluster joins until emqx_machine_boot:post_boot/0 declares
-    %% boot complete; a join restarts mria, which is fatal to apps that
-    %% are still starting.
-    ok = emqx_cluster:set_booting(true),
     ensure_valid_features(),
     emqx_mgmt_cli:load(),
     setup_vm(),
@@ -58,8 +54,6 @@ setup_vm() ->
     ok = set_backtrace_depth().
 
 setup_classy_hooks(OnRunLevel) ->
-    application:set_env(classy, to_cluster_sets, [core]),
-    application:set_env(classy, quorum_sets, [core]),
     _ = classy:on_node_init(fun ?MODULE:migrate_site_id/0, 100),
     %% Mria:
     _ = setup_mria(),
@@ -71,7 +65,8 @@ setup_classy_hooks(OnRunLevel) ->
     %% Application start:
     _ = classy:run_level(OnRunLevel, 99),
     %% Cluster_rpc:
-    _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 0),
+    _ = classy:run_level(fun emqx_conf_sup:on_run_level/2, -50),
+    _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 100),
     ok.
 
 on_run_level(From, To) ->
@@ -98,8 +93,6 @@ setup_mria() ->
     %% Register mria callbacks that help to check compatibility of the
     %% replicant with the core node. Currently they rely on the exact
     %% match of the version of EMQX OTP application:
-    _ = application:load(mria),
-    _ = application:load(emqx),
     mria_app:on_node_init(),
     mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
     mria_config:register_callback(lb_custom_info_check, fun ?MODULE:mria_lb_custom_info_check/1),
