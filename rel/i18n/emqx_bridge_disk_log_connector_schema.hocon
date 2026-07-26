@@ -17,7 +17,7 @@ emqx_bridge_disk_log_connector_schema {
   max_file_number.label:
   """Maximum Number of Files"""
   max_file_number.desc:
-  """Maximum number of log files to be used.  When time-based rotation (`rotation.period`) is enabled, this limit applies to each rotation period's file set separately.  Once the maximum number of files is reached and a new rotation is required, the log wraps around: the oldest file's contents are discarded and the file is reused as the new current file."""
+  """Maximum number of log files to be used.  When time-based rotation (`rotation.period`) is enabled, this limit applies to each rotation period's file set separately.  Once the maximum number of files is reached and a new rotation is required, the log wraps around: the oldest file's contents are discarded, and the file is reused as the new current file."""
 
   rotation.label:
   """Time-Based Rotation"""
