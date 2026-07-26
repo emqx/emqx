@@ -75,10 +75,10 @@ fields(rotation) ->
                 default => none,
                 desc => ?DESC("rotation_period")
             })},
-        {retain_period_for_days,
-            mk(pos_integer(), #{
-                required => false,
-                desc => ?DESC("rotation_retain_period_for_days")
+        {retention_period,
+            mk(hoconsc:union([infinity, emqx_schema:duration()]), #{
+                default => infinity,
+                desc => ?DESC("rotation_retention_period")
             })},
         {timezone,
             mk(binary(), #{
@@ -141,7 +141,7 @@ connector_example(put) ->
         max_file_number => 7,
         rotation => #{
             period => <<"day">>,
-            retain_period_for_days => 30,
+            retention_period => <<"30d">>,
             timezone => <<"UTC">>
         },
         resource_opts => #{

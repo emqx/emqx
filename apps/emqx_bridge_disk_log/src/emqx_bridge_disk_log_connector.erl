@@ -54,12 +54,10 @@
 -define(template, template).
 -define(write_mode, write_mode).
 
--define(SECONDS_PER_DAY, 86400).
-
 -type period() :: none | hour | day.
 -type rotation() :: #{
     period := period(),
-    retain_period_for_days => pos_integer(),
+    retention_period => timeout(),
     timezone := binary()
 }.
 -type connector_config() :: #{
@@ -369,16 +367,16 @@ timezone_offset_seconds(Timezone) ->
     emqx_utils_calendar:offset_second(Timezone).
 
 %% Deletes files from periods older than the configured retention window.  Called after
-%% each period rotation (and on start); no-op unless both `period' and
-%% `retain_period_for_days' are configured.
+%% each period rotation (and on start); no-op unless `period' is set and
+%% `retention_period' is finite.
 sweep_expired_period_files(ConnConfig, NowS) ->
     #{filepath := FilepathBin} = ConnConfig,
     Rotation = maps:get(rotation, ConnConfig, #{}),
-    RetainDays = maps:get(retain_period_for_days, Rotation, undefined),
+    RetentionMs = maps:get(retention_period, Rotation, infinity),
     case maps:get(period, Rotation, none) of
-        Period when Period =/= none, is_integer(RetainDays) ->
+        Period when Period =/= none, is_integer(RetentionMs) ->
             Timezone = maps:get(timezone, Rotation, <<"UTC">>),
-            CutoffKey = period_key(Period, Timezone, NowS - RetainDays * ?SECONDS_PER_DAY),
+            CutoffKey = period_key(Period, Timezone, NowS - RetentionMs div 1000),
             delete_expired_period_files(FilepathBin, CutoffKey);
         _ ->
             ok

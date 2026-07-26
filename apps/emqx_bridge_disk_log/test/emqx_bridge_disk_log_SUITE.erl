@@ -987,7 +987,7 @@ t_period_bad_timezone(Config) ->
 
 -doc """
 Retention: after a period rotation, files (including `.idx` / `.siz` bookkeeping files)
-from periods older than `retain_period_for_days` are deleted, while newer ones are kept.
+from periods older than `retention_period` are deleted, while newer ones are kept.
 """.
 t_period_retention(Config) ->
     set_now_s(?JUL1_NOON_S),
@@ -997,7 +997,7 @@ t_period_retention(Config) ->
             #{
                 <<"rotation">> => #{
                     <<"period">> => <<"day">>,
-                    <<"retain_period_for_days">> => 1
+                    <<"retention_period">> => <<"1d">>
                 }
             }
         ),
