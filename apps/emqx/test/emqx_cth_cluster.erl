@@ -251,7 +251,10 @@ mk_init_nodespec(N, Name, NodeOpts, ClusterOpts) ->
 
 merge_default_appspecs(#{apps := Apps} = Spec, NodeSpecs) ->
     Spec#{
-        apps => [mk_node_appspec(App, Spec, NodeSpecs) || App <- [emqx_conf, gen_rpc, mria | Apps]]
+        apps => [
+            mk_node_appspec(App, Spec, NodeSpecs)
+         || App <- [emqx_conf, gen_rpc, mria, classy | Apps]
+        ]
     }.
 
 mk_node_appspec({App, Opts}, Spec, NodeSpecs) ->
@@ -277,11 +280,18 @@ default_appspec(gen_rpc, #{name := Node}, NodeSpecs) ->
             {client_config_per_node, {internal, NodePorts}}
         ]
     };
-default_appspec(mria, #{role := Role}, _NodeSpecs) ->
-    #{
-        override_env => [
-            {node_role, Role}
-        ],
+default_appspec(classy, #{role := Role} = Spec, _NodeSpecs) ->
+    Spec#{
+        before_start =>
+            fun() ->
+                %% TODO: hack. Prevent replicants from advancing the
+                %% run level before mria application is configured by
+                %% the test harness.
+                application:set_env(mria, node_role, Role)
+            end
+    };
+default_appspec(mria, Spec, _NodeSpecs) ->
+    Spec#{
         start => false
     };
 default_appspec(emqx_conf, Spec, _NodeSpecs) ->
@@ -323,7 +333,8 @@ default_appspec(emqx_conf, Spec, _NodeSpecs) ->
                 port_discovery => manual
             },
             listeners => allocate_listener_ports([tcp, ssl, ws, wss], Spec)
-        }
+        },
+        start => true
     };
 default_appspec(emqx, Spec, _NodeSpecs) ->
     #{config => #{listeners => allocate_listener_ports([tcp, ssl, ws, wss], Spec)}};
@@ -458,7 +469,7 @@ load_apps(Node, #{apps := Apps}) ->
 
 start_apps_clustering(Act, Node, #{apps := Apps} = Spec) ->
     SuiteOpts = suite_opts(Act, Spec),
-    _Started = erpc:call(Node, emqx_cth_suite, start, [Apps, SuiteOpts]),
+    _Started = erpc:call(Node, emqx_cth_suite, start, [false, Apps, SuiteOpts]),
     ok.
 
 -spec sync_routes([node()]) -> ok.
@@ -551,12 +562,16 @@ maybe_join_cluster(start, Node, Spec) ->
     end.
 
 join_cluster(Node, JoinTo) ->
-    case erpc:call(Node, emqx_cluster, join, [JoinTo, join]) of
+    Result = ?tp_span(
+        notice,
+        test_cluster_join,
+        #{node => Node, join_to => JoinTo},
+        erpc:call(Node, emqx_cluster, join, [JoinTo, join])
+    ),
+    case Result of
         ok ->
-            ct:pal("~p joined to ~p", [Node, JoinTo]),
             ok;
         ignore ->
-            ct:pal("~p joined to ~p, ignore", [Node, JoinTo]),
             ok;
         Error ->
             ct:pal("Failed to join cluster: ~p", [Error]),
