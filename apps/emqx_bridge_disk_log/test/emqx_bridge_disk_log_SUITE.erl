@@ -908,7 +908,7 @@ t_period_rotation_day(Config) ->
     RuleTopic = <<"period/day">>,
     {ok, _} = create_rule(Config, RuleTopic),
     Base = get_filepath_from_config(Config),
-    ?assertEqual(<<Base/binary, "-20260701">>, get_active_filepath(Config)),
+    ?assertEqual(<<Base/binary, "-2026070100">>, get_active_filepath(Config)),
     publish_and_flush(Config, RuleTopic, <<"before">>),
     ?retry(500, 10, ?assertMatch([<<"before">>], read_active_log(Config))),
     %% Cross the day boundary; the health check should rotate to the new day's file.
@@ -916,14 +916,14 @@ t_period_rotation_day(Config) ->
     ?retry(
         500,
         20,
-        ?assertEqual(<<Base/binary, "-20260702">>, get_active_filepath(Config))
+        ?assertEqual(<<Base/binary, "-2026070200">>, get_active_filepath(Config))
     ),
     ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(Config)),
     %% New writes land in the new day's file.
     publish_and_flush(Config, RuleTopic, <<"after">>),
     ?retry(500, 10, ?assertMatch([<<"after">>], read_active_log(Config))),
     %% Previous day's files are left alone (no retention configured).
-    ?assertMatch([_ | _], list_files_for_stamp(Config, <<"20260701">>)),
+    ?assertMatch([_ | _], list_files_for_stamp(Config, <<"2026070100">>)),
     ok.
 
 -doc """
@@ -964,7 +964,7 @@ t_period_rotation_timezone(Config) ->
             }
         ),
     Base = get_filepath_from_config(Config),
-    ?assertEqual(<<Base/binary, "-20260702">>, get_active_filepath(Config)),
+    ?assertEqual(<<Base/binary, "-2026070200">>, get_active_filepath(Config)),
     ok.
 
 -doc """
@@ -1010,29 +1010,29 @@ t_period_retention(Config) ->
     {ok, _} = create_rule(Config, RuleTopic),
     Base = get_filepath_from_config(Config),
     publish_and_flush(Config, RuleTopic, <<"day1">>),
-    Day1Files = list_files_for_stamp(Config, <<"20260701">>),
+    Day1Files = list_files_for_stamp(Config, <<"2026070100">>),
     ?assertMatch([_ | _], Day1Files),
     %% `.idx' / `.siz' bookkeeping files are part of the day's file set.
-    ?assert(lists:member(binary_to_list(<<Base/binary, "-20260701.idx">>), Day1Files)),
-    ?assert(lists:member(binary_to_list(<<Base/binary, "-20260701.siz">>), Day1Files)),
+    ?assert(lists:member(binary_to_list(<<Base/binary, "-2026070100.idx">>), Day1Files)),
+    ?assert(lists:member(binary_to_list(<<Base/binary, "-2026070100.siz">>), Day1Files)),
     %% Next day: day 1 files are within the retention window and are kept.
     set_now_s(?JUL1_NOON_S + ?SECONDS_PER_DAY),
     ?retry(
         500,
         20,
-        ?assertEqual(<<Base/binary, "-20260702">>, get_active_filepath(Config))
+        ?assertEqual(<<Base/binary, "-2026070200">>, get_active_filepath(Config))
     ),
     publish_and_flush(Config, RuleTopic, <<"day2">>),
-    ?assertMatch([_ | _], list_files_for_stamp(Config, <<"20260701">>)),
+    ?assertMatch([_ | _], list_files_for_stamp(Config, <<"2026070100">>)),
     %% Day after: day 1 files fall out of the retention window and are deleted.
     set_now_s(?JUL1_NOON_S + 2 * ?SECONDS_PER_DAY),
     ?retry(
         500,
         20,
-        ?assertEqual(<<Base/binary, "-20260703">>, get_active_filepath(Config))
+        ?assertEqual(<<Base/binary, "-2026070300">>, get_active_filepath(Config))
     ),
-    ?assertEqual([], list_files_for_stamp(Config, <<"20260701">>)),
-    ?assertMatch([_ | _], list_files_for_stamp(Config, <<"20260702">>)),
+    ?assertEqual([], list_files_for_stamp(Config, <<"2026070100">>)),
+    ?assertMatch([_ | _], list_files_for_stamp(Config, <<"2026070200">>)),
     ok.
 
 -doc """
@@ -1066,9 +1066,9 @@ t_period_size_cap(Config) ->
     Payload2 = <<"b">>,
     publish_and_flush(Config, RuleTopic, Payload2),
     ?retry(500, 10, ?assertMatch([Payload2], read_active_log(Config))),
-    Day1Files = list_files_for_stamp(Config, <<"20260701">>),
-    ?assert(lists:member(binary_to_list(<<Base/binary, "-20260701.1">>), Day1Files)),
-    ?assert(lists:member(binary_to_list(<<Base/binary, "-20260701.2">>), Day1Files)),
+    Day1Files = list_files_for_stamp(Config, <<"2026070100">>),
+    ?assert(lists:member(binary_to_list(<<Base/binary, "-2026070100.1">>), Day1Files)),
+    ?assert(lists:member(binary_to_list(<<Base/binary, "-2026070100.2">>), Day1Files)),
     ok.
 
 -doc """

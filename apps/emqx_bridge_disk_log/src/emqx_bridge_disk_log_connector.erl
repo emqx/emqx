@@ -350,9 +350,11 @@ period_filepath(BaseFilepath, PeriodKey) ->
     <<Root/binary, "-", PeriodKey/binary, Ext/binary>>.
 
 %% Date stamp identifying the rotation period `TimeS' falls in, in the configured
-%% timezone: e.g. `20260624' for `day', `2026062413' for `hour'.
+%% timezone: e.g. `2026062413' for `hour'.  For `day', a literal `00' hour is appended
+%% (`2026062400') so that the stamp format stays the same if `period' is later switched
+%% between `day' and `hour'.
 period_key(day, Timezone, TimeS) ->
-    format_date(TimeS, Timezone, <<"%Y%m%d">>);
+    format_date(TimeS, Timezone, <<"%Y%m%d00">>);
 period_key(hour, Timezone, TimeS) ->
     format_date(TimeS, Timezone, <<"%Y%m%d%H">>).
 
@@ -421,7 +423,7 @@ is_expired_period_file(File, Root, Ext, CutoffKey) ->
     end.
 
 is_period_key(Stamp) ->
-    byte_size(Stamp) =:= 8 orelse byte_size(Stamp) =:= 10.
+    byte_size(Stamp) =:= 10.
 
 is_wrap_log_suffix(<<"idx">>) ->
     true;
