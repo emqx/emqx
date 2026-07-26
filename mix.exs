@@ -362,8 +362,7 @@ defmodule EMQXUmbrella.MixProject do
       singleton(test_env?(), {:d, :TEST}) ++
       singleton(test_env?(), {:parse_transform, :cth_readable_transform}) ++
       broker_instr_options() ++
-      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
-      singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
+      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC})
   end
 
   # EMQX_BROKER_INSTR accepts comma-separated feature names; "1" enables all features.
@@ -391,10 +390,6 @@ defmodule EMQXUmbrella.MixProject do
       end)
 
     singleton(defines != [], {:d, :EMQX_BROKER_INSTR}) ++ defines
-  end
-
-  defp store_state_in_ds?() do
-    "1" == System.get_env("STORE_STATE_IN_DS")
   end
 
   defp singleton(false, _value), do: []
