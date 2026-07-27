@@ -109,6 +109,7 @@ jobs:
         os:
           - macos-14
           - macos-15
+          - macos-26
         otp:
           - ${{ inputs.otp_vsn }}
     runs-on: ${{ matrix.os }}
@@ -125,8 +126,8 @@ jobs:
         os: ${{ matrix.os }}
         apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
-        apple_developer_id_bundle: ${{ matrix.os == 'macos-15' && secrets.APPLE_DEVELOPER_ID_BUNDLE_NEW || secrets.APPLE_DEVELOPER_ID_BUNDLE }}
-        apple_developer_id_bundle_password: ${{ matrix.os == 'macos-15' && secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD_NEW || secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
+        apple_developer_id_bundle: ${{ (matrix.os == 'macos-14') && secrets.APPLE_DEVELOPER_ID_BUNDLE || secrets.APPLE_DEVELOPER_ID_BUNDLE_NEW }}
+        apple_developer_id_bundle_password: ${{ (matrix.os == 'macos-14') && secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD || secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD_NEW }}
 
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: success()
@@ -145,6 +146,7 @@ jobs:
         os:
           - macos-14
           - macos-15
+          - macos-26
         otp:
           - ${{ inputs.otp_vsn }}
 
