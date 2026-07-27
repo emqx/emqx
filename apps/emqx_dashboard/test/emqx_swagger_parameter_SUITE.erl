@@ -11,7 +11,7 @@
 -export([init_per_suite/1, end_per_suite/1]).
 -export([t_in_path/1, t_in_query/1, t_in_mix/1, t_without_in/1, t_ref/1, t_public_ref/1]).
 -export([t_require/1, t_query_enum/1, t_nullable/1, t_method/1, t_api_spec/1]).
--export([t_summary_i18n/1]).
+-export([t_summary_i18n/1, t_literal_method_docs/1]).
 -export([t_in_path_trans/1, t_in_query_trans/1, t_in_mix_trans/1, t_ref_trans/1]).
 -export([t_in_path_trans_error/1, t_in_query_trans_error/1, t_in_mix_trans_error/1]).
 -export([all/0, suite/0, groups/0]).
@@ -40,6 +40,7 @@ groups() ->
             t_nullable,
             t_method,
             t_summary_i18n,
+            t_literal_method_docs,
             t_public_ref
         ]},
         {validation, [parallel], [
@@ -281,6 +282,16 @@ t_summary_i18n(_Config) ->
     ),
     Post = maps:get(post, Spec),
     ?assertEqual(<<"页码"/utf8>>, maps:get(summary, Post)),
+    ok.
+
+t_literal_method_docs(_Config) ->
+    {test, Spec, [], #{}} = emqx_dashboard_swagger:parse_spec_ref(
+        ?MODULE, "/test/in/mix/:state", #{allow_literal_method_docs => true}
+    ),
+    Post = maps:get(post, Spec),
+    ?assertEqual(<<"good summary">>, maps:get(summary, Post)),
+    ?assertEqual(<<"good description">>, maps:get(description, Post)),
+    ?assertEqual([<<"Tags">>, <<"Good">>], maps:get(tags, Post)),
     ok.
 
 t_in_path_trans(_Config) ->
