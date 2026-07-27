@@ -16,6 +16,7 @@
 -include("emqx_mt.hrl").
 -include_lib("../../emqx_prometheus/include/emqx_prometheus.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -571,9 +572,10 @@ t_connect_disconnect(_Config) ->
     ok.
 
 -doc """
-A client whose resolved `client_attrs.tns` is a reserved namespace name
-(`global`, `undefined`, `null`, `none`) is rejected at connect time, while a
-client with a non-reserved namespace connects as before.
+A client whose resolved `client_attrs.tns` is in the default
+`multi_tenancy.deny_namespaces` list (`global`, `undefined`, `null`, `none`)
+is rejected at connect time, while a client with a non-denied namespace
+connects as before.
 """.
 t_reserved_namespace_tns({init, Config}) ->
     Config;
@@ -593,12 +595,36 @@ t_reserved_namespace_tns(_Config) ->
         end,
         [<<"global">>, <<"undefined">>, <<"null">>, <<"none">>]
     ),
-    %% Regression guard: a non-reserved namespace connects fine.
+    %% Regression guard: a non-denied namespace connects fine.
     ClientId = ?NEW_CLIENTID(),
     Username = <<"tenant-a">>,
     Pid = connect(ClientId, Username),
     ?assertMatch(
         {ok, #{tns := Username, clientid := ClientId}},
+        ?block_until(#{?snk_kind := multi_tenant_client_added}, 3000)
+    ),
+    ok = emqtt:stop(Pid),
+    ok.
+
+-doc """
+`multi_tenancy.deny_namespaces` is configurable: with a custom deny list, a
+custom-denied name is rejected while a name from the default list connects.
+""".
+t_deny_namespaces_config({init, Config}) ->
+    emqx_config:put([multi_tenancy, deny_namespaces], [<<"forbidden">>]),
+    Config;
+t_deny_namespaces_config({'end', _Config}) ->
+    emqx_config:put([multi_tenancy, deny_namespaces], ?DEFAULT_DENY_NAMESPACES);
+t_deny_namespaces_config(_Config) ->
+    ?assertError(
+        {error, {not_authorized, _}},
+        connect(?NEW_CLIENTID(), <<"forbidden">>)
+    ),
+    %% A name from the default list is not denied under the custom list.
+    ClientId = ?NEW_CLIENTID(),
+    Pid = connect(ClientId, <<"none">>),
+    ?assertMatch(
+        {ok, #{tns := <<"none">>, clientid := ClientId}},
         ?block_until(#{?snk_kind := multi_tenant_client_added}, 3000)
     ),
     ok = emqtt:stop(Pid),

@@ -35,9 +35,19 @@ emqx_mt_schema {
             If the expression renders to an empty string, the existing
             <code>tns</code> value (if any) is kept. If the expression errors, a
             warning is logged and the client is treated as having no <code>tns</code>.
-            Reserved names that cannot be used as a namespace: <code>global</code>,
-            <code>undefined</code>, <code>null</code>, <code>none</code>; a client
-            resolving to one of these is rejected.~"""
+            Names listed in <code>deny_namespaces</code> cannot be used as a
+            namespace; a client resolving to one of them is rejected.~"""
         label: "Post-authentication tns expression"
+    }
+    deny_namespaces {
+        desc: """~
+            Namespace names that cannot be used as a namespace identifier —
+            neither as an admin namespace (dashboard roles, API keys,
+            multi-tenancy management API) nor as a per-client
+            <code>client_attrs.tns</code>; a client whose <code>tns</code>
+            resolves to a denied name is rejected. The default entries collide
+            with internal sentinels and would produce ambiguous log lines and
+            dashboard output. Set to an empty list to disable the restriction.~"""
+        label: "Denied namespace names"
     }
 }

@@ -78,12 +78,12 @@ t_reserved_namespace_role(_) ->
         fun(Ns) ->
             Role = <<"ns:", Ns/binary, "::", ?ROLE_SUPERUSER/binary>>,
             ?assertEqual(
-                {error, <<"Reserved namespace">>},
+                {error, <<"Denied namespace">>},
                 emqx_dashboard_rbac:parse_dashboard_role(Role),
                 #{ns => Ns}
             ),
             ?assertEqual(
-                {error, <<"Reserved namespace">>},
+                {error, <<"Denied namespace">>},
                 emqx_dashboard_rbac:parse_api_role(Role),
                 #{ns => Ns}
             )
