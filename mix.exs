@@ -1125,9 +1125,25 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.2.15", override: true}
+        {:quicer,
+         github: "emqx/quic", tag: "0.2.15", override: true, system_env: quicer_build_env()}
       ],
       else: []
+  end
+
+  defp quicer_build_env() do
+    case :os.type() do
+      {:unix, :linux} ->
+        # GCC 14.3 (el10 builder) reports a 'maybe-uninitialized' false positive
+        # in the vendored msquic which compiles with -Werror; demote this one
+        # diagnostic back to a warning. Remove when a quicer tag containing
+        # emqx/quic#431 is picked up.
+        [{"CFLAGS", "-Wno-error=maybe-uninitialized"}]
+
+      _ ->
+        # never hand the GCC-only flag to clang (macOS)
+        []
+    end
   end
 
   defp enable_jq?() do
