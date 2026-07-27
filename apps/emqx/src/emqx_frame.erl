@@ -392,17 +392,21 @@ do_parse_connect(
     >>,
     StrictMode
 ) ->
+    WillFlag = bool(WillFlagB),
+    WillRetain = bool(WillRetainB),
     _ = validate_connect_reserved(Reserved),
     _ = validate_connect_will(
-        WillFlag = bool(WillFlagB),
-        WillRetain = bool(WillRetainB),
+        WillFlag,
+        WillRetain,
         WillQoS
     ),
+    UsernameFlag = bool(UsernameFlagB),
+    PasswordFlag = bool(PasswordFlagB),
     _ = validate_connect_password_flag(
         StrictMode,
         ProtoVer,
-        UsernameFlag = bool(UsernameFlagB),
-        PasswordFlag = bool(PasswordFlagB)
+        UsernameFlag,
+        PasswordFlag
     ),
     {Properties, Rest3} = parse_properties(Rest, ProtoVer, StrictMode),
     {ClientId, Rest4} = parse_utf8_string(Rest3, StrictMode, invalid_clientid),
