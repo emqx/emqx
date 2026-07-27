@@ -528,7 +528,11 @@ A safe way to stop applications that imitates behavior of emqx_machine.
     ok.
 stop(Apps) ->
     optvar:unset(?rest_started),
-    classy:prep_stop(),
+    try
+        classy:prep_stop()
+    catch
+        _:_ -> ok
+    end,
     ok = stop_apps(Apps),
     clean_suite_state().
 
