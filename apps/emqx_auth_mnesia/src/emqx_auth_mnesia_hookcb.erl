@@ -1,7 +1,11 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_mgmt_hookcb).
+-module(emqx_auth_mnesia_hookcb).
+
+-moduledoc """
+Hook callbacks for the built-in database authentication/authorization backends.
+""".
 
 %% API
 -export([
@@ -30,10 +34,12 @@ unregister_hooks() ->
     ok = emqx_hooks:del('namespace.delete', ?NS_DELETE_HOOK),
     ok.
 
+-doc """
+Deletes all built-in database authentication users (password-based and SCRAM) and
+authorization rules belonging to the deleted namespace.
+""".
 on_namespace_delete(Namespace) ->
-    ok = emqx_mgmt_auth:delete_all_keys_from_namespace(Namespace),
+    ok = emqx_authn_mnesia:purge_namespace(Namespace),
+    ok = emqx_authn_scram_mnesia:purge_namespace(Namespace),
+    ok = emqx_authz_mnesia:purge_rules(Namespace),
     ok.
-
-%%------------------------------------------------------------------------------
-%% Internal fns
-%%------------------------------------------------------------------------------
