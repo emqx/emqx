@@ -47,7 +47,6 @@
 %% Allocatable resources
 -define(disk_log, disk_log).
 
--define(filepath, filepath).
 -define(conn_config, conn_config).
 -define(installed_actions, installed_actions).
 
@@ -70,7 +69,6 @@
     rotation => rotation()
 }.
 -type connector_state() :: #{
-    ?filepath := binary(),
     ?conn_config := connector_config(),
     ?installed_actions := #{action_resource_id() => action_state()}
 }.
@@ -106,14 +104,12 @@ callback_mode() ->
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, _Reason}.
 on_start(ConnResId, ConnConfig) ->
-    #{filepath := FilepathBin} = ConnConfig,
     NowS = now_s(),
     ActiveFilepath = active_filepath(ConnConfig, NowS),
     maybe
         ok ?= do_open_log(ConnResId, ConnConfig#{filepath := ActiveFilepath}),
         ok = sweep_expired_period_files(ConnConfig, NowS),
         ConnState = #{
-            ?filepath => FilepathBin,
             ?conn_config => ConnConfig,
             ?installed_actions => #{}
         },
@@ -129,7 +125,7 @@ on_stop(ConnResId, _ConnState) ->
     ok.
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
-    ?status_connected | ?status_disconnected | {?status_disconnected, binary()}.
+    ?status_connected | ?status_disconnected | {?status_disconnected, binary() | no_such_log}.
 on_get_status(ConnResId, #{?conn_config := ConnConfig} = _ConnState) ->
     case disk_log:info(ConnResId) of
         {error, no_such_log} ->
@@ -290,7 +286,7 @@ check_period_and_file_status(ConnResId, ConnConfig, LogInfo0) ->
                 LogInfo when is_list(LogInfo) ->
                     check_file_status(open_filepath(LogInfo), LogInfo, ConnResId);
                 {error, no_such_log} ->
-                    ?status_disconnected
+                    {?status_disconnected, no_such_log}
             end;
         {error, Reason} ->
             ?SLOG(warning, #{
