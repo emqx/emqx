@@ -4,6 +4,10 @@
 -ifndef(EMQX_MANAGED_CERTS_HRL).
 -define(EMQX_MANAGED_CERTS_HRL, true).
 
+%% Bundle generated at first boot, used by TLS listeners which have no
+%% certificate configured.  See `emqx_default_cert`.
+-define(DEFAULT_CERT_BUNDLE_NAME, <<"localhost">>).
+
 -define(FILE_KIND_KEY, key).
 -define(FILE_KIND_CHAIN, chain).
 -define(FILE_KIND_CA, ca).

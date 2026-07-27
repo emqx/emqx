@@ -919,7 +919,8 @@ enable_authn(Opts) ->
     maps:get(enable_authn, Opts, true).
 
 ssl_opts(Opts) ->
-    emqx_tls_lib:to_server_opts(tls, maps:get(ssl_options, Opts, #{})).
+    SslOptions = emqx_tls_lib:ensure_default_certs(maps:get(ssl_options, Opts, #{})),
+    emqx_tls_lib:to_server_opts(tls, SslOptions).
 
 tcp_opts(Opts) ->
     TcpOpts = maps:to_list(maps:get(tcp_options, Opts, #{})),

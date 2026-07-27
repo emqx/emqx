@@ -1256,7 +1256,8 @@ gen_point_cert_expiry_at(Type, Name, Path) ->
     {[{listener_type, Type}, {listener_name, Name}], cert_expiry_at_from_path(Path)}.
 
 resolve_listener_certfile(#{enable := true, ssl_options := #{} = SSLOpts0}) ->
-    SSLOpts = emqx_tls_lib:to_server_opts(tls, SSLOpts0),
+    SSLOpts1 = emqx_tls_lib:ensure_default_certs(SSLOpts0),
+    SSLOpts = emqx_tls_lib:to_server_opts(tls, SSLOpts1),
     case lists:keyfind(certfile, 1, SSLOpts) of
         {certfile, Certfile} ->
             {ok, Certfile};

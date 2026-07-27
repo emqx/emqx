@@ -33,7 +33,9 @@
 -export([
     to_server_opts/2,
     to_client_opts/1,
-    to_client_opts/2
+    to_client_opts/2,
+    ensure_default_certs/1,
+    is_cert_configured/1
 ]).
 
 %% ssl:tls_version/0 is not exported.
@@ -770,6 +772,54 @@ to_client_opts(Type, Opts = #{enable := true}) ->
     ensure_valid_options(TLSClientOpts);
 to_client_opts(_Type, #{}) ->
     [].
+
+-doc """
+Injects the default `localhost` managed-certs bundle (generated at
+first boot, see `emqx_default_cert:ensure_localhost_bundle/0`) into TLS
+server options which have no certificate configuration at all.
+
+Explicitly configured certificates (files or `managed_certs`) always
+take precedence: the options are then returned unchanged.
+
+TLS servers call this on checked config right before `to_server_opts/2`;
+it is kept out of `to_server_opts/2` itself, which stays a pure
+conversion function.
+""".
+-spec ensure_default_certs(map()) -> map().
+ensure_default_certs(SslOptions) ->
+    case is_cert_configured(SslOptions) of
+        true ->
+            SslOptions;
+        false ->
+            SslOptions#{managed_certs => [#{bundle_name => ?DEFAULT_CERT_BUNDLE_NAME}]}
+    end.
+
+-doc """
+Returns whether the given SSL options carry any certificate
+configuration (`certfile`, `keyfile`, `cacertfile` or `managed_certs`
+with a non-empty value).  Works on both checked (atom keys) and raw
+(binary keys) config, and treats `undefined` options as unconfigured.
+""".
+-spec is_cert_configured(map() | undefined) -> boolean().
+is_cert_configured(undefined) ->
+    false;
+is_cert_configured(SslOptions) ->
+    lists:any(
+        fun(Key) -> is_cert_conf_set(conf_get_either_key(Key, SslOptions)) end,
+        [certfile, keyfile, cacertfile, managed_certs]
+    ).
+
+conf_get_either_key(Key, Map) ->
+    case maps:find(Key, Map) of
+        {ok, Value} -> Value;
+        error -> maps:get(atom_to_binary(Key), Map, undefined)
+    end.
+
+%% `[]` covers both an empty string and an empty `managed_certs` list.
+is_cert_conf_set(undefined) -> false;
+is_cert_conf_set([]) -> false;
+is_cert_conf_set(<<"">>) -> false;
+is_cert_conf_set(_) -> true.
 
 resolve_managed_certs(undefined, Opts) ->
     Password = conf_get_password(password, Opts),
