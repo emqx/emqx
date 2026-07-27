@@ -711,10 +711,10 @@ parse_property(<<16#26, Bin/binary>>, Props, StrictMode) ->
     {Pair, Rest} = parse_utf8_pair(Bin, StrictMode),
     %% Accumulate in reverse order to keep this O(1) per entry; the list is
     %% reversed back to wire order in parse_properties/3 once parsing finishes.
-    case maps:find('User-Property', Props) of
-        {ok, UserProps} ->
+    case Props of
+        #{'User-Property' := UserProps} ->
             parse_property(Rest, Props#{'User-Property' := [Pair | UserProps]}, StrictMode);
-        error ->
+        #{} ->
             parse_property(Rest, Props#{'User-Property' => [Pair]}, StrictMode)
     end;
 parse_property(<<16#27, Val:32, Bin/binary>>, Props, StrictMode) ->
