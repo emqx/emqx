@@ -129,10 +129,60 @@ t_cli_status_reports_node_local_status(_Config) ->
     end.
 
 t_api_spec_lists_conflict_and_unavailable_responses(_Config) ->
-    #{post := #{responses := Responses}} =
+    #{
+        post := Post = #{
+            description :=
+                <<"Publish one MQTT request and wait for the first matching response.">>,
+            responses := Responses
+        }
+    } =
         emqx_sync_request_api:schema("/plugin_api/emqx_sync_request/request"),
+    ?assertNot(maps:is_key(summary, Post)),
+    ?assertNot(maps:is_key(tags, Post)),
     ?assert(maps:is_key(409, Responses)),
     ?assert(maps:is_key(503, Responses)).
+
+t_plugin_config_rejects_invalid_values(Config) ->
+    NameVsn = ?config(plugin_name_vsn, Config),
+    {200, OriginalConfig} = plugin_config_request(get, NameVsn, #{}),
+    InvalidValues = [
+        {<<"default_timeout">>, <<"not-a-duration">>, <<"invalid_duration">>},
+        {<<"default_timeout">>, <<"0ms">>, <<"invalid_duration">>},
+        {<<"max_timeout">>, <<"not-a-duration">>, <<"invalid_duration">>},
+        {<<"max_timeout">>, <<"0ms">>, <<"invalid_duration">>},
+        {<<"max_payload_size">>, <<"not-a-size">>, <<"invalid_bytesize">>},
+        {<<"max_payload_size">>, <<"0B">>, <<"invalid_bytesize">>},
+        {<<"max_inflight_requests">>, 0, <<"invalid_positive_integer">>},
+        {<<"max_inflight_requests">>, -1, <<"invalid_positive_integer">>}
+    ],
+    lists:foreach(
+        fun({Field, Value, ExpectedReason}) ->
+            InvalidConfig = OriginalConfig#{Field => Value},
+            {400, #{
+                <<"code">> := <<"BAD_CONFIG">>,
+                <<"message">> := Message
+            }} = plugin_config_request(put, NameVsn, InvalidConfig),
+            ?assertNotEqual(nomatch, binary:match(Message, ExpectedReason)),
+            ?assertEqual({200, OriginalConfig}, plugin_config_request(get, NameVsn, #{}))
+        end,
+        InvalidValues
+    ).
+
+t_plugin_config_accepts_positive_boundaries(Config) ->
+    NameVsn = ?config(plugin_name_vsn, Config),
+    {200, OriginalConfig} = plugin_config_request(get, NameVsn, #{}),
+    BoundaryConfig = #{
+        <<"default_timeout">> => <<"1ms">>,
+        <<"max_timeout">> => <<"1ms">>,
+        <<"max_inflight_requests">> => 1,
+        <<"max_payload_size">> => <<"1B">>
+    },
+    try
+        ?assertEqual({204, []}, plugin_config_request(put, NameVsn, BoundaryConfig)),
+        ?assertEqual({200, BoundaryConfig}, plugin_config_request(get, NameVsn, #{}))
+    after
+        {204, _} = plugin_config_request(put, NameVsn, OriginalConfig)
+    end.
 
 t_plugin_api_callback_uses_gateway_contract(_Config) ->
     ?assertEqual(
@@ -1237,6 +1287,29 @@ do_http_request(Host, Auth, Body) ->
     Headers = [Auth, {"Connection", "close"}, {"Content-Type", "application/json"}],
     emqx_mgmt_api_test_util:simplify_decode_result(
         emqx_mgmt_api_test_util:request_api(post, Path, "", Headers, Body, #{return_all => true})
+    ).
+
+plugin_config_request(Method, NameVsn, Body) ->
+    plugin_config_request(
+        emqx_mgmt_api_test_util:default_server(),
+        emqx_mgmt_api_test_util:auth_header_(),
+        Method,
+        NameVsn,
+        Body
+    ).
+
+plugin_config_request(Host, Auth, Method, NameVsn, Body) ->
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins", NameVsn, "config"]),
+    Headers = [Auth, {"Connection", "close"}, {"Content-Type", "application/json"}],
+    RequestBody =
+        case Method of
+            get -> [];
+            _ -> Body
+        end,
+    emqx_mgmt_api_test_util:simplify_decode_result(
+        emqx_mgmt_api_test_util:request_api(Method, Path, "", Headers, RequestBody, #{
+            return_all => true
+        })
     ).
 
 api_status(Body) ->
