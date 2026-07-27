@@ -27,6 +27,7 @@
 -module(emqx_cth_cluster).
 
 -export([start/1, start/2, restart/1]).
+-export([wait_for_conditions/3, verify_peers/2, verify_run_level/1, verify_business_apps/0]).
 -export([stop/1, stop_node/1]).
 
 -export([join_cluster/2]).
@@ -41,9 +42,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TIMEOUT_NODE_START_MS, 15000).
--define(TIMEOUT_APPS_START_MS, 30000).
 -define(TIMEOUT_NODE_STOP_S, 15).
--define(TIMEOUT_CLUSTER_WAIT_MS, timer:seconds(10)).
 
 -define(log_handler, emqx_cth_cluster_log_handler).
 
@@ -106,88 +105,62 @@ start(NodeSpecs) ->
     emqx_common_test_helpers:clear_screen(),
     perform(start, NodeSpecs, _StartOpts = #{}).
 
-perform(Act, NodeSpecs, Opts) ->
-    ct:pal("~ping nodes: ~p", [Act, NodeSpecs]),
-    try
-        do_perform(Act, NodeSpecs, Opts)
-    catch
-        Kind:Reason:Stacktrace ->
-            %% A failure partway through startup leaves the already-started peer
-            %% control processes registered locally (by their node name). If we
-            %% leak them, a retry of the same test case (e.g. via the flaky-test
-            %% hook, `emqx_cth_ct_hook_flaky`) reuses the same node names and
-            %% `emqx_cth_peer:do_start/6`'s `erlang:register/2` would crash with
-            %% `badarg`. Best-effort cleanup before re-raising so a retry starts
-            %% from scratch.
-            Nodes = [Node || #{name := Node} <- NodeSpecs],
-            ct:pal("cleaning up partially started nodes after ~p:~p: ~p", [Kind, Reason, Nodes]),
-            catch stop(Nodes),
-            erlang:raise(Kind, Reason, Stacktrace)
+-doc """
+Periodically run each function from the second argument on the set of nodes
+until all functions retun ok or until timeout.
+
+On success, this function returns an empty list,
+or list of errors otherwise.
+""".
+-spec wait_for_conditions([node()], [fun((node()) -> ok | {error, _})], non_neg_integer()) ->
+    [_Error].
+wait_for_conditions(Nodes, Conditions, Timeout) ->
+    do_wait_for_conditions(Nodes, Conditions, deadline(Timeout)).
+
+-doc """
+Check if the classy node set `NodeSet' contains all nodes from the list.
+""".
+-spec verify_peers(atom(), [node()]) -> fun((node()) -> ok | {error, _}).
+verify_peers(NodeSet, Expected) ->
+    fun(Node) ->
+        Got = erpc:call(Node, classy, nodes, [NodeSet]),
+        case Expected -- Got of
+            [] ->
+                ok;
+            Diff ->
+                {error, {peers_down, #{missing => Diff, got => Got}}}
+        end
     end.
 
-do_perform(Act, NodeSpecs, Opts) ->
-    % 1. Start bare nodes with only basic applications running
-    ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS, Opts),
-    % 2. Start applications needed to enable clustering
-    % Generally, this causes some applications to restart, but we deliberately don't
-    % start them yet.
-    case Act of
-        start ->
-            ShouldAppearInRunningNodes = [run_node_phase_cluster(Act, NS) || NS <- NodeSpecs],
-            WaitClustered = lists:member(true, ShouldAppearInRunningNodes);
-        restart ->
-            Timeout = ?TIMEOUT_APPS_START_MS,
-            _ = emqx_utils:pmap(fun(NS) -> run_node_phase_cluster(Act, NS) end, NodeSpecs, Timeout),
-            WaitClustered = false
-    end,
-    % 3. Start applications after cluster is formed
-    % Cluster-joins are complete, so they shouldn't restart in the background anymore.
-    Nodes = [Node || #{name := Node} <- NodeSpecs],
-    %% 4. Wait for the nodes to cluster
-    _Ok = WaitClustered andalso wait_clustered(Nodes, ?TIMEOUT_CLUSTER_WAIT_MS),
-    Nodes.
-
-%% Wait until all nodes see each other:
-wait_clustered(Nodes, Timeout) ->
-    Check = fun(Node) ->
-        Running = erpc:call(Node, classy, nodes, [connected]),
-        case Nodes -- Running of
-            [] ->
-                case erpc:call(Node, classy, run_level, []) of
-                    Level when Level =:= cluster; Level =:= quorum ->
-                        %% TODO: proper API
-                        case erpc:call(Node, optvar, peek, [emqx_cth_suite_start_result]) of
-                            {ok, _} ->
-                                true;
-                            undefined ->
-                                {false, waiting_for_business_apps}
-                        end;
-                    RunLevel ->
-                        {false, {run_level, RunLevel}}
-                end;
-            NotRunning ->
-                {false, {missing_peers, NotRunning}}
+-doc """
+Check if the node run level is greater or equal to the given one.
+""".
+-spec verify_run_level(classy:run_level()) -> fun((node()) -> ok | {error, _}).
+verify_run_level(Expected) ->
+    NExpected = classy_rl_changer:to_int(Expected),
+    fun(Node) ->
+        Got = erpc:call(Node, classy, run_level, []),
+        NGot = classy_rl_changer:to_int(Got),
+        case NGot >= NExpected of
+            true ->
+                ok;
+            false ->
+                {error, {run_level, #{got => Got, expected => Expected}}}
         end
-    end,
-    wait_clustered(Nodes, Check, deadline(Timeout)).
+    end.
 
-wait_clustered([], _Check, _Deadline) ->
-    ok;
-wait_clustered([Node | Nodes] = All, Check, Deadline) ->
-    IsOverdue = is_overdue(Deadline),
-    case Check(Node) of
-        true ->
-            wait_clustered(Nodes, Check, Deadline);
-        {false, Reason} when IsOverdue ->
-            error(
-                {timeout, #{
-                    checking_from_node => Node,
-                    reason => Reason
-                }}
-            );
-        {false, _Reason} ->
-            timer:sleep(100),
-            wait_clustered(All, Check, Deadline)
+-doc """
+Check if the node has started business applications.
+""".
+-spec verify_business_apps() -> fun((node()) -> ok | {error, _}).
+verify_business_apps() ->
+    fun(Node) ->
+        case erpc:call(Node, emqx_cth_suite, check_business_apps, []) of
+            true ->
+                ok;
+            false ->
+                {error, business_apps_not_running}
+        end
     end.
 
 -spec restart(Complete :: [bakedspec()] | bakedspec()) -> [node()].
@@ -469,7 +442,7 @@ load_apps(Node, #{apps := Apps}) ->
 
 start_apps_clustering(Act, Node, #{apps := Apps} = Spec) ->
     SuiteOpts = suite_opts(Act, Spec),
-    _Started = erpc:call(Node, emqx_cth_suite, start, [false, Apps, SuiteOpts]),
+    _Started = erpc:call(Node, emqx_cth_suite, start, [0, Apps, SuiteOpts]),
     ok.
 
 -spec sync_routes([node()]) -> ok.
@@ -646,6 +619,85 @@ node_name(Name) ->
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"),
     Host.
+
+perform(Act, NodeSpecs, Opts) ->
+    ct:pal("~ping nodes: ~p", [Act, NodeSpecs]),
+    Nodes = [Node || #{name := Node} <- NodeSpecs],
+    case do_perform(Act, NodeSpecs, Opts) of
+        [] ->
+            Nodes;
+        Errors = [_ | _] ->
+            %% A failure partway through startup leaves the already-started peer
+            %% control processes registered locally (by their node name). If we
+            %% leak them, a retry of the same test case (e.g. via the flaky-test
+            %% hook, `emqx_cth_ct_hook_flaky`) reuses the same node names and
+            %% `emqx_cth_peer:do_start/6`'s `erlang:register/2` would crash with
+            %% `badarg`. Best-effort cleanup before re-raising so a retry starts
+            %% from scratch.
+
+            ct:pal("cleaning up partially started nodes after ~p", [Errors]),
+            catch stop(Nodes),
+            error({Act, Errors})
+    end.
+
+do_perform(Act, NodeSpecs, Opts) ->
+    % 1. Start bare nodes with only basic applications running
+    ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS, Opts),
+    Nodes = [Node || #{name := Node} <- NodeSpecs],
+    CommonChecks = [verify_run_level(cluster), verify_business_apps()],
+    %% 2. Start applications:
+    ShouldAppearInRunningNodes = [run_node_phase_cluster(Act, NS) || NS <- NodeSpecs],
+    %% 3. Wait for the readiness:
+    Checks =
+        case Act of
+            start ->
+                WaitClustered = lists:member(true, ShouldAppearInRunningNodes),
+                [verify_peers(connected, Nodes) || WaitClustered] ++
+                    CommonChecks;
+            restart ->
+                CommonChecks
+        end,
+    wait_for_conditions(Nodes, Checks, ?TIMEOUT_NODE_START_MS).
+
+%%
+
+-spec do_wait_for_conditions([node()], [fun((node()) -> ok | {error, _})], non_neg_integer()) ->
+    [_Error].
+do_wait_for_conditions(Nodes, Conditions, Deadline) ->
+    case check_conditions(Nodes, Conditions) of
+        [] ->
+            [];
+        [_ | _] = Errors ->
+            case is_overdue(Deadline) of
+                true ->
+                    Errors;
+                false ->
+                    timer:sleep(100),
+                    do_wait_for_conditions(Nodes, Conditions, Deadline)
+            end
+    end.
+
+check_conditions(_Nodes, []) ->
+    [];
+check_conditions(Nodes, [Condition | Rest]) ->
+    Results = emqx_utils:pmap(
+        fun(Node) ->
+            try Condition(Node) of
+                ok -> ok;
+                {error, Err} -> {error, Node, Err}
+            catch
+                EC:Err:Stack ->
+                    {error, Node, {EC, Err, Stack}}
+            end
+        end,
+        Nodes
+    ),
+    case lists:filter(fun(A) -> A =/= ok end, Results) of
+        [] ->
+            check_conditions(Nodes, Rest);
+        Errors ->
+            Errors
+    end.
 
 %%
 

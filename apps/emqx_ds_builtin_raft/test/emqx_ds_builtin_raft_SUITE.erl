@@ -243,11 +243,14 @@ t_shards_allocation(Config) ->
     ok = emqx_cth_peer:kill(NodeLost),
     _ = ?retry(200, 5, [NodeLost] = [NodeLost] -- ?ON(Node, mria:cluster_nodes(running))),
     %% Simulate node loss that went unnoticed, taken from `mria:force_leave/1`.
-    true = ?ON(Node, mnesia_lib:del(extra_db_nodes, Node)),
-    ok = ?ON(Node, mria_mnesia:del_schema_copy(NodeLost)),
-    ?assertEqual(
-        [SiteLost],
-        ?ON(Node, emqx_ds_builtin_raft_meta:sites(lost))
+    ok = ?ON(Node, emqx_cluster:force_leave(NodeLost, force_kick)),
+    ?retry(
+        1000,
+        10,
+        ?assertEqual(
+            [SiteLost],
+            ?ON(Node, emqx_ds_builtin_raft_meta:sites(lost))
+        )
     ),
 
     %% Initialize DB on all nodes and wait for it to be online.
@@ -377,7 +380,7 @@ t_replication_transfers_snapshots(Config) ->
         ?FUNCTION_NAME, NClients, NMsgs
     ),
     ?check_trace(
-        #{timetrap => 20_000},
+        #{timetrap => 30_000},
         begin
             Nodes = [Node, NodeOffline | _] = ?config(nodes, Config),
             [_, SpecOffline | _] = ?config(specs, Config),

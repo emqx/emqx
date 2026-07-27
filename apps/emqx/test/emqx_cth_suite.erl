@@ -51,7 +51,7 @@ Most of the time, you just need to:
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
--export([start/2, start/3, stop/1]).
+-export([start/2, start/3, check_business_apps/0, wait_business_apps/1, stop/1]).
 
 -export([work_dir/1, work_dir/2, clean_work_dir/1]).
 
@@ -130,7 +130,7 @@ Most of the time, you just need to:
 }.
 
 start(Apps, SuiteOpts) ->
-    start(true, Apps, SuiteOpts).
+    start(infinity, Apps, SuiteOpts).
 
 -doc """
 Start applications with a clean slate.
@@ -139,7 +139,7 @@ Provided appspecs will be merged with defaults defined in `default_appspec/1`.
 This function attempts to start applications in a way similar to emqx_machine,
 utilizing classy run_level logic.
 """.
--spec start(boolean(), [appname() | appspec()], SuiteOpts) ->
+-spec start(timeout(), [appname() | appspec()], SuiteOpts) ->
     StartedApps :: [appname()]
 when
     SuiteOpts :: #{
@@ -177,18 +177,25 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     ),
     ClassyApps = start_apps(SystemSpecs, SuiteOpts),
     % 6. Start apps following instructions.
-    ClassyApps ++
-        case WaitStarted of
-            true ->
-                optvar:read(?rest_started);
-            false ->
-                []
-        end.
+    ClassyApps ++ wait_business_apps(WaitStarted).
+
+-spec check_business_apps() -> boolean().
+check_business_apps() ->
+    optvar:is_set(?rest_started).
+
+-spec wait_business_apps(timeout()) -> [appname()].
+wait_business_apps(Timeout) ->
+    case optvar:read(?rest_started, Timeout) of
+        {ok, Apps} ->
+            Apps;
+        timeout ->
+            []
+    end.
 
 on_run_level(RestSpecs) ->
     fun(From, To) ->
         ?tp(
-            notice,
+            info,
             test_run_level_change,
             #{
                 from => From,
@@ -291,10 +298,6 @@ maybe_start_appspec(App, StartOpts) ->
     _ = maybe_override_env(App, StartOpts),
     case maybe_start(App, StartOpts) of
         {ok, Started} ->
-            App =:= mria andalso
-                ?tp(notice, starting_mria3, StartOpts#{
-                    node => node(), env => application:get_all_env(mria)
-                }),
             ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
             _ = maybe_after_start(App, StartOpts),
             Started;
