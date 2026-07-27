@@ -218,6 +218,7 @@ ensure_kafka_topic(KafkaTopic) ->
 
 ensure_kafka_topic(KafkaTopic, Opts) ->
     NumPartitions = maps:get(num_partitions, Opts, 1),
+    Configs = maps:get(configs, Opts, []),
     on_exit(fun() -> delete_kafka_topic(KafkaTopic) end),
     TopicConfigs = [
         #{
@@ -225,7 +226,7 @@ ensure_kafka_topic(KafkaTopic, Opts) ->
             num_partitions => NumPartitions,
             replication_factor => 1,
             assignments => [],
-            configs => []
+            configs => Configs
         }
     ],
     RequestConfig = #{timeout => 5_000},
