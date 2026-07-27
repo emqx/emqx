@@ -20,7 +20,8 @@
 
 -export([
     headers_no_content_type/1,
-    headers/1
+    headers/1,
+    allowed_hosts/1
 ]).
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
@@ -81,6 +82,7 @@ method(Method) ->
 http_common_fields() ->
     [
         {url, fun url/1},
+        {allowed_hosts, fun allowed_hosts/1},
         {request_timeout,
             emqx_schema:mk_duration(#{
                 required => false,
@@ -143,3 +145,10 @@ url(desc) -> ?DESC(?FUNCTION_NAME);
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
 url(_) -> undefined.
+
+allowed_hosts(type) -> hoconsc:array(binary());
+allowed_hosts(desc) -> ?DESC(?FUNCTION_NAME);
+allowed_hosts(default) -> [];
+allowed_hosts(required) -> false;
+allowed_hosts(validator) -> fun emqx_auth_http_utils:validate_allowed_hosts_field/1;
+allowed_hosts(_) -> undefined.

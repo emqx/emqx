@@ -964,6 +964,120 @@ t_oauth2_client_credentials(TCConfig) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
+%%------------------------------------------------------------------------------
+%% Templated host (one-off request) tests
+%%------------------------------------------------------------------------------
+
+-doc """
+A URL with a templated host renders the host from client attributes and sends a
+one-off request to the rendered (allowed) host; query and header templates keep
+working on this code path.
+""".
+t_templated_host_authorize(TCConfig) ->
+    ok = setup_handler_and_config(
+        TCConfig,
+        fun(Req0, State) ->
+            #{
+                topic := <<"t">>,
+                action := <<"publish">>
+            } = cowboy_req:match_qs([topic, action], Req0),
+            ?assertEqual(<<"localhost">>, maps:get(<<"x-tenant">>, cowboy_req:headers(Req0))),
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
+        end,
+        templated_host_config_params(TCConfig)
+    ),
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(templated_host_client_info(), ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
+-doc """
+When the rendered host does not match any 'allowed_hosts' entry, the request is
+not made and the authorization check fails closed (deny with no_match = deny).
+""".
+t_templated_host_not_allowed(TCConfig) ->
+    ok = setup_handler_and_config(
+        TCConfig,
+        fun(Req0, State) ->
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
+        end,
+        (templated_host_config_params(TCConfig))#{
+            <<"allowed_hosts">> => [<<"*.example.com">>]
+        }
+    ),
+    %% The server would allow: a deny result proves it was never contacted.
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(templated_host_client_info(), ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
+-doc """
+When a host template placeholder has no value, the request is not made and the
+authorization check fails closed.
+""".
+t_templated_host_missing_var(TCConfig) ->
+    ok = setup_handler_and_config(
+        TCConfig,
+        fun(Req0, State) ->
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
+        end,
+        templated_host_config_params(TCConfig)
+    ),
+    ClientInfo = maps:remove(client_attrs, templated_host_client_info()),
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
+-doc """
+A templated host URL cannot be configured without a non-empty 'allowed_hosts'
+list.
+""".
+t_templated_host_requires_allowed_hosts(TCConfig) ->
+    Params = templated_host_config_params(TCConfig),
+    lists:foreach(
+        fun(ConfigParams) ->
+            Result =
+                try
+                    setup_handler_and_config(
+                        TCConfig,
+                        fun(Req0, State) ->
+                            {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
+                        end,
+                        ConfigParams
+                    )
+                catch
+                    _:Error ->
+                        {error, Error}
+                end,
+            ?assertMatch({error, _}, Result, ConfigParams)
+        end,
+        [
+            maps:remove(<<"allowed_hosts">>, Params),
+            Params#{<<"allowed_hosts">> => []},
+            Params#{<<"allowed_hosts">> => [<<"bad host">>]}
+        ]
+    ).
+
+templated_host_client_info() ->
+    #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => 'tcp:default',
+        client_attrs => #{<<"tns">> => <<"localhost">>}
+    }.
+
+templated_host_config_params(TCConfig) ->
+    #{
+        <<"url">> =>
+            <<"http://${client_attrs.tns}:", (http_port_bin(TCConfig))/binary,
+                "/authz/users/?topic=${topic}&action=${action}">>,
+        <<"allowed_hosts">> => [<<"localhost">>],
+        <<"headers">> => #{<<"X-Tenant">> => <<"${client_attrs.tns}">>}
+    }.
+
 raw_http_authz_config(TCConfig) ->
     #{
         <<"enable">> => <<"true">>,

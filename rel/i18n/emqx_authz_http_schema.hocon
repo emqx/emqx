@@ -1,5 +1,14 @@
 emqx_authz_http_schema {
 
+allowed_hosts.desc:
+"""List of hostnames the templated URL host is allowed to resolve to.
+Each entry is either an exact hostname (e.g. <code>auth.example.com</code>) or a wildcard pattern (e.g. <code>*.auth.example.com</code>) matching any hostname under that suffix.
+This list must be configured when the URL host contains template placeholders; a request is made only if the rendered hostname matches one of the entries, otherwise the authorization check fails.
+It has no effect when the URL host is a literal hostname."""
+
+allowed_hosts.label:
+"""Allowed Hosts"""
+
 method.desc:
 """HTTP method."""
 
@@ -13,7 +22,8 @@ body.label:
 """Request Body"""
 
 url.desc:
-"""URL of the auth server."""
+"""URL of the auth server.
+The host part may contain template placeholders, e.g. <code>https://${client_attrs.tns}.auth.example.com/authz</code>; in that case <code>allowed_hosts</code> must also be configured, and each request is sent as a one-off HTTP request to the rendered host instead of through the fixed connection pool."""
 
 url.label:
 """URL"""

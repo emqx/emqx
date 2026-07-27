@@ -40,63 +40,39 @@ create(Config) ->
     maybe
         ResourceId = emqx_authn_utils:make_resource_id(?AUTHN_BACKEND_BIN),
         {ok, ResourceConfig, State} ?= create_state(ResourceId, Config),
-        ok ?=
-            emqx_authn_utils:create_resource(
-                emqx_bridge_http_connector,
-                ResourceConfig,
-                State,
-                ?AUTHN_MECHANISM_BIN,
-                ?AUTHN_BACKEND_BIN
-            ),
+        ok ?= create_resource(ResourceConfig, State),
         {ok, State}
     end.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     maybe
         {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
-        ok ?=
-            emqx_authn_utils:update_resource(
-                emqx_bridge_http_connector,
-                ResourceConfig,
-                State,
-                ?AUTHN_MECHANISM_BIN,
-                ?AUTHN_BACKEND_BIN
-            ),
+        ok ?= update_resource(ResourceConfig, ResourceId, State),
         {ok, State}
-    end.
+    end;
+update(Config0, _State) ->
+    %% The previous state had no connector resource (templated host URL).
+    create(Config0).
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
-authenticate(
-    Credential,
-    #{
-        resource_id := ResourceId,
-        method := Method,
-        request_timeout := RequestTimeout,
-        cache_key_template := CacheKeyTemplate
-    } = State
-) ->
+authenticate(Credential, State) ->
     case generate_request(Credential, State) of
         {ok, Request} ->
-            CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
-            Response = emqx_authn_utils:cached_simple_sync_query(
-                CacheKey,
-                ResourceId,
-                {Method, Request, RequestTimeout}
-            ),
+            Response = query(Credential, Request, State),
             ?TRACE_AUTHN_PROVIDER("http_response", #{
                 request => request_for_log(Credential, State),
                 response => response_for_log(Response),
-                resource => ResourceId
+                resource => maps:get(resource_id, State, undefined)
             }),
             case Response of
                 {ok, 204, _Headers} ->
                     {ok, #{is_superuser => false}};
                 {ok, 200, Headers, Body} ->
                     handle_response(Headers, Body);
-                {ok, _StatusCode, _Headers} = Response ->
+                {ok, _StatusCode, _Headers} ->
                     emqx_authn_utils:backend_failure_result();
-                {ok, _StatusCode, _Headers, _Body} = Response ->
+                {ok, _StatusCode, _Headers, _Body} ->
                     emqx_authn_utils:backend_failure_result();
                 {error, _Reason} ->
                     emqx_authn_utils:backend_failure_result()
@@ -112,6 +88,8 @@ authenticate(
 
 destroy(#{resource_id := ResourceId}) ->
     _ = emqx_resource:remove_local(ResourceId),
+    ok;
+destroy(_State) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -128,8 +106,70 @@ create_state(ResourceId, Config) ->
     ],
     maybe
         {ok, ResourceConfig, State} ?= emqx_utils:pipeline(Pipeline, Config, undefined),
-        {ok, ResourceConfig, State#{resource_id => ResourceId}}
+        case ResourceConfig of
+            no_resource ->
+                {ok, no_resource, State};
+            _ ->
+                {ok, ResourceConfig, State#{resource_id => ResourceId}}
+        end
     end.
+
+create_resource(no_resource, _State) ->
+    ok;
+create_resource(ResourceConfig, State) ->
+    emqx_authn_utils:create_resource(
+        emqx_bridge_http_connector,
+        ResourceConfig,
+        State,
+        ?AUTHN_MECHANISM_BIN,
+        ?AUTHN_BACKEND_BIN
+    ).
+
+update_resource(no_resource, ResourceId, _State) ->
+    %% Updated to a templated host URL: the old connector pool is no longer needed.
+    _ = emqx_resource:remove_local(ResourceId),
+    ok;
+update_resource(ResourceConfig, _ResourceId, State) ->
+    emqx_authn_utils:update_resource(
+        emqx_bridge_http_connector,
+        ResourceConfig,
+        State,
+        ?AUTHN_MECHANISM_BIN,
+        ?AUTHN_BACKEND_BIN
+    ).
+
+query(
+    Credential,
+    Request,
+    #{
+        resource_id := ResourceId,
+        method := Method,
+        request_timeout := RequestTimeout,
+        cache_key_template := CacheKeyTemplate
+    }
+) ->
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
+    emqx_authn_utils:cached_simple_sync_query(
+        CacheKey,
+        ResourceId,
+        {Method, Request, RequestTimeout}
+    );
+query(
+    Credential,
+    Request,
+    #{
+        one_off_base := OneOffBase,
+        method := Method,
+        request_timeout := RequestTimeout,
+        cache_key_template := CacheKeyTemplate
+    }
+) ->
+    CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
+    emqx_authn_utils:cached_apply(CacheKey, fun() ->
+        emqx_auth_http_utils:one_off_request(
+            OneOffBase, Method, RequestTimeout, Credential, Request
+        )
+    end).
 
 check_ssl_opts(#{url := <<"https://", _/binary>>, ssl := #{enable := false}}) ->
     {error,
@@ -165,7 +205,47 @@ check_oauth2_headers(Config) ->
             {error, {invalid_headers, Msg}}
     end.
 
-parse_config(
+parse_config(#{url := RawUrl} = Config) ->
+    case emqx_auth_http_utils:parse_url_template(RawUrl) of
+        {static, {RequestBase, Path, Query}} ->
+            {Vars, StateBase} = parse_templates(Path, Query, Config),
+            State = finalize_state(Config, Vars, StateBase),
+            ResourceConfig0 = emqx_authn_utils:cleanup_resource_config(
+                [method, url, headers, request_timeout, allowed_hosts], Config
+            ),
+            ResourceConfig = ResourceConfig0#{
+                request_base => RequestBase,
+                pool_type => random
+            },
+            {ok, ResourceConfig, State};
+        {dynamic, #{
+            scheme := Scheme,
+            host_template := HostTemplateStr,
+            port := Port,
+            path := Path,
+            query := Query
+        }} ->
+            ok = check_no_oauth2(Config),
+            AllowedHosts = allowed_hosts(Config),
+            {HostVars, HostTemplate} = emqx_authn_utils:parse_str(HostTemplateStr),
+            {Vars, StateBase} = parse_templates(Path, Query, Config),
+            OneOffBase = #{
+                scheme => Scheme,
+                host_template => HostTemplate,
+                port => Port,
+                allowed_hosts => AllowedHosts,
+                connect_timeout => maps:get(connect_timeout, Config, 15000),
+                ssl_opts => one_off_ssl_opts(Scheme, Config)
+            },
+            State = finalize_state(Config, HostVars ++ Vars, StateBase#{
+                one_off_base => OneOffBase
+            }),
+            {ok, no_resource, State}
+    end.
+
+parse_templates(
+    Path,
+    Query,
     #{
         method := Method,
         url := RawUrl,
@@ -173,7 +253,6 @@ parse_config(
         request_timeout := RequestTimeout
     } = Config
 ) ->
-    {RequestBase, Path, Query} = emqx_auth_http_utils:parse_url(RawUrl),
     {BasePathVars, BasePathTemplate} = emqx_authn_utils:parse_str(Path),
     {BaseQueryVars, BaseQueryTemplate} = emqx_authn_utils:parse_deep(
         cow_qs:parse_qs(Query)
@@ -183,26 +262,45 @@ parse_config(
     ),
     {HeadersVars, HeadersTemplate} = emqx_authn_utils:parse_deep(maps:to_list(Headers)),
     Vars = BasePathVars ++ BaseQueryVars ++ BodyVars ++ HeadersVars,
-    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    State = emqx_authn_utils:init_state(Config, #{
+    StateBase = #{
         method => Method,
         path => Path,
         headers_template => HeadersTemplate,
         base_path_template => BasePathTemplate,
         base_query_template => BaseQueryTemplate,
         body_template => BodyTemplate,
-        cache_key_template => CacheKeyTemplate,
         request_timeout => RequestTimeout,
         url => RawUrl
-    }),
-    ResourceConfig0 = emqx_authn_utils:cleanup_resource_config(
-        [method, url, headers, request_timeout], Config
-    ),
-    ResourceConfig = ResourceConfig0#{
-        request_base => RequestBase,
-        pool_type => random
     },
-    {ok, ResourceConfig, State}.
+    {Vars, StateBase}.
+
+finalize_state(Config, Vars, StateBase) ->
+    CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
+    emqx_authn_utils:init_state(Config, StateBase#{cache_key_template => CacheKeyTemplate}).
+
+check_no_oauth2(#{oauth2 := #{enable := true}}) ->
+    throw(
+        {invalid_config, <<"OAuth2 authentication is not supported with a templated host URL">>}
+    );
+check_no_oauth2(_Config) ->
+    ok.
+
+allowed_hosts(Config) ->
+    case emqx_auth_http_utils:parse_allowed_hosts(maps:get(allowed_hosts, Config, [])) of
+        [] ->
+            throw(
+                {invalid_config,
+                    <<"'allowed_hosts' must be configured when the URL host contains template placeholders">>}
+            );
+        AllowedHosts ->
+            AllowedHosts
+    end.
+
+one_off_ssl_opts(https, Config) ->
+    SSLConf = maps:get(ssl, Config, #{}),
+    emqx_tls_lib:to_client_opts(SSLConf#{enable => true});
+one_off_ssl_opts(http, _Config) ->
+    [].
 
 generate_request(Credential, State) ->
     emqx_auth_http_utils:generate_request(State, Credential).
