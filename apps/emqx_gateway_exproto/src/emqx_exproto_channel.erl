@@ -406,7 +406,7 @@ handle_call({unsubscribe, Topic}, _From, Channel) ->
 handle_call(subscriptions, _From, Channel = #channel{subscriptions = Subs}) ->
     {reply, {ok, maps:to_list(Subs)}, Channel};
 handle_call(
-    Request = {publish, Topic, Qos, Payload},
+    {publish, Topic, Qos, Payload},
     _From,
     Channel = #channel{
         ctx = Ctx,
@@ -414,24 +414,19 @@ handle_call(
         clientinfo =
             ClientInfo =
                 #{
-                    clientid := From,
-                    mountpoint := Mountpoint
+                    clientid := From
                 }
     }
 ) ->
-    Action = ?AUTHZ_PUBLISH(Qos),
-    case emqx_gateway_ctx:authorize_publish(Ctx, Request, ClientInfo, Action, Topic) of
+    Msg = emqx_message:make(From, Qos, Topic, Payload),
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
         {error, Reason} ->
-            ?SLOG(warning, #{msg => "publish_pre_authz_failed", topic => Topic, reason => Reason}),
+            ?SLOG(warning, #{msg => "message_ingress_failed", topic => Topic, reason => Reason}),
             {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
-        {allow, #{action := #{retain := Retain}, topic := NTopic, headers := Headers}} ->
-            MountedTopic = emqx_mountpoint:mount(Mountpoint, NTopic),
-            Msg0 = emqx_message:make(From, Qos, MountedTopic, Payload),
-            Msg1 = emqx_message:set_flag(retain, Retain, Msg0),
-            NMsg = emqx_message:set_headers(Headers, Msg1),
-            _ = emqx:publish(NMsg),
+        {allow, NMsg} ->
+            _ = emqx_message_ingress:publish(ClientInfo, NMsg),
             {reply, ok, Channel}
     end;
 handle_call(kick, _From, Channel) ->

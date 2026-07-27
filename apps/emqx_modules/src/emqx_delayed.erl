@@ -17,7 +17,7 @@
 -export([
     create_tables/0,
     start_link/0,
-    on_client_publish_pre_authz/3,
+    on_message_ingress/2,
     on_message_publish/1
 ]).
 
@@ -133,26 +133,21 @@ create_tables() ->
 %%------------------------------------------------------------------------------
 %% Hooks
 %%------------------------------------------------------------------------------
-on_client_publish_pre_authz(
-    _PacketOrFrame,
-    #{authz_context := AuthzContext, topic := <<"$delayed/", Data/binary>>},
-    {ok, Overrides0}
+on_message_ingress(
+    AuthzContext,
+    Msg = #message{topic = <<"$delayed/", Data/binary>>}
 ) ->
     case parse_delayed_topic(Data) of
         {ok, Delay, Topic} ->
-            Headers0 = maps:get(headers, Overrides0, #{}),
-            Delayed0 = #{delay => Delay, authz_topic => Topic},
+            Delayed0 = #{delay => Delay},
             Delayed = maybe_put_authz_context(AuthzContext, Delayed0),
-            Overrides = Overrides0#{
-                topic => Topic,
-                headers => Headers0#{?DELAYED_HEADER => Delayed}
-            },
-            {ok, {ok, Overrides}};
+            NMsg = emqx_message:set_header(?DELAYED_HEADER, Delayed, Msg#message{topic = Topic}),
+            {ok, NMsg};
         {error, Reason} ->
             {stop, {error, Reason}}
     end;
-on_client_publish_pre_authz(_PacketOrFrame, _Context, Acc) ->
-    {ok, Acc}.
+on_message_ingress(_AuthzContext, Msg) ->
+    {ok, Msg}.
 
 on_message_publish(
     Msg = #message{
@@ -164,7 +159,8 @@ on_message_publish(
     case delayed_publish_at(Delay, Ts) of
         {ok, PubAt, Delayed} ->
             case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = Msg}) of
-                ok -> ok;
+                ok ->
+                    ok;
                 {error, Error} ->
                     ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error})
             end;
@@ -550,7 +546,9 @@ publish_delayed_message_legacy(Msg, ClientId, Topic) ->
 
 publish_delayed_message_hardened(Msg, ClientId, Topic, Qos) ->
     case emqx_message:get_header(?DELAYED_HEADER, Msg, undefined) of
-        #{authz_context := AuthzContext, authz_topic := AuthzTopic} ->
+        #{authz_context := AuthzContext} ->
+            Mountpoint = maps:get(mountpoint, AuthzContext, undefined),
+            AuthzTopic = emqx_mountpoint:unmount(Mountpoint, Topic),
             maybe_publish_hardened(AuthzContext, AuthzTopic, Msg, ClientId, Topic, Qos);
         _ ->
             ignore_delayed_message_publish("authorization context missing", ClientId, Topic)
@@ -589,12 +587,12 @@ remove_delayed_header(Msg) ->
 
 do_load_or_unload(true, State) ->
     emqx_hooks:put(
-        'client.publish_pre_authz', {?MODULE, on_client_publish_pre_authz, []}, ?HP_DELAY_PUB
+        'message.ingress', {?MODULE, on_message_ingress, []}, ?HP_DELAY_PUB
     ),
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_DELAY_PUB),
     State;
 do_load_or_unload(false, #{publish_timer := PubTimer} = State) ->
-    emqx_hooks:del('client.publish_pre_authz', {?MODULE, on_client_publish_pre_authz}),
+    emqx_hooks:del('message.ingress', {?MODULE, on_message_ingress}),
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     emqx_utils:cancel_timer(PubTimer),
     ets:delete_all_objects(?TAB),

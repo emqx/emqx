@@ -834,7 +834,7 @@ t_publish_negqos_idle_mountpoint(_) ->
     ok = emqx:subscribe(Topic),
     ok = emqx:subscribe(RewrittenTopic),
     emqx_hooks:put(
-        'client.publish_pre_authz',
+        'message.ingress',
         {?MODULE, rewrite_publish_topic, [RewrittenTopic]},
         ?HP_HIGHEST
     ),
@@ -846,15 +846,15 @@ t_publish_negqos_idle_mountpoint(_) ->
         ?assertNotReceive({deliver, RewrittenTopic, #message{payload = Payload}}, 100)
     after
         gen_udp:close(Socket),
-        emqx_hooks:del('client.publish_pre_authz', {?MODULE, rewrite_publish_topic}),
+        emqx_hooks:del('message.ingress', {?MODULE, rewrite_publish_topic}),
         emqx:unsubscribe(Topic),
         emqx:unsubscribe(RewrittenTopic),
         emqx:unsubscribe(MountedTopic),
         update_mqttsn_with_mountpoint(<<>>)
     end.
 
-rewrite_publish_topic(_Packet, _Context, {ok, Overrides}, Topic) ->
-    {ok, {ok, Overrides#{topic => Topic}}}.
+rewrite_publish_topic(_AuthzContext, Msg, Topic) ->
+    {ok, Msg#message{topic = Topic}}.
 
 t_publish_negqos_idle_rejects_bad_authn_in_hardened_profile(_) ->
     Topic = <<"ab">>,

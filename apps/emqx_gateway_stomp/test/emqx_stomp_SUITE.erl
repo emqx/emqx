@@ -7,6 +7,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include("emqx_stomp.hrl").
 
 -compile(export_all).
@@ -696,6 +698,93 @@ t_transaction(_) ->
             },
             _, _} = parse(Data3)
     end).
+
+t_transaction_message_ingress(_) ->
+    Mountpoint = <<"stomp/">>,
+    Topic = <<"source">>,
+    RewrittenTopic = <<"target">>,
+    MountedTopic = <<Mountpoint/binary, RewrittenTopic/binary>>,
+    TxId = <<"tx-pre-authz">>,
+    Payload = <<"transactional">>,
+    TestPid = self(),
+    update_stomp_with_mountpoint(Mountpoint),
+    ok = emqx:subscribe(Topic),
+    ok = emqx:subscribe(RewrittenTopic),
+    ok = emqx:subscribe(MountedTopic),
+    ok = emqx:subscribe(<<Mountpoint/binary, MountedTopic/binary>>),
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, stomp_message_ingress, [TestPid, RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    try
+        with_connection(fun(Sock) ->
+            ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+            ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+            ok = send_begin_frame(Sock, TxId),
+            ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+
+            ok = send_message_frame(Sock, Topic, Payload, [
+                {<<"transaction">>, TxId},
+                {<<"x-custom">>, <<"value">>}
+            ]),
+            SendMsg =
+                receive
+                    {message_ingress, AuthzContext, Msg} ->
+                        ?assertMatch(#{clientid := _}, AuthzContext),
+                        ?assertEqual(Topic, emqx_message:topic(Msg)),
+                        ?assertEqual(Payload, emqx_message:payload(Msg)),
+                        ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
+                        ?assertMatch(
+                            #{
+                                proto_ver := ?STOMP_VER,
+                                protocol := stomp,
+                                username := <<"guest">>,
+                                peerhost := _,
+                                stomp_headers := [{<<"x-custom">>, <<"value">>}]
+                            },
+                            emqx_message:get_headers(Msg)
+                        ),
+                        Msg
+                after 1000 ->
+                    ct:fail(message_ingress_hook_not_called)
+                end,
+            ?assertNotReceive({deliver, _, _}, 100),
+
+            BeforeCommit = erlang:system_time(millisecond),
+            ok = gen_tcp:send(
+                Sock,
+                serialize(<<"COMMIT">>, [{<<"transaction">>, TxId}])
+            ),
+            ?assertMatch(
+                {ok, #stomp_frame{
+                    command = <<"RECEIPT">>,
+                    headers = [{<<"receipt-id">>, <<"rp-source">>}]
+                }},
+                recv_a_frame(Sock)
+            ),
+            receive
+                {deliver, MountedTopic, PublishedMsg} ->
+                    ?assertEqual(emqx_message:id(SendMsg), emqx_message:id(PublishedMsg)),
+                    ?assertEqual(
+                        emqx_message:timestamp(SendMsg), emqx_message:timestamp(PublishedMsg)
+                    ),
+                    ?assert(emqx_message:timestamp(PublishedMsg) =< BeforeCommit),
+                    ?assertEqual(true, emqx_message:get_header(ingress, PublishedMsg))
+            after 1000 ->
+                ct:fail(transactional_message_not_published)
+            end,
+            ?assertNotReceive({deliver, _, _}, 100),
+            ok = send_disconnect_frame(Sock)
+        end)
+    after
+        emqx_hooks:del('message.ingress', {?MODULE, stomp_message_ingress}),
+        emqx:unsubscribe(Topic),
+        emqx:unsubscribe(RewrittenTopic),
+        emqx:unsubscribe(MountedTopic),
+        emqx:unsubscribe(<<Mountpoint/binary, MountedTopic/binary>>),
+        update_stomp_with_mountpoint(<<>>)
+    end.
 
 t_receipt_in_error(_) ->
     with_connection(fun(Sock) ->
@@ -1476,6 +1565,10 @@ send_message_frame(Sock, Topic, Payload, Headers0) ->
             | Headers0
         ],
     ok = gen_tcp:send(Sock, serialize(<<"SEND">>, Headers, Payload)).
+
+stomp_message_ingress(AuthzContext, Msg, TestPid, RewrittenTopic) ->
+    TestPid ! {message_ingress, AuthzContext, Msg},
+    {ok, emqx_message:set_header(ingress, true, Msg#message{topic = RewrittenTopic})}.
 
 send_begin_frame(Sock, TxId) ->
     Headers =

@@ -37,7 +37,6 @@
     'client.check_authn_complete',
     'client.authenticate',
     'client.post_authn',
-    'client.publish_pre_authz',
     'client.subscribe',
     'client.unsubscribe',
     'client.timeout',
@@ -53,6 +52,7 @@
     'session.terminated',
     'session.save_subopts',
     'message.publish',
+    'message.ingress',
     'message.puback',
     'message.dropped',
     'message.transformation_failed',
@@ -144,12 +144,11 @@ when
 ) ->
     fold_callback_result(emqx_access_control:authorize_hook_result()).
 
--callback 'client.publish_pre_authz'(
-    PacketOrFrame :: term(),
-    emqx_publish:pre_authz_context(),
-    emqx_publish:pre_authz_result()
+-callback 'message.ingress'(
+    emqx_authz_context:t(),
+    emqx_types:message() | {error, term()}
 ) ->
-    fold_callback_result(emqx_publish:pre_authz_result()).
+    fold_callback_result(emqx_types:message() | {error, term()}).
 
 -callback 'client.check_authz_complete'(
     emqx_authz_context:t(),

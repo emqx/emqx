@@ -417,18 +417,16 @@ do_publish(
         clientinfo = ClientInfo
     }
 ) ->
-    Action = ?AUTHZ_PUBLISH(?QOS_1, false),
-    case emqx_gateway_ctx:authorize_publish(Ctx, Frame, ClientInfo, Action, Topic) of
-        {allow, #{action := #{retain := Retain}, topic := NTopic, headers := Headers}} ->
+    Msg = emqx_message:make(jt808, ?QOS_1, Topic, emqx_utils_json:encode(Frame)),
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
+        {allow, NMsg = #message{topic = NTopic}} ->
             ?SLOG(debug, #{msg => "publish_msg", to_topic => NTopic, farme => Frame}),
-            Msg0 = emqx_message:make(jt808, ?QOS_1, NTopic, emqx_utils_json:encode(Frame)),
-            Msg1 = emqx_message:set_flag(retain, Retain, Msg0),
-            emqx:publish(emqx_message:set_headers(Headers, Msg1));
+            emqx_message_ingress:publish(ClientInfo, NMsg);
         deny ->
             ?SLOG(info, #{msg => "publish_msg_denied", to_topic => Topic}),
             ok;
         {error, Reason} ->
-            ?SLOG(warning, #{msg => "publish_pre_authz_failed", to_topic => Topic, reason => Reason}),
+            ?SLOG(warning, #{msg => "message_ingress_failed", to_topic => Topic, reason => Reason}),
             ok
     end.
 
@@ -1367,9 +1365,11 @@ autosubcribe(#channel{
     Action = ?AUTHZ_SUBSCRIBE(maps:get(qos, ?DN_TOPIC_SUBOPTS, 0)),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
         allow ->
-            _ = emqx_broker:subscribe(Topic, ClientId, ?DN_TOPIC_SUBOPTS),
+            Mountpoint = maps:get(mountpoint, ClientInfo, undefined),
+            MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+            _ = emqx_broker:subscribe(MountedTopic, ClientId, ?DN_TOPIC_SUBOPTS),
             ok = emqx_hooks:run('session.subscribed', [
-                ClientInfo, Topic, ?DN_TOPIC_SUBOPTS#{is_new => true}
+                ClientInfo, MountedTopic, ?DN_TOPIC_SUBOPTS#{is_new => true}
             ]);
         deny ->
             ?SLOG(info, #{msg => "subscribe_denied", topic => Topic}),

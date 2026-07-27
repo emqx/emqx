@@ -868,7 +868,7 @@ proto_publish(
         #{},
         Headers
     ),
-    _ = WithContext(publish, [Topic, Msg]),
+    _ = WithContext(publish, [Msg]),
     Session.
 
 mount(Topic, #session{mountpoint = MountPoint}) when is_binary(Topic) ->

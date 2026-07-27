@@ -97,7 +97,7 @@ t_delayed_message(_) ->
             topic = <<"publish">>,
             headers = #{
                 allow_publish := false,
-                delayed := #{delay := {interval, 1}, authz_topic := <<"publish">>}
+                delayed := #{delay := {interval, 1}}
             }
         }},
         on_message_publish(DelayedMsg)
@@ -309,14 +309,14 @@ t_authorized_delayed_message(_) ->
 
 t_reauthorize_legacy_delayed_message(_) ->
     Topic = <<"legacy/target">>,
-    ok = emqx_hooks:put('client.authorize', {?MODULE, replay_authz, []}, ?HP_HIGHEST),
-    persistent_term:put({?MODULE, replay_authz_result}, deny),
     ok = emqx_broker:subscribe(Topic),
     Msg = emqx_message:make(
         <<"legacy-client">>, ?QOS_1, <<"$delayed/1/", Topic/binary>>, <<"payload">>
     ),
     try
         {stop, _} = on_message_publish(Msg),
+        ok = emqx_hooks:put('client.authorize', {?MODULE, replay_authz, []}, ?HP_HIGHEST),
+        persistent_term:put({?MODULE, replay_authz_result}, deny),
         receive
             {deliver, Topic, _Delivered} -> ok
         after 5000 ->
@@ -341,7 +341,7 @@ t_hardened_missing_authz_context(_) ->
     ),
     Msg0 = emqx_message:make(ClientId, ?QOS_1, Topic, <<"payload">>),
     Msg = emqx_message:set_header(
-        delayed, #{delay => {interval, 1}, authz_topic => Topic}, Msg0
+        delayed, #{delay => {interval, 1}}, Msg0
     ),
     {stop, _} = emqx_delayed:on_message_publish(Msg),
     {ok, [_]} = snabbkaffe:receive_events(SubRef),
@@ -420,7 +420,6 @@ t_delayed_will(_) ->
             headers = #{
                 delayed := #{
                     delay := {interval, 1},
-                    authz_topic := Topic,
                     authz_context := #{}
                 }
             }
@@ -527,11 +526,11 @@ t_delayed_load_unload(_Config) ->
 
 is_hooks_exist() ->
     PublishHooks = emqx_hooks:lookup('message.publish'),
-    PreAuthzHooks = emqx_hooks:lookup('client.publish_pre_authz'),
+    IngressHooks = emqx_hooks:lookup('message.ingress'),
     false =/= lists:keyfind({emqx_delayed, on_message_publish, []}, 2, PublishHooks) andalso
         false =/=
             lists:keyfind(
-                {emqx_delayed, on_client_publish_pre_authz, []}, 2, PreAuthzHooks
+                {emqx_delayed, on_message_ingress, []}, 2, IngressHooks
             ).
 
 on_message_publish(Msg) ->
@@ -542,17 +541,11 @@ on_message_publish(Msg) ->
     end.
 
 prepare_delayed_message(ClientInfo, Msg) ->
-    AuthzContext = emqx_authz_context:make(ClientInfo),
-    Action = ?AUTHZ_PUBLISH(Msg#message.qos, emqx_message:get_flag(retain, Msg)),
-    case emqx_publish:run_pre_authz_hook(Msg, AuthzContext, Action, Msg#message.topic) of
-        {ok, #{action := #{retain := Retain}, topic := Topic, headers := Headers}} ->
-            Msg0 = Msg#message{topic = Topic},
-            Msg1 =
-                case emqx_message:get_flag(retain, Msg0) of
-                    Retain -> Msg0;
-                    _ -> emqx_message:set_flag(retain, Retain, Msg0)
-                end,
-            {ok, emqx_message:set_headers(Headers, Msg1)};
+    case emqx_message_ingress:authorize(ClientInfo, Msg) of
+        {allow, PreparedMsg} ->
+            {ok, PreparedMsg};
+        deny ->
+            {error, deny};
         {error, _} = Error ->
             Error
     end.
@@ -573,13 +566,15 @@ test_clientinfo(ClientId) ->
     }.
 
 test_security_profile(Case) ->
-    case lists:member(Case, [
-        t_reauthorize_delayed_message,
-        t_authorized_delayed_message,
-        t_hardened_missing_authz_context,
-        t_hardened_mountpoint_replay,
-        t_delayed_will
-    ]) of
+    case
+        lists:member(Case, [
+            t_reauthorize_delayed_message,
+            t_authorized_delayed_message,
+            t_hardened_missing_authz_context,
+            t_hardened_mountpoint_replay,
+            t_delayed_will
+        ])
+    of
         true -> "hardened";
         false -> "legacy"
     end.

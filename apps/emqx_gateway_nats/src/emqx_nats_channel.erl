@@ -618,19 +618,20 @@ handle_in(
 ) when (Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB) andalso ?ALLOW_PUB_SUB(ConnState) ->
     Subject = emqx_nats_frame:subject(Frame),
     Topic = nats_subject_to_pub_topic(Subject),
-    case emqx_gateway_ctx:authorize_publish(Ctx, Frame, ClientInfo, ?AUTHZ_PUBLISH, Topic) of
+    Msg = frame2message(Frame, Topic, Channel),
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
         deny ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
         {error, _Reason} ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
-        {allow, Prepared = #{topic := NTopic}} ->
+        {allow, NMsg = #message{topic = NTopic}} ->
             NSubject = emqx_nats_topic:mqtt_to_nats(NTopic),
             case jwt_permissions_authorize(ClientInfo, ?AUTHZ_PUBLISH, NTopic, NSubject) of
                 deny ->
                     handle_out(error, err_msg_publish_denied(Subject), Channel);
                 _ ->
                     case check_max_payload(Frame, Channel) of
-                        ok -> process_pub_frame(Frame, Prepared, Channel);
+                        ok -> process_pub_message(NMsg, Channel);
                         {error, ErrMsg} -> handle_out(error, ErrMsg, Channel)
                     end
             end
@@ -1187,12 +1188,11 @@ error_frame(Msg) ->
 
 frame2message(
     Frame,
-    #{topic := Topic, action := Action, headers := HookHeaders},
+    Topic,
     #channel{
         clientinfo =
             #{
-                clientid := ClientId,
-                mountpoint := Mountpoint
+                clientid := ClientId
             },
         publish_qos = QoS,
         pub_headers_base = BaseHeaders
@@ -1211,16 +1211,11 @@ frame2message(
             _ ->
                 BaseHeaders1#{reply_to => ReplyTo}
         end,
-    Flags = #{retain => maps:get(retain, Action, false)},
-    Msg = emqx_message:make(
-        ClientId, QoS, Topic, Payload, Flags, maps:merge(Headers1, HookHeaders)
-    ),
-    MountedMsg = emqx_mountpoint:mount(Mountpoint, Msg),
-    {MountedMsg, ReplyTo}.
+    emqx_message:make(ClientId, QoS, Topic, Payload, #{retain => false}, Headers1).
 
-process_pub_frame(Frame, Prepared, Channel) ->
-    {Msg, ReplyToSubject} = frame2message(Frame, Prepared, Channel),
-    PubResult = emqx_broker:publish(Msg),
+process_pub_message(Msg, #channel{clientinfo = ClientInfo} = Channel) ->
+    ReplyToSubject = emqx_message:get_header(reply_to, Msg),
+    PubResult = emqx_message_ingress:publish(ClientInfo, Msg),
     Replies = no_responders_fastfails(PubResult, ReplyToSubject, Channel),
     finalize_pub_replies(Replies, Channel).
 

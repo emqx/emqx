@@ -41,7 +41,7 @@
 %% Message circle
 -export([
     authorize/4,
-    authorize_publish/5
+    authorize_publish/3
     % Needless for pub/sub
     %, publish/3
     %, subscribe/4
@@ -172,22 +172,11 @@ authorize(_Ctx, ClientInfo, Action, Topic) ->
 
 -spec authorize_publish(
     context(),
-    PacketOrFrame :: term(),
     emqx_types:clientinfo(),
-    emqx_types:pubsub(),
-    emqx_types:topic()
-) -> {allow, emqx_publish:prepared()} | deny | {error, term()}.
-authorize_publish(_Ctx, PacketOrFrame, ClientInfo, Action, Topic) ->
-    AuthzContext = emqx_authz_context:make(ClientInfo),
-    case emqx_publish:run_pre_authz_hook(PacketOrFrame, AuthzContext, Action, Topic) of
-        {ok, Prepared = #{action := NAction, topic := NTopic}} ->
-            case emqx_access_control:authorize(AuthzContext, NAction, NTopic) of
-                allow -> {allow, Prepared};
-                deny -> deny
-            end;
-        {error, _} = Error ->
-            Error
-    end.
+    emqx_types:message()
+) -> {allow, emqx_types:message()} | deny | {error, term()}.
+authorize_publish(_Ctx, ClientInfo, Msg) ->
+    emqx_message_ingress:authorize(ClientInfo, Msg).
 
 %%--------------------------------------------------------------------
 %% Metrics & Stats

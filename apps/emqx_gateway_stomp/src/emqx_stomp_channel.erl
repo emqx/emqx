@@ -468,10 +468,10 @@ handle_in(
     }
 ) ->
     Topic = header(<<"destination">>, Headers),
+    Msg = frame2message(Frame, Channel),
     %% Flags and QoS are not supported in STOMP anyway,
     %% no need to look into the frame
-    Action = ?AUTHZ_PUBLISH,
-    case emqx_gateway_ctx:authorize_publish(Ctx, Frame, ClientInfo, Action, Topic) of
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
         deny ->
             ErrMsg = io_lib:format("Insufficient permissions for ~s", [Topic]),
             ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
@@ -480,14 +480,16 @@ handle_in(
             ErrMsg = io_lib:format("Insufficient permissions for ~s", [Topic]),
             ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
             shutdown(acl_denied, ErrorFrame, Channel);
-        {allow, Prepared} ->
+        {allow, NMsg} ->
             case header(<<"transaction">>, Headers) of
                 undefined ->
-                    handle_recv_send_frame({Frame, Prepared}, Channel);
+                    handle_recv_send_frame({NMsg, receipt_id(Headers)}, Channel);
                 TxId ->
                     add_action(
                         TxId,
-                        {fun ?MODULE:handle_recv_send_frame/2, [{Frame, Prepared}]},
+                        {fun ?MODULE:handle_recv_send_frame/2, [
+                            {NMsg, receipt_id(Headers)}
+                        ]},
                         receipt_id(Headers),
                         Channel
                     )
@@ -1254,7 +1256,6 @@ next_ackid() ->
 
 frame2message(
     ?PACKET(?CMD_SEND, Headers, Body),
-    #{topic := Topic, action := Action, headers := HookHeaders},
     #channel{
         conninfo = #{proto_ver := ProtoVer},
         clientinfo =
@@ -1262,12 +1263,12 @@ frame2message(
                 protocol := Protocol,
                 clientid := ClientId,
                 username := Username,
-                peerhost := PeerHost,
-                mountpoint := Mountpoint
+                peerhost := PeerHost
             }
     }
 ) ->
-    Flags = #{retain => maps:get(retain, Action, false)},
+    Topic = header(<<"destination">>, Headers),
+    Flags = #{retain => false},
     Msg = emqx_message:make(ClientId, 0, Topic, Body, Flags, #{}),
     StompHeaders = lists:foldl(
         fun(Key, Headers0) ->
@@ -1282,20 +1283,16 @@ frame2message(
         ]
     ),
     %% Pass-through of custom headers on the sending side
-    NMsg = emqx_message:set_headers(
-        maps:merge(
-            #{
-                proto_ver => ProtoVer,
-                protocol => Protocol,
-                username => Username,
-                peerhost => PeerHost,
-                stomp_headers => StompHeaders
-            },
-            HookHeaders
-        ),
+    emqx_message:set_headers(
+        #{
+            proto_ver => ProtoVer,
+            protocol => Protocol,
+            username => Username,
+            peerhost => PeerHost,
+            stomp_headers => StompHeaders
+        },
         Msg
-    ),
-    emqx_mountpoint:mount(Mountpoint, NMsg).
+    ).
 
 receipt_id(Headers) ->
     header(<<"receipt">>, Headers).
@@ -1319,10 +1316,12 @@ add_action(TxId, Action, ReceiptId, Channel = #channel{transaction = Trans}) ->
 %%--------------------------------------------------------------------
 %% Transaction Handle
 
-handle_recv_send_frame({Frame = ?PACKET(?CMD_SEND, Headers), Prepared}, Channel) ->
-    Msg = frame2message(Frame, Prepared, Channel),
-    _ = emqx_broker:publish(Msg),
-    maybe_outgoing_receipt(receipt_id(Headers), Channel).
+handle_recv_send_frame(
+    {Msg, ReceiptId},
+    Channel = #channel{clientinfo = ClientInfo}
+) ->
+    _ = emqx_message_ingress:publish(ClientInfo, Msg),
+    maybe_outgoing_receipt(ReceiptId, Channel).
 
 handle_recv_ack_frame(?PACKET(?CMD_ACK, Headers), Channel) ->
     maybe_outgoing_receipt(receipt_id(Headers), Channel).

@@ -657,14 +657,10 @@ with_context(Ctx, ClientInfo) ->
         with_context(Type, Topic, Ctx, ClientInfo)
     end.
 
-with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
-    Action = publish_action(Msg),
-    case emqx_gateway_ctx:authorize_publish(Ctx, Msg, ClientInfo, Action, Topic) of
-        {allow, #{action := #{retain := Retain}, topic := NTopic, headers := Headers}} ->
-            Mountpoint = maps:get(mountpoint, ClientInfo, <<>>),
-            Msg0 = Msg#message{topic = emqx_mountpoint:mount(Mountpoint, NTopic)},
-            Msg1 = emqx_message:set_flag(retain, Retain, Msg0),
-            _ = emqx_broker:publish(emqx_message:set_headers(Headers, Msg1)),
+with_context(publish, [Msg = #message{topic = Topic}], Ctx, ClientInfo) ->
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
+        {allow, NMsg} ->
+            _ = emqx_message_ingress:publish(ClientInfo, NMsg),
             ok;
         deny ->
             ?SLOG(error, #{
@@ -674,7 +670,7 @@ with_context(publish, [Topic, Msg], Ctx, ClientInfo) ->
             {error, deny};
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "publish_pre_authz_failed",
+                msg => "message_ingress_failed",
                 topic => Topic,
                 reason => Reason
             }),
@@ -706,10 +702,6 @@ with_context(subscribe, [Topic, Opts], Ctx, ClientInfo) ->
     end;
 with_context(metrics, Name, Ctx, _ClientInfo) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
-
-publish_action(#message{qos = QoS, flags = Flags}) ->
-    Retain = maps:get(retain, Flags, false),
-    ?AUTHZ_PUBLISH(QoS, Retain).
 
 subscribe_action(Opts) ->
     QoS = maps:get(qos, Opts, 0),

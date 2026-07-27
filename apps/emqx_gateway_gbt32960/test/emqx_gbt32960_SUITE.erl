@@ -59,6 +59,7 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     snabbkaffe:stop(),
     ok.
 
@@ -261,10 +262,10 @@ t_case01_login(_Config) ->
     ok = gen_tcp:close(Socket).
 
 t_authz_denies_login_upstream_publish(_Config) ->
-    Topic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
+    AuthzTopic = <<"upstream/vlogin">>,
     ok = emqx:subscribe("gbt32960/+/upstream/#"),
     try
-        with_gateway_authz_result(gbt32960, publish, Topic, deny, fun() ->
+        with_gateway_authz_result(gbt32960, publish, AuthzTopic, deny, fun() ->
             {ok, Socket} = login_first_without_broker_asserts(),
             try
                 ?assertEqual({error, timeout}, receive_published_msg(500))
@@ -278,9 +279,10 @@ t_authz_denies_login_upstream_publish(_Config) ->
 
 t_authz_allows_login_upstream_publish(_Config) ->
     Topic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
+    AuthzTopic = <<"upstream/vlogin">>,
     ok = emqx:subscribe("gbt32960/+/upstream/#"),
     try
-        with_gateway_authz_result(gbt32960, publish, Topic, allow, fun() ->
+        with_gateway_authz_result(gbt32960, publish, AuthzTopic, allow, fun() ->
             {ok, Socket} = login_first_without_broker_asserts(),
             try
                 {Topic, _PubedMsg} = get_published_msg()
@@ -292,9 +294,24 @@ t_authz_allows_login_upstream_publish(_Config) ->
         emqx:unsubscribe("gbt32960/+/upstream/#")
     end.
 
+t_authz_include_mountpoint_login_upstream_publish(_Config) ->
+    Topic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
+    OldIncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
+    ok = emqx_config:put([authorization, include_mountpoint], true),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_config:put([authorization, include_mountpoint], OldIncludeMountpoint)
+    end),
+    ok = emqx:subscribe(Topic),
+    emqx_common_test_helpers:on_exit(fun() -> emqx:unsubscribe(Topic) end),
+    with_gateway_authz_result(gbt32960, publish, Topic, allow, fun() ->
+        {ok, Socket} = login_first_without_broker_asserts(),
+        {Topic, _PubedMsg} = get_published_msg(),
+        ok = gen_tcp:close(Socket)
+    end).
+
 t_authz_denies_auto_subscribe(_Config) ->
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    with_gateway_authz_result(gbt32960, subscribe, Topic, deny, fun() ->
+    with_gateway_authz_result(gbt32960, subscribe, <<"dnstream">>, deny, fun() ->
         {ok, Socket} = login_first_without_broker_asserts(),
         try
             ?assertEqual(false, lists:member(Topic, get_subscriptions())),
@@ -308,7 +325,7 @@ t_authz_denies_auto_subscribe(_Config) ->
 
 t_authz_allows_auto_subscribe(_Config) ->
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    with_gateway_authz_result(gbt32960, subscribe, Topic, allow, fun() ->
+    with_gateway_authz_result(gbt32960, subscribe, <<"dnstream">>, allow, fun() ->
         {ok, Socket} = login_first_without_broker_asserts(),
         try
             ?assertEqual(true, lists:member(Topic, get_subscriptions())),

@@ -702,104 +702,80 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
         )
     of
         {ok, NPacket0, NChannel0} ->
-            case prepare_publish(NPacket0, NChannel0) of
-                {ok, NPacket, NChannel, Headers} ->
-                    Msg = packet_to_message(NPacket, NChannel, Headers),
+            Msg0 = packet_to_message(NPacket0, NChannel0),
+            case prepare_publish(Msg0, NChannel0) of
+                {ok, Msg, NChannel} ->
                     ok = ?EXT_TRACE_ADD_ATTRS(emqx_otel_trace:msg_attrs(Msg)),
                     do_publish(PacketId, Msg, NChannel);
                 {error, Rc, NChannel} ->
-                    handle_publish_pre_authz_error(QoS, PacketId, Rc, NChannel)
-            end;
-        {error, Rc = ?RC_NOT_AUTHORIZED, NChannel} ->
-            ?SLOG_THROTTLE(
-                warning,
-                #{
-                    msg => cannot_publish_to_topic_due_to_not_authorized,
-                    reason => emqx_reason_codes:name(Rc)
-                },
-                #{topic => Topic, tag => "AUTHZ"}
-            ),
-            case emqx:get_config([authorization, deny_action], ignore) of
-                ignore ->
-                    case QoS of
-                        ?QOS_0 -> {ok, NChannel};
-                        ?QOS_1 -> handle_out(puback, {PacketId, Rc}, NChannel);
-                        ?QOS_2 -> handle_out(pubrec, {PacketId, Rc}, NChannel)
-                    end;
-                disconnect ->
-                    handle_out(disconnect, Rc, NChannel)
-            end;
-        {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
-            ok = inc_metrics('packets.publish.quota_exceeded', NChannel),
-            case QoS of
-                ?QOS_0 ->
-                    ok = inc_metrics('messages.dropped', NChannel),
-                    ok = inc_metrics('messages.dropped.quota_exceeded', NChannel),
-                    {ok, NChannel};
-                ?QOS_1 ->
-                    handle_out(puback, {PacketId, Rc}, NChannel);
-                ?QOS_2 ->
-                    handle_out(pubrec, {PacketId, Rc}, NChannel)
+                    handle_publish_error(QoS, Topic, PacketId, Rc, NChannel)
             end;
         {error, Rc, NChannel} ->
-            ?SLOG(
-                warning,
-                #{
-                    msg => "cannot_publish_to_topic",
-                    topic => Topic,
-                    reason => emqx_reason_codes:name(Rc)
-                },
-                #{topic => Topic}
-            ),
-            handle_out(disconnect, Rc, NChannel)
+            handle_publish_error(QoS, Topic, PacketId, Rc, NChannel)
     end.
+
+handle_publish_error(QoS, Topic, PacketId, Rc = ?RC_NOT_AUTHORIZED, Channel) ->
+    ?SLOG_THROTTLE(
+        warning,
+        #{
+            msg => cannot_publish_to_topic_due_to_not_authorized,
+            reason => emqx_reason_codes:name(Rc)
+        },
+        #{topic => Topic, tag => "AUTHZ"}
+    ),
+    case emqx:get_config([authorization, deny_action], ignore) of
+        ignore ->
+            case QoS of
+                ?QOS_0 -> {ok, Channel};
+                ?QOS_1 -> handle_out(puback, {PacketId, Rc}, Channel);
+                ?QOS_2 -> handle_out(pubrec, {PacketId, Rc}, Channel)
+            end;
+        disconnect ->
+            handle_out(disconnect, Rc, Channel)
+    end;
+handle_publish_error(QoS, _Topic, PacketId, Rc = ?RC_QUOTA_EXCEEDED, Channel) ->
+    ok = inc_metrics('packets.publish.quota_exceeded', Channel),
+    case QoS of
+        ?QOS_0 ->
+            ok = inc_metrics('messages.dropped', Channel),
+            ok = inc_metrics('messages.dropped.quota_exceeded', Channel),
+            {ok, Channel};
+        ?QOS_1 ->
+            handle_out(puback, {PacketId, Rc}, Channel);
+        ?QOS_2 ->
+            handle_out(pubrec, {PacketId, Rc}, Channel)
+    end;
+handle_publish_error(_QoS, Topic, _PacketId, Rc, Channel) ->
+    ?SLOG(
+        warning,
+        #{
+            msg => "cannot_publish_to_topic",
+            topic => Topic,
+            reason => emqx_reason_codes:name(Rc)
+        },
+        #{topic => Topic}
+    ),
+    handle_out(disconnect, Rc, Channel).
 
 prepare_publish(
-    Packet = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
+    Msg,
     #channel{clientinfo = ClientInfo} = Channel
 ) ->
-    AuthzContext = emqx_authz_context:make(ClientInfo),
-    Action = authz_action(Packet),
-    case emqx_publish:run_pre_authz_hook(Packet, AuthzContext, Action, Topic) of
-        {ok, Prepared} ->
-            NPacket = apply_publish_pre_authz(Prepared, Packet),
-            case
-                emqx_utils:pipeline(
-                    [
-                        fun(P, C) -> check_pub_authz(P, C, AuthzContext) end,
-                        fun check_pub_caps/2
-                    ],
-                    NPacket,
-                    Channel
-                )
-            of
-                {ok, CheckedPacket, NChannel} ->
-                    {ok, CheckedPacket, NChannel, maps:get(headers, Prepared)};
-                {error, Rc, NChannel} ->
-                    {error, Rc, NChannel}
-            end;
-        {error, invalid_topic_name} ->
-            {error, ?RC_TOPIC_NAME_INVALID, Channel};
-        {error, Reason} ->
-            ?SLOG(warning, #{msg => "publish_pre_authz_failed", reason => Reason}),
-            {error, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel}
+    case
+        emqx_utils:pipeline(
+            [
+                fun(M, C) -> check_pub_authz(M, C, ClientInfo) end,
+                fun check_pub_caps/2
+            ],
+            Msg,
+            Channel
+        )
+    of
+        {ok, NMsg, NChannel} ->
+            {ok, emqx_message_ingress:finalize(ClientInfo, NMsg), NChannel};
+        {error, Rc, NChannel} ->
+            {error, Rc, NChannel}
     end.
-
-apply_publish_pre_authz(
-    #{action := #{retain := Retain}, topic := Topic},
-    Packet = #mqtt_packet{header = Header, variable = Publish}
-) ->
-    Packet#mqtt_packet{
-        header = Header#mqtt_packet_header{retain = Retain},
-        variable = Publish#mqtt_packet_publish{topic_name = Topic}
-    }.
-
-handle_publish_pre_authz_error(?QOS_0, _PacketId, _Rc, Channel) ->
-    {ok, Channel};
-handle_publish_pre_authz_error(?QOS_1, PacketId, Rc, Channel) ->
-    handle_out(puback, {PacketId, Rc}, Channel);
-handle_publish_pre_authz_error(?QOS_2, PacketId, Rc, Channel) ->
-    handle_out(pubrec, {PacketId, Rc}, Channel).
 
 packet_to_message(Packet, #channel{
     conninfo = #{
@@ -811,12 +787,11 @@ packet_to_message(Packet, #channel{
             protocol := Protocol,
             clientid := ClientId,
             username := Username,
-            peerhost := PeerHost,
-            mountpoint := MountPoint
+            peerhost := PeerHost
         } = ClientInfo
-}, Headers) ->
+}) ->
     ClientAttrs = maps:get(client_attrs, ClientInfo, #{}),
-    Msg0 = emqx_packet:to_message(
+    emqx_packet:to_message(
         Packet,
         ClientId,
         #{
@@ -827,9 +802,7 @@ packet_to_message(Packet, #channel{
             username => Username,
             peerhost => PeerHost
         }
-    ),
-    Msg = emqx_message:set_headers(Headers, Msg0),
-    emqx_mountpoint:mount(MountPoint, Msg).
+    ).
 
 do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
     Result = emqx_broker:publish(Msg),
@@ -2868,69 +2841,55 @@ check_pub_alias(_Packet, _Channel) ->
 %%--------------------------------------------------------------------
 %% Authorization action
 
-authz_action(#mqtt_packet{
-    header = #mqtt_packet_header{qos = QoS, retain = Retain}, variable = #mqtt_packet_publish{}
-}) ->
-    ?AUTHZ_PUBLISH(QoS, Retain);
 authz_action({_Topic, #{qos := QoS} = _SubOpts} = _TopicFilter) ->
-    ?AUTHZ_SUBSCRIBE(QoS);
-%% Will message
-authz_action(#message{qos = QoS, flags = #{retain := Retain}}) ->
-    ?AUTHZ_PUBLISH(QoS, Retain);
-authz_action(#message{qos = QoS}) ->
-    ?AUTHZ_PUBLISH(QoS).
+    ?AUTHZ_SUBSCRIBE(QoS).
 
 %%--------------------------------------------------------------------
 %% Check Pub Authorization
 
-check_pub_authz(Packet, Channel, AuthzContext) ->
+check_pub_authz(Msg, Channel, ClientInfo) ->
     ?EXT_TRACE_CLIENT_AUTHZ(
         ?EXT_TRACE_ATTR(
             (basic_attrs(Channel))#{'authz.action_type' => publish}
         ),
-        fun(NPacket) ->
-            _Res = do_check_pub_authz(NPacket, Channel, AuthzContext)
+        fun(NMsg) ->
+            do_check_pub_authz(NMsg, Channel, ClientInfo)
         end,
-        [Packet]
+        [Msg]
     ).
 
 do_check_pub_authz(
-    #mqtt_packet{
-        variable = #mqtt_packet_publish{topic_name = Topic}
-    } = Packet,
-    _Channel,
-    AuthzContext
+    Msg,
+    Channel,
+    ClientInfo
 ) ->
-    Action = authz_action(Packet),
-    case emqx_access_control:authorize(AuthzContext, Action, Topic) of
-        allow ->
+    case emqx_message_ingress:authorize(ClientInfo, Msg) of
+        {allow, NMsg = #message{topic = Topic}} ->
             ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.publish.topic' => Topic,
                 'authz.publish.result' => allow
             }),
             ?EXT_TRACE_SET_STATUS_OK(),
-            ok;
+            {ok, NMsg, Channel};
         deny ->
             ?EXT_TRACE_ADD_ATTRS(#{
-                'authz.publish.topic' => Topic,
                 'authz.publish.result' => deny,
                 'authz.reason_code' => ?RC_NOT_AUTHORIZED
             }),
             ?EXT_TRACE_SET_STATUS_ERROR(),
-            {error, ?RC_NOT_AUTHORIZED}
+            {error, ?RC_NOT_AUTHORIZED, Channel};
+        {error, invalid_topic_name} ->
+            {error, ?RC_TOPIC_NAME_INVALID, Channel};
+        {error, Reason} ->
+            ?SLOG(warning, #{msg => "message_ingress_failed", reason => Reason}),
+            {error, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel}
     end.
 
 %%--------------------------------------------------------------------
 %% Check Pub Caps
 
 check_pub_caps(
-    #mqtt_packet{
-        header = #mqtt_packet_header{
-            qos = QoS,
-            retain = Retain
-        },
-        variable = #mqtt_packet_publish{topic_name = Topic}
-    },
+    #message{qos = QoS, flags = #{retain := Retain}, topic = Topic},
     #channel{clientinfo = #{zone := Zone}}
 ) ->
     emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic => Topic}).
@@ -3606,39 +3565,31 @@ publish_will_msg(
     end.
 
 prepare_will_message_for_publishing(
-    ClientInfo = #{mountpoint := MountPoint},
-    Msg = #message{topic = Topic}
+    ClientInfo,
+    Msg
 ) ->
-    AuthzContext = emqx_authz_context:make(ClientInfo),
-    Action = authz_action(Msg),
-    case emqx_publish:run_pre_authz_hook(Msg, AuthzContext, Action, Topic) of
-        {ok, Prepared} ->
-            NMsg0 = apply_will_pre_authz(Prepared, Msg),
-            NTopic = maps:get(topic, Prepared),
-            NAction = maps:get(action, Prepared),
-            PublishingDisallowed =
-                emqx_access_control:authorize(AuthzContext, NAction, NTopic) =/= allow,
+    case emqx_message_ingress:authorize(ClientInfo, Msg) of
+        {allow, NMsg0} ->
             ClientBanned = emqx_banned:check(ClientInfo),
-            case PublishingDisallowed orelse ClientBanned of
+            case ClientBanned of
                 true ->
                     {error, #{
                         client_banned => ClientBanned,
-                        publishing_disallowed => PublishingDisallowed
+                        publishing_disallowed => false
                     }};
                 false ->
-                    NMsg = emqx_mountpoint:mount(MountPoint, NMsg0),
+                    NMsg = emqx_message_ingress:finalize(ClientInfo, NMsg0),
                     {ok, NMsg#message{timestamp = emqx_message:timestamp_now()}}
             end;
+        deny ->
+            {error, #{
+                client_banned => emqx_banned:check(ClientInfo),
+                publishing_disallowed => true
+            }};
         {error, Reason} ->
-            ?SLOG(warning, #{msg => "will_publish_pre_authz_failed", reason => Reason}),
+            ?SLOG(warning, #{msg => "will_message_ingress_failed", reason => Reason}),
             {error, #{client_banned => false, publishing_disallowed => true}}
     end.
-
-apply_will_pre_authz(
-    #{action := #{retain := Retain}, headers := Headers, topic := Topic}, Msg0
-) ->
-    Msg1 = emqx_message:set_flag(retain, Retain, Msg0#message{topic = Topic}),
-    emqx_message:set_headers(Headers, Msg1).
 
 %%--------------------------------------------------------------------
 %% Disconnect Reason

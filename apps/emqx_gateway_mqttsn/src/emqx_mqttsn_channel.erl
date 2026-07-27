@@ -746,8 +746,8 @@ handle_in(PubPkt = ?SN_PUBLISH_MSG(_Flags, TopicId0, MsgId, _Data), Channel) ->
                 fun check_negative_qos_enable/2,
                 fun preproc_pub_pkt/2,
                 fun convert_topic_id_to_name/2,
-                fun(Publish, C) -> check_pub_authz(PubPkt, Publish, C) end,
-                fun convert_pub_to_msg/2
+                fun convert_pub_to_msg/2,
+                fun check_pub_authz/2
             ],
             PubPkt,
             Channel
@@ -1124,36 +1124,32 @@ convert_topic_id_to_name(
     end.
 
 check_pub_authz(
-    Packet,
-    {TopicName, Flags = #mqtt_sn_flags{qos = QoS, retain = Retain}, Data},
-    Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}
+    Msg,
+    Channel = #channel{
+        ctx = Ctx,
+        clientinfo = ClientInfo
+    }
 ) ->
-    Action = ?AUTHZ_PUBLISH(get_corrected_qos(QoS), Retain),
-    case emqx_gateway_ctx:authorize_publish(Ctx, Packet, ClientInfo, Action, TopicName) of
-        {allow, #{action := #{retain := NRetain}, topic := NTopic, headers := Headers}} ->
-            NFlags = Flags#mqtt_sn_flags{retain = NRetain},
-            {ok, {NTopic, NFlags, Data, Headers}, Channel};
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
+        {allow, NMsg} ->
+            {ok, emqx_message_ingress:finalize(ClientInfo, NMsg), Channel};
         deny ->
             {error, ?SN_RC2_NOT_AUTHORIZE};
         {error, _Reason} ->
             {error, ?SN_RC2_NOT_AUTHORIZE}
     end.
 
-maybe_publish_idle_negative_qos(Packet, Publish = {TopicName, _Flags, _Data}, Channel) ->
+maybe_publish_idle_negative_qos(Packet, Publish = {TopicName, _Flags, Data}, Channel) ->
     case authenticate_idle_negative_qos(Packet, Channel) of
         {ok, NChannel} ->
-            case check_pub_authz(Packet, Publish, NChannel) of
-                {ok, {NTopic, #mqtt_sn_flags{dup = Dup, retain = Retain}, Data, Headers},
-                    #channel{clientinfo = #{mountpoint := Mountpoint}}} ->
-                    MountedTopic = emqx_mountpoint:mount(Mountpoint, NTopic),
-                    Msg = emqx_message:make(
-                        ?NEG_QOS_CLIENT_ID,
-                        ?QOS_0,
-                        MountedTopic,
-                        Data,
-                        #{dup => Dup, retain => Retain},
-                        Headers
-                    ),
+            case
+                emqx_utils:pipeline(
+                    [fun convert_pub_to_msg/2, fun check_pub_authz/2],
+                    Publish,
+                    NChannel
+                )
+            of
+                {ok, Msg, _} ->
                     ?SLOG(debug, #{
                         msg => "receive_qo3_message_in_idle_mode",
                         topic => TopicName,
@@ -1161,7 +1157,7 @@ maybe_publish_idle_negative_qos(Packet, Publish = {TopicName, _Flags, _Data}, Ch
                     }),
                     _ = emqx_broker:publish(Msg),
                     ok;
-                {error, RC} ->
+                {error, RC, _} ->
                     ?tp(info, idle_negative_qos_publish_rejected, #{
                         topic => TopicName,
                         return_code => RC
@@ -1187,34 +1183,33 @@ authenticate_idle_negative_qos(Packet, Channel = #channel{conninfo = ConnInfo}) 
     end.
 
 convert_pub_to_msg(
-    {TopicName, Flags, Data, Headers},
-    Channel = #channel{clientinfo = #{clientid := ClientId, mountpoint := Mountpoint}}
+    {TopicName, Flags, Data},
+    Channel = #channel{clientinfo = #{clientid := ClientId}}
 ) ->
     #mqtt_sn_flags{qos = QoS, dup = Dup, retain = Retain} = Flags,
     NewQoS = get_corrected_qos(QoS),
-    NTopicName = emqx_mountpoint:mount(Mountpoint, TopicName),
-    Message0 = put_message_headers(
+    Message = put_message_headers(
         emqx_message:make(
             ClientId,
             NewQoS,
-            NTopicName,
+            TopicName,
             Data,
             #{dup => Dup, retain => Retain},
             #{}
         ),
         Channel
     ),
-    Message = emqx_message:set_headers(Headers, Message0),
     {ok, Message, Channel}.
 
 put_message_headers(Msg, #channel{
-    conninfo = #{proto_ver := ProtoVer},
+    conninfo = ConnInfo,
     clientinfo = #{
         protocol := Protocol,
         username := Username,
         peerhost := PeerHost
     }
 }) ->
+    ProtoVer = maps:get(proto_ver, ConnInfo, <<"1.2">>),
     emqx_message:set_headers(
         #{
             proto_ver => ProtoVer,
@@ -2013,24 +2008,18 @@ mabye_publish_will_msg(Channel = #channel{will_msg = WillMsg}) ->
     Channel#channel{will_msg = undefined}.
 
 publish_will_msg(
-    Msg = #message{topic = Topic, qos = QoS, flags = Flags, payload = Payload},
-    #channel{ctx = Ctx, clientinfo = ClientInfo = #{mountpoint := Mountpoint}}
+    Msg = #message{topic = Topic},
+    #channel{ctx = Ctx, clientinfo = ClientInfo}
 ) ->
-    Retain = maps:get(retain, Flags, false),
-    Action = ?AUTHZ_PUBLISH(QoS, Retain),
-    Publish = {Topic, Flags, Payload},
-    case emqx_gateway_ctx:authorize_publish(Ctx, Publish, ClientInfo, Action, Topic) of
-        {allow, #{action := #{retain := NRetain}, topic := NTopic, headers := Headers}} ->
-            MountedTopic = emqx_mountpoint:mount(Mountpoint, NTopic),
-            NMsg0 = emqx_message:set_flag(retain, NRetain, Msg#message{topic = MountedTopic}),
-            NMsg = emqx_message:set_headers(Headers, NMsg0),
-            _ = emqx_broker:publish(NMsg),
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
+        {allow, NMsg} ->
+            _ = emqx_message_ingress:publish(ClientInfo, NMsg),
             ok;
         deny ->
             ?tp(info, mqttsn_will_publish_rejected, #{topic => Topic}),
             ok;
         {error, Reason} ->
-            ?SLOG(warning, #{msg => "will_publish_pre_authz_failed", reason => Reason}),
+            ?SLOG(warning, #{msg => "will_message_ingress_failed", reason => Reason}),
             ?tp(info, mqttsn_will_publish_rejected, #{topic => Topic}),
             ok
     end.
