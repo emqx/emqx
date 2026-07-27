@@ -90,15 +90,14 @@ on_start(InstId, Config) ->
     }),
     C = fun(Key) -> check_config(Key, Config) end,
     Hosts = C(bootstrap_hosts),
-    MetadataRequestTimeout = C(metadata_request_timeout),
     Auth = C(authentication),
     ClientConfig = #{
         min_metadata_refresh_interval => C(min_metadata_refresh_interval),
         connect_timeout => C(connect_timeout),
-        metadata_request_timeout => MetadataRequestTimeout,
+        metadata_request_timeout => C(metadata_request_timeout),
         %% Request timeout is the max age limit for a pending reply from Kafka
         %% once reached, wolff_client will force reconnect
-        request_timeout => max(MetadataRequestTimeout * 2, timer:seconds(30)),
+        request_timeout => C(request_timeout),
         extra_sock_opts => C(socket_opts),
         sasl => emqx_bridge_kafka_impl:sasl(Auth, InstId),
         ssl => C(ssl),
@@ -573,10 +572,14 @@ render_timestamp(Template, Message) ->
 
 do_send_msg(sync, KafkaTopic, KafkaMessage, Producers, SyncTimeout) ->
     try
-        {_Partition, _Offset} = wolff:send_sync2(
-            Producers, KafkaTopic, [KafkaMessage], SyncTimeout
-        ),
-        ok
+        case wolff:send_sync2(Producers, KafkaTopic, [KafkaMessage], SyncTimeout) of
+            {_Partition, Offset} when is_integer(Offset) ->
+                ok;
+            {_Partition, message_expired} ->
+                {error, request_expired};
+            {_Partition, DropReason} ->
+                {error, DropReason}
+        end
     catch
         error:{producer_down, _} = Reason ->
             {error, Reason};
@@ -595,8 +598,6 @@ do_send_msg(async, KafkaTopic, KafkaMessage, Producers, AsyncReplyFn) ->
     %% See emqx_resource_buffer_worker:simple_async_internal_buffer
     {ok, Pid}.
 
-%% Wolff producer never gives up retrying
-%% so there can only be 'ok' results.
 on_kafka_ack(_Partition, Offset, ReplyFnAndArgs) when is_integer(Offset) ->
     %% `emqx_rule_runtime:inc_action_metrics/2' is embedded inside reply function
     emqx_resource:apply_reply_fun(ReplyFnAndArgs, ok);
@@ -608,6 +609,20 @@ on_kafka_ack(_Partition, message_too_large, ReplyFnAndArgs) ->
     %% however 'dropped' is not mapped to EMQX metrics name
     %% so we reply error here
     emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, message_too_large});
+on_kafka_ack(_Partition, message_expired, ReplyFnAndArgs) ->
+    %% Dropped because it stayed in the buffer longer than 'max_batch_age'.
+    %% The 'dropped' and 'dropped.expired' resource metrics are bumped by the
+    %% [wolff, dropped_expired] handler in handle_telemetry_event/4; replying
+    %% 'request_expired' concludes the rule action (and triggers fallback
+    %% actions) without bumping any resource metric, so each message is
+    %% counted exactly once.
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, request_expired});
+on_kafka_ack(_Partition, max_retry_exceeded, ReplyFnAndArgs) ->
+    %% Dropped after 'max_retries' Kafka error responses.  wolff bumps only its
+    %% own (unmapped) 'dropped' counter for this case, so like message_too_large
+    %% the resource 'dropped' metric is left untouched and the error reply
+    %% counts the message as 'failed'.
+    emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, max_retry_exceeded});
 on_kafka_ack(_Partition, partition_lost, ReplyFnAndArgs) ->
     emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, partition_lost}).
 
@@ -796,6 +811,9 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, ActionResId) ->
         required_acks := RequiredAcks,
         partition_count_refresh_interval := PCntRefreshInterval,
         max_inflight := MaxInflight,
+        max_batch_age := MaxBatchAge,
+        max_retries := MaxRetries,
+        reconnect_delay := ReconnectDelay,
         partitions_limit := MaxPartitions,
         buffer := #{
             mode := BufferMode0,
@@ -830,6 +848,9 @@ producers_config(BridgeType, BridgeName, Input, IsDryRun, ActionResId) ->
         max_linger_ms => MaxLingerTime,
         max_linger_bytes => MaxLingerBytes,
         max_batch_bytes => MaxBatchBytes,
+        max_batch_age => MaxBatchAge,
+        max_retry => MaxRetries,
+        reconnect_delay_ms => ReconnectDelay,
         max_send_ahead => MaxInflight - 1,
         compression => Compression,
         group => ActionResId,
@@ -936,6 +957,16 @@ handle_telemetry_event(
 ) when is_integer(Val) ->
     emqx_resource_metrics:dropped_queue_full_inc(ID, Val);
 handle_telemetry_event(
+    [wolff, dropped_expired],
+    #{counter_inc := Val},
+    #{bridge_id := ID},
+    #{bridge_id := ID}
+) when is_integer(Val) ->
+    %% Bumps both 'dropped' and 'dropped.expired'.  wolff emits [wolff, dropped]
+    %% for the same messages, but that event is not subscribed, so expired
+    %% messages are counted as dropped exactly once.
+    emqx_resource_metrics:dropped_expired_inc(ID, Val);
+handle_telemetry_event(
     [wolff, queuing],
     #{gauge_set := Val},
     #{bridge_id := ID, partition_id := PartitionID},
@@ -996,6 +1027,7 @@ maybe_install_wolff_telemetry_handlers(TelemetryId) ->
         telemetry_handler_id(TelemetryId),
         [
             [wolff, dropped_queue_full],
+            [wolff, dropped_expired],
             [wolff, queuing],
             [wolff, queuing_bytes],
             [wolff, retried_success],

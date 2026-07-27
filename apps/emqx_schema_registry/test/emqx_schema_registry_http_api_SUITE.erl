@@ -49,7 +49,9 @@ only_once_testcases() ->
         t_empty_sparkplug,
         t_external_registry_crud_confluent,
         t_smoke_test_external_registry_confluent,
-        t_external_http_serde
+        t_external_http_serde,
+        t_json_schema_2019_09,
+        t_json_schema_2020_12
     ].
 
 init_per_suite(Config) ->
@@ -1349,4 +1351,90 @@ t_delete_serde_with_dependent_validations(Config) ->
 
     ?assertMatch({ok, 204, _}, request({delete, SerdeName})),
 
+    ok.
+
+t_json_schema_2019_09(_TCConfig) ->
+    Source =
+        #{
+            <<"$schema">> => <<"https://json-schema.org/draft/2019-09/schema">>,
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"name">> => #{
+                    <<"type">> => <<"string">>,
+                    <<"maxLength">> => 50
+                },
+                <<"kind">> => #{<<"$ref">> => <<"#/$defs/kind">>}
+            },
+            <<"$defs">> => #{
+                <<"kind">> => #{
+                    <<"type">> => <<"string">>,
+                    <<"enum">> => [<<"a">>, <<"b">>]
+                }
+            }
+        },
+    SourceBin = emqx_utils_json:encode(Source),
+    SchemaName = <<"smoke_2019">>,
+    Params = #{
+        <<"name">> => SchemaName,
+        <<"type">> => <<"json">>,
+        <<"source">> => SourceBin
+    },
+    ?assertMatch({201, _}, create_schema(Params)),
+
+    SQL1 = sql(
+        <<
+            "select"
+            "   schema_encode('${.name}', json_decode(payload)) as encoded,"
+            "   schema_decode('${.name}', encoded) as decoded"
+            " from \"t\" "
+        >>,
+        #{name => SchemaName}
+    ),
+    Data1 = #{<<"name">> => <<"john">>, <<"kind">> => <<"b">>},
+    Context1 = publish_context({json, Data1}),
+    ?assertMatch({200, #{<<"decoded">> := Data1}}, dryrun_rule(SQL1, Context1)),
+    %% wrong kind
+    Data2 = #{<<"name">> => <<"john">>, <<"kind">> => <<"c">>},
+    Context2 = publish_context({json, Data2}),
+    ?assertMatch({400, _}, dryrun_rule(SQL1, Context2)),
+    %% wrong max length
+    Data3 = #{<<"name">> => binary:copy(<<"a">>, 51), <<"kind">> => <<"a">>},
+    Context3 = publish_context({json, Data3}),
+    ?assertMatch({400, _}, dryrun_rule(SQL1, Context3)),
+    ok.
+
+t_json_schema_2020_12(_TCConfig) ->
+    Source =
+        #{
+            <<"$schema">> => <<"https://json-schema.org/draft/2020-12/schema">>,
+            <<"prefixItems">> => [
+                #{<<"type">> => <<"integer">>},
+                #{<<"$ref">> => <<"#/prefixItems/0">>}
+            ]
+        },
+    SourceBin = emqx_utils_json:encode(Source),
+    SchemaName = <<"smoke_2020">>,
+    Params = #{
+        <<"name">> => SchemaName,
+        <<"type">> => <<"json">>,
+        <<"source">> => SourceBin
+    },
+    ?assertMatch({201, _}, create_schema(Params)),
+
+    SQL1 = sql(
+        <<
+            "select"
+            "   schema_encode('${.name}', json_decode(payload)) as encoded,"
+            "   schema_decode('${.name}', encoded) as decoded"
+            " from \"t\" "
+        >>,
+        #{name => SchemaName}
+    ),
+    Data1 = [1, 2],
+    Context1 = publish_context({json, Data1}),
+    ?assertMatch({200, #{<<"decoded">> := Data1}}, dryrun_rule(SQL1, Context1)),
+    %% wrong second element
+    Data2 = [1, <<"foo">>],
+    Context2 = publish_context({json, Data2}),
+    ?assertMatch({400, _}, dryrun_rule(SQL1, Context2)),
     ok.

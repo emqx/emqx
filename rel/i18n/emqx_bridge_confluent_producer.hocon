@@ -18,6 +18,13 @@ min_metadata_refresh_interval.desc:
 min_metadata_refresh_interval.label:
 """Min Metadata Refresh Interval"""
 
+request_timeout.desc:
+"""Maximum duration to wait for a reply from Confluent for a pending request.
+When exceeded, the connection is considered stale and is re-established.
+Note: if set too small, Confluent may have ingested a produce request while the acknowledgement is delayed; EMQX then resends the already-accepted batch after reconnecting, which can result in duplicates and an overwhelming data volume for downstream consumers."""
+
+request_timeout.label: "Request Timeout"
+
 kafka_producer.desc:
 """Confluent Producer configuration."""
 
@@ -105,15 +112,40 @@ partition_count_refresh_interval.label:
 """Partition Count Refresh Interval"""
 
 max_linger_time.desc:
-"""Maximum duration for a per-partition producer to wait for messages in order to collect a batch to buffer.
-The default value `0` means no wait. For non-memory buffer mode, it's advised to configure at least `5ms` for less IOPS."""
+"""Maximum duration a per-partition producer waits to accumulate more messages into a larger batch.
+The default value `0` means no wait (messages are sent as soon as they arrive); it is optimized for messaging latency.
+If a small delay is acceptable, configuring one is encouraged to help lower the number of requests per second towards Confluent.
+The wait ends early as soon as a full batch's worth of data has accumulated, so a busy producer is never delayed.
+When buffering to disk, the wait happens before writing to the buffer; configuring at least `5ms` is advised there to reduce disk IOPS."""
 
 max_linger_time.label: "Max Linger Time"
 
 max_linger_bytes.desc:
-"""Maximum number of bytes for a per-partition producer to wait for messages in order to collect a batch to buffer."""
+"""Maximum number of bytes a per-partition producer accumulates while waiting before it stops waiting and sends the batch."""
 
 max_linger_bytes.label: "Max Linger Bytes"
+
+max_batch_age.desc:
+"""Maximum duration a message may stay in the producer buffer before it is dropped instead of being sent to Confluent.
+A message batch is dropped only when all of its messages have stayed in the buffer longer than this duration; this applies both to messages still queued (including while the connection is down) and to messages awaiting acknowledgement when the connection is lost.
+Each dropped message counts towards the <code>dropped.expired</code> metric.
+When set to <code>infinity</code>, messages never expire (they are retained until sent, or until the buffer overflows)."""
+
+max_batch_age.label: "Max Batch Age"
+
+max_retries.desc:
+"""Maximum number of times to retry sending a message batch after Confluent responds with a retryable error (for example, when the partition leader has changed).
+After the initial attempt and this many retries have all failed, the batch is dropped and each of its messages counts towards the <code>failed</code> metric.
+The retry counter is incremented only when Confluent explicitly responds with an error code; resends triggered by a connection loss do not increment it (those are bounded by <code>max_batch_age</code>).
+When set to <code>infinity</code>, retries are unlimited."""
+
+max_retries.label: "Max Retries"
+
+reconnect_delay.desc:
+"""Delay before the producer attempts to reconnect to Confluent after a connection loss.
+While disconnected, messages continue to accumulate in the buffer, subject to the buffer limits and <code>max_batch_age</code>."""
+
+reconnect_delay.label: "Reconnect Delay"
 
 max_batch_bytes.desc:
 """Maximum bytes to collect in a Confluent message batch. Most of the Kafka brokers default to a limit of 1 MB batch size. EMQX's default value is less than 1 MB in order to compensate Kafka message encoding overheads (especially when each individual message is very small). When a single message is over the limit, it is still sent (as a single element batch)."""

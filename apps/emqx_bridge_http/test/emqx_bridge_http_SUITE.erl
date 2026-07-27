@@ -1126,12 +1126,11 @@ t_managed_certs(TCConfig) when is_list(TCConfig) ->
         }
     }),
     {201, _} = create_action_api(TCConfig, #{}),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    #{topic := Topic, id := RuleId} = simple_create_rule_api(TCConfig),
     C = start_client(),
     emqtt:publish(C, Topic, <<"hey">>, [{qos, 1}]),
     ?assertReceive({http, _, _}, 2_000),
-    %% When configurations depend on the managed certs, unless we force it, we deny
-    %% deleting them.
+    %% When configurations depend on the managed certs, we deny deleting them.
     ?assertMatch(
         {400, #{
             <<"referencing_configs">> := #{<<"global">> := [[<<"connectors">>, <<"http">>, _]]}
@@ -1144,16 +1143,32 @@ t_managed_certs(TCConfig) when is_list(TCConfig) ->
         }},
         delete_global_managed_certs_file(BundleName, <<"ca">>, #{})
     ),
-    %% Override check
+    %% `force_delete' is ignored: deletion is refused while the connector still
+    %% references the bundle.
     ?assertMatch(
-        {204, _},
+        {400, #{
+            <<"referencing_configs">> := #{<<"global">> := [[<<"connectors">>, <<"http">>, _]]}
+        }},
         delete_global_managed_certs_file(
             BundleName,
             <<"ca">>,
             #{force_delete => true}
         )
     ),
-    ?assertMatch({204, _}, delete_global_managed_certs_bundle(BundleName, #{force_delete => true})),
+    ?assertMatch(
+        {400, #{
+            <<"referencing_configs">> := #{<<"global">> := [[<<"connectors">>, <<"http">>, _]]}
+        }},
+        delete_global_managed_certs_bundle(BundleName, #{force_delete => true})
+    ),
+    %% Once the referencing connector is gone, deletion succeeds.
+    #{type := ActionType, name := ActionName} = emqx_bridge_v2_testlib:get_common_values(
+        TCConfig
+    ),
+    {204, _} = emqx_bridge_v2_testlib:delete_rule_api(RuleId),
+    {204, _} = emqx_bridge_v2_testlib:delete_kind_api(action, ActionType, ActionName),
+    {204, _} = emqx_bridge_v2_testlib:delete_connector_api(TCConfig),
+    ?assertMatch({204, _}, delete_global_managed_certs_bundle(BundleName, #{})),
     ok.
 
 -doc """

@@ -82,8 +82,7 @@ CREATE PIPE IF NOT EXISTS testdatabase.public.emqxstreaming AS
 COPY INTO testdatabase.public.emqx FROM (
   SELECT $1:clientid, $1:topic, $1:payload, $1:publish_received_at
   FROM TABLE(DATA_SOURCE(TYPE => 'STREAMING')
-)
-MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;
+));
 
 
 -- Grant the USAGE privilege on the database and schema that contain the pipe object.
