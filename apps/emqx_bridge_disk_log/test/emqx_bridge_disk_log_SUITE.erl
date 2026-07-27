@@ -346,6 +346,19 @@ list_files_for_stamp(TCConfig, Stamp) ->
     Wildcard = binary_to_list(<<Base/binary, "-", Stamp/binary, ".*">>),
     lists:sort(filelib:wildcard(Wildcard)).
 
+%% All entries across all periods' file sets, in no particular order.
+read_all_period_logs(TCConfig) ->
+    Base = get_filepath_from_config(TCConfig),
+    Wildcard = binary_to_list(<<Base/binary, "-*">>),
+    Files = filter_wrap_logs(filelib:wildcard(Wildcard)),
+    lists:flatmap(
+        fun(File) ->
+            {ok, Contents} = file:read_file(File),
+            emqx_connector_aggreg_json_lines_test_utils:decode(Contents)
+        end,
+        Files
+    ).
+
 %% Since we run test suites in CI as `root', it's though to create a file/dir which cannot
 %% be read by the current user...
 if_root(YesFun, NoFun) ->
@@ -944,6 +957,75 @@ t_period_rotation_hour(Config) ->
     ),
     ?assertMatch([_ | _], list_files_for_stamp(Config, <<"2026070112">>)),
     ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(Config)),
+    ok.
+
+-doc """
+Entries written concurrently (in both `sync` and `async` write modes) while a period
+rotation happens are not lost: writes hitting the close/reopen window are retried by
+the buffer worker, and every published payload ends up in one of the period's file
+sets.
+""".
+t_period_rotation_concurrent_writes() ->
+    [{matrix, true}].
+t_period_rotation_concurrent_writes(matrix) ->
+    [[sync], [async]];
+t_period_rotation_concurrent_writes(Config) when is_list(Config) ->
+    [WriteMode] = group_path(Config, [sync]),
+    set_now_s(?JUL1_NOON_S),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(Config, #{<<"rotation">> => #{<<"period">> => <<"day">>}}),
+    {201, _} =
+        create_action_api(
+            Config,
+            #{
+                <<"parameters">> => #{
+                    <<"template">> => <<"${.payload}">>,
+                    <<"write_mode">> => atom_to_binary(WriteMode)
+                }
+            }
+        ),
+    RuleTopic = <<"period/concurrent">>,
+    {ok, _} = create_rule(Config, RuleTopic),
+    Base = get_filepath_from_config(Config),
+    ?assertEqual(<<Base/binary, "-2026070100">>, get_active_filepath(Config)),
+    %% Publish a continuous stream of messages while the day boundary is crossed.
+    NumMessages = 200,
+    TestPid = self(),
+    _Publisher = spawn_link(fun() ->
+        lists:foreach(
+            fun(N) ->
+                publish(RuleTopic, <<"m-", (integer_to_binary(N))/binary>>),
+                timer:sleep(10)
+            end,
+            lists:seq(1, NumMessages)
+        ),
+        TestPid ! publisher_done
+    end),
+    set_now_s(?JUL1_NOON_S + ?SECONDS_PER_DAY),
+    ?retry(
+        500,
+        20,
+        ?assertEqual(<<Base/binary, "-2026070200">>, get_active_filepath(Config))
+    ),
+    receive
+        publisher_done -> ok
+    after 20_000 -> ct:fail("publisher did not finish")
+    end,
+    ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(Config)),
+    %% Every single published payload is found in one of the two periods' file sets.
+    Expected = lists:sort([
+        <<"m-", (integer_to_binary(N))/binary>>
+     || N <- lists:seq(1, NumMessages)
+    ]),
+    ConnResId = connector_resource_id(Config),
+    ?retry(
+        500,
+        20,
+        begin
+            ok = emqx_bridge_disk_log_connector:flush(ConnResId),
+            ?assertEqual(Expected, lists:sort(read_all_period_logs(Config)))
+        end
+    ),
     ok.
 
 -doc """
