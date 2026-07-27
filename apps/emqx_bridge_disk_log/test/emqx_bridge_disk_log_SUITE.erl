@@ -1072,6 +1072,43 @@ t_period_size_cap(Config) ->
     ok.
 
 -doc """
+The connector notices when its log files are deleted behind its back (e.g. by an
+operator or an external logrotate), reports itself disconnected, and then auto-recovers
+by recreating the log files on the automatic restart.
+""".
+t_files_purged_externally(Config) ->
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(Config),
+    {201, _} =
+        create_action_api(
+            Config,
+            #{<<"parameters">> => #{<<"template">> => <<"${.payload}">>}}
+        ),
+    RuleTopic = <<"purged">>,
+    {ok, _} = create_rule(Config, RuleTopic),
+    publish_and_flush(Config, RuleTopic, <<"before">>),
+    ?retry(500, 10, ?assertMatch([<<"before">>], read_current_log(Config))),
+    %% Purge all log files (including `.idx' / `.siz') behind the connector's back.
+    Base = get_filepath_from_config(Config),
+    Files = filelib:wildcard(binary_to_list(<<Base/binary, ".*">>)),
+    ?assertMatch([_ | _], Files),
+    lists:foreach(fun(F) -> ok = file:delete(F) end, Files),
+    %% The health check notices the missing files...
+    ?retry(
+        700,
+        20,
+        ?assertMatch({200, #{<<"status">> := <<"disconnected">>}}, get_connector_api(Config))
+    ),
+    %% ... and the automatic restart recreates them and reconnects.
+    ?retry(
+        700,
+        20,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(Config))
+    ),
+    publish_and_flush(Config, RuleTopic, <<"after">>),
+    ?retry(500, 10, ?assertMatch([<<"after">>], read_current_log(Config))),
+    ok.
+
+-doc """
 `period = none` (the default) keeps today's behavior: the log is opened with the
 configured filepath verbatim, and no date-stamped files are created.
 """.
