@@ -20,7 +20,7 @@
     skip_failed_commit/1,
     fast_forward_to_commit/2,
     force_leave_clean/1,
-    wait_for_cluster_rpc/0,
+    wait_for_cluster_rpc_tables/0,
     maybe_init_tnx_id/2,
     update_mfa/3
 ]).
@@ -316,7 +316,7 @@ force_leave_clean(Node) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-wait_for_cluster_rpc() ->
+wait_for_cluster_rpc_tables() ->
     %% Workaround for https://github.com/emqx/mria/issues/94:
     Msg1 = #{msg => "wait_for_cluster_rpc_shard"},
     case mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1500) of
@@ -361,7 +361,7 @@ init([Node, RetryMs]) ->
 handle_continue({?CATCH_UP, init}, State) ->
     %% emqx app must be started before
     %% trying to catch up the rpc commit logs
-    case wait_for_cluster_rpc() of
+    case wait_for_cluster_rpc_tables() of
         ok ->
             {noreply, State, catch_up(State)};
         {error, stopping} ->

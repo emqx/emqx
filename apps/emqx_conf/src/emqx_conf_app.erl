@@ -129,10 +129,9 @@ init_load(TnxId) ->
     end.
 
 init_conf() ->
-    emqx_cluster_rpc:wait_for_cluster_rpc(),
+    ok = emqx_cluster_rpc:wait_for_cluster_rpc_tables(),
     {ok, TnxId} = sync_cluster_conf(),
-    ok = init_load(TnxId),
-    ok.
+    ok = init_load(TnxId).
 
 cluster_nodes() ->
     mria:cluster_nodes(cores) -- [node()].
