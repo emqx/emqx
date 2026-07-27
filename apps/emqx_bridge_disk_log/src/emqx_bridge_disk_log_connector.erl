@@ -54,6 +54,9 @@
 -define(template, template).
 -define(write_mode, write_mode).
 
+%% Byte size of `period_key/3' date stamps (`YYYYMMDDHH').
+-define(PERIOD_KEY_BYTES, 10).
+
 -type period() :: none | hour | day.
 -type rotation() :: #{
     period := period(),
@@ -414,23 +417,24 @@ is_expired_period_file(File, Root, Ext, CutoffKey) ->
     PrefixSize = byte_size(Prefix),
     ExtSize = byte_size(Ext),
     maybe
-        <<Prefix:PrefixSize/binary, Rest/binary>> ?= FileBin,
-        {Stamp, <<Ext:ExtSize/binary, $., Suffix/binary>>} ?=
-            string:take(Rest, lists:seq($0, $9)),
-        is_period_key(Stamp) andalso Stamp < CutoffKey andalso is_wrap_log_suffix(Suffix)
+        <<Prefix:PrefixSize/binary, Stamp:?PERIOD_KEY_BYTES/binary, Ext:ExtSize/binary, $.,
+            Suffix/binary>> ?= FileBin,
+        is_decimal_str(Stamp) andalso Stamp < CutoffKey andalso is_wrap_log_suffix(Suffix)
     else
         _ -> false
     end.
-
-is_period_key(Stamp) ->
-    byte_size(Stamp) =:= 10.
 
 is_wrap_log_suffix(<<"idx">>) ->
     true;
 is_wrap_log_suffix(<<"siz">>) ->
     true;
 is_wrap_log_suffix(Suffix) ->
-    Suffix =/= <<>> andalso {Suffix, <<>>} =:= string:take(Suffix, lists:seq($0, $9)).
+    is_decimal_str(Suffix).
+
+is_decimal_str(<<>>) ->
+    false;
+is_decimal_str(Str) ->
+    {Str, <<>>} =:= string:take(Str, lists:seq($0, $9)).
 
 -ifdef(TEST).
 %% Clock seam for tests: allows fixing "now" to exercise period boundaries.
