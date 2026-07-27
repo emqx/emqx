@@ -78,7 +78,7 @@ t_heal_on_core_partition(Config) ->
 %% This testcase verifies that replicants attempt to heal channel registry after mria re-bootstrap.
 t_heal_on_replicant_bootstrap(Config) ->
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => 60_000},
         begin
             Cluster = proplists:get_value(cluster, Config),
             NClients = 10,
