@@ -423,9 +423,6 @@ listeners_test() ->
         <<"wss">> := #{<<"default">> := DefaultWss, <<"new">> := NewWss},
         <<"ssl">> := #{<<"default">> := Ssl}
     } = Listeners,
-    DefaultCacertFile = <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
-    DefaultCertFile = <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
-    DefaultKeyFile = <<"${EMQX_ETC_DIR}/certs/key.pem">>,
     ?assertMatch(
         #{
             <<"bind">> := {{0, 0, 0, 0}, 1883},
@@ -441,40 +438,37 @@ listeners_test() ->
         },
         Ws
     ),
+    %% Certificate files have no schema defaults: a listener without any
+    %% certificate configuration falls back to the `localhost` bundle at
+    %% runtime (see `emqx_listeners:ensure_cert_config/1`).
     ?assertMatch(
         #{
             <<"bind">> := 9999,
-            <<"ssl_options">> := #{
-                <<"cacertfile">> := DefaultCacertFile,
-                <<"certfile">> := DefaultCertFile,
-                <<"keyfile">> := DefaultKeyFile
-            }
+            <<"ssl_options">> := #{}
         },
         Ssl
     ),
+    #{<<"ssl_options">> := SslListenerSslOpts} = Ssl,
+    ?assertNot(maps:is_key(<<"cacertfile">>, SslListenerSslOpts)),
+    ?assertNot(maps:is_key(<<"certfile">>, SslListenerSslOpts)),
+    ?assertNot(maps:is_key(<<"keyfile">>, SslListenerSslOpts)),
     ?assertMatch(
         #{
             <<"bind">> := 9998,
             <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"},
             <<"ssl_options">> :=
-                #{
-                    <<"cacertfile">> := <<"mytest/certs/cacert.pem">>,
-                    <<"certfile">> := DefaultCertFile,
-                    <<"keyfile">> := DefaultKeyFile
-                }
+                #{<<"cacertfile">> := <<"mytest/certs/cacert.pem">>}
         },
         DefaultWss
     ),
+    #{<<"ssl_options">> := WssListenerSslOpts} = DefaultWss,
+    ?assertNot(maps:is_key(<<"certfile">>, WssListenerSslOpts)),
+    ?assertNot(maps:is_key(<<"keyfile">>, WssListenerSslOpts)),
     ?assertMatch(
         #{
             <<"bind">> := 9997,
             <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"},
-            <<"ssl_options">> :=
-                #{
-                    <<"cacertfile">> := DefaultCacertFile,
-                    <<"certfile">> := DefaultCertFile,
-                    <<"keyfile">> := DefaultKeyFile
-                }
+            <<"ssl_options">> := #{}
         },
         NewWss
     ),

@@ -103,16 +103,7 @@ start_server(Scheme) when Scheme == http; Scheme == https ->
             'emqx.exproto.v1.ConnectionUnaryHandler' => emqx_exproto_unary_echo_svr
         }
     },
-    CertsDir = filename:join(
-        [
-            emqx_common_test_helpers:proj_root(),
-            "apps",
-            "emqx",
-            "etc",
-            "certs"
-        ]
-    ),
-
+    CertsDir = emqx_common_test_helpers:ensure_test_certs(),
     Options =
         case Scheme of
             https ->

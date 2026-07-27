@@ -772,7 +772,7 @@ update_config(Path, ConfigRequest) ->
     emqx:update_config(Path, ConfigRequest, #{rawconf_with_defaults => true}).
 
 certs(Certs) ->
-    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+    CertsPath = emqx_common_test_helpers:ensure_test_certs(),
     lists:foldl(
         fun({Key, Filename}, Acc) ->
             {ok, Bin} = file:read_file(filename:join([CertsPath, Filename])),

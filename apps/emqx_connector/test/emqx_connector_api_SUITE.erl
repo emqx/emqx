@@ -1059,10 +1059,7 @@ t_create_with_bad_name(Config) ->
     ConnectorName = <<"test_哈哈"/utf8>>,
     Conf0 = ?KAFKA_CONNECTOR(ConnectorName),
     %% Note: must contain SSL options to trigger original bug.
-    Cacertfile = emqx_common_test_helpers:app_path(
-        emqx,
-        filename:join(["etc", "certs", "cacert.pem"])
-    ),
+    Cacertfile = filename:join(emqx_common_test_helpers:ensure_test_certs(), "cacert.pem"),
     Conf = Conf0#{<<"ssl">> => #{<<"cacertfile">> => Cacertfile}},
     {ok, 400, #{
         <<"code">> := <<"BAD_REQUEST">>,

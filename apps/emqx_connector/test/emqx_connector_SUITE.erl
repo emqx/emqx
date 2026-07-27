@@ -237,10 +237,7 @@ t_create_with_bad_name_direct_path(_Config) ->
     Path = [connectors, kafka_producer, 'test_哈哈'],
     ConnConfig0 = connector_config(),
     %% Note: must contain SSL options to trigger original bug.
-    Cacertfile = emqx_common_test_helpers:app_path(
-        emqx,
-        filename:join(["etc", "certs", "cacert.pem"])
-    ),
+    Cacertfile = filename:join(emqx_common_test_helpers:ensure_test_certs(), "cacert.pem"),
     ConnConfig = ConnConfig0#{<<"ssl">> => #{<<"cacertfile">> => Cacertfile}},
     ?assertMatch(
         {error,
@@ -263,10 +260,7 @@ t_create_with_bad_name_root_path(_Config) ->
     BadConnectorName = <<"test_哈哈"/utf8>>,
     ConnConfig0 = connector_config(),
     %% Note: must contain SSL options to trigger original bug.
-    Cacertfile = emqx_common_test_helpers:app_path(
-        emqx,
-        filename:join(["etc", "certs", "cacert.pem"])
-    ),
+    Cacertfile = filename:join(emqx_common_test_helpers:ensure_test_certs(), "cacert.pem"),
     ConnConfig = ConnConfig0#{<<"ssl">> => #{<<"cacertfile">> => Cacertfile}},
     Conf = #{<<"kafka_producer">> => #{BadConnectorName => ConnConfig}},
     ?assertMatch(
