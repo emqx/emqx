@@ -272,7 +272,7 @@ fields(auth_oauth_client_credentials) ->
         {grant_type,
             mk(client_credentials, #{
                 default => client_credentials,
-                required => false,
+                required => true,
                 desc => ?DESC("oauth_client_credentials_grant_type")
             })},
         {endpoint_uri,
