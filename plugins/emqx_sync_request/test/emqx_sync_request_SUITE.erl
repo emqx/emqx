@@ -130,15 +130,15 @@ t_cli_status_reports_node_local_status(_Config) ->
 
 t_api_spec_lists_conflict_and_unavailable_responses(_Config) ->
     #{
-        post := Post = #{
+        post := #{
+            summary := <<"Send a synchronous MQTT request">>,
             description :=
                 <<"Publish one MQTT request and wait for the first matching response.">>,
+            tags := [<<"Plugin">>],
             responses := Responses
         }
     } =
         emqx_sync_request_api:schema("/plugin_api/emqx_sync_request/request"),
-    ?assertNot(maps:is_key(summary, Post)),
-    ?assertNot(maps:is_key(tags, Post)),
     ?assert(maps:is_key(409, Responses)),
     ?assert(maps:is_key(503, Responses)).
 
@@ -148,6 +148,11 @@ t_plugin_config_rejects_invalid_values(Config) ->
     InvalidValues = [
         {<<"default_timeout">>, <<"not-a-duration">>, <<"invalid_duration">>},
         {<<"default_timeout">>, <<"0ms">>, <<"invalid_duration">>},
+        {
+            <<"default_timeout">>,
+            <<"61s">>,
+            <<"default_timeout_exceeds_max_timeout">>
+        },
         {<<"max_timeout">>, <<"not-a-duration">>, <<"invalid_duration">>},
         {<<"max_timeout">>, <<"0ms">>, <<"invalid_duration">>},
         {<<"max_payload_size">>, <<"not-a-size">>, <<"invalid_bytesize">>},
@@ -167,6 +172,22 @@ t_plugin_config_rejects_invalid_values(Config) ->
         end,
         InvalidValues
     ).
+
+t_plugin_config_rejects_invalid_values_while_stopped(Config) ->
+    NameVsn = ?config(plugin_name_vsn, Config),
+    {200, OriginalConfig} = plugin_config_request(get, NameVsn, #{}),
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    try
+        InvalidConfig = OriginalConfig#{<<"max_timeout">> => <<"not-a-duration">>},
+        {400, #{
+            <<"code">> := <<"BAD_CONFIG">>,
+            <<"message">> := Message
+        }} = plugin_config_request(put, NameVsn, InvalidConfig),
+        ?assertNotEqual(nomatch, binary:match(Message, <<"invalid_duration">>)),
+        ?assertEqual({200, OriginalConfig}, plugin_config_request(get, NameVsn, #{}))
+    after
+        ok = emqx_plugins:ensure_started(NameVsn)
+    end.
 
 t_plugin_config_accepts_positive_boundaries(Config) ->
     NameVsn = ?config(plugin_name_vsn, Config),
@@ -602,7 +623,10 @@ t_http_request_rejects_request_payload_too_large(Config) ->
 t_http_request_rejects_invalid_timeout_above_max(Config) ->
     with_config(
         Config,
-        #{<<"max_timeout">> => <<"100ms">>},
+        #{
+            <<"default_timeout">> => <<"100ms">>,
+            <<"max_timeout">> => <<"100ms">>
+        },
         fun() ->
             Body = request_body(
                 <<"sync_request/invalid-timeout/request">>,

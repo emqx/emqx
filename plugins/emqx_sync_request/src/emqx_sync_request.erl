@@ -136,7 +136,12 @@ current_config() ->
 
 -spec on_config_changed(map()) -> ok | {error, term()}.
 on_config_changed(NewConf) ->
-    call({on_config_changed, NewConf}, ok).
+    case normalize_config(maps:merge(default_config(), NewConf)) of
+        {ok, Config} ->
+            maybe_apply_config(Config);
+        {error, _} = Error ->
+            Error
+    end.
 
 -spec on_health_check() -> ok | {error, binary()}.
 on_health_check() ->
@@ -183,14 +188,9 @@ init([]) ->
             {stop, Reason}
     end.
 
-handle_call({on_config_changed, NewConf}, _From, State) ->
-    case normalize_config(maps:merge(default_config(), NewConf)) of
-        {ok, Config} ->
-            persistent_term:put(?CONFIG_PT, Config),
-            {reply, ok, State};
-        {error, Reason} ->
-            {reply, {error, Reason}, State}
-    end;
+handle_call({apply_config, Config}, _From, State) ->
+    persistent_term:put(?CONFIG_PT, Config),
+    {reply, ok, State};
 handle_call(on_health_check, _From, State) ->
     {reply, ok, State};
 handle_call(
@@ -733,7 +733,7 @@ default_config() ->
 
 normalize_config(Config) ->
     try
-        {ok, #{
+        Normalized = #{
             <<"default_timeout">> => parse_config_duration(
                 get(Config, <<"default_timeout">>, ?DEFAULT_TIMEOUT)
             ),
@@ -748,10 +748,20 @@ normalize_config(Config) ->
                 parse_config_bytesize(
                     get(Config, <<"max_payload_size">>, ?DEFAULT_MAX_PAYLOAD_SIZE)
                 )
-        }}
+        },
+        ok = validate_config(Normalized),
+        {ok, Normalized}
     catch
         throw:{bad_request, _} = Reason -> {error, Reason}
     end.
+
+validate_config(#{
+    <<"default_timeout">> := DefaultTimeout,
+    <<"max_timeout">> := MaxTimeout
+}) when DefaultTimeout =< MaxTimeout ->
+    ok;
+validate_config(_Config) ->
+    throw({bad_request, <<"default_timeout_exceeds_max_timeout">>}).
 
 parse_config_duration(Value) ->
     case parse_duration_ms(Value) of
@@ -789,6 +799,14 @@ parse_bytesize(Value) ->
 config() ->
     {ok, Default} = normalize_config(default_config()),
     persistent_term:get(?CONFIG_PT, Default).
+
+maybe_apply_config(Config) ->
+    case whereis(?SERVICE) of
+        undefined ->
+            ok;
+        _Pid ->
+            call({apply_config, Config}, {error, <<"failed_to_apply_config">>})
+    end.
 
 init_metrics() ->
     lists:foreach(

@@ -123,27 +123,34 @@ t_request_conflicts_when_exact_subscribers_exist_on_multiple_nodes(Config) ->
     end.
 
 t_invalid_config_update_is_rejected_on_all_nodes(Config) ->
-    Nodes = [HttpNode, _OtherNode] = ?config(nodes, Config),
+    Nodes = [HttpNode, OtherNode] = ?config(nodes, Config),
     NameVsn = ?config(plugin_name_vsn, Config),
     Host = dashboard_host(HttpNode),
     Auth = erpc:call(HttpNode, emqx_mgmt_api_test_util, auth_header_, []),
     {200, OriginalConfig} = emqx_sync_request_SUITE:plugin_config_request(
         Host, Auth, get, NameVsn, #{}
     ),
-    InvalidConfig = OriginalConfig#{<<"max_timeout">> => <<"not-a-duration">>},
-    {400, #{
-        <<"code">> := <<"BAD_CONFIG">>,
-        <<"message">> := Message
-    }} = emqx_sync_request_SUITE:plugin_config_request(
-        Host, Auth, put, NameVsn, InvalidConfig
-    ),
-    ?assertNotEqual(nomatch, binary:match(Message, <<"invalid_duration">>)),
-    lists:foreach(
-        fun(Node) ->
-            ?assertEqual(OriginalConfig, erpc:call(Node, emqx_plugins, get_config, [NameVsn]))
-        end,
-        Nodes
-    ).
+    ok = erpc:call(OtherNode, emqx_plugins, ensure_stopped, [NameVsn]),
+    try
+        InvalidConfig = OriginalConfig#{<<"max_timeout">> => <<"not-a-duration">>},
+        {400, #{
+            <<"code">> := <<"BAD_CONFIG">>,
+            <<"message">> := Message
+        }} = emqx_sync_request_SUITE:plugin_config_request(
+            Host, Auth, put, NameVsn, InvalidConfig
+        ),
+        ?assertNotEqual(nomatch, binary:match(Message, <<"invalid_duration">>)),
+        lists:foreach(
+            fun(Node) ->
+                ?assertEqual(
+                    OriginalConfig, erpc:call(Node, emqx_plugins, get_config, [NameVsn])
+                )
+            end,
+            Nodes
+        )
+    after
+        ok = erpc:call(OtherNode, emqx_plugins, ensure_started, [NameVsn])
+    end.
 
 cluster_specs() ->
     Apps = [
