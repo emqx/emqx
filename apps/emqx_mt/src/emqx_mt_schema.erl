@@ -7,6 +7,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include("emqx_mt.hrl").
 
 %% `hocon_schema' API
@@ -61,6 +62,15 @@ fields("config") ->
                     importance => ?IMPORTANCE_MEDIUM,
                     default => <<>>,
                     converter => fun compile_post_auth_tns_expression/2
+                }
+            )},
+        {deny_namespaces,
+            mk(
+                hoconsc:array(binary()),
+                #{
+                    desc => ?DESC("deny_namespaces"),
+                    importance => ?IMPORTANCE_MEDIUM,
+                    default => ?DEFAULT_DENY_NAMESPACES
                 }
             )}
     ].
