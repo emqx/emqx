@@ -44,6 +44,7 @@
 
 -export([
     ensure_test_certs/0,
+    listener_ssl_certs_conf/1,
     client_ssl/0,
     client_ssl/1,
     client_mtls/0,
@@ -593,6 +594,33 @@ client_mtls(TLSVsn) ->
 client_certs() ->
     _ = ensure_test_certs(),
     [{Key, app_path(emqx, FilePath)} || {Key, FilePath} <- ?MQTT_SSL_CLIENT_CERTS].
+
+-doc """
+Renders hocon config lines pointing the given `ssl_options` config path
+at the generated test certificates, e.g. for suites that define a TLS
+listener inline and whose clients verify the server against the test
+CA (there are no default certificate paths in the schema; without
+this, such a listener would serve the node-generated `localhost`
+bundle instead).
+""".
+-spec listener_ssl_certs_conf(string()) -> string().
+listener_ssl_certs_conf(SslOptionsPath) ->
+    Dir = ensure_test_certs(),
+    lists:flatten(
+        io_lib:format(
+            "\n~s.certfile = \"~s\""
+            "\n~s.keyfile = \"~s\""
+            "\n~s.cacertfile = \"~s\"\n",
+            [
+                SslOptionsPath,
+                filename:join(Dir, "cert.pem"),
+                SslOptionsPath,
+                filename:join(Dir, "key.pem"),
+                SslOptionsPath,
+                filename:join(Dir, "cacert.pem")
+            ]
+        )
+    ).
 
 -doc """
 Generates the throwaway test certificate set (CA + server + client)
