@@ -109,7 +109,6 @@
     translate_body => boolean() | {true, atom_keys},
     schema_converter => fun((hocon_schema:schema(), Module :: atom()) -> map()),
     i18n_lang => atom() | string() | binary(),
-    allow_literal_method_docs => boolean(),
     filter => filter()
 }.
 
@@ -614,23 +613,17 @@ to_spec(Meta, Params, RequestBody, Responses) ->
     maps:put('requestBody', RequestBody, Spec).
 
 generate_method_desc(Spec = #{desc := _Desc}, Options) ->
-    enforce_method_desc_policy(Spec, Options),
+    enforce_method_desc_policy(Spec),
     Spec1 = trans_description(maps:remove(desc, Spec), Spec, Options),
     trans_tags(trans_summary(Spec1, Spec, Options));
 generate_method_desc(Spec = #{description := _Desc}, Options) ->
-    enforce_method_desc_policy(Spec, Options),
+    enforce_method_desc_policy(Spec),
     Spec1 = trans_description(Spec, Spec, Options),
     trans_tags(trans_summary(Spec1, Spec, Options));
 generate_method_desc(Spec, Options) ->
-    enforce_method_desc_policy(Spec, Options),
+    enforce_method_desc_policy(Spec),
     trans_tags(trans_summary(Spec, Spec, Options)).
 
-trans_summary(
-    Spec = #{summary := Summary},
-    _Hocon,
-    #{allow_literal_method_docs := true}
-) when is_binary(Summary) ->
-    Spec;
 trans_summary(Spec = #{summary := ?DESC(_, _) = Struct}, _Hocon, Options) ->
     %% Explicit i18n summary ref wins over auto-derivation from the
     %% desc/description ref.  This is the escape hatch for operations
@@ -732,16 +725,13 @@ trans_required(Spec, _, path) -> Spec#{required => true};
 trans_required(Spec, _, _) -> Spec.
 
 trans_description(Spec, Hocon, Options) ->
-    AllowLiteral = maps:get(allow_literal_method_docs, Options, false),
     Desc =
-        case {desc_struct(Hocon), AllowLiteral} of
-            {undefined, _} ->
+        case desc_struct(Hocon) of
+            undefined ->
                 undefined;
-            {?DESC(_, _) = Struct, _} ->
+            ?DESC(_, _) = Struct ->
                 resolve_i18n(<<"desc">>, Struct, Options);
-            {Text, true} ->
-                Text;
-            {Text, false} ->
+            Text ->
                 missing_i18n_ref(Text)
         end,
     case Desc =:= undefined of
@@ -751,22 +741,6 @@ trans_description(Spec, Hocon, Options) ->
             Desc1 = binary:replace(to_bin(Desc), [<<"\n">>], <<"<br/>">>, [global]),
             Spec#{description => Desc1}
     end.
-
-literal_method_docs(#{summary := Summary} = Spec) when
-    is_binary(Summary), byte_size(Summary) > 0
-->
-    case desc_struct(Spec) of
-        ?DESC(_, _) ->
-            ok;
-        Description when is_binary(Description), byte_size(Description) > 0 ->
-            ok;
-        undefined ->
-            missing_i18n_ref(missing_operation_description);
-        _ ->
-            missing_i18n_ref(missing_literal_operation_description)
-    end;
-literal_method_docs(Spec) ->
-    forbidden_summary_ref(Spec).
 
 -ifdef(TEST).
 %% Do not raise error in tests because there are schema defined in tests.
@@ -801,21 +775,17 @@ forbidden_summary_ref(Spec) ->
 %%    A raw binary description is forbidden because it leaves the operation
 %%    without a summary, and Redoc would fall back to truncating the
 %%    description as the title.
-%% 3) External modules may opt in to complete literal method docs. Both summary
-%%    and description remain mandatory for tagged endpoints.
-enforce_method_desc_policy(Spec, #{allow_literal_method_docs := true}) ->
-    literal_method_docs(Spec);
-enforce_method_desc_policy(#{tags := _, summary := ?DESC(_, _)}, _Options) ->
+enforce_method_desc_policy(#{tags := _, summary := ?DESC(_, _)}) ->
     ok;
-enforce_method_desc_policy(#{tags := _, summary := _} = Spec, _Options) ->
+enforce_method_desc_policy(#{tags := _, summary := _} = Spec) ->
     forbidden_summary_ref(Spec);
-enforce_method_desc_policy(#{tags := _} = Spec, _Options) ->
+enforce_method_desc_policy(#{tags := _} = Spec) ->
     case desc_struct(Spec) of
         ?DESC(_, _) -> ok;
         undefined -> missing_i18n_ref(missing_operation_description);
         _ -> missing_i18n_ref(missing_desc_ref_for_summary)
     end;
-enforce_method_desc_policy(_Spec, _Options) ->
+enforce_method_desc_policy(_Spec) ->
     ok.
 
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->

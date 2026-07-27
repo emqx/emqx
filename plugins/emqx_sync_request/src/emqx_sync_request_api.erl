@@ -25,11 +25,7 @@
 namespace() -> undefined.
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{
-        check_schema => true,
-        translate_body => true,
-        allow_literal_method_docs => true
-    }).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 scopes() -> ?SCOPE_PUBLISH.
 
@@ -43,10 +39,8 @@ schema("/plugin_api/emqx_sync_request/request") ->
     #{
         'operationId' => request,
         post => #{
-            summary => <<"Send a synchronous MQTT request">>,
             description =>
                 <<"Publish one MQTT request and wait for the first matching response.">>,
-            tags => [<<"Plugin">>],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, sync_request), #{}),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, ok_response), #{}),
