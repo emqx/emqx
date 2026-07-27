@@ -136,7 +136,7 @@ enrich_report(ReportRaw0, Meta, Config) ->
             {pid, Pid},
             {topic, try_format_unicode(Topic)},
             {username, try_format_unicode(Username)},
-            {peername, Peer},
+            {peername, try_format_unicode(Peer)},
             {mfa, try_format_unicode(MFA)},
             {msg, Msg},
             {clientid, try_format_unicode(ClientId)},

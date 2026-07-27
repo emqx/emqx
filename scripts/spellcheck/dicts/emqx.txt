@@ -260,6 +260,7 @@ replicant
 repo
 Req
 RESTful
+retryable
 reuseaddr
 RFC1918
 rh
