@@ -555,10 +555,13 @@ do_deliver(_ClientInfo, [], Publishes, _CheckLimiter, Session) ->
     {ok, lists:reverse(Publishes), Session};
 do_deliver(ClientInfo, [Msg | More], Acc, CheckLimiter, Session) ->
     case deliver_msg(ClientInfo, Msg, CheckLimiter, Session) of
-        {ok, [], Session1} ->
+        {ok, Session1} ->
             do_deliver(ClientInfo, More, Acc, CheckLimiter, Session1);
         {ok, [Publish], Session1} ->
-            do_deliver(ClientInfo, More, [Publish | Acc], CheckLimiter, Session1)
+            do_deliver(ClientInfo, More, [Publish | Acc], CheckLimiter, Session1);
+        {blocked, Session1} ->
+            Session2 = enqueue(ClientInfo, More, Session1),
+            {ok, lists:reverse(Acc), Session2}
     end.
 
 deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, CheckLimiter, Session) ->
@@ -571,7 +574,7 @@ deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, CheckLimiter, Session) ->
             {ok, Publishes, Session};
         {error, Reason} ->
             log_rate_limit_reason(Reason, Msg),
-            {ok, [], Session}
+            {ok, Session}
     end;
 deliver_msg(
     ClientInfo,
@@ -589,11 +592,11 @@ deliver_msg(
                     true -> Session;
                     false -> enqueue_msg(ClientInfo, Msg, Session)
                 end,
-            {ok, [], Session1};
+            {ok, Session1};
         {false, {error, Reason}} ->
             log_rate_limit_reason(Reason, Msg),
             Session1 = enqueue_msg(ClientInfo, Msg, Session),
-            {ok, [], Session1};
+            {blocked, Session1};
         {false, _} ->
             %% `RateLimiterRes :: false | ok` here.
             %%

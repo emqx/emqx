@@ -60,30 +60,41 @@ services:
     <<: *redis-node
     container_name: redis-cluster-tls-create
     hostname: redis-cluster-tls-create
-    command: >
-      sh -c 'redis-cli
-      --cluster create
-      redis-cluster-tls-1:6389
-      redis-cluster-tls-2:6389
-      redis-cluster-tls-3:6389
-      redis-cluster-tls-4:6389
-      redis-cluster-tls-5:6389
-      redis-cluster-tls-6:6389
-      --cluster-replicas 1
-      --cluster-yes
-      --pass "public"
-      --no-auth-warning
-      --tls
-      --insecure &&
-      touch /tmp/cluster-ready &&
-      tail -f /dev/null'
+    # NOTE: keep this service alive after the one-shot cluster-create succeeds:
+    # `docker compose up --wait` fails when a waited container has exited, even
+    # with exit code 0, so exiting here is a startup race (whether the create
+    # finishes before or after the wait resolves decides pass/fail).
+    # The healthcheck also makes the wait assert the cluster actually formed,
+    # instead of merely that the create command was started.
+    command:
+      - sh
+      - -c
+      - >-
+        redis-cli
+        --cluster create
+        redis-cluster-tls-1:6389
+        redis-cluster-tls-2:6389
+        redis-cluster-tls-3:6389
+        redis-cluster-tls-4:6389
+        redis-cluster-tls-5:6389
+        redis-cluster-tls-6:6389
+        --cluster-replicas 1
+        --cluster-yes
+        --pass public
+        --no-auth-warning
+        --tls
+        --insecure
+        && exec tail -f /dev/null
     healthcheck:
       test:
         - CMD-SHELL
-        - test -f /tmp/cluster-ready
+        - >-
+          redis-cli -h redis-cluster-tls-1 -p 6389 -a public --no-auth-warning
+          --tls --insecure cluster info | grep -q cluster_state:ok
       interval: 2s
       timeout: 5s
-      retries: 10
+      retries: 30
+      start_period: 5s
     depends_on:
       redis-cluster-tls-1:
         condition: service_healthy

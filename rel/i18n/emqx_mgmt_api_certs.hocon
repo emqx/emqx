@@ -37,13 +37,15 @@ emqx_mgmt_api_certs {
 
     global_bundle_delete {
         desc: """~
-            Delete a global namespace bundle.~"""
+            Delete a global namespace bundle, or a single file in it when the `kind` query parameter is set.
+            Deletion is refused while any configuration still references the bundle.~"""
         label: "Delete Bundle"
     }
 
     ns_bundle_delete {
         desc: """~
-            Delete a managed namespace bundle.~"""
+            Delete a managed namespace bundle, or a single file in it when the `kind` query parameter is set.
+            Deletion is refused while any configuration still references the bundle.~"""
         label: "Delete Bundle"
     }
 

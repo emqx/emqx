@@ -1272,7 +1272,7 @@ do_points_of_listeners(Type, Listeners) ->
     lists:foldl(
         fun(Name, PointsAcc) ->
             #{Name := Listener} = Listeners,
-            case resolve_listener_certfile(Listener) of
+            case resolve_listener_certfile(Type, Name, Listener) of
                 error ->
                     PointsAcc;
                 {ok, Certfile} ->
@@ -1287,15 +1287,29 @@ do_points_of_listeners(Type, Listeners) ->
 gen_point_cert_expiry_at(Type, Name, Path) ->
     {[{listener_type, Type}, {listener_name, Name}], cert_expiry_at_from_path(Path)}.
 
-resolve_listener_certfile(#{enable := true, ssl_options := #{} = SSLOpts0}) ->
-    SSLOpts = emqx_tls_lib:to_server_opts(tls, SSLOpts0),
-    case lists:keyfind(certfile, 1, SSLOpts) of
-        {certfile, Certfile} ->
-            {ok, Certfile};
-        _ ->
+resolve_listener_certfile(Type, Name, #{enable := true, ssl_options := #{} = SSLOpts0}) ->
+    %% `to_server_opts' throws when a `managed_certs' reference cannot be resolved
+    %% (e.g. the bundle was deleted out-of-band); one bad listener must not fail the
+    %% whole scrape.
+    try emqx_tls_lib:to_server_opts(tls, SSLOpts0) of
+        SSLOpts ->
+            case lists:keyfind(certfile, 1, SSLOpts) of
+                {certfile, Certfile} ->
+                    {ok, Certfile};
+                _ ->
+                    error
+            end
+    catch
+        throw:Reason ->
+            ?SLOG(warning, #{
+                msg => "failed_to_resolve_listener_certfile",
+                listener_type => Type,
+                listener_name => Name,
+                reason => Reason
+            }),
             error
     end;
-resolve_listener_certfile(#{}) ->
+resolve_listener_certfile(_Type, _Name, #{}) ->
     error.
 
 %% TODO: cert manager for more generic utils functions
