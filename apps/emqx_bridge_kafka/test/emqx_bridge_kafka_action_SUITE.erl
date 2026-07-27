@@ -560,7 +560,6 @@ setup_oauth_scenario(TCConfig0) ->
             <<"bootstrap_hosts">> => <<"kafka-3.emqx.net:9092">>,
             <<"authentication">> => #{
                 <<"mechanism">> => <<"oauth">>,
-                <<"grant_type">> => <<"client_credentials">>,
                 <<"client_id">> => <<"oauth_client_id">>,
                 <<"client_secret">> => <<"oauth_client_secret">>,
                 <<"endpoint_uri">> => URI,
@@ -2184,6 +2183,16 @@ t_oauth_client_credentials_authn(TCConfig0) ->
         create_connector_fn := CreateConnectorFn
     } = setup_oauth_scenario(TCConfig0),
     ?assertMatch({201, #{<<"status">> := <<"connected">>}}, CreateConnectorFn()),
+    #{connector_type := ConnectorType, connector_name := ConnectorName} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    ?assertMatch(
+        {200, #{
+            <<"authentication">> := #{<<"grant_type">> := <<"client_credentials">>}
+        }},
+        emqx_bridge_v2_testlib:simplify_result(
+            emqx_bridge_v2_testlib:get_connector_api(ConnectorType, ConnectorName)
+        )
+    ),
     {oauth2_token_request, Params} = ?assertReceive({oauth2_token_request, _}, 5_000),
     ?assertEqual(<<"client_credentials">>, proplists:get_value(<<"grant_type">>, Params)),
     ?assertEqual(<<"oauth_client_id">>, proplists:get_value(<<"client_id">>, Params)),

@@ -272,7 +272,7 @@ fields(auth_oauth_client_credentials) ->
         {grant_type,
             mk(client_credentials, #{
                 default => client_credentials,
-                required => true,
+                required => false,
                 desc => ?DESC("oauth_client_credentials_grant_type")
             })},
         {endpoint_uri,
@@ -637,13 +637,7 @@ kafka_connector_config_fields() ->
             })},
         {authentication,
             mk(
-                hoconsc:union([
-                    none,
-                    msk_iam,
-                    ref(auth_oauth_client_credentials),
-                    ref(auth_username_password),
-                    ref(auth_gssapi_kerberos)
-                ]),
+                hoconsc:union(fun auth_union_member_selector/1),
                 #{
                     default => none, desc => ?DESC("authentication")
                 }
@@ -661,6 +655,27 @@ kafka_connector_config_fields() ->
                 desc => ?DESC(allow_auto_topic_creation)
             })}
     ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts).
+
+auth_union_member_selector(all_union_members) ->
+    auth_union_members();
+auth_union_member_selector({value, Value}) when is_map(Value) ->
+    case emqx_utils_maps:binary_key_map(Value) of
+        #{<<"mechanism">> := Mechanism} when Mechanism =:= oauth; Mechanism =:= <<"oauth">> ->
+            [ref(auth_oauth_client_credentials)];
+        _ ->
+            auth_union_members()
+    end;
+auth_union_member_selector({value, _Value}) ->
+    auth_union_members().
+
+auth_union_members() ->
+    [
+        none,
+        msk_iam,
+        ref(auth_oauth_client_credentials),
+        ref(auth_username_password),
+        ref(auth_gssapi_kerberos)
+    ].
 
 producer_opts(ActionOrBridgeV1) ->
     [

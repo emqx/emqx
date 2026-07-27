@@ -1994,7 +1994,6 @@ t_oauth_client_credentials_authn(TCConfig) ->
     ),
     Authentication = #{
         <<"mechanism">> => <<"oauth">>,
-        <<"grant_type">> => <<"client_credentials">>,
         <<"client_id">> => <<"oauth_client_id">>,
         <<"client_secret">> => <<"oauth_client_secret">>,
         <<"endpoint_uri">> => Endpoint,
@@ -2011,7 +2010,12 @@ t_oauth_client_credentials_authn(TCConfig) ->
         500,
         10,
         ?assertMatch(
-            {200, #{<<"status">> := <<"connected">>}},
+            {200, #{
+                <<"status">> := <<"connected">>,
+                <<"authentication">> := #{
+                    <<"grant_type">> := <<"client_credentials">>
+                }
+            }},
             emqx_bridge_v2_testlib:simplify_result(
                 emqx_bridge_v2_testlib:get_connector_api(ConnectorType, ConnectorName)
             )
