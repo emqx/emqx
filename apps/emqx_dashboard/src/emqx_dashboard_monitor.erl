@@ -133,7 +133,7 @@ current_rate(Node) when Node == node() ->
                 {Key, 0}
              || Key <- ?GAUGE_SAMPLER_LIST ++ maps:values(?DELTA_SAMPLER_RATE_MAP)
             ],
-            {ok, maps:merge(maps:from_list(Rate0), non_rate_value())}
+            {ok, maps:merge(maps:from_list(Rate0), safe_non_rate_value())}
     end;
 current_rate(Node) ->
     case emqx_dashboard_proto_v2:current_rate(Node) of
@@ -729,6 +729,17 @@ stats(persisted) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Retained && License Quota
+
+%% The stats tables backing these values are absent while the node is restarting
+%% applications (e.g. when joining a cluster); return an empty map then, rather than
+%% zeros which would overwrite real values in the cluster-wide aggregate.
+safe_non_rate_value() ->
+    try
+        non_rate_value()
+    catch
+        _:_ ->
+            #{}
+    end.
 
 %% the non rate values should be same on all nodes
 non_rate_value() ->

@@ -141,8 +141,11 @@ jobs:
         nohup bash -c "while true; do kubectl port-forward service/${EMQX_NAME} 18083:18083 ; sleep 1 ; done" &
     - name: Get auth token
       run: |
-        curl --head -X GET --retry 10 --retry-connrefused --retry-delay 6 http://localhost:18083/status
-        echo "TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")" >> $GITHUB_ENV
+        # kubectl port-forward accepts the local TCP connection even when the pod is
+        # not serving yet, so a not-ready dashboard yields "empty reply" (curl error
+        # 52) rather than "connection refused"; --retry-all-errors covers both.
+        curl --head -X GET --retry 10 --retry-all-errors --retry-delay 6 http://localhost:18083/status
+        echo "TOKEN=$(curl --silent --retry 10 --retry-all-errors --retry-delay 6 -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")" >> $GITHUB_ENV
     - name: Check cluster
       timeout-minutes: 1
       run: |
