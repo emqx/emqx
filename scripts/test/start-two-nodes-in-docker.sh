@@ -327,6 +327,26 @@ wait_for_haproxy 30
 
 echo
 
-docker exec "${NODE2}" emqx ctl cluster join "emqx@$NODE1"
+## `emqx ctl` answers before the node has fully booted, and a join issued at
+## that point is refused with a non-zero exit and a readable error (joining
+## restarts mria, which is fatal to applications that are still starting).
+## Retry until the join is accepted.
+join_cluster() {
+    local joiner="$1"
+    local seed="$2"
+    local wait_limit="$3"
+    local wait_sec=0
+    until docker exec "$joiner" emqx ctl cluster join "$seed"; do
+        wait_sec=$(( wait_sec + 1 ))
+        if [ $wait_sec -gt "$wait_limit" ]; then
+            echo "timeout waiting for cluster join to be accepted"
+            docker logs "$joiner"
+            exit 1
+        fi
+        sleep 1
+    done
+}
+
+join_cluster "$NODE2" "emqx@$NODE1" 60
 
 wait_for_running_nodes "$NODE1" "${EXPECTED_RUNNING_NODES:-2}" 60

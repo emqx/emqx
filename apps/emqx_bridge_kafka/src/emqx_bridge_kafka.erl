@@ -458,6 +458,30 @@ fields(producer_kafka_opts) ->
                     desc => ?DESC(max_inflight)
                 }
             )},
+        {max_batch_age,
+            mk(
+                hoconsc:union([infinity, emqx_schema:duration_ms()]),
+                #{
+                    default => infinity,
+                    desc => ?DESC(max_batch_age)
+                }
+            )},
+        {max_retries,
+            mk(
+                hoconsc:union([infinity, non_neg_integer()]),
+                #{
+                    default => infinity,
+                    desc => ?DESC(max_retries)
+                }
+            )},
+        {reconnect_delay,
+            mk(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"2s">>,
+                    desc => ?DESC(reconnect_delay)
+                }
+            )},
         {buffer,
             mk(ref(producer_buffer), #{
                 required => false,
@@ -651,6 +675,11 @@ kafka_connector_config_fields() ->
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"5s">>,
                 desc => ?DESC(metadata_request_timeout)
+            })},
+        {request_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"30s">>,
+                desc => ?DESC(request_timeout)
             })},
         {authentication,
             mk(

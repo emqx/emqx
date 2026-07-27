@@ -62,6 +62,7 @@ groups() ->
             t_reserved_connect_flag,
             t_invalid_clientid,
             t_undefined_password,
+            t_invalid_password_flag,
             t_invalid_will_retain,
             t_invalid_will_qos
         ]},
@@ -1076,24 +1077,55 @@ t_undefined_password(_) ->
     ),
     ok.
 
+-doc """
+Password flag without username flag is rejected in strict mode for MQTT v3.1
+and v3.1.1, and stays accepted in lenient mode (bug-for-bug compatibility).
+MQTT v5 allows a password without a username in either mode.
+""".
 t_invalid_password_flag(_) ->
     %% Username Flag = false
     %% Password Flag = true
     %% Clean Session = true
     ConnectFlags = <<2#0100:4, 2#0010:4>>,
-    ConnectBin =
+    ConnectBinV4 =
         <<16, 17, 0, 4, 77, 81, 84, 84, 4, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0, 1, 97>>,
+    %% Proto name = MQIsdp, proto level = 3
+    ConnectBinV3 =
+        <<16, 19, 0, 6, 77, 81, 73, 115, 100, 112, 3, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0,
+            1, 97>>,
+    %% Proto level = 5, zero-length properties
+    ConnectBinV5 =
+        <<16, 18, 0, 4, 77, 81, 84, 84, 5, ConnectFlags/binary, 0, 60, 0, 0, 2, 97, 49, 0, 1, 97>>,
+    %% Lenient mode keeps accepting password-without-username for bug-for-bug
+    %% compatibility. Strict mode is the default now, so request lenient explicitly.
     LenientParseState = emqx_frame:initial_parse_state(#{strict_mode => false}),
     ?assertMatch(
         {_, _, _},
-        emqx_frame:parse(ConnectBin, LenientParseState)
+        emqx_frame:parse(ConnectBinV4, LenientParseState)
+    ),
+    ?assertMatch(
+        {_, _, _},
+        emqx_frame:parse(ConnectBinV3, LenientParseState)
     ),
 
     StrictModeParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?assertException(
         throw,
-        {frame_parse_error, invalid_password_flag},
-        emqx_frame:parse(ConnectBin, StrictModeParseState)
+        {frame_parse_error, #{
+            cause := invalid_password_flag, proto_ver := ?MQTT_PROTO_V4, proto_name := <<"MQTT">>
+        }},
+        emqx_frame:parse(ConnectBinV4, StrictModeParseState)
+    ),
+    ?assertException(
+        throw,
+        {frame_parse_error, #{
+            cause := invalid_password_flag, proto_ver := ?MQTT_PROTO_V3, proto_name := <<"MQIsdp">>
+        }},
+        emqx_frame:parse(ConnectBinV3, StrictModeParseState)
+    ),
+    ?assertMatch(
+        {_, _, _},
+        emqx_frame:parse(ConnectBinV5, StrictModeParseState)
     ).
 
 t_invalid_will_retain(_) ->
