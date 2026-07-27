@@ -187,7 +187,10 @@ emqx_config() ->
                     }
         ssl_options { verify = verify_peer }
     }
-    """.
+    """ ++
+        emqx_common_test_helpers:listener_ssl_certs_conf(
+            "listeners.ssl.default.ssl_options"
+        ).
 
 end_per_group(GroupName, Config) when
     GroupName == gen_tcp_listener;
