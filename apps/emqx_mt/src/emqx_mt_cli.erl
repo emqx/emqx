@@ -24,9 +24,13 @@ mt(["purge_ns", Ns0]) ->
     Ns = unicode:characters_to_binary(Ns0),
     case emqx_mt_config:force_purge_ns(Ns) of
         ok ->
-            emqx_ctl:print("ok~n");
+            print_json(#{result => <<"ok">>, namespace => Ns});
         {error, cleanup_incomplete} ->
-            emqx_ctl:print("Some cleanup steps failed (see logs); re-run the command to retry.~n")
+            print_json(#{
+                error => <<"cleanup_incomplete">>,
+                namespace => Ns,
+                hint => <<"some cleanup steps failed; check logs and re-run the command to retry">>
+            })
     end;
 mt(_) ->
     emqx_ctl:usage([
@@ -39,3 +43,6 @@ mt(_) ->
 -doc "No sensitive arguments to redact from the audit log.".
 mt_audit_args(Args) ->
     Args.
+
+print_json(Payload) ->
+    emqx_ctl:print("~ts~n", [emqx_utils_json:best_effort_json(Payload)]).
