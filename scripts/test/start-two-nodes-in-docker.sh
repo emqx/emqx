@@ -10,6 +10,12 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")/../../"
 
+## Certificates are not committed to the repo; generate them on demand
+## (used by the haproxy container and the wss probe below).
+if [ ! -f 'apps/emqx/etc/certs/cert.pem' ]; then
+    ./scripts/gen-emqx-default-certs.sh
+fi
+
 HAPROXY_PORTS=(-p 18083:18083 -p 1883:1883 -p 8883:8883 -p 8884:8884)
 
 NET='emqx.io'

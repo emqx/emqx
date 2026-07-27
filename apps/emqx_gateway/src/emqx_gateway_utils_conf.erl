@@ -492,9 +492,9 @@ ensure_dtls_protocol(_, SSLOpts) ->
     SSLOpts.
 
 ssl_server_opts(ssl_options, SSLOpts) ->
-    emqx_tls_lib:to_server_opts(tls, SSLOpts);
+    emqx_tls_lib:to_server_opts(tls, emqx_tls_lib:ensure_default_certs(SSLOpts));
 ssl_server_opts(dtls_options, SSLOpts) ->
-    emqx_tls_lib:to_server_opts(dtls, SSLOpts).
+    emqx_tls_lib:to_server_opts(dtls, emqx_tls_lib:ensure_default_certs(SSLOpts)).
 
 default_tcp_options() ->
     [
