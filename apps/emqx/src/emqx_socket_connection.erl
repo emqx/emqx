@@ -587,8 +587,12 @@ handle_msg({incoming, Packet}, State) ->
 handle_msg({outgoing, Packets}, State) ->
     case handle_outgoing(Packets, State) of
         {ok, NState} ->
-            run_minor_gc(),
-            maybe_signal_congestion(NState);
+            case maybe_signal_congestion(NState) of
+                {ok, FState} ->
+                    {ok, run_minor_gc, FState};
+                {ok, Msgs, FState} ->
+                    {ok, [Msgs, run_minor_gc], FState}
+            end;
         {ok, {sock_error, _}, _State} = Error ->
             Error
     end;
