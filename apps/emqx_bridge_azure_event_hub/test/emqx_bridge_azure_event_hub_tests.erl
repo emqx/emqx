@@ -156,5 +156,47 @@ aeh_producer_test_() ->
             ?_assertThrow(
                 ?action_validation_error("Expected: no_compression" ++ _, <<"gzip">>),
                 check_action(#{<<"parameters">> => #{<<"compression">> => <<"gzip">>}})
+            )},
+        {"max_batch_age and max_retries default to infinity",
+            ?_assertMatch(
+                #{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := <<"infinity">>,
+                        <<"max_retries">> := <<"infinity">>
+                    }
+                },
+                check_action(#{})
+            )},
+        {"max_batch_age and max_retries are settable",
+            ?_assertMatch(
+                #{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := <<"500ms">>,
+                        <<"max_retries">> := 3
+                    }
+                },
+                check_action(
+                    #{
+                        <<"parameters">> => #{
+                            <<"max_batch_age">> => <<"500ms">>,
+                            <<"max_retries">> => 3
+                        }
+                    }
+                )
+            )},
+        {"reconnect_delay defaults to 2s",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"reconnect_delay">> := <<"2s">>}},
+                check_action(#{})
+            )},
+        {"reconnect_delay is settable",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"reconnect_delay">> := <<"1500ms">>}},
+                check_action(#{<<"parameters">> => #{<<"reconnect_delay">> => <<"1500ms">>}})
+            )},
+        {"connector request_timeout defaults to 30s",
+            ?_assertMatch(
+                #{<<"request_timeout">> := <<"30s">>},
+                check_connector(#{})
             )}
     ].
