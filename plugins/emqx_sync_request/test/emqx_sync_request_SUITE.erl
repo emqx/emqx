@@ -130,15 +130,15 @@ t_cli_status_reports_node_local_status(_Config) ->
 
 t_api_spec_lists_conflict_and_unavailable_responses(_Config) ->
     #{
-        post := #{
-            summary := <<"Send a synchronous MQTT request">>,
+        post := Post = #{
             description :=
                 <<"Publish one MQTT request and wait for the first matching response.">>,
-            tags := [<<"Plugin">>],
             responses := Responses
         }
     } =
         emqx_sync_request_api:schema("/plugin_api/emqx_sync_request/request"),
+    ?assertNot(maps:is_key(summary, Post)),
+    ?assertNot(maps:is_key(tags, Post)),
     ?assert(maps:is_key(409, Responses)),
     ?assert(maps:is_key(503, Responses)).
 
