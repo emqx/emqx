@@ -39,12 +39,11 @@ array_nodes_test() ->
             %% 2 * max_ports = 4096 because the override is honored only when
             %% strictly larger than the derived value.
             ?assertEqual(10240, ProcLimit),
-
             ClusterDiscovery = proplists:get_value(
-                cluster_discovery, proplists:get_value(ekka, ConfList)
+                discovery_strategy, proplists:get_value(classy, ConfList)
             ),
             ?assertEqual(
-                {static, [{seeds, ExpectNodes}]},
+                {static, #{seeds => ExpectNodes}},
                 ClusterDiscovery,
                 Nodes
             )
