@@ -51,13 +51,27 @@ deps(Config) ->
 overrides() ->
     [
         {add, [{extra_src_dirs, [{"etc", [{recursive, true}]}]}]}
-    ] ++ snabbkaffe_overrides().
+    ] ++ snabbkaffe_overrides() ++ quicer_overrides().
 
 %% Temporary workaround for a rebar3 erl_opts duplication
 %% bug. Ideally, we want to set this define globally
 snabbkaffe_overrides() ->
     Apps = [snabbkaffe, ekka, mria, gen_rpc],
     [{add, App, [{erl_opts, [{d, snk_kind, msg}]}]} || App <- Apps].
+
+%% GCC 14.3 (el10 builder) reports a 'maybe-uninitialized' false positive
+%% in the vendored msquic, which is compiled with -Werror;
+%% demote this one diagnostic back to a warning (gcc only, keep mac as-is)
+quicer_overrides() ->
+    [
+        {override, quicer, [
+            {pre_hooks, [
+                {"(linux)", compile,
+                    "sh -c 'CFLAGS=\"${CFLAGS} -Wno-error=maybe-uninitialized\" make build-nif'"},
+                {"(darwin|solaris)", compile, "make build-nif"}
+            ]}
+        ]}
+    ].
 
 config() ->
     [
