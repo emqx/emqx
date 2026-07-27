@@ -134,7 +134,7 @@ current_config() ->
 %% EMQX Plugin callbacks
 %%--------------------------------------------------------------------
 
--spec on_config_changed(map()) -> ok.
+-spec on_config_changed(map()) -> ok | {error, term()}.
 on_config_changed(NewConf) ->
     call({on_config_changed, NewConf}, ok).
 
@@ -171,18 +171,26 @@ on_message_publish(Message = #message{headers = Headers}) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    erlang:process_flag(trap_exit, true),
-    ok = ensure_tables(),
-    ok = init_metrics(),
-    Config = normalize_config(current_config()),
-    persistent_term:put(?CONFIG_PT, Config),
-    ok = hook(),
-    {ok, empty_state()}.
+    case normalize_config(current_config()) of
+        {ok, Config} ->
+            erlang:process_flag(trap_exit, true),
+            ok = ensure_tables(),
+            ok = init_metrics(),
+            persistent_term:put(?CONFIG_PT, Config),
+            ok = hook(),
+            {ok, empty_state()};
+        {error, Reason} ->
+            {stop, Reason}
+    end.
 
 handle_call({on_config_changed, NewConf}, _From, State) ->
-    Config = normalize_config(maps:merge(default_config(), NewConf)),
-    persistent_term:put(?CONFIG_PT, Config),
-    {reply, ok, State};
+    case normalize_config(maps:merge(default_config(), NewConf)) of
+        {ok, Config} ->
+            persistent_term:put(?CONFIG_PT, Config),
+            {reply, ok, State};
+        {error, Reason} ->
+            {reply, {error, Reason}, State}
+    end;
 handle_call(on_health_check, _From, State) ->
     {reply, ok, State};
 handle_call(
@@ -724,52 +732,43 @@ default_config() ->
     }.
 
 normalize_config(Config) ->
-    #{
-        <<"default_timeout">> => parse_config_duration(
-            get(Config, <<"default_timeout">>, ?DEFAULT_TIMEOUT), ?DEFAULT_TIMEOUT
-        ),
-        <<"max_timeout">> => parse_config_duration(
-            get(Config, <<"max_timeout">>, ?DEFAULT_MAX_TIMEOUT), ?DEFAULT_MAX_TIMEOUT
-        ),
-        <<"max_inflight_requests">> =>
-            parse_config_pos_integer(
-                get(Config, <<"max_inflight_requests">>, ?DEFAULT_MAX_INFLIGHT),
-                ?DEFAULT_MAX_INFLIGHT
-            ),
-        <<"max_payload_size">> =>
-            parse_config_bytesize(
-                get(Config, <<"max_payload_size">>, ?DEFAULT_MAX_PAYLOAD_SIZE),
-                ?DEFAULT_MAX_PAYLOAD_SIZE
-            )
-    }.
-
-parse_config_duration(Value, Default) ->
-    try parse_duration_ms(Value) of
-        Ms when is_integer(Ms), Ms > 0 -> Ms;
-        _ -> parse_duration_ms(Default)
-    catch
-        _:_ -> parse_duration_ms(Default)
-    end.
-
-parse_config_bytesize(Value, Default) ->
-    try parse_bytesize(Value) of
-        Bytes when is_integer(Bytes), Bytes > 0 -> Bytes;
-        _ -> parse_bytesize(Default)
-    catch
-        _:_ -> parse_bytesize(Default)
-    end.
-
-parse_config_pos_integer(Value, _Default) when is_integer(Value), Value > 0 ->
-    Value;
-parse_config_pos_integer(Value, Default) ->
     try
-        case binary_to_integer(to_binary(Value)) of
-            I when I > 0 -> I;
-            _ -> Default
-        end
+        {ok, #{
+            <<"default_timeout">> => parse_config_duration(
+                get(Config, <<"default_timeout">>, ?DEFAULT_TIMEOUT)
+            ),
+            <<"max_timeout">> => parse_config_duration(
+                get(Config, <<"max_timeout">>, ?DEFAULT_MAX_TIMEOUT)
+            ),
+            <<"max_inflight_requests">> =>
+                parse_config_pos_integer(
+                    get(Config, <<"max_inflight_requests">>, ?DEFAULT_MAX_INFLIGHT)
+                ),
+            <<"max_payload_size">> =>
+                parse_config_bytesize(
+                    get(Config, <<"max_payload_size">>, ?DEFAULT_MAX_PAYLOAD_SIZE)
+                )
+        }}
     catch
-        _:_ -> Default
+        throw:{bad_request, _} = Reason -> {error, Reason}
     end.
+
+parse_config_duration(Value) ->
+    case parse_duration_ms(Value) of
+        Ms when is_integer(Ms), Ms > 0 -> Ms;
+        _ -> throw({bad_request, <<"invalid_duration">>})
+    end.
+
+parse_config_bytesize(Value) ->
+    case parse_bytesize(Value) of
+        Bytes when is_integer(Bytes), Bytes > 0 -> Bytes;
+        _ -> throw({bad_request, <<"invalid_bytesize">>})
+    end.
+
+parse_config_pos_integer(Value) when is_integer(Value), Value > 0 ->
+    Value;
+parse_config_pos_integer(_Value) ->
+    throw({bad_request, <<"invalid_positive_integer">>}).
 
 parse_duration_ms(Value) when is_integer(Value) ->
     Value;
@@ -788,7 +787,8 @@ parse_bytesize(Value) ->
     end.
 
 config() ->
-    persistent_term:get(?CONFIG_PT, normalize_config(default_config())).
+    {ok, Default} = normalize_config(default_config()),
+    persistent_term:get(?CONFIG_PT, Default).
 
 init_metrics() ->
     lists:foreach(
