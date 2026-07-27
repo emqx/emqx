@@ -420,7 +420,7 @@ via cluster change event.
 
 -spec this_site() -> binary().
 this_site() ->
-    #{site := Site} = get_site_schema(),
+    {ok, Site} = classy:the_site(),
     Site.
 
 -spec whereis_site(site()) -> node() | undefined.
