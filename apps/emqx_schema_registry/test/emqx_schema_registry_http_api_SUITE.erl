@@ -1153,10 +1153,7 @@ t_external_http_serde_ssl(_Config) ->
     SchemaName = <<"my_external_http_serde">>,
     Params0 = mk_external_http_create_params(#{name => SchemaName, port => Port}),
     GetPEM = fun(File) ->
-        Path = emqx_common_test_helpers:app_path(
-            emqx,
-            filename:join(["etc", "certs", File])
-        ),
+        Path = filename:join(emqx_common_test_helpers:ensure_test_certs(), File),
         {ok, Contents} = file:read_file(Path),
         Contents
     end,

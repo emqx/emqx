@@ -214,7 +214,9 @@ init_per_testcase(_CaseName, Conf) ->
             <<"keyfile">> => ?SVR_KEY2
         }
 }).
--define(CERTS_PATH(CertName), filename:join(["../../lib/emqx/etc/certs/", CertName])).
+-define(CERTS_PATH(CertName),
+    filename:join(emqx_common_test_helpers:ensure_test_certs(), CertName)
+).
 -define(CONF_STOMP_LISTENER_SSL_PATH, #{
     <<"bind">> => <<"61614">>,
     <<"ssl_options">> =>

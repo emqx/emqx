@@ -74,7 +74,7 @@ t_dashboard(_Config) ->
 
     FilePath = fun(Name) ->
         iolist_to_binary(
-            emqx_common_test_helpers:app_path(emqx, filename:join(["etc", "certs", Name]))
+            filename:join(emqx_common_test_helpers:ensure_test_certs(), Name)
         )
     end,
     KeyFile = FilePath("key.pem"),
@@ -110,7 +110,21 @@ t_dashboard(_Config) ->
 
     ?assertMatch({ok, _}, update_config("dashboard", Dashboard)),
     {ok, Dashboard1} = get_config("dashboard"),
-    ?assertEqual(Dashboard, Dashboard1),
+    %% The certificate files set earlier in this test survive the
+    %% restore: the original config has no certificate entries (there
+    %% are no default certificate paths), and the update deep-merges.
+    StripCertFiles = fun(Conf) ->
+        lists:foldl(
+            fun(Key, Acc) ->
+                emqx_utils_maps:deep_remove(
+                    [<<"listeners">>, <<"https">>, <<"ssl_options">>, Key], Acc
+                )
+            end,
+            Conf,
+            [<<"keyfile">>, <<"certfile">>, <<"cacertfile">>]
+        )
+    end,
+    ?assertEqual(StripCertFiles(Dashboard), StripCertFiles(Dashboard1)),
     timer:sleep(1500),
     ok.
 

@@ -894,7 +894,7 @@ client_ssl_opts() ->
     [{verify, verify_none} | maps:to_list(OptsWithCerts)].
 
 certs(Key, Cert, CACert) ->
-    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+    CertsPath = emqx_common_test_helpers:ensure_test_certs(),
     #{
         keyfile => filename:join([CertsPath, Key]),
         certfile => filename:join([CertsPath, Cert]),
