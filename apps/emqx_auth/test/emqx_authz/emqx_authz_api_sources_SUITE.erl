@@ -223,18 +223,9 @@ t_api(_) ->
         emqx_utils_json:decode(Result3)
     ),
 
-    Keyfile = emqx_common_test_helpers:app_path(
-        emqx,
-        filename:join(["etc", "certs", "key.pem"])
-    ),
-    Certfile = emqx_common_test_helpers:app_path(
-        emqx,
-        filename:join(["etc", "certs", "cert.pem"])
-    ),
-    Cacertfile = emqx_common_test_helpers:app_path(
-        emqx,
-        filename:join(["etc", "certs", "cacert.pem"])
-    ),
+    Keyfile = filename:join(emqx_common_test_helpers:ensure_test_certs(), "key.pem"),
+    Certfile = filename:join(emqx_common_test_helpers:ensure_test_certs(), "cert.pem"),
+    Cacertfile = filename:join(emqx_common_test_helpers:ensure_test_certs(), "cacert.pem"),
 
     {ok, 204, _} = request(
         put,

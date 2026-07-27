@@ -416,7 +416,7 @@ fixed_status_handler(StatusCode, FailureAttempts) ->
     end.
 
 certs() ->
-    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+    CertsPath = emqx_common_test_helpers:ensure_test_certs(),
     [
         {keyfile, filename:join([CertsPath, "key.pem"])},
         {certfile, filename:join([CertsPath, "cert.pem"])},

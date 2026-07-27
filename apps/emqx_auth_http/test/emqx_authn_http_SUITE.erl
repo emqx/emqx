@@ -1154,7 +1154,7 @@ t_zone_override(TCConfig) ->
                     }
                 };
             [quic] ->
-                CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+                CertsPath = emqx_common_test_helpers:ensure_test_certs(),
                 QuicLConfig = #{
                     <<"bind">> => <<"127.0.0.1:14567">>,
                     <<"ssl_options">> => #{
@@ -1214,8 +1214,8 @@ t_zone_override(TCConfig) ->
 %%------------------------------------------------------------------------------
 
 cert_path(FileName) ->
-    Dir = code:lib_dir(emqx),
-    filename:join([Dir, <<"etc/certs">>, FileName]).
+    Dir = emqx_common_test_helpers:ensure_test_certs(),
+    filename:join([Dir, FileName]).
 
 raw_http_auth_config(TCConfig) ->
     #{

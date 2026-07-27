@@ -37,6 +37,8 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(TCConfig) ->
+    %% TLS configs in this suite reference `${EMQX_ETC_DIR}/certs/*.pem`
+    _ = emqx_common_test_helpers:ensure_test_certs(),
     TCConfig.
 
 end_per_suite(_TCConfig) ->

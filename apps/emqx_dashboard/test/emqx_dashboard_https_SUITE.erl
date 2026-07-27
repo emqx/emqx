@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(NAME, 'https:dashboard').
 -define(HOST_HTTPS, "https://127.0.0.1:18084").
@@ -28,7 +29,10 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Config) -> Config.
+init_per_suite(Config) ->
+    %% This suite's TLS configs reference `${EMQX_ETC_DIR}/certs/*.pem`
+    _ = emqx_common_test_helpers:ensure_test_certs(),
+    Config.
 end_per_suite(_Config) -> ok.
 
 init_per_testcase(Case, Config) ->
@@ -131,7 +135,9 @@ t_default_ssl_cert('end', Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps).
 t_default_ssl_cert(_Config) ->
-    validate_https(512, default_ssl_cert(), verify_none).
+    %% Without any configured certificate, the listener uses the
+    %% `localhost` bundle generated at first boot.
+    validate_https(512, localhost_bundle_cert(), verify_none).
 
 t_compatibility_ssl_cert(init, Config) ->
     MaxConnection = 1000,
@@ -214,13 +220,16 @@ t_verify_cacertfile('end', Config) ->
 t_verify_cacertfile(Config) ->
     MaxConnection = ?config(max_connection, Config),
     DefaultSSLCert = default_ssl_cert(),
-    SSLCert = DefaultSSLCert#{cacertfile => <<"">>},
 
-    %% validate with default #{verify => verify_none}
+    %% An empty cacertfile counts as no certificate configuration at
+    %% all, so the listener uses the `localhost` bundle (including its
+    %% CA certificate).
     ct:pal("testing with verify_none"),
-    validate_https(MaxConnection, SSLCert, verify_none),
+    validate_https(MaxConnection, localhost_bundle_cert(), verify_none),
 
-    %% verify_peer but cacertfile is empty
+    %% verify_peer with the empty cacertfile: the listener starts with
+    %% the bundle CA (whose signing key is discarded at generation, so
+    %% no client certificate can ever verify against it).
     ct:pal("testing with verify_peer but no cacertfile"),
     DashboardConf0 = ?config(dashboard_conf, Config),
     VerifyPeerConf1 = emqx_utils_maps:deep_put(
@@ -229,18 +238,28 @@ t_verify_cacertfile(Config) ->
         <<"verify_peer">>
     ),
     {ok, _} = emqx:update_config([<<"dashboard">>], maps:get(<<"dashboard">>, VerifyPeerConf1)),
-    %% `emqx_dashboard_listener_config` will crash because itself will fail to start the
-    %% listeners.
-    wait_listener_config_crash(),
+    wait_listener_config_processed_requests(),
     ok = emqx_dashboard:stop_listeners(),
-    ?assertMatch({error, [?NAME]}, emqx_dashboard:start_listeners()),
+    ok = emqx_dashboard:start_listeners(),
 
-    %% verify_peer and cacertfile is ok.
+    %% verify_peer and operator-provided certificate files: all three
+    %% files must be configured (there are no default certificate
+    %% paths to fall back to).
     ct:pal("testing with verify_peer and cacertfile"),
-    VerifyPeerConf2 = emqx_utils_maps:deep_put(
-        [<<"dashboard">>, <<"listeners">>, <<"https">>, <<"ssl_options">>, <<"cacertfile">>],
+    VerifyPeerConf2 = lists:foldl(
+        fun({Key, Value}, ConfAcc) ->
+            emqx_utils_maps:deep_put(
+                [<<"dashboard">>, <<"listeners">>, <<"https">>, <<"ssl_options">>, Key],
+                ConfAcc,
+                naive_env_interpolation(Value)
+            )
+        end,
         VerifyPeerConf1,
-        naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cacert.pem">>)
+        [
+            {<<"cacertfile">>, <<"${EMQX_ETC_DIR}/certs/cacert.pem">>},
+            {<<"certfile">>, <<"${EMQX_ETC_DIR}/certs/cert.pem">>},
+            {<<"keyfile">>, <<"${EMQX_ETC_DIR}/certs/key.pem">>}
+        ]
     ),
     {ok, _} = emqx:update_config([<<"dashboard">>], maps:get(<<"dashboard">>, VerifyPeerConf2)),
     wait_listener_config_processed_requests(),
@@ -399,6 +418,16 @@ default_ssl_cert() ->
         keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>
     }.
 
+%% The `localhost` bundle generated at first boot, used by TLS servers
+%% with no configured certificate.
+localhost_bundle_cert() ->
+    Dir = emqx_managed_certs:dir(?global_ns, <<"localhost">>),
+    #{
+        cacertfile => unicode:characters_to_binary(filename:join(Dir, "ca.pem")),
+        certfile => unicode:characters_to_binary(filename:join(Dir, "chain.pem")),
+        keyfile => unicode:characters_to_binary(filename:join(Dir, "key.pem"))
+    }.
+
 emqx_cth_suite_start(Case, DashboardConf, Config) ->
     emqx_cth_suite:start(
         [
@@ -413,14 +442,3 @@ wait_listener_config_processed_requests() ->
     %% Assert that config has finished processing and process has not crashed, since it's
     %% async.
     ?assertMatch({ok, _}, emqx_dashboard_listener_config:info()).
-
-wait_listener_config_crash() ->
-    %% `emqx_dashboard_listener_config` will crash because itself will fail to start the
-    %% listeners.
-    try
-        emqx_dashboard_listener_config:info(),
-        ct:fail("didn't crash")
-    catch
-        exit:_ ->
-            ok
-    end.

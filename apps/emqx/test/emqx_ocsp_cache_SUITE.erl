@@ -845,7 +845,8 @@ t_validations(Config) ->
             do_t_validations(Config)
     end.
 
-do_t_validations(_Config) ->
+do_t_validations(Config) ->
+    DataDir = ?config(data_dir, Config),
     ListenerId = <<"ssl:default">>,
     {ok, {{_, 200, _}, _, ListenerData0}} = get_listener_via_api(ListenerId),
 
@@ -900,6 +901,8 @@ do_t_validations(_Config) ->
             #{
                 <<"ssl_options">> =>
                     #{
+                        <<"certfile">> => filename(DataDir, "server.pem"),
+                        <<"keyfile">> => filename(DataDir, "server.key"),
                         <<"ocsp">> => #{
                             <<"enable_ocsp_stapling">> => true,
                             <<"responder_url">> => <<"http://localhost:9877">>,
@@ -908,15 +911,24 @@ do_t_validations(_Config) ->
                     }
             }
         ),
+    %% an issuer PEM file which cannot be read is rejected
+    {error, {_, _, ResRaw3a}} = update_listener_via_api(ListenerId, ListenerData3a),
+    #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3a} =
+        emqx_utils_json:decode(ResRaw3a),
+    ?assertMatch({match, _}, re:run(MsgRaw3a, <<"enoent">>)),
+    ?assertMatch({match, _}, re:run(MsgRaw3a, <<"ocsp\\.issuer_pem">>)),
+    %% removing the server certificate while OCSP stapling is enabled is
+    %% rejected (certificate files have no default values to fall back to)
     ListenerData3 = emqx_utils_maps:deep_remove(
         [<<"ssl_options">>, <<"certfile">>], ListenerData3a
     ),
     {error, {_, _, ResRaw3}} = update_listener_via_api(ListenerId, ListenerData3),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3} =
         emqx_utils_json:decode(ResRaw3),
-    %% we can't remove certfile now, because it has default value.
-    ?assertMatch({match, _}, re:run(MsgRaw3, <<"enoent">>)),
-    ?assertMatch({match, _}, re:run(MsgRaw3, <<"ocsp\\.issuer_pem">>)),
+    ?assertMatch(
+        {match, _},
+        re:run(MsgRaw3, <<"Server certificate must be defined when using OCSP stapling">>)
+    ),
     ok.
 
 t_unknown_error_fetching_ocsp_response(_Config) ->

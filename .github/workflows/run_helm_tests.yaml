@@ -104,27 +104,57 @@ jobs:
       working-directory: source
       if: matrix.rpc == 'ssl1.3'
       run: |
+        # Certificates are not shipped in the package; generate a set and
+        # mount it into the pods via a secret.
+        ./scripts/gen-emqx-default-certs.sh rpc-certs
+        kubectl create secret generic emqx-rpc-certs \
+          --from-file=cert.pem=rpc-certs/cert.pem \
+          --from-file=key.pem=rpc-certs/key.pem \
+          --from-file=cacert.pem=rpc-certs/cacert.pem
         cat > rpc-overrides.yaml <<EOL
         emqxConfig:
           EMQX_RPC__PROTOCOL: ssl
-          EMQX_RPC__CERTFILE: /opt/emqx/etc/certs/cert.pem
-          EMQX_RPC__KEYFILE: /opt/emqx/etc/certs/key.pem
-          EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
+          EMQX_RPC__CERTFILE: /opt/emqx/etc/rpc-certs/cert.pem
+          EMQX_RPC__KEYFILE: /opt/emqx/etc/rpc-certs/key.pem
+          EMQX_RPC__CACERTFILE: /opt/emqx/etc/rpc-certs/cacert.pem
           EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
           EMQX_RPC__TLS_VERSIONS: "[tlsv1.3]"
+        extraVolumes:
+          - name: rpc-certs
+            secret:
+              secretName: emqx-rpc-certs
+        extraVolumeMounts:
+          - name: rpc-certs
+            mountPath: /opt/emqx/etc/rpc-certs
+            readOnly: true
         EOL
     - name: Prepare emqxConfig.EMQX_RPC using ssl1.2
       working-directory: source
       if: matrix.rpc == 'ssl1.2'
       run: |
+        # Certificates are not shipped in the package; generate a set and
+        # mount it into the pods via a secret.
+        ./scripts/gen-emqx-default-certs.sh rpc-certs
+        kubectl create secret generic emqx-rpc-certs \
+          --from-file=cert.pem=rpc-certs/cert.pem \
+          --from-file=key.pem=rpc-certs/key.pem \
+          --from-file=cacert.pem=rpc-certs/cacert.pem
         cat > rpc-overrides.yaml <<EOL
         emqxConfig:
           EMQX_RPC__PROTOCOL: ssl
-          EMQX_RPC__CERTFILE: /opt/emqx/etc/certs/cert.pem
-          EMQX_RPC__KEYFILE: /opt/emqx/etc/certs/key.pem
-          EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
+          EMQX_RPC__CERTFILE: /opt/emqx/etc/rpc-certs/cert.pem
+          EMQX_RPC__KEYFILE: /opt/emqx/etc/rpc-certs/key.pem
+          EMQX_RPC__CACERTFILE: /opt/emqx/etc/rpc-certs/cacert.pem
           EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
           EMQX_RPC__TLS_VERSIONS: "[tlsv1.2]"
+        extraVolumes:
+          - name: rpc-certs
+            secret:
+              secretName: emqx-rpc-certs
+        extraVolumeMounts:
+          - name: rpc-certs
+            mountPath: /opt/emqx/etc/rpc-certs
+            readOnly: true
         EOL
     - name: run emqx on chart (k8s)
       if: matrix.discovery == 'k8s'

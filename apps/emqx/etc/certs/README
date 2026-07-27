@@ -1,27 +1,31 @@
 Place your SSL/TLS certificates here.
 
-Note: The certificates shipped in EMQX installation packages are provided only for
-testing and local deployments. Do not use them in production. Replace them with
-certificates issued and managed for your own production environment.
+EMQX does not ship certificate files.  On first start, EMQX generates a
+unique self-signed certificate (managed-certs bundle named `localhost`,
+stored under `data/certs2/global/localhost/`) which the default `ssl`
+and `wss` listeners use.  When a node joins a cluster, it inherits the
+cluster's bundle instead.
 
-Files in this directory:
+The generated certificate identity is:
 
-- `cacert.pem`: Root CA certificate(s) used to sign the local test server and client certificates.
-   This is the 'tust' store of arbitrary number of root certificates used to sign TLS *PEER*'s certifcate chain.
-   That is, for client, it should store root CA certificate(s) of trusted server;
-   for server, it should store root CA certificate(s) of trusted clients.
-- `cert.pem`: Server certificate presented by EMQX TLS listeners.
-- `key.pem`: Private key for `cert.pem`.
-- `client-cert.pem`: Client certificate for mutual TLS testing against EMQX listeners.
-   It can also be used as TLS cerificate for EMQX when acting as a TLS client,
-   for example, when trying to connect an external authentication server.
-- `client-key.pem`: Private key for `client-cert.pem`.
+- Server certificate: `CN=localhost, O=EMQX`, with SAN entries for
+  `localhost`, `127.0.0.1`, and `::1`.
+- It is signed by a one-off `CN=EMQX Self-Signed CA` whose key is
+  discarded after signing.
 
-The default local test certificates currently use these identities:
+Self-signed certificates are only suitable for testing and local
+deployments.  For production, place certificates issued for your own
+environment in this directory (or anywhere readable by EMQX) and point
+the listener configuration at them, for example:
 
-- Root CA: `C=SE, ST=Stockholm, O=EMQ, CN=RootCA`
-- Server certificate: `C=SE, ST=Stockholm, O=EMQ, CN=localhost`
-- Client certificate: `C=SE, ST=Stockholm, O=EMQ, CN=Client`
+  listeners.ssl.default {
+    ssl_options {
+      certfile = "etc/certs/cert.pem"
+      keyfile = "etc/certs/key.pem"
+      cacertfile = "etc/certs/cacert.pem"
+    }
+  }
 
-The server certificate includes SAN entries for `localhost`, `127.0.0.1`, and `::1`
-for better compatibility with local TLS clients.
+Alternatively, upload certificates via the Dashboard or the `/certs`
+HTTP API to have them replicated across the cluster as managed-certs
+bundles.

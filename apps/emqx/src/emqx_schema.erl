@@ -2490,7 +2490,7 @@ filter(Opts) ->
 %% @private This function defines the SSL opts which are commonly used by
 %% SSL listener and client.
 -spec common_ssl_opts_schema(map(), server | client) -> hocon_schema:field_schema().
-common_ssl_opts_schema(Defaults, Type) ->
+common_ssl_opts_schema(Defaults, _Type) ->
     D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
@@ -2499,7 +2499,6 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 binary(),
                 #{
-                    default => cert_file("cacert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
                 }
@@ -2516,7 +2515,6 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 binary(),
                 #{
-                    default => cert_file("cert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_certfile)
                 }
@@ -2525,7 +2523,6 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 binary(),
                 #{
-                    default => cert_file("key.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_keyfile)
                 }
@@ -3950,26 +3947,19 @@ default_listener(ws) ->
         <<"bind">> => mqtt_default_bind_config(8083),
         <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
     };
-default_listener(SSLListener) ->
-    %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
-    SslOptions = #{
-        <<"cacertfile">> => cert_file(<<"cacert.pem">>, server),
-        <<"certfile">> => cert_file(<<"cert.pem">>, server),
-        <<"keyfile">> => cert_file(<<"key.pem">>, server)
-    },
-    case SSLListener of
-        ssl ->
-            #{
-                <<"bind">> => mqtt_default_bind_config(8883),
-                <<"ssl_options">> => SslOptions
-            };
-        wss ->
-            #{
-                <<"bind">> => mqtt_default_bind_config(8084),
-                <<"ssl_options">> => SslOptions,
-                <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
-            }
-    end.
+default_listener(ssl) ->
+    %% No certificate is configured here on purpose: a TLS listener
+    %% without any certificate configuration falls back to the
+    %% `localhost` managed-certs bundle generated at boot, see
+    %% `emqx_default_cert:ensure_localhost_bundle/0`.
+    #{
+        <<"bind">> => mqtt_default_bind_config(8883)
+    };
+default_listener(wss) ->
+    #{
+        <<"bind">> => mqtt_default_bind_config(8084),
+        <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
+    }.
 
 naive_env_interpolation(MaybeEnv) ->
     emqx_utils_schema:naive_env_interpolation(MaybeEnv).
@@ -4029,11 +4019,6 @@ ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
 ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
-
-cert_file(_File, client) ->
-    undefined;
-cert_file(File, server) ->
-    unicode:characters_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
 
 mqtt_converter(#{<<"keepalive_multiplier">> := Multi} = Mqtt, _Opts) ->
     case round(Multi * 100) =:= round(?DEFAULT_MULTIPLIER * 100) of

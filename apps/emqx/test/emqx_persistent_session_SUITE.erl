@@ -125,12 +125,18 @@ init_per_group(ws, Config0) ->
     ];
 init_per_group(quic, Config0) ->
     CTHOpts0 = #{emqx_opts := EMQXOpts0} = ?config(cth_opts, Config0),
+    CertsDir = emqx_common_test_helpers:ensure_test_certs(),
     EMQXOpts = EMQXOpts0#{
         <<"listeners">> => #{
             <<"quic">> => #{
                 <<"test">> => #{
                     <<"enable">> => true,
-                    <<"ssl_options">> => #{<<"verify">> => <<"verify_peer">>}
+                    <<"ssl_options">> => #{
+                        <<"verify">> => <<"verify_peer">>,
+                        <<"certfile">> => filename:join(CertsDir, "cert.pem"),
+                        <<"keyfile">> => filename:join(CertsDir, "key.pem"),
+                        <<"cacertfile">> => filename:join(CertsDir, "cacert.pem")
+                    }
                 }
             }
         }

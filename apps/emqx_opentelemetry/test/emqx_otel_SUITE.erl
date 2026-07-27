@@ -2220,6 +2220,7 @@ client_ssl_opts() ->
     [{verify, verify_none}] ++ client_certs().
 
 client_certs() ->
+    _ = emqx_common_test_helpers:ensure_test_certs(),
     [
         {Key, emqx_common_test_helpers:app_path(emqx, FilePath)}
      || {Key, FilePath} <- ?MQTT_SSL_CLIENT_CERTS

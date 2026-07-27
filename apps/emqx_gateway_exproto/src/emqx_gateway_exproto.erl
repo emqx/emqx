@@ -159,7 +159,8 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
             true ->
                 Opts1 = maps:get(ssl, Options, #{}),
                 Opts2 = maps:without([handshake_timeout], Opts1),
-                SSLOpts = emqx_tls_lib:to_server_opts(tls, Opts2),
+                Opts3 = emqx_tls_lib:ensure_default_certs(Opts2),
+                SSLOpts = emqx_tls_lib:to_server_opts(tls, Opts3),
                 [
                     {ssl_options, SSLOpts}
                 ]

@@ -162,16 +162,24 @@ ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"bind">> := Bind} = Ht
     Https1 = emqx_dashboard_schema:https_converter(Https0, #{}),
     Conf1 = emqx_utils_maps:deep_put([<<"listeners">>, <<"https">>], Conf0, Https1),
     Ssl = maps:get(<<"ssl_options">>, Https1, undefined),
-    Opts = #{required_keys => [[<<"keyfile">>], [<<"certfile">>]]},
-    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(?DIR, Ssl, Opts) of
-        {ok, undefined} ->
-            {error, <<"ssl_cert_not_found">>};
-        {ok, NewSsl} ->
-            Keys = [<<"listeners">>, <<"https">>, <<"ssl_options">>],
-            {ok, emqx_utils_maps:deep_put(Keys, Conf1, NewSsl)};
-        {error, Reason} ->
-            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
-            {error, Reason}
+    case emqx_tls_lib:is_cert_configured(Ssl) of
+        false ->
+            %% No certificate configured: the listener uses the
+            %% `localhost` bundle generated at first boot, see
+            %% `emqx_tls_lib:ensure_default_certs/1`.
+            {ok, Conf1};
+        true ->
+            Opts = #{required_keys => [[<<"keyfile">>], [<<"certfile">>]]},
+            case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(?DIR, Ssl, Opts) of
+                {ok, undefined} ->
+                    {error, <<"ssl_cert_not_found">>};
+                {ok, NewSsl} ->
+                    Keys = [<<"listeners">>, <<"https">>, <<"ssl_options">>],
+                    {ok, emqx_utils_maps:deep_put(Keys, Conf1, NewSsl)};
+                {error, Reason} ->
+                    ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
+                    {error, Reason}
+            end
     end;
 ensure_ssl_cert(Conf) ->
     {ok, Conf}.

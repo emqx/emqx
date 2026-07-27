@@ -93,3 +93,5 @@ __pycache__/
 AGENTS.md
 PLANS.md
 .worktrees/
+# generated dev/test certificates (EMQX no longer ships certificate files)
+apps/emqx/etc/certs/*.pem

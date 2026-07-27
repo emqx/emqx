@@ -43,6 +43,8 @@
 ]).
 
 -export([
+    ensure_test_certs/0,
+    listener_ssl_certs_conf/1,
     client_ssl/0,
     client_ssl/1,
     client_mtls/0,
@@ -590,7 +592,98 @@ client_mtls(TLSVsn) ->
 
 %% Paths prepended to cert filenames
 client_certs() ->
+    _ = ensure_test_certs(),
     [{Key, app_path(emqx, FilePath)} || {Key, FilePath} <- ?MQTT_SSL_CLIENT_CERTS].
+
+-doc """
+Renders hocon config lines pointing the given `ssl_options` config path
+at the generated test certificates, e.g. for suites that define a TLS
+listener inline and whose clients verify the server against the test
+CA (there are no default certificate paths in the schema; without
+this, such a listener would serve the node-generated `localhost`
+bundle instead).
+""".
+-spec listener_ssl_certs_conf(string()) -> string().
+listener_ssl_certs_conf(SslOptionsPath) ->
+    Dir = ensure_test_certs(),
+    lists:flatten(
+        io_lib:format(
+            "\n~s.certfile = \"~s\""
+            "\n~s.keyfile = \"~s\""
+            "\n~s.cacertfile = \"~s\"\n",
+            [
+                SslOptionsPath,
+                filename:join(Dir, "cert.pem"),
+                SslOptionsPath,
+                filename:join(Dir, "key.pem"),
+                SslOptionsPath,
+                filename:join(Dir, "cacert.pem")
+            ]
+        )
+    ).
+
+-doc """
+Generates the throwaway test certificate set (CA + server + client)
+into `etc/certs` of the `emqx` application, unless the files are
+already present.  Returns the certificates directory.
+
+Certificate files are not committed to the repo nor shipped in packages;
+suites that need TLS fixtures call this helper (directly or through
+`client_certs/0` and friends) and reference the files by path.
+
+Identities match the previously shipped test certificates: `CN=RootCA`,
+server `CN=localhost` (SANs `localhost`, `127.0.0.1`, `::1`) and client
+`CN=Client`, all `O=EMQ`, RSA 2048.
+""".
+-spec ensure_test_certs() -> file:filename().
+ensure_test_certs() ->
+    Dir = app_path(emqx, filename:join("etc", "certs")),
+    ok = filelib:ensure_path(Dir),
+    case
+        lists:all(
+            fun(F) -> filelib:is_regular(filename:join(Dir, F)) end,
+            ["cacert.pem", "cert.pem", "key.pem", "client-cert.pem", "client-key.pem"]
+        )
+    of
+        true ->
+            Dir;
+        false ->
+            generate_test_certs(Dir)
+    end.
+
+generate_test_certs(Dir) ->
+    CA = #{cert_pem := CaPem} = emqx_default_cert:generate_ca(#{cn => "RootCA", org => "EMQ"}),
+    #{cert_pem := CertPem, key_pem := KeyPem} =
+        emqx_default_cert:generate_cert(CA, #{
+            cn => "localhost",
+            org => "EMQ",
+            sans => [
+                {dns, "localhost"},
+                {ip, {127, 0, 0, 1}},
+                {ip, {0, 0, 0, 0, 0, 0, 0, 1}}
+            ]
+        }),
+    #{cert_pem := ClientCertPem, key_pem := ClientKeyPem} =
+        emqx_default_cert:generate_cert(CA, #{cn => "Client", org => "EMQ"}),
+    Files = [
+        {"cacert.pem", CaPem},
+        {"cert.pem", CertPem},
+        {"key.pem", KeyPem},
+        {"client-cert.pem", ClientCertPem},
+        {"client-key.pem", ClientKeyPem}
+    ],
+    %% Write-then-rename so concurrent CT runs sharing this directory
+    %% never observe partially written files.
+    lists:foreach(
+        fun({Name, Pem}) ->
+            Path = filename:join(Dir, Name),
+            TmpPath = Path ++ "." ++ os:getpid() ++ ".tmp",
+            ok = file:write_file(TmpPath, Pem),
+            ok = file:rename(TmpPath, Path)
+        end,
+        Files
+    ),
+    Dir.
 
 client_ssl() ->
     client_ssl(default).
@@ -775,8 +868,8 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
         enable => true,
         idle_timeout => 15000,
         ssl_options => #{
-            certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),
-            keyfile => filename:join(code:lib_dir(emqx), "etc/certs/key.pem"),
+            certfile => filename:join(ensure_test_certs(), "cert.pem"),
+            keyfile => filename:join(ensure_test_certs(), "key.pem"),
             hibernate_after => 30000
         },
         max_connections => 1024000,

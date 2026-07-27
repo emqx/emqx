@@ -421,7 +421,8 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
             {403, 'UNAUTHORIZED_ROLE', Msg}
     end.
 
-ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->
+ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts0}}) ->
+    SslOpts = emqx_tls_lib:ensure_default_certs(SslOpts0),
     SslOpt1 = maps:from_list(emqx_tls_lib:to_server_opts(tls, SslOpts)),
     Https1 = maps:remove(ssl_options, Https0),
     Listeners#{https => maps:merge(Https1, SslOpt1)};

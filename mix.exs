@@ -731,10 +731,14 @@ defmodule EMQXUmbrella.MixProject do
       force: overwrite?
     )
 
-    # required by emqx_auth
-    File.cp_r!(
-      "apps/emqx/etc/certs",
-      Path.join(etc, "certs")
+    # Certificate files are not shipped; keep the directory (with its
+    # README) as the conventional location for operator-provided
+    # certificates.  Copy only the README so that locally generated
+    # certificates (e.g. from test runs) never end up in a package.
+    Mix.Generator.copy_file(
+      "apps/emqx/etc/certs/README",
+      Path.join([etc, "certs", "README"]),
+      force: overwrite?
     )
 
     File.cp_r!(

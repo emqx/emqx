@@ -43,6 +43,10 @@ listeners.wss.my_wss_listener_name = {
 
     ssl_options {
         ## Trusted PEM format CA certificates bundle file
+        ## Certificate files are provided by the operator (EMQX does not
+        ## ship any).  If none of cacertfile/certfile/keyfile/managed_certs
+        ## is configured, the listener uses the self-signed certificate
+        ## generated at first boot (managed-certs bundle `localhost`).
         cacertfile = "data/certs/cacert.pem"
 
         ## PEM format certificates chain file

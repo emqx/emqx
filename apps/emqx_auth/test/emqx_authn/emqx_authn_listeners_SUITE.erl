@@ -237,6 +237,6 @@ cacert_pem() ->
     pem("cacert.pem").
 
 pem(Name) ->
-    Path = filename:join([code:lib_dir(emqx), etc, certs, Name]),
+    Path = filename:join(emqx_common_test_helpers:ensure_test_certs(), Name),
     {ok, Pem} = file:read_file(Path),
     Pem.

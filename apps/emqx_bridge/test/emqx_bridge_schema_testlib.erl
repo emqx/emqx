@@ -7,7 +7,7 @@
 -compile(export_all).
 
 tls_opts() ->
-    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+    CertsPath = emqx_common_test_helpers:ensure_test_certs(),
     #{
         <<"enable">> => true,
         <<"keyfile">> => bin(filename:join([CertsPath, "client-key.pem"])),
