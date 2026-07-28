@@ -1018,13 +1018,17 @@ serialize_iovec(
     end):16/big-unsigned-integer, X/bytes
 ).
 
+%% erlfmt-ignore
 serialize_header(
     #mqtt_packet_header{type = Type, dup = Dup, qos = QoS, retain = Retain}
 ) when ?CONNECT =< Type andalso Type =< ?AUTH ->
+    %% MQTT fixed header byte 1, per MQTT 3.1.1/5.0 "Fixed header":
+    %% | Control Packet type | DUP | QoS | RETAIN |
+    %% |        4 bits       |  1  |  2  |   1    |
     ((Type band 2#1111) bsl 4) bor
-        (?bool(Dup) bsl 3) bor
-        ((QoS band 2#11) bsl 1) bor
-        (?bool(Retain)).
+    (?bool(Dup)         bsl 3) bor
+    ((QoS band 2#11)    bsl 1) bor
+    (?bool(Retain)).
 
 serialize_variable(
     #mqtt_packet_connect{
