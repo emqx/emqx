@@ -686,8 +686,10 @@ do_ensure_started(NameVsn) ->
     maybe
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
-        {ok, _} ?= validated_local_config(NameVsn),
+        ok ?= maybe_initialize_cached_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        {ok, Schema} ?= read_start_schema(NameVsn, Plugin),
+        {ok, _ConfigSource, _Config} ?= resolve_and_validate_start_config(NameVsn, Schema),
         ok ?= emqx_plugins_apps:start(Plugin)
     else
         {error, Reason} ->
@@ -717,8 +719,7 @@ do_validate_start(NameVsn) ->
             emqx_plugins_info:read(NameVsn, #{fill_readme => false, health_check => false}),
         ok ?= emqx_plugins_apps:validate(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
         {ok, Schema} ?= read_start_schema(NameVsn, Plugin),
-        {ok, _Source, Config} ?= read_start_config(NameVsn),
-        ok ?= validate_start_config(NameVsn, Schema, Config),
+        {ok, _ConfigSource, _Config} ?= resolve_and_validate_start_config(NameVsn, Schema),
         {ok, start_validation_status(Plugin)}
     else
         {error, Reason} -> {error, Reason}
@@ -758,6 +759,13 @@ read_start_config_without_local_file(NameVsn) ->
             {ok, cached, Config}
     end.
 
+resolve_and_validate_start_config(NameVsn, Schema) ->
+    maybe
+        {ok, ConfigSource, Config} ?= read_start_config(NameVsn),
+        ok ?= validate_start_config(NameVsn, Schema, Config),
+        {ok, ConfigSource, Config}
+    end.
+
 validate_start_config(_NameVsn, no_schema, _Config) ->
     ok;
 validate_start_config(NameVsn, AvscBin, Config) ->
@@ -766,14 +774,47 @@ validate_start_config(NameVsn, AvscBin, Config) ->
             ok;
         {error, #{reason := bad_schema} = Reason} ->
             {error, #{
-                msg => "invalid_plugin_config_schema", name_vsn => bin(NameVsn), reason => Reason
+                kind => invalid_package,
+                msg => "invalid_plugin_config_schema",
+                name_vsn => bin(NameVsn),
+                reason => Reason,
+                hint => "Reinstall a plugin package with a valid config schema and retry"
             }};
         {error, Reason} ->
             {error, invalid_plugin_config_error(NameVsn, Reason)}
     end.
 
 invalid_plugin_config_error(NameVsn, Reason) ->
-    #{msg => "invalid_plugin_config", name_vsn => bin(NameVsn), reason => Reason}.
+    #{
+        kind => invalid_config,
+        msg => "invalid_plugin_config",
+        name_vsn => bin(NameVsn),
+        reason => Reason,
+        hint => "Fix the plugin configuration on this node and retry"
+    }.
+
+log_start_error(Reason) ->
+    ?SLOG(error, #{
+        msg => "failed_to_start_plugin",
+        reason => Reason
+    }).
+
+maybe_initialize_cached_config(NameVsn) ->
+    case get_cached_config(NameVsn, ?plugin_conf_not_found) of
+        ?plugin_conf_not_found ->
+            case ensure_local_config(NameVsn, ?normal) of
+                ok ->
+                    configure_from_local_config(NameVsn, stopped);
+                {error, no_source_file} ->
+                    %% Some plugins intentionally do not ship a default config file.
+                    %% Keep start behavior backward compatible for them.
+                    ok;
+                {error, _} = Error ->
+                    Error
+            end;
+        _ ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% RPC targets
@@ -1037,6 +1078,33 @@ for_plugins(ActionFun) ->
 validate_no_other_version_running(NameVsn0) ->
     NameVsn = bin(NameVsn0),
     RunningOtherVersions = lists:filtermap(
+        fun
+            (#{name := PluginName, rel_vsn := Vsn, running_status := running}) ->
+                OtherNameVsn = name_vsn(PluginName, Vsn),
+                case OtherNameVsn =/= NameVsn of
+                    true -> {true, OtherNameVsn};
+                    false -> false
+                end;
+            (_) ->
+                false
+        end,
+        conflicting_versions(NameVsn)
+    ),
+    case RunningOtherVersions of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, #{
+                kind => conflicting_version,
+                msg => "conflicting_plugin_version_running",
+                active_versions => RunningOtherVersions
+            }}
+    end.
+
+conflicting_versions(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Name = emqx_plugins_utils:plugin_name(NameVsn),
+    lists:filtermap(
         fun(OtherNameVsn) ->
             case
                 emqx_plugins_utils:plugin_name(OtherNameVsn) =:=
@@ -1047,10 +1115,7 @@ validate_no_other_version_running(NameVsn0) ->
                     case emqx_plugins_fs:read_info(OtherNameVsn) of
                         {ok, Info0} ->
                             Info = emqx_utils_maps:safe_atom_key_map(Info0),
-                            case emqx_plugins_apps:running_status(Info) of
-                                running -> {true, bin(OtherNameVsn)};
-                                _ -> false
-                            end;
+                            {true, Info#{running_status => emqx_plugins_apps:running_status(Info)}};
                         {error, _} ->
                             false
                     end;
@@ -1059,15 +1124,7 @@ validate_no_other_version_running(NameVsn0) ->
             end
         end,
         emqx_plugins_fs:list_name_vsn()
-    ),
-    case RunningOtherVersions of
-        [] ->
-            ok;
-        _ ->
-            {error, #{
-                msg => "conflicting_plugin_version_running", active_versions => RunningOtherVersions
-            }}
-    end.
+    ).
 
 ensure_state(NameVsn) ->
     EnsureStateFun = fun(#{name_vsn := NV, enable := Bool}, AccIn) ->

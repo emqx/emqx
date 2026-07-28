@@ -185,9 +185,19 @@ validate_plugin_app(AppNameVsn, LibDir, ok) ->
         {ok, [{application, AppName, Props}]} ->
             validate_plugin_app(AppName, AppVsn, EbinDir, AppFile, Props);
         {ok, AppSpec} ->
-            {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => AppSpec}};
+            {error, #{
+                kind => invalid_package,
+                msg => "bad_plugin_app_file",
+                path => AppFile,
+                reason => AppSpec
+            }};
         {error, Reason} ->
-            {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => Reason}}
+            {error, #{
+                kind => invalid_package,
+                msg => "bad_plugin_app_file",
+                path => AppFile,
+                reason => Reason
+            }}
     end.
 
 validate_plugin_app(AppName, AppVsn, EbinDir, AppFile, Props) when is_list(Props) ->
@@ -197,6 +207,7 @@ validate_plugin_app(AppName, AppVsn, EbinDir, AppFile, Props) when is_list(Props
             validate_loaded_plugin_app(AppName, EbinDir, Props);
         false ->
             {error, #{
+                kind => invalid_package,
                 msg => "plugin_app_version_mismatch",
                 path => AppFile,
                 expected_vsn => AppVsn,
@@ -204,7 +215,12 @@ validate_plugin_app(AppName, AppVsn, EbinDir, AppFile, Props) when is_list(Props
             }}
     end;
 validate_plugin_app(_AppName, _AppVsn, _EbinDir, AppFile, Props) ->
-    {error, #{msg => "bad_plugin_app_file", path => AppFile, reason => Props}}.
+    {error, #{
+        kind => invalid_package,
+        msg => "bad_plugin_app_file",
+        path => AppFile,
+        reason => Props
+    }}.
 
 validate_loaded_plugin_app(AppName, EbinDir, Props) ->
     case lists:keyfind(AppName, 1, loaded_apps()) of
@@ -221,6 +237,7 @@ validate_loaded_plugin_app(AppName, EbinDir, Props) ->
                             ok;
                         false ->
                             {error, #{
+                                kind => invalid_package,
                                 msg => "plugin_app_loaded_outside_package",
                                 name => AppName,
                                 expected_ebin => ExpectedEbinDir,

@@ -1113,8 +1113,8 @@ operation_response(start, {error, {plugin_start_enable_failed, Reason}}) ->
         "plugin_start_enable_failed",
         #{reason => Reason},
         <<
-            "Plugin started, but enabling it in the cluster configuration failed. "
-            "Check server logs and plugin status."
+            "Plugin start was rolled back because enabling it in the cluster configuration failed. "
+            "Check server logs for details."
         >>
     );
 operation_response(start, {error, {plugin_start_failed, NodeErrors}}) ->
@@ -1199,28 +1199,26 @@ format_node_error(Node, Error) ->
 
 classify_start_preflight_errors(NodeErrors) ->
     Errors = [Error || {_Node, Error} <- NodeErrors],
-    case lists:all(fun is_invalid_plugin_config_error/1, Errors) of
-        true ->
-            invalid_config;
+    Kinds = lists:filtermap(fun validation_error_kind/1, Errors),
+    case length(Kinds) =:= length(Errors) of
         false ->
-            case lists:all(fun is_conflicting_plugin_version_error/1, Errors) of
-                true ->
-                    conflicting_version;
-                false ->
-                    case lists:all(fun is_start_client_error/1, Errors) of
-                        true -> mixed_client_errors;
-                        false -> internal_error
-                    end
+            internal_error;
+        true ->
+            case lists:usort(Kinds) of
+                [] -> internal_error;
+                [invalid_config] -> invalid_config;
+                [conflicting_version] -> conflicting_version;
+                [_ | _] -> mixed_client_errors
             end
     end.
 
-is_start_client_error(Error) ->
-    is_invalid_plugin_config_error(Error) orelse is_conflicting_plugin_version_error(Error).
-is_invalid_plugin_config_error({error, #{msg := "invalid_plugin_config"}}) -> true;
-is_invalid_plugin_config_error(_) -> false.
-is_conflicting_plugin_version_error({error, #{msg := "conflicting_plugin_version_running"}}) ->
-    true;
-is_conflicting_plugin_version_error(_) ->
+validation_error_kind({error, #{kind := Kind}}) when
+    Kind =:= invalid_config;
+    Kind =:= invalid_package;
+    Kind =:= conflicting_version
+->
+    {true, Kind};
+validation_error_kind(_) ->
     false.
 
 readable_error_msg(#{msg := "invalid_plugin_config", name_vsn := NameVsn, reason := Reason}) ->

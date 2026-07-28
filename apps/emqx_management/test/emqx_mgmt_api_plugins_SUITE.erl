@@ -334,8 +334,10 @@ t_install_plugin_with_invalid_schema_returns_bad_plugin_info(Config) ->
     end),
     ok = allow_installation(NameVsn),
     {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, Body}} = install_plugin(PackagePath),
-    #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Message} = emqx_utils_json:decode(Body),
-    ?assertNotEqual(nomatch, binary:match(Message, <<"invalid_plugin_config_schema">>)).
+    #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Message} =
+        emqx_utils_json:decode(Body),
+    ?assertNotEqual(nomatch, binary:match(Message, <<"invalid_plugin_config_schema">>)),
+    ?assertNotEqual(nomatch, binary:match(Message, <<"Rebuild or reinstall">>)).
 
 t_install_plugin_with_bad_app_file_returns_consistent_error(Config) ->
     PackagePath = make_test_plugin_package(
@@ -351,8 +353,99 @@ t_install_plugin_with_bad_app_file_returns_consistent_error(Config) ->
     end),
     ok = allow_installation(NameVsn),
     {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, Body}} = install_plugin(PackagePath),
-    #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Message} = emqx_utils_json:decode(Body),
-    ?assertNotEqual(nomatch, binary:match(Message, <<"bad_plugin_app_file">>)).
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_PLUGIN_INFO">>,
+            <<"message">> =>
+                iolist_to_binary([
+                    "node ",
+                    atom_to_binary(node()),
+                    ": bad_plugin_app_file: Plugin package metadata is invalid or unreadable. ",
+                    "Rebuild or reinstall a corrected plugin package and retry."
+                ])
+        },
+        emqx_utils_json:decode(Body)
+    ).
+
+t_start_preflight_package_error_returns_400(Config) ->
+    NameVsn = install_test_plugin(Config),
+    [SchemaPath] = filelib:wildcard(
+        filename:join([
+            emqx_plugins_fs:plugin_dir(NameVsn),
+            "*",
+            "priv",
+            "config_schema.avsc"
+        ])
+    ),
+    ok = file:write_file(SchemaPath, <<"not an avro schema">>),
+    {400, Response} = request_plugin_action(NameVsn, "start"),
+    ?assertEqual(<<"PARAM_ERROR">>, maps:get(<<"code">>, Response)),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(maps:get(<<"message">>, Response), <<"invalid_plugin_config_schema:">>)
+    ).
+
+t_uninstall_conflicting_version_keeps_old_running(Config) ->
+    OldPackagePath = make_test_plugin_package(
+        Config,
+        "1.0.0",
+        "invalid_plugin_v1",
+        "0.1.0",
+        test_plugin_schema(),
+        <<"foo = \"old\"\n">>
+    ),
+    NewPackagePath = make_test_plugin_package(
+        Config,
+        "2.0.0",
+        "invalid_plugin_v2",
+        "0.2.0",
+        test_plugin_schema(),
+        <<"foo = \"new\"\n">>
+    ),
+    OldNameVsn = filename:basename(OldPackagePath, ?PACKAGE_SUFFIX),
+    NewNameVsn = filename:basename(NewPackagePath, ?PACKAGE_SUFFIX),
+    on_exit(fun() ->
+        lists:foreach(
+            fun(NameVsn) ->
+                _ = emqx_plugins:ensure_stopped(NameVsn),
+                _ = emqx_plugins:ensure_disabled(NameVsn),
+                _ = emqx_plugins:ensure_uninstalled(NameVsn),
+                _ = emqx_plugins:delete_package(NameVsn)
+            end,
+            [OldNameVsn, NewNameVsn]
+        )
+    end),
+    ok = allow_installation(OldNameVsn),
+    ok = allow_installation(NewNameVsn),
+    ok = install_plugin(OldPackagePath),
+    ok = install_plugin(NewPackagePath),
+    {ok, []} = update_plugin(OldNameVsn, "start"),
+    ?assertMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"status">> := <<"running">>}
+            ]
+        },
+        describe_plugin(OldNameVsn)
+    ),
+    {400, ConflictResponse} = request_plugin_action(NewNameVsn, "start"),
+    ?assertEqual(<<"PARAM_ERROR">>, maps:get(<<"code">>, ConflictResponse)),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(
+            maps:get(<<"message">>, ConflictResponse),
+            <<"conflicting_plugin_version_running:">>
+        )
+    ),
+    {ok, []} = uninstall_plugin(NewNameVsn),
+    ?assertMatch(
+        #{
+            <<"running_status">> := [
+                #{<<"status">> := <<"running">>}
+            ]
+        },
+        describe_plugin(OldNameVsn)
+    ).
 
 t_install_plugin_matching_exisiting_name(_Config) ->
     PackagePath = get_demo_plugin_package(),
@@ -623,32 +716,33 @@ t_cluster_rolls_back_partial_start_failure(Config) ->
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ?ON(Initiator, ok = allow_installation(NameVsn)),
     ok = install_plugin_into_cluster(Config, PackagePath),
-    ok = ?ON(FailingNode, meck:new(emqx_plugins, [no_link, passthrough])),
+    FailingAppFile = ?ON(FailingNode, test_plugin_app_file(NameVsn)),
     ok = ?ON(
         FailingNode,
-        meck:expect(
-            emqx_plugins,
-            ensure_started,
-            fun(_Name) -> {error, injected_start_failure} end
+        file:write_file(
+            FailingAppFile,
+            <<
+                "{application, invalid_plugin, ["
+                "{vsn, \"0.1.0\"},"
+                "{applications, [missing_plugin_dependency]}"
+                "]}.\n"
+            >>
         )
     ),
-    try
-        {500, StartResponse} = request_plugin_action_in_cluster(Config, NameVsn, "start"),
-        ?assertEqual(<<"INTERNAL_ERROR">>, maps:get(<<"code">>, StartResponse)),
-        ?assertMatch(
-            <<"plugin_start_failed: ", _/binary>>,
-            maps:get(<<"message">>, StartResponse)
-        ),
-        #{
-            <<"running_status">> := RunningStatus
-        } = describe_plugin_in_cluster(Config, NameVsn),
-        ?assertEqual(
-            [<<"stopped">>, <<"stopped">>],
-            lists:sort([Status || #{<<"status">> := Status} <- RunningStatus])
-        )
-    after
-        ?ON(FailingNode, meck:unload(emqx_plugins))
-    end.
+    ok = ?ON(FailingNode, application:unload(invalid_plugin)),
+    {500, StartResponse} = request_plugin_action_in_cluster(Config, NameVsn, "start"),
+    ?assertEqual(<<"INTERNAL_ERROR">>, maps:get(<<"code">>, StartResponse)),
+    ?assertMatch(
+        <<"plugin_start_failed: ", _/binary>>,
+        maps:get(<<"message">>, StartResponse)
+    ),
+    #{
+        <<"running_status">> := RunningStatus
+    } = describe_plugin_in_cluster(Config, NameVsn),
+    ?assertEqual(
+        [<<"stopped">>, <<"stopped">>],
+        lists:sort([Status || #{<<"status">> := Status} <- RunningStatus])
+    ).
 
 list_plugins_from_cluster(Config) ->
     #{host := Host, auth := Auth} = get_host_and_auth(Config),
@@ -769,6 +863,34 @@ update_boot_order(Name, MoveBody, Config) ->
 uninstall_plugin(Name) ->
     DeletePath = emqx_mgmt_api_test_util:api_path(["plugins", Name]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath).
+
+install_test_plugin(Config) ->
+    PackagePath = make_test_plugin_package(
+        Config,
+        test_plugin_schema(),
+        <<"foo = \"bar\"\n">>
+    ),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_disabled(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    NameVsn.
+
+test_plugin_app_file(NameVsn) ->
+    [AppFile] = filelib:wildcard(
+        filename:join([
+            emqx_plugins_fs:plugin_dir(NameVsn),
+            "*",
+            "ebin",
+            "invalid_plugin.app"
+        ])
+    ),
+    AppFile.
 
 get_demo_plugin_package() ->
     PkgName = lists:flatten([
