@@ -39,13 +39,14 @@ groups() ->
     [
         {mnesia_without_indices, [sequence], common_tests()},
         {mnesia_with_indices, [sequence], common_tests()},
-        {mnesia_reindex, [sequence], [t_reindex]},
+        {mnesia_reindex, [sequence], [t_reindex, t_reindex_bad_node]},
         {test_disable_then_start, [sequence], [t_disable_then_start]},
         {disabled, [t_disabled]}
     ].
 
 common_tests() ->
-    emqx_common_test_helpers:all(?MODULE) -- [t_reindex, t_disable_then_start, t_disabled].
+    emqx_common_test_helpers:all(?MODULE) --
+        [t_reindex, t_reindex_bad_node, t_disable_then_start, t_disabled].
 
 %% erlfmt-ignore
 -define(BASE_CONF, <<"
@@ -886,6 +887,22 @@ t_reindex(_) ->
             )
         end
     ).
+
+%% Reindex tolerates nodes that are unreachable during the dispatch-complete
+%% RPC instead of crashing with a badmatch.
+t_reindex_bad_node(_) ->
+    ok = emqx_retainer:clean(),
+    ok = meck:new(emqx_retainer_proto_v2, [passthrough, no_link]),
+    ok = meck:expect(
+        emqx_retainer_proto_v2,
+        wait_dispatch_complete,
+        fun(_Nodes, _Timeout) -> {[ok], ['fake@node']} end
+    ),
+    try
+        ?assertEqual(ok, emqx_retainer_mnesia:reindex([[1, 3]], false, fun(_Done) -> ok end))
+    after
+        meck:unload(emqx_retainer_proto_v2)
+    end.
 
 t_get_basic_usage_info(_Config) ->
     ?assertEqual(#{retained_messages => 0}, emqx_retainer:get_basic_usage_info()),
