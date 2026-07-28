@@ -215,6 +215,24 @@ t_install_plugin_with_bad_app_file_returns_consistent_error(Config) ->
         emqx_utils_json:decode(Body)
     ).
 
+t_start_preflight_package_error_returns_400(Config) ->
+    NameVsn = install_test_plugin(Config),
+    [SchemaPath] = filelib:wildcard(
+        filename:join([
+            emqx_plugins_fs:plugin_dir(NameVsn),
+            "*",
+            "priv",
+            "config_schema.avsc"
+        ])
+    ),
+    ok = file:write_file(SchemaPath, <<"not an avro schema">>),
+    {400, Response} = request_plugin_action(NameVsn, "start"),
+    ?assertEqual(<<"PARAM_ERROR">>, maps:get(<<"code">>, Response)),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(maps:get(<<"message">>, Response), <<"invalid_plugin_config_schema:">>)
+    ).
+
 t_uninstall_conflicting_version_keeps_old_running(Config) ->
     OldPackagePath = make_test_plugin_package(
         Config,
@@ -702,32 +720,33 @@ t_cluster_rolls_back_partial_start_failure(Config) ->
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ?ON(Initiator, ok = allow_installation(NameVsn)),
     ok = install_plugin_into_cluster(Config, PackagePath),
-    ok = ?ON(FailingNode, meck:new(emqx_plugins, [no_link, passthrough])),
+    FailingAppFile = ?ON(FailingNode, test_plugin_app_file(NameVsn)),
     ok = ?ON(
         FailingNode,
-        meck:expect(
-            emqx_plugins,
-            ensure_started,
-            fun(_Name) -> {error, injected_start_failure} end
+        file:write_file(
+            FailingAppFile,
+            <<
+                "{application, invalid_plugin, ["
+                "{vsn, \"0.1.0\"},"
+                "{applications, [missing_plugin_dependency]}"
+                "]}.\n"
+            >>
         )
     ),
-    try
-        {500, StartResponse} = request_plugin_action_in_cluster(Config, NameVsn, "start"),
-        ?assertEqual(<<"INTERNAL_ERROR">>, maps:get(<<"code">>, StartResponse)),
-        ?assertMatch(
-            <<"plugin_start_failed: ", _/binary>>,
-            maps:get(<<"message">>, StartResponse)
-        ),
-        #{
-            <<"running_status">> := RunningStatus
-        } = describe_plugin_in_cluster(Config, NameVsn),
-        ?assertEqual(
-            [<<"stopped">>, <<"stopped">>],
-            lists:sort([Status || #{<<"status">> := Status} <- RunningStatus])
-        )
-    after
-        ?ON(FailingNode, meck:unload(emqx_plugins))
-    end.
+    ok = ?ON(FailingNode, application:unload(invalid_plugin)),
+    {500, StartResponse} = request_plugin_action_in_cluster(Config, NameVsn, "start"),
+    ?assertEqual(<<"INTERNAL_ERROR">>, maps:get(<<"code">>, StartResponse)),
+    ?assertMatch(
+        <<"plugin_start_failed: ", _/binary>>,
+        maps:get(<<"message">>, StartResponse)
+    ),
+    #{
+        <<"running_status">> := RunningStatus
+    } = describe_plugin_in_cluster(Config, NameVsn),
+    ?assertEqual(
+        [<<"stopped">>, <<"stopped">>],
+        lists:sort([Status || #{<<"status">> := Status} <- RunningStatus])
+    ).
 
 list_plugins_from_cluster(Config) ->
     #{host := Host, auth := Auth} = get_host_and_auth(Config),
@@ -848,6 +867,34 @@ update_boot_order(Name, MoveBody, Config) ->
 uninstall_plugin(Name) ->
     DeletePath = emqx_mgmt_api_test_util:api_path(["plugins", Name]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath).
+
+install_test_plugin(Config) ->
+    PackagePath = make_test_plugin_package(
+        Config,
+        test_plugin_schema(),
+        <<"foo = \"bar\"\n">>
+    ),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_disabled(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    NameVsn.
+
+test_plugin_app_file(NameVsn) ->
+    [AppFile] = filelib:wildcard(
+        filename:join([
+            emqx_plugins_fs:plugin_dir(NameVsn),
+            "*",
+            "ebin",
+            "invalid_plugin.app"
+        ])
+    ),
+    AppFile.
 
 get_demo_plugin_package() ->
     PkgName = lists:flatten([
