@@ -206,18 +206,25 @@ check_oauth2_headers(Config) ->
     end.
 
 parse_config(#{url := RawUrl} = Config) ->
-    case emqx_auth_http_utils:parse_url_template(RawUrl) of
+    RequestMode = maps:get(request_mode, Config, auto),
+    case emqx_auth_http_utils:parse_url_template(RawUrl, RequestMode) of
         {static, {RequestBase, Path, Query}} ->
             {Vars, StateBase} = parse_templates(Path, Query, Config),
             State = finalize_state(Config, Vars, StateBase),
             ResourceConfig0 = emqx_authn_utils:cleanup_resource_config(
-                [method, url, headers, request_timeout, allowed_hosts], Config
+                [method, url, headers, request_timeout, allowed_hosts, request_mode], Config
             ),
             ResourceConfig = ResourceConfig0#{
                 request_base => RequestBase,
                 pool_type => random
             },
             {ok, ResourceConfig, State};
+        {one_off, #{scheme := Scheme, host := Host, port := Port, path := Path, query := Query}} ->
+            ok = check_no_oauth2(Config),
+            {Vars, StateBase} = parse_templates(Path, Query, Config),
+            OneOffBase = (one_off_base(Scheme, Port, Config))#{static_host => Host},
+            State = finalize_state(Config, Vars, StateBase#{one_off_base => OneOffBase}),
+            {ok, no_resource, State};
         {dynamic, #{
             scheme := Scheme,
             host_template := HostTemplateStr,
@@ -229,19 +236,23 @@ parse_config(#{url := RawUrl} = Config) ->
             AllowedHosts = allowed_hosts(Config),
             {HostVars, HostTemplate} = emqx_authn_utils:parse_str(HostTemplateStr),
             {Vars, StateBase} = parse_templates(Path, Query, Config),
-            OneOffBase = #{
-                scheme => Scheme,
+            OneOffBase = (one_off_base(Scheme, Port, Config))#{
                 host_template => HostTemplate,
-                port => Port,
-                allowed_hosts => AllowedHosts,
-                connect_timeout => maps:get(connect_timeout, Config, 15000),
-                ssl_opts => one_off_ssl_opts(Scheme, Config)
+                allowed_hosts => AllowedHosts
             },
             State = finalize_state(Config, HostVars ++ Vars, StateBase#{
                 one_off_base => OneOffBase
             }),
             {ok, no_resource, State}
     end.
+
+one_off_base(Scheme, Port, Config) ->
+    #{
+        scheme => Scheme,
+        port => Port,
+        connect_timeout => maps:get(connect_timeout, Config, 15000),
+        ssl_opts => one_off_ssl_opts(Scheme, Config)
+    }.
 
 parse_templates(
     Path,

@@ -21,7 +21,8 @@
 -export([
     headers_no_content_type/1,
     headers/1,
-    allowed_hosts/1
+    allowed_hosts/1,
+    request_mode/1
 ]).
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
@@ -83,6 +84,7 @@ http_common_fields() ->
     [
         {url, fun url/1},
         {allowed_hosts, fun allowed_hosts/1},
+        {request_mode, fun request_mode/1},
         {request_timeout,
             emqx_schema:mk_duration(#{
                 required => false,
@@ -152,3 +154,9 @@ allowed_hosts(default) -> [];
 allowed_hosts(required) -> false;
 allowed_hosts(validator) -> fun emqx_auth_http_utils:validate_allowed_hosts_field/1;
 allowed_hosts(_) -> undefined.
+
+request_mode(type) -> hoconsc:enum([auto, one_off]);
+request_mode(desc) -> ?DESC(?FUNCTION_NAME);
+request_mode(default) -> auto;
+request_mode(required) -> false;
+request_mode(_) -> undefined.

@@ -194,11 +194,12 @@ check_oauth2_headers_conflict(Headers, Oauth2) ->
 
 new_state(ResourceId, #{url := RawUrl, headers := Headers0} = Source) ->
     ok = check_oauth2_headers_conflict(Headers0, maps:get(oauth2, Source, undefined)),
-    case emqx_auth_http_utils:parse_url_template(RawUrl) of
+    RequestMode = maps:get(request_mode, Source, auto),
+    case emqx_auth_http_utils:parse_url_template(RawUrl, RequestMode) of
         {static, {RequestBase, Path, Query}} ->
             {Vars, StateBase} = parse_templates(Path, Query, Source),
             ResourceConfig = emqx_authz_utils:cleanup_resource_config(
-                [url, method, request_timeout, body, allowed_hosts],
+                [url, method, request_timeout, body, allowed_hosts, request_mode],
                 Source#{
                     request_base => RequestBase,
                     pool_type => random
@@ -207,6 +208,14 @@ new_state(ResourceId, #{url := RawUrl, headers := Headers0} = Source) ->
             emqx_authz_utils:init_state(Source, StateBase#{
                 resource_config => ResourceConfig,
                 resource_id => ResourceId,
+                cache_key_template => emqx_auth_template:cache_key_template(Vars)
+            });
+        {one_off, #{scheme := Scheme, host := Host, port := Port, path := Path, query := Query}} ->
+            ok = check_no_oauth2(Source),
+            {Vars, StateBase} = parse_templates(Path, Query, Source),
+            OneOffBase = (one_off_base(Scheme, Port, Source))#{static_host => Host},
+            emqx_authz_utils:init_state(Source, StateBase#{
+                one_off_base => OneOffBase,
                 cache_key_template => emqx_auth_template:cache_key_template(Vars)
             });
         {dynamic, #{
@@ -222,19 +231,23 @@ new_state(ResourceId, #{url := RawUrl, headers := Headers0} = Source) ->
                 HostTemplateStr, ?ALLOWED_VARS
             ),
             {Vars, StateBase} = parse_templates(Path, Query, Source),
-            OneOffBase = #{
-                scheme => Scheme,
+            OneOffBase = (one_off_base(Scheme, Port, Source))#{
                 host_template => HostTemplate,
-                port => Port,
-                allowed_hosts => AllowedHosts,
-                connect_timeout => maps:get(connect_timeout, Source, 15000),
-                ssl_opts => one_off_ssl_opts(Scheme, Source)
+                allowed_hosts => AllowedHosts
             },
             emqx_authz_utils:init_state(Source, StateBase#{
                 one_off_base => OneOffBase,
                 cache_key_template => emqx_auth_template:cache_key_template(HostVars ++ Vars)
             })
     end.
+
+one_off_base(Scheme, Port, Source) ->
+    #{
+        scheme => Scheme,
+        port => Port,
+        connect_timeout => maps:get(connect_timeout, Source, 15000),
+        ssl_opts => one_off_ssl_opts(Scheme, Source)
+    }.
 
 parse_templates(
     Path,

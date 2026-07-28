@@ -1059,6 +1059,29 @@ t_templated_host_requires_allowed_hosts(TCConfig) ->
         ]
     ).
 
+-doc """
+'request_mode = one_off' forces one-off per-request connections even when the
+URL host is a literal hostname: no connector resource (connection pool) is
+created and authorization still works, with 'allowed_hosts' not required.
+""".
+t_one_off_request_mode_static_host(TCConfig) ->
+    ok = setup_handler_and_config(
+        TCConfig,
+        fun(Req0, State) ->
+            #{
+                topic := <<"t">>,
+                action := <<"publish">>
+            } = cowboy_req:match_qs([topic, action], Req0),
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
+        end,
+        #{<<"request_mode">> => <<"one_off">>}
+    ),
+    ?assertEqual([], emqx_resource:list_group_instances(?AUTHZ_RESOURCE_GROUP)),
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(templated_host_client_info(), ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
 templated_host_client_info() ->
     #{
         clientid => <<"clientid">>,

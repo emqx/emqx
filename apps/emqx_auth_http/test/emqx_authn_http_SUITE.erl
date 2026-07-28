@@ -1359,6 +1359,35 @@ t_templated_host_update_transitions(TCConfig) ->
     ?assertMatch({ok, _}, emqx_access_control:authenticate(Credentials)),
     ?assertMatch([_], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)).
 
+-doc """
+'request_mode = one_off' forces one-off per-request connections even when the
+URL host is a literal hostname: no connector resource (connection pool) is
+created and authentication still works, with 'allowed_hosts' not required.
+""".
+t_one_off_request_mode_static_host(TCConfig) ->
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            #{
+                username := <<"plain">>,
+                password := <<"plain">>
+            } = cowboy_req:match_qs([username, password], Req0),
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_JSON(allow),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+    AuthConfig = (raw_http_auth_config(TCConfig))#{<<"request_mode">> => <<"one_off">>},
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    ?assertEqual([], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ).
+
 allow_handler() ->
     fun(Req0, State) ->
         Req = cowboy_req:reply(

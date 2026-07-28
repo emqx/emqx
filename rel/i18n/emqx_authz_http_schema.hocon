@@ -9,6 +9,14 @@ It has no effect when the URL host is a literal hostname."""
 allowed_hosts.label:
 """Allowed Hosts"""
 
+request_mode.desc:
+"""How HTTP requests to the auth server are made.
+<code>auto</code>: use a fixed connection pool when the URL host is a literal hostname, and one-off per-request connections when the URL host contains template placeholders.
+<code>one_off</code>: always use one-off per-request connections, even for a literal hostname; no connection pool is maintained and the hostname is resolved for every request."""
+
+request_mode.label:
+"""Request Mode"""
+
 method.desc:
 """HTTP method."""
 
