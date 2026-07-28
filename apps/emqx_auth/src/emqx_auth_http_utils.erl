@@ -10,8 +10,8 @@
     default_headers/0,
     default_headers_no_content_type/0,
     transform_header_name/1,
-    parse_url/1,
     parse_url_template/2,
+    request_base/1,
     is_templated_host_url/1,
     ensure_pool/2,
     parse_allowed_hosts/1,
@@ -26,22 +26,28 @@
 -type request_path() :: binary().
 -type request_query() :: binary().
 -type allowed_host() :: {exact, binary()} | {suffix, binary()}.
-%% Base for dynamic-resolution requests: either a fixed `static_host`, or a
-%% `host_template` rendered per request and checked against `allowed_hosts`.
+-type hostname_resolution() :: static | dynamic.
+%% Parsed URL; the host is a literal or, with dynamic resolution, may be a template.
+-type url_template() :: #{
+    scheme := http | https,
+    host := {static, binary()} | {template, binary()},
+    port := inet:port_number(),
+    path := request_path(),
+    query := request_query()
+}.
+%% Base for dynamic-resolution requests: the host is fixed, or a compiled
+%% template rendered per request and checked against the allowed hosts.
 %% `pool` is a hackney pool name, or `false` for no connection reuse.
 -type one_off_base() :: #{
     scheme := http | https,
+    host := {static, binary()} | {template, emqx_template:t(), [allowed_host()]},
     port := inet:port_number(),
     connect_timeout := timeout(),
     ssl_opts := [ssl:tls_client_option()],
-    pool := atom() | false,
-    static_host => binary(),
-    host_template => emqx_template:t(),
-    allowed_hosts => [allowed_host()]
+    pool := atom() | false
 }.
--type hostname_resolution() :: static | dynamic.
 
--export_type([allowed_host/0, one_off_base/0, hostname_resolution/0]).
+-export_type([allowed_host/0, hostname_resolution/0, url_template/0, one_off_base/0]).
 
 -ifdef(TEST).
 %% Internal functions exported for tests in test/emqx_auth_http_utils_tests.erl.
@@ -51,8 +57,8 @@
 -define(DEFAULT_HTTP_REQUEST_CONTENT_TYPE, <<"application/json">>).
 
 %% Rendered host must be a plain DNS name or IPv4 address:
-%% non-empty labels of [a-z0-9_-] separated by dots.
--define(HOSTNAME_RE, "^[a-z0-9_-]+(\\.[a-z0-9_-]+)*$").
+%% non-empty labels of [a-z0-9-] separated by dots.
+-define(HOSTNAME_RE, "^[a-z0-9-]+(\\.[a-z0-9-]+)*$").
 -define(MAX_HOSTNAME_LEN, 253).
 
 -spec convert_headers(headers()) -> headers().
@@ -95,67 +101,88 @@ transform_header_name(Headers) ->
     ).
 
 -doc """
-Parse a URL with a static (non-templated) authority.
-Throws `{invalid_url, _}` if the URL is invalid or its host contains template placeholders.
-""".
--spec parse_url(binary()) ->
-    {emqx_utils_uri:request_base(), request_path(), request_query()}.
-parse_url(Url) ->
-    case parse_url_template(Url, static) of
-        {pooled, Parsed} ->
-            Parsed;
-        {templated_host, _} ->
-            throw({invalid_url, {templated_host_not_supported, Url}})
-    end.
-
--doc """
 Parse a URL whose host part may contain template placeholders (`${...}`).
 
-Returns `{pooled, {RequestBase, Path, Query}}` when the authority is fixed
-and `Resolution` is `static`, `{static_host, #{scheme, host, port, path, query}}`
-when the authority is fixed but `Resolution` is `dynamic`, or
-`{templated_host, #{scheme, host_template, port, path, query}}` whenever the
-host is templated (regardless of `Resolution`; callers decide whether that is
-allowed). Only the host may be templated: the scheme must be literal
-`http`/`https` and the port, if present, must be a literal integer.
+The returned host is `{template, HostString}` when it contains placeholders
+(allowed only with `dynamic` resolution), otherwise `{static, Host}` (IPv6
+hosts are formatted with brackets). Only the host may be templated: the
+scheme must be literal `http`/`https` and the port, if present, must be a
+literal integer. Throws `{invalid_url, Reason, Url}` on invalid URLs and on
+a templated host with `static` resolution.
 """.
--spec parse_url_template(binary(), hostname_resolution()) ->
-    {pooled, {emqx_utils_uri:request_base(), request_path(), request_query()}}
-    | {static_host, #{
-        scheme := http | https,
-        host := binary(),
-        port := inet:port_number(),
-        path := request_path(),
-        query := request_query()
-    }}
-    | {templated_host, #{
-        scheme := http | https,
-        host_template := binary(),
-        port := inet:port_number(),
-        path := request_path(),
-        query := request_query()
-    }}.
+-spec parse_url_template(binary(), hostname_resolution()) -> url_template().
 parse_url_template(Url, Resolution) ->
-    Parsed = emqx_utils_uri:parse(Url),
-    case Parsed of
-        #{scheme := undefined} ->
-            throw({invalid_url, {no_scheme, Url}});
-        #{authority := undefined} ->
-            throw({invalid_url, {no_host, Url}});
-        #{authority := #{userinfo := Userinfo}} when Userinfo =/= undefined ->
-            throw({invalid_url, {userinfo_not_supported, Url}});
-        #{fragment := Fragment} when Fragment =/= undefined ->
-            throw({invalid_url, {fragments_not_supported, Url}});
-        #{authority := #{host := Host}} ->
-            case {is_templated(Host), Resolution} of
-                {false, static} ->
-                    {pooled, static_url(Parsed, Url)};
-                {false, dynamic} ->
-                    {static_host, one_off_static_url(Parsed, Url)};
-                {true, _} ->
-                    {templated_host, dynamic_url(Parsed, Url)}
-            end
+    try
+        do_parse_url_template(emqx_utils_uri:parse(Url), Resolution)
+    catch
+        throw:Reason ->
+            throw({invalid_url, Reason, Url})
     end.
+
+do_parse_url_template(#{scheme := undefined}, _Resolution) ->
+    throw(no_scheme);
+do_parse_url_template(#{authority := undefined}, _Resolution) ->
+    throw(no_host);
+do_parse_url_template(#{authority := #{userinfo := Userinfo}}, _Resolution) when
+    Userinfo =/= undefined
+->
+    throw(userinfo_not_supported);
+do_parse_url_template(#{fragment := Fragment}, _Resolution) when Fragment =/= undefined ->
+    throw(fragments_not_supported);
+do_parse_url_template(
+    #{scheme := SchemeBin, authority := #{host := Host, host_type := HostType, port := Port}} =
+        Parsed,
+    Resolution
+) ->
+    Scheme = parse_scheme(SchemeBin),
+    #{
+        scheme => Scheme,
+        host => parse_host(Host, HostType, Resolution),
+        port => emqx_maybe:define(Port, default_port(Scheme)),
+        path => emqx_utils_uri:path(Parsed),
+        query => emqx_maybe:define(emqx_utils_uri:query(Parsed), <<>>)
+    }.
+
+parse_host(Host, HostType, Resolution) ->
+    case is_templated(Host) of
+        false ->
+            {static, format_static_host(Host, HostType)};
+        true ->
+            template_host(Host, HostType, Resolution)
+    end.
+
+template_host(Host, regular, dynamic) ->
+    {template, Host};
+template_host(_Host, _HostType, dynamic) ->
+    throw(unsupported_templated_host);
+template_host(_Host, _HostType, static) ->
+    throw(hostname_resolution_must_be_dynamic).
+
+format_static_host(<<>>, _HostType) ->
+    throw(no_host);
+format_static_host(Host, regular) ->
+    Host;
+format_static_host(Host, ipv6) ->
+    <<"[", Host/binary, "]">>;
+format_static_host(_Host, loose) ->
+    throw(invalid_host).
+
+-doc """
+Convert a static-host URL template to the request base passed to the
+`ehttpc`-based connector.
+""".
+-spec request_base(url_template()) -> emqx_utils_uri:request_base().
+request_base(#{scheme := Scheme, host := {static, Host}, port := Port}) ->
+    #{
+        scheme => Scheme,
+        host => binary_to_list(string:lowercase(unbracket(Host))),
+        port => Port
+    }.
+
+unbracket(<<"[", Rest/binary>>) ->
+    binary:part(Rest, 0, byte_size(Rest) - 1);
+unbracket(Host) ->
+    Host.
 
 -doc """
 Resolve the hackney pool to use for dynamic-resolution requests.
@@ -184,54 +211,9 @@ is_templated_host_url(Url) ->
             false
     end.
 
-static_url(Parsed, Url) ->
-    case emqx_utils_uri:request_base(Parsed) of
-        {ok, Base} ->
-            {Base, emqx_utils_uri:path(Parsed),
-                emqx_maybe:define(emqx_utils_uri:query(Parsed), <<>>)};
-        {error, Reason} ->
-            throw({invalid_url, {invalid_base, Reason, Url}})
-    end.
-
-dynamic_url(
-    #{scheme := SchemeBin, authority := #{host := Host, host_type := HostType, port := Port}} =
-        Parsed,
-    Url
-) ->
-    HostType =:= regular orelse throw({invalid_url, {unsupported_templated_host, Url}}),
-    Scheme = parse_scheme(SchemeBin, Url),
-    #{
-        scheme => Scheme,
-        host_template => Host,
-        port => emqx_maybe:define(Port, default_port(Scheme)),
-        path => emqx_utils_uri:path(Parsed),
-        query => emqx_maybe:define(emqx_utils_uri:query(Parsed), <<>>)
-    }.
-
-one_off_static_url(
-    #{scheme := SchemeBin, authority := #{host := Host, host_type := HostType, port := Port}} =
-        Parsed,
-    Url
-) ->
-    Host =/= <<>> orelse throw({invalid_url, {no_host, Url}}),
-    Scheme = parse_scheme(SchemeBin, Url),
-    FormattedHost =
-        case HostType of
-            regular -> Host;
-            ipv6 -> <<"[", Host/binary, "]">>;
-            loose -> throw({invalid_url, {invalid_host, Url}})
-        end,
-    #{
-        scheme => Scheme,
-        host => FormattedHost,
-        port => emqx_maybe:define(Port, default_port(Scheme)),
-        path => emqx_utils_uri:path(Parsed),
-        query => emqx_maybe:define(emqx_utils_uri:query(Parsed), <<>>)
-    }.
-
-parse_scheme(<<"http">>, _Url) -> http;
-parse_scheme(<<"https">>, _Url) -> https;
-parse_scheme(_, Url) -> throw({invalid_url, {unsupported_scheme, Url}}).
+parse_scheme(<<"http">>) -> http;
+parse_scheme(<<"https">>) -> https;
+parse_scheme(_) -> throw(unsupported_scheme).
 
 default_port(http) -> 80;
 default_port(https) -> 443.
@@ -319,10 +301,10 @@ is_host_allowed(Host, AllowedHosts) ->
     ).
 
 -doc """
-Issue a one-off HTTP request bypassing any connection pool, to either the
-fixed `static_host` or a per-request rendered host. The request tuple is the
-one produced by `generate_request/2`. The result shape is the same as the
-pooled (`ehttpc`) query path:
+Issue a per-request (dynamic hostname resolution) HTTP request to either the
+fixed host or a per-request rendered host. The request tuple is the one
+produced by `generate_request/2`. The result shape is the same as the pooled
+(`ehttpc`) query path:
 `{ok, Status, Headers} | {ok, Status, Headers, Body} | {error, Reason}`.
 """.
 -spec one_off_request(one_off_base(), atom(), timeout(), map(), tuple()) ->
@@ -354,9 +336,9 @@ one_off_request(
         )
     end.
 
-resolve_host(#{static_host := Host}, _Values) ->
+resolve_host(#{host := {static, Host}}, _Values) ->
     {ok, Host};
-resolve_host(#{host_template := HostTemplate, allowed_hosts := AllowedHosts}, Values) ->
+resolve_host(#{host := {template, HostTemplate, AllowedHosts}}, Values) ->
     render_host(HostTemplate, AllowedHosts, Values).
 
 -doc "Exported for mocking in tests; do not call directly.".

@@ -7,8 +7,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -import(emqx_auth_http_utils, [
-    parse_url/1,
     parse_url_template/2,
+    request_base/1,
     is_templated_host_url/1,
     parse_allowed_hosts/1,
     validate_allowed_hosts_field/1,
@@ -68,76 +68,71 @@ do_generate(CN) ->
 %% URL parsing / dynamic hostname resolution
 %%--------------------------------------------------------------------
 
-templates_test_() ->
-    [
-        ?_assertEqual(
-            {
-                #{port => 80, scheme => http, host => "example.com"},
-                <<"">>,
-                <<"client=${clientid}">>
-            },
-            parse_url(<<"http://example.com?client=${clientid}">>)
-        ),
-        ?_assertEqual(
-            {
-                #{port => 80, scheme => http, host => "example.com"},
-                <<"/path">>,
-                <<"client=${clientid}">>
-            },
-            parse_url(<<"http://example.com/path?client=${clientid}">>)
-        ),
-        ?_assertEqual(
-            {#{port => 80, scheme => http, host => "example.com"}, <<"/path">>, <<>>},
-            parse_url(<<"http://example.com/path">>)
-        )
-    ].
-
 parse_url_template_test_() ->
     [
         ?_assertEqual(
-            {pooled, {#{port => 80, scheme => http, host => "example.com"}, <<"/path">>, <<>>}},
+            #{
+                scheme => http,
+                host => {static, <<"example.com">>},
+                port => 80,
+                path => <<"/path">>,
+                query => <<>>
+            },
             parse_url_template(<<"http://example.com/path">>, static)
         ),
         ?_assertEqual(
-            {templated_host, #{
+            #{
+                scheme => http,
+                host => {static, <<"example.com">>},
+                port => 80,
+                path => <<"">>,
+                query => <<"client=${clientid}">>
+            },
+            parse_url_template(<<"http://example.com?client=${clientid}">>, static)
+        ),
+        ?_assertEqual(
+            #{
                 scheme => https,
-                host_template => <<"${client_attrs.tns}.auth.example.com">>,
+                host => {template, <<"${client_attrs.tns}.auth.example.com">>},
                 port => 443,
                 path => <<"/authn">>,
                 query => <<>>
-            }},
+            },
             parse_url_template(<<"https://${client_attrs.tns}.auth.example.com/authn">>, dynamic)
         ),
         ?_assertEqual(
-            {templated_host, #{
+            #{
                 scheme => http,
-                host_template => <<"${username}.example.com">>,
+                host => {template, <<"${username}.example.com">>},
                 port => 8080,
                 path => <<"">>,
                 query => <<"client=${clientid}">>
-            }},
+            },
             parse_url_template(
                 <<"http://${username}.example.com:8080?client=${clientid}">>, dynamic
             )
         ),
-        %% a templated host parses as such regardless of the requested resolution;
-        %% callers decide whether that combination is allowed
-        ?_assertMatch(
-            {templated_host, #{host_template := <<"${username}.example.com">>}},
+        %% a templated host requires dynamic resolution
+        ?_assertThrow(
+            {invalid_url, hostname_resolution_must_be_dynamic, _},
             parse_url_template(<<"http://${username}.example.com">>, static)
         ),
         ?_assertThrow(
-            {invalid_url, {templated_host_not_supported, _}},
-            parse_url(<<"http://${username}.example.com/path">>)
-        ),
-        ?_assertThrow(
-            {invalid_url, {unsupported_scheme, _}},
+            {invalid_url, unsupported_scheme, _},
             parse_url_template(<<"ftp://${username}.example.com/path">>, dynamic)
         ),
         %% templated port makes the host "loose" (contains a colon)
         ?_assertThrow(
-            {invalid_url, {unsupported_templated_host, _}},
+            {invalid_url, unsupported_templated_host, _},
             parse_url_template(<<"http://${username}.example.com:${port}/path">>, dynamic)
+        ),
+        ?_assertThrow(
+            {invalid_url, no_scheme, _},
+            parse_url_template(<<"//example.com/path">>, static)
+        ),
+        ?_assertThrow(
+            {invalid_url, fragments_not_supported, _},
+            parse_url_template(<<"http://example.com/path#frag">>, static)
         ),
         ?_assertEqual(true, is_templated_host_url(<<"http://${username}.example.com">>)),
         ?_assertEqual(false, is_templated_host_url(<<"http://example.com/${username}">>)),
@@ -147,28 +142,40 @@ parse_url_template_test_() ->
 parse_url_template_static_host_test_() ->
     [
         ?_assertEqual(
-            {static_host, #{
+            #{
                 scheme => https,
-                host => <<"example.com">>,
+                host => {static, <<"example.com">>},
                 port => 443,
                 path => <<"/auth">>,
                 query => <<"q=1">>
-            }},
+            },
             parse_url_template(<<"https://example.com/auth?q=1">>, dynamic)
         ),
         ?_assertEqual(
-            {static_host, #{
+            #{
                 scheme => http,
-                host => <<"[::1]">>,
+                host => {static, <<"[::1]">>},
                 port => 8080,
                 path => <<"/auth">>,
                 query => <<>>
-            }},
+            },
             parse_url_template(<<"http://[::1]:8080/auth">>, dynamic)
         ),
         ?_assertThrow(
-            {invalid_url, {unsupported_scheme, _}},
+            {invalid_url, unsupported_scheme, _},
             parse_url_template(<<"ftp://example.com">>, dynamic)
+        )
+    ].
+
+request_base_test_() ->
+    [
+        ?_assertEqual(
+            #{scheme => http, host => "example.com", port => 80},
+            request_base(parse_url_template(<<"http://Example.COM/path">>, static))
+        ),
+        ?_assertEqual(
+            #{scheme => https, host => "::1", port => 8443},
+            request_base(parse_url_template(<<"https://[::1]:8443/path">>, static))
         )
     ].
 

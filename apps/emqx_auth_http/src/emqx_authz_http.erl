@@ -195,64 +195,52 @@ check_oauth2_headers_conflict(Headers, Oauth2) ->
 new_state(ResourceId, #{url := RawUrl, headers := Headers0} = Source) ->
     ok = check_oauth2_headers_conflict(Headers0, maps:get(oauth2, Source, undefined)),
     Resolution = maps:get(hostname_resolution, Source, static),
-    case emqx_auth_http_utils:parse_url_template(RawUrl, Resolution) of
-        {pooled, {RequestBase, Path, Query}} ->
-            ok = check_pool_size_for_pooled(Source),
-            {Vars, StateBase} = parse_templates(Path, Query, Source),
-            ResourceConfig = emqx_authz_utils:cleanup_resource_config(
-                [url, method, request_timeout, body, allowed_hosts, hostname_resolution],
-                Source#{
-                    request_base => RequestBase,
-                    pool_type => random
-                }
-            ),
-            emqx_authz_utils:init_state(Source, StateBase#{
-                resource_config => ResourceConfig,
-                resource_id => ResourceId,
-                cache_key_template => emqx_auth_template:cache_key_template(Vars)
-            });
-        {static_host, #{
-            scheme := Scheme, host := Host, port := Port, path := Path, query := Query
-        }} ->
-            ok = check_no_oauth2(Source),
-            {Vars, StateBase} = parse_templates(Path, Query, Source),
-            OneOffBase = (one_off_base(Scheme, Port, Source))#{static_host => Host},
-            emqx_authz_utils:init_state(Source, StateBase#{
-                one_off_base => OneOffBase,
-                cache_key_template => emqx_auth_template:cache_key_template(Vars)
-            });
-        {templated_host, #{
-            scheme := Scheme,
-            host_template := HostTemplateStr,
-            port := Port,
-            path := Path,
-            query := Query
-        }} ->
-            ok = check_dynamic_resolution(Resolution),
-            ok = check_no_oauth2(Source),
-            AllowedHosts = allowed_hosts(Source),
-            {HostVars, HostTemplate} = emqx_auth_template:parse_str(
-                HostTemplateStr, ?ALLOWED_VARS
-            ),
-            {Vars, StateBase} = parse_templates(Path, Query, Source),
-            OneOffBase = (one_off_base(Scheme, Port, Source))#{
-                host_template => HostTemplate,
-                allowed_hosts => AllowedHosts
-            },
-            emqx_authz_utils:init_state(Source, StateBase#{
-                one_off_base => OneOffBase,
-                cache_key_template => emqx_auth_template:cache_key_template(HostVars ++ Vars)
-            })
-    end.
+    UrlTemplate = emqx_auth_http_utils:parse_url_template(RawUrl, Resolution),
+    new_state(Resolution, UrlTemplate, ResourceId, Source).
 
-one_off_base(Scheme, Port, Source) ->
-    #{
+new_state(static, #{path := Path, query := Query} = UrlTemplate, ResourceId, Source) ->
+    ok = check_pool_size_for_pooled(Source),
+    {Vars, StateBase} = parse_templates(Path, Query, Source),
+    ResourceConfig = emqx_authz_utils:cleanup_resource_config(
+        [url, method, request_timeout, body, allowed_hosts, hostname_resolution],
+        Source#{
+            request_base => emqx_auth_http_utils:request_base(UrlTemplate),
+            pool_type => random
+        }
+    ),
+    emqx_authz_utils:init_state(Source, StateBase#{
+        resource_config => ResourceConfig,
+        resource_id => ResourceId,
+        cache_key_template => emqx_auth_template:cache_key_template(Vars)
+    });
+new_state(
+    dynamic,
+    #{scheme := Scheme, host := Host, port := Port, path := Path, query := Query},
+    _ResourceId,
+    Source
+) ->
+    ok = check_no_oauth2(Source),
+    {HostVars, OneOffHost} = parse_host_template(Host, Source),
+    {Vars, StateBase} = parse_templates(Path, Query, Source),
+    OneOffBase = #{
         scheme => Scheme,
+        host => OneOffHost,
         port => Port,
         connect_timeout => maps:get(connect_timeout, Source, 15000),
         ssl_opts => one_off_ssl_opts(Scheme, Source),
         pool => emqx_auth_http_utils:ensure_pool(authz, pool_size(Source))
-    }.
+    },
+    emqx_authz_utils:init_state(Source, StateBase#{
+        one_off_base => OneOffBase,
+        cache_key_template => emqx_auth_template:cache_key_template(HostVars ++ Vars)
+    }).
+
+parse_host_template({static, Host}, _Source) ->
+    {[], {static, Host}};
+parse_host_template({template, HostStr}, Source) ->
+    AllowedHosts = allowed_hosts(Source),
+    {HostVars, HostTemplate} = emqx_auth_template:parse_str(HostStr, ?ALLOWED_VARS),
+    {HostVars, {template, HostTemplate, AllowedHosts}}.
 
 pool_size(Source) ->
     maps:get(pool_size, Source, 8).
@@ -268,15 +256,6 @@ check_pool_size_for_pooled(Source) ->
         _ ->
             ok
     end.
-
-check_dynamic_resolution(dynamic) ->
-    ok;
-check_dynamic_resolution(static) ->
-    throw(#{
-        kind => validation_error,
-        reason =>
-            <<"'hostname_resolution' must be set to 'dynamic' when the URL host contains template placeholders">>
-    }).
 
 parse_templates(
     Path,
