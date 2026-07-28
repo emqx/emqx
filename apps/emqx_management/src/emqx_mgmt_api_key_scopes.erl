@@ -108,7 +108,7 @@ lookup_path(Path, PathMap) ->
 %% function is called once per authorised request, so the cost is
 %% acceptable.
 match_template(Path, PathMap) ->
-    PathSegs = split_segments(Path),
+    PathSegs = normalize_segments(split_segments(Path)),
     Iter = maps:iterator(PathMap),
     match_template_iter(PathSegs, Iter).
 
@@ -131,6 +131,29 @@ split_segments(Path) ->
         [<<>> | Rest] -> Rest;
         Other -> Other
     end.
+
+%% Canonicalise concrete request-path segments the same way
+%% `cowboy_router' does before it selects a handler: percent-decode
+%% each segment (`cow_uri:urldecode/1', the exact decoder the router
+%% uses) and resolve `.'/`..' segments. The lookup must operate on the
+%% same segments the router dispatched on; comparing raw request
+%% segments against decoded templates would let a request reach a
+%% handler while its scope lookup matches nothing. Decoding is done
+%% after splitting so an encoded separator stays within its segment
+%% and never introduces an extra boundary.
+normalize_segments(Segments) ->
+    remove_dot_segments([cow_uri:urldecode(S) || S <- Segments], []).
+
+remove_dot_segments([], Acc) ->
+    lists:reverse(Acc);
+remove_dot_segments([<<".">> | Segments], Acc) ->
+    remove_dot_segments(Segments, Acc);
+remove_dot_segments([<<"..">> | Segments], []) ->
+    remove_dot_segments(Segments, []);
+remove_dot_segments([<<"..">> | Segments], [_ | Acc]) ->
+    remove_dot_segments(Segments, Acc);
+remove_dot_segments([Segment | Segments], Acc) ->
+    remove_dot_segments(Segments, [Segment | Acc]).
 
 segments_match([], []) ->
     true;
