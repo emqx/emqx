@@ -173,6 +173,15 @@ t_messages(_) ->
         )
     ),
 
+    %% deleting on an unreachable node is a clean error, not a case_clause crash
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            delete,
+            uri(["mqtt", "delayed", "messages", atom_to_list('unknownnode@127.0.0.1'), MsgId])
+        )
+    ),
+
     ?assertMatch(
         {ok, 404, _},
         request(
