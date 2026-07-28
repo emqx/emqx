@@ -32,6 +32,8 @@
     on_batch_query/3
 ]).
 
+-export([timezone_offset_seconds/1]).
+
 -ifdef(TEST).
 -export([flush/1, get_wrap_logs/2]).
 -endif.
@@ -45,20 +47,29 @@
 %% Allocatable resources
 -define(disk_log, disk_log).
 
--define(filepath, filepath).
+-define(conn_config, conn_config).
 -define(installed_actions, installed_actions).
 
 -define(template, template).
 -define(write_mode, write_mode).
 
+%% Byte size of `period_key/3' date stamps (`YYYYMMDDHH').
+-define(PERIOD_KEY_BYTES, 10).
+
+-type period() :: none | hour | day.
+-type rotation() :: #{
+    period := period(),
+    retention_period => timeout(),
+    timezone := binary()
+}.
 -type connector_config() :: #{
     filepath := binary(),
     max_file_size := pos_integer(),
-    max_file_number := pos_integer()
+    max_file_number := pos_integer(),
+    rotation => rotation()
 }.
 -type connector_state() :: #{
-    deleteme := true,
-    ?filepath := binary(),
+    ?conn_config := connector_config(),
     ?installed_actions := #{action_resource_id() => action_state()}
 }.
 
@@ -93,11 +104,13 @@ callback_mode() ->
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, _Reason}.
 on_start(ConnResId, ConnConfig) ->
-    #{filepath := FilepathBin} = ConnConfig,
+    NowS = now_s(),
+    ActiveFilepath = active_filepath(ConnConfig, NowS),
     maybe
-        ok ?= do_open_log(ConnResId, ConnConfig),
+        ok ?= do_open_log(ConnResId, ConnConfig#{filepath := ActiveFilepath}),
+        ok = sweep_expired_period_files(ConnConfig, NowS),
         ConnState = #{
-            ?filepath => FilepathBin,
+            ?conn_config => ConnConfig,
             ?installed_actions => #{}
         },
         {ok, ConnState}
@@ -112,13 +125,13 @@ on_stop(ConnResId, _ConnState) ->
     ok.
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
-    ?status_connected | ?status_disconnected.
-on_get_status(ConnResId, #{?filepath := Filepath} = _ConnState) ->
+    ?status_connected | ?status_disconnected | {?status_disconnected, binary() | no_such_log}.
+on_get_status(ConnResId, #{?conn_config := ConnConfig} = _ConnState) ->
     case disk_log:info(ConnResId) of
         {error, no_such_log} ->
             ?status_disconnected;
         LogInfo when is_list(LogInfo) ->
-            check_file_status(Filepath, LogInfo, ConnResId)
+            check_period_and_file_status(ConnResId, ConnConfig, LogInfo)
     end.
 
 -spec on_get_channels(connector_resource_id()) ->
@@ -260,6 +273,173 @@ maybe_rotate(ConnResId, ConnConfig) ->
         false ->
             ok
     end.
+
+%% Checks whether the log is still writing to the current period's file, rotating to a
+%% new date-stamped file if the period (day / hour) has changed, before performing the
+%% usual file status checks.
+check_period_and_file_status(ConnResId, ConnConfig, LogInfo0) ->
+    case maybe_rotate_period(ConnResId, ConnConfig, LogInfo0) of
+        not_rotated ->
+            check_file_status(open_filepath(LogInfo0), LogInfo0, ConnResId);
+        rotated ->
+            case disk_log:info(ConnResId) of
+                LogInfo when is_list(LogInfo) ->
+                    check_file_status(open_filepath(LogInfo), LogInfo, ConnResId);
+                {error, no_such_log} ->
+                    {?status_disconnected, no_such_log}
+            end;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_rotate_disk_log_period",
+                reason => Reason,
+                connector_resource_id => ConnResId
+            }),
+            Msg = iolist_to_binary(
+                io_lib:format("Failed to rotate log file: ~0p", [Reason])
+            ),
+            {?status_disconnected, Msg}
+    end.
+
+maybe_rotate_period(ConnResId, ConnConfig, LogInfo) ->
+    NowS = now_s(),
+    ExpectedFilepath = active_filepath(ConnConfig, NowS),
+    case open_filepath(LogInfo) =:= ExpectedFilepath of
+        true ->
+            not_rotated;
+        false ->
+            rotate_period(ConnResId, ConnConfig, ExpectedFilepath, NowS)
+    end.
+
+rotate_period(ConnResId, ConnConfig, NewFilepath, NowS) ->
+    maybe
+        ok ?= stop_disk_log(ConnResId),
+        ok ?= do_open_log(ConnResId, ConnConfig#{filepath := NewFilepath}),
+        ok = sweep_expired_period_files(ConnConfig, NowS),
+        ?SLOG(info, #{
+            msg => "disk_log_connector_period_rotation",
+            new_filepath => NewFilepath,
+            connector_resource_id => ConnResId
+        }),
+        ?tp("disk_log_connector_period_rotated", #{new_filepath => NewFilepath}),
+        rotated
+    end.
+
+%% The file the underlying `disk_log' is currently open with.
+open_filepath(LogInfo) ->
+    {file, File} = lists:keyfind(file, 1, LogInfo),
+    unicode:characters_to_binary(File).
+
+%% The filepath the log should currently be writing to: the configured filepath, or,
+%% when time-based rotation is enabled, the configured filepath with the current
+%% period's date stamp inserted before the file extension (if any).
+active_filepath(ConnConfig, TimeS) ->
+    #{filepath := FilepathBin} = ConnConfig,
+    Rotation = maps:get(rotation, ConnConfig, #{}),
+    case maps:get(period, Rotation, none) of
+        none ->
+            FilepathBin;
+        Period ->
+            Timezone = maps:get(timezone, Rotation, <<"UTC">>),
+            period_filepath(FilepathBin, period_key(Period, Timezone, TimeS))
+    end.
+
+period_filepath(BaseFilepath, PeriodKey) ->
+    Root = filename:rootname(BaseFilepath),
+    Ext = filename:extension(BaseFilepath),
+    <<Root/binary, "-", PeriodKey/binary, Ext/binary>>.
+
+%% Date stamp identifying the rotation period `TimeS' falls in, in the configured
+%% timezone: e.g. `2026062413' for `hour'.  For `day', a literal `00' hour is appended
+%% (`2026062400') so that the stamp format stays the same if `period' is later switched
+%% between `day' and `hour'.
+period_key(day, Timezone, TimeS) ->
+    format_date(TimeS, Timezone, <<"%Y%m%d00">>);
+period_key(hour, Timezone, TimeS) ->
+    format_date(TimeS, Timezone, <<"%Y%m%d%H">>).
+
+format_date(TimeS, Timezone, Format) ->
+    Offset = timezone_offset_seconds(Timezone),
+    unicode:characters_to_binary(emqx_utils_calendar:format(TimeS, second, Offset, Format)).
+
+-spec timezone_offset_seconds(binary()) -> integer().
+timezone_offset_seconds(<<"UTC">>) ->
+    0;
+timezone_offset_seconds(Timezone) ->
+    emqx_utils_calendar:offset_second(Timezone).
+
+%% Deletes files from periods older than the configured retention window.  Called after
+%% each period rotation (and on start); no-op unless `period' is set and
+%% `retention_period' is finite.
+sweep_expired_period_files(ConnConfig, NowS) ->
+    #{filepath := FilepathBin} = ConnConfig,
+    Rotation = maps:get(rotation, ConnConfig, #{}),
+    RetentionMs = maps:get(retention_period, Rotation, infinity),
+    case maps:get(period, Rotation, none) of
+        Period when Period =/= none, is_integer(RetentionMs) ->
+            Timezone = maps:get(timezone, Rotation, <<"UTC">>),
+            CutoffKey = period_key(Period, Timezone, NowS - RetentionMs div 1000),
+            delete_expired_period_files(FilepathBin, CutoffKey);
+        _ ->
+            ok
+    end.
+
+delete_expired_period_files(BaseFilepath, CutoffKey) ->
+    Root = filename:rootname(BaseFilepath),
+    Ext = filename:extension(BaseFilepath),
+    Wildcard = unicode:characters_to_list(<<Root/binary, "-*", Ext/binary, ".*">>),
+    Files = filelib:wildcard(Wildcard),
+    lists:foreach(
+        fun(File) ->
+            case is_expired_period_file(File, Root, Ext, CutoffKey) of
+                true ->
+                    _ = file:delete(File),
+                    ?SLOG(info, #{
+                        msg => "disk_log_connector_expired_log_file_deleted",
+                        file => File
+                    });
+                false ->
+                    ok
+            end
+        end,
+        Files
+    ).
+
+%% Matches `<Root>-<Stamp><Ext>.<Suffix>' where `Stamp' is a `period_key/3'-shaped date
+%% stamp older than `CutoffKey', and `Suffix' is a wrap log suffix (`N', `idx' or
+%% `siz').  Anything else is left alone.
+is_expired_period_file(File, Root, Ext, CutoffKey) ->
+    FileBin = unicode:characters_to_binary(File),
+    Prefix = <<Root/binary, "-">>,
+    PrefixSize = byte_size(Prefix),
+    ExtSize = byte_size(Ext),
+    maybe
+        <<Prefix:PrefixSize/binary, Stamp:?PERIOD_KEY_BYTES/binary, Ext:ExtSize/binary, $.,
+            Suffix/binary>> ?= FileBin,
+        is_decimal_str(Stamp) andalso Stamp < CutoffKey andalso is_wrap_log_suffix(Suffix)
+    else
+        _ -> false
+    end.
+
+is_wrap_log_suffix(<<"idx">>) ->
+    true;
+is_wrap_log_suffix(<<"siz">>) ->
+    true;
+is_wrap_log_suffix(Suffix) ->
+    is_decimal_str(Suffix).
+
+is_decimal_str(<<>>) ->
+    false;
+is_decimal_str(Str) ->
+    {Str, <<>>} =:= string:take(Str, lists:seq($0, $9)).
+
+-ifdef(TEST).
+%% Clock seam for tests: allows fixing "now" to exercise period boundaries.
+now_s() ->
+    persistent_term:get({?MODULE, now_s}, erlang:system_time(second)).
+-else.
+now_s() ->
+    erlang:system_time(second).
+-endif.
 
 -spec create_action(action_config()) -> action_state().
 create_action(#{parameters := Parameters} = _ActionConfig) ->
@@ -428,8 +608,15 @@ log_when_error(Fun, Log) ->
             })
     end.
 
-map_error(ok) -> ok;
-map_error({error, Reason}) -> {error, {unrecoverable_error, Reason}}.
+map_error(ok) ->
+    ok;
+map_error({error, no_such_log}) ->
+    %% May happen transiently while the log is closed and reopened with a new
+    %% date-stamped filepath by a concurrent period rotation; retried by the buffer
+    %% worker.
+    {error, {recoverable_error, no_such_log}};
+map_error({error, Reason}) ->
+    {error, {unrecoverable_error, Reason}}.
 
 map_start_error({error, {file_error, _Filepath, Reason}}) ->
     {error, emqx_utils:explain_posix(Reason)};
