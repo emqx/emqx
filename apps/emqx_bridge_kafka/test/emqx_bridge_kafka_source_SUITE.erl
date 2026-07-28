@@ -410,6 +410,13 @@ publish_kafka(TCConfig, KafkaTopic, Messages) ->
 create_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:create_connector_api2(TCConfig, Overrides).
 
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
 update_connector_api(TCConfig, Overrides) ->
     #{
         connector_type := Type,
@@ -2004,8 +2011,6 @@ t_oauth_client_credentials_authn(TCConfig) ->
         <<"bootstrap_hosts">> => <<"kafka-3.emqx.net:9092">>,
         <<"authentication">> => Authentication
     }),
-    #{connector_type := ConnectorType, connector_name := ConnectorName} =
-        emqx_bridge_v2_testlib:get_common_values(TCConfig),
     ?retry(
         500,
         10,
@@ -2016,9 +2021,7 @@ t_oauth_client_credentials_authn(TCConfig) ->
                     <<"grant_type">> := <<"client_credentials">>
                 }
             }},
-            emqx_bridge_v2_testlib:simplify_result(
-                emqx_bridge_v2_testlib:get_connector_api(ConnectorType, ConnectorName)
-            )
+            get_connector_api(TCConfig)
         )
     ),
     {oauth2_token_request, Params} = ?assertReceive({oauth2_token_request, _}, 5_000),
@@ -2032,17 +2035,31 @@ t_oauth_client_credentials_authn(TCConfig) ->
     ?assertEqual(undefined, proplists:get_value(<<"logicalCluster">>, Params)),
     ok.
 
-t_oauth_resource_id_is_independent_from_brod_client_id(_TCConfig) ->
+-doc """
+Successive consumer connector probes share the same brod client ID, but must
+fetch tokens using their own OAuth2 configurations.
+""".
+t_oauth_dry_runs_do_not_share_tokens(TCConfig) ->
     on_exit(fun emqx_utils_http_test_server:stop/0),
     on_exit(fun emqx_connector_oauth2:clear_cache/0),
     {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/oauth/token", false),
+    TestPid = self(),
+    NowS = erlang:system_time(second),
+    JWT = emqx_bridge_kafka_action_SUITE:generate_unsigned_jwt(#{
+        <<"exp">> => NowS + 60,
+        <<"iat">> => NowS,
+        <<"sub">> => <<"admin">>
+    }),
     ok = emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
-        {ok, _RequestBody, Req1} = cowboy_req:read_body(Req0),
+        {ok, RequestBody, Req1} = cowboy_req:read_body(Req0),
+        Params = cow_qs:parse_qs(RequestBody),
+        ClientId = proplists:get_value(<<"client_id">>, Params),
+        TestPid ! {oauth2_token_request, ClientId},
         Req = cowboy_req:reply(
             200,
             #{<<"content-type">> => <<"application/json">>},
             emqx_utils_json:encode(#{
-                <<"access_token">> => <<"token-b">>,
+                <<"access_token">> => JWT,
                 <<"expires_in">> => 60,
                 <<"token_type">> => <<"JWT">>
             }),
@@ -2053,18 +2070,27 @@ t_oauth_resource_id_is_independent_from_brod_client_id(_TCConfig) ->
     Endpoint = emqx_bridge_v2_testlib:fmt(
         <<"http://127.0.0.1:${port}/oauth/token">>, #{port => Port}
     ),
-    Auth = oauth_auth(Endpoint),
-    ResourceIdA = ?PROBE_ID_NEW(),
-    ResourceIdB = ?PROBE_ID_NEW(),
-    ok = emqx_bridge_kafka_oauth_authn:register(ResourceIdA, Auth),
-    ok = emqx_bridge_kafka_oauth_authn:register(ResourceIdB, Auth),
-    CallbackB = emqx_bridge_kafka_oauth_authn:mk_token_callback(ResourceIdB),
-    ok = emqx_bridge_kafka_oauth_authn:unregister(ResourceIdA),
-    ?assertEqual(
-        {ok, #{token => <<"token-b">>}},
-        CallbackB(#{client_id => <<"probing_brod_consumers">>})
-    ),
-    ok = emqx_bridge_kafka_oauth_authn:unregister(ResourceIdB),
+    Probe = fun(ClientId) ->
+        Authentication = #{
+            <<"mechanism">> => <<"oauth">>,
+            <<"grant_type">> => <<"client_credentials">>,
+            <<"client_id">> => ClientId,
+            <<"client_secret">> => <<"oauth_client_secret">>,
+            <<"endpoint_uri">> => Endpoint,
+            <<"scope">> => <<"oauth_server_specific_scope">>,
+            <<"extensions">> => #{}
+        },
+        ?assertMatch(
+            {204, _},
+            probe_connector_api(TCConfig, #{
+                <<"bootstrap_hosts">> => <<"kafka-3.emqx.net:9092">>,
+                <<"authentication">> => Authentication
+            })
+        ),
+        ?assertReceive({oauth2_token_request, ClientId}, 5_000)
+    end,
+    Probe(<<"client-a">>),
+    Probe(<<"client-b">>),
     ok.
 
 t_oauth_failed_consumer_start_unregisters(_TCConfig) ->

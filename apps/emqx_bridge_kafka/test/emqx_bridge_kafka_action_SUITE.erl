@@ -405,6 +405,13 @@ create_connector_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
     ).
 
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
 update_connector_api(TCConfig, Overrides) ->
     #{
         connector_type := Type,
@@ -2431,15 +2438,11 @@ t_oauth_client_credentials_authn(TCConfig0) ->
         create_connector_fn := CreateConnectorFn
     } = setup_oauth_scenario(TCConfig0),
     ?assertMatch({201, #{<<"status">> := <<"connected">>}}, CreateConnectorFn()),
-    #{connector_type := ConnectorType, connector_name := ConnectorName} =
-        emqx_bridge_v2_testlib:get_common_values(TCConfig),
     ?assertMatch(
         {200, #{
             <<"authentication">> := #{<<"grant_type">> := <<"client_credentials">>}
         }},
-        emqx_bridge_v2_testlib:simplify_result(
-            emqx_bridge_v2_testlib:get_connector_api(ConnectorType, ConnectorName)
-        )
+        get_connector_api(TCConfig)
     ),
     {oauth2_token_request, Params} = ?assertReceive({oauth2_token_request, _}, 5_000),
     ?assertEqual(<<"client_credentials">>, proplists:get_value(<<"grant_type">>, Params)),
