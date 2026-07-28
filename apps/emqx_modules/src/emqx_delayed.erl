@@ -567,6 +567,7 @@ maybe_publish_authorized(AuthzContext, AuthzTopic, Msg, ClientId, Topic, Qos) ->
             ignore_delayed_message_publish("authorization denied", ClientId, Topic)
     end.
 
+-compile({inline, [ignore_delayed_message_publish/3]}).
 ignore_delayed_message_publish(Reason, ClientId, Topic) ->
     ?tp(notice, ignore_delayed_message_publish, #{
         reason => Reason,
