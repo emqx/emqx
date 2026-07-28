@@ -187,6 +187,7 @@ create_templated_https_auth_with_ssl_opts(TCConfig, SpecificSSLOpts) ->
     AuthConfig = (raw_https_auth_config(TCConfig, SpecificSSLOpts))#{
         <<"url">> =>
             <<"https://${client_attrs.group}:", HTTPSPortBin/binary, "/auth">>,
+        <<"hostname_resolution">> => <<"dynamic">>,
         <<"allowed_hosts">> => [<<"localhost">>]
     },
     emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}).

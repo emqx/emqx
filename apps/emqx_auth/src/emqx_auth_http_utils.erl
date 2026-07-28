@@ -11,9 +11,9 @@
     default_headers_no_content_type/0,
     transform_header_name/1,
     parse_url/1,
-    parse_url_template/1,
     parse_url_template/2,
     is_templated_host_url/1,
+    ensure_pool/2,
     parse_allowed_hosts/1,
     validate_allowed_hosts_field/1,
     render_host/3,
@@ -26,20 +26,22 @@
 -type request_path() :: binary().
 -type request_query() :: binary().
 -type allowed_host() :: {exact, binary()} | {suffix, binary()}.
-%% Base for one-off requests: either a fixed `static_host`, or a
+%% Base for dynamic-resolution requests: either a fixed `static_host`, or a
 %% `host_template` rendered per request and checked against `allowed_hosts`.
+%% `pool` is a hackney pool name, or `false` for no connection reuse.
 -type one_off_base() :: #{
     scheme := http | https,
     port := inet:port_number(),
     connect_timeout := timeout(),
     ssl_opts := [ssl:tls_client_option()],
+    pool := atom() | false,
     static_host => binary(),
     host_template => emqx_template:t(),
     allowed_hosts => [allowed_host()]
 }.
--type request_mode() :: auto | one_off.
+-type hostname_resolution() :: static | dynamic.
 
--export_type([allowed_host/0, one_off_base/0, request_mode/0]).
+-export_type([allowed_host/0, one_off_base/0, hostname_resolution/0]).
 
 -define(DEFAULT_HTTP_REQUEST_CONTENT_TYPE, <<"application/json">>).
 
@@ -94,46 +96,41 @@ Throws `{invalid_url, _}` if the URL is invalid or its host contains template pl
 -spec parse_url(binary()) ->
     {emqx_utils_uri:request_base(), request_path(), request_query()}.
 parse_url(Url) ->
-    case parse_url_template(Url) of
-        {static, Parsed} ->
+    case parse_url_template(Url, static) of
+        {pooled, Parsed} ->
             Parsed;
-        {dynamic, _} ->
+        {templated_host, _} ->
             throw({invalid_url, {templated_host_not_supported, Url}})
     end.
 
 -doc """
 Parse a URL whose host part may contain template placeholders (`${...}`).
 
-Returns `{static, {RequestBase, Path, Query}}` when the authority is fixed
-(and `RequestMode` is `auto`), `{one_off, #{scheme, host, port, path, query}}`
-when the authority is fixed but `RequestMode` is `one_off`, or
-`{dynamic, #{scheme, host_template, port, path, query}}` when the host is
-templated. Only the host may be templated: the scheme must be literal
+Returns `{pooled, {RequestBase, Path, Query}}` when the authority is fixed
+and `Resolution` is `static`, `{static_host, #{scheme, host, port, path, query}}`
+when the authority is fixed but `Resolution` is `dynamic`, or
+`{templated_host, #{scheme, host_template, port, path, query}}` whenever the
+host is templated (regardless of `Resolution`; callers decide whether that is
+allowed). Only the host may be templated: the scheme must be literal
 `http`/`https` and the port, if present, must be a literal integer.
 """.
--spec parse_url_template(binary()) ->
-    {static, {emqx_utils_uri:request_base(), request_path(), request_query()}}
-    | {dynamic, map()}.
-parse_url_template(Url) ->
-    parse_url_template(Url, auto).
-
--spec parse_url_template(binary(), request_mode()) ->
-    {static, {emqx_utils_uri:request_base(), request_path(), request_query()}}
-    | {one_off, #{
+-spec parse_url_template(binary(), hostname_resolution()) ->
+    {pooled, {emqx_utils_uri:request_base(), request_path(), request_query()}}
+    | {static_host, #{
         scheme := http | https,
         host := binary(),
         port := inet:port_number(),
         path := request_path(),
         query := request_query()
     }}
-    | {dynamic, #{
+    | {templated_host, #{
         scheme := http | https,
         host_template := binary(),
         port := inet:port_number(),
         path := request_path(),
         query := request_query()
     }}.
-parse_url_template(Url, RequestMode) ->
+parse_url_template(Url, Resolution) ->
     Parsed = emqx_utils_uri:parse(Url),
     case Parsed of
         #{scheme := undefined} ->
@@ -145,15 +142,29 @@ parse_url_template(Url, RequestMode) ->
         #{fragment := Fragment} when Fragment =/= undefined ->
             throw({invalid_url, {fragments_not_supported, Url}});
         #{authority := #{host := Host}} ->
-            case {is_templated(Host), RequestMode} of
-                {false, auto} ->
-                    {static, static_url(Parsed, Url)};
-                {false, one_off} ->
-                    {one_off, one_off_static_url(Parsed, Url)};
+            case {is_templated(Host), Resolution} of
+                {false, static} ->
+                    {pooled, static_url(Parsed, Url)};
+                {false, dynamic} ->
+                    {static_host, one_off_static_url(Parsed, Url)};
                 {true, _} ->
-                    {dynamic, dynamic_url(Parsed, Url)}
+                    {templated_host, dynamic_url(Parsed, Url)}
             end
     end.
+
+-doc """
+Resolve the hackney pool to use for dynamic-resolution requests.
+`PoolSize = 0` disables connection reuse entirely; otherwise the named pool is
+started (idempotent) with `PoolSize` as its connection cap, updating the cap
+if the pool already exists.
+""".
+-spec ensure_pool(atom(), non_neg_integer()) -> atom() | false.
+ensure_pool(_Name, 0) ->
+    false;
+ensure_pool(Name, PoolSize) ->
+    ok = hackney_pool:start_pool(Name, [{max_connections, PoolSize}]),
+    ok = hackney_pool:set_max_connections(Name, PoolSize),
+    Name.
 
 -doc """
 Check whether the host part of the URL contains template placeholders.
@@ -316,7 +327,8 @@ one_off_request(
         scheme := Scheme,
         port := Port,
         connect_timeout := ConnectTimeout,
-        ssl_opts := SslOpts
+        ssl_opts := SslOpts,
+        pool := Pool
     } = OneOffBase,
     Method,
     Timeout,
@@ -329,7 +341,7 @@ one_off_request(
         ReqOpts = [
             {connect_timeout, ConnectTimeout},
             {recv_timeout, Timeout},
-            {pool, false}
+            {pool, Pool}
             | scheme_transport_opts(Scheme, SslOpts)
         ],
         ?MODULE:do_one_off_request(
@@ -502,28 +514,36 @@ templates_test_() ->
 parse_url_template_test_() ->
     [
         ?_assertEqual(
-            {static, {#{port => 80, scheme => http, host => "example.com"}, <<"/path">>, <<>>}},
-            parse_url_template(<<"http://example.com/path">>)
+            {pooled, {#{port => 80, scheme => http, host => "example.com"}, <<"/path">>, <<>>}},
+            parse_url_template(<<"http://example.com/path">>, static)
         ),
         ?_assertEqual(
-            {dynamic, #{
+            {templated_host, #{
                 scheme => https,
                 host_template => <<"${client_attrs.tns}.auth.example.com">>,
                 port => 443,
                 path => <<"/authn">>,
                 query => <<>>
             }},
-            parse_url_template(<<"https://${client_attrs.tns}.auth.example.com/authn">>)
+            parse_url_template(<<"https://${client_attrs.tns}.auth.example.com/authn">>, dynamic)
         ),
         ?_assertEqual(
-            {dynamic, #{
+            {templated_host, #{
                 scheme => http,
                 host_template => <<"${username}.example.com">>,
                 port => 8080,
                 path => <<"">>,
                 query => <<"client=${clientid}">>
             }},
-            parse_url_template(<<"http://${username}.example.com:8080?client=${clientid}">>)
+            parse_url_template(
+                <<"http://${username}.example.com:8080?client=${clientid}">>, dynamic
+            )
+        ),
+        %% a templated host parses as such regardless of the requested resolution;
+        %% callers decide whether that combination is allowed
+        ?_assertMatch(
+            {templated_host, #{host_template := <<"${username}.example.com">>}},
+            parse_url_template(<<"http://${username}.example.com">>, static)
         ),
         ?_assertThrow(
             {invalid_url, {templated_host_not_supported, _}},
@@ -531,48 +551,43 @@ parse_url_template_test_() ->
         ),
         ?_assertThrow(
             {invalid_url, {unsupported_scheme, _}},
-            parse_url_template(<<"ftp://${username}.example.com/path">>)
+            parse_url_template(<<"ftp://${username}.example.com/path">>, dynamic)
         ),
         %% templated port makes the host "loose" (contains a colon)
         ?_assertThrow(
             {invalid_url, {unsupported_templated_host, _}},
-            parse_url_template(<<"http://${username}.example.com:${port}/path">>)
+            parse_url_template(<<"http://${username}.example.com:${port}/path">>, dynamic)
         ),
         ?_assertEqual(true, is_templated_host_url(<<"http://${username}.example.com">>)),
         ?_assertEqual(false, is_templated_host_url(<<"http://example.com/${username}">>)),
         ?_assertEqual(false, is_templated_host_url(<<"not a url">>))
     ].
 
-parse_url_template_one_off_test_() ->
+parse_url_template_static_host_test_() ->
     [
         ?_assertEqual(
-            {one_off, #{
+            {static_host, #{
                 scheme => https,
                 host => <<"example.com">>,
                 port => 443,
                 path => <<"/auth">>,
                 query => <<"q=1">>
             }},
-            parse_url_template(<<"https://example.com/auth?q=1">>, one_off)
+            parse_url_template(<<"https://example.com/auth?q=1">>, dynamic)
         ),
         ?_assertEqual(
-            {one_off, #{
+            {static_host, #{
                 scheme => http,
                 host => <<"[::1]">>,
                 port => 8080,
                 path => <<"/auth">>,
                 query => <<>>
             }},
-            parse_url_template(<<"http://[::1]:8080/auth">>, one_off)
-        ),
-        %% a templated host is dynamic regardless of the requested mode
-        ?_assertMatch(
-            {dynamic, #{host_template := <<"${username}.example.com">>}},
-            parse_url_template(<<"http://${username}.example.com">>, one_off)
+            parse_url_template(<<"http://[::1]:8080/auth">>, dynamic)
         ),
         ?_assertThrow(
             {invalid_url, {unsupported_scheme, _}},
-            parse_url_template(<<"ftp://example.com">>, one_off)
+            parse_url_template(<<"ftp://example.com">>, dynamic)
         )
     ].
 

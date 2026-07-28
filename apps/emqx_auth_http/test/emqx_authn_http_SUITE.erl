@@ -1330,6 +1330,8 @@ t_templated_host_requires_allowed_hosts(TCConfig) ->
         end,
         [
             maps:remove(<<"allowed_hosts">>, AuthConfig0),
+            %% templated host requires explicit hostname_resolution = dynamic
+            maps:remove(<<"hostname_resolution">>, AuthConfig0),
             AuthConfig0#{<<"allowed_hosts">> => []},
             AuthConfig0#{<<"allowed_hosts">> => [<<"bad host">>]},
             AuthConfig0#{<<"oauth2">> => oauth2_config(<<"http://127.0.0.1:1/token">>)}
@@ -1360,11 +1362,13 @@ t_templated_host_update_transitions(TCConfig) ->
     ?assertMatch([_], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)).
 
 -doc """
-'request_mode = one_off' forces one-off per-request connections even when the
-URL host is a literal hostname: no connector resource (connection pool) is
-created and authentication still works, with 'allowed_hosts' not required.
+'hostname_resolution = dynamic' forces per-request connections even when the
+URL host is a literal hostname: no connector resource is created,
+authentication works through the shared hackney pool sized by 'pool_size',
+and 'allowed_hosts' is not required. 'pool_size = 0' disables connection
+reuse and still works.
 """.
-t_one_off_request_mode_static_host(TCConfig) ->
+t_dynamic_resolution_static_host(TCConfig) ->
     ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             #{
@@ -1380,9 +1384,24 @@ t_one_off_request_mode_static_host(TCConfig) ->
             {ok, Req, State}
         end
     ),
-    AuthConfig = (raw_http_auth_config(TCConfig))#{<<"request_mode">> => <<"one_off">>},
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"hostname_resolution">> => <<"dynamic">>,
+        <<"pool_size">> => 3
+    },
     {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
     ?assertEqual([], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)),
+    ?assertEqual(3, hackney_pool:max_connections(authn)),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ),
+    %% pool_size = 0: no connection reuse, requests still work
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {update_authenticator, ?GLOBAL, <<"password_based:http">>, AuthConfig#{
+            <<"pool_size">> => 0
+        }}
+    ),
     ?assertMatch(
         {ok, #{is_superuser := false}},
         emqx_access_control:authenticate(?CREDENTIALS)
@@ -1406,6 +1425,7 @@ raw_templated_host_auth_config(TCConfig) ->
     (raw_http_auth_config(TCConfig))#{
         <<"url">> =>
             <<"http://${client_attrs.group}:", (http_port_bin(TCConfig))/binary, "/auth">>,
+        <<"hostname_resolution">> => <<"dynamic">>,
         <<"allowed_hosts">> => [<<"localhost">>],
         <<"headers">> => #{<<"X-Tenant">> => <<"${client_attrs.group}">>}
     }.

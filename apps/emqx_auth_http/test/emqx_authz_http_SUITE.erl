@@ -1054,17 +1054,20 @@ t_templated_host_requires_allowed_hosts(TCConfig) ->
         end,
         [
             maps:remove(<<"allowed_hosts">>, Params),
+            %% templated host requires explicit hostname_resolution = dynamic
+            maps:remove(<<"hostname_resolution">>, Params),
             Params#{<<"allowed_hosts">> => []},
             Params#{<<"allowed_hosts">> => [<<"bad host">>]}
         ]
     ).
 
 -doc """
-'request_mode = one_off' forces one-off per-request connections even when the
-URL host is a literal hostname: no connector resource (connection pool) is
-created and authorization still works, with 'allowed_hosts' not required.
+'hostname_resolution = dynamic' forces per-request connections even when the
+URL host is a literal hostname: no connector resource is created,
+authorization works through the shared hackney pool sized by 'pool_size', and
+'allowed_hosts' is not required.
 """.
-t_one_off_request_mode_static_host(TCConfig) ->
+t_dynamic_resolution_static_host(TCConfig) ->
     ok = setup_handler_and_config(
         TCConfig,
         fun(Req0, State) ->
@@ -1074,9 +1077,10 @@ t_one_off_request_mode_static_host(TCConfig) ->
             } = cowboy_req:match_qs([topic, action], Req0),
             {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
         end,
-        #{<<"request_mode">> => <<"one_off">>}
+        #{<<"hostname_resolution">> => <<"dynamic">>, <<"pool_size">> => 3}
     ),
     ?assertEqual([], emqx_resource:list_group_instances(?AUTHZ_RESOURCE_GROUP)),
+    ?assertEqual(3, hackney_pool:max_connections(authz)),
     ?assertEqual(
         allow,
         emqx_access_control:authorize(templated_host_client_info(), ?AUTHZ_PUBLISH, <<"t">>)
@@ -1097,6 +1101,7 @@ templated_host_config_params(TCConfig) ->
         <<"url">> =>
             <<"http://${client_attrs.tns}:", (http_port_bin(TCConfig))/binary,
                 "/authz/users/?topic=${topic}&action=${action}">>,
+        <<"hostname_resolution">> => <<"dynamic">>,
         <<"allowed_hosts">> => [<<"localhost">>],
         <<"headers">> => #{<<"X-Tenant">> => <<"${client_attrs.tns}">>}
     }.
