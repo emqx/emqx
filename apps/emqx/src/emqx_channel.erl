@@ -695,21 +695,19 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
             [
                 fun check_quota_exceeded/2,
                 fun process_alias/2,
-                fun check_pub_alias/2
+                fun check_pub_alias/2,
+                fun packet_to_message/2,
+                fun check_pub_authz/2,
+                fun check_pub_caps/2,
+                fun finalize_publish/2
             ],
             Packet,
             Channel
         )
     of
-        {ok, NPacket0, NChannel0} ->
-            Msg0 = packet_to_message(NPacket0, NChannel0),
-            case prepare_publish(Msg0, NChannel0) of
-                {ok, Msg, NChannel} ->
-                    ok = ?EXT_TRACE_ADD_ATTRS(emqx_otel_trace:msg_attrs(Msg)),
-                    do_publish(PacketId, Msg, NChannel);
-                {error, Rc, NChannel} ->
-                    handle_publish_error(QoS, Topic, PacketId, Rc, NChannel)
-            end;
+        {ok, Msg, NChannel} ->
+            ok = ?EXT_TRACE_ADD_ATTRS(emqx_otel_trace:msg_attrs(Msg)),
+            do_publish(PacketId, Msg, NChannel);
         {error, Rc, NChannel} ->
             handle_publish_error(QoS, Topic, PacketId, Rc, NChannel)
     end.
@@ -757,41 +755,24 @@ handle_publish_error(_QoS, Topic, _PacketId, Rc, Channel) ->
     ),
     handle_out(disconnect, Rc, Channel).
 
-prepare_publish(
-    Msg,
-    #channel{clientinfo = ClientInfo} = Channel
+packet_to_message(
+    Packet,
+    Channel = #channel{
+        conninfo = #{
+            peername := PeerName,
+            proto_ver := ProtoVer
+        },
+        clientinfo =
+            #{
+                protocol := Protocol,
+                clientid := ClientId,
+                username := Username,
+                peerhost := PeerHost
+            } = ClientInfo
+    }
 ) ->
-    case
-        emqx_utils:pipeline(
-            [
-                fun(M, C) -> check_pub_authz(M, C, ClientInfo) end,
-                fun check_pub_caps/2
-            ],
-            Msg,
-            Channel
-        )
-    of
-        {ok, NMsg, NChannel} ->
-            {ok, emqx_message_ingress:finalize(ClientInfo, NMsg), NChannel};
-        {error, Rc, NChannel} ->
-            {error, Rc, NChannel}
-    end.
-
-packet_to_message(Packet, #channel{
-    conninfo = #{
-        peername := PeerName,
-        proto_ver := ProtoVer
-    },
-    clientinfo =
-        #{
-            protocol := Protocol,
-            clientid := ClientId,
-            username := Username,
-            peerhost := PeerHost
-        } = ClientInfo
-}) ->
     ClientAttrs = maps:get(client_attrs, ClientInfo, #{}),
-    emqx_packet:to_message(
+    Msg = emqx_packet:to_message(
         Packet,
         ClientId,
         #{
@@ -802,7 +783,11 @@ packet_to_message(Packet, #channel{
             username => Username,
             peerhost => PeerHost
         }
-    ).
+    ),
+    {ok, Msg, Channel}.
+
+finalize_publish(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
+    {ok, emqx_message_ingress:finalize(ClientInfo, Msg), Channel}.
 
 do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
     Result = emqx_broker:publish(Msg),
@@ -2847,7 +2832,7 @@ authz_action({_Topic, #{qos := QoS} = _SubOpts} = _TopicFilter) ->
 %%--------------------------------------------------------------------
 %% Check Pub Authorization
 
-check_pub_authz(Msg, Channel, ClientInfo) ->
+check_pub_authz(Msg, Channel = #channel{clientinfo = ClientInfo}) ->
     ?EXT_TRACE_CLIENT_AUTHZ(
         ?EXT_TRACE_ATTR(
             (basic_attrs(Channel))#{'authz.action_type' => publish}

@@ -1267,7 +1267,7 @@ t_check_pub_authz(_) ->
     Msg = emqx_message:make(?MODULE, ?QOS_0, <<"t">>, <<"payload">>),
     ?assertMatch(
         {ok, Msg, _},
-        emqx_channel:check_pub_authz(Msg, channel(), clientinfo())
+        emqx_channel:check_pub_authz(Msg, channel())
     ).
 
 t_check_pub_alias(_) ->
