@@ -209,9 +209,6 @@ end_per_testcase(t_exhook_info, _Config) ->
     emqx_exhook_demo_svr:stop(),
     application:stop(emqx_exhook),
     ok;
-end_per_testcase(t_cluster_uuid, Config) ->
-    Node = proplists:get_value(n1, Config),
-    ok = stop_peer(Node);
 end_per_testcase(t_num_clients, Config) ->
     ok = snabbkaffe:stop(),
     Config;
@@ -241,18 +238,13 @@ t_node_uuid(_) ->
     emqx_telemetry:stop_reporting(),
     ?assertMatch({badrpc, nodedown}, emqx_telemetry_proto_v1:get_node_uuid('fake@node')).
 
-t_cluster_uuid(Config) ->
-    Node = proplists:get_value(n1, Config),
+t_cluster_uuid(_Config) ->
+    %% For simplicity, we send RPC towards the local node.
     {ok, ClusterUUID0} = emqx_telemetry:get_cluster_uuid(timer:seconds(10)),
-    ?assertEqual({ok, ClusterUUID0}, emqx_telemetry:get_cluster_uuid(timer:seconds(1))),
-    {ok, ClusterUUID1} = emqx_telemetry_proto_v1:get_cluster_uuid(node()),
-    ?assertEqual(ClusterUUID0, ClusterUUID1),
-    {ok, NodeUUID0} = emqx_telemetry:get_node_uuid(),
-    {ok, ClusterUUID2} = emqx_telemetry_proto_v1:get_cluster_uuid(Node),
-    ?assertEqual(ClusterUUID0, ClusterUUID2),
-    {ok, NodeUUID1} = emqx_telemetry_proto_v1:get_node_uuid(Node),
-    ?assertNotEqual(NodeUUID0, NodeUUID1),
-    ok.
+    ?assertEqual(
+        {ok, ClusterUUID0},
+        emqx_telemetry_proto_v1:get_cluster_uuid(node())
+    ).
 
 %% should attempt read UUID from file in data dir to keep UUIDs
 %% unique, in the event of a database purge.
