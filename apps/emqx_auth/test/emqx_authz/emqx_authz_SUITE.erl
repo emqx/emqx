@@ -723,42 +723,43 @@ t_skipped_as_superuser(_Config) ->
         listener => 'tcp:default',
         is_superuser => true
     },
+    AuthzContext = emqx_authz_context:make(ClientInfo),
     ?check_trace(
         begin
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(?QOS_0), <<"p/t/0">>
+                    AuthzContext, ?AUTHZ_PUBLISH(?QOS_0), <<"p/t/0">>
                 )
             ),
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(?QOS_1), <<"p/t/1">>
+                    AuthzContext, ?AUTHZ_PUBLISH(?QOS_1), <<"p/t/1">>
                 )
             ),
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH(?QOS_2), <<"p/t/2">>
+                    AuthzContext, ?AUTHZ_PUBLISH(?QOS_2), <<"p/t/2">>
                 )
             ),
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE(?QOS_0), <<"s/t/0">>
+                    AuthzContext, ?AUTHZ_SUBSCRIBE(?QOS_0), <<"s/t/0">>
                 )
             ),
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE(?QOS_1), <<"s/t/1">>
+                    AuthzContext, ?AUTHZ_SUBSCRIBE(?QOS_1), <<"s/t/1">>
                 )
             ),
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE(?QOS_2), <<"s/t/2">>
+                    AuthzContext, ?AUTHZ_SUBSCRIBE(?QOS_2), <<"s/t/2">>
                 )
             )
         end,

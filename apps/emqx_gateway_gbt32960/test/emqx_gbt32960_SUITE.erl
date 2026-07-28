@@ -303,6 +303,7 @@ t_authz_include_mountpoint_login_upstream_publish(_Config) ->
     end),
     ok = emqx:subscribe(Topic),
     emqx_common_test_helpers:on_exit(fun() -> emqx:unsubscribe(Topic) end),
+    %% Authz sees the mounted topic, and publication applies the mountpoint only once.
     with_gateway_authz_result(gbt32960, publish, Topic, allow, fun() ->
         {ok, Socket} = login_first_without_broker_asserts(),
         {Topic, _PubedMsg} = get_published_msg(),

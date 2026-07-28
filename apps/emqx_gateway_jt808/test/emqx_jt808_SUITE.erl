@@ -843,6 +843,7 @@ t_authz_include_mountpoint_upstream_publish(_) ->
     end),
     ok = emqx:subscribe(?JT808_UP_TOPIC),
     emqx_common_test_helpers:on_exit(fun() -> emqx:unsubscribe(?JT808_UP_TOPIC) end),
+    %% Authz sees the mounted topic, and publication applies the mountpoint only once.
     with_gateway_authz_result(jt808, publish, ?JT808_UP_TOPIC, allow, fun() ->
         {ok, Socket} = connect_jt808(),
         send_event_report(Socket, 98, 79),

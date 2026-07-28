@@ -73,7 +73,7 @@ end_per_testcase(_, Config) ->
 %%------------------------------------------------------------------------------
 
 t_run_case(Config) ->
-    Case0 = (?config(test_case, Config))#{security_profile => hardened},
+    Case0 = maps:put(security_profile, hardened, ?config(test_case, Config)),
     ok = setup_authenticator(Case0),
     Case = create_client_info(Case0),
     ok = maybe_make_delay(Case),

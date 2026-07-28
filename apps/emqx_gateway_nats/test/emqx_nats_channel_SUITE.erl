@@ -82,6 +82,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:call_janitor(),
     cleanup_hooks(),
     allow_pubsub_all(),
     disable_auth(),
@@ -129,6 +130,12 @@ t_message_ingress(Config) ->
     ok = emqx:subscribe(RewrittenTopic),
     ok = emqx:subscribe(MountedTopic),
     ok = emqx:subscribe(<<Mountpoint/binary, MountedTopic/binary>>),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx:unsubscribe(Topic),
+        emqx:unsubscribe(RewrittenTopic),
+        emqx:unsubscribe(MountedTopic),
+        emqx:unsubscribe(<<Mountpoint/binary, MountedTopic/binary>>)
+    end),
     ok = emqx_hooks:put(
         'message.ingress',
         {?MODULE, hook_message_ingress, [TestPid, RewrittenTopic]},
@@ -136,54 +143,50 @@ t_message_ingress(Config) ->
     ),
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true, headers => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    try
-        recv_info_frame(Client),
-        ok = emqx_nats_client:connect(Client),
-        recv_ok_frame(Client),
-        ok = send_hpub(Client, Topic, ReplyTo, NATSHeaders, Payload),
-        PreAuthzMsg =
-            receive
-                {message_ingress, Ctx, Msg} ->
-                    ?assertMatch(#{authz_ctx := #{clientid := _}}, Ctx),
-                    ?assertEqual(Topic, emqx_message:topic(Msg)),
-                    ?assertEqual(Payload, emqx_message:payload(Msg)),
-                    ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
-                    ?assertMatch(
-                        #{
-                            proto_ver := <<"1">>,
-                            protocol := nats,
-                            username := <<>>,
-                            peerhost := _,
-                            nats_headers := NATSHeaders,
-                            reply_to := ReplyTo
-                        },
-                        emqx_message:get_headers(Msg)
-                    ),
-                    Msg
-            after 1000 ->
-                ct:fail(message_ingress_hook_not_called)
-            end,
-        recv_ok_frame(Client),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    %% Ingress sees the logical topic, payload, authz context, and NATS metadata.
+    ok = send_hpub(Client, Topic, ReplyTo, NATSHeaders, Payload),
+    PreAuthzMsg =
         receive
-            {deliver, MountedTopic, PublishedMsg} ->
-                ?assertEqual(emqx_message:id(PreAuthzMsg), emqx_message:id(PublishedMsg)),
-                ?assertEqual(true, emqx_message:get_header(ingress, PublishedMsg))
+            {message_ingress, Ctx, Msg} ->
+                ?assertMatch(#{authz_ctx := #{clientid := _}}, Ctx),
+                ?assertEqual(Topic, emqx_message:topic(Msg)),
+                ?assertEqual(Payload, emqx_message:payload(Msg)),
+                ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
+                ?assertMatch(
+                    #{
+                        proto_ver := <<"1">>,
+                        protocol := nats,
+                        username := <<>>,
+                        peerhost := _,
+                        nats_headers := NATSHeaders,
+                        reply_to := ReplyTo
+                    },
+                    emqx_message:get_headers(Msg)
+                ),
+                Msg
         after 1000 ->
-            ct:fail(message_not_published)
+            ct:fail(message_ingress_hook_not_called)
         end,
-        receive
-            {deliver, UnexpectedTopic, _} ->
-                ct:fail({unexpected_publish, UnexpectedTopic})
-        after 100 ->
-            ok
-        end
-    after
-        emqx_nats_client:stop(Client),
-        emqx:unsubscribe(Topic),
-        emqx:unsubscribe(RewrittenTopic),
-        emqx:unsubscribe(MountedTopic),
-        emqx:unsubscribe(<<Mountpoint/binary, MountedTopic/binary>>)
-    end.
+    recv_ok_frame(Client),
+    %% The hook rewrite/header survive and the mountpoint is applied exactly once.
+    receive
+        {deliver, MountedTopic, PublishedMsg} ->
+            ?assertEqual(emqx_message:id(PreAuthzMsg), emqx_message:id(PublishedMsg)),
+            ?assertEqual(true, emqx_message:get_header(ingress, PublishedMsg))
+    after 1000 ->
+        ct:fail(message_not_published)
+    end,
+    %% Catch original, unmounted rewritten, or double-mounted publications.
+    receive
+        {deliver, UnexpectedTopic, _} ->
+            ct:fail({unexpected_publish, UnexpectedTopic})
+    after 100 ->
+        ok
+    end,
+    emqx_nats_client:stop(Client).
 
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
