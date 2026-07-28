@@ -898,13 +898,16 @@ read_start_config_without_local_file(NameVsn) ->
 resolve_and_validate_start_config(NameVsn, Schema) ->
     maybe
         {ok, ConfigSource, Config} ?= read_start_config(NameVsn),
-        ok ?= validate_start_config(NameVsn, Schema, Config),
+        ok ?= validate_start_config(NameVsn, Schema, ConfigSource, Config),
         {ok, ConfigSource, Config}
     end.
 
-validate_start_config(_NameVsn, no_schema, _Config) ->
+validate_start_config(_NameVsn, _Schema, empty, _Config) ->
+    %% A missing config is valid for plugins that intentionally do not ship one.
     ok;
-validate_start_config(NameVsn, AvscBin, Config) ->
+validate_start_config(_NameVsn, no_schema, _ConfigSource, _Config) ->
+    ok;
+validate_start_config(NameVsn, AvscBin, _ConfigSource, Config) ->
     case emqx_plugins_serde:decode(NameVsn, AvscBin, ensure_config_bin(Config)) of
         {ok, _} ->
             ok;
