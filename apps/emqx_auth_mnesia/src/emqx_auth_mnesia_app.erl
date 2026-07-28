@@ -15,9 +15,11 @@ start(_StartType, _StartArgs) ->
     ok = emqx_authz:register_source(?AUTHZ_TYPE, emqx_authz_mnesia),
     ok = emqx_authn:register_provider(?AUTHN_TYPE_SIMPLE, emqx_authn_mnesia),
     ok = emqx_authn:register_provider(?AUTHN_TYPE_SCRAM, emqx_authn_scram_mnesia),
+    ok = emqx_auth_mnesia_hookcb:register_hooks(),
     {ok, Sup}.
 
 stop(_State) ->
+    ok = emqx_auth_mnesia_hookcb:unregister_hooks(),
     ok = emqx_authn:deregister_provider(?AUTHN_TYPE_SIMPLE),
     ok = emqx_authn:deregister_provider(?AUTHN_TYPE_SCRAM),
     ok = emqx_authz:unregister_source(?AUTHZ_TYPE),
