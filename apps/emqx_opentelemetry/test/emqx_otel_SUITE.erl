@@ -47,12 +47,16 @@
     t_e2e_http_publish_qos2/1
 ]).
 
+-export([t_dynatrace/1]).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(OTEL_SERVICE_NAME, "emqx").
 -define(CONF_PATH, [opentelemetry]).
@@ -198,11 +202,19 @@ groups() ->
         t_e2e_client_source_republish_to_clients,
         t_e2e_http_publish_qos2
     ],
+    DynatraceCases = [
+        t_dynatrace
+    ],
 
     [
         %% OTEL TCP cover all MQTT tcp conns (TCP and TLS)
+        {otel_tcp, [
+            {group, logs},
+            {group, metrics},
+            {group, trace_tcp_conn},
+            {group, dynatrace}
+        ]},
         %% OTEL TLS cover all MQTT websocket conns (WS and WSS)
-        {otel_tcp, [{group, logs}, {group, metrics}, {group, trace_tcp_conn}]},
         {otel_tls, [{group, logs}, {group, metrics}, {group, traces_ws_conn}]},
 
         %% FeatureGroups
@@ -225,7 +237,10 @@ groups() ->
 
         %% E2ETraceGroups
         {e2e_with_traceparent, E2EModeTraceCases},
-        {e2e_no_traceparent, E2EModeTraceCases}
+        {e2e_no_traceparent, E2EModeTraceCases},
+
+        %% dynatrace groups
+        {dynatrace, DynatraceCases}
     ].
 
 init_per_suite(Config) ->
@@ -289,6 +304,16 @@ init_per_group(e2e_no_traceparent = Group, Config) ->
         {group_follow_traceparent, Group}
         | Config
     ];
+init_per_group(dynatrace = Group, Config) ->
+    [
+        %% http endpoint
+        {otel_collector_url, "http://otel-collector.emqx.net:4318"},
+        {group_follow_traceparent, Group},
+        {group_otel_conn_type, tcp},
+        {group_client_conn_type, tcp},
+        {group, Group}
+        | Config
+    ];
 init_per_group(Group, Config) ->
     [{group, Group} | Config].
 
@@ -318,14 +343,17 @@ init_per_testcase(TC, Config) ->
     local_init_per_test_case(TC, [{tc, TC}, {suite_apps, Apps} | Config]).
 
 end_per_testcase(TC, Config) when ?WITH_CLUSTER(TC) ->
+    emqx_common_test_helpers:call_janitor(),
     emqx_cth_cluster:stop(?config(cluster, Config)),
     emqx_config:delete_override_conf_files(),
     local_end_per_test_case(TC, Config);
 end_per_testcase(TC, Config) when ?WITH_RULE_ENGINE(TC) ->
+    emqx_common_test_helpers:call_janitor(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_config:delete_override_conf_files(),
     local_end_per_test_case(TC, Config);
 end_per_testcase(TC, Config) ->
+    emqx_common_test_helpers:call_janitor(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_config:delete_override_conf_files(),
     local_end_per_test_case(TC, Config).
@@ -1942,6 +1970,69 @@ t_e2e_http_publish_qos2(Config) ->
 
     ok.
 
+-doc """
+Smoke test that checks that we can use Dynatrace OTEL integration.  Dynatrace itself is
+mocked by a generic OTEL collector.
+
+Exercises legacy and few e2e traces, and logs.
+
+Metrics are currently unimplemented.
+""".
+t_dynatrace(TCConfig) ->
+    TokenEndpoint = start_oauth2_server(),
+    ParamsE2E = dynatrace_e2e_conf(TCConfig, #{
+        <<"exporter">> => #{
+            <<"auth">> => #{
+                <<"token_endpoint">> => TokenEndpoint
+            }
+        }
+    }),
+    {ok, _} = emqx_conf:update(?CONF_PATH, ParamsE2E, #{override_to => cluster}),
+
+    ClientId = e2e_client_id(TCConfig),
+    ConnectTraceParent = traceparent(true),
+    PublishTraceParent = traceparent(true),
+    DisconnectTraceParent = traceparent(true),
+
+    Topic = <<"my/topic/of/interest">>,
+    {ok, Conn} = connect(TCConfig, node(), ClientId, props(ConnectTraceParent)),
+    ok = emqtt:publish(Conn, Topic, props(PublishTraceParent), <<"must be traced">>, []),
+    _ = emqtt:disconnect(Conn, ?RC_SUCCESS, props(DisconnectTraceParent)),
+
+    %% Ids are only needed for matching logs in the file exported by otel-collector
+    Level = warning,
+    Id = integer_to_binary(otel_id_generator:generate_trace_id()),
+    ?SLOG(Level, #{msg => "otel_test_log_message", id => Id}),
+    Id1 = integer_to_binary(otel_id_generator:generate_trace_id()),
+    logger:Level("Ordinary log message, id: ~p", [Id1]),
+
+    ?retry(
+        500,
+        20,
+        begin
+            {ok, Logs} = file:read_file(?config(logs_exporter_file_path, TCConfig)),
+            ?assert(binary:match(Logs, Id) =/= nomatch, #{logs => Logs}),
+            ?assert(binary:match(Logs, Id1) =/= nomatch, #{logs => Logs}),
+            ok
+        end
+    ),
+    ?retry(
+        500,
+        20,
+        begin
+            {ok, #{<<"data">> := Traces}} = get_jaeger_traces(?config(jaeger_url, TCConfig)),
+            ?assertMatch([_], filter_traces(trace_id(ConnectTraceParent), Traces)),
+            ?assertMatch([_], filter_traces(trace_id(PublishTraceParent), Traces)),
+            ?assertMatch([_], filter_traces(trace_id(DisconnectTraceParent), Traces)),
+            ok
+        end
+    ),
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
+
 http_publish(TraceParent, Topic, Payload, QoS) ->
     Headers = [emqx_mgmt_api_test_util:auth_header_()],
     Body = #{
@@ -1969,9 +2060,62 @@ http_publish(TraceParent, Topic, Payload, QoS) ->
         #{}
     ).
 
-%%------------------------------------------------------------------------------
-%% Helpers
-%%------------------------------------------------------------------------------
+dynatrace_e2e_conf(TCConfig, Overrides) ->
+    ExporterCfg = #{
+        <<"endpoint">> => ?config(otel_collector_url, TCConfig),
+        <<"auth">> => #{
+            <<"kind">> => <<"dynatrace_oauth2">>,
+            <<"enable">> => true,
+            <<"token_endpoint">> => <<"please override">>,
+            <<"client_id">> => <<"myclientid">>,
+            <<"client_secret">> => <<"supersecret">>,
+            <<"resource">> => <<"urn:dtaccount:fcd86d07-8743-431f-8ba4-407a8ee45cbf">>
+        }
+    },
+    emqx_utils_maps:deep_merge(
+        #{
+            <<"type">> => <<"dynatrace">>,
+            <<"exporter">> => ExporterCfg,
+            <<"logs">> => #{
+                <<"enable">> => true,
+                <<"level">> => <<"info">>
+            },
+            <<"traces">> => #{
+                <<"enable">> => true,
+                <<"scheduled_delay">> => <<"50ms">>,
+                <<"filter">> => #{
+                    <<"trace_mode">> => <<"e2e">>,
+                    <<"e2e_tracing_options">> => #{
+                        <<"sample_ratio">> => 1.0,
+                        <<"msg_trace_level">> => 2,
+                        <<"client_connect_disconnect">> => true,
+                        <<"client_subscribe_unsubscribe">> => true,
+                        <<"client_messaging">> => true,
+                        <<"trace_rule_engine">> => true
+                    }
+                }
+            }
+        },
+        Overrides
+    ).
+
+start_oauth2_server() ->
+    on_exit(fun emqx_utils_http_test_server:stop/0),
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/[...]", false),
+    ok = emqx_utils_http_test_server:set_handler(fun(Req, State) ->
+        Rep = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            emqx_utils_json:encode(#{
+                <<"access_token">> => <<"oauth2.token.mocked">>,
+                <<"expires_in">> => 3600,
+                <<"token_type">> => <<"Bearer">>
+            }),
+            Req
+        ),
+        {ok, Rep, State}
+    end),
+    iolist_to_binary(["http://127.0.0.1:", integer_to_list(Port)]).
 
 enabled_e2e_trace_conf_all(TcConfig) ->
     OtelConf = enabled_trace_conf(TcConfig),

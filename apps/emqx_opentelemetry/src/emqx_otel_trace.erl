@@ -145,7 +145,7 @@ start(#{traces := TracesConf, exporter := ExporterConf}) ->
             {bsp_scheduled_delay_ms, ScheduledDelay},
             {bsp_exporting_timeout_ms, ExportingTimeout},
             {bsp_max_queue_size, MaxQueueSize},
-            {traces_exporter, emqx_otel_config:otel_exporter(ExporterConf)}
+            {traces_exporter, emqx_otel_config:otel_exporter(traces, ExporterConf)}
         ] ++ set_trace_filter(Filter),
     ok = application:set_env([{opentelemetry, OtelEnv}]),
     Res = assert_started(opentelemetry:start_default_tracer_provider()),

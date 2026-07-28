@@ -122,4 +122,29 @@ clientid_match_rules_max.label: "Maximum Number of Client ID Match Whitelist"
 topic_match_rules_max.desc: """Maximum length of the whitelist based for topic matching."""
 topic_match_rules_max.label: "Maximum Number of Topic Match Whitelist"
 
+  opentelemetry_type {
+    label: "Type"
+    desc: "Opentelemetry integration type."
+  }
+
+  opentelemetry_dynatrace {
+    label: "Dynatrace"
+    desc: "Opentelemetry integration to Dynatrace."
+  }
+
+  dynatrace_auth {
+    label: "Authentication"
+    desc: "Authentication mechanism to use with Dynatrace."
+  }
+
+  dynatrace_oauth2 {
+    label: "OAuth2"
+    desc: "Authentication using OAuth2 client credentials"
+  }
+
+  dynatrace_oauth2_resource {
+    label: "Resource"
+    desc: "Resource to use when issuing OAuth2 token."
+  }
+
 }

@@ -5,6 +5,8 @@ receivers:
         endpoint: 0.0.0.0:4317
         auth:
           authenticator: basicauth/server
+      http:
+        endpoint: 0.0.0.0:4318
 #        tls:
 #          ca_file: /etc/ca.pem
 #          cert_file: /etc/server.pem

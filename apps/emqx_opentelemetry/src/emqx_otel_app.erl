@@ -12,8 +12,10 @@
 start(_StartType, _StartArgs) ->
     emqx_otel_config:add_handler(),
     ok = emqx_otel_sampler:init_tables(),
+    Cfg = emqx:get_config([opentelemetry]),
+    ok = emqx_otel_config:ensure_oauth2_registered(Cfg),
     ok = emqx_otel_config:add_otel_log_handler(),
-    ok = emqx_otel_trace:ensure_traces(emqx:get_config([opentelemetry])),
+    ok = emqx_otel_trace:ensure_traces(Cfg),
     emqx_otel_sup:start_link().
 
 stop(_State) ->

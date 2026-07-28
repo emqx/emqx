@@ -23,13 +23,25 @@ namespace() -> opentelemetry.
 roots() ->
     [
         {"opentelemetry",
-            ?HOCON(?R_REF("opentelemetry"), #{
-                converter => fun legacy_metrics_converter/2
-            })}
+            ?HOCON(
+                emqx_schema:mkunion(
+                    type,
+                    #{
+                        <<"generic">> => ?R_REF("opentelemetry"),
+                        <<"dynatrace">> => ?R_REF("opentelemetry_dynatrace")
+                    },
+                    <<"generic">>
+                ),
+                #{
+                    required => {false, recursively},
+                    converter => fun legacy_metrics_converter/2
+                }
+            )}
     ].
 
 fields("opentelemetry") ->
     [
+        {type, ?HOCON(generic, #{default => generic, desc => ?DESC("opentelemetry_type")})},
         {metrics,
             ?HOCON(
                 ?R_REF("otel_metrics"),
@@ -54,6 +66,39 @@ fields("opentelemetry") ->
         {exporter,
             ?HOCON(
                 ?R_REF("otel_exporter"),
+                #{
+                    desc => ?DESC(otel_exporter)
+                }
+            )}
+    ];
+fields("opentelemetry_dynatrace") ->
+    [
+        {type, ?HOCON(dynatrace, #{default => dynatrace, desc => ?DESC("opentelemetry_type")})},
+        %% currently unimplemented
+        %% {metrics,
+        %%     ?HOCON(
+        %%         ?R_REF("otel_metrics"),
+        %%         #{
+        %%             desc => ?DESC(otel_metrics)
+        %%         }
+        %%     )},
+        {logs,
+            ?HOCON(
+                ?R_REF("otel_logs"),
+                #{
+                    desc => ?DESC(otel_logs)
+                }
+            )},
+        {traces,
+            ?HOCON(
+                ?R_REF("otel_traces"),
+                #{
+                    desc => ?DESC(otel_traces)
+                }
+            )},
+        {exporter,
+            ?HOCON(
+                ?R_REF("otel_exporter_dynatrace"),
                 #{
                     desc => ?DESC(otel_exporter)
                 }
@@ -220,6 +265,64 @@ fields("otel_exporter") ->
                 }
             )}
     ];
+fields("otel_exporter_dynatrace") ->
+    [
+        {endpoint,
+            ?HOCON(
+                emqx_schema:url(),
+                #{
+                    default => <<"http://localhost:4317">>,
+                    desc => ?DESC(exporter_endpoint),
+                    importance => ?IMPORTANCE_HIGH
+                }
+            )},
+        {headers,
+            ?HOCON(
+                map(),
+                #{
+                    required => false,
+                    default => #{},
+                    desc => ?DESC(exporter_headers),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {protocol,
+            ?HOCON(
+                %% dynatrace currently only supports http protobuf
+                ?ENUM([http_protobuf]),
+                #{
+                    default => http_protobuf,
+                    desc => ?DESC(exporter_protocol),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {auth,
+            ?HOCON(
+                emqx_schema:mkunion(
+                    kind,
+                    #{<<"dynatrace_oauth2">> => ?R_REF("dynatrace_oauth2")},
+                    <<"dynatrace_oauth2">>
+                ),
+                #{required => true, desc => ?DESC("dynatrace_auth")}
+            )},
+        {ssl_options,
+            ?HOCON(
+                ?R_REF(emqx_schema, "ssl_client_opts"),
+                #{
+                    desc => ?DESC(exporter_ssl),
+                    default => #{<<"enable">> => false},
+                    importance => ?IMPORTANCE_LOW
+                }
+            )}
+    ];
+fields("dynatrace_oauth2") ->
+    Fields = emqx_connector_oauth2_schema:fields(client_credentials),
+    [
+        {kind, ?HOCON(dynatrace_oauth2, #{default => oauth2, desc => ?DESC("dynatrace_oauth2")})},
+        {resource,
+            ?HOCON(binary(), #{required => true, desc => ?DESC("dynatrace_oauth2_resource")})}
+        | Fields
+    ];
 fields("trace_filter") ->
     %% More filters can be implemented in future, e.g. topic, clientid
     [
@@ -354,6 +457,8 @@ desc("opentelemetry") ->
     ?DESC(opentelemetry);
 desc("otel_exporter") ->
     ?DESC(otel_exporter);
+desc("otel_exporter_dynatrace") ->
+    ?DESC(otel_exporter);
 desc("otel_logs") ->
     ?DESC(otel_logs);
 desc("otel_metrics") ->
@@ -364,11 +469,19 @@ desc("trace_filter") ->
     ?DESC(trace_filter);
 desc("e2e_tracing_options") ->
     ?DESC(e2e_tracing_options);
+desc("opentelemetry_type") ->
+    ?DESC("opentelemetry_type");
+desc("opentelemetry_dynatrace") ->
+    ?DESC("opentelemetry_dynatrace");
+desc("dynatrace_oauth2") ->
+    ?DESC("dynatrace_oauth2");
+desc("dynatrace_auth") ->
+    ?DESC("dynatrace_auth");
 desc(_) ->
     undefined.
 
 %% Compatibility with the previous schema that defined only metrics fields
-legacy_metrics_converter(OtelConf, _Opts) when is_map(OtelConf) ->
+legacy_metrics_converter(#{} = OtelConf, _Opts) ->
     Otel1 =
         case maps:take(<<"enable">>, OtelConf) of
             {MetricsEnable, OtelConf1} ->

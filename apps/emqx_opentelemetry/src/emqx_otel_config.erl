@@ -5,6 +5,7 @@
 
 -behaviour(emqx_config_handler).
 
+-include("emqx_otel_internal.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -define(OTEL, [opentelemetry]).
@@ -18,7 +19,8 @@
 -export([pre_config_update/3, post_config_update/5]).
 -export([update/1]).
 -export([add_otel_log_handler/0, remove_otel_log_handler/0]).
--export([otel_exporter/1]).
+-export([otel_exporter/2]).
+-export([do_fetch_token/0, ensure_oauth2_registered/1]).
 
 update(Config) ->
     case
@@ -51,11 +53,12 @@ post_config_update(?OTEL, _Req, Old, Old, _AppEnvs) ->
     ok;
 post_config_update(?OTEL, _Req, New, Old, AppEnvs) ->
     application:set_env(AppEnvs),
+    Oauth2Res = ensure_oauth2_registered(New),
     MetricsRes = ensure_otel_metrics(New, Old),
     LogsRes = ensure_otel_logs(New, Old),
     TracesRes = ensure_otel_traces(New, Old),
-    case {MetricsRes, LogsRes, TracesRes} of
-        {ok, ok, ok} -> ok;
+    case {Oauth2Res, MetricsRes, LogsRes, TracesRes} of
+        {ok, ok, ok, ok} -> ok;
         Other -> {error, Other}
     end;
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
@@ -67,19 +70,31 @@ add_otel_log_handler() ->
 remove_otel_log_handler() ->
     remove_handler_if_present(?OTEL_LOG_HANDLER_ID).
 
-otel_exporter(ExporterConf) ->
+otel_exporter(OtelSignal, ExporterConf) ->
     #{
         endpoint := Endpoint,
-        headers := Headers,
+        headers := _,
         protocol := Proto,
         ssl_options := SSLOpts
     } = ExporterConf,
     {?OTEL_EXPORTER, #{
-        endpoint => Endpoint,
+        endpoint => append_default_path(OtelSignal, Endpoint),
         protocol => Proto,
-        headers => header_opts(Headers),
+        headers => header_opts(ExporterConf),
         ssl_options => ssl_opts(Endpoint, SSLOpts)
     }}.
+
+append_default_path(OtelSignal, Endpoint0) ->
+    Parsed = #{path := Path0} = uri_string:parse(Endpoint0),
+    DefaultPath =
+        case OtelSignal of
+            logs -> "v1/logs";
+            metrics -> "v1/metrics";
+            traces -> "v1/traces"
+        end,
+    Path = filename:join(Path0, DefaultPath),
+    Endpoint = uri_string:recompose(Parsed#{path := Path}),
+    iolist_to_binary(Endpoint).
 
 %% Internal functions
 
@@ -148,6 +163,16 @@ ensure_otel_traces(#{traces := #{enable := true}} = Conf, _OldConf) ->
 ensure_otel_traces(#{traces := #{enable := false}}, _OldConf) ->
     emqx_otel_trace:stop().
 
+ensure_oauth2_registered(#{exporter := #{auth := #{kind := dynatrace_oauth2} = AuthParams0}}) ->
+    AuthParams = prepare_oauth2_params(AuthParams0),
+    emqx_connector_oauth2:register(?OAUTH_RES_ID, AuthParams);
+ensure_oauth2_registered(_Cfg) ->
+    emqx_connector_oauth2:unregister(?OAUTH_RES_ID).
+
+prepare_oauth2_params(#{kind := dynatrace_oauth2} = AuthParams0) ->
+    #{resource := Resource} = AuthParams0,
+    AuthParams0#{extra_keys => #{<<"resource">> => Resource}}.
+
 remove_handler_if_present(HandlerId) ->
     case logger:get_handler_config(HandlerId) of
         {ok, _} ->
@@ -169,7 +194,7 @@ tr_handler_conf(#{logs := LogsConf, exporter := ExporterConf}) ->
             max_queue_size => MaxQueueSize,
             exporting_timeout_ms => ExportingTimeout,
             scheduled_delay_ms => ScheduledDelay,
-            exporter => otel_exporter(ExporterConf)
+            exporter => otel_exporter(logs, ExporterConf)
         }
     }.
 
@@ -182,16 +207,29 @@ ssl_opts(Endpoint, SSLOpts) ->
             []
     end.
 
-header_opts(Headers) ->
-    lists:reverse(
+header_opts(#{headers := StaticHeaders} = ExporterConf) ->
+    Headers = lists:reverse(
         maps:fold(
             fun(Key, Value, AccIn) ->
                 [{bin(Key), bin(Value)} | AccIn]
             end,
             [],
-            Headers
+            StaticHeaders
         )
-    ).
+    ),
+    prepend_oauth2(ExporterConf, Headers).
+
+prepend_oauth2(#{auth := #{kind := dynatrace_oauth2}}, Headers) ->
+    [
+        {<<"Authorization">>, {fun ?MODULE:do_fetch_token/0, []}}
+        | Headers
+    ];
+prepend_oauth2(_ExporterConf, Headers) ->
+    Headers.
+
+do_fetch_token() ->
+    {ok, Token} = emqx_connector_oauth2:get_token(?OAUTH_RES_ID),
+    <<"Bearer ", Token/binary>>.
 
 bin(A) when is_atom(A) ->
     atom_to_binary(A);

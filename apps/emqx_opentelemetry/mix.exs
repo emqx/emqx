@@ -27,13 +27,14 @@ defmodule EMQXOpentelemetry.MixProject do
   def deps() do
     opentelemetry = [
       github: "emqx/opentelemetry-erlang",
-      tag: "v1.4.11-emqx",
+      tag: "v1.4.12-emqx",
       override: true
     ]
 
     UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
+      {:emqx_connector_oauth2, in_umbrella: true},
       :minirest,
       {:opentelemetry_api, opentelemetry ++ [sparse: "apps/opentelemetry_api"]},
       {:opentelemetry, opentelemetry ++ [sparse: "apps/opentelemetry"]},
