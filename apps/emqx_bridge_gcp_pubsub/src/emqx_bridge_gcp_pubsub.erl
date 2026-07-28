@@ -19,7 +19,8 @@
 -export([
     service_account_json_validator/1,
     service_account_json_converter/2,
-    decode_service_account_json/1
+    decode_service_account_json/1,
+    pubsub_topic_validator/1
 ]).
 
 -export([upgrade_raw_conf/1]).
@@ -123,6 +124,7 @@ fields(producer) ->
                 binary(),
                 #{
                     required => true,
+                    validator => fun ?MODULE:pubsub_topic_validator/1,
                     desc => ?DESC("pubsub_topic")
                 }
             )}
@@ -286,6 +288,27 @@ service_account_json_validator(Val) ->
             end;
         {error, _} ->
             {error, "not a json"}
+    end.
+
+-doc """
+Accepts either a bare topic name or a fully-qualified
+`projects/<project-id>/topics/<topic-name>` path (used to reference a topic in a
+different GCP project than the service account's).
+""".
+-spec pubsub_topic_validator(binary()) -> ok | {error, binary()}.
+pubsub_topic_validator(Topic) ->
+    case binary:split(Topic, <<"/">>, [global]) of
+        [TopicName] when TopicName =/= <<>> ->
+            ok;
+        [<<"projects">>, ProjectId, <<"topics">>, TopicName] when
+            ProjectId =/= <<>>, TopicName =/= <<>>
+        ->
+            ok;
+        _ ->
+            {error, <<
+                "must be either a topic name or a fully-qualified topic path"
+                " 'projects/<project-id>/topics/<topic-name>'"
+            >>}
     end.
 
 service_account_json_converter(Map = #{}, #{make_serializable := true}) ->
