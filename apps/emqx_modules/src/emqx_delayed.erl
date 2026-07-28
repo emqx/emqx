@@ -177,9 +177,9 @@ on_message_publish(Msg) ->
 parse_delayed_topic(Data) ->
     case binary:split(Data, <<"/">>) of
         [DelayBin, Topic] when Topic =/= <<>> ->
-            case {parse_delay(DelayBin), is_valid_topic(Topic)} of
-                {{ok, Delay}, true} -> {ok, Delay, Topic};
-                _ -> {error, invalid_topic_name}
+            case parse_delay(DelayBin) of
+                {ok, Delay} -> {ok, Delay, Topic};
+                error -> {error, invalid_topic_name}
             end;
         _ ->
             {error, invalid_topic_name}
@@ -199,13 +199,6 @@ parse_delay(DelayBin) ->
             error
     catch
         error:badarg -> error
-    end.
-
-is_valid_topic(Topic) ->
-    try emqx_topic:validate(name, Topic) of
-        true -> true
-    catch
-        error:_ -> false
     end.
 
 maybe_put_authz_context(AuthzContext, Delayed) ->
