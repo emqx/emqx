@@ -753,12 +753,18 @@ do_get_subscription(State) ->
     end.
 
 -spec subscription_id(bridge_name(), emqx_bridge_gcp_pubsub_client:topic()) -> subscription_id().
-subscription_id(BridgeName0, Topic) ->
+subscription_id(BridgeName0, Topic0) ->
     %% The real GCP PubSub accepts colons in subscription names, but its emulator
     %% doesn't...  We currently validate bridge names to not include that character.  The
     %% exception is the prefix from the probe API.
     BridgeName1 = to_bin(BridgeName0),
     BridgeName = binary:replace(BridgeName1, <<":">>, <<"-">>),
+    %% A fully-qualified `projects/<project-id>/topics/<topic-name>' topic contains
+    %% slashes, which cannot appear in a subscription id (percent-encoding them does not
+    %% help: the server decodes the path back to slashes); map them to `-' to keep the
+    %% id unique per project + topic.  Bare topic names cannot contain slashes and are
+    %% thus unaffected.
+    Topic = binary:replace(Topic0, <<"/">>, <<"-">>, [global]),
     to_bin(uri_string:quote(<<"emqx-sub-", BridgeName/binary, "-", Topic/binary>>)).
 
 -spec path(state(), pull | create | ack | get_subscription) -> binary().
@@ -789,7 +795,7 @@ body(State, create) ->
         project_id := ProjectId,
         topic := PubSubTopic
     } = State,
-    TopicResource = <<"projects/", ProjectId/binary, "/topics/", PubSubTopic/binary>>,
+    TopicResource = topic_resource(ProjectId, PubSubTopic),
     JSON = #{
         <<"topic">> => TopicResource,
         <<"ackDeadlineSeconds">> => AckDeadlineSeconds
@@ -802,7 +808,7 @@ body(State, patch_subscription) ->
         topic := PubSubTopic,
         subscription_id := SubscriptionId
     } = State,
-    TopicResource = <<"projects/", ProjectId/binary, "/topics/", PubSubTopic/binary>>,
+    TopicResource = topic_resource(ProjectId, PubSubTopic),
     SubscriptionResource = subscription_resource(ProjectId, SubscriptionId),
     JSON = #{
         <<"subscription">> =>
@@ -823,6 +829,21 @@ body(_State, ack, Opts) ->
     #{ack_ids := AckIds} = Opts,
     JSON = #{<<"ackIds">> => AckIds},
     emqx_utils_json:encode(JSON).
+
+-doc """
+The referenced topic may live in a different GCP project than the service account's
+(fully-qualified `projects/<project-id>/topics/<topic-name>` config value), while the
+subscription is always created in the service account's project (see
+`subscription_resource/2`).
+""".
+-spec topic_resource(
+    emqx_bridge_gcp_pubsub_client:project_id(), emqx_bridge_gcp_pubsub_client:topic()
+) ->
+    binary().
+topic_resource(SAProjectId, PubSubTopic) ->
+    {ProjectId, TopicName} =
+        emqx_bridge_gcp_pubsub_client:resolve_topic(PubSubTopic, SAProjectId),
+    <<"projects/", ProjectId/binary, "/topics/", TopicName/binary>>.
 
 -spec subscription_resource(emqx_bridge_gcp_pubsub_client:project_id(), subscription_id()) ->
     binary().
