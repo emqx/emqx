@@ -13,6 +13,10 @@
     publish/2
 ]).
 
+-export_type([context/0]).
+
+-type context() :: #{authz_ctx := emqx_authz_context:t()}.
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -23,7 +27,8 @@
 ) -> {allow, emqx_types:message()} | deny | {error, term()}.
 authorize(ClientInfo, Msg) ->
     AuthzContext = emqx_authz_context:make(ClientInfo),
-    case run_hooks(AuthzContext, Msg) of
+    Ctx = #{authz_ctx => AuthzContext},
+    case run_hooks(Ctx, Msg) of
         {ok, NMsg = #message{topic = Topic, qos = QoS}} ->
             Action = ?AUTHZ_PUBLISH(QoS, emqx_message:get_flag(retain, NMsg)),
             case emqx_access_control:authorize(AuthzContext, Action, Topic) of
@@ -46,8 +51,8 @@ publish(ClientInfo, Msg) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-run_hooks(AuthzContext, Msg) ->
-    case emqx_hooks:run_fold_strict('message.ingress', [AuthzContext], Msg) of
+run_hooks(Ctx, Msg) ->
+    case emqx_hooks:run_fold_strict('message.ingress', [Ctx], Msg) of
         {ok, {error, Reason}} ->
             {error, Reason};
         {ok, NMsg} ->

@@ -134,7 +134,7 @@ create_tables() ->
 %% Hooks
 %%------------------------------------------------------------------------------
 on_message_ingress(
-    AuthzContext,
+    #{authz_ctx := AuthzContext},
     Msg = #message{topic = <<"$delayed/", Data/binary>>}
 ) ->
     case parse_delayed_topic(Data) of
@@ -146,7 +146,7 @@ on_message_ingress(
         {error, Reason} ->
             {stop, {error, Reason}}
     end;
-on_message_ingress(_AuthzContext, Msg) ->
+on_message_ingress(_Ctx, Msg) ->
     {ok, Msg}.
 
 on_message_publish(

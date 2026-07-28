@@ -730,8 +730,8 @@ t_transaction_message_ingress(_) ->
             ]),
             SendMsg =
                 receive
-                    {message_ingress, AuthzContext, Msg} ->
-                        ?assertMatch(#{clientid := _}, AuthzContext),
+                    {message_ingress, Ctx, Msg} ->
+                        ?assertMatch(#{authz_ctx := #{clientid := _}}, Ctx),
                         ?assertEqual(Topic, emqx_message:topic(Msg)),
                         ?assertEqual(Payload, emqx_message:payload(Msg)),
                         ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
@@ -1566,8 +1566,8 @@ send_message_frame(Sock, Topic, Payload, Headers0) ->
         ],
     ok = gen_tcp:send(Sock, serialize(<<"SEND">>, Headers, Payload)).
 
-stomp_message_ingress(AuthzContext, Msg, TestPid, RewrittenTopic) ->
-    TestPid ! {message_ingress, AuthzContext, Msg},
+stomp_message_ingress(Ctx, Msg, TestPid, RewrittenTopic) ->
+    TestPid ! {message_ingress, Ctx, Msg},
     {ok, emqx_message:set_header(ingress, true, Msg#message{topic = RewrittenTopic})}.
 
 send_begin_frame(Sock, TxId) ->

@@ -145,7 +145,7 @@ when
     fold_callback_result(emqx_access_control:authorize_hook_result()).
 
 -callback 'message.ingress'(
-    emqx_authz_context:t(),
+    emqx_message_ingress:context(),
     emqx_types:message() | {error, term()}
 ) ->
     fold_callback_result(emqx_types:message() | {error, term()}).

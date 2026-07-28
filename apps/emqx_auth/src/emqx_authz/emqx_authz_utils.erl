@@ -157,7 +157,13 @@ content_type(Headers) when is_list(Headers) ->
 
 -spec vars_for_rule_query(emqx_types:clientinfo(), emqx_types:pubsub()) -> map().
 vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
-    Client#{
+    Vars =
+        case Client of
+            #{peerport := _PeerPort} -> Client;
+            #{peername := {_PeerHost, PeerPort}} -> Client#{peerport => PeerPort};
+            _ -> Client
+        end,
+    Vars#{
         action => PubSub,
         qos => Qos,
         retain => maps:get(retain, Action, false)

@@ -66,9 +66,4 @@ make(ClientInfo) ->
     end.
 
 make_restricted(ClientInfo) ->
-    Context = maps:with(?RESTRICTED_KEYS, ClientInfo),
-    case ClientInfo of
-        #{peerport := PeerPort} -> Context#{peerport => PeerPort};
-        #{peername := {_PeerHost, PeerPort}} -> Context#{peerport => PeerPort};
-        _ -> Context
-    end.
+    maps:with(?RESTRICTED_KEYS, ClientInfo).

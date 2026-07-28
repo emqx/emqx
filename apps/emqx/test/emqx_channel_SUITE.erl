@@ -1276,7 +1276,7 @@ t_check_pub_alias(_) ->
     ok = emqx_channel:check_pub_alias(#mqtt_packet{variable = Publish}, Channel).
 
 message_ingress(
-    _AuthzContext,
+    #{authz_ctx := #{clientid := <<"clientid">>}},
     Msg = #message{topic = <<"source">>}
 ) ->
     {ok, emqx_message:set_header(ingress, value, Msg#message{topic = <<"target">>})}.

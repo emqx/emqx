@@ -295,11 +295,7 @@ t_authorized_delayed_message(_) ->
         {stop, _} = on_message_publish(Msg),
         receive
             {deliver, Topic, Delivered} ->
-                ?assertEqual(undefined, emqx_message:get_header(delayed, Delivered, undefined)),
-                ?assertMatch(
-                    #{peerport := 1883},
-                    persistent_term:get({?MODULE, replay_authz_context})
-                )
+                ?assertEqual(undefined, emqx_message:get_header(delayed, Delivered, undefined))
         after 5000 ->
             ct:fail(delayed_message_not_delivered)
         end

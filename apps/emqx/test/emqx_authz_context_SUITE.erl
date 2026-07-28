@@ -26,7 +26,7 @@ t_make(_) ->
         ?assertMatch(
             #{
                 is_superuser := true,
-                peerport := 1883,
+                peername := {{127, 0, 0, 1}, 1883},
                 client_attrs := #{<<"role">> := <<"reader">>}
             },
             Context

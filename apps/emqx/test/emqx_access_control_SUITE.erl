@@ -122,7 +122,7 @@ t_authz_context_security_profile(_) ->
     RestrictedContext = maps:remove(custom_authz_field, maps:remove(password, ClientInfo)),
     Cases = [
         {"legacy", ClientInfo},
-        {"hardened", RestrictedContext#{peerport => 1883}}
+        {"hardened", RestrictedContext}
     ],
     lists:foreach(
         fun({Profile, ExpectedContext}) ->

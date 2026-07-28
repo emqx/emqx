@@ -143,8 +143,8 @@ t_message_ingress(Config) ->
         ok = send_hpub(Client, Topic, ReplyTo, NATSHeaders, Payload),
         PreAuthzMsg =
             receive
-                {message_ingress, AuthzContext, Msg} ->
-                    ?assertMatch(#{clientid := _}, AuthzContext),
+                {message_ingress, Ctx, Msg} ->
+                    ?assertMatch(#{authz_ctx := #{clientid := _}}, Ctx),
                     ?assertEqual(Topic, emqx_message:topic(Msg)),
                     ?assertEqual(Payload, emqx_message:payload(Msg)),
                     ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
@@ -417,8 +417,8 @@ hook_authn_complete(Credential, Result, Parent) ->
     Parent ! {client_check_authn_complete, maps:get(username, Credential, undefined), Result},
     ok.
 
-hook_message_ingress(AuthzContext, Msg, TestPid, RewrittenTopic) ->
-    TestPid ! {message_ingress, AuthzContext, Msg},
+hook_message_ingress(Ctx, Msg, TestPid, RewrittenTopic) ->
+    TestPid ! {message_ingress, Ctx, Msg},
     {ok, emqx_message:set_header(ingress, true, Msg#message{topic = RewrittenTopic})}.
 
 %%--------------------------------------------------------------------

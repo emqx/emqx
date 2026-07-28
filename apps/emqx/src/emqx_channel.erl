@@ -3549,10 +3549,7 @@ publish_will_msg(
             Channel
     end.
 
-prepare_will_message_for_publishing(
-    ClientInfo,
-    Msg
-) ->
+prepare_will_message_for_publishing(ClientInfo, Msg) ->
     case emqx_message_ingress:authorize(ClientInfo, Msg) of
         {allow, NMsg0} ->
             ClientBanned = emqx_banned:check(ClientInfo),
