@@ -26,6 +26,10 @@
 
 %% @doc EMQX boot entrypoint.
 start() ->
+    %% Refuse cluster joins until emqx_machine_boot:post_boot/0 declares
+    %% boot complete; a join restarts mria, which is fatal to apps that
+    %% are still starting.
+    ok = emqx_cluster:set_booting(true),
     ensure_valid_features(),
     emqx_mgmt_cli:load(),
     case os:type() of
