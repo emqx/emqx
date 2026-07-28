@@ -140,6 +140,26 @@ t_templated_host_https(TCConfig) ->
     ).
 
 -doc """
+When no server_name_indication is configured, the one-off request derives both
+SNI and the hostname verification reference from the per-request rendered
+host: the test server certificate is issued for 'authn-server', so peer
+verification against the rendered host ('localhost') fails closed.
+""".
+t_templated_host_https_default_sni(TCConfig) ->
+    {ok, _} = create_templated_https_auth_with_ssl_opts(
+        TCConfig,
+        #{
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.2">>],
+            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]
+        }
+    ),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_access_control:authenticate(templated_host_credentials())
+    ).
+
+-doc """
 Peer verification failures (SNI mismatch) fail the one-off templated-host
 request closed.
 """.
