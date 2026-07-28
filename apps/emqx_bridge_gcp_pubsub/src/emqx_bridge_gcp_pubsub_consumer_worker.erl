@@ -227,7 +227,7 @@ connect(Opts0) ->
         pull_retry_interval => PullRetryInterval,
         request_ttl => RequestTTL,
         topic => Topic,
-        subscription_id => subscription_id(BridgeName, Topic)
+        subscription_id => subscription_id(BridgeName, Topic, ProjectId)
     },
     ?tp(gcp_pubsub_consumer_worker_about_to_spawn, #{}),
     start_link(Config).
@@ -752,20 +752,24 @@ do_get_subscription(State) ->
             {error, Details}
     end.
 
--spec subscription_id(bridge_name(), emqx_bridge_gcp_pubsub_client:topic()) -> subscription_id().
-subscription_id(BridgeName0, Topic0) ->
+-spec subscription_id(
+    bridge_name(),
+    emqx_bridge_gcp_pubsub_client:topic(),
+    emqx_bridge_gcp_pubsub_client:project_id()
+) -> subscription_id().
+subscription_id(BridgeName0, Topic, SAProjectId) ->
     %% The real GCP PubSub accepts colons in subscription names, but its emulator
     %% doesn't...  We currently validate bridge names to not include that character.  The
     %% exception is the prefix from the probe API.
     BridgeName1 = to_bin(BridgeName0),
     BridgeName = binary:replace(BridgeName1, <<":">>, <<"-">>),
-    %% A fully-qualified `projects/<project-id>/topics/<topic-name>' topic contains
-    %% slashes, which cannot appear in a subscription id (percent-encoding them does not
-    %% help: the server decodes the path back to slashes); map them to `-' to keep the
-    %% id unique per project + topic.  Bare topic names cannot contain slashes and are
-    %% thus unaffected.
-    Topic = binary:replace(Topic0, <<"/">>, <<"-">>, [global]),
-    to_bin(uri_string:quote(<<"emqx-sub-", BridgeName/binary, "-", Topic/binary>>)).
+    %% For a fully-qualified `projects/<project-id>/topics/<topic-name>' topic, only the
+    %% topic name is used: slashes cannot appear in a subscription id.  Note that
+    %% sources under the same bridge name consuming equally-named topics from different
+    %% projects would thus derive the same subscription id.
+    {_ProjectId, TopicName} =
+        emqx_bridge_gcp_pubsub_client:resolve_topic(Topic, SAProjectId),
+    to_bin(uri_string:quote(<<"emqx-sub-", BridgeName/binary, "-", TopicName/binary>>)).
 
 -spec path(state(), pull | create | ack | get_subscription) -> binary().
 path(State, Type) ->
