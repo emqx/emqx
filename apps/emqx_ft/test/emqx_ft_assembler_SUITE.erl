@@ -29,6 +29,7 @@ all() ->
         t_assemble_complete_local_transfer,
         t_assemble_incomplete_transfer,
         t_assemble_no_meta,
+        t_assemble_remote_pread_failure,
 
         % NOTE
         % It depends on the side effects of all previous testcases.
@@ -174,6 +175,47 @@ t_assemble_no_meta(Config) ->
     Status = complete_assemble(Storage, Transfer, 42),
     ?assertMatch({shutdown, {error, {incomplete, _}}}, Status).
 
+%% A remote fragment-node failure during assembly (erpc raise from the proto
+%% `pread`) stops the assembler with a clean shutdown error instead of
+%% crashing the process.
+t_assemble_remote_pread_failure(Config) ->
+    Storage = storage(Config),
+    RemoteStorage = remote_storage(Config),
+    Transfer = {?CLIENTID1, ?config(file_id, Config)},
+    Content = <<"remote data">>,
+    Meta = #{
+        name => "remote.pdf",
+        size => byte_size(Content),
+        expire_at => 42
+    },
+    ok = emqx_ft_storage_fs:store_filemeta(Storage, Transfer, Meta),
+    %% The segment lives in a separate storage root, standing in for a remote node.
+    ok = emqx_ft_storage_fs:store_segment(RemoteStorage, Transfer, {0, Content}),
+    {ok, RemoteFragments} = emqx_ft_storage_fs:list(RemoteStorage, Transfer, fragment),
+    Segments = [F || F = #{fragment := {segment, _}} <- RemoteFragments],
+    ?assertMatch([_ | _], Segments),
+    FakeNode = 'fakeremote@127.0.0.1',
+    ok = meck:new(emqx, [passthrough, no_link]),
+    ok = meck:expect(emqx, running_nodes, fun() -> [node(), FakeNode] end),
+    ok = meck:new(emqx_ft_storage_fs_proto_v1, [passthrough, no_link]),
+    ok = meck:expect(emqx_ft_storage_fs_proto_v1, multilist, fun(_Nodes, _Transfer, fragment) ->
+        [{ok, {ok, Segments}}]
+    end),
+    ok = meck:expect(
+        emqx_ft_storage_fs_proto_v1,
+        pread,
+        fun(_Node, _Transfer, _Frag, _Offset, _Size) ->
+            erlang:error({erpc, noconnection})
+        end
+    ),
+    try
+        Status = complete_assemble(Storage, Transfer, byte_size(Content)),
+        ?assertMatch({shutdown, {error, {read_segment, _}}}, Status)
+    after
+        meck:unload(emqx_ft_storage_fs_proto_v1),
+        meck:unload(emqx)
+    end.
+
 complete_assemble(Storage, Transfer, Size) ->
     complete_assemble(Storage, Transfer, Size, 1000).
 
@@ -246,18 +288,27 @@ exporter(Config) ->
     emqx_ft_storage_exporter:exporter(storage(Config)).
 
 storage(Config) ->
+    mk_storage(?config(storage_root, Config), ?config(exports_root, Config)).
+
+remote_storage(Config) ->
+    mk_storage(
+        <<(?config(storage_root, Config))/binary, "_remote">>,
+        <<(?config(exports_root, Config))/binary, "_remote">>
+    ).
+
+mk_storage(SegmentsRoot, ExportsRoot) ->
     emqx_utils_maps:deep_get(
         [storage, local],
         emqx_ft_schema:translate(#{
             <<"storage">> => #{
                 <<"local">> => #{
                     <<"segments">> => #{
-                        <<"root">> => ?config(storage_root, Config)
+                        <<"root">> => SegmentsRoot
                     },
                     <<"exporter">> => #{
                         <<"local">> => #{
                             <<"enable">> => true,
-                            <<"root">> => ?config(exports_root, Config)
+                            <<"root">> => ExportsRoot
                         }
                     }
                 }

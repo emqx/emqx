@@ -204,6 +204,33 @@ t_download_transfer(Config) ->
         Response
     ).
 
+%% Download returns 503 (not 500) when the remote call crashes on the node
+%% holding the exported file (erpc raises `error:{exception, _, _}`).
+t_download_transfer_remote_crash(Config) ->
+    ClientId = client_id(Config),
+    FileId = <<"f1">>,
+    Nodes = [Node | _] = test_nodes(Config),
+    NodeUpload = lists:last(Nodes),
+    ok = emqx_ft_test_helpers:upload_file(sync, ClientId, FileId, "f1", <<"data">>, NodeUpload),
+    {ok, 200, #{<<"files">> := [File]}} =
+        request_json(get, uri(["file_transfer", "files", ClientId, FileId]), Config),
+    ok = erpc:call(Node, fun() ->
+        ok = meck:new(emqx_ft_storage_exporter_fs_proto_v1, [passthrough, no_link]),
+        ok = meck:expect(
+            emqx_ft_storage_exporter_fs_proto_v1,
+            read_export_file,
+            fun(_Node, _Filepath, _CallerPid) -> erlang:error({exception, oops, []}) end
+        )
+    end),
+    try
+        ?assertMatch(
+            {ok, 503, _},
+            request(get, host() ++ maps:get(<<"uri">>, File), Config)
+        )
+    after
+        ok = erpc:call(Node, meck, unload, [emqx_ft_storage_exporter_fs_proto_v1])
+    end.
+
 t_list_files_paging(Config) ->
     ClientId = client_id(Config),
     NFiles = 20,
