@@ -609,17 +609,18 @@ from_message(Msg) ->
 
 do_setup() ->
     logger:set_primary_config(#{level => warning}),
-    ok = ekka:start(),
-    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
+    application:set_env(emqx, emqx_cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
+    {ok, Apps} = application:ensure_all_started(mria),
     _ = emqx_exhook_demo_svr:start(),
     ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
     emqx_common_test_helpers:start_apps([emqx_exhook]),
     %% waiting first loaded event
     {'on_provider_loaded', _} = emqx_exhook_demo_svr:take(),
-    ok.
+    Apps.
 
-do_teardown(_) ->
+do_teardown(Apps) ->
     emqx_common_test_helpers:stop_apps([emqx_exhook]),
+    [application:stop(I) || I <- lists:reverse(Apps)],
     %% waiting last unloaded event
     {'on_provider_unloaded', _} = emqx_exhook_demo_svr:take(),
     _ = emqx_exhook_demo_svr:stop(),
