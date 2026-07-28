@@ -7,6 +7,10 @@
 %define _var_home %{_sharedstatedir}/%{_name}
 %define _build_name_fmt %{_arch}/%{_name}-%{_version}.%{_arch}.rpm
 %define _build_id_links none
+# rpm >= 4.19 (el10) runs check-rpaths by default and fails the build:
+# the bundled Erlang runtime and NIFs (crypto.so, jq, crc32cer) carry
+# build-time rpaths which are harmless under the private /usr/lib/emqx tree.
+%global __brp_check_rpaths %{nil}
 
 Name: %{_package_name}
 Version: %{_version}
