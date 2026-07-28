@@ -39,8 +39,10 @@ handle(get, [<<"deliveries">>], Request) ->
     QS = maps:get(query_string, Request, #{}),
     case {maps:get(<<"product_key">>, QS, undefined), maps:get(<<"device_name">>, QS, undefined)} of
         {ProductKey, DeviceName} when
-            is_binary(ProductKey), ProductKey =/= <<>>,
-            is_binary(DeviceName), DeviceName =/= <<>>
+            is_binary(ProductKey),
+            ProductKey =/= <<>>,
+            is_binary(DeviceName),
+            DeviceName =/= <<>>
         ->
             {ok, Deliveries} = emqx_bcast_storage:deliveries_for_device(ProductKey, DeviceName),
             ok_response(#{
@@ -55,18 +57,28 @@ handle(get, [<<"deliveries">>], Request) ->
                     <<"product_key and device_name query parameters are required">>
                 )}
     end;
-handle(get, [<<"deliveries">>, DeliveryId], _Request) ->
-    case emqx_bcast_storage:get_delivery(DeliveryId) of
-        {ok, D, ApiMsgId} ->
-            ok_response(delivery_json(D, ApiMsgId));
-        {error, not_found} ->
+handle(get, [<<"deliveries">>, IdStr], _Request) ->
+    case emqx_bcast_utils:uuid_to_guid(IdStr) of
+        {ok, DeliveryId} ->
+            case emqx_bcast_storage:get_delivery(DeliveryId) of
+                {ok, D, ApiMsgId} ->
+                    ok_response(delivery_json(D, ApiMsgId));
+                {error, not_found} ->
+                    not_found(<<"DeliveryNotFound">>, <<"Delivery does not exist">>)
+            end;
+        error ->
             not_found(<<"DeliveryNotFound">>, <<"Delivery does not exist">>)
     end;
-handle(delete, [<<"deliveries">>, DeliveryId], _Request) ->
-    case emqx_bcast_storage:delete_delivery(DeliveryId) of
-        ok ->
-            ok_response(#{});
-        {error, not_found} ->
+handle(delete, [<<"deliveries">>, IdStr], _Request) ->
+    case emqx_bcast_utils:uuid_to_guid(IdStr) of
+        {ok, DeliveryId} ->
+            case emqx_bcast_storage:delete_delivery(DeliveryId) of
+                ok ->
+                    ok_response(#{});
+                {error, not_found} ->
+                    not_found(<<"DeliveryNotFound">>, <<"Delivery does not exist">>)
+            end;
+        error ->
             not_found(<<"DeliveryNotFound">>, <<"Delivery does not exist">>)
     end;
 handle(_Method, _Path, _Request) ->
@@ -85,17 +97,20 @@ message_json(#bcast_message{
         <<"PayloadSize">> => byte_size(Payload)
     }.
 
-delivery_json(#bcast_msg{
-    delivery_id = DeliveryId,
-    product_key = ProductKey,
-    target_ack_count = Target,
-    counter = Counter,
-    device_names = DeviceNames,
-    created_at = CreatedAt,
-    expires_at = ExpiresAt
-}, ApiMsgId) ->
+delivery_json(
+    #bcast_msg{
+        delivery_id = DeliveryId,
+        product_key = ProductKey,
+        target_ack_count = Target,
+        counter = Counter,
+        device_names = DeviceNames,
+        created_at = CreatedAt,
+        expires_at = ExpiresAt
+    },
+    ApiMsgId
+) ->
     #{
-        <<"DeliveryId">> => DeliveryId,
+        <<"DeliveryId">> => emqx_bcast_utils:guid_to_uuid(DeliveryId),
         <<"MessageId">> => ApiMsgId,
         <<"ProductKey">> => ProductKey,
         <<"DeviceNames">> => DeviceNames,

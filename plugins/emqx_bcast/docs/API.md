@@ -1,4 +1,4 @@
-# EMQX IoT Plugin -- API Reference
+# EMQX Bcast Plugin -- API Reference
 
 ## General
 
@@ -163,6 +163,100 @@ curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_a
 
 ---
 
+## Management API
+
+Endpoints for inspecting and deleting registered messages and deliveries.
+These are separate from the `POST /pub` data plane and use the same
+authentication. Registered messages are immutable: they can only be
+created (via RegisterMessage or BatchPub) and deleted, never updated.
+No endpoint returns payload content.
+
+### List Messages
+
+```
+GET /api/v5/plugin_api/emqx_bcast/messages?limit=100&offset=0
+```
+
+`limit` defaults to 100 and is capped at 1000; `offset` defaults to 0.
+Messages are returned newest first.
+
+```json
+{
+  "Success": true,
+  "RequestId": "...",
+  "TotalCount": 42,
+  "Messages": [
+    { "MessageId": "...", "CreatedAt": 1753200000, "ExpiresAt": 1754496000, "PayloadSize": 128 }
+  ]
+}
+```
+
+### Get Message
+
+```
+GET /api/v5/plugin_api/emqx_bcast/messages/:messageId
+```
+
+Returns the same fields as the list, plus `DeliveryCount` (number of
+deliveries referencing the message). 404 `MessageNotFound` if unknown.
+
+### Delete Message
+
+```
+DELETE /api/v5/plugin_api/emqx_bcast/messages/:messageId
+```
+
+Deletes the message record and cascade-deletes all deliveries referencing
+it together with their replay index entries. 404 `MessageNotFound` if
+unknown.
+
+### Get Delivery
+
+```
+GET /api/v5/plugin_api/emqx_bcast/deliveries/:deliveryId
+```
+
+```json
+{
+  "Success": true,
+  "RequestId": "...",
+  "DeliveryId": "...",
+  "MessageId": "...",
+  "ProductKey": "...",
+  "DeviceNames": ["device-1", "device-2"],
+  "TargetCount": 2,
+  "PendingCount": 1,
+  "CreatedAt": 1753200000,
+  "ExpiresAt": 1754496000
+}
+```
+
+`PendingCount` is the number of target devices that have not yet
+acknowledged. 404 `DeliveryNotFound` if unknown.
+
+### Query Deliveries by Device
+
+```
+GET /api/v5/plugin_api/emqx_bcast/deliveries?product_key=PK&device_name=DN
+```
+
+Returns all pending deliveries targeting the given device as a
+`Deliveries` array with the same fields as above. Both query parameters
+are required; missing either returns 400 `InvalidParams`.
+
+### Delete Delivery
+
+```
+DELETE /api/v5/plugin_api/emqx_bcast/deliveries/:deliveryId
+```
+
+Removes the delivery record and its replay index entries. Delivery tasks
+already queued in the async pool are not recalled; acknowledgements
+arriving afterwards are ignored as duplicates. 404 `DeliveryNotFound` if
+unknown.
+
+---
+
 ## Error Codes
 
 | Code | HTTP | Description |
@@ -174,11 +268,13 @@ curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_a
 | `MessageTooLarge` | 400 | MessageContent exceeds size limit |
 | `InvalidBase64` | 400 | MessageContent Base64 decoding failed |
 | `InvalidTopicTemplate` | 400 | TopicTemplateName format is invalid |
-| `MessageNotFound` | 400 | MessageId does not exist (for refresh or reuse) |
+| `MessageNotFound` | 400/404 | MessageId does not exist (400 for refresh or reuse on `POST /pub`; 404 on management endpoints) |
 | `MessageIdContentConflict` | 400 | Both MessageContent and MessageId provided, or neither |
 | `InvalidQos` | 400 | Qos value is not 0 or 1 |
 | `MissingAction` | 400 | Request body does not contain an Action field |
 | `UnknownAction` | 400 | Action value is not recognized |
+| `InvalidParams` | 400 | Missing required query parameters on management endpoints |
+| `DeliveryNotFound` | 404 | DeliveryId does not exist (management endpoints) |
 | `DeliveryQueueFull` | 429 | Async delivery queue is full; retry later. Nothing is stored for rejected requests |
 | `InternalError` | 500 | Internal server error |
 

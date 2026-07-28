@@ -6,6 +6,8 @@
 -export([
     gen_guid/0,
     gen_api_uuid/0,
+    guid_to_uuid/1,
+    uuid_to_guid/1,
     decode_base64/1,
     sha256/1,
     expand_topic/3,
@@ -21,6 +23,19 @@ gen_guid() ->
 gen_api_uuid() ->
     Uuid = uuid:get_v4(),
     list_to_binary(uuid:uuid_to_string(Uuid)).
+
+guid_to_uuid(Guid) when is_binary(Guid) andalso byte_size(Guid) =:= 16 ->
+    list_to_binary(uuid:uuid_to_string(Guid)).
+
+uuid_to_guid(UuidStr) when is_binary(UuidStr) andalso byte_size(UuidStr) =:= 36 ->
+    try uuid:string_to_uuid(binary_to_list(UuidStr)) of
+        <<_:128>> = Guid -> {ok, Guid};
+        _ -> error
+    catch
+        _:_ -> error
+    end;
+uuid_to_guid(_) ->
+    error.
 
 decode_base64(Base64) when is_binary(Base64) ->
     try base64:decode(Base64) of

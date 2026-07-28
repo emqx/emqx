@@ -159,7 +159,7 @@ Real-time display of connected clients, wanted/acked/replayed counts.
 | `msg_warn_threshold` | `100000` | Log warning when pending messages exceed this |
 | `force_upgrade_qos` | `true` | When true, QoS 1 messages are always delivered at QoS 1 regardless of subscription QoS; when false, effective QoS is min(publish, subscription) and downgraded QoS 0 deliveries complete immediately |
 | `delivery_pool_size` | `0` | Number of async delivery workers. 0 means one worker per scheduler. Changing it restarts the pool |
-| `delivery_queue_max` | `10000` | Max queued delivery tasks. New BatchPub requests beyond this are rejected with 429 `DeliveryQueueFull` |
+| `delivery_queue_max` | `10000` | Max queued delivery tasks. Each task handles at most 200 devices; a BatchPub request with N online devices consumes ceil(N/200) tasks. Exceeding this rejects with 429 `DeliveryQueueFull` |
 
 ---
 
@@ -173,4 +173,4 @@ Real-time display of connected clients, wanted/acked/replayed counts.
 
 **High pending count**: If `bcast_batch_pub_qos1_wanted - bcast_batch_pub_qos1_acked` is growing, check that offline devices are eventually reconnecting within the TTL window. Consider increasing `msg_ttl` for longer offline tolerance.
 
-**429 DeliveryQueueFull**: The async delivery queue is saturated. Check `bcast_delivery_queue_depth`; increase `delivery_pool_size` or `delivery_queue_max`, or reduce the BatchPub request rate. Rejected requests store nothing and can be retried safely.
+**429 DeliveryQueueFull**: The async delivery queue is saturated. Check `bcast_delivery_queue_depth`; increase `delivery_pool_size` or `delivery_queue_max`, or reduce the BatchPub request rate. Note that each BatchPub request with N online devices consumes ceil(N/200) queue slots: large batches consume proportionally more. Rejected requests store nothing and can be retried safely.

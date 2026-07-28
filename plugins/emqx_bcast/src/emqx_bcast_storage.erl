@@ -61,15 +61,17 @@ do_lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
             {existing, Existing#bcast_message.api_msg_id, ExistingMsgId}
     end.
 
-%% Message dedup and delivery record creation in a single transaction,
-%% so one BatchPub QoS=1 call costs one mria round trip instead of two.
+%% Message dedup and delivery record creation in one dirty pass, so one
+%% BatchPub QoS=1 call costs one rlog round trip without transaction
+%% coordination. All writes are blind (counter starts at 0); read-modify-write
+%% paths (process_ack) keep using transactions.
 create_message_and_delivery(
     Payload, Hash, ApiMsgId, MsgId, DeliveryId, ProductKey, TopicTemplate, DeviceNames
 ) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
-    case
-        mria:transaction(?BCAST_SHARD, fun() ->
+    try
+        mria:sync_dirty(?BCAST_SHARD, fun() ->
             {Status, ResolvedApiMsgId, ResolvedMsgId} = do_lookup_or_create_message(
                 Payload, Hash, ApiMsgId, MsgId, Now, TTL
             ),
@@ -88,10 +90,11 @@ create_message_and_delivery(
             {Status, ResolvedApiMsgId, ResolvedMsgId, Delivery}
         end)
     of
-        {atomic, {_Status, ResolvedApiMsgId, _ResolvedMsgId, Delivery}} ->
+        {_Status, ResolvedApiMsgId, _ResolvedMsgId, Delivery} ->
             propagate_index_add(ProductKey, DeviceNames, DeliveryId),
-            {ok, ResolvedApiMsgId, Delivery};
-        {aborted, Reason} ->
+            {ok, ResolvedApiMsgId, Delivery}
+    catch
+        _:Reason ->
             {error, Reason}
     end.
 
@@ -134,7 +137,7 @@ lookup_message(MsgId) ->
 refresh_message_ttl(MsgId) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
-    mria:transaction(?BCAST_SHARD, fun() ->
+    mria:sync_dirty(?BCAST_SHARD, fun() ->
         case lookup_message(MsgId) of
             {ok, Msg} ->
                 mnesia:write(Msg#bcast_message{expires_at = Now + TTL}),
@@ -158,7 +161,7 @@ create_delivery(DeliveryId, MsgId, ProductKey, TopicTemplate, DeviceNames, Targe
         created_at = Now,
         expires_at = Now + TTL
     },
-    {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
+    ok = mria:sync_dirty(?BCAST_SHARD, fun() ->
         mnesia:write(Delivery)
     end),
     propagate_index_add(ProductKey, DeviceNames, DeliveryId),
