@@ -819,8 +819,9 @@ do_ensure_started(NameVsn) ->
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
         ok ?= maybe_initialize_cached_config(NameVsn),
-        {ok, _} ?= validated_local_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        {ok, Schema} ?= read_start_schema(NameVsn, Plugin),
+        {ok, _ConfigSource, _Config} ?= resolve_and_validate_start_config(NameVsn, Schema),
         ok ?= emqx_plugins_apps:start(Plugin)
     else
         {error, Reason} ->
@@ -848,8 +849,7 @@ do_validate_start(NameVsn) ->
             ),
         ok ?= emqx_plugins_apps:validate(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
         {ok, Schema} ?= read_start_schema(NameVsn, Plugin),
-        {ok, _ConfigSource, Config} ?= read_start_config(NameVsn),
-        ok ?= validate_start_config(NameVsn, Schema, Config),
+        {ok, _ConfigSource, _Config} ?= resolve_and_validate_start_config(NameVsn, Schema),
         {ok, start_validation_status(Plugin)}
     else
         {error, Reason} ->
@@ -895,6 +895,13 @@ read_start_config_without_local_file(NameVsn) ->
             {ok, cached, Config}
     end.
 
+resolve_and_validate_start_config(NameVsn, Schema) ->
+    maybe
+        {ok, ConfigSource, Config} ?= read_start_config(NameVsn),
+        ok ?= validate_start_config(NameVsn, Schema, Config),
+        {ok, ConfigSource, Config}
+    end.
+
 validate_start_config(_NameVsn, no_schema, _Config) ->
     ok;
 validate_start_config(NameVsn, AvscBin, Config) ->
@@ -903,6 +910,7 @@ validate_start_config(NameVsn, AvscBin, Config) ->
             ok;
         {error, #{reason := bad_schema} = Reason} ->
             {error, #{
+                kind => invalid_package,
                 msg => "invalid_plugin_config_schema",
                 name_vsn => bin(NameVsn),
                 reason => Reason,
@@ -914,6 +922,7 @@ validate_start_config(NameVsn, AvscBin, Config) ->
 
 invalid_plugin_config_error(NameVsn, Reason) ->
     #{
+        kind => invalid_config,
         msg => "invalid_plugin_config",
         name_vsn => bin(NameVsn),
         reason => Reason,
@@ -1286,6 +1295,7 @@ validate_no_other_version_running(NameVsn0) ->
             ok;
         [_ | _] ->
             {error, #{
+                kind => conflicting_version,
                 msg => "conflicting_plugin_version_running",
                 active_versions => RunningOtherVersions
             }}
@@ -1343,6 +1353,7 @@ ensure_no_other_version_active(Plugins, NameVsn0) ->
             unload_other_versions(LoadedOtherVersions);
         [_ | _] ->
             {error, #{
+                kind => conflicting_version,
                 msg => "conflicting_plugin_version_running",
                 active_versions => lists:reverse(RunningOtherVersions)
             }}

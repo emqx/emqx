@@ -726,8 +726,35 @@ t_start_revalidates_after_validation(Config) ->
     NameVsn = ?config(name_vsn, Config),
     {ok, not_running} = emqx_plugins:validate_start(NameVsn),
     ok = file:write_file(emqx_plugins_fs:config_file_path(NameVsn), <<"foo = 42\n">>),
-    ?assertMatch({error, #{reason := invalid_type}}, emqx_plugins:ensure_started(NameVsn)),
+    ?assertMatch(
+        {error, #{msg := "invalid_plugin_config", reason := #{reason := invalid_type}}},
+        emqx_plugins:ensure_started(NameVsn)
+    ),
     ?assertNot(is_app_running(invalid_plugin)).
+
+t_start_revalidates_cached_config_after_validation({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ValidConfig = emqx_plugins:get_config(NameVsn),
+    ok = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+    [{name_vsn, NameVsn}, {valid_config, ValidConfig} | Config];
+t_start_revalidates_cached_config_after_validation({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_start_revalidates_cached_config_after_validation(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ConfigKey = {emqx_plugins, list_to_binary(NameVsn)},
+    {ok, not_running} = emqx_plugins:validate_start(NameVsn),
+    persistent_term:put(ConfigKey, #{<<"foo">> => 42}),
+    try
+        ?assertMatch(
+            {error, #{msg := "invalid_plugin_config", reason := #{reason := invalid_type}}},
+            emqx_plugins:ensure_started(NameVsn)
+        ),
+        ?assertNot(is_app_running(invalid_plugin))
+    after
+        persistent_term:put(ConfigKey, ?config(valid_config, Config))
+    end.
 
 t_start_is_noop_when_already_running({init, Config}) ->
     NameVsn = "invalid_plugin-1.0.0",
