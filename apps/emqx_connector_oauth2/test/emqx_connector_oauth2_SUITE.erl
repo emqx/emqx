@@ -11,6 +11,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -42,6 +44,7 @@ init_per_testcase(_TestCase, TCConfig) ->
     [{token_server, #{table => Table, base_url => BaseURL}} | TCConfig].
 
 end_per_testcase(_TestCase, TCConfig) ->
+    emqx_common_test_helpers:call_janitor(),
     ok = emqx_utils_http_test_server:stop(),
     true = ets:delete(token_server_table(TCConfig)),
     emqx_connector_oauth2:clear_cache(),
@@ -361,20 +364,65 @@ t_omitted_oauth2_is_not_materialized(_TCConfig) ->
     ),
     ?assertEqual(#{}, Checked).
 
+-doc """
+Smoke test for specifying optional `extra_keys` that are sent with requests, when present.
+""".
+t_extra_keys_optional(TCConfig) ->
+    ResId = <<"some_res">>,
+    Params1 = oauth2_config(
+        #{extra_keys => #{<<"resource">> => <<"myres">>, <<"x">> => <<"y">>}},
+        TCConfig
+    ),
+    TestPid = self(),
+    ok = set_token_handler(TCConfig, fun(Req) ->
+        TestPid ! {request, Req},
+        token_response(<<"whatever">>, 3600)
+    end),
+    ok = register_oauth2(ResId, Params1),
+    ?assertMatch({ok, _}, emqx_connector_oauth2:get_token(ResId)),
+    {request, #{body := ReqBody1}} = ?assertReceive({request, _}),
+    ?assertMatch(
+        #{
+            <<"resource">> := <<"myres">>,
+            <<"x">> := <<"y">>
+        },
+        maps:from_list(uri_string:dissect_query(ReqBody1))
+    ),
+    %% omitted if absent
+    Params2 = oauth2_config(TCConfig),
+    ok = register_oauth2(ResId, Params2),
+    ?assertMatch({ok, _}, emqx_connector_oauth2:get_token(ResId)),
+    {request, #{body := ReqBody2}} = ?assertReceive({request, _}),
+    ?assertNotMatch(
+        #{<<"resource">> := _},
+        maps:from_list(uri_string:dissect_query(ReqBody2))
+    ),
+    ?assertNotMatch(
+        #{<<"x">> := _},
+        maps:from_list(uri_string:dissect_query(ReqBody2))
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
 oauth2_config(TCConfig) ->
-    #{
-        enable => true,
-        grant_type => client_credentials,
-        token_endpoint => token_endpoint(TCConfig, <<"/oauth/token">>),
-        client_id => <<"client-id">>,
-        client_secret => emqx_secret:wrap(<<"client-secret">>),
-        scope => <<"read">>,
-        timeout => 5_000
-    }.
+    oauth2_config(_Overrides = #{}, TCConfig).
+
+oauth2_config(Overrides, TCConfig) ->
+    emqx_utils_maps:deep_merge(
+        #{
+            enable => true,
+            grant_type => client_credentials,
+            token_endpoint => token_endpoint(TCConfig, <<"/oauth/token">>),
+            client_id => <<"client-id">>,
+            client_secret => emqx_secret:wrap(<<"client-secret">>),
+            scope => <<"read">>,
+            timeout => 5_000
+        },
+        Overrides
+    ).
 
 raw_oauth2_config() ->
     #{
@@ -465,3 +513,8 @@ wait_for(Fun, Timeout) ->
             timer:sleep(100),
             wait_for(Fun, Timeout - 100)
     end.
+
+register_oauth2(ResId, Params) ->
+    Res = emqx_connector_oauth2:register(ResId, Params),
+    on_exit(fun() -> emqx_connector_oauth2:unregister(ResId) end),
+    Res.

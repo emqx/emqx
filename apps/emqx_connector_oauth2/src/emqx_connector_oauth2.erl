@@ -461,6 +461,7 @@ make_fetch_params(Oauth2Config) ->
         token_endpoint => maps:get(token_endpoint, Oauth2Config),
         client_id => maps:get(client_id, Oauth2Config),
         client_secret => maps:get(client_secret, Oauth2Config),
+        extra_keys => maps:get(extra_keys, Oauth2Config, #{}),
         scope => maps:get(scope, Oauth2Config, undefined),
         timeout => maps:get(timeout, Oauth2Config, 5_000),
         ssl => maps:get(ssl, Oauth2Config, #{})
@@ -480,11 +481,13 @@ fetch_token(Params) ->
         timeout := Timeout,
         ssl := SSL
     } = Params,
+    ExtraKeys = maps:get(extra_keys, Params, #{}),
     BodyParams = lists:flatten([
         {"grant_type", "client_credentials"},
         {"client_id", str(ClientId)},
         {"client_secret", emqx_secret:unwrap(Secret)},
-        [{"scope", str(Scope)} || Scope =/= undefined]
+        [{"scope", str(Scope)} || Scope =/= undefined],
+        [{str(K), str(V)} || {K, V} <- maps:to_list(ExtraKeys)]
     ]),
     Body = uri_string:compose_query(BodyParams),
     Resp = do_request(#{
