@@ -226,7 +226,7 @@ merge_default_appspecs(#{apps := Apps} = Spec, NodeSpecs) ->
     Spec#{
         apps => [
             mk_node_appspec(App, Spec, NodeSpecs)
-         || App <- [emqx_conf, gen_rpc, mria, classy | Apps]
+         || App <- [gen_rpc, classy | Apps]
         ]
     }.
 
