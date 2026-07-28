@@ -39,6 +39,9 @@ end_per_testcase(_, Config) ->
 t_heal_on_core_partition(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     [N1 | Rest] = Nodes = emqx_cth_cluster:start(Cluster),
+    %% Verify roles:
+    {[core, core, replicant, replicant], []} = rpc:multicall(Nodes, mria_rlog, role, []),
+    %% Connect a client to each node:
     Clients = [
         element(
             2,
