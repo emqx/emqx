@@ -21,7 +21,7 @@
 ]).
 -export([reply_delegator/3]).
 
--export([pubsub_get_topic/3]).
+-export([pubsub_get_topic/3, resolve_topic/2]).
 
 -export([get_jwt_authorization_header/1]).
 
@@ -220,12 +220,35 @@ get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
 
 -spec pubsub_get_topic(topic(), state(), request_opts()) -> {ok, map()} | {error, term()}.
 pubsub_get_topic(Topic, ClientState, ReqOpts) ->
-    #{project_id := ProjectId} = ClientState,
+    #{project_id := SAProjectId} = ClientState,
+    {ProjectId, TopicName} = resolve_topic(Topic, SAProjectId),
     Method = get,
-    Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
+    Path = <<"/v1/projects/", ProjectId/binary, "/topics/", TopicName/binary>>,
     Body = <<>>,
     PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
     ?MODULE:query_sync(PreparedRequest, ClientState).
+
+-doc """
+Resolves a configured Pub/Sub topic to the `{ProjectId, TopicName}` pair to use when
+building resource paths.
+
+A fully-qualified `projects/<project-id>/topics/<topic-name>` value targets the topic in
+`<project-id>`, which may differ from the service account's own project; a bare topic
+name resolves to the service account's project.
+""".
+-spec resolve_topic(topic(), project_id()) -> {project_id(), topic()}.
+resolve_topic(PubSubTopic, SAProjectId) ->
+    case binary:split(PubSubTopic, <<"/">>, [global]) of
+        [<<"projects">>, ProjectId, <<"topics">>, TopicName] when
+            ProjectId =/= <<>>, TopicName =/= <<>>
+        ->
+            {ProjectId, TopicName};
+        [TopicName] ->
+            {SAProjectId, TopicName};
+        _ ->
+            %% Config validation rejects other shapes before they reach runtime.
+            error({invalid_pubsub_topic, PubSubTopic})
+    end.
 
 %%-------------------------------------------------------------------------------------------------
 %% Only for tests

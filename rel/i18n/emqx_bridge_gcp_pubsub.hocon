@@ -61,7 +61,7 @@ pool_size.label:
 """Pool Size"""
 
 pubsub_topic.desc:
-"""The GCP PubSub topic to publish messages to."""
+"""The GCP PubSub topic.  Either a topic name, which is resolved in the project of the configured service account, or a fully-qualified topic path in the form `projects/<project-id>/topics/<topic-name>`, which may reference a topic in a different GCP project than the service account's.  In the latter case, the service account must be granted the appropriate Pub/Sub permissions on that topic."""
 
 pubsub_topic.label:
 """GCP PubSub Topic"""

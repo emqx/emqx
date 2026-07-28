@@ -69,6 +69,7 @@ fields(source_parameters) ->
                 binary(),
                 #{
                     required => true,
+                    validator => fun emqx_bridge_gcp_pubsub:pubsub_topic_validator/1,
                     desc => ?DESC(emqx_bridge_gcp_pubsub, "pubsub_topic")
                 }
             )}
