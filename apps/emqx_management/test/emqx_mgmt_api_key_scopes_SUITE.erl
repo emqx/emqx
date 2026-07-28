@@ -34,6 +34,7 @@ groups() ->
             t_path_to_scope,
             t_path_to_scope_denied,
             t_path_to_scope_no_cache,
+            t_path_to_scope_canonicalizes_request_path,
             t_validate_scopes,
             t_validate_scopes_bad_input,
             t_is_denied_scope,
@@ -163,6 +164,30 @@ t_path_to_scope_no_cache(_Config) ->
     emqx_mgmt_api_key_scopes:clear_cache(),
     %% Should lazy-init and return correct scope
     ?assertEqual(?SCOPE_CONNECTIONS, emqx_mgmt_api_key_scopes:path_to_scope(<<"/clients">>)).
+
+-doc """
+A concrete request path must map to the same scope regardless of
+percent-encoding or `.'/`..' segments, so the lookup agrees with the
+path the router dispatched on. Otherwise an obfuscated path resolves
+to `undefined' (unmapped) and slips the scope gate.
+""".
+t_path_to_scope_canonicalizes_request_path(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    Canonical = emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>),
+    ?assertEqual(?SCOPE_USER_MGMT, Canonical),
+    %% percent-encoded characters in a static segment
+    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/user%73">>)),
+    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/%75sers">>)),
+    %% dot-segments that the router collapses before dispatch
+    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/x/../users">>)),
+    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/./users">>)),
+    %% same invariant for a path-parameter endpoint
+    ClientsScope = emqx_mgmt_api_key_scopes:path_to_scope(<<"/clients/:clientid">>),
+    ?assertEqual(
+        ClientsScope,
+        emqx_mgmt_api_key_scopes:path_to_scope(<<"/client%73/abc">>)
+    ),
+    emqx_mgmt_api_key_scopes:clear_cache().
 
 t_validate_scopes(_Config) ->
     %% Valid: known scope names
