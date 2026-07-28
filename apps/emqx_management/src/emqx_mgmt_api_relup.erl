@@ -452,7 +452,16 @@ validate_name(Name) ->
 
 '/relup/status'(get, _) ->
     Nodes = emqx:running_nodes(),
-    {[_ | _] = Res, []} = emqx_mgmt_api_relup_proto_v1:get_upgrade_status_from_nodes(Nodes),
+    case emqx_mgmt_api_relup_proto_v1:get_upgrade_status_from_nodes(Nodes) of
+        {[_ | _] = Res, []} ->
+            status_from_nodes(Res);
+        {_, [_ | _] = BadNodes} ->
+            return_internal_error(
+                list_to_binary(io_lib:format("Unreachable nodes: ~0p", [BadNodes]))
+            )
+    end.
+
+status_from_nodes(Res) ->
     case
         lists:filter(
             fun
@@ -480,7 +489,14 @@ validate_name(Name) ->
             (Node) when node() =:= Node ->
                 {200, get_upgrade_status()};
             (Node) when is_atom(Node) ->
-                {200, emqx_mgmt_api_relup_proto_v1:get_upgrade_status(Node)}
+                case emqx_mgmt_api_relup_proto_v1:get_upgrade_status(Node) of
+                    {badrpc, Reason} ->
+                        return_internal_error(
+                            list_to_binary(io_lib:format("RPC failed: ~0p", [Reason]))
+                        );
+                    Status when is_map(Status) ->
+                        {200, Status}
+                end
         end
     ).
 

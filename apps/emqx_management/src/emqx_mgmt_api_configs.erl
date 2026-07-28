@@ -432,11 +432,17 @@ get_configs_v2(QueryStr) ->
             {ok, Key} ->
                 emqx_conf_proto_v4:get_hocon_config(Node, atom_to_binary(Key))
         end,
-    {
-        200,
-        #{<<"content-type">> => <<"text/plain">>},
-        iolist_to_binary(hocon_pp:do(Conf, #{}))
-    }.
+    case Conf of
+        {badrpc, R} ->
+            Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
+            {500, #{code => 'BAD_NODE', message => Message}};
+        _ ->
+            {
+                200,
+                #{<<"content-type">> => <<"text/plain">>},
+                iolist_to_binary(hocon_pp:do(Conf, #{}))
+            }
+    end.
 
 limiter(get, _Params, _Req) ->
     {200, format_limiter_config(get_raw_config(limiter))};

@@ -675,6 +675,11 @@ t_stream_log(_Config) ->
     meck:expect(file, read, 2, {error, enomem}),
     {error, {_, 503, _}} = request_api(get, Path),
     meck:unload(file),
+    %% a badrpc other than nodedown (e.g. timeout) is a clean 503, not a case_clause crash
+    meck:new(emqx_mgmt_trace_proto_v2, [passthrough]),
+    meck:expect(emqx_mgmt_trace_proto_v2, read_trace_file, 4, {badrpc, timeout}),
+    {error, {_, 503, _}} = request_api(get, Path),
+    meck:unload(emqx_mgmt_trace_proto_v2),
     {error, {_, 404, _}} =
         request_api(
             get,

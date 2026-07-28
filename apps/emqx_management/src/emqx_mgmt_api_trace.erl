@@ -660,7 +660,15 @@ stream_log_file(get, #{bindings := #{name := Name}, query_string := Query}) ->
                     }),
                     ?SERVICE_UNAVAILABLE(<<"Requested chunk size too big">>);
                 {badrpc, nodedown} ->
-                    ?NOT_FOUND_WITH_MSG(<<"Node">>)
+                    ?NOT_FOUND_WITH_MSG(<<"Node">>);
+                {badrpc, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "read_trace_file_rpc_failed",
+                        node => Node,
+                        name => Name,
+                        reason => Reason
+                    }),
+                    ?SERVICE_UNAVAILABLE(<<"RPC to remote node failed, please try again">>)
             end;
         {error, not_found} ->
             ?NOT_FOUND_WITH_MSG(<<"Node">>)
