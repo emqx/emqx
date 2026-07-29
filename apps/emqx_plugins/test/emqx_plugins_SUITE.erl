@@ -1206,7 +1206,16 @@ group_t_copy_plugin_to_a_new_node(Config) ->
             rpc:call(CopyToNode, application, which_applications, [])
         )
     ),
-    ok = rpc:call(CopyToNode, classy, join_node, [CopyFromNode, join]),
+    %% Join nodes and wait for apps restart:
+    ok = rpc:call(CopyToNode, emqx_cluster, join, [CopyFromNode, join]),
+    [] = emqx_cth_cluster:wait_for_conditions(
+        [CopyToNode, CopyFromNode],
+        [
+            emqx_cth_cluster:verify_peers(connected, [CopyToNode, CopyFromNode]),
+            emqx_cth_cluster:verify_business_apps()
+        ],
+        10_000
+    ),
     %% Mimic cluster-override conf copying
     ok = rpc:call(CopyToNode, emqx_plugins, put_config_internal, [[states], CopyFromPluginsState]),
     %% Plugin copying is triggered upon app restart on a new node.
