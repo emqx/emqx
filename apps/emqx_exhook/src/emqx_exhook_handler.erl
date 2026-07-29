@@ -31,6 +31,7 @@
 ]).
 
 -export([
+    on_message_ingress/2,
     on_message_publish/1,
     on_message_dropped/3,
     on_message_delivered/2,
@@ -216,6 +217,32 @@ on_session_terminated(ClientInfo, Reason, _SessInfo) ->
 %%--------------------------------------------------------------------
 %% Message
 %%--------------------------------------------------------------------
+
+on_message_ingress(_Ctx, #message{topic = <<"$SYS/", _/binary>>}) ->
+    ignore;
+on_message_ingress(#{authz_ctx := AuthzContext}, Message) ->
+    Props = emqx_message:get_header(properties, Message),
+    {UserProps, SystemProps} = format_props(Props),
+    Req = #{
+        clientinfo => clientinfo(AuthzContext),
+        message => message(Message),
+        user_props => UserProps,
+        props => SystemProps
+    },
+    case
+        emqx_exhook:call_fold(
+            'message.ingress',
+            Req,
+            fun merge_responsed_ingress/2
+        )
+    of
+        {stop, #{message := {error, Reason}}} ->
+            {stop, {error, Reason}};
+        {StopOrOk, #{message := NMessage}} ->
+            {StopOrOk, assign_to_message(NMessage, Message)};
+        ignore ->
+            ignore
+    end.
 
 on_message_publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ok;
@@ -463,6 +490,14 @@ stringfy(Term) ->
 %% Acc funcs
 
 %% see exhook.proto
+merge_responsed_ingress(_Req, #{type := 'IGNORE'}) ->
+    ignore;
+merge_responsed_ingress(Req, #{type := Type, value := {message, NMessage}}) ->
+    {ret(Type), Req#{message => NMessage}};
+merge_responsed_ingress(Req, Resp) ->
+    ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
+    {stop, Req#{message => {error, {invalid_exhook_response, Resp}}}}.
+
 merge_responsed_bool(_Req, #{type := 'IGNORE'}) ->
     ignore;
 merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}}) when
