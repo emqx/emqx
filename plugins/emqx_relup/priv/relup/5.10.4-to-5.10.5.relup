@@ -14,6 +14,7 @@
         {load_module, emqx_plugins},
         {load_module, emqx_plugins_app},
         {load_module, emqx_mgmt_api_plugins},
+        {load_module, emqx_mgmt_api_plugins_proto_v5},
         {apply, emqx_bpapi, announce, [node(), emqx]},
         {load_module, emqx_plugins},
         {load_module, emqx_plugins_cli},

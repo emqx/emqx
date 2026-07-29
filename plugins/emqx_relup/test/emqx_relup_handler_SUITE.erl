@@ -139,9 +139,13 @@ t_5105_catalog_covers_saml_xxe_backup_plugin_api_postgresql_oracle_and_lwm2m_fix
             {load_module, emqx_mgmt_data_backup},
             {load_module, emqx_mgmt_data_backup_proto_v2},
             {load_module, emqx_mgmt_api_data_backup},
+            {load_module, emqx_plugins_apps},
+            {load_module, emqx_plugins_fs},
+            {load_module, emqx_plugins_serde},
             {load_module, emqx_plugins},
             {load_module, emqx_plugins_app},
             {load_module, emqx_mgmt_api_plugins},
+            {load_module, emqx_mgmt_api_plugins_proto_v5},
             AnnounceBPAPI,
             {load_module, emqx_postgresql},
             {restart_application, jamdb_oracle},
@@ -179,7 +183,8 @@ t_5105_catalog_covers_saml_xxe_backup_plugin_api_postgresql_oracle_and_lwm2m_fix
     ?assert(
         is_before({load_module, emqx_utils_redact}, {load_module, emqx_lwm2m_session}, CodeChanges)
     ),
-    ?assert(is_before({load_module, emqx_mgmt_data_backup_proto_v2}, AnnounceBPAPI, CodeChanges)).
+    ?assert(is_before({load_module, emqx_mgmt_data_backup_proto_v2}, AnnounceBPAPI, CodeChanges)),
+    ?assert(is_before({load_module, emqx_mgmt_api_plugins_proto_v5}, AnnounceBPAPI, CodeChanges)).
 
 -doc """
 The 5.10.4 -> 5.10.5 hop reloads DynamoDB modules before restarting running DynamoDB connector

@@ -18,7 +18,8 @@ are arbitrary; `<from>-to-<to>.relup` is the convention.
 
 - Restart `esaml` so hot-upgraded nodes pick up SAML XXE protection.
 - Load dashboard/data-backup modules and re-announce `emqx` BPAPI so backup-file download authorization changes take effect for API-key callers.
-- Load plugin management modules so stale plugin packages are logged on startup/request and hidden from HTTP API responses and operations.
+- Load plugin management modules and the v5 management BPAPI, then re-announce BPAPI so
+  stale packages are hidden and plugin start validation uses the updated cluster workflow.
 - Load the PostgreSQL connector module so disabled-prepared-statement batch execution and table-existence checks use the serialized worker path.
 - Restart `jamdb_oracle`, load Oracle connector modules, then restart running Oracle connector resources so prepare/status checks and large text binds use the updated driver and callback code.
 - Load central redaction helpers and CoAP/LwM2M modules so sensitive registration fields are not written to structured logs or replayed in registration/update reports.
