@@ -766,7 +766,7 @@ upstreaming(
                 #{msg => "upstreaming_to_topic", topic => NTopic, payload => Payload},
                 Channel
             ),
-            emqx_message_ingress:publish(ClientInfo, NMsg);
+            emqx_message_ingress:finalize_and_publish(ClientInfo, NMsg);
         deny ->
             log(info, #{msg => "upstream_publish_denied", topic => Topic}, Channel),
             ok;

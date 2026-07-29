@@ -537,12 +537,11 @@ on_message_publish(Msg) ->
     end.
 
 prepare_delayed_message(ClientInfo, Msg) ->
-    case emqx_message_ingress:ingress(ClientInfo, Msg) of
-        {ok, IngressMsg} ->
-            case emqx_message_ingress:authorize(ClientInfo, IngressMsg) of
-                {allow, PreparedMsg} -> {ok, PreparedMsg};
-                deny -> {error, deny}
-            end;
+    case emqx_message_ingress:ingress_and_authorize(ClientInfo, Msg) of
+        {allow, PreparedMsg} ->
+            {ok, PreparedMsg};
+        deny ->
+            {error, deny};
         {error, _} = Error ->
             Error
     end.

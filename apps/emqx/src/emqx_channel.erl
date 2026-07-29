@@ -2848,19 +2848,8 @@ do_check_pub_authz(
     Channel,
     ClientInfo
 ) ->
-    case emqx_message_ingress:ingress(ClientInfo, Msg) of
-        {ok, NMsg} ->
-            authorize_publish_message(NMsg, Channel, ClientInfo);
-        {error, invalid_topic_name} ->
-            {error, ?RC_TOPIC_NAME_INVALID, Channel};
-        {error, Reason} ->
-            ?SLOG(warning, #{msg => "message_ingress_failed", reason => Reason}),
-            {error, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel}
-    end.
-
-authorize_publish_message(NMsg = #message{topic = Topic}, Channel, ClientInfo) ->
-    case emqx_message_ingress:authorize(ClientInfo, NMsg) of
-        {allow, NMsg} ->
+    case emqx_message_ingress:ingress_and_authorize(ClientInfo, Msg) of
+        {allow, NMsg = #message{topic = Topic}} ->
             ?EXT_TRACE_ADD_ATTRS(#{
                 'authz.publish.topic' => Topic,
                 'authz.publish.result' => allow
@@ -2873,7 +2862,12 @@ authorize_publish_message(NMsg = #message{topic = Topic}, Channel, ClientInfo) -
                 'authz.reason_code' => ?RC_NOT_AUTHORIZED
             }),
             ?EXT_TRACE_SET_STATUS_ERROR(),
-            {error, ?RC_NOT_AUTHORIZED, Channel}
+            {error, ?RC_NOT_AUTHORIZED, Channel};
+        {error, invalid_topic_name} ->
+            {error, ?RC_TOPIC_NAME_INVALID, Channel};
+        {error, Reason} ->
+            ?SLOG(warning, #{msg => "message_ingress_failed", reason => Reason}),
+            {error, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel}
     end.
 
 %%--------------------------------------------------------------------
@@ -3556,16 +3550,7 @@ publish_will_msg(
     end.
 
 prepare_will_message_for_publishing(ClientInfo, Msg) ->
-    case emqx_message_ingress:ingress(ClientInfo, Msg) of
-        {ok, NMsg} ->
-            authorize_will_message(ClientInfo, NMsg);
-        {error, Reason} ->
-            ?SLOG(warning, #{msg => "will_message_ingress_failed", reason => Reason}),
-            {error, #{client_banned => false, publishing_disallowed => true}}
-    end.
-
-authorize_will_message(ClientInfo, Msg) ->
-    case emqx_message_ingress:authorize(ClientInfo, Msg) of
+    case emqx_message_ingress:ingress_and_authorize(ClientInfo, Msg) of
         {allow, NMsg0} ->
             ClientBanned = emqx_banned:check(ClientInfo),
             case ClientBanned of
@@ -3582,7 +3567,10 @@ authorize_will_message(ClientInfo, Msg) ->
             {error, #{
                 client_banned => emqx_banned:check(ClientInfo),
                 publishing_disallowed => true
-            }}
+            }};
+        {error, Reason} ->
+            ?SLOG(warning, #{msg => "will_message_ingress_failed", reason => Reason}),
+            {error, #{client_banned => false, publishing_disallowed => true}}
     end.
 
 %%--------------------------------------------------------------------

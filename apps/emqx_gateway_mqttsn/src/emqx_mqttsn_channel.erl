@@ -2013,7 +2013,7 @@ publish_will_msg(
 ) ->
     case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
         {allow, NMsg} ->
-            _ = emqx_message_ingress:publish(ClientInfo, NMsg),
+            _ = emqx_message_ingress:finalize_and_publish(ClientInfo, NMsg),
             ok;
         deny ->
             ?tp(info, mqttsn_will_publish_rejected, #{topic => Topic}),

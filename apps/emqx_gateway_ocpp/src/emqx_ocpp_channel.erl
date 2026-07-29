@@ -388,7 +388,7 @@ publish(
     ),
     case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
         {allow, NMsg} ->
-            emqx_message_ingress:publish(ClientInfo, NMsg);
+            emqx_message_ingress:finalize_and_publish(ClientInfo, NMsg);
         deny ->
             ?SLOG(info, #{msg => "publish_denied", topic => Topic0}),
             ok;

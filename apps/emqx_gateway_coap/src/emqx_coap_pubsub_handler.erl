@@ -56,7 +56,7 @@ handle_method(post, Topic, #coap_message{payload = Payload} = Msg, Ctx, CInfo, _
     MQTTMsg = apply_publish_opts(PublishOpts, emqx_message:make(ClientId, QoS, Topic, Payload)),
     case emqx_gateway_ctx:authorize_publish(Ctx, CInfo, MQTTMsg) of
         {allow, NMsg} ->
-            _ = emqx_message_ingress:publish(CInfo, NMsg),
+            _ = emqx_message_ingress:finalize_and_publish(CInfo, NMsg),
             reply({ok, changed}, Msg);
         deny ->
             reply({error, unauthorized}, Msg);

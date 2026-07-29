@@ -32,12 +32,14 @@ end_per_testcase(_, _Config) ->
     emqx_hooks:del('message.ingress', {?MODULE, crash_publish}),
     emqx_hooks:del('message.ingress', {?MODULE, override_publish_action}),
     emqx_hooks:del('client.authorize', {?MODULE, capture_authorize}),
+    emqx_hooks:del('client.authorize', {?MODULE, deny_authorize}),
     ok.
 
 t_no_overrides(_) ->
     Msg = message(<<"topic">>),
     ?assertEqual({ok, Msg}, emqx_message_ingress:ingress(clientinfo(), Msg)),
-    ?assertEqual({allow, Msg}, emqx_message_ingress:authorize(clientinfo(), Msg)).
+    ?assertEqual({allow, Msg}, emqx_message_ingress:authorize(clientinfo(), Msg)),
+    ?assertEqual({allow, Msg}, emqx_message_ingress:ingress_and_authorize(clientinfo(), Msg)).
 
 t_overrides(_) ->
     emqx_hooks:put(
@@ -52,6 +54,10 @@ t_reject(_) ->
     ?assertEqual(
         {error, invalid_topic_name},
         emqx_message_ingress:ingress(clientinfo(), message(<<"source">>))
+    ),
+    ?assertEqual(
+        {error, invalid_topic_name},
+        emqx_message_ingress:ingress_and_authorize(clientinfo(), message(<<"source">>))
     ).
 
 t_crash(_) ->
@@ -77,8 +83,8 @@ t_action_uses_folded_message(_) ->
         {?MODULE, capture_authorize, [self()]},
         ?HP_HIGHEST
     ),
-    {ok, Msg} = emqx_message_ingress:ingress(clientinfo(), message(<<"source">>)),
-    {allow, Msg} = emqx_message_ingress:authorize(clientinfo(), Msg),
+    {allow, Msg} =
+        emqx_message_ingress:ingress_and_authorize(clientinfo(), message(<<"source">>)),
     ?assertEqual(2, Msg#message.qos),
     ?assertEqual(true, emqx_message:get_flag(retain, Msg)),
     receive
@@ -87,6 +93,17 @@ t_action_uses_folded_message(_) ->
     after 1000 ->
         ct:fail(authorize_hook_not_called)
     end.
+
+t_ingress_and_authorize_deny(_) ->
+    emqx_hooks:put(
+        'client.authorize',
+        {?MODULE, deny_authorize, []},
+        ?HP_HIGHEST
+    ),
+    ?assertEqual(
+        deny,
+        emqx_message_ingress:ingress_and_authorize(clientinfo(), message(<<"source">>))
+    ).
 
 t_finalize_mounts_message(_) ->
     Msg = message(<<"topic">>),
@@ -104,6 +121,9 @@ override_publish_action(_AuthzContext, Msg) ->
 capture_authorize(_AuthzContext, Action, _Topic, _DefaultResult, TestPid) ->
     TestPid ! {authorize, Action},
     {stop, #{result => allow, from => test}}.
+
+deny_authorize(_AuthzContext, _Action, _Topic, _DefaultResult) ->
+    {stop, #{result => deny, from => test}}.
 
 reject_publish(_AuthzContext, _Msg) ->
     {stop, {error, invalid_topic_name}}.

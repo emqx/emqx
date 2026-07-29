@@ -469,7 +469,7 @@ t_acl_deny(Cfg) ->
 
     ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_gateway_ctx, authorize, fun(_, _, _, _) -> deny end),
-    ok = meck:expect(emqx_gateway_ctx, authorize_publish, fun(_, _, _, _) -> deny end),
+    ok = meck:expect(emqx_gateway_ctx, authorize_publish, fun(_, _, _) -> deny end),
 
     ConnBin = frame_connect(Client, Password),
     ConnAckBin = frame_connack(0),

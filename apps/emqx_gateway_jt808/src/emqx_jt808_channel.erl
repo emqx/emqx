@@ -421,7 +421,7 @@ do_publish(
     case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
         {allow, NMsg = #message{topic = NTopic}} ->
             ?SLOG(debug, #{msg => "publish_msg", to_topic => NTopic, farme => Frame}),
-            emqx_message_ingress:publish(ClientInfo, NMsg);
+            emqx_message_ingress:finalize_and_publish(ClientInfo, NMsg);
         deny ->
             ?SLOG(info, #{msg => "publish_msg_denied", to_topic => Topic}),
             ok;

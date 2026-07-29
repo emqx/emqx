@@ -1212,7 +1212,7 @@ frame2message(
 
 process_pub_message(Msg, #channel{clientinfo = ClientInfo} = Channel) ->
     ReplyToSubject = emqx_message:get_header(reply_to, Msg),
-    PubResult = emqx_message_ingress:publish(ClientInfo, Msg),
+    PubResult = emqx_message_ingress:finalize_and_publish(ClientInfo, Msg),
     Replies = no_responders_fastfails(PubResult, ReplyToSubject, Channel),
     finalize_pub_replies(Replies, Channel).
 

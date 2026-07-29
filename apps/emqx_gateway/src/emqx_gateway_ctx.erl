@@ -176,10 +176,7 @@ authorize(_Ctx, ClientInfo, Action, Topic) ->
     emqx_types:message()
 ) -> {allow, emqx_types:message()} | deny | {error, term()}.
 authorize_publish(_Ctx, ClientInfo, Msg) ->
-    case emqx_message_ingress:ingress(ClientInfo, Msg) of
-        {ok, NMsg} -> emqx_message_ingress:authorize(ClientInfo, NMsg);
-        {error, _} = Error -> Error
-    end.
+    emqx_message_ingress:ingress_and_authorize(ClientInfo, Msg).
 
 %%--------------------------------------------------------------------
 %% Metrics & Stats

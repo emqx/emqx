@@ -884,12 +884,15 @@ t_authz_allows_auto_subscribe(_) ->
 t_case04_mountpoint_from_register_clientinfo(_) ->
     ClientId = <<"000123456789">>,
     Mountpoint = <<"jt808/custom/000123456789/">>,
+    UpTopic = <<Mountpoint/binary, ?JT808_PHONE, "/up">>,
+    DnTopic = <<Mountpoint/binary, ?JT808_PHONE, "/dn">>,
     update_jt808_with_mountpoint(<<"jt808/custom/${clientid}/">>),
-    ok = emqx:subscribe(?JT808_UP_TOPIC),
+    ok = emqx:subscribe(UpTopic),
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     try
         {ok, AuthCode} = client_regi_procedure(Socket),
-        ok = client_auth_procedure(Socket, AuthCode),
+        ok = client_auth_procedure(Socket, AuthCode, false),
+        ?assert(lists:member(DnTopic, emqx:topics())),
         ?assertMatch(
             #{clientinfo := #{mountpoint := Mountpoint}},
             emqx_gateway_cm:get_chan_info(jt808, ClientId)
@@ -909,7 +912,7 @@ t_case04_mountpoint_from_register_clientinfo(_) ->
         ok = gen_tcp:send(Socket, S3),
         {ok, _Packet4} = gen_tcp:recv(Socket, 0, 500),
         timer:sleep(100),
-        {?JT808_UP_TOPIC, Payload} = receive_msg(),
+        {UpTopic, Payload} = receive_msg(),
         ?assertEqual(
             EventReportId,
             emqx_utils_maps:deep_get([<<"body">>, <<"id">>], emqx_utils_json:decode(Payload))

@@ -426,7 +426,7 @@ handle_call(
             ?SLOG(warning, #{msg => "message_ingress_failed", topic => Topic, reason => Reason}),
             {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
         {allow, NMsg} ->
-            _ = emqx_message_ingress:publish(ClientInfo, NMsg),
+            _ = emqx_message_ingress:finalize_and_publish(ClientInfo, NMsg),
             {reply, ok, Channel}
     end;
 handle_call(kick, _From, Channel) ->

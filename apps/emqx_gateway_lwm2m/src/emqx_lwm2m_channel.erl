@@ -660,7 +660,7 @@ with_context(Ctx, ClientInfo) ->
 with_context(publish, [Msg = #message{topic = Topic}], Ctx, ClientInfo) ->
     case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
         {allow, NMsg} ->
-            _ = emqx_message_ingress:publish(ClientInfo, NMsg),
+            _ = emqx_message_ingress:finalize_and_publish(ClientInfo, NMsg),
             ok;
         deny ->
             ?SLOG(error, #{

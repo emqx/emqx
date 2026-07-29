@@ -1320,7 +1320,7 @@ handle_recv_send_frame(
     {Msg, ReceiptId},
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
-    _ = emqx_message_ingress:publish(ClientInfo, Msg),
+    _ = emqx_message_ingress:finalize_and_publish(ClientInfo, Msg),
     maybe_outgoing_receipt(ReceiptId, Channel).
 
 handle_recv_ack_frame(?PACKET(?CMD_ACK, Headers), Channel) ->
