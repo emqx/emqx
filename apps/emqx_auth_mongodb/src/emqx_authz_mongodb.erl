@@ -40,14 +40,14 @@ destroy(#{resource_id := ResourceId}) ->
     emqx_authz_utils:remove_resource(ResourceId).
 
 authorize(
-    Client,
+    AuthzContext,
     Action,
     Topic,
     #{filter_template := FilterTemplate} = State
 ) ->
-    try emqx_auth_template:render_deep_for_json(FilterTemplate, Client) of
+    try emqx_auth_template:render_deep_for_json(FilterTemplate, AuthzContext) of
         RenderedFilter ->
-            authorize_with_filter(RenderedFilter, Client, Action, Topic, State)
+            authorize_with_filter(RenderedFilter, AuthzContext, Action, Topic, State)
     catch
         error:{encode_error, _} = EncodeError ->
             ?SLOG(error, #{
@@ -81,7 +81,7 @@ new_state(
         cache_key_template => CacheKeyTemplate
     }).
 
-authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
+authorize_with_filter(RenderedFilter, AuthzContext, Action, Topic, #{
     collection := Collection,
     skip := Skip,
     limit := Limit,
@@ -90,7 +90,7 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
     cache_key_template := CacheKeyTemplate
 }) ->
     Options = #{skip => Skip, limit => Limit},
-    CacheKey = emqx_auth_template:cache_key(Client, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(AuthzContext, CacheKeyTemplate),
     Result = emqx_authz_utils:cached_simple_sync_query(
         CacheKey, ResourceId, {find, Collection, RenderedFilter, Options}
     ),
@@ -100,14 +100,16 @@ authorize_with_filter(RenderedFilter, Client, Action, Topic, #{
                 msg => "query_mongo_error",
                 reason => Reason,
                 collection => Collection,
-                filter => emqx_auth_template:render_deep_for_json_redacted(FilterTemplate, Client),
+                filter => emqx_auth_template:render_deep_for_json_redacted(
+                    FilterTemplate, AuthzContext
+                ),
                 options => Options,
                 resource_id => ResourceId
             }),
             emqx_authz_utils:backend_failure_result();
         {ok, Rows} ->
             Rules = lists:flatmap(fun parse_rule/1, Rows),
-            do_authorize(Client, Action, Topic, Rules)
+            do_authorize(AuthzContext, Action, Topic, Rules)
     end.
 
 parse_rule(Row) ->
@@ -123,10 +125,10 @@ parse_rule(Row) ->
             []
     end.
 
-do_authorize(_Client, _PubSub, _Topic, []) ->
+do_authorize(_AuthzContext, _PubSub, _Topic, []) ->
     nomatch;
-do_authorize(Client, PubSub, Topic, [Rule | Tail]) ->
-    case emqx_authz_rule:match(Client, PubSub, Topic, Rule) of
+do_authorize(AuthzContext, PubSub, Topic, [Rule | Tail]) ->
+    case emqx_authz_rule:match(AuthzContext, PubSub, Topic, Rule) of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_authorize(Client, PubSub, Topic, Tail)
+        nomatch -> do_authorize(AuthzContext, PubSub, Topic, Tail)
     end.

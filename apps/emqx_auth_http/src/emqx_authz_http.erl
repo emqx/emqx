@@ -64,7 +64,7 @@ destroy(#{resource_id := ResourceId}) ->
     emqx_authz_utils:remove_resource(ResourceId).
 
 authorize(
-    Client,
+    AuthzContext,
     Action,
     Topic,
     #{
@@ -75,7 +75,7 @@ authorize(
         request_timeout := RequestTimeout
     } = State
 ) ->
-    Values = client_vars(Client, Action, Topic),
+    Values = authz_vars(AuthzContext, Action, Topic),
     case emqx_auth_http_utils:generate_request(State, Values) of
         {ok, Request} ->
             CacheKey = emqx_auth_template:cache_key(Values, CacheKeyTemplate),
@@ -194,8 +194,8 @@ new_state(
         cache_key_template => CacheKeyTemplate
     }).
 
-client_vars(Client, Action, Topic) ->
-    Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
+authz_vars(AuthzContext, Action, Topic) ->
+    Vars = emqx_authz_utils:vars_for_rule_query(AuthzContext, Action),
     add_legacy_access_var(Vars#{topic => Topic}).
 
 add_legacy_access_var(#{action := subscribe} = Vars) ->

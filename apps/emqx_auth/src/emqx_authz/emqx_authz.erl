@@ -423,7 +423,7 @@ init_metrics(Source) ->
 %%------------------------------------------------------------------------------
 
 -spec authorize_deny(
-    emqx_types:clientinfo(),
+    emqx_authz_context:t(),
     emqx_types:pubsub(),
     emqx_types:topic(),
     default_result()
@@ -432,7 +432,7 @@ init_metrics(Source) ->
 authorize_deny(
     #{
         username := Username
-    } = _Client,
+    } = _AuthzContext,
     _PubSub,
     Topic,
     _DefaultResult
@@ -451,15 +451,15 @@ authorize_deny(
 %% is to be made by `emqx_access_control' module after all authorization
 %% sources are exhausted.
 -spec authorize(
-    emqx_types:clientinfo(),
+    emqx_authz_context:t(),
     emqx_types:pubsub(),
     emqx_types:topic(),
     default_result(),
     source_states()
 ) ->
     authz_result().
-authorize(#{username := Username} = Client, PubSub, Topic, _DefaultResult, SourceStates) ->
-    case maps:get(is_superuser, Client, false) of
+authorize(#{username := Username} = AuthzContext, PubSub, Topic, _DefaultResult, SourceStates) ->
+    case maps:get(is_superuser, AuthzContext, false) of
         true ->
             ?tp(authz_skipped, #{reason => client_is_superuser, action => PubSub}),
             ?TRACE("AUTHZ", "authorization_skipped_as_superuser", #{
@@ -470,19 +470,19 @@ authorize(#{username := Username} = Client, PubSub, Topic, _DefaultResult, Sourc
             emqx_metrics:inc_global(?METRIC_SUPERUSER),
             {stop, #{result => allow, from => superuser}};
         false ->
-            authorize_non_superuser(Client, PubSub, Topic, SourceStates)
+            authorize_non_superuser(AuthzContext, PubSub, Topic, SourceStates)
     end.
 
-authorize_non_superuser(Client, PubSub, Topic, SourceStates) ->
-    case do_authorize(Client, PubSub, Topic, source_states_with_defaults(SourceStates)) of
+authorize_non_superuser(AuthzContext, PubSub, Topic, SourceStates) ->
+    case do_authorize(AuthzContext, PubSub, Topic, source_states_with_defaults(SourceStates)) of
         {{matched, allow}, MatchedType} ->
             emqx_metrics_worker:inc(authz_metrics, MatchedType, allow),
             emqx_metrics:inc_global(?METRIC_ALLOW),
-            {stop, #{result => allow, from => source_for_logging(MatchedType, Client)}};
+            {stop, #{result => allow, from => source_for_logging(MatchedType, AuthzContext)}};
         {{matched, deny}, MatchedType} ->
             emqx_metrics_worker:inc(authz_metrics, MatchedType, deny),
             emqx_metrics:inc_global(?METRIC_DENY),
-            {stop, #{result => deny, from => source_for_logging(MatchedType, Client)}};
+            {stop, #{result => deny, from => source_for_logging(MatchedType, AuthzContext)}};
         nomatch ->
             ?tp(authz_non_superuser, #{result => nomatch}),
             emqx_metrics:inc_global(?METRIC_NOMATCH),
@@ -495,14 +495,14 @@ source_for_logging(client_info, #{acl := Acl}) ->
 source_for_logging(Type, _) ->
     Type.
 
-do_authorize(_Client, _Action, _Topic, []) ->
+do_authorize(_AuthzContext, _Action, _Topic, []) ->
     nomatch;
-do_authorize(Client, Action, Topic, [#{enable := false} = _SourceState | SourceStates]) ->
-    do_authorize(Client, Action, Topic, SourceStates);
+do_authorize(AuthzContext, Action, Topic, [#{enable := false} = _SourceState | SourceStates]) ->
+    do_authorize(AuthzContext, Action, Topic, SourceStates);
 do_authorize(
     #{
         username := Username
-    } = Client,
+    } = AuthzContext,
     Action = ?authz_action(_PubSub),
     Topic,
     [SourceState | SourceStates]
@@ -512,7 +512,7 @@ do_authorize(
     emqx_metrics_worker:inc(authz_metrics, Type, total),
     Result = ?EXT_TRACE_CLIENT_AUTHZ_BACKEND(
         ?EXT_TRACE_ATTR(#{
-            'client.clientid' => maps:get(clientid, Client, undefined),
+            'client.clientid' => maps:get(clientid, AuthzContext, undefined),
             'client.username' => Username,
             'authz.module' => Module,
             'authz.backend_type' => Type,
@@ -521,7 +521,7 @@ do_authorize(
         }),
         fun() ->
             Result0 =
-                try Module:authorize(Client, Action, Topic, SourceState) of
+                try Module:authorize(AuthzContext, Action, Topic, SourceState) of
                     Res ->
                         ok = inc_metrics(Type, Res),
                         ok = log_trace(Res, Type, Module, Username, Topic, Action),
@@ -548,11 +548,11 @@ do_authorize(
 
     case Result of
         nomatch ->
-            do_authorize(Client, Action, Topic, SourceStates);
+            do_authorize(AuthzContext, Action, Topic, SourceStates);
         ignore ->
-            do_authorize(Client, Action, Topic, SourceStates);
+            do_authorize(AuthzContext, Action, Topic, SourceStates);
         {matched, ignore} ->
-            do_authorize(Client, Action, Topic, SourceStates);
+            do_authorize(AuthzContext, Action, Topic, SourceStates);
         {matched, _Permission} = Matched ->
             {Matched, Type}
     end.

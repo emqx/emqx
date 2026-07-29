@@ -155,13 +155,13 @@ content_type(Headers) when is_list(Headers) ->
         <<"application/json">>
     ).
 
--spec vars_for_rule_query(emqx_types:clientinfo(), emqx_types:pubsub()) -> map().
-vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
+-spec vars_for_rule_query(emqx_authz_context:t(), emqx_types:pubsub()) -> map().
+vars_for_rule_query(AuthzContext, ?authz_action(PubSub, Qos) = Action) ->
     Vars =
-        case Client of
-            #{peerport := _PeerPort} -> Client;
-            #{peername := {_PeerHost, PeerPort}} -> Client#{peerport => PeerPort};
-            _ -> Client
+        case AuthzContext of
+            #{peerport := _PeerPort} -> AuthzContext;
+            #{peername := {_PeerHost, PeerPort}} -> AuthzContext#{peerport => PeerPort};
+            _ -> AuthzContext
         end,
     Vars#{
         action => PubSub,
@@ -179,17 +179,17 @@ cached_simple_sync_query(CacheKey, ResourceID, Query) ->
 
 -spec authorize_with_row(
     emqx_authz_source:source_type(),
-    emqx_types:clientinfo(),
+    emqx_authz_context:t(),
     emqx_types:pubsub(),
     emqx_types:topic(),
     [binary()] | undefined,
     [binary()] | map()
 ) -> ignore | nomatch | {matched, allow | deny | ignore}.
-authorize_with_row(Type, Client, Action, Topic, ColumnNames, Row) ->
+authorize_with_row(Type, AuthzContext, Action, Topic, ColumnNames, Row) ->
     try
         maybe
             {ok, Rule} ?= parse_rule_from_row(ColumnNames, Row),
-            {matched, Permission} ?= emqx_authz_rule:match(Client, Action, Topic, Rule),
+            {matched, Permission} ?= emqx_authz_rule:match(AuthzContext, Action, Topic, Rule),
             {matched, Permission}
         else
             nomatch ->
