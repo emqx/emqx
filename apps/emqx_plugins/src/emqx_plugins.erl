@@ -686,13 +686,13 @@ normalize_headers(_) ->
 %%--------------------------------------------------------------------
 %% Package utils
 
--spec decode_plugin_config_map(name_vsn(), map() | binary()) ->
+-spec decode_plugin_config_map(name_vsn(), emqx_utils_json:json_term()) ->
     {ok, map() | ?plugin_without_config_schema}
     | {error, term()}.
-decode_plugin_config_map(NameVsn, AvroJsonMap) ->
+decode_plugin_config_map(NameVsn, AvroJson) ->
     case has_avsc(NameVsn) of
         true ->
-            case emqx_plugins_serde:decode(NameVsn, ensure_config_bin(AvroJsonMap)) of
+            case emqx_plugins_serde:decode(NameVsn, ensure_config_bin(AvroJson)) of
                 {ok, Config} ->
                     {ok, Config};
                 {error, #{reason := plugin_serde_not_found}} ->
@@ -1547,7 +1547,9 @@ delete_cached_config(NameVsn) ->
 ensure_config_bin(AvroJsonMap) when is_map(AvroJsonMap) ->
     emqx_utils_json:encode(AvroJsonMap);
 ensure_config_bin(AvroJsonBin) when is_binary(AvroJsonBin) ->
-    AvroJsonBin.
+    AvroJsonBin;
+ensure_config_bin(AvroJson) ->
+    emqx_utils_json:encode(AvroJson).
 
 bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);
