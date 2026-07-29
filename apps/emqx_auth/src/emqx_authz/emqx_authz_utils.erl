@@ -14,6 +14,7 @@
     update_resource/2,
     remove_resource/1,
     update_config/2,
+    authz_vars/1,
     vars_for_rule_query/2,
     authorize_with_row/6,
     authz_backend_failure_policy/0,
@@ -155,14 +156,17 @@ content_type(Headers) when is_list(Headers) ->
         <<"application/json">>
     ).
 
+-spec authz_vars(emqx_authz_context:t()) -> map().
+authz_vars(#{peerport := _PeerPort} = AuthzContext) ->
+    AuthzContext;
+authz_vars(#{peername := {_PeerHost, PeerPort}} = AuthzContext) ->
+    AuthzContext#{peerport => PeerPort};
+authz_vars(AuthzContext) ->
+    AuthzContext.
+
 -spec vars_for_rule_query(emqx_authz_context:t(), emqx_types:pubsub()) -> map().
 vars_for_rule_query(AuthzContext, ?authz_action(PubSub, Qos) = Action) ->
-    Vars =
-        case AuthzContext of
-            #{peerport := _PeerPort} -> AuthzContext;
-            #{peername := {_PeerHost, PeerPort}} -> AuthzContext#{peerport => PeerPort};
-            _ -> AuthzContext
-        end,
+    Vars = authz_vars(AuthzContext),
     Vars#{
         action => PubSub,
         qos => Qos,

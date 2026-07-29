@@ -64,11 +64,12 @@ authorize(
         filter_template := FilterTemplate
     } = State
 ) ->
+    Vars = emqx_authz_utils:authz_vars(AuthzContext),
     AclAttrs = emqx_auth_ldap_acl:acl_attributes(State),
-    CacheKey = emqx_auth_template:cache_key(AuthzContext, CacheKeyTemplate),
+    CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     Query = fun() ->
-        BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, AuthzContext),
-        Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, AuthzContext),
+        BaseDN = emqx_auth_ldap_utils:render_base_dn(BaseDNTemplate, Vars),
+        Filter = emqx_auth_ldap_utils:render_filter(FilterTemplate, Vars),
         {query, BaseDN, Filter, [{attributes, AclAttrs}, {timeout, QueryTimeout}]}
     end,
     Result = emqx_authz_utils:cached_simple_sync_query(
@@ -80,7 +81,7 @@ authorize(
         {ok, [Entry]} ->
             case emqx_auth_ldap_acl:entry_rules(State, Entry) of
                 {ok, AclRules} ->
-                    emqx_authz_rule:matches(AuthzContext, Action, Topic, AclRules);
+                    emqx_authz_rule:matches(Vars, Action, Topic, AclRules);
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "invalid_acl_rules",

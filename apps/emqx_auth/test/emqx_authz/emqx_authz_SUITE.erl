@@ -78,6 +78,11 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_vars_for_rule_query_peerport(_) ->
     ClientInfo = #{peername => {{127, 0, 0, 1}, 1883}},
+    ?assertMatch(#{peerport := 1883}, emqx_authz_utils:authz_vars(ClientInfo)),
+    ?assertMatch(
+        #{peerport := 8883},
+        emqx_authz_utils:authz_vars(ClientInfo#{peerport => 8883})
+    ),
     ?assertMatch(
         #{peerport := 1883},
         emqx_authz_utils:vars_for_rule_query(ClientInfo, ?AUTHZ_PUBLISH(?QOS_1, false))

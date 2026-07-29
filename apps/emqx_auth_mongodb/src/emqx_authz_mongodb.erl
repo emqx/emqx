@@ -45,9 +45,10 @@ authorize(
     Topic,
     #{filter_template := FilterTemplate} = State
 ) ->
-    try emqx_auth_template:render_deep_for_json(FilterTemplate, AuthzContext) of
+    Vars = emqx_authz_utils:authz_vars(AuthzContext),
+    try emqx_auth_template:render_deep_for_json(FilterTemplate, Vars) of
         RenderedFilter ->
-            authorize_with_filter(RenderedFilter, AuthzContext, Action, Topic, State)
+            authorize_with_filter(RenderedFilter, Vars, Action, Topic, State)
     catch
         error:{encode_error, _} = EncodeError ->
             ?SLOG(error, #{
