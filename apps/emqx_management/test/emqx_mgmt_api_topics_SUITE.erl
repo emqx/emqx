@@ -16,7 +16,7 @@ init_per_suite(Config0) ->
     DurableSessionsOpts = #{<<"enable">> => true},
     Opts = #{durable_sessions_opts => DurableSessionsOpts},
     ExtraApps = [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
-    Config = emqx_common_test_helpers:start_apps_ds(
+    emqx_common_test_helpers:start_apps_ds(
         Config0,
         ExtraApps,
         Opts
