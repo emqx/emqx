@@ -121,6 +121,14 @@ get_tc_prop(TestCase, Key, Default) ->
         _ -> Default
     end.
 
+certs() ->
+    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+    [
+        {keyfile, filename:join([CertsPath, "key.pem"])},
+        {certfile, filename:join([CertsPath, "cert.pem"])},
+        {cacertfile, filename:join([CertsPath, "cacert.pem"])}
+    ].
+
 receive_request_notifications(MessageIDs, _Acc) when map_size(MessageIDs) =:= 0 ->
     ok;
 receive_request_notifications(MessageIDs, Acc) ->
