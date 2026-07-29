@@ -53,6 +53,8 @@
 -export([
     ensure_started/0,
     ensure_started/1,
+    ensure_start_package/1,
+    validate_start/1,
     ensure_stopped/0,
     ensure_stopped/1,
     restart/1,
@@ -393,10 +395,21 @@ ensure_started(NameVsn) ->
     case ?CATCH(do_ensure_started(NameVsn)) of
         ok ->
             ok;
-        {error, ReasonMap} ->
-            ?SLOG(error, ReasonMap#{msg => "failed_to_start_plugin"}),
-            {error, ReasonMap}
+        {error, Reason} when is_map(Reason) ->
+            log_start_error(Reason),
+            {error, Reason};
+        {error, Reason} ->
+            log_start_error(Reason),
+            {error, Reason}
     end.
+
+-spec ensure_start_package(name_vsn()) -> ok | {error, term()}.
+ensure_start_package(NameVsn) ->
+    ?CATCH(do_ensure_start_package(NameVsn)).
+
+-spec validate_start(name_vsn()) -> {ok, running | not_running} | {error, term()}.
+validate_start(NameVsn) ->
+    ?CATCH(do_validate_start(NameVsn)).
 
 %% @doc Stop all plugins before broker stops.
 -spec ensure_stopped() -> ok.
@@ -451,9 +464,10 @@ update_config(NameVsn, Config) ->
 
 %% @doc Stop and then start the plugin.
 restart(NameVsn) ->
-    case ensure_stopped(NameVsn) of
-        ok -> ensure_started(NameVsn);
-        {error, Reason} -> {error, Reason}
+    maybe
+        {ok, _RunningStatus} ?= validate_start(NameVsn),
+        ok ?= ensure_stopped(NameVsn),
+        ensure_started(NameVsn)
     end.
 
 %% @doc Return Name-Vsn list of currently running plugins.
@@ -684,6 +698,82 @@ do_ensure_started(NameVsn) ->
             }),
             {error, Reason}
     end.
+
+do_ensure_start_package(NameVsn) ->
+    case emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end) of
+        {error, #{reason := plugin_tarball_not_found}} ->
+            maybe
+                ok ?= get_from_cluster(NameVsn),
+                emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
+            end;
+        Result ->
+            Result
+    end.
+
+do_validate_start(NameVsn) ->
+    maybe
+        ok ?= validate_no_other_version_running(NameVsn),
+        {ok, Plugin} ?=
+            emqx_plugins_info:read(NameVsn, #{fill_readme => false, health_check => false}),
+        ok ?= emqx_plugins_apps:validate(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
+        {ok, Schema} ?= read_start_schema(NameVsn, Plugin),
+        {ok, _Source, Config} ?= read_start_config(NameVsn),
+        ok ?= validate_start_config(NameVsn, Schema, Config),
+        {ok, start_validation_status(Plugin)}
+    else
+        {error, Reason} -> {error, Reason}
+    end.
+
+start_validation_status(#{running_status := running}) -> running;
+start_validation_status(_Plugin) -> not_running.
+
+read_start_schema(_NameVsn, #{with_config_schema := false}) ->
+    {ok, no_schema};
+read_start_schema(NameVsn, #{with_config_schema := true}) ->
+    emqx_plugins_fs:read_avsc_bin(NameVsn);
+read_start_schema(_NameVsn, _Plugin) ->
+    {ok, no_schema}.
+
+read_start_config(NameVsn) ->
+    case emqx_plugins_local_config:read(NameVsn) of
+        {ok, Config} ->
+            {ok, local, Config};
+        {error, #{reason := {enoent, _}}} ->
+            read_start_config_without_local_file(NameVsn);
+        {error, #{msg := "bad_hocon_file"} = Reason} ->
+            {error, invalid_plugin_config_error(NameVsn, Reason)};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+read_start_config_without_local_file(NameVsn) ->
+    case get_cached_config(NameVsn, ?plugin_conf_not_found) of
+        ?plugin_conf_not_found ->
+            case emqx_plugins_fs:read_default_hocon(NameVsn) of
+                {ok, Config} -> {ok, default, Config};
+                {error, #{reason := {enoent, _}}} -> {ok, empty, #{}};
+                {error, Reason} -> {error, Reason}
+            end;
+        Config ->
+            {ok, cached, Config}
+    end.
+
+validate_start_config(_NameVsn, no_schema, _Config) ->
+    ok;
+validate_start_config(NameVsn, AvscBin, Config) ->
+    case emqx_plugins_serde:decode(NameVsn, AvscBin, ensure_config_bin(Config)) of
+        {ok, _} ->
+            ok;
+        {error, #{reason := bad_schema} = Reason} ->
+            {error, #{
+                msg => "invalid_plugin_config_schema", name_vsn => bin(NameVsn), reason => Reason
+            }};
+        {error, Reason} ->
+            {error, invalid_plugin_config_error(NameVsn, Reason)}
+    end.
+
+invalid_plugin_config_error(NameVsn, Reason) ->
+    #{msg => "invalid_plugin_config", name_vsn => bin(NameVsn), reason => Reason}.
 
 %%--------------------------------------------------------------------
 %% RPC targets
@@ -942,6 +1032,41 @@ for_plugins(ActionFun) ->
             ),
             ?SLOG(error, ErrMeta#{msg => "for_plugins_action_error_occurred"}),
             ok
+    end.
+
+validate_no_other_version_running(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    RunningOtherVersions = lists:filtermap(
+        fun(OtherNameVsn) ->
+            case
+                emqx_plugins_utils:plugin_name(OtherNameVsn) =:=
+                    emqx_plugins_utils:plugin_name(NameVsn) andalso
+                    bin(OtherNameVsn) =/= NameVsn
+            of
+                true ->
+                    case emqx_plugins_fs:read_info(OtherNameVsn) of
+                        {ok, Info0} ->
+                            Info = emqx_utils_maps:safe_atom_key_map(Info0),
+                            case emqx_plugins_apps:running_status(Info) of
+                                running -> {true, bin(OtherNameVsn)};
+                                _ -> false
+                            end;
+                        {error, _} ->
+                            false
+                    end;
+                false ->
+                    false
+            end
+        end,
+        emqx_plugins_fs:list_name_vsn()
+    ),
+    case RunningOtherVersions of
+        [] ->
+            ok;
+        _ ->
+            {error, #{
+                msg => "conflicting_plugin_version_running", active_versions => RunningOtherVersions
+            }}
     end.
 
 ensure_state(NameVsn) ->
