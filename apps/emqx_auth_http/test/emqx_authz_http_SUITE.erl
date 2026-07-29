@@ -385,84 +385,86 @@ t_json_body(TCConfig) ->
 
 t_placeholder_and_body(TCConfig) ->
     emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-    ok = setup_handler_and_config(
-        TCConfig,
-        fun(Req0, State) ->
-            ?assertEqual(
-                <<"/authz/users/">>,
-                cowboy_req:path(Req0)
-            ),
+        ok = setup_handler_and_config(
+            TCConfig,
+            fun(Req0, State) ->
+                ?assertEqual(
+                    <<"/authz/users/">>,
+                    cowboy_req:path(Req0)
+                ),
 
-            <<"g1">> = cowboy_req:header(<<"the_group">>, Req0),
-            {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
+                <<"g1">> = cowboy_req:header(<<"the_group">>, Req0),
+                {ok, PostVars, Req1} = cowboy_req:read_urlencoded_body(Req0),
 
-            ?assertMatch(
-                #{
-                    <<"username">> := <<"user name">>,
-                    <<"clientid">> := <<"client id">>,
-                    <<"peerhost">> := <<"127.0.0.1">>,
-                    <<"peerport">> := <<"1883">>,
-                    <<"proto_name">> := <<"MQTT">>,
-                    <<"mountpoint">> := <<"MOUNTPOINT">>,
-                    <<"topic">> := <<"t">>,
-                    <<"action">> := <<"publish">>,
-                    <<"access">> := <<"2">>,
-                    <<"the_group">> := <<"g1">>,
-                    <<"CN">> := ?PH_CERT_CN_NAME,
-                    <<"CS">> := ?PH_CERT_SUBJECT,
+                ?assertMatch(
+                    #{
+                        <<"username">> := <<"user name">>,
+                        <<"clientid">> := <<"client id">>,
+                        <<"peerhost">> := <<"127.0.0.1">>,
+                        <<"peerport">> := <<"1883">>,
+                        <<"proto_name">> := <<"MQTT">>,
+                        <<"mountpoint">> := <<"MOUNTPOINT">>,
+                        <<"topic">> := <<"t">>,
+                        <<"action">> := <<"publish">>,
+                        <<"access">> := <<"2">>,
+                        <<"the_group">> := <<"g1">>,
+                        <<"CN">> := ?PH_CERT_CN_NAME,
+                        <<"CS">> := ?PH_CERT_SUBJECT,
                         <<"cert_pem">> := <<"Y2VydGlmaWNhdGU=">>,
-                    <<"zone">> := <<"default">>,
-                    <<"listener_id">> := <<"tcp:default">>
+                        <<"zone">> := <<"default">>,
+                        <<"listener_id">> := <<"tcp:default">>
+                    },
+                    maps:from_list(PostVars)
+                ),
+                {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
+            end,
+            #{
+                <<"method">> => <<"post">>,
+                <<"body">> => #{
+                    <<"username">> => <<"${username}">>,
+                    <<"clientid">> => <<"${clientid}">>,
+                    <<"peerhost">> => <<"${peerhost}">>,
+                    <<"peerport">> => <<"${peerport}">>,
+                    <<"proto_name">> => <<"${proto_name}">>,
+                    <<"mountpoint">> => <<"${mountpoint}">>,
+                    <<"topic">> => <<"${topic}">>,
+                    <<"action">> => <<"${action}">>,
+                    <<"access">> => <<"${access}">>,
+                    <<"the_group">> => <<"${client_attrs.group}">>,
+                    <<"CN">> => ?PH_CERT_CN_NAME,
+                    <<"CS">> => ?PH_CERT_SUBJECT,
+                    <<"cert_pem">> => <<"${cert_pem}">>,
+                    <<"zone">> => <<"${zone}">>,
+                    <<"listener_id">> => <<"${listener}">>
                 },
-                maps:from_list(PostVars)
-            ),
-            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
-        end,
-        #{
-            <<"method">> => <<"post">>,
-            <<"body">> => #{
-                <<"username">> => <<"${username}">>,
-                <<"clientid">> => <<"${clientid}">>,
-                <<"peerhost">> => <<"${peerhost}">>,
-                <<"peerport">> => <<"${peerport}">>,
-                <<"proto_name">> => <<"${proto_name}">>,
-                <<"mountpoint">> => <<"${mountpoint}">>,
-                <<"topic">> => <<"${topic}">>,
-                <<"action">> => <<"${action}">>,
-                <<"access">> => <<"${access}">>,
-                <<"the_group">> => <<"${client_attrs.group}">>,
-                <<"CN">> => ?PH_CERT_CN_NAME,
-                <<"CS">> => ?PH_CERT_SUBJECT,
-                <<"cert_pem">> => <<"${cert_pem}">>,
-                <<"zone">> => <<"${zone}">>,
-                <<"listener_id">> => <<"${listener}">>
-            },
-            <<"headers">> => #{
-                <<"content-type">> => <<"application/x-www-form-urlencoded">>,
-                <<"the_group">> => <<"${client_attrs.group}">>
+                <<"headers">> => #{
+                    <<"content-type">> => <<"application/x-www-form-urlencoded">>,
+                    <<"the_group">> => <<"${client_attrs.group}">>
+                }
             }
-        }
-    ),
+        ),
 
-    ClientInfo = #{
-        clientid => <<"client id">>,
-        username => <<"user name">>,
-        peerhost => {127, 0, 0, 1},
-        peername => {{127, 0, 0, 1}, 1883},
-        protocol => <<"MQTT">>,
-        mountpoint => <<"MOUNTPOINT">>,
-        zone => default,
-        listener => 'tcp:default',
-        client_attrs => #{<<"group">> => <<"g1">>},
-        cn => ?PH_CERT_CN_NAME,
-        dn => ?PH_CERT_SUBJECT,
-        cert_pem => <<"certificate">>
-    },
+        ClientInfo = #{
+            clientid => <<"client id">>,
+            username => <<"user name">>,
+            peerhost => {127, 0, 0, 1},
+            peername => {{127, 0, 0, 1}, 1883},
+            protocol => <<"MQTT">>,
+            mountpoint => <<"MOUNTPOINT">>,
+            zone => default,
+            listener => 'tcp:default',
+            client_attrs => #{<<"group">> => <<"g1">>},
+            cn => ?PH_CERT_CN_NAME,
+            dn => ?PH_CERT_SUBJECT,
+            cert_pem => <<"certificate">>
+        },
 
-    ?assertEqual(
-        allow,
-        emqx_access_control:authorize(emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>)
-    )
+        ?assertEqual(
+            allow,
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_PUBLISH, <<"t">>
+            )
+        )
     end).
 
 %% Checks that we don't crash when receiving an unsupported content-type back.

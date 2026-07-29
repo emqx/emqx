@@ -190,7 +190,8 @@ cases() ->
             security_profile => hardened,
             config => #{
                 <<"filter">> =>
-                    <<"(&"
+                    <<
+                        "(&"
                         "(objectClass=mqttUser)"
                         "(authzContextValue=${clientid})"
                         "(authzContextValue=${peerhost})"
@@ -199,7 +200,8 @@ cases() ->
                         "(authzContextValue=${zone})"
                         "(authzContextValue=${client_attrs.group})"
                         "(authzContextValue=${listener})"
-                        ")">>
+                        ")"
+                    >>
             },
             client_info => #{
                 username => <<"mqttuser0001">>,
