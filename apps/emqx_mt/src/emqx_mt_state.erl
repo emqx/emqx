@@ -319,7 +319,13 @@ list_managed_ns_details(LastNs, Limit) ->
     do_list_ns_details(?CONFIG_TAB, LastNs, Limit).
 
 fold_known_nss(Fn, Acc) ->
-    do_fold_known_nss(ets:first(?NS_TAB), Fn, Acc).
+    case ets:whereis(?NS_TAB) of
+        undefined ->
+            %% `emqx_mt' is not running: no namespace exists.
+            Acc;
+        _ ->
+            do_fold_known_nss(ets:first(?NS_TAB), Fn, Acc)
+    end.
 
 do_fold_known_nss('$end_of_table', _Fn, Acc) ->
     Acc;
@@ -421,7 +427,13 @@ do_count_clients(_Ns, _Key, Acc) ->
 %% @doc Returns true if it is a known namespace.
 -spec is_known_ns(tns()) -> boolean().
 is_known_ns(Ns) ->
-    [] =/= ets:lookup(?NS_TAB, Ns).
+    case ets:whereis(?NS_TAB) of
+        undefined ->
+            %% `emqx_mt' is not running: no namespace exists.
+            false;
+        _ ->
+            [] =/= ets:lookup(?NS_TAB, Ns)
+    end.
 
 %% @doc list all clients for a given tns.
 %% The second argument is the last clientid from the previous page.
