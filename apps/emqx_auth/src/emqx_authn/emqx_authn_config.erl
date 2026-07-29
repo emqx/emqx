@@ -270,7 +270,10 @@ convert_certs(CertsDir, NewConfig0) ->
     NewConfig = convert_ssl_certs(CertsDir, NewConfig0),
     case maps:get(<<"oauth2">>, NewConfig, undefined) of
         OAuth2 when is_map(OAuth2) ->
-            NewOAuth2 = convert_ssl_certs(filename:join(CertsDir, "oauth2"), OAuth2),
+            NewOAuth2 = convert_ssl_certs(
+                filename:join(CertsDir, "oauth2"),
+                emqx_auth_utils:sanitize_oauth2_ssl(OAuth2)
+            ),
             NewConfig#{<<"oauth2">> := NewOAuth2};
         _ ->
             NewConfig

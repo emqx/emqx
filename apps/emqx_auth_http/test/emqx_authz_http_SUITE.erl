@@ -933,6 +933,25 @@ t_oauth2_ssl_certs_are_saved(TCConfig) ->
         emqx:get_raw_config([authorization, sources]),
     assert_ssl_certs_are_saved(SSL, SavedSSL).
 
+t_oauth2_ssl_verify_none_allows_blank_certs(TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    ok = set_oauth2_token_handler(<<"/authz/token">>),
+    ok = emqx_authz_test_lib:setup_config(
+        raw_http_authz_config(TCConfig),
+        #{
+            <<"oauth2">> =>
+                (oauth2_config(<<BaseURL/binary, "/authz/token">>))#{
+                    <<"ssl">> => #{
+                        <<"enable">> => true,
+                        <<"verify">> => <<"verify_none">>,
+                        <<"cacertfile">> => <<>>,
+                        <<"certfile">> => <<>>,
+                        <<"keyfile">> => <<>>
+                    }
+                }
+        }
+    ).
+
 t_oauth2_start_timeout_keeps_source(TCConfig) ->
     ok = block_oauth2_token_endpoint(<<"/authz/token">>),
     BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
