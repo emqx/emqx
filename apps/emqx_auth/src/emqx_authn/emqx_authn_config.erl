@@ -266,7 +266,17 @@ convert_certs_for_conf_path(ConfPath, NewConfig) ->
     ),
     {ok, CovertedConfs}.
 
-convert_certs(CertsDir, NewConfig) ->
+convert_certs(CertsDir, NewConfig0) ->
+    NewConfig = convert_ssl_certs(CertsDir, NewConfig0),
+    case maps:get(<<"oauth2">>, NewConfig, undefined) of
+        OAuth2 when is_map(OAuth2) ->
+            NewOAuth2 = convert_ssl_certs(filename:join(CertsDir, "oauth2"), OAuth2),
+            NewConfig#{<<"oauth2">> := NewOAuth2};
+        _ ->
+            NewConfig
+    end.
+
+convert_ssl_certs(CertsDir, NewConfig) ->
     NewSSL = maps:get(<<"ssl">>, NewConfig, undefined),
     case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(CertsDir, NewSSL) of
         {ok, NewSSL1} ->
