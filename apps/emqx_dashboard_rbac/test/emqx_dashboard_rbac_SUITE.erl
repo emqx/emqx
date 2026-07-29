@@ -437,8 +437,8 @@ t_check_login_user_scopes_explicit_empty_denies(_) ->
         false,
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
     ),
-    %% Unmapped paths fail closed for login users: a path that maps to
-    %% no known scope is denied rather than allowed.
+    %% Unmapped paths fail closed for scope-restricted login users (here
+    %% an explicit []): a path that maps to no known scope is denied.
     ?assertEqual(
         false,
         emqx_dashboard_rbac:check_login_user_scopes(

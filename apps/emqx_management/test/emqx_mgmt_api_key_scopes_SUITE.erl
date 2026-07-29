@@ -276,6 +276,7 @@ t_all_modules_have_scopes(_Config) ->
     AllValidScopes =
         [N || #{name := N} <- emqx_scope_catalog:scope_catalog()] ++
             [?SCOPE_DENIED] ++
+            [?SCOPE_PUBLIC] ++
             ?LOGIN_ONLY_SCOPES,
     maps:foreach(
         fun(Path, Scope) ->
