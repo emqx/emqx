@@ -36,7 +36,9 @@
     format_conf_errors/1,
     format_db_errors/1,
     sensitive_table_set_names/0,
-    peek_sensitive_table_sets/1
+    peek_sensitive_table_sets/1,
+    peek_backup_scope/2,
+    peek_backup_scope_of_content/1
 ]).
 
 -export([default_validate_mnesia_backup/1]).
@@ -135,6 +137,7 @@
 -type raw_config() :: #{binary() => any()}.
 -type mnesia_table_filter() :: fun((atom()) -> boolean()).
 -type maybe_namespace() :: ?global_ns | binary().
+-type backup_scope() :: #{global := boolean(), namespaces := [binary()]}.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -279,6 +282,53 @@ match_sensitive_entry(Path, SensitiveTabMap) ->
         _ ->
             false
     end.
+
+-doc """
+Inspect a previously-uploaded backup file owned by `Namespace` and return the
+configuration scopes its entries contain. See `peek_backup_scope_of_content/1`.
+""".
+-spec peek_backup_scope(maybe_namespace(), file:filename_all()) ->
+    {ok, backup_scope()} | {error, _}.
+peek_backup_scope(Namespace, Filename) ->
+    maybe
+        {ok, FilePath} ?= backup_path(Namespace, Filename),
+        ok ?= validate_file_exists(FilePath),
+        {ok, Entries} ?= tar_table(FilePath),
+        {ok, scope_of_entries(Entries)}
+    end.
+
+-doc """
+Classify the configuration scopes present in an in-memory backup archive:
+`global` is true when the archive holds global content (a top-level
+cluster.hocon or any mnesia table dump); `namespaces` lists every namespace
+with a `ns/<NS>/cluster.hocon` entry. The HTTP handlers use this to confine
+namespaced upload/import operations to archives holding only the resolved
+namespace's data.
+""".
+-spec peek_backup_scope_of_content(binary()) -> {ok, backup_scope()} | {error, _}.
+peek_backup_scope_of_content(BackupFileContent) ->
+    maybe
+        {ok, Entries} ?= tar_table({binary, BackupFileContent}),
+        {ok, scope_of_entries(Entries)}
+    end.
+
+scope_of_entries(Entries) ->
+    lists:foldl(
+        fun(Entry, Acc) ->
+            classify_entry_scope(lists:reverse(filename:split(str(Entry))), Acc)
+        end,
+        #{global => false, namespaces => []},
+        Entries
+    ).
+
+classify_entry_scope(?HOCON_NS_INTERNAL_TAR_PATH_REV_PAT(Namespace), #{namespaces := NSs} = Acc) ->
+    Acc#{namespaces := lists:usort([bin(Namespace) | NSs])};
+classify_entry_scope([?CLUSTER_HOCON_FILENAME | _], Acc) ->
+    Acc#{global := true};
+classify_entry_scope([_TabName, ?BACKUP_MNESIA_DIR | _], Acc) ->
+    Acc#{global := true};
+classify_entry_scope(_Entry, Acc) ->
+    Acc.
 
 validate_export_root_keys(Params) ->
     RootKeys0 = maps:get(<<"root_keys">>, Params, []),
@@ -658,7 +708,10 @@ do_export(BackupName, TarDescriptor, Opts) ->
     ok = format_tar_error(erl_tar:add(TarDescriptor, MetaBin, MetaFilename, [])),
     case Namespace of
         ?global_ns ->
+            %% A global export is a full-cluster artifact: global configuration
+            %% and mnesia tables plus every namespace's configuration.
             ok = export_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
+            ok = export_all_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
             ok = export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts);
         _ when is_binary(Namespace) ->
             ok = export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts)
@@ -690,9 +743,22 @@ export_cluster_hocon(TarDescriptor, BackupBaseName, Opts) ->
     ok = format_tar_error(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])).
 
 export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts) ->
+    RootConfig = emqx_config:get_all_roots_from_namespace(Namespace),
+    add_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, RootConfig, Opts).
+
+export_all_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Opts) ->
+    maps:foreach(
+        fun(Namespace, RootConfig) ->
+            ok = add_namespaced_cluster_hocon(
+                TarDescriptor, BackupBaseName, Namespace, RootConfig, Opts
+            )
+        end,
+        emqx_config:get_all_raw_namespaced_configs()
+    ).
+
+add_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, RootConfig0, Opts) ->
     maybe_print("Exporting cluster configuration for namespace ~s...~n", [Namespace], Opts),
     TransformFn = maps:get(raw_conf_transform, Opts, fun(Raw) -> Raw end),
-    RootConfig0 = emqx_config:get_all_roots_from_namespace(Namespace),
     RootConfig = TransformFn(RootConfig0),
     RawConfBin = bin(hocon_pp:do(RootConfig, #{})),
     NameInArchive = str(
@@ -900,12 +966,14 @@ log_import_result(BackupFilePath, #{db_errors := DbErrors, config_errors := Conf
 do_import_for_namespace(?global_ns, BackupDir, Opts) ->
     maybe
         {ok, GlobalConfErrors} ?= import_cluster_hocon(BackupDir, Opts),
+        {ok, NSConfErrors} ?= import_all_namespaced_cluster_hocon(BackupDir, Opts),
         MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
-        ConfErrors =
+        ConfErrors0 =
             case map_size(GlobalConfErrors) of
                 0 -> #{};
                 _ -> #{?global_ns => GlobalConfErrors}
             end,
+        ConfErrors = maps:merge(ConfErrors0, NSConfErrors),
         {ok, #{
             mnesia_errors => MnesiaErrors,
             conf_errors => ConfErrors
@@ -1242,6 +1310,27 @@ validate_filenames(BackupFilePath) ->
 import_cluster_hocon(BackupDir, Opts) ->
     HoconFilename = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
     do_import_cluster_hocon(?global_ns, BackupDir, HoconFilename, Opts).
+
+%% A global (full-cluster) archive may carry any number of `ns/<NS>/' entries;
+%% restore each one into its own namespace.
+import_all_namespaced_cluster_hocon(BackupDir, Opts) ->
+    Pattern = filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupDir, "*")),
+    lists:foldl(
+        fun
+            (NSHoconPath, {ok, Acc}) ->
+                ?HOCON_NS_INTERNAL_TAR_PATH_REV_PAT(Namespace) =
+                    lists:reverse(filename:split(NSHoconPath)),
+                maybe
+                    {ok, Errors} ?=
+                        import_namespaced_cluster_hocon(bin(Namespace), BackupDir, Opts),
+                    {ok, maps:merge(Acc, Errors)}
+                end;
+            (_NSHoconPath, {error, _} = Error) ->
+                Error
+        end,
+        {ok, #{}},
+        filelib:wildcard(Pattern)
+    ).
 
 import_namespaced_cluster_hocon(Namespace, BackupDir, Opts) when is_binary(Namespace) ->
     NSHoconPath = filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupDir, Namespace)),

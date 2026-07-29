@@ -552,16 +552,21 @@ t_namespaced_export_import(Config) ->
     ?assertMatch({204, _}, import_backup_full(?NODE1_PORT, Ns1Auth, N1File)),
     ok.
 
-%% A namespaced administrator uploading a backup lands it in its own space; the
-%% global administrator never sees it.
+%% A namespaced administrator uploading its own namespace's backup lands it in
+%% its own space (the global administrator never sees it), and can then import
+%% it back.
 t_namespaced_upload_isolation(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
     Ns1Auth = ?config(ns_admin_auth, Config),
     DashboardAuth = ?config(dashboard_auth, Config),
-    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
-    ?assertEqual(ok, upload_backup(?NODE1_PORT, Ns1Auth, UploadFile)),
-    Base = list_to_binary(?UPLOAD_CE_BACKUP),
+    {LocalPath, Base} = local_ns_backup_copy(Config, Core1, ?NODE1_PORT, Ns1Auth, <<"ns1">>),
+    %% Remove the exported original so the upload is what lands the file.
+    ?assertMatch({204, _}, delete_backup(?NODE1_PORT, Ns1Auth, Base)),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, Ns1Auth, LocalPath)),
     ?assert(lists:member(Base, list_filenames(?NODE1_PORT, Ns1Auth))),
     ?assertNot(lists:member(Base, list_filenames(?NODE1_PORT, DashboardAuth))),
+    %% Round trip: importing the uploaded own-namespace backup succeeds.
+    ?assertMatch({204, _}, import_backup_full(?NODE1_PORT, Ns1Auth, Base)),
     ok.
 
 %% A global administrator may opt in to a specific namespace's backup space with
@@ -629,13 +634,15 @@ t_global_admin_import_scoped_namespace(Config) ->
 %% namespace's space (not the global one), and can then import it scoped to that
 %% namespace. Uploading without the parameter stays on the global scope.
 t_global_admin_upload_scoped_namespace(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
     DashboardAuth = ?config(dashboard_auth, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
     Ns1 = #{<<"namespace">> => <<"ns1">>},
-    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
-    Base = list_to_binary(?UPLOAD_CE_BACKUP),
+    {LocalPath, Base} = local_ns_backup_copy(Config, Core1, ?NODE1_PORT, Ns1Auth, <<"ns1">>),
+    ?assertMatch({204, _}, delete_backup(?NODE1_PORT, Ns1Auth, Base)),
 
     %% Upload into ns1's space.
-    ?assertEqual(ok, upload_backup_ns(?NODE1_PORT, DashboardAuth, UploadFile, Ns1)),
+    ?assertEqual(ok, upload_backup_ns(?NODE1_PORT, DashboardAuth, LocalPath, Ns1)),
     %% The file is visible in ns1's space, but not in the global listing.
     ?assert(lists:member(Base, list_filenames(?NODE1_PORT, DashboardAuth, Ns1))),
     ?assertNot(lists:member(Base, list_filenames(?NODE1_PORT, DashboardAuth))),
@@ -643,8 +650,10 @@ t_global_admin_upload_scoped_namespace(Config) ->
     ?assertMatch({204, _}, import_backup_ns(?NODE1_PORT, DashboardAuth, Base, Ns1)),
 
     %% Uploading without the parameter stays on the global scope (regression).
+    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    GlobalBase = list_to_binary(?UPLOAD_CE_BACKUP),
     ?assertEqual(ok, upload_backup(?NODE2_PORT, DashboardAuth, UploadFile)),
-    ?assert(lists:member(Base, list_filenames(?NODE2_PORT, DashboardAuth))),
+    ?assert(lists:member(GlobalBase, list_filenames(?NODE2_PORT, DashboardAuth))),
     ok.
 
 %% A namespaced administrator cannot import or upload into another namespace by
@@ -664,11 +673,131 @@ t_namespaced_admin_import_upload_confined(Config) ->
     ?assertMatch({400, _}, import_backup_ns(?NODE1_PORT, Ns2Auth, N1File, ForceNs1)),
 
     %% Uploading with `namespace=ns1' lands in ns2's own space, never ns1's.
-    UploadFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
-    Base = list_to_binary(?UPLOAD_CE_BACKUP),
-    ?assertEqual(ok, upload_backup_ns(?NODE1_PORT, Ns2Auth, UploadFile, ForceNs1)),
+    {LocalPath, Base} = local_ns_backup_copy(Config, Core1, ?NODE1_PORT, Ns2Auth, <<"ns2">>),
+    ?assertMatch({204, _}, delete_backup(?NODE1_PORT, Ns2Auth, Base)),
+    ?assertEqual(ok, upload_backup_ns(?NODE1_PORT, Ns2Auth, LocalPath, ForceNs1)),
     ?assertNot(lists:member(Base, list_filenames(?NODE1_PORT, Ns1Auth))),
     ?assert(lists:member(Base, list_filenames(?NODE1_PORT, Ns2Auth))),
+    ok.
+
+-doc """
+A namespaced administrator must not be able to upload an archive holding
+another scope's data: both a global backup (top-level cluster.hocon and mnesia
+tables) and another namespace's backup are rejected with 403, no file is left
+behind, and an uninspectable archive yields 400.
+""".
+t_namespaced_upload_foreign_content_forbidden(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Ns2Auth = ns_admin_auth_header(Core1, <<"ns2">>, <<"ns2_admin_for_test">>, ?NS_ADMIN_PASS),
+
+    %% A global archive -> 403.
+    GlobalFile = ?backup_path(Config, ?UPLOAD_CE_BACKUP),
+    ?assertMatch(
+        {403, #{<<"code">> := <<"FORBIDDEN">>}},
+        upload_backup_full(?NODE1_PORT, Ns1Auth, GlobalFile, #{})
+    ),
+
+    %% Another namespace's archive -> 403.
+    {Ns2LocalPath, _Ns2Base} = local_ns_backup_copy(
+        Config, Core1, ?NODE1_PORT, Ns2Auth, <<"ns2">>
+    ),
+    ?assertMatch(
+        {403, #{<<"code">> := <<"FORBIDDEN">>}},
+        upload_backup_full(?NODE1_PORT, Ns1Auth, Ns2LocalPath, #{})
+    ),
+
+    %% Neither rejected upload left a file in ns1's space.
+    ?assertEqual([], list_filenames(?NODE1_PORT, Ns1Auth)),
+
+    %% An archive that cannot be inspected -> 400.
+    GarbagePath = filename:join(?config(priv_dir, Config), "garbage.tar.gz"),
+    ok = file:write_file(GarbagePath, <<"not a tar archive">>),
+    ?assertMatch({400, _}, upload_backup_full(?NODE1_PORT, Ns1Auth, GarbagePath, #{})),
+    ok.
+
+-doc """
+Defense-in-depth at import time: even when a foreign-content archive is
+already present in the namespace's backup space (e.g. stored before the
+upload-time scope check existed), a namespaced import rejects it with 403.
+""".
+t_namespaced_import_foreign_content_forbidden(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    Ns2Auth = ns_admin_auth_header(Core1, <<"ns2">>, <<"ns2_admin_for_test">>, ?NS_ADMIN_PASS),
+
+    %% Plant ns2's archive into ns1's space, bypassing the HTTP API.
+    {200, #{<<"filename">> := Ns2File}} = export_backup2(?NODE1_PORT, Ns2Auth, #{}),
+    {ok, Ns2Content} = ?ON(Core1, emqx_mgmt_data_backup:read_file(<<"ns2">>, Ns2File)),
+    ok = plant_ns_backup_file(Core1, <<"ns1">>, Ns2File, Ns2Content),
+    ?assertMatch(
+        {403, #{<<"code">> := <<"FORBIDDEN">>}},
+        import_backup_ns(?NODE1_PORT, Ns1Auth, Ns2File, #{})
+    ),
+
+    %% Same for a planted global archive.
+    GlobalBase = list_to_binary(?UPLOAD_CE_BACKUP),
+    {ok, GlobalContent} = file:read_file(?backup_path(Config, ?UPLOAD_CE_BACKUP)),
+    ok = plant_ns_backup_file(Core1, <<"ns1">>, GlobalBase, GlobalContent),
+    ?assertMatch(
+        {403, #{<<"code">> := <<"FORBIDDEN">>}},
+        import_backup_ns(?NODE1_PORT, Ns1Auth, GlobalBase, #{})
+    ),
+    ok.
+
+-doc """
+The global scope is a full-cluster artifact: importing a global archive
+restores every `ns/<NS>/cluster.hocon' entry into its own namespace, and a
+subsequent global export emits every namespace's configuration back into the
+archive alongside the global content.
+""".
+t_full_cluster_global_export_import(Config) ->
+    [Core1 | _] = Nodes = ?config(cluster, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    %% `mqtt' is not in the default allowed namespaced roots.
+    _ = ?ON_ALL(Nodes, emqx_config:add_allowed_namespaced_config_root(<<"mqtt">>)),
+
+    %% Forge a full-cluster archive carrying two namespaces' configuration.
+    {LocalPath, Base} = forge_backup(Config, "emqx-export-full-cluster", #{
+        <<"ns1">> => <<"mqtt { max_awaiting_rel = 111 }">>,
+        <<"ns2">> => <<"mqtt { max_awaiting_rel = 222 }">>
+    }),
+    ?assertEqual(ok, upload_backup(?NODE1_PORT, DashboardAuth, LocalPath)),
+    ?assertMatch({204, _}, import_backup_full(?NODE1_PORT, DashboardAuth, Base)),
+
+    %% Each namespace's configuration was restored into its own namespace.
+    ?assertMatch(
+        #{<<"mqtt">> := #{<<"max_awaiting_rel">> := 111}},
+        ?ON(Core1, emqx_config:get_all_roots_from_namespace(<<"ns1">>))
+    ),
+    ?assertMatch(
+        #{<<"mqtt">> := #{<<"max_awaiting_rel">> := 222}},
+        ?ON(Core1, emqx_config:get_all_roots_from_namespace(<<"ns2">>))
+    ),
+
+    %% A global export now carries the global scope plus both namespaces.
+    {200, #{<<"filename">> := ExportFile}} = export_backup2(?NODE1_PORT, DashboardAuth, #{}),
+    {ok, ExportContent} = ?ON(Core1, emqx_mgmt_data_backup:read_file(ExportFile)),
+    ?assertMatch(
+        {ok, #{global := true, namespaces := [<<"ns1">>, <<"ns2">>]}},
+        emqx_mgmt_data_backup:peek_backup_scope_of_content(ExportContent)
+    ),
+    ok.
+
+-doc """
+Single-tenant regression: a cluster with no namespaces exports a global
+archive with no `ns/' entries, and importing it back succeeds as before.
+""".
+t_global_export_import_no_namespaces(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    {200, #{<<"filename">> := File}} = export_backup2(?NODE1_PORT, DashboardAuth, #{}),
+    {ok, Content} = ?ON(Core1, emqx_mgmt_data_backup:read_file(File)),
+    ?assertMatch(
+        {ok, #{global := true, namespaces := []}},
+        emqx_mgmt_data_backup:peek_backup_scope_of_content(Content)
+    ),
+    ?assertMatch({204, _}, import_backup_full(?NODE1_PORT, DashboardAuth, File)),
     ok.
 
 %% Global dashboard administrators must still be able to download a backup
@@ -759,6 +888,72 @@ upload_backup_ns(NodeApiPort, Auth, BackupFilePath, QueryParams) ->
         Err ->
             Err
     end.
+
+%% Export a backup scoped to `Namespace' (using `Auth'), copy the archive from
+%% `Node' to the test-runner's disk, and return `{LocalPath, Basename}'.
+local_ns_backup_copy(Config, Node, Port, Auth, Namespace) ->
+    {200, #{<<"filename">> := File}} = export_backup2(Port, Auth, #{}),
+    {ok, Content} = ?ON(Node, emqx_mgmt_data_backup:read_file(Namespace, File)),
+    LocalPath = filename:join(?config(priv_dir, Config), to_list(File)),
+    ok = file:write_file(LocalPath, Content),
+    {LocalPath, File}.
+
+%% Write an archive straight into `Namespace''s backup directory on `Node',
+%% bypassing the HTTP upload (and thus its content checks).
+plant_ns_backup_file(Node, Namespace, Filename, Content) ->
+    ?ON(Node, begin
+        Path = filename:join([emqx:data_dir(), "backup", "ns", Namespace, Filename]),
+        ok = filelib:ensure_dir(Path),
+        file:write_file(Path, Content)
+    end).
+
+%% Forge a backup archive holding one `ns/<NS>/cluster.hocon' entry per key of
+%% `NsConfigs' (`#{Namespace => HoconBin}') plus a valid META file, mirroring
+%% the layout of a global export of a cluster that has namespaces but no
+%% global configuration. Returns `{LocalPath, Basename}'.
+forge_backup(Config, BaseName, NsConfigs) ->
+    Filename = BaseName ++ ".tar.gz",
+    LocalPath = filename:join(?config(priv_dir, Config), Filename),
+    {ok, Tar} = erl_tar:open(LocalPath, [write, compressed]),
+    Meta = #{version => emqx_release:version(), edition => emqx_release:edition()},
+    MetaBin = iolist_to_binary(hocon_pp:do(Meta, #{})),
+    ok = erl_tar:add(Tar, MetaBin, filename:join(BaseName, "META.hocon"), []),
+    maps:foreach(
+        fun(Namespace, HoconBin) ->
+            NameInArchive = filename:join([BaseName, "ns", to_list(Namespace), "cluster.hocon"]),
+            ok = erl_tar:add(Tar, HoconBin, NameInArchive, [])
+        end,
+        NsConfigs
+    ),
+    ok = erl_tar:close(Tar),
+    {LocalPath, list_to_binary(Filename)}.
+
+%% Upload a backup file and return `{Status, DecodedBody}'.
+upload_backup_full(NodeApiPort, Auth, BackupFilePath, QueryParams) ->
+    Path0 = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "files"]),
+    Path =
+        case maps:to_list(QueryParams) of
+            [] ->
+                Path0;
+            QueryList ->
+                Query = unicode:characters_to_list(uri_string:compose_query(QueryList)),
+                Path0 ++ "?" ++ Query
+        end,
+    {ok, {{"HTTP/1.1", Status, _}, _Headers, Body}} =
+        emqx_mgmt_api_test_util:upload_request(
+            Path,
+            BackupFilePath,
+            "filename",
+            <<"application/octet-stream">>,
+            [],
+            Auth
+        ),
+    DecodedBody =
+        case iolist_to_binary(Body) of
+            <<>> -> #{};
+            BodyBin -> emqx_utils_json:decode(BodyBin)
+        end,
+    {Status, DecodedBody}.
 
 do_init_per_testcase(TC, Config) ->
     Cluster = [Core1, _Core2, Repl] = cluster(TC, Config),
@@ -1176,9 +1371,7 @@ test_case_specific_apps_spec(TC) when
     TC =:= t_import_dashboard_token_allows_sensitive_tables;
     TC =:= t_import_restricted_dashboard_token_blocks_sensitive_tables;
     TC =:= t_import_dashboard_token_with_credential_scopes_allows_sensitive_tables;
-    TC =:= t_namespaced_upload_isolation;
-    TC =:= t_global_admin_upload_scoped_namespace;
-    TC =:= t_namespaced_admin_import_upload_confined
+    TC =:= t_global_admin_upload_scoped_namespace
 ->
     [
         emqx_auth,
