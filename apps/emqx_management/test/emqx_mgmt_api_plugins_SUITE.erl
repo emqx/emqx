@@ -361,6 +361,18 @@ t_update_config_with_invalid_type_returns_readable_error(Config0) ->
         emqx_utils_json:decode(Body)
     ).
 
+t_update_config_with_invalid_root_type_returns_readable_error(Config) ->
+    NameVsn = install_test_plugin(Config),
+    {ok, 400, Body} = update_plugin_config(NameVsn, 42),
+    ?assertEqual(
+        #{
+            <<"code">> => <<"BAD_CONFIG">>,
+            <<"message">> =>
+                <<"invalid_type: Invalid type for field '$': expected invalid_plugin, got integer">>
+        },
+        emqx_utils_json:decode(Body)
+    ).
+
 t_upload_download_config(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
