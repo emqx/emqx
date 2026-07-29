@@ -59,7 +59,6 @@
     % NOTES
     % 1. Apps needed for clustering started unconditionally.
     %  * It's not possible to redefine their startup order.
-    %  * It's possible to add `{ekka, #{start => false}}` appspec though.
     % 2. There are defaults applied to some appspecs if they present.
     %  * We try to keep `emqx_conf` config consistent with default configuration of
     %    clustering applications.
@@ -269,7 +268,7 @@ default_appspec(mria, Spec, _NodeSpecs) ->
     };
 default_appspec(emqx_conf, Spec, _NodeSpecs) ->
     % NOTE
-    % This usually sets up a lot of `gen_rpc` / `mria` / `ekka` application envs in
+    % This usually sets up a lot of `gen_rpc` / `mria` application envs in
     % `emqx_config:init_load/2` during configuration mapping, so we need to keep them
     % in sync with the values we set up here.
     #{
