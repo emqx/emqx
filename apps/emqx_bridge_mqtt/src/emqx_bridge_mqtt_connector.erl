@@ -495,11 +495,9 @@ classify_error(ecpool_empty) ->
     {recoverable_error, disconnected};
 classify_error({disconnected, _RC, _} = Reason) ->
     {recoverable_error, Reason};
-classify_error({shutdown, {parse_packets_error, _, _}}) ->
+classify_error({shutdown, {frame_parse_error, _}}) ->
     {unrecoverable_error, non_mqtt_data_explanation()};
-classify_error({parse_packets_error, _, _}) ->
-    {unrecoverable_error, non_mqtt_data_explanation()};
-classify_error({tcp, _Port, _Data}) ->
+classify_error({frame_parse_error, _}) ->
     {unrecoverable_error, non_mqtt_data_explanation()};
 classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
@@ -865,20 +863,18 @@ log_connect_error_reason(Level, econnrefused = Reason, Name) ->
         name => Name,
         explain => explain_error(Reason)
     });
-log_connect_error_reason(Level, {shutdown, {parse_packets_error, _, _} = Reason}, Name) ->
+log_connect_error_reason(Level, {shutdown, {frame_parse_error, _} = Reason}, Name) ->
     log_connect_error_reason(Level, Reason, Name);
-log_connect_error_reason(Level, {parse_packets_error, ParseError, _Stacktrace} = Reason, Name) ->
+log_connect_error_reason(Level, {frame_parse_error, _} = Reason, Name) ->
     ?tp(emqx_bridge_mqtt_connector_non_mqtt_data, #{}),
-    %% The stacktrace is the emqtt frame parser choking on non-MQTT bytes; it
-    %% carries no information beyond the explanation, so keep it out of the log.
     ?SLOG(Level, #{
         msg => "ingress_client_connect_failed",
-        reason => {parse_packets_error, ParseError},
+        reason => Reason,
         name => Name,
         explain => explain_error(Reason)
     });
-log_connect_error_reason(Level, {tcp, _Port, _Data} = Reason, Name) ->
-    ?tp(emqx_bridge_mqtt_connector_non_mqtt_data, #{}),
+log_connect_error_reason(Level, tcp_closed = Reason, Name) ->
+    ?tp(emqx_bridge_mqtt_connector_tcp_closed, #{}),
     ?SLOG(Level, #{
         msg => "ingress_client_connect_failed",
         reason => Reason,
@@ -902,15 +898,15 @@ explain_error(econnrefused) ->
         "running at all or you might have provided the wrong address "
         "or port number for the server."
     >>;
+explain_error(tcp_closed) ->
+    listener_max_limit_explanation();
 explain_error({tcp_closed, _}) ->
     listener_max_limit_explanation();
 explain_error(closed) ->
     listener_max_limit_explanation();
-explain_error({shutdown, {parse_packets_error, _, _}}) ->
+explain_error({shutdown, {frame_parse_error, _}}) ->
     non_mqtt_data_explanation();
-explain_error({parse_packets_error, _, _}) ->
-    non_mqtt_data_explanation();
-explain_error({tcp, _Port, _Data}) ->
+explain_error({frame_parse_error, _}) ->
     non_mqtt_data_explanation();
 explain_error(_Reason) ->
     undefined.

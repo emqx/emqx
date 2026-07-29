@@ -376,7 +376,7 @@ mk_disconnect_handler(ResourceId, WorkerId, ClientId, TargetCluster) ->
 
 -spec handle_disconnect(
     {disconnected, emqx_types:reason_code(), emqx_types:properties()}
-    | {parse_packets_error, _Reason, _ParserState}
+    | {frame_parse_error, _Reason}
     | {connack_error, _Reason :: atom()}
     | connack_timeout
     | _SocketError,
@@ -408,7 +408,7 @@ handle_disconnect(Reason, ResourceId, WorkerId, EventCtx) ->
                 reason_code => RC
             },
             report_disconnect(ResourceId, WorkerId, Level, EventCtx, Info);
-        {parse_packets_error, ParserReason, _ParserState} ->
+        {frame_parse_error, ParserReason} ->
             Info = #{cause => malformed_packet, reason => ParserReason},
             report_disconnect(ResourceId, WorkerId, warning, EventCtx, Info);
         {connack_error, RCName} ->
