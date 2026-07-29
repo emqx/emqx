@@ -26,6 +26,7 @@ affecting user-facing API key configurations.
 
 -export([
     path_to_scope/1,
+    classify_path/1,
     init_cache/0,
     clear_cache/0,
     validate_scopes/1,
@@ -62,33 +63,57 @@ silently fail-open for any endpoint with a path parameter.
 """.
 -spec path_to_scope(binary()) -> binary() | undefined.
 path_to_scope(Path) ->
+    %% Two-way view kept for the API-key authorisation path
+    %% (`emqx_mgmt_auth:check_path_in_scopes/2'), which treats both
+    %% "public" and "unmapped" as unscoped. Callers that must tell the
+    %% two apart use `classify_path/1'.
+    case classify_path(Path) of
+        {scope, Scope} -> Scope;
+        public -> undefined;
+        not_found -> undefined
+    end.
+
+-doc """
+Three-way classification of a request path:
+
+* `{scope, Name}' — the path maps to the known scope `Name'.
+* `public'        — the path exactly matches a `?SCOPE_PUBLIC' sentinel.
+* `not_found'     — the path maps to no scope at all.
+
+Unlike `path_to_scope/1', which collapses `public' and `not_found'
+into `undefined', this keeps them distinct so a caller can allow
+public paths while denying genuinely-unmapped ones (fail closed).
+""".
+-spec classify_path(binary()) -> {scope, binary()} | public | not_found.
+classify_path(Path) ->
     case get_cache() of
         undefined ->
             init_cache(),
-            do_path_to_scope(Path);
+            classify_with_cache(Path);
         #{path_to_scope := PathMap} ->
-            lookup_path(Path, PathMap)
+            classify(Path, PathMap)
     end.
 
-do_path_to_scope(Path) ->
+classify_with_cache(Path) ->
     case get_cache() of
         #{path_to_scope := PathMap} ->
-            lookup_path(Path, PathMap);
+            classify(Path, PathMap);
         _ ->
-            undefined
+            not_found
     end.
 
-lookup_path(Path, PathMap) ->
+classify(Path, PathMap) ->
     case maps:get(Path, PathMap, undefined) of
         undefined ->
-            match_template(Path, PathMap);
+            case match_template(Path, PathMap) of
+                undefined -> not_found;
+                Scope -> {scope, Scope}
+            end;
         ?SCOPE_PUBLIC ->
             %% Exact-match hit on a path explicitly declared public.
-            %% Surface `undefined' so callers treat it as unmapped
-            %% (fail-open) instead of accidentally enforcing a scope.
-            undefined;
+            public;
         Scope ->
-            Scope
+            {scope, Scope}
     end.
 
 %% Iterate templates and return the scope for the first one whose
