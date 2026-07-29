@@ -708,16 +708,16 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
         {ok, Msg, NChannel} ->
             ok = ?EXT_TRACE_ADD_ATTRS(emqx_otel_trace:msg_attrs(Msg)),
             do_publish(PacketId, Msg, NChannel);
-        {error, Rc, NChannel} ->
-            handle_publish_error(QoS, Topic, PacketId, Rc, NChannel)
+        {error, RC, NChannel} ->
+            handle_publish_error(QoS, Topic, PacketId, RC, NChannel)
     end.
 
-handle_publish_error(QoS, Topic, PacketId, Rc = ?RC_NOT_AUTHORIZED, Channel) ->
+handle_publish_error(QoS, Topic, PacketId, RC = ?RC_NOT_AUTHORIZED, Channel) ->
     ?SLOG_THROTTLE(
         warning,
         #{
             msg => cannot_publish_to_topic_due_to_not_authorized,
-            reason => emqx_reason_codes:name(Rc)
+            reason => emqx_reason_codes:name(RC)
         },
         #{topic => Topic, tag => "AUTHZ"}
     ),
@@ -725,13 +725,13 @@ handle_publish_error(QoS, Topic, PacketId, Rc = ?RC_NOT_AUTHORIZED, Channel) ->
         ignore ->
             case QoS of
                 ?QOS_0 -> {ok, Channel};
-                ?QOS_1 -> handle_out(puback, {PacketId, Rc}, Channel);
-                ?QOS_2 -> handle_out(pubrec, {PacketId, Rc}, Channel)
+                ?QOS_1 -> handle_out(puback, {PacketId, RC}, Channel);
+                ?QOS_2 -> handle_out(pubrec, {PacketId, RC}, Channel)
             end;
         disconnect ->
-            handle_out(disconnect, Rc, Channel)
+            handle_out(disconnect, RC, Channel)
     end;
-handle_publish_error(QoS, _Topic, PacketId, Rc = ?RC_QUOTA_EXCEEDED, Channel) ->
+handle_publish_error(QoS, _Topic, PacketId, RC = ?RC_QUOTA_EXCEEDED, Channel) ->
     ok = inc_metrics('packets.publish.quota_exceeded', Channel),
     case QoS of
         ?QOS_0 ->
@@ -739,21 +739,21 @@ handle_publish_error(QoS, _Topic, PacketId, Rc = ?RC_QUOTA_EXCEEDED, Channel) ->
             ok = inc_metrics('messages.dropped.quota_exceeded', Channel),
             {ok, Channel};
         ?QOS_1 ->
-            handle_out(puback, {PacketId, Rc}, Channel);
+            handle_out(puback, {PacketId, RC}, Channel);
         ?QOS_2 ->
-            handle_out(pubrec, {PacketId, Rc}, Channel)
+            handle_out(pubrec, {PacketId, RC}, Channel)
     end;
-handle_publish_error(_QoS, Topic, _PacketId, Rc, Channel) ->
+handle_publish_error(_QoS, Topic, _PacketId, RC, Channel) ->
     ?SLOG(
         warning,
         #{
             msg => "cannot_publish_to_topic",
             topic => Topic,
-            reason => emqx_reason_codes:name(Rc)
+            reason => emqx_reason_codes:name(RC)
         },
         #{topic => Topic}
     ),
-    handle_out(disconnect, Rc, Channel).
+    handle_out(disconnect, RC, Channel).
 
 packet_to_message(
     Packet,
