@@ -389,7 +389,7 @@ t_uninstall_conflicting_version_keeps_old_running(Config) ->
     OldPackagePath = make_test_plugin_package(
         Config,
         "1.0.0",
-        "invalid_plugin_v1",
+        "invalid_plugin",
         "0.1.0",
         test_plugin_schema(),
         <<"foo = \"old\"\n">>
@@ -397,13 +397,14 @@ t_uninstall_conflicting_version_keeps_old_running(Config) ->
     NewPackagePath = make_test_plugin_package(
         Config,
         "2.0.0",
-        "invalid_plugin_v2",
+        "invalid_plugin",
         "0.2.0",
         test_plugin_schema(),
         <<"foo = \"new\"\n">>
     ),
     OldNameVsn = filename:basename(OldPackagePath, ?PACKAGE_SUFFIX),
     NewNameVsn = filename:basename(NewPackagePath, ?PACKAGE_SUFFIX),
+    OldNameVsnBin = list_to_binary(OldNameVsn),
     on_exit(fun() ->
         lists:foreach(
             fun(NameVsn) ->
@@ -416,9 +417,9 @@ t_uninstall_conflicting_version_keeps_old_running(Config) ->
         )
     end),
     ok = allow_installation(OldNameVsn),
-    ok = allow_installation(NewNameVsn),
     ok = install_plugin(OldPackagePath),
-    ok = install_plugin(NewPackagePath),
+    ok = preinstall_step1_extract_package(NewPackagePath),
+    ok = emqx_plugins:ensure_disabled(NewNameVsn),
     {ok, []} = update_plugin(OldNameVsn, "start"),
     ?assertMatch(
         #{
@@ -427,6 +428,13 @@ t_uninstall_conflicting_version_keeps_old_running(Config) ->
             ]
         },
         describe_plugin(OldNameVsn)
+    ),
+    ?assertMatch(
+        {error, #{
+            msg := "conflicting_plugin_version_running",
+            active_versions := [OldNameVsnBin]
+        }},
+        emqx_plugins:ensure_started(NewNameVsn)
     ),
     {400, ConflictResponse} = request_plugin_action(NewNameVsn, "start"),
     ?assertEqual(<<"PARAM_ERROR">>, maps:get(<<"code">>, ConflictResponse)),
@@ -446,6 +454,38 @@ t_uninstall_conflicting_version_keeps_old_running(Config) ->
         },
         describe_plugin(OldNameVsn)
     ).
+
+t_install_side_by_side_plugin_versions(Config) ->
+    OldPackagePath = make_test_plugin_package(
+        Config,
+        "1.0.0",
+        "invalid_plugin_v1",
+        "0.1.0",
+        test_plugin_schema(),
+        <<"foo = \"old\"\n">>
+    ),
+    NewPackagePath = make_test_plugin_package(
+        Config,
+        "2.0.0",
+        "invalid_plugin_v2",
+        "0.2.0",
+        test_plugin_schema(),
+        <<"foo = \"new\"\n">>
+    ),
+    OldNameVsn = filename:basename(OldPackagePath, ?PACKAGE_SUFFIX),
+    NewNameVsn = filename:basename(NewPackagePath, ?PACKAGE_SUFFIX),
+    on_exit(fun() ->
+        lists:foreach(
+            fun(NameVsn) ->
+                _ = emqx_plugins:safe_delete_package(NameVsn)
+            end,
+            [OldNameVsn, NewNameVsn]
+        )
+    end),
+    ok = allow_installation(OldNameVsn),
+    ok = allow_installation(NewNameVsn),
+    ok = install_plugin(OldPackagePath),
+    ok = install_plugin(NewPackagePath).
 
 t_install_plugin_matching_exisiting_name(_Config) ->
     PackagePath = get_demo_plugin_package(),

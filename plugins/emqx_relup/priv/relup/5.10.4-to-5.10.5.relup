@@ -12,6 +12,7 @@
         {load_module, emqx_plugins_fs},
         {load_module, emqx_plugins_serde},
         {load_module, emqx_plugins_info},
+        {load_module, emqx_plugins_utils},
         {load_module, emqx_plugins},
         {load_module, emqx_plugins_app},
         {load_module, emqx_mgmt_api_plugins},

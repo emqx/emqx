@@ -143,6 +143,7 @@ t_5105_catalog_covers_saml_xxe_backup_plugin_api_postgresql_oracle_and_lwm2m_fix
             {load_module, emqx_plugins_fs},
             {load_module, emqx_plugins_serde},
             {load_module, emqx_plugins_info},
+            {load_module, emqx_plugins_utils},
             {load_module, emqx_plugins},
             {load_module, emqx_plugins_app},
             {load_module, emqx_mgmt_api_plugins},

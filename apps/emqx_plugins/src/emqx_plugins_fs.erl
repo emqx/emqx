@@ -472,7 +472,6 @@ delete_file_if_exists(File) ->
             {error, {delete_file_failed, File, Reason}}
     end.
 
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8).
 
 -ifdef(TEST).
