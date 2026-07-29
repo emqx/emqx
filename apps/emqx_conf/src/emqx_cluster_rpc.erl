@@ -361,9 +361,19 @@ init([Node, RetryMs]) ->
 handle_continue({?CATCH_UP, init}, State) ->
     %% emqx app must be started before
     %% trying to catch up the rpc commit logs
-    case wait_for_cluster_rpc_tables() of
+    Result =
+        maybe
+            ok ?= wait_for_cluster_rpc_tables(),
+            %% Wait for 10 seconds until EMQX applications are started,
+            %% otherwise the committed transaction catch up may fail.
+            emqx_machine:wait_cluster_ready(10_000)
+        end,
+    case Result of
         ok ->
             {noreply, State, catch_up(State)};
+        {error, timeout} ->
+            ?SLOG(error, #{msg => "cluster_rpc_wait_timeout"}),
+            {stop, normal, undefined};
         {error, stopping} ->
             {stop, normal, undefined}
     end;

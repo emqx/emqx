@@ -100,8 +100,6 @@ setup_classy_hooks(OnRunLevel) ->
     _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 100),
     %% Staged application start:
     _ = classy:run_level(OnRunLevel, 100),
-    _ = classy:run_level(fun emqx_conf_sup:on_run_level/2, 50),
-    _ = classy:run_level(fun emqx_plugins_sup:on_run_level/2, 10),
     _ = classy:run_level(fun ?MODULE:set_readiness/2, 0),
     ok.
 
