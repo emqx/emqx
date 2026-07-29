@@ -1164,7 +1164,7 @@ return_config_update_result({Responses, BadNodes}) ->
         {[], []} ->
             {204};
         {ResponseErrors, []} ->
-            {400, #{code => 'BAD_CONFIG', message => readable_error_msg(ResponseErrors)}};
+            {400, #{code => 'BAD_CONFIG', message => format_errors(ResponseErrors)}};
         {ResponseErrors, NodeErrors} ->
             internal_error_response(
                 "plugin_config_update_failed",
@@ -1180,10 +1180,13 @@ plugin_not_found_msg() ->
     }.
 
 format_errors(Errors) ->
-    iolist_to_binary(lists:join("; ", [format_error(Error) || Error <- Errors])).
+    Msgs = lists:map(fun format_error/1, Errors),
+    iolist_to_binary(lists:join("; ", Msgs)).
 
+format_error({error, Msg}) ->
+    readable_error_msg(Msg);
 format_error({badnode, Node}) ->
-    iolist_to_binary(["node ", atom_to_binary(Node), " unavailable"]);
+    iolist_to_binary(io_lib:format("node ~ts unavailable", [Node]));
 format_error(Other) ->
     readable_error_msg(Other).
 
@@ -1221,34 +1224,126 @@ validation_error_kind({error, #{kind := Kind}}) when
 validation_error_kind(_) ->
     false.
 
-readable_error_msg(#{msg := "invalid_plugin_config", name_vsn := NameVsn, reason := Reason}) ->
+readable_error_msg(#{
+    msg := "invalid_plugin_config",
+    name_vsn := NameVsn,
+    reason := #{
+        reason := invalid_type,
+        path := Path,
+        expected := Expected,
+        actual := Actual
+    }
+}) ->
     iolist_to_binary([
         "invalid_plugin_config: Plugin ",
         NameVsn,
-        " configuration is invalid: ",
-        format_error(Reason)
+        " configuration is invalid at '",
+        Path,
+        "': expected ",
+        Expected,
+        ", got ",
+        Actual,
+        ". Fix the plugin configuration on this node and retry."
     ]);
-readable_error_msg(#{msg := "invalid_plugin_config_schema", name_vsn := NameVsn}) ->
+readable_error_msg(#{
+    msg := "invalid_plugin_config",
+    name_vsn := NameVsn,
+    reason := _Reason
+}) ->
+    iolist_to_binary([
+        "invalid_plugin_config: Plugin ",
+        NameVsn,
+        " configuration is invalid. Fix the plugin configuration on this node and retry."
+    ]);
+readable_error_msg(#{
+    msg := "invalid_plugin_config_schema",
+    name_vsn := NameVsn,
+    reason := _Reason
+}) ->
     iolist_to_binary([
         "invalid_plugin_config_schema: Plugin ",
         NameVsn,
-        " contains an invalid configuration schema."
-    ]);
-readable_error_msg(#{msg := "bad_plugin_app_file"}) ->
-    <<"bad_plugin_app_file: Plugin package metadata is invalid or unreadable.">>;
-readable_error_msg(#{reason := bad_schema}) ->
-    <<"invalid_plugin_config_schema: Plugin package configuration schema is invalid.">>;
-readable_error_msg(#{msg := "conflicting_plugin_version_running", active_versions := ActiveVersions}) ->
-    iolist_to_binary([
-        "conflicting_plugin_version_running: Another version of this plugin is running: ",
-        lists:join(", ", ActiveVersions)
-    ]);
-readable_error_msg(#{reason := invalid_type, path := Path, expected := Expected, actual := Actual}) ->
-    iolist_to_binary([
-        "invalid_type: Invalid type for field '", Path, "': expected ", Expected, ", got ", Actual
+        " contains an invalid configuration schema. Rebuild or reinstall a corrected plugin "
+        "package and retry."
     ]);
 readable_error_msg(#{
-    reason := invalid_union_member, path := Path, expected := Expected, actual := Actual
+    msg := "bad_plugin_app_file",
+    path := _Path,
+    reason := _Reason
+}) ->
+    <<
+        "bad_plugin_app_file: Plugin package metadata is invalid or unreadable. "
+        "Rebuild or reinstall a corrected plugin package and retry."
+    >>;
+readable_error_msg(#{
+    msg := "plugin_app_version_mismatch",
+    path := _Path,
+    expected_vsn := ExpectedVsn,
+    actual_vsn := ActualVsn
+}) ->
+    iolist_to_binary([
+        "plugin_app_version_mismatch: Plugin package metadata declares application version ",
+        emqx_utils:readable_error_msg(ActualVsn),
+        ", but ",
+        ExpectedVsn,
+        " is required. Rebuild or reinstall the correct plugin package and retry."
+    ]);
+readable_error_msg(#{
+    msg := "plugin_app_loaded_outside_package",
+    name := AppName,
+    expected_ebin := _ExpectedEbin,
+    loaded_ebin := _LoadedEbin
+}) ->
+    iolist_to_binary([
+        "plugin_app_loaded_outside_package: Plugin application ",
+        atom_to_binary(AppName),
+        " is already loaded outside this plugin package. Remove the conflicting code path or "
+        "restart the node, then retry."
+    ]);
+readable_error_msg(#{
+    msg := "bad_default_hocon_file",
+    reason := _Reason
+}) ->
+    <<
+        "bad_default_hocon_file: Plugin package default configuration is invalid or "
+        "unreadable. Rebuild or reinstall a corrected plugin package and retry."
+    >>;
+readable_error_msg(#{
+    reason := bad_schema,
+    details := _Details
+}) ->
+    <<
+        "invalid_plugin_config_schema: Plugin package configuration schema is invalid. "
+        "Rebuild or reinstall a corrected plugin package and retry."
+    >>;
+readable_error_msg(#{
+    msg := "conflicting_plugin_version_running",
+    active_versions := ActiveVersions
+}) ->
+    iolist_to_binary([
+        "conflicting_plugin_version_running: Another version of this plugin is running: ",
+        lists:join(", ", ActiveVersions),
+        ". Stop the active version and retry."
+    ]);
+readable_error_msg(#{
+    reason := invalid_type,
+    path := Path,
+    expected := Expected,
+    actual := Actual
+}) ->
+    iolist_to_binary([
+        "invalid_type: Invalid type for field '",
+        Path,
+        "': expected ",
+        Expected,
+        ", got ",
+        Actual
+    ]);
+readable_error_msg(#{
+    reason := invalid_union_member,
+    path := Path,
+    expected := Expected,
+    actual := Actual
 }) ->
     iolist_to_binary([
         "invalid_union_member: Invalid union member for field '",
@@ -1260,6 +1355,19 @@ readable_error_msg(#{
     ]);
 readable_error_msg(Msg) ->
     emqx_utils:readable_error_msg(Msg).
+
+-ifdef(TEST).
+
+update_plugin_schema_exposes_param_error_test() ->
+    #{
+        put := #{
+            responses := #{
+                400 := _
+            }
+        }
+    } = schema("/plugins/:name/:action").
+
+-endif.
 
 plugin_sync_failed_msg(Nodes) ->
     #{

@@ -1106,19 +1106,21 @@ validate_no_other_version_running(NameVsn0) ->
 
 conflicting_versions(NameVsn0) ->
     NameVsn = bin(NameVsn0),
-    Name = emqx_plugins_utils:plugin_name(NameVsn),
+    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     lists:filtermap(
         fun(OtherNameVsn) ->
+            {OtherName, _OtherVsn} = emqx_plugins_utils:parse_name_vsn(OtherNameVsn),
             case
-                emqx_plugins_utils:plugin_name(OtherNameVsn) =:=
-                    emqx_plugins_utils:plugin_name(NameVsn) andalso
+                OtherName =:= Name andalso
                     bin(OtherNameVsn) =/= NameVsn
             of
                 true ->
                     case emqx_plugins_fs:read_info(OtherNameVsn) of
                         {ok, Info0} ->
                             Info = emqx_utils_maps:safe_atom_key_map(Info0),
-                            {true, Info#{running_status => emqx_plugins_apps:running_status(Info)}};
+                            {true, Info#{
+                                running_status => emqx_plugins_apps:running_status(OtherNameVsn)
+                            }};
                         {error, _} ->
                             false
                     end;
