@@ -17,6 +17,9 @@
 
 -define(OFFLINE_TOPIC, <<"offline_api_topic">>).
 
+suite() ->
+    [{timetrap, {seconds, 180}}].
+
 all() ->
     [
         {group, persistence_enabled},
