@@ -626,8 +626,261 @@ t_rejects_invalid_local_config_on_start({'end', Config}) ->
 t_rejects_invalid_local_config_on_start(Config) ->
     NameVsn = ?config(name_vsn, Config),
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
+    LoadedApps = lists:sort(application:loaded_applications()),
+    Serdes = lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB)),
+    CachedConfig = emqx_plugins:get_config(NameVsn, not_found),
+    {ok, ConfigBin} = file:read_file(emqx_plugins_fs:config_file_path(NameVsn)),
+    ?assertMatch(
+        {error, #{
+            msg := "invalid_plugin_config",
+            reason := #{
+                reason := invalid_type,
+                path := <<"foo">>,
+                expected := <<"string">>,
+                actual := <<"integer">>
+            }
+        }},
+        emqx_plugins:validate_start(NameVsn)
+    ),
+    ?assertEqual(LoadedApps, lists:sort(application:loaded_applications())),
+    ?assertEqual(Serdes, lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB))),
+    ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn, not_found)),
+    ?assertEqual(
+        {ok, ConfigBin},
+        file:read_file(emqx_plugins_fs:config_file_path(NameVsn))
+    ),
     ?assertMatch({error, _}, emqx_plugins:ensure_started(NameVsn)),
     ?assertNot(is_app_running(invalid_plugin)).
+
+t_validate_start_does_not_start({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    [{name_vsn, NameVsn} | Config];
+t_validate_start_does_not_start({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_validate_start_does_not_start(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    LoadedApps = lists:sort(application:loaded_applications()),
+    Serdes = lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB)),
+    CachedConfig = emqx_plugins:get_config(NameVsn, not_found),
+    {ok, ConfigBin} = file:read_file(emqx_plugins_fs:config_file_path(NameVsn)),
+    ?assertEqual({ok, not_running}, emqx_plugins:validate_start(NameVsn)),
+    ?assertNot(is_app_running(invalid_plugin)),
+    ?assertEqual(LoadedApps, lists:sort(application:loaded_applications())),
+    ?assertEqual(Serdes, lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB))),
+    ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn, not_found)),
+    ?assertEqual(
+        {ok, ConfigBin},
+        file:read_file(emqx_plugins_fs:config_file_path(NameVsn))
+    ).
+
+t_ensure_start_package_only_materializes_files({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    [{name_vsn, NameVsn} | Config];
+t_ensure_start_package_only_materializes_files({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_ensure_start_package_only_materializes_files(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    LoadedApps = lists:sort(application:loaded_applications()),
+    Serdes = lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB)),
+    CachedConfig = emqx_plugins:get_config(NameVsn, not_found),
+    ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ok = emqx_plugins:ensure_start_package(NameVsn),
+    ?assert(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ?assertNot(is_app_running(invalid_plugin)),
+    ?assertEqual(LoadedApps, lists:sort(application:loaded_applications())),
+    ?assertEqual(Serdes, lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB))),
+    ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn, not_found)),
+    ?assertEqual({ok, not_running}, emqx_plugins:validate_start(NameVsn)).
+
+t_restart_rejects_invalid_local_config_without_stopping({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = file:write_file(emqx_plugins_fs:config_file_path(NameVsn), <<"foo = 42\n">>),
+    [{name_vsn, NameVsn} | Config];
+t_restart_rejects_invalid_local_config_without_stopping({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    ok = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+    cleanup_invalid_plugin(NameVsn);
+t_restart_rejects_invalid_local_config_without_stopping(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertMatch(
+        {error, #{msg := "invalid_plugin_config", reason := #{reason := invalid_type}}},
+        emqx_plugins:restart(NameVsn)
+    ),
+    ?assert(is_app_running(invalid_plugin)).
+
+t_start_revalidates_after_validation({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = file:write_file(emqx_plugins_fs:config_file_path(NameVsn), <<"foo = \"prepared\"\n">>),
+    [{name_vsn, NameVsn} | Config];
+t_start_revalidates_after_validation({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    ok = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+    cleanup_invalid_plugin(NameVsn);
+t_start_revalidates_after_validation(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    {ok, not_running} = emqx_plugins:validate_start(NameVsn),
+    ok = file:write_file(emqx_plugins_fs:config_file_path(NameVsn), <<"foo = 42\n">>),
+    ?assertMatch(
+        {error, #{msg := "invalid_plugin_config", reason := #{reason := invalid_type}}},
+        emqx_plugins:ensure_started(NameVsn)
+    ),
+    ?assertNot(is_app_running(invalid_plugin)).
+
+t_start_revalidates_cached_config_after_validation({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ValidConfig = emqx_plugins:get_config(NameVsn),
+    ok = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+    [{name_vsn, NameVsn}, {valid_config, ValidConfig} | Config];
+t_start_revalidates_cached_config_after_validation({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_start_revalidates_cached_config_after_validation(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ConfigKey = {emqx_plugins, list_to_binary(NameVsn)},
+    {ok, not_running} = emqx_plugins:validate_start(NameVsn),
+    persistent_term:put(ConfigKey, #{<<"foo">> => 42}),
+    try
+        ?assertMatch(
+            {error, #{msg := "invalid_plugin_config", reason := #{reason := invalid_type}}},
+            emqx_plugins:ensure_started(NameVsn)
+        ),
+        ?assertNot(is_app_running(invalid_plugin))
+    after
+        persistent_term:put(ConfigKey, ?config(valid_config, Config))
+    end.
+
+t_start_is_noop_when_already_running({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = file:write_file(
+        emqx_plugins_fs:config_file_path(NameVsn),
+        <<"foo = \"from-file\"\n">>
+    ),
+    [{name_vsn, NameVsn} | Config];
+t_start_is_noop_when_already_running({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    ok = file:delete(emqx_plugins_fs:config_file_path(NameVsn)),
+    cleanup_invalid_plugin(NameVsn);
+t_start_is_noop_when_already_running(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    CachedConfig = emqx_plugins:get_config(NameVsn),
+    {ok, running} = emqx_plugins:validate_start(NameVsn),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(invalid_plugin)),
+    ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn)).
+
+t_temporary_serde_reports_structured_type_errors({init, Config}) ->
+    Config;
+t_temporary_serde_reports_structured_type_errors({'end', _Config}) ->
+    ok;
+t_temporary_serde_reports_structured_type_errors(_Config) ->
+    Name = <<"validation_plugin-1.0.0">>,
+    NestedSchema = <<
+        "{\"type\":\"record\",\"name\":\"validation_plugin\",\"fields\":["
+        "{\"name\":\"items\",\"type\":{\"type\":\"array\",\"items\":"
+        "{\"type\":\"record\",\"name\":\"item\",\"fields\":["
+        "{\"name\":\"name\",\"type\":\"string\"}]}}}]}"
+    >>,
+    ?assertMatch(
+        {error, #{
+            reason := invalid_type,
+            path := <<"items.0.name">>,
+            expected := <<"string">>,
+            actual := <<"integer">>
+        }},
+        emqx_plugins_serde:decode(
+            Name,
+            NestedSchema,
+            emqx_utils_json:encode(#{<<"items">> => [#{<<"name">> => 42}]})
+        )
+    ),
+    ?assertMatch(
+        {error, #{
+            reason := invalid_type,
+            path := <<"$">>,
+            expected := <<"validation_plugin">>,
+            actual := <<"integer">>
+        }},
+        emqx_plugins_serde:decode(Name, NestedSchema, <<"42">>)
+    ),
+    UnionSchema = <<
+        "{\"type\":\"record\",\"name\":\"validation_plugin\",\"fields\":["
+        "{\"name\":\"value\",\"type\":[\"null\",\"string\"]}]}"
+    >>,
+    ?assertMatch(
+        {error, #{
+            reason := invalid_union_member,
+            path := <<"value.integer">>,
+            actual := <<"integer">>
+        }},
+        emqx_plugins_serde:decode(
+            Name,
+            UnionSchema,
+            emqx_utils_json:encode(#{<<"value">> => #{<<"integer">> => 42}})
+        )
+    ),
+    EnumSchema = <<
+        "{\"type\":\"record\",\"name\":\"validation_plugin\",\"fields\":["
+        "{\"name\":\"mode\",\"type\":{\"type\":\"enum\",\"name\":\"mode_enum\","
+        "\"symbols\":[\"on\",\"off\"]}}]}"
+    >>,
+    ?assertMatch(
+        {error, #{
+            reason := invalid_type,
+            path := <<"mode">>,
+            expected := <<"mode_enum">>,
+            actual := <<"integer">>
+        }},
+        emqx_plugins_serde:decode(
+            Name,
+            EnumSchema,
+            emqx_utils_json:encode(#{<<"mode">> => 42})
+        )
+    ),
+    RootFixedSchema = <<
+        "{\"type\":\"fixed\",\"name\":\"validation_plugin\",\"size\":4}"
+    >>,
+    ?assertMatch(
+        {error, #{
+            reason := invalid_type,
+            path := <<"$">>,
+            expected := <<"validation_plugin">>,
+            actual := <<"integer">>
+        }},
+        emqx_plugins_serde:decode(Name, RootFixedSchema, <<"42">>)
+    ),
+    NestedFixedSchema = <<
+        "{\"type\":\"record\",\"name\":\"validation_plugin\",\"fields\":["
+        "{\"name\":\"token\",\"type\":{\"type\":\"fixed\",\"name\":\"token_fixed\","
+        "\"size\":4}}]}"
+    >>,
+    ?assertMatch(
+        {error, #{
+            reason := invalid_type,
+            path := <<"token">>,
+            expected := <<"token_fixed">>,
+            actual := <<"integer">>
+        }},
+        emqx_plugins_serde:decode(
+            Name,
+            NestedFixedSchema,
+            emqx_utils_json:encode(#{<<"token">> => 42})
+        )
+    ).
 
 assert_invalid_plugin_package(NameVsn) ->
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn, ?fresh_install)),

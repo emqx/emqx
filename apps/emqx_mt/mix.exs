@@ -5,7 +5,7 @@ defmodule EMQXMT.MixProject do
   def project do
     [
       app: :emqx_mt,
-      version: "6.2.1",
+      version: "6.2.2",
       build_path: "../../_build",
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -24,6 +24,7 @@ defmodule EMQXMT.MixProject do
   def deps() do
     UMP.deps([
       {:emqx, in_umbrella: true},
+      {:emqx_ctl, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       :minirest

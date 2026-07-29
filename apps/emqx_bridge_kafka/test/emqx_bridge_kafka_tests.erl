@@ -129,6 +129,65 @@ producer_reconnect_delay_request_timeout_schema_test_() ->
             )}
     ].
 
+authentication_union_selector_test_() ->
+    Check = fun(Authentication) ->
+        RawConfig = emqx_bridge_kafka_testlib:source_connector_config(#{
+            <<"authentication">> => Authentication
+        }),
+        CheckedConfig = emqx_bridge_v2_testlib:parse_and_check_connector_not_seriailzable(
+            kafka_consumer, <<"x">>, RawConfig
+        ),
+        emqx_bridge_v2_testlib:parse_and_check_connector_not_seriailzable(
+            kafka_consumer, <<"x">>, CheckedConfig
+        )
+    end,
+    CheckError = fun(Authentication) ->
+        try Check(Authentication) of
+            _ -> no_error
+        catch
+            throw:{_, [Error]} -> Error
+        end
+    end,
+    UsernamePassword = fun(Mechanism) ->
+        #{
+            <<"mechanism">> => Mechanism,
+            <<"username">> => <<"username">>,
+            <<"password">> => <<"password">>
+        }
+    end,
+    Valid = [
+        {"default none", none},
+        {"explicit none", <<"none">>},
+        {"MSK IAM", <<"msk_iam">>},
+        {"OAuth", #{
+            <<"mechanism">> => <<"oauth">>,
+            <<"client_id">> => <<"client-id">>,
+            <<"client_secret">> => <<"client-secret">>,
+            <<"endpoint_uri">> => <<"http://127.0.0.1/oauth/token">>
+        }},
+        {"plain", UsernamePassword(<<"plain">>)},
+        {"SCRAM-SHA-256", UsernamePassword(<<"scram_sha_256">>)},
+        {"SCRAM-SHA-512", UsernamePassword(<<"scram_sha_512">>)},
+        {"Kerberos", #{
+            <<"kerberos_principal">> => <<"principal">>,
+            <<"kerberos_keytab_file">> => <<"keytab-file">>
+        }}
+    ],
+    [
+        {Name, ?_assertMatch(#{}, Check(Authentication))}
+     || {Name, Authentication} <- Valid
+    ] ++
+        [
+            {"unknown mechanism", ?_assertThrow(_, Check(#{<<"mechanism">> => <<"unknown">>}))},
+            {"unknown authentication", ?_assertThrow(_, Check(<<"unknown">>))},
+            {"invalid authentication map is not exposed",
+                ?_test(begin
+                    Error = CheckError(#{<<"client_secret">> => <<"secret">>}),
+                    ?assertMatch(#{field_name := authentication}, Error),
+                    ?assertNot(maps:is_key(got, Error))
+                end)}
+        ].
+
 %% The wolff ack callback for the wolff 4.2.0 drop reasons: `message_expired'
 %% is reported as `request_expired' (concludes the rule action without bumping
 %% resource metrics; `dropped'/`dropped.expired' are bumped via the

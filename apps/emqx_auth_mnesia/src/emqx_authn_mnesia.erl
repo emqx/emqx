@@ -34,6 +34,8 @@
 
 -export([record_count/1, record_count_per_namespace/0]).
 
+-export([purge_namespace/1]).
+
 -export([
     run_fuzzy_filter/2,
     format_user_info/1
@@ -185,6 +187,22 @@ do_destroy(UserGroup) ->
         end,
         mnesia:select(?AUTHN_NS_TAB, all_ns_group_match_spec('_', UserGroup), write)
     ).
+
+-doc """
+Deletes all users belonging to the given namespace, across all user groups.
+
+Users in the global namespace are never touched.
+""".
+-spec purge_namespace(emqx_config:namespace()) -> ok.
+purge_namespace(Namespace) when is_binary(Namespace) ->
+    ok = lists:foreach(
+        fun(#?AUTHN_NS_TAB{user_id = Key}) ->
+            ok = mria:dirty_delete(?AUTHN_NS_TAB, Key)
+        end,
+        mnesia:dirty_select(?AUTHN_NS_TAB, all_ns_group_match_spec(Namespace, '_'))
+    ),
+    _ = ets:delete(?AUTHN_NS_COUNT_TAB, Namespace),
+    ok.
 
 import_users(ImportSource, State) ->
     import_users(ImportSource, State, #{override => true}).

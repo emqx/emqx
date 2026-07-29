@@ -147,6 +147,27 @@ t_cluster_join_refused_while_booting(_Config) ->
     ),
     ok.
 
+-doc """
+Verifies that on a replicant node `cluster join' is NOT refused while boot is
+in progress: a replicant cannot finish booting without a core node, so a
+mid-boot join is what bootstraps it under manual cluster discovery. The
+command must proceed past the boot guard to the peer check.
+""".
+t_cluster_join_allowed_while_booting_on_replicant(_Config) ->
+    ok = meck:new(mria_rlog, [passthrough, no_history]),
+    ok = meck:expect(mria_rlog, role, fun() -> replicant end),
+    ok = emqx_cluster:set_booting(true),
+    try
+        ?assertEqual(
+            {error, {node_down, 'nosuchnode@127.0.0.1'}},
+            emqx_ctl:run_command(["cluster", "join", "nosuchnode@127.0.0.1"])
+        )
+    after
+        ok = emqx_cluster:set_booting(false),
+        ok = meck:unload(mria_rlog)
+    end,
+    ok.
+
 t_clients(_Config) ->
     %% clients list            # List all clients
     emqx_ctl:run_command(["clients", "list"]),
