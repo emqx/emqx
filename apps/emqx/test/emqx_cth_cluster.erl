@@ -155,7 +155,7 @@ Check if the node has started business applications.
 -spec verify_business_apps() -> fun((node()) -> ok | {error, _}).
 verify_business_apps() ->
     fun(Node) ->
-        case erpc:call(Node, emqx_cth_suite, check_business_apps, []) of
+        case erpc:call(Node, emqx_machine, is_cluster_ready, []) of
             true ->
                 ok;
             false ->
