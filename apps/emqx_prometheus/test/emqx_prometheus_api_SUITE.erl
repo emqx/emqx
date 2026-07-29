@@ -402,6 +402,13 @@ t_listener_shutdown_count(_Config) ->
     OnlyDisconnectStats = fun(Stats0) ->
         Stats = lists:filter(
             fun
+                %% `server_busy' is a transient clientid-registration-throttle
+                %% artifact (a rapid same-clientid reconnect racing the previous
+                %% session's async cleanup), not a disconnect reason under test.
+                %% It also carries the `emqx_client_disconnected_reason' key, so
+                %% this clause must come before the catch-all below.
+                (#{<<"reason">> := <<"server_busy">>}) ->
+                    false;
                 (#{<<"emqx_client_disconnected_reason">> := _}) ->
                     true;
                 (_) ->
