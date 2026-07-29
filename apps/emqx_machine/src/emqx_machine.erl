@@ -11,13 +11,17 @@
     is_ready/0,
 
     setup_classy_hooks/1,
+    set_readiness/2,
     migrate_site_id/0,
-    on_run_level/2,
+    manage_business_apps/2,
 
     node_status/0,
 
     add_emqx_vsn/1,
-    on_node_classify/1
+    on_node_classify/1,
+
+    is_cluster_ready/0,
+    wait_cluster_ready/1
 ]).
 
 -export([open_ports_check/0]).
@@ -31,6 +35,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+-define(cluster_ready, emqx_machine_cluster).
+
 %% @doc EMQX boot entrypoint.
 start() ->
     ensure_valid_features(),
@@ -42,10 +48,34 @@ start() ->
     ok = filelib:ensure_path(ClassyDir),
     application:set_env(classy, table_dir, ClassyDir),
     application:set_env(
-        classy, setup_hooks, {?MODULE, setup_classy_hooks, [fun ?MODULE:on_run_level/2]}
+        classy, setup_hooks, {?MODULE, setup_classy_hooks, [fun ?MODULE:manage_business_apps/2]}
     ),
     {ok, _} = application:ensure_all_started(classy, permanent),
     ok.
+
+-doc """
+Return true if the machine has ran all necessary for the cluster run level.
+""".
+-spec is_cluster_ready() -> boolean().
+is_cluster_ready() ->
+    optvar:is_set(?cluster_ready).
+
+-doc """
+Don't use in the new code.
+
+This function is specifically created for emqx_conf cluster RPC server,
+which creates a strange circular dependency.
+""".
+-spec wait_cluster_ready(timeout()) -> ok | {error, stopping | timeout}.
+wait_cluster_ready(Timeout) ->
+    case optvar:read(?cluster_ready, Timeout) of
+        {ok, true} ->
+            ok;
+        {ok, false} ->
+            {error, stopping};
+        timeout ->
+            {error, timeout}
+    end.
 
 setup_vm() ->
     os:set_signal(sighup, ignore),
@@ -53,6 +83,11 @@ setup_vm() ->
     os:set_signal(sigterm, handle),
     ok = set_backtrace_depth().
 
+%% When entering `cluster' run level, hooks run in the following priorities:
+%%
+%% 9999 mria is running
+%% 100  most business applications are running
+%% 0    readiness flag is set
 setup_classy_hooks(OnRunLevel) ->
     _ = classy:on_node_init(fun ?MODULE:migrate_site_id/0, 100),
     %% Mria:
@@ -62,14 +97,28 @@ setup_classy_hooks(OnRunLevel) ->
     _ = classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 50),
     _ = classy:enrich_site_info(fun ?MODULE:add_emqx_vsn/1, 50),
     _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 50),
-    %% Application start:
-    _ = classy:run_level(OnRunLevel, 99),
-    %% Cluster_rpc:
-    _ = classy:run_level(fun emqx_conf_sup:on_run_level/2, -50),
     _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 100),
+    %% Staged application start:
+    _ = classy:run_level(OnRunLevel, 100),
+    _ = classy:run_level(fun emqx_conf_sup:on_run_level/2, 50),
+    _ = classy:run_level(fun emqx_plugins_sup:on_run_level/2, 10),
+    _ = classy:run_level(fun ?MODULE:set_readiness/2, 0),
     ok.
 
-on_run_level(From, To) ->
+-doc false.
+set_readiness(single, cluster) ->
+    optvar:set(?cluster_ready, true);
+set_readiness(cluster, single) ->
+    %% This will be the first hook to fire when decreasing the run
+    %% level. It may so happen that certain applications wait for the
+    %% optvar. Here we notify them so they can stop waiting and
+    %% trigger stop.
+    optvar:set(?cluster_ready, false),
+    optvar:unset(?cluster_ready);
+set_readiness(_, _) ->
+    ok.
+
+manage_business_apps(From, To) ->
     case {From, To} of
         {single, cluster} ->
             _ = emqx_machine_boot:post_boot(),
