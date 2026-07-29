@@ -184,6 +184,73 @@ t_cluster_query(Config) ->
         emqx_cth_cluster:stop(Nodes)
     end.
 
+t_cluster_query_deep_subscription_page(Config) ->
+    ct:timetrap({seconds, 120}),
+    Nodes = [Coordinator, DataNode] = start_mgmt_cluster(?FUNCTION_NAME, Config),
+    try
+        %% The API only scans this table; a live MQTT client is unnecessary here.
+        ok = erpc:call(DataNode, ?MODULE, insert_subscription_rows, [4]),
+        ok = erpc:call(Coordinator, meck, new, [emqx, [passthrough, no_link]]),
+        ok = erpc:call(Coordinator, meck, expect, [emqx, running_nodes, 0, [DataNode]]),
+        ok = erpc:call(DataNode, meck, new, [emqx_mgmt_api, [passthrough, no_link]]),
+
+        Response =
+            {200, #{data := [_], meta := #{page := 4, limit := 1, count := 4}}} =
+            query_subscriptions(Coordinator, #{<<"page">> => 4, <<"limit">> => 1}),
+        ?assertEqual(1, remote_query_call_count(DataNode)),
+
+        %% Emulate an old node which ignores the new request state and returns one batch.
+        ok = erpc:call(DataNode, meck, unload, [emqx_mgmt_api]),
+        ok = erpc:call(DataNode, meck, new, [emqx_mgmt_api, [passthrough, no_link]]),
+        ok = erpc:call(DataNode, meck, expect, [
+            emqx_mgmt_api,
+            do_query,
+            fun(Node, QueryState) ->
+                ResultAcc = maps:get(result_acc, QueryState),
+                LegacyQueryState = maps:remove(result_acc, QueryState),
+                {Rows, NQueryState} = meck:passthrough([Node, LegacyQueryState]),
+                {Rows, NQueryState#{result_acc => ResultAcc}}
+            end
+        ]),
+        ?assertEqual(
+            Response,
+            query_subscriptions(Coordinator, #{<<"page">> => 4, <<"limit">> => 1})
+        ),
+        ?assertEqual(4, remote_query_call_count(DataNode))
+    after
+        _ = catch erpc:call(DataNode, meck, unload, [emqx_mgmt_api]),
+        _ = catch erpc:call(Coordinator, meck, unload, [emqx]),
+        emqx_cth_cluster:stop(Nodes)
+    end.
+
+t_cluster_query_subscription_page_across_nodes(Config) ->
+    ct:timetrap({seconds, 120}),
+    Nodes = [Coordinator, DataNode] = start_mgmt_cluster(?FUNCTION_NAME, Config),
+    try
+        ok = erpc:call(Coordinator, ?MODULE, insert_subscription_rows, [2]),
+        ok = erpc:call(DataNode, ?MODULE, insert_subscription_rows, [2]),
+        ok = erpc:call(Coordinator, meck, new, [emqx, [passthrough, no_link]]),
+        ok = erpc:call(Coordinator, meck, expect, [
+            emqx,
+            running_nodes,
+            0,
+            [Coordinator, DataNode]
+        ]),
+
+        {200, #{
+            data := Subscriptions,
+            meta := #{page := 1, limit := 3, count := 4, hasnext := true}
+        }} = query_subscriptions(Coordinator, #{<<"page">> => 1, <<"limit">> => 3}),
+        ?assertEqual(3, length(Subscriptions)),
+        ?assertEqual(
+            [Coordinator, Coordinator, DataNode],
+            [maps:get(node, Subscription) || Subscription <- Subscriptions]
+        )
+    after
+        _ = catch erpc:call(Coordinator, meck, unload, [emqx]),
+        emqx_cth_cluster:stop(Nodes)
+    end.
+
 t_bad_rpc(Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -213,6 +280,15 @@ t_bad_rpc(Config) ->
 %% helpers
 %%--------------------------------------------------------------------
 
+start_mgmt_cluster(Testcase, Config) ->
+    emqx_cth_cluster:start(
+        [
+            {corenode1, #{role => core, apps => [emqx, emqx_management]}},
+            {corenode2, #{role => core, apps => [emqx, emqx_management]}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Testcase, Config)}
+    ).
+
 start_emqtt_client(Node0, N, Port) ->
     Node = atom_to_binary(Node0),
     ClientId = iolist_to_binary([Node, "-", integer_to_binary(N)]),
@@ -226,3 +302,25 @@ query_clients(Node, Qs0) ->
         Qs0
     ),
     rpc:call(Node, emqx_mgmt_api_clients, clients, [get, #{query_string => Qs}]).
+
+query_subscriptions(Node, Qs0) ->
+    Qs = maps:merge(
+        #{<<"page">> => 1, <<"limit">> => 100},
+        Qs0
+    ),
+    erpc:call(Node, emqx_mgmt_api_subscriptions, subscriptions, [get, #{query_string => Qs}]).
+
+insert_subscription_rows(N) ->
+    Subscriber = self(),
+    Rows = [
+        {
+            {<<"t/", (integer_to_binary(I))/binary>>, Subscriber},
+            #{subid => <<"client-", (integer_to_binary(I))/binary>>, qos => 0}
+        }
+     || I <- lists:seq(1, N)
+    ],
+    true = ets:insert(emqx_suboption, Rows),
+    ok.
+
+remote_query_call_count(DataNode) ->
+    erpc:call(DataNode, meck, num_calls, [emqx_mgmt_api, do_query, ['_', '_']]).
