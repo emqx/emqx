@@ -8,6 +8,7 @@
 -include("emqx_access_control.hrl").
 
 -export([
+    ingress/2,
     authorize/2,
     finalize/2,
     publish/2
@@ -21,22 +22,25 @@
 %% API
 %%--------------------------------------------------------------------
 
+-spec ingress(
+    emqx_types:clientinfo(),
+    emqx_types:message()
+) -> {ok, emqx_types:message()} | {error, term()}.
+ingress(ClientInfo, Msg) ->
+    AuthzContext = emqx_authz_context:make(ClientInfo),
+    Ctx = #{authz_ctx => AuthzContext},
+    run_hooks(Ctx, Msg).
+
 -spec authorize(
     emqx_types:clientinfo(),
     emqx_types:message()
-) -> {allow, emqx_types:message()} | deny | {error, term()}.
-authorize(ClientInfo, Msg) ->
+) -> {allow, emqx_types:message()} | deny.
+authorize(ClientInfo, Msg = #message{topic = Topic, qos = QoS}) ->
     AuthzContext = emqx_authz_context:make(ClientInfo),
-    Ctx = #{authz_ctx => AuthzContext},
-    case run_hooks(Ctx, Msg) of
-        {ok, NMsg = #message{topic = Topic, qos = QoS}} ->
-            Action = ?AUTHZ_PUBLISH(QoS, emqx_message:get_flag(retain, NMsg)),
-            case emqx_access_control:authorize(AuthzContext, Action, Topic) of
-                allow -> {allow, NMsg};
-                deny -> deny
-            end;
-        {error, _} = Error ->
-            Error
+    Action = ?AUTHZ_PUBLISH(QoS, emqx_message:get_flag(retain, Msg)),
+    case emqx_access_control:authorize(AuthzContext, Action, Topic) of
+        allow -> {allow, Msg};
+        deny -> deny
     end.
 
 -spec finalize(emqx_types:clientinfo(), emqx_types:message()) -> emqx_types:message().

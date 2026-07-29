@@ -188,6 +188,52 @@ t_message_ingress(Config) ->
     end,
     emqx_nats_client:stop(Client).
 
+t_jwt_before_emqx_authz_after_ingress(_) ->
+    SourceTopic = <<"source">>,
+    RewrittenTopic = <<"target">>,
+    TestPid = self(),
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, hook_message_ingress, [TestPid, RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    ok = emqx_hooks:put(
+        'client.authorize',
+        {?MODULE, hook_authorize_order, [TestPid]},
+        ?HP_HIGHEST
+    ),
+    Msg = emqx_message:make(<<"client">>, SourceTopic, <<"payload">>),
+    DenyingClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [SourceTopic], deny => [RewrittenTopic]}
+    }),
+    deny = emqx_nats_channel:authorize_publish(DenyingClientInfo, Msg),
+    receive
+        {message_ingress, _, #message{topic = SourceTopic}} -> ok
+    after 1000 ->
+        ct:fail(message_ingress_hook_not_called)
+    end,
+    receive
+        {emqx_authorize, Topic} -> ct:fail({unexpected_emqx_authorize, Topic})
+    after 100 ->
+        ok
+    end,
+
+    AllowingClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [RewrittenTopic], deny => []}
+    }),
+    {allow, #message{topic = RewrittenTopic}} =
+        emqx_nats_channel:authorize_publish(AllowingClientInfo, Msg),
+    receive
+        {message_ingress, _, #message{topic = SourceTopic}} -> ok
+    after 1000 ->
+        ct:fail(message_ingress_hook_not_called)
+    end,
+    receive
+        {emqx_authorize, RewrittenTopic} -> ok
+    after 1000 ->
+        ct:fail(emqx_authorize_hook_not_called)
+    end.
+
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
@@ -424,6 +470,10 @@ hook_message_ingress(Ctx, Msg, TestPid, RewrittenTopic) ->
     TestPid ! {message_ingress, Ctx, Msg},
     {ok, emqx_message:set_header(ingress, true, Msg#message{topic = RewrittenTopic})}.
 
+hook_authorize_order(_AuthzContext, _Action, Topic, _Default, TestPid) ->
+    TestPid ! {emqx_authorize, Topic},
+    {stop, #{result => allow, from => test}}.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -621,9 +671,23 @@ cleanup_hooks() ->
     _ = emqx_hooks:del('client.connect', {?MODULE, hook_connect_error}),
     _ = emqx_hooks:del('client.subscribe', {?MODULE, hook_subscribe_block}),
     _ = emqx_hooks:del('message.ingress', {?MODULE, hook_message_ingress}),
+    _ = emqx_hooks:del('client.authorize', {?MODULE, hook_authorize_order}),
     _ = emqx_hooks:del('client.authenticate', {?MODULE, hook_auth_expire}),
     _ = emqx_hooks:del('client.check_authn_complete', {?MODULE, hook_authn_complete}),
     ok.
+
+nats_authz_clientinfo(JWTPermissions) ->
+    #{
+        zone => default,
+        protocol => nats,
+        peerhost => {127, 0, 0, 1},
+        sockport => 1883,
+        clientid => <<"client">>,
+        is_bridge => false,
+        is_superuser => false,
+        mountpoint => undefined,
+        jwt_permissions => JWTPermissions
+    }.
 
 %%--------------------------------------------------------------------
 %% NKEY Unit Tests

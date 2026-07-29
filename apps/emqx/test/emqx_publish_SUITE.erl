@@ -36,16 +36,14 @@ end_per_testcase(_, _Config) ->
 
 t_no_overrides(_) ->
     Msg = message(<<"topic">>),
-    ?assertEqual(
-        {allow, Msg},
-        emqx_message_ingress:authorize(clientinfo(), Msg)
-    ).
+    ?assertEqual({ok, Msg}, emqx_message_ingress:ingress(clientinfo(), Msg)),
+    ?assertEqual({allow, Msg}, emqx_message_ingress:authorize(clientinfo(), Msg)).
 
 t_overrides(_) ->
     emqx_hooks:put(
         'message.ingress', {?MODULE, override_publish, []}, ?HP_HIGHEST
     ),
-    {allow, Msg} = emqx_message_ingress:authorize(clientinfo(), message(<<"source">>)),
+    {ok, Msg} = emqx_message_ingress:ingress(clientinfo(), message(<<"source">>)),
     ?assertEqual(<<"target">>, Msg#message.topic),
     ?assertEqual(value, emqx_message:get_header(internal, Msg)).
 
@@ -53,15 +51,20 @@ t_reject(_) ->
     emqx_hooks:put('message.ingress', {?MODULE, reject_publish, []}, ?HP_HIGHEST),
     ?assertEqual(
         {error, invalid_topic_name},
-        emqx_message_ingress:authorize(clientinfo(), message(<<"source">>))
+        emqx_message_ingress:ingress(clientinfo(), message(<<"source">>))
     ).
 
 t_crash(_) ->
     emqx_hooks:put('message.ingress', {?MODULE, crash_publish, []}, ?HP_HIGHEST),
     ?assertMatch(
         {error, {message_ingress_hook_failed, _}},
-        emqx_message_ingress:authorize(clientinfo(), message(<<"source">>))
+        emqx_message_ingress:ingress(clientinfo(), message(<<"source">>))
     ).
+
+t_authorize_does_not_run_ingress(_) ->
+    emqx_hooks:put('message.ingress', {?MODULE, reject_publish, []}, ?HP_HIGHEST),
+    Msg = message(<<"source">>),
+    ?assertEqual({allow, Msg}, emqx_message_ingress:authorize(clientinfo(), Msg)).
 
 t_action_uses_folded_message(_) ->
     emqx_hooks:put(
@@ -74,7 +77,8 @@ t_action_uses_folded_message(_) ->
         {?MODULE, capture_authorize, [self()]},
         ?HP_HIGHEST
     ),
-    {allow, Msg} = emqx_message_ingress:authorize(clientinfo(), message(<<"source">>)),
+    {ok, Msg} = emqx_message_ingress:ingress(clientinfo(), message(<<"source">>)),
+    {allow, Msg} = emqx_message_ingress:authorize(clientinfo(), Msg),
     ?assertEqual(2, Msg#message.qos),
     ?assertEqual(true, emqx_message:get_flag(retain, Msg)),
     receive

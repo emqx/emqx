@@ -35,6 +35,10 @@
     handle_info/2
 ]).
 
+-ifdef(TEST).
+-export([authorize_publish/2]).
+-endif.
+
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),
@@ -611,7 +615,6 @@ handle_in(
 handle_in(
     Frame = ?PACKET(Op),
     Channel = #channel{
-        ctx = Ctx,
         clientinfo = ClientInfo,
         conn_state = ConnState
     }
@@ -619,21 +622,15 @@ handle_in(
     Subject = emqx_nats_frame:subject(Frame),
     Topic = nats_subject_to_pub_topic(Subject),
     Msg = frame2message(Frame, Topic, Channel),
-    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
+    case authorize_publish(ClientInfo, Msg) of
         deny ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
         {error, _Reason} ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
-        {allow, NMsg = #message{topic = NTopic}} ->
-            NSubject = emqx_nats_topic:mqtt_to_nats(NTopic),
-            case jwt_permissions_authorize(ClientInfo, ?AUTHZ_PUBLISH, NTopic, NSubject) of
-                deny ->
-                    handle_out(error, err_msg_publish_denied(Subject), Channel);
-                _ ->
-                    case check_max_payload(Frame, Channel) of
-                        ok -> process_pub_message(NMsg, Channel);
-                        {error, ErrMsg} -> handle_out(error, ErrMsg, Channel)
-                    end
+        {allow, NMsg} ->
+            case check_max_payload(Frame, Channel) of
+                ok -> process_pub_message(NMsg, Channel);
+                {error, ErrMsg} -> handle_out(error, ErrMsg, Channel)
             end
     end;
 handle_in(
@@ -1293,6 +1290,18 @@ authorize_with_jwt_first(Ctx, ClientInfo, Action, Topic, Subject) ->
             authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic);
         ignore ->
             authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic)
+    end.
+
+authorize_publish(ClientInfo, Msg) ->
+    case emqx_message_ingress:ingress(ClientInfo, Msg) of
+        {ok, NMsg = #message{topic = Topic}} ->
+            Subject = emqx_nats_topic:mqtt_to_nats(Topic),
+            case jwt_permissions_authorize(ClientInfo, ?AUTHZ_PUBLISH, Topic, Subject) of
+                deny -> deny;
+                _ -> emqx_message_ingress:authorize(ClientInfo, NMsg)
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
 authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic) ->
