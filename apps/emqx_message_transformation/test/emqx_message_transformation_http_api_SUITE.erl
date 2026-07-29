@@ -295,10 +295,28 @@ connect(ClientId, IsPersistent, Opts) ->
         proto_ver => v5
     },
     Props = emqx_utils_maps:deep_merge(Defaults, StartProps),
-    {ok, Client} = emqtt:start_link(Props),
-    {ok, _} = emqtt:connect(Client),
+    Client = connect_with_retry(Props),
     on_exit(fun() -> catch emqtt:stop(Client) end),
     Client.
+
+%% Reconnect on a transient clientid-registration throttle (CONNACK
+%% server_busy): the broker may still be cleaning up a same-clientid channel
+%% asynchronously. Unlink first so the failed client's exit cannot kill the
+%% test process before we get a chance to retry.
+connect_with_retry(Props) ->
+    {ok, Client} = emqtt:start_link(Props),
+    unlink(Client),
+    case emqtt:connect(Client) of
+        {ok, _} ->
+            Client;
+        {error, {server_busy, _}} ->
+            _ = exit(Client, kill),
+            timer:sleep(10),
+            connect_with_retry(Props);
+        {error, Reason} ->
+            _ = exit(Client, kill),
+            error(Reason)
+    end.
 
 publish(Client, Topic, Payload) ->
     publish(Client, Topic, Payload, _QoS = 0).
