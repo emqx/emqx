@@ -918,6 +918,40 @@ t_oauth2_client_credentials(TCConfig) ->
     },
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)).
 
+t_oauth2_ssl_certs_are_saved(TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    ok = set_oauth2_token_handler(<<"/authz/token">>),
+    SSL = inline_ssl_certs(),
+    ok = emqx_authz_test_lib:setup_config(
+        raw_http_authz_config(TCConfig),
+        #{
+            <<"oauth2">> =>
+                (oauth2_config(<<BaseURL/binary, "/authz/token">>))#{<<"ssl">> => SSL}
+        }
+    ),
+    [#{<<"oauth2">> := #{<<"ssl">> := SavedSSL}}] =
+        emqx:get_raw_config([authorization, sources]),
+    assert_ssl_certs_are_saved(SSL, SavedSSL).
+
+t_oauth2_ssl_verify_none_allows_blank_certs(TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    ok = set_oauth2_token_handler(<<"/authz/token">>),
+    ok = emqx_authz_test_lib:setup_config(
+        raw_http_authz_config(TCConfig),
+        #{
+            <<"oauth2">> =>
+                (oauth2_config(<<BaseURL/binary, "/authz/token">>))#{
+                    <<"ssl">> => #{
+                        <<"enable">> => true,
+                        <<"verify">> => <<"verify_none">>,
+                        <<"cacertfile">> => <<>>,
+                        <<"certfile">> => <<>>,
+                        <<"keyfile">> => <<>>
+                    }
+                }
+        }
+    ).
+
 t_oauth2_start_timeout_keeps_source(TCConfig) ->
     ok = block_oauth2_token_endpoint(<<"/authz/token">>),
     BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
@@ -980,6 +1014,46 @@ oauth2_config(TokenEndpoint) ->
         <<"client_id">> => <<"client-id">>,
         <<"client_secret">> => <<"client-secret">>
     }.
+
+set_oauth2_token_handler(Path) ->
+    emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        Path = cowboy_req:path(Req0),
+        Req = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            emqx_utils_json:encode(#{
+                access_token => <<"oauth2-token">>,
+                expires_in => 3600,
+                token_type => <<"Bearer">>
+            }),
+            Req0
+        ),
+        {ok, Req, State}
+    end).
+
+inline_ssl_certs() ->
+    #{
+        <<"enable">> => true,
+        <<"verify">> => <<"verify_peer">>,
+        <<"cacertfile">> => pem("cacert.pem"),
+        <<"certfile">> => pem("client-cert.pem"),
+        <<"keyfile">> => pem("client-key.pem")
+    }.
+
+pem(Name) ->
+    Path = filename:join([code:lib_dir(emqx), etc, certs, Name]),
+    {ok, Pem} = file:read_file(Path),
+    Pem.
+
+assert_ssl_certs_are_saved(SSL, SavedSSL) ->
+    lists:foreach(
+        fun(Key) ->
+            SavedPath = maps:get(Key, SavedSSL),
+            ?assertNotEqual(maps:get(Key, SSL), SavedPath),
+            ?assert(filelib:is_regular(SavedPath))
+        end,
+        [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>]
+    ).
 
 setup_handler_and_config(TCConfig, Handler, Config) ->
     ok = emqx_utils_http_test_server:set_handler(Handler),
