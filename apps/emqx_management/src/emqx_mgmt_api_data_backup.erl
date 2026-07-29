@@ -296,7 +296,27 @@ data_import_checked(?global_ns, FileNode, Filename, Req) ->
             do_data_import(FileNode, Filename, ?global_ns)
     end;
 data_import_checked(Namespace, FileNode, Filename, _Req) when is_binary(Namespace) ->
-    do_data_import(FileNode, Filename, Namespace).
+    %% Defense-in-depth: the same scope check runs at upload time, but stored
+    %% files may predate it or have been placed by other means.
+    case check_import_scope(Namespace, FileNode, Filename) of
+        ok ->
+            do_data_import(FileNode, Filename, Namespace);
+        {forbidden, ForeignScopes} ->
+            {403, #{
+                code => 'FORBIDDEN',
+                message => foreign_scope_msg(Namespace, ForeignScopes)
+            }};
+        {peek_error, Reason} ->
+            {400, #{
+                code => ?BAD_REQUEST,
+                message => emqx_mgmt_data_backup:format_error(Reason)
+            }};
+        {badrpc, Reason} ->
+            {500, #{
+                code => ?SERVICE_UNAVAILABLE(Reason),
+                message => emqx_mgmt_data_backup:format_error(Reason)
+            }}
+    end.
 
 do_data_import(FileNode, Filename, Namespace) ->
     CoreNode = core_node(FileNode),
@@ -357,10 +377,15 @@ core_node(FileNode) ->
 data_files(post, #{body := #{<<"filename">> := #{type := _} = File}, query_string := QS} = Req) ->
     Namespace = op_namespace(Req, QS),
     [{Filename, FileContent} | _] = maps:to_list(maps:without([type], File)),
-    case emqx_mgmt_data_backup:upload(Namespace, Filename, FileContent) of
+    case check_upload_scope(Namespace, FileContent) of
         ok ->
-            {204};
-        {error, Reason} ->
+            store_uploaded_file(Namespace, Filename, FileContent);
+        {forbidden, ForeignScopes} ->
+            {403, #{
+                code => 'FORBIDDEN',
+                message => foreign_scope_msg(Namespace, ForeignScopes)
+            }};
+        {peek_error, Reason} ->
             {400, #{code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)}}
     end;
 data_files(post, #{body := _}) ->
@@ -522,6 +547,72 @@ check_no_sensitive_tables(Filename, AuthMeta) ->
                 {error, Reason} -> {peek_error, Reason}
             end
     end.
+
+store_uploaded_file(Namespace, Filename, FileContent) ->
+    case emqx_mgmt_data_backup:upload(Namespace, Filename, FileContent) of
+        ok ->
+            {204};
+        {error, Reason} ->
+            {400, #{code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)}}
+    end.
+
+%% A namespaced operation -- a namespaced actor, or a global administrator
+%% acting on `?namespace=<ns>' -- may only handle archives whose entire
+%% content belongs to the resolved namespace. Global content (a top-level
+%% cluster configuration or any mnesia table dump) and other namespaces'
+%% content are rejected. Operations resolved to the global namespace keep
+%% their existing guards (sensitive-table checks) and are not restricted here.
+check_upload_scope(?global_ns, _FileContent) ->
+    ok;
+check_upload_scope(Namespace, FileContent) when is_binary(Namespace) ->
+    validate_backup_scope(
+        Namespace, emqx_mgmt_data_backup:peek_backup_scope_of_content(FileContent)
+    ).
+
+%% Only called with a binary (already resolved, non-global) namespace. When the
+%% file lives on another node, fetch its content over the namespace-scoped v3
+%% RPC to peek it; the import itself copies the file with the same RPC.
+check_import_scope(Namespace, FileNode, Filename) when FileNode =:= node() ->
+    validate_backup_scope(
+        Namespace, emqx_mgmt_data_backup:peek_backup_scope(Namespace, Filename)
+    );
+check_import_scope(Namespace, FileNode, Filename) ->
+    case emqx_mgmt_data_backup_proto_v3:read_file(FileNode, Namespace, Filename, infinity) of
+        {ok, FileContent} ->
+            validate_backup_scope(
+                Namespace, emqx_mgmt_data_backup:peek_backup_scope_of_content(FileContent)
+            );
+        {error, Reason} ->
+            {peek_error, Reason};
+        {badrpc, _} = Error ->
+            Error
+    end.
+
+validate_backup_scope(Namespace, {ok, Scope}) ->
+    case foreign_scopes(Namespace, Scope) of
+        [] -> ok;
+        ForeignScopes -> {forbidden, ForeignScopes}
+    end;
+validate_backup_scope(_Namespace, {error, Reason}) ->
+    {peek_error, Reason}.
+
+foreign_scopes(Namespace, #{global := Global, namespaces := Namespaces}) ->
+    ForeignNamespaces = [
+        iolist_to_binary([<<"namespace \"">>, Ns, <<"\"">>])
+     || Ns <- Namespaces, Ns =/= Namespace
+    ],
+    case Global of
+        true -> [<<"the global scope">> | ForeignNamespaces];
+        false -> ForeignNamespaces
+    end.
+
+foreign_scope_msg(Namespace, ForeignScopes) ->
+    iolist_to_binary([
+        <<"Backup contains data that does not belong to namespace \"">>,
+        Namespace,
+        <<"\": ">>,
+        lists:join(<<", ">>, ForeignScopes)
+    ]).
 
 %% Stored backups may contain `dashboard_users' / `api_keys' mnesia tables
 %% (salted password hashes, MFA / TOTP material, API-key records). Global
