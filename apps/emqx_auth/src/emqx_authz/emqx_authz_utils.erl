@@ -28,7 +28,8 @@
 ]).
 
 -export([
-    cached_simple_sync_query/3
+    cached_simple_sync_query/3,
+    cached_apply/2
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS(Type), #{
@@ -170,6 +171,10 @@ vars_for_rule_query(Client, ?authz_action(PubSub, Qos) = Action) ->
 ) -> term().
 cached_simple_sync_query(CacheKey, ResourceID, Query) ->
     emqx_auth_utils:cached_simple_sync_query(?AUTHZ_CACHE, CacheKey, ResourceID, Query).
+
+-spec cached_apply(emqx_auth_cache:cache_key(), fun(() -> term())) -> term().
+cached_apply(CacheKey, Fun) ->
+    emqx_auth_utils:cached_apply(?AUTHZ_CACHE, CacheKey, Fun).
 
 -spec authorize_with_row(
     emqx_authz_source:source_type(),

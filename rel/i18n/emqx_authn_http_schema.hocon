@@ -1,5 +1,30 @@
 emqx_authn_http_schema {
 
+allowed_hosts.desc:
+"""List of hostnames the templated URL host is allowed to resolve to.
+Each entry is either an exact hostname (e.g. <code>auth.example.com</code>) or a wildcard pattern (e.g. <code>*.auth.example.com</code>) matching any hostname under that suffix.
+This list must be configured when the URL host contains template placeholders; a request is made only if the rendered hostname matches one of the entries, otherwise authentication fails.
+It has no effect when the URL host is a literal hostname."""
+
+allowed_hosts.label:
+"""Allowed Hosts"""
+
+hostname_resolution.desc:
+"""How the auth server hostname in <code>url</code> is resolved.
+<code>static</code>: the hostname is fixed; requests go through a persistent connection pool established at configuration time, and pipelining options apply.
+<code>dynamic</code>: the hostname is resolved for every request; required when the URL host contains template placeholders. Requests use short-lived per-request connections, so <code>enable_pipelining</code> and <code>max_inactive</code> do not apply; <code>pool_size</code> limits how many idle connections may be kept for reuse."""
+
+hostname_resolution.label:
+"""Hostname Resolution"""
+
+pool_size.desc:
+"""Connection limit towards the auth server.
+When <code>hostname_resolution</code> is <code>static</code>, this is the size of the persistent connection pool (must be at least 1).
+When <code>hostname_resolution</code> is <code>dynamic</code>, this limits how many idle connections may be kept for reuse across requests; set it to <code>0</code> to disable connection reuse entirely."""
+
+pool_size.label:
+"""Pool Size"""
+
 body.desc:
 """HTTP request body."""
 
@@ -37,7 +62,8 @@ request_timeout.label:
 """Request Timeout"""
 
 url.desc:
-"""URL of the HTTP server."""
+"""URL of the HTTP server.
+The host part may contain template placeholders, e.g. <code>https://${client_attrs.tns}.auth.example.com/authn</code>; in that case <code>hostname_resolution</code> must be set to <code>dynamic</code> and <code>allowed_hosts</code> must be configured, and each request is sent over a per-request connection to the rendered host instead of through the fixed connection pool."""
 
 url.label:
 """URL"""

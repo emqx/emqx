@@ -120,9 +120,80 @@ t_create_invalid_ciphers(TCConfig) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
+-doc """
+TLS client options (verify_peer, SNI) are applied to one-off requests when the
+URL host is templated.
+""".
+t_templated_host_https(TCConfig) ->
+    {ok, _} = create_templated_https_auth_with_ssl_opts(
+        TCConfig,
+        #{
+            <<"server_name_indication">> => <<"authn-server">>,
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.2">>],
+            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]
+        }
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_access_control:authenticate(templated_host_credentials())
+    ).
+
+-doc """
+When no server_name_indication is configured, the one-off request derives both
+SNI and the hostname verification reference from the per-request rendered
+host: the test server certificate is issued for 'authn-server', so peer
+verification against the rendered host ('localhost') fails closed.
+""".
+t_templated_host_https_default_sni(TCConfig) ->
+    {ok, _} = create_templated_https_auth_with_ssl_opts(
+        TCConfig,
+        #{
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.2">>],
+            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]
+        }
+    ),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_access_control:authenticate(templated_host_credentials())
+    ).
+
+-doc """
+Peer verification failures (SNI mismatch) fail the one-off templated-host
+request closed.
+""".
+t_templated_host_https_verify_fail(TCConfig) ->
+    {ok, _} = create_templated_https_auth_with_ssl_opts(
+        TCConfig,
+        #{
+            <<"server_name_indication">> => <<"authn-server-unknown-host">>,
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.2">>],
+            <<"ciphers">> => [<<"ECDHE-RSA-AES256-GCM-SHA384">>]
+        }
+    ),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_access_control:authenticate(templated_host_credentials())
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
+
+create_templated_https_auth_with_ssl_opts(TCConfig, SpecificSSLOpts) ->
+    HTTPSPortBin = integer_to_binary(?config(https_port, TCConfig)),
+    AuthConfig = (raw_https_auth_config(TCConfig, SpecificSSLOpts))#{
+        <<"url">> =>
+            <<"https://${client_attrs.group}:", HTTPSPortBin/binary, "/auth">>,
+        <<"hostname_resolution">> => <<"dynamic">>,
+        <<"allowed_hosts">> => [<<"localhost">>]
+    },
+    emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}).
+
+templated_host_credentials() ->
+    maps:merge(?CREDENTIALS, #{client_attrs => #{<<"group">> => <<"localhost">>}}).
 
 create_https_auth_with_ssl_opts(TCConfig, SpecificSSLOpts) ->
     AuthConfig = raw_https_auth_config(TCConfig, SpecificSSLOpts),

@@ -27,7 +27,8 @@
     to_bool/1,
     backend_failure_result/0,
     authn_backend_failure_policy/0,
-    cached_simple_sync_query/3
+    cached_simple_sync_query/3,
+    cached_apply/2
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS(OWNER_ID), #{
@@ -234,6 +235,10 @@ to_bool(_) ->
 ) -> term().
 cached_simple_sync_query(CacheKey, ResourceID, Query) ->
     emqx_auth_utils:cached_simple_sync_query(?AUTHN_CACHE, CacheKey, ResourceID, Query).
+
+-spec cached_apply(emqx_auth_cache:cache_key(), fun(() -> term())) -> term().
+cached_apply(CacheKey, Fun) ->
+    emqx_auth_utils:cached_apply(?AUTHN_CACHE, CacheKey, Fun).
 
 -spec backend_failure_result() -> ignore | {error, not_authorized}.
 backend_failure_result() ->
