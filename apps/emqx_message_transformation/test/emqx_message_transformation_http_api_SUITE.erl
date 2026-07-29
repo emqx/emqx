@@ -302,12 +302,14 @@ connect(ClientId, IsPersistent, Opts) ->
 %% Reconnect on a transient clientid-registration throttle (CONNACK
 %% server_busy): the broker may still be cleaning up a same-clientid channel
 %% asynchronously. Unlink first so the failed client's exit cannot kill the
-%% test process before we get a chance to retry.
+%% test process before we get a chance to retry; re-link once connected so a
+%% later client crash still fails the test.
 connect_with_retry(Props) ->
     {ok, Client} = emqtt:start_link(Props),
     unlink(Client),
     case emqtt:connect(Client) of
         {ok, _} ->
+            link(Client),
             Client;
         {error, {server_busy, _}} ->
             _ = exit(Client, kill),
