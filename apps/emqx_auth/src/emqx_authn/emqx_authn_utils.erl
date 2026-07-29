@@ -50,7 +50,7 @@ create_resource(Module, ResourceConfig, #{resource_id := ResourceId} = State, Me
                 ?DEFAULT_RESOURCE_OPTS(OwnerId)
             ),
         ok =
-            start_created_resource(
+            remove_resource_on_exception(
                 ResourceId,
                 fun() -> start_resource_if_enabled(State, Mechanism, Backend) end
             )
@@ -90,9 +90,9 @@ handle_start_resource_error(ResourceId, Reason, Mechanism, Backend) ->
     }),
     ok.
 
-start_created_resource(ResourceId, Start) ->
+remove_resource_on_exception(ResourceId, Operation) ->
     try
-        Start()
+        Operation()
     catch
         Class:Reason:Stacktrace ->
             _ = cleanup_created_resource(ResourceId),

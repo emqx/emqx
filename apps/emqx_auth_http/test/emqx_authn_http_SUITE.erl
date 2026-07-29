@@ -230,8 +230,10 @@ t_oauth2_start_exception_removes_resource(TCConfig) ->
     AuthConfig = (raw_http_auth_config(TCConfig))#{
         <<"oauth2">> => oauth2_config(<<BaseURL/binary, "/auth/token">>)
     },
-    Error = with_mocked_resource_start(
-        {raise, error, start_failed},
+    Error = emqx_common_test_helpers:with_mock(
+        emqx_resource,
+        start,
+        fun(_) -> error(start_failed) end,
         fun() ->
             emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig})
         end
@@ -280,24 +282,6 @@ perform_user_auth(SpecificConfgParams, Handler, Credentials) ->
     ),
 
     Result.
-
-with_mocked_resource_start(Result, Test) ->
-    meck:new(emqx_resource, [passthrough, no_link]),
-    meck:expect(
-        emqx_resource,
-        start,
-        fun(_) ->
-            case Result of
-                {raise, Class, Reason} -> erlang:raise(Class, Reason, []);
-                _ -> Result
-            end
-        end
-    ),
-    try
-        Test()
-    after
-        meck:unload(emqx_resource)
-    end.
 
 block_oauth2_token_endpoint(Path) ->
     TestPid = self(),

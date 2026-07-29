@@ -58,7 +58,7 @@ create_resource(
                 ?DEFAULT_RESOURCE_OPTS(Type)
             ),
         ok =
-            start_created_resource(
+            remove_resource_on_exception(
                 ResourceId,
                 fun() -> start_resource_if_enabled(State) end
             )
@@ -120,9 +120,9 @@ handle_start_resource_error(ResourceId, Reason, Type) ->
     }),
     ok.
 
-start_created_resource(ResourceId, Start) ->
+remove_resource_on_exception(ResourceId, Operation) ->
     try
-        Start()
+        Operation()
     catch
         Class:Reason:Stacktrace ->
             _ = cleanup_created_resource(ResourceId),

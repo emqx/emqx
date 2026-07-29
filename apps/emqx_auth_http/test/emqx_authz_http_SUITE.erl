@@ -917,8 +917,10 @@ t_oauth2_start_timeout_keeps_source(TCConfig) ->
 
 t_oauth2_start_exception_removes_resource(TCConfig) ->
     BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
-    Error = with_mocked_resource_start(
-        {raise, error, start_failed},
+    Error = emqx_common_test_helpers:with_mock(
+        emqx_resource,
+        start,
+        fun(_) -> error(start_failed) end,
         fun() ->
             emqx_authz_test_lib:setup_config(
                 raw_http_authz_config(TCConfig),
@@ -959,24 +961,6 @@ setup_handler_and_config(Handler, Config) ->
         raw_http_authz_config(),
         Config
     ).
-
-with_mocked_resource_start(Result, Test) ->
-    meck:new(emqx_resource, [passthrough, no_link]),
-    meck:expect(
-        emqx_resource,
-        start,
-        fun(_) ->
-            case Result of
-                {raise, Class, Reason} -> erlang:raise(Class, Reason, []);
-                _ -> Result
-            end
-        end
-    ),
-    try
-        Test()
-    after
-        meck:unload(emqx_resource)
-    end.
 
 block_oauth2_token_endpoint(Path) ->
     TestPid = self(),
