@@ -770,16 +770,32 @@ maybe_read_source_files(Source) ->
             Source
     end.
 
-maybe_write_certs(#{<<"type">> := Type, <<"ssl">> := SSL = #{}} = Source) ->
-    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(ssl_file_path(Type), SSL) of
+maybe_write_certs(#{<<"type">> := Type} = Source0) ->
+    CertsDir = ssl_file_path(Type),
+    Source = write_ssl_files(CertsDir, Source0),
+    case maps:get(<<"oauth2">>, Source, undefined) of
+        OAuth2 when is_map(OAuth2) ->
+            NewOAuth2 = write_ssl_files(
+                filename:join(CertsDir, "oauth2"),
+                emqx_auth_utils:sanitize_oauth2_ssl(OAuth2)
+            ),
+            Source#{<<"oauth2">> := NewOAuth2};
+        _ ->
+            Source
+    end;
+maybe_write_certs(#{} = Source) ->
+    Source.
+
+write_ssl_files(CertsDir, #{<<"ssl">> := SSL = #{}} = Config) ->
+    case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(CertsDir, SSL) of
         {ok, NSSL} ->
-            Source#{<<"ssl">> => NSSL};
+            Config#{<<"ssl">> => NSSL};
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
             throw({bad_ssl_config, Reason})
     end;
-maybe_write_certs(#{} = Source) ->
-    Source.
+write_ssl_files(_CertsDir, Config) ->
+    Config.
 
 ssl_file_path(Type) ->
     filename:join(["authz", Type]).

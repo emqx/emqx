@@ -123,23 +123,23 @@ send_to_leader(ToLeader, Msg) when ?is_local_leader(ToLeader) ->
     ok;
 send_to_leader(ToLeader, ?borrower_connect_match(FromBorrowerId, ShareTopicFilter)) ->
     emqx_ds_shared_sub_proto_v3:borrower_connect(
-        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId, ShareTopicFilter
+        ?leader_node(ToLeader), ToLeader, FromBorrowerId, ShareTopicFilter
     );
 send_to_leader(ToLeader, ?borrower_ping_match(FromBorrowerId)) ->
     emqx_ds_shared_sub_proto_v3:borrower_ping(
-        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId
+        ?leader_node(ToLeader), ToLeader, FromBorrowerId
     );
 send_to_leader(ToLeader, ?borrower_disconnect_match(FromBorrowerId, StreamProgresses)) ->
     emqx_ds_shared_sub_proto_v3:borrower_disconnect(
-        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId, StreamProgresses
+        ?leader_node(ToLeader), ToLeader, FromBorrowerId, StreamProgresses
     );
 send_to_leader(ToLeader, ?borrower_update_progress_match(FromBorrowerId, StreamProgress)) ->
     emqx_ds_shared_sub_proto_v3:borrower_update_progress(
-        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId, StreamProgress
+        ?leader_node(ToLeader), ToLeader, FromBorrowerId, StreamProgress
     );
 send_to_leader(ToLeader, ?borrower_revoke_finished_match(FromBorrowerId, Stream)) ->
     emqx_ds_shared_sub_proto_v3:borrower_revoke_finished(
-        ?borrower_node(FromBorrowerId), ToLeader, FromBorrowerId, Stream
+        ?leader_node(ToLeader), ToLeader, FromBorrowerId, Stream
     ).
 
 -spec send_to_borrower(borrower_id(), to_borrower_msg()) -> ok.

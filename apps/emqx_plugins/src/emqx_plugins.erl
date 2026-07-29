@@ -56,6 +56,8 @@
 -export([
     ensure_started/0,
     ensure_started/1,
+    ensure_start_package/1,
+    validate_start/1,
     ensure_stopped/0,
     ensure_stopped/1,
     restart/1,
@@ -489,6 +491,19 @@ ensure_started(NameVsn) ->
             {error, Reason}
     end.
 
+%% @doc Ensure that a plugin package is available and extracted locally.
+-spec ensure_start_package(name_vsn()) -> ok | {error, term()}.
+ensure_start_package(NameVsn) ->
+    ?CATCH(do_ensure_start_package(NameVsn)).
+
+%% @doc Validate that a plugin can be started without changing runtime state.
+%% The returned status is a rollback hint only.  Validation and start are not
+%% atomic with concurrent lifecycle or configuration operations, so
+%% `ensure_started/1' must validate the current local configuration again.
+-spec validate_start(name_vsn()) -> {ok, running | not_running} | {error, term()}.
+validate_start(NameVsn) ->
+    ?CATCH(do_validate_start(NameVsn)).
+
 %% @doc Stop all plugins before broker stops.
 -spec ensure_stopped() -> ok.
 ensure_stopped() ->
@@ -542,9 +557,10 @@ update_config(NameVsn, Config) ->
 
 %% @doc Stop and then start the plugin.
 restart(NameVsn) ->
-    case ensure_stopped(NameVsn) of
-        ok -> ensure_started(NameVsn);
-        {error, Reason} -> {error, Reason}
+    maybe
+        {ok, _RunningStatus} ?= validate_start(NameVsn),
+        ok ?= ensure_stopped(NameVsn),
+        ensure_started(NameVsn)
     end.
 
 %% @doc Return Name-Vsn list of currently running plugins.
@@ -670,13 +686,13 @@ normalize_headers(_) ->
 %%--------------------------------------------------------------------
 %% Package utils
 
--spec decode_plugin_config_map(name_vsn(), map() | binary()) ->
+-spec decode_plugin_config_map(name_vsn(), emqx_utils_json:json_term()) ->
     {ok, map() | ?plugin_without_config_schema}
     | {error, term()}.
-decode_plugin_config_map(NameVsn, AvroJsonMap) ->
+decode_plugin_config_map(NameVsn, AvroJson) ->
     case has_avsc(NameVsn) of
         true ->
-            case emqx_plugins_serde:decode(NameVsn, ensure_config_bin(AvroJsonMap)) of
+            case emqx_plugins_serde:decode(NameVsn, ensure_config_bin(AvroJson)) of
                 {ok, Config} ->
                     {ok, Config};
                 {error, #{reason := plugin_serde_not_found}} ->
@@ -803,13 +819,118 @@ do_ensure_started(NameVsn) ->
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
         ok ?= maybe_initialize_cached_config(NameVsn),
-        {ok, _} ?= validated_local_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
+        {ok, Schema} ?= read_start_schema(NameVsn, Plugin),
+        {ok, _ConfigSource, _Config} ?= resolve_and_validate_start_config(NameVsn, Schema),
         ok ?= emqx_plugins_apps:start(Plugin)
     else
         {error, Reason} ->
             {error, Reason}
     end.
+
+do_ensure_start_package(NameVsn) ->
+    case emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end) of
+        {error, #{reason := plugin_tarball_not_found}} ->
+            maybe
+                ok ?= get_from_cluster(NameVsn),
+                emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
+            end;
+        Result ->
+            Result
+    end.
+
+do_validate_start(NameVsn) ->
+    maybe
+        ok ?= validate_no_other_version_running(NameVsn),
+        {ok, Plugin} ?=
+            emqx_plugins_info:read(
+                NameVsn,
+                #{fill_readme => false, health_check => false}
+            ),
+        ok ?= emqx_plugins_apps:validate(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
+        {ok, Schema} ?= read_start_schema(NameVsn, Plugin),
+        {ok, _ConfigSource, _Config} ?= resolve_and_validate_start_config(NameVsn, Schema),
+        {ok, start_validation_status(Plugin)}
+    else
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+start_validation_status(#{running_status := running}) ->
+    running;
+start_validation_status(_Plugin) ->
+    not_running.
+
+read_start_schema(_NameVsn, #{with_config_schema := false}) ->
+    {ok, no_schema};
+read_start_schema(NameVsn, #{with_config_schema := true}) ->
+    emqx_plugins_fs:read_avsc_bin(NameVsn);
+read_start_schema(_NameVsn, _Plugin) ->
+    {ok, no_schema}.
+
+read_start_config(NameVsn) ->
+    case emqx_plugins_local_config:read(NameVsn) of
+        {ok, Config} ->
+            {ok, local, Config};
+        {error, #{reason := {enoent, _}}} ->
+            read_start_config_without_local_file(NameVsn);
+        {error, #{msg := "bad_hocon_file"} = Reason} ->
+            {error, invalid_plugin_config_error(NameVsn, Reason)};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+read_start_config_without_local_file(NameVsn) ->
+    case get_cached_config(NameVsn, ?plugin_conf_not_found) of
+        ?plugin_conf_not_found ->
+            case emqx_plugins_fs:read_default_hocon(NameVsn) of
+                {ok, Config} ->
+                    {ok, default, Config};
+                {error, #{reason := {enoent, _}}} ->
+                    {ok, empty, #{}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        Config ->
+            {ok, cached, Config}
+    end.
+
+resolve_and_validate_start_config(NameVsn, Schema) ->
+    maybe
+        {ok, ConfigSource, Config} ?= read_start_config(NameVsn),
+        ok ?= validate_start_config(NameVsn, Schema, ConfigSource, Config),
+        {ok, ConfigSource, Config}
+    end.
+
+validate_start_config(_NameVsn, _Schema, empty, _Config) ->
+    %% A missing config is valid for plugins that intentionally do not ship one.
+    ok;
+validate_start_config(_NameVsn, no_schema, _ConfigSource, _Config) ->
+    ok;
+validate_start_config(NameVsn, AvscBin, _ConfigSource, Config) ->
+    case emqx_plugins_serde:decode(NameVsn, AvscBin, ensure_config_bin(Config)) of
+        {ok, _} ->
+            ok;
+        {error, #{reason := bad_schema} = Reason} ->
+            {error, #{
+                kind => invalid_package,
+                msg => "invalid_plugin_config_schema",
+                name_vsn => bin(NameVsn),
+                reason => Reason,
+                hint => "Reinstall a plugin package with a valid config schema and retry"
+            }};
+        {error, Reason} ->
+            {error, invalid_plugin_config_error(NameVsn, Reason)}
+    end.
+
+invalid_plugin_config_error(NameVsn, Reason) ->
+    #{
+        kind => invalid_config,
+        msg => "invalid_plugin_config",
+        name_vsn => bin(NameVsn),
+        reason => Reason,
+        hint => "Fix the plugin configuration on this node and retry"
+    }.
 
 log_start_error(Reason) ->
     ?SLOG(error, #{
@@ -1157,6 +1278,32 @@ latest_enabled_versions(Configured) ->
 ensure_no_other_version_active(NameVsn0) ->
     ensure_no_other_version_active(conflicting_versions(NameVsn0), NameVsn0).
 
+validate_no_other_version_running(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    RunningOtherVersions = lists:filtermap(
+        fun
+            (#{name := PluginName, rel_vsn := Vsn, running_status := running}) ->
+                OtherNameVsn = name_vsn(PluginName, Vsn),
+                case OtherNameVsn =/= NameVsn of
+                    true -> {true, OtherNameVsn};
+                    false -> false
+                end;
+            (_) ->
+                false
+        end,
+        conflicting_versions(NameVsn)
+    ),
+    case RunningOtherVersions of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, #{
+                kind => conflicting_version,
+                msg => "conflicting_plugin_version_running",
+                active_versions => RunningOtherVersions
+            }}
+    end.
+
 conflicting_versions(NameVsn0) ->
     NameVsn = bin(NameVsn0),
     Name = emqx_plugins_utils:plugin_name(NameVsn),
@@ -1209,6 +1356,7 @@ ensure_no_other_version_active(Plugins, NameVsn0) ->
             unload_other_versions(LoadedOtherVersions);
         [_ | _] ->
             {error, #{
+                kind => conflicting_version,
                 msg => "conflicting_plugin_version_running",
                 active_versions => lists:reverse(RunningOtherVersions)
             }}
@@ -1399,7 +1547,9 @@ delete_cached_config(NameVsn) ->
 ensure_config_bin(AvroJsonMap) when is_map(AvroJsonMap) ->
     emqx_utils_json:encode(AvroJsonMap);
 ensure_config_bin(AvroJsonBin) when is_binary(AvroJsonBin) ->
-    AvroJsonBin.
+    AvroJsonBin;
+ensure_config_bin(AvroJson) ->
+    emqx_utils_json:encode(AvroJson).
 
 bin_key(Map) when is_map(Map) ->
     maps:fold(fun(K, V, Acc) -> Acc#{bin(K) => V} end, #{}, Map);

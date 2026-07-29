@@ -68,7 +68,11 @@ init_per_testcase(TestCase, Config) when
     AuthHeader = ?ON(N1, emqx_mgmt_api_test_util:auth_header_()),
     put(?AUTH_HEADER_PD_KEY, AuthHeader),
     [{cluster, Cluster} | Config];
-init_per_testcase(t_namespaced_metrics = TestCase, Config) ->
+init_per_testcase(TestCase, Config) when
+    TestCase == t_namespaced_metrics;
+    TestCase == t_delete_ns_purges_builtin_auth_data;
+    TestCase == t_purge_ns_cli
+->
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -1615,6 +1619,107 @@ t_namespaced_authz(_TCConfig) ->
         emqtt:publish(C1, TopicPub1, <<"hi">>, [{qos, 1}])
     ),
 
+    ok.
+
+-doc """
+Tests that deleting a namespace also purges its built-in database authentication users
+and authorization rules, so a later namespace with the same name starts empty.
+
+See https://github.com/emqx/emqx/issues/17816.
+""".
+t_delete_ns_purges_builtin_auth_data(_TCConfig) ->
+    GlobalAdminHeader = emqx_dashboard_admin_SUITE:create_superuser(),
+    emqx_authn_api_mnesia_SUITE:put_auth_header(GlobalAdminHeader),
+    emqx_authz_api_mnesia_SUITE:put_auth_header(GlobalAdminHeader),
+    Ns = <<"tns">>,
+    {204, _} = create_managed_ns(Ns),
+
+    {201, _} = emqx_authn_api_mnesia_SUITE:add_user(
+        #{<<"user_id">> => <<"u1">>, <<"password">> => <<"passwd">>},
+        #{<<"ns">> => Ns}
+    ),
+    {204, _} = emqx_authz_api_mnesia_SUITE:create_all_rules(
+        #{
+            <<"rules">> => [
+                #{
+                    <<"topic">> => <<"t">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"action">> => <<"publish">>
+                }
+            ]
+        },
+        #{<<"ns">> => Ns}
+    ),
+    ?assertMatch(
+        {200, #{<<"data">> := [_]}},
+        emqx_authn_api_mnesia_SUITE:list_users(#{<<"ns">> => Ns})
+    ),
+    ?assertMatch(
+        {200, #{<<"rules">> := [_]}},
+        emqx_authz_api_mnesia_SUITE:get_all_rules(#{<<"ns">> => Ns})
+    ),
+
+    {204, _} = delete_ns(Ns),
+    ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Ns))),
+    {204, _} = create_managed_ns(Ns),
+
+    ?assertMatch(
+        {200, #{<<"data">> := []}},
+        emqx_authn_api_mnesia_SUITE:list_users(#{<<"ns">> => Ns})
+    ),
+    ?assertMatch(
+        {200, #{<<"rules">> := []}},
+        emqx_authz_api_mnesia_SUITE:get_all_rules(#{<<"ns">> => Ns})
+    ),
+    ok.
+
+-doc """
+Tests the `emqx ctl mt purge_ns` command: it deletes the namespace and purges all of its
+data regardless of the namespace's current state, and is idempotent.
+""".
+t_purge_ns_cli(_TCConfig) ->
+    GlobalAdminHeader = emqx_dashboard_admin_SUITE:create_superuser(),
+    emqx_authn_api_mnesia_SUITE:put_auth_header(GlobalAdminHeader),
+    emqx_authz_api_mnesia_SUITE:put_auth_header(GlobalAdminHeader),
+    Ns = <<"tns">>,
+    {204, _} = create_managed_ns(Ns),
+
+    {201, _} = emqx_authn_api_mnesia_SUITE:add_user(
+        #{<<"user_id">> => <<"u1">>, <<"password">> => <<"passwd">>},
+        #{<<"ns">> => Ns}
+    ),
+    {204, _} = emqx_authz_api_mnesia_SUITE:create_all_rules(
+        #{
+            <<"rules">> => [
+                #{
+                    <<"topic">> => <<"t">>,
+                    <<"permission">> => <<"allow">>,
+                    <<"action">> => <<"publish">>
+                }
+            ]
+        },
+        #{<<"ns">> => Ns}
+    ),
+
+    %% Purge without deleting the namespace first.
+    ok = emqx_mt_cli:mt(["purge_ns", binary_to_list(Ns)]),
+    ?assertMatch({404, _}, get_managed_ns_config(Ns)),
+
+    %% Cleanup is synchronous: the namespace can be recreated immediately, and starts
+    %% empty.
+    {204, _} = create_managed_ns(Ns),
+    ?assertMatch(
+        {200, #{<<"data">> := []}},
+        emqx_authn_api_mnesia_SUITE:list_users(#{<<"ns">> => Ns})
+    ),
+    ?assertMatch(
+        {200, #{<<"rules">> := []}},
+        emqx_authz_api_mnesia_SUITE:get_all_rules(#{<<"ns">> => Ns})
+    ),
+
+    %% Idempotent: purging repeatedly, including a nonexistent namespace, succeeds.
+    ok = emqx_mt_cli:mt(["purge_ns", binary_to_list(Ns)]),
+    ok = emqx_mt_cli:mt(["purge_ns", binary_to_list(Ns)]),
     ok.
 
 -doc """

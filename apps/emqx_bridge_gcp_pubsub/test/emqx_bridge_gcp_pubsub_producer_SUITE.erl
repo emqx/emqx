@@ -2327,3 +2327,83 @@ t_wif_auth_optional_audience(TCConfig) when is_list(TCConfig) ->
         })
     ),
     ok.
+
+path_recording_handler() ->
+    fun(Req0, State) ->
+        Method = cowboy_req:method(Req0),
+        Path = cowboy_req:path(Req0),
+        {ok, _Body, Req} = cowboy_req:read_body(Req0),
+        test_pid() ! {http_request, Method, Path},
+        Rep = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            emqx_utils_json:encode(#{messageIds => [<<"6058891368195201">>]}),
+            Req
+        ),
+        {ok, Rep, State}
+    end.
+
+receive_request_method_and_path() ->
+    receive
+        {http_request, Method, Path} ->
+            {Method, Path}
+    after 10_000 ->
+        {messages, Mailbox} = process_info(self(), messages),
+        error({timeout_waiting_for_http_request, #{mailbox => Mailbox}})
+    end.
+
+t_bare_topic_paths() ->
+    [{matrix, true}].
+-doc """
+Verifies that a bare topic name is resolved against the service account's own project
+when building the topic existence check and publish paths.
+""".
+t_bare_topic_paths(matrix) ->
+    [[?mocked_gcp]];
+t_bare_topic_paths(TCConfig) ->
+    ok = emqx_bridge_http_connector_test_server:set_handler(path_recording_handler()),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{<<"pubsub_topic">> => <<"my-plain-topic">>}
+        }),
+    ?assertEqual(
+        {<<"GET">>, <<"/v1/projects/myproject/topics/my-plain-topic">>},
+        receive_request_method_and_path()
+    ),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    emqx:publish(emqx_message:make(RuleTopic, <<"payload">>)),
+    ?assertEqual(
+        {<<"POST">>, <<"/v1/projects/myproject/topics/my-plain-topic:publish">>},
+        receive_request_method_and_path()
+    ),
+    ok.
+
+t_cross_project_topic_paths() ->
+    [{matrix, true}].
+-doc """
+Verifies that a fully-qualified `projects/<project-id>/topics/<topic-name>` topic is
+published to (and health-checked against) the project from the topic path rather than
+the service account's own project.
+""".
+t_cross_project_topic_paths(matrix) ->
+    [[?mocked_gcp]];
+t_cross_project_topic_paths(TCConfig) ->
+    ok = emqx_bridge_http_connector_test_server:set_handler(path_recording_handler()),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_action_api(TCConfig, #{
+            <<"parameters">> =>
+                #{<<"pubsub_topic">> => <<"projects/other-project/topics/other-topic">>}
+        }),
+    ?assertEqual(
+        {<<"GET">>, <<"/v1/projects/other-project/topics/other-topic">>},
+        receive_request_method_and_path()
+    ),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    emqx:publish(emqx_message:make(RuleTopic, <<"payload">>)),
+    ?assertEqual(
+        {<<"POST">>, <<"/v1/projects/other-project/topics/other-topic:publish">>},
+        receive_request_method_and_path()
+    ),
+    ok.

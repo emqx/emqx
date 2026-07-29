@@ -128,7 +128,14 @@ read_hocon(NameVsn) ->
 -spec read_default_hocon(name_vsn()) -> {ok, map()} | {error, term()}.
 read_default_hocon(NameVsn) ->
     HoconFilePath = default_config_file_path(NameVsn),
-    read_file_map(HoconFilePath, "bad_default_hocon_file").
+    case read_file_map(HoconFilePath, "bad_default_hocon_file") of
+        {error, Error} ->
+            {error, Error#{
+                kind => invalid_package
+            }};
+        Result ->
+            Result
+    end.
 
 %% List all installed plugins
 
