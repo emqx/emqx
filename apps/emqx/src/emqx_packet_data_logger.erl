@@ -25,9 +25,16 @@ add_raw_packet_data(Log, Key, Data, hex) ->
     Log#{Key => binary_to_list(binary:encode_hex(Data)), type => "hex"}.
 
 add_redacted_packet_data(Log, Key, raw) ->
-    Log#{Key => ?REDACTED};
+    RedactedLog = redact_received_prefix(Log),
+    RedactedLog#{Key => ?REDACTED};
 add_redacted_packet_data(Log, Key, hex) ->
-    Log#{Key => ?REDACTED, type => "hidden"}.
+    RedactedLog = redact_received_prefix(Log),
+    RedactedLog#{Key => ?REDACTED, type => "hidden"}.
+
+redact_received_prefix(#{reason := #{received_prefix := _} = Reason} = Log) ->
+    Log#{reason := Reason#{received_prefix := ?REDACTED, received_prefix_encoding => hidden}};
+redact_received_prefix(Log) ->
+    Log.
 
 is_allowed(Channel) ->
     ClientInfo = emqx_channel:info(clientinfo, Channel),
