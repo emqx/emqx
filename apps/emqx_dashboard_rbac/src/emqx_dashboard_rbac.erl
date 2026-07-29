@@ -92,9 +92,14 @@ check_login_user_scopes_strict(Username, Path) ->
     %% full catalog and viewers implicitly hold the common scopes.
     %% Explicit [] is honoured as "no permissions".
     Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
-    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
-        undefined -> true;
-        PathScope -> lists:member(PathScope, Scopes)
+    case emqx_mgmt_api_key_scopes:classify_path(Path) of
+        %% Explicitly public endpoint — allow regardless of scopes.
+        public -> true;
+        %% Path maps to no known scope: fail closed rather than open, so
+        %% a catalog gap cannot silently grant a scope-restricted user
+        %% access to an unmapped management endpoint.
+        not_found -> false;
+        {scope, PathScope} -> lists:member(PathScope, Scopes)
     end.
 
 %% Whitelist of self-service paths that may skip the login-user
