@@ -777,7 +777,10 @@ maybe_write_certs(#{<<"type">> := Type} = Source0) ->
     Source = write_ssl_files(CertsDir, Source0),
     case maps:get(<<"oauth2">>, Source, undefined) of
         OAuth2 when is_map(OAuth2) ->
-            NewOAuth2 = write_ssl_files(filename:join(CertsDir, "oauth2"), OAuth2),
+            NewOAuth2 = write_ssl_files(
+                filename:join(CertsDir, "oauth2"),
+                emqx_auth_utils:sanitize_oauth2_ssl(OAuth2)
+            ),
             Source#{<<"oauth2">> := NewOAuth2};
         _ ->
             Source
