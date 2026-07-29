@@ -329,6 +329,24 @@ fields("cluster") ->
                 }
             )},
         {"description", emqx_schema:description_schema()},
+        {"quorum",
+            sc(
+                pos_integer(),
+                #{
+                    default => 1,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "classy.quorum"
+                }
+            )},
+        {"classy_sync_timeout",
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"1s">>,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "classy.sync_timeout"
+                }
+            )},
         {"discovery_strategy",
             sc(
                 hoconsc:enum([manual, static, singleton, dns, etcd, k8s]),
@@ -340,11 +358,20 @@ fields("cluster") ->
             )},
         {"autoclean",
             sc(
-                emqx_schema:duration_s(),
+                hoconsc:union([emqx_schema:duration_s(), infinity]),
                 #{
-                    mapping => "mria.cluster_autoclean",
+                    mapping => "classy.max_site_downtime",
                     default => <<"24h">>,
                     desc => ?DESC(cluster_autoclean)
+                }
+            )},
+        {"classy_forget_after",
+            sc(
+                emqx_schema:duration_s(),
+                #{
+                    mapping => "classy.forget_after",
+                    default => <<"1w">>,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"autoheal",
