@@ -116,7 +116,7 @@ on_client_authenticate(ClientInfo, AuthResult) ->
             ignore
     end.
 
-on_client_authorize(ClientInfo, Action, Topic, Result) ->
+on_client_authorize(AuthzContext, Action, Topic, Result) ->
     Bool = maps:get(result, Result, deny) == allow,
     %% TODO: Support full action in major release
     Type =
@@ -125,7 +125,9 @@ on_client_authorize(ClientInfo, Action, Topic, Result) ->
             ?authz_action(subscribe) -> 'SUBSCRIBE'
         end,
     Req = #{
-        clientinfo => clientinfo(ClientInfo),
+        %% Keep the protobuf ClientInfo type for compatibility. This value comes from
+        %% AuthzContext and does not contain the password in hardened mode.
+        clientinfo => clientinfo(AuthzContext),
         type => Type,
         topic => emqx_topic:get_shared_real_topic(Topic),
         result => Bool
