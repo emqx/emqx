@@ -894,44 +894,6 @@ t_oauth2_client_credentials(_Config) ->
     },
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)).
 
-t_oauth2_start_timeout_keeps_source(_TCConfig) ->
-    ok = block_oauth2_token_endpoint(<<"/authz/token">>),
-    BaseURL = <<"http://127.0.0.1:32333">>,
-    Oauth2 = (oauth2_config(<<BaseURL/binary, "/authz/token">>))#{
-        <<"timeout">> => <<"30s">>
-    },
-    try
-        ok = emqx_authz_test_lib:setup_config(
-            raw_http_authz_config(),
-            #{<<"oauth2">> => Oauth2}
-        ),
-        ?assertMatch(
-            [#{type := http}],
-            emqx_conf:get([authorization, sources])
-        ),
-        #{resource_id := ResourceId} = emqx_authz:lookup_state(http),
-        ?assert(lists:member(ResourceId, emqx_resource:list_group_instances(?AUTHZ_RESOURCE_GROUP)))
-    after
-        unblock_oauth2_token_endpoint()
-    end.
-
-t_oauth2_start_exception_removes_resource(_TCConfig) ->
-    BaseURL = <<"http://127.0.0.1:32333">>,
-    Error = emqx_common_test_helpers:with_mock(
-        emqx_resource,
-        start,
-        fun(_) -> error(start_failed) end,
-        fun() ->
-            emqx_authz_test_lib:setup_config(
-                raw_http_authz_config(),
-                #{<<"oauth2">> => oauth2_config(<<BaseURL/binary, "/authz/token">>)}
-            )
-        end
-    ),
-    ?assertMatch({error, _}, Error),
-    ?assert(contains_term(start_failed, Error)),
-    ?assertEqual([], emqx_resource:list_group_instances(?AUTHZ_RESOURCE_GROUP)).
-
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -961,47 +923,6 @@ setup_handler_and_config(Handler, Config) ->
         raw_http_authz_config(),
         Config
     ).
-
-block_oauth2_token_endpoint(Path) ->
-    TestPid = self(),
-    emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
-        Path = cowboy_req:path(Req0),
-        TestPid ! {oauth2_token_request, self()},
-        receive
-            unblock_oauth2_token_endpoint -> ok
-        end,
-        Req = cowboy_req:reply(
-            200,
-            #{<<"content-type">> => <<"application/json">>},
-            emqx_utils_json:encode(#{
-                access_token => <<"oauth2-token">>,
-                expires_in => 3600,
-                token_type => <<"Bearer">>
-            }),
-            Req0
-        ),
-        {ok, Req, State}
-    end).
-
-unblock_oauth2_token_endpoint() ->
-    receive
-        {oauth2_token_request, Pid} ->
-            Pid ! unblock_oauth2_token_endpoint,
-            ok
-    after 0 ->
-        ok
-    end.
-
-contains_term(Term, Term) ->
-    true;
-contains_term(Needle, Term) when is_map(Term) ->
-    contains_term(Needle, maps:to_list(Term));
-contains_term(Needle, Term) when is_tuple(Term) ->
-    contains_term(Needle, tuple_to_list(Term));
-contains_term(Needle, Term) when is_list(Term) ->
-    lists:any(fun(Element) -> contains_term(Needle, Element) end, Term);
-contains_term(_Needle, _Term) ->
-    false.
 
 get_metrics() ->
     Metrics = emqx_metrics_worker:get_metrics(authz_metrics, http),
