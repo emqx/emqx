@@ -8,6 +8,8 @@
         {load_module, emqx_mgmt_data_backup},
         {load_module, emqx_mgmt_data_backup_proto_v2},
         {load_module, emqx_mgmt_api_data_backup},
+        {load_module, emqx_mgmt_api},
+        {load_module, emqx_mgmt_api_subscriptions},
         {load_module, emqx_plugins_apps},
         {load_module, emqx_plugins_fs},
         {load_module, emqx_plugins_serde},

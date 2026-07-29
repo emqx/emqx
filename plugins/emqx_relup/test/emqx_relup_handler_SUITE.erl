@@ -205,6 +205,20 @@ t_5105_catalog_reloads_and_restarts_dynamo_connectors(_Config) ->
     ),
     ?assert(lists:member(RestartDynamo, CodeChanges)).
 
+-doc """
+The 5.10.4 -> 5.10.5 hop reloads the generic management query module before the subscriptions
+API module that enables target-node accumulation.
+""".
+t_5105_catalog_reloads_subscription_query_modules_in_order(_Config) ->
+    {Valid, _Errors} = emqx_relup_handler:validate_priv_catalog(),
+    #{code_changes := CodeChanges} = find_relup_entry("5.10.4", "5.10.5", Valid),
+    LoadMgmtAPI = {load_module, emqx_mgmt_api},
+    LoadSubscriptionsAPI = {load_module, emqx_mgmt_api_subscriptions},
+    StopRedis = {apply, emqx_relup_eredis_upgrade, stop_redis_resources, []},
+    ?assert(is_before({load_module, emqx_release}, LoadMgmtAPI, CodeChanges)),
+    ?assert(is_before(LoadMgmtAPI, LoadSubscriptionsAPI, CodeChanges)),
+    ?assert(is_before(LoadSubscriptionsAPI, StopRedis, CodeChanges)).
+
 %%==============================================================================
 %% Helpers
 %%==============================================================================
