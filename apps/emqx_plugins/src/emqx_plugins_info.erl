@@ -83,7 +83,7 @@ populate_plugin_readme(_NameVsn, _Options, Info) ->
     Info.
 
 populate_plugin_status(NameVsn, Info) ->
-    RunningSt = emqx_plugins_apps:running_status(NameVsn),
+    RunningSt = emqx_plugins_apps:running_status(Info),
     Configured = lists:filtermap(
         fun(#{name_vsn := Nv, enable := St}) ->
             case bin(Nv) =:= bin(NameVsn) of

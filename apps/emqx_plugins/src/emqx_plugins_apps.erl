@@ -30,12 +30,17 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec running_status(name_vsn()) -> running | loaded | stopped.
-running_status(NameVsn) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+-spec running_status(name_vsn() | emqx_plugins_info:t()) -> running | loaded | stopped.
+running_status(#{name := PluginName, rel_apps := Apps}) ->
+    {AppName, AppVsn} = primary_app_name_vsn(PluginName, Apps),
     RunningApps = running_apps(),
     LoadedApps = loaded_apps(),
-    app_running_status(AppName, RunningApps, LoadedApps).
+    app_running_status(AppName, AppVsn, RunningApps, LoadedApps);
+running_status(NameVsn) ->
+    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    RunningApps = running_apps(),
+    LoadedApps = loaded_apps(),
+    app_running_status(AppName, AppVsn, RunningApps, LoadedApps).
 
 -spec start(emqx_plugins_info:t()) -> ok | {error, term()}.
 start(#{rel_apps := Apps}) ->
@@ -164,15 +169,26 @@ apply_callback(NameVsn, {FuncName, Arity}, Args) ->
             ok
     end.
 
-app_running_status(AppName, RunningApps, LoadedApps) ->
+app_running_status(AppName, AppVsn, RunningApps, LoadedApps) ->
     case lists:keyfind(AppName, 1, LoadedApps) of
-        {AppName, _} ->
-            case lists:keyfind(AppName, 1, RunningApps) of
-                {AppName, _} -> running;
-                false -> loaded
+        {AppName, LoadedVsn} ->
+            case same_app_vsn(AppVsn, LoadedVsn) of
+                true -> loaded_app_status(AppName, AppVsn, RunningApps);
+                false -> stopped
             end;
         false ->
             stopped
+    end.
+
+loaded_app_status(AppName, AppVsn, RunningApps) ->
+    case lists:keyfind(AppName, 1, RunningApps) of
+        {AppName, RunningVsn} ->
+            case same_app_vsn(AppVsn, RunningVsn) of
+                true -> running;
+                false -> loaded
+            end;
+        _ ->
+            loaded
     end.
 
 validate_plugin_app(_AppNameVsn, _LibDir, Error) when Error =/= ok ->
@@ -399,7 +415,7 @@ unload_apps([], _RunningApps, _LoadedApps) ->
     ok;
 unload_apps([App | Apps], RunningApps, LoadedApps) ->
     _ =
-        case app_running_status(App, RunningApps, LoadedApps) of
+        case app_running_status(App, undefined, RunningApps, LoadedApps) of
             running ->
                 ?SLOG(warning, #{msg => "emqx_plugins_cannot_unload_running_app", app => App});
             loaded ->
@@ -498,6 +514,24 @@ is_callback_exported(AppModule, FuncName, Arity) ->
         true -> ok;
         false -> {error, {callback_not_exported, AppModule, FuncName, Arity}}
     end.
+
+primary_app_name_vsn(PluginName, Apps) ->
+    PluginNameBin = bin(PluginName),
+    Pred = fun(AppNameVsn) ->
+        {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
+        bin(AppName) =:= PluginNameBin
+    end,
+    case lists:search(Pred, Apps) of
+        {value, PluginAppNameVsn} ->
+            emqx_plugins_utils:parse_name_vsn(PluginAppNameVsn);
+        false ->
+            emqx_plugins_utils:parse_name_vsn(hd(Apps))
+    end.
+
+same_app_vsn(undefined, _LoadedVsn) ->
+    true;
+same_app_vsn(AppVsn, LoadedVsn) ->
+    bin(AppVsn) =:= bin(LoadedVsn).
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);

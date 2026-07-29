@@ -1119,7 +1119,7 @@ conflicting_versions(NameVsn0) ->
                         {ok, Info0} ->
                             Info = emqx_utils_maps:safe_atom_key_map(Info0),
                             {true, Info#{
-                                running_status => emqx_plugins_apps:running_status(OtherNameVsn)
+                                running_status => emqx_plugins_apps:running_status(Info)
                             }};
                         {error, _} ->
                             false
