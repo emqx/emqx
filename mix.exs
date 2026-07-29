@@ -54,7 +54,7 @@ defmodule EMQXUmbrella.MixProject do
 
   Here, transitive dependencies from our app dependencies should be placed when there's a
   need to override them.  For example, since `jsone` is a dependency to `rocketmq` and to
-  `ekka`, which are both dependencies and not umbrella apps, we need to add the
+  `classy`, which are both dependencies and not umbrella apps, we need to add the
   override here.  Also, there are cases where adding `override: true` to the umbrella
   application dependency simply won't satisfy mix.  In such cases, it's fine to add it
   here.
