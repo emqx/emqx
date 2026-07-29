@@ -574,18 +574,33 @@ handle_msg({recv, Data}, State) ->
     handle_data(Data, false, State);
 handle_msg({recv_more, Data}, State) ->
     handle_data(Data, true, State);
+handle_msg({request_more_data, More}, State = #state{socket = Socket, sockstate = SS}) ->
+    case SS =/= closed of
+        true ->
+            request_more_data(Socket, More, State);
+        false ->
+            {ok, State}
+    end;
 handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     handle_incoming(Packet, State);
 handle_msg({outgoing, Packets}, State) ->
     case handle_outgoing(Packets, State) of
         {ok, NState} ->
-            maybe_signal_congestion(NState);
+            case maybe_signal_congestion(NState) of
+                {ok, FState} ->
+                    {ok, run_minor_gc, FState};
+                {ok, Msgs, FState} ->
+                    {ok, [Msgs, run_minor_gc], FState}
+            end;
         {ok, {sock_error, _}, _State} = Error ->
             Error
     end;
+handle_msg(run_minor_gc, State) ->
+    run_minor_gc(),
+    {ok, State};
 handle_msg(
-    Deliver = {deliver, _Topic, _Msg},
+    Deliver = #deliver{message = _Msg},
     #state{conf = #conf{active_n = ActiveN}} = State
 ) ->
     ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),
@@ -767,7 +782,6 @@ handle_data(
     Data,
     RequestMore,
     State0 = #state{
-        socket = Socket,
         sockstate = SS,
         thresholds = T0,
         channel = Channel
@@ -787,41 +801,36 @@ handle_data(
         gc_packets = dec_threshold(T0#thresholds.gc_packets, N)
     },
     State = trigger_gc(State1#state{thresholds = Thresholds}),
-    Msgs = next_incoming_msgs(Packets),
-    case RequestMore of
-        false ->
-            {ok, Msgs, State};
-        true when SS =/= closed ->
-            request_more_data(Socket, More, Msgs, State);
-        _ ->
-            {ok, Msgs, State}
-    end.
+    NeedMore = RequestMore andalso SS =/= closed,
+    Tail = [run_minor_gc || N > 0] ++ [{request_more_data, More} || NeedMore],
+    Msgs = next_incoming_msgs(Tail, Packets),
+    {ok, Msgs, State}.
 
 %% Dialyzer warns that {error, {closed, DataMore}} can never match, but this pattern
 %% can occur at runtime in OTP 27 or under certain error conditions where the socket
 %% closes with data available. We keep this clause for backward compatibility.
--dialyzer({nowarn_function, request_more_data/4}).
--compile({inline, [request_more_data/4]}).
-request_more_data(Socket, More, Acc, State) ->
+-dialyzer({nowarn_function, request_more_data/3}).
+-compile({inline, [request_more_data/3]}).
+request_more_data(Socket, More, State) ->
     %% TODO: `{otp, select_read}`.
     case sock_async_recv(Socket, More) of
         {ok, DataMore} ->
-            {ok, [Acc, {recv_more, DataMore}], State};
+            {ok, {recv_more, DataMore}, State};
         {select, {_Info, DataMore}} ->
-            {ok, [Acc, {recv, DataMore}], State};
+            {ok, {recv, DataMore}, State};
         {select, _Info} ->
-            {ok, Acc, State};
+            {ok, State};
         {error, {closed, DataMore}} ->
             %% This is dead code starting from OTP 28
             NState = socket_closed(State),
-            {ok, [Acc, {recv, DataMore}, {sock_closed, tcp_closed}], NState};
+            {ok, [{recv, DataMore}, {sock_closed, tcp_closed}], NState};
         {error, closed} ->
             NState = socket_closed(State),
-            {ok, [Acc, {sock_closed, tcp_closed}], NState};
+            {ok, {sock_closed, tcp_closed}, NState};
         {error, {Reason, DataMore}} ->
-            {ok, [Acc, {recv, DataMore}, {sock_error, Reason}], State};
+            {ok, [{recv, DataMore}, {sock_error, Reason}], State};
         {error, Reason} ->
-            {ok, [Acc, {sock_error, Reason}], State}
+            {ok, {sock_error, Reason}, State}
     end.
 
 %% Dialyzer warns that {error, {closed, Data}} can never match, but this pattern
@@ -840,7 +849,7 @@ handle_data_ready(Socket, State) ->
         {ok, Data} ->
             handle_data(Data, true, State);
         {select, {_Info, Data}} ->
-            handle_data(Data, true, State);
+            handle_data(Data, false, State);
         {select, _Info} ->
             {ok, State};
         {error, {closed, Data}} ->
@@ -855,12 +864,12 @@ handle_data_ready(Socket, State) ->
     end.
 
 %% @doc: return a reversed Msg list
--compile({inline, [next_incoming_msgs/1]}).
-next_incoming_msgs([Packet]) ->
-    {incoming, Packet};
-next_incoming_msgs(Packets) ->
+-compile({inline, [next_incoming_msgs/2]}).
+next_incoming_msgs(Tail, [Packet]) ->
+    [{incoming, Packet} | Tail];
+next_incoming_msgs(Tail, Packets) ->
     Fun = fun(Packet, Acc) -> [{incoming, Packet} | Acc] end,
-    lists:foldl(Fun, [], Packets).
+    lists:foldl(Fun, Tail, Packets).
 
 parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
     try
@@ -1013,14 +1022,14 @@ do_handle_outgoing(Packets, State) when is_list(Packets) ->
     MaxBufSize = 16#100_000,
     do_handle_outgoing_loop(MaxBufSize, Packets, State, 0, 0, []);
 do_handle_outgoing(Packet, State) ->
-    IOList = serialize_and_inc_stats(State, Packet),
-    send(1, IOList, State).
+    IoVec = serialize_and_inc_stats(State, Packet),
+    send(1, IoVec, State).
 
 -spec do_handle_outgoing_loop(
     pos_integer(), [emqx_types:packet()], state(), non_neg_integer(), non_neg_integer(), iolist()
 ) -> {ok, state()} | {ok, {sock_error, _}, state()}.
 do_handle_outgoing_loop(_, [], State, N, _BufOctets, Buf) ->
-    send(N, lists:reverse(Buf), State);
+    send(N, flatten_reverse_iovec(Buf, []), State);
 do_handle_outgoing_loop(MaxBufFize, [Packet | Rest], State, N, BufOctets, Buf0) when
     BufOctets =< MaxBufFize
 ->
@@ -1035,16 +1044,21 @@ do_handle_outgoing_loop(MaxBufFize, [Packet | Rest], State, N, BufOctets, Buf0) 
         Buf
     );
 do_handle_outgoing_loop(MaxBufSize, Rest, State0, N, _BufOctets, Buf) ->
-    case send(N, lists:reverse(Buf), State0) of
+    case send(N, flatten_reverse_iovec(Buf, []), State0) of
         {ok, State} ->
             do_handle_outgoing_loop(MaxBufSize, Rest, State, 0, 0, []);
         {ok, {sock_error, _}, _State} = Error ->
             Error
     end.
 
+flatten_reverse_iovec([IoVec | Rest], Acc) ->
+    flatten_reverse_iovec(Rest, IoVec ++ Acc);
+flatten_reverse_iovec([], Acc) ->
+    Acc.
+
 serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
-    try emqx_frame:serialize_pkt(Packet, Serialize) of
-        <<>> ->
+    try emqx_frame:serialize_iovec(Packet, Serialize) of
+        [] ->
             ?LOG(warning, #{
                 msg => "packet_is_discarded",
                 reason => "frame_is_too_large",
@@ -1053,12 +1067,12 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
             emqx_metrics:inc_global('delivery.dropped.too_large'),
             emqx_metrics:inc_global('delivery.dropped'),
             inc_dropped_stats(),
-            <<>>;
-        Data ->
+            [];
+        IoVec ->
             ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
             emqx_metrics:inc_sent(Packet, State#state.namespace),
             inc_outgoing_stats(Packet),
-            Data
+            IoVec
     catch
         %% Maybe Never happen.
         throw:{?FRAME_SERIALIZE_ERROR, Reason} ->
@@ -1079,23 +1093,23 @@ serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
 %%--------------------------------------------------------------------
 %% Send data
 
--spec send(non_neg_integer(), iodata(), state()) ->
+-spec send(non_neg_integer(), erlang:iovec(), state()) ->
     {ok, state()} | {ok, {sock_error, _Reason}, state()}.
 send(
     Num,
-    IoData,
+    IoVec,
     #state{socket = Socket, sockstate = idle} = State
 ) ->
-    Oct = iolist_size(IoData),
+    Oct = iolist_size(IoVec),
     Handle = make_ref(),
-    case socket:send(Socket, IoData, [], Handle) of
+    case send_iovec(Socket, IoVec, Handle) of
         ok ->
             {ok, sent(Num, Oct, State)};
         {select, {_Info, Rest}} ->
             NState = queue_send(Handle, Rest, iolist_size(Rest), State),
             {ok, sent(Num, Oct, NState)};
         {select, _Info} ->
-            NState = queue_send(Handle, IoData, Oct, State),
+            NState = queue_send(Handle, IoVec, Oct, State),
             {ok, sent(Num, Oct, NState)};
         {error, {Reason, _Rest}} ->
             %% Defer error handling:
@@ -1105,16 +1119,16 @@ send(
     end;
 send(
     Num,
-    IoData,
+    IoVec,
     State = #state{
         sockstate = SS = #congested{sendq = SQ, deadline = Deadline, queued = NOctets},
         conf = Conf
     }
 ) ->
-    Oct = iolist_size(IoData),
+    Oct = iolist_size(IoVec),
     case Deadline =:= infinity orelse erlang:monotonic_time(millisecond) < Deadline of
         true ->
-            NSS = SS#congested{sendq = [IoData | SQ], queued = NOctets + Oct},
+            NSS = SS#congested{sendq = [IoVec | SQ], queued = NOctets + Oct},
             NState = State#state{sockstate = maybe_arm_send_deadline(NSS, Conf)},
             {ok, sent(Num, Oct, NState)};
         false ->
@@ -1123,14 +1137,24 @@ send(
 send(_Num, _IoVec, #state{sockstate = closed} = State) ->
     {ok, State}.
 
+send_iovec(Socket, IoVec, Handle) ->
+    case socket:sendv(Socket, IoVec, Handle) of
+        ok ->
+            ok;
+        {ok, Rest} ->
+            send_iovec(Socket, Rest, Handle);
+        Otherwise ->
+            Otherwise
+    end.
+
 -compile({inline, [handle_send_ready/2]}).
 handle_send_ready(
     Socket,
     State = #state{sockstate = SS = #congested{sendq = SQ, watermark = WM}}
 ) ->
-    IoData = sendq_to_iodata(SQ, []),
+    IoVec = flatten_reverse_iovec(SQ, []),
     Handle = make_ref(),
-    case socket:send(Socket, IoData, [], Handle) of
+    case send_iovec(Socket, IoVec, Handle) of
         ok ->
             Signal = {connection, decongested, #{sendq_size => 0}},
             signal_channel(Signal, State#state{sockstate = idle});
@@ -1140,7 +1164,7 @@ handle_send_ready(
             maybe_signal_congestion(NState);
         {select, _Info} ->
             %% Totally congested, keep the deadline.
-            NSS = SS#congested{handle = Handle, sendq = [IoData]},
+            NSS = SS#congested{handle = Handle, sendq = [IoVec]},
             NState = State#state{sockstate = NSS},
             {ok, NState};
         {error, {Reason, _Rest}} ->
@@ -1150,15 +1174,15 @@ handle_send_ready(
             {ok, {sock_error, Reason}, State}
     end.
 
-queue_send(Handle, IoData, NOctets, State = #state{conf = Conf}) ->
+queue_send(Handle, IoVec, NOctets, State = #state{conf = Conf}) ->
     Watermark = get_high_watermark(Conf),
-    queue_send(Handle, IoData, NOctets, {high, Watermark}, State).
+    queue_send(Handle, IoVec, NOctets, {high, Watermark}, State).
 
-queue_send(Handle, IoData, NOctets, WM, State = #state{conf = Conf}) ->
+queue_send(Handle, IoVec, NOctets, WM, State = #state{conf = Conf}) ->
     SS = #congested{
         handle = Handle,
         deadline = infinity,
-        sendq = [IoData],
+        sendq = [IoVec],
         queued = NOctets,
         watermark = WM
     },
@@ -1210,11 +1234,6 @@ check_send_timeout(#congested{deadline = Deadline}, State) when is_integer(Deadl
     end;
 check_send_timeout(_, State) ->
     {ok, State}.
-
-sendq_to_iodata([IoData | Rest], Acc) ->
-    sendq_to_iodata(Rest, [IoData | Acc]);
-sendq_to_iodata([], Acc) ->
-    Acc.
 
 sendq_bytesize(#congested{queued = NOctets}) ->
     NOctets;
@@ -1343,11 +1362,16 @@ handle_cast(Req, State) ->
 %%--------------------------------------------------------------------
 %% Run GC and Check OOM
 
+-compile({inline, [run_minor_gc/0]}).
+
 run_gc(#state{conf = #conf{zone = Zone}}) ->
     case emqx_olp:backoff_gc(Zone) of
         false -> erlang:garbage_collect();
         true -> ok
     end.
+
+run_minor_gc() ->
+    erlang:garbage_collect(self(), [{type, minor}]).
 
 check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
     case emqx_utils:check_oom(ShutdownPolicy) of
