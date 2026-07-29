@@ -206,13 +206,13 @@ t_oauth2_client_credentials(_Config) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
-t_oauth2_start_timeout_keeps_authenticator(TCConfig) ->
+t_oauth2_start_timeout_keeps_authenticator(_TCConfig) ->
     ok = block_oauth2_token_endpoint(<<"/auth/token">>),
-    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    BaseURL = <<"http://127.0.0.1:32333">>,
     Oauth2 = (oauth2_config(<<BaseURL/binary, "/auth/token">>))#{
         <<"timeout">> => <<"30s">>
     },
-    AuthConfig = (raw_http_auth_config(TCConfig))#{
+    AuthConfig = (raw_http_auth_config())#{
         <<"oauth2">> => Oauth2
     },
     try
@@ -225,9 +225,9 @@ t_oauth2_start_timeout_keeps_authenticator(TCConfig) ->
         unblock_oauth2_token_endpoint()
     end.
 
-t_oauth2_start_exception_removes_resource(TCConfig) ->
-    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
-    AuthConfig = (raw_http_auth_config(TCConfig))#{
+t_oauth2_start_exception_removes_resource(_TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:32333">>,
+    AuthConfig = (raw_http_auth_config())#{
         <<"oauth2">> => oauth2_config(<<BaseURL/binary, "/auth/token">>)
     },
     Error = emqx_common_test_helpers:with_mock(
@@ -243,7 +243,7 @@ t_oauth2_start_exception_removes_resource(TCConfig) ->
     ?assertEqual([], emqx_conf:get(?PATH)),
     ?assertEqual([], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)).
 
-t_authenticate(TCConfig) ->
+t_authenticate(_TCConfig) ->
     ok = emqx_logger:set_primary_log_level(debug),
     ok = lists:foreach(
         fun(Sample) ->
@@ -324,7 +324,7 @@ contains_term(Needle, Term) when is_list(Term) ->
 contains_term(_Needle, _Term) ->
     false.
 
-t_authenticate_path_placeholders(TCConfig) ->
+t_authenticate_path_placeholders(_TCConfig) ->
     ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req =

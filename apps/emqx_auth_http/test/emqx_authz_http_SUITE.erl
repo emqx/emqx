@@ -894,15 +894,15 @@ t_oauth2_client_credentials(_Config) ->
     },
     ?assertEqual(allow, emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)).
 
-t_oauth2_start_timeout_keeps_source(TCConfig) ->
+t_oauth2_start_timeout_keeps_source(_TCConfig) ->
     ok = block_oauth2_token_endpoint(<<"/authz/token">>),
-    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    BaseURL = <<"http://127.0.0.1:32333">>,
     Oauth2 = (oauth2_config(<<BaseURL/binary, "/authz/token">>))#{
         <<"timeout">> => <<"30s">>
     },
     try
         ok = emqx_authz_test_lib:setup_config(
-            raw_http_authz_config(TCConfig),
+            raw_http_authz_config(),
             #{<<"oauth2">> => Oauth2}
         ),
         ?assertMatch(
@@ -915,15 +915,15 @@ t_oauth2_start_timeout_keeps_source(TCConfig) ->
         unblock_oauth2_token_endpoint()
     end.
 
-t_oauth2_start_exception_removes_resource(TCConfig) ->
-    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+t_oauth2_start_exception_removes_resource(_TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:32333">>,
     Error = emqx_common_test_helpers:with_mock(
         emqx_resource,
         start,
         fun(_) -> error(start_failed) end,
         fun() ->
             emqx_authz_test_lib:setup_config(
-                raw_http_authz_config(TCConfig),
+                raw_http_authz_config(),
                 #{<<"oauth2">> => oauth2_config(<<BaseURL/binary, "/authz/token">>)}
             )
         end
