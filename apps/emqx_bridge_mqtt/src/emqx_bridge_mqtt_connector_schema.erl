@@ -19,7 +19,8 @@
     roots/0,
     fields/1,
     desc/1,
-    parse_server/1
+    parse_server/1,
+    explicit_server_scheme/1
 ]).
 
 -export([
@@ -444,6 +445,25 @@ qos() ->
 parse_server(Str) ->
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Str, ?MQTT_HOST_OPTS),
     {Host, Port}.
+
+-doc """
+Return the URI scheme explicitly present in a `server' value, or `undefined'
+for a scheme-less `host[:port]' address.
+
+The distinction matters: parsing defaults a scheme-less address to `mqtt', but
+only an address the user explicitly wrote as `mqtt://' or `mqtts://' expresses
+an intent about TLS that can be cross-checked against `ssl.enable'.
+""".
+-spec explicit_server_scheme(binary() | string()) -> string() | undefined.
+explicit_server_scheme(Server) ->
+    Bin = iolist_to_binary(Server),
+    case binary:match(Bin, <<"://">>) of
+        nomatch ->
+            undefined;
+        _ ->
+            #{scheme := Scheme} = emqx_schema:parse_server(Bin, ?MQTT_HOST_OPTS),
+            Scheme
+    end.
 
 connector_examples(Method) ->
     [
