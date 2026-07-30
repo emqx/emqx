@@ -58,6 +58,9 @@
         _ = EXPR,
         true
     catch
+        throw:Reason ->
+            ?SLOG(debug, #{msg => "schema_check_failed", schema => SerdeName, reason => Reason}),
+            false;
         error:Reason ->
             ?SLOG(debug, #{msg => "schema_check_failed", schema => SerdeName, reason => Reason}),
             false
@@ -295,10 +298,19 @@ make_serde(?protobuf, Name, Source) ->
 make_serde(?json, Name, Source) ->
     case json_decode(Source) of
         SchemaObj when is_map(SchemaObj) ->
-            %% jesse:add_schema adds any map() without further validation
-            %% if it's not a map, then case_clause
-            ok = jesse_add_schema(Name, SchemaObj),
-            #serde{name = Name, type = ?json};
+            Res =
+                try
+                    jesse_add_schema(Name, SchemaObj)
+                catch
+                    _Kind:Reason ->
+                        {error, Reason}
+                end,
+            case Res of
+                ok ->
+                    #serde{name = Name, type = ?json};
+                {error, Reason1} ->
+                    error({invalid_json_schema, Reason1})
+            end;
         _NotMap ->
             error({invalid_json_schema, bad_schema_object})
     end;
@@ -349,8 +361,24 @@ eval_decode(#serde{type = ?protobuf, eval_context = SerdeMod}, [EncodedData, Mes
 eval_decode(#serde{type = ?json, name = Name}, [Data]) ->
     true = is_binary(Data),
     Term = json_decode(Data),
-    {ok, NewTerm} = jesse_validate(Name, Term),
-    NewTerm;
+    case jesse_validate(Name, Term) of
+        {ok, NewTerm} ->
+            NewTerm;
+        {error, Reason} ->
+            throw(
+                {schema_decode_error, #{
+                    error_type => validation_failure,
+                    schema_name => Name,
+                    reason => Reason,
+                    explain =>
+                        <<
+                            "The given data does not conform to the schema,"
+                            " or a schema reference could not be resolved."
+                            " Please check the input data and the schema."
+                        >>
+                }}
+            )
+    end;
 eval_decode(#serde{type = ?external_http, name = Name, eval_context = Context}, [Payload]) ->
     Request = generate_external_http_request(Payload, decode, Name, Context),
     exec_external_http_request(Request, Context).

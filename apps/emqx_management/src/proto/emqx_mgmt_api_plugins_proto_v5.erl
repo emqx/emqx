@@ -18,7 +18,7 @@
 -define(TIMEOUT, 10000).
 
 introduced_in() ->
-    "6.1.4".
+    "6.0.4".
 
 -spec ensure_start_package([node()], binary() | string()) -> emqx_rpc:multicall_result().
 ensure_start_package(Nodes, Name) ->
