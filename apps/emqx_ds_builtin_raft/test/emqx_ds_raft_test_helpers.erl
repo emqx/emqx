@@ -76,8 +76,11 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
                     #{n => N}
                 )
             ),
+            %% Generous retry budget to ride out the transient, recoverable
+            %% `fsm_needs_upgrade' window while a churning shard's Ra FSM
+            %% auto-upgrades to the current machine version.
             ?assertMatch(
-                ok, ?ON(Node, emqx_ds_test_helpers:dirty_append(#{db => DB, retries => 5}, [Msg]))
+                ok, ?ON(Node, emqx_ds_test_helpers:dirty_append(#{db => DB, retries => 30}, [Msg]))
             ),
             apply_stream(DB, NodeStream, Stream, N + 1);
         [add_generation | Stream] ->
