@@ -29,7 +29,8 @@
 
 -export([
     pr_17586_kickoff_registry_keeper/1,
-    pr_17625_gcp_pubsub_consumer_worker_optvars/1
+    pr_17625_gcp_pubsub_consumer_worker_optvars/1,
+    pr_18193_gcp_pubsub_consumer_worker_optvars/1
 ]).
 
 %% Replicants started on the pre-fix beam stored {no_deletes => true} in
@@ -91,6 +92,42 @@ pr_17625_gcp_pubsub_consumer_worker_optvars(_FromVsn) ->
                 optvar:unset(K);
             (_) ->
                 ok
+        end,
+        optvar:list_all()
+    ),
+    ok.
+
+%% Pre-fix beams keyed the consumer worker optvars by the bare ecpool worker index;
+%% current code reads keys scoped by the source resource id, so running workers started
+%% on the old beam would fail every health check until restarted.  Restart the affected
+%% connectors and sweep the leftover index-keyed entries.
+pr_18193_gcp_pubsub_consumer_worker_optvars(_FromVsn) ->
+    %% Same xref workaround as in `pr_17625_gcp_pubsub_consumer_worker_optvars'.
+    EMQXResource = emqx_resource,
+    ConnImpl = emqx_bridge_gcp_pubsub_impl_consumer,
+    IsIndexKeyed = fun
+        (?GCONSU_WORKER_OPT_KEY(Idx)) when is_integer(Idx) -> true;
+        (_) -> false
+    end,
+    HasIndexKeyedOptvars = lists:any(IsIndexKeyed, optvar:list_all()),
+    ConnResIds =
+        [
+            ConnResId
+         || HasIndexKeyedOptvars,
+            ConnResId <- EMQXResource:list_instances_by_type(ConnImpl),
+            case EMQXResource:get_instance(ConnResId) of
+                {ok, _, #{status := stopped}} -> false;
+                {ok, _, _} -> true;
+                _ -> false
+            end
+        ],
+    lists:foreach(fun EMQXResource:restart/1, ConnResIds),
+    lists:foreach(
+        fun(K) ->
+            case IsIndexKeyed(K) of
+                true -> optvar:unset(K);
+                false -> ok
+            end
         end,
         optvar:list_all()
     ),
