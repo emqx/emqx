@@ -1442,13 +1442,9 @@ t_ee_api_key_privilege_mutex_message(_Config) ->
 
 -doc """
 The #18195 repro: create a key with the scope left blank, then update it
-re-submitting exactly what GET returned — the update must succeed.
-
-The blank-scope create materializes the role default, so the first GET
-returns the expanded role-default list; re-submitting that list is an
-unset-equivalent write (order-insensitive) and clears the stored scope
-list, after which GET returns the `unset` sentinel — which must also
-round-trip through a subsequent unchanged update.
+re-submitting exactly what GET returned (the materialized role-default
+list, in any order, later the `unset` sentinel) — the update must
+succeed and clear the stored scope list.
 """.
 t_ee_scopes_update_unchanged_roundtrip(_Config) ->
     Name = <<"EE-SCOPES-ROUNDTRIP">>,

@@ -164,12 +164,8 @@ fields(app) ->
             )},
         {enable, hoconsc:mk(boolean(), #{desc => ?DESC("enable_desc"), required => false})},
         {expired, hoconsc:mk(boolean(), #{desc => ?DESC("expired_desc"), required => false})},
-        %% Accept the same shapes the response emits, so a read-modify-write
-        %% can round-trip the value verbatim: an explicit array of scope
-        %% names, or the `unset' sentinel (parsed to the atom `unset', also
-        %% tolerated as the binary <<"unset">>). A list whose set equals the
-        %% role default and the `unset' sentinel are both treated as "no
-        %% explicit scopes" on write.
+        %% Accepts the same shapes the response emits (array or the `unset'
+        %% sentinel) so a read-modify-write can round-trip the value verbatim.
         {scopes,
             hoconsc:mk(
                 hoconsc:union([unset, hoconsc:array(binary())]),
@@ -181,11 +177,8 @@ fields(app) ->
             )}
     ] ++ app_extend_fields();
 %% Response shape: `scopes' MAY be the binary sentinel <<"unset">> in addition
-%% to the array-of-binaries form. The sentinel surfaces for records that hold
-%% no explicit `scopes' field: legacy records that survived an upgrade from a
-%% release where the scopes feature did not exist, and records written with
-%% unset-equivalent scopes (the `unset' sentinel or a list equal to the role
-%% default) — both fall back to role-default behavior at runtime.
+%% to the array-of-binaries form, surfaced when the record holds no explicit
+%% `scopes' field (legacy record or unset-equivalent write).
 %%
 %% Listed explicitly (rather than overriding via `lists:keystore') so that the
 %% OpenAPI spec reads as a self-contained response schema and reviewers do not
@@ -350,17 +343,10 @@ create_api_key(App, Name, Enable, ExpiredAt, Desc, Role) ->
             {400, #{code => 'BAD_REQUEST', message => Msg}}
     end.
 
-%% Resolve the `scopes' value to persist on POST and run validation.
-%% Returns `{ok, [binary()] | undefined}' or `{error, Msg}'.
-%%
-%%   * field omitted -> materialize the role default and store it;
-%%     validation runs with `RawScopes = undefined' so the privilege-scope
-%%     mutex is not applied to the role-default mix.
-%%   * `unset' sentinel or a list whose set equals the role default ->
-%%     store no `scopes' field at all (GET returns the `unset' sentinel);
-%%     valid by construction, nothing to check.
-%%   * any other list -> validate and store it verbatim (explicit `[]'
-%%     means deny-all).
+%% Resolve the `scopes' value to persist on POST: omitted -> materialize
+%% the role default (privilege mutex not applied to that mix);
+%% unset-equivalent -> store no `scopes' field (valid by construction);
+%% explicit list -> validate and store verbatim.
 create_scopes(Role, undefined) ->
     Scopes = emqx_mgmt_auth:role_default_scopes(Role),
     case validate_scopes(Role, undefined, Scopes) of
@@ -459,20 +445,11 @@ update_api_key(Name, Role, Body) ->
             {400, #{code => 'BAD_REQUEST', message => Msg}}
     end.
 
-%% Validate the effective scope list for a PUT. `Intent' is the
-%% normalized write intent from `emqx_mgmt_auth:write_scope_intent/2'.
-%%
-%%   * `keep'     - validate the *persisted* scopes against the (possibly
-%%                  changed) role, so a role change to `publisher' on a
-%%                  key that already holds non-`publish' scopes via a
-%%                  partial-update PUT is rejected — the runtime RBAC
-%%                  layer would catch it at request time, but the stored
-%%                  config and the API response must not be allowed to
-%%                  drift from the publisher-only-`publish' invariant.
-%%   * `unset'    - clears to role-default behavior, which is valid by
-%%                  construction; nothing to check.
-%%   * `{set, L}' - validate the explicit list `L'; the privilege-scope
-%%                  mutex applies.
+%% Validate the effective scope list for a PUT. `keep' validates the
+%% persisted scopes against the (possibly changed) role, so a role
+%% change to `publisher' cannot keep non-`publish' scopes via a partial
+%% update; `unset' clears to role default (valid by construction);
+%% `{set, L}' validates `L' with the privilege mutex applied.
 validate_update_scopes(_Role, _Name, unset) ->
     ok;
 validate_update_scopes(Role, Name, keep) ->
@@ -480,16 +457,13 @@ validate_update_scopes(Role, Name, keep) ->
 validate_update_scopes(Role, _Name, {set, Scopes}) ->
     validate_scopes(Role, Scopes, Scopes).
 
-%% Map the write intent to the `Scopes' argument of
-%% `emqx_mgmt_auth:update/6': `undefined' leaves the persisted scopes
-%% unchanged, `unset' clears the field, a list is stored verbatim.
+%% Intent -> `Scopes' argument of `emqx_mgmt_auth:update/6'.
 scopes_update_arg(keep) -> undefined;
 scopes_update_arg(unset) -> unset;
 scopes_update_arg({set, Scopes}) -> Scopes.
 
-%% A missing API key surfaces here as `undefined' so validation accepts
-%% the partial update; the downstream `emqx_mgmt_auth:update/6' call
-%% will then return 404 with the proper error.
+%% A missing key surfaces as `undefined' so validation passes and the
+%% downstream `emqx_mgmt_auth:update/6' returns the proper 404.
 persisted_scopes(Name) ->
     case emqx_mgmt_auth:read(Name) of
         {ok, #{scopes := Persisted}} when is_list(Persisted) -> Persisted;
