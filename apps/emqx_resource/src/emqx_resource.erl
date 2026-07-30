@@ -445,11 +445,11 @@ query(ResId, Request, QueryOpts) ->
 simple_sync_query(ResId, Request) ->
     emqx_resource_buffer_worker:simple_sync_query(ResId, Request).
 
--spec start(resource_id()) -> ok | {error, Reason :: term()}.
+-spec start(resource_id()) -> ok | timeout | {error, Reason :: term()}.
 start(ResId) ->
     start(ResId, #{}).
 
--spec start(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
+-spec start(resource_id(), creation_opts()) -> ok | timeout | {error, Reason :: term()}.
 start(ResId, Opts) ->
     emqx_resource_manager:start(ResId, Opts).
 

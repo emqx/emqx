@@ -233,6 +233,21 @@ t_concurrent_get_token_fetches_once(TCConfig) ->
     ?assertEqual(1, token_request_count(TCConfig)),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
+t_scope_is_omitted_when_undefined(TCConfig) ->
+    ResourceId = <<"res:no-scope">>,
+    TestPid = self(),
+    ok = set_token_handler(TCConfig, fun(#{body := Body}) ->
+        TestPid ! {token_request_params, cow_qs:parse_qs(Body)},
+        token_response(<<"access-no-scope">>, 3600)
+    end),
+    Config = maps:remove(scope, oauth2_config(TCConfig)),
+    ok = emqx_connector_oauth2:register(ResourceId, Config),
+    ?assertEqual({ok, <<"access-no-scope">>}, emqx_connector_oauth2:get_token(ResourceId)),
+    {token_request_params, Params} = ?assertReceive({token_request_params, _}, 1_000),
+    ?assertEqual(<<"client_credentials">>, proplists:get_value(<<"grant_type">>, Params)),
+    ?assertEqual(undefined, proplists:get_value(<<"scope">>, Params)),
+    ok = emqx_connector_oauth2:unregister(ResourceId).
+
 t_token_expiry_is_derived_from_jwt(TCConfig) ->
     ResourceId = <<"res:jwt-expiry">>,
     JWT = make_jwt(#{<<"exp">> => os:system_time(second) + 3}),
@@ -252,6 +267,20 @@ t_token_expiry_is_derived_from_jwt(TCConfig) ->
         end,
         6_000
     ),
+    ok = emqx_connector_oauth2:unregister(ResourceId).
+
+t_accepts_jwt_token_type(TCConfig) ->
+    ResourceId = <<"res:jwt-token-type">>,
+    ok = set_token_handler(TCConfig, fun(_Request) ->
+        {200, json_headers(),
+            emqx_utils_json:encode(#{
+                <<"access_token">> => <<"jwt-token">>,
+                <<"expires_in">> => 3600,
+                <<"token_type">> => <<"JWT">>
+            })}
+    end),
+    ok = emqx_connector_oauth2:register(ResourceId, oauth2_config(TCConfig)),
+    ?assertEqual({ok, <<"jwt-token">>}, emqx_connector_oauth2:get_token(ResourceId)),
     ok = emqx_connector_oauth2:unregister(ResourceId).
 
 t_token_endpoint_error_is_sanitized(TCConfig) ->
@@ -343,8 +372,12 @@ t_validate_accepts_when_disabled_or_absent(_TCConfig) ->
     ?assertMatch({ok, #{oauth2 := #{}}}, check_oauth2(#{})),
     ?assertMatch({ok, #{oauth2 := #{enable := false}}}, check_oauth2(#{enable => false})),
     ?assertMatch(
-        {ok, #{oauth2 := #{enable := true, ssl := #{enable := true}}}},
+        {ok, #{oauth2 := #{enable := true, ssl := #{enable := false}}}},
         check_oauth2(raw_oauth2_config())
+    ),
+    ?assertMatch(
+        {ok, #{oauth2 := #{enable := true, ssl := #{enable := true}}}},
+        check_oauth2((raw_oauth2_config())#{ssl => #{enable => true}})
     ),
     ?assertEqual(
         ok,

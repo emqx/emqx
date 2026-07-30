@@ -10,12 +10,37 @@
     convert_certs/2
 ]).
 
-convert_certs(RltvDir, #{<<"ssl">> := SSL} = Config) ->
+convert_certs(RltvDir, Config0) ->
+    case convert_ssl_certs(RltvDir, Config0) of
+        {ok, Config} ->
+            convert_oauth2_certs(RltvDir, Config);
+        {error, _} = Error ->
+            Error
+    end.
+
+convert_ssl_certs(RltvDir, #{<<"ssl">> := SSL} = Config) ->
     new_ssl_config(RltvDir, Config, SSL);
-convert_certs(RltvDir, #{ssl := SSL} = Config) ->
+convert_ssl_certs(RltvDir, #{ssl := SSL} = Config) ->
     new_ssl_config(RltvDir, Config, SSL);
 %% for bridges use connector name
-convert_certs(_RltvDir, Config) ->
+convert_ssl_certs(_RltvDir, Config) ->
+    {ok, Config}.
+
+convert_oauth2_certs(RltvDir, #{<<"oauth2">> := OAuth2} = Config) when is_map(OAuth2) ->
+    case convert_ssl_certs(filename:join(RltvDir, "oauth2"), OAuth2) of
+        {ok, NewOAuth2} ->
+            {ok, Config#{<<"oauth2">> := NewOAuth2}};
+        {error, _} = Error ->
+            Error
+    end;
+convert_oauth2_certs(RltvDir, #{oauth2 := OAuth2} = Config) when is_map(OAuth2) ->
+    case convert_ssl_certs(filename:join(RltvDir, "oauth2"), OAuth2) of
+        {ok, NewOAuth2} ->
+            {ok, Config#{oauth2 := NewOAuth2}};
+        {error, _} = Error ->
+            Error
+    end;
+convert_oauth2_certs(_RltvDir, Config) ->
     {ok, Config}.
 
 new_ssl_config(RltvDir, Config, SSL) ->

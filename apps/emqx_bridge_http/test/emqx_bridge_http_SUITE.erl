@@ -453,7 +453,35 @@ t_oauth2_async_retry_uses_latest_token(TCConfig) ->
         maps:get(<<"authorization">>, SecondHeaders)
     ).
 
-t_oauth2_rejects_action_authorization_header(_TCConfig) ->
+t_oauth2_rejects_action_authorization_header(TCConfig) ->
+    {TokenEndpoint, _Token} = start_oauth2_token_server(self()),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    {400, #{
+        <<"message">> := #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := Reason
+        }
+    }} =
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"headers">> => #{<<"Authorization">> => <<"Basic credentials">>}
+            }
+        }),
+    ?assertMatch(
+        {match, _},
+        re:run(Reason, <<"authorization.*conflicts with OAuth2">>, [caseless])
+    ),
+    ?assertMatch({404, _}, get_action_api(TCConfig)).
+
+t_oauth2_rejects_action_authorization_header_at_runtime(_TCConfig) ->
     State = #{oauth2 => #{enable => true}, installed_actions => #{}},
     ActionConfig = #{
         parameters => #{headers => #{<<"Authorization">> => <<"Basic credentials">>}}

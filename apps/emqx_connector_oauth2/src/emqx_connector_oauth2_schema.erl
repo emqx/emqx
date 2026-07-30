@@ -84,7 +84,7 @@ fields(client_credentials) ->
             })},
         {ssl,
             mk(ref(emqx_schema, "ssl_client_opts"), #{
-                default => #{<<"enable">> => true},
+                default => #{<<"enable">> => false},
                 desc => ?DESC("oauth2_ssl")
             })}
     ].

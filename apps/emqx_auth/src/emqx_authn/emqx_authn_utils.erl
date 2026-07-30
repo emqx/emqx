@@ -49,7 +49,11 @@ create_resource(Module, ResourceConfig, #{resource_id := ResourceId} = State, Me
                 ResourceConfig,
                 ?DEFAULT_RESOURCE_OPTS(OwnerId)
             ),
-        ok = start_resource_if_enabled(State, Mechanism, Backend)
+        ok =
+            remove_resource_on_exception(
+                ResourceId,
+                fun() -> start_resource_if_enabled(State, Mechanism, Backend) end
+            )
     end.
 
 update_resource(Module, ResourceConfig, #{resource_id := ResourceId} = State, Mechanism, Backend) ->
@@ -66,20 +70,41 @@ start_resource_if_enabled(#{resource_id := ResourceId, enable := true}, Mechanis
     case emqx_resource:start(ResourceId) of
         ok ->
             ok;
+        timeout ->
+            handle_start_resource_error(ResourceId, timeout, Mechanism, Backend);
         {error, Reason} ->
-            %% NOTE
-            %% we allow creation of resources that cannot be started
-            ?SLOG(warning, #{
-                msg => "failed_to_start_authn_resource",
-                resource_id => ResourceId,
-                reason => Reason,
-                mechanism => Mechanism,
-                backend => Backend
-            }),
-            ok
+            handle_start_resource_error(ResourceId, Reason, Mechanism, Backend)
     end;
 start_resource_if_enabled(#{resource_id := _ResourceId, enable := false}, _Mechanism, _Backend) ->
     ok.
+
+handle_start_resource_error(ResourceId, Reason, Mechanism, Backend) ->
+    %% NOTE
+    %% we allow creation of resources that cannot be started
+    ?SLOG(warning, #{
+        msg => "failed_to_start_authn_resource",
+        resource_id => ResourceId,
+        reason => Reason,
+        mechanism => Mechanism,
+        backend => Backend
+    }),
+    ok.
+
+remove_resource_on_exception(ResourceId, Operation) ->
+    try
+        Operation()
+    catch
+        Class:Reason:Stacktrace ->
+            _ = cleanup_created_resource(ResourceId),
+            erlang:raise(Class, Reason, Stacktrace)
+    end.
+
+cleanup_created_resource(ResourceId) ->
+    try
+        emqx_resource:remove_local(ResourceId)
+    catch
+        _:_ -> ok
+    end.
 
 init_state(#{enable := Enable} = _Source, Values) ->
     maps:merge(
