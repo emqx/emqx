@@ -2274,6 +2274,51 @@ t_clear_stuck_unhealthy(TCConfig) ->
     ),
     ok.
 
+-doc """
+Checks that probing ("Test Connection") a consumer source does not disturb the health
+status of an already-running source.
+
+Each pool worker publishes its subscription status under an optvar key, and the running
+source's health check reads it back.  Those keys must be scoped by the worker's own pool:
+worker indices restart from 1 in every pool, so an index-only key would be shared with the
+probe's temporary pool, whose teardown then clears the live pool's flags — leaving the
+running source stuck `disconnected` (health check timeout) until manually restarted
+(issue #18190).
+""".
+t_probe_does_not_disturb_running_source(TCConfig) ->
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            {ok, SRef0} =
+                snabbkaffe:subscribe(
+                    ?match_event(#{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"}),
+                    40_000
+                ),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {201, _} = create_source_api(TCConfig, #{}),
+            {ok, _} = snabbkaffe:receive_events(SRef0),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                get_source_api(TCConfig)
+            ),
+            %% "Test Connection": a dry-run probe of the same source config; its
+            %% temporary worker pool is torn down once the probe concludes.
+            ?assertMatch({204, _}, probe_source_api(TCConfig)),
+            %% The running source must not be affected by the probe pool teardown.
+            ?assertMatch(
+                #{status := ?status_connected},
+                emqx_bridge_v2_testlib:health_check_channel(TCConfig)
+            ),
+            ?assertMatch(
+                {200, #{<<"status">> := <<"connected">>}},
+                get_source_api(TCConfig)
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %% test for hot upgrade post-upgrade hook.
 -define(OPTVAR_SUB_OK(X), {emqx_bridge_gcp_pubsub_consumer_worker, subscription_ok, X}).
 t_post_upgrade_pr_17625(TCConfig) ->
@@ -2316,6 +2361,54 @@ t_post_upgrade_pr_17625(TCConfig) ->
                     K
                  || ?OPTVAR_SUB_OK(Pid) = K <- optvar:list_all(),
                     is_pid(Pid)
+                ]
+            ),
+            ok
+        end
+    ),
+    ok.
+
+-doc """
+Checks the hot-upgrade hook that handles worker optvars keyed by the bare ecpool worker
+index (left by pre-upgrade beams; current keys are scoped by the source resource id): the
+affected connectors are restarted and the stale index-keyed entries are swept.
+""".
+t_post_upgrade_pr_18193(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_source_api(TCConfig, #{}),
+    ConnNameB = <<"disabled">>,
+    SourceNameB = ConnNameB,
+    TCConfigB = [{connector_name, ConnNameB}, {source_name, SourceNameB} | TCConfig],
+    {201, _} = create_connector_api(TCConfigB, #{}),
+    {201, _} = create_source_api(TCConfigB, #{
+        <<"connector">> => ConnNameB
+    }),
+
+    %% set up old opvars to simulate a worker started by the previous version
+    optvar:set(?OPTVAR_SUB_OK(1), subscription_ok),
+
+    {204, _} = disable_connector_api(TCConfigB),
+
+    ?check_trace(
+        begin
+            emqx_post_upgrade:pr_18193_gcp_pubsub_consumer_worker_optvars("vsn"),
+            ok
+        end,
+        fun(Trace) ->
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+            ?assertMatch(
+                [
+                    #{?snk_kind := gcp_pubsub_consumer_stop_enter, instance_id := ConnResId},
+                    #{?snk_kind := gcp_pubsub_consumer_start, instance_id := ConnResId}
+                ],
+                ?of_kind([gcp_pubsub_consumer_stop_enter, gcp_pubsub_consumer_start], Trace)
+            ),
+            ?assertEqual(
+                [],
+                [
+                    K
+                 || ?OPTVAR_SUB_OK(Idx) = K <- optvar:list_all(),
+                    is_integer(Idx)
                 ]
             ),
             ok

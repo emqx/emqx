@@ -319,7 +319,7 @@ stop_consumers1(SourceResId, PoolSize) ->
     ),
     lists:foreach(
         fun(WorkerId) ->
-            emqx_bridge_gcp_pubsub_consumer_worker:clear_optvar(WorkerId)
+            emqx_bridge_gcp_pubsub_consumer_worker:clear_optvar(SourceResId, WorkerId)
         end,
         lists:seq(1, PoolSize)
     ),
@@ -338,7 +338,7 @@ get_client_status(Client) ->
 check_workers(SourceResId, Client) ->
     Opts = #{
         check_fn => fun(#{id := WorkerId}) ->
-            emqx_bridge_gcp_pubsub_consumer_worker:health_check(WorkerId)
+            emqx_bridge_gcp_pubsub_consumer_worker:health_check(SourceResId, WorkerId)
         end,
         run_on => independent,
         is_success_fn => fun
