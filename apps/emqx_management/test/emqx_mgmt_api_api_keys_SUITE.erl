@@ -1460,6 +1460,10 @@ t_ee_scopes_update_unchanged_roundtrip(_Config) ->
     %% Order-insensitive: a permuted role-default list is also unset-equivalent.
     ?assertMatch({ok, _}, update_app(Name, #{scopes => lists:reverse(Default)})),
     ?assertMatch({ok, #{<<"scopes">> := <<"unset">>}}, read_app(Name)),
+    %% From the unset state, an explicit non-default list still takes effect.
+    Explicit = [?SCOPE_CONNECTIONS, ?SCOPE_MONITORING],
+    ?assertMatch({ok, _}, update_app(Name, #{scopes => Explicit})),
+    ?assertMatch({ok, #{<<"scopes">> := Explicit}}, read_app(Name)),
     delete_app(Name).
 
 -doc """
