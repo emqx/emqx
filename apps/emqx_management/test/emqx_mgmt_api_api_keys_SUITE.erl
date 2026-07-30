@@ -38,6 +38,11 @@
     t_ee_api_key_rejects_mixed_privilege_via_post,
     t_ee_api_key_rejects_mixed_privilege_via_put,
     t_ee_api_key_privilege_mutex_message,
+    %% Unset-equivalent scopes on create/update (#18195)
+    t_ee_scopes_update_unchanged_roundtrip,
+    t_ee_scopes_create_unset_sentinel,
+    t_ee_scopes_update_explicit_list,
+    t_ee_publisher_update_rejects_explicit_non_publish,
     %% Regression: API key auth must not leak into dashboard
     %% login-user scope check when ApiKey name == dashboard username.
     t_ee_api_key_unaffected_by_colliding_username_scopes
@@ -1462,6 +1467,61 @@ t_ee_api_key_privilege_mutex_message(_Config) ->
         {_, _},
         binary:match(Msg, <<"Privilege scopes cannot be combined with other scopes">>)
     ).
+
+%% The #18195 repro: create a key with the scope left blank, then update it
+%% re-submitting exactly what GET returned (the materialized role-default
+%% list, in any order, later the `unset' sentinel) — the update must
+%% succeed and clear the stored scope list.
+t_ee_scopes_update_unchanged_roundtrip(_Config) ->
+    Name = <<"EE-SCOPES-ROUNDTRIP">>,
+    {ok, _} = create_app(Name),
+    {ok, #{<<"scopes">> := Default}} = read_app(Name),
+    ?assert(is_list(Default)),
+    ?assertMatch({ok, _}, update_app(Name, #{scopes => Default})),
+    %% The role-default list is stored as "no explicit scopes".
+    ?assertMatch({ok, #{<<"scopes">> := <<"unset">>}}, read_app(Name)),
+    %% Round-trip once more with the `unset` sentinel GET now returns.
+    ?assertMatch({ok, _}, update_app(Name, #{scopes => <<"unset">>})),
+    ?assertMatch({ok, #{<<"scopes">> := <<"unset">>}}, read_app(Name)),
+    %% Order-insensitive: a permuted role-default list is also unset-equivalent.
+    ?assertMatch({ok, _}, update_app(Name, #{scopes => lists:reverse(Default)})),
+    ?assertMatch({ok, #{<<"scopes">> := <<"unset">>}}, read_app(Name)),
+    delete_app(Name).
+
+%% POST accepts the `unset' sentinel: the key is created without an explicit
+%% scope list and GET surfaces the sentinel.
+t_ee_scopes_create_unset_sentinel(_Config) ->
+    Name = <<"EE-SCOPES-CREATE-UNSET">>,
+    {ok, _} = create_app(Name, #{scopes => <<"unset">>}),
+    ?assertMatch({ok, #{<<"scopes">> := <<"unset">>}}, read_app(Name)),
+    delete_app(Name).
+
+%% A genuinely explicit scope list (different from the role default) is
+%% still validated and stored verbatim; GET reflects it.
+t_ee_scopes_update_explicit_list(_Config) ->
+    Name = <<"EE-SCOPES-EXPLICIT">>,
+    {ok, _} = create_app(Name),
+    Scopes = [?SCOPE_CONNECTIONS, ?SCOPE_MONITORING],
+    ?assertMatch({ok, _}, update_app(Name, #{scopes => Scopes})),
+    ?assertMatch({ok, #{<<"scopes">> := Scopes}}, read_app(Name)),
+    delete_app(Name).
+
+%% The publisher-only-`publish' invariant survives the unset-equivalent
+%% handling: an explicit non-publish list on a publisher key is still
+%% rejected on PUT, while the publisher role default (`[publish]') is
+%% accepted as unset-equivalent.
+t_ee_publisher_update_rejects_explicit_non_publish(_Config) ->
+    Name = <<"EE-PUB-UPDATE-REJECT">>,
+    {ok, _} = create_app(Name, #{role => ?ROLE_API_PUBLISHER}),
+    assert_400_publisher_only(
+        update_app(Name, #{role => ?ROLE_API_PUBLISHER, scopes => [?SCOPE_CONNECTIONS]})
+    ),
+    ?assertMatch(
+        {ok, _},
+        update_app(Name, #{role => ?ROLE_API_PUBLISHER, scopes => [?SCOPE_PUBLISH]})
+    ),
+    ?assertMatch({ok, #{<<"scopes">> := <<"unset">>}}, read_app(Name)),
+    delete_app(Name).
 
 %% Regression: API key auth must NOT consult dashboard login-user
 %% scopes, even when the API key's generated `api_key' string happens
