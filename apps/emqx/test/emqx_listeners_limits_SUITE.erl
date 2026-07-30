@@ -224,7 +224,7 @@ assert_connect_refused(Host, Port, Config) ->
     catch
         error:closed when Type == tcp -> ok;
         error:{closed, _} when Type == tcp -> ok;
-        error:{tcp_closed, _} when Type == tcp -> ok;
+        error:tcp_closed when Type == tcp -> ok;
         error:{ws_upgrade_failed, closed} when Type == ws -> ok;
         error:{ws_upgrade_failed, {error, closed}} when Type == ws -> ok;
         error:timeout when Type == wss -> ok
