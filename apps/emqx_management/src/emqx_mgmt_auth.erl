@@ -58,11 +58,10 @@
     do_force_create_app/1
 ]).
 
-%% Helpers for materializing role-default scopes at record-creation time.
-%% Used by the POST handler, the bootstrap-file loader, and the SSO
-%% user-provisioning path so that `<<"unset">>' in a GET response can be
-%% interpreted unambiguously as "record predates the scopes feature".
--export([role_default_scopes/1, effective_scopes_on_create/2]).
+%% Helpers for materializing role-default scopes at record-creation time
+%% and for normalizing a `scopes' request value into a write intent.
+%% Used by the REST handlers and the bootstrap-file loader.
+-export([role_default_scopes/1, write_scope_intent/2]).
 
 -ifdef(TEST).
 -export([trans/2, force_create_app/1]).
@@ -403,20 +402,19 @@ get_scopes(_) ->
     %% No scopes key in extra = backward compatible, allow all
     undefined.
 
-%% @doc Set scopes in extra map. undefined means "don't change".
+%% @doc Set scopes in extra map. `undefined' means "don't change";
+%% `unset' removes the field entirely so the record falls back to
+%% role-default behavior (GET surfaces the `<<"unset">>' sentinel).
 maybe_set_scopes(Extra, undefined) ->
     Extra;
+maybe_set_scopes(Extra, unset) ->
+    maps:remove(scopes, Extra);
 maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
     Extra#{scopes => Scopes}.
 
 %% @doc Resolve the role-default scopes that should be materialized into
 %% the persisted record when the caller did not explicitly supply a scope
 %% list (POST without `scopes', 2-/3-segment bootstrap line).
-%%
-%% After this PR, `undefined' is never written into mnesia by any creation
-%% path; the `<<"unset">>' state in the GET response is only possible for
-%% records that survived an upgrade from a release where the scopes
-%% feature did not exist.
 %%
 %%   * administrator / viewer -> `?GENERIC_SCOPES' (10 management scopes,
 %%     no login-only scopes — those are reserved for dashboard users).
@@ -429,14 +427,40 @@ role_default_scopes(?ROLE_API_PUBLISHER) ->
 role_default_scopes(_Role) ->
     ?GENERIC_SCOPES.
 
-%% @doc Convenience wrapper for the request-handling layer: if the
-%% caller supplied no scopes, materialize the role default; otherwise
-%% pass the explicit value through unchanged (including the empty list
-%% which means explicit deny-all).
-effective_scopes_on_create(Role, undefined) ->
-    role_default_scopes(Role);
-effective_scopes_on_create(_Role, Scopes) when is_list(Scopes) ->
-    Scopes.
+%% @doc Normalize a `scopes' request value to a write intent — the
+%% API-key counterpart of `emqx_dashboard_api:write_scope_intent/2'
+%% (dashboard users); keep the two consistent.
+%%   * `keep'     - field omitted (`undefined'): leave persisted scopes
+%%                  unchanged (partial update); creation paths
+%%                  materialize the role default instead.
+%%   * `unset'    - the `unset' sentinel (atom, also tolerated as the
+%%                  binary `<<"unset">>'), or a list whose set equals
+%%                  the role default: store NO explicit `scopes' field,
+%%                  so GET returns the `unset' sentinel and the runtime
+%%                  falls back to role-default behavior.
+%%   * `{set, L}' - store the explicit list `L' verbatim.
+%%
+%% The role-default comparison is order-insensitive (set equality), so a
+%% dashboard read-modify-write that round-trips the expanded role
+%% default never sediments it into a frozen explicit list. A non-list,
+%% non-sentinel value falls through to `{set, Other}' so downstream
+%% validation rejects it with the appropriate 400.
+write_scope_intent(_Role, undefined) ->
+    keep;
+write_scope_intent(_Role, unset) ->
+    unset;
+write_scope_intent(_Role, <<"unset">>) ->
+    unset;
+write_scope_intent(Role, Scopes) when is_list(Scopes) ->
+    case is_role_default_scopes(Role, Scopes) of
+        true -> unset;
+        false -> {set, Scopes}
+    end;
+write_scope_intent(_Role, Other) ->
+    {set, Other}.
+
+is_role_default_scopes(Role, Scopes) ->
+    lists:usort(Scopes) =:= lists:usort(role_default_scopes(Role)).
 
 ensure_not_undefined(undefined, Old) -> Old;
 ensure_not_undefined(New, _Old) -> New.
@@ -464,14 +488,13 @@ to_map(#?APP{
 %% @doc Surface raw scope state to the API consumer with a tri-state contract:
 %%   - `[]`            : explicit deny-all (only `security => []` paths reachable)
 %%   - `[binary(), …]` : explicit allow-list
-%%   - `<<"unset">>`   : the persisted record has no `scopes' field at all (legacy
-%%                       upgrade artefact from before #16942 landed). The runtime
-%%                       authorization path falls back to role-default behaviour
-%%                       (allow-all-mapped-paths for administrator/viewer,
-%%                       hard-coded `/publish*' for publisher).  Newly created
-%%                       records never end up in this state: the POST / bootstrap
-%%                       / SSO-provisioning paths all materialize role-default
-%%                       scopes at creation time.
+%%   - `<<"unset">>`   : the persisted record has no `scopes' field at all —
+%%                       either a legacy record from before #16942 landed, or a
+%%                       record written with unset-equivalent scopes (the `unset'
+%%                       sentinel or a list equal to the role default). The
+%%                       runtime authorization path falls back to role-default
+%%                       behaviour (allow-all-mapped-paths for administrator/
+%%                       viewer, hard-coded `/publish*' for publisher).
 %% This intentionally exposes the persisted shape rather than an effective list so
 %% that the dashboard read-modify-write cycle cannot silently sediment role-default
 %% into an explicit list.  The `<<"unset">>' binary is a stable string sentinel
