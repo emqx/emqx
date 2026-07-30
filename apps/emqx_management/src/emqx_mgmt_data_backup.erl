@@ -660,6 +660,18 @@ import_skip_root_keys_test() ->
     ConfRoots = lists:usort([hd(KP) || KP <- ?CONF_KEYS]),
     Overlap = [K || K <- import_skip_root_keys(), lists:member(K, ConfRoots)],
     ?assertEqual([], Overlap).
+
+assert_expected_table_test() ->
+    %% A backup file is chosen for restore by its name, but its schema
+    %% records name the table `mnesia:restore/2' actually writes. Records
+    %% may only ever land in the requested table: a schema record naming
+    %% any other table must be rejected (before the restore, which commits).
+    ok = assert_expected_table({some_record, key, value}, emqx_banned),
+    ok = assert_expected_table({schema, emqx_banned, []}, emqx_banned),
+    ?assertThrow(
+        {error, {unexpected_table, other_table}},
+        assert_expected_table({schema, other_table, []}, emqx_banned)
+    ).
 -else.
 tabs_to_backup() ->
     modules_with_mnesia_tabs_to_backup().
@@ -818,7 +830,7 @@ import_mnesia_tab(BackupDir, Mod, TabName, Opts) ->
     end.
 
 restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
-    Validated = validate_mnesia_backup(MnesiaBackupFileName, Mod),
+    Validated = validate_mnesia_backup(MnesiaBackupFileName, Mod, TabName),
     try
         case Validated of
             {ok, #{backup_file := BackupFile}} ->
@@ -878,7 +890,7 @@ on_table_imported(Mod, Tab, Opts) ->
 %% NOTE: if backup file is valid, we keep traversing it, though we only need to validate schema.
 %% Looks like there is no clean way to abort traversal without triggering any error reporting,
 %% `mnesia_bup:read_schema/2` is an option but its direct usage should also be avoided...
-validate_mnesia_backup(MnesiaBackupFileName, Mod) ->
+validate_mnesia_backup(MnesiaBackupFileName, Mod, ExpectedTab) ->
     Init = #{backup_file => MnesiaBackupFileName},
     Validated =
         catch mnesia:traverse_backup(
@@ -886,7 +898,7 @@ validate_mnesia_backup(MnesiaBackupFileName, Mod) ->
             mnesia_backup,
             dummy,
             read_only,
-            mnesia_backup_validator(Mod),
+            mnesia_backup_validator(Mod, ExpectedTab),
             Init
         ),
     case Validated of
@@ -901,7 +913,7 @@ validate_mnesia_backup(MnesiaBackupFileName, Mod) ->
     end.
 
 %% if the module has validator callback, use it else use the default
-mnesia_backup_validator(Mod) ->
+mnesia_backup_validator(Mod, ExpectedTab) ->
     Validator =
         case erlang:function_exported(Mod, validate_mnesia_backup, 1) of
             true ->
@@ -910,6 +922,14 @@ mnesia_backup_validator(Mod) ->
                 fun default_validate_mnesia_backup/1
         end,
     fun(Schema, Acc) ->
+        %% The importer picks the table to restore by the archive file
+        %% name, but `mnesia:restore/2' writes to the table named in the
+        %% backup's own schema records. Reject any schema that declares a
+        %% table other than the requested one, so records can only ever
+        %% land in `ExpectedTab'. Enforced here (not only in the per-module
+        %% validator) so a module callback cannot relax it, and before the
+        %% restore, which commits.
+        ok = assert_expected_table(Schema, ExpectedTab),
         case Validator(Schema) of
             ok ->
                 {[Schema], Acc};
@@ -919,6 +939,11 @@ mnesia_backup_validator(Mod) ->
                 throw(Error)
         end
     end.
+
+assert_expected_table({schema, Tab, _CreateList}, ExpectedTab) when Tab =/= ExpectedTab ->
+    throw({error, {unexpected_table, Tab}});
+assert_expected_table(_Schema, _ExpectedTab) ->
+    ok.
 
 default_validate_mnesia_backup({schema, Tab, CreateList}) ->
     ImportAttributes = proplists:get_value(attributes, CreateList),
