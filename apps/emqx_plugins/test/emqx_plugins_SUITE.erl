@@ -1471,6 +1471,196 @@ t_allow_sha256_undefined_accepts_any(_Config) ->
     ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"other bytes">>)),
     ok.
 
+%% The CLI install path must enforce the same allow gate as the HTTP upload path:
+%% without an `allow_installation' grant the CLI must refuse to install, with a
+%% grant it must install and consume the grant (forget on success, retain on
+%% failure so the admin can retry).
+t_cli_install_requires_allow({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_cli_install_requires_allow({'end', Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    _ = emqx_plugins:ensure_uninstalled(?config(name_vsn, Config)),
+    ok;
+t_cli_install_requires_allow(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    LogFun = fun(_F, A) -> A end,
+    %% Without an allow entry the CLI must refuse and install nothing.
+    [DeniedJson] = emqx_plugins_cli_utils:ensure_installed(NameVsn, LogFun),
+    Denied = emqx_utils_json:decode(DeniedJson, [return_maps]),
+    ?assertMatch(
+        #{<<"result">> := <<"not_ok">>, <<"cause">> := <<"not_allowed">>},
+        Denied
+    ),
+    ?assertMatch({error, _}, emqx_plugins:describe(NameVsn)),
+    ?assertNot(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
+    %% Grant retained when the install itself fails.
+    MissingNameVsn = "missing-plugin-1.0.0",
+    ok = emqx_plugins:allow_installation(MissingNameVsn),
+    ?assert(emqx_plugins:is_allowed_installation(MissingNameVsn)),
+    [FailedJson] = emqx_plugins_cli_utils:ensure_installed(MissingNameVsn, LogFun),
+    Failed = emqx_utils_json:decode(FailedJson, [return_maps]),
+    ?assertMatch(#{<<"result">> := <<"not_ok">>}, Failed),
+    ?assert(emqx_plugins:is_allowed_installation(MissingNameVsn)),
+    %% With a grant the install succeeds and consumes the grant.
+    ok = emqx_plugins:allow_installation(NameVsn),
+    ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
+    [OkJson] = emqx_plugins_cli_utils:ensure_installed(NameVsn, LogFun),
+    Ok = emqx_utils_json:decode(OkJson, [return_maps]),
+    ?assertMatch(#{<<"result">> := <<"ok">>}, Ok),
+    ?assert(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
+    ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ?assertNot(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
+    ok.
+
+%% Plugin API callbacks must not be able to set browser-sensitive response headers.
+t_plugin_api_forbidden_headers_filtered({init, Config}) ->
+    Config;
+t_plugin_api_forbidden_headers_filtered({'end', _Config}) ->
+    ok;
+t_plugin_api_forbidden_headers_filtered(_Config) ->
+    Forbidden = [
+        {"set-cookie", "session=evil"},
+        {"location", "https://attacker.com"},
+        {"access-control-allow-origin", "*"},
+        {"content-security-policy", "default-src *"},
+        {"authorization", "Bearer secret"}
+    ],
+    Allowed = [
+        {"content-type", "application/json"},
+        {"x-custom", "keep"}
+    ],
+    {200, Headers, #{ok := true}} = emqx_plugins:map_plugin_api_result(
+        {ok, 200, Forbidden ++ Allowed, #{ok => true}}
+    ),
+    ?assertNot(maps:is_key(<<"set-cookie">>, Headers)),
+    ?assertNot(maps:is_key(<<"location">>, Headers)),
+    ?assertNot(maps:is_key(<<"access-control-allow-origin">>, Headers)),
+    ?assertNot(maps:is_key(<<"content-security-policy">>, Headers)),
+    ?assertNot(maps:is_key(<<"authorization">>, Headers)),
+    ?assert(maps:is_key(<<"content-type">>, Headers)),
+    ?assert(maps:is_key(<<"x-custom">>, Headers)),
+    ok.
+
+%%--------------------------------------------------------------------
+%% package_limits
+%%--------------------------------------------------------------------
+
+-define(LIMITS_PATH, [plugins, package_limits]).
+
+create_test_tar(InstallDir, NameVsn, Entries) ->
+    TarGz = filename:join(InstallDir, NameVsn ++ ".tar.gz"),
+    ok = erl_tar:create(TarGz, Entries, [compressed]),
+    TarGz.
+
+with_package_limit(Key, Value, Fun) ->
+    Path = ?LIMITS_PATH ++ [Key],
+    Old = emqx_config:get(Path),
+    emqx_config:put(Path, Value),
+    try
+        Fun()
+    after
+        emqx_config:put(Path, Old)
+    end.
+
+%% A tarball larger than `max_package_size' must be rejected before any
+%% extraction happens, on both the upload (write_tar) and the install path.
+t_package_size_limit({init, Config}) ->
+    InstallDir = ?config(install_dir, Config),
+    NameVsn = "toobig-1.0.0",
+    create_test_tar(InstallDir, NameVsn, [
+        {filename:join(NameVsn, "release.json"), <<"{}">>}
+    ]),
+    [{name_vsn, NameVsn} | Config];
+t_package_size_limit({'end', Config}) ->
+    ok = emqx_plugins:delete_package(?config(name_vsn, Config));
+t_package_size_limit(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    InstallDir = ?config(install_dir, Config),
+    with_package_limit(max_package_size, 10, fun() ->
+        ?assertMatch(
+            {error, #{reason := package_size_limit_exceeded}},
+            emqx_plugins:ensure_installed(NameVsn)
+        ),
+        ?assertMatch(
+            {error, #{reason := package_size_limit_exceeded}},
+            emqx_plugins_fs:write_tar("upload-1.0.0", binary:copy(<<"a">>, 100))
+        ),
+        ?assertEqual(
+            {error, enoent},
+            file:read_file_info(filename:join(InstallDir, "upload-1.0.0.tar.gz"))
+        )
+    end),
+    ok.
+
+%% A tarball with more entries than `max_file_count' must be rejected.
+t_package_file_count_limit({init, Config}) ->
+    InstallDir = ?config(install_dir, Config),
+    NameVsn = "manyfiles-1.0.0",
+    create_test_tar(InstallDir, NameVsn, [
+        {filename:join([NameVsn, "a"]), <<"a">>},
+        {filename:join([NameVsn, "b"]), <<"b">>},
+        {filename:join([NameVsn, "c"]), <<"c">>}
+    ]),
+    [{name_vsn, NameVsn} | Config];
+t_package_file_count_limit({'end', Config}) ->
+    ok = emqx_plugins:delete_package(?config(name_vsn, Config));
+t_package_file_count_limit(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    with_package_limit(max_file_count, 2, fun() ->
+        ?assertMatch(
+            {error, #{reason := file_count_limit_exceeded}},
+            emqx_plugins:ensure_installed(NameVsn)
+        )
+    end),
+    %% Nothing may be extracted on rejection.
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ok.
+
+%% A tarball with entries deeper than `max_path_depth' must be rejected.
+t_package_path_depth_limit({init, Config}) ->
+    InstallDir = ?config(install_dir, Config),
+    NameVsn = "deep-1.0.0",
+    DeepEntry = filename:join([NameVsn, "d1", "d2", "d3", "d4", "file.txt"]),
+    create_test_tar(InstallDir, NameVsn, [{DeepEntry, <<"x">>}]),
+    [{name_vsn, NameVsn} | Config];
+t_package_path_depth_limit({'end', Config}) ->
+    ok = emqx_plugins:delete_package(?config(name_vsn, Config));
+t_package_path_depth_limit(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    with_package_limit(max_path_depth, 3, fun() ->
+        ?assertMatch(
+            {error, #{reason := path_depth_limit_exceeded}},
+            emqx_plugins:ensure_installed(NameVsn)
+        )
+    end),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ok.
+
+%% A tarball whose decompressed content exceeds `max_decompressed_size' must
+%% be rejected and nothing may be left on disk.
+t_package_decompressed_size_limit({init, Config}) ->
+    InstallDir = ?config(install_dir, Config),
+    NameVsn = "bomb-1.0.0",
+    create_test_tar(InstallDir, NameVsn, [
+        {filename:join([NameVsn, "big.bin"]), binary:copy(<<"0123456789">>, 100)}
+    ]),
+    [{name_vsn, NameVsn} | Config];
+t_package_decompressed_size_limit({'end', Config}) ->
+    ok = emqx_plugins:delete_package(?config(name_vsn, Config));
+t_package_decompressed_size_limit(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    with_package_limit(max_decompressed_size, 100, fun() ->
+        ?assertMatch(
+            {error, #{reason := decompressed_size_limit_exceeded}},
+            emqx_plugins:ensure_installed(NameVsn)
+        )
+    end),
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
+    ok.
+
 %% A tar entry whose name escapes the install dir (../../../tmp/pwned) must be
 %% rejected, and no part of the tarball may land on disk outside the install dir.
 t_tar_path_traversal({init, Config}) ->

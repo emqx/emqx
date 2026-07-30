@@ -118,6 +118,31 @@ t_plugin_api_sensitive_headers_redacted(_Config) ->
     ?assertEqual(false, maps:get(<<"has_cookie">>, Body)),
     ?assertEqual(true, maps:get(<<"has_x_test">>, Body)).
 
+t_plugin_api_forbidden_headers_filtered(_Config) ->
+    ok = meck:expect(
+        emqx_plugins,
+        handle_api_call,
+        fun(<<"fake">>, _Request, _Timeout) ->
+            Headers = #{
+                <<"content-type">> => <<"application/json">>,
+                <<"set-cookie">> => <<"emqx_auth=evil; Path=/; HttpOnly">>,
+                <<"location">> => <<"https://attacker.com">>,
+                <<"access-control-allow-origin">> => <<"*">>,
+                <<"x-custom">> => <<"keep">>
+            },
+            emqx_plugins:map_plugin_api_result({ok, 200, Headers, #{ok => true}})
+        end
+    ),
+    {200, RespHeaders, Body} = request_with_headers(get, ?SERVER ++ "/plugin_api/fake/ping"),
+    ?assertEqual(#{<<"ok">> => true}, Body),
+    ?assertEqual(
+        <<"application/json">>, iolist_to_binary(maps:get(<<"content-type">>, RespHeaders))
+    ),
+    ?assertEqual(<<"keep">>, iolist_to_binary(maps:get(<<"x-custom">>, RespHeaders))),
+    ?assertNot(maps:is_key(<<"set-cookie">>, RespHeaders)),
+    ?assertNot(maps:is_key(<<"location">>, RespHeaders)),
+    ?assertNot(maps:is_key(<<"access-control-allow-origin">>, RespHeaders)).
+
 t_plugin_api_query_string_passthrough(_Config) ->
     ok = meck:expect(
         emqx_plugins,
@@ -158,6 +183,35 @@ request(Method, Url, AuthOrHeaders) ->
         {error, {{"HTTP/1.1", Code, _}, _Headers, Body}} ->
             {Code, maybe_decode(Body)}
     end.
+
+request_with_headers(Method, Url) ->
+    request_with_headers(Method, Url, emqx_mgmt_api_test_util:auth_header_()).
+
+request_with_headers(Method, Url, AuthOrHeaders) ->
+    Res = emqx_mgmt_api_test_util:request_api(
+        Method,
+        Url,
+        [],
+        AuthOrHeaders,
+        [],
+        #{return_all => true, httpc_req_opts => [{body_format, binary}]}
+    ),
+    case Res of
+        {ok, {{"HTTP/1.1", Code, _}, Headers, Body}} ->
+            {Code, normalize_headers(Headers), maybe_decode(Body)};
+        {error, {{"HTTP/1.1", Code, _}, Headers, Body}} ->
+            {Code, normalize_headers(Headers), maybe_decode(Body)}
+    end.
+
+normalize_headers(Headers) ->
+    maps:from_list([
+        {bin(Key), Value}
+     || {Key, Value} <- Headers
+    ]).
+
+bin(B) when is_binary(B) -> B;
+bin(L) when is_list(L) -> list_to_binary(L);
+bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
 
 maybe_decode(Body) when is_binary(Body) ->
     case emqx_utils_json:safe_decode(Body) of

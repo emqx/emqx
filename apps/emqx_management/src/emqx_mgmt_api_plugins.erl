@@ -799,7 +799,14 @@ install_package(FileName, Bin) ->
     install_package_v4(NameVsn, Bin).
 
 install_package_v4(NameVsn, Bin) ->
-    ok = emqx_plugins:write_package(NameVsn, Bin),
+    case emqx_plugins:write_package(NameVsn, Bin) of
+        ok ->
+            install_written_package_v4(NameVsn);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+install_written_package_v4(NameVsn) ->
     case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := ?plugin_not_found}} = NotFound ->
             NotFound;

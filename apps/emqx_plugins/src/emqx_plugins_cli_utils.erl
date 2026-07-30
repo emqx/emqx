@@ -204,7 +204,8 @@ print_cluster_result(Nodes, Results, NameVsn, LogFun) ->
             [] -> ok;
             _ -> {error, maps:from_list(Errors)}
         end,
-    print(NameVsn, Result, LogFun, ensure_installed_cluster).
+    print(NameVsn, Result, LogFun, ensure_installed_cluster),
+    Result.
 
 disallow_installation(NameVsn, LogFun) ->
     try emqx_plugins_utils:parse_name_vsn(NameVsn) of
@@ -236,19 +237,55 @@ do_disallow_installation(NameVsn, LogFun) ->
     ?PRINT(Result, LogFun).
 
 ensure_installed(NameVsn, LogFun) ->
+    %% The CLI path must enforce the same allow gate as the HTTP upload path:
+    %% a tarball that landed in the install dir (e.g. via cluster replication
+    %% or manual placement) must not be installable without an explicit
+    %% `plugins allow' grant from the admin.
+    case emqx_plugins:is_allowed_installation(NameVsn) of
+        true ->
+            Result = do_ensure_installed(NameVsn),
+            maybe_forget_grant(NameVsn, Result),
+            ?PRINT(Result, LogFun);
+        false ->
+            ?PRINT({error, not_allowed}, LogFun)
+    end.
+
+do_ensure_installed(NameVsn) ->
     case emqx_plugins:describe(NameVsn, #{}) of
         {ok, _} ->
-            ?PRINT(
-                {error, #{
-                    msg => "plugin_already_installed", name_vsn => NameVsn
-                }},
-                LogFun
-            );
+            {error, #{
+                msg => "plugin_already_installed", name_vsn => NameVsn
+            }};
         {error, _} ->
-            ?PRINT(emqx_plugins:ensure_installed(NameVsn, ?fresh_install), LogFun)
+            emqx_plugins:ensure_installed(NameVsn, ?fresh_install)
     end.
 
 ensure_installed_cluster(NameVsn, LogFun) ->
+    %% Same allow gate as the single-node CLI install: the tarball is read
+    %% from the local install dir and pushed to all nodes, so it must not be
+    %% installable without an explicit `plugins allow' grant either.
+    case emqx_plugins:is_allowed_installation(NameVsn) of
+        true ->
+            Result = do_ensure_installed_cluster(NameVsn, LogFun),
+            maybe_forget_grant(NameVsn, Result),
+            Result;
+        false ->
+            ?PRINT({error, not_allowed}, LogFun)
+    end.
+
+%% Consume the grant only on success; retain it on failure so the admin can
+%% retry after fixing the underlying problem. Mirroring the HTTP upload
+%% path, the grant is revoked cluster-wide because `plugins allow' is issued
+%% cluster-wide — a local-only forget would leave the grant reusable on
+%% other nodes until its TTL expires.
+maybe_forget_grant(NameVsn, ok) ->
+    Nodes = emqx:running_nodes(),
+    _ = emqx_plugins_proto_v3:disallow_installation(Nodes, NameVsn),
+    ok;
+maybe_forget_grant(_NameVsn, _Result) ->
+    ok.
+
+do_ensure_installed_cluster(NameVsn, LogFun) ->
     case emqx_plugins_fs:get_tar(NameVsn) of
         {ok, TarBin} ->
             Running = emqx:running_nodes(),
@@ -262,10 +299,12 @@ ensure_installed_cluster(NameVsn, LogFun) ->
                         hint => <<"cluster install requires all nodes to support proto v5">>,
                         nodes_missing_v5 => Missing
                     },
-                    ?PRINT({error, Reason}, LogFun)
+                    ?PRINT({error, Reason}, LogFun),
+                    {error, Reason}
             end;
         {error, Reason} ->
-            ?PRINT({error, Reason}, LogFun)
+            ?PRINT({error, Reason}, LogFun),
+            {error, Reason}
     end.
 
 ensure_uninstalled(NameVsn, LogFun) ->

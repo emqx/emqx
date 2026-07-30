@@ -8,8 +8,44 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+%% Browser/security-sensitive response headers that plugin API callbacks
+%% are not allowed to set. All names must be lower-case binary because
+%% `normalize_headers/1' lower-cases keys.
+-define(PLUGIN_API_FORBIDDEN_HEADERS, [
+    %% auth
+    <<"authorization">>,
+    <<"www-authenticate">>,
+    <<"proxy-authenticate">>,
+    %% cookies
+    <<"cookie">>,
+    <<"cookie2">>,
+    <<"set-cookie">>,
+    <<"set-cookie2">>,
+    %% CORS
+    <<"access-control-allow-origin">>,
+    <<"access-control-allow-credentials">>,
+    <<"access-control-allow-methods">>,
+    <<"access-control-allow-headers">>,
+    <<"access-control-expose-headers">>,
+    <<"access-control-max-age">>,
+    <<"access-control-request-method">>,
+    <<"access-control-request-headers">>,
+    %% redirects
+    <<"location">>,
+    <<"refresh">>,
+    %% security/policy
+    <<"content-security-policy">>,
+    <<"content-security-policy-report-only">>,
+    <<"strict-transport-security">>,
+    <<"x-frame-options">>,
+    <<"x-content-type-options">>,
+    <<"referrer-policy">>,
+    <<"permissions-policy">>
+]).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-export([map_plugin_api_result/1]).
 -endif.
 
 -export([
@@ -374,7 +410,7 @@ delete_state(NameVsn) ->
     ensure_delete_state(NameVsn).
 
 %% @doc Write the package file.
--spec write_package(name_vsn(), binary()) -> ok.
+-spec write_package(name_vsn(), binary()) -> ok | {error, map()}.
 write_package(NameVsn, Bin) ->
     emqx_plugins_fs:write_tar(NameVsn, Bin).
 
@@ -648,15 +684,30 @@ resolve_active_name_vsn(Plugin0, ActiveNameVsns) ->
     end.
 
 map_plugin_api_result({ok, Status, Headers, Body}) when is_integer(Status) ->
-    {Status, normalize_headers(Headers), Body};
+    {Status, filter_plugin_api_headers(normalize_headers(Headers)), Body};
 map_plugin_api_result({error, Code, Msg}) ->
     {400, #{code => to_bin(Code), message => to_bin(Msg)}};
 map_plugin_api_result({error, Status, Headers, Body}) when is_integer(Status) ->
-    {Status, normalize_headers(Headers), Body};
+    {Status, filter_plugin_api_headers(normalize_headers(Headers)), Body};
 map_plugin_api_result({error, not_found}) ->
     {404, #{code => <<"NOT_FOUND">>, message => <<"Plugin API Not Found">>}};
 map_plugin_api_result(_Other) ->
     {500, #{code => <<"INTERNAL_ERROR">>, message => <<"Invalid Plugin API Response">>}}.
+
+filter_plugin_api_headers(Headers) ->
+    maps:filter(fun(K, _V) -> not is_forbidden_header(K) end, Headers).
+
+is_forbidden_header(Header) when is_binary(Header) ->
+    is_forbidden_header_lower(to_bin(string:lowercase(Header)));
+is_forbidden_header(_) ->
+    true.
+
+is_forbidden_header_lower(<<"access-control-", _/binary>>) ->
+    true;
+is_forbidden_header_lower(Lower) when is_binary(Lower) ->
+    lists:member(Lower, ?PLUGIN_API_FORBIDDEN_HEADERS);
+is_forbidden_header_lower(_) ->
+    true.
 
 normalize_headers(Headers) when is_map(Headers) ->
     maps:from_list([{to_bin(K), iolist_to_binary(V)} || {K, V} <- maps:to_list(Headers)]);
@@ -847,15 +898,19 @@ get_tar(NameVsn) ->
 
 -spec install_package(name_vsn(), binary()) -> ok | {error, term()}.
 install_package(NameVsn, Bin) ->
-    ok = write_package(NameVsn, Bin),
-    case ensure_installed(NameVsn, ?fresh_install) of
-        {error, #{reason := plugin_not_found}} = NotFound ->
-            NotFound;
-        {error, _} = Error ->
-            _ = delete_package(NameVsn),
-            Error;
-        Result ->
-            Result
+    case write_package(NameVsn, Bin) of
+        ok ->
+            case ensure_installed(NameVsn, ?fresh_install) of
+                {error, #{reason := plugin_not_found}} = NotFound ->
+                    NotFound;
+                {error, _} = Error ->
+                    _ = delete_package(NameVsn),
+                    Error;
+                Result ->
+                    Result
+            end;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
@@ -985,7 +1040,8 @@ get_package_from_node(Node, NameVsn) ->
 get_package_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
 get_package_from_any_node([Node | T], NameVsn, Errors) ->
-    case emqx_plugins_proto_v2:get_tar(Node, NameVsn, infinity) of
+    Timeout = emqx_plugins_fs:max_extraction_time_ms(),
+    case emqx_plugins_proto_v2:get_tar(Node, NameVsn, Timeout) of
         {ok, _} = Res ->
             ?SLOG(debug, #{
                 msg => "get_plugin_tar_from_cluster_successfully",
@@ -1590,5 +1646,63 @@ ensure_no_other_version_active_rejects_running_case() ->
         }},
         ensure_no_other_version_active(Plugins, <<"demo-2.0.0">>)
     ).
+
+map_plugin_api_result_filters_forbidden_headers_test() ->
+    Forbidden = [
+        <<"authorization">>,
+        <<"www-authenticate">>,
+        <<"proxy-authenticate">>,
+        <<"cookie">>,
+        <<"cookie2">>,
+        <<"set-cookie">>,
+        <<"set-cookie2">>,
+        <<"access-control-allow-origin">>,
+        <<"access-control-request-method">>,
+        <<"location">>,
+        <<"refresh">>,
+        <<"content-security-policy">>,
+        <<"strict-transport-security">>,
+        <<"x-frame-options">>,
+        <<"x-content-type-options">>,
+        <<"referrer-policy">>,
+        <<"permissions-policy">>
+    ],
+    Allowed = [
+        <<"content-type">>,
+        <<"content-length">>,
+        <<"cache-control">>,
+        <<"etag">>,
+        <<"x-request-id">>,
+        <<"x-plugin-custom">>
+    ],
+    Headers = maps:from_list([{K, <<"1">>} || K <- Forbidden ++ Allowed]),
+    {200, RespHeaders, #{ok := true}} = map_plugin_api_result(
+        {ok, 200, Headers, #{ok => true}}
+    ),
+    [?assertNot(maps:is_key(K, RespHeaders)) || K <- Forbidden],
+    [?assertEqual(<<"1">>, maps:get(K, RespHeaders)) || K <- Allowed],
+    %% error clause is filtered too
+    {401, ErrHeaders, #{error := true}} = map_plugin_api_result(
+        {error, 401, Headers, #{error => true}}
+    ),
+    [?assertNot(maps:is_key(K, ErrHeaders)) || K <- Forbidden],
+    [?assertEqual(<<"1">>, maps:get(K, ErrHeaders)) || K <- Allowed].
+
+map_plugin_api_result_case_insensitive_test() ->
+    Headers = #{
+        <<"Set-Cookie">> => <<"a">>,
+        <<"LOCATION">> => <<"b">>,
+        <<"Content-Type">> => <<"c">>
+    },
+    {200, RespHeaders, #{}} = map_plugin_api_result({ok, 200, Headers, #{}}),
+    %% Forbidden headers filtered regardless of input case
+    [
+        ?assertNot(maps:is_key(K, RespHeaders))
+     || K <- [<<"set-cookie">>, <<"Set-Cookie">>, <<"location">>, <<"LOCATION">>]
+    ],
+    %% Allowed headers preserved (normalization keeps original case)
+    KEs = maps:keys(RespHeaders),
+    ?assert(lists:any(fun(K) -> string:equal(string:lowercase(K), <<"content-type">>) end, KEs)),
+    ?assertEqual(<<"c">>, iolist_to_binary(maps:get(<<"Content-Type">>, RespHeaders))).
 
 -endif.

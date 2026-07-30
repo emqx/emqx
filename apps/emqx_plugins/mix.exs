@@ -25,6 +25,11 @@ defmodule EMQXPlugins.MixProject do
     UMP.deps([
       {:emqx, in_umbrella: true},
       :erlavro
-    ])
+    ]) ++
+      if UMP.test_env?() do
+        [{:cth_readable, "1.5.1"}]
+      else
+        []
+      end
   end
 end
