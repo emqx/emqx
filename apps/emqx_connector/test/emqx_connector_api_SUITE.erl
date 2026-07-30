@@ -146,7 +146,8 @@ groups() ->
         t_fail_delete_with_action,
         t_actions_field,
         t_update_with_failed_validation,
-        t_create_with_failed_root_validation
+        t_create_with_failed_root_validation,
+        t_start_connector_node_badrpc
     ],
     ClusterOnlyTests = [
         t_inconsistent_state
@@ -467,6 +468,27 @@ t_start_connector_unknown_node(Config) ->
 
 t_start_connector_node(Config) ->
     do_start_connector(node, Config).
+
+%% Per-node start operation returns 503 (not 500) when the RPC to the target node fails.
+t_start_connector_node_badrpc(Config) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    ?assertMatch(
+        {ok, 201, _},
+        request_json(
+            post,
+            uri(["connectors"]),
+            ?KAFKA_CONNECTOR(Name),
+            Config
+        )
+    ),
+    ConnectorID = emqx_connector_resource:connector_id(?CONNECTOR_TYPE, Name),
+    ok = meck:new(emqx_connector_proto_v1, [passthrough, no_link]),
+    ok = meck:expect(emqx_connector_proto_v1, start_connector_to_node, 3, {badrpc, nodedown}),
+    ?assertMatch(
+        {ok, 503, _},
+        request(post, {operation, node, start, ConnectorID}, Config)
+    ),
+    ok.
 
 t_start_connector_cluster(Config) ->
     do_start_connector(cluster, Config).

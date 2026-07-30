@@ -132,7 +132,15 @@ fields(file_node) ->
                     'NOT_FOUND',
                     iolist_to_binary(["Invalid query parameter: ", Param])
                 )};
-        error:{erpc, noconnection} ->
+        error:{erpc, _} ->
+            {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)};
+        error:{exception, Reason, Stacktrace} ->
+            %% The remote call crashed on the target node; the stacktrace is remote.
+            ?SLOG(warning, #{
+                msg => "get_ready_transfer_fail",
+                error => Reason,
+                stacktrace => Stacktrace
+            }),
             {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
     end.
 

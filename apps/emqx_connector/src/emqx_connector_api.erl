@@ -723,6 +723,10 @@ is_ok(OkResult = {ok, _}) ->
     OkResult;
 is_ok(Error = {error, _}) ->
     Error;
+is_ok({badrpc, _} = Error) ->
+    %% Single-node operations use `rpc:call' which returns `{badrpc, Reason}'
+    %% when the target node is unreachable or the remote call fails.
+    {error, Error};
 is_ok(timeout) ->
     %% Returned by `emqx_resource_manager:start' when the connector fails to reach either
     %% `?status_connected' or `?status_disconnected' within `start_timeout'.
@@ -796,6 +800,9 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, ConnectorType, ConnectorName
             ?NOT_FOUND(<<"Node not found: ", (atom_to_binary(Node))/binary>>);
         {error, {unhealthy_target, Message}} ->
             ?BAD_REQUEST(Message);
+        {error, {badrpc, Reason}} ->
+            Msg = bin(io_lib:format("RPC to remote node failed: ~0p", [Reason])),
+            ?SERVICE_UNAVAILABLE(Msg);
         {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
             ?BAD_REQUEST(redact(Reason))
     end.

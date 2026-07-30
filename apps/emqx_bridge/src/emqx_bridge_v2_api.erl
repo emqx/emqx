@@ -1064,6 +1064,10 @@ is_ok(OkResult = {ok, _}) ->
     OkResult;
 is_ok(Error = {error, _}) ->
     Error;
+is_ok({badrpc, _} = Error) ->
+    %% Single-node operations use `rpc:call' which returns `{badrpc, Reason}'
+    %% when the target node is unreachable or the remote call fails.
+    {error, Error};
 is_ok(ResL) ->
     case
         lists:filter(
@@ -1202,6 +1206,16 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, _ConfRootKey, BridgeType, Br
             ?SERVICE_UNAVAILABLE(<<"Bridge not found on remote node: ", BridgeId/binary>>);
         {error, {node_not_found, Node}} ->
             ?NOT_FOUND(<<"Node not found: ", (atom_to_binary(Node))/binary>>);
+        {error, {badrpc, Reason}} ->
+            BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
+            ?SLOG(warning, #{
+                msg => "bridge_bpapi_call_failed",
+                bridge => BridgeId,
+                call => OperFunc,
+                reason => Reason
+            }),
+            Msg = bin(io_lib:format("RPC to remote node failed: ~0p", [Reason])),
+            ?SERVICE_UNAVAILABLE(Msg);
         {error, Reason} ->
             ?BAD_REQUEST(redact(Reason))
     end.

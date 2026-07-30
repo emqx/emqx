@@ -101,6 +101,7 @@ groups() ->
     SingleOnlyTests = [
         t_broken_bpapi_vsn,
         t_old_bpapi_vsn,
+        t_start_bridge_node_badrpc,
         t_bridges_probe
     ],
     ClusterLaterJoinOnlyTCs = [t_cluster_later_join_metrics],
@@ -169,11 +170,18 @@ init_per_testcase(t_old_bpapi_vsn, Config) ->
     meck:expect(emqx_bpapi, supported_version, 1, 1),
     meck:expect(emqx_bpapi, supported_version, 2, 1),
     init_per_testcase(common, Config);
+init_per_testcase(t_start_bridge_node_badrpc, Config) ->
+    meck:new(emqx_bridge_proto_v4, [passthrough]),
+    meck:expect(emqx_bridge_proto_v4, start_bridge_to_node, 3, {badrpc, nodedown}),
+    init_per_testcase(common, Config);
 init_per_testcase(_, Config) ->
     {Port, Sock, Acceptor} = start_http_server(fun handle_fun_200_ok/2),
     [{port, Port}, {sock, Sock}, {acceptor, Acceptor} | Config].
 
 end_per_testcase(t_broken_bpapi_vsn, Config) ->
+    meck:unload(),
+    end_per_testcase(common, Config);
+end_per_testcase(t_start_bridge_node_badrpc, Config) ->
     meck:unload(),
     end_per_testcase(common, Config);
 end_per_testcase(t_old_bpapi_vsn, Config) ->
@@ -736,6 +744,24 @@ t_start_bridge_unknown_node(Config) ->
             uri(["nodes", "undefined", "bridges", "webhook:foo", start]),
             Config
         ).
+
+%% Per-node start operation returns 503 (not 500) when the RPC to the target node fails.
+t_start_bridge_node_badrpc(Config) ->
+    Port = ?config(port, Config),
+    URL1 = ?URL(Port, "abc"),
+    Name = ?BRIDGE_NAME,
+    {ok, 201, _} = request(
+        post,
+        uri(["bridges"]),
+        ?HTTP_BRIDGE(URL1, Name),
+        Config
+    ),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
+    ?assertMatch(
+        {ok, 503, #{<<"message">> := _}},
+        request_json(post, {operation, node, start, BridgeID}, Config)
+    ),
+    ok.
 
 t_start_stop_bridges_node(Config) ->
     do_start_stop_bridges(node, Config).

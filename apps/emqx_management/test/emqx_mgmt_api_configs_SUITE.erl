@@ -343,6 +343,19 @@ t_get_configs_in_different_accept(_Config) ->
     %% returns error if it set to other type
     ?assertMatch({400, "application/json", _}, Request(<<"application/xml">>)).
 
+%% text/plain config fetch from an unreachable node returns a structured error, not a crash.
+t_get_configs_v2_unknown_node(_Config) ->
+    URI = emqx_mgmt_api_test_util:api_path(["configs?node=unknownnode@127.0.0.1"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Headers = [{"accept", "text/plain"}, Auth],
+    {error, {{_, 500, _}, _RespHeaders, Body}} =
+        emqx_mgmt_api_test_util:request_api(get, URI, [], Headers, [], #{return_all => true}),
+    ?assertMatch(
+        #{<<"code">> := <<"BAD_NODE">>},
+        emqx_utils_json:decode(iolist_to_binary(Body))
+    ),
+    ok.
+
 t_create_webhook_v1_bridges_api({'init', Config}) ->
     lists:foreach(
         fun(App) ->

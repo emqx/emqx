@@ -1148,6 +1148,40 @@ t_start_bridge_unknown_node(Config) ->
             Config
         ).
 
+%% Per-node start operation returns 503 (not 500) when the RPC to the target node fails.
+t_start_bridge_node_badrpc(matrix) ->
+    [[single, actions]];
+t_start_bridge_node_badrpc(Config) ->
+    [_SingleOrCluster, Kind | _] = group_path(Config),
+    Name = atom_to_binary(?FUNCTION_NAME),
+    #{
+        api_root_key := APIRootKey,
+        type := Type,
+        create_config_fn := CreateConfigFn
+    } = get_common_values(Kind, Name),
+    ?assertMatch(
+        {ok, 201, _},
+        request_json(
+            post,
+            uri([APIRootKey]),
+            CreateConfigFn(#{name => Name}),
+            Config
+        )
+    ),
+    BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
+    ok = meck:new(emqx_bridge_proto_v6, [passthrough, no_link]),
+    ok = meck:expect(emqx_bridge_proto_v6, v2_start_bridge_on_node_v6, 4, {badrpc, nodedown}),
+    Node = ?config(node, Config),
+    ?assertMatch(
+        {ok, 503, _},
+        request(
+            post,
+            uri(["nodes", atom_to_binary(Node), APIRootKey, BridgeID, "start"]),
+            Config
+        )
+    ),
+    ok.
+
 t_start_bridge_node(matrix) ->
     [
         [single, actions],

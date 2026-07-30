@@ -184,7 +184,17 @@ terminate(_Reason, _StateName, #{}) ->
 pread(Node, Segment, #{storage := Storage, transfer := Transfer}) when Node =:= node() ->
     emqx_ft_storage_fs:pread(Storage, Transfer, Segment, 0, segsize(Segment));
 pread(Node, Segment, #{transfer := Transfer}) ->
-    emqx_ft_storage_fs_proto_v1:pread(Node, Transfer, Segment, 0, segsize(Segment)).
+    %% `emqx_ft_storage_fs_proto_v1:pread/5' is backed by `erpc:call' which raises
+    %% on node/transport failures and remote crashes; turn a raise into an error
+    %% return so assembly stops cleanly instead of crashing the process.
+    try
+        emqx_ft_storage_fs_proto_v1:pread(Node, Transfer, Segment, 0, segsize(Segment))
+    catch
+        error:{erpc, _} = Reason ->
+            {error, Reason};
+        error:{exception, Reason, _Stack} ->
+            {error, Reason}
+    end.
 
 %%
 
