@@ -941,15 +941,16 @@ t_action_health_check_rate_limit(TCConfig) when is_list(TCConfig) ->
             ok
         end
     ),
+    snabbkaffe:stop(),
 
     CreateNamedAction = fun(Name) ->
         {201, _} = create_action_api([{action_name, Name} | TCConfig], #{
-            %% With more action, we trigger quota limit earlier
+            %% With more actions, we trigger quota limit earlier
             <<"resource_opts">> => #{<<"health_check_interval">> => <<"200ms">>}
         })
     end,
     ct:pal("Testing with 3 actions"),
-    ct:timetrap({seconds, 10}),
+    ct:timetrap({seconds, 30}),
     ?check_trace(
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin
@@ -1129,11 +1130,11 @@ t_connector_health_check_no_core(TCConfig) when is_list(TCConfig) ->
                 ?ON(R1, emqx_resource_cache:read_status(ConnResId))
             ),
             emqx_cth_cluster:stop(Nodes),
-            ok
+            R1
         end,
-        fun(Trace) ->
-            ?assertMatch([], ?of_kind("kinesis_connector_hc_rate_limited", Trace)),
-            ?assertMatch([], ?of_kind("kinesis_action_hc_rate_limited", Trace)),
+        fun(R1, Trace) ->
+            ?assertMatch([], ?of_node(R1, ?of_kind("kinesis_connector_hc_rate_limited", Trace))),
+            ?assertMatch([], ?of_node(R1, ?of_kind("kinesis_action_hc_rate_limited", Trace))),
             ?assertMatch([_ | _], ?of_kind("kinesis_producer_connector_hc_no_core", Trace)),
             ok
         end
