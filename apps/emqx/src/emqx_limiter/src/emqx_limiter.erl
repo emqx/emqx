@@ -248,7 +248,7 @@ do_post_zone_config_update(false, _OldZoneConfig, _NewZoneConfig) ->
 %% means that the limiter `x` has a rate of 10 tokens per 1000ms and a burst of 100 each 5 minutes.
 %%
 %% The `config(x, Config)` function will return limiter config
-%%  `#{capacity => 10, burst_capacity => 110, interval => 1000, burst_interval => 30000}`.
+%%  `#{capacity => 10, burst_capacity => 100, interval => 1000, burst_interval => 30000}`.
 %%
 %% If the limiter `x` is not configured, the function will return unlimited limiter config
 %%  `#{capacity => infinity}`.
@@ -263,7 +263,7 @@ config(Name, Config) ->
                     %% limited_with_burst()
                     #{
                         capacity => Capacity,
-                        burst_capacity => BurstCapacity + Capacity,
+                        burst_capacity => BurstCapacity,
                         interval => Interval,
                         burst_interval => BurstInterval
                     };
