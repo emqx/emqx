@@ -713,6 +713,15 @@ t_lease_reconnect(_Config) ->
 
             ConnShared = emqtt_connect_sub(<<"client_shared">>),
 
+            %% Create the mock unlinked: under cover, meck:unload can crash the
+            %% mock process in terminate (cover re-instrumentation returning
+            %% {error, Beam}). If the mock is linked to this test process (meck's
+            %% default when the mock is auto-created by meck:expect), that crash
+            %% propagates over the link and kills the test (and its
+            %% emqtt/snabbkaffe children). no_link contains it; safe_meck_unload/1
+            %% still swallows the caller-side error.
+            ok = meck:new(emqx_ds_shared_sub_registry, [passthrough, no_link]),
+
             %% Simulate inability to find leader.
             ok = meck:expect(
                 emqx_ds_shared_sub_registry,

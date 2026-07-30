@@ -29,9 +29,7 @@ init([]) ->
         period => 10
     },
     ConsumerSup = sup_spec(emqx_bridge_kafka_consumer_sup),
-    TokenCache = worker_spec(emqx_bridge_kafka_token_cache),
-    _ = emqx_bridge_kafka_token_cache:create_tables(),
-    ChildSpecs = [ConsumerSup, TokenCache],
+    ChildSpecs = [ConsumerSup],
     {ok, {SupFlags, ChildSpecs}}.
 
 %%------------------------------------------------------------------------------
@@ -45,13 +43,4 @@ sup_spec(Mod) ->
         restart => permanent,
         shutdown => infinity,
         type => supervisor
-    }.
-
-worker_spec(Mod) ->
-    #{
-        id => Mod,
-        start => {Mod, start_link, []},
-        restart => permanent,
-        shutdown => 5_000,
-        type => worker
     }.

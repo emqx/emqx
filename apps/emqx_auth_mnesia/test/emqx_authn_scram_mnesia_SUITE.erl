@@ -377,6 +377,32 @@ t_destroy(TCConfig) ->
 
     ok.
 
+-doc """
+Tests that `purge_namespace/1` deletes all users from the given namespace across all user
+groups, while leaving global and other-namespace users intact.
+""".
+t_purge_namespace(_TCConfig) ->
+    Config = config(),
+    {ok, State} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
+    {ok, StateOtherGroup} = emqx_authn_scram_mnesia:create(<<"id-other">>, Config),
+
+    User = #{user_id => <<"u">>, password => <<"p">>},
+    {ok, _} = emqx_authn_scram_mnesia:add_user(User, State),
+    {ok, _} = emqx_authn_scram_mnesia:add_user(add_ns(User, ?NS), State),
+    {ok, _} = emqx_authn_scram_mnesia:add_user(add_ns(User, ?NS), StateOtherGroup),
+    {ok, _} = emqx_authn_scram_mnesia:add_user(add_ns(User, ?OTHER_NS), State),
+
+    ok = emqx_authn_scram_mnesia:purge_namespace(?NS),
+
+    {error, not_found} = lookup_user(?NS, <<"u">>, State),
+    {error, not_found} = lookup_user(?NS, <<"u">>, StateOtherGroup),
+    {ok, _} = lookup_user(?global_ns, <<"u">>, State),
+    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, State),
+
+    %% Idempotent
+    ok = emqx_authn_scram_mnesia:purge_namespace(?NS),
+    ok.
+
 t_add_user() ->
     [{matrix, true}].
 t_add_user(matrix) ->

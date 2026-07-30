@@ -1,7 +1,8 @@
 # EMQX Sync Request
 
-`emqx_sync_request` publishes one MQTT request through the EMQX REST API
-and waits for the first matching response message.
+`emqx_sync_request` sends one MQTT request through the EMQX REST API to
+exactly one online, non-shared subscriber of the exact request topic, and
+returns the first matching response message.
 
 ```http
 POST /api/v5/plugin_api/emqx_sync_request/request
@@ -19,6 +20,10 @@ Request messages are injected by direct session deliver to the single exact
 subscriber. They do **not** pass the normal MQTT publish pipeline, so they are
 not processed by rule engine, schema validation, message transformation,
 retain, or delayed publish, and they do not use the generic `/publish` path.
+
+The single-subscriber restriction applies to request delivery. The responder
+may publish multiple matching response messages; the first one completes the
+HTTP request, and later responses are ignored.
 
 The HTTP wait timeout is a single deadline shared by remote dispatch and the
 local wait for the MQTT response. Remote dispatch time counts against the same
@@ -168,29 +173,27 @@ sync_request.inflight_requests: 0
 sync_request.pending_responses: 0
 ```
 
-These values are not cluster-wide aggregates. The command reads only the node
-where it runs. In a cluster, run it on each node that may receive the HTTP
-request or deliver the MQTT response. Only requests that reach the plugin
-handler are counted; management API authentication and authorization failures
-are handled by EMQX before the plugin runs.
+All metrics below are node-local; none are cluster-wide aggregates. Counters
+are backed by EMQX node-local metrics, while gauges are computed from the
+plugin's local ETS tables when the command runs. In a cluster, run the command
+on each node that may receive the HTTP request or deliver the MQTT response.
+Only requests that reach the plugin handler are counted; management API
+authentication and authorization failures are handled before the plugin runs.
 
-The request counters are backed by EMQX node-local metrics. The current gauges
-are computed from the plugin's local ETS tables when the CLI command runs.
-
-| Metric | Type | Scope | Description |
-| --- | --- | --- | --- |
-| `sync_request.requests.total` | counter | node-local | HTTP sync request attempts handled by this node. |
-| `sync_request.requests.succeeded` | counter | node-local | Requests that returned HTTP `200`. |
-| `sync_request.requests.failed` | counter | node-local | Requests that returned a non-`200` HTTP status. |
-| `sync_request.requests.bad_request` | counter | node-local | Requests rejected with `400 BAD_REQUEST`. |
-| `sync_request.requests.no_subscribers` | counter | node-local | Requests rejected because no exact, non-shared subscriber was online. |
-| `sync_request.requests.conflict` | counter | node-local | Requests rejected because the request topic matched multiple or shared subscribers. |
-| `sync_request.requests.too_many_requests` | counter | node-local | Requests rejected because this node reached `max_inflight_requests`. |
-| `sync_request.requests.dispatch_failed` | counter | node-local | Requests that could not be dispatched to the subscriber node. |
-| `sync_request.requests.timeout` | counter | node-local | Requests that timed out waiting for a matching MQTT response. |
-| `sync_request.requests.internal_error` | counter | node-local | Requests that failed with an unexpected internal error. |
-| `sync_request.inflight_requests` | gauge | node-local | Current number of HTTP requests waiting for MQTT responses on this node. |
-| `sync_request.pending_responses` | gauge | node-local | Current number of local pending response registrations created after request delivery. |
+| Metric | Type | Description |
+| --- | --- | --- |
+| `sync_request.requests.total` | counter | HTTP sync request attempts handled by this node. |
+| `sync_request.requests.succeeded` | counter | Requests that returned HTTP `200`. |
+| `sync_request.requests.failed` | counter | Requests that returned a non-`200` HTTP status. |
+| `sync_request.requests.bad_request` | counter | Requests rejected with `400 BAD_REQUEST`. |
+| `sync_request.requests.no_subscribers` | counter | Requests rejected because no exact, non-shared subscriber was online. |
+| `sync_request.requests.conflict` | counter | Requests rejected because the request topic matched multiple or shared subscribers. |
+| `sync_request.requests.too_many_requests` | counter | Requests rejected because this node reached `max_inflight_requests`. |
+| `sync_request.requests.dispatch_failed` | counter | Requests that could not be dispatched to the subscriber node. |
+| `sync_request.requests.timeout` | counter | Requests that timed out waiting for a matching MQTT response. |
+| `sync_request.requests.internal_error` | counter | Requests that failed with an unexpected internal error. |
+| `sync_request.inflight_requests` | gauge | Current number of HTTP requests waiting for MQTT responses on this node. |
+| `sync_request.pending_responses` | gauge | Current number of local pending response registrations created after request delivery. |
 
 ## Build And Test
 

@@ -155,7 +155,10 @@ schema("/plugins/:name") ->
             responses => #{
                 204 => ?DESC("uninstall_success"),
                 400 => emqx_dashboard_swagger:error_codes(['PARAM_ERROR'], ?DESC("bad_parameter")),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
+                500 => emqx_dashboard_swagger:error_codes(
+                    ['INTERNAL_ERROR'], ?DESC("internal_error")
+                )
             }
         }
     };
@@ -172,8 +175,13 @@ schema("/plugins/:name/:action") ->
             ],
             responses => #{
                 204 => ?DESC("trigger_success"),
-                400 => emqx_dashboard_swagger:error_codes(['PARAM_ERROR'], ?DESC("bad_parameter")),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['PARAM_ERROR', 'BAD_CONFIG'], ?DESC("bad_parameter")
+                ),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
+                500 => emqx_dashboard_swagger:error_codes(
+                    ['INTERNAL_ERROR'], ?DESC("internal_error")
+                )
             }
         }
     };
@@ -610,31 +618,55 @@ forget_allow_after_install(_NameVsn, _Other) ->
     ok.
 
 do_install_package_on_nodes(NameVsn, Bin) ->
-    %% TODO: handle bad nodes
     Nodes = emqx:running_nodes(),
-    {[_ | _] = Res, []} = emqx_mgmt_api_plugins_proto_v4:install_package(Nodes, NameVsn, Bin),
-    case lists:filter(fun(R) -> R =/= ok end, Res) of
-        [] ->
+    {Responses, BadNodes} =
+        emqx_mgmt_api_plugins_proto_v4:install_package(Nodes, NameVsn, Bin),
+    GoodNodes = Nodes -- BadNodes,
+    NodeErrors = [
+        {Node, Response}
+     || {Node, Response} <- lists:zip(GoodNodes, Responses),
+        Response =/= ok
+    ],
+    case {NodeErrors, BadNodes} of
+        {[], []} ->
             {204};
-        Filtered ->
-            %% crash if we have unexpected errors or results
-            [] = lists:filter(
-                fun
-                    ({error, {failed, _}}) -> true;
-                    ({error, _}) -> false
-                end,
-                Filtered
-            ),
-            Reason =
-                case hd(Filtered) of
-                    {error, #{msg := Reason0}} -> Reason0;
-                    {error, #{reason := Reason0}} -> Reason0
-                end,
-            {400, #{
-                code => 'BAD_PLUGIN_INFO',
-                message => iolist_to_binary([bin(Reason), ": ", NameVsn])
+        {NodeErrors, []} when NodeErrors =/= [] ->
+            case lists:any(fun({_Node, Error}) -> is_rpc_error(Error) end, NodeErrors) of
+                true ->
+                    ?SLOG(error, #{
+                        msg => "plugin_install_failed",
+                        node_errors => NodeErrors
+                    }),
+                    {500, #{
+                        code => 'INTERNAL_ERROR',
+                        message => format_node_errors(NodeErrors)
+                    }};
+                false ->
+                    ?SLOG(warning, #{
+                        msg => "invalid_plugin_package",
+                        node_errors => NodeErrors
+                    }),
+                    {400, #{
+                        code => 'BAD_PLUGIN_INFO',
+                        message => format_node_errors(NodeErrors)
+                    }}
+            end;
+        {NodeErrors, BadNodes} ->
+            ?SLOG(error, #{
+                msg => "plugin_install_failed",
+                node_errors => NodeErrors,
+                bad_nodes => BadNodes
+            }),
+            {500, #{
+                code => 'INTERNAL_ERROR',
+                message => format_node_errors(
+                    NodeErrors ++ [{Node, {badnode, Node}} || Node <- BadNodes]
+                )
             }}
     end.
+
+is_rpc_error({badrpc, _}) -> true;
+is_rpc_error(_) -> false.
 
 plugin(get, #{bindings := #{name := NameVsn}}) ->
     Nodes = emqx:running_nodes(),
@@ -647,7 +679,7 @@ plugin(delete, #{bindings := #{name := NameVsn}}) ->
     case api_visible_on_any_node(NameVsn) of
         true ->
             Res = emqx_mgmt_api_plugins_proto_v4:delete_package(NameVsn),
-            return(204, Res);
+            operation_response(delete, Res);
         false ->
             {404, plugin_not_found_msg()}
     end.
@@ -655,8 +687,8 @@ plugin(delete, #{bindings := #{name := NameVsn}}) ->
 update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
     case api_visible_on_any_node(NameVsn) of
         true ->
-            Res = emqx_mgmt_api_plugins_proto_v4:ensure_action(NameVsn, Action),
-            return(204, Res);
+            Res = ensure_cluster_action(NameVsn, Action),
+            operation_response(Action, Res);
         false ->
             {404, plugin_not_found_msg()}
     end.
@@ -804,7 +836,10 @@ install_package_v4(NameVsn, Bin) ->
         {error, #{reason := ?plugin_not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
-            ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
+            ?SLOG(error, #{
+                msg => "failed_to_install_plugin",
+                reason => Reason
+            }),
             _ = emqx_plugins:delete_package(NameVsn),
             Error;
         Result ->
@@ -847,6 +882,135 @@ ensure_action(Name, restart, _Opts) ->
         {error, _} = Error -> Error
     end.
 
+ensure_cluster_action(Name, stop) ->
+    emqx_mgmt_api_plugins_proto_v4:ensure_action(Name, stop);
+ensure_cluster_action(Name, start) ->
+    Nodes = emqx:running_nodes(),
+    ensure_start_packages_on_nodes(Nodes, Name).
+
+ensure_start_packages_on_nodes(Nodes, Name) ->
+    {Responses, BadNodes} =
+        emqx_mgmt_api_plugins_proto_v5:ensure_start_package(Nodes, Name),
+    GoodNodes = Nodes -- BadNodes,
+    NodeErrors = [
+        {Node, Response}
+     || {Node, Response} <- lists:zip(GoodNodes, Responses),
+        Response =/= ok
+    ],
+    case {lists:any(fun is_node_rpc_error/1, NodeErrors), BadNodes, NodeErrors} of
+        {false, [], []} ->
+            validate_and_start_on_nodes(Nodes, Name);
+        {false, [], _} ->
+            {error, {plugin_start_failed, NodeErrors}};
+        _ ->
+            {error, {plugin_start_unavailable, package, NodeErrors, BadNodes}}
+    end.
+
+%% Start validation is deliberately side-effect free, but it is not an atomic
+%% transaction with the following starts.  Each node revalidates in
+%% `emqx_plugins:ensure_started/1', and rollback is best effort if concurrent
+%% lifecycle or configuration operations make these status hints stale.
+validate_and_start_on_nodes(Nodes, Name) ->
+    {Responses, BadNodes} = emqx_mgmt_api_plugins_proto_v5:validate_start(Nodes, Name),
+    GoodNodes = Nodes -- BadNodes,
+    NodeResponses = lists:zip(GoodNodes, Responses),
+    NodeErrors = [
+        {Node, Response}
+     || {Node, Response} <- NodeResponses,
+        not is_start_validation_result(Response)
+    ],
+    case {lists:any(fun is_node_rpc_error/1, NodeErrors), BadNodes, NodeErrors} of
+        {false, [], []} ->
+            NodeStates = [
+                {Node, RunningStatus}
+             || {Node, {ok, RunningStatus}} <- NodeResponses
+            ],
+            start_on_nodes(Name, NodeStates);
+        {false, [], _} ->
+            {error, {plugin_start_preflight_failed, NodeErrors}};
+        _ ->
+            {error, {plugin_start_unavailable, validation, NodeErrors, BadNodes}}
+    end.
+
+start_on_nodes(Name, NodeStates) ->
+    Nodes = [Node || {Node, _RunningStatus} <- NodeStates],
+    {Responses, BadNodes} = emqx_mgmt_api_plugins_proto_v5:ensure_started(Nodes, Name),
+    GoodNodes = Nodes -- BadNodes,
+    Errors = [
+        {Node, Response}
+     || {Node, Response} <- lists:zip(GoodNodes, Responses),
+        Response =/= ok
+    ],
+    case {lists:any(fun is_node_rpc_error/1, Errors), BadNodes, Errors} of
+        {false, [], []} ->
+            enable_if_membership_unchanged(Name, NodeStates);
+        {false, [], _} ->
+            rollback_after_start_error(Name, NodeStates, {plugin_start_failed, Errors});
+        _ ->
+            rollback_after_start_error(
+                Name,
+                NodeStates,
+                {plugin_start_unavailable, start, Errors, BadNodes}
+            )
+    end.
+
+enable_if_membership_unchanged(Name, NodeStates) ->
+    ValidatedNodes = lists:sort([Node || {Node, _} <- NodeStates]),
+    CurrentNodes = lists:sort(emqx:running_nodes()),
+    case CurrentNodes =:= ValidatedNodes of
+        true ->
+            case emqx_plugins:ensure_enabled(Name, no_move, global) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    rollback_after_start_error(
+                        Name,
+                        NodeStates,
+                        {plugin_start_enable_failed, Reason}
+                    )
+            end;
+        false ->
+            rollback_after_start_error(
+                Name,
+                NodeStates,
+                {plugin_start_membership_changed, ValidatedNodes, CurrentNodes}
+            )
+    end.
+
+rollback_after_start_error(Name, NodeStates, Cause) ->
+    case rollback_starts(Name, NodeStates) of
+        ok ->
+            {error, Cause};
+        {error, RollbackErrors} ->
+            {error, {plugin_start_rollback_failed, Cause, RollbackErrors}}
+    end.
+
+rollback_starts(Name, NodeStates) ->
+    Nodes = [Node || {Node, not_running} <- NodeStates],
+    {Responses, BadNodes} = emqx_mgmt_api_plugins_proto_v5:ensure_stopped(Nodes, Name),
+    GoodNodes = Nodes -- BadNodes,
+    Errors =
+        [
+            {Node, Response}
+         || {Node, Response} <- lists:zip(GoodNodes, Responses),
+            Response =/= ok
+        ] ++
+            [{Node, {badnode, Node}} || Node <- BadNodes],
+    case Errors of
+        [] -> ok;
+        [_ | _] -> {error, Errors}
+    end.
+
+is_start_validation_result({ok, RunningStatus}) when
+    RunningStatus =:= running; RunningStatus =:= not_running
+->
+    true;
+is_start_validation_result(_) ->
+    false.
+
+is_node_rpc_error({_Node, {badrpc, _}}) -> true;
+is_node_rpc_error({_Node, _}) -> false.
+
 %% for RPC plugin avro encoded config update
 -spec do_update_plugin_config(name_vsn(), map() | binary(), any()) ->
     ok.
@@ -884,13 +1048,107 @@ sync_plugin_cluster(Node, NameVsn) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-return(Code, ok) ->
-    {Code};
-return(_, {error, #{msg := Msg, reason := {enoent, Path} = Reason}}) ->
-    ?SLOG(error, #{msg => Msg, reason => Reason}),
-    {404, #{code => 'NOT_FOUND', message => iolist_to_binary([Path, " does not exist"])}};
-return(_, {error, Reason}) ->
-    {400, #{code => 'PARAM_ERROR', message => readable_error_msg(Reason)}}.
+operation_response(_Operation, ok) ->
+    {204};
+operation_response(start, {error, {plugin_start_preflight_failed, NodeErrors}}) ->
+    case classify_start_preflight_errors(NodeErrors) of
+        invalid_config ->
+            {400, #{
+                code => 'BAD_CONFIG',
+                message => format_node_errors(NodeErrors)
+            }};
+        conflicting_version ->
+            {400, #{
+                code => 'PARAM_ERROR',
+                message => format_node_errors(NodeErrors)
+            }};
+        mixed_client_errors ->
+            {400, #{
+                code => 'PARAM_ERROR',
+                message => format_node_errors(NodeErrors)
+            }};
+        internal_error ->
+            internal_error_response(
+                "plugin_start_preflight_failed",
+                #{node_errors => NodeErrors},
+                format_node_errors(NodeErrors)
+            )
+    end;
+operation_response(
+    start,
+    {error, {plugin_start_unavailable, Phase, NodeErrors, BadNodes}}
+) ->
+    internal_error_response(
+        "plugin_start_unavailable",
+        #{phase => Phase, node_errors => NodeErrors, bad_nodes => BadNodes},
+        format_node_errors(NodeErrors ++ [{Node, {badnode, Node}} || Node <- BadNodes])
+    );
+operation_response(
+    start,
+    {error, {plugin_start_membership_changed, ValidatedNodes, CurrentNodes}}
+) ->
+    internal_error_response(
+        "plugin_start_membership_changed",
+        #{validated_nodes => ValidatedNodes, current_nodes => CurrentNodes},
+        <<"Cluster membership changed during plugin start. Retry when the cluster is stable.">>
+    );
+operation_response(start, {error, {plugin_start_rollback_failed, Cause, RollbackErrors}}) ->
+    internal_error_response(
+        "plugin_start_rollback_failed",
+        #{cause => Cause, rollback_errors => RollbackErrors},
+        <<
+            "Plugin start failed and rollback was incomplete. "
+            "Check server logs and plugin status on all nodes."
+        >>
+    );
+operation_response(start, {error, {plugin_start_enable_failed, Reason}}) ->
+    internal_error_response(
+        "plugin_start_enable_failed",
+        #{reason => Reason},
+        <<
+            "Plugin start was rolled back because enabling it in the cluster configuration failed. "
+            "Check server logs for details."
+        >>
+    );
+operation_response(start, {error, {plugin_start_failed, NodeErrors}}) ->
+    internal_error_response(
+        "plugin_start_failed",
+        #{node_errors => NodeErrors},
+        format_node_errors(NodeErrors)
+    );
+operation_response(Operation, {error, #{reason := {enoent, Path} = Reason} = Error}) ->
+    ?SLOG(warning, #{
+        msg => "plugin_resource_not_found",
+        operation => Operation,
+        path => Path,
+        reason => Reason,
+        error => Error
+    }),
+    {404, #{
+        code => 'NOT_FOUND',
+        message =>
+            <<
+                "plugin_resource_not_found: A required plugin resource was not found. "
+                "Check server logs for details."
+            >>
+    }};
+operation_response(Operation, {error, Reason}) ->
+    internal_error_response(
+        operation_error_keyword(Operation),
+        #{operation => Operation, reason => Reason},
+        <<"Plugin operation failed. Check server logs for details.">>
+    ).
+
+internal_error_response(Keyword, LogFields, Details) ->
+    ?SLOG(error, LogFields#{msg => Keyword}),
+    {500, #{
+        code => 'INTERNAL_ERROR',
+        message => iolist_to_binary([Keyword, ": ", Details])
+    }}.
+
+operation_error_keyword(start) -> "plugin_start_failed";
+operation_error_keyword(stop) -> "plugin_stop_failed";
+operation_error_keyword(delete) -> "plugin_delete_failed".
 
 validate_node_results({Responses, BadNodes}) ->
     ResponseErrors = lists:filter(fun(Response) -> Response =/= ok end, Responses),
@@ -935,6 +1193,174 @@ format_error({badnode, Node}) ->
 format_error(Other) ->
     readable_error_msg(Other).
 
+format_node_errors(NodeErrors) ->
+    iolist_to_binary(
+        lists:join("; ", [format_node_error(Node, Error) || {Node, Error} <- NodeErrors])
+    ).
+
+format_node_error(Node, {badnode, Node}) ->
+    iolist_to_binary(["node ", atom_to_binary(Node), " unavailable"]);
+format_node_error(Node, Error) ->
+    iolist_to_binary([
+        "node ",
+        atom_to_binary(Node),
+        ": ",
+        format_error(Error)
+    ]).
+
+classify_start_preflight_errors(NodeErrors) ->
+    Errors = [Error || {_Node, Error} <- NodeErrors],
+    Kinds = lists:filtermap(fun validation_error_kind/1, Errors),
+    case length(Kinds) =:= length(Errors) of
+        false ->
+            internal_error;
+        true ->
+            case lists:usort(Kinds) of
+                [] -> internal_error;
+                [invalid_config] -> invalid_config;
+                [conflicting_version] -> conflicting_version;
+                [_ | _] -> mixed_client_errors
+            end
+    end.
+
+validation_error_kind({error, #{kind := Kind}}) when
+    Kind =:= invalid_config;
+    Kind =:= invalid_package;
+    Kind =:= conflicting_version
+->
+    {true, Kind};
+validation_error_kind(_) ->
+    false.
+
+readable_error_msg(#{
+    msg := "invalid_plugin_config",
+    name_vsn := NameVsn,
+    reason := #{
+        reason := invalid_type,
+        path := Path,
+        expected := Expected,
+        actual := Actual
+    }
+}) ->
+    iolist_to_binary([
+        "invalid_plugin_config: Plugin ",
+        NameVsn,
+        " configuration is invalid at '",
+        Path,
+        "': expected ",
+        Expected,
+        ", got ",
+        Actual,
+        ". Fix the plugin configuration on this node and retry."
+    ]);
+readable_error_msg(#{
+    msg := "invalid_plugin_config",
+    name_vsn := NameVsn,
+    reason := _Reason
+}) ->
+    iolist_to_binary([
+        "invalid_plugin_config: Plugin ",
+        NameVsn,
+        " configuration is invalid. Fix the plugin configuration on this node and retry."
+    ]);
+readable_error_msg(#{
+    msg := "invalid_plugin_config_schema",
+    name_vsn := NameVsn,
+    reason := _Reason
+}) ->
+    iolist_to_binary([
+        "invalid_plugin_config_schema: Plugin ",
+        NameVsn,
+        " contains an invalid configuration schema. Rebuild or reinstall a corrected plugin "
+        "package and retry."
+    ]);
+readable_error_msg(#{
+    msg := "bad_plugin_app_file",
+    path := _Path,
+    reason := _Reason
+}) ->
+    <<
+        "bad_plugin_app_file: Plugin package metadata is invalid or unreadable. "
+        "Rebuild or reinstall a corrected plugin package and retry."
+    >>;
+readable_error_msg(#{
+    msg := "plugin_app_version_mismatch",
+    path := _Path,
+    expected_vsn := ExpectedVsn,
+    actual_vsn := ActualVsn
+}) ->
+    iolist_to_binary([
+        "plugin_app_version_mismatch: Plugin package metadata declares application version ",
+        emqx_utils:readable_error_msg(ActualVsn),
+        ", but ",
+        ExpectedVsn,
+        " is required. Rebuild or reinstall the correct plugin package and retry."
+    ]);
+readable_error_msg(#{
+    msg := "plugin_app_loaded_outside_package",
+    name := AppName,
+    expected_ebin := _ExpectedEbin,
+    loaded_ebin := _LoadedEbin
+}) ->
+    iolist_to_binary([
+        "plugin_app_loaded_outside_package: Plugin application ",
+        atom_to_binary(AppName),
+        " is already loaded outside this plugin package. Remove the conflicting code path or "
+        "restart the node, then retry."
+    ]);
+readable_error_msg(#{
+    msg := "bad_default_hocon_file",
+    reason := _Reason
+}) ->
+    <<
+        "bad_default_hocon_file: Plugin package default configuration is invalid or "
+        "unreadable. Rebuild or reinstall a corrected plugin package and retry."
+    >>;
+readable_error_msg(#{
+    reason := bad_schema,
+    details := _Details
+}) ->
+    <<
+        "invalid_plugin_config_schema: Plugin package configuration schema is invalid. "
+        "Rebuild or reinstall a corrected plugin package and retry."
+    >>;
+readable_error_msg(#{
+    msg := "conflicting_plugin_version_running",
+    active_versions := ActiveVersions
+}) ->
+    iolist_to_binary([
+        "conflicting_plugin_version_running: Another version of this plugin is running: ",
+        lists:join(", ", ActiveVersions),
+        ". Stop the active version and retry."
+    ]);
+readable_error_msg(#{
+    reason := invalid_type,
+    path := Path,
+    expected := Expected,
+    actual := Actual
+}) ->
+    iolist_to_binary([
+        "invalid_type: Invalid type for field '",
+        Path,
+        "': expected ",
+        Expected,
+        ", got ",
+        Actual
+    ]);
+readable_error_msg(#{
+    reason := invalid_union_member,
+    path := Path,
+    expected := Expected,
+    actual := Actual
+}) ->
+    iolist_to_binary([
+        "invalid_union_member: Invalid union member for field '",
+        Path,
+        "': expected ",
+        Expected,
+        ", got ",
+        Actual
+    ]);
 readable_error_msg(Msg) ->
     emqx_utils:readable_error_msg(Msg).
 
@@ -1115,10 +1541,6 @@ format_plugin_avsc_and_i18n(NameVsn) ->
 
 or_null({ok, Value}) -> Value;
 or_null(_) -> null.
-
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
-bin(L) when is_list(L) -> list_to_binary(L);
-bin(B) when is_binary(B) -> B.
 
 % running_status: running loaded, stopped
 %% config_status: not_configured disable enable
