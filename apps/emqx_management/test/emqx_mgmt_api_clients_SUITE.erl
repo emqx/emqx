@@ -1481,6 +1481,11 @@ t_subscribe_shared_topic(Config) ->
     ?retry(200, 10, ?assertEqual([], ets:tab2list(?SUBSCRIPTION))),
     ?assertEqual([], ets:tab2list(?SUBOPTION)),
     ?assertEqual([], ets:tab2list(emqx_shared_subscription)),
+    %% Routing is torn down asynchronously by the router syncer, after the local
+    %% subscription tables are cleared. Wait until no route matches the topics,
+    %% otherwise a late-routed publish races the assertNotReceive below.
+    ?retry(200, 10, ?assertEqual([], emqx_router:match_routes(<<"t/1">>))),
+    ?retry(200, 10, ?assertEqual([], emqx_router:match_routes(<<"testtopic">>))),
 
     %% assert subscription virtual
     _ = emqtt:publish(PC, <<"testtopic">>, <<"msg3">>, [{qos, 0}]),

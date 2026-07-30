@@ -80,7 +80,10 @@
     %% multiple schemas of data, i.e: Built-in Authorization
     %%
     %% Default: false
-    fast_total_counting => boolean()
+    fast_total_counting => boolean(),
+    %% Accumulate rows on the target node to avoid one RPC per ETS batch.
+    %% Default: false
+    accumulate_rows_on_node => boolean()
 }.
 
 -type query_return() :: #{meta := map(), data := [term()]}.
@@ -188,18 +191,15 @@ do_node_query(
     QueryState,
     ResultAcc
 ) ->
-    case do_query(Node, QueryState) of
+    case query_node(Node, QueryState, ResultAcc) of
         {error, Error} ->
             {error, Node, Error};
-        {Rows, NQueryState = #{complete := Complete}} ->
-            case accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
-                {enough, NResultAcc} ->
-                    finalize_query(NResultAcc, NQueryState);
-                {_, NResultAcc} when Complete ->
-                    finalize_query(NResultAcc, NQueryState);
-                {more, NResultAcc} ->
-                    do_node_query(Node, NQueryState, NResultAcc)
-            end
+        {enough, NResultAcc, NQueryState} ->
+            finalize_query(NResultAcc, NQueryState);
+        {complete, NResultAcc, NQueryState} ->
+            finalize_query(NResultAcc, NQueryState);
+        {continue, NResultAcc, NQueryState} ->
+            do_node_query(Node, NQueryState, NResultAcc)
     end.
 
 %%--------------------------------------------------------------------
@@ -311,22 +311,94 @@ do_cluster_query(
     QueryState,
     ResultAcc
 ) ->
-    case do_query(Node, QueryState) of
+    case query_node(Node, QueryState, ResultAcc) of
         {error, Error} ->
             {error, Node, Error};
-        {Rows, NQueryState = #{complete := Complete}} ->
-            case accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
-                {enough, NResultAcc} ->
-                    FQueryState = maybe_collect_total_from_tail_nodes(Tail, NQueryState),
-                    FComplete = Complete andalso Tail =:= [],
-                    finalize_query(NResultAcc, mark_complete(FQueryState, FComplete));
-                {more, NResultAcc} when not Complete ->
-                    do_cluster_query(Nodes, NQueryState, NResultAcc);
-                {more, NResultAcc} when Tail =/= [] ->
-                    do_cluster_query(Tail, reset_query_state(NQueryState), NResultAcc);
-                {more, NResultAcc} ->
-                    finalize_query(NResultAcc, NQueryState)
-            end
+        {enough, NResultAcc, NQueryState = #{complete := Complete}} ->
+            FQueryState = maybe_collect_total_from_tail_nodes(Tail, NQueryState),
+            FComplete = Complete andalso Tail =:= [],
+            finalize_query(NResultAcc, mark_complete(FQueryState, FComplete));
+        {continue, NResultAcc, NQueryState} ->
+            do_cluster_query(Nodes, NQueryState, NResultAcc);
+        {complete, NResultAcc, NQueryState} when Tail =/= [] ->
+            do_cluster_query(Tail, reset_query_state(NQueryState), NResultAcc);
+        {complete, NResultAcc, NQueryState} ->
+            finalize_query(NResultAcc, NQueryState)
+    end.
+
+query_node(Node, QueryState = #{options := Options}, ResultAcc) ->
+    case maps:get(accumulate_rows_on_node, Options, false) of
+        true ->
+            query_node_accumulated(Node, QueryState, ResultAcc);
+        false ->
+            query_node_once(Node, QueryState, ResultAcc)
+    end.
+
+query_node_accumulated(Node, QueryState, ResultAcc) when Node =:= node() ->
+    accumulate_query_rows_on_node(QueryState, ResultAcc);
+query_node_accumulated(Node, QueryState, ResultAcc) ->
+    %% New nodes recognize `result_acc` and return a tagged accumulated result.
+    %% Old nodes preserve the unknown field and return one batch in the legacy format.
+    RequestState = QueryState#{result_acc => init_node_query_result(ResultAcc)},
+    case do_query(Node, RequestState) of
+        {accumulated, {Status, NodeResultAcc, NQueryState}} ->
+            {Status, merge_node_query_result(ResultAcc, NodeResultAcc), NQueryState};
+        {accumulated, {error, _} = Error} ->
+            Error;
+        {error, _} = Error ->
+            Error;
+        {Rows, NQueryState0} ->
+            NQueryState = maps:remove(result_acc, NQueryState0),
+            accumulate_query_rows_result(Node, Rows, NQueryState, ResultAcc)
+    end.
+
+init_node_query_result(#{
+    cursor := Cursor,
+    count := Count,
+    overflow := Overflow
+}) ->
+    #{
+        cursor => Cursor,
+        count => Count,
+        rows => [],
+        overflow => Overflow
+    }.
+
+merge_node_query_result(ResultAcc = #{rows := PreviousRows}, NodeResultAcc = #{rows := NodeRows}) ->
+    MergedResultAcc = maps:merge(ResultAcc, NodeResultAcc),
+    MergedResultAcc#{rows := NodeRows ++ PreviousRows}.
+
+query_node_once(Node, QueryState, ResultAcc) ->
+    case do_query(Node, QueryState) of
+        {error, _} = Error ->
+            Error;
+        {Rows, NQueryState} ->
+            accumulate_query_rows_result(Node, Rows, NQueryState, ResultAcc)
+    end.
+
+accumulate_query_rows_result(
+    Node,
+    Rows,
+    NQueryState = #{complete := Complete},
+    ResultAcc
+) ->
+    case accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
+        {enough, NResultAcc} ->
+            {enough, NResultAcc, NQueryState};
+        {more, NResultAcc} when Complete ->
+            {complete, NResultAcc, NQueryState};
+        {more, NResultAcc} ->
+            {continue, NResultAcc, NQueryState}
+    end.
+
+-spec accumulate_query_rows_on_node(map(), map()) ->
+    {enough | complete, map(), map()} | {error, term()}.
+accumulate_query_rows_on_node(QueryState, ResultAcc) ->
+    case query_node_once(node(), QueryState, ResultAcc) of
+        {continue, NResultAcc, NQueryState} ->
+            accumulate_query_rows_on_node(NQueryState, NResultAcc);
+        Result ->
+            Result
     end.
 
 maybe_collect_total_from_tail_nodes([], QueryState) ->
@@ -425,6 +497,15 @@ mark_complete(QueryState, Complete) ->
     QueryState#{complete => Complete}.
 
 %% @private This function is exempt from BPAPI
+do_query(
+    Node,
+    QueryState = #{
+        options := #{accumulate_rows_on_node := true},
+        result_acc := ResultAcc
+    }
+) when Node =:= node() ->
+    NQueryState = maps:remove(result_acc, QueryState),
+    {accumulated, accumulate_query_rows_on_node(NQueryState, ResultAcc)};
 do_query(Node, QueryState) when Node =:= node() ->
     do_select(Node, QueryState);
 do_query(Node, QueryState) ->
