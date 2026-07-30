@@ -53,7 +53,7 @@ Most of the time, you just need to:
 
 -export([start/2, start/3, check_business_apps/0, wait_business_apps/1, stop/1]).
 
--export([work_dir/1, work_dir/2, clean_work_dir/1]).
+-export([work_dir/1, work_dir/2, clean_work_dir/1, maybe_clean_work_dir/2]).
 
 -export([load_apps/1]).
 -export([start_apps/2, start_app/2, start_app/3, stop_apps/1]).
@@ -512,6 +512,16 @@ clean_work_dir(WorkDir) ->
             error({unsafe_workdir, WorkDir})
     end.
 
+maybe_clean_work_dir(WorkDirKey, Config) ->
+    maybe
+        WorkDir = proplists:get_value(WorkDirKey, Config, undefined),
+        true ?= is_list(WorkDir) orelse is_binary(WorkDir),
+        ok ?= proplists:get_value(tc_status, Config, undefined),
+        clean_work_dir(WorkDir)
+    else
+        _ -> ct:pal("NOT cleaning the workdir")
+    end.
+
 %%
 
 inhibit_config_loader(_App, #{config := Config}) when Config /= false ->
@@ -542,6 +552,7 @@ This function stops applications bypassing `classy`'s run level mechanism.
 -spec stop_apps(_StartedApps :: [appname()]) ->
     ok.
 stop_apps(Apps) ->
+    ct:pal("Stopping applications: ~p", [Apps]),
     ok = lists:foreach(fun application:stop/1, lists:reverse(Apps)),
     ok = lists:foreach(fun application:unload/1, Apps).
 

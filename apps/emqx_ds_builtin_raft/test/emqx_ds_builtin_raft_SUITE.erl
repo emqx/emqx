@@ -1453,7 +1453,7 @@ end_per_testcase(TCName, Config) ->
     ok = snabbkaffe:stop(),
     Result = emqx_common_test_helpers:end_per_testcase(?MODULE, TCName, Config),
     catch emqx_ds:drop_db(TCName),
-    emqx_cth_suite:clean_work_dir(?config(work_dir, Config)),
+    emqx_cth_suite:maybe_clean_work_dir(work_dir, Config),
     Result.
 
 open_db(DB, Opts) ->
