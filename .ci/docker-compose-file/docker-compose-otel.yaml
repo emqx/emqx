@@ -39,7 +39,7 @@ services:
     user: "${DOCKER_USER:-root}"
 
 
-# Collector
+  # Collector
   otel-collector-tls:
     image: otel/opentelemetry-collector-contrib:0.128.0
     container_name: otel-collector-tls.emqx.net
