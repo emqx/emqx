@@ -1996,11 +1996,8 @@ t_msk_iam_roles_anywhere_authn(TCConfig) ->
             ?assertMatch(
                 {400, #{
                     <<"message">> := #{
-                        <<"mismatches">> := #{
-                            <<"bridge_kafka:auth_msk_iam_roles_anywhere">> := #{
-                                <<"reason">> := <<"missing_port_number">>
-                            }
-                        }
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"missing_port_number">>
                     }
                 }},
                 probe_connector_api(TCConfig, #{
@@ -2014,11 +2011,8 @@ t_msk_iam_roles_anywhere_authn(TCConfig) ->
             ?assertMatch(
                 {400, #{
                     <<"message">> := #{
-                        <<"mismatches">> := #{
-                            <<"bridge_kafka:auth_msk_iam_roles_anywhere">> := #{
-                                <<"reason">> := <<"missing_scheme">>
-                            }
-                        }
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"missing_scheme">>
                     }
                 }},
                 probe_connector_api(TCConfig, #{
@@ -2032,11 +2026,8 @@ t_msk_iam_roles_anywhere_authn(TCConfig) ->
             ?assertMatch(
                 {400, #{
                     <<"message">> := #{
-                        <<"mismatches">> := #{
-                            <<"bridge_kafka:auth_msk_iam_roles_anywhere">> := #{
-                                <<"reason">> := <<"unsupported_scheme">>
-                            }
-                        }
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"unsupported_scheme">>
                     }
                 }},
                 probe_connector_api(TCConfig, #{

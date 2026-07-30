@@ -751,7 +751,10 @@ put_plugin_config(NameVsn, Config) ->
                     ),
                     validate_node_results(Res);
                 {error, _Reason} = Error ->
-                    Error
+                    %% Local config decode/validation failure (e.g. invalid type):
+                    %% surface as a bad_config so the client gets 400 BAD_CONFIG with
+                    %% a readable message rather than 500/UNEXPECTED_ERROR.
+                    {error, {bad_config, [Error]}}
             end;
         _ ->
             {error, ?plugin_not_found}
