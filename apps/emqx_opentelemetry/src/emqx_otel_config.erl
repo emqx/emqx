@@ -78,13 +78,15 @@ otel_exporter(OtelSignal, ExporterConf) ->
         ssl_options := SSLOpts
     } = ExporterConf,
     {?OTEL_EXPORTER, #{
-        endpoint => append_default_path(OtelSignal, Endpoint),
+        endpoint => append_default_path(Proto, OtelSignal, Endpoint),
         protocol => Proto,
         headers => header_opts(ExporterConf),
         ssl_options => ssl_opts(Endpoint, SSLOpts)
     }}.
 
-append_default_path(OtelSignal, Endpoint0) ->
+append_default_path(grpc, _OtelSignal, Endpoint0) ->
+    Endpoint0;
+append_default_path(_Proto, OtelSignal, Endpoint0) ->
     Parsed = #{path := Path0} = uri_string:parse(Endpoint0),
     DefaultPath =
         case OtelSignal of
