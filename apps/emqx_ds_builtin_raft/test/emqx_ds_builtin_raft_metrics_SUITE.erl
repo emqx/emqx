@@ -80,6 +80,7 @@ t_cluster_metrics(Config) ->
     emqx_ds_raft_test_helpers:assert_db_open(Nodes0, ?DB, Opts),
     %% Start the last node, it won't obviously participate in DB replication.
     [N3] = emqx_cth_cluster:start([NS3]),
+    ct:sleep(1000),
     %% Verify cluster metrics.
     MCluster = ?ON(N1, emqx_ds_builtin_raft_metrics:cluster()),
     ?assertEqual(
