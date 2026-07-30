@@ -318,7 +318,10 @@ fields("otel_exporter_dynatrace") ->
 fields("dynatrace_oauth2") ->
     Fields = emqx_connector_oauth2_schema:fields(client_credentials),
     [
-        {kind, ?HOCON(dynatrace_oauth2, #{default => oauth2, desc => ?DESC("dynatrace_oauth2")})},
+        {kind,
+            ?HOCON(dynatrace_oauth2, #{
+                default => dynatrace_oauth2, desc => ?DESC("dynatrace_oauth2")
+            })},
         {resource,
             ?HOCON(binary(), #{required => true, desc => ?DESC("dynatrace_oauth2_resource")})}
         | Fields
