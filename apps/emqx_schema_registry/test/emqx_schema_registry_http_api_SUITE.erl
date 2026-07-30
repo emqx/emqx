@@ -51,7 +51,9 @@ only_once_testcases() ->
         t_smoke_test_external_registry_confluent,
         t_external_http_serde,
         t_json_schema_2019_09,
-        t_json_schema_2020_12
+        t_json_schema_2020_12,
+        t_json_schema_draft04_unicode_ref,
+        t_json_schema_draft06_unicode_source
     ].
 
 init_per_suite(Config) ->
@@ -1435,6 +1437,101 @@ t_json_schema_2020_12(_TCConfig) ->
     ?assertMatch({200, #{<<"decoded">> := Data1}}, dryrun_rule(SQL1, Context1)),
     %% wrong second element
     Data2 = [1, <<"foo">>],
+    Context2 = publish_context({json, Data2}),
+    ?assertMatch({400, _}, dryrun_rule(SQL1, Context2)),
+    ok.
+
+-doc """
+Registers a Draft-04 schema with a Unicode definition name referenced through a
+percent-encoded `$ref` fragment, and decodes payloads through the Rule Engine:
+a valid payload decodes successfully, an invalid one yields a rule error.
+""".
+t_json_schema_draft04_unicode_ref(_TCConfig) ->
+    Source =
+        #{
+            <<"$schema">> => <<"http://json-schema.org/draft-04/schema#">>,
+            <<"definitions">> => #{
+                <<"姓名类型"/utf8>> => #{
+                    <<"type">> => <<"string">>,
+                    <<"minLength">> => 2
+                }
+            },
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"姓名"/utf8>> => #{
+                    <<"$ref">> => <<"#/definitions/%E5%A7%93%E5%90%8D%E7%B1%BB%E5%9E%8B">>
+                }
+            },
+            <<"required">> => [<<"姓名"/utf8>>]
+        },
+    SourceBin = emqx_utils_json:encode(Source),
+    SchemaName = <<"draft04_unicode_ref">>,
+    Params = #{
+        <<"name">> => SchemaName,
+        <<"type">> => <<"json">>,
+        <<"source">> => SourceBin
+    },
+    ?assertMatch({201, _}, create_schema(Params)),
+
+    SQL1 = sql(
+        <<"select schema_decode('${.name}', payload) as decoded from \"t\" ">>,
+        #{name => SchemaName}
+    ),
+    Data1 = #{<<"姓名"/utf8>> => <<"张三"/utf8>>},
+    Context1 = publish_context({json, Data1}),
+    ?assertMatch({200, #{<<"decoded">> := Data1}}, dryrun_rule(SQL1, Context1)),
+    %% shorter than minLength
+    Data2 = #{<<"姓名"/utf8>> => <<"李"/utf8>>},
+    Context2 = publish_context({json, Data2}),
+    ?assertMatch({400, _}, dryrun_rule(SQL1, Context2)),
+    ok.
+
+-doc """
+Registers a Draft-06 schema containing `$id`, `examples`, a numeric
+`exclusiveMinimum` and non-ASCII strings through the HTTP API, and checks that
+the draft-06 keywords are enforced when decoding through the Rule Engine.
+""".
+t_json_schema_draft06_unicode_source(_TCConfig) ->
+    Source =
+        #{
+            <<"$schema">> => <<"http://json-schema.org/draft-06/schema#">>,
+            <<"$id">> => <<"https://example.com/product.schema.json">>,
+            <<"title">> => <<"Product">>,
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"productId">> => #{
+                    <<"type">> => <<"integer">>,
+                    <<"exclusiveMinimum">> => 0,
+                    <<"examples">> => [1, 100]
+                },
+                <<"productName">> => #{
+                    <<"type">> => <<"string">>,
+                    <<"examples">> => [<<"智能手机"/utf8>>, <<"无线耳机"/utf8>>]
+                }
+            },
+            <<"required">> => [<<"productId">>, <<"productName">>],
+            <<"examples">> => [
+                #{<<"productId">> => 1, <<"productName">> => <<"机械键盘"/utf8>>}
+            ]
+        },
+    SourceBin = emqx_utils_json:encode(Source),
+    SchemaName = <<"draft06_product">>,
+    Params = #{
+        <<"name">> => SchemaName,
+        <<"type">> => <<"json">>,
+        <<"source">> => SourceBin
+    },
+    ?assertMatch({201, _}, create_schema(Params)),
+
+    SQL1 = sql(
+        <<"select schema_decode('${.name}', payload) as decoded from \"t\" ">>,
+        #{name => SchemaName}
+    ),
+    Data1 = #{<<"productId">> => 1, <<"productName">> => <<"机械键盘"/utf8>>},
+    Context1 = publish_context({json, Data1}),
+    ?assertMatch({200, #{<<"decoded">> := Data1}}, dryrun_rule(SQL1, Context1)),
+    %% draft-06 numeric exclusiveMinimum is enforced
+    Data2 = #{<<"productId">> => 0, <<"productName">> => <<"x">>},
     Context2 = publish_context({json, Data2}),
     ?assertMatch({400, _}, dryrun_rule(SQL1, Context2)),
     ok.

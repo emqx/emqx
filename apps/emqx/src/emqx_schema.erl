@@ -3165,8 +3165,19 @@ to_url(Str) ->
     end.
 
 to_json_binary(Str) ->
-    case emqx_utils_json:safe_decode(Str) of
-        {ok, _} -> {ok, unicode:characters_to_binary(Str)};
+    %% hocon converts the raw binary to a unicode codepoint list before
+    %% calling this; the JSON decoder only accepts binaries and byte lists,
+    %% so re-encode first or any non-ASCII value fails with badarg.
+    case unicode:characters_to_binary(Str) of
+        Bin when is_binary(Bin) ->
+            do_to_json_binary(Bin);
+        _ ->
+            {error, "Invalid UTF-8 in JSON value"}
+    end.
+
+do_to_json_binary(Bin) ->
+    case emqx_utils_json:safe_decode(Bin) of
+        {ok, _} -> {ok, Bin};
         {error, {_Pos, truncated_json}} -> {error, "Truncated JSON value"};
         {error, {_Pos, invalid_literal}} -> {error, "Invalid JSON literal"};
         {error, {_Pos, invalid_number}} -> {error, "Invalid JSON number"};
