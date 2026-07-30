@@ -271,7 +271,7 @@ fields("otel_exporter_dynatrace") ->
             ?HOCON(
                 emqx_schema:url(),
                 #{
-                    default => <<"http://localhost:4317">>,
+                    required => true,
                     desc => ?DESC(exporter_endpoint),
                     importance => ?IMPORTANCE_HIGH
                 }
