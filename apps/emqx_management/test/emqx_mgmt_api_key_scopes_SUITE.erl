@@ -34,6 +34,8 @@ groups() ->
             t_path_to_scope,
             t_path_to_scope_denied,
             t_path_to_scope_no_cache,
+            t_path_to_scope_canonicalizes_request_path,
+            t_classify_path,
             t_validate_scopes,
             t_validate_scopes_bad_input,
             t_is_denied_scope,
@@ -164,6 +166,59 @@ t_path_to_scope_no_cache(_Config) ->
     %% Should lazy-init and return correct scope
     ?assertEqual(?SCOPE_CONNECTIONS, emqx_mgmt_api_key_scopes:path_to_scope(<<"/clients">>)).
 
+-doc """
+`classify_path/1' distinguishes the three cases the login-user scope
+check needs to tell apart: a known scope, an explicitly public path,
+and a genuinely-unmapped path. `path_to_scope/1' keeps collapsing the
+last two to `undefined' for the API-key path.
+""".
+t_classify_path(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    %% Mapped path -> {scope, Name}.
+    ?assertEqual(
+        {scope, ?SCOPE_CONNECTIONS},
+        emqx_mgmt_api_key_scopes:classify_path(<<"/clients">>)
+    ),
+    %% Genuinely unmapped -> not_found (login-user path denies these).
+    ?assertEqual(
+        not_found,
+        emqx_mgmt_api_key_scopes:classify_path(<<"/some/unmapped/path">>)
+    ),
+    %% Explicitly public -> public (login-user path allows these).
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    [PublicPath | _] = collect_public_paths(Modules),
+    ?assertEqual(public, emqx_mgmt_api_key_scopes:classify_path(PublicPath)),
+    %% path_to_scope/1 still collapses public and unmapped to undefined.
+    ?assertEqual(undefined, emqx_mgmt_api_key_scopes:path_to_scope(PublicPath)),
+    ?assertEqual(
+        undefined, emqx_mgmt_api_key_scopes:path_to_scope(<<"/some/unmapped/path">>)
+    ),
+    emqx_mgmt_api_key_scopes:clear_cache().
+
+-doc """
+A concrete request path must map to the same scope regardless of
+percent-encoding or `.'/`..' segments, so the lookup agrees with the
+path the router dispatched on. Otherwise an obfuscated path resolves
+to `undefined' (unmapped) and slips the scope gate.
+""".
+t_path_to_scope_canonicalizes_request_path(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    Canonical = emqx_mgmt_api_key_scopes:path_to_scope(<<"/users">>),
+    ?assertEqual(?SCOPE_USER_MGMT, Canonical),
+    %% percent-encoded characters in a static segment
+    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/user%73">>)),
+    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/%75sers">>)),
+    %% dot-segments that the router collapses before dispatch
+    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/x/../users">>)),
+    ?assertEqual(Canonical, emqx_mgmt_api_key_scopes:path_to_scope(<<"/./users">>)),
+    %% same invariant for a path-parameter endpoint
+    ClientsScope = emqx_mgmt_api_key_scopes:path_to_scope(<<"/clients/:clientid">>),
+    ?assertEqual(
+        ClientsScope,
+        emqx_mgmt_api_key_scopes:path_to_scope(<<"/client%73/abc">>)
+    ),
+    emqx_mgmt_api_key_scopes:clear_cache().
+
 t_validate_scopes(_Config) ->
     %% Valid: known scope names
     ?assertEqual(ok, emqx_mgmt_api_key_scopes:validate_scopes([?SCOPE_CONNECTIONS])),
@@ -221,6 +276,7 @@ t_all_modules_have_scopes(_Config) ->
     AllValidScopes =
         [N || #{name := N} <- emqx_scope_catalog:scope_catalog()] ++
             [?SCOPE_DENIED] ++
+            [?SCOPE_PUBLIC] ++
             ?LOGIN_ONLY_SCOPES,
     maps:foreach(
         fun(Path, Scope) ->
@@ -317,9 +373,15 @@ safe_paths(M) ->
     end.
 
 -doc """
-?SCOPE_PUBLIC paths must NOT be inserted into the runtime cache --
-they keep the unmapped/fail-open semantics that production already
-relies on for /login and friends.
+?SCOPE_PUBLIC paths must keep the unmapped semantics that production
+relies on for /login and friends: path_to_scope/1 must return
+`undefined' for them so the runtime authorisation layer treats them
+as unscoped.
+
+The cache itself MAY carry ?SCOPE_PUBLIC sentinel values internally
+(this is how exact-match lookup distinguishes "intentionally public"
+from "genuinely unmapped"). The invariant asserted here is the
+path_to_scope/1 return value, not the cache representation.
 """.
 t_public_paths_not_in_cache(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),

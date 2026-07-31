@@ -26,6 +26,7 @@ affecting user-facing API key configurations.
 
 -export([
     path_to_scope/1,
+    classify_path/1,
     init_cache/0,
     clear_cache/0,
     validate_scopes/1,
@@ -62,28 +63,57 @@ silently fail-open for any endpoint with a path parameter.
 """.
 -spec path_to_scope(binary()) -> binary() | undefined.
 path_to_scope(Path) ->
+    %% Two-way view kept for the API-key authorisation path
+    %% (`emqx_mgmt_auth:check_path_in_scopes/2'), which treats both
+    %% "public" and "unmapped" as unscoped. Callers that must tell the
+    %% two apart use `classify_path/1'.
+    case classify_path(Path) of
+        {scope, Scope} -> Scope;
+        public -> undefined;
+        not_found -> undefined
+    end.
+
+-doc """
+Three-way classification of a request path:
+
+* `{scope, Name}' — the path maps to the known scope `Name'.
+* `public'        — the path exactly matches a `?SCOPE_PUBLIC' sentinel.
+* `not_found'     — the path maps to no scope at all.
+
+Unlike `path_to_scope/1', which collapses `public' and `not_found'
+into `undefined', this keeps them distinct so a caller can allow
+public paths while denying genuinely-unmapped ones (fail closed).
+""".
+-spec classify_path(binary()) -> {scope, binary()} | public | not_found.
+classify_path(Path) ->
     case get_cache() of
         undefined ->
             init_cache(),
-            do_path_to_scope(Path);
+            classify_with_cache(Path);
         #{path_to_scope := PathMap} ->
-            lookup_path(Path, PathMap)
+            classify(Path, PathMap)
     end.
 
-do_path_to_scope(Path) ->
+classify_with_cache(Path) ->
     case get_cache() of
         #{path_to_scope := PathMap} ->
-            lookup_path(Path, PathMap);
+            classify(Path, PathMap);
         _ ->
-            undefined
+            not_found
     end.
 
-lookup_path(Path, PathMap) ->
+classify(Path, PathMap) ->
     case maps:get(Path, PathMap, undefined) of
         undefined ->
-            match_template(Path, PathMap);
+            case match_template(Path, PathMap) of
+                undefined -> not_found;
+                Scope -> {scope, Scope}
+            end;
+        ?SCOPE_PUBLIC ->
+            %% Exact-match hit on a path explicitly declared public.
+            public;
         Scope ->
-            Scope
+            {scope, Scope}
     end.
 
 %% Iterate templates and return the scope for the first one whose
@@ -91,12 +121,19 @@ lookup_path(Path, PathMap) ->
 %% template segments verbatim except where the template segment starts
 %% with `:' (path parameter), which matches any single segment.
 %%
+%% Entries whose value is ?SCOPE_PUBLIC are skipped: they are kept in
+%% the cache as sentinels (so exact-match lookup can distinguish
+%% "intentionally public" from "genuinely unmapped"), but they must
+%% not claim a sibling concrete path via wildcard segment match.
+%% Without this skip, e.g. `/sso/running' (public) would be claimed
+%% by the sibling template `/sso/:backend' (sso_management).
+%%
 %% Match cost is O(n*m) where n is the number of templates and m is
 %% the average path depth. The cache is small (~250 entries) and this
 %% function is called once per authorised request, so the cost is
 %% acceptable.
 match_template(Path, PathMap) ->
-    PathSegs = split_segments(Path),
+    PathSegs = normalize_segments(split_segments(Path)),
     Iter = maps:iterator(PathMap),
     match_template_iter(PathSegs, Iter).
 
@@ -104,6 +141,8 @@ match_template_iter(PathSegs, Iter) ->
     case maps:next(Iter) of
         none ->
             undefined;
+        {_Tmpl, ?SCOPE_PUBLIC, Iter1} ->
+            match_template_iter(PathSegs, Iter1);
         {Tmpl, Scope, Iter1} ->
             case segments_match(PathSegs, split_segments(Tmpl)) of
                 true -> Scope;
@@ -117,6 +156,29 @@ split_segments(Path) ->
         [<<>> | Rest] -> Rest;
         Other -> Other
     end.
+
+%% Canonicalise concrete request-path segments the same way
+%% `cowboy_router' does before it selects a handler: percent-decode
+%% each segment (`cow_uri:urldecode/1', the exact decoder the router
+%% uses) and resolve `.'/`..' segments. The lookup must operate on the
+%% same segments the router dispatched on; comparing raw request
+%% segments against decoded templates would let a request reach a
+%% handler while its scope lookup matches nothing. Decoding is done
+%% after splitting so an encoded separator stays within its segment
+%% and never introduces an extra boundary.
+normalize_segments(Segments) ->
+    remove_dot_segments([cow_uri:urldecode(S) || S <- Segments], []).
+
+remove_dot_segments([], Acc) ->
+    lists:reverse(Acc);
+remove_dot_segments([<<".">> | Segments], Acc) ->
+    remove_dot_segments(Segments, Acc);
+remove_dot_segments([<<"..">> | Segments], []) ->
+    remove_dot_segments(Segments, []);
+remove_dot_segments([<<"..">> | Segments], [_ | Acc]) ->
+    remove_dot_segments(Segments, Acc);
+remove_dot_segments([Segment | Segments], Acc) ->
+    remove_dot_segments(Segments, [Segment | Acc]).
 
 segments_match([], []) ->
     true;
@@ -299,10 +361,19 @@ collect_paths_with_scope(_Module, Paths, ScopeName, Acc) when is_binary(ScopeNam
     );
 collect_paths_with_scope(Module, Paths, ScopeMap, Acc) when is_map(ScopeMap) ->
     %% Map form: per-path scope assignment. The sentinel ?SCOPE_PUBLIC
-    %% acknowledges that a path is intentionally unscoped (pre-login
-    %% entry points and static catalog endpoints), so it is not added
-    %% to the cache and no warning is emitted. Genuinely missing paths
-    %% still warn.
+    %% marks paths that are intentionally unscoped (pre-login entry
+    %% points and static catalog endpoints). Such paths ARE inserted
+    %% into the cache, carrying ?SCOPE_PUBLIC as the value, so that:
+    %%
+    %%   * exact-match lookup can distinguish "explicitly public" from
+    %%     "genuinely unmapped" and return `undefined' for the former
+    %%     (preventing a sibling wildcard template from silently
+    %%     claiming an endpoint the module owner declared public); and
+    %%   * the template iterator can skip these entries when doing
+    %%     segment matching, so e.g. `/sso/:backend' does not absorb
+    %%     `/sso/running'.
+    %%
+    %% Genuinely missing paths still warn.
     lists:foldl(
         fun(Path, InnerAcc) ->
             PathBin = path_to_binary(Path),
@@ -315,7 +386,7 @@ collect_paths_with_scope(Module, Paths, ScopeMap, Acc) when is_map(ScopeMap) ->
                     }),
                     InnerAcc;
                 ?SCOPE_PUBLIC ->
-                    InnerAcc;
+                    InnerAcc#{PathBin => ?SCOPE_PUBLIC};
                 ScopeName ->
                     InnerAcc#{PathBin => ScopeName}
             end

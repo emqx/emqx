@@ -1,0 +1,11 @@
+#{
+    target_version => "5.10.5",
+    from_version => "5.10.4",
+    code_changes =>
+        %% Load emqx_mgmt_api_key_scopes first: it gains `classify_path/1',
+        %% which the reloaded emqx_dashboard_rbac calls.
+        [ {load_module, emqx_mgmt_api_key_scopes}
+        , {load_module, emqx_dashboard_rbac}
+        ],
+    post_upgrade_callbacks => []
+}.
