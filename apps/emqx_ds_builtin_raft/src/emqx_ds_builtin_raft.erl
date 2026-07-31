@@ -1264,11 +1264,18 @@ reads_from_node(DB, Shard) ->
     leader_node(DB, Shard).
 
 leader_node(DB, Shard) ->
-    case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred) of
-        [{_, Node} | _] ->
-            {ok, Node};
+    case emqx_ds_leaderboard:whereis_leader(DB, Shard) of
+        [Pid | _] ->
+            {ok, node(Pid)};
         [] ->
-            undefined
+            %% TODO: Remove fallback to `emqx_ds_builtin_raft_shard:servers',
+            %% since it doesn't reliably route requests to the leader.
+            case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred) of
+                [{_, Node} | _] ->
+                    {ok, Node};
+                [] ->
+                    undefined
+            end
     end.
 
 get_leader_rfsm_vsn(Leader) ->
