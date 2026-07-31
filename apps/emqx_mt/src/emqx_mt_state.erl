@@ -579,10 +579,6 @@ create_managed_ns(Ns) ->
 -spec delete_managed_ns(emqx_mt:tns()) ->
     {ok, emqx_mt_config:root_config()} | {error, {aborted, _}}.
 delete_managed_ns(Ns) ->
-    %% Note: we may safely delete the limiter groups here: when clients attempt to consume
-    %% from the now dangling limiters, `emqx_limiter_client' will log the error but don't
-    %% do any limiting when it fails to fetch the missing limiter group configuration.
-    %% The user may choose to later kick all clients from this namespace.
     transaction(fun delete_ns_txn/1, [Ns]).
 
 -spec is_known_managed_ns(emqx_mt:tns()) -> boolean().

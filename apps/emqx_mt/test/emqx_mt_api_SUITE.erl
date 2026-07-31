@@ -1139,6 +1139,47 @@ t_kick_clients_when_deleting(_Config) ->
 
     ok.
 
+t_fail_closed_while_deleting(_Config) ->
+    Ns = <<"ns1">>,
+    {204, _} = create_managed_ns(Ns),
+    Params = emqx_utils_maps:deep_merge(tenant_limiter_params(), client_limiter_params()),
+    {200, _} = update_managed_ns_config(Ns, Params),
+    Client = connect(?NEW_CLIENTID(1), Ns),
+    MRef = monitor(process, Client),
+    LimiterGroups = [{mt_tenant, Ns}, {mt_client, Ns}],
+    ?assert(lists:all(fun limiter_group_exists/1, LimiterGroups)),
+
+    TestPid = self(),
+    ok = meck:new(emqx_mgmt, [passthrough, no_history]),
+    ok = meck:expect(emqx_mgmt, kickout_clients, fun(ClientIds) ->
+        TestPid ! {kicking, self()},
+        receive
+            continue -> meck:passthrough([ClientIds])
+        end
+    end),
+    on_exit(fun() -> meck:unload(emqx_mgmt) end),
+
+    ?assertMatch({204, _}, delete_managed_ns(Ns)),
+    Kicker =
+        receive
+            {kicking, Pid} -> Pid
+        after 1_000 ->
+            ct:fail("client kicker did not start")
+        end,
+    ?assert(lists:all(fun limiter_group_absent/1, LimiterGroups)),
+    ?assertMatch(
+        {ok, #{reason_code := ?RC_QUOTA_EXCEEDED}},
+        emqtt:publish(Client, <<"topic">>, <<"payload">>, qos1)
+    ),
+
+    Kicker ! continue,
+    receive
+        {'DOWN', MRef, process, Client, _} -> ok
+    after 1_000 ->
+        ct:fail("client was not kicked")
+    end,
+    ok.
+
 %% Smoke test for "kick all NS clients" API.
 t_kick_all_ns_clients(_Config) ->
     Ns = <<"ns1">>,
@@ -1255,6 +1296,12 @@ t_backup_export_and_import(_Config) ->
     ?assertEqual(match, re:run(Msg, <<"mocked_error">>, [global, {capture, none}])),
 
     ok.
+
+limiter_group_exists(Group) ->
+    emqx_limiter_registry:find_group(Group) =/= undefined.
+
+limiter_group_absent(Group) ->
+    emqx_limiter_registry:find_group(Group) =:= undefined.
 
 %% Smoke tests for checking that we assign creation times for namespaces.
 t_creation_date(_Config) ->
