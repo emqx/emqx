@@ -712,7 +712,9 @@ auth_union_member_selector({value, <<"msk_iam">>}) ->
     [msk_iam];
 auth_union_member_selector({value, Value}) when is_map(Value) ->
     case Value of
-        #{<<"type">> := <<"msk_iam_roles_anywhere">>} ->
+        #{<<"type">> := Type} when
+            Type =:= <<"msk_iam_roles_anywhere">>; Type =:= msk_iam_roles_anywhere
+        ->
             [ref(auth_msk_iam_roles_anywhere)];
         #{<<"mechanism">> := Mechanism} ->
             auth_mechanism_union_member(Mechanism);
@@ -747,7 +749,9 @@ auth_mechanism_union_member(Mechanism) ->
 throw_invalid_authentication(Value) ->
     Error = #{
         field_name => authentication,
-        expected => "none | msk_iam | oauth | plain | scram_sha_256 | scram_sha_512 | kerberos"
+        expected =>
+            "none | msk_iam | msk_iam_roles_anywhere | oauth | plain | "
+            "scram_sha_256 | scram_sha_512 | kerberos"
     },
     case is_map(Value) of
         true -> throw(Error);

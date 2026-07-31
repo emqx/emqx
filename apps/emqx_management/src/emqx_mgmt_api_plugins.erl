@@ -1175,9 +1175,7 @@ return_config_update_result({error, {internal_error, ResponseErrorsAndNodeErrors
         message => format_errors(ResponseErrorsAndNodeErrors)
     }};
 return_config_update_result({error, ?plugin_not_found}) ->
-    {404, plugin_not_found_msg()};
-return_config_update_result({error, Reason}) ->
-    {400, #{code => 'UNEXPECTED_ERROR', message => readable_error_msg(Reason)}}.
+    {404, plugin_not_found_msg()}.
 
 plugin_not_found_msg() ->
     #{
