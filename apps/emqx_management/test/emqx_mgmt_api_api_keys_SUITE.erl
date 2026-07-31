@@ -49,6 +49,7 @@
     %% Namespaced-key scope defaults and create-time publish rejection (#18220)
     t_ee_ns_admin_default_scopes_exclude_publish,
     t_ee_ns_key_create_rejects_publish_scope,
+    t_ee_ns_key_update_rejects_new_publish_scope,
     t_ee_ns_admin_legacy_publish_scopes_roundtrip,
     t_ee_ns_admin_legacy_publish_only_scopes_stay_set
 ]).
@@ -1621,6 +1622,38 @@ t_ee_ns_key_create_rejects_publish_scope(_Config) ->
         create_app(Name, #{role => NsAdmin, scopes => [?SCOPE_CONNECTIONS]})
     ),
     delete_app(Name).
+
+-doc """
+PUT that introduces `publish` into a namespaced key's scope list is
+rejected with 400 and leaves the record unchanged, while a changed list
+that retains a pre-existing `publish` (legacy key) is accepted — the
+rule only applies to a newly added `publish`.
+""".
+t_ee_ns_key_update_rejects_new_publish_scope(_Config) ->
+    Name = <<"EE-NS-UPDATE-NEW-PUBLISH">>,
+    NsRole = <<"ns:scopes_ns5::administrator">>,
+    {ok, _} = create_app(Name, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS]}),
+    assert_400(
+        update_app(Name, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH]})
+    ),
+    ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_CONNECTIONS]}}, read_app(Name)),
+    %% A legacy key whose persisted list already carries `publish` may
+    %% still change its list while keeping `publish`.
+    Legacy = <<"EE-NS-UPDATE-KEEP-PUBLISH">>,
+    {ok, _} = emqx_mgmt_auth:create(
+        Legacy,
+        true,
+        infinity,
+        <<"legacy">>,
+        NsRole,
+        [?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS, ?SCOPE_MONITORING]
+    ),
+    {ok, Updated} = update_app(Legacy, #{
+        role => NsRole, scopes => [?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS]
+    }),
+    ?assertEqual([?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS], maps:get(<<"scopes">>, Updated)),
+    delete_app(Name),
+    delete_app(Legacy).
 
 -doc """
 Backward compatibility: a legacy namespaced administrator key stored with
