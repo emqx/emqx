@@ -159,8 +159,10 @@ do_add_user(Username, Password, Role, Desc) ->
 %%   * `[binary(), ...]' (5-arg version) - the listed scopes are written
 %%     into the record atomically inside the same mria transaction as the
 %%     row insertion. This is used by paths that do NOT have a follow-up
-%%     `set_user_scopes' step (SSO auto-provisioning, default-admin bootstrap)
-%%     so a new row never appears with a missing scopes key.
+%%     `set_user_scopes' step (SSO auto-provisioning) so a new row never
+%%     appears with a missing scopes key. The default-admin bootstrap
+%%     deliberately omits it: that account stays on implicit role-default
+%%     scopes.
 do_add_user(Username, Password, Role, Desc, InitialScopes) ->
     Res = mria:sync_transaction(
         ?DASHBOARD_SHARD,
@@ -1005,25 +1007,35 @@ add_default_user(Username, Password) ->
                     do_add_default_user(Username, Password)
             end;
         _ ->
+            ok = ensure_default_admin_scopes_unset(Username),
             {ok, default_user_exists}
     end.
 
+%% The default administrator must hold no explicit scope list — it always
+%% follows the role default implicitly (GET surfaces "unset"), so it keeps
+%% forward-compatible scopes instead of a frozen list; the user API rejects
+%% explicit lists for it on the same grounds.
 do_add_default_user(Username, Password) ->
     maybe
-        %% Seed the default admin with its role-default scopes so the very
-        %% first node bootstrap of a fresh cluster yields a default admin
-        %% that already carries scopes — never the legacy `<<"unset">>'
-        %% sentinel.
         {error, ?USERNAME_ALREADY_EXISTS_ERROR} ?=
-            do_add_user(
-                Username,
-                Password,
-                ?ROLE_SUPERUSER,
-                <<"administrator">>,
-                role_default_scopes(?ROLE_SUPERUSER)
-            ),
+            do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>, undefined),
         %% race condition: multiple nodes booting at the same time?
         {ok, default_user_exists}
+    end.
+
+%% Earlier releases seeded the default admin with an explicit role-default
+%% list at bootstrap; clear it on boot so upgraded clusters regain the
+%% implicit (forward-compatible) scope set.
+ensure_default_admin_scopes_unset(Username) ->
+    case scopes_of(Username) of
+        undefined ->
+            ok;
+        _Explicit ->
+            Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+                update_extra(Username, fun(Extra) -> maps:remove(scopes, Extra) end)
+            end),
+            _ = return(Res),
+            ok
     end.
 
 %% ensure the `role` is correct when it is directly read from the table
