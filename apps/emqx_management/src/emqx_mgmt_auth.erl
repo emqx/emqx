@@ -62,6 +62,7 @@
 -export([role_default_scopes/1, write_scope_intent/2]).
 
 -ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
 -export([trans/2, force_create_app/1]).
 -export([init_bootstrap_file/1]).
 -endif.
@@ -856,7 +857,8 @@ parse_bootstrap_scopes_lenient(Role, ScopesStr) ->
     Candidates = binary:split(ScopesStr, <<",">>, [global, trim_all]),
     Raw = [string:lowercase(string:trim(S)) || S <- Candidates, string:trim(S) =/= <<>>],
     Available = [Name || #{name := Name} <- emqx_scope_catalog:scope_catalog()],
-    {Valid0, Rejected0} = lists:partition(fun(S) -> lists:member(S, Available) end, Raw),
+    {Valid0, Unknown0} = lists:partition(fun(S) -> lists:member(S, Available) end, Raw),
+    Rejected0 = [{S, unknown_scope} || S <- Unknown0],
     {Valid1, Rejected1} = filter_publisher_scopes(Role, Valid0, Rejected0),
     drop_mixed_privilege_scopes(Valid1, Rejected1).
 
@@ -870,7 +872,7 @@ drop_mixed_privilege_scopes(Valid, Rejected) ->
     case emqx_scope_catalog:partition_privilege_scopes(Valid) of
         {[], _} -> {Valid, Rejected};
         {_, []} -> {Valid, Rejected};
-        {Priv, Other} -> {Other, Rejected ++ Priv}
+        {Priv, Other} -> {Other, Rejected ++ [{S, privilege_scope_conflict} || S <- Priv]}
     end.
 
 %% Restrict publisher role to the `publish' scope only. Other roles
@@ -880,21 +882,70 @@ filter_publisher_scopes(?ROLE_API_PUBLISHER, Valid, Rejected) ->
         fun(S) -> S =:= ?SCOPE_PUBLISH end,
         Valid
     ),
-    {Keep, Rejected ++ Drop};
+    {Keep, Rejected ++ [{S, not_allowed_for_publisher_role} || S <- Drop]};
 filter_publisher_scopes(_OtherRole, Valid, Rejected) ->
     {Valid, Rejected}.
 
+%% `Rejected' is a list of `{ScopeName, Reason}' pairs. Emit a single
+%% warning that groups the dropped scopes by reason, so an operator can
+%% see exactly which scopes were dropped and why, instead of a blanket
+%% "unknown scopes" message that is inaccurate for scopes dropped by the
+%% privilege-scope or publisher-role rules.
 maybe_warn_rejected_scopes(_File, _Line, _ApiKey, []) ->
     ok;
 maybe_warn_rejected_scopes(File, Line, ApiKey, Rejected) ->
     ?SLOG(warning, #{
-        msg => "bootstrap_file_unknown_scopes_dropped",
-        info => <<"Unknown scope names in bootstrap file were dropped; valid scopes still apply.">>,
+        msg => "bootstrap_file_scopes_dropped",
+        info => <<
+            "Some scopes in the bootstrap file were dropped; the API key was created/updated "
+            "with the remaining scopes. See `dropped' for each scope name and why it was "
+            "dropped: `unknown_scope' (not a known scope name, likely a typo), "
+            "`not_allowed_for_publisher_role' (publisher keys may only hold `publish'), "
+            "`privilege_scope_conflict' (a privilege/administrator-equivalent scope cannot be "
+            "combined with other scopes; the non-privilege scopes were kept)."
+        >>,
+        dropped => group_rejected_by_reason(Rejected),
         file => File,
         line => Line,
-        api_key => ApiKey,
-        rejected_scopes => Rejected
+        api_key => ApiKey
     }).
+
+%% Group `{ScopeName, Reason}' pairs into `#{Reason => [ScopeName]}',
+%% preserving input order within each reason.
+group_rejected_by_reason(Rejected) ->
+    lists:foldr(
+        fun({Scope, Reason}, Acc) ->
+            maps:update_with(Reason, fun(Scopes) -> [Scope | Scopes] end, [Scope], Acc)
+        end,
+        #{},
+        Rejected
+    ).
+
+-ifdef(TEST).
+bootstrap_scopes_drop_reasons_test() ->
+    %% An administrator line mixing a privilege scope, a valid non-privilege
+    %% scope and a typo: keep the non-privilege scope, drop the other two with
+    %% distinct reasons.
+    {AdminValid, AdminRejected} =
+        parse_bootstrap_scopes_lenient(?ROLE_API_SUPERUSER, <<"system,connections,bogus_scope">>),
+    ?assertEqual([?SCOPE_CONNECTIONS], AdminValid),
+    ?assertEqual(
+        #{
+            privilege_scope_conflict => [?SCOPE_SYSTEM],
+            unknown_scope => [<<"bogus_scope">>]
+        },
+        group_rejected_by_reason(AdminRejected)
+    ),
+    %% A publisher line: any non-`publish' scope is dropped with the
+    %% publisher-role reason.
+    {PubValid, PubRejected} =
+        parse_bootstrap_scopes_lenient(?ROLE_API_PUBLISHER, <<"publish,connections">>),
+    ?assertEqual([?SCOPE_PUBLISH], PubValid),
+    ?assertEqual(
+        #{not_allowed_for_publisher_role => [?SCOPE_CONNECTIONS]},
+        group_rejected_by_reason(PubRejected)
+    ).
+-endif.
 
 get_role(#{?role := Role}) ->
     Role;
