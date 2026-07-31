@@ -358,26 +358,25 @@ create_scopes(Role, RawScopes) ->
         unset ->
             {ok, undefined};
         {set, Scopes} ->
-            case validate_create_scopes(Role, Scopes) of
+            case validate_explicit_scopes(Role, Scopes) of
                 ok -> {ok, Scopes};
                 Error -> Error
             end
     end.
 
-%% Validation of an explicit scope list on POST: the shared four-layer
-%% validation plus the namespaced-key `publish' rejection below.
-validate_create_scopes(Role, Scopes) ->
+%% Validation of a newly written explicit scope list — POST, or PUT with
+%% a list that genuinely differs from the persisted one: the shared
+%% four-layer validation plus the namespaced-key `publish' rejection.
+validate_explicit_scopes(Role, Scopes) ->
     case validate_scopes(Role, Scopes, Scopes) of
         ok -> validate_no_publish_for_namespaced(Role, Scopes);
         Error -> Error
     end.
 
 %% A namespaced API key cannot hold the `publish' scope: the publish APIs
-%% are global-only, so the scope could never be exercised. Enforced when
-%% the scope is being introduced — on create, and on update when
-%% `publish' is not already in the persisted list. Keys stored before
-%% this rule keep their scope lists verbatim (see
-%% validate_update_scopes/3).
+%% are global-only, so the scope could never be exercised. Applies to any
+%% newly written explicit list; only a verbatim round-trip of a stored
+%% list that predates this rule skips it (see validate_update_scopes/3).
 validate_no_publish_for_namespaced(Role, Scopes) ->
     case is_binary(role_namespace(Role)) andalso lists:member(?SCOPE_PUBLISH, Scopes) of
         true ->
@@ -472,44 +471,51 @@ update_api_key(Name, Role, Body) ->
 %% change to `publisher' cannot keep non-`publish' scopes via a partial
 %% update; `unset' clears to role default (valid by construction);
 %% `{set, L}' validates `L' with the privilege mutex applied and rejects
-%% a newly introduced `publish' on a namespaced key — unless `L' merely
-%% re-submits the persisted scope list for the unchanged role/namespace
-%% (a read-modify-write), which is accepted verbatim so a key stored
-%% under an older role default (e.g. a namespaced key whose materialized
+%% `publish' on a namespaced key — unless `L' merely re-submits the
+%% persisted scope list for the unchanged role/namespace (a
+%% read-modify-write), which is accepted verbatim so a key stored under
+%% an older role default (e.g. a namespaced key whose materialized
 %% default predates the namespace-aware defaults) can always be
-%% round-tripped without being rejected or rewritten.
+%% round-tripped without being rejected or rewritten. Exception to the
+%% round-trip rule: a namespaced `[publish]'-only list is rejected even
+%% verbatim — such a key can do nothing at all, so the caller is told to
+%% re-create it without a namespace instead.
 validate_update_scopes(_Role, _Name, unset) ->
     ok;
 validate_update_scopes(Role, Name, keep) ->
     validate_scopes(Role, undefined, persisted_scopes(Name));
 validate_update_scopes(Role, Name, {set, Scopes}) ->
-    case is_unchanged_persisted_scopes(Role, Name, Scopes) of
-        true -> ok;
-        false -> validate_changed_scopes(Role, Name, Scopes)
+    case validate_not_publish_only_namespaced(Role, Scopes) of
+        ok ->
+            case is_unchanged_persisted_scopes(Role, Name, Scopes) of
+                true -> ok;
+                false -> validate_explicit_scopes(Role, Scopes)
+            end;
+        Error ->
+            Error
     end.
 
-%% A genuinely changed explicit list gets the shared four-layer
-%% validation, plus the namespaced `publish' rule for scopes being NEWLY
-%% added: an update cannot introduce `publish' into a namespaced key,
-%% but a `publish' already present in the persisted list is
-%% grandfathered so legacy keys keep round-tripping.
-validate_changed_scopes(Role, Name, Scopes) ->
-    case validate_scopes(Role, Scopes, Scopes) of
-        ok -> validate_no_new_publish_for_namespaced(Role, Name, Scopes);
-        Error -> Error
-    end.
-
-validate_no_new_publish_for_namespaced(Role, Name, Scopes) ->
-    Persisted = persisted_scopes(Name),
-    HasPublish = is_list(Persisted) andalso lists:member(?SCOPE_PUBLISH, Persisted),
-    case HasPublish of
-        true -> ok;
-        false -> validate_no_publish_for_namespaced(Role, Scopes)
-    end.
+%% A namespaced key whose requested list is exactly `[publish]' cannot be
+%% used for anything: `publish' itself is unusable (the publish APIs are
+%% global-only) and the explicit single-scope list denies every other
+%% scoped endpoint. Reject with a hint at the remedy.
+validate_not_publish_only_namespaced(Role, Scopes) when is_list(Scopes) ->
+    case is_binary(role_namespace(Role)) andalso lists:usort(Scopes) =:= [?SCOPE_PUBLISH] of
+        true ->
+            {error, <<
+                "A namespaced API key with only the 'publish' scope cannot be used "
+                "for anything: the publish API accepts global API keys only. "
+                "Delete this key and re-create it without a namespace"
+            >>};
+        false ->
+            ok
+    end;
+validate_not_publish_only_namespaced(_Role, _Other) ->
+    ok.
 
 %% True iff the PUT re-submits the persisted explicit scope list (order-
 %% insensitive) without changing the key's role or namespace.
-is_unchanged_persisted_scopes(Role, Name, Scopes) ->
+is_unchanged_persisted_scopes(Role, Name, Scopes) when is_list(Scopes) ->
     case emqx_mgmt_auth:read(Name) of
         {ok, #{role := PRole, namespace := PNs, scopes := Persisted}} when is_list(Persisted) ->
             SameRole =
@@ -518,7 +524,9 @@ is_unchanged_persisted_scopes(Role, Name, Scopes) ->
             SameRole andalso lists:usort(Scopes) =:= lists:usort(Persisted);
         _ ->
             false
-    end.
+    end;
+is_unchanged_persisted_scopes(_Role, _Name, _Other) ->
+    false.
 
 %% Intent -> `Scopes' argument of `emqx_mgmt_auth:update/6'.
 scopes_update_arg(keep) -> undefined;

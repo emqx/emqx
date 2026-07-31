@@ -49,7 +49,7 @@
     %% Namespaced-key scope defaults and create-time publish rejection (#18220)
     t_ee_ns_admin_default_scopes_exclude_publish,
     t_ee_ns_key_create_rejects_publish_scope,
-    t_ee_ns_key_update_rejects_new_publish_scope,
+    t_ee_ns_key_update_rejects_publish_in_changed_scopes,
     t_ee_ns_admin_legacy_publish_scopes_roundtrip,
     t_ee_ns_admin_legacy_publish_only_scopes_stay_set
 ]).
@@ -1624,12 +1624,13 @@ t_ee_ns_key_create_rejects_publish_scope(_Config) ->
     delete_app(Name).
 
 -doc """
-PUT that introduces `publish` into a namespaced key's scope list is
-rejected with 400 and leaves the record unchanged, while a changed list
-that retains a pre-existing `publish` (legacy key) is accepted — the
-rule only applies to a newly added `publish`.
+PUT with a changed scope list containing `publish` on a namespaced key is
+rejected with 400 and leaves the record unchanged — even when the
+persisted list already carries `publish` (changing the list is the
+opportunity to shed the unusable scope). Dropping `publish` in the same
+change is accepted.
 """.
-t_ee_ns_key_update_rejects_new_publish_scope(_Config) ->
+t_ee_ns_key_update_rejects_publish_in_changed_scopes(_Config) ->
     Name = <<"EE-NS-UPDATE-NEW-PUBLISH">>,
     NsRole = <<"ns:scopes_ns5::administrator">>,
     {ok, _} = create_app(Name, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS]}),
@@ -1637,21 +1638,19 @@ t_ee_ns_key_update_rejects_new_publish_scope(_Config) ->
         update_app(Name, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS, ?SCOPE_PUBLISH]})
     ),
     ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_CONNECTIONS]}}, read_app(Name)),
-    %% A legacy key whose persisted list already carries `publish` may
-    %% still change its list while keeping `publish`.
+    %% A legacy key whose persisted list already carries `publish` must
+    %% shed it when changing the list.
     Legacy = <<"EE-NS-UPDATE-KEEP-PUBLISH">>,
-    {ok, _} = emqx_mgmt_auth:create(
-        Legacy,
-        true,
-        infinity,
-        <<"legacy">>,
-        NsRole,
-        [?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS, ?SCOPE_MONITORING]
+    LegacyScopes = [?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS, ?SCOPE_MONITORING],
+    {ok, _} = emqx_mgmt_auth:create(Legacy, true, infinity, <<"legacy">>, NsRole, LegacyScopes),
+    assert_400(
+        update_app(Legacy, #{role => NsRole, scopes => [?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS]})
     ),
+    ?assertMatch({ok, #{<<"scopes">> := LegacyScopes}}, read_app(Legacy)),
     {ok, Updated} = update_app(Legacy, #{
-        role => NsRole, scopes => [?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS]
+        role => NsRole, scopes => [?SCOPE_CONNECTIONS, ?SCOPE_MONITORING]
     }),
-    ?assertEqual([?SCOPE_PUBLISH, ?SCOPE_CONNECTIONS], maps:get(<<"scopes">>, Updated)),
+    ?assertEqual([?SCOPE_CONNECTIONS, ?SCOPE_MONITORING], maps:get(<<"scopes">>, Updated)),
     delete_app(Name),
     delete_app(Legacy).
 
@@ -1694,11 +1693,13 @@ t_ee_ns_admin_legacy_publish_scopes_roundtrip(_Config) ->
     delete_app(Name).
 
 -doc """
-Backward compatibility: a legacy namespaced administrator key stored with
-a `publish`-only explicit list keeps `{set, [publish]}` semantics — the
-list is never collapsed to `unset` (which would broaden the key to the
-role default) and a re-submitting update keeps it verbatim. Only the new
-namespaced-admin default list is unset-equivalent.
+A legacy namespaced administrator key stored with a `publish`-only
+explicit list is served verbatim and never becomes unset-equivalent
+(which would broaden the key to the role default), but any PUT that
+requests the `[publish]`-only list — even a verbatim round-trip — is
+rejected with a hint that the key is useless and should be re-created
+without a namespace. The rejection leaves the stored record untouched,
+and updates that omit `scopes` still work.
 """.
 t_ee_ns_admin_legacy_publish_only_scopes_stay_set(_Config) ->
     Name = <<"EE-NS-LEGACY-PUBLISH-ONLY">>,
@@ -1709,8 +1710,28 @@ t_ee_ns_admin_legacy_publish_only_scopes_stay_set(_Config) ->
         {set, [?SCOPE_PUBLISH]}, emqx_mgmt_auth:write_scope_intent(NsRole, [?SCOPE_PUBLISH])
     ),
     ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_PUBLISH]}}, read_app(Name)),
-    {ok, Updated} = update_app(Name, #{role => NsRole, scopes => [?SCOPE_PUBLISH]}),
-    ?assertEqual([?SCOPE_PUBLISH], maps:get(<<"scopes">>, Updated)),
+    %% Requesting the publish-only list is rejected with the remedy hint.
+    Auth = emqx_dashboard_SUITE:auth_header_(),
+    Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
+    {error, {{_, 400, _}, _, RespBody}} =
+        emqx_mgmt_api_test_util:request_api(
+            put,
+            Path,
+            "",
+            Auth,
+            #{role => NsRole, scopes => [?SCOPE_PUBLISH]},
+            #{return_all => true}
+        ),
+    ?assertMatch(
+        {_, _},
+        binary:match(
+            iolist_to_binary(RespBody), <<"re-create it without a namespace">>
+        )
+    ),
+    %% The rejection left the stored record untouched.
+    ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_PUBLISH]}}, read_app(Name)),
+    %% Updates that omit `scopes` still work and keep the list verbatim.
+    {ok, _} = update_app(Name, #{role => NsRole, desc => <<"still works">>}),
     ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_PUBLISH]}}, read_app(Name)),
     ?assertEqual(unset, emqx_mgmt_auth:write_scope_intent(NsRole, ?NS_ADMIN_COMMON_SCOPES)),
     delete_app(Name).
