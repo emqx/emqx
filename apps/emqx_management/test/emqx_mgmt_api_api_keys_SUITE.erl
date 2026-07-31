@@ -1220,7 +1220,7 @@ t_ee_authorize_publisher(_Config) ->
     ?assertMatch(
         {error, {_, 403, _}}, emqx_mgmt_api_test_util:request_api(delete, BanPath, BasicHeader)
     ),
-    ?_assertMatch(
+    ?assertMatch(
         {ok, _},
         emqx_mgmt_api_test_util:request_api(
             post,
