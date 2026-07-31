@@ -54,23 +54,28 @@
 all() ->
     ?EE_ONLY(emqx_common_test_helpers:all(?MODULE), []).
 
-%% The dashboard's default admin user (created by `do_add_default_user'
-%% at boot) used to land in the legacy "no scopes key" state, which
-%% would surface in API responses as the `<<"unset">>' sentinel.
-%% C3 seeds the administrator role default at row insertion time so a
-%% fresh default-admin is indistinguishable from one created via a POST
-%% that omits the `scopes' field.
-%%
-%% `init_per_testcase' clears the admin table to give every case full
-%% control of `admin_override'.  Re-run the same code path the boot
-%% sequence takes so the assertion exercises the real seeding helper.
-t_default_admin_seeded_with_role_default_scopes(_Config) ->
+-doc """
+The default admin bootstrapped at boot holds no explicit scope list: it
+follows the role default implicitly and keeps forward-compatible scopes.
+Re-runs the same code path the boot sequence takes.
+""".
+t_default_admin_bootstrap_unset_scopes(_Config) ->
     {ok, _} = emqx_dashboard_admin:add_default_user(),
     Username = emqx_dashboard_admin:default_username(),
-    ?assertEqual(
-        ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES,
-        emqx_dashboard_admin:scopes_of(Username)
-    ).
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Username)).
+
+-doc """
+A default admin carrying a frozen explicit scope list (seeded by an
+earlier release at bootstrap) is healed back to unset on boot.
+""".
+t_default_admin_boot_clears_frozen_scopes(_Config) ->
+    {ok, _} = emqx_dashboard_admin:add_default_user(),
+    Username = emqx_dashboard_admin:default_username(),
+    Frozen = emqx_dashboard_admin:role_default_scopes(?ROLE_SUPERUSER),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, Frozen),
+    ?assertEqual(Frozen, emqx_dashboard_admin:scopes_of(Username)),
+    ?assertEqual({ok, default_user_exists}, emqx_dashboard_admin:add_default_user()),
+    ?assertEqual(undefined, emqx_dashboard_admin:scopes_of(Username)).
 
 init_per_suite(Config) ->
     ?EE_ONLY(
