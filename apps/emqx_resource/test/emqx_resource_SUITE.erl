@@ -847,6 +847,30 @@ t_check_config(_) ->
     {error, _} = emqx_resource:check_config(?TEST_RESOURCE, <<"not a config">>),
     {error, _} = emqx_resource:check_config(?TEST_RESOURCE, #{invalid => config}).
 
+-doc """
+Channel ids parse to their connector resource id; any other id (e.g. a cluster-link
+resource id, queried per message on the buffer-worker hot path) returns a cheap
+`{error, {invalid_id, Id}}` without formatting an error message.
+""".
+t_parse_connector_id_from_channel_id(_) ->
+    ?assertEqual(
+        {ok, <<"connector:ctype:cname">>},
+        emqx_resource:parse_connector_id_from_channel_id(
+            <<"action:atype:aname:connector:ctype:cname">>
+        )
+    ),
+    ?assertEqual(
+        {ok, <<"ns:ns1:connector:ctype:cname">>},
+        emqx_resource:parse_connector_id_from_channel_id(
+            <<"ns:ns1:source:stype:sname:connector:ctype:cname">>
+        )
+    ),
+    NonChannelId = <<"emqx_cluster_link_mqtt:msg:some_link">>,
+    ?assertEqual(
+        {error, {invalid_id, NonChannelId}},
+        emqx_resource:parse_connector_id_from_channel_id(NonChannelId)
+    ).
+
 t_create_remove(_) ->
     ?check_trace(
         begin

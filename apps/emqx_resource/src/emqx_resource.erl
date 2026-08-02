@@ -974,8 +974,10 @@ parse_connector_id_from_channel_id(Id) ->
                 end,
             {ok, iolist_to_binary(ConnResId)}
     catch
-        throw:{invalid_id, _} ->
-            {error, iolist_to_binary(io_lib:format("Invalid action/source ID: ~p", [Id]))}
+        %% Non-action/source ids (e.g. cluster-link resource ids) reach this branch on
+        %% every query, so it must stay cheap: no error message formatting here.
+        throw:{invalid_id, _} = Reason ->
+            {error, Reason}
     end.
 
 extract_namespace_from_resource_id(Id) ->
