@@ -62,9 +62,10 @@
 -export([role_default_scopes/1, write_scope_intent/2]).
 
 -ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
 -export([trans/2, force_create_app/1]).
 -export([init_bootstrap_file/1]).
+%% Exported for emqx_mgmt_auth_tests.
+-export([parse_bootstrap_scopes_lenient/2, group_rejected_by_reason/1]).
 -endif.
 
 -define(APP, emqx_app).
@@ -920,32 +921,6 @@ group_rejected_by_reason(Rejected) ->
         #{},
         Rejected
     ).
-
--ifdef(TEST).
-bootstrap_scopes_drop_reasons_test() ->
-    %% An administrator line mixing a privilege scope, a valid non-privilege
-    %% scope and a typo: keep the non-privilege scope, drop the other two with
-    %% distinct reasons.
-    {AdminValid, AdminRejected} =
-        parse_bootstrap_scopes_lenient(?ROLE_API_SUPERUSER, <<"system,connections,bogus_scope">>),
-    ?assertEqual([?SCOPE_CONNECTIONS], AdminValid),
-    ?assertEqual(
-        #{
-            privilege_scope_conflict => [?SCOPE_SYSTEM],
-            unknown_scope => [<<"bogus_scope">>]
-        },
-        group_rejected_by_reason(AdminRejected)
-    ),
-    %% A publisher line: any non-`publish' scope is dropped with the
-    %% publisher-role reason.
-    {PubValid, PubRejected} =
-        parse_bootstrap_scopes_lenient(?ROLE_API_PUBLISHER, <<"publish,connections">>),
-    ?assertEqual([?SCOPE_PUBLISH], PubValid),
-    ?assertEqual(
-        #{not_allowed_for_publisher_role => [?SCOPE_CONNECTIONS]},
-        group_rejected_by_reason(PubRejected)
-    ).
--endif.
 
 get_role(#{?role := Role}) ->
     Role;
