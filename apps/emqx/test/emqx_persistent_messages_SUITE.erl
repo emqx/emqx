@@ -18,6 +18,9 @@
 
 -include("emqx_persistent_message.hrl").
 
+suite() ->
+    [{timetrap, {seconds, 300}}].
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
