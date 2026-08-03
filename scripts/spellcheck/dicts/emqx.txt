@@ -85,6 +85,7 @@ DNS
 dnstream
 doc_as_upsert
 downlink
+Dynatrace
 dtls
 DTLS
 EIP
@@ -261,6 +262,7 @@ replicant
 repo
 Req
 RESTful
+retryable
 reuseaddr
 RFC1918
 rh

@@ -175,7 +175,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.0", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.1", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.2", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
@@ -273,7 +273,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.18", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.1.10"}
+  def common_dep(:wolff), do: {:wolff, "4.2.1"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
@@ -284,7 +284,7 @@ defmodule EMQXUmbrella.MixProject do
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
   def common_dep(:crc32cer), do: {:crc32cer, "1.1.2", override: true}
-  def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
+  def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.9.0"}
 
   def common_dep(:erlavro),
     do: {:erlavro, github: "emqx/erlavro", tag: "2.11.2-emqx-1", override: true}
@@ -1126,9 +1126,25 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.2.16", override: true}
+        {:quicer,
+         github: "emqx/quic", tag: "0.2.16", override: true, system_env: quicer_build_env()}
       ],
       else: []
+  end
+
+  defp quicer_build_env() do
+    case :os.type() do
+      {:unix, :linux} ->
+        # GCC 14.3 (el10 builder) reports a 'maybe-uninitialized' false positive
+        # in the vendored msquic which compiles with -Werror; demote this one
+        # diagnostic back to a warning. Remove when a quicer tag containing
+        # emqx/quic#431 is picked up.
+        [{"CFLAGS", "-Wno-error=maybe-uninitialized"}]
+
+      _ ->
+        # never hand the GCC-only flag to clang (macOS)
+        []
+    end
   end
 
   defp enable_jq?() do

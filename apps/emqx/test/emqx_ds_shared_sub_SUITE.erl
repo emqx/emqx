@@ -713,6 +713,15 @@ t_lease_reconnect(_Config) ->
 
             ConnShared = emqtt_connect_sub(<<"client_shared">>),
 
+            %% Create the mock unlinked: under cover, meck:unload can crash the
+            %% mock process in terminate (cover re-instrumentation returning
+            %% {error, Beam}). If the mock is linked to this test process (meck's
+            %% default when the mock is auto-created by meck:expect), that crash
+            %% propagates over the link and kills the test (and its
+            %% emqtt/snabbkaffe children). no_link contains it; safe_meck_unload/1
+            %% still swallows the caller-side error.
+            ok = meck:new(emqx_ds_shared_sub_registry, [passthrough, no_link]),
+
             %% Simulate inability to find leader.
             ok = meck:expect(
                 emqx_ds_shared_sub_registry,
@@ -791,6 +800,80 @@ t_renew_lease_timeout(_Config) ->
             ),
 
             ok = emqtt:disconnect(ConnShared)
+        end,
+        []
+    ).
+
+t_cluster_smoke(groups, _Groups) ->
+    [declare_implicit];
+t_cluster_smoke('init', Config) ->
+    start_cluster(Config);
+t_cluster_smoke('end', Config) ->
+    Config.
+
+t_cluster_smoke(Config) ->
+    [N1, N2, N3] = proplists:get_value(cluster_nodes, Config),
+    Group = <<"smoke">>,
+    TF = <<"smoke/#">>,
+    ShareTopic = <<"$share/", Group/binary, "/", TF/binary>>,
+    CIDSub1 = ~"cluster_smoke:sub1",
+    CIDSub2 = ~"cluster_smoke:sub2",
+    CIDPubs = [emqx_utils:format("cluster_smoke:pub~p", [N]) || N <- lists:seq(1, 10)],
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            C1 = emqtt_connect_sub(CIDSub1, [{port, get_mqtt_port(N1)}]),
+            C2 = emqtt_connect_sub(CIDSub2, [{port, get_mqtt_port(N2)}]),
+            CPubs = [
+                emqtt_connect_pub(CID, [{port, get_mqtt_port(N3)}])
+             || CID <- CIDPubs
+            ],
+            ClientByPid = fun(CPid) ->
+                proplists:get_value(clientid, emqtt:info(CPid))
+            end,
+
+            {ok, _, [1]} = emqtt:subscribe(C1, ShareTopic, 1),
+            ?block_until(#{
+                ?snk_kind := ds_shared_sub_become_leader,
+                group := Group,
+                topic := TF
+            }),
+
+            Topics = [~"smoke/1", ~"smoke/2", ~"smoke/3"],
+            ok = lists:foreach(
+                fun({I, CPub}) ->
+                    Topic = lists:nth(I rem 3 + 1, Topics),
+                    {ok, _} = emqtt:publish(CPub, Topic, ~"warmup", 1),
+                    ?assertReceive({publish, #{payload := ~"warmup", client_pid := C1}}, 5_000)
+                end,
+                lists:enumerate(0, CPubs)
+            ),
+
+            {ok, _, [1]} = emqtt:subscribe(C2, ShareTopic, 1),
+            ?block_until(#{
+                ?snk_kind := ds_shared_sub_borrower_leader_grant,
+                session_id := CIDSub2
+            }),
+
+            NPubs = length(CPubs) * 10,
+            ok = lists:foreach(
+                fun({I, CPub}) ->
+                    ok = publish_n(CPub, Topics, I * 10 + 1, I * 10 + 10)
+                end,
+                lists:enumerate(0, CPubs)
+            ),
+
+            Pubs = drain_until_received(NPubs, 30_000),
+            {Missing, Duplicate} = verify_received_pubs(Pubs, NPubs, ClientByPid),
+            snabbkaffe_diff:assert_lists_eq([], Missing, #{comment => "Missing"}),
+            snabbkaffe_diff:assert_lists_eq([], Duplicate, #{comment => "Duplicates"}),
+
+            ?assertMatch(
+                #{CIDSub1 := [_ | _], CIDSub2 := [_ | _]},
+                maps:groups_from_list(fun(P) -> ClientByPid(maps:get(client_pid, P)) end, Pubs)
+            ),
+
+            lists:foreach(fun emqtt:disconnect/1, [C1, C2 | CPubs])
         end,
         []
     ).
@@ -958,11 +1041,16 @@ emqtt_connect_sub(ClientId, Options) ->
     C.
 
 emqtt_connect_pub(ClientId) ->
-    {ok, C} = emqtt:start_link([
-        {clientid, ClientId},
-        {clean_start, true},
-        {proto_ver, v5}
-    ]),
+    emqtt_connect_pub(ClientId, []).
+
+emqtt_connect_pub(ClientId, Options) ->
+    {ok, C} = emqtt:start_link(
+        [
+            {clientid, ClientId},
+            {clean_start, true},
+            {proto_ver, v5}
+        ] ++ Options
+    ),
     {ok, _} = emqtt:connect(C),
     C.
 

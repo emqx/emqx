@@ -24,6 +24,7 @@ defmodule EMQXMT.MixProject do
   def deps() do
     UMP.deps([
       {:emqx, in_umbrella: true},
+      {:emqx_ctl, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       :minirest

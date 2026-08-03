@@ -201,7 +201,11 @@ t_takeover(Config) ->
     assert_client_exit(CPid1, takenover, Config),
     assert_client_exit(CPid2, normal, Config),
 
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
+    %% Durable-session replay around a takeover can deliver the boundary batch
+    %% late and out of order, so a single fixed-window drain may return before
+    %% every message arrives. Accumulate until all expected payloads are
+    %% received (or a deadline), so a genuine loss still fails.
+    Received = drain_until_received(AllMsgs, undefined, 30_000),
     ct:pal("middle: ~p", [Middle]),
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     assert_messages_missed(AllMsgs, Received),
@@ -243,7 +247,11 @@ t_takeover_willmsg(Config) ->
 
     assert_client_exit(CPid1, takenover, Config),
     assert_client_exit(CPid2, normal, Config),
-    Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
+    %% Durable-session replay around a takeover can deliver the boundary batch
+    %% late and out of order, so a single fixed-window drain may return before
+    %% every message arrives. Accumulate until all expected payloads plus the
+    %% will are received (or a deadline), so a genuine loss still fails.
+    Received = drain_until_received(AllMsgs, <<"willpayload">>, 30_000),
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload">>),
     assert_messages_missed(AllMsgs, ReceivedNoWill),
@@ -1033,6 +1041,34 @@ stop_the_last_client(Ctx = #{client := [CPid | _]}) ->
 
 %%--------------------------------------------------------------------
 %% Helpers
+
+%% Drain published messages, accumulating across short quiet-window rounds,
+%% until every expected payload (and the will payload, unless `undefined`) has
+%% been received, or a hard deadline passes. Returns whatever was collected so
+%% the usual missed/order assertions still run (and fail) on a genuine loss.
+drain_until_received(ExpectedMsgs, WillPayload, MaxWaitMs) ->
+    Deadline = erlang:monotonic_time(millisecond) + MaxWaitMs,
+    drain_until_received(ExpectedMsgs, WillPayload, Deadline, []).
+
+drain_until_received(ExpectedMsgs, WillPayload, Deadline, Acc0) ->
+    Acc = Acc0 ++ [Msg || {publish, Msg} <- ?drainMailbox(200)],
+    WillPresent =
+        WillPayload == undefined orelse
+            lists:any(fun(#{payload := P}) -> P == WillPayload end, Acc),
+    Complete = all_payloads_present(ExpectedMsgs, Acc) andalso WillPresent,
+    case Complete orelse erlang:monotonic_time(millisecond) >= Deadline of
+        true -> Acc;
+        false -> drain_until_received(ExpectedMsgs, WillPayload, Deadline, Acc)
+    end.
+
+all_payloads_present(Expected, Received) ->
+    lists:all(
+        fun(Msg) ->
+            P = emqx_message:payload(Msg),
+            lists:any(fun(#{payload := P1}) -> P1 == P end, Received)
+        end,
+        Expected
+    ).
 
 assert_messages_missed(Ls1, Ls2) ->
     Missed = lists:filtermap(

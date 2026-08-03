@@ -227,7 +227,7 @@ connect(Opts0) ->
         pull_retry_interval => PullRetryInterval,
         request_ttl => RequestTTL,
         topic => Topic,
-        subscription_id => subscription_id(BridgeName, Topic)
+        subscription_id => subscription_id(BridgeName, Topic, ProjectId)
     },
     ?tp(gcp_pubsub_consumer_worker_about_to_spawn, #{}),
     start_link(Config).
@@ -752,14 +752,24 @@ do_get_subscription(State) ->
             {error, Details}
     end.
 
--spec subscription_id(bridge_name(), emqx_bridge_gcp_pubsub_client:topic()) -> subscription_id().
-subscription_id(BridgeName0, Topic) ->
+-spec subscription_id(
+    bridge_name(),
+    emqx_bridge_gcp_pubsub_client:topic(),
+    emqx_bridge_gcp_pubsub_client:project_id()
+) -> subscription_id().
+subscription_id(BridgeName0, Topic, SAProjectId) ->
     %% The real GCP PubSub accepts colons in subscription names, but its emulator
     %% doesn't...  We currently validate bridge names to not include that character.  The
     %% exception is the prefix from the probe API.
     BridgeName1 = to_bin(BridgeName0),
     BridgeName = binary:replace(BridgeName1, <<":">>, <<"-">>),
-    to_bin(uri_string:quote(<<"emqx-sub-", BridgeName/binary, "-", Topic/binary>>)).
+    %% For a fully-qualified `projects/<project-id>/topics/<topic-name>' topic, only the
+    %% topic name is used: slashes cannot appear in a subscription id.  Note that
+    %% sources under the same bridge name consuming equally-named topics from different
+    %% projects would thus derive the same subscription id.
+    {_ProjectId, TopicName} =
+        emqx_bridge_gcp_pubsub_client:resolve_topic(Topic, SAProjectId),
+    to_bin(uri_string:quote(<<"emqx-sub-", BridgeName/binary, "-", TopicName/binary>>)).
 
 -spec path(state(), pull | create | ack | get_subscription) -> binary().
 path(State, Type) ->
@@ -789,7 +799,7 @@ body(State, create) ->
         project_id := ProjectId,
         topic := PubSubTopic
     } = State,
-    TopicResource = <<"projects/", ProjectId/binary, "/topics/", PubSubTopic/binary>>,
+    TopicResource = topic_resource(ProjectId, PubSubTopic),
     JSON = #{
         <<"topic">> => TopicResource,
         <<"ackDeadlineSeconds">> => AckDeadlineSeconds
@@ -802,7 +812,7 @@ body(State, patch_subscription) ->
         topic := PubSubTopic,
         subscription_id := SubscriptionId
     } = State,
-    TopicResource = <<"projects/", ProjectId/binary, "/topics/", PubSubTopic/binary>>,
+    TopicResource = topic_resource(ProjectId, PubSubTopic),
     SubscriptionResource = subscription_resource(ProjectId, SubscriptionId),
     JSON = #{
         <<"subscription">> =>
@@ -823,6 +833,21 @@ body(_State, ack, Opts) ->
     #{ack_ids := AckIds} = Opts,
     JSON = #{<<"ackIds">> => AckIds},
     emqx_utils_json:encode(JSON).
+
+-doc """
+The referenced topic may live in a different GCP project than the service account's
+(fully-qualified `projects/<project-id>/topics/<topic-name>` config value), while the
+subscription is always created in the service account's project (see
+`subscription_resource/2`).
+""".
+-spec topic_resource(
+    emqx_bridge_gcp_pubsub_client:project_id(), emqx_bridge_gcp_pubsub_client:topic()
+) ->
+    binary().
+topic_resource(SAProjectId, PubSubTopic) ->
+    {ProjectId, TopicName} =
+        emqx_bridge_gcp_pubsub_client:resolve_topic(PubSubTopic, SAProjectId),
+    <<"projects/", ProjectId/binary, "/topics/", TopicName/binary>>.
 
 -spec subscription_resource(emqx_bridge_gcp_pubsub_client:project_id(), subscription_id()) ->
     binary().

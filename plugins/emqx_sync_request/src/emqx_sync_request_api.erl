@@ -39,10 +39,8 @@ schema("/plugin_api/emqx_sync_request/request") ->
     #{
         'operationId' => request,
         post => #{
-            summary => <<"Send a synchronous MQTT request">>,
             description =>
                 <<"Publish one MQTT request and wait for the first matching response.">>,
-            tags => [<<"Plugin">>],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, sync_request), #{}),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, ok_response), #{}),

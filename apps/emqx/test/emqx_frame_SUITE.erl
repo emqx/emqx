@@ -47,6 +47,9 @@ groups() ->
             t_serialize_parse_v4_connect,
             t_serialize_parse_v5_connect,
             t_parse_many_user_properties_is_linear,
+            t_parse_duplicate_connect_property_strict,
+            t_parse_duplicate_connect_property_lenient,
+            t_parse_repeated_user_property_strict,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
             t_serialize_parse_connect_with_malformed_will,
@@ -59,6 +62,7 @@ groups() ->
             t_reserved_connect_flag,
             t_invalid_clientid,
             t_undefined_password,
+            t_invalid_password_flag,
             t_invalid_will_retain,
             t_invalid_will_qos
         ]},
@@ -72,7 +76,8 @@ groups() ->
             t_serialize_parse_qos1_publish,
             t_serialize_parse_qos2_publish,
             t_serialize_parse_with_dup_flag,
-            t_serialize_parse_publish_v5
+            t_serialize_parse_publish_v5,
+            t_parse_duplicate_publish_property
         ]},
         {puback, [parallel], [
             t_serialize_parse_puback,
@@ -422,6 +427,68 @@ encode_vbi(N) when N < 16#80 ->
 encode_vbi(N) ->
     <<1:1, (N rem 16#80):7, (encode_vbi(N div 16#80))/binary>>.
 
+%% Build a raw MQTT v5 CONNECT frame (clean start, empty client id) carrying
+%% the given raw properties bytes.
+make_v5_connect_frame(PropsBin) ->
+    PropsSection = <<(encode_vbi(byte_size(PropsBin)))/binary, PropsBin/binary>>,
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2:8, 60:16, PropsSection/binary>>,
+    Body = <<VarHeader/binary, 0:16>>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
+
+-doc """
+In strict mode, an MQTT v5 CONNECT that includes a non-repeatable property
+more than once (two Session-Expiry-Interval, two Receive-Maximum, or two
+Maximum-Packet-Size) is rejected with a duplicate_property frame parse error.
+""".
+t_parse_duplicate_connect_property_strict(_) ->
+    Strict = emqx_frame:initial_parse_state(#{strict_mode => true}),
+    lists:foreach(
+        fun({Key, PropsBin}) ->
+            Frame = make_v5_connect_frame(PropsBin),
+            ?assertException(
+                throw,
+                {frame_parse_error, #{cause := duplicate_property, property := Key}},
+                emqx_frame:parse(Frame, Strict),
+                #{property => Key}
+            )
+        end,
+        [
+            {'Session-Expiry-Interval', <<16#11, 1:32, 16#11, 2:32>>},
+            {'Receive-Maximum', <<16#21, 1:16, 16#21, 2:16>>},
+            {'Maximum-Packet-Size', <<16#27, 1024:32, 16#27, 2048:32>>}
+        ]
+    ).
+
+-doc """
+Without strict mode, a duplicated non-repeatable property is still accepted
+and the last occurrence wins.
+""".
+t_parse_duplicate_connect_property_lenient(_) ->
+    Lenient = emqx_frame:initial_parse_state(#{strict_mode => false}),
+    Frame = make_v5_connect_frame(<<16#11, 1:32, 16#11, 2:32>>),
+    {Packet, <<>>, _} = emqx_frame:parse(Frame, Lenient),
+    #mqtt_packet{variable = #mqtt_packet_connect{properties = Props}} = Packet,
+    ?assertEqual(2, maps:get('Session-Expiry-Interval', Props)).
+
+-doc """
+'User-Property' is the only property allowed to repeat: in strict mode,
+repeated entries (interleaved with a non-repeatable property appearing once)
+parse successfully and keep wire order.
+""".
+t_parse_repeated_user_property_strict(_) ->
+    UP1 = <<16#26, 1:16, "k", 1:16, "1">>,
+    UP2 = <<16#26, 1:16, "k", 1:16, "2">>,
+    SEI = <<16#11, 7:32>>,
+    Frame = make_v5_connect_frame(<<UP1/binary, SEI/binary, UP2/binary>>),
+    Strict = emqx_frame:initial_parse_state(#{strict_mode => true}),
+    {Packet, <<>>, _} = emqx_frame:parse(Frame, Strict),
+    #mqtt_packet{variable = #mqtt_packet_connect{properties = Props}} = Packet,
+    ?assertEqual(7, maps:get('Session-Expiry-Interval', Props)),
+    ?assertEqual(
+        [{<<"k">>, <<"1">>}, {<<"k">>, <<"2">>}],
+        maps:get('User-Property', Props)
+    ).
+
 t_serialize_parse_connect_without_clientid(_) ->
     Bin = <<16, 12, 0, 4, 77, 81, 84, 84, 4, 2, 0, 60, 0, 0>>,
     Packet = ?CONNECT_PACKET(#mqtt_packet_connect{
@@ -671,6 +738,34 @@ t_serialize_parse_publish_v5(_) ->
     },
     Packet = ?PUBLISH_PACKET(?QOS_1, <<"$share/group/topic">>, 1, Props, <<"payload">>),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+
+-doc """
+An MQTT v5 PUBLISH carrying two Response-Topic properties is rejected with a
+duplicate_property frame parse error in strict mode, while without strict
+mode it parses with the last occurrence winning.
+""".
+t_parse_duplicate_publish_property(_) ->
+    RT1 = <<16#08, 2:16, "r1">>,
+    RT2 = <<16#08, 2:16, "r2">>,
+    PropsBin = <<RT1/binary, RT2/binary>>,
+    Topic = <<"t">>,
+    Body = <<
+        (byte_size(Topic)):16,
+        Topic/binary,
+        (encode_vbi(byte_size(PropsBin)))/binary,
+        PropsBin/binary,
+        "payload"
+    >>,
+    Frame = <<16#30, (encode_vbi(byte_size(Body)))/binary, Body/binary>>,
+    Strict = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5, strict_mode => true}),
+    ?ASSERT_FRAME_THROW(
+        #{cause := duplicate_property, property := 'Response-Topic'},
+        emqx_frame:parse(Frame, Strict)
+    ),
+    Lenient = emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5, strict_mode => false}),
+    {Packet, <<>>, _} = emqx_frame:parse(Frame, Lenient),
+    #mqtt_packet{variable = #mqtt_packet_publish{properties = ParsedProps}} = Packet,
+    ?assertEqual(<<"r2">>, maps:get('Response-Topic', ParsedProps)).
 
 t_serialize_parse_puback(_) ->
     Packet = ?PUBACK_PACKET(1),
@@ -982,24 +1077,55 @@ t_undefined_password(_) ->
     ),
     ok.
 
+-doc """
+Password flag without username flag is rejected in strict mode for MQTT v3.1
+and v3.1.1, and stays accepted in lenient mode (bug-for-bug compatibility).
+MQTT v5 allows a password without a username in either mode.
+""".
 t_invalid_password_flag(_) ->
     %% Username Flag = false
     %% Password Flag = true
     %% Clean Session = true
     ConnectFlags = <<2#0100:4, 2#0010:4>>,
-    ConnectBin =
+    ConnectBinV4 =
         <<16, 17, 0, 4, 77, 81, 84, 84, 4, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0, 1, 97>>,
+    %% Proto name = MQIsdp, proto level = 3
+    ConnectBinV3 =
+        <<16, 19, 0, 6, 77, 81, 73, 115, 100, 112, 3, ConnectFlags/binary, 0, 60, 0, 2, 97, 49, 0,
+            1, 97>>,
+    %% Proto level = 5, zero-length properties
+    ConnectBinV5 =
+        <<16, 18, 0, 4, 77, 81, 84, 84, 5, ConnectFlags/binary, 0, 60, 0, 0, 2, 97, 49, 0, 1, 97>>,
+    %% Lenient mode keeps accepting password-without-username for bug-for-bug
+    %% compatibility. Strict mode is the default now, so request lenient explicitly.
     LenientParseState = emqx_frame:initial_parse_state(#{strict_mode => false}),
     ?assertMatch(
         {_, _, _},
-        emqx_frame:parse(ConnectBin, LenientParseState)
+        emqx_frame:parse(ConnectBinV4, LenientParseState)
+    ),
+    ?assertMatch(
+        {_, _, _},
+        emqx_frame:parse(ConnectBinV3, LenientParseState)
     ),
 
     StrictModeParseState = emqx_frame:initial_parse_state(#{strict_mode => true}),
     ?assertException(
         throw,
-        {frame_parse_error, invalid_password_flag},
-        emqx_frame:parse(ConnectBin, StrictModeParseState)
+        {frame_parse_error, #{
+            cause := invalid_password_flag, proto_ver := ?MQTT_PROTO_V4, proto_name := <<"MQTT">>
+        }},
+        emqx_frame:parse(ConnectBinV4, StrictModeParseState)
+    ),
+    ?assertException(
+        throw,
+        {frame_parse_error, #{
+            cause := invalid_password_flag, proto_ver := ?MQTT_PROTO_V3, proto_name := <<"MQIsdp">>
+        }},
+        emqx_frame:parse(ConnectBinV3, StrictModeParseState)
+    ),
+    ?assertMatch(
+        {_, _, _},
+        emqx_frame:parse(ConnectBinV5, StrictModeParseState)
     ).
 
 t_invalid_will_retain(_) ->

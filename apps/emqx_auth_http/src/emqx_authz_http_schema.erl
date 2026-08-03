@@ -20,7 +20,9 @@
 
 -export([
     headers_no_content_type/1,
-    headers/1
+    headers/1,
+    allowed_hosts/1,
+    hostname_resolution/1
 ]).
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
@@ -81,6 +83,9 @@ method(Method) ->
 http_common_fields() ->
     [
         {url, fun url/1},
+        {allowed_hosts, fun allowed_hosts/1},
+        {hostname_resolution, fun hostname_resolution/1},
+        {pool_size, fun pool_size/1},
         {request_timeout,
             emqx_schema:mk_duration(#{
                 required => false,
@@ -90,9 +95,13 @@ http_common_fields() ->
         {body, ?HOCON(hoconsc:map(name, binary()), #{required => false, desc => ?DESC(body)})}
     ] ++
         lists:keydelete(
-            pool_type,
+            pool_size,
             1,
-            emqx_bridge_http_connector:fields(config)
+            lists:keydelete(
+                pool_type,
+                1,
+                emqx_bridge_http_connector:fields(config)
+            )
         ).
 
 headers(type) ->
@@ -143,3 +152,22 @@ url(desc) -> ?DESC(?FUNCTION_NAME);
 url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
 url(required) -> true;
 url(_) -> undefined.
+
+allowed_hosts(type) -> hoconsc:array(binary());
+allowed_hosts(desc) -> ?DESC(?FUNCTION_NAME);
+allowed_hosts(default) -> [];
+allowed_hosts(required) -> false;
+allowed_hosts(validator) -> fun emqx_auth_http_utils:validate_allowed_hosts_field/1;
+allowed_hosts(_) -> undefined.
+
+hostname_resolution(type) -> hoconsc:enum([static, dynamic]);
+hostname_resolution(desc) -> ?DESC(?FUNCTION_NAME);
+hostname_resolution(default) -> static;
+hostname_resolution(required) -> false;
+hostname_resolution(_) -> undefined.
+
+pool_size(type) -> non_neg_integer();
+pool_size(desc) -> ?DESC(?FUNCTION_NAME);
+pool_size(default) -> 8;
+pool_size(required) -> false;
+pool_size(_) -> undefined.

@@ -1396,7 +1396,7 @@ handle_frame_error(
 ->
     handle_out(
         disconnect,
-        {?RC_MALFORMED_PACKET, frame_error_kind(Reason, frame_error)},
+        {frame_error_reason_code(Reason), frame_error_kind(Reason, frame_error)},
         Channel
     );
 handle_frame_error(
@@ -1574,9 +1574,10 @@ wrap_list(X) ->
 %% Deliver publish: broker -> client
 %%--------------------------------------------------------------------
 
-%% return list(emqx_types:packet())
+-spec do_deliver(emqx_session:replies(), channel()) ->
+    {emqx_types:packet() | [emqx_types:packet()], channel()}.
 do_deliver({pubrel, PacketId}, Channel) ->
-    {[?PUBREL_PACKET(PacketId, ?RC_SUCCESS)], Channel};
+    {?PUBREL_PACKET(PacketId, ?RC_SUCCESS), Channel};
 do_deliver(
     {PacketId, Msg},
     Channel = #channel{
@@ -1592,20 +1593,24 @@ do_deliver(
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
     Packet = emqx_message:to_packet(PacketId, Msg2),
     {NPacket, NChannel} = packing_alias(Packet, Channel),
-    {[NPacket], NChannel};
+    {NPacket, NChannel};
 do_deliver([Publish], Channel) ->
     do_deliver(Publish, Channel);
-do_deliver(Publishes, Channel) when is_list(Publishes) ->
-    {Packets, NChannel} =
-        lists:foldl(
-            fun(Publish, {Acc, Chann}) ->
-                {Packets, NChann} = do_deliver(Publish, Chann),
-                {Packets ++ Acc, NChann}
-            end,
-            {[], Channel},
-            Publishes
-        ),
-    {lists:reverse(Packets), NChannel}.
+do_deliver([], Channel) ->
+    {[], Channel};
+do_deliver(Publishes, Channel) ->
+    do_deliver_many(Publishes, [], Channel).
+
+-spec do_deliver_many([emqx_session:reply()], channel()) ->
+    {[emqx_types:packet()], channel()}.
+do_deliver_many(Publishes, Channel) ->
+    do_deliver_many(Publishes, [], Channel).
+
+do_deliver_many([Publish | Rest], Acc, Channel) ->
+    {Packet, NChannel} = do_deliver(Publish, Channel),
+    do_deliver_many(Rest, [Packet | Acc], NChannel);
+do_deliver_many([], Packets, Channel) ->
+    {lists:reverse(Packets), Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle out suback
@@ -1769,7 +1774,7 @@ handle_info(continue, Channel0) ->
         ignore ->
             ok;
         {Publishes, Channel1} ->
-            {Packets, Channel} = do_deliver(Publishes, Channel1),
+            {Packets, Channel} = do_deliver_many(Publishes, Channel1),
             Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
             %% Refresh chan-info / chan-stats so the dashboard and REST API
             %% reflect post-replay inflight immediately, not on the next stats tick.
@@ -3897,6 +3902,7 @@ proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
 
 frame_error_reason_code(#{cause := frame_too_large}) -> ?RC_PACKET_TOO_LARGE;
+frame_error_reason_code(#{cause := duplicate_property}) -> ?RC_PROTOCOL_ERROR;
 frame_error_reason_code(_) -> ?RC_MALFORMED_PACKET.
 
 handle_heal_partition(

@@ -9,7 +9,8 @@ receivers:
           ca_file: /etc/certs/ca.crt
           cert_file: /etc/certs/server.crt
           key_file: /etc/certs/server.key
-#      http:
+      http:
+        endpoint: 0.0.0.0:4318
 #        tls:
 #          ca_file: /etc/certs/ca.crt
 #          cert_file: /etc/certs/server.crt

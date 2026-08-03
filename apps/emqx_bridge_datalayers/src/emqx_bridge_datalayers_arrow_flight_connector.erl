@@ -38,6 +38,10 @@
     prepare_sql_to_conn/2
 ]).
 
+-ifdef(TEST).
+-export([prune_dead_refs/2]).
+-endif.
+
 -type state() :: #{
     driver_type := atom(),
     channels => #{channel_id() := channel_state()},
@@ -363,6 +367,7 @@ proc_sql_params(
     emqx_trace:rendered_action_template(ChannelId, #{record_rows => RenderedRows}),
     [
         maps:get(prepared_refs, ChannelState),
+        PrepStmtTemplate,
         RenderedRows
         | InitArgs
     ];
@@ -434,9 +439,21 @@ connect(Opts) ->
     end.
 
 call_driver(Client, {_QueryMode, true} = FuncMode, Args0) ->
-    [PreparedRefs | Args] = Args0,
-    %% Prepared statements
-    PreparedRef = maps:get(Client, PreparedRefs),
+    [PreparedRefs, {SqlStatement0, _RowTemplates} | Args] = Args0,
+    PreparedRef =
+        case maps:find(Client, PreparedRefs) of
+            {ok, Ref} ->
+                Ref;
+            error ->
+                SqlStatement = bin(SqlStatement0),
+                {ok, Ref0} = prepare_sql_to_conn(Client, SqlStatement),
+                Ref0
+        end,
+    %% Clean up dead pids from the local PreparedRefs copy.
+    %% Worker pids that are no longer alive still hold prepared statement
+    %% handles on the Datalayers server (no Close action was sent).
+    %% They will be cleaned up by the server-side TTL (~1 day).
+    _ = prune_dead_refs(Client, PreparedRefs),
     do_call_driver(Client, driver_fun_name(FuncMode), [PreparedRef | Args]);
 call_driver(Client, {_QueryMode, false} = FuncMode, Args) ->
     do_call_driver(Client, driver_fun_name(FuncMode), Args).
@@ -573,6 +590,14 @@ prepare_sql_to_conn(Client, SqlStatement) ->
 
 close_statement_on_conn(Client, PrepareRef) ->
     datalayers:close_prepared(Client, PrepareRef).
+
+prune_dead_refs(CurrentClient, PreparedRefs) ->
+    maps:filter(
+        fun(Client, _Ref) ->
+            Client =:= CurrentClient orelse is_process_alive(Client)
+        end,
+        PreparedRefs
+    ).
 
 ssl_opts(InstId, #{enable := true, verify := verify_none}) ->
     ?SLOG(error, #{msg => "ssl_verify_none_not_supported", connector => InstId}),

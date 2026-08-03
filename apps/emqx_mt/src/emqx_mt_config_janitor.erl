@@ -14,7 +14,8 @@ it is deleted.
 -export([
     start_link/0,
 
-    clean_namespace/1
+    clean_namespace/1,
+    force_clean_namespace/1
 ]).
 
 %% `gen_server' API
@@ -59,6 +60,18 @@ clean_namespace(Namespace) ->
     Core = do_pick_core_for(Namespace),
     gen_server:cast({?MODULE, Core}, #clean_namespace{namespace = Namespace}).
 
+-doc """
+Runs the namespace cleanup synchronously in the calling process, regardless of whether
+the namespace is tombstoned.
+
+Last resort for manual cleanup (`emqx ctl mt purge_ns`); normal deletion cleans up
+asynchronously via `clean_namespace/1`.  All cleanup steps are idempotent, so racing the
+janitor process is harmless.
+""".
+-spec force_clean_namespace(emqx_mt:tns()) -> ok | {error, cleanup_incomplete}.
+force_clean_namespace(Namespace) ->
+    do_clean_up(Namespace).
+
 %%------------------------------------------------------------------------------
 %% `gen_server' API
 %%------------------------------------------------------------------------------
@@ -86,7 +99,7 @@ handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
 handle_cast(#clean_namespace{namespace = Namespace}, State) ->
-    ok = handle_clean_namespace(Namespace),
+    _ = handle_clean_namespace(Namespace),
     {noreply, State};
 handle_cast(_Cast, State) ->
     {noreply, State}.
@@ -173,7 +186,10 @@ do_clean_up(Namespace) ->
     end,
     erase(?cleanup_failed),
     ?tp("mt_janitor_finished_ns", #{namespace => Namespace, failed => AnyFailed}),
-    ok.
+    case AnyFailed of
+        false -> ok;
+        true -> {error, cleanup_incomplete}
+    end.
 
 do_clean_up(Namespace, RootKey) ->
     %% Set to empty, so that any config cleanup callbacks are triggered.

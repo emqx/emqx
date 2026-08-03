@@ -337,6 +337,30 @@ get_kafka_messages(Opts, TCConfig) ->
         {ok, {NewOffset, Msgs}}
     end.
 
+-doc """
+Fetch the state of the partition-0 wolff producer worker of the action under
+test, to assert config values that EMQX passed through to wolff.
+""".
+get_wolff_producer_state(TCConfig) ->
+    ActionResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    #{<<"parameters">> := #{<<"topic">> := Topic}} =
+        get_config(action_config, TCConfig),
+    %% The client id argument is irrelevant: producers are namespaced by the
+    %% group (the action resource id).
+    {ok, Pid} = wolff_producers:find_producer_by_partition(
+        <<"unused">>, ActionResId, Topic, _Partition = 0
+    ),
+    sys:get_state(Pid).
+
+-doc """
+Fetch the state of the wolff client of the connector under test, to assert
+config values that EMQX passed through to wolff.
+""".
+get_wolff_client_state(TCConfig) ->
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    {ok, Pid} = wolff_client_sup:find_client(ConnResId),
+    sys:get_state(Pid).
+
 kpro_message_to_map(#kafka_message{} = Msg) ->
     lists:foldl(
         fun({I, Name}, Acc) ->
@@ -383,6 +407,13 @@ create_connector_api(TCConfig, Overrides) ->
 
 probe_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:probe_connector_api2(TCConfig, Overrides).
+
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
 
 update_connector_api(TCConfig, Overrides) ->
     #{
@@ -529,7 +560,7 @@ setup_oauth_scenario(TCConfig0) ->
         )
     end),
     on_exit(fun emqx_utils_http_test_server:stop/0),
-    on_exit(fun emqx_bridge_kafka_token_cache:clear_cache/0),
+    on_exit(fun emqx_connector_oauth2:clear_cache/0),
     {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/oauth/token", false),
     NowS = erlang:system_time(second),
     JWT = generate_unsigned_jwt(#{
@@ -542,13 +573,16 @@ setup_oauth_scenario(TCConfig0) ->
         <<"access_token">> => JWT,
         <<"expires_in">> => 2
     }),
+    TestPid = self(),
     SetHandlerFn = fun(StatusCode, Body0) when is_binary(Body0) ->
-        emqx_utils_http_test_server:set_handler(fun(Req, State) ->
+        emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+            {ok, RequestBody, Req1} = cowboy_req:read_body(Req0),
+            TestPid ! {oauth2_token_request, cow_qs:parse_qs(RequestBody)},
             Rep = cowboy_req:reply(
                 StatusCode,
                 #{<<"content-type">> => <<"application/json">>},
                 Body0,
-                Req
+                Req1
             ),
             {ok, Rep, State}
         end)
@@ -560,7 +594,6 @@ setup_oauth_scenario(TCConfig0) ->
             <<"bootstrap_hosts">> => <<"kafka-3.emqx.net:9092">>,
             <<"authentication">> => #{
                 <<"mechanism">> => <<"oauth">>,
-                <<"grant_type">> => <<"client_credentials">>,
                 <<"client_id">> => <<"oauth_client_id">>,
                 <<"client_secret">> => <<"oauth_client_secret">>,
                 <<"endpoint_uri">> => URI,
@@ -785,6 +818,230 @@ t_smoke_metrics(TCConfig) ->
             get_rule_metrics(RuleId)
         )
     ),
+    ok.
+
+-doc """
+The `max_batch_age`, `max_retries` and `reconnect_delay` action parameters and
+the connector `request_timeout` are translated and passed through to the wolff
+producer / client configs (`max_batch_age` and `reconnect_delay` in
+milliseconds, `max_retries` as wolff's `max_retry`).
+""".
+t_wolff_producer_opts_passthrough(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"request_timeout">> => <<"45s">>
+    }),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"max_batch_age">> => <<"500ms">>,
+            <<"max_retries">> => 3,
+            <<"reconnect_delay">> => <<"1500ms">>
+        }
+    }),
+    ?assertMatch(
+        #{
+            config := #{
+                max_batch_age := 500,
+                max_retry := 3,
+                reconnect_delay_ms := 1500
+            }
+        },
+        get_wolff_producer_state(TCConfig)
+    ),
+    ?assertMatch(
+        #{conn_config := #{request_timeout := 45_000}},
+        get_wolff_client_state(TCConfig)
+    ),
+    ok.
+
+-doc """
+Connectors and actions created without the new `max_batch_age` /
+`max_retries` / `reconnect_delay` / `request_timeout` fields behave as
+before: wolff gets `infinity` for the first two (never drop by age, retry
+forever), 2s reconnect delay, 30s client request timeout, and messages are
+produced as usual.
+""".
+t_wolff_producer_opts_defaults(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    ?assertMatch(
+        #{
+            config := #{
+                max_batch_age := infinity,
+                max_retry := infinity,
+                reconnect_delay_ms := 2_000
+            }
+        },
+        get_wolff_producer_state(TCConfig)
+    ),
+    ?assertMatch(
+        #{conn_config := #{request_timeout := 30_000}},
+        get_wolff_client_state(TCConfig)
+    ),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {ok, Offset} = resolve_kafka_offset(TCConfig),
+    emqtt:publish(C, RuleTopic, <<"hey">>, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, {_, [#{value := <<"hey">>}]}},
+            get_kafka_messages(#{offset => Offset}, TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+End-to-end `max_batch_age` expiry: messages buffered while the brokers are
+unreachable are dropped once they are older than `max_batch_age` instead of
+being sent on reconnect.  Each dropped message bumps `dropped` and
+`dropped.expired` exactly once and must NOT be counted as `failed` or
+`success` (the rule action is concluded via the `request_expired` reply,
+which bypasses resource metrics).  Fresh messages produced after recovery
+are delivered normally.
+""".
+t_max_batch_age_expiry_drop() ->
+    [{matrix, true}].
+t_max_batch_age_expiry_drop(matrix) ->
+    [
+        [?tcp_plain, ?no_auth, Sync]
+     || Sync <- [?sync, ?async]
+    ];
+t_max_batch_age_expiry_drop(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"max_batch_age">> => <<"700ms">>,
+            %% keep sync-mode publishes fast while the brokers are down
+            <<"sync_query_timeout">> => <<"1s">>
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {ok, Offset} = resolve_kafka_offset(TCConfig),
+    with_brokers_down(TCConfig, fun() ->
+        %% Buffer messages while the connection is down.
+        lists:foreach(
+            fun(_) -> emqtt:publish(C, RuleTopic, <<"stale">>, [{qos, 1}]) end,
+            lists:seq(1, 3)
+        ),
+        %% Let the buffered messages grow older than `max_batch_age'.
+        ct:sleep(1_000),
+        ok
+    end),
+    %% On reconnect, wolff drops the expired messages instead of sending them.
+    ?retry(
+        1_000,
+        20,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"dropped">> := 3,
+                    <<"dropped.expired">> := 3,
+                    <<"failed">> := 0,
+                    <<"success">> := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+    %% The expired messages never reach Kafka; fresh ones do.
+    emqtt:publish(C, RuleTopic, <<"fresh">>, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, {_, [#{value := <<"fresh">>}]}},
+            get_kafka_messages(#{offset => Offset}, TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+End-to-end `max_retries`: a batch that keeps getting explicit error responses
+from Kafka is dropped after the configured number of retries.  The error is
+provoked without mocking, by producing to a topic whose
+`min.insync.replicas` exceeds its replication factor, which makes every
+produce request fail with `not_enough_replicas` while `required_acks` is
+`all_isr`.  The dropped message is counted as `failed` via the
+`max_retry_exceeded` ack reply, and must NOT be counted as `dropped` (wolff's
+parent `dropped` counter is not mapped for this reason).
+""".
+t_max_retries_exceeded_drop() ->
+    [{matrix, true}].
+t_max_retries_exceeded_drop(matrix) ->
+    [
+        [?tcp_plain, ?no_auth, Sync]
+     || Sync <- [?sync, ?async]
+    ];
+t_max_retries_exceeded_drop(TCConfig) ->
+    %% This topic can never satisfy `all_isr': every produce request is
+    %% rejected with the retryable `not_enough_replicas' error.
+    Topic = <<"t_max_retries_exceeded_drop_isr">>,
+    emqx_bridge_kafka_testlib:ensure_kafka_topic(Topic, #{
+        configs => [#{name => <<"min.insync.replicas">>, value => <<"2">>}]
+    }),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"topic">> => Topic,
+            <<"max_retries">> => 1,
+            %% the final ack takes a couple of reconnect cycles to arrive
+            <<"sync_query_timeout">> => <<"15s">>
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    emqtt:publish(C, RuleTopic, <<"doomed">>, [{qos, 1}]),
+    ?retry(
+        1_000,
+        20,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"failed">> := 1,
+                    <<"dropped">> := 0,
+                    <<"success">> := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+The `[wolff, dropped_expired]` telemetry handler bumps the action's `dropped`
+and `dropped.expired` counters and nothing else.  wolff emits `[wolff,
+dropped]` alongside `[wolff, dropped_expired]` for the same messages; that
+event is intentionally NOT subscribed, so expired messages are counted as
+dropped exactly once (the double-count guard).
+""".
+t_dropped_expired_metrics_split(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    ActionResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    %% wolff carries `partition_id' in the event metadata alongside `bridge_id';
+    %% the handler must match on `bridge_id' regardless.
+    Meta = #{bridge_id => ActionResId, partition_id => 1},
+    ?assertEqual(0, emqx_resource_metrics:dropped_get(ActionResId)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_expired_get(ActionResId)),
+    Success0 = emqx_resource_metrics:success_get(ActionResId),
+    Failed0 = emqx_resource_metrics:failed_get(ActionResId),
+    %% Simulate wolff's expiry-drop telemetry: both events fire for the same
+    %% two messages.
+    telemetry:execute([wolff, dropped_expired], #{counter_inc => 2}, Meta),
+    telemetry:execute([wolff, dropped], #{counter_inc => 2}, Meta),
+    ?retry(
+        100,
+        10,
+        begin
+            ?assertEqual(2, emqx_resource_metrics:dropped_expired_get(ActionResId)),
+            ?assertEqual(2, emqx_resource_metrics:dropped_get(ActionResId))
+        end
+    ),
+    %% Double-count guard: expiry drops must not move success/failed.
+    ?assertEqual(Success0, emqx_resource_metrics:success_get(ActionResId)),
+    ?assertEqual(Failed0, emqx_resource_metrics:failed_get(ActionResId)),
     ok.
 
 -doc """
@@ -2202,11 +2459,8 @@ t_msk_iam_roles_anywhere_authn(TCConfig) ->
             ?assertMatch(
                 {400, #{
                     <<"message">> := #{
-                        <<"mismatches">> := #{
-                            <<"bridge_kafka:auth_msk_iam_roles_anywhere">> := #{
-                                <<"reason">> := <<"missing_port_number">>
-                            }
-                        }
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"missing_port_number">>
                     }
                 }},
                 probe_connector_api(TCConfig, #{
@@ -2220,11 +2474,8 @@ t_msk_iam_roles_anywhere_authn(TCConfig) ->
             ?assertMatch(
                 {400, #{
                     <<"message">> := #{
-                        <<"mismatches">> := #{
-                            <<"bridge_kafka:auth_msk_iam_roles_anywhere">> := #{
-                                <<"reason">> := <<"missing_scheme">>
-                            }
-                        }
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"missing_scheme">>
                     }
                 }},
                 probe_connector_api(TCConfig, #{
@@ -2238,11 +2489,8 @@ t_msk_iam_roles_anywhere_authn(TCConfig) ->
             ?assertMatch(
                 {400, #{
                     <<"message">> := #{
-                        <<"mismatches">> := #{
-                            <<"bridge_kafka:auth_msk_iam_roles_anywhere">> := #{
-                                <<"reason">> := <<"unsupported_scheme">>
-                            }
-                        }
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"unsupported_scheme">>
                     }
                 }},
                 probe_connector_api(TCConfig, #{
@@ -2359,6 +2607,22 @@ t_oauth_client_credentials_authn(TCConfig0) ->
         create_connector_fn := CreateConnectorFn
     } = setup_oauth_scenario(TCConfig0),
     ?assertMatch({201, #{<<"status">> := <<"connected">>}}, CreateConnectorFn()),
+    ?assertMatch(
+        {200, #{
+            <<"authentication">> := #{<<"grant_type">> := <<"client_credentials">>}
+        }},
+        get_connector_api(TCConfig)
+    ),
+    {oauth2_token_request, Params} = ?assertReceive({oauth2_token_request, _}, 5_000),
+    ?assertEqual(<<"client_credentials">>, proplists:get_value(<<"grant_type">>, Params)),
+    ?assertEqual(<<"oauth_client_id">>, proplists:get_value(<<"client_id">>, Params)),
+    ?assertEqual(<<"oauth_client_secret">>, proplists:get_value(<<"client_secret">>, Params)),
+    ?assertEqual(
+        <<"oauth_server_specific_scope">>,
+        proplists:get_value(<<"scope">>, Params)
+    ),
+    ?assertEqual(undefined, proplists:get_value(<<"logicalCluster">>, Params)),
+    ?assertEqual(undefined, proplists:get_value(<<"identityPoolId">>, Params)),
     ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_action_api(TCConfig, #{})),
     #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
     C = start_client(),
@@ -2402,31 +2666,31 @@ t_oauth_client_credentials_authn_errors(TCConfig0) ->
             SetHandlerFn(200, emqx_utils_json:encode(#{token => JWT})),
             ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn()),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-            emqx_bridge_kafka_token_cache:clear_cache(),
+            emqx_connector_oauth2:clear_cache(),
 
             ct:pal("not a json response"),
             SetHandlerFn(200, <<"huh?!">>),
             ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn()),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-            emqx_bridge_kafka_token_cache:clear_cache(),
+            emqx_connector_oauth2:clear_cache(),
 
             ct:pal("non-200 response"),
             SetHandlerFn(301, <<"Redirecting...">>),
             ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn()),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-            emqx_bridge_kafka_token_cache:clear_cache(),
+            emqx_connector_oauth2:clear_cache(),
 
             ct:pal("http request error"),
             emqx_common_test_helpers:with_mock(
-                emqx_bridge_kafka_oauth_authn,
-                do_request,
+                emqx_connector_oauth2,
+                fetch_token,
                 fun(_Params) -> {error, timeout} end,
                 fun() ->
                     ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn())
                 end
             ),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-            emqx_bridge_kafka_token_cache:clear_cache(),
+            emqx_connector_oauth2:clear_cache(),
 
             ok
         end,
@@ -2448,19 +2712,19 @@ t_oauth_client_credentials_authn_expiry_time(TCConfig0) ->
     SetHandlerFn(200, emqx_utils_json:encode(#{access_token => JWT})),
     ?assertMatch({201, #{<<"status">> := <<"connected">>}}, CreateConnectorFn()),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    emqx_bridge_kafka_token_cache:clear_cache(),
+    emqx_connector_oauth2:clear_cache(),
 
     ct:pal("token without `exp`"),
     JWTNoExp = generate_unsigned_jwt(#{<<"sub">> => <<"admin">>}),
     SetHandlerFn(200, emqx_utils_json:encode(#{access_token => JWTNoExp})),
     ?assertMatch({201, #{<<"status">> := _}}, CreateConnectorFn()),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    emqx_bridge_kafka_token_cache:clear_cache(),
+    emqx_connector_oauth2:clear_cache(),
 
     ct:pal("token that is not a jwt"),
     SetHandlerFn(200, emqx_utils_json:encode(#{access_token => <<"notajwt">>})),
     ?assertMatch({201, #{<<"status">> := _}}, CreateConnectorFn()),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-    emqx_bridge_kafka_token_cache:clear_cache(),
+    emqx_connector_oauth2:clear_cache(),
 
     ok.

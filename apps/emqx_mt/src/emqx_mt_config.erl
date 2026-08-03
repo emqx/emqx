@@ -20,6 +20,7 @@
 
     create_managed_ns/1,
     delete_managed_ns/1,
+    force_purge_ns/1,
     is_known_managed_ns/1,
 
     get_managed_ns_config/1,
@@ -210,6 +211,25 @@ delete_managed_ns(Ns) ->
         ok = emqx_mt_config_janitor:clean_namespace(Ns),
         ok
     end.
+
+-doc """
+Deletes the namespace and purges all of its data, regardless of whether the namespace is
+currently known, running the cleanup synchronously in the calling process.
+
+Last resort to manually purge a namespace's data, e.g. if a previous deletion was
+interrupted halfway.  Normal deletion goes through `delete_managed_ns/1`.
+""".
+-spec force_purge_ns(emqx_mt:tns()) -> ok | {error, cleanup_incomplete}.
+force_purge_ns(Ns) ->
+    case emqx_mt_state:delete_managed_ns(Ns) of
+        {ok, Configs} when map_size(Configs) > 0 ->
+            _ = emqx_mt_config_proto_v1:cleanup_managed_ns_configs(Ns, maps:to_list(Configs)),
+            ok;
+        _ ->
+            ok
+    end,
+    _ = emqx_mt_client_kicker:start_kicking(Ns),
+    emqx_mt_config_janitor:force_clean_namespace(Ns).
 
 -spec is_known_managed_ns(emqx_mt:tns()) -> boolean().
 is_known_managed_ns(Ns) ->

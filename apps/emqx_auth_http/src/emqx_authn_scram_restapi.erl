@@ -178,7 +178,16 @@ safely_convert_hex(Required) ->
 
 create_state(ResourceId, Config) ->
     maybe
+        ok ?= check_static_url(Config),
         {ok, ResourceConfig, State0} ?= emqx_authn_http:create_state(ResourceId, Config),
         State = maps:merge(State0, maps:with([algorithm, iteration_count], Config)),
         {ok, ResourceConfig, State}
+    end.
+
+check_static_url(#{url := Url}) ->
+    case emqx_auth_http_utils:is_templated_host_url(Url) of
+        true ->
+            {error, {invalid_url, {templated_host_not_supported, Url}}};
+        false ->
+            ok
     end.

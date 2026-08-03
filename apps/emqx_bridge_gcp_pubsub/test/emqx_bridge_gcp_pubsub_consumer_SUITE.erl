@@ -528,7 +528,9 @@ probe_source_api(TCConfig, Overrides) ->
     ).
 
 ensure_topic(TCConfig, Topic) ->
-    ProjectId = get_config(project_id, TCConfig),
+    ensure_topic(TCConfig, get_config(project_id, TCConfig), Topic).
+
+ensure_topic(TCConfig, ProjectId, Topic) ->
     Client = get_config(client, TCConfig),
     Method = put,
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
@@ -557,6 +559,18 @@ delete_topic(TCConfig, Topic) ->
         Client
     ),
     ok.
+
+get_subscription_http(TCConfig, SubscriptionId) ->
+    Client = get_config(client, TCConfig),
+    ProjectId = get_config(project_id, TCConfig),
+    Method = get,
+    Path = <<"/v1/projects/", ProjectId/binary, "/subscriptions/", SubscriptionId/binary>>,
+    Body = <<>>,
+    {ok, #{status_code := 200, body := RespBody}} = emqx_bridge_gcp_pubsub_client:query_sync(
+        ?PREPARED_REQUEST(Method, Path, Body),
+        Client
+    ),
+    emqx_utils_json:decode(RespBody).
 
 delete_subscription(TCConfig, SubscriptionId) ->
     Client = get_config(client, TCConfig),
@@ -595,8 +609,10 @@ stop_control_client(Client) ->
     ok.
 
 pubsub_publish(TCConfig, Topic, Messages0) ->
+    pubsub_publish(TCConfig, get_config(project_id, TCConfig), Topic, Messages0).
+
+pubsub_publish(TCConfig, ProjectId, Topic, Messages0) ->
     Client = get_config(client, TCConfig),
-    ProjectId = get_config(project_id, TCConfig),
     Method = post,
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary, ":publish">>,
     Messages =
@@ -1156,6 +1172,71 @@ t_consume_ok(TCConfig) ->
             prop_all_pulled_are_acked(),
             prop_handled_only_once(),
             prop_acked_ids_eventually_forgotten()
+        ]
+    ),
+    ok.
+
+-doc """
+Verifies that a source configured with a fully-qualified
+`projects/<project-id>/topics/<topic-name>` topic consumes from the topic in that
+project (which may differ from the service account's), while the subscription itself is
+created in the service account's project.
+""".
+t_consume_ok_cross_project_topic(TCConfig) ->
+    SAProjectId = get_config(project_id, TCConfig),
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
+    OtherProjectId = <<"cross-project">>,
+    FQTopic = <<"projects/", OtherProjectId/binary, "/topics/", PubSubTopic/binary>>,
+    ensure_topic(TCConfig, OtherProjectId, PubSubTopic),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, #{subscription_id := SubscriptionId}}} =
+                ?wait_async_action(
+                    create_source_api(TCConfig, #{
+                        <<"parameters">> => #{<<"topic">> => FQTopic}
+                    }),
+                    #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_created"},
+                    40_000
+                ),
+            {ok, _} = ?block_until(
+                #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
+                40_000
+            ),
+            %% The subscription is created in the service account's project, referencing
+            %% the topic in the other project.
+            Subscription = get_subscription_http(TCConfig, SubscriptionId),
+            ?assertMatch(#{<<"topic">> := FQTopic}, Subscription),
+            ?assertEqual(
+                <<"projects/", SAProjectId/binary, "/subscriptions/", SubscriptionId/binary>>,
+                maps:get(<<"name">>, Subscription)
+            ),
+            #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+            C = start_client(),
+            {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
+            Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
+            Messages = [#{<<"data">> => Data = #{<<"value">> => Payload}}],
+            pubsub_publish(TCConfig, OtherProjectId, PubSubTopic, Messages),
+            {ok, Published} = receive_published(),
+            EncodedData = emqx_utils_json:encode(Data),
+            ?assertMatch(
+                [
+                    #{
+                        topic := RepublishTopic,
+                        payload := #{
+                            <<"topic">> := FQTopic,
+                            <<"value">> := EncodedData
+                        }
+                    }
+                ],
+                Published
+            ),
+            ok
+        end,
+        [
+            prop_all_pulled_are_acked(),
+            prop_handled_only_once()
         ]
     ),
     ok.
