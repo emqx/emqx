@@ -13,7 +13,6 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--export([normalize_dir/1, top_dir/2, is_safe_entry/2]).
 -endif.
 
 %% Tarfile operations
@@ -705,3 +704,40 @@ delete_file_if_exists(File) ->
         {error, Reason} ->
             {error, {delete_file_failed, File, Reason}}
     end.
+
+-ifdef(TEST).
+normalize_dir_test_() ->
+    [
+        ?_assertEqual("foo", normalize_dir("foo")),
+        ?_assertEqual("foo", normalize_dir("foo/")),
+        ?_assertEqual("/foo", normalize_dir("/foo")),
+        ?_assertEqual("/foo", normalize_dir("/foo/"))
+    ].
+
+top_dir_test_() ->
+    [
+        ?_assertEqual({ok, "base/foo"}, top_dir("base", filename:join(["base", "foo", "bar"]))),
+        ?_assertEqual(
+            {ok, "/base/foo"}, top_dir("/base", filename:join(["/", "base", "foo", "bar"]))
+        ),
+        ?_assertEqual(
+            {ok, "/base/foo"}, top_dir("/base/", filename:join(["/", "base", "foo", "bar"]))
+        ),
+        ?_assertMatch({error, {out_of_bounds, _}}, top_dir("/base", filename:join(["/", "base"]))),
+        ?_assertMatch(
+            {error, {out_of_bounds, _}}, top_dir("/base", filename:join(["/", "foo", "bar"]))
+        )
+    ].
+
+is_safe_entry_test_() ->
+    %% Use cwd as a real existing directory; safe_relative_path/2 needs that.
+    {ok, Cwd} = file:get_cwd(),
+    [
+        ?_assert(is_safe_entry(Cwd, "evil-1.0.0/release.json")),
+        ?_assert(is_safe_entry(Cwd, "deep/nested/path.txt")),
+        ?_assertNot(is_safe_entry(Cwd, "../escape")),
+        ?_assertNot(is_safe_entry(Cwd, "../../../tmp/pwned")),
+        ?_assertNot(is_safe_entry(Cwd, "evil/../../../tmp/pwned")),
+        ?_assertNot(is_safe_entry(Cwd, "/abs/path"))
+    ].
+-endif.
