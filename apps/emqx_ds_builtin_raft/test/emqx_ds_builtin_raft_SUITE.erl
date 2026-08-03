@@ -841,7 +841,7 @@ t_rebalance_tolerate_lost(Config) ->
 
     %% Find out which sites are there.
     Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
-    ct:pal("Sites: ~p", [Sites]),
+    ct:pal("Sites: ~p", [lists:zip(Nodes, Sites)]),
 
     ?check_trace(
         #{timetrap => 30_000},
