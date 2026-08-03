@@ -44,12 +44,11 @@ It monitors local processes and automatically unregisters them if they terminate
 
 -type key() :: ?otx_leader | ?replica.
 
--type table_key() :: {emqx_ds:db(), emqx_ds:shard() | '_', key() | '_', node(), pid() | '_' | '$1'}.
+-define(table_key(DB, SHARD, KEY, NODE, PID), {DB, SHARD, KEY, NODE, PID}).
 
--record(?tab, {
-    key :: table_key(),
-    reserved
-}).
+-type table_key() :: ?table_key(emqx_ds:db(), emqx_ds:shard(), key(), node(), pid()).
+
+-record(?tab, {key, reserved}).
 
 -record(call_reg, {
     db :: emqx_ds:db(),
@@ -155,7 +154,7 @@ start_link() ->
 init(_) ->
     process_flag(trap_exit, true),
     Pattern = #?tab{
-        key = {'_', '_', '_', '$1', '_'},
+        key = ?table_key('_', '_', '_', '$1', '_'),
         _ = '_'
     },
     ok = mria:create_table(
@@ -169,9 +168,13 @@ init(_) ->
             {storage, ram_copies}
         ]
     ),
-    mria:wait_for_tables([?tab]),
-    S = #s{},
-    {ok, S}.
+    case mria:wait_for_tables([?tab]) of
+        ok ->
+            S = #s{},
+            {ok, S};
+        {error, stopping} ->
+            {stop, normal, undefined}
+    end.
 
 handle_call(#call_reg{} = C, _From, S) ->
     {reply, ok, handle_reg(C, S)};
@@ -194,7 +197,9 @@ handle_info({'DOWN', MRef, _, _, _}, S = #s{monitors = M0}) ->
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(_Reason, _S) ->
+terminate(_Reason, undefined) ->
+    ok;
+terminate(_Reason, #s{}) ->
     mria:clear_table(?tab),
     ok.
 
@@ -226,16 +231,16 @@ handle_unreg(#call_unreg{db = DB, shard = Shard, key = Key, pid = Pid}, S = #s{m
 
 -spec make_key(emqx_ds:db(), emqx_ds:shard(), key(), node(), pid()) -> table_key().
 make_key(DB, Shard, Key, Node, Pid) ->
-    {DB, Shard, Key, Node, Pid}.
+    ?table_key(DB, Shard, Key, Node, Pid).
 
 -spec select(emqx_ds:db(), emqx_ds:shard(), key()) -> [pid()].
 select(DB, Shard, Key) ->
-    Spec = {#?tab{key = {DB, Shard, Key, '_', '$1'}}, [], ['$1']},
+    Spec = {#?tab{key = ?table_key(DB, Shard, Key, '_', '$1')}, [], ['$1']},
     local_first(ets:select(?tab, [Spec])).
 
 -spec select(emqx_ds:db(), key()) -> [{emqx_ds:shard(), pid()}].
 select(DB, Key) ->
-    Spec = {#?tab{key = {DB, '$1', Key, '_', '$2'}}, [], [{{'$1', '$2'}}]},
+    Spec = {#?tab{key = ?table_key(DB, '$1', Key, '_', '$2')}, [], [{{'$1', '$2'}}]},
     ets:select(?tab, [Spec]).
 
 -spec local_first([pid()]) -> [pid()].
