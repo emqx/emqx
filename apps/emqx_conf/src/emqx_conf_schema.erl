@@ -188,7 +188,7 @@ roots() ->
             {cluster,
                 sc(
                     ?R_REF("cluster"),
-                    #{translate_to => ["ekka"]}
+                    #{translate_to => ["classy"]}
                 )},
             {log,
                 sc(
@@ -322,13 +322,31 @@ fields("cluster") ->
             sc(
                 atom(),
                 #{
-                    mapping => "ekka.cluster_name",
+                    mapping => "emqx.emqx_cluster_name",
                     default => emqxcl,
                     desc => ?DESC(cluster_name),
                     'readOnly' => true
                 }
             )},
         {"description", emqx_schema:description_schema()},
+        {"quorum",
+            sc(
+                pos_integer(),
+                #{
+                    default => 1,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "classy.quorum"
+                }
+            )},
+        {"classy_sync_timeout",
+            sc(
+                emqx_schema:duration_ms(),
+                #{
+                    default => <<"1s">>,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    mapping => "classy.sync_timeout"
+                }
+            )},
         {"discovery_strategy",
             sc(
                 hoconsc:enum([manual, static, singleton, dns, etcd, k8s]),
@@ -340,11 +358,20 @@ fields("cluster") ->
             )},
         {"autoclean",
             sc(
-                emqx_schema:duration_s(),
+                hoconsc:union([emqx_schema:duration_s(), infinity]),
                 #{
-                    mapping => "mria.cluster_autoclean",
+                    mapping => "classy.max_site_downtime",
                     default => <<"24h">>,
                     desc => ?DESC(cluster_autoclean)
+                }
+            )},
+        {"classy_forget_after",
+            sc(
+                emqx_schema:duration_s(),
+                #{
+                    mapping => "classy.forget_after",
+                    default => <<"1w">>,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"autoheal",
@@ -1446,10 +1473,10 @@ desc(durable_timers) ->
 desc(Name) ->
     schema_desc(Name).
 
-translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus", "vm_args"].
+translations() -> ["classy", "kernel", "emqx", "gen_rpc", "prometheus", "vm_args"].
 
-translation("ekka") ->
-    [{"cluster_discovery", fun tr_cluster_discovery/1}];
+translation("classy") ->
+    [{"discovery_strategy", fun tr_cluster_discovery/1}];
 translation("kernel") ->
     [
         {"logger_level", fun emqx_config_logger:tr_level/1},
@@ -1640,7 +1667,7 @@ audit_log_conf() ->
 
 tr_cluster_discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
-    {Strategy, filter(cluster_options(Strategy, Conf))}.
+    {Strategy, maps:from_list(filter(cluster_options(Strategy, Conf)))}.
 
 log_handler_common_confs(Handler, Default) ->
     %% We rarely support dynamic defaults like this.

@@ -54,7 +54,7 @@ defmodule EMQXUmbrella.MixProject do
 
   Here, transitive dependencies from our app dependencies should be placed when there's a
   need to override them.  For example, since `jsone` is a dependency to `rocketmq` and to
-  `ekka`, which are both dependencies and not umbrella apps, we need to add the
+  `classy`, which are both dependencies and not umbrella apps, we need to add the
   override here.  Also, there are cases where adding `override: true` to the umbrella
   application dependency simply won't satisfy mix.  In such cases, it's fine to add it
   here.
@@ -81,7 +81,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:cowboy),
       common_dep(:esockd),
       common_dep(:rocksdb),
-      common_dep(:ekka),
+      common_dep(:mria),
       common_dep(:gen_rpc),
       common_dep(:grpc),
       common_dep(:minirest),
@@ -174,8 +174,8 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.0", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.2", override: true}
+  def common_dep(:mria), do: {:mria, github: "emqx/mria", tag: "1.1.2", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
@@ -356,16 +356,11 @@ defmodule EMQXUmbrella.MixProject do
       singleton(test_env?(), {:d, :TEST}) ++
       singleton(test_env?(), {:parse_transform, :cth_readable_transform}) ++
       singleton(enable_broker_instr?(), {:d, :EMQX_BROKER_INSTR}) ++
-      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
-      singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
+      singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC})
   end
 
   defp enable_broker_instr?() do
     "1" == System.get_env("EMQX_BROKER_INSTR")
-  end
-
-  defp store_state_in_ds?() do
-    "1" == System.get_env("STORE_STATE_IN_DS")
   end
 
   defp singleton(false, _value), do: []

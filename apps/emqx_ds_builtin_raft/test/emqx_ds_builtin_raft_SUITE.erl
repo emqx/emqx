@@ -243,11 +243,14 @@ t_shards_allocation(Config) ->
     ok = emqx_cth_peer:kill(NodeLost),
     _ = ?retry(200, 5, [NodeLost] = [NodeLost] -- ?ON(Node, mria:cluster_nodes(running))),
     %% Simulate node loss that went unnoticed, taken from `mria:force_leave/1`.
-    true = ?ON(Node, mnesia_lib:del(extra_db_nodes, Node)),
-    ok = ?ON(Node, mria_mnesia:del_schema_copy(NodeLost)),
-    ?assertEqual(
-        [SiteLost],
-        ?ON(Node, emqx_ds_builtin_raft_meta:sites(lost))
+    ok = ?ON(Node, emqx_cluster:force_leave(NodeLost, force_kick)),
+    ?retry(
+        1000,
+        10,
+        ?assertEqual(
+            [SiteLost],
+            ?ON(Node, emqx_ds_builtin_raft_meta:sites(lost))
+        )
     ),
 
     %% Initialize DB on all nodes and wait for it to be online.
@@ -377,7 +380,7 @@ t_replication_transfers_snapshots(Config) ->
         ?FUNCTION_NAME, NClients, NMsgs
     ),
     ?check_trace(
-        #{timetrap => 20_000},
+        #{timetrap => 30_000},
         begin
             Nodes = [Node, NodeOffline | _] = ?config(nodes, Config),
             [_, SpecOffline | _] = ?config(specs, Config),
@@ -838,7 +841,7 @@ t_rebalance_tolerate_lost(Config) ->
 
     %% Find out which sites are there.
     Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
-    ct:pal("Sites: ~p", [Sites]),
+    ct:pal("Sites: ~p", [lists:zip(Nodes, Sites)]),
 
     ?check_trace(
         #{timetrap => 30_000},
@@ -857,7 +860,7 @@ t_rebalance_tolerate_lost(Config) ->
             %% This will lead to a situation when DB is residing on out-of-cluster nodes only.
             ok = emqx_cth_cluster:stop_node(N1),
             ?retry(200, 5, ?assertSameSet(NodesAlive, ?ON(N2, mria:cluster_nodes(running)))),
-            ok = ?ON(N2, emqx_cluster:force_leave(N1)),
+            ok = ?ON(N2, emqx_cluster:force_leave(N1, force_kick)),
             ?retry(200, 5, ?assertSameSet(NodesAlive, ?ON(N2, mria:cluster_nodes(cores)))),
 
             %% Attempt to forget S1 should fail.
@@ -947,8 +950,8 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
             %% Stop N3 and N4 and expunge them out of the cluster.
             ok = emqx_cth_cluster:stop([N3, N4]),
             ?retry(200, 5, ?assertSameSet([N1], ?ON(N1, mria:cluster_nodes(running)))),
-            ok = ?ON(N1, emqx_cluster:force_leave(N3)),
-            ok = ?ON(N1, emqx_cluster:force_leave(N4)),
+            ok = ?ON(N1, emqx_cluster:force_leave(N3, force_kick)),
+            ok = ?ON(N1, emqx_cluster:force_leave(N4, force_kick)),
             ?retry(200, 5, ?assertSameSet([N1, N2], ?ON(N1, mria:cluster_nodes(cores)))),
 
             %% Tell the cluster that S3 is not responsible for the data anymore.
@@ -1450,7 +1453,7 @@ end_per_testcase(TCName, Config) ->
     ok = snabbkaffe:stop(),
     Result = emqx_common_test_helpers:end_per_testcase(?MODULE, TCName, Config),
     catch emqx_ds:drop_db(TCName),
-    emqx_cth_suite:clean_work_dir(?config(work_dir, Config)),
+    emqx_cth_suite:maybe_clean_work_dir(work_dir, Config),
     Result.
 
 open_db(DB, Opts) ->

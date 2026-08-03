@@ -1366,12 +1366,7 @@ cluster_rpc_data(Mode) ->
     }.
 
 mria_data(Mode) ->
-    case mria_rlog:backend() of
-        rlog ->
-            mria_data(mria_rlog:role(), Mode);
-        mnesia ->
-            #{}
-    end.
+    mria_data(mria_rlog:role(), Mode).
 
 %% Local-node gathering function, does not perform rpc calls.
 mria_data(Role, Mode) ->

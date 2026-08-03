@@ -1985,7 +1985,7 @@ t_cluster_later_join_metrics(Config) ->
                 request_json(get, uri([?ACTIONS_ROOT, ActionID, "metrics"]), Config)
             ),
             %% Now join the other node join with the api node.
-            ok = erpc:call(OtherNode, ekka, join, [PrimaryNode]),
+            ok = erpc:call(OtherNode, classy, join_node, [PrimaryNode, join]),
             %% Check metrics; shouldn't crash even if the bridge is not
             %% ready on the node that just joined the cluster.
             ?assertMatch(

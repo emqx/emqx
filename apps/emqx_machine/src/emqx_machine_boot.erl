@@ -9,7 +9,6 @@
 -export([post_boot/0]).
 -export([stop_apps/0, ensure_apps_started/0]).
 -export([sorted_reboot_apps/0]).
--export([start_autocluster/0]).
 -export([stop_port_apps/0]).
 -export([read_apps/0]).
 
@@ -36,7 +35,7 @@
 ]).
 
 %% If any of these applications crash, the entire EMQX node shuts down:
--define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx, emqx_license]).
+-define(BASIC_PERMANENT_APPS, [classy, mria, esockd, emqx, emqx_license]).
 
 %% These apps are optional, they may or may not be present in the
 %% release, depending on the build flags:
@@ -53,10 +52,6 @@ post_boot() ->
         release => emqx_app:get_release(),
         security_profile => emqx_security_profile:profile()
     }),
-    ok = start_autocluster(),
-    %% Boot is complete and the ekka join callbacks are registered
-    %% (start_autocluster/0 above): joining is safe from here on.
-    ok = emqx_cluster:set_booting(false),
     ignore.
 
 -ifdef(TEST).
@@ -67,13 +62,6 @@ print_vsn() ->
     ?ULOG("~ts ~ts is running now!~n", [emqx_app:get_description(), emqx_app:get_release()]).
 % TEST
 -endif.
-
-start_autocluster() ->
-    ekka:callback(stop, fun emqx_machine_boot:stop_apps/0),
-    ekka:callback(start, fun emqx_machine_boot:ensure_apps_started/0),
-    %% returns 'ok' or a pid or 'any()' as in spec
-    _ = ekka:autocluster(emqx),
-    ok.
 
 stop_apps() ->
     ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
@@ -147,17 +135,21 @@ restart_type(App) ->
 %% the list of (re)started apps depends on release type/edition
 reboot_apps() ->
     ConfigApps0 = application:get_env(emqx_machine, applications, []),
-    BaseRebootApps = basic_reboot_apps(),
+    {BaseRebootApps, Protected} = basic_reboot_apps(),
     ConfigApps = lists:filter(fun(App) -> not lists:member(App, BaseRebootApps) end, ConfigApps0),
-    BaseRebootApps ++ ConfigApps.
+    (BaseRebootApps ++ ConfigApps) -- Protected.
 
 basic_reboot_apps() ->
     #{
+        protected := Protected,
         common_business_apps := CommonBusinessApps,
         ee_business_apps := EEBusinessApps
     } = read_apps(),
     BusinessApps = CommonBusinessApps ++ EEBusinessApps,
-    ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()).
+    {
+        ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()),
+        Protected
+    }.
 
 %% @doc Read business apps belonging to the current profile/edition.
 read_apps() ->

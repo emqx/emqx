@@ -15,6 +15,8 @@
 
 -define(SUITE, ?MODULE).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 -define(WAIT(TIMEOUT, PATTERN, Res),
     (fun() ->
         receive
@@ -44,29 +46,75 @@ flaky_tests() ->
         t_session_takeover => 3
     }.
 
-all() -> emqx_common_test_helpers:all(?SUITE).
+all() ->
+    [
+        {group, single},
+        {group, cluster}
+    ].
 
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    [{apps, Apps} | Config].
+groups() ->
+    All = emqx_common_test_helpers:all(?SUITE),
+    Cluster = [t_000_stats, t_010_local_fallback, t_remote, t_local],
+    [
+        {single, [], All -- Cluster},
+        {cluster, [], Cluster}
+    ].
 
-end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(apps, Config)).
+init_per_group(single, Config) ->
+    WorkDir = emqx_cth_suite:work_dir(Config),
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => WorkDir}),
+    [{apps, Apps}, {group, single} | Config];
+init_per_group(Group, Config) ->
+    [{group, Group} | Config].
 
-init_per_testcase(Case, Config) ->
+end_per_group(single, Config) ->
+    emqx_cth_suite:stop(proplists:get_value(apps, Config));
+end_per_group(_, Config) ->
+    Config.
+
+init_per_testcase(TC, Config0) ->
+    WorkDir = emqx_cth_suite:work_dir(TC, Config0),
+    Config =
+        case proplists:get_value(group, Config0) of
+            cluster ->
+                Apps = [emqx],
+                Cluster = emqx_cth_cluster:mk_nodespecs(
+                    [
+                        {core1, #{role => core, apps => Apps}},
+                        {core2, #{role => core, apps => Apps}}
+                    ],
+                    #{work_dir => WorkDir}
+                ),
+                Nodes = emqx_cth_cluster:start(Cluster),
+                [{nodes, Nodes}, {cluster, Cluster}, {workdir, WorkDir} | Config0];
+            single ->
+                Config0
+        end,
     try
-        ?MODULE:Case({'init', Config})
+        ?MODULE:TC({'init', Config})
     catch
         error:function_clause ->
             Config
     end.
 
-end_per_testcase(Case, Config) ->
+end_per_testcase(TC, Config) ->
     try
-        ?MODULE:Case({'end', Config})
+        ?MODULE:TC({'end', Config})
     catch
         error:function_clause ->
             ok
+    end,
+    case proplists:get_value(nodes, Config, undefined) of
+        undefined ->
+            ok;
+        Nodes ->
+            emqx_cth_cluster:stop(Nodes)
+    end,
+    case proplists:get_value(workdir, Config, undefined) of
+        undefined ->
+            ok;
+        WorkDir ->
+            emqx_cth_suite:clean_work_dir(WorkDir)
     end.
 
 t_is_ack_required(Config) when is_list(Config) ->
@@ -598,25 +646,24 @@ t_per_group_config(Config) when is_list(Config) ->
     test_two_messages(round_robin_per_group, <<"round_robin_per_group_group">>).
 
 t_local(Config) when is_list(Config) ->
+    [N1, N2] = proplists:get_value(nodes, Config),
     GroupConfig = #{
         <<"local_group">> => local,
         <<"round_robin_group">> => round_robin,
         <<"sticky_group">> => sticky
     },
-
-    %% Use a different base port for each test case to avoid flakiness
-    BasePort = 21999,
-    Node = start_peer('local_shared_sub_local_1', BasePort),
-    ok = ensure_group_config(GroupConfig),
-    ok = ensure_group_config(Node, GroupConfig),
+    ok = ?ON(N1, ensure_group_config(GroupConfig)),
+    ok = ?ON(N2, ensure_group_config(GroupConfig)),
 
     Topic = <<"local_foo/bar">>,
     ClientId1 = ?CLIENTID(1),
     ClientId2 = ?CLIENTID(2),
 
-    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
+    {ok, ConnPid1} = emqtt:start_link([
+        {clientid, ClientId1}, {port, emqx_cth_cluster:get_tcp_mqtt_port(N1)}
+    ]),
     {ok, ConnPid2} = emqtt:start_link([
-        {clientid, ClientId2}, {port, emqx_cth_cluster:get_tcp_mqtt_port(Node)}
+        {clientid, ClientId2}, {port, emqx_cth_cluster:get_tcp_mqtt_port(N2)}
     ]),
 
     {ok, _} = emqtt:connect(ConnPid1),
@@ -630,114 +677,116 @@ t_local(Config) when is_list(Config) ->
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
     Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
-    emqx:publish(Message1),
+    ?ON(N1, emqx:publish(Message1)),
     {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1, ConnPid2]),
 
-    rpc:call(Node, emqx, publish, [Message2]),
+    ?ON(N2, emqx:publish(Message2)),
     {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1, ConnPid2]),
-    RemoteLocalGroupStrategy = rpc:call(Node, emqx_shared_sub, strategy, [<<"local_group">>]),
 
     emqtt:stop(ConnPid1),
     emqtt:stop(ConnPid2),
-    stop_peer(Node),
 
-    ?assertEqual(local, emqx_shared_sub:strategy(<<"local_group">>)),
-    ?assertEqual(local, RemoteLocalGroupStrategy),
+    ?assertEqual(local, ?ON(N1, emqx_shared_sub:strategy(<<"local_group">>))),
+    ?assertEqual(local, ?ON(N2, emqx_shared_sub:strategy(<<"local_group">>))),
 
     ?assertNotEqual(UsedSubPid1, UsedSubPid2),
     ok.
 
+-doc """
+This testcase verifies dispatching of shared messages to the remote nodes via backplane API.
+
+In this testcase we start two EMQX nodes: local and remote.
+A subscriber connects to the remote node.
+A publisher connects to the local node and sends three messages with different QoS.
+The test verifies that the remote side received all three messages.
+""".
 t_remote(Config) when is_list(Config) ->
-    %% This testcase verifies dispatching of shared messages to the remote nodes via backplane API.
-    %%
-    %% In this testcase we start two EMQX nodes: local and remote.
-    %% A subscriber connects to the remote node.
-    %% A publisher connects to the local node and sends three messages with different QoS.
-    %% The test verifies that the remote side received all three messages.
-    ok = ensure_config(sticky, true),
+    [N1, N2] = proplists:get_value(nodes, Config),
+    ok = ?ON(N1, ensure_config(sticky, true)),
     GroupConfig = #{
         <<"local_group">> => local,
         <<"round_robin_group">> => round_robin,
         <<"sticky_group">> => sticky
     },
 
-    %% Use a different base port for each test case to avoid flakiness
-    BasePort = 22999,
-    Node = start_peer('remote_shared_sub_remote_1', BasePort),
-    ok = ensure_group_config(GroupConfig),
-    ok = ensure_group_config(Node, GroupConfig),
+    ok = ?ON(N1, ensure_group_config(GroupConfig)),
+    ok = ?ON(N2, ensure_group_config(GroupConfig)),
 
     Topic = <<"foo/bar">>,
-    ClientIdLocal = ?CLIENTID(1),
-    ClientIdRemote = ?CLIENTID(2),
+    ClientId1 = ?CLIENTID(1),
+    ClientId2 = ?CLIENTID(2),
 
-    {ok, ConnPidLocal} = emqtt:start_link([{clientid, ClientIdLocal}]),
-    {ok, ConnPidRemote} = emqtt:start_link([
-        {clientid, ClientIdRemote}, {port, emqx_cth_cluster:get_tcp_mqtt_port(Node)}
+    {ok, ConnPid1} = emqtt:start_link([
+        {clientid, ClientId1}, {port, emqx_cth_cluster:get_tcp_mqtt_port(N1)}
+    ]),
+    {ok, ConnPid2} = emqtt:start_link([
+        {clientid, ClientId2}, {port, emqx_cth_cluster:get_tcp_mqtt_port(N2)}
     ]),
 
     try
-        {ok, ClientPidLocal} = emqtt:connect(ConnPidLocal),
-        {ok, _ClientPidRemote} = emqtt:connect(ConnPidRemote),
+        {ok, ClientPidLocal} = emqtt:connect(ConnPid1),
+        {ok, _ClientPidRemote} = emqtt:connect(ConnPid2),
 
-        emqtt:subscribe(ConnPidRemote, {<<"$share/remote_group/", Topic/binary>>, 0}),
-        emqx_cth_cluster:sync_routes([node(), Node]),
+        emqtt:subscribe(ConnPid2, {<<"$share/remote_group/", Topic/binary>>, 0}),
+        emqx_cth_cluster:sync_routes([N1, N2]),
 
         Message1 = emqx_message:make(ClientPidLocal, 0, Topic, <<"hello1">>),
         Message2 = emqx_message:make(ClientPidLocal, 1, Topic, <<"hello2">>),
         Message3 = emqx_message:make(ClientPidLocal, 2, Topic, <<"hello3">>),
 
-        emqx:publish(Message1),
-        {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPidRemote]),
+        ?ON(N1, emqx:publish(Message1)),
+        {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid2]),
 
-        emqx:publish(Message2),
-        {true, UsedSubPid1} = last_message(<<"hello2">>, [ConnPidRemote]),
+        ?ON(N1, emqx:publish(Message2)),
+        {true, UsedSubPid1} = last_message(<<"hello2">>, [ConnPid2]),
 
-        emqx:publish(Message3),
-        {true, UsedSubPid1} = last_message(<<"hello3">>, [ConnPidRemote]),
+        ?ON(N2, emqx:publish(Message3)),
+        {true, UsedSubPid1} = last_message(<<"hello3">>, [ConnPid2]),
 
         ok
     after
-        emqtt:stop(ConnPidLocal),
-        emqtt:stop(ConnPidRemote),
-        stop_peer(Node)
+        emqtt:stop(ConnPid1),
+        emqtt:stop(ConnPid2)
     end.
 
 t_010_local_fallback(Config) when is_list(Config) ->
-    ok = ensure_group_config(#{
-        <<"local_group">> => local,
-        <<"round_robin_group">> => round_robin,
-        <<"sticky_group">> => sticky
-    }),
+    [N1, N2] = proplists:get_value(nodes, Config),
+    ok = ?ON(
+        N1,
+        ensure_group_config(#{
+            <<"local_group">> => local,
+            <<"round_robin_group">> => round_robin,
+            <<"sticky_group">> => sticky
+        })
+    ),
 
     Topic = <<"local_foo/bar">>,
     ClientId1 = ?CLIENTID(1),
     ClientId2 = ?CLIENTID(2),
-    %% Use a different base port for each test case to avoid flakiness
-    BasePort = 11888,
-    Node = start_peer('local_fallback_shared_sub_1', BasePort),
-    {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
+    {ok, ConnPid1} = emqtt:start_link([
+        {clientid, ClientId1}, {port, emqx_cth_cluster:get_tcp_mqtt_port(N2)}
+    ]),
     try
         {ok, _} = emqtt:connect(ConnPid1),
         Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
         Message2 = emqx_message:make(ClientId2, 0, Topic, <<"hello2">>),
 
         {ok, _, _} = emqtt:subscribe(ConnPid1, {<<"$share/local_group/", Topic/binary>>, 0}),
-        emqx_cth_cluster:sync_routes([node(), Node]),
+        emqx_cth_cluster:sync_routes([N1, N2]),
 
-        emqx:publish(Message1),
+        ?ON(N1, emqx:publish(Message1)),
         {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
 
-        [{share, Topic, {ok, _}}] = rpc:call(Node, emqx, publish, [Message2]),
+        [{share, Topic, {ok, _}}] = ?ON(N2, emqx:publish(Message2)),
         {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1], 10_000),
         ?assertEqual(UsedSubPid1, UsedSubPid2)
     after
-        stop_peer(Node),
         emqtt:stop(ConnPid1)
     end,
     ok.
 
 t_000_stats(Config) when is_list(Config) ->
+    [N1, N2] = proplists:get_value(nodes, Config),
     %% Create a shared subscriber on a REMOTE node
     GroupConfig = #{
         <<"local_group">> => local,
@@ -745,41 +794,38 @@ t_000_stats(Config) when is_list(Config) ->
         <<"sticky_group">> => sticky
     },
     %% Use a different base port for each test case to avoid flakiness
-    BasePort = 23999,
-    Node = start_peer('local_shared_sub_stats_1', BasePort),
-    ok = ensure_group_config(GroupConfig),
-    ok = ensure_group_config(Node, GroupConfig),
+    ok = ?ON(N1, ensure_group_config(GroupConfig)),
+    ok = ?ON(N2, ensure_group_config(GroupConfig)),
     SharedTopic = format_share(<<"local_group">>, <<"local_foo/bar">>),
     ClientId1 = ?CLIENTID(1),
     {ok, ConnPid1} = emqtt:start_link([
-        {clientid, ClientId1}, {port, emqx_cth_cluster:get_tcp_mqtt_port(Node)}
+        {clientid, ClientId1}, {port, emqx_cth_cluster:get_tcp_mqtt_port(N2)}
     ]),
     {ok, _} = emqtt:connect(ConnPid1),
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
-    emqx_cth_cluster:sync_routes([node(), Node]),
+    emqx_cth_cluster:sync_routes([N1, N2]),
     %% Verify LOCAL stats update
     ?retry(
         1_000,
         10,
         ?assertMatch(
             #{'subscriptions.shared.count' := 1},
-            maps:from_list(emqx_stats:getstats())
+            maps:from_list(?ON(N1, emqx_stats:getstats()))
         )
     ),
     emqtt:unsubscribe(ConnPid1, SharedTopic),
-    emqx_cth_cluster:sync_routes([node(), Node]),
+    emqx_cth_cluster:sync_routes([N1, N2]),
     %% Verify LOCAL stats update again
     ?retry(
         1_000,
         10,
         ?assertMatch(
             #{'subscriptions.shared.count' := 0},
-            maps:from_list(emqx_stats:getstats())
+            maps:from_list(?ON(N1, emqx_stats:getstats()))
         )
     ),
     %% Shutdown
     emqtt:stop(ConnPid1),
-    stop_peer(Node),
     ok.
 
 %% This one tests that broker tries to select another shared subscriber
@@ -1382,68 +1428,3 @@ recv_msgs(Count, Msgs) ->
     after 100 ->
         Msgs
     end.
-
-start_peer(Name, Port) ->
-    {ok, Node} = emqx_cth_peer:start_link(
-        Name,
-        emqx_common_test_helpers:ebin_path(),
-        _Envs = [],
-        _WaitBootTimeout = timer:seconds(20),
-        %% In CI, when stopping and starting nodes, apparently sometimes `gen_rpc' (or the
-        %% VM itself) doesn't have time to properly close listen sockets, so we may get
-        %% `eaddrinuse' errors when (re)starting `gen_rpc'.  Using an integer shutdown here
-        %% makes `init:stop' be called instead of `erlang:halt', so listeners may have the
-        %% chance to properly shutdown before starting the next test case.
-        #{shutdown => 5_000}
-    ),
-    pong = net_adm:ping(Node),
-    setup_node(Node, Port),
-    Node.
-
-stop_peer(Node) ->
-    ok = mria:force_leave(Node),
-    emqx_cth_peer:stop(Node).
-
-host() ->
-    [_, Host] = string:tokens(atom_to_list(node()), "@"),
-    Host.
-
-setup_node(Node, Port) ->
-    EnvHandler =
-        fun(_) ->
-            %% We load configuration, and than set the special enviroment variable
-            %% which says that emqx shouldn't load configuration at startup
-            emqx_config:init_load(emqx_schema),
-            emqx_app:set_config_loader(?MODULE),
-
-            ok = emqx_config:put([listeners, tcp, default, bind], {{127, 0, 0, 1}, Port}),
-            ok = emqx_config:put([listeners, ssl, default, bind], {{127, 0, 0, 1}, Port + 1}),
-            ok = emqx_config:put([listeners, ws, default, bind], {{127, 0, 0, 1}, Port + 3}),
-            ok = emqx_config:put([listeners, wss, default, bind], {{127, 0, 0, 1}, Port + 4}),
-            ok = emqx_config:put([authorization, no_match], allow),
-            ok
-        end,
-
-    MyPort = Port - 1,
-    PeerPort = Port - 2,
-    ok = pair_gen_rpc(node(), MyPort, PeerPort),
-    ok = pair_gen_rpc(Node, PeerPort, MyPort),
-
-    %% warm it up, also assert the peer ndoe name
-    Node = emqx_rpc:call(Node, erlang, node, []),
-    ok = rpc:call(Node, mria, join, [node()]),
-
-    %% Here we start the node and make it join the cluster
-    ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [[], EnvHandler]),
-
-    ok.
-
-pair_gen_rpc(Node, LocalPort, RemotePort) ->
-    _ = rpc:call(Node, application, load, [gen_rpc]),
-    ok = rpc:call(Node, application, set_env, [gen_rpc, port_discovery, manual]),
-    ok = rpc:call(Node, application, set_env, [gen_rpc, tcp_server_port, LocalPort]),
-    ok = rpc:call(Node, application, set_env, [gen_rpc, tcp_client_port, RemotePort]),
-    ok = rpc:call(Node, application, set_env, [gen_rpc, default_client_driver, tcp]),
-    _ = rpc:call(Node, application, stop, [gen_rpc]),
-    {ok, _} = rpc:call(Node, application, ensure_all_started, [gen_rpc]),
-    ok.

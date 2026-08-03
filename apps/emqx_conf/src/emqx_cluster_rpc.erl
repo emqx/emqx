@@ -19,9 +19,8 @@
     find_leader/0,
     skip_failed_commit/1,
     fast_forward_to_commit/2,
-    on_mria_stop/1,
     force_leave_clean/1,
-    wait_for_cluster_rpc/0,
+    wait_for_cluster_rpc_tables/0,
     maybe_init_tnx_id/2,
     update_mfa/3
 ]).
@@ -38,6 +37,7 @@
     read_next_mfa/1,
     trans_query/1,
     trans_status/0,
+    on_kick_decided/3,
     on_leave_clean/1,
     on_leave_clean/0,
     get_commit_lag/0,
@@ -310,19 +310,13 @@ skip_failed_commit(Node) ->
 fast_forward_to_commit(Node, ToTnxId) ->
     gen_server:call({?MODULE, Node}, {fast_forward_to_commit, ToTnxId}).
 
-%% It is necessary to clean this node commit record in the cluster
-on_mria_stop(leave) ->
-    gen_server:call(?MODULE, on_leave);
-on_mria_stop(_) ->
-    ok.
-
 force_leave_clean(Node) ->
     case transaction(fun ?MODULE:on_leave_clean/1, [Node]) of
         {atomic, ok} -> ok;
         {aborted, Reason} -> {error, Reason}
     end.
 
-wait_for_cluster_rpc() ->
+wait_for_cluster_rpc_tables() ->
     %% Workaround for https://github.com/emqx/mria/issues/94:
     Msg1 = #{msg => "wait_for_cluster_rpc_shard"},
     case mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1500) of
@@ -331,10 +325,24 @@ wait_for_cluster_rpc() ->
     end,
     Msg2 = #{msg => "wait_for_cluster_rpc_tables"},
     case mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]) of
-        ok -> ?SLOG(info, Msg2#{result => ok});
-        Error1 -> ?SLOG(error, Msg2#{result => Error1})
-    end,
-    ok.
+        ok ->
+            ?SLOG(info, Msg2#{result => ok}),
+            ok;
+        Error1 ->
+            ?SLOG(error, Msg2#{result => Error1}),
+            Error1
+    end.
+
+on_kick_decided(_Cluster, Target, _Intent) ->
+    %% TODO: do it in on_membership_change instead?
+    case classy:node_of_site(Target, false) of
+        {ok, Node} when Node =:= node() ->
+            on_leave();
+        {ok, Node} ->
+            emqx_cluster_rpc:force_leave_clean(Node);
+        {error, _} ->
+            ok
+    end.
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -342,7 +350,6 @@ wait_for_cluster_rpc() ->
 
 %% @private
 init([Node, RetryMs]) ->
-    register_mria_stop_cb(fun ?MODULE:on_mria_stop/1),
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs, is_leaving => false},
     %% Now continue with the normal catch-up process
@@ -354,9 +361,22 @@ init([Node, RetryMs]) ->
 handle_continue({?CATCH_UP, init}, State) ->
     %% emqx app must be started before
     %% trying to catch up the rpc commit logs
-    ok = wait_for_emqx_ready(),
-    ok = wait_for_cluster_rpc(),
-    {noreply, State, catch_up(State)};
+    Result =
+        maybe
+            ok ?= wait_for_cluster_rpc_tables(),
+            %% Wait for 10 seconds until EMQX applications are started,
+            %% otherwise the committed transaction catch up may fail.
+            emqx_machine:wait_cluster_ready(10_000)
+        end,
+    case Result of
+        ok ->
+            {noreply, State, catch_up(State)};
+        {error, timeout} ->
+            ?SLOG(error, #{msg => "cluster_rpc_wait_timeout"}),
+            {stop, normal, undefined};
+        {error, stopping} ->
+            {stop, normal, undefined}
+    end;
 handle_continue(?CATCH_UP, State) ->
     {noreply, State, catch_up(State)}.
 
@@ -396,6 +416,19 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+%% It is necessary to clean this node commit record in the cluster
+-spec on_leave() -> ok | {error, noproc | timeout}.
+on_leave() ->
+    try
+        gen_server:call(?MODULE, on_leave)
+    catch
+        exit:{timeout, _} ->
+            {error, timeout};
+        exit:{noproc, _} ->
+            {error, noproc}
+    end.
+
 catch_up(State) -> catch_up(State, false).
 
 catch_up(#{node := Node, retry_interval := RetryMs, is_leaving := false} = State, SkipResult) ->
@@ -752,56 +785,3 @@ maybe_init_tnx_id(_Node, TnxId) when TnxId < 0 -> ok;
 maybe_init_tnx_id(Node, TnxId) ->
     {atomic, _} = transaction(fun ?MODULE:commit/2, [Node, TnxId]),
     ok.
-
-%% @private Cannot proceed until emqx app is ready.
-%% Otherwise the committed transaction catch up may fail.
-wait_for_emqx_ready() ->
-    %% wait 10 seconds for emqx to start
-    ok = do_wait_for_emqx_ready(10).
-
-%% Wait for emqx app to be ready,
-%% write a log message every 1 second
-do_wait_for_emqx_ready(0) ->
-    timeout;
-do_wait_for_emqx_ready(N) ->
-    %% check interval is 100ms
-    %% makes the total wait time 1 second
-    case do_wait_for_emqx_ready2(10) of
-        ok ->
-            ok;
-        timeout ->
-            ?SLOG(warning, #{msg => "still_waiting_for_emqx_app_to_be_ready"}),
-            do_wait_for_emqx_ready(N - 1)
-    end.
-
-%% Wait for emqx app to be ready,
-%% check interval is 100ms
-do_wait_for_emqx_ready2(0) ->
-    timeout;
-do_wait_for_emqx_ready2(N) ->
-    case emqx:is_running() of
-        true ->
-            ok;
-        false ->
-            timer:sleep(100),
-            do_wait_for_emqx_ready2(N - 1)
-    end.
-
-register_mria_stop_cb(Callback) ->
-    case mria_config:callback(stop) of
-        undefined ->
-            mria:register_callback(stop, Callback);
-        {ok, Previous} ->
-            mria:register_callback(
-                stop,
-                fun(Arg) ->
-                    Callback(Arg),
-                    case erlang:fun_info(Previous, arity) of
-                        {arity, 0} ->
-                            Previous();
-                        {arity, 1} ->
-                            Previous(Arg)
-                    end
-                end
-            )
-    end.

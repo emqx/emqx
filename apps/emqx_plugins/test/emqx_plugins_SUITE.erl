@@ -1206,7 +1206,16 @@ group_t_copy_plugin_to_a_new_node(Config) ->
             rpc:call(CopyToNode, application, which_applications, [])
         )
     ),
-    ok = rpc:call(CopyToNode, ekka, join, [CopyFromNode]),
+    %% Join nodes and wait for apps restart:
+    ok = rpc:call(CopyToNode, emqx_cluster, join, [CopyFromNode, join]),
+    [] = emqx_cth_cluster:wait_for_conditions(
+        [CopyToNode, CopyFromNode],
+        [
+            emqx_cth_cluster:verify_peers(connected, [CopyToNode, CopyFromNode]),
+            emqx_cth_cluster:verify_business_apps()
+        ],
+        10_000
+    ),
     %% Mimic cluster-override conf copying
     ok = rpc:call(CopyToNode, emqx_plugins, put_config_internal, [[states], CopyFromPluginsState]),
     %% Plugin copying is triggered upon app restart on a new node.
@@ -1347,7 +1356,7 @@ group_t_cluster_leave(Config) ->
     ),
 
     %% Now, one node leaves the cluster.
-    ok = erpc:call(N2, ekka, leave, []),
+    ok = erpc:call(N2, emqx_cluster, leave, [leave]),
 
     %% Each node will no longer ask the plugin status to the other.
     ?assertMatch(
@@ -1460,7 +1469,7 @@ group_t_cluster_force_sync_vsn(Config) ->
         erpc:call(NodeWithNew, emqx_mgmt_api_plugins, list_plugins, [get, Params])
     ),
 
-    ok = erpc:call(NodeWithNew, ekka, join, [NodeWithOld]),
+    ok = erpc:call(NodeWithNew, classy, join_node, [NodeWithOld, join]),
     %% After `NodeWithNew` joined `NodeWithOld`,
     %% The node: `NodeWithNew` should have the same plugin version as `NodeWithOld`
     %% but the new version plugin directory should still exist
@@ -1602,7 +1611,9 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
             %% order, and also we need to override the config loader to emulate what
             %% `emqx_cth_cluster' does and avoid the node crashing due to lack of config
             %% keys.
-            ok = ?ON(N2, emqx_machine_boot:start_autocluster()),
+
+            %% FIXME: how to replace it?
+            %%ok = ?ON(N2, emqx_machine_boot:start_autocluster()),
             ?ON(N2, begin
                 StartCallback0 =
                     case ekka:env({callback, start}) of
@@ -1617,7 +1628,7 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
             end),
             {ok, {ok, _}} =
                 ?wait_async_action(
-                    ?ON(N2, emqx_cluster:join(N1)),
+                    ?ON(N2, emqx_cluster:join(N1, join)),
                     #{?snk_kind := "emqx_plugins_app_started"}
                 ),
             ct:pal("checking N1 state after join"),

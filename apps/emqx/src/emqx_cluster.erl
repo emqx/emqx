@@ -5,13 +5,16 @@
 -module(emqx_cluster).
 
 -export([
-    join/1,
-    leave/0,
-    force_leave/1,
+    name/0,
+    join/2,
+    leave/1,
+    force_leave/2,
     ensure_normal_mode/0,
     ensure_singleton_mode/0,
     is_single_node_mode/0,
-    set_booting/1
+
+    running_core_nodelist/0,
+    pre_join/4
 ]).
 
 %% RPC callback functions
@@ -29,53 +32,39 @@
 -define(DEFAULT_MODE, ?CLUSTER_MODE_SINGLE).
 -endif.
 
-join(PeerNode) ->
-    case is_booting() andalso mria_rlog:role() =:= core of
-        true ->
-            {error,
-                "This node has not fully booted yet. "
-                "Please retry after it is started."};
-        false ->
-            do_join(PeerNode)
-    end.
+-doc """
+Return cluster name set by the user in the configuration.
 
-do_join(PeerNode) ->
-    %% Local node starts with default license (singleton mode),
-    %% But the peer node(s) may have a license which allows local node to join.
-    %% So we do not check the license locally.
-    case check_permission(PeerNode) of
-        ok ->
-            ekka:join(PeerNode);
-        {error, Message} ->
-            {error, Message}
-    end.
+Not to be confused with the cluster ID which is set automatically by classy.
+""".
+-spec name() -> atom().
+name() ->
+    application:get_env(emqx, emqx_cluster_name, undefined).
+
+-spec join(node(), join) -> ok | ignore | {error, _}.
+join(Node, _) when Node =:= node() ->
+    ignore;
+join(Node, Intent) ->
+    classy:join_node(Node, Intent).
 
 -doc """
-Mark boot as in progress (`true`) or complete (`false`).
-
-Called by `emqx_machine`: set at boot entry and cleared once the boot app list
-has been started and the ekka join callbacks are registered. While the flag is
-set, `join/1` on a core node refuses to run: joining makes mria restart, and
-doing that under a boot in progress crashes whichever mria-backed application
-is starting at that moment, taking the node down.
-
-Environments that boot without `emqx_machine` (e.g. common tests) never set
-the flag, so `join/1` is not restricted there.
+Special intent `force_kick` bypasses some checks.
 """.
--spec set_booting(boolean()) -> ok.
-set_booting(Bool) when is_boolean(Bool) ->
-    %% persistent: the value must survive a later `application:load(emqx)'
-    %% because it can be set before the `emqx' application is loaded
-    application:set_env(emqx, boot_in_progress, Bool, [{persistent, true}]).
+-spec leave(leave | force_kick) -> ok | {error, _}.
+leave(Intent) ->
+    classy:kick_node(node(), Intent).
 
-is_booting() ->
-    application:get_env(emqx, boot_in_progress, false).
+pre_join(_Cluster, _Remote, PeerNode, _Intent) ->
+    check_permission(PeerNode).
 
-leave() ->
-    ekka:leave().
-
-force_leave(Node) ->
-    ekka:force_leave(Node).
+-doc """
+Special intent `force_kick` bypasses some checks.
+""".
+-spec force_leave(node(), by_remote | force_kick) -> ok | ignore | {error, _}.
+force_leave(Node, _) when Node =:= node() ->
+    ignore;
+force_leave(Node, Intent) ->
+    classy:kick_node(Node, Intent).
 
 check_permission(PeerNode) ->
     %% This call happens before clustered, so it's not possible to
@@ -115,6 +104,9 @@ is_single_node_mode() ->
 %% Called by license checker for community license.
 ensure_singleton_mode() ->
     ensure_mode(?DEFAULT_MODE).
+
+running_core_nodelist() ->
+    ordsets:intersection([classy:nodes(core), classy:nodes(connected)]).
 
 %% @doc Allow clustering.
 ensure_normal_mode() ->

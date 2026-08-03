@@ -625,6 +625,7 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #st{db = DB, shard = Shard}) ->
     %% NOTE: Mark as not ready right away.
+    emqx_ds_leaderboard:unregister_replica(DB, Shard, self()),
     ok = emqx_ds_builtin_raft:set_replica_ready(DB, Shard, false),
     %% NOTE: Timeouts are ignored, it's a best effort attempt.
     catch prep_stop_server(DB, Shard),
@@ -658,6 +659,7 @@ bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, se
     case maps:get(last_applied, Overview, 0) of
         LastApplied when LastApplied >= RaftIdx ->
             ok = emqx_ds_builtin_raft:set_replica_ready(DB, Shard, true),
+            emqx_ds_leaderboard:register_replica(DB, Shard, self()),
             St#st{bootstrapped = true, stage = undefined};
         LastApplied ->
             %% NOTE

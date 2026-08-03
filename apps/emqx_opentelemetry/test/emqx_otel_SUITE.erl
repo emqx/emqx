@@ -2404,7 +2404,6 @@ apps_spec() ->
 apps_spec(without_dashboard) ->
     [
         emqx,
-        emqx_conf,
         emqx_management,
         emqx_opentelemetry
     ];
@@ -2414,7 +2413,6 @@ apps_spec(with_dashboard) ->
 apps_spec_with_rule_engine() ->
     [
         emqx,
-        emqx_conf,
         emqx_management,
         emqx_opentelemetry,
         emqx_rule_engine,

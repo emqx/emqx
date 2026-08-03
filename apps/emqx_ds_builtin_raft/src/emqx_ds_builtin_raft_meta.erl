@@ -175,10 +175,6 @@
 -type subscription_event() ::
     {changed, {shard, emqx_ds:db(), emqx_ds:shard()}}.
 
-%% Peristent term key:
--define(emqx_ds_builtin_site, emqx_ds_builtin_site).
--define(emqx_ds_builtin_cluster_id, emqx_ds_builtin_cluster_id).
-
 %% Make Dialyzer happy
 -define(NODE_PAT(NODE),
     %% Equivalent of `#?NODE_TAB{node = NODE, _ = '_'}`:
@@ -201,11 +197,13 @@
 
 -spec this_site() -> site().
 this_site() ->
-    persistent_term:get(?emqx_ds_builtin_site).
+    {ok, Site} = classy:the_site(),
+    Site.
 
 -spec this_cluster() -> cluster().
 this_cluster() ->
-    persistent_term:get(?emqx_ds_builtin_cluster_id).
+    {ok, Cluster} = classy:the_cluster(),
+    Cluster.
 
 -spec n_shards(emqx_ds:db()) -> pos_integer().
 n_shards(DB) ->
@@ -285,7 +283,7 @@ sites() ->
 %% * `lost`: sites that are no longer considered part of the cluster.
 -spec sites(all | cluster | lost) -> [site()].
 sites(all) ->
-    [S || #?NODE_TAB{site = S} <- all_nodes()];
+    classy:sites(all);
 sites(cluster) ->
     [S || #?NODE_TAB{site = S, node = N} <- all_nodes(), node_status(N) =/= lost];
 sites(lost) ->
@@ -615,7 +613,6 @@ handle_info(_Info, S) ->
     {noreply, S}.
 
 terminate(_Reason, #s{}) ->
-    persistent_term:erase(?emqx_ds_builtin_site),
     ok.
 
 %%================================================================================
@@ -955,15 +952,18 @@ ensure_site() ->
     Site = emqx_dsch:this_site(),
     case transaction(fun ?MODULE:claim_site_trans/2, [Site, node()]) of
         ok ->
-            persistent_term:put(?emqx_ds_builtin_site, Site);
+            ok;
         {error, Reason} ->
-            logger:error("Attempt to claim site with ID=~s failed: ~p", [Site, Reason])
+            logger:critical("Attempt to claim site with ID=~s failed: ~p", [Site, Reason])
     end.
 
+%% Write cluster ID to the old mria table for backward compatibility:
 ensure_cluster() ->
-    ProvisionalClusterID = binary:encode_hex(crypto:strong_rand_bytes(4)),
-    {ok, ClusterID} = transaction(fun ?MODULE:ensure_cluster_trans/1, [ProvisionalClusterID]),
-    persistent_term:put(?emqx_ds_builtin_cluster_id, ClusterID).
+    maybe
+        {ok, ClusterID} ?= classy:the_cluster(),
+        {ok, _} ?= transaction(fun ?MODULE:ensure_cluster_trans/1, [ClusterID]),
+        ok
+    end.
 
 forget_node(Node) when is_atom(Node) ->
     Sites = node_sites(Node),

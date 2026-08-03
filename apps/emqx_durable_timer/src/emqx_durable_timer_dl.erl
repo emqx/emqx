@@ -347,13 +347,18 @@ insert_started_async(Type, Epoch, Key, Val, NotEarlierThan) when
 
 -spec insert_epoch_marker(emqx_ds:shard(), emqx_durable_timer:epoch()) -> ok.
 insert_epoch_marker(Shard, Epoch) ->
-    {atomic, _, _} = emqx_ds:trans(
+    Result = emqx_ds:trans(
         epoch_tx_opts(Shard, #{}),
         fun() ->
             emqx_ds:tx_write({[?top_epoch, Epoch], ?ds_tx_ts_monotonic, <<>>})
         end
     ),
-    ok.
+    case Result of
+        {atomic, _, _} ->
+            ok;
+        {error, Class, Info} ->
+            error({Shard, Class, Info})
+    end.
 
 -spec clean_replayed_async(emqx_ds:shard(), emqx_ds:topic_filter(), emqx_ds:time()) -> reference().
 clean_replayed_async(Shard, Topic, Time) ->
