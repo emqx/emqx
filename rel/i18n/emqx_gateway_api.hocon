@@ -99,11 +99,6 @@ example_lwm2m_gateway_config.desc:
 example_lwm2m_gateway_config.label:
 """Example LwM2M Gateway Configuration"""
 
-example_exproto_gateway_config.desc:
-"""An example ExProto gateway configuration payload for creating a gateway."""
-example_exproto_gateway_config.label:
-"""Example ExProto Gateway Configuration"""
-
 example_gbt32960_gateway_config.desc:
 """An example GBT32960 gateway configuration payload for creating a gateway."""
 example_gbt32960_gateway_config.label:
@@ -133,11 +128,6 @@ example_update_lwm2m_gateway_config.desc:
 """An example LwM2M gateway configuration payload for updating a gateway."""
 example_update_lwm2m_gateway_config.label:
 """Example LwM2M Gateway Update Configuration"""
-
-example_update_exproto_gateway_config.desc:
-"""An example ExProto gateway configuration payload for updating a gateway."""
-example_update_exproto_gateway_config.label:
-"""Example ExProto Gateway Update Configuration"""
 
 example_update_jt808_gateway_config.desc:
 """An example JT808 gateway configuration payload for updating a gateway."""

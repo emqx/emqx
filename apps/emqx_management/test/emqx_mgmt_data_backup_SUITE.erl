@@ -1582,7 +1582,6 @@ apps_to_start() ->
         % loaded only
         emqx_gateway_lwm2m,
         emqx_gateway_coap,
-        emqx_gateway_exproto,
         emqx_gateway_stomp,
         emqx_gateway_mqttsn
     ].

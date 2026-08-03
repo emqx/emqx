@@ -52,22 +52,34 @@ roots() ->
     [{gateway, sc(ref(?MODULE, gateway), #{importance => ?IMPORTANCE_LOW})}].
 
 fields(gateway) ->
-    lists:map(
-        fun(#{name := Name, config_schema_module := Mod} = GatewayDef) ->
-            {Name,
-                sc(
-                    ref(Mod, Name),
-                    #{
-                        required => {false, recursively},
-                        desc => ?DESC(Name),
-                        importance => maps:get(
-                            config_schema_importance, GatewayDef, ?IMPORTANCE_LOW
-                        )
-                    }
-                )}
-        end,
-        emqx_gateway_utils:find_gateway_definitions()
-    );
+    %% Tolerate `exproto` in configs and backups from older versions;
+    %% the value is dropped at config check.
+    [
+        {exproto,
+            sc(
+                map(),
+                #{
+                    importance => ?IMPORTANCE_HIDDEN,
+                    deprecated => {since, "6.3.0"}
+                }
+            )}
+        | lists:map(
+            fun(#{name := Name, config_schema_module := Mod} = GatewayDef) ->
+                {Name,
+                    sc(
+                        ref(Mod, Name),
+                        #{
+                            required => {false, recursively},
+                            desc => ?DESC(Name),
+                            importance => maps:get(
+                                config_schema_importance, GatewayDef, ?IMPORTANCE_LOW
+                            )
+                        }
+                    )}
+            end,
+            emqx_gateway_utils:find_gateway_definitions()
+        )
+    ];
 fields(clientinfo_override) ->
     [
         {username, sc(binary(), #{desc => ?DESC(gateway_common_clientinfo_override_username)})},

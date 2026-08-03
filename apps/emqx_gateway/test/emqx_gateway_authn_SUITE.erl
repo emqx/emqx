@@ -234,40 +234,6 @@ t_case_stomp(_) ->
     ),
     ok.
 
-t_case_exproto(_) ->
-    Mod = emqx_exproto_SUITE,
-    SvrMod = emqx_exproto_echo_svr,
-    Svrs = SvrMod:start(http),
-    Login = fun(Username, Password, Expect) ->
-        with_resource(
-            ?FUNCTOR(Mod:open(tcp)),
-            ?FUNCTOR(Sock, Mod:close(Sock)),
-            fun(Sock) ->
-                Client = #{
-                    proto_name => <<"exproto">>,
-                    proto_ver => <<"v0.1">>,
-                    clientid => <<"test_client_1">>,
-                    username => Username
-                },
-
-                ConnBin = SvrMod:frame_connect(Client, Password),
-
-                Mod:send(Sock, ConnBin),
-                {ok, Recv} = Mod:recv(Sock, 15_000),
-                C = ?FUNCTOR(Bin, emqx_utils_json:decode(Bin)),
-                ?assertEqual(C(Expect), C(Recv))
-            end
-        )
-    end,
-    Login(<<"admin">>, <<"public">>, SvrMod:frame_connack(0)),
-    Login(<<"bad">>, <<"bad-password-1">>, SvrMod:frame_connack(1)),
-
-    disable_authn(exproto, tcp, default),
-    Login(<<"bad">>, <<"bad-password-2">>, SvrMod:frame_connack(0)),
-
-    SvrMod:stop(Svrs),
-    ok.
-
 disable_authn(GwName, Type, Name) ->
     RawCfg = emqx_conf:get_raw([gateway, GwName], #{}),
     ListenerCfg = emqx_utils_maps:deep_get(
