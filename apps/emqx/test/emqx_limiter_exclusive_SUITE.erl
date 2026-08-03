@@ -179,3 +179,27 @@ t_change_options(_) ->
     {true, Client3} = emqx_limiter_client:try_consume(Client2, 1),
     {true, Client4} = emqx_limiter_client:try_consume(Client3, 1),
     {false, _Client5, _} = emqx_limiter_client:try_consume(Client4, 1).
+
+t_not_found_mode(_) ->
+    LimiterId = {group1, limiter1},
+    ok = emqx_limiter:create_group(exclusive, group1, [
+        {limiter1, #{capacity => infinity}}
+    ]),
+    DefaultClient = emqx_limiter:connect(LimiterId),
+    OpenClient = emqx_limiter:connect(LimiterId, #{not_found_mode => open}),
+    CloseClient = emqx_limiter:connect(LimiterId, #{not_found_mode => close}),
+
+    ok = emqx_limiter:delete_group(group1),
+    ?assertMatch({true, _}, emqx_limiter_client:try_consume(DefaultClient, 1)),
+    ?assertMatch({true, _}, emqx_limiter_client:try_consume(OpenClient, 1)),
+    ?assertMatch(
+        {false, _, {limiter_not_found, LimiterId}},
+        emqx_limiter_client:try_consume(CloseClient, 1)
+    ),
+
+    UnexpectedErrorClient0 = emqx_limiter_client:new(?MODULE, unexpected_error),
+    UnexpectedErrorClient = UnexpectedErrorClient0#{not_found_mode => close},
+    ?assertMatch({true, _}, emqx_limiter_client:try_consume(UnexpectedErrorClient, 1)).
+
+try_consume(unexpected_error, _Amount) ->
+    error(unexpected_error).
