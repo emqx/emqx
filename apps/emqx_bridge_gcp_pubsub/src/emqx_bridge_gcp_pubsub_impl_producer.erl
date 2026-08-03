@@ -463,8 +463,10 @@ to_pubsub_request(Payloads) ->
     emqx_utils_json:encode(#{messages => Payloads}).
 
 -spec publish_path(connector_state(), action_state()) -> binary().
-publish_path(#{project_id := ProjectId}, #{pubsub_topic := PubSubTopic}) ->
-    <<"/v1/projects/", ProjectId/binary, "/topics/", PubSubTopic/binary, ":publish">>.
+publish_path(#{project_id := SAProjectId}, #{pubsub_topic := PubSubTopic}) ->
+    {ProjectId, TopicName} =
+        emqx_bridge_gcp_pubsub_client:resolve_topic(PubSubTopic, SAProjectId),
+    <<"/v1/projects/", ProjectId/binary, "/topics/", TopicName/binary, ":publish">>.
 
 handle_result({error, Reason}, _Request, QueryMode, ConnResId) when
     Reason =:= econnrefused;

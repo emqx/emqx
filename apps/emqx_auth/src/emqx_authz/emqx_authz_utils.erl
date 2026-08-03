@@ -58,7 +58,11 @@ create_resource(
                 ResourceConfig,
                 ?DEFAULT_RESOURCE_OPTS(Type)
             ),
-        ok = start_resource_if_enabled(State)
+        ok =
+            remove_resource_on_exception(
+                ResourceId,
+                fun() -> start_resource_if_enabled(State) end
+            )
     else
         {error, Reason} ->
             error({create_resource_error, Reason})
@@ -96,19 +100,42 @@ start_resource_if_enabled(#{resource_id := ResourceId, enable := true, type := T
     case emqx_resource:start(ResourceId) of
         ok ->
             ok;
+        timeout ->
+            handle_start_resource_error(ResourceId, timeout, Type);
         %% NOTE
         %% we allow creation of resources that cannot be started
         {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_start_authz_resource",
-                resource_id => ResourceId,
-                reason => Reason,
-                type => Type
-            }),
-            ok
+            handle_start_resource_error(ResourceId, Reason, Type)
     end;
 start_resource_if_enabled(#{resource_id := _ResourceId, enable := false}) ->
     ok.
+
+handle_start_resource_error(ResourceId, Reason, Type) ->
+    %% NOTE
+    %% we allow creation of resources that cannot be started
+    ?SLOG(warning, #{
+        msg => "failed_to_start_authz_resource",
+        resource_id => ResourceId,
+        reason => Reason,
+        type => Type
+    }),
+    ok.
+
+remove_resource_on_exception(ResourceId, Operation) ->
+    try
+        Operation()
+    catch
+        Class:Reason:Stacktrace ->
+            _ = cleanup_created_resource(ResourceId),
+            erlang:raise(Class, Reason, Stacktrace)
+    end.
+
+cleanup_created_resource(ResourceId) ->
+    try
+        emqx_resource:remove_local(ResourceId)
+    catch
+        _:_ -> ok
+    end.
 
 -spec cleanup_resources() -> ok.
 cleanup_resources() ->

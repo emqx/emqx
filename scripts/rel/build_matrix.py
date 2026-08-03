@@ -48,7 +48,7 @@ LINUX_ARCH = ["amd64", "arm64"]
 LINUX_EXCLUDE = [{"os": "el7", "arch": "arm64"}]
 
 # macOS: runner labels (workflow matrix). Both hosted runners are arm64 today.
-MAC_OS = ["macos-14", "macos-15"]
+MAC_OS = ["macos-14", "macos-15", "macos-26"]
 MAC_ARCH = "arm64"
 
 

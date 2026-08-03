@@ -683,14 +683,7 @@ kafka_connector_config_fields() ->
             })},
         {authentication,
             mk(
-                hoconsc:union([
-                    none,
-                    msk_iam,
-                    ref(auth_msk_iam_roles_anywhere),
-                    ref(auth_oauth_client_credentials),
-                    ref(auth_username_password),
-                    ref(auth_gssapi_kerberos)
-                ]),
+                hoconsc:union(fun auth_union_member_selector/1),
                 #{
                     default => none, desc => ?DESC("authentication")
                 }
@@ -708,6 +701,72 @@ kafka_connector_config_fields() ->
                 desc => ?DESC(allow_auto_topic_creation)
             })}
     ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts).
+
+auth_union_member_selector(all_union_members) ->
+    auth_union_members();
+auth_union_member_selector({value, Value}) when is_atom(Value) ->
+    auth_union_member_selector({value, atom_to_binary(Value)});
+auth_union_member_selector({value, <<"none">>}) ->
+    [none];
+auth_union_member_selector({value, <<"msk_iam">>}) ->
+    [msk_iam];
+auth_union_member_selector({value, Value}) when is_map(Value) ->
+    case Value of
+        #{<<"type">> := Type} when
+            Type =:= <<"msk_iam_roles_anywhere">>; Type =:= msk_iam_roles_anywhere
+        ->
+            [ref(auth_msk_iam_roles_anywhere)];
+        #{<<"mechanism">> := Mechanism} ->
+            auth_mechanism_union_member(Mechanism);
+        #{<<"kerberos_principal">> := _} ->
+            [ref(auth_gssapi_kerberos)];
+        #{<<"kerberos_keytab_file">> := _} ->
+            [ref(auth_gssapi_kerberos)];
+        _ ->
+            throw_invalid_authentication(Value)
+    end;
+auth_union_member_selector({value, Value}) ->
+    throw_invalid_authentication(Value).
+
+auth_mechanism_union_member(Mechanism) when is_atom(Mechanism) ->
+    auth_mechanism_union_member(atom_to_binary(Mechanism));
+auth_mechanism_union_member(<<"oauth">>) ->
+    [ref(auth_oauth_client_credentials)];
+auth_mechanism_union_member(Mechanism) when
+    Mechanism =:= <<"plain">>;
+    Mechanism =:= <<"scram_sha_256">>;
+    Mechanism =:= <<"scram_sha_512">>
+->
+    [ref(auth_username_password)];
+auth_mechanism_union_member(Mechanism) ->
+    throw(#{
+        field_name => mechanism,
+        expected => "oauth | plain | scram_sha_256 | scram_sha_512",
+        got => Mechanism
+    }).
+
+-spec throw_invalid_authentication(term()) -> no_return().
+throw_invalid_authentication(Value) ->
+    Error = #{
+        field_name => authentication,
+        expected =>
+            "none | msk_iam | msk_iam_roles_anywhere | oauth | plain | "
+            "scram_sha_256 | scram_sha_512 | kerberos"
+    },
+    case is_map(Value) of
+        true -> throw(Error);
+        false -> throw(Error#{got => Value})
+    end.
+
+auth_union_members() ->
+    [
+        none,
+        msk_iam,
+        ref(auth_msk_iam_roles_anywhere),
+        ref(auth_oauth_client_credentials),
+        ref(auth_username_password),
+        ref(auth_gssapi_kerberos)
+    ].
 
 producer_opts(ActionOrBridgeV1) ->
     [

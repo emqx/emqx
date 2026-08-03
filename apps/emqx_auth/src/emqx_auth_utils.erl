@@ -6,7 +6,8 @@
 
 -export([
     cached_simple_sync_query/4,
-    cached_apply/3
+    cached_apply/3,
+    sanitize_oauth2_ssl/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -43,9 +44,29 @@ cached_apply(CacheName, CacheKey, Fun) ->
         end
     end).
 
+-spec sanitize_oauth2_ssl(map()) -> map().
+sanitize_oauth2_ssl(#{<<"ssl">> := SSL} = OAuth2) ->
+    %% Empty certificate fields are optional when peer verification is disabled.
+    OAuth2#{<<"ssl">> := drop_blank_certs_for_verify_none(SSL)};
+sanitize_oauth2_ssl(OAuth2) ->
+    OAuth2.
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+drop_blank_certs_for_verify_none(#{<<"verify">> := Verify} = SSL) when
+    Verify =:= verify_none; Verify =:= <<"verify_none">>
+->
+    maps:filter(
+        fun(Key, Value) ->
+            not (lists:member(Key, [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>]) andalso
+                (Value =:= <<>> orelse Value =:= ""))
+        end,
+        SSL
+    );
+drop_blank_certs_for_verify_none(SSL) ->
+    SSL.
 
 eval_query(Query) when is_function(Query, 0) ->
     Query();

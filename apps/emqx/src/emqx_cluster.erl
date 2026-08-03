@@ -30,7 +30,7 @@
 -endif.
 
 join(PeerNode) ->
-    case is_booting() of
+    case is_booting() andalso mria_rlog:role() =:= core of
         true ->
             {error,
                 "This node has not fully booted yet. "
@@ -55,9 +55,9 @@ Mark boot as in progress (`true`) or complete (`false`).
 
 Called by `emqx_machine`: set at boot entry and cleared once the boot app list
 has been started and the ekka join callbacks are registered. While the flag is
-set, `join/1` refuses to run: joining makes mria restart, and doing that under
-a boot in progress crashes whichever mria-backed application is starting at
-that moment, taking the node down.
+set, `join/1` on a core node refuses to run: joining makes mria restart, and
+doing that under a boot in progress crashes whichever mria-backed application
+is starting at that moment, taking the node down.
 
 Environments that boot without `emqx_machine` (e.g. common tests) never set
 the flag, so `join/1` is not restricted there.
