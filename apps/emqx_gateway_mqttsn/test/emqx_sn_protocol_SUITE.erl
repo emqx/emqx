@@ -960,7 +960,18 @@ t_publish_qos0_case3(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
-t_publish_qos0_case04(_) ->
+t_pub_sub_allowed_by_ipaddr_rule(_) ->
+    OldAuthz = emqx:get_raw_config([authorization]),
+    ok = emqx_gateway_test_utils:update_authz_file_rule(
+        <<"{allow, {ipaddr, \"127.0.0.1\"}, all, [\"$SYS/#\", \"#\"]}.">>
+    ),
+    try
+        publish_qos0_short_topic_to_wildcard_sub()
+    after
+        {ok, _} = emqx:update_config([authorization], OldAuthz)
+    end.
+
+publish_qos0_short_topic_to_wildcard_sub() ->
     Dup = 0,
     QoS = 0,
     Retain = 0,
