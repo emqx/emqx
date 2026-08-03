@@ -53,6 +53,12 @@
 
 -define(available_clientid_info, available_clientid_info).
 
+-define(SCHEME_SSL_MISMATCH_MSG, <<
+    "Inconsistent server address and SSL settings: "
+    "the server address uses the mqtts:// (TLS) scheme, but SSL is disabled. "
+    "Enable SSL, or use the mqtt:// scheme for a plain TCP connection."
+>>).
+
 %% Allocatable resources
 -define(topic_to_handler_index, topic_to_handler_index).
 -define(subscription_id_to_handler_index, subscription_id_to_handler_index).
@@ -97,7 +103,41 @@ resource_type() -> mqtt.
 callback_mode() -> async_if_possible.
 
 -spec on_start(connector_resource_id(), map()) -> {ok, connector_state()} | {error, term()}.
-on_start(ConnResId, #{server := Server} = Conf) ->
+on_start(ConnResId, Conf) ->
+    case check_server_scheme_ssl_consistency(Conf) of
+        ok ->
+            do_on_start(ConnResId, Conf);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+%% An explicit `mqtts://' scheme with SSL disabled would otherwise surface only at
+%% connect time: the plain-TCP client sends CONNECT to a TLS port and then fails to
+%% parse the TLS alert bytes it gets back as an MQTT frame.
+check_server_scheme_ssl_consistency(#{server := Server, ssl := #{enable := EnableSsl}}) ->
+    case emqx_bridge_mqtt_connector_schema:explicit_server_scheme(Server) of
+        "mqtts" when not EnableSsl ->
+            {error, ?SCHEME_SSL_MISMATCH_MSG};
+        "mqtt" when EnableSsl ->
+            %% Contradictory but harmless: `ssl.enable' wins and TLS is used.
+            %% Existing configs may rely on this, so only warn.
+            ?SLOG(warning, #{
+                msg => "mqtt_connector_scheme_ssl_mismatch",
+                server => Server,
+                explain =>
+                    <<
+                        "The server address uses the mqtt:// (plain TCP) scheme, "
+                        "but SSL is enabled for this connector; connecting with TLS."
+                    >>
+            }),
+            ok;
+        _ ->
+            ok
+    end;
+check_server_scheme_ssl_consistency(_Conf) ->
+    ok.
+
+do_on_start(ConnResId, #{server := Server} = Conf) ->
     ?tp(info, "starting_mqtt_connector", #{
         connector => ConnResId,
         config => emqx_utils:redact(Conf)
@@ -455,6 +495,10 @@ classify_error(ecpool_empty) ->
     {recoverable_error, disconnected};
 classify_error({disconnected, _RC, _} = Reason) ->
     {recoverable_error, Reason};
+classify_error({shutdown, {frame_parse_error, _}}) ->
+    {unrecoverable_error, non_mqtt_data_explanation()};
+classify_error({frame_parse_error, _}) ->
+    {unrecoverable_error, non_mqtt_data_explanation()};
 classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error(shutdown = Reason) ->
@@ -819,6 +863,24 @@ log_connect_error_reason(Level, econnrefused = Reason, Name) ->
         name => Name,
         explain => explain_error(Reason)
     });
+log_connect_error_reason(Level, {shutdown, {frame_parse_error, _} = Reason}, Name) ->
+    log_connect_error_reason(Level, Reason, Name);
+log_connect_error_reason(Level, {frame_parse_error, _} = Reason, Name) ->
+    ?tp(emqx_bridge_mqtt_connector_non_mqtt_data, #{}),
+    ?SLOG(Level, #{
+        msg => "ingress_client_connect_failed",
+        reason => Reason,
+        name => Name,
+        explain => explain_error(Reason)
+    });
+log_connect_error_reason(Level, tcp_closed = Reason, Name) ->
+    ?tp(emqx_bridge_mqtt_connector_tcp_closed, #{}),
+    ?SLOG(Level, #{
+        msg => "ingress_client_connect_failed",
+        reason => Reason,
+        name => Name,
+        explain => explain_error(Reason)
+    });
 log_connect_error_reason(Level, Reason, Name) ->
     ?SLOG(Level, #{
         msg => "ingress_client_connect_failed",
@@ -836,12 +898,28 @@ explain_error(econnrefused) ->
         "running at all or you might have provided the wrong address "
         "or port number for the server."
     >>;
+explain_error(tcp_closed) ->
+    listener_max_limit_explanation();
 explain_error({tcp_closed, _}) ->
     listener_max_limit_explanation();
 explain_error(closed) ->
     listener_max_limit_explanation();
+explain_error({shutdown, {frame_parse_error, _}}) ->
+    non_mqtt_data_explanation();
+explain_error({frame_parse_error, _}) ->
+    non_mqtt_data_explanation();
 explain_error(_Reason) ->
     undefined.
+
+non_mqtt_data_explanation() ->
+    <<
+        "Received unexpected data from the remote broker: "
+        "it does not look like MQTT protocol data. "
+        "The server may be expecting a TLS connection "
+        "(e.g. an mqtts:// port while SSL is disabled for this connector), "
+        "or the port may not serve MQTT at all. "
+        "Please check the server address and the SSL settings."
+    >>.
 
 listener_max_limit_explanation() ->
     <<
