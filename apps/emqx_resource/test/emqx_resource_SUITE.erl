@@ -5265,14 +5265,13 @@ t_independent_channel_health_check_interval(_Config) ->
                 ?assertMatch(
                     {ok, #rt{
                         st_err = #{status := ?status_connected},
-                        channel_status = ?status_connected,
-                        conn_res_id = ConnResId
+                        channel_status = ?status_connected
                     }},
                     emqx_resource_cache:get_runtime(ChanId)
                 )
             ),
             ?assertMatch(
-                {ok, #rt{channel_status = ?NO_CHANNEL, conn_res_id = ConnResId}},
+                {ok, #rt{channel_status = ?NO_CHANNEL}},
                 emqx_resource_cache:get_runtime(ConnResId)
             ),
             %% Upon entering `?status_connected` for the first time, the connector/resource

@@ -1362,7 +1362,7 @@ handle_async_worker_down(Data0, Pid) ->
     end.
 
 -spec call_query(force_sync | async_if_possible, _, _, _, _, _, _) -> _.
-call_query(QM, Id, ChanKey, Index, Ref, Query, QueryOpts) ->
+call_query(QM, Id, {ConnResId, _} = ChanKey, Index, Ref, Query, QueryOpts) ->
     ?tp(call_query_enter, #{id => Id, query => Query, query_mode => QM}),
     case emqx_resource_cache:get_runtime(ChanKey) of
         %% This seems to be the only place where the `rm_status_stopped' state matters,
@@ -1377,8 +1377,7 @@ call_query(QM, Id, ChanKey, Index, Ref, Query, QueryOpts) ->
             st_err = #{status := Status},
             cb = Resource,
             query_mode = QueryMode,
-            channel_status = ChanSt,
-            conn_res_id = ConnResId
+            channel_status = ChanSt
         }} ->
             IsAlwaysSend = is_always_send(QueryMode),
             case Status =:= ?status_connected orelse IsAlwaysSend of
