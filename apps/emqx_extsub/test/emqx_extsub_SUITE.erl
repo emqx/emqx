@@ -17,6 +17,9 @@
 
 -define(BUFFER_SIZE, 100).
 
+suite() ->
+    [{timetrap, {seconds, 300}}].
+
 all() ->
     [
         {group, durable_sessions},
