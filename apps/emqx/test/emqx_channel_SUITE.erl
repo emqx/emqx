@@ -618,6 +618,8 @@ t_process_publish_qos1(_) ->
     {ok, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS), _Channel} =
         emqx_channel:process_publish(Publish, channel()).
 
+%% Verify that ingress hook can effectively change a message that
+%% is passed to authorization and then published
 t_process_publish_message_ingress(_) ->
     TestPid = self(),
     ok = emqx_hooks:put(

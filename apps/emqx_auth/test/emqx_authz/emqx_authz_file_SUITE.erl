@@ -23,23 +23,29 @@
 }).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, hardened}, {group, legacy}].
 
 groups() ->
-    [].
+    All = emqx_common_test_helpers:all(?MODULE),
+    [{hardened, All}, {legacy, All}].
+
+init_per_group(Group, Config) ->
+    emqx_common_test_helpers:set_security_profile(atom_to_list(Group)),
+    [{security_profile, Group} | Config].
+
+end_per_group(_Group, _Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(TestCase, Config) ->
-    case lists:member(TestCase, authz_context_testcases()) of
-        true -> emqx_common_test_helpers:set_security_profile("hardened");
-        false -> ok
-    end,
+    WorkDirScope =
+        atom_to_list(?config(security_profile, Config)) ++ "__" ++ atom_to_list(TestCase),
     Apps = emqx_cth_suite:start(
         [
             emqx,
             {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
             emqx_auth
         ],
-        #{work_dir => filename:join(?config(priv_dir, Config), TestCase)}
+        #{work_dir => filename:join(?config(priv_dir, Config), WorkDirScope)}
     ),
     [{tc_apps, Apps} | Config].
 
@@ -465,19 +471,6 @@ setup_config(SpecialParams) ->
         ?RAW_SOURCE,
         SpecialParams
     ).
-
-authz_context_testcases() ->
-    [
-        t_ok,
-        t_client_attrs,
-        t_zone_as_who_condition,
-        t_zone_as_who_condition_re,
-        t_listener,
-        t_listener_re,
-        t_cert_common_name,
-        t_zone_in_topic_template,
-        t_authz_context_variables
-    ].
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).

@@ -495,7 +495,7 @@ merge_responsed_ingress(_Req, #{type := 'IGNORE'}) ->
 merge_responsed_ingress(Req, #{type := Type, value := {message, NMessage}}) ->
     {ret(Type), Req#{message => NMessage}};
 merge_responsed_ingress(Req, Resp) ->
-    ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
+    ?SLOG(warning, #{msg => "unknown_response_value", resp => Resp}),
     {stop, Req#{message => {error, {invalid_exhook_response, Resp}}}}.
 
 merge_responsed_bool(_Req, #{type := 'IGNORE'}) ->
@@ -505,7 +505,7 @@ merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}}) when
 ->
     {ret(Type), Req#{result => NewBool}};
 merge_responsed_bool(_Req, Resp) ->
-    ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
+    ?SLOG(warning, #{msg => "unknown_response_value", resp => Resp}),
     ignore.
 
 merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
@@ -513,7 +513,7 @@ merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
     {ret(Type), Req#{message => NMessage}};
 merge_responsed_message(_Req, Resp) ->
-    ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
+    ?SLOG(warning, #{msg => "unknown_response_value", resp => Resp}),
     ignore.
 
 ret('CONTINUE') -> ok;

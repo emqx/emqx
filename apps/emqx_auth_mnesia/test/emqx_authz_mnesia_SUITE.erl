@@ -15,7 +15,17 @@
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, hardened}, {group, legacy}].
+
+groups() ->
+    All = emqx_common_test_helpers:all(?MODULE),
+    [{hardened, All}, {legacy, All}].
+
+init_per_group(Group, Config) ->
+    [{security_profile, Group} | Config].
+
+end_per_group(_Group, _Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -33,11 +43,8 @@ end_per_suite(_Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     emqx_cth_suite:stop(?config(suite_apps, _Config)).
 
-init_per_testcase(TestCase, Config) ->
-    case TestCase of
-        t_authz -> emqx_common_test_helpers:set_security_profile("hardened");
-        _ -> ok
-    end,
+init_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:set_security_profile(?config(security_profile, Config)),
     ok = emqx_authz_test_lib:reset_authorizers(),
     ok = setup_config(),
     Config.
@@ -51,6 +58,7 @@ end_per_testcase(_TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 
 t_authz(_Config) ->
+    emqx_common_test_helpers:set_security_profile("hardened"),
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 
     test_authz(

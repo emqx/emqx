@@ -8,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
@@ -17,11 +18,10 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    ok = emqx_hookpoints:register_hookpoints(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_, Config) ->
     Config.
