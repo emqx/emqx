@@ -1515,6 +1515,44 @@ t_cli_install_requires_allow(Config) ->
     ?assertNot(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
     ok.
 
+%% When the allow entry binds a sha256, the CLI install must verify the local
+%% tarball against it before installing anything.
+t_cli_install_sha256_binding({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_cli_install_sha256_binding({'end', Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    _ = emqx_plugins:ensure_uninstalled(?config(name_vsn, Config)),
+    ok;
+t_cli_install_sha256_binding(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    LogFun = fun(_F, A) -> A end,
+    TarGz = filename:join(emqx_plugins_fs:install_dir(), NameVsn ++ ".tar.gz"),
+    {ok, TarBin} = file:read_file(TarGz),
+    WrongSha = binary:encode_hex(crypto:hash(sha256, <<"not-the-real-package">>), lowercase),
+    %% A mismatching sha256 must refuse the install and keep the grant.
+    ok = emqx_plugins:allow_installation(NameVsn, WrongSha),
+    [DeniedJson] = emqx_plugins_cli_utils:ensure_installed(NameVsn, LogFun),
+    Denied = emqx_utils_json:decode(DeniedJson, [return_maps]),
+    ?assertMatch(
+        #{<<"result">> := <<"not_ok">>, <<"cause">> := <<"sha256_mismatch">>},
+        Denied
+    ),
+    ?assertMatch({error, _}, emqx_plugins:describe(NameVsn)),
+    ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
+    %% With the matching sha256 the install succeeds and consumes the grant.
+    GoodSha = binary:encode_hex(crypto:hash(sha256, TarBin), lowercase),
+    ok = emqx_plugins:allow_installation(NameVsn, GoodSha),
+    [OkJson] = emqx_plugins_cli_utils:ensure_installed(NameVsn, LogFun),
+    Ok = emqx_utils_json:decode(OkJson, [return_maps]),
+    ?assertMatch(#{<<"result">> := <<"ok">>}, Ok),
+    ?assert(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
+    ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ?assertNot(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
+    ok.
+
 %%--------------------------------------------------------------------
 %% package_limits
 %%--------------------------------------------------------------------

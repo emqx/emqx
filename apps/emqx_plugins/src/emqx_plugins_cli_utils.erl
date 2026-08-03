@@ -257,7 +257,24 @@ do_ensure_installed(NameVsn) ->
                 msg => "plugin_already_installed", name_vsn => NameVsn
             }};
         {error, _} ->
-            emqx_plugins:ensure_installed(NameVsn, ?fresh_install)
+            case check_local_tar_sha256(NameVsn) of
+                ok ->
+                    emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
+                {error, _} = Error ->
+                    Error
+            end
+    end.
+
+%% If the allow entry recorded a sha256 for the package, verify that the
+%% tarball already present in the install dir matches before installing.
+%% A tarball fetched from another node (no local copy yet) cannot be
+%% checked here; the download path performs its own validation.
+check_local_tar_sha256(NameVsn) ->
+    case emqx_plugins_fs:get_tar(NameVsn) of
+        {ok, TarBin} ->
+            emqx_plugins:is_allowed_installation(NameVsn, TarBin);
+        {error, _} ->
+            ok
     end.
 
 ensure_installed_cluster(NameVsn, LogFun) ->
@@ -288,17 +305,26 @@ maybe_forget_grant(_NameVsn, _Result) ->
 do_ensure_installed_cluster(NameVsn, LogFun) ->
     case emqx_plugins_fs:get_tar(NameVsn) of
         {ok, TarBin} ->
-            Running = emqx:running_nodes(),
-            V5Nodes = nodes_supporting_bpapi_version(5),
-            case Running -- V5Nodes of
-                [] ->
-                    Results = emqx_plugins_proto_v5:install_package(V5Nodes, NameVsn, TarBin),
-                    print_cluster_result(V5Nodes, Results, NameVsn, LogFun);
-                Missing ->
-                    Reason = #{
-                        hint => <<"cluster install requires all nodes to support proto v5">>,
-                        nodes_missing_v5 => Missing
-                    },
+            case emqx_plugins:is_allowed_installation(NameVsn, TarBin) of
+                ok ->
+                    Running = emqx:running_nodes(),
+                    V5Nodes = nodes_supporting_bpapi_version(5),
+                    case Running -- V5Nodes of
+                        [] ->
+                            Results = emqx_plugins_proto_v5:install_package(
+                                V5Nodes, NameVsn, TarBin
+                            ),
+                            print_cluster_result(V5Nodes, Results, NameVsn, LogFun);
+                        Missing ->
+                            Reason = #{
+                                hint =>
+                                    <<"cluster install requires all nodes to support proto v5">>,
+                                nodes_missing_v5 => Missing
+                            },
+                            ?PRINT({error, Reason}, LogFun),
+                            {error, Reason}
+                    end;
+                {error, Reason} ->
                     ?PRINT({error, Reason}, LogFun),
                     {error, Reason}
             end;
