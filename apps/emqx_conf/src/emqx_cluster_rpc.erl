@@ -418,12 +418,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 %% It is necessary to clean this node commit record in the cluster
+-spec on_leave() -> ok | {error, noproc | timeout}.
 on_leave() ->
     try
         gen_server:call(?MODULE, on_leave)
     catch
         exit:{timeout, _} ->
-            {error, timeout}
+            {error, timeout};
+        exit:{noproc, _} ->
+            {error, noproc}
     end.
 
 catch_up(State) -> catch_up(State, false).
