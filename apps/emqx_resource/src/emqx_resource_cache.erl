@@ -196,7 +196,8 @@ get_runtime(Id) ->
             st_err = StErr,
             cb = Cb,
             query_mode = ChannelQueryMode,
-            channel_status = ChannelStatus
+            channel_status = ChannelStatus,
+            conn_res_id = ConnectorId
         }}
     catch
         error:badarg ->

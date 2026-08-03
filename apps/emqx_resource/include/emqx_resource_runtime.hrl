@@ -28,7 +28,10 @@
     st_err :: st_err(),
     cb :: cb(),
     query_mode :: emqx_resource:resource_query_mode(),
-    channel_status :: ?NO_CHANNEL | channel_status()
+    channel_status :: ?NO_CHANNEL | channel_status(),
+    %% connector part of the queried id (the id itself when it has no channel part),
+    %% carried here so the query hot path does not need to re-parse the id
+    conn_res_id :: binary()
 }).
 
 -type runtime() :: #rt{}.

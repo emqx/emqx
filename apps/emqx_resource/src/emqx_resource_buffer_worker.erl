@@ -1367,12 +1367,13 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
             st_err = #{status := Status},
             cb = Resource,
             query_mode = QueryMode,
-            channel_status = ChanSt
+            channel_status = ChanSt,
+            conn_res_id = ConnResId
         }} ->
             IsAlwaysSend = is_always_send(QueryMode),
             case Status =:= ?status_connected orelse IsAlwaysSend of
                 true ->
-                    call_query2(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt);
+                    call_query2(QM, Id, ConnResId, Index, Ref, Query, QueryOpts, Resource, ChanSt);
                 false ->
                     Result = ?RESOURCE_ERROR(not_connected, "resource not connected"),
                     maybe_reply_to(Result, QueryOpts)
@@ -1382,11 +1383,11 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
             maybe_reply_to(Result, QueryOpts)
     end.
 
-call_query2(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
+call_query2(QM, Id, ConnResId, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
     PrevLoggerProcessMetadata = logger:get_process_metadata(),
     try
         set_rule_id_trace_meta_data(Query),
-        do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt)
+        do_call_query(QM, Id, ConnResId, Index, Ref, Query, QueryOpts, Resource, ChanSt)
     after
         reset_logger_process_metadata(PrevLoggerProcessMetadata)
     end.
@@ -1445,11 +1446,11 @@ collect_rule_trigger_times(?QUERY(_, _, _, _, _, _), Acc) ->
 %% a final result attributable to the connector callback.  Skip when:
 %%   * Decision is `?nack' (recoverable; the same request will be retried and
 %%     finalised later in `retry_inflight_sync').
-%%   * Result indicates `call_query/6' short-circuited before `apply_query_fun/9'
+%%   * Result indicates `call_query/6' short-circuited before `apply_query_fun/10'
 %%     (resource not found / stopped), so no callback ran.
 %% The `pre_query_channel_check/4' failure on a simple query produces a final
 %% `?ack' here even though the callback didn't run; we accept that edge case
-%% rather than thread the channel-check outcome out of `apply_query_fun/9'.
+%% rather than thread the channel-check outcome out of `apply_query_fun/10'.
 delta_with_actions_executed(?nack, _Result, DeltaCounters) ->
     DeltaCounters;
 delta_with_actions_executed(?ack, ?RESOURCE_ERROR_M(Kind, _), DeltaCounters) when
@@ -1458,16 +1459,6 @@ delta_with_actions_executed(?ack, ?RESOURCE_ERROR_M(Kind, _), DeltaCounters) whe
     DeltaCounters;
 delta_with_actions_executed(?ack, _Result, DeltaCounters) ->
     DeltaCounters#{actions_executed => 1}.
-
-%% action:kafka_producer:actionname:connector:kafka_producer:connectorname
-%% ns:ns1:action:kafka_producer:actionname:connector:kafka_producer:connectorname
-extract_connector_id(Id) when is_binary(Id) ->
-    case emqx_resource:parse_connector_id_from_channel_id(Id) of
-        {ok, ConnResId} ->
-            ConnResId;
-        {error, _} ->
-            Id
-    end.
 
 %% Check if channel is installed in the connector state.
 %% There is no need to query the conncector if the channel is not
@@ -1506,10 +1497,10 @@ is_always_send(M) when ?IS_BYPASS(M) ->
 is_always_send(_) ->
     false.
 
-do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
+do_call_query(QM, Id, ConnResId, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
     #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
     CallMode = call_mode(QM, CBM),
-    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, ChanSt, QueryOpts).
+    apply_query_fun(CallMode, Mod, Id, ConnResId, Index, Ref, Query, ResSt, ChanSt, QueryOpts).
 
 -define(APPLY_RESOURCE(NAME, EXPR, REQ),
     try
@@ -1542,6 +1533,7 @@ apply_query_fun(
     sync,
     Mod,
     Id,
+    ConnResId,
     _Index,
     _Ref,
     ?QUERY(_, Request, _, _, _RequestContext, _TraceCtx) = _Query,
@@ -1556,7 +1548,7 @@ apply_query_fun(
             begin
                 case pre_query_channel_check(Id, Request, ChanSt, is_simple_query(QueryOpts)) of
                     ok ->
-                        Mod:on_query(extract_connector_id(Id), Request, ResSt);
+                        Mod:on_query(ConnResId, Request, ResSt);
                     Error ->
                         Error
                 end
@@ -1569,6 +1561,7 @@ apply_query_fun(
     async,
     Mod,
     Id,
+    ConnResId,
     Index,
     Ref,
     ?QUERY(_, Request, _, _, _RequestContext, _TraceCtx) = Query,
@@ -1606,7 +1599,7 @@ apply_query_fun(
                 ok ->
                     case
                         Mod:on_query_async(
-                            extract_connector_id(Id), Request, {ReplyFun, [ReplyContext]}, ResSt
+                            ConnResId, Request, {ReplyFun, [ReplyContext]}, ResSt
                         )
                     of
                         {error, _} = Error when IsSimpleQuery ->
@@ -1627,6 +1620,7 @@ apply_query_fun(
     sync,
     Mod,
     Id,
+    ConnResId,
     _Index,
     _Ref,
     [?QUERY(_, FirstRequest, _, _, _RequestContext, _) | _] = Batch,
@@ -1649,7 +1643,7 @@ apply_query_fun(
                     pre_query_channel_check(Id, FirstRequest, ChanSt, is_simple_query(QueryOpts))
                 of
                     ok ->
-                        Mod:on_batch_query(extract_connector_id(Id), Requests, ResSt);
+                        Mod:on_batch_query(ConnResId, Requests, ResSt);
                     Error ->
                         Error
                 end
@@ -1662,6 +1656,7 @@ apply_query_fun(
     async,
     Mod,
     Id,
+    ConnResId,
     Index,
     Ref,
     [?QUERY(_, FirstRequest, _, _, _RequestContext, _) | _] = Batch,
@@ -1704,7 +1699,7 @@ apply_query_fun(
                 ok ->
                     case
                         Mod:on_batch_query_async(
-                            extract_connector_id(Id), Requests, {ReplyFun, [ReplyContext]}, ResSt
+                            ConnResId, Requests, {ReplyFun, [ReplyContext]}, ResSt
                         )
                     of
                         {error, _} = Error when IsSimpleQuery ->
