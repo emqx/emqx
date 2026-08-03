@@ -110,10 +110,11 @@ schema("/certs/global/name/:name") ->
         delete => #{
             tags => ?TAGS,
             description => ?DESC("global_bundle_delete"),
-            parameters => [param_path_bundle_name(), param_qs_file_kind(), param_qs_force_delete()],
+            parameters => [param_path_bundle_name(), param_qs_file_kind()],
             responses =>
                 #{
                     204 => <<"">>,
+                    400 => bad_request(?DESC("bad_request")),
                     500 => internal_error(?DESC("internal_error"))
                 }
         }
@@ -173,12 +174,12 @@ schema("/certs/ns/:namespace/name/:name") ->
             parameters => [
                 param_path_ns(),
                 param_path_bundle_name(),
-                param_qs_file_kind(),
-                param_qs_force_delete()
+                param_qs_file_kind()
             ],
             responses =>
                 #{
                     204 => <<"">>,
+                    400 => bad_request(?DESC("bad_request")),
                     500 => internal_error(?DESC("internal_error"))
                 }
         }
@@ -243,9 +244,6 @@ param_qs_file_kind() ->
             }
         )}.
 
-param_qs_force_delete() ->
-    {force_delete, mk(boolean(), #{in => query, default => false, required => false})}.
-
 upload_files_request_body() ->
     hoconsc:mk(ref(files_in), #{
         converter => fun upload_files_request_body_converter/2,
@@ -297,9 +295,9 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
     #{query_string := QueryParams} = Req,
     case QueryParams of
         #{<<"kind">> := Kind} ->
-            handle_delete_file(?global_ns, BundleName, Kind, QueryParams);
+            handle_delete_file(?global_ns, BundleName, Kind);
         _ ->
-            handle_delete_bundle(?global_ns, BundleName, QueryParams)
+            handle_delete_bundle(?global_ns, BundleName)
     end.
 
 '/certs/ns/:namespace/list'(get, #{bindings := #{namespace := Namespace}} = _Req) ->
@@ -319,9 +317,9 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
     } = Req,
     case QueryParams of
         #{<<"kind">> := Kind} ->
-            handle_delete_file(Namespace, BundleName, Kind, QueryParams);
+            handle_delete_file(Namespace, BundleName, Kind);
         _ ->
-            handle_delete_bundle(Namespace, BundleName, QueryParams)
+            handle_delete_bundle(Namespace, BundleName)
     end.
 
 %%-------------------------------------------------------------------------------------------------
@@ -377,8 +375,8 @@ handle_list_files(Namespace, BundleName) ->
             ?INTERNAL_ERROR(emqx_utils:explain_posix(Reason))
     end.
 
-handle_delete_bundle(Namespace, BundleName, QueryParams) ->
-    case validate_no_dependencies(QueryParams, Namespace, BundleName) of
+handle_delete_bundle(Namespace, BundleName) ->
+    case validate_no_dependencies(Namespace, BundleName) of
         ok ->
             do_handle_delete_bundle(Namespace, BundleName);
         {error, Return} ->
@@ -393,8 +391,8 @@ do_handle_delete_bundle(Namespace, BundleName) ->
             ?INTERNAL_ERROR(Errors)
     end.
 
-handle_delete_file(Namespace, BundleName, Kind, QueryParams) ->
-    case validate_no_dependencies(QueryParams, Namespace, BundleName) of
+handle_delete_file(Namespace, BundleName, Kind) ->
+    case validate_no_dependencies(Namespace, BundleName) of
         ok ->
             do_handle_delete_file(Namespace, BundleName, Kind);
         {error, Return} ->
@@ -409,9 +407,7 @@ do_handle_delete_file(Namespace, BundleName, Kind) ->
             ?INTERNAL_ERROR(Errors)
     end.
 
-validate_no_dependencies(#{<<"force_delete">> := true}, _Namespace, _BundleName) ->
-    ok;
-validate_no_dependencies(_QueryParams, Namespace, BundleName) ->
+validate_no_dependencies(Namespace, BundleName) ->
     case emqx_managed_certs:find_references(Namespace, BundleName) of
         [] ->
             ok;

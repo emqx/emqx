@@ -6,4 +6,8 @@
 
 -define(global_ns, global).
 
+%% Default for `multi_tenancy.deny_namespaces': names that collide with
+%% internal sentinels once collapsed to their textual form.
+-define(DEFAULT_DENY_NAMESPACES, [<<"global">>, <<"undefined">>, <<"null">>, <<"none">>]).
+
 -endif.

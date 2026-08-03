@@ -47,7 +47,8 @@ defmodule EMQXBridgeKafka.MixProject do
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_connector_jwt, in_umbrella: true},
       {:emqx_resource, in_umbrella: true},
-      {:emqx_bridge, in_umbrella: true, runtime: false}
+      {:emqx_bridge, in_umbrella: true, runtime: false},
+      {:emqx_connector_oauth2, in_umbrella: true}
     ])
   end
 end

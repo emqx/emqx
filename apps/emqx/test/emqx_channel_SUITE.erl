@@ -781,7 +781,7 @@ t_handle_out_publish(_) ->
 
 t_handle_out_publish_1(_) ->
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"t">>, <<"payload">>),
-    {ok, {outgoing, [?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>)]}, _Chan} =
+    {ok, {outgoing, ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>)}, _Chan} =
         emqx_channel:handle_out(publish, [{1, Msg}], channel()).
 
 t_handle_out_connack_success(_) ->
@@ -1134,10 +1134,10 @@ t_handle_custom_timers(_) ->
     {timeout, T1Ref, T1Msg} =
         ?assertReceive({timeout, _, {emqx_session, signal1}}, ?CUSTOM_TIMER_TIMEOUT * 2),
     %% Sets `msg1` timer:
-    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"a/b">>, 1, <<"1">>)]}, Chan4} =
+    {ok, {outgoing, ?PUBLISH_PACKET(0, <<"a/b">>, 1, <<"1">>)}, Chan4} =
         emqx_channel:handle_timeout(T1Ref, T1Msg, Chan3),
     %% Resets `msg1` timer to a shorter timeout:
-    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"2">>)]}, Chan5} =
+    {ok, {outgoing, ?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"2">>)}, Chan5} =
         emqx_channel:handle_timeout(make_ref(), retry_delivery, Chan4),
     {timeout, T2Ref, T2Msg} =
         ?assertReceive({timeout, _, {emqx_session, msg1}}, ?CUSTOM_TIMER_TIMEOUT_SHORT * 2),

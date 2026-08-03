@@ -236,6 +236,22 @@ force_delete_bundle_global(BundleName) ->
         query_params => #{<<"force_delete">> => <<"true">>}
     }).
 
+force_delete_file_global(BundleName, Kind) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName]),
+    simple_request(#{
+        method => delete,
+        url => URL,
+        query_params => #{<<"kind">> => Kind, <<"force_delete">> => <<"true">>}
+    }).
+
+force_delete_bundle_ns(Ns, BundleName) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "ns", Ns, "name", BundleName]),
+    simple_request(#{
+        method => delete,
+        url => URL,
+        query_params => #{<<"force_delete">> => <<"true">>}
+    }).
+
 delete_file_global(BundleName, Kind) ->
     URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName]),
     simple_request(#{
@@ -1020,8 +1036,8 @@ t_managed_certs_prometheus_expiry_date(_TCConfig) ->
 
 -doc """
 Verifies that a listener using a managed certificate bundle can be switched back to
-file-based (default) certificates even after the bundle has been force-deleted.  The
-stale `managed_certs` reference must not survive the update and block it.
+file-based (default) certificates even after the bundle has been deleted out-of-band.
+The stale `managed_certs` reference must not survive the update and block it.
 """.
 t_switch_off_deleted_managed_bundle() ->
     [{matrix, true}].
@@ -1052,8 +1068,9 @@ t_switch_off_deleted_managed_bundle(_TCConfig) ->
     ),
     ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerManaged)),
 
-    %% Force-delete the bundle while the listener still references it.
-    ?assertMatch({204, _}, force_delete_bundle_global(Bundle)),
+    %% Delete the bundle out-of-band while the listener still references it; the API
+    %% refuses to delete a referenced bundle.
+    ok = emqx_managed_certs:delete_bundle(?global_ns, Bundle),
 
     %% Switching back to the original file-based config must succeed even though the
     %% bundle is gone, and the resulting config must no longer reference managed certs.
@@ -1142,8 +1159,8 @@ t_switch_to_missing_managed_bundle(_TCConfig) ->
 -doc """
 Verifies that a listener using a managed certificate bundle can be switched back to
 file-based certificates when the update request clears `managed_certs` by sending it
-as JSON `null` (how the Dashboard clears it), even after the bundle has been
-force-deleted.
+as JSON `null` (how the Dashboard clears it), even after the bundle has been deleted
+out-of-band.
 """.
 t_switch_off_deleted_managed_bundle_null() ->
     [{matrix, true}].
@@ -1174,8 +1191,9 @@ t_switch_off_deleted_managed_bundle_null(_TCConfig) ->
     ),
     ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerManaged)),
 
-    %% Force-delete the bundle while the listener still references it.
-    ?assertMatch({204, _}, force_delete_bundle_global(Bundle)),
+    %% Delete the bundle out-of-band while the listener still references it; the API
+    %% refuses to delete a referenced bundle.
+    ok = emqx_managed_certs:delete_bundle(?global_ns, Bundle),
 
     %% Switch back to file-based certs with an explicit `managed_certs: null` in the
     %% request, as the Dashboard sends it.  The update must succeed and the resulting
@@ -1219,6 +1237,168 @@ t_managed_certs_empty_list_rejected(_TCConfig) ->
             }
         }},
         update_listener_api(<<"ssl">>, <<"default">>, TLSListenerEmpty)
+    ),
+
+    ok.
+
+-doc """
+Verifies that a bundle (or a single file in it) that is still referenced by some
+configuration can never be deleted: the delete endpoint returns 400, and the
+`force_delete` query parameter no longer bypasses the reference check.
+""".
+t_delete_referenced_bundle() ->
+    [{matrix, true}].
+t_delete_referenced_bundle(matrix) ->
+    [[?local]];
+t_delete_referenced_bundle(_TCConfig) ->
+    #{cert_key := CertKeyRoot} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Cert, key_pem := Key} = gen_cert(#{key => ec, issuer => CertKeyRoot}),
+
+    Bundle = <<"referenced_bundle">>,
+    Files = [
+        {?FILE_KIND_CA_BIN, <<"ca.pem">>, CA},
+        {?FILE_KIND_CHAIN_BIN, <<"chain.pem">>, Cert},
+        {?FILE_KIND_KEY_BIN, <<"key.pem">>, Key}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle, Files)),
+
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    on_exit(fun() -> {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener0) end),
+    TLSListenerManaged = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        [#{<<"bundle_name">> => Bundle}]
+    ),
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerManaged)),
+
+    %% While referenced, deletion is refused, with or without `force_delete`.
+    ExpectedRefs = #{<<"global">> => [[<<"listeners">>, <<"ssl">>, <<"default">>]]},
+    ?assertMatch(
+        {400, #{<<"referencing_configs">> := ExpectedRefs}},
+        delete_bundle_global(Bundle)
+    ),
+    ?assertMatch(
+        {400, #{<<"referencing_configs">> := ExpectedRefs}},
+        force_delete_bundle_global(Bundle)
+    ),
+    ?assertMatch(
+        {400, #{<<"referencing_configs">> := ExpectedRefs}},
+        delete_file_global(Bundle, ?FILE_KIND_CA_BIN)
+    ),
+    ?assertMatch(
+        {400, #{<<"referencing_configs">> := ExpectedRefs}},
+        force_delete_file_global(Bundle, ?FILE_KIND_CA_BIN)
+    ),
+
+    %% Once unreferenced, deletion succeeds, with or without the (ignored) parameter.
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListener0)),
+    ?assertMatch({204, _}, force_delete_file_global(Bundle, ?FILE_KIND_CA_BIN)),
+    ?assertMatch({204, _}, delete_bundle_global(Bundle)),
+
+    ok.
+
+-doc """
+Verifies that a namespaced bundle that is still referenced by some configuration
+cannot be deleted via the namespaced endpoint, even with `force_delete=true`.
+""".
+t_delete_referenced_bundle_ns() ->
+    [{matrix, true}].
+t_delete_referenced_bundle_ns(matrix) ->
+    [[?local]];
+t_delete_referenced_bundle_ns(_TCConfig) ->
+    #{cert_key := CertKeyRoot} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Cert, key_pem := Key} = gen_cert(#{key => ec, issuer => CertKeyRoot}),
+
+    Ns = <<"ns1">>,
+    Bundle = <<"referenced_ns_bundle">>,
+    Files = [
+        {?FILE_KIND_CA_BIN, <<"ca.pem">>, CA},
+        {?FILE_KIND_CHAIN_BIN, <<"chain.pem">>, Cert},
+        {?FILE_KIND_KEY_BIN, <<"key.pem">>, Key}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_ns(Ns, Bundle, Files)),
+
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    on_exit(fun() -> {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener0) end),
+    TLSListenerManaged = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        [#{<<"bundle_name">> => Bundle, <<"namespace">> => Ns}]
+    ),
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerManaged)),
+
+    ?assertMatch({400, #{<<"referencing_configs">> := _}}, delete_bundle_ns(Ns, Bundle)),
+    ?assertMatch({400, #{<<"referencing_configs">> := _}}, force_delete_bundle_ns(Ns, Bundle)),
+
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListener0)),
+    ?assertMatch({204, _}, delete_bundle_ns(Ns, Bundle)),
+
+    ok.
+
+-doc """
+Verifies that the Prometheus stats scrape does not fail entirely when a listener
+references a managed certificate bundle that no longer exists on disk: the scrape
+returns 200 with the other metrics present, and the affected listener simply
+contributes no cert-expiry point.
+""".
+t_prometheus_stats_dangling_managed_certs() ->
+    [{matrix, true}].
+t_prometheus_stats_dangling_managed_certs(matrix) ->
+    [[?local]];
+t_prometheus_stats_dangling_managed_certs(_TCConfig) ->
+    #{cert_key := CertKeyRoot} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Cert, key_pem := Key} = gen_cert(#{key => ec, issuer => CertKeyRoot}),
+
+    Bundle = <<"dangling_bundle">>,
+    Files = [
+        {?FILE_KIND_CA_BIN, <<"ca.pem">>, CA},
+        {?FILE_KIND_CHAIN_BIN, <<"chain.pem">>, Cert},
+        {?FILE_KIND_KEY_BIN, <<"key.pem">>, Key}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle, Files)),
+
+    {200, TLSListener0} = get_listener_api(<<"ssl">>, <<"default">>),
+    on_exit(fun() -> {200, _} = update_listener_api(<<"ssl">>, <<"default">>, TLSListener0) end),
+    TLSListenerManaged = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"managed_certs">>],
+        TLSListener0,
+        [#{<<"bundle_name">> => Bundle}]
+    ),
+    ?assertMatch({200, _}, update_listener_api(<<"ssl">>, <<"default">>, TLSListenerManaged)),
+
+    %% Remove the bundle directory behind the API's back, simulating a dangling
+    %% reference (e.g. left behind by an older release that allowed force-deleting a
+    %% referenced bundle).
+    ok = file:del_dir_r(emqx_managed_certs:dir(?global_ns, Bundle)),
+
+    {200, Metrics} = get_prometheus_stats(
+        ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, prometheus
+    ),
+    Expiry = maps:get(<<"emqx_cert_expiry_at">>, Metrics),
+    %% The listener with the dangling reference contributes no point.
+    ?assertNot(
+        is_map_key(
+            #{
+                <<"listener_name">> => <<"default">>,
+                <<"listener_type">> => <<"ssl">>
+            },
+            Expiry
+        ),
+        Expiry
+    ),
+    %% Other listeners' points are still collected.
+    ?assert(
+        is_map_key(
+            #{
+                <<"listener_name">> => <<"default">>,
+                <<"listener_type">> => <<"wss">>
+            },
+            Expiry
+        ),
+        Expiry
     ),
 
     ok.

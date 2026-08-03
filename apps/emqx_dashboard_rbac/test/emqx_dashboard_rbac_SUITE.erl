@@ -78,12 +78,12 @@ t_reserved_namespace_role(_) ->
         fun(Ns) ->
             Role = <<"ns:", Ns/binary, "::", ?ROLE_SUPERUSER/binary>>,
             ?assertEqual(
-                {error, <<"Reserved namespace">>},
+                {error, <<"Denied namespace">>},
                 emqx_dashboard_rbac:parse_dashboard_role(Role),
                 #{ns => Ns}
             ),
             ?assertEqual(
-                {error, <<"Reserved namespace">>},
+                {error, <<"Denied namespace">>},
                 emqx_dashboard_rbac:parse_api_role(Role),
                 #{ns => Ns}
             )
@@ -514,10 +514,10 @@ t_check_login_user_scopes_explicit_empty_denies(_) ->
         false,
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
     ),
-    %% Unmapped paths still fail-open (consistent with API key semantics
-    %% in emqx_mgmt_auth:check_path_in_scopes/2).
+    %% Unmapped paths fail closed for scope-restricted login users (here
+    %% an explicit []): a path that maps to no known scope is denied.
     ?assertEqual(
-        true,
+        false,
         emqx_dashboard_rbac:check_login_user_scopes(
             Username, <<"/some/unmapped/path">>
         )
@@ -653,7 +653,7 @@ t_check_login_user_scopes_generic_does_not_grant_login_only_paths(_) ->
     %% NOTE: /sso/* paths are not asserted here because
     %% emqx_dashboard_sso is not in this SUITE's app start list, so
     %% those paths do not appear in the path_to_scope cache and would
-    %% fall through to the unmapped fail-open branch (true). The cross-
+    %% fall through to the unmapped fail-closed branch (false). The cross-
     %% module assertion that /sso is mapped to sso_management lives in
     %% emqx_dashboard_sso/test/emqx_dashboard_sso_mfa_SUITE.erl.
     ?assertEqual(

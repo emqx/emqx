@@ -38,6 +38,8 @@
 
 -export([backup_tables/0]).
 
+-export([purge_namespace/1]).
+
 %% Internal exports (RPC)
 -export([
     do_destroy/1,
@@ -181,6 +183,20 @@ do_destroy(UserGroup) ->
 %% here rather than letting dispatch crash.
 import_users(_File, _State) ->
     {error, unsupported_operation}.
+
+-doc """
+Deletes all users belonging to the given namespace, across all user groups.
+
+Users in the global namespace are never touched.
+""".
+-spec purge_namespace(emqx_config:namespace()) -> ok.
+purge_namespace(Namespace) when is_binary(Namespace) ->
+    lists:foreach(
+        fun(#?NS_TAB{user_id = Key}) ->
+            ok = mria:dirty_delete(?NS_TAB, Key)
+        end,
+        mnesia:dirty_select(?NS_TAB, all_ns_group_match_spec(Namespace, '_'))
+    ).
 
 add_user(UserInfo, State) ->
     UserInfoRecord = user_info_record(UserInfo, State),

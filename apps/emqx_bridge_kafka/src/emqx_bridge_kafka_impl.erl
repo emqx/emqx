@@ -8,6 +8,7 @@
 -export([
     hosts/1,
     sasl/1,
+    sasl/2,
     socket_opts/1
 ]).
 
@@ -33,12 +34,6 @@ sasl(#{type := msk_iam_roles_anywhere} = Opts) ->
     {callback, brod_oauth, #{
         token_callback => emqx_bridge_kafka_msk_iam_authn:mk_token_callback(Opts)
     }};
-sasl(#{mechanism := oauth, grant_type := client_credentials} = Opts) ->
-    Extensions = emqx_utils_maps:binary_key_map(maps:get(extensions, Opts, #{})),
-    {callback, brod_oauth, #{
-        token_callback => emqx_bridge_kafka_oauth_authn:mk_token_callback(Opts),
-        extensions => Extensions
-    }};
 sasl(#{mechanism := Mechanism, username := Username, password := Secret}) ->
     {Mechanism, Username, Secret};
 sasl(#{
@@ -46,6 +41,15 @@ sasl(#{
     kerberos_keytab_file := KeyTabFile
 }) ->
     {callback, brod_gssapi, {gssapi, KeyTabFile, Principal}}.
+
+sasl(#{mechanism := oauth, grant_type := client_credentials} = Opts, OAuth2ResourceId) ->
+    Extensions = emqx_utils_maps:binary_key_map(maps:get(extensions, Opts, #{})),
+    {callback, brod_oauth, #{
+        token_callback => emqx_bridge_kafka_oauth_authn:mk_token_callback(OAuth2ResourceId),
+        extensions => Extensions
+    }};
+sasl(Auth, _OAuth2ResourceId) ->
+    sasl(Auth).
 
 %% Extra socket options, such as sndbuf size etc.
 socket_opts(Opts) when is_map(Opts) ->

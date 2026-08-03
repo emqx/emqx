@@ -68,7 +68,7 @@
     get_namespaced_config/3,
     get_raw_namespaced_config/2,
     get_raw_namespaced_config/3,
-    is_reserved_namespace/1
+    is_denied_namespace/1
 ]).
 
 -define(APP, ?MODULE).
@@ -215,19 +215,19 @@ get_namespaced_config(?global_ns, KeyPath, Default) ->
     get_config(KeyPath, Default).
 
 -doc """
-Check whether a user-supplied namespace name is reserved.
+Check whether a user-supplied namespace name is in the configured deny list
+(`multi_tenancy.deny_namespaces`).
 
-Reserved names collide with internal sentinels (notably the `global` atom
-used as `?global_ns`) and would produce ambiguous log lines and dashboard
-output once collapsed to their textual form. They must be rejected at every
-input boundary so they can never become a namespace identifier.
+The default deny list holds names that collide with internal sentinels
+(notably the `global` atom used as `?global_ns`) and would produce ambiguous
+log lines and dashboard output once collapsed to their textual form. Denied
+names are rejected at every input boundary so they can never become a
+namespace identifier.
 """.
--spec is_reserved_namespace(binary()) -> boolean().
-is_reserved_namespace(<<"global">>) -> true;
-is_reserved_namespace(<<"undefined">>) -> true;
-is_reserved_namespace(<<"null">>) -> true;
-is_reserved_namespace(<<"none">>) -> true;
-is_reserved_namespace(_) -> false.
+-spec is_denied_namespace(binary()) -> boolean().
+is_denied_namespace(Namespace) when is_binary(Namespace) ->
+    Denied = emqx_config:get([multi_tenancy, deny_namespaces], ?DEFAULT_DENY_NAMESPACES),
+    lists:member(Namespace, Denied).
 
 -spec get_raw_config(config_key_path()) -> term().
 get_raw_config(KeyPath) ->

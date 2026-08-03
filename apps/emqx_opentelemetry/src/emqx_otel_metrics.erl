@@ -74,7 +74,7 @@ ensure_apps(Conf) ->
                 id => emqx_otel_metric_reader,
                 module => otel_metric_reader,
                 config => #{
-                    exporter => emqx_otel_config:otel_exporter(Exporter),
+                    exporter => emqx_otel_config:otel_exporter(metrics, Exporter),
                     export_interval_ms => ExporterInterval
                 }
             }

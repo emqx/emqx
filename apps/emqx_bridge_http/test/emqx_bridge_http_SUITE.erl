@@ -294,6 +294,13 @@ fail_then_success_http_handler(FailStatusCode) ->
 create_connector_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:create_connector_api2(Config, Overrides).
 
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
 update_connector_api(TCConfig, Overrides) ->
     #{
         connector_type := Type,
@@ -440,6 +447,34 @@ t_oauth2_client_credentials(TCConfig) ->
     ?assertNotReceive({oauth2_token_request, _}, 200),
     ok.
 
+t_oauth2_ssl_certs_are_saved(TCConfig) ->
+    {TokenEndpoint, _Token} = start_oauth2_token_server(self()),
+    SSL = inline_ssl_certs(),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>,
+        <<"ssl">> => SSL
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    {200, #{<<"oauth2">> := #{<<"ssl">> := SavedSSL}}} =
+        get_connector_api(TCConfig),
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    CertDir = filename:join([emqx:mutable_certs_dir(), connectors, Type, Name, oauth2]),
+    ?assertMatch({ok, [_, _, _]}, file:list_dir(CertDir)),
+    lists:foreach(
+        fun(Key) ->
+            SavedPath = maps:get(Key, SavedSSL),
+            ?assertNotEqual(maps:get(Key, SSL), SavedPath),
+            ?assert(filelib:is_regular(SavedPath))
+        end,
+        [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>]
+    ).
+
 t_oauth2_token_failure_is_recoverable(TCConfig) ->
     {TokenEndpoint, _Token} = start_oauth2_token_server(self()),
     OAuth2 = #{
@@ -514,7 +549,35 @@ t_oauth2_async_retry_uses_latest_token(TCConfig) ->
         maps:get(<<"authorization">>, SecondHeaders)
     ).
 
-t_oauth2_rejects_action_authorization_header(_TCConfig) ->
+t_oauth2_rejects_action_authorization_header(TCConfig) ->
+    {TokenEndpoint, _Token} = start_oauth2_token_server(self()),
+    OAuth2 = #{
+        <<"enable">> => true,
+        <<"grant_type">> => <<"client_credentials">>,
+        <<"token_endpoint">> => TokenEndpoint,
+        <<"client_id">> => <<"client-id">>,
+        <<"client_secret">> => <<"client-secret">>
+    },
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_connector_api(TCConfig, #{<<"oauth2">> => OAuth2}),
+    {400, #{
+        <<"message">> := #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := Reason
+        }
+    }} =
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"headers">> => #{<<"Authorization">> => <<"Basic credentials">>}
+            }
+        }),
+    ?assertMatch(
+        {match, _},
+        re:run(Reason, <<"authorization.*conflicts with OAuth2">>, [caseless])
+    ),
+    ?assertMatch({404, _}, get_action_api(TCConfig)).
+
+t_oauth2_rejects_action_authorization_header_at_runtime(_TCConfig) ->
     State = #{oauth2 => #{enable => true}, installed_actions => #{}},
     ActionConfig = #{
         parameters => #{headers => #{<<"Authorization">> => <<"Basic credentials">>}}
@@ -524,6 +587,21 @@ t_oauth2_rejects_action_authorization_header(_TCConfig) ->
         emqx_bridge_http_connector:on_add_channel(
             <<"connector">>, State, <<"action">>, ActionConfig
         )
+    ).
+
+inline_ssl_certs() ->
+    maps:from_list(
+        [
+            begin
+                {ok, Content} = file:read_file(Path),
+                {atom_to_binary(Key), Content}
+            end
+         || {Key, Path} <- certs()
+        ] ++
+            [
+                {<<"enable">>, true},
+                {<<"verify">>, <<"verify_peer">>}
+            ]
     ).
 
 %% This test ensures that https://emqx.atlassian.net/browse/CI-62 is fixed.
@@ -1051,12 +1129,11 @@ t_managed_certs(TCConfig) when is_list(TCConfig) ->
         }
     }),
     {201, _} = create_action_api(TCConfig, #{}),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    #{topic := Topic, id := RuleId} = simple_create_rule_api(TCConfig),
     C = start_client(),
     emqtt:publish(C, Topic, <<"hey">>, [{qos, 1}]),
     ?assertReceive({http, _, _}, 2_000),
-    %% When configurations depend on the managed certs, unless we force it, we deny
-    %% deleting them.
+    %% When configurations depend on the managed certs, we deny deleting them.
     ?assertMatch(
         {400, #{
             <<"referencing_configs">> := #{<<"global">> := [[<<"connectors">>, <<"http">>, _]]}
@@ -1069,16 +1146,32 @@ t_managed_certs(TCConfig) when is_list(TCConfig) ->
         }},
         delete_global_managed_certs_file(BundleName, <<"ca">>, #{})
     ),
-    %% Override check
+    %% `force_delete' is ignored: deletion is refused while the connector still
+    %% references the bundle.
     ?assertMatch(
-        {204, _},
+        {400, #{
+            <<"referencing_configs">> := #{<<"global">> := [[<<"connectors">>, <<"http">>, _]]}
+        }},
         delete_global_managed_certs_file(
             BundleName,
             <<"ca">>,
             #{force_delete => true}
         )
     ),
-    ?assertMatch({204, _}, delete_global_managed_certs_bundle(BundleName, #{force_delete => true})),
+    ?assertMatch(
+        {400, #{
+            <<"referencing_configs">> := #{<<"global">> := [[<<"connectors">>, <<"http">>, _]]}
+        }},
+        delete_global_managed_certs_bundle(BundleName, #{force_delete => true})
+    ),
+    %% Once the referencing connector is gone, deletion succeeds.
+    #{type := ActionType, name := ActionName} = emqx_bridge_v2_testlib:get_common_values(
+        TCConfig
+    ),
+    {204, _} = emqx_bridge_v2_testlib:delete_rule_api(RuleId),
+    {204, _} = emqx_bridge_v2_testlib:delete_kind_api(action, ActionType, ActionName),
+    {204, _} = emqx_bridge_v2_testlib:delete_connector_api(TCConfig),
+    ?assertMatch({204, _}, delete_global_managed_certs_bundle(BundleName, #{})),
     ok.
 
 -doc """

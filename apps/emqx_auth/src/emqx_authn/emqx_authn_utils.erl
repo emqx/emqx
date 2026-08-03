@@ -27,7 +27,8 @@
     to_bool/1,
     backend_failure_result/0,
     authn_backend_failure_policy/0,
-    cached_simple_sync_query/3
+    cached_simple_sync_query/3,
+    cached_apply/2
 ]).
 
 -define(DEFAULT_RESOURCE_OPTS(OWNER_ID), #{
@@ -60,7 +61,11 @@ create_resource(Module, ResourceConfig, #{resource_id := ResourceId} = State, Me
                 ResourceConfig,
                 ?DEFAULT_RESOURCE_OPTS(OwnerId)
             ),
-        ok = start_resource_if_enabled(State, Mechanism, Backend)
+        ok =
+            remove_resource_on_exception(
+                ResourceId,
+                fun() -> start_resource_if_enabled(State, Mechanism, Backend) end
+            )
     end.
 
 -spec update_resource(module(), resource_config(), authn_provider_state(), mechanism(), backend()) ->
@@ -80,20 +85,41 @@ start_resource_if_enabled(#{resource_id := ResourceId, enable := true}, Mechanis
     case emqx_resource:start(ResourceId) of
         ok ->
             ok;
+        timeout ->
+            handle_start_resource_error(ResourceId, timeout, Mechanism, Backend);
         {error, Reason} ->
-            %% NOTE
-            %% we allow creation of resources that cannot be started
-            ?SLOG(warning, #{
-                msg => "failed_to_start_authn_resource",
-                resource_id => ResourceId,
-                reason => Reason,
-                mechanism => Mechanism,
-                backend => Backend
-            }),
-            ok
+            handle_start_resource_error(ResourceId, Reason, Mechanism, Backend)
     end;
 start_resource_if_enabled(#{resource_id := _ResourceId, enable := false}, _Mechanism, _Backend) ->
     ok.
+
+handle_start_resource_error(ResourceId, Reason, Mechanism, Backend) ->
+    %% NOTE
+    %% we allow creation of resources that cannot be started
+    ?SLOG(warning, #{
+        msg => "failed_to_start_authn_resource",
+        resource_id => ResourceId,
+        reason => Reason,
+        mechanism => Mechanism,
+        backend => Backend
+    }),
+    ok.
+
+remove_resource_on_exception(ResourceId, Operation) ->
+    try
+        Operation()
+    catch
+        Class:Reason:Stacktrace ->
+            _ = cleanup_created_resource(ResourceId),
+            erlang:raise(Class, Reason, Stacktrace)
+    end.
+
+cleanup_created_resource(ResourceId) ->
+    try
+        emqx_resource:remove_local(ResourceId)
+    catch
+        _:_ -> ok
+    end.
 
 -spec init_state(map(), map()) -> authn_provider_state().
 init_state(#{enable := Enable} = _Source, Values) ->
@@ -234,6 +260,10 @@ to_bool(_) ->
 ) -> term().
 cached_simple_sync_query(CacheKey, ResourceID, Query) ->
     emqx_auth_utils:cached_simple_sync_query(?AUTHN_CACHE, CacheKey, ResourceID, Query).
+
+-spec cached_apply(emqx_auth_cache:cache_key(), fun(() -> term())) -> term().
+cached_apply(CacheKey, Fun) ->
+    emqx_auth_utils:cached_apply(?AUTHN_CACHE, CacheKey, Fun).
 
 -spec backend_failure_result() -> ignore | {error, not_authorized}.
 backend_failure_result() ->

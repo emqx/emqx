@@ -56,6 +56,161 @@ test_keepalive_validation(Kind, Conf) ->
     [?_assertMatch(#{}, Check(C)) || C <- ValidConfs] ++
         [?_assertThrow(_, Check(C)) || C <- InvalidConfs].
 
+%% `max_batch_age' and `max_retries' accept `infinity' (the default) or a
+%% duration / non-negative integer, and are rejected otherwise.
+producer_max_batch_age_max_retries_schema_test_() ->
+    Check = fun(Overrides) ->
+        emqx_bridge_kafka_testlib:action_config(#{<<"parameters">> => Overrides})
+    end,
+    [
+        {"defaults are infinity",
+            ?_assertMatch(
+                #{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := <<"infinity">>,
+                        <<"max_retries">> := <<"infinity">>
+                    }
+                },
+                Check(#{})
+            )},
+        {"duration and integer accepted",
+            ?_assertMatch(
+                #{
+                    <<"parameters">> := #{
+                        <<"max_batch_age">> := <<"500ms">>,
+                        <<"max_retries">> := 3
+                    }
+                },
+                Check(#{<<"max_batch_age">> => <<"500ms">>, <<"max_retries">> => 3})
+            )},
+        {"zero retries accepted",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"max_retries">> := 0}},
+                Check(#{<<"max_retries">> => 0})
+            )},
+        {"negative retries rejected", ?_assertThrow(_, Check(#{<<"max_retries">> => -1}))},
+        {"bad duration rejected",
+            ?_assertThrow(_, Check(#{<<"max_batch_age">> => <<"not_a_duration">>}))}
+    ].
+
+%% `reconnect_delay' (producer) defaults to 2s; `request_timeout' (connector)
+%% defaults to 30s; both accept durations.
+producer_reconnect_delay_request_timeout_schema_test_() ->
+    CheckAction = fun(Overrides) ->
+        emqx_bridge_kafka_testlib:action_config(#{<<"parameters">> => Overrides})
+    end,
+    CheckConnector = fun(Overrides) ->
+        check_action_connector(
+            emqx_utils_maps:deep_merge(
+                emqx_bridge_kafka_testlib:action_connector_config(#{}), Overrides
+            )
+        )
+    end,
+    [
+        {"reconnect_delay default is 2s",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"reconnect_delay">> := <<"2s">>}},
+                CheckAction(#{})
+            )},
+        {"reconnect_delay is settable",
+            ?_assertMatch(
+                #{<<"parameters">> := #{<<"reconnect_delay">> := <<"1500ms">>}},
+                CheckAction(#{<<"reconnect_delay">> => <<"1500ms">>})
+            )},
+        {"request_timeout default is 30s",
+            ?_assertMatch(
+                #{<<"request_timeout">> := <<"30s">>},
+                CheckConnector(#{})
+            )},
+        {"request_timeout is settable",
+            ?_assertMatch(
+                #{<<"request_timeout">> := <<"1m">>},
+                CheckConnector(#{<<"request_timeout">> => <<"1m">>})
+            )}
+    ].
+
+authentication_union_selector_test_() ->
+    Check = fun(Authentication) ->
+        RawConfig = emqx_bridge_kafka_testlib:source_connector_config(#{
+            <<"authentication">> => Authentication
+        }),
+        CheckedConfig = emqx_bridge_v2_testlib:parse_and_check_connector_not_seriailzable(
+            kafka_consumer, <<"x">>, RawConfig
+        ),
+        emqx_bridge_v2_testlib:parse_and_check_connector_not_seriailzable(
+            kafka_consumer, <<"x">>, CheckedConfig
+        )
+    end,
+    CheckError = fun(Authentication) ->
+        try Check(Authentication) of
+            _ -> no_error
+        catch
+            throw:{_, [Error]} -> Error
+        end
+    end,
+    UsernamePassword = fun(Mechanism) ->
+        #{
+            <<"mechanism">> => Mechanism,
+            <<"username">> => <<"username">>,
+            <<"password">> => <<"password">>
+        }
+    end,
+    Valid = [
+        {"default none", none},
+        {"explicit none", <<"none">>},
+        {"MSK IAM", <<"msk_iam">>},
+        {"OAuth", #{
+            <<"mechanism">> => <<"oauth">>,
+            <<"client_id">> => <<"client-id">>,
+            <<"client_secret">> => <<"client-secret">>,
+            <<"endpoint_uri">> => <<"http://127.0.0.1/oauth/token">>
+        }},
+        {"plain", UsernamePassword(<<"plain">>)},
+        {"SCRAM-SHA-256", UsernamePassword(<<"scram_sha_256">>)},
+        {"SCRAM-SHA-512", UsernamePassword(<<"scram_sha_512">>)},
+        {"Kerberos", #{
+            <<"kerberos_principal">> => <<"principal">>,
+            <<"kerberos_keytab_file">> => <<"keytab-file">>
+        }}
+    ],
+    [
+        {Name, ?_assertMatch(#{}, Check(Authentication))}
+     || {Name, Authentication} <- Valid
+    ] ++
+        [
+            {"unknown mechanism", ?_assertThrow(_, Check(#{<<"mechanism">> => <<"unknown">>}))},
+            {"unknown authentication", ?_assertThrow(_, Check(<<"unknown">>))},
+            {"invalid authentication map is not exposed",
+                ?_test(begin
+                    Error = CheckError(#{<<"client_secret">> => <<"secret">>}),
+                    ?assertMatch(#{field_name := authentication}, Error),
+                    ?assertNot(maps:is_key(got, Error))
+                end)}
+        ].
+
+%% The wolff ack callback for the wolff 4.2.0 drop reasons: `message_expired'
+%% is reported as `request_expired' (concludes the rule action without bumping
+%% resource metrics; `dropped'/`dropped.expired' are bumped via the
+%% [wolff, dropped_expired] telemetry handler), while `max_retry_exceeded' is
+%% reported as a regular error (counted as `failed' by the reply path).
+on_kafka_ack_drop_reasons_test_() ->
+    AckResult = fun(Reason) ->
+        Ref = make_ref(),
+        Self = self(),
+        ReplyFn = {fun(R) -> Self ! {Ref, R} end, []},
+        ok = emqx_bridge_kafka_impl_producer:on_kafka_ack(0, Reason, ReplyFn),
+        receive
+            {Ref, Result} -> Result
+        after 1_000 -> timeout
+        end
+    end,
+    [
+        {"message_expired -> request_expired",
+            ?_assertEqual({error, request_expired}, AckResult(message_expired))},
+        {"max_retry_exceeded -> max_retry_exceeded",
+            ?_assertEqual({error, max_retry_exceeded}, AckResult(max_retry_exceeded))}
+    ].
+
 custom_group_id_test() ->
     BadSourceConfig = emqx_bridge_kafka_testlib:source_config(#{
         <<"parameters">> =>

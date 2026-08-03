@@ -94,6 +94,70 @@ producer_attributes_validator_test_() ->
     ].
 
 -doc """
+Verifies that the topic of both producer actions and consumer sources accepts either a
+bare topic name or a fully-qualified `projects/<project-id>/topics/<topic-name>` path,
+and rejects other slash-containing values.
+""".
+pubsub_topic_validator_test_() ->
+    ErrorMsg = <<
+        "must be either a topic name or a fully-qualified topic path"
+        " 'projects/<project-id>/topics/<topic-name>'"
+    >>,
+    ValidTopics = [
+        <<"my-topic">>,
+        <<"projects/other-project/topics/my-topic">>
+    ],
+    InvalidTopics = [
+        <<"a/b">>,
+        <<"projects/other-project/foo/my-topic">>,
+        <<"projects/other-project/topics/my-topic/">>,
+        <<"projects//topics/my-topic">>,
+        <<"projects/other-project/topics/">>,
+        <<"/projects/other-project/topics/my-topic">>,
+        <<>>
+    ],
+    [
+        {
+            "producer accepts " ++ binary_to_list(Topic),
+            ?_assertMatch(
+                #{},
+                check_action(#{<<"parameters">> => #{<<"pubsub_topic">> => Topic}})
+            )
+        }
+     || Topic <- ValidTopics
+    ] ++
+        [
+            {
+                "consumer accepts " ++ binary_to_list(Topic),
+                ?_assertMatch(
+                    #{},
+                    check_source(#{<<"parameters">> => #{<<"topic">> => Topic}})
+                )
+            }
+         || Topic <- ValidTopics
+        ] ++
+        [
+            {
+                "producer rejects " ++ binary_to_list(Topic),
+                ?_assertThrow(
+                    ?validation_error(ErrorMsg, _),
+                    check_action(#{<<"parameters">> => #{<<"pubsub_topic">> => Topic}})
+                )
+            }
+         || Topic <- InvalidTopics
+        ] ++
+        [
+            {
+                "consumer rejects " ++ binary_to_list(Topic),
+                ?_assertThrow(
+                    ?validation_error(ErrorMsg, _),
+                    check_source(#{<<"parameters">> => #{<<"topic">> => Topic}})
+                )
+            }
+         || Topic <- InvalidTopics
+        ].
+
+-doc """
 Verifies that we clamp the allowed range for ack deadline.
 """.
 consumer_ack_deadline_test_() ->

@@ -328,7 +328,7 @@ end).
         | #mqtt_packet_auth{}
         | pos_integer()
         | undefined,
-    payload :: binary() | undefined
+    payload :: iodata() | undefined
 }).
 
 %%--------------------------------------------------------------------

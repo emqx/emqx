@@ -217,6 +217,72 @@ t_oauth2_client_credentials(TCConfig) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
+t_oauth2_ssl_certs_are_saved(TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    ok = set_oauth2_token_handler(<<"/auth/token">>),
+    SSL = inline_ssl_certs(),
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"oauth2">> =>
+            (oauth2_config(<<BaseURL/binary, "/auth/token">>))#{<<"ssl">> => SSL}
+    },
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    [#{<<"oauth2">> := #{<<"ssl">> := SavedSSL}}] = emqx:get_raw_config(?PATH),
+    assert_ssl_certs_are_saved(SSL, SavedSSL).
+
+t_oauth2_ssl_verify_none_allows_blank_certs(TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    ok = set_oauth2_token_handler(<<"/auth/token">>),
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"oauth2">> =>
+            (oauth2_config(<<BaseURL/binary, "/auth/token">>))#{
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"verify">> => <<"verify_none">>,
+                    <<"cacertfile">> => <<>>,
+                    <<"certfile">> => <<>>,
+                    <<"keyfile">> => <<>>
+                }
+            }
+    },
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}).
+
+t_oauth2_start_timeout_keeps_authenticator(TCConfig) ->
+    ok = block_oauth2_token_endpoint(<<"/auth/token">>),
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    Oauth2 = (oauth2_config(<<BaseURL/binary, "/auth/token">>))#{
+        <<"timeout">> => <<"30s">>
+    },
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"oauth2">> => Oauth2
+    },
+    try
+        {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+        ?assertMatch([#{backend := http}], emqx_conf:get(?PATH)),
+        {ok, #{state := #{resource_id := ResourceId}}} =
+            emqx_authn_chains:lookup_authenticator(?GLOBAL, <<"password_based:http">>),
+        ?assert(lists:member(ResourceId, emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)))
+    after
+        unblock_oauth2_token_endpoint()
+    end.
+
+t_oauth2_start_exception_removes_resource(TCConfig) ->
+    BaseURL = <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary>>,
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"oauth2">> => oauth2_config(<<BaseURL/binary, "/auth/token">>)
+    },
+    Error = emqx_common_test_helpers:with_mock(
+        emqx_resource,
+        start,
+        fun(_) -> error(start_failed) end,
+        fun() ->
+            emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig})
+        end
+    ),
+    ?assertMatch({error, _}, Error),
+    ?assert(contains_term(start_failed, Error)),
+    ?assertEqual([], emqx_conf:get(?PATH)),
+    ?assertEqual([], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)).
+
 t_authenticate(TCConfig) ->
     ok = emqx_logger:set_primary_log_level(debug),
     ok = lists:foreach(
@@ -297,6 +363,47 @@ perform_user_auth(TCConfig, SpecificConfgParams, Handler, Credentials) ->
     ),
 
     Result.
+
+block_oauth2_token_endpoint(Path) ->
+    TestPid = self(),
+    emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        Path = cowboy_req:path(Req0),
+        TestPid ! {oauth2_token_request, self()},
+        receive
+            unblock_oauth2_token_endpoint -> ok
+        end,
+        Req = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            emqx_utils_json:encode(#{
+                access_token => <<"oauth2-token">>,
+                expires_in => 3600,
+                token_type => <<"Bearer">>
+            }),
+            Req0
+        ),
+        {ok, Req, State}
+    end).
+
+unblock_oauth2_token_endpoint() ->
+    receive
+        {oauth2_token_request, Pid} ->
+            Pid ! unblock_oauth2_token_endpoint,
+            ok
+    after 0 ->
+        ok
+    end.
+
+contains_term(Term, Term) ->
+    true;
+contains_term(Needle, Term) when is_map(Term) ->
+    contains_term(Needle, maps:to_list(Term));
+contains_term(Needle, Term) when is_tuple(Term) ->
+    contains_term(Needle, tuple_to_list(Term));
+contains_term(Needle, Term) when is_list(Term) ->
+    lists:any(fun(Element) -> contains_term(Needle, Element) end, Term);
+contains_term(_Needle, _Term) ->
+    false.
 
 t_authenticate_path_placeholders(TCConfig) ->
     ok = emqx_utils_http_test_server:set_handler(
@@ -1217,6 +1324,219 @@ cert_path(FileName) ->
     Dir = code:lib_dir(emqx),
     filename:join([Dir, <<"etc/certs">>, FileName]).
 
+%%------------------------------------------------------------------------------
+%% Templated host (one-off request) tests
+%%------------------------------------------------------------------------------
+
+-doc """
+A URL with a templated host renders the host from client attributes and sends a
+one-off request to the rendered (allowed) host; path/query/header templates
+keep working on this code path.
+""".
+t_templated_host_authenticate(TCConfig) ->
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            #{
+                username := <<"plain">>,
+                password := <<"plain">>
+            } = cowboy_req:match_qs([username, password], Req0),
+            ?assertEqual(<<"localhost">>, maps:get(<<"x-tenant">>, cowboy_req:headers(Req0))),
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_JSON(allow),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+    AuthConfig = raw_templated_host_auth_config(TCConfig),
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(templated_host_credentials())
+    ).
+
+-doc """
+The one-off request path serializes POST bodies the same way the pooled path
+does.
+""".
+t_templated_host_authenticate_post(TCConfig) ->
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+            #{
+                <<"username">> := <<"plain">>,
+                <<"password">> := <<"plain">>
+            } = emqx_utils_json:decode(RawBody),
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_JSON(allow),
+                Req1
+            ),
+            {ok, Req, State}
+        end
+    ),
+    AuthConfig = (raw_templated_host_auth_config(TCConfig))#{
+        <<"method">> => <<"post">>,
+        <<"headers">> => #{<<"content-type">> => <<"application/json">>}
+    },
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(templated_host_credentials())
+    ).
+
+-doc """
+When the rendered host does not match any 'allowed_hosts' entry, authentication
+fails closed and no request reaches the server.
+""".
+t_templated_host_not_allowed(TCConfig) ->
+    ok = emqx_utils_http_test_server:set_handler(allow_handler()),
+    AuthConfig = (raw_templated_host_auth_config(TCConfig))#{
+        <<"allowed_hosts">> => [<<"other.example.com">>, <<"*.example.com">>]
+    },
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    %% The server would allow: an error result proves it was never contacted.
+    ?assertMatch(
+        {error, _},
+        emqx_access_control:authenticate(templated_host_credentials())
+    ).
+
+-doc """
+When a host template placeholder has no value, authentication fails closed and
+no request is made.
+""".
+t_templated_host_missing_var(TCConfig) ->
+    ok = emqx_utils_http_test_server:set_handler(allow_handler()),
+    AuthConfig = raw_templated_host_auth_config(TCConfig),
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    Credentials = maps:merge(?CREDENTIALS, #{client_attrs => #{}}),
+    ?assertMatch(
+        {error, _},
+        emqx_access_control:authenticate(Credentials)
+    ).
+
+-doc """
+A templated host URL cannot be configured without a non-empty 'allowed_hosts'
+list.
+""".
+t_templated_host_requires_allowed_hosts(TCConfig) ->
+    AuthConfig0 = raw_templated_host_auth_config(TCConfig),
+    lists:foreach(
+        fun(AuthConfig) ->
+            ?assertMatch(
+                {error, _},
+                emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig})
+            ),
+            ?assertEqual(
+                {error, {not_found, {chain, ?GLOBAL}}},
+                emqx_authn_chains:list_authenticators(?GLOBAL)
+            )
+        end,
+        [
+            maps:remove(<<"allowed_hosts">>, AuthConfig0),
+            %% templated host requires explicit hostname_resolution = dynamic
+            maps:remove(<<"hostname_resolution">>, AuthConfig0),
+            AuthConfig0#{<<"allowed_hosts">> => []},
+            AuthConfig0#{<<"allowed_hosts">> => [<<"bad host">>]},
+            AuthConfig0#{<<"oauth2">> => oauth2_config(<<"http://127.0.0.1:1/token">>)}
+        ]
+    ).
+
+-doc """
+Updating an authenticator between a static and a templated host URL correctly
+tears down and recreates the connector resource in both directions.
+""".
+t_templated_host_update_transitions(TCConfig) ->
+    ok = emqx_utils_http_test_server:set_handler(allow_handler()),
+    StaticConfig = raw_http_auth_config(TCConfig),
+    TemplatedConfig = raw_templated_host_auth_config(TCConfig),
+    ID = <<"password_based:http">>,
+    Credentials = templated_host_credentials(),
+
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, StaticConfig}),
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(Credentials)),
+    ?assertMatch([_], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)),
+
+    {ok, _} = emqx:update_config(?PATH, {update_authenticator, ?GLOBAL, ID, TemplatedConfig}),
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(Credentials)),
+    ?assertEqual([], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)),
+
+    {ok, _} = emqx:update_config(?PATH, {update_authenticator, ?GLOBAL, ID, StaticConfig}),
+    ?assertMatch({ok, _}, emqx_access_control:authenticate(Credentials)),
+    ?assertMatch([_], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)).
+
+-doc """
+'hostname_resolution = dynamic' forces per-request connections even when the
+URL host is a literal hostname: no connector resource is created,
+authentication works through the shared hackney pool sized by 'pool_size',
+and 'allowed_hosts' is not required. 'pool_size = 0' disables connection
+reuse and still works.
+""".
+t_dynamic_resolution_static_host(TCConfig) ->
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            #{
+                username := <<"plain">>,
+                password := <<"plain">>
+            } = cowboy_req:match_qs([username, password], Req0),
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_JSON(allow),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"hostname_resolution">> => <<"dynamic">>,
+        <<"pool_size">> => 3
+    },
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    ?assertEqual([], emqx_resource:list_group_instances(?AUTHN_RESOURCE_GROUP)),
+    ?assertEqual(3, hackney_pool:max_connections(authn)),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ),
+    %% pool_size = 0: no connection reuse, requests still work
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {update_authenticator, ?GLOBAL, <<"password_based:http">>, AuthConfig#{
+            <<"pool_size">> => 0
+        }}
+    ),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(?CREDENTIALS)
+    ).
+
+allow_handler() ->
+    fun(Req0, State) ->
+        Req = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            ?SERVER_RESPONSE_JSON(allow),
+            Req0
+        ),
+        {ok, Req, State}
+    end.
+
+templated_host_credentials() ->
+    maps:merge(?CREDENTIALS, #{client_attrs => #{<<"group">> => <<"localhost">>}}).
+
+raw_templated_host_auth_config(TCConfig) ->
+    (raw_http_auth_config(TCConfig))#{
+        <<"url">> =>
+            <<"http://${client_attrs.group}:", (http_port_bin(TCConfig))/binary, "/auth">>,
+        <<"hostname_resolution">> => <<"dynamic">>,
+        <<"allowed_hosts">> => [<<"localhost">>],
+        <<"headers">> => #{<<"X-Tenant">> => <<"${client_attrs.group}">>}
+    }.
+
 raw_http_auth_config(TCConfig) ->
     #{
         <<"mechanism">> => <<"password_based">>,
@@ -1238,6 +1558,46 @@ oauth2_config(TokenEndpoint) ->
         <<"client_id">> => <<"client-id">>,
         <<"client_secret">> => <<"client-secret">>
     }.
+
+set_oauth2_token_handler(Path) ->
+    emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        Path = cowboy_req:path(Req0),
+        Req = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            emqx_utils_json:encode(#{
+                access_token => <<"oauth2-token">>,
+                expires_in => 3600,
+                token_type => <<"Bearer">>
+            }),
+            Req0
+        ),
+        {ok, Req, State}
+    end).
+
+inline_ssl_certs() ->
+    #{
+        <<"enable">> => true,
+        <<"verify">> => <<"verify_peer">>,
+        <<"cacertfile">> => pem("cacert.pem"),
+        <<"certfile">> => pem("client-cert.pem"),
+        <<"keyfile">> => pem("client-key.pem")
+    }.
+
+pem(Name) ->
+    Path = filename:join([code:lib_dir(emqx), etc, certs, Name]),
+    {ok, Pem} = file:read_file(Path),
+    Pem.
+
+assert_ssl_certs_are_saved(SSL, SavedSSL) ->
+    lists:foreach(
+        fun(Key) ->
+            SavedPath = maps:get(Key, SavedSSL),
+            ?assertNotEqual(maps:get(Key, SSL), SavedPath),
+            ?assert(filelib:is_regular(SavedPath))
+        end,
+        [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>]
+    ).
 
 samples() ->
     [
