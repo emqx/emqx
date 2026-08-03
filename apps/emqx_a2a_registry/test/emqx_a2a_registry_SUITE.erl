@@ -33,6 +33,9 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
+suite() ->
+    [{timetrap, {seconds, 300}}].
+
 all() ->
     [
         {group, ?memory_sessions},
