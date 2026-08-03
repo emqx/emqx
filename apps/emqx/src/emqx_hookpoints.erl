@@ -146,7 +146,7 @@ when
 
 -callback 'message.ingress'(
     emqx_message_ingress:context(),
-    emqx_types:message() | {error, term()}
+    emqx_types:message()
 ) ->
     fold_callback_result(emqx_types:message() | {error, term()}).
 
