@@ -960,9 +960,7 @@ t_publish_qos0_case3(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
-t_publish_qos0_case04(_) ->
-    %% The default acl.conf does not allow wildcard subscriptions,
-    %% so an explicit allow rule is needed for this test.
+t_pub_sub_allowed_by_ipaddr_rule(_) ->
     OldAuthz = emqx:get_raw_config([authorization]),
     ok = emqx_gateway_test_utils:update_authz_file_rule(
         <<"{allow, {ipaddr, \"127.0.0.1\"}, all, [\"$SYS/#\", \"#\"]}.">>
