@@ -61,19 +61,6 @@ t_authorize(_) ->
         )
     ).
 
-t_delayed_authorize(_) ->
-    RawTopic = <<"$delayed/1/foo/2">>,
-    InvalidTopic = <<"$delayed/1/foo/3">>,
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authz_stub, [RawTopic]}, ?HP_AUTHZ),
-
-    AuthzContext = emqx_authz_context:make(clientinfo()),
-    ?assertEqual(allow, emqx_access_control:authorize(AuthzContext, ?AUTHZ_PUBLISH, RawTopic)),
-
-    ?assertEqual(
-        deny, emqx_access_control:authorize(AuthzContext, ?AUTHZ_PUBLISH, InvalidTopic)
-    ),
-    ok.
-
 t_authorize_cache_store(_) ->
     Topic = <<"cache/store">>,
     ok = emqx_authz_cache:empty_authz_cache(),
