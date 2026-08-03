@@ -62,6 +62,7 @@ end_per_testcase(_Case, _Config) -> ok.
 connect(ClientId) ->
     {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
+    put_clients(C, ClientId),
     C.
 
 sub(C, Topic) ->
@@ -77,7 +78,46 @@ unsub(C, Topic) ->
     emqtt:unsubscribe(C, Topic).
 
 disconnect(C) ->
-    emqtt:disconnect(C).
+    ok = emqtt:disconnect(C),
+    case take_clients(C) of
+        {ok, ClientId} -> wait_channel_gone(ClientId);
+        error -> ok
+    end.
+
+%% Reconnecting with the same clientid right after disconnect races with the
+%% old channel's async cleanup: while the stale row is still registered,
+%% emqx_cm refuses the new connection (CONNACK server_unavailable). Wait
+%% until the old channel is fully unregistered before returning.
+wait_channel_gone(ClientId) ->
+    wait_channel_gone(ClientId, 100).
+
+wait_channel_gone(ClientId, 0) ->
+    error({channel_still_registered, ClientId});
+wait_channel_gone(ClientId, N) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [] ->
+            ok;
+        _ ->
+            ct:sleep(50),
+            wait_channel_gone(ClientId, N - 1)
+    end.
+
+%% The client pid -> clientid map must survive across test cases, which run in
+%% separate processes. persistent_term is process-independent, so it works no
+%% matter which process calls connect/1 or disconnect/1.
+put_clients(C, ClientId) ->
+    Clients = persistent_term:get({?MODULE, clients}, []),
+    persistent_term:put({?MODULE, clients}, [{C, ClientId} | Clients]).
+
+take_clients(C) ->
+    Clients = persistent_term:get({?MODULE, clients}, []),
+    case lists:keytake(C, 1, Clients) of
+        {value, {C, ClientId}, Rest} ->
+            persistent_term:put({?MODULE, clients}, Rest),
+            {ok, ClientId};
+        false ->
+            error
+    end.
 
 api_call(Body) -> emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}).
 
