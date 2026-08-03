@@ -166,7 +166,7 @@ on_client_disconnected(ClientInfo, _Reason, _ConnInfo) ->
         Pid = self(),
         emqx_bcast:unregister_device(ClientId, Pid),
         emqx_bcast_subscription:clear(ClientId, Pid),
-        erlang:erase({?MODULE, replay_done})
+        erlang:erase({?MODULE, replayed})
     catch
         _E:_R:_ST ->
             ok
@@ -184,36 +184,8 @@ on_client_subscribe(ClientInfo, _Properties, TopicFilters) ->
             TopicFilters
         ),
         ProductKey = get_product_key(ClientInfo),
-        case erlang:get({?MODULE, replay_done}) of
-            true ->
-                ok;
-            _ ->
-                {ok, DeliveryIds} = emqx_bcast_storage:get_device_deliveries(
-                    {ProductKey, ClientId}
-                ),
-                lists:foreach(
-                    fun(DeliveryId) ->
-                        case mnesia:dirty_read(bcast_msg, DeliveryId) of
-                            [#bcast_msg{topic_template = Template}] ->
-                                Topic = emqx_bcast_utils:expand_topic(
-                                    Template, ProductKey, ClientId
-                                ),
-                                case emqx_bcast_subscription:match(ClientId, Topic) of
-                                    {ok, SubQos} ->
-                                        replay_delivery(
-                                            Pid, ProductKey, ClientId, DeliveryId, SubQos
-                                        );
-                                    false ->
-                                        ok
-                                end;
-                            [] ->
-                                ok
-                        end
-                    end,
-                    DeliveryIds
-                ),
-                erlang:put({?MODULE, replay_done}, true)
-        end
+        Replayed = replay_pending(ProductKey, ClientId, Pid),
+        erlang:put({?MODULE, replayed}, Replayed)
     catch
         _E:_R:_ST ->
             ok
@@ -243,42 +215,54 @@ on_session_resumed(ClientInfo, SessionInfo) ->
         Pid = self(),
         Subscriptions = maps:get(subscriptions, SessionInfo, #{}),
         emqx_bcast_subscription:backfill(ClientId, Pid, Subscriptions),
-        case erlang:get({?MODULE, replay_done}) of
-            true ->
-                ok;
-            _ ->
-                ProductKey = get_product_key(ClientInfo),
-                {ok, DeliveryIds} = emqx_bcast_storage:get_device_deliveries(
-                    {ProductKey, ClientId}
-                ),
-                lists:foreach(
-                    fun(DeliveryId) ->
-                        case mnesia:dirty_read(bcast_msg, DeliveryId) of
-                            [#bcast_msg{topic_template = Template}] ->
-                                Topic = emqx_bcast_utils:expand_topic(
-                                    Template, ProductKey, ClientId
-                                ),
-                                case emqx_bcast_subscription:match(ClientId, Topic) of
-                                    {ok, SubQos} ->
-                                        replay_delivery(
-                                            Pid, ProductKey, ClientId, DeliveryId, SubQos
-                                        );
-                                    false ->
-                                        ok
-                                end;
-                            [] ->
-                                ok
-                        end
-                    end,
-                    DeliveryIds
-                ),
-                erlang:put({?MODULE, replay_done}, true)
-        end
+        ProductKey = get_product_key(ClientInfo),
+        Replayed = replay_pending(ProductKey, ClientId, Pid),
+        erlang:put({?MODULE, replayed}, Replayed)
     catch
         _E:_R:_ST ->
             ok
     end,
     ok.
+
+%% Replay each pending delivery at most once per connection. Track already
+%% replayed delivery ids in the process dictionary so that a client that
+%% subscribes, unsubscribes and resubscribes (or sends several SUBSCRIBE
+%% packets on connect) does not receive the same offline message twice.
+replay_pending(ProductKey, ClientId, Pid) ->
+    Replayed0 =
+        case erlang:get({?MODULE, replayed}) of
+            undefined -> [];
+            Replayed -> Replayed
+        end,
+    {ok, DeliveryIds} = emqx_bcast_storage:get_device_deliveries({ProductKey, ClientId}),
+    lists:foldl(
+        fun(DeliveryId, Replayed) ->
+            case lists:member(DeliveryId, Replayed) of
+                true ->
+                    Replayed;
+                false ->
+                    case mnesia:dirty_read(bcast_msg, DeliveryId) of
+                        [#bcast_msg{topic_template = Template}] ->
+                            Topic = emqx_bcast_utils:expand_topic(
+                                Template, ProductKey, ClientId
+                            ),
+                            case emqx_bcast_subscription:match(ClientId, Topic) of
+                                {ok, SubQos} ->
+                                    replay_delivery(
+                                        Pid, ProductKey, ClientId, DeliveryId, SubQos
+                                    ),
+                                    [DeliveryId | Replayed];
+                                false ->
+                                    Replayed
+                            end;
+                        [] ->
+                            Replayed
+                    end
+            end
+        end,
+        Replayed0,
+        DeliveryIds
+    ).
 
 on_message_acked(ClientInfo, Msg) ->
     case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
