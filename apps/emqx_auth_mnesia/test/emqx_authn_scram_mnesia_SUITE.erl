@@ -37,8 +37,11 @@ groups() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
+            {emqx_conf,
+                emqx_authn_test_lib:emqx_appspec(#{
+                    config =>
+                        "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"
+                })},
             emqx_auth,
             emqx_auth_mnesia,
             emqx_management,

@@ -32,9 +32,10 @@ all() ->
 
 init_per_suite(Config) ->
     ok = sasl_auth:kinit(?CLI_KEYTAB_FILE, ?CLI_PRINCIPAL),
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_kerberos], #{
-        work_dir => ?config(priv_dir, Config)
-    }),
+    Apps = emqx_cth_suite:start(
+        [{emqx_conf, emqx_authn_test_lib:emqx_appspec()}, emqx_auth, emqx_auth_kerberos],
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
     IdleTimeout = emqx_config:get([mqtt, idle_timeout]),
     [{apps, Apps}, {idle_timeout, IdleTimeout} | Config].
 

@@ -52,18 +52,25 @@ end_per_suite(Config) ->
 
 init_per_testcase(t_health_check = TC, Config) ->
     common_init(TC, Config);
+init_per_testcase(TC, Config) when TC == t_handler_tcp; TC == t_handler_ws ->
+    _ = emqx_exhook_demo_svr:start(),
+    Config1 = common_init(TC, Config),
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
+    Config1;
 init_per_testcase(TC, Config) ->
     _ = emqx_exhook_demo_svr:start(),
     common_init(TC, Config).
 
-end_per_testcase(t_health_check, Config) ->
-    common_stop(Config);
-end_per_testcase(_, Config) ->
-    common_stop(Config),
+end_per_testcase(t_health_check = TC, Config) ->
+    common_stop(TC, Config);
+end_per_testcase(TC, Config) ->
+    common_stop(TC, Config),
     ok = emqx_exhook_demo_svr:stop().
 
 emqx_conf(t_cluster_name) ->
     io_lib:format("cluster.name = ~p", [?OTHER_CLUSTER_NAME_STRING]);
+emqx_conf(t_access_failed_if_no_server_running) ->
+    "authorization.sources = []";
 emqx_conf(_) ->
     #{}.
 
@@ -71,25 +78,24 @@ common_init(TC, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
-            {emqx_conf, emqx_conf(TC)},
-            {emqx_exhook, ?CONF_DEFAULT}
-        ],
+            {emqx_conf, emqx_conf(TC)}
+        ] ++
+            [emqx_auth || TC =:= t_access_failed_if_no_server_running] ++
+            [
+                {emqx_exhook, ?CONF_DEFAULT}
+            ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
     emqx_common_test_helpers:init_per_testcase(?MODULE, TC, [{tc_apps, Apps} | Config]).
 
-common_stop(Config) ->
+common_stop(TC, Config) ->
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config),
+    emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
-
-t_access_failed_if_no_server_running('init', Config) ->
-    ok = emqx_hooks:add('client.authorize', {emqx_authz, authorize, [[]]}, ?HP_AUTHZ),
-    Config;
-t_access_failed_if_no_server_running('end', _Config) ->
-    emqx_hooks:del('client.authorize', {emqx_authz, authorize}).
 
 t_access_failed_if_no_server_running(Config) ->
     ClientInfo = #{
@@ -545,12 +551,16 @@ t_stop_timeout('end', _Config) ->
     ok = meck:unload(emqx_exhook_demo_svr).
 
 t_stop_timeout(_) ->
+    TestPid = self(),
+    Ref = make_ref(),
     meck:expect(
         emqx_exhook_demo_svr,
         on_provider_unloaded,
         fun(Req, Md) ->
-            %% ensure sleep time greater than emqx_exhook_mgr shutdown timeout
-            timer:sleep(20000),
+            TestPid ! {Ref, self()},
+            receive
+                Ref -> ok
+            end,
             meck:passthrough([Req, Md])
         end
     ),
@@ -558,6 +568,11 @@ t_stop_timeout(_) ->
     %% stop application
     ok = application:stop(emqx_exhook),
     ?block_until(#{?snk_kind := exhook_mgr_terminated}, 20000),
+    receive
+        {Ref, CallbackPid} -> CallbackPid ! Ref
+    after 1000 ->
+        ct:fail("Provider unload callback was not called")
+    end,
 
     %% all exhook hooked point should be unloaded
     Hooks = lists:flatmap(

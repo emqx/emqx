@@ -1094,7 +1094,7 @@ t_sub_non_utf8_topic(Config) ->
     after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
     end,
     timer:sleep(1000),
-    ListenerCounts = emqx_listeners:shutdown_count(listener_id(Config), listener_port(Config)),
+    ListenerCounts = shutdown_counts(Config),
     TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
     ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
     ok.
@@ -1674,7 +1674,7 @@ shutdown_count_keys(Config) ->
     lists:sort(proplists:get_keys(shutdown_counts(Config))).
 
 shutdown_counts(Config) ->
-    emqx_listeners:shutdown_count(listener_id(Config), listener_port(Config)).
+    emqx_listeners:shutdown_count(listener_id(Config), listener_bind(Config)).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -1682,6 +1682,9 @@ shutdown_counts(Config) ->
 
 listener_id(Config) when is_list(Config) ->
     emqx_listeners:listener_id(?config(listener_type, Config), default).
+
+listener_bind(Config) ->
+    emqx_config:get([listeners, ?config(listener_type, Config), default, bind]).
 
 listener_port(Config) when is_list(Config) -> listener_port(?config(listener_type, Config));
 listener_port(tcp) -> 1883;

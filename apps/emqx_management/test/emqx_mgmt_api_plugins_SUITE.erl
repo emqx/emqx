@@ -798,7 +798,9 @@ update_plugin_config(Name, Config) ->
     end.
 
 install_plugin(FilePath) ->
-    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
+        <<"admin">>, emqx_dashboard_admin:default_password()
+    ),
     Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
     case
         emqx_mgmt_api_test_util:upload_request(

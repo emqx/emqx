@@ -27,6 +27,7 @@
     " retry_interval = \"1s\"\n"
     " listeners.tcp.default {\n"
     "    bind = 7325\n"
+    "    enable_authn = false\n"
     "  }\n"
     "}\n"
 >>).
@@ -54,10 +55,24 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_case01_auth_expire;
+    TestCase =:= t_case01_login_mountpoint_from_authn_client_attrs
+->
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(gbt32960, true),
+    snabbkaffe:start_trace(),
+    Config;
 init_per_testcase(_, Config) ->
     snabbkaffe:start_trace(),
     Config.
 
+end_per_testcase(TestCase, _Config) when
+    TestCase =:= t_case01_auth_expire;
+    TestCase =:= t_case01_login_mountpoint_from_authn_client_attrs
+->
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(gbt32960, false),
+    snabbkaffe:stop(),
+    ok;
 end_per_testcase(_, _Config) ->
     snabbkaffe:stop(),
     ok.

@@ -18,8 +18,7 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx_conf,
-            emqx,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
             emqx_auth,
             %% to load schema
             {emqx_auth_cinfo, #{start => false}},

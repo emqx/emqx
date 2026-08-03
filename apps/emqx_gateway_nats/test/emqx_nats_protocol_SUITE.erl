@@ -49,6 +49,7 @@ init_per_suite(Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     emqx_common_test_http:create_default_app(),
+    ok = disable_auth(),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -857,7 +858,7 @@ auth_cleanup(Config) ->
     end,
     Config.
 
-with_nats_no_auth_config(Config, EnableAuthn, Fun) ->
+with_nats_empty_auth(EnableAuthn, Fun) ->
     PrevConf = emqx:get_config([gateway, nats]),
     try
         _ = emqx_conf:update(
@@ -866,26 +867,12 @@ with_nats_no_auth_config(Config, EnableAuthn, Fun) ->
             #{override_to => cluster}
         ),
         _ = disable_auth(),
-        ok = update_listener_authn(Config, EnableAuthn),
+        ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, EnableAuthn),
         Fun()
     after
-        ok = update_nats_gateway(PrevConf)
+        ok = update_nats_gateway(PrevConf),
+        ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, false)
     end.
-
-update_listener_authn(Config, EnableAuthn) ->
-    Group = group_from(Config),
-    ListenerConf0 = emqx_conf:get([gateway, nats, listeners, Group, default]),
-    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
-    ok =
-        case emqx_gateway_conf:update_listener(nats, {Group, default}, ListenerConf1) of
-            ok -> ok;
-            {ok, _} -> ok
-        end,
-    ?assertEqual(
-        EnableAuthn,
-        emqx_conf:get([gateway, nats, listeners, Group, default, enable_authn], undefined)
-    ),
-    ok.
 
 update_nats_gateway(Conf) ->
     case emqx_gateway:update(nats, Conf) of
@@ -910,6 +897,7 @@ token_auth_setup(Config, Type, Token) ->
                     ],
                 #{override_to => cluster}
             ),
+            ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, true),
             [{token_auth_prev, Prev} | Config];
         nats ->
             Config
@@ -934,7 +922,8 @@ token_auth_cleanup(Config) ->
                     ok;
                 false ->
                     ok
-            end;
+            end,
+            ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, false);
         nats ->
             ok
     end,
@@ -956,6 +945,7 @@ nkey_auth_setup(Config) ->
                     ],
                 #{override_to => cluster}
             ),
+            ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, true),
             [{nkey_auth_prev, Prev} | Config];
         nats ->
             Config
@@ -980,7 +970,8 @@ nkey_auth_cleanup(Config) ->
                     ok;
                 false ->
                     ok
-            end;
+            end,
+            ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, false);
         nats ->
             ok
     end,
@@ -1016,6 +1007,7 @@ jwt_auth_setup(Config, Overrides) ->
                 Existing ++ [JWTConf],
                 #{override_to => cluster}
             ),
+            ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, true),
             [{jwt_auth_prev, Prev} | Config];
         nats ->
             Config
@@ -1040,7 +1032,8 @@ jwt_auth_cleanup(Config) ->
                     ok;
                 false ->
                     ok
-            end;
+            end,
+            ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, false);
         nats ->
             ok
     end,
@@ -1835,7 +1828,7 @@ t_auth_dynamic_enable_disable(Config) ->
 
 t_hardened_no_auth_config_rejects_anonymous_pub_sub_connect(Config) ->
     emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        with_nats_no_auth_config(Config, true, fun() ->
+        with_nats_empty_auth(true, fun() ->
             ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
             assert_info_auth_required(ClientOpts, true),
             assert_pre_connect_publish_rejected(ClientOpts),
@@ -1846,7 +1839,7 @@ t_hardened_no_auth_config_rejects_anonymous_pub_sub_connect(Config) ->
 
 t_legacy_no_auth_config_allows_anonymous_pub_sub_connect(Config) ->
     emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        with_nats_no_auth_config(Config, true, fun() ->
+        with_nats_empty_auth(true, fun() ->
             ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
             assert_info_auth_required(ClientOpts, false),
             assert_pre_connect_pub_sub_allowed(ClientOpts),
@@ -1856,7 +1849,7 @@ t_legacy_no_auth_config_allows_anonymous_pub_sub_connect(Config) ->
 
 t_hardened_listener_authn_disabled_allows_anonymous_pub_sub_connect(Config) ->
     emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        with_nats_no_auth_config(Config, false, fun() ->
+        with_nats_empty_auth(false, fun() ->
             ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
             assert_info_auth_required(ClientOpts, false),
             assert_pre_connect_pub_sub_allowed(ClientOpts),

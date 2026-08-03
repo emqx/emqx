@@ -30,8 +30,7 @@ end_per_suite(_Config) ->
 init_per_testcase(Case, Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
             emqx_auth
         ],
         #{work_dir => emqx_cth_suite:work_dir(Case, Config)}

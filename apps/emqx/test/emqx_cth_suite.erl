@@ -64,6 +64,10 @@
 -export([merge_appspec/2]).
 -export([merge_config/2]).
 
+-export([emqx_config_authn/1]).
+-export([emqx_config_authz/1]).
+-export([emqx_config_no_auth/0]).
+
 -export([inhibit_config_loader/2]).
 
 %% "Unofficial" `emqx_config_handler' and `emqx_conf' APIs
@@ -328,7 +332,7 @@ default_appspec(emqx, SuiteOpts) ->
         % We inform `emqx` of our config loader before starting it so that it won't
         % overwrite everything with a default configuration.
         before_start => fun inhibit_config_loader/2,
-        config => #{authorization => #{no_match => allow}}
+        config => emqx_config_no_auth()
     };
 default_appspec(emqx_conf, SuiteOpts) ->
     Config = #{
@@ -384,6 +388,20 @@ default_config(App, SuiteOpts) ->
     maps:get(config, default_appspec(App, SuiteOpts), #{}).
 
 %%
+
+emqx_config_authz(NoMatch) ->
+    #{authorization => #{no_match => NoMatch}}.
+
+emqx_config_authn(EnableAuthn) ->
+    #{
+        listeners => maps:from_keys(
+            [tcp, ssl, ws, wss],
+            #{default => #{enable_authn => EnableAuthn}}
+        )
+    }.
+
+emqx_config_no_auth() ->
+    emqx_utils_maps:deep_merge(emqx_config_authn(false), emqx_config_authz(allow)).
 
 %% @doc Determine the unique work directory for the current test run.
 %% Takes into account name of the test suite, and all test groups the current run

@@ -10,20 +10,11 @@
 
 -spec emqx_dashboard() -> emqx_cth_suite:appspec().
 emqx_dashboard() ->
-    emqx_dashboard("""
-        dashboard {
-            listeners.http { enable = true, bind = 18083 }
-            password_expired_time = "86400s"
-        }
-    """).
+    emqx_common_test_http:emqx_dashboard().
 
+-spec emqx_dashboard(map() | string()) -> emqx_cth_suite:appspec().
 emqx_dashboard(Config) ->
-    {emqx_dashboard, #{
-        config => Config,
-        before_start => fun() ->
-            {ok, _} = emqx_common_test_http:create_default_app()
-        end
-    }}.
+    emqx_common_test_http:emqx_dashboard(Config).
 
 %% there is no difference between the 'request' and 'request_api'
 %% the 'request' is only to be compatible with the 'emqx_dashboard_api_test_helpers:request'

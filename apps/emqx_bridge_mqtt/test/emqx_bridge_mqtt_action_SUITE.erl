@@ -132,8 +132,7 @@ init_per_group(?cluster = Group, TCConfig) ->
 init_per_group(?local, TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf,
+            {emqx_conf, #{config => emqx_cth_suite:emqx_config_authn(true)}},
             emqx_connector,
             emqx_bridge_mqtt,
             {emqx_bridge, #{

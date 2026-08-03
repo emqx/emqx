@@ -25,9 +25,12 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
             {emqx_conf,
-                "authorization { cache { enable = false }, no_match = deny, sources = [] }"},
+                emqx_authz_test_lib:emqx_appspec(#{
+                    config =>
+                        "authorization { cache { enable = false }, no_match = deny, sources = [] }"
+                        "\nlog.throttling.msgs = []"
+                })},
             emqx_auth
         ],
         #{
@@ -755,7 +758,7 @@ t_alias_prefix(_Config) ->
     NonMatching = <<"clientid_which_has_no_dash">>,
     {ok, C2} = emqtt:start_link([{clientid, NonMatching}, {proto_ver, v5}]),
     ?assertMatch({ok, _}, emqtt:connect(C2)),
-    ?assertMatch({ok, _, [?RC_SUCCESS]}, emqtt:subscribe(C2, <<"client_attrs_backup">>)),
+    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C2, <<"client_attrs_backup">>)),
     %% assert '${client_attrs.alias}/#' is not rendered as '/#'
     ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C2, <<"/#">>)),
     unlink(C2),
@@ -777,7 +780,7 @@ t_non_existing_attr(_Config) ->
     ClientId = <<"org1-name3">>,
     {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
     ?assertMatch({ok, _}, emqtt:connect(C)),
-    ?assertMatch({ok, _, [?RC_SUCCESS]}, emqtt:subscribe(C, <<"client_attrs_backup">>)),
+    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, <<"client_attrs_backup">>)),
     %% assert '${client_attrs.nonexist}/#' is not rendered as '/#'
     ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, <<"/#">>)),
     unlink(C),

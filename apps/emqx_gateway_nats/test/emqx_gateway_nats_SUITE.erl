@@ -42,16 +42,16 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) ->
     _ = emqx_gateway_conf:unload_gateway(nats),
     ct:sleep(100),
-    case needs_gateway(_TestCase) of
+    case needs_gateway(TestCase) of
         true ->
             Port = emqx_common_test_helpers:select_free_port(tcp),
             Conf = nats_conf(Port),
             {ok, _} = emqx_gateway_conf:load_gateway(nats, Conf),
-            ok = assert_can_connect(Port, 10),
             _ = emqx_gateway_test_utils:disable_gateway_auth(<<"nats">>),
+            ok = assert_can_connect(Port, 10),
             [
                 {client_opts, default_client_opts(Port)},
                 {group_name, tcp},

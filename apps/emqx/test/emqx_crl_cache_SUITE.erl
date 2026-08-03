@@ -198,7 +198,7 @@ init_per_testcase(TestCase, Config) when
             Apps = emqx_cth_suite:start(
                 [
                     {emqx_conf, #{config => #{listeners => #{ssl => #{default => ListenerConf}}}}},
-                    emqx,
+                    {emqx, #{config => false}},
                     emqx_management,
                     emqx_mgmt_api_test_util:emqx_dashboard()
                 ],

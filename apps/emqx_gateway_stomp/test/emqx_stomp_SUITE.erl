@@ -37,6 +37,7 @@
     "  }\n"
     " listeners.tcp.default {\n"
     "    bind = 61613\n"
+    "    enable_authn = false\n"
     "  }\n"
     "}\n"
 >>).
@@ -67,10 +68,28 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_auth_expire;
+    TestCase =:= t_auth_failed;
+    TestCase =:= t_authn_superuser;
+    TestCase =:= t_mountpoint_from_authn_client_attrs
+->
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(stomp, true),
+    snabbkaffe:start_trace(),
+    Config;
 init_per_testcase(_TestCase, Config) ->
     snabbkaffe:start_trace(),
     Config.
 
+end_per_testcase(TestCase, _Config) when
+    TestCase =:= t_auth_expire;
+    TestCase =:= t_auth_failed;
+    TestCase =:= t_authn_superuser;
+    TestCase =:= t_mountpoint_from_authn_client_attrs
+->
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(stomp, false),
+    snabbkaffe:stop(),
+    ok;
 end_per_testcase(_TestCase, _Config) ->
     snabbkaffe:stop(),
     ok.

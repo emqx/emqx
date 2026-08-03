@@ -165,3 +165,13 @@ t_zone_override(TCConfig, Opts) when is_list(TCConfig) ->
     ?assertReceive({publish, #{payload := <<"hey">>}}),
     ok = emqtt:stop(C),
     ok.
+
+emqx_appspec() ->
+    emqx_appspec(#{}).
+
+emqx_appspec(AppSpec) ->
+    Config = emqx_utils_maps:deep_merge(
+        emqx_cth_suite:emqx_config_authn(true),
+        emqx_cth_suite:emqx_config_authz(allow)
+    ),
+    emqx_cth_suite:merge_appspec(#{config => Config}, AppSpec).

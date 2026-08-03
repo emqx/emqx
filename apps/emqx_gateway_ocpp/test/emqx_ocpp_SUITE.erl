@@ -23,27 +23,29 @@
     ]
 ).
 
-%% erlfmt-ignore
--define(CONF_DEFAULT, <<"
+-define(CONF_DEFAULT,
+    ~b"""
     gateway.ocpp {
-      mountpoint = \"ocpp/\"
-      default_heartbeat_interval = \"60s\"
-      heartbeat_checking_times_backoff = 1
-      message_format_checking = disable
-      upstream {
-        topic = \"cp/${clientid}\"
-        reply_topic = \"cp/${clientid}/Reply\"
-        error_topic = \"cp/${clientid}/Reply\"
-      }
-      dnstream {
-        topic = \"cs/${clientid}\"
-      }
-      listeners.ws.default {
-          bind = \"0.0.0.0:33033\"
-          websocket.path = \"/ocpp\"
-      }
+        mountpoint = "ocpp/"
+        default_heartbeat_interval = "60s"
+        heartbeat_checking_times_backoff = 1
+        message_format_checking = disable
+        upstream {
+            topic = "cp/${clientid}"
+            reply_topic = "cp/${clientid}/Reply"
+            error_topic = "cp/${clientid}/Reply"
+        }
+        dnstream {
+            topic = "cs/${clientid}"
+        }
+        listeners.ws.default {
+            bind = "0.0.0.0:33033"
+            enable_authn = false
+            websocket.path = "/ocpp"
+        }
     }
-">>).
+    """
+).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -72,7 +74,16 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
+init_per_testcase(TestCase, Config) when
+    TestCase == t_auth_expire;
+    TestCase == t_listener_enable_authn_false_skips_authentication;
+    TestCase == t_update_listeners
+->
+    ok = set_ocpp_listener_enable_authn(true),
+    snabbkaffe:start_trace(),
+    Config;
 init_per_testcase(_TestCase, Config) ->
+    ok = set_ocpp_listener_enable_authn(false),
     snabbkaffe:start_trace(),
     Config.
 

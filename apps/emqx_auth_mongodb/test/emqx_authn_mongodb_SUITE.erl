@@ -43,7 +43,13 @@ end_per_testcase(_TestCase, Config) ->
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_mongodb], #{
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_auth_mongodb
+        ],
+        #{
             work_dir => ?config(priv_dir, Config)
         }
     ),
@@ -175,7 +181,7 @@ t_destroy(Config) ->
 
     % Authenticator should not be usable anymore
     ?assertMatch(
-        ignore,
+        {error, not_authorized},
         emqx_authn_mongodb:authenticate(
             #{
                 username => <<"plain">>,

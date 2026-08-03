@@ -25,8 +25,10 @@ init_per_suite(Config) ->
     _ = application:load(emqx_conf),
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
+            {emqx_conf,
+                emqx_authn_test_lib:emqx_appspec(#{
+                    config => "authorization.no_match = deny, authorization.cache.enable = false"
+                })},
             emqx_auth,
             emqx_auth_ldap
         ],

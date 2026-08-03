@@ -53,8 +53,7 @@ end_per_testcase(_, Config) ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx_conf,
-            emqx,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
             {emqx_auth, #{after_start => fun() -> ok end}},
             %% to load schema
             {emqx_auth_mnesia, #{start => false}},

@@ -577,7 +577,7 @@ t_check_scopes_unmapped_path(_Config) ->
 %%--------------------------------------------------------------------
 
 t_api_list_scopes(_Config) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key_scopes"]),
     {ok, Res} = emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader),
     Body = emqx_utils_json:decode(Res),
@@ -709,7 +709,7 @@ create_app(Name) ->
     create_app(Name, #{}).
 
 create_app(Name, Extra) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     ExpiredAt = to_rfc3339(erlang:system_time(second) + 1000),
     App = Extra#{
@@ -724,7 +724,7 @@ create_app(Name, Extra) ->
     end.
 
 read_app(Name) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
         {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
@@ -732,12 +732,12 @@ read_app(Name) ->
     end.
 
 delete_app(Name) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     DeletePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath, AuthHeader).
 
 update_app(Name, Change) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
         {ok, Update} -> {ok, emqx_utils_json:decode(Update)};

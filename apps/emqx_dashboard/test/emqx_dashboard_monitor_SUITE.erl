@@ -7,7 +7,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_SUITE, [auth_header_/0]).
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -include("emqx_dashboard.hrl").
@@ -1135,7 +1134,7 @@ request(Path) ->
 
 request(Path, QS) ->
     Url = url(Path, QS),
-    do_request_api(get, {Url, [auth_header_()]}).
+    do_request_api(get, {Url, [emqx_common_test_http:default_user_auth_header()]}).
 
 get_latest_from_window(Config, Window) ->
     WindowS = integer_to_list(window_in_seconds(Window)),
@@ -1156,7 +1155,7 @@ get_req_cluster(Config, Path, QS) ->
     Port = get_http_dashboard_port(APINode),
     Host = host(Port),
     Url = url(Host, Path, QS),
-    Auth = ?ON(APINode, auth_header_()),
+    Auth = ?ON(APINode, emqx_common_test_http:default_user_auth_header()),
     do_request_api(get, {Url, [Auth]}).
 
 host(Port) ->
@@ -1164,7 +1163,7 @@ host(Port) ->
 
 delete(Path) ->
     Url = url(Path, ""),
-    do_request_api(delete, {Url, [auth_header_()]}).
+    do_request_api(delete, {Url, [emqx_common_test_http:default_user_auth_header()]}).
 
 url(Parts, QS) ->
     url(?SERVER, Parts, QS).

@@ -36,19 +36,19 @@ end_per_testcase(_TestCase, Config) ->
 t_default_conf(_Config) ->
     ?assertMatch(
         #{
-            <<"tcp">> := #{<<"default">> := #{<<"bind">> := <<"0.0.0.0:1883">>}},
-            <<"ssl">> := #{<<"default">> := #{<<"bind">> := <<"0.0.0.0:8883">>}},
-            <<"ws">> := #{<<"default">> := #{<<"bind">> := <<"0.0.0.0:8083">>}},
-            <<"wss">> := #{<<"default">> := #{<<"bind">> := <<"0.0.0.0:8084">>}}
+            <<"tcp">> := #{<<"default">> := #{<<"bind">> := <<"127.0.0.1:1883">>}},
+            <<"ssl">> := #{<<"default">> := #{<<"bind">> := <<"127.0.0.1:8883">>}},
+            <<"ws">> := #{<<"default">> := #{<<"bind">> := <<"127.0.0.1:8083">>}},
+            <<"wss">> := #{<<"default">> := #{<<"bind">> := <<"127.0.0.1:8084">>}}
         },
         emqx:get_raw_config(?LISTENERS)
     ),
     ?assertMatch(
         #{
-            tcp := #{default := #{bind := {{0, 0, 0, 0}, 1883}}},
-            ssl := #{default := #{bind := {{0, 0, 0, 0}, 8883}}},
-            ws := #{default := #{bind := {{0, 0, 0, 0}, 8083}}},
-            wss := #{default := #{bind := {{0, 0, 0, 0}, 8084}}}
+            tcp := #{default := #{bind := {{127, 0, 0, 1}, 1883}}},
+            ssl := #{default := #{bind := {{127, 0, 0, 1}, 8883}}},
+            ws := #{default := #{bind := {{127, 0, 0, 1}, 8083}}},
+            wss := #{default := #{bind := {{127, 0, 0, 1}, 8084}}}
         },
         emqx:get_config(?LISTENERS)
     ),
@@ -404,7 +404,7 @@ t_add_delete_conf(_Conf) ->
     %% deleted
     ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw)),
     ?assertError(not_found, current_conns(<<"tcp:new">>, {{127, 0, 0, 1}, 1987})),
-    ?assertEqual(0, current_conns(<<"ssl:default">>, {{0, 0, 0, 0}, 8883})),
+    ?assertEqual(0, current_conns(<<"ssl:default">>, {{127, 0, 0, 1}, 8883})),
     ok.
 
 t_delete_default_conf(_Conf) ->
@@ -415,15 +415,15 @@ t_delete_default_conf(_Conf) ->
     Raw3 = emqx_utils_maps:deep_put([<<"ws">>, <<"default">>], Raw2, ?TOMBSTONE_VALUE),
     Raw4 = emqx_utils_maps:deep_put([<<"wss">>, <<"default">>], Raw3, ?TOMBSTONE_VALUE),
     ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw4)),
-    ?assertError(not_found, current_conns(<<"tcp:default">>, {{0, 0, 0, 0}, 1883})),
-    ?assertError(not_found, current_conns(<<"ssl:default">>, {{0, 0, 0, 0}, 8883})),
+    ?assertError(not_found, current_conns(<<"tcp:default">>, {{127, 0, 0, 1}, 1883})),
+    ?assertError(not_found, current_conns(<<"ssl:default">>, {{127, 0, 0, 1}, 8883})),
     ?assertMatch({error, not_found}, is_running('ws:default')),
     ?assertMatch({error, not_found}, is_running('wss:default')),
 
     %% reset
     ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw)),
-    ?assertEqual(0, current_conns(<<"tcp:default">>, {{0, 0, 0, 0}, 1883})),
-    ?assertEqual(0, current_conns(<<"ssl:default">>, {{0, 0, 0, 0}, 8883})),
+    ?assertEqual(0, current_conns(<<"tcp:default">>, {{127, 0, 0, 1}, 1883})),
+    ?assertEqual(0, current_conns(<<"ssl:default">>, {{127, 0, 0, 1}, 8883})),
     ?assert(is_running('ws:default')),
     ?assert(is_running('wss:default')),
     ok.

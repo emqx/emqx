@@ -137,18 +137,21 @@ mqttsn_apps(Port) ->
 mqttsn_conf(Port) ->
     iolist_to_binary(
         io_lib:format(
-            "gateway.mqttsn {\n"
-            "  gateway_id = 1\n"
-            "  broadcast = false\n"
-            "  enable_qos3 = true\n"
-            "  clientinfo_override {\n"
-            "    username = \"user1\"\n"
-            "    password = \"pw123\"\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = \"127.0.0.1:~B\"\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.mqttsn {
+                gateway_id = 1
+                broadcast = false
+                enable_qos3 = true
+                clientinfo_override {
+                    username = "user1"
+                    password = "pw123"
+                }
+                listeners.udp.default {
+                    bind = "127.0.0.1:~B"
+                    enable_authn = false
+                }
+            }
+            """,
             [Port]
         )
     ).

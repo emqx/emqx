@@ -28,11 +28,13 @@ init_per_suite(Config) ->
                     license => LicenseConf
                 }
             }},
-            {emqx_dashboard,
-                "dashboard {"
-                "\n  listeners.http { enable = true, bind = 18083 }"
-                "\n  default_username = \"license_admin\""
-                "\n}"}
+            emqx_management,
+            emqx_common_test_http:emqx_dashboard("""
+                dashboard {
+                    listeners.http { enable = true, bind = 18083 }
+                    default_username = "license_admin"
+                }
+            """)
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -58,7 +60,7 @@ request(Method, Uri, Body) ->
 
 request(Method, Uri, Body, Headers) ->
     emqx_dashboard_api_test_helpers:request(
-        <<"license_admin">>, <<"public">>, Method, Uri, Body, Headers
+        <<"license_admin">>, emqx_dashboard_admin:default_password(), Method, Uri, Body, Headers
     ).
 
 uri(Segments) ->

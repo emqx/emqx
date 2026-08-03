@@ -58,12 +58,12 @@ init_per_suite(Config) ->
             emqx_gateway,
             emqx_auth,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            emqx_common_test_http:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_common_test_http:create_default_app(),
     RawConf = emqx:get_raw_config([gateway, nats]),
+    ok = disable_auth(),
     [
         {suite_apps, Apps},
         {tcp_port, TcpPort},
@@ -83,9 +83,9 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     cleanup_hooks(),
     allow_pubsub_all(),
-    disable_auth(),
     update_nats_with_clientinfo_override(#{}),
     restore_nats_conf(?config(raw_conf, Config)),
+    disable_auth(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -212,6 +212,7 @@ t_listener_authn_disabled_keeps_mountpoint_and_authn_hooks(Config) ->
 
 t_internal_token_auth_recomputes_mountpoint(Config) ->
     AuthToken = <<"internal-token">>,
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, true),
     update_nats_with_internal_authn_and_mountpoint(
         [
             #{

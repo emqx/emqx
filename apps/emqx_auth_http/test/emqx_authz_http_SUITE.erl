@@ -29,8 +29,10 @@ all() ->
 init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
+            {emqx_conf,
+                emqx_authz_test_lib:emqx_appspec(#{
+                    config => "authorization.no_match = deny, authorization.cache.enable = false"
+                })},
             emqx_auth,
             emqx_auth_http
         ],
@@ -159,8 +161,7 @@ t_response_handling(TCConfig) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
-    %% the server cannot be reached; should skip to the next
-    %% authorizer in the chain.
+    %% The server cannot be reached; hardened mode should deny authorization.
     ok = emqx_utils_http_test_server:stop(),
 
     ?check_trace(
@@ -178,13 +179,7 @@ t_response_handling(TCConfig) ->
                 ],
                 ?of_kind(authz_http_request_failure, Trace)
             ),
-            ?assert(
-                ?strict_causality(
-                    #{?snk_kind := authz_http_request_failure},
-                    #{?snk_kind := authz_non_superuser, result := nomatch},
-                    Trace
-                )
-            ),
+            ?assertEqual([], ?of_kind(authz_non_superuser, Trace)),
             ok
         end
     ),
@@ -603,34 +598,34 @@ t_bad_response(TCConfig) ->
         #{
             counters := #{
                 total := 1,
-                ignore := 1,
+                ignore := 0,
                 nomatch := 0,
                 allow := 0,
-                deny := 0
+                deny := 1
             },
             'authorization.superuser' := 0,
             'authorization.matched.allow' := 0,
-            'authorization.matched.deny' := 0,
-            'authorization.nomatch' := 1
+            'authorization.matched.deny' := 1,
+            'authorization.nomatch' := 0
         },
         get_metrics()
     ),
     ?assertMatch(
         {200, #{
             <<"metrics">> := #{
-                <<"ignore">> := 1,
+                <<"ignore">> := 0,
                 <<"nomatch">> := 0,
                 <<"allow">> := 0,
-                <<"deny">> := 0,
+                <<"deny">> := 1,
                 <<"total">> := 1
             },
             <<"node_metrics">> := [
                 #{
                     <<"metrics">> := #{
-                        <<"ignore">> := 1,
+                        <<"ignore">> := 0,
                         <<"nomatch">> := 0,
                         <<"allow">> := 0,
-                        <<"deny">> := 0,
+                        <<"deny">> := 1,
                         <<"total">> := 1
                     }
                 }

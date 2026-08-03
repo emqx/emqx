@@ -82,7 +82,7 @@ t_destroy(Config) ->
     ),
     emqx_authn_test_lib:delete_authenticators([authentication], ?GLOBAL),
     ?assertMatch(
-        ignore,
+        {error, not_authorized},
         emqx_gcp_device_authn:authenticate(Credential, #{})
     ).
 

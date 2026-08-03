@@ -118,11 +118,10 @@ init_per_suite(Config) ->
             emqx_gateway,
             emqx_auth,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            emqx_common_test_http:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_common_test_http:create_default_app(),
     [{suite_apps, Apps}, {cacertfile, CACertfile} | Config].
 
 end_per_suite(Config) ->
@@ -131,6 +130,7 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
+    ok = emqx_gateway_test_utils:disable_gateway_auth(<<"mqttsn">>),
     snabbkaffe:start_trace(),
     Config.
 
@@ -773,6 +773,7 @@ t_publish_negqos_idle_requires_authn_in_hardened_profile(_) ->
     Topic = <<"ab">>,
     Payload = <<"idle-negqos-authn">>,
     ok = emqx:subscribe(Topic),
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"mqttsn">>, true),
     try
         emqx_common_test_helpers:with_security_profile("hardened", fun() ->
             {ok, Socket} = gen_udp:open(0, [binary]),
@@ -789,6 +790,7 @@ t_publish_negqos_idle_requires_authn_in_hardened_profile(_) ->
             gen_udp:close(Socket)
         end)
     after
+        emqx_gateway_test_utils:set_gateway_listeners_authn(<<"mqttsn">>, false),
         emqx:unsubscribe(Topic)
     end.
 

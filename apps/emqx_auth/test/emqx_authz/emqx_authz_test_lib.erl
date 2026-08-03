@@ -77,6 +77,16 @@ enable_node_cache(Enable) ->
 reset_node_cache() ->
     emqx_auth_cache:reset(?AUTHZ_CACHE).
 
+emqx_appspec() ->
+    emqx_appspec(#{}).
+
+emqx_appspec(AppSpec) ->
+    Config = emqx_utils_maps:deep_merge(
+        emqx_cth_suite:emqx_config_authn(false),
+        emqx_cth_suite:emqx_config_authz(deny)
+    ),
+    emqx_cth_suite:merge_appspec(#{config => Config}, AppSpec).
+
 %%--------------------------------------------------------------------
 %% Table-based test helpers
 %%--------------------------------------------------------------------

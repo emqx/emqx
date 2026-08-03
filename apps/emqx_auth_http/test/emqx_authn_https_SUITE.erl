@@ -26,9 +26,15 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(TCConfig) ->
-    Apps = emqx_cth_suite:start([cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_http], #{
-        work_dir => ?config(priv_dir, TCConfig)
-    }),
+    Apps = emqx_cth_suite:start(
+        [
+            cowboy,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_http
+        ],
+        #{work_dir => ?config(priv_dir, TCConfig)}
+    ),
     [{apps, Apps} | TCConfig].
 
 end_per_suite(TCConfig) ->

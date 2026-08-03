@@ -149,6 +149,7 @@ init_per_testcase(t_uuid_saved_to_file, Config) ->
     Config;
 init_per_testcase(t_num_clients, Config) ->
     ok = snabbkaffe:start_trace(),
+    _ = emqx_common_test_helpers:listener_disable_authn(tcp, default),
     Config;
 init_per_testcase(_Testcase, Config) ->
     mock_httpc(),
