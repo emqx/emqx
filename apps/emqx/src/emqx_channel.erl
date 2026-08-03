@@ -3556,7 +3556,7 @@ prepare_will_message_for_publishing(ClientInfo, Msg) ->
             case ClientBanned of
                 true ->
                     {error, #{
-                        client_banned => ClientBanned,
+                        client_banned => true,
                         publishing_disallowed => false
                     }};
                 false ->
@@ -3565,7 +3565,7 @@ prepare_will_message_for_publishing(ClientInfo, Msg) ->
             end;
         deny ->
             {error, #{
-                client_banned => emqx_banned:check(ClientInfo),
+                client_banned => false,
                 publishing_disallowed => true
             }};
         {error, Reason} ->
