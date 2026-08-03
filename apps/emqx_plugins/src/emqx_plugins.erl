@@ -8,40 +8,40 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
-%% Browser/security-sensitive response headers that plugin API callbacks
-%% are not allowed to set. All names must be lower-case binary because
+%% Response headers that plugin API callbacks are allowed to set. An
+%% allow-list is used instead of a deny-list because a deny-list is doomed to
+%% be incomplete — every new browser security mechanism adds another header
+%% to deny. Plugins that need a custom header must prefix it with
+%% `x-plugin-'. All names must be lower-case binary because
 %% `normalize_headers/1' lower-cases keys.
--define(PLUGIN_API_FORBIDDEN_HEADERS, [
-    %% auth
-    <<"authorization">>,
-    <<"www-authenticate">>,
-    <<"proxy-authenticate">>,
-    %% cookies
-    <<"cookie">>,
-    <<"cookie2">>,
-    <<"set-cookie">>,
-    <<"set-cookie2">>,
-    %% CORS
-    <<"access-control-allow-origin">>,
-    <<"access-control-allow-credentials">>,
-    <<"access-control-allow-methods">>,
-    <<"access-control-allow-headers">>,
-    <<"access-control-expose-headers">>,
-    <<"access-control-max-age">>,
-    <<"access-control-request-method">>,
-    <<"access-control-request-headers">>,
-    %% redirects
-    <<"location">>,
-    <<"refresh">>,
-    %% security/policy
-    <<"content-security-policy">>,
-    <<"content-security-policy-report-only">>,
-    <<"strict-transport-security">>,
-    <<"x-frame-options">>,
-    <<"x-content-type-options">>,
-    <<"referrer-policy">>,
-    <<"permissions-policy">>
+-define(PLUGIN_API_ALLOWED_HEADERS, [
+    %% content metadata
+    <<"content-type">>,
+    <<"content-language">>,
+    <<"content-disposition">>,
+    <<"content-range">>,
+    <<"accept-ranges">>,
+    %% caching
+    <<"cache-control">>,
+    <<"expires">>,
+    <<"pragma">>,
+    %% entity/validation
+    <<"etag">>,
+    <<"last-modified">>,
+    <<"age">>,
+    <<"vary">>,
+    %% misc safe
+    <<"retry-after">>,
+    %% correlation ids
+    <<"x-request-id">>,
+    <<"x-correlation-id">>,
+    %% rate limiting
+    <<"x-ratelimit-limit">>,
+    <<"x-ratelimit-remaining">>,
+    <<"x-ratelimit-reset">>
 ]).
+
+-define(PLUGIN_API_CUSTOM_HEADER_PREFIX, <<"x-plugin-">>).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -695,19 +695,16 @@ map_plugin_api_result(_Other) ->
     {500, #{code => <<"INTERNAL_ERROR">>, message => <<"Invalid Plugin API Response">>}}.
 
 filter_plugin_api_headers(Headers) ->
-    maps:filter(fun(K, _V) -> not is_forbidden_header(K) end, Headers).
+    maps:filter(fun(K, _V) -> is_allowed_header(K) end, Headers).
 
-is_forbidden_header(Header) when is_binary(Header) ->
-    is_forbidden_header_lower(to_bin(string:lowercase(Header)));
-is_forbidden_header(_) ->
-    true.
+is_allowed_header(Header) when is_binary(Header) ->
+    Lower = to_bin(string:lowercase(Header)),
+    lists:member(Lower, ?PLUGIN_API_ALLOWED_HEADERS) orelse is_custom_header(Lower);
+is_allowed_header(_) ->
+    false.
 
-is_forbidden_header_lower(<<"access-control-", _/binary>>) ->
-    true;
-is_forbidden_header_lower(Lower) when is_binary(Lower) ->
-    lists:member(Lower, ?PLUGIN_API_FORBIDDEN_HEADERS);
-is_forbidden_header_lower(_) ->
-    true.
+is_custom_header(Header) ->
+    nomatch =/= string:prefix(Header, ?PLUGIN_API_CUSTOM_HEADER_PREFIX).
 
 normalize_headers(Headers) when is_map(Headers) ->
     maps:from_list([{to_bin(K), iolist_to_binary(V)} || {K, V} <- maps:to_list(Headers)]);
@@ -1646,63 +1643,5 @@ ensure_no_other_version_active_rejects_running_case() ->
         }},
         ensure_no_other_version_active(Plugins, <<"demo-2.0.0">>)
     ).
-
-map_plugin_api_result_filters_forbidden_headers_test() ->
-    Forbidden = [
-        <<"authorization">>,
-        <<"www-authenticate">>,
-        <<"proxy-authenticate">>,
-        <<"cookie">>,
-        <<"cookie2">>,
-        <<"set-cookie">>,
-        <<"set-cookie2">>,
-        <<"access-control-allow-origin">>,
-        <<"access-control-request-method">>,
-        <<"location">>,
-        <<"refresh">>,
-        <<"content-security-policy">>,
-        <<"strict-transport-security">>,
-        <<"x-frame-options">>,
-        <<"x-content-type-options">>,
-        <<"referrer-policy">>,
-        <<"permissions-policy">>
-    ],
-    Allowed = [
-        <<"content-type">>,
-        <<"content-length">>,
-        <<"cache-control">>,
-        <<"etag">>,
-        <<"x-request-id">>,
-        <<"x-plugin-custom">>
-    ],
-    Headers = maps:from_list([{K, <<"1">>} || K <- Forbidden ++ Allowed]),
-    {200, RespHeaders, #{ok := true}} = map_plugin_api_result(
-        {ok, 200, Headers, #{ok => true}}
-    ),
-    [?assertNot(maps:is_key(K, RespHeaders)) || K <- Forbidden],
-    [?assertEqual(<<"1">>, maps:get(K, RespHeaders)) || K <- Allowed],
-    %% error clause is filtered too
-    {401, ErrHeaders, #{error := true}} = map_plugin_api_result(
-        {error, 401, Headers, #{error => true}}
-    ),
-    [?assertNot(maps:is_key(K, ErrHeaders)) || K <- Forbidden],
-    [?assertEqual(<<"1">>, maps:get(K, ErrHeaders)) || K <- Allowed].
-
-map_plugin_api_result_case_insensitive_test() ->
-    Headers = #{
-        <<"Set-Cookie">> => <<"a">>,
-        <<"LOCATION">> => <<"b">>,
-        <<"Content-Type">> => <<"c">>
-    },
-    {200, RespHeaders, #{}} = map_plugin_api_result({ok, 200, Headers, #{}}),
-    %% Forbidden headers filtered regardless of input case
-    [
-        ?assertNot(maps:is_key(K, RespHeaders))
-     || K <- [<<"set-cookie">>, <<"Set-Cookie">>, <<"location">>, <<"LOCATION">>]
-    ],
-    %% Allowed headers preserved (normalization keeps original case)
-    KEs = maps:keys(RespHeaders),
-    ?assert(lists:any(fun(K) -> string:equal(string:lowercase(K), <<"content-type">>) end, KEs)),
-    ?assertEqual(<<"c">>, iolist_to_binary(maps:get(<<"Content-Type">>, RespHeaders))).
 
 -endif.

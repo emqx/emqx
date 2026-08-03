@@ -128,7 +128,8 @@ t_plugin_api_forbidden_headers_filtered(_Config) ->
                 <<"set-cookie">> => <<"emqx_auth=evil; Path=/; HttpOnly">>,
                 <<"location">> => <<"https://attacker.com">>,
                 <<"access-control-allow-origin">> => <<"*">>,
-                <<"x-custom">> => <<"keep">>
+                <<"x-custom">> => <<"stripped">>,
+                <<"x-plugin-custom">> => <<"keep">>
             },
             emqx_plugins:map_plugin_api_result({ok, 200, Headers, #{ok => true}})
         end
@@ -138,7 +139,8 @@ t_plugin_api_forbidden_headers_filtered(_Config) ->
     ?assertEqual(
         <<"application/json">>, iolist_to_binary(maps:get(<<"content-type">>, RespHeaders))
     ),
-    ?assertEqual(<<"keep">>, iolist_to_binary(maps:get(<<"x-custom">>, RespHeaders))),
+    ?assertEqual(<<"keep">>, iolist_to_binary(maps:get(<<"x-plugin-custom">>, RespHeaders))),
+    ?assertNot(maps:is_key(<<"x-custom">>, RespHeaders)),
     ?assertNot(maps:is_key(<<"set-cookie">>, RespHeaders)),
     ?assertNot(maps:is_key(<<"location">>, RespHeaders)),
     ?assertNot(maps:is_key(<<"access-control-allow-origin">>, RespHeaders)).

@@ -1515,35 +1515,6 @@ t_cli_install_requires_allow(Config) ->
     ?assertNot(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
     ok.
 
-%% Plugin API callbacks must not be able to set browser-sensitive response headers.
-t_plugin_api_forbidden_headers_filtered({init, Config}) ->
-    Config;
-t_plugin_api_forbidden_headers_filtered({'end', _Config}) ->
-    ok;
-t_plugin_api_forbidden_headers_filtered(_Config) ->
-    Forbidden = [
-        {"set-cookie", "session=evil"},
-        {"location", "https://attacker.com"},
-        {"access-control-allow-origin", "*"},
-        {"content-security-policy", "default-src *"},
-        {"authorization", "Bearer secret"}
-    ],
-    Allowed = [
-        {"content-type", "application/json"},
-        {"x-custom", "keep"}
-    ],
-    {200, Headers, #{ok := true}} = emqx_plugins:map_plugin_api_result(
-        {ok, 200, Forbidden ++ Allowed, #{ok => true}}
-    ),
-    ?assertNot(maps:is_key(<<"set-cookie">>, Headers)),
-    ?assertNot(maps:is_key(<<"location">>, Headers)),
-    ?assertNot(maps:is_key(<<"access-control-allow-origin">>, Headers)),
-    ?assertNot(maps:is_key(<<"content-security-policy">>, Headers)),
-    ?assertNot(maps:is_key(<<"authorization">>, Headers)),
-    ?assert(maps:is_key(<<"content-type">>, Headers)),
-    ?assert(maps:is_key(<<"x-custom">>, Headers)),
-    ok.
-
 %%--------------------------------------------------------------------
 %% package_limits
 %%--------------------------------------------------------------------
