@@ -843,7 +843,7 @@ t_conn_change_client_addr(Config) ->
     ?retry(
         _Delay = 50,
         _attempt = 20,
-        fun() ->
+        begin
             {ok, NewAddr} = quicer:sockname(Conn),
             ?assertNotEqual(OldAddr, NewAddr)
         end
