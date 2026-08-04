@@ -245,12 +245,20 @@ fields_mqtt_quic_listener_initial_window_packets.label:
 """Initial window packets"""
 
 flapping_detect_enable.desc:
-"""Enable flapping connection detection keyed on client ID.
-Detection by username or source IP address is enabled independently,
-by configuring `by_username` or `by_peerhost`."""
+"""Deprecated since 6.3.0. Use `by_clientid` instead."""
 
 flapping_detect_enable.label:
-"""Enable flapping detection by client ID"""
+"""Deprecated. Enable flapping detection by client ID"""
+
+flapping_detect_by_clientid.desc:
+"""Flapping detection keyed on the client ID of the connecting clients.
+When the threshold is exceeded, the client ID is temporarily banned:
+new connection attempts with this client ID are rejected before authentication,
+while the already-connected client is not affected.
+Set to `none` (the default) to disable."""
+
+flapping_detect_by_clientid.label:
+"""Flapping detection by client ID"""
 
 flapping_detect_by_username.desc:
 """Flapping detection keyed on the username of the connecting clients.
@@ -427,7 +435,7 @@ sys_heartbeat_interval.desc:
   - `$SYS/brokers/<node>/datetime`"""
 
 flapping_detect_ban_time.desc:
-"""How long the flapping clientid will be banned."""
+"""Deprecated since 6.3.0. Use `by_clientid.ban_time` instead."""
 
 flapping_detect_ban_time.label:
 """Ban time"""
@@ -816,7 +824,7 @@ sysmon_os_cpu_high_watermark.label:
 """CPU high watermark"""
 
 flapping_detect_window_time.desc:
-"""The time window for flapping detection."""
+"""Deprecated since 6.3.0. Use `by_clientid.window_time` instead."""
 
 flapping_detect_window_time.label:
 """Window time"""
@@ -907,7 +915,7 @@ server_ssl_opts_schema_dhfile.label:
 """SSL dhfile"""
 
 flapping_detect_max_count.desc:
-"""The maximum number of disconnects allowed for a MQTT Client in `window_time`"""
+"""Deprecated since 6.3.0. Use `by_clientid.max_count` instead."""
 
 flapping_detect_max_count.label:
 """Max count"""

@@ -33,15 +33,20 @@
 %% Tab
 -define(FLAPPING_TAB, ?MODULE).
 
--type dimension() :: clientid | username | peerhost.
-
-%% Client ID keys are bare binaries; the other dimensions are tagged.
-%% The types cannot collide, and bare binaries keep the table shape
-%% unchanged for the client ID dimension.
 -type key() ::
-    emqx_types:clientid()
+    {clientid, emqx_types:clientid()}
     | {username, emqx_types:username()}
     | {peerhost, emqx_types:peerhost()}.
+
+%% Must match the field defaults of the `flapping_detect_dimension`
+%% struct in `emqx_schema`: zone overrides may hold partial dimension
+%% configs whose unset fields are only filled by the global config when
+%% the global dimension is a struct, not `none`.
+-define(DIMENSION_DEFAULTS, #{
+    window_time => 60000,
+    max_count => 15,
+    ban_time => 300000
+}).
 
 -record(flapping, {
     key :: key(),
@@ -76,7 +81,7 @@ detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone} = ClientInfo)
     Policy = get_policy(Zone),
     Username = maps:get(username, ClientInfo, undefined),
     Detected = [
-        detect(ClientId, PeerHost, clientid_policy(Policy)),
+        detect({clientid, ClientId}, PeerHost, dimension_policy(by_clientid, Policy)),
         detect({username, Username}, PeerHost, dimension_policy(by_username, Policy)),
         detect({peerhost, PeerHost}, PeerHost, dimension_policy(by_peerhost, Policy))
     ],
@@ -113,23 +118,25 @@ get_policy(Zone) ->
             %% If zone has be deleted at running time,
             %% we don't crash the connection and disable flapping detect.
             Policy = emqx_config:get(Flapping),
-            Policy#{enable => false, by_username => none, by_peerhost => none};
+            Policy#{by_clientid => none, by_username => none, by_peerhost => none};
         Policy ->
             Policy
     end.
 
-%% The top-level policy is the client ID dimension.
-clientid_policy(#{enable := true} = Policy) ->
-    Policy;
-clientid_policy(_Policy) ->
-    none.
-
 dimension_policy(Name, Policy) ->
-    maps:get(Name, Policy, none).
+    case maps:get(Name, Policy, none) of
+        none -> none;
+        Dimension -> ensure_defaults(Dimension)
+    end.
+
+ensure_defaults(#{window_time := _, max_count := _, ban_time := _} = Dimension) ->
+    Dimension;
+ensure_defaults(Dimension) ->
+    maps:merge(?DIMENSION_DEFAULTS, Dimension).
 
 all_dimensions(Policy) ->
     [
-        clientid_policy(Policy),
+        dimension_policy(by_clientid, Policy),
         dimension_policy(by_username, Policy),
         dimension_policy(by_peerhost, Policy)
     ].
@@ -147,7 +154,7 @@ enabled_window_times(Policy) ->
 %% ones are considered when deciding which entries are stale.
 max_window_time(Policy) ->
     case enabled_window_times(Policy) of
-        [] -> maps:get(window_time, Policy);
+        [] -> maps:get(window_time, ?DIMENSION_DEFAULTS);
         WindowTimes -> lists:max(WindowTimes)
     end.
 
@@ -175,7 +182,7 @@ handle_call(Req, _From, State) ->
 handle_cast(
     {detected,
         #flapping{
-            key = Key,
+            key = {Dimension, Value},
             peerhost = PeerHost,
             started_at = StartedAt,
             detect_cnt = DetectCnt
@@ -183,7 +190,6 @@ handle_cast(
         #{window_time := WindowTime, ban_time := Interval}},
     State
 ) ->
-    {Dimension, Value} = dimension_value(Key),
     case now_diff(StartedAt) < WindowTime of
         %% Flapping happened:(
         true ->
@@ -239,11 +245,6 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
--spec dimension_value(key()) -> {dimension(), term()}.
-dimension_value({username, Username}) -> {username, Username};
-dimension_value({peerhost, PeerHost}) -> {peerhost, PeerHost};
-dimension_value(ClientId) -> {clientid, ClientId}.
 
 detected_metric(clientid) -> 'flapping.detected.clientid';
 detected_metric(username) -> 'flapping.detected.username';

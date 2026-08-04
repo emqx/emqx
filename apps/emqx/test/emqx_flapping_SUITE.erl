@@ -119,6 +119,7 @@ t_rogue_messages(_) ->
     ).
 
 t_expired_detecting(_) ->
+    ok = emqx_cm_sup:restart_flapping(),
     ClientInfo = #{
         zone => default,
         listener => 'tcp:default',
@@ -128,12 +129,14 @@ t_expired_detecting(_) ->
     false = emqx_flapping:detect(ClientInfo),
     ?assertMatch(
         [_],
-        [X || X = {flapping, <<"client008">>, _, _, _} <- ets:tab2list(emqx_flapping)]
+        [X || X = {flapping, {clientid, <<"client008">>}, _, _, _} <- ets:tab2list(emqx_flapping)]
     ),
-    timer:sleep(200),
+    %% Wait for at least two GC sweeps (window_time = 100ms): the first
+    %% sweep may find the record still inside the window.
+    timer:sleep(350),
     ?assertMatch(
         [],
-        [X || X = {flapping, <<"client008">>, _, _, _} <- ets:tab2list(emqx_flapping)]
+        [X || X = {flapping, {clientid, <<"client008">>}, _, _, _} <- ets:tab2list(emqx_flapping)]
     ).
 
 -doc """
@@ -146,7 +149,7 @@ t_detect_by_username(_) ->
     Zone = ?FUNCTION_NAME,
     Username = <<"flap_user">>,
     ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
-        enable => false,
+        by_clientid => none,
         by_username => #{max_count => 3, window_time => 10000, ban_time => 2000},
         by_peerhost => none
     }),
@@ -190,7 +193,7 @@ t_detect_by_peerhost(_) ->
     Zone = ?FUNCTION_NAME,
     PeerHost = {10, 1, 2, 3},
     ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
-        enable => false,
+        by_clientid => none,
         by_username => none,
         by_peerhost => #{max_count => 3, window_time => 10000, ban_time => 2000}
     }),
@@ -233,10 +236,7 @@ t_independent_dimension_policies(_) ->
     ClientId = <<"indep_client">>,
     Username = <<"indep_user">>,
     ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
-        enable => true,
-        max_count => 3,
-        window_time => 10000,
-        ban_time => 2000,
+        by_clientid => #{max_count => 3, window_time => 10000, ban_time => 2000},
         by_username => #{max_count => 6, window_time => 10000, ban_time => 2000},
         by_peerhost => none
     }),
@@ -270,7 +270,7 @@ dimension, so they never produce a username ban entry.
 t_no_username_no_detect(_) ->
     Zone = ?FUNCTION_NAME,
     ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
-        enable => false,
+        by_clientid => none,
         by_username => #{max_count => 2, window_time => 10000, ban_time => 2000},
         by_peerhost => none
     }),
@@ -299,7 +299,7 @@ t_existing_sessions_not_disconnected(_) ->
     Zone = ?FUNCTION_NAME,
     Username = <<"storm_user">>,
     ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
-        enable => false,
+        by_clientid => none,
         by_username => #{max_count => 3, window_time => 10000, ban_time => 10000},
         by_peerhost => none
     }),
@@ -344,29 +344,36 @@ t_existing_sessions_not_disconnected(_) ->
 t_conf_update(_) ->
     Global = emqx_config:get([flapping_detect]),
     #{
-        ban_time := _BanTime,
-        enable := _Enable,
-        max_count := _MaxCount,
-        window_time := _WindowTime
+        by_clientid := #{ban_time := _, max_count := _, window_time := _},
+        by_username := none,
+        by_peerhost := none
     } = Global,
 
     emqx_config:put_zone_conf(new_zone, [flapping_detect], #{}),
     ?assertEqual(Global, get_policy(new_zone)),
 
-    emqx_config:put_zone_conf(zone_1, [flapping_detect], #{window_time => 100}),
-    ?assertEqual(Global#{window_time := 100}, emqx_flapping:get_policy(zone_1)),
+    emqx_config:put_zone_conf(zone_1, [flapping_detect], #{by_clientid => #{window_time => 100}}),
+    ?assertEqual(
+        emqx_utils_maps:deep_merge(Global, #{by_clientid => #{window_time => 100}}),
+        emqx_flapping:get_policy(zone_1)
+    ),
 
     Zones = #{
         <<"zone_1">> => #{<<"flapping_detect">> => #{<<"window_time">> => <<"123s">>}},
-        <<"zone_2">> => #{<<"flapping_detect">> => #{<<"window_time">> => <<"456s">>}}
+        <<"zone_2">> => #{
+            <<"flapping_detect">> => #{<<"by_clientid">> => #{<<"window_time">> => <<"456s">>}}
+        }
     },
     ?assertMatch({ok, _}, emqx:update_config([zones], Zones)),
     %% new_zone is already deleted
     ?assertError({config_not_found, _}, get_policy(new_zone)),
-    %% update zone(zone_1) has default.
-    ?assertEqual(Global#{window_time := 123000}, emqx_flapping:get_policy(zone_1)),
-    %% create zone(zone_2) has default
-    ?assertEqual(Global#{window_time := 456000}, emqx_flapping:get_policy(zone_2)),
+    %% deprecated params without an explicit enable disable the dimension:
+    ?assertEqual(Global#{by_clientid := none}, emqx_flapping:get_policy(zone_1)),
+    %% new-style zone override merges per-field with the global dimension config:
+    ?assertEqual(
+        emqx_utils_maps:deep_merge(Global, #{by_clientid => #{window_time => 456000}}),
+        emqx_flapping:get_policy(zone_2)
+    ),
     %% reset to default(empty) andalso get default from global
     ?assertMatch({ok, _}, emqx:update_config([zones], #{})),
     ?assertEqual(Global, emqx:get_config([zones, default, flapping_detect])),
@@ -402,7 +409,8 @@ validate_timer(Lists) ->
     ?assertEqual(lists:sort(Names), lists:sort(maps:keys(Zones))),
     Timers = sys:get_state(emqx_flapping),
     maps:foreach(
-        fun(Name, #{flapping_detect := #{enable := Enable}}) ->
+        fun(Name, #{flapping_detect := FlappingDetect}) ->
+            Enable = maps:get(by_clientid, FlappingDetect, none) =/= none,
             ?assertEqual(lists:keyfind(Name, 1, Lists), {Name, Enable}),
             ?assertEqual(Enable, is_reference(maps:get(Name, Timers)), Timers)
         end,
@@ -413,12 +421,14 @@ validate_timer(Lists) ->
 
 t_window_compatibility_check(_Conf) ->
     Flapping = emqx:get_raw_config([flapping_detect]),
+    Checked = emqx:get_config([flapping_detect]),
     ok = emqx_config:init_load(emqx_schema, <<"flapping_detect {window_time = disable}">>),
-    ?assertMatch(#{window_time := 60000, enable := false}, emqx:get_config([flapping_detect])),
+    ?assertMatch(#{by_clientid := none}, emqx:get_config([flapping_detect])),
     %% reset
     FlappingBin = iolist_to_binary(["flapping_detect {", hocon_pp:do(Flapping, #{}), "}"]),
     ok = emqx_config:init_load(emqx_schema, FlappingBin),
-    ?assertEqual(Flapping, emqx:get_raw_config([flapping_detect])),
+    ?assertEqual(Checked, emqx:get_config([flapping_detect])),
+    ok = emqx_cm_sup:restart_flapping(),
     ok.
 
 -doc """
@@ -427,6 +437,7 @@ and accept a policy object with defaults filled in for omitted fields.
 """.
 t_dimension_config_check(_Conf) ->
     Flapping = emqx:get_raw_config([flapping_detect]),
+    Checked = emqx:get_config([flapping_detect]),
     ok = emqx_config:init_load(emqx_schema, <<"flapping_detect {by_username {max_count = 7}}">>),
     ?assertMatch(
         #{
@@ -438,7 +449,44 @@ t_dimension_config_check(_Conf) ->
     %% reset
     FlappingBin = iolist_to_binary(["flapping_detect {", hocon_pp:do(Flapping, #{}), "}"]),
     ok = emqx_config:init_load(emqx_schema, FlappingBin),
-    ?assertEqual(Flapping, emqx:get_raw_config([flapping_detect])),
+    ?assertEqual(Checked, emqx:get_config([flapping_detect])),
+    ok = emqx_cm_sup:restart_flapping(),
+    ok.
+
+-doc """
+Deprecated flat flapping_detect fields are converted into the by_clientid
+dimension: enable=true lifts the params into a policy object, params
+without an explicit enable convert to a disabled dimension, and an
+explicit by_clientid takes precedence over the deprecated fields.
+""".
+t_legacy_clientid_conversion(_Conf) ->
+    Original = emqx:get_raw_config([flapping_detect]),
+    Checked = emqx:get_config([flapping_detect]),
+    Load = fun(Hocon) ->
+        ok = emqx_config:init_load(emqx_schema, Hocon),
+        emqx:get_config([flapping_detect])
+    end,
+    ?assertMatch(
+        #{by_clientid := #{max_count := 7, window_time := 60000, ban_time := 300000}},
+        Load(<<"flapping_detect {enable = true, max_count = 7}">>)
+    ),
+    ?assertMatch(
+        #{by_clientid := none},
+        Load(<<"flapping_detect {window_time = 10s}">>)
+    ),
+    ?assertMatch(
+        #{by_clientid := none},
+        Load(<<"flapping_detect {enable = false, max_count = 7}">>)
+    ),
+    ?assertMatch(
+        #{by_clientid := #{max_count := 9}},
+        Load(<<"flapping_detect {enable = true, max_count = 3, by_clientid {max_count = 9}}">>)
+    ),
+    %% reset
+    FlappingBin = iolist_to_binary(["flapping_detect {", hocon_pp:do(Original, #{}), "}"]),
+    ok = emqx_config:init_load(emqx_schema, FlappingBin),
+    ?assertEqual(Checked, emqx:get_config([flapping_detect])),
+    ok = emqx_cm_sup:restart_flapping(),
     ok.
 
 get_policy(Zone) ->
