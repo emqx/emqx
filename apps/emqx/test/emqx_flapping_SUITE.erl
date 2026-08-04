@@ -394,12 +394,21 @@ t_conf_update_timer(_Config) ->
             <<"timer_3">> => #{<<"flapping_detect">> => #{<<"enable">> => false}}
         }),
     validate_timer([{timer_1, true}, {timer_2, true}, {timer_3, false}, {default, true}]),
-    %% change global flapping_detect
+    %% change global flapping_detect with pure legacy-layout payloads,
+    %% mimicking a pre-6.3 automation script (a payload carrying
+    %% by_clientid would prevail over the deprecated fields):
     Global = emqx:get_raw_config([flapping_detect]),
-    {ok, _} = emqx:update_config([flapping_detect], Global#{<<"enable">> => false}),
+    Legacy = maps:without(
+        [<<"by_clientid">>, <<"by_username">>, <<"by_peerhost">>], Global
+    ),
+    {ok, _} = emqx:update_config([flapping_detect], Legacy#{<<"enable">> => false}),
     validate_timer([{timer_1, true}, {timer_2, true}, {timer_3, false}, {default, false}]),
-    %% reset
-    {ok, _} = emqx:update_config([flapping_detect], Global#{<<"enable">> => true}),
+    %% re-enable with a pure legacy payload (dimension params fall back
+    %% to schema defaults):
+    {ok, _} = emqx:update_config([flapping_detect], Legacy#{<<"enable">> => true}),
+    validate_timer([{timer_1, true}, {timer_2, true}, {timer_3, false}, {default, true}]),
+    %% reset to the original (new-shape) config:
+    {ok, _} = emqx:update_config([flapping_detect], Global),
     validate_timer([{timer_1, true}, {timer_2, true}, {timer_3, false}, {default, true}]),
     ok.
 
@@ -481,6 +490,11 @@ t_legacy_clientid_conversion(_Conf) ->
     ?assertMatch(
         #{by_clientid := #{max_count := 9}},
         Load(<<"flapping_detect {enable = true, max_count = 3, by_clientid {max_count = 9}}">>)
+    ),
+    %% an explicit by_clientid = none prevails over the deprecated enable:
+    ?assertMatch(
+        #{by_clientid := none},
+        Load(<<"flapping_detect {enable = true, by_clientid = none}">>)
     ),
     %% reset
     FlappingBin = iolist_to_binary(["flapping_detect {", hocon_pp:do(Original, #{}), "}"]),

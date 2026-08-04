@@ -4144,26 +4144,23 @@ convert_legacy_flapping_detect(Conf0) ->
     Conf = maps:without(
         [<<"enable">>, <<"window_time">>, <<"max_count">>, <<"ban_time">>], Conf0
     ),
-    case HasLegacy of
-        false ->
+    case {is_map_key(<<"by_clientid">>, Conf0), HasLegacy} of
+        {true, _} ->
+            %% `by_clientid` prevails over the deprecated fields.
+            %% The converter runs before defaults are filled, so a
+            %% present value (including `none`) came from the input.
             Conf;
-        true ->
-            Existing = maps:get(<<"by_clientid">>, Conf0, none),
-            Conf#{<<"by_clientid">> => converted_by_clientid(Enable, LegacyParams, Existing)}
+        {false, false} ->
+            Conf;
+        {false, true} ->
+            Conf#{<<"by_clientid">> => converted_by_clientid(Enable, LegacyParams)}
     end.
 
-converted_by_clientid(Enable, LegacyParams, Existing) when
+converted_by_clientid(Enable, LegacyParams) when
     Enable =:= true; Enable =:= <<"true">>
 ->
-    case Existing of
-        Dimension when is_map(Dimension) ->
-            %% Both shapes present: new-style params win over the
-            %% deprecated flat params.
-            maps:merge(LegacyParams, Dimension);
-        _ ->
-            LegacyParams
-    end;
-converted_by_clientid(_NotTrue, _LegacyParams, _Existing) ->
+    LegacyParams;
+converted_by_clientid(_NotTrue, _LegacyParams) ->
     %% Explicitly disabled, or deprecated params without an explicit
     %% enable = true: the dimension is off.
     none.
