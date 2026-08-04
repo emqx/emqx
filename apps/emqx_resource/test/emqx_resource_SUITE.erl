@@ -4,8 +4,6 @@
 
 -module(emqx_resource_SUITE).
 
--feature(maybe_expr, enable).
-
 -compile(nowarn_export_all).
 -compile(export_all).
 

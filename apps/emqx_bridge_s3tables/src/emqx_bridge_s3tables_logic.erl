@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_s3tables_logic).
 
--feature(maybe_expr, enable).
-
 -moduledoc """
 This module holds pure (no side-effect) functions that handle data massaging needs of
 Iceberg/S3Tables operations.

@@ -4,8 +4,6 @@
 
 -module(emqx_banned).
 
--feature(maybe_expr, enable).
-
 -behaviour(gen_server).
 -behaviour(emqx_db_backup).
 

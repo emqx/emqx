@@ -4,8 +4,6 @@
 
 -module(emqx_resource_pool).
 
--feature(maybe_expr, enable).
-
 -export([
     start/3,
     stop/1,

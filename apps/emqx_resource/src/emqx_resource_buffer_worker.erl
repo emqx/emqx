@@ -7,8 +7,6 @@
 
 -module(emqx_resource_buffer_worker).
 
--feature(maybe_expr, enable).
-
 -include("emqx_resource_runtime.hrl").
 -include("emqx_resource_errors.hrl").
 -include("emqx_resource_buffer_worker_internal.hrl").
