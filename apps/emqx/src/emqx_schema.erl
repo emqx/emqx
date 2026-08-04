@@ -437,13 +437,14 @@ fields("topic_predicate_equals") ->
 fields("flapping_detect") ->
     [
         %% Deprecated since 6.3.0: superseded by `by_clientid`.
-        %% Kept hidden so that pre-6.3 configs still parse; the field
-        %% converter lifts them into `by_clientid`.
+        %% The field converter lifts them into `by_clientid`, so these
+        %% fields never reach the checked config.
         {"enable",
             sc(
                 boolean(),
                 #{
                     required => false,
+                    deprecated => {since, "6.3.0"},
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(flapping_detect_enable)
                 }
@@ -453,6 +454,7 @@ fields("flapping_detect") ->
                 duration(),
                 #{
                     required => false,
+                    deprecated => {since, "6.3.0"},
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(flapping_detect_window_time)
                 }
@@ -462,6 +464,7 @@ fields("flapping_detect") ->
                 non_neg_integer(),
                 #{
                     required => false,
+                    deprecated => {since, "6.3.0"},
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(flapping_detect_max_count)
                 }
@@ -471,6 +474,7 @@ fields("flapping_detect") ->
                 duration(),
                 #{
                     required => false,
+                    deprecated => {since, "6.3.0"},
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(flapping_detect_ban_time)
                 }
