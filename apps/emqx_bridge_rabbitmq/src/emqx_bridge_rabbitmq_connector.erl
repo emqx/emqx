@@ -4,7 +4,6 @@
 
 -module(emqx_bridge_rabbitmq_connector).
 
--feature(maybe_expr, enable).
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("typerefl/include/types.hrl").

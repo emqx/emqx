@@ -4,8 +4,6 @@
 
 -module(emqx_bridge_kinesis_impl_producer).
 
--feature(maybe_expr, enable).
-
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_resource/include/emqx_resource_runtime.hrl").

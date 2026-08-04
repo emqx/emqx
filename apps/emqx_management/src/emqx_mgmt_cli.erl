@@ -4,8 +4,6 @@
 
 -module(emqx_mgmt_cli).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_ctl).
 
 -include_lib("emqx/include/emqx.hrl").

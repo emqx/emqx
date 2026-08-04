@@ -4,8 +4,6 @@
 
 -module(emqx_cluster_link_config).
 
--feature(maybe_expr, enable).
-
 -include_lib("emqx/include/logger.hrl").
 
 -define(LINKS_PATH, [cluster, links]).

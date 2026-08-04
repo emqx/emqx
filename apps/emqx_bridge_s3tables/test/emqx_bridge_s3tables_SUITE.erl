@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_s3tables_SUITE).
 
--feature(maybe_expr, enable).
-
 -compile(nowarn_export_all).
 -compile(export_all).
 

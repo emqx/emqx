@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry_serde).
 
--feature(maybe_expr, enable).
-
 -include("emqx_schema_registry.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").

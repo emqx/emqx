@@ -8,8 +8,6 @@
 %% re-announces its BPAPIs if necessary.
 %% This process is only started on replicants.
 
--feature(maybe_expr, enable).
-
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
