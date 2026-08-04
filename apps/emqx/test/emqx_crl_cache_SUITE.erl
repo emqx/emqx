@@ -871,7 +871,7 @@ t_not_cached_and_unreachable(Config) ->
     Ref = get_crl_cache_table(),
     ?assertEqual([], ets:tab2list(Ref)),
     unlink(C),
-    ?assertMatch({error, {ssl_error, _Sock, {tls_alert, {bad_certificate, _}}}}, emqtt:connect(C)),
+    ?assertMatch({error, {tls_alert, {bad_certificate, _}}}, emqtt:connect(C)),
     ok.
 
 t_revoked(Config) ->

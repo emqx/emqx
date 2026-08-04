@@ -358,10 +358,31 @@ create_scopes(Role, RawScopes) ->
         unset ->
             {ok, undefined};
         {set, Scopes} ->
-            case validate_scopes(Role, Scopes, Scopes) of
+            case validate_explicit_scopes(Role, Scopes) of
                 ok -> {ok, Scopes};
                 Error -> Error
             end
+    end.
+
+%% Validation of a newly written explicit scope list — POST, or PUT with
+%% a list that genuinely differs from the persisted one: the shared
+%% four-layer validation plus the namespaced-key `publish' rejection.
+validate_explicit_scopes(Role, Scopes) ->
+    case validate_scopes(Role, Scopes, Scopes) of
+        ok -> validate_no_publish_for_namespaced(Role, Scopes);
+        Error -> Error
+    end.
+
+%% A namespaced API key cannot hold the `publish' scope: the publish APIs
+%% are global-only, so the scope could never be exercised. Applies to any
+%% newly written explicit list; only a verbatim round-trip of a stored
+%% list that predates this rule skips it (see validate_update_scopes/3).
+validate_no_publish_for_namespaced(Role, Scopes) ->
+    case is_binary(role_namespace(Role)) andalso lists:member(?SCOPE_PUBLISH, Scopes) of
+        true ->
+            {error, <<"Namespaced API keys cannot hold the 'publish' scope">>};
+        false ->
+            ok
     end.
 
 do_create_api_key(Name, Enable, ExpiredAt, Desc, Role, Scopes) ->
@@ -449,13 +470,63 @@ update_api_key(Name, Role, Body) ->
 %% persisted scopes against the (possibly changed) role, so a role
 %% change to `publisher' cannot keep non-`publish' scopes via a partial
 %% update; `unset' clears to role default (valid by construction);
-%% `{set, L}' validates `L' with the privilege mutex applied.
+%% `{set, L}' validates `L' with the privilege mutex applied and rejects
+%% `publish' on a namespaced key — unless `L' merely re-submits the
+%% persisted scope list for the unchanged role/namespace (a
+%% read-modify-write), which is accepted verbatim so a key stored under
+%% an older role default (e.g. a namespaced key whose materialized
+%% default predates the namespace-aware defaults) can always be
+%% round-tripped without being rejected or rewritten. Exception to the
+%% round-trip rule: a namespaced `[publish]'-only list is rejected even
+%% verbatim — such a key can do nothing at all, so the caller is told to
+%% re-create it without a namespace instead.
 validate_update_scopes(_Role, _Name, unset) ->
     ok;
 validate_update_scopes(Role, Name, keep) ->
     validate_scopes(Role, undefined, persisted_scopes(Name));
-validate_update_scopes(Role, _Name, {set, Scopes}) ->
-    validate_scopes(Role, Scopes, Scopes).
+validate_update_scopes(Role, Name, {set, Scopes}) ->
+    case validate_not_publish_only_namespaced(Role, Scopes) of
+        ok ->
+            case is_unchanged_persisted_scopes(Role, Name, Scopes) of
+                true -> ok;
+                false -> validate_explicit_scopes(Role, Scopes)
+            end;
+        Error ->
+            Error
+    end.
+
+%% A namespaced key whose requested list is exactly `[publish]' cannot be
+%% used for anything: `publish' itself is unusable (the publish APIs are
+%% global-only) and the explicit single-scope list denies every other
+%% scoped endpoint. Reject with a hint at the remedy.
+validate_not_publish_only_namespaced(Role, Scopes) when is_list(Scopes) ->
+    case is_binary(role_namespace(Role)) andalso lists:usort(Scopes) =:= [?SCOPE_PUBLISH] of
+        true ->
+            {error, <<
+                "A namespaced API key with only the 'publish' scope cannot be used "
+                "for anything: the publish API accepts global API keys only. "
+                "Delete this key and re-create it without a namespace"
+            >>};
+        false ->
+            ok
+    end;
+validate_not_publish_only_namespaced(_Role, _Other) ->
+    ok.
+
+%% True iff the PUT re-submits the persisted explicit scope list (order-
+%% insensitive) without changing the key's role or namespace.
+is_unchanged_persisted_scopes(Role, Name, Scopes) when is_list(Scopes) ->
+    case emqx_mgmt_auth:read(Name) of
+        {ok, #{role := PRole, namespace := PNs, scopes := Persisted}} when is_list(Persisted) ->
+            SameRole =
+                {ok, #{?role => PRole, ?namespace => PNs}} =:=
+                    emqx_dashboard_rbac:parse_api_role(Role),
+            SameRole andalso lists:usort(Scopes) =:= lists:usort(Persisted);
+        _ ->
+            false
+    end;
+is_unchanged_persisted_scopes(_Role, _Name, _Other) ->
+    false.
 
 %% Intent -> `Scopes' argument of `emqx_mgmt_auth:update/6'.
 scopes_update_arg(keep) -> undefined;

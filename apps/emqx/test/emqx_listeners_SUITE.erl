@@ -816,9 +816,11 @@ t_ssl_update_opts(Config) ->
             ]),
             ct:fail("l ~b: unexpected success", [?LINE])
         catch
-            error:{ssl_error, _Socket, {tls_alert, {certificate_required, _}}} ->
+            error:{tls_alert, {certificate_required, _}} ->
                 ok;
             error:closed ->
+                ok;
+            error:ssl_closed ->
                 ok;
             error:connack_timeout ->
                 ok;

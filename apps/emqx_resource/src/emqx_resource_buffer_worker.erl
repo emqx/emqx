@@ -140,6 +140,7 @@
 -type inflight_table() :: ets:tid().
 -type data() :: #{
     id := id(),
+    chan_key := emqx_resource_cache:chan_key(),
     namespace := maybe_namespace(),
     index := index(),
     inflight_tid := inflight_table(),
@@ -221,9 +222,11 @@ simple_sync_query(Id, Request, QueryOpts0) ->
     RequestContext = request_context(QueryOpts0),
     TraceCtx = maps:get(trace_ctx, QueryOpts0, #{}),
     Query = ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
+    ChanKey = emqx_resource_cache:split_channel_id(Id),
     Result = call_query(
         force_sync,
         Id,
+        ChanKey,
         ?NO_INDEX,
         ?NO_REQ_REF,
         Query,
@@ -242,7 +245,8 @@ simple_async_query(Id, Request, QueryOpts0) ->
     RequestContext = request_context(QueryOpts0),
     TraceCtx = maps:get(trace_ctx, QueryOpts0, #{}),
     Query = ?SIMPLE_QUERY(ReplyTo, Request, RequestContext, TraceCtx),
-    Result = call_query(async_if_possible, Id, ?NO_INDEX, ?NO_REQ_REF, Query, QueryOpts),
+    ChanKey = emqx_resource_cache:split_channel_id(Id),
+    Result = call_query(async_if_possible, Id, ChanKey, ?NO_INDEX, ?NO_REQ_REF, Query, QueryOpts),
     _ = handle_simple_query_result(Id, Query, Result, _HasBeenSent = false),
     Result.
 
@@ -353,6 +357,9 @@ init({Id, Index, Opts}) ->
     MetricsFlushInterval = maps:get(metrics_flush_interval, Opts, ?DEFAULT_METRICS_FLUSH_INTERVAL),
     Data0 = #{
         id => Id,
+        %% cache key derived from the immutable id; computed once for the
+        %% worker's lifetime so the query hot path never re-parses the id
+        chan_key => emqx_resource_cache:split_channel_id(Id),
         namespace => Namespace,
         index => Index,
         inflight_tid => InflightTID,
@@ -541,6 +548,7 @@ resume_from_blocked(Data) ->
 retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
     #{
         id := Id,
+        chan_key := ChanKey,
         inflight_tid := InflightTID,
         index := Index,
         resume_interval := ResumeT
@@ -548,7 +556,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
     ?tp(buffer_worker_retry_inflight, #{query_or_batch => QueryOrBatch, ref => Ref}),
     IsSimpleQuery = false,
     QueryOpts = #{simple_query => IsSimpleQuery},
-    Result = call_query(force_sync, Id, Index, Ref, QueryOrBatch, QueryOpts),
+    Result = call_query(force_sync, Id, ChanKey, Index, Ref, QueryOrBatch, QueryOpts),
     {Decision, PostFn, DeltaCounters0} =
         case QueryOrBatch of
             ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, RequestContext, TraceCtx) ->
@@ -785,13 +793,14 @@ do_flush(
 ) ->
     #{
         id := Id,
+        chan_key := ChanKey,
         index := Index,
         inflight_tid := InflightTID
     } = Data0,
     %% unwrap when not batching (i.e., batch size == 1)
     [?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, RequestContext, TraceCtx) = Request] = Batch,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
-    Result = call_query(async_if_possible, Id, Index, Ref, Request, QueryOpts),
+    Result = call_query(async_if_possible, Id, ChanKey, Index, Ref, Request, QueryOpts),
     Reply = ?REPLY(ReplyTo, HasBeenSent, Result, RequestContext, TraceCtx),
     {Decision, PostFn, DeltaCounters0} = reply_caller_defer_metrics(Id, Reply, QueryOpts),
     DeltaCounters = delta_with_actions_executed(Decision, Result, DeltaCounters0),
@@ -875,13 +884,14 @@ do_flush(#{queue := Q1} = Data0, #{
 }) ->
     #{
         id := Id,
+        chan_key := ChanKey,
         index := Index,
         batch_size := BatchSize,
         inflight_tid := InflightTID
     } = Data0,
     IsSimpleQuery = false,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => IsSimpleQuery},
-    Result = call_query(async_if_possible, Id, Index, Ref, Batch, QueryOpts),
+    Result = call_query(async_if_possible, Id, ChanKey, Index, Ref, Batch, QueryOpts),
     {Decision, PostFn, DeltaCounters0} =
         batch_reply_caller_defer_metrics(Id, Result, Batch, IsSimpleQuery),
     DeltaCounters = delta_with_actions_executed(Decision, Result, DeltaCounters0),
@@ -1357,10 +1367,10 @@ handle_async_worker_down(Data0, Pid) ->
             {next_state, blocked, Data}
     end.
 
--spec call_query(force_sync | async_if_possible, _, _, _, _, _) -> _.
-call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
+-spec call_query(force_sync | async_if_possible, _, _, _, _, _, _) -> _.
+call_query(QM, Id, {ConnResId, _} = ChanKey, Index, Ref, Query, QueryOpts) ->
     ?tp(call_query_enter, #{id => Id, query => Query, query_mode => QM}),
-    case emqx_resource_cache:get_runtime(Id) of
+    case emqx_resource_cache:get_runtime(ChanKey) of
         %% This seems to be the only place where the `rm_status_stopped' state matters,
         %% to distinguish from the `disconnected' state.
         {ok, #rt{st_err = #{status := ?rm_status_stopped}}} ->
@@ -1378,7 +1388,7 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
             IsAlwaysSend = is_always_send(QueryMode),
             case Status =:= ?status_connected orelse IsAlwaysSend of
                 true ->
-                    call_query2(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt);
+                    call_query2(QM, Id, ConnResId, Index, Ref, Query, QueryOpts, Resource, ChanSt);
                 false ->
                     Result = ?RESOURCE_ERROR(not_connected, "resource not connected"),
                     maybe_reply_to(Result, QueryOpts)
@@ -1388,11 +1398,11 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
             maybe_reply_to(Result, QueryOpts)
     end.
 
-call_query2(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
+call_query2(QM, Id, ConnResId, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
     PrevLoggerProcessMetadata = logger:get_process_metadata(),
     try
         set_rule_id_trace_meta_data(Query),
-        do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt)
+        do_call_query(QM, Id, ConnResId, Index, Ref, Query, QueryOpts, Resource, ChanSt)
     after
         reset_logger_process_metadata(PrevLoggerProcessMetadata)
     end.
@@ -1451,11 +1461,11 @@ collect_rule_trigger_times(?QUERY(_, _, _, _, _, _), Acc) ->
 %% a final result attributable to the connector callback.  Skip when:
 %%   * Decision is `?nack' (recoverable; the same request will be retried and
 %%     finalised later in `retry_inflight_sync').
-%%   * Result indicates `call_query/6' short-circuited before `apply_query_fun/9'
+%%   * Result indicates `call_query/7' short-circuited before `apply_query_fun/10'
 %%     (resource not found / stopped), so no callback ran.
 %% The `pre_query_channel_check/4' failure on a simple query produces a final
 %% `?ack' here even though the callback didn't run; we accept that edge case
-%% rather than thread the channel-check outcome out of `apply_query_fun/9'.
+%% rather than thread the channel-check outcome out of `apply_query_fun/10'.
 delta_with_actions_executed(?nack, _Result, DeltaCounters) ->
     DeltaCounters;
 delta_with_actions_executed(?ack, ?RESOURCE_ERROR_M(Kind, _), DeltaCounters) when
@@ -1464,16 +1474,6 @@ delta_with_actions_executed(?ack, ?RESOURCE_ERROR_M(Kind, _), DeltaCounters) whe
     DeltaCounters;
 delta_with_actions_executed(?ack, _Result, DeltaCounters) ->
     DeltaCounters#{actions_executed => 1}.
-
-%% action:kafka_producer:actionname:connector:kafka_producer:connectorname
-%% ns:ns1:action:kafka_producer:actionname:connector:kafka_producer:connectorname
-extract_connector_id(Id) when is_binary(Id) ->
-    case emqx_resource:parse_connector_id_from_channel_id(Id) of
-        {ok, ConnResId} ->
-            ConnResId;
-        {error, _} ->
-            Id
-    end.
 
 %% Check if channel is installed in the connector state.
 %% There is no need to query the conncector if the channel is not
@@ -1512,10 +1512,10 @@ is_always_send(M) when ?IS_BYPASS(M) ->
 is_always_send(_) ->
     false.
 
-do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
+do_call_query(QM, Id, ConnResId, Index, Ref, Query, QueryOpts, Resource, ChanSt) ->
     #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
     CallMode = call_mode(QM, CBM),
-    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, ChanSt, QueryOpts).
+    apply_query_fun(CallMode, Mod, Id, ConnResId, Index, Ref, Query, ResSt, ChanSt, QueryOpts).
 
 -define(APPLY_RESOURCE(NAME, EXPR, REQ),
     try
@@ -1548,6 +1548,7 @@ apply_query_fun(
     sync,
     Mod,
     Id,
+    ConnResId,
     _Index,
     _Ref,
     ?QUERY(_, Request, _, _, _RequestContext, _TraceCtx) = _Query,
@@ -1562,7 +1563,7 @@ apply_query_fun(
             begin
                 case pre_query_channel_check(Id, Request, ChanSt, is_simple_query(QueryOpts)) of
                     ok ->
-                        Mod:on_query(extract_connector_id(Id), Request, ResSt);
+                        Mod:on_query(ConnResId, Request, ResSt);
                     Error ->
                         Error
                 end
@@ -1575,6 +1576,7 @@ apply_query_fun(
     async,
     Mod,
     Id,
+    ConnResId,
     Index,
     Ref,
     ?QUERY(_, Request, _, _, _RequestContext, _TraceCtx) = Query,
@@ -1612,7 +1614,7 @@ apply_query_fun(
                 ok ->
                     case
                         Mod:on_query_async(
-                            extract_connector_id(Id), Request, {ReplyFun, [ReplyContext]}, ResSt
+                            ConnResId, Request, {ReplyFun, [ReplyContext]}, ResSt
                         )
                     of
                         {error, _} = Error when IsSimpleQuery ->
@@ -1633,6 +1635,7 @@ apply_query_fun(
     sync,
     Mod,
     Id,
+    ConnResId,
     _Index,
     _Ref,
     [?QUERY(_, FirstRequest, _, _, _RequestContext, _) | _] = Batch,
@@ -1655,7 +1658,7 @@ apply_query_fun(
                     pre_query_channel_check(Id, FirstRequest, ChanSt, is_simple_query(QueryOpts))
                 of
                     ok ->
-                        Mod:on_batch_query(extract_connector_id(Id), Requests, ResSt);
+                        Mod:on_batch_query(ConnResId, Requests, ResSt);
                     Error ->
                         Error
                 end
@@ -1668,6 +1671,7 @@ apply_query_fun(
     async,
     Mod,
     Id,
+    ConnResId,
     Index,
     Ref,
     [?QUERY(_, FirstRequest, _, _, _RequestContext, _) | _] = Batch,
@@ -1710,7 +1714,7 @@ apply_query_fun(
                 ok ->
                     case
                         Mod:on_batch_query_async(
-                            extract_connector_id(Id), Requests, {ReplyFun, [ReplyContext]}, ResSt
+                            ConnResId, Requests, {ReplyFun, [ReplyContext]}, ResSt
                         )
                     of
                         {error, _} = Error when IsSimpleQuery ->
