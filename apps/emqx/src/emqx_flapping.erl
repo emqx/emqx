@@ -50,7 +50,6 @@
 
 -record(flapping, {
     key :: key(),
-    peerhost :: emqx_types:peerhost(),
     started_at :: pos_integer(),
     detect_cnt :: integer()
 }).
@@ -95,7 +94,6 @@ detect(Key, PeerHost, #{max_count := Threshold} = Policy) ->
     %% The initial flapping record sets the detect_cnt to 0.
     InitVal = #flapping{
         key = Key,
-        peerhost = PeerHost,
         started_at = erlang:system_time(millisecond),
         detect_cnt = 0
     },
@@ -104,7 +102,9 @@ detect(Key, PeerHost, #{max_count := Threshold} = Policy) ->
         _Cnt ->
             case ets:take(?FLAPPING_TAB, Key) of
                 [Flapping] ->
-                    ok = gen_server:cast(?MODULE, {detected, Flapping, Policy}),
+                    %% PeerHost is the source IP of the connect event
+                    %% that tripped the threshold.
+                    ok = gen_server:cast(?MODULE, {detected, Flapping, PeerHost, Policy}),
                     true;
                 [] ->
                     false
@@ -183,11 +183,10 @@ handle_cast(
     {detected,
         #flapping{
             key = {Dimension, Value},
-            peerhost = PeerHost,
             started_at = StartedAt,
             detect_cnt = DetectCnt
         },
-        #{window_time := WindowTime, ban_time := Interval}},
+        PeerHost, #{window_time := WindowTime, ban_time := Interval}},
     State
 ) ->
     case now_diff(StartedAt) < WindowTime of

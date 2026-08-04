@@ -129,14 +129,14 @@ t_expired_detecting(_) ->
     false = emqx_flapping:detect(ClientInfo),
     ?assertMatch(
         [_],
-        [X || X = {flapping, {clientid, <<"client008">>}, _, _, _} <- ets:tab2list(emqx_flapping)]
+        [X || X = {flapping, {clientid, <<"client008">>}, _, _} <- ets:tab2list(emqx_flapping)]
     ),
     %% Wait for at least two GC sweeps (window_time = 100ms): the first
     %% sweep may find the record still inside the window.
     timer:sleep(350),
     ?assertMatch(
         [],
-        [X || X = {flapping, {clientid, <<"client008">>}, _, _, _} <- ets:tab2list(emqx_flapping)]
+        [X || X = {flapping, {clientid, <<"client008">>}, _, _} <- ets:tab2list(emqx_flapping)]
     ).
 
 -doc """
@@ -286,7 +286,7 @@ t_no_username_no_detect(_) ->
     false = emqx_flapping:detect(ClientInfo),
     ?assertEqual(
         [],
-        [X || X = {flapping, {username, _}, _, _, _} <- ets:tab2list(emqx_flapping)]
+        [X || X = {flapping, {username, _}, _, _} <- ets:tab2list(emqx_flapping)]
     ).
 
 -doc """
