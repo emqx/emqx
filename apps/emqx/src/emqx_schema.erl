@@ -469,6 +469,52 @@ fields("flapping_detect") ->
                     default => <<"5m">>,
                     desc => ?DESC(flapping_detect_ban_time)
                 }
+            )},
+        {"by_username",
+            sc(
+                hoconsc:union([none, ref("flapping_detect_dimension")]),
+                #{
+                    default => none,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(flapping_detect_by_username)
+                }
+            )},
+        {"by_peerhost",
+            sc(
+                hoconsc:union([none, ref("flapping_detect_dimension")]),
+                #{
+                    default => none,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(flapping_detect_by_peerhost)
+                }
+            )}
+    ];
+fields("flapping_detect_dimension") ->
+    [
+        {"window_time",
+            sc(
+                duration(),
+                #{
+                    default => ?DEFAULT_WINDOW_TIME,
+                    importance => ?IMPORTANCE_HIGH,
+                    desc => ?DESC(flapping_detect_dimension_window_time)
+                }
+            )},
+        {"max_count",
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 15,
+                    desc => ?DESC(flapping_detect_dimension_max_count)
+                }
+            )},
+        {"ban_time",
+            sc(
+                duration(),
+                #{
+                    default => <<"5m">>,
+                    desc => ?DESC(flapping_detect_dimension_ban_time)
+                }
             )}
     ];
 fields("force_shutdown") ->
@@ -2357,6 +2403,9 @@ desc("flapping_detect") ->
     "from the same clientid in a time frame defined by `window_time`.\n"
     "After the limit is reached, successive `CONNECT` requests are forbidden\n"
     "(banned) until the end of the time period defined by `ban_time`.";
+desc("flapping_detect_dimension") ->
+    "Flapping detection based on the username or the source IP address of\n"
+    "the connecting clients, counted independently of the client ID based detection.";
 desc("force_shutdown") ->
     "When the process message queue length, or the memory bytes\n"
     "reaches a certain value, the process is forced to close.\n\n"

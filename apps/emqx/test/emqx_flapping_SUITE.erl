@@ -136,6 +136,211 @@ t_expired_detecting(_) ->
         [X || X = {flapping, <<"client008">>, _, _, _} <- ets:tab2list(emqx_flapping)]
     ).
 
+-doc """
+Flapping detection keyed on username: clients with distinct client IDs and
+source IPs sharing one username get the username banned once the threshold
+is exceeded, without banning any of the client IDs; the ban expires after
+the configured ban_time.
+""".
+t_detect_by_username(_) ->
+    Zone = ?FUNCTION_NAME,
+    Username = <<"flap_user">>,
+    ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
+        enable => false,
+        by_username => #{max_count => 3, window_time => 10000, ban_time => 2000},
+        by_peerhost => none
+    }),
+    Detect = fun(N) ->
+        emqx_flapping:detect(#{
+            zone => Zone,
+            listener => 'tcp:default',
+            clientid => <<"username_dim_client_", (integer_to_binary(N))/binary>>,
+            username => Username,
+            peerhost => {10, 0, 0, N}
+        })
+    end,
+    Detected0 = emqx_metrics:val_global('flapping.detected.username'),
+    false = Detect(1),
+    false = Detect(2),
+    true = Detect(3),
+    timer:sleep(50),
+    %% The username is banned, regardless of client ID and source IP:
+    true = emqx_banned:check(#{
+        clientid => <<"a_fresh_clientid">>, username => Username, peerhost => {10, 0, 0, 99}
+    }),
+    %% Other usernames are not affected:
+    false = emqx_banned:check(#{
+        clientid => <<"a_fresh_clientid">>, username => <<"other_user">>, peerhost => {10, 0, 0, 99}
+    }),
+    %% None of the client IDs got banned:
+    ?assertEqual([], emqx_banned:look_up({clientid, <<"username_dim_client_3">>})),
+    ?assertEqual(Detected0 + 1, emqx_metrics:val_global('flapping.detected.username')),
+    %% The ban expires:
+    timer:sleep(2500),
+    false = emqx_banned:check(#{
+        clientid => <<"a_fresh_clientid">>, username => Username, peerhost => {10, 0, 0, 99}
+    }).
+
+-doc """
+Flapping detection keyed on source IP address: clients with distinct client
+IDs and usernames connecting from one IP address get the IP banned once the
+threshold is exceeded; other IP addresses are not affected.
+""".
+t_detect_by_peerhost(_) ->
+    Zone = ?FUNCTION_NAME,
+    PeerHost = {10, 1, 2, 3},
+    ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
+        enable => false,
+        by_username => none,
+        by_peerhost => #{max_count => 3, window_time => 10000, ban_time => 2000}
+    }),
+    Detect = fun(N) ->
+        emqx_flapping:detect(#{
+            zone => Zone,
+            listener => 'tcp:default',
+            clientid => <<"peerhost_dim_client_", (integer_to_binary(N))/binary>>,
+            username => <<"peerhost_dim_user_", (integer_to_binary(N))/binary>>,
+            peerhost => PeerHost
+        })
+    end,
+    Detected0 = emqx_metrics:val_global('flapping.detected.peerhost'),
+    false = Detect(1),
+    false = Detect(2),
+    true = Detect(3),
+    timer:sleep(50),
+    %% The source IP is banned, regardless of client ID and username:
+    true = emqx_banned:check(#{
+        clientid => <<"a_fresh_clientid">>, username => <<"a_fresh_user">>, peerhost => PeerHost
+    }),
+    %% Other source IPs are not affected:
+    false = emqx_banned:check(#{
+        clientid => <<"a_fresh_clientid">>,
+        username => <<"a_fresh_user">>,
+        peerhost => {10, 1, 2, 4}
+    }),
+    ?assertEqual([], emqx_banned:look_up({clientid, <<"peerhost_dim_client_3">>})),
+    ?assertEqual(Detected0 + 1, emqx_metrics:val_global('flapping.detected.peerhost')),
+    ok = emqx_banned:delete({peerhost, PeerHost}).
+
+-doc """
+Each dimension counts against its own threshold: with a lower client ID
+threshold and a higher username threshold in the same zone, the client ID
+gets banned first while the username is banned only after its own
+threshold is exceeded.
+""".
+t_independent_dimension_policies(_) ->
+    Zone = ?FUNCTION_NAME,
+    ClientId = <<"indep_client">>,
+    Username = <<"indep_user">>,
+    ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
+        enable => true,
+        max_count => 3,
+        window_time => 10000,
+        ban_time => 2000,
+        by_username => #{max_count => 6, window_time => 10000, ban_time => 2000},
+        by_peerhost => none
+    }),
+    ClientInfo = #{
+        zone => Zone,
+        listener => 'tcp:default',
+        clientid => ClientId,
+        username => Username,
+        peerhost => {10, 2, 0, 1}
+    },
+    false = emqx_flapping:detect(ClientInfo),
+    false = emqx_flapping:detect(ClientInfo),
+    true = emqx_flapping:detect(ClientInfo),
+    timer:sleep(50),
+    %% Client ID hit its threshold (3), username (3 of 6) did not:
+    ?assertMatch([_], emqx_banned:look_up({clientid, ClientId})),
+    ?assertEqual([], emqx_banned:look_up({username, Username})),
+    %% Three more connect events trip the username threshold too:
+    false = emqx_flapping:detect(ClientInfo),
+    false = emqx_flapping:detect(ClientInfo),
+    true = emqx_flapping:detect(ClientInfo),
+    timer:sleep(50),
+    ?assertMatch([_], emqx_banned:look_up({username, Username})),
+    ok = emqx_banned:delete({clientid, ClientId}),
+    ok = emqx_banned:delete({username, Username}).
+
+-doc """
+Connections without a username are not counted towards the username
+dimension, so they never produce a username ban entry.
+""".
+t_no_username_no_detect(_) ->
+    Zone = ?FUNCTION_NAME,
+    ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
+        enable => false,
+        by_username => #{max_count => 2, window_time => 10000, ban_time => 2000},
+        by_peerhost => none
+    }),
+    ClientInfo = #{
+        zone => Zone,
+        listener => 'tcp:default',
+        clientid => <<"anon_client">>,
+        username => undefined,
+        peerhost => {10, 3, 0, 1}
+    },
+    false = emqx_flapping:detect(ClientInfo),
+    false = emqx_flapping:detect(ClientInfo),
+    false = emqx_flapping:detect(ClientInfo),
+    ?assertEqual(
+        [],
+        [X || X = {flapping, {username, _}, _, _, _} <- ets:tab2list(emqx_flapping)]
+    ).
+
+-doc """
+A username ban created by the flapping detector only rejects new connection
+attempts (before authentication); clients already connected with that
+username stay connected.
+""".
+t_existing_sessions_not_disconnected(_) ->
+    erlang:process_flag(trap_exit, true),
+    Zone = ?FUNCTION_NAME,
+    Username = <<"storm_user">>,
+    ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
+        enable => false,
+        by_username => #{max_count => 3, window_time => 10000, ban_time => 10000},
+        by_peerhost => none
+    }),
+    %% A client is already connected with the username:
+    {ok, C1} = emqtt:start_link([
+        {clientid, <<"storm_client_0">>}, {username, Username}, {proto_ver, v5}
+    ]),
+    {ok, _} = emqtt:connect(C1),
+    %% The username trips the flapping threshold:
+    lists:foreach(
+        fun(N) ->
+            _ = emqx_flapping:detect(#{
+                zone => Zone,
+                listener => 'tcp:default',
+                clientid => <<"storm_client_", (integer_to_binary(N))/binary>>,
+                username => Username,
+                peerhost => {10, 4, 0, N}
+            })
+        end,
+        lists:seq(1, 3)
+    ),
+    timer:sleep(50),
+    ?assertMatch([_], emqx_banned:look_up({username, Username})),
+    %% The connected client is not disconnected:
+    ?assertEqual(pong, emqtt:ping(C1)),
+    %% New connection attempts with the banned username are rejected:
+    Banned0 = emqx_metrics:val_global('client.banned'),
+    {ok, C2} = emqtt:start_link([
+        {clientid, <<"storm_client_new">>}, {username, Username}, {proto_ver, v5}
+    ]),
+    ?assertMatch({error, {banned, _}}, emqtt:connect(C2)),
+    ?assertEqual(Banned0 + 1, emqx_metrics:val_global('client.banned')),
+    %% Manual removal of the ban unblocks new connections:
+    ok = emqx_banned:delete({username, Username}),
+    {ok, C3} = emqtt:start_link([
+        {clientid, <<"storm_client_new">>}, {username, Username}, {proto_ver, v5}
+    ]),
+    {ok, _} = emqtt:connect(C3),
+    ok = emqtt:disconnect(C3),
+    ok = emqtt:disconnect(C1).
+
 t_conf_update(_) ->
     Global = emqx_config:get([flapping_detect]),
     #{
@@ -210,6 +415,26 @@ t_window_compatibility_check(_Conf) ->
     Flapping = emqx:get_raw_config([flapping_detect]),
     ok = emqx_config:init_load(emqx_schema, <<"flapping_detect {window_time = disable}">>),
     ?assertMatch(#{window_time := 60000, enable := false}, emqx:get_config([flapping_detect])),
+    %% reset
+    FlappingBin = iolist_to_binary(["flapping_detect {", hocon_pp:do(Flapping, #{}), "}"]),
+    ok = emqx_config:init_load(emqx_schema, FlappingBin),
+    ?assertEqual(Flapping, emqx:get_raw_config([flapping_detect])),
+    ok.
+
+-doc """
+The by_username and by_peerhost dimensions default to `none` (disabled)
+and accept a policy object with defaults filled in for omitted fields.
+""".
+t_dimension_config_check(_Conf) ->
+    Flapping = emqx:get_raw_config([flapping_detect]),
+    ok = emqx_config:init_load(emqx_schema, <<"flapping_detect {by_username {max_count = 7}}">>),
+    ?assertMatch(
+        #{
+            by_username := #{max_count := 7, window_time := 60000, ban_time := 300000},
+            by_peerhost := none
+        },
+        emqx:get_config([flapping_detect])
+    ),
     %% reset
     FlappingBin = iolist_to_binary(["flapping_detect {", hocon_pp:do(Flapping, #{}), "}"]),
     ok = emqx_config:init_load(emqx_schema, FlappingBin),

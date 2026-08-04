@@ -245,10 +245,52 @@ fields_mqtt_quic_listener_initial_window_packets.label:
 """Initial window packets"""
 
 flapping_detect_enable.desc:
-"""Enable flapping connection detection feature."""
+"""Enable flapping connection detection keyed on client ID.
+Detection by username or source IP address is enabled independently,
+by configuring `by_username` or `by_peerhost`."""
 
 flapping_detect_enable.label:
-"""Enable flapping detection"""
+"""Enable flapping detection by client ID"""
+
+flapping_detect_by_username.desc:
+"""Flapping detection keyed on the username of the connecting clients.
+Clients sharing a username are counted together, regardless of their client IDs.
+When the threshold is exceeded, the username is temporarily banned:
+new connection attempts with this username are rejected before authentication,
+while already-connected clients are not affected.
+Set to `none` (the default) to disable."""
+
+flapping_detect_by_username.label:
+"""Flapping detection by username"""
+
+flapping_detect_by_peerhost.desc:
+"""Flapping detection keyed on the source IP address of the connecting clients.
+Clients connecting from the same IP address are counted together, regardless of their client IDs.
+When the threshold is exceeded, the IP address is temporarily banned:
+new connection attempts from this IP address are rejected before authentication,
+while already-connected clients are not affected.
+Set to `none` (the default) to disable."""
+
+flapping_detect_by_peerhost.label:
+"""Flapping detection by source IP address"""
+
+flapping_detect_dimension_window_time.desc:
+"""The time window for flapping detection."""
+
+flapping_detect_dimension_window_time.label:
+"""Window time"""
+
+flapping_detect_dimension_max_count.desc:
+"""The maximum number of connect attempts allowed in `window_time` before the offending username or source IP address is banned."""
+
+flapping_detect_dimension_max_count.label:
+"""Max count"""
+
+flapping_detect_dimension_ban_time.desc:
+"""How long the flapping username or source IP address will be banned."""
+
+flapping_detect_dimension_ban_time.label:
+"""Ban time"""
 
 fields_ws_opts_check_origins.desc:
 """List of allowed origins.<br/>See <code>check_origin_enable</code>."""

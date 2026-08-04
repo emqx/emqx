@@ -2558,8 +2558,11 @@ get_tenant_namespace(ClientInfo) ->
 
 check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
     case emqx_banned:check(ClientInfo) of
-        true -> {error, ?RC_BANNED};
-        false -> ok
+        true ->
+            ok = emqx_metrics:inc_global('client.banned'),
+            {error, ?RC_BANNED};
+        false ->
+            ok
     end.
 
 %%--------------------------------------------------------------------
