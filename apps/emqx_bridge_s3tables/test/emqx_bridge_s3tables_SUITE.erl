@@ -43,6 +43,9 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
+suite() ->
+    [{ct_hooks, [emqx_cth_ct_hook_flaky]}].
+
 all() ->
     All0 = emqx_common_test_helpers:all(?MODULE),
     All = All0 -- matrix_cases(),
@@ -282,6 +285,9 @@ ensure_namespace_created(Client, Namespace) ->
         {error, {http_error, 500, _, _, _}} ->
             %% See Note [Flaky iceberg-rest-fixtures]
             throw(fixture_dead);
+        {error, {http_error, 502, _, _, _}} ->
+            %% See Note [Flaky iceberg-rest-fixtures]
+            throw(fixture_dead);
         {error, {http_error, 409, _, _, _}} ->
             ct:pal("namespace ~p already exists", [Namespace]),
             ok;
@@ -356,6 +362,9 @@ ensure_table_created(Client, Namespace, Table, Schema, Opts) ->
         {error, {http_error, 500, _, Body, _}} ->
             %% See Note [Flaky iceberg-rest-fixtures]
             ct:pal("500 error while creating table:\n  ~s", [Body]),
+            throw(fixture_dead);
+        {error, {http_error, 502, _, _, _}} ->
+            %% See Note [Flaky iceberg-rest-fixtures]
             throw(fixture_dead);
         {error, Reason} ->
             error(Reason)

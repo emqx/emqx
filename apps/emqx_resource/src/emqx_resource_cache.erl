@@ -11,7 +11,7 @@
 %% For health checks etc.
 -export([read_status/1, read_mod/1, read_manager_pid/1]).
 %% Hot-path
--export([get_runtime/1]).
+-export([get_runtime/1, split_channel_id/1]).
 
 -include("emqx_resource_runtime.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -29,7 +29,9 @@
     extra = []
 }).
 
--type chan_key() :: {connector_resource_id(), channel_id()}.
+-type chan_key() :: {connector_resource_id(), channel_id() | ?NO_CHANNEL}.
+
+-export_type([chan_key/0]).
 
 -record(channel, {
     id :: chan_key(),
@@ -184,9 +186,12 @@ all_ids() ->
 
 %% @doc The most performance-critical call.
 %% NOTE: Id is the action Id, but not connector Id.
--spec get_runtime(resource_id()) -> {ok, runtime()} | {error, not_found}.
-get_runtime(Id) ->
-    ChanKey = {ConnectorId, _ChanId} = split_channel_id(Id),
+%% Hot-path callers that query repeatedly for the same id should pre-compute
+%% the key once with `split_channel_id/1' and pass the tuple instead.
+-spec get_runtime(resource_id() | chan_key()) -> {ok, runtime()} | {error, not_found}.
+get_runtime(Id) when is_binary(Id) ->
+    get_runtime(split_channel_id(Id));
+get_runtime({ConnectorId, _ChanId} = ChanKey) ->
     try
         Cb = get_cb(ConnectorId),
         ChannelStatus = get_channel_status(ChanKey),
@@ -226,6 +231,7 @@ to_channel_record({Id0, #{status := Status, error := Error, query_mode := QueryM
         extra = []
     }.
 
+-spec split_channel_id(binary()) -> chan_key().
 split_channel_id(Id) when is_binary(Id) ->
     case emqx_bridge_v2:extract_connector_id_from_bridge_v2_id(Id) of
         {ok, ConnResId} ->
