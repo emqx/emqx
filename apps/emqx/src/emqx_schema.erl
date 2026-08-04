@@ -2421,8 +2421,8 @@ desc("flapping_detect") ->
     "temporarily banned: new matching connection attempts are rejected before\n"
     "authentication until the end of the time period defined by `ban_time`.";
 desc("flapping_detect_dimension") ->
-    "Flapping detection based on the username or the source IP address of\n"
-    "the connecting clients, counted independently of the client ID based detection.";
+    "Flapping detection policy for a single dimension (client ID, username,\n"
+    "or source IP address), counted independently of the other dimensions.";
 desc("force_shutdown") ->
     "When the process message queue length, or the memory bytes\n"
     "reaches a certain value, the process is forced to close.\n\n"

@@ -289,13 +289,13 @@ flapping_detect_dimension_window_time.label:
 """Window time"""
 
 flapping_detect_dimension_max_count.desc:
-"""The maximum number of connect attempts allowed in `window_time` before the offending username or source IP address is banned."""
+"""The maximum number of connect attempts allowed in `window_time` before the offending client ID, username, or source IP address is banned."""
 
 flapping_detect_dimension_max_count.label:
 """Max count"""
 
 flapping_detect_dimension_ban_time.desc:
-"""How long the flapping username or source IP address will be banned."""
+"""How long the offending client ID, username, or source IP address will be banned."""
 
 flapping_detect_dimension_ban_time.label:
 """Ban time"""
