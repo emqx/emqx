@@ -350,6 +350,78 @@ t_json_validation(_Config) ->
     ?assertNot(CheckFn(<<"{\"foo\": \"notinteger\", \"bar\": 2}">>)),
     ok.
 
+-doc """
+Registers a Draft-04 schema whose `$ref` points at a Unicode definition name,
+both percent-encoded (RFC 3986) and as raw UTF-8, and checks that decoding
+resolves the reference: valid payloads decode to the expected map and invalid
+payloads throw a structured `schema_decode_error` instead of crashing.
+""".
+t_json_unicode_ref(_Config) ->
+    PercentEncoded = <<
+        "{\"$schema\":\"http://json-schema.org/draft-04/schema#\","
+        "\"definitions\":{\"姓名类型\":{\"type\":\"string\",\"minLength\":2}},"
+        "\"type\":\"object\","
+        "\"properties\":{\"姓名\":{\"$ref\":\"#/definitions/%E5%A7%93%E5%90%8D%E7%B1%BB%E5%9E%8B\"}},"
+        "\"required\":[\"姓名\"]}"/utf8
+    >>,
+    RawUnicode = <<
+        "{\"$schema\":\"http://json-schema.org/draft-04/schema#\","
+        "\"definitions\":{\"姓名类型\":{\"type\":\"string\",\"minLength\":2}},"
+        "\"type\":\"object\","
+        "\"properties\":{\"姓名\":{\"$ref\":\"#/definitions/姓名类型\"}},"
+        "\"required\":[\"姓名\"]}"/utf8
+    >>,
+    Valid = <<"{\"姓名\":\"张三\"}"/utf8>>,
+    TooShort = <<"{\"姓名\":\"李\"}"/utf8>>,
+    lists:foreach(
+        fun({SerdeName, Source}) ->
+            ok = emqx_schema_registry:add_schema(SerdeName, #{type => json, source => Source}),
+            ?assertEqual(
+                #{<<"姓名"/utf8>> => <<"张三"/utf8>>},
+                emqx_schema_registry_serde:decode(SerdeName, Valid),
+                #{schema => SerdeName}
+            ),
+            ?assertThrow(
+                {schema_decode_error, #{error_type := validation_failure}},
+                emqx_schema_registry_serde:decode(SerdeName, TooShort),
+                #{schema => SerdeName}
+            )
+        end,
+        [
+            {<<"json_percent_encoded_ref">>, PercentEncoded},
+            {<<"json_raw_unicode_ref">>, RawUnicode}
+        ]
+    ),
+    ok.
+
+-doc """
+Registers a Draft-06 schema containing `$id`, `examples`, a numeric
+`exclusiveMinimum` and non-ASCII strings, and checks that registration
+succeeds and the draft-06 keywords are enforced during validation.
+""".
+t_json_draft06_unicode_source(_Config) ->
+    SerdeName = <<"json_draft06_product">>,
+    Source = <<
+        "{\"$schema\":\"http://json-schema.org/draft-06/schema#\","
+        "\"$id\":\"https://example.com/product.schema.json\","
+        "\"title\":\"Product\",\"type\":\"object\","
+        "\"properties\":{"
+        "\"productId\":{\"type\":\"integer\",\"exclusiveMinimum\":0,\"examples\":[1,100]},"
+        "\"productName\":{\"type\":\"string\",\"examples\":[\"智能手机\",\"无线耳机\"]}},"
+        "\"required\":[\"productId\",\"productName\"],"
+        "\"examples\":[{\"productId\":1,\"productName\":\"机械键盘\"}]}"/utf8
+    >>,
+    ok = emqx_schema_registry:add_schema(SerdeName, #{type => json, source => Source}),
+    CheckFn = fun(Data) ->
+        emqx_schema_registry_serde:rsf_schema_check([SerdeName, Data])
+    end,
+    ?assert(CheckFn(<<"{\"productId\":1,\"productName\":\"机械键盘\"}"/utf8>>)),
+    %% draft-06 numeric exclusiveMinimum is enforced
+    ?assertNot(CheckFn(<<"{\"productId\":0,\"productName\":\"x\"}">>)),
+    %% required is enforced
+    ?assertNot(CheckFn(<<"{\"productName\":\"x\"}">>)),
+    ok.
+
 t_is_existing_type(_Config) ->
     JsonName = <<"myjson">>,
     ?assertNot(emqx_schema_registry:is_existing_type(JsonName)),

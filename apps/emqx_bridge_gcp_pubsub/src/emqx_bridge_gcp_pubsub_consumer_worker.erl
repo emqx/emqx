@@ -12,7 +12,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% `ecpool_worker' API
--export([connect/1, health_check/1, clear_optvar/1]).
+-export([connect/1, health_check/2, clear_optvar/2]).
 
 %% `gen_server' API
 -export([
@@ -90,7 +90,11 @@
 -define(patch_subscription, patch_subscription).
 
 -define(HEALTH_CHECK_TIMEOUT, 10_000).
--define(OPTVAR_SUB_OK(PID), {?MODULE, subscription_ok, PID}).
+%% Must be scoped by the source resource id: worker indices repeat across pools, and a
+%% bare-index key would let one pool (e.g. a probe's) clear or overwrite another's flag.
+-define(OPTVAR_SUB_OK(SOURCE_RES_ID, WORKER_ID),
+    {?MODULE, subscription_ok, SOURCE_RES_ID, WORKER_ID}
+).
 
 -record(register_stream_ref, {stream_ref :: reference(), pid :: pid()}).
 
@@ -172,18 +176,18 @@ get_subscription(WorkerPid) ->
 %% `ecpool' health check
 %%-------------------------------------------------------------------------------------------------
 
--spec health_check(integer()) -> subscription_ok | topic_not_found | timeout.
-health_check(WorkerId) ->
-    case optvar:read(?OPTVAR_SUB_OK(WorkerId), ?HEALTH_CHECK_TIMEOUT) of
+-spec health_check(binary(), integer()) -> subscription_ok | topic_not_found | timeout.
+health_check(SourceResId, WorkerId) ->
+    case optvar:read(?OPTVAR_SUB_OK(SourceResId, WorkerId), ?HEALTH_CHECK_TIMEOUT) of
         {ok, Status} ->
             Status;
         timeout ->
             timeout
     end.
 
--spec clear_optvar(integer()) -> ok.
-clear_optvar(WorkerId) ->
-    optvar:unset(?OPTVAR_SUB_OK(WorkerId)),
+-spec clear_optvar(binary(), integer()) -> ok.
+clear_optvar(SourceResId, WorkerId) ->
+    optvar:unset(?OPTVAR_SUB_OK(SourceResId, WorkerId)),
     ok.
 
 %%-------------------------------------------------------------------------------------------------
@@ -262,7 +266,7 @@ handle_continue(?ensure_subscription, State0) ->
                 ecpool_worker_id := WorkerId
             } = State0,
             ?MODULE:pull_async(self()),
-            optvar:set(?OPTVAR_SUB_OK(WorkerId), subscription_ok),
+            optvar:set(?OPTVAR_SUB_OK(SourceResId, WorkerId), subscription_ok),
             clear_unhealthy_status(State0),
             State = clear_backoff(State0),
             ?tp(
@@ -291,7 +295,7 @@ handle_continue(?patch_subscription, State0) ->
                 ecpool_worker_id := WorkerId
             } = State0,
             ?MODULE:pull_async(self()),
-            optvar:set(?OPTVAR_SUB_OK(WorkerId), subscription_ok),
+            optvar:set(?OPTVAR_SUB_OK(SourceResId, WorkerId), subscription_ok),
             clear_unhealthy_status(State0),
             ?tp(
                 debug,
@@ -378,14 +382,15 @@ terminate({shutdown, {error, Reason}}, State) when
         topic := _Topic
     } = State,
     emqx_bridge_gcp_pubsub_impl_consumer:mark_as_unhealthy(SourceResId, Reason),
-    optvar:set(?OPTVAR_SUB_OK(WorkerId), Reason),
+    optvar:set(?OPTVAR_SUB_OK(SourceResId, WorkerId), Reason),
     ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => {error, Reason}, topic => _Topic}),
     ok;
 terminate(_Reason, State) ->
     #{
-        ecpool_worker_id := WorkerId
+        ecpool_worker_id := WorkerId,
+        source_resource_id := SourceResId
     } = State,
-    clear_optvar(WorkerId),
+    clear_optvar(SourceResId, WorkerId),
     ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => _Reason, topic => maps:get(topic, State)}),
     ok.
 
