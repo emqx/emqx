@@ -17,7 +17,7 @@
 -export([detect/1]).
 
 -ifdef(TEST).
--export([get_policy/1]).
+-export([get_policy/1, dimension_defaults/0]).
 -endif.
 
 %% gen_server callbacks
@@ -133,6 +133,10 @@ ensure_defaults(#{window_time := _, max_count := _, ban_time := _} = Dimension) 
     Dimension;
 ensure_defaults(Dimension) ->
     maps:merge(?DIMENSION_DEFAULTS, Dimension).
+
+-ifdef(TEST).
+dimension_defaults() -> ?DIMENSION_DEFAULTS.
+-endif.
 
 all_dimensions(Policy) ->
     [

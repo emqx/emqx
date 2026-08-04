@@ -503,5 +503,20 @@ t_legacy_clientid_conversion(_Conf) ->
     ok = emqx_cm_sup:restart_flapping(),
     ok.
 
+-doc """
+The fallback dimension defaults hardcoded in emqx_flapping (used when a
+zone enables a dimension that the global config has disabled) must match
+the field defaults of the flapping_detect_dimension schema struct.
+""".
+t_dimension_defaults_match_schema(_Conf) ->
+    Checked = hocon_tconf:check_plain(
+        emqx_schema,
+        #{<<"flapping_detect">> => #{<<"by_username">> => #{}}},
+        #{required => false, atom_key => true},
+        ["flapping_detect"]
+    ),
+    #{flapping_detect := #{by_username := SchemaDefaults}} = Checked,
+    ?assertEqual(SchemaDefaults, emqx_flapping:dimension_defaults()).
+
 get_policy(Zone) ->
     emqx_config:get_zone_conf(Zone, [flapping_detect]).
