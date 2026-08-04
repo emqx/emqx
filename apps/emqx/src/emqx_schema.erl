@@ -188,7 +188,7 @@
     description_schema/0,
     tags_schema/0
 ]).
--export([password_converter/2, bin_str_converter/2]).
+-export([password_converter/2, bin_str_converter/2, flapping_detect_converter/2]).
 -export([authz_fields/0]).
 -export([sc/2, map/2]).
 
@@ -436,12 +436,16 @@ fields("topic_predicate_equals") ->
     ];
 fields("flapping_detect") ->
     [
+        %% Deprecated since 6.3.0: superseded by `by_clientid`.
+        %% The field converter lifts them into `by_clientid`, so these
+        %% fields never reach the checked config.
         {"enable",
             sc(
                 boolean(),
                 #{
-                    default => false,
-                    %% importance => ?IMPORTANCE_NO_DOC,
+                    required => false,
+                    deprecated => {since, "6.3.0"},
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(flapping_detect_enable)
                 }
             )},
@@ -449,8 +453,9 @@ fields("flapping_detect") ->
             sc(
                 duration(),
                 #{
-                    default => ?DEFAULT_WINDOW_TIME,
-                    importance => ?IMPORTANCE_HIGH,
+                    required => false,
+                    deprecated => {since, "6.3.0"},
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(flapping_detect_window_time)
                 }
             )},
@@ -458,7 +463,9 @@ fields("flapping_detect") ->
             sc(
                 non_neg_integer(),
                 #{
-                    default => 15,
+                    required => false,
+                    deprecated => {since, "6.3.0"},
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(flapping_detect_max_count)
                 }
             )},
@@ -466,8 +473,65 @@ fields("flapping_detect") ->
             sc(
                 duration(),
                 #{
-                    default => <<"5m">>,
+                    required => false,
+                    deprecated => {since, "6.3.0"},
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(flapping_detect_ban_time)
+                }
+            )},
+        {"by_clientid",
+            sc(
+                hoconsc:union([none, ref("flapping_detect_dimension")]),
+                #{
+                    default => none,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(flapping_detect_by_clientid)
+                }
+            )},
+        {"by_username",
+            sc(
+                hoconsc:union([none, ref("flapping_detect_dimension")]),
+                #{
+                    default => none,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(flapping_detect_by_username)
+                }
+            )},
+        {"by_peerhost",
+            sc(
+                hoconsc:union([none, ref("flapping_detect_dimension")]),
+                #{
+                    default => none,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(flapping_detect_by_peerhost)
+                }
+            )}
+    ];
+fields("flapping_detect_dimension") ->
+    [
+        {"window_time",
+            sc(
+                duration(),
+                #{
+                    default => ?DEFAULT_WINDOW_TIME,
+                    importance => ?IMPORTANCE_HIGH,
+                    desc => ?DESC(flapping_detect_dimension_window_time)
+                }
+            )},
+        {"max_count",
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 15,
+                    desc => ?DESC(flapping_detect_dimension_max_count)
+                }
+            )},
+        {"ban_time",
+            sc(
+                duration(),
+                #{
+                    default => <<"5m">>,
+                    desc => ?DESC(flapping_detect_dimension_ban_time)
                 }
             )}
     ];
@@ -2353,10 +2417,16 @@ desc("zone") ->
     " - `conn_congestion.*`\n"
     " - `force_gc.*`\n\n";
 desc("flapping_detect") ->
-    "This config controls the allowed maximum number of `CONNECT` packets received\n"
-    "from the same clientid in a time frame defined by `window_time`.\n"
-    "After the limit is reached, successive `CONNECT` requests are forbidden\n"
-    "(banned) until the end of the time period defined by `ban_time`.";
+    "This config limits how frequently clients may reconnect.\n"
+    "Connect events are counted per client ID (`by_clientid`), per username\n"
+    "(`by_username`), and per source IP address (`by_peerhost`), each with its\n"
+    "own detection window, threshold, and ban duration.\n"
+    "When a threshold is exceeded within the window, the offending value is\n"
+    "temporarily banned: new matching connection attempts are rejected before\n"
+    "authentication until the end of the time period defined by `ban_time`.";
+desc("flapping_detect_dimension") ->
+    "Flapping detection policy for a single dimension (client ID, username,\n"
+    "or source IP address), counted independently of the other dimensions.";
 desc("force_shutdown") ->
     "When the process message queue length, or the memory bytes\n"
     "reaches a certain value, the process is forced to close.\n\n"
@@ -4052,11 +4122,48 @@ mqtt_converter(#{<<"keepalive_backoff">> := Backoff} = Mqtt, _Opts) ->
 mqtt_converter(Mqtt, _Opts) ->
     Mqtt.
 
-%% For backward compatibility with window_time is disable
-flapping_detect_converter(Conf = #{<<"window_time">> := <<"disable">>}, _Opts) ->
-    Conf#{<<"window_time">> => ?DEFAULT_WINDOW_TIME, <<"enable">> => false};
+%% For backward compatibility:
+%% - `window_time = disable` used to mean detection disabled;
+%% - the deprecated flat fields (enable, window_time, max_count, ban_time)
+%%   are lifted into the `by_clientid` dimension.
+flapping_detect_converter(Conf = #{<<"window_time">> := <<"disable">>}, Opts) ->
+    flapping_detect_converter(
+        Conf#{<<"window_time">> => ?DEFAULT_WINDOW_TIME, <<"enable">> => false}, Opts
+    );
+flapping_detect_converter(Conf, _Opts) when is_map(Conf) ->
+    convert_legacy_flapping_detect(Conf);
 flapping_detect_converter(Conf, _Opts) ->
     Conf.
+
+convert_legacy_flapping_detect(Conf0) ->
+    LegacyParams = maps:with([<<"window_time">>, <<"max_count">>, <<"ban_time">>], Conf0),
+    Enable = maps:get(<<"enable">>, Conf0, undefined),
+    HasLegacy = (Enable =/= undefined) orelse (maps:size(LegacyParams) > 0),
+    %% The output never carries the deprecated fields, so the stored raw
+    %% config converges to the new shape.
+    Conf = maps:without(
+        [<<"enable">>, <<"window_time">>, <<"max_count">>, <<"ban_time">>], Conf0
+    ),
+    case {is_map_key(<<"by_clientid">>, Conf0), HasLegacy} of
+        {true, _} ->
+            %% `by_clientid` prevails over the deprecated fields.
+            %% The converter runs before defaults are filled, so a
+            %% present value (including `none`) came from the input.
+            Conf;
+        {false, false} ->
+            Conf;
+        {false, true} ->
+            Conf#{<<"by_clientid">> => converted_by_clientid(Enable, LegacyParams)}
+    end.
+
+converted_by_clientid(Enable, LegacyParams) when
+    Enable =:= true; Enable =:= <<"true">>
+->
+    LegacyParams;
+converted_by_clientid(_NotTrue, _LegacyParams) ->
+    %% Explicitly disabled, or deprecated params without an explicit
+    %% enable = true: the dimension is off.
+    none.
 
 mqtt_general() ->
     [

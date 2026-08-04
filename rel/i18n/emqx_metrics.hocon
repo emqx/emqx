@@ -221,6 +221,18 @@ emqx_metrics {
     client_connect {
         desc: "Number of client connections"
     }
+    client_banned {
+        desc: "Number of connection attempts rejected because the client matched an active ban entry"
+    }
+    flapping_detected_clientid {
+        desc: "Number of times flapping was detected for a client ID, resulting in a temporary ban"
+    }
+    flapping_detected_username {
+        desc: "Number of times flapping was detected for a username, resulting in a temporary ban"
+    }
+    flapping_detected_peerhost {
+        desc: "Number of times flapping was detected for a source IP address, resulting in a temporary ban"
+    }
     client_connack {
         desc: "Number of CONNACK packet sent"
     }
