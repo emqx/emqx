@@ -12,8 +12,8 @@ It uses only the Python standard library so CI does not need jq or yq installed.
 
 Two families of URLs are printed:
   - EMQX packages, served from the emqx.com download CDN.
-  - Plugin packages, which are NOT on the CDN -- they are fetched straight from
-    S3 (https://packages.emqx.io/emqx-plugins/...). Each plugin under plugins/
+  - Plugin packages, also served from the emqx.com CDN, under
+    /downloads/emqx-plugins/<version>/. Each plugin under plugins/
     ships a VERSION file that gives its package version.
 
 Note: snap packages are published to the Snap Store, not to emqx.com, so they
@@ -43,8 +43,8 @@ import build_matrix  # noqa: E402 (sibling module, path set above)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EDITIONS = {"emqx-enterprise": "enterprise"}
 
-# Plugin packages are downloaded straight from S3, not the emqx.com CDN.
-PLUGINS_BASE_URL = "https://packages.emqx.io/emqx-plugins"
+# Plugin packages are served from the emqx.com CDN.
+PLUGINS_BASE_URL = "https://www.emqx.com/downloads/emqx-plugins"
 
 
 def linux_pkg_ext(os_token):

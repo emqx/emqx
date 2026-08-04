@@ -82,6 +82,38 @@ def main():
     if git_dirs:
         print(f"{'Would delete' if args.dry_run else 'Deleted'} {len(git_dirs)} .git dir(s) from deps.")
 
+    # Nested _build dirs inside deps are rebar3/cmake build artifacts; the
+    # rebar plugin copies inside would show up as false components in the
+    # scan. Exception: ezstd fetches the zstd source into _build and
+    # statically links it into its NIF, so move it out first to keep zstd
+    # visible to the scanner.
+    ezstd_zstd = os.path.join(deps_dir, "ezstd", "_build", "deps", "zstd")
+    if os.path.isdir(ezstd_zstd):
+        dest = os.path.join(deps_dir, "ezstd", "zstd")
+        if args.dry_run:
+            print(f"[dry-run] would move: {ezstd_zstd} -> {dest}")
+        else:
+            print(f"Moving: {ezstd_zstd} -> {dest}")
+            shutil.move(ezstd_zstd, dest)
+            zstd_git = os.path.join(dest, ".git")
+            if os.path.isdir(zstd_git):
+                shutil.rmtree(zstd_git)
+
+    nested_build_dirs = []
+    for dirpath, dirnames, _filenames in os.walk(deps_dir):
+        if "_build" in dirnames:
+            nested_build_dirs.append(os.path.join(dirpath, "_build"))
+            dirnames.remove("_build")
+    nested_build_dirs.sort()
+    for d in nested_build_dirs:
+        if args.dry_run:
+            print(f"[dry-run] would delete: {d}")
+        else:
+            print(f"Deleting: {d}")
+            shutil.rmtree(d)
+    if nested_build_dirs:
+        print(f"{'Would delete' if args.dry_run else 'Deleted'} {len(nested_build_dirs)} nested _build dir(s) from deps.")
+
     # Remove bulky directories not needed for SCA.
     bulky_dirs = [
         os.path.join(deps_dir, "greptimedb_rs", "target", "release"),
@@ -100,22 +132,29 @@ def main():
                 shutil.rmtree(d)
 
 
-    # Delete orphan Cargo.toml files (no Cargo.lock sibling) to avoid scanner
-    # complaining about missing lockfiles.
-    orphan_cargo = []
+    # Delete orphan package-manager manifests (no lockfile sibling) to avoid
+    # the scanner's build-based detectors failing on missing lockfiles.
+    # E.g. ezstd vendors upstream zstd which ships a Package.swift; without a
+    # Package.resolved the Swift detector fails the whole scan.
+    manifest_lockfile_pairs = [
+        ("Cargo.toml", "Cargo.lock"),
+        ("Package.swift", "Package.resolved"),
+    ]
+    orphan_manifests = []
     for dirpath, _dirnames, filenames in os.walk(deps_dir):
-        if "Cargo.toml" in filenames and "Cargo.lock" not in filenames:
-            orphan_cargo.append(os.path.join(dirpath, "Cargo.toml"))
+        for manifest, lockfile in manifest_lockfile_pairs:
+            if manifest in filenames and lockfile not in filenames:
+                orphan_manifests.append(os.path.join(dirpath, manifest))
 
-    for fpath in sorted(orphan_cargo):
+    for fpath in sorted(orphan_manifests):
         if args.dry_run:
             print(f"[dry-run] would delete: {fpath}")
         else:
             print(f"Deleting: {fpath}")
             os.remove(fpath)
 
-    if orphan_cargo:
-        print(f"{'Would delete' if args.dry_run else 'Deleted'} {len(orphan_cargo)} orphan Cargo.toml file(s) from deps.")
+    if orphan_manifests:
+        print(f"{'Would delete' if args.dry_run else 'Deleted'} {len(orphan_manifests)} orphan manifest file(s) from deps.")
 
     # Delete files with a Python shebang to avoid scanner treating this as a Python project.
     python_shebang = re.compile(rb'^#!.*python')

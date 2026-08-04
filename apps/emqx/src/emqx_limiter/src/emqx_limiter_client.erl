@@ -16,7 +16,8 @@
 
 -type t() :: #{
     module := module(),
-    state := state()
+    state := state(),
+    not_found_mode => close
 }.
 
 -type reason() :: {failed_to_consume_from_limiter, emqx_limiter:id()} | term().
@@ -60,7 +61,7 @@ try_consume(#{module := Module, state := State} = Limiter, Amount) ->
                 },
                 #{tag => "QUOTA"}
             ),
-            {true, Limiter}
+            handle_failure(Limiter, Reason)
     end.
 
 -spec put_back(t(), non_neg_integer()) -> t().
@@ -81,3 +82,8 @@ put_back(#{module := Module, state := State} = Limiter, Amount) ->
             ),
             Limiter
     end.
+
+handle_failure(#{not_found_mode := close} = Limiter, {limiter_not_found, _} = Reason) ->
+    {false, Limiter, Reason};
+handle_failure(Limiter, _Reason) ->
+    {true, Limiter}.

@@ -123,10 +123,8 @@ ensure_client_limiter_group_absent(Ns) ->
 %%
 
 cleanup_configs(Ns, _Configs) ->
-    %% Note: we may safely delete the limiter groups here: when clients attempt to consume
-    %% from the now dangling limiters, `emqx_limiter_client' will log the error but don't
-    %% do any limiting when it fails to fetch the missing limiter group configuration.
-    %% The user may choose to later kick all clients from this namespace.
+    %% MT limiter clients fail closed when these groups are removed, so deleted namespace
+    %% clients cannot bypass their quotas while they are being kicked.
     _ = ensure_group_absent(tenant_group(Ns)),
     _ = ensure_group_absent(client_group(Ns)),
     ok.
@@ -219,7 +217,7 @@ create_tenant_limiters(Zone, Ns, Name) ->
     case emqx_mt_config:get_tenant_limiter_config(Ns) of
         {ok, #{}} ->
             TenantLimiterId = {tenant_group(Ns), Name},
-            TenantLimiterClient = emqx_limiter:connect(TenantLimiterId),
+            TenantLimiterClient = emqx_limiter:connect(TenantLimiterId, #{not_found_mode => close}),
             [ZoneLimiterClient, TenantLimiterClient];
         _ ->
             [ZoneLimiterClient]
@@ -229,7 +227,7 @@ create_client_limiters(ListenerId, Ns, Name) ->
     case emqx_mt_config:get_client_limiter_config(Ns) of
         {ok, #{}} ->
             ClientLimiterId = {client_group(Ns), Name},
-            ClientLimiterClient = emqx_limiter:connect(ClientLimiterId),
+            ClientLimiterClient = emqx_limiter:connect(ClientLimiterId, #{not_found_mode => close}),
             [ClientLimiterClient];
         _ ->
             %% TODO: Isolate implementation details in `emqx_limiter` API.
