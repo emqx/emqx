@@ -4,10 +4,6 @@
 
 -module(emqx_common_test_helpers).
 
--type special_config_handler() :: fun().
-
--type apps() :: list(atom()).
-
 -export([
     all/1,
     all_with_matrix/1,
@@ -23,13 +19,6 @@
     init_per_testcase/3,
     end_per_testcase/3,
     boot_modules/1,
-    start_apps/1,
-    start_apps/2,
-    start_apps/3,
-    start_app/2,
-    stop_apps/1,
-    stop_apps/2,
-    reload/2,
     app_path/2,
     proj_root/0,
     list_umbrella_apps/0,
@@ -37,8 +26,6 @@
     flush/0,
     flush/1,
     load/1,
-    render_and_load_app_config/1,
-    render_and_load_app_config/2,
     copy_acl_conf/0
 ]).
 
@@ -55,8 +42,6 @@
     is_tcp_server_available/3,
     load_config/2,
     not_wait_mqtt_payload/1,
-    read_schema_configs/2,
-    render_config_file/2,
     wait_for/4,
     wait_publishes/2,
     wait_mqtt_payload/1,
@@ -338,171 +323,12 @@ end_per_testcase(Module, TestCase, Config) ->
 boot_modules(Mods) ->
     application:set_env(emqx, boot_modules, Mods).
 
--spec start_apps(Apps :: apps()) -> ok.
-start_apps(Apps) ->
-    DefaultHandler = fun(_) -> ok end,
-    start_apps(Apps, DefaultHandler, #{}).
-
--spec start_apps(Apps :: apps(), Handler :: special_config_handler()) -> ok.
-start_apps(Apps, SpecAppConfig) when is_function(SpecAppConfig) ->
-    start_apps(Apps, SpecAppConfig, #{}).
-
--spec start_apps(Apps :: apps(), Handler :: special_config_handler(), map()) -> ok.
-start_apps(Apps, SpecAppConfig, Opts) when is_function(SpecAppConfig) ->
-    %% Load all application code to beam vm first
-    %% Because, minirest, ekka etc.. application will scan these modules
-    lists:foreach(fun load/1, [emqx | Apps]),
-    ok = start_ekka(),
-    lists:foreach(fun(App) -> start_app(App, SpecAppConfig, Opts) end, [emqx | Apps]).
-
 load(App) ->
     case application:load(App) of
         ok -> ok;
         {error, {already_loaded, _}} -> ok;
         {error, Reason} -> error({failed_to_load_app, App, Reason})
     end.
-
-render_and_load_app_config(App) ->
-    render_and_load_app_config(App, #{}).
-
-render_and_load_app_config(App, Opts) ->
-    load(App),
-    Schema = app_schema(App),
-    ConfFilePath = maps:get(conf_file_path, Opts, filename:join(["etc", app_conf_file(App)])),
-    Conf = app_path(App, ConfFilePath),
-    try
-        do_render_app_config(App, Schema, Conf, Opts)
-    catch
-        throw:skip ->
-            ok;
-        throw:E:St ->
-            %% turn throw into error
-            error({Conf, E, St})
-    end.
-
-do_render_app_config(App, Schema, ConfigFile, Opts) ->
-    %% copy acl_conf must run before read_schema_configs
-    copy_acl_conf(),
-    Vars = mustache_vars(App, Opts),
-    RenderedConfigFile = render_config_file(ConfigFile, Vars),
-    read_schema_configs(Schema, RenderedConfigFile),
-    force_set_config_file_paths(App, [RenderedConfigFile]),
-    copy_certs(App, RenderedConfigFile),
-    ok.
-
-start_app(App, SpecAppConfig) ->
-    start_app(App, SpecAppConfig, #{}).
-
-start_app(App, SpecAppConfig, Opts) ->
-    render_and_load_app_config(App, Opts),
-    SpecAppConfig(App),
-    case application:ensure_all_started(App) of
-        {ok, _} ->
-            ok = wait_for_app_processes(App),
-            ok = perform_sanity_checks(App),
-            ok;
-        {error, Reason} ->
-            error({failed_to_start_app, App, Reason})
-    end.
-
-wait_for_app_processes(emqx_conf) ->
-    %% emqx_conf app has a gen_server which
-    %% initializes its state asynchronously
-    gen_server:call(emqx_cluster_rpc, dummy),
-    ok;
-wait_for_app_processes(_) ->
-    ok.
-
-%% These are checks to detect inter-suite or inter-testcase flakiness
-%% early.  For example, one suite might forget one application running
-%% and stop others, and then the `application:start/2' callback is
-%% never called again for this application.
-perform_sanity_checks(emqx_rule_engine) ->
-    ensure_config_handler(emqx_rule_engine, [rule_engine, rules, '?']),
-    ok;
-perform_sanity_checks(emqx_bridge) ->
-    ensure_config_handler(emqx_bridge, [bridges]),
-    ok;
-perform_sanity_checks(_App) ->
-    ok.
-
-ensure_config_handler(Module, ConfigPath) ->
-    #{handlers := Handlers} = emqx_config_handler:info(),
-    case emqx_utils_maps:deep_get(ConfigPath, Handlers, not_found) of
-        #{'$mod' := Module} -> ok;
-        NotFound -> error({config_handler_missing, ConfigPath, Module, NotFound})
-    end,
-    ok.
-
-app_conf_file(emqx_conf) -> "emqx.conf.all";
-app_conf_file(App) -> atom_to_list(App) ++ ".conf".
-
-app_schema(App) ->
-    Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
-    try
-        true = is_list(Mod:roots()),
-        Mod
-    catch
-        error:undef ->
-            no_schema
-    end.
-
-mustache_vars(App, Opts) ->
-    ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, #{}),
-    Defaults = #{
-        node_cookie => atom_to_list(erlang:get_cookie()),
-        platform_data_dir => app_path(App, "data"),
-        platform_etc_dir => app_path(App, "etc")
-    },
-    maps:merge(Defaults, ExtraMustacheVars).
-
-render_config_file(ConfigFile, Vars0) ->
-    Temp =
-        case file:read_file(ConfigFile) of
-            {ok, T} -> T;
-            {error, enoent} -> throw(skip);
-            {error, Reason} -> error({failed_to_read_config_template, ConfigFile, Reason})
-        end,
-    Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- maps:to_list(Vars0)],
-    Targ = bbmustache:render(Temp, Vars),
-    NewName = ConfigFile ++ ".rendered",
-    ok = file:write_file(NewName, Targ),
-    NewName.
-
-read_schema_configs(no_schema, _ConfigFile) ->
-    ok;
-read_schema_configs(Schema, ConfigFile) ->
-    NewConfig = generate_config(Schema, ConfigFile),
-    application:set_env(NewConfig).
-
-generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
-    {ok, Conf0} = hocon:load(ConfigFile, #{format => richmap}),
-    hocon_tconf:generate(SchemaModule, Conf0).
-
--spec stop_apps(list()) -> ok.
-stop_apps(Apps) ->
-    stop_apps(Apps, #{}).
-
-stop_apps(Apps, Opts) ->
-    [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
-    ok = mria_mnesia:delete_schema(),
-    %% to avoid inter-suite flakiness
-    application:unset_env(emqx, config_loader),
-    application:unset_env(emqx, boot_modules),
-    emqx_schema_hooks:erase_injections(),
-    case Opts of
-        #{erase_all_configs := false} ->
-            %% FIXME: this means inter-suite or inter-test dependencies
-            ok;
-        _ ->
-            emqx_config:erase_all()
-    end,
-    ok = emqx_config:delete_override_conf_files(),
-    application:unset_env(emqx, local_override_conf_file),
-    application:unset_env(emqx, cluster_override_conf_file),
-    application:unset_env(emqx, cluster_hocon_file),
-    application:unset_env(gen_rpc, port_discovery),
-    ok.
 
 proj_root() ->
     filename:join(
@@ -554,12 +380,6 @@ do_safe_relative_path(Path) ->
 safe_relative_path_2(Path) ->
     {ok, Cwd} = file:get_cwd(),
     filelib:safe_relative_path(Path, Cwd).
-
--spec reload(App :: atom(), SpecAppConfig :: special_config_handler()) -> ok.
-reload(App, SpecAppConfigHandler) ->
-    application:stop(App),
-    start_app(App, SpecAppConfigHandler, #{}),
-    application:start(App).
 
 ensure_mnesia_stopped() ->
     mria:stop(),
@@ -666,26 +486,6 @@ catch_call(F) ->
         C:E:S ->
             {crashed, {C, E, S}}
     end.
-force_set_config_file_paths(emqx_conf, [Path] = Paths) ->
-    Bin = iolist_to_binary(io_lib:format("node.config_files = [~p]~n", [Path])),
-    ok = file:write_file(Path, Bin, [append]),
-    application:set_env(emqx, config_files, Paths);
-force_set_config_file_paths(emqx, Paths) ->
-    %% we need init cluster conf, so we can save the cluster conf to the file
-    application:set_env(emqx, local_override_conf_file, "local_override.conf"),
-    application:set_env(emqx, cluster_override_conf_file, "cluster_override.conf"),
-    application:set_env(emqx, cluster_hocon_file, "cluster.hocon"),
-    application:set_env(emqx, config_files, Paths);
-force_set_config_file_paths(_, _) ->
-    ok.
-
-copy_certs(emqx_conf, Dest0) ->
-    Dest = filename:dirname(Dest0),
-    From = string:replace(Dest, "emqx_conf", "emqx"),
-    os:cmd(["cp -rf ", From, "/certs ", Dest, "/"]),
-    ok;
-copy_certs(_, _) ->
-    ok.
 
 copy_acl_conf() ->
     Dest = filename:join([code:lib_dir(emqx), "etc/acl.conf"]),
@@ -1009,8 +809,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
             ok
     end,
 
-    %% Needs to be set explicitly because ekka:start() (which calls `gen`) is called without Handler
-    %% in emqx_common_test_helpers:start_apps(...)
+    %% Needs to be set explicitly because ekka:start() (which calls `gen`) is called without Handler.
     ConfigureGenRpc andalso
         begin
             ok = rpc:call(Node, application, set_env, [
