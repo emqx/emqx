@@ -979,7 +979,7 @@ maybe_set_sni(#{ssl := #{enable := true} = SSLOpts0} = ConnConfig0) when
     not is_map_key(server_name_indication, SSLOpts0)
 ->
     #{server := Server} = ConnConfig0,
-    #{hostname := Hostname} = emqx_schema:parse_server(Server, #{default_port => 8883}),
+    #{hostname := Hostname} = emqx_schema:parse_server(Server, emqx_schema:mqtt_host_opts()),
     SSLOpts = SSLOpts0#{server_name_indication => Hostname},
     ConnConfig0#{ssl := SSLOpts};
 maybe_set_sni(ConnConfig) ->
