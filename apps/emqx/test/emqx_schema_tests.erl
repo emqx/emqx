@@ -280,6 +280,11 @@ listener_allow_log_packet_data_from_test_() ->
         )
     ].
 
+-define(IPV6_MIN_ADDR, {0, 0, 0, 0, 0, 0, 0, 0}).
+-define(IPV6_MAX_ADDR,
+    {16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff}
+).
+
 listener_ws_proxy_address_allow_test_() ->
     Sc = #{
         roots => [mqtt_ws_listener],
@@ -310,20 +315,7 @@ listener_ws_proxy_address_allow_test_() ->
                     <<"websocket">> := #{
                         <<"proxy_address_allow">> := [
                             {{10, 0, 0, 0}, {10, 255, 255, 255}, 8},
-                            {
-                                {0, 0, 0, 0, 0, 0, 0, 0},
-                                {
-                                    16#ffff,
-                                    16#ffff,
-                                    16#ffff,
-                                    16#ffff,
-                                    16#ffff,
-                                    16#ffff,
-                                    16#ffff,
-                                    16#ffff
-                                },
-                                0
-                            }
+                            {?IPV6_MIN_ADDR, ?IPV6_MAX_ADDR, 0}
                         ]
                     }
                 }
