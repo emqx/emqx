@@ -335,7 +335,8 @@ message ValuedResponse {
 
   oneof value {
 
-    // Boolean result, used on the 'client.authenticate', 'client.authorize' hooks
+    // Boolean result, used on the 'client.authenticate', 'client.authorize' hooks,
+    // and to reject 'message.ingress' with STOP_AND_RETURN and false
     bool bool_result = 3;
 
     // Message result, used on the 'message.*' hooks

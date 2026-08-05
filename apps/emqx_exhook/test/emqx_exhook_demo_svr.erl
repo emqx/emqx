@@ -377,6 +377,13 @@ on_message_ingress(#{message := #{topic := Topic} = Msg} = Req, Md) ->
                     value => {message, Msg#{topic => <<"/ingressed">>}}
                 },
                 Md};
+        <<"/denied-ingress">> ->
+            {ok,
+                #{
+                    type => 'STOP_AND_RETURN',
+                    value => {bool_result, false}
+                },
+                Md};
         <<"/invalid-ingress">> ->
             {ok, #{type => 'CONTINUE'}, Md};
         _ ->
