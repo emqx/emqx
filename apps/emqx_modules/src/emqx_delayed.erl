@@ -204,7 +204,7 @@ parse_delay(DelayBin) ->
 maybe_put_authz_context(AuthzContext, Delayed) ->
     case emqx_security_profile:policy(delayed_publish_reauthorization) of
         false -> Delayed;
-        true -> Delayed#{authz_context => AuthzContext}
+        true -> Delayed#{authz_context => emqx_authz_context:make_persist(AuthzContext)}
     end.
 
 delayed_publish_at({interval, Interval}, Timestamp) when
