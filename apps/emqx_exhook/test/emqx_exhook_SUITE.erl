@@ -156,10 +156,16 @@ t_access_failed_if_no_server_running(Config) ->
     ),
 
     Message = emqx_message:make(<<"t/1">>, <<"abc">>),
-    ?assertMatch(
+    ?assertEqual(
         {stop, Message},
-        emqx_exhook_handler:on_message_publish(Message)
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            emqx_exhook_handler:on_message_publish(Message)
+        end)
     ),
+    {stop, DeniedMessage} = emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        emqx_exhook_handler:on_message_publish(Message)
+    end),
+    ?assertEqual(false, emqx_message:get_header(allow_publish, DeniedMessage)),
     ?assertMatch(
         {stop, {error, not_authorized}},
         emqx_exhook_handler:on_message_ingress(

@@ -56,7 +56,8 @@ Returns policy depending on the current security profile.
     (saml_signature_verification) -> boolean();
     (internal_subscription_checks) -> boolean();
     (authz_context) -> legacy | restricted;
-    (delayed_publish_reauthorization) -> boolean().
+    (delayed_publish_reauthorization) -> boolean();
+    (exhook_message_publish_failure) -> ignore | deny.
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -121,6 +122,11 @@ policy(delayed_publish_reauthorization) ->
     case profile() of
         legacy -> false;
         hardened -> true
+    end;
+policy(exhook_message_publish_failure) ->
+    case profile() of
+        legacy -> ignore;
+        hardened -> deny
     end.
 
 -doc """
