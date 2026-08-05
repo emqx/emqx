@@ -41,14 +41,13 @@
 -define(AUTHZ_HTTP_PORT, 32338).
 -define(AUTHZ_HTTP_PATH, "/authz/[...]").
 
--define(GATEWAYS, [coap, lwm2m, mqttsn, stomp, exproto]).
+-define(GATEWAYS, [coap, lwm2m, mqttsn, stomp]).
 
 -define(CONFS, [
     emqx_coap_SUITE,
     emqx_lwm2m_SUITE,
     emqx_sn_protocol_SUITE,
-    emqx_stomp_SUITE,
-    emqx_exproto_SUITE
+    emqx_stomp_SUITE
 ]).
 
 -record(state, {}).

@@ -65,15 +65,6 @@ This is the approach we recommend. In this approach, your implementation can be 
 by the emqx_gateway framework, even if it may require you to understand more details about it.
 
 
-### Use ExProto Gateway (Non-Erlang developers)
-
-If you want to implement your gateway using other programming languages such as
-Java, Python, Go, etc.
-
-You need to implement a gRPC service in the other programming language to parse
-your device protocol and integrate it with EMQX.
-
-
 ## Contributing
 
 Please see our [contributing.md](../../CONTRIBUTING.md).

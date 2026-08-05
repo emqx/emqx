@@ -745,8 +745,7 @@ schema_client_list() ->
             hoconsc:array(ref(?MODULE, stomp_client)),
             hoconsc:array(ref(?MODULE, mqttsn_client)),
             hoconsc:array(ref(?MODULE, coap_client)),
-            hoconsc:array(ref(?MODULE, lwm2m_client)),
-            hoconsc:array(ref(?MODULE, exproto_client))
+            hoconsc:array(ref(?MODULE, lwm2m_client))
         ]),
         examples_client_list()
     ).
@@ -757,8 +756,7 @@ schema_client() ->
             ref(?MODULE, stomp_client),
             ref(?MODULE, mqttsn_client),
             ref(?MODULE, coap_client),
-            ref(?MODULE, lwm2m_client),
-            ref(?MODULE, exproto_client)
+            ref(?MODULE, lwm2m_client)
         ]),
         examples_client()
     ).
@@ -771,7 +769,6 @@ roots() ->
         mqttsn_client,
         coap_client,
         lwm2m_client,
-        exproto_client,
         subscription
     ].
 
@@ -794,8 +791,6 @@ fields(lwm2m_client) ->
                 #{desc => ?DESC(lifetime)}
             )}
     ] ++ common_client_props();
-fields(exproto_client) ->
-    common_client_props();
 fields(subscription) ->
     [
         {topic,

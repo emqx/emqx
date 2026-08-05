@@ -512,7 +512,6 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_gateway_mqttsn,
             :emqx_gateway_coap,
             :emqx_gateway_lwm2m,
-            :emqx_gateway_exproto,
             :emqx_dashboard,
             :emqx_dashboard_sso,
             :emqx_audit,
@@ -1011,12 +1010,6 @@ defmodule EMQXUmbrella.MixProject do
   """
   def dialyzer_excluded_mods() do
     [
-      :emqx_exproto_v_1_connection_unary_handler_bhvr,
-      :emqx_exproto_v_1_connection_handler_client,
-      :emqx_exproto_v_1_connection_handler_bhvr,
-      :emqx_exproto_v_1_connection_adapter_client,
-      :emqx_exproto_v_1_connection_adapter_bhvr,
-      :emqx_exproto_v_1_connection_unary_handler_client,
       :emqx_exhook_v_2_hook_provider_client,
       :emqx_exhook_v_2_hook_provider_bhvr
     ]
