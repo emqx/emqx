@@ -882,28 +882,22 @@ get_peer(Req, #{listener := {Type, Listener}}) ->
     Allow = get_ws_opt(Type, Listener, proxy_address_allow),
     case is_addr_allowed(PeerAddr, Allow) of
         true ->
-            get_forwarded_peer(Req, Type, Listener, PeerAddr, PeerPort);
+            get_forwarded_peer(Req, Type, Listener, Allow, PeerAddr, PeerPort);
         false ->
             {PeerAddr, PeerPort}
     end.
 
 %% Honor the forwarded client address/port headers only for connections
 %% originating from `proxy_address_allow` sources (checked by the caller).
-get_forwarded_peer(Req, Type, Listener, PeerAddr, PeerPort) ->
+get_forwarded_peer(Req, Type, Listener, Allow, PeerAddr, PeerPort) ->
     AddrHeaderName = get_ws_header_opt(Type, Listener, proxy_address_header),
     AddrHeader = cowboy_req:header(AddrHeaderName, Req, <<>>),
-    ClientAddr =
-        case string:tokens(binary_to_list(AddrHeader), ", ") of
-            [] ->
-                undefined;
-            AddrList ->
-                hd(AddrList)
-        end,
+    AddrTokens = string:tokens(binary_to_list(AddrHeader), ", "),
     Addr =
-        case inet:parse_address(ClientAddr) of
+        case extract_forwarded_addr(lists:reverse(AddrTokens), Allow) of
             {ok, A} ->
                 A;
-            _ ->
+            error ->
                 PeerAddr
         end,
     PortHeaderName = get_ws_header_opt(Type, Listener, proxy_port_header),
@@ -923,6 +917,31 @@ get_forwarded_peer(Req, Type, Listener, PeerAddr, PeerPort) ->
 
 is_addr_allowed(Addr, CIDRs) when is_list(CIDRs) ->
     lists:any(fun(CIDR) -> esockd_cidr:match(Addr, CIDR) end, CIDRs).
+
+%% Takes the forwarded-header entries in right-to-left order.
+%% Entries within `proxy_address_allow` are intermediate proxies and are
+%% skipped; the first entry outside the list is the client address.
+%% If every entry is within the list, the leftmost entry is used.
+extract_forwarded_addr([], _Allow) ->
+    error;
+extract_forwarded_addr([Leftmost], _Allow) ->
+    parse_addr(Leftmost);
+extract_forwarded_addr([Entry | Rest], Allow) ->
+    case parse_addr(Entry) of
+        {ok, Addr} ->
+            case is_addr_allowed(Addr, Allow) of
+                true -> extract_forwarded_addr(Rest, Allow);
+                false -> {ok, Addr}
+            end;
+        error ->
+            error
+    end.
+
+parse_addr(Str) ->
+    case inet:parse_address(Str) of
+        {ok, Addr} -> {ok, Addr};
+        {error, _} -> error
+    end.
 
 %%--------------------------------------------------------------------
 %% Metrics

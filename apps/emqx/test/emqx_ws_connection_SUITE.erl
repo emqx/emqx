@@ -40,7 +40,11 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_header,
     TestCase =/= t_header_source_not_allowed,
     TestCase =/= t_header_ipv6_source_allowed,
-    TestCase =/= t_header_ipv6_source_default_allow
+    TestCase =/= t_header_ipv6_source_default_allow,
+    TestCase =/= t_header_multi_hop,
+    TestCase =/= t_header_all_entries_trusted,
+    TestCase =/= t_header_unparseable_entry,
+    TestCase =/= t_header_mixed_family_default_allow
 ->
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
@@ -66,7 +70,11 @@ end_per_testcase(TestCase, _Config) when
     TestCase =/= t_header,
     TestCase =/= t_header_source_not_allowed,
     TestCase =/= t_header_ipv6_source_allowed,
-    TestCase =/= t_header_ipv6_source_default_allow
+    TestCase =/= t_header_ipv6_source_default_allow,
+    TestCase =/= t_header_multi_hop,
+    TestCase =/= t_header_all_entries_trusted,
+    TestCase =/= t_header_unparseable_entry,
+    TestCase =/= t_header_mixed_family_default_allow
 ->
     meck:unload([cowboy_req]);
 end_per_testcase(_, Config) ->
@@ -173,6 +181,85 @@ t_header_ipv6_source_allowed(_) ->
         ConnInfo
     ),
     set_ws_opts(proxy_address_allow, [esockd_cidr:parse("0.0.0.0/0", true)]).
+
+-doc """
+In a multi-entry header, entries are scanned right to left and entries
+within the allow list (intermediate proxies) are skipped; the first entry
+outside the list is used as the client address.
+""".
+t_header_multi_hop(_) ->
+    set_header_test_ws_opts(["10.0.0.0/8"]),
+    ConnInfo = ws_conn_info(
+        {{10, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"9.9.9.9, 192.168.1.7, 10.0.0.5">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{192, 168, 1, 7}, 1000}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, [esockd_cidr:parse("0.0.0.0/0", true)]).
+
+-doc "When every header entry is within the allow list, the leftmost entry is used.".
+t_header_all_entries_trusted(_) ->
+    set_header_test_ws_opts(["10.0.0.0/8"]),
+    ConnInfo = ws_conn_info(
+        {{10, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"10.1.1.1, 10.2.2.2">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{10, 1, 1, 1}, 1000}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, [esockd_cidr:parse("0.0.0.0/0", true)]).
+
+-doc "A selected header entry that does not parse as an IP address falls back to the socket source address.".
+t_header_unparseable_entry(_) ->
+    set_header_test_ws_opts(["10.0.0.0/8"]),
+    ConnInfo = ws_conn_info(
+        {{10, 0, 0, 1}, 3456},
+        #{<<"x-forwarded-for">> => <<"garbage, 10.0.0.5">>}
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{10, 0, 0, 1}, 3456}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, [esockd_cidr:parse("0.0.0.0/0", true)]).
+
+-doc """
+Under the IPv4-only default allow list, an IPv6 entry in the header is
+outside the list and is therefore selected as the client address.
+""".
+t_header_mixed_family_default_allow(_) ->
+    set_header_test_ws_opts(["0.0.0.0/0"]),
+    ConnInfo = ws_conn_info(
+        {{127, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100, 2001:db8::1">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 1000}
+        },
+        ConnInfo
+    ).
 
 -doc "The default allow list covers IPv4 sources only, so forwarded headers are ignored for an IPv6 source.".
 t_header_ipv6_source_default_allow(_) ->
