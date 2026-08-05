@@ -814,6 +814,10 @@ handle_data_ready(Socket, State) ->
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             handle_data(Data, true, State);
+        {select, {_Info, Data}} ->
+            handle_data(Data, true, State);
+        {select, _Info} ->
+            {ok, State};
         {error, {closed, Data}} ->
             %% This is dead code starting from OTP 28
             {ok, [{recv, Data}, {sock_closed, tcp_closed}], socket_closed(State)};
