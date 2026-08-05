@@ -344,6 +344,29 @@ listener_ws_proxy_address_allow_test_() ->
         )
     ].
 
+listener_ws_proxy_address_allow_hardened_default_test() ->
+    emqx_common_test_helpers:with_security_profile(
+        "hardened",
+        fun() ->
+            Sc = #{
+                roots => [mqtt_ws_listener],
+                fields => #{mqtt_ws_listener => emqx_schema:fields("mqtt_ws_listener")}
+            },
+            ?assertMatch(
+                #{
+                    <<"mqtt_ws_listener">> := #{
+                        <<"websocket">> := #{<<"proxy_address_allow">> := []}
+                    }
+                },
+                hocon_tconf:check_plain(
+                    Sc,
+                    #{<<"mqtt_ws_listener">> => #{<<"websocket">> => #{}}},
+                    #{required => false}
+                )
+            )
+        end
+    ).
+
 validate(Schema, Data0) ->
     Sc = #{
         roots => [ssl_opts],

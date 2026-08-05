@@ -54,7 +54,8 @@ Returns policy depending on the current security profile.
     (outbound_tls_verify) -> verify_none | verify_peer;
     (authn_jwt_missing) -> ignore | deny;
     (saml_signature_verification) -> boolean();
-    (internal_subscription_checks) -> boolean().
+    (internal_subscription_checks) -> boolean();
+    (ws_proxy_address_allow) -> any_ipv4 | none.
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -109,6 +110,11 @@ policy(internal_subscription_checks) ->
     case profile() of
         legacy -> false;
         hardened -> true
+    end;
+policy(ws_proxy_address_allow) ->
+    case profile() of
+        legacy -> any_ipv4;
+        hardened -> none
     end.
 
 -doc """

@@ -1119,7 +1119,7 @@ fields("ws_opts") ->
             sc(
                 hoconsc:array(typerefl:alias("string", any())),
                 #{
-                    default => [<<"0.0.0.0/0">>],
+                    default => ws_proxy_address_allow_default(),
                     desc => ?DESC(fields_ws_opts_proxy_address_allow),
                     converter => fun cidr_array_converter/2
                 }
@@ -4683,6 +4683,12 @@ listeners() ->
                 }
             )}
     ].
+
+ws_proxy_address_allow_default() ->
+    case emqx_security_profile:policy(ws_proxy_address_allow) of
+        any_ipv4 -> [<<"0.0.0.0/0">>];
+        none -> []
+    end.
 
 mqtt_default_bind_schema(Port) ->
     case emqx_security_profile:policy(mqtt_default_bind) of
