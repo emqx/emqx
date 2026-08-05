@@ -644,7 +644,7 @@ t_process_publish_message_ingress(_) ->
         []
     end),
     Publish = ?PUBLISH_PACKET(?QOS_1, <<"source">>, 1, <<"payload">>),
-    {ok, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS), _Channel} =
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NO_MATCHING_SUBSCRIBERS)}, _Channel} =
         emqx_channel:process_publish(Publish, channel()),
     receive
         {authorized, AuthzContext, #{qos := ?QOS_1, retain := false}, <<"target">>} ->
