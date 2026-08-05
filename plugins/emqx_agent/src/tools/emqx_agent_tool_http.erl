@@ -245,12 +245,15 @@ path_schema(Url) ->
             >>
     }.
 
+%% The canonical path is used both for the prefix check and as the
+%% outgoing request path, so the checked path and the requested path
+%% cannot diverge.
 invocation_url(BaseUrl, Args) ->
     Path0 = normalize_path(maps:get(<<"path">>, Args, undefined)),
     Prefix = configured_path_prefix(BaseUrl),
     maybe
-        {ok, Path} ?= canonicalize_path(Path0),
-        {ok, CanonPrefix} ?= canonicalize_path(Prefix),
+        {ok, Path} ?= emqx_utils_uri:canonicalize_path(Path0),
+        {ok, CanonPrefix} ?= emqx_utils_uri:canonicalize_path(Prefix),
         true ?= is_path_prefix(CanonPrefix, Path),
         {ok, <<(origin(BaseUrl))/binary, Path/binary>>}
     else
@@ -265,47 +268,6 @@ normalize_path(Path) when is_binary(Path) ->
     <<"/", Path/binary>>;
 normalize_path(_) ->
     <<"/">>.
-
-%% Canonicalize an absolute path: split into segments, percent-decode
-%% each one, resolve `.'/`..' segments, then re-encode. The canonical
-%% form is used both for the prefix check and as the request path, so
-%% the checked path and the requested path cannot diverge. Decoding
-%% after splitting keeps an encoded separator inside its segment; a
-%% segment that decodes to text containing a separator is rejected
-%% because the upstream server may decode it into extra boundaries.
-canonicalize_path(<<"/", Rest/binary>>) ->
-    try
-        Segments = [decode_segment(S) || S <- binary:split(Rest, <<"/">>, [global])],
-        Quoted = [uri_string:quote(S) || S <- remove_dot_segments(Segments, [])],
-        case Quoted of
-            [] -> {ok, <<"/">>};
-            _ -> {ok, iolist_to_binary([[$/, S] || S <- Quoted])}
-        end
-    catch
-        throw:_ -> error
-    end;
-canonicalize_path(_) ->
-    error.
-
-%% `uri_string:percent_decode/1' throws on invalid percent encoding
-%% and on percent-encoded bytes that are not valid UTF-8.
-decode_segment(Segment) ->
-    Decoded = uri_string:percent_decode(Segment),
-    case binary:match(Decoded, [<<"/">>, <<"\\">>]) of
-        nomatch -> Decoded;
-        _ -> throw({encoded_separator, Segment})
-    end.
-
-remove_dot_segments([], Acc) ->
-    lists:reverse(Acc);
-remove_dot_segments([<<".">> | Segments], Acc) ->
-    remove_dot_segments(Segments, Acc);
-remove_dot_segments([<<"..">> | Segments], []) ->
-    remove_dot_segments(Segments, []);
-remove_dot_segments([<<"..">> | Segments], [_ | Acc]) ->
-    remove_dot_segments(Segments, Acc);
-remove_dot_segments([Segment | Segments], Acc) ->
-    remove_dot_segments(Segments, [Segment | Acc]).
 
 %% Both arguments must be canonical absolute paths. The path is inside
 %% the prefix only when it equals the prefix or extends it at a segment
