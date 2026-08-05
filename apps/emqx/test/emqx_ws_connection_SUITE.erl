@@ -46,7 +46,8 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_header_multi_hop,
     TestCase =/= t_header_all_entries_trusted,
     TestCase =/= t_header_unparseable_entry,
-    TestCase =/= t_header_mixed_family_ipv4_only_allow
+    TestCase =/= t_header_mixed_family_ipv4_only_allow,
+    TestCase =/= t_header_proxy_disabled_by_empty_name
 ->
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
@@ -78,7 +79,8 @@ end_per_testcase(TestCase, _Config) when
     TestCase =/= t_header_multi_hop,
     TestCase =/= t_header_all_entries_trusted,
     TestCase =/= t_header_unparseable_entry,
-    TestCase =/= t_header_mixed_family_ipv4_only_allow
+    TestCase =/= t_header_mixed_family_ipv4_only_allow,
+    TestCase =/= t_header_proxy_disabled_by_empty_name
 ->
     meck:unload([cowboy_req]);
 end_per_testcase(_, Config) ->
@@ -329,6 +331,29 @@ t_header_hardened_default(_) ->
                 ConnInfo
             )
         end
+    ).
+
+-doc """
+Empty `proxy_address_header`/`proxy_port_header` means forwarded headers are
+never consulted; `peername` is the socket peer.
+""".
+t_header_proxy_disabled_by_empty_name(_) ->
+    set_ws_opts(fail_if_no_subprotocol, false),
+    set_ws_opts(proxy_address_header, <<"">>),
+    set_ws_opts(proxy_port_header, <<"">>),
+    ConnInfo = ws_conn_info(
+        {{127, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100, 99.99.99.99">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{127, 0, 0, 1}, 3456}
+        },
+        ConnInfo
     ).
 
 t_info_channel(_) ->
