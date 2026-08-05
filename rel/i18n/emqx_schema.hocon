@@ -874,13 +874,13 @@ fields_ws_opts_proxy_address_header.label:
 """Proxy address header"""
 
 fields_ws_opts_proxy_address_allow.desc:
-"""A list of IPv4 or IPv6 CIDR ranges describing the sources trusted to carry the original client's address and port in the `proxy_address_header` and `proxy_port_header` headers, typically the load balancers or reverse proxies in front of EMQX.
+"""Specifies which sources are trusted to carry the original client's address and port in the `proxy_address_header` and `proxy_port_header` headers, typically the load balancers or reverse proxies in front of EMQX. The value is either a list of IPv4 or IPv6 CIDR ranges, or `per_security_profile` (the default): in the legacy security profile all sources are trusted, and in the hardened security profile none are, so forwarded headers are ignored until trusted ranges are configured.
 
-The address taken from the header becomes the client's source address used for IP-based authorization rules, banned-client matching, and logging, so the header is consulted only when the connection's source address is within one of the listed ranges; otherwise the socket source address is used.
+The address taken from the header becomes the client's source address used for IP-based authorization rules, banned-client matching, and logging, so the header is consulted only when the connection's source address is trusted; otherwise the socket source address is used.
 
-When the header lists several addresses, they are scanned from right to left and entries that are themselves within the listed ranges (intermediate proxies) are skipped: the first entry outside the ranges is used as the client address. If all entries are within the ranges, the leftmost entry is used.
+When the header lists several addresses, they are scanned from right to left and trusted entries (intermediate proxies) are skipped: the first entry outside the trusted ranges is used as the client address. If all entries are trusted, the leftmost entry is used.
 
-The default depends on the security profile: `["0.0.0.0/0"]` (all IPv4 sources trusted) in the legacy profile, and `[]` (forwarded headers ignored) in the hardened profile. Note that `0.0.0.0/0` does not cover IPv6 sources: to honor the forwarded headers for connections arriving over IPv6, add the proxy's IPv6 range (for example `::/0`) to the list."""
+Note that CIDR ranges match by address family: for example, a list containing only `0.0.0.0/0` covers all IPv4 sources but no IPv6 sources."""
 
 fields_ws_opts_proxy_address_allow.label:
 """Trusted proxy address ranges"""

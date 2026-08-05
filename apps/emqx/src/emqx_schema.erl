@@ -1117,9 +1117,12 @@ fields("ws_opts") ->
             )},
         {"proxy_address_allow",
             sc(
-                hoconsc:array(typerefl:alias("string", any())),
+                hoconsc:union([
+                    per_security_profile,
+                    hoconsc:array(typerefl:alias("string", any()))
+                ]),
                 #{
-                    default => ws_proxy_address_allow_default(),
+                    default => per_security_profile,
                     desc => ?DESC(fields_ws_opts_proxy_address_allow),
                     converter => fun cidr_array_converter/2
                 }
@@ -2272,6 +2275,11 @@ parse_ip_mask(IPMask) ->
 
 cidr_array_converter(undefined, _Opts) ->
     undefined;
+cidr_array_converter(V, Opts) when V =:= per_security_profile; V =:= <<"per_security_profile">> ->
+    case Opts of
+        #{make_serializable := true} -> <<"per_security_profile">>;
+        _ -> per_security_profile
+    end;
 cidr_array_converter(CIDR, Opts) when is_binary(CIDR) ->
     cidr_array_converter([CIDR], Opts);
 cidr_array_converter(CIDRs, #{make_serializable := true}) when is_list(CIDRs) ->
@@ -4683,12 +4691,6 @@ listeners() ->
                 }
             )}
     ].
-
-ws_proxy_address_allow_default() ->
-    case emqx_security_profile:policy(ws_proxy_address_allow) of
-        any_ipv4 -> [<<"0.0.0.0/0">>];
-        none -> []
-    end.
 
 mqtt_default_bind_schema(Port) ->
     case emqx_security_profile:policy(mqtt_default_bind) of
