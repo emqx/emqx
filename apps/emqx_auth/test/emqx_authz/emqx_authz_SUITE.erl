@@ -104,6 +104,23 @@ t_vars_for_rule_query_peerport(_) ->
         emqx_authz_utils:vars_for_rule_query(ClientInfo, ?AUTHZ_PUBLISH(?QOS_1, false))
     ).
 
+t_client_info_acl_expire_uses_restricted_now_time(_) ->
+    Rule = emqx_authz_rule:compile({allow, all, publish, [<<"#">>]}),
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
+    ACL = #{expire => 2, rules => [Rule]},
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        UnexpiredContext = emqx_authz_context:make(ClientInfo#{acl => ACL, now_time => 1_000}),
+        ?assertEqual(
+            {matched, allow},
+            emqx_authz_client_info:authorize(UnexpiredContext, ?AUTHZ_PUBLISH, <<"t">>, #{})
+        ),
+        ExpiredContext = emqx_authz_context:make(ClientInfo#{acl => ACL, now_time => 3_000}),
+        ?assertEqual(
+            {matched, deny},
+            emqx_authz_client_info:authorize(ExpiredContext, ?AUTHZ_PUBLISH, <<"t">>, #{})
+        )
+    end).
+
 -define(SOURCE_HTTP, #{
     <<"type">> => <<"http">>,
     <<"enable">> => true,

@@ -4,7 +4,7 @@
 
 -module(emqx_authz_context).
 
--export([make/1]).
+-export([make/1, make_persist/1]).
 
 -export_type([
     t/0,
@@ -32,12 +32,13 @@
     cn => binary(),
     dn => binary(),
     listener => atom(),
+    now_time => non_neg_integer(),
     peername => emqx_types:peername(),
     peerport => inet:port_number()
 }.
 -type t() :: legacy() | restricted().
 
--define(RESTRICTED_KEYS, [
+-define(PERSIST_KEYS, [
     acl,
     anonymous,
     cert_pem,
@@ -58,12 +59,35 @@
     zone
 ]).
 
+-define(RESTRICTED_KEYS, [now_time | ?PERSIST_KEYS]).
+
+-doc """
+Create an authz context map from the client info.
+""".
 -spec make(emqx_types:clientinfo()) -> t().
+-ifdef(TEST).
 make(ClientInfo) ->
     case emqx_security_profile:policy(authz_context) of
         legacy -> ClientInfo;
         restricted -> make_restricted(ClientInfo)
     end.
+-else.
+%% In prod, we do not want to create a performance impact by creating authz context map.
+%% But if an authz backend relies on a restricted field any test trying to use it will fail.
+make(ClientInfo) ->
+    ClientInfo.
+-endif.
+
+-doc """
+Limit authz context to the fields relevant for persistence
+""".
+-spec make_persist(emqx_types:clientinfo() | t()) -> t().
+make_persist(ClientInfo) ->
+    maps:with(?PERSIST_KEYS, ClientInfo).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 make_restricted(ClientInfo) ->
     maps:with(?RESTRICTED_KEYS, ClientInfo).
