@@ -1131,6 +1131,68 @@ prop_hash_fun() ->
         end
     ).
 
+-doc "Tests map_to_range/3 maps integer, binary and atom values into an inclusive range.".
+t_map_to_range(_) ->
+    ?assertEqual(3, apply_func(map_to_range, [7, 0, 3])),
+    ?assertEqual(0, apply_func(map_to_range, [4, 0, 3])),
+    ?assertEqual(7, apply_func(map_to_range, [7, 7, 7])),
+    %% binary values are converted with binary:decode_unsigned/1
+    ?assertEqual(1, apply_func(map_to_range, [<<1>>, 0, 3])),
+    %% atom values are converted via their utf8 binary representation ('a' -> 97)
+    ?assertEqual(1, apply_func(map_to_range, [a, 0, 3])),
+    ?assertThrow(
+        #{reason := badarg, function := map_to_range},
+        apply_func(map_to_range, [7, 3, 0])
+    ),
+    ?assertThrow(
+        #{reason := badarg, function := map_to_range},
+        apply_func(map_to_range, [undefined, 0, 3])
+    ).
+
+-doc "Tests hash_to_range/3 hashes a value into a stable bucket within an inclusive range.".
+t_hash_to_range(_) ->
+    Shard = apply_func(hash_to_range, [<<"A_C001">>, 0, 3]),
+    ?assert(is_integer(Shard) andalso Shard >= 0 andalso Shard =< 3),
+    %% stable: same input always lands in the same bucket
+    ?assertEqual(Shard, apply_func(hash_to_range, [<<"A_C001">>, 0, 3])),
+    %% different inputs spread across all buckets
+    Buckets = lists:usort([
+        apply_func(hash_to_range, [integer_to_binary(N), 0, 3])
+     || N <- lists:seq(1, 100)
+    ]),
+    ?assertEqual([0, 1, 2, 3], Buckets),
+    ?assertThrow(
+        #{reason := badarg, function := hash_to_range},
+        apply_func(hash_to_range, [<<"x">>, 3, 0])
+    ),
+    ?assertThrow(
+        #{reason := badarg, function := hash_to_range},
+        apply_func(hash_to_range, [<<>>, 0, 3])
+    ).
+
+-doc "Tests map_to_range/3 and hash_to_range/3 are callable from rule SQL statements.".
+t_to_range_sql(_) ->
+    Shard = apply_func(hash_to_range, [<<"A_C001">>, 0, 3]),
+    ?assertMatch(
+        {ok, #{<<"shard">> := Shard}},
+        emqx_rule_sqltester:test(
+            #{
+                sql =>
+                    <<"SELECT hash_to_range(nth(2, tokens(topic, '/')), 0, 3) as shard FROM \"t/#\"">>,
+                context => #{topic => <<"t/A_C001/status">>}
+            }
+        )
+    ),
+    ?assertMatch(
+        {ok, #{<<"idx">> := 3}},
+        emqx_rule_sqltester:test(
+            #{
+                sql => <<"SELECT map_to_range(7, 0, 3) as idx FROM \"t/#\"">>,
+                context => #{topic => <<"t/1">>}
+            }
+        )
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases for zip funcs
 %%------------------------------------------------------------------------------
