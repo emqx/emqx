@@ -167,6 +167,11 @@ t_message_ingress(_) ->
         emqx_exhook_demo_svr:take()
     ),
     MessageMap = emqx_message:to_map(Message),
+    DeniedMessage = emqx_message:from_map(MessageMap#{topic => <<"/denied-ingress">>}),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_message_ingress:ingress(AuthzContext, DeniedMessage)
+    ),
     InvalidMessage = emqx_message:from_map(MessageMap#{topic => <<"/invalid-ingress">>}),
     ?assertMatch(
         {error, {invalid_exhook_response, _}},

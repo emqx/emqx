@@ -494,6 +494,10 @@ stringfy(Term) ->
 %% see exhook.proto
 merge_responsed_ingress(_Req, #{type := 'IGNORE'}) ->
     ignore;
+merge_responsed_ingress(Req, #{
+    type := 'STOP_AND_RETURN', value := {bool_result, false}
+}) ->
+    {stop, Req#{result => false}};
 merge_responsed_ingress(Req, #{type := Type, value := {message, NMessage}}) ->
     {ret(Type), Req#{message => NMessage}};
 merge_responsed_ingress(Req, Resp) ->
