@@ -758,7 +758,9 @@ conn_congestion_enable_alarm.label:
 fields_ws_opts_proxy_port_header.desc:
 """The HTTP request header that carries the original client's source port, EMQX will take the leftmost port in the header as the original client's source port.
 
-This option is typically used when EMQX is deployed behind a WebSocket proxy."""
+This option is typically used when EMQX is deployed behind a WebSocket proxy.
+
+Set to an empty string (<code>""</code>) to disable it, so the source port of the WebSocket connection is always used."""
 
 fields_ws_opts_proxy_port_header.label:
 """Proxy port header"""
@@ -868,7 +870,9 @@ fields_mqtt_quic_listener_server_resumption_level.label:
 fields_ws_opts_proxy_address_header.desc:
 """The HTTP request header that carries the original client's IP address, EMQX will take the leftmost IP in the header as the original client's IP.
 
-This option is typically used when EMQX is deployed behind a WebSocket proxy."""
+This option is typically used when EMQX is deployed behind a WebSocket proxy.
+
+Set to an empty string (<code>""</code>) to disable it, so the source IP address of the WebSocket connection is always used."""
 
 fields_ws_opts_proxy_address_header.label:
 """Proxy address header"""
