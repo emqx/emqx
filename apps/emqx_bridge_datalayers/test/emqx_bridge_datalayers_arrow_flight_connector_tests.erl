@@ -53,6 +53,18 @@ blank_credentials_test_() ->
                             parameters := (maps:get(parameters, Base))#{password => <<"pass">>}
                         }
                     )
+                ),
+                ?_assertMatch(
+                    {error, _},
+                    emqx_bridge_datalayers_arrow_flight_connector:on_start(
+                        <<"test:blank_database">>,
+                        Base#{
+                            parameters := maps:remove(
+                                database,
+                                maps:get(parameters, Base)
+                            )
+                        }
+                    )
                 )
             ]
         end}.
