@@ -203,7 +203,9 @@
     md5/1,
     sha/1,
     sha256/1,
-    hash/2
+    hash/2,
+    hash_to_range/3,
+    map_to_range/3
 ]).
 
 %% zip Funcs
@@ -1107,6 +1109,10 @@ sha256(S) when is_binary(S) ->
 
 hash(Type, Data) ->
     emqx_variform_bif:hash(Type, Data).
+
+hash_to_range(Val, Min, Max) -> emqx_variform_bif:hash_to_range(Val, Min, Max).
+
+map_to_range(Val, Min, Max) -> emqx_variform_bif:map_to_range(Val, Min, Max).
 
 %%------------------------------------------------------------------------------
 %% gzip Funcs
