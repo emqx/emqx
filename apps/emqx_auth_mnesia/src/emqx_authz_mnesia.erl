@@ -254,6 +254,7 @@ record_count_per_namespace() ->
     try
         maps:from_list(ets:tab2list(?AUTHZ_NS_COUNT_TAB))
     catch
+        %% `emqx_auth_mnesia' is not running: the table does not exist.
         error:badarg -> #{}
     end.
 

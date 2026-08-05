@@ -30,6 +30,7 @@
 %% Generic limiter client API
 -export([
     connect/1,
+    connect/2,
     create_group/3,
     update_group/2,
     delete_group/1
@@ -56,6 +57,7 @@
 -type name() :: atom().
 -type id() :: {group(), name()}.
 -type listener_id() :: term().
+-type client_options() :: #{not_found_mode => open | close}.
 
 %% Limiter types
 -type options() :: unlimited() | limited() | limited_with_burst().
@@ -166,6 +168,14 @@ connect({Group, _} = ListenerId) ->
             error({limiter_group_not_found, Group});
         {Module, _} ->
             Module:connect(ListenerId)
+    end.
+
+-spec connect(id(), client_options()) -> emqx_limiter_client:t().
+connect(LimiterId, Options) ->
+    Client = connect(LimiterId),
+    case maps:get(not_found_mode, Options, open) of
+        close -> Client#{not_found_mode => close};
+        open -> Client
     end.
 
 -spec create_group(shared | exclusive | module(), group(), [{name(), options()}]) -> ok.
