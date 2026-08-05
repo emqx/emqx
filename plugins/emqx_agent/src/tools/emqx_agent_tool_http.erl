@@ -246,12 +246,15 @@ path_schema(Url) ->
     }.
 
 invocation_url(BaseUrl, Args) ->
-    Path0 = maps:get(<<"path">>, Args, undefined),
-    Path = normalize_path(Path0),
+    Path0 = normalize_path(maps:get(<<"path">>, Args, undefined)),
     Prefix = configured_path_prefix(BaseUrl),
-    case is_path_prefix(Prefix, Path) of
-        true -> {ok, <<(origin(BaseUrl))/binary, Path/binary>>};
-        false -> {error, {path_outside_configured_prefix, #{prefix => Prefix, path => Path}}}
+    maybe
+        {ok, Path} ?= canonicalize_path(Path0),
+        {ok, CanonPrefix} ?= canonicalize_path(Prefix),
+        true ?= is_path_prefix(CanonPrefix, Path),
+        {ok, <<(origin(BaseUrl))/binary, Path/binary>>}
+    else
+        _ -> {error, {path_outside_configured_prefix, #{prefix => Prefix, path => Path0}}}
     end.
 
 normalize_path(<<"/", _/binary>> = Path) ->
@@ -263,11 +266,55 @@ normalize_path(Path) when is_binary(Path) ->
 normalize_path(_) ->
     <<"/">>.
 
-is_path_prefix(Prefix, Path) ->
-    case binary:match(Path, Prefix) of
-        {0, _} -> true;
-        _ -> false
+%% Canonicalize an absolute path: split into segments, percent-decode
+%% each one, resolve `.'/`..' segments, then re-encode. The canonical
+%% form is used both for the prefix check and as the request path, so
+%% the checked path and the requested path cannot diverge. Decoding
+%% after splitting keeps an encoded separator inside its segment; a
+%% segment that decodes to text containing a separator is rejected
+%% because the upstream server may decode it into extra boundaries.
+canonicalize_path(<<"/", Rest/binary>>) ->
+    try
+        Segments = [decode_segment(S) || S <- binary:split(Rest, <<"/">>, [global])],
+        Quoted = [uri_string:quote(S) || S <- remove_dot_segments(Segments, [])],
+        case Quoted of
+            [] -> {ok, <<"/">>};
+            _ -> {ok, iolist_to_binary([[$/, S] || S <- Quoted])}
+        end
+    catch
+        throw:_ -> error
+    end;
+canonicalize_path(_) ->
+    error.
+
+%% `uri_string:percent_decode/1' throws on invalid percent encoding
+%% and on percent-encoded bytes that are not valid UTF-8.
+decode_segment(Segment) ->
+    Decoded = uri_string:percent_decode(Segment),
+    case binary:match(Decoded, [<<"/">>, <<"\\">>]) of
+        nomatch -> Decoded;
+        _ -> throw({encoded_separator, Segment})
     end.
+
+remove_dot_segments([], Acc) ->
+    lists:reverse(Acc);
+remove_dot_segments([<<".">> | Segments], Acc) ->
+    remove_dot_segments(Segments, Acc);
+remove_dot_segments([<<"..">> | Segments], []) ->
+    remove_dot_segments(Segments, []);
+remove_dot_segments([<<"..">> | Segments], [_ | Acc]) ->
+    remove_dot_segments(Segments, Acc);
+remove_dot_segments([Segment | Segments], Acc) ->
+    remove_dot_segments(Segments, [Segment | Acc]).
+
+%% Both arguments must be canonical absolute paths. The path is inside
+%% the prefix only when it equals the prefix or extends it at a segment
+%% boundary, so `/api-internal' does not match prefix `/api'.
+is_path_prefix(Prefix0, Path) ->
+    Prefix = string:trim(Prefix0, trailing, "/"),
+    PrefixSlash = <<Prefix/binary, "/">>,
+    Path =:= Prefix orelse
+        binary:part(Path, 0, min(byte_size(Path), byte_size(PrefixSlash))) =:= PrefixSlash.
 
 configured_path_prefix(Url) ->
     normalize_path(maps:get(path, uri_string:parse(Url), <<"/">>)).

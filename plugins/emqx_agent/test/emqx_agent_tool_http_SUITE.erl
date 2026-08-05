@@ -248,6 +248,33 @@ t_path_outside_configured_prefix_errors(Config) ->
         ok
     end.
 
+-doc "A path with dot segments resolving above the configured prefix is denied.".
+t_dot_segment_traversal_denied(Config) ->
+    assert_path_denied(Config, <<"/api/v1/../../admin/users">>).
+
+-doc "A sibling path sharing the prefix bytes but not a segment boundary is denied.".
+t_sibling_prefix_denied(Config) ->
+    assert_path_denied(Config, <<"/api-internal/secrets">>).
+
+-doc "Percent-encoded dot segments are decoded before the prefix check and denied.".
+t_encoded_traversal_denied(Config) ->
+    assert_path_denied(Config, <<"/api/v1/%2e%2e/%2e%2e/admin">>).
+
+-doc "A segment decoding to a path separator is denied.".
+t_encoded_separator_denied(Config) ->
+    assert_path_denied(Config, <<"/api/..%2f..%2fadmin">>).
+
+-doc "In-prefix paths still reach the server, on their canonical form.".
+t_in_prefix_paths_allowed(Config) ->
+    %% Exact prefix.
+    assert_request_path(Config, <<"/api">>, <<"/api">>),
+    %% Sub-resource at a segment boundary.
+    assert_request_path(Config, <<"/api/sub/resource">>, <<"/api/sub/resource">>),
+    %% Percent-encoded but in-prefix.
+    assert_request_path(Config, <<"/api/hello%20world">>, <<"/api/hello%20world">>),
+    %% Dot segments resolving within the prefix.
+    assert_request_path(Config, <<"/api/sub/../weather">>, <<"/api/weather">>).
+
 t_unregistered_tool_is_silently_ignored(_Config) ->
     ok = emqx_agent_config:delete_tool(?TOOL_TYPE, ?TOOL_ID),
     Msg = emqx_message:make(?TOOL_ID, 0, invoke_topic(<<"dummy-req">>), <<"ignored">>),
@@ -298,6 +325,43 @@ invoke_and_assert_response(_Config, Args, AssertFn) ->
     AssertFn(emqx_agent_tool_helpers:cap_response(Reply)),
 
     ok = emqx:unsubscribe(ReplyTopic).
+
+assert_path_denied(Config, Path) ->
+    Self = self(),
+    emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        Self ! {unexpected_request, cowboy_req:path(Req0)},
+        reply_json(200, #{<<"ok">> => true}, Req0, State)
+    end),
+    invoke_and_assert_response(Config, get_args(Path, #{}), fun(Response) ->
+        ?assertMatch(
+            #{<<"status">> := <<"error">>, <<"reason">> := Reason} when is_binary(Reason),
+            Response
+        ),
+        ?assertNotEqual(
+            nomatch,
+            binary:match(maps:get(<<"reason">>, Response), <<"path_outside_configured_prefix">>)
+        )
+    end),
+    receive
+        {unexpected_request, ReqPath} -> ct:fail({unexpected_request, ReqPath})
+    after 100 ->
+        ok
+    end.
+
+assert_request_path(Config, Path, ExpectedPath) ->
+    Self = self(),
+    emqx_utils_http_test_server:set_handler(fun(Req0, State) ->
+        Self ! {request_path, cowboy_req:path(Req0)},
+        reply_json(200, #{<<"ok">> => true}, Req0, State)
+    end),
+    invoke_and_assert(Config, get_args(Path, #{}), fun(Data) ->
+        ?assertMatch(#{<<"ok">> := true}, Data)
+    end),
+    receive
+        {request_path, ReqPath} -> ?assertEqual(ExpectedPath, ReqPath)
+    after 3000 ->
+        ct:fail(no_request_received)
+    end.
 
 get_args(Path, QueryArgs) ->
     #{<<"path">> => Path, <<"query_args">> => QueryArgs}.
