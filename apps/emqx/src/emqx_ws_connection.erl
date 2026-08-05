@@ -879,6 +879,17 @@ resume_stats_timer(State = #state{stats_timer = disabled}) ->
 
 get_peer(Req, #{listener := {Type, Listener}}) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
+    Allow = get_ws_opt(Type, Listener, proxy_address_allow),
+    case is_addr_allowed(PeerAddr, Allow) of
+        true ->
+            get_forwarded_peer(Req, Type, Listener, PeerAddr, PeerPort);
+        false ->
+            {PeerAddr, PeerPort}
+    end.
+
+%% Honor the forwarded client address/port headers only for connections
+%% originating from `proxy_address_allow` sources (checked by the caller).
+get_forwarded_peer(Req, Type, Listener, PeerAddr, PeerPort) ->
     AddrHeaderName = get_ws_header_opt(Type, Listener, proxy_address_header),
     AddrHeader = cowboy_req:header(AddrHeaderName, Req, <<>>),
     ClientAddr =
@@ -909,6 +920,9 @@ get_peer(Req, #{listener := {Type, Listener}}) ->
     catch
         _:_ -> {Addr, PeerPort}
     end.
+
+is_addr_allowed(Addr, CIDRs) when is_list(CIDRs) ->
+    lists:any(fun(CIDR) -> esockd_cidr:match(Addr, CIDR) end, CIDRs).
 
 %%--------------------------------------------------------------------
 %% Metrics

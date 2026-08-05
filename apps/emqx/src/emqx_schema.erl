@@ -1115,6 +1115,15 @@ fields("ws_opts") ->
                     desc => ?DESC(fields_ws_opts_proxy_port_header)
                 }
             )},
+        {"proxy_address_allow",
+            sc(
+                hoconsc:array(typerefl:alias("string", any())),
+                #{
+                    default => [<<"0.0.0.0/0">>],
+                    desc => ?DESC(fields_ws_opts_proxy_address_allow),
+                    converter => fun cidr_array_converter/2
+                }
+            )},
         {"deflate_opts",
             sc(
                 ref("deflate_opts"),
@@ -2260,6 +2269,22 @@ parse_ip_mask(IPMask) ->
     catch
         _:_ -> throw({invalid_ip_address_or_cidr, IPMask})
     end.
+
+cidr_array_converter(undefined, _Opts) ->
+    undefined;
+cidr_array_converter(CIDR, Opts) when is_binary(CIDR) ->
+    cidr_array_converter([CIDR], Opts);
+cidr_array_converter(CIDRs, #{make_serializable := true}) when is_list(CIDRs) ->
+    [cidr_to_bin(CIDR) || CIDR <- CIDRs];
+cidr_array_converter(CIDRs, _Opts) when is_list(CIDRs) ->
+    [parse_ip_mask(str(CIDR)) || CIDR <- CIDRs];
+cidr_array_converter(CIDRs, _Opts) ->
+    throw({invalid_ip_address_or_cidr, CIDRs}).
+
+cidr_to_bin(CIDR) when is_binary(CIDR) ->
+    CIDR;
+cidr_to_bin(CIDR) ->
+    unicode:characters_to_binary(esockd_cidr:to_string(CIDR)).
 
 is_invalid_rule(S) ->
     try

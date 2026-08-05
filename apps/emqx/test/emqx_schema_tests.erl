@@ -280,6 +280,78 @@ listener_allow_log_packet_data_from_test_() ->
         )
     ].
 
+listener_ws_proxy_address_allow_test_() ->
+    Sc = #{
+        roots => [mqtt_ws_listener],
+        fields => #{mqtt_ws_listener => emqx_schema:fields("mqtt_ws_listener")}
+    },
+    Check = fun(WsOpts, Opts) ->
+        hocon_tconf:check_plain(
+            Sc,
+            #{<<"mqtt_ws_listener">> => #{<<"websocket">> => WsOpts}},
+            Opts
+        )
+    end,
+    CheckOpts = #{required => false},
+    [
+        ?_assertMatch(
+            #{
+                <<"mqtt_ws_listener">> := #{
+                    <<"websocket">> := #{
+                        <<"proxy_address_allow">> := [{{0, 0, 0, 0}, {255, 255, 255, 255}, 0}]
+                    }
+                }
+            },
+            Check(#{}, CheckOpts)
+        ),
+        ?_assertMatch(
+            #{
+                <<"mqtt_ws_listener">> := #{
+                    <<"websocket">> := #{
+                        <<"proxy_address_allow">> := [
+                            {{10, 0, 0, 0}, {10, 255, 255, 255}, 8},
+                            {
+                                {0, 0, 0, 0, 0, 0, 0, 0},
+                                {
+                                    16#ffff,
+                                    16#ffff,
+                                    16#ffff,
+                                    16#ffff,
+                                    16#ffff,
+                                    16#ffff,
+                                    16#ffff,
+                                    16#ffff
+                                },
+                                0
+                            }
+                        ]
+                    }
+                }
+            },
+            Check(
+                #{<<"proxy_address_allow">> => [<<"10.0.0.0/8">>, <<"::/0">>]},
+                CheckOpts
+            )
+        ),
+        ?_assertMatch(
+            #{
+                <<"mqtt_ws_listener">> := #{
+                    <<"websocket">> := #{
+                        <<"proxy_address_allow">> := [<<"10.0.0.0/8">>, <<"::/0">>]
+                    }
+                }
+            },
+            Check(
+                #{<<"proxy_address_allow">> => [<<"10.0.0.0/8">>, <<"::/0">>]},
+                #{required => false, make_serializable => true}
+            )
+        ),
+        ?_assertThrow(
+            {_, [#{kind := validation_error}]},
+            Check(#{<<"proxy_address_allow">> => [<<"invalid">>]}, CheckOpts)
+        )
+    ].
+
 validate(Schema, Data0) ->
     Sc = #{
         roots => [ssl_opts],

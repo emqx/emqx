@@ -37,7 +37,10 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin,
-    TestCase =/= t_header
+    TestCase =/= t_header,
+    TestCase =/= t_header_source_not_allowed,
+    TestCase =/= t_header_ipv6_source_allowed,
+    TestCase =/= t_header_ipv6_source_default_allow
 ->
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
@@ -60,7 +63,10 @@ end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_non_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
-    TestCase =/= t_header
+    TestCase =/= t_header,
+    TestCase =/= t_header_source_not_allowed,
+    TestCase =/= t_header_ipv6_source_allowed,
+    TestCase =/= t_header_ipv6_source_default_allow
 ->
     meck:unload([cowboy_req]);
 end_per_testcase(_, Config) ->
@@ -88,29 +94,100 @@ t_info(_) ->
 set_ws_opts(Key, Val) ->
     emqx_config:put_listener_conf(ws, default, [websocket, Key], Val).
 
-t_header(_) ->
+set_header_test_ws_opts(ProxyAddressAllow) ->
     set_ws_opts(fail_if_no_subprotocol, false),
     set_ws_opts(proxy_address_header, <<"x-forwarded-for">>),
     set_ws_opts(proxy_port_header, <<"x-forwarded-port">>),
+    set_ws_opts(proxy_address_allow, [
+        esockd_cidr:parse(CIDR, true)
+     || CIDR <- ProxyAddressAllow
+    ]).
+
+ws_conn_info(Peer, Headers) ->
     {_Module, _Req, [ConnInfo, _], _ModOpts} = ?ws_conn:init(
         #{
-            peer => {{127, 0, 0, 1}, 3456},
+            peer => Peer,
             sock => {{127, 0, 0, 1}, 54321},
             cert => undefined,
-            headers => #{
-                <<"x-forwarded-for">> => <<"100.100.100.100, 99.99.99.99">>,
-                <<"x-forwarded-port">> => <<"1000">>
-            }
+            headers => Headers
         },
         #{
             zone => default,
             listener => {ws, default}
         }
     ),
+    ConnInfo.
+
+-doc "Forwarded headers are honored for a source within the default allow list.".
+t_header(_) ->
+    set_header_test_ws_opts(["0.0.0.0/0"]),
+    ConnInfo = ws_conn_info(
+        {{127, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100, 99.99.99.99">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
     ?assertMatch(
         #{
             socktype := ws,
             peername := {{100, 100, 100, 100}, 1000}
+        },
+        ConnInfo
+    ).
+
+-doc "Forwarded headers are ignored for a source outside the allow list.".
+t_header_source_not_allowed(_) ->
+    set_header_test_ws_opts(["10.0.0.0/8"]),
+    ConnInfo = ws_conn_info(
+        {{127, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{127, 0, 0, 1}, 3456}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, [esockd_cidr:parse("0.0.0.0/0", true)]).
+
+-doc "Forwarded headers are honored for an IPv6 source within an IPv6 allow range.".
+t_header_ipv6_source_allowed(_) ->
+    set_header_test_ws_opts(["2001:db8::/32"]),
+    ConnInfo = ws_conn_info(
+        {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"2001:db8::ff">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{16#2001, 16#db8, 0, 0, 0, 0, 0, 16#ff}, 1000}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, [esockd_cidr:parse("0.0.0.0/0", true)]).
+
+-doc "The default allow list covers IPv4 sources only, so forwarded headers are ignored for an IPv6 source.".
+t_header_ipv6_source_default_allow(_) ->
+    set_header_test_ws_opts(["0.0.0.0/0"]),
+    ConnInfo = ws_conn_info(
+        {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 3456}
         },
         ConnInfo
     ).

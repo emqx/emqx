@@ -873,6 +873,16 @@ This option is typically used when EMQX is deployed behind a WebSocket proxy."""
 fields_ws_opts_proxy_address_header.label:
 """Proxy address header"""
 
+fields_ws_opts_proxy_address_allow.desc:
+"""A list of IPv4 or IPv6 CIDR ranges describing the sources trusted to carry the original client's address and port in the `proxy_address_header` and `proxy_port_header` headers, typically the load balancers or reverse proxies in front of EMQX.
+
+The address taken from these headers becomes the client's source address used for IP-based authorization rules, banned-client matching, and logging, so the headers are honored only when the connection's source address is within one of the listed ranges; otherwise the socket source address is used.
+
+The default `0.0.0.0/0` covers all IPv4 sources but no IPv6 sources: to honor the forwarded headers for connections arriving over IPv6, add the proxy's IPv6 range (for example `::/0`) to the list."""
+
+fields_ws_opts_proxy_address_allow.label:
+"""Trusted proxy address ranges"""
+
 sysmon_os_sysmem_high_watermark.desc:
 """The threshold, as percentage of system memory,
  for how much system memory can be allocated before the corresponding alarm is raised. Disabled on Windows platform"""
