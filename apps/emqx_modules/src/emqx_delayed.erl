@@ -569,7 +569,7 @@ maybe_publish_authorized(AuthzContext, AuthzTopic, Msg, ClientId, Topic, Qos) ->
 
 -compile({inline, [ignore_delayed_message_publish/3]}).
 ignore_delayed_message_publish(Reason, ClientId, Topic) ->
-    ?tp(notice, ignore_delayed_message_publish, #{
+    ?tp(warning, ignore_delayed_message_publish, #{
         reason => Reason,
         clientid => ClientId,
         topic => Topic
