@@ -57,6 +57,7 @@ persistent_session_testcases() ->
         t_persistent_sessions4,
         t_persistent_sessions5,
         t_persistent_sessions_subscriptions1,
+        t_persistent_session_exact_clientid,
         t_list_clients_v2,
         t_list_clients_v2_limit,
         t_list_clients_v2_exact_filters,
@@ -611,6 +612,44 @@ t_persistent_sessions_subscriptions1(Config) ->
     ),
     ok.
 
+-doc """
+A disconnected durable session is found by an exact client ID query (direct
+lookup path), also when queried together with unknown IDs.
+""".
+t_persistent_session_exact_clientid(Config) ->
+    [N1, _N2] = ?config(cluster_nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    ClientId = ?CLIENTID(<<"1">>),
+    Qs = binary_to_list(uri_string:compose_query([{<<"clientid">>, ClientId}])),
+    C1 = connect_client(#{port => Port1, clientid => ClientId}),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok,
+                {?HTTP200, _, #{
+                    <<"data">> := [#{<<"clientid">> := ClientId, <<"connected">> := true}],
+                    <<"meta">> := #{<<"count">> := 1, <<"hasnext">> := false}
+                }}},
+            list_request(Qs, Config)
+        )
+    ),
+    ok = emqtt:disconnect(C1),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok,
+                {?HTTP200, _, #{
+                    <<"data">> := [#{<<"clientid">> := ClientId, <<"connected">> := false}],
+                    <<"meta">> := #{<<"count">> := 1, <<"hasnext">> := false}
+                }}},
+            list_request(Qs ++ "&clientid=no-such-client", Config)
+        )
+    ),
+    C2 = connect_client(#{port => Port1, clientid => ClientId}),
+    disconnect_and_destroy_session(C2).
+
 t_clients_bad_value_type(Config) ->
     %% get /clients
     ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
@@ -1002,6 +1041,133 @@ t_query_clients_with_fields(Config) ->
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=bad_field_name")),
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,bad_field_name")),
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,username,clientid")).
+
+-doc """
+Exact client ID query (direct lookup path) returns the same client object as
+`GET /clients/:clientid`.
+""".
+t_query_exact_clientid_same_as_lookup(Config) ->
+    ClientId = ?CLIENTID(<<"1">>),
+    {ok, C} = emqtt:start_link(#{clientid => ClientId, username => <<"exact_lookup_user">>}),
+    {ok, _} = emqtt:connect(C),
+    timer:sleep(100),
+    {ok, {?HTTP200, _, #{<<"data">> := [Listed], <<"meta">> := Meta}}} =
+        list_request(#{clientid => ClientId}, Config),
+    {ok, {?HTTP200, _, Looked}} = get_client_request(ClientId, Config),
+    ?assertMatch(#{<<"count">> := 1, <<"hasnext">> := false}, Meta),
+    ?assertEqual(lists:sort(maps:keys(Looked)), lists:sort(maps:keys(Listed))),
+    %% compare fields that do not change between two consecutive reads
+    StableKeys = [
+        <<"clientid">>,
+        <<"username">>,
+        <<"node">>,
+        <<"connected">>,
+        <<"clean_start">>,
+        <<"proto_name">>,
+        <<"proto_ver">>,
+        <<"ip_address">>,
+        <<"port">>,
+        <<"keepalive">>,
+        <<"is_bridge">>,
+        <<"is_persistent">>,
+        <<"is_expired">>,
+        <<"listener">>,
+        <<"expiry_interval">>,
+        <<"created_at">>,
+        <<"connected_at">>
+    ],
+    ?assertEqual(maps:with(StableKeys, Looked), maps:with(StableKeys, Listed)),
+    ok = emqtt:stop(C).
+
+-doc """
+Pagination on the exact client ID query path: `count`, `hasnext` and page slicing
+are consistent across pages; unknown and duplicate IDs do not affect the count.
+""".
+t_query_exact_clientid_pagination(Config) ->
+    ClientIds = lists:map(
+        fun(N) ->
+            Suffix = integer_to_binary(N),
+            ?CLIENTID(Suffix)
+        end,
+        lists:seq(1, 5)
+    ),
+    Clients = lists:map(
+        fun(ClientId) ->
+            {ok, C} = emqtt:start_link(#{clientid => ClientId}),
+            {ok, _} = emqtt:connect(C),
+            C
+        end,
+        ClientIds
+    ),
+    timer:sleep(100),
+    IdsQs = binary_to_list(
+        uri_string:compose_query(
+            [{<<"clientid">>, Id} || Id <- ClientIds] ++
+                [{<<"clientid">>, <<"no-such-client">>}, {<<"clientid">>, hd(ClientIds)}]
+        )
+    ),
+    Page1 = list_request(IdsQs ++ "&limit=2&page=1", Config),
+    Page2 = list_request(IdsQs ++ "&limit=2&page=2", Config),
+    Page3 = list_request(IdsQs ++ "&limit=2&page=3", Config),
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [_, _],
+                <<"meta">> := #{<<"count">> := 5, <<"hasnext">> := true}
+            }}},
+        Page1
+    ),
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [_, _],
+                <<"meta">> := #{<<"count">> := 5, <<"hasnext">> := true}
+            }}},
+        Page2
+    ),
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [_],
+                <<"meta">> := #{<<"count">> := 5, <<"hasnext">> := false}
+            }}},
+        Page3
+    ),
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [],
+                <<"meta">> := #{<<"count">> := 5, <<"hasnext">> := false}
+            }}},
+        list_request(IdsQs ++ "&limit=2&page=4", Config)
+    ),
+    %% pages are disjoint and together cover exactly the connected clients
+    PagedIds = [
+        Id
+     || {ok, {_, _, #{<<"data">> := Rows}}} <- [Page1, Page2, Page3],
+        #{<<"clientid">> := Id} <- Rows
+    ],
+    ?assertEqual(lists:sort(ClientIds), lists:sort(PagedIds)),
+    lists:foreach(fun emqtt:stop/1, Clients).
+
+-doc "The `fields` projection applies on the exact client ID query path.".
+t_query_exact_clientid_with_fields(Config) ->
+    Auth = ?config(api_auth_header, Config),
+    ClientId = ?CLIENTID(<<"1">>),
+    Username = <<"exact_fields_user">>,
+    {ok, C} = emqtt:start_link(#{clientid => ClientId, username => Username}),
+    {ok, _} = emqtt:connect(C),
+    timer:sleep(100),
+    Qs = binary_to_list(uri_string:compose_query([{<<"clientid">>, ClientId}])),
+    ?assertEqual(
+        [#{<<"clientid">> => ClientId}],
+        get_clients_all_fields(Auth, Qs ++ "&fields=clientid")
+    ),
+    ?assertEqual(
+        [#{<<"clientid">> => ClientId, <<"username">> => Username}],
+        get_clients_all_fields(Auth, Qs ++ "&fields=clientid,username")
+    ),
+    ok = emqtt:stop(C).
 
 get_clients_all_fields(Auth, Qs) ->
     get_clients(Auth, Qs, false, false).
