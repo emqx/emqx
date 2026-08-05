@@ -89,5 +89,7 @@ make_persist(ClientInfo) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+-ifdef(TEST).
 make_restricted(ClientInfo) ->
     maps:with(?RESTRICTED_KEYS, ClientInfo).
+-endif.
