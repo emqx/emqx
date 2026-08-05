@@ -12,14 +12,16 @@ There are two project styles to build an EMQX plugin: standalone project, or emb
 
 ### Standalone Plugin Project
 
-A standalone EMQX plugin is built and released **only with `rebar3`**.
+A standalone plugin project keeps the plugin in its own repository, outside the EMQX monorepo. Its build files depend on the style:
 
-- `rebar.config`
-  Used to build the plugin package (`emqx_plugrel`) as a `.tar.gz` artifact.
-- `mix.exs`
-  **Not required**.
-
-This mode is recommended for independent plugin development outside the EMQX monorepo.
+- **rebar3 template** (the only option for EMQX 5.x and older):
+  - `rebar.config`
+    Used to build the plugin package (`emqx_plugrel`) as a `.tar.gz` artifact.
+  - `mix.exs`
+    **Not required**.
+- **git submodule** (EMQX 6.0+):
+  - `mix.exs` and `VERSION`
+    Required, the same as for an in-monorepo plugin (see below).
 
 ### Plugin Inside the EMQX Monorepo
 
@@ -80,7 +82,7 @@ Reference implementation: `plugins/emqx_username_quota/mix.exs`.
 ## Preparation
 
 For plugin development inside this monorepo, package build is driven by Mix via root `make plugin-*` targets.
-If you are creating a standalone plugin project outside this monorepo, you still need:
+For standalone development with the rebar3 template (including EMQX 5.x), you also need:
 
 - `rebar3`
 - the **emqx-plugin** project template
@@ -131,25 +133,56 @@ rebar3 new help
 
 ## Development Modes
 
-With the template installed, there are two common ways to develop an EMQX plugin.
+There are two common ways to develop an EMQX plugin.
 
 ---
 
 ## Standalone Plugin Development
 
-For plugins developed outside the EMQX monorepo:
+There are two styles of standalone development:
 
-1. Generate a new plugin project:
+- **rebar3 template**: generate a plugin project with the [emqx-plugin-template](https://github.com/emqx/emqx-plugin-template). This is the only option for EMQX 5.x and older versions.
+- **git submodule** (EMQX 6.0+): keep the plugin in its own repository and register EMQX as a git submodule, reusing the monorepo build tooling. This combines the independent repository management of a standalone plugin with the in-monorepo build experience.
+
+### Git Submodule Style
+
+If the plugin must be developed in its own repository (for example, when the source code has to stay private and cannot be published in the EMQX monorepo), register EMQX as a **git submodule** of the plugin repository. The plugin repository stays under independent version control, while the plugin is still built with the monorepo tooling (`make plugin-{plugin_name}`).
+
+1. **Create the plugin repository and register EMQX as a submodule:**
+
    ```bash
-   rebar3 new emqx-plugin {plugin_name}
+   git submodule add --depth 1 git@github.com:emqx/emqx.git emqx
    ```
 
-2. Develop and test the plugin using `rebar3`.
+2. **Pin the submodule to the branch matching your target EMQX version** (for example, `release-60`), then commit the pointer:
 
-3. Build the plugin package following the instructions in:
-   https://github.com/emqx/emqx-plugin-template
+   ```bash
+   cd emqx
+   git fetch --depth 1 origin release-60
+   git checkout release-60
+   cd ..
+   git add emqx && git commit
+   ```
 
-This mode uses **only `rebar3`** and does not involve Mix or `mix.exs`.
+3. **Symlink the plugin into the submodule's `plugins/` directory**, the same way as in the monorepo flow above:
+
+   ```bash
+   ln -s ../.. emqx/plugins/{plugin_name}
+   ```
+
+4. **Build the plugin package from the EMQX submodule:**
+
+   ```bash
+   cd emqx && make plugin-{plugin_name}
+   ```
+
+   The `.tar.gz` artifact is produced under `emqx/_build/plugins/`.
+
+> **Note**
+> The `plugins/` directory and the `make plugin-{plugin_name}` build target were introduced in EMQX 6.0 (PR #16748).
+
+> **Note**
+> When the plugin is symlinked from a separate repository, `__DIR__` in `mix.exs` resolves to the real repository path. Adjust the monorepo paths accordingly, for example `{:emqx_mix, path: "emqx", runtime: false}`, `build_path: "emqx/_build"`, `deps_path: "emqx/deps"`, `lockfile: "emqx/mix.lock"`.
 
 ---
 

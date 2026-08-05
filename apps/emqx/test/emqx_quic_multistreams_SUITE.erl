@@ -845,7 +845,7 @@ t_conn_change_client_addr(Config) ->
     ?retry(
         _Delay = 50,
         _attempt = 20,
-        fun() ->
+        begin
             {ok, NewAddr} = quicer:sockname(Conn),
             ?assertNotEqual(OldAddr, NewAddr)
         end
@@ -2240,13 +2240,8 @@ t_quic_takeover_tls(Config) ->
     %% THEN: client: session_present is true
     ?assertEqual(1, proplists:get_value(session_present, emqtt:info(C0))),
     %% THEN: server: session matches the TLS session.
-    #{
-        session := Session,
-        conninfo := #{connected_at := QuicConnectedAT},
-        sockinfo := #{socktype := quic}
-    } = ChanQuic = emqx_cm:get_chan_info(ClientId),
+    {Session, QuicConnectedAT, _} = retry_get_chan_info(ClientId, quic),
     ?assert(QuicConnectedAT > TLSConnectedAT),
-    ct:pal("~p~n", [emqx_cm:get_chan_info(ChanQuic)]),
     receive
         {disconnected, ?RC_SESSION_TAKEN_OVER, _} -> ok
     end,
@@ -2274,11 +2269,7 @@ t_quic_takeover_tls_0rtt(Config) ->
     #{nst := NST} = proplists:get_value(extra, emqtt:info(C0)),
     ct:pal("~p", [emqtt:info(C0)]),
     ?assert(is_binary(NST)),
-    #{
-        session := Session,
-        conninfo := #{connected_at := QuicConnectedAT},
-        sockinfo := #{socktype := quic}
-    } = ChanQuic = emqx_cm:get_chan_info(ClientId),
+    {Session, QuicConnectedAT, ChanQuic} = retry_get_chan_info(ClientId, quic),
 
     ?assertEqual(0, proplists:get_value(session_present, emqtt:info(C0))),
     %% WHEN: TLS client took over the session
@@ -2297,11 +2288,7 @@ t_quic_takeover_tls_0rtt(Config) ->
     %% THEN: client: session_present is true
     ?assertEqual(1, proplists:get_value(session_present, emqtt:info(CTLS))),
     %% THEN: server: session matches the TLS session and socktype is ssl
-    #{
-        session := Session,
-        conninfo := #{connected_at := TLSConnectedAT},
-        sockinfo := #{socktype := ssl}
-    } = _ChanTLS = emqx_cm:get_chan_info(ClientId),
+    {Session, TLSConnectedAT, _} = retry_get_chan_info(ClientId, ssl),
     ?assert(QuicConnectedAT < TLSConnectedAT),
     receive
         {disconnected, ?RC_SESSION_TAKEN_OVER, _} -> ok
@@ -2329,11 +2316,7 @@ t_quic_takeover_tls_0rtt(Config) ->
         {disconnected, ?RC_SESSION_TAKEN_OVER, _} -> ok
     end,
     assert_client_die(CTLS),
-    #{
-        session := Session3,
-        conninfo := #{connected_at := QuicConnectedAT2},
-        sockinfo := #{socktype := quic}
-    } = ChanQuic2 = emqx_cm:get_chan_info(ClientId),
+    {Session3, QuicConnectedAT2, ChanQuic2} = retry_get_chan_info(ClientId, quic),
     ?assertEqual(1, proplists:get_value(session_present, emqtt:info(C1))),
     ?assert(ChanQuic2 =/= ChanQuic),
     ?assert(maps:without([subscriptions], Session3) == maps:without([subscriptions], Session)),
@@ -2403,6 +2386,26 @@ t_tls_takeover_quic(Config) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+-doc """
+Fetch channel info of ClientId, retrying until the registered channel has
+the expected socktype: both the initial channel info registration and the
+registry swap after a takeover are asynchronous.
+""".
+retry_get_chan_info(ClientId, SockType) ->
+    ?retry(
+        _Interval = 100,
+        _NAttempts = 30,
+        begin
+            #{
+                session := Session,
+                conninfo := #{connected_at := ConnectedAt},
+                sockinfo := #{socktype := SockType}
+            } = ChanInfo = emqx_cm:get_chan_info(ClientId),
+            {Session, ConnectedAt, ChanInfo}
+        end
+    ).
+
 send_and_recv_with(Sock) ->
     {ok, {IP, _}} = emqtt_quic:sockname(Sock),
     ?assert(lists:member(tuple_size(IP), [4, 8])),

@@ -119,6 +119,28 @@ t_repeated_send_congestion_preserves_send_order(_) ->
         ok = meck:unload(esockd_socket)
     end.
 
+t_data_ready_handles_rearmed_select(_) ->
+    ok = meck_esockd_socket([no_history]),
+    ok = meck:new(socket, [unstick, passthrough, no_history]),
+    SelectInfo = {select_info, recv, make_ref()},
+    ok = meck:expect(socket, recv, fun(sock, 0, [], nowait) ->
+        {select, SelectInfo}
+    end),
+    try
+        State0 = emqx_socket_connection:init_state(sock, #{
+            zone => default,
+            limiter => undefined,
+            listener => {tcp, default}
+        }),
+        ?assertMatch(
+            {ok, _},
+            emqx_socket_connection:handle_msg({'$socket', sock, select, make_ref()}, State0)
+        )
+    after
+        ok = meck:unload(socket),
+        ok = meck:unload(esockd_socket)
+    end.
+
 meck_esockd_socket(Opts) ->
     ok = meck:new(esockd_socket, [passthrough | Opts]),
     ok = meck:expect(esockd_socket, type, fun(_) -> tcp end),
