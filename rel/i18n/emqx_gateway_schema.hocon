@@ -192,14 +192,18 @@ fields_ws_opts_check_origins.desc:
 fields_ws_opts_check_origins.label:
 """Allowed origins"""
 fields_ws_opts_proxy_port_header.desc:
-"""HTTP header used to pass information about the client port. Relevant when the EMQX cluster is deployed behind a load-balancer."""
+"""HTTP header used to pass information about the client port. Relevant when the EMQX cluster is deployed behind a load-balancer.
+
+Set to an empty string (<code>""</code>) to disable it, so the source port of the WebSocket connection is always used."""
 
 fields_ws_opts_proxy_port_header.label:
 """Proxy port header"""
 
 fields_ws_opts_proxy_address_header.desc:
 """HTTP header used to pass information about the client IP address.
-Relevant when the EMQX cluster is deployed behind a load-balancer."""
+Relevant when the EMQX cluster is deployed behind a load-balancer.
+
+Set to an empty string (<code>""</code>) to disable it, so the source IP address of the WebSocket connection is always used."""
 
 fields_ws_opts_proxy_address_header.label:
 """Proxy address header"""
