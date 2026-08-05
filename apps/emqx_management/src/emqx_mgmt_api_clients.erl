@@ -931,19 +931,11 @@ inflight_msgs(get, #{
 
 list_clients(QString) ->
     Result =
-        case maps:get(<<"node">>, QString, undefined) of
-            undefined ->
-                Options = #{fast_total_counting => true},
-                list_clients_cluster_query(QString, Options);
-            Node0 ->
-                case emqx_utils:safe_to_existing_atom(Node0) of
-                    {ok, Node1} ->
-                        QStringWithoutNode = maps:remove(<<"node">>, QString),
-                        Options = #{},
-                        list_clients_node_query(Node1, QStringWithoutNode, Options);
-                    {error, _} ->
-                        {error, Node0, {badrpc, <<"invalid node">>}}
-                end
+        case exact_clientid_filter(QString) of
+            {ok, ClientIds} ->
+                list_clients_by_id(ClientIds, QString);
+            false ->
+                list_clients_scan(QString)
         end,
     case Result of
         {error, page_limit_invalid} ->
@@ -961,6 +953,68 @@ list_clients(QString) ->
             {500, #{code => <<"NODE_DOWN">>, message => Message}};
         Response ->
             {200, Response}
+    end.
+
+list_clients_scan(QString) ->
+    case maps:get(<<"node">>, QString, undefined) of
+        undefined ->
+            Options = #{fast_total_counting => true},
+            list_clients_cluster_query(QString, Options);
+        Node0 ->
+            case emqx_utils:safe_to_existing_atom(Node0) of
+                {ok, Node1} ->
+                    QStringWithoutNode = maps:remove(<<"node">>, QString),
+                    Options = #{},
+                    list_clients_node_query(Node1, QStringWithoutNode, Options);
+                {error, _} ->
+                    {error, Node0, {badrpc, <<"invalid node">>}}
+            end
+    end.
+
+%% Returns `{ok, ClientIds}' when the only filter in the query is a list of exact
+%% client IDs (`node' counts as a filter; `page'/`limit'/`fields' do not).
+exact_clientid_filter(QString) ->
+    FilterKeys = [K || {K, _} <- ?CLIENT_QSCHEMA],
+    case maps:to_list(maps:with(FilterKeys, QString)) of
+        [{<<"clientid">>, ClientIds}] when is_list(ClientIds), ClientIds =/= [] ->
+            {ok, ClientIds};
+        _ ->
+            false
+    end.
+
+%% Fast path for exact-clientid-only queries: resolve each ID through the channel
+%% registry (with durable-session fallback) instead of scanning the whole channel
+%% table on every node. Results are in query-parameter order.
+list_clients_by_id(ClientIds, QString) ->
+    case emqx_mgmt_api:parse_pager_params(QString) of
+        false ->
+            {error, page_limit_invalid};
+        Meta = #{page := Page, limit := Limit} ->
+            try
+                Rows = lists:flatmap(fun lookup_client_rows/1, lists:uniq(ClientIds)),
+                Total = length(Rows),
+                PageRows = lists:sublist(Rows, (Page - 1) * Limit + 1, Limit),
+                ResultAcc = #{
+                    hasnext => Page * Limit < Total,
+                    rows => [{undefined, PageRows}],
+                    total => Total
+                },
+                Opts = #{fields => maps:get(<<"fields">>, QString, all)},
+                emqx_mgmt_api:format_query_result(
+                    fun ?MODULE:format_channel_info/3, Meta, ResultAcc, Opts
+                )
+            catch
+                throw:{lookup_client_error, Reason} ->
+                    {error, unknown, {badrpc, Reason}}
+            end
+    end.
+
+lookup_client_rows(ClientId) ->
+    case emqx_mgmt:lookup_client({clientid, ClientId}, undefined) of
+        {error, Reason} ->
+            throw({lookup_client_error, Reason});
+        Rows when is_list(Rows) ->
+            Rows
     end.
 
 list_clients_v2(get, #{query_string := QString}) ->

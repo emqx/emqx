@@ -68,6 +68,7 @@ persistent_session_testcases() ->
         t_persistent_sessions5,
         t_persistent_sessions6,
         t_persistent_sessions_subscriptions1,
+        t_persistent_sessions_exact_clientid,
         t_list_clients_v2,
         t_list_clients_v2_exact_filters,
         t_list_clients_v2_regular_filters,
@@ -630,6 +631,62 @@ t_persistent_sessions6(Config) ->
     ),
     ok.
 
+%% Verifies that an exact-clientid-only query (the direct-lookup fast path)
+%% finds durable sessions both while connected and after disconnection, and
+%% that the returned row matches the single-client lookup endpoint.
+t_persistent_sessions_exact_clientid(Config) ->
+    [N1, _N2] = ?config(nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    ClientId = <<"exact_ps">>,
+    C1 = connect_client(#{port => Port1, clientid => ClientId}),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok,
+                {?HTTP200, _, #{
+                    <<"data">> := [#{<<"clientid">> := ClientId, <<"connected">> := true}],
+                    <<"meta">> := #{<<"count">> := 1, <<"hasnext">> := false}
+                }}},
+            list_request(#{clientid => ClientId}, Config)
+        )
+    ),
+    ok = emqtt:disconnect(C1),
+    %% The disconnected durable session is still resolved by exact-id query.
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok,
+                {?HTTP200, _, #{
+                    <<"data">> := [
+                        #{
+                            <<"clientid">> := ClientId,
+                            <<"connected">> := false,
+                            <<"durable">> := true
+                        }
+                    ],
+                    <<"meta">> := #{<<"count">> := 1, <<"hasnext">> := false}
+                }}},
+            list_request(#{clientid => ClientId}, Config)
+        )
+    ),
+    %% Same row as the single-client lookup endpoint; unknown IDs are tolerated.
+    {ok, {?HTTP200, _, ClientInfo}} = get_client_request(ClientId, Config),
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [ClientInfo],
+                <<"meta">> := #{<<"count">> := 1, <<"hasnext">> := false}
+            }}},
+        list_request(
+            [{<<"clientid">>, <<"no-such-client">>}, {<<"clientid">>, ClientId}], Config
+        )
+    ),
+    C2 = connect_client(#{port => Port1, clientid => ClientId}),
+    disconnect_and_destroy_session(C2),
+    ok.
+
 %% Check that the output of `/clients/:clientid/subscriptions' has the expected keys.
 t_persistent_sessions_subscriptions1(Config) ->
     [N1, _N2] = ?config(nodes, Config),
@@ -1060,6 +1117,84 @@ t_query_clients_with_fields(Config) ->
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=bad_field_name")),
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,bad_field_name")),
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,username,clientid")).
+
+%% Exercises the direct-lookup fast path taken when exact client IDs are the
+%% only filter: rows identical to the single-client lookup endpoint, input-id
+%% ordering, deduplication, `fields' projection and pagination.
+t_query_exact_clientid(Config) ->
+    ClientId1 = <<"exact_clientid_1">>,
+    ClientId2 = <<"exact_clientid_2">>,
+    Clients = lists:map(
+        fun(ClientId) ->
+            {ok, C} = emqtt:start_link(#{clientid => ClientId}),
+            {ok, _} = emqtt:connect(C),
+            C
+        end,
+        [ClientId1, ClientId2]
+    ),
+    timer:sleep(100),
+
+    %% Exact-id query returns the same client object as GET /clients/:clientid.
+    {ok, {?HTTP200, _, Client1Info}} = get_client_request(ClientId1, Config),
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [Client1Info],
+                <<"meta">> := #{<<"count">> := 1, <<"hasnext">> := false}
+            }}},
+        list_request(#{clientid => ClientId1}, Config)
+    ),
+
+    %% Unknown and duplicate IDs are tolerated; results follow input-id order.
+    MixedQs = [
+        {<<"clientid">>, <<"no-such-client">>},
+        {<<"clientid">>, ClientId1},
+        {<<"clientid">>, ClientId2},
+        {<<"clientid">>, ClientId1}
+    ],
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [#{<<"clientid">> := ClientId1}, #{<<"clientid">> := ClientId2}],
+                <<"meta">> := #{<<"count">> := 2, <<"hasnext">> := false}
+            }}},
+        list_request(MixedQs, Config)
+    ),
+
+    %% Pagination slices the resolved rows.
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [#{<<"clientid">> := ClientId1}],
+                <<"meta">> := #{<<"count">> := 2, <<"hasnext">> := true}
+            }}},
+        list_request(MixedQs ++ [{<<"limit">>, <<"1">>}, {<<"page">>, <<"1">>}], Config)
+    ),
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [#{<<"clientid">> := ClientId2}],
+                <<"meta">> := #{<<"count">> := 2, <<"hasnext">> := false}
+            }}},
+        list_request(MixedQs ++ [{<<"limit">>, <<"1">>}, {<<"page">>, <<"2">>}], Config)
+    ),
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [],
+                <<"meta">> := #{<<"count">> := 2, <<"hasnext">> := false}
+            }}},
+        list_request(MixedQs ++ [{<<"limit">>, <<"1">>}, {<<"page">>, <<"3">>}], Config)
+    ),
+
+    %% `fields' projection applies on the fast path.
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"data">> := [#{<<"clientid">> := ClientId1} = Row]}}} when
+            map_size(Row) =:= 1,
+        list_request([{<<"clientid">>, ClientId1}, {<<"fields">>, <<"clientid">>}], Config)
+    ),
+
+    lists:foreach(fun emqtt:stop/1, Clients).
 
 get_clients_all_fields(Auth, Qs) ->
     get_clients(Auth, Qs, false, false).
