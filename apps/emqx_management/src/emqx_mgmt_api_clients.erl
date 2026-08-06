@@ -75,12 +75,17 @@
 
 -define(TAGS, [<<"Clients">>]).
 
--define(CLIENT_QSCHEMA, [
+%% Query-string keys servable by direct per-client-ID lookups (fast path).
+-define(CLIENT_QSCHEMA_DIRECT_LOOKUP, [
     {<<"node">>, atom},
     %% list
-    {<<"username">>, binary},
+    {<<"clientid">>, binary}
+]).
+
+%% Query-string filter keys that require the generic table scan.
+-define(CLIENT_QSCHEMA_NEED_SCAN, [
     %% list
-    {<<"clientid">>, binary},
+    {<<"username">>, binary},
     {<<"ip_address">>, ip},
     {<<"conn_state">>, atom},
     {<<"clean_start">>, atom},
@@ -92,6 +97,8 @@
     {<<"gte_connected_at">>, timestamp},
     {<<"lte_connected_at">>, timestamp}
 ]).
+
+-define(CLIENT_QSCHEMA, ?CLIENT_QSCHEMA_DIRECT_LOOKUP ++ ?CLIENT_QSCHEMA_NEED_SCAN).
 
 -define(FORMAT_FUN, {?MODULE, format_channel_info}).
 
@@ -902,13 +909,11 @@ Returns `{ok, ClientIds}` when the query filters on exact client IDs only
 instead of the generic table scan.
 """.
 exact_clientid_query(#{<<"clientid">> := ClientIds = [_ | _]} = QString) ->
-    HasOtherFilters = lists:any(
-        fun({Key, _Type}) ->
-            Key =/= <<"clientid">> andalso Key =/= <<"node">> andalso maps:is_key(Key, QString)
-        end,
-        ?CLIENT_QSCHEMA
+    NeedScan = lists:any(
+        fun({Key, _Type}) -> maps:is_key(Key, QString) end,
+        ?CLIENT_QSCHEMA_NEED_SCAN
     ),
-    case HasOtherFilters of
+    case NeedScan of
         true -> false;
         false -> {ok, ClientIds}
     end;
