@@ -18,4 +18,12 @@ init([]) ->
         intensity => 10,
         period => 10
     },
-    {ok, {SupFlags, [emqx_maptabs_server:child_spec()]}}.
+    Server = #{
+        id => emqx_maptabs_server,
+        start => {emqx_maptabs_server, start_link, []},
+        type => worker,
+        modules => [emqx_maptabs_server],
+        restart => permanent,
+        shutdown => 5000
+    },
+    {ok, {SupFlags, [Server]}}.

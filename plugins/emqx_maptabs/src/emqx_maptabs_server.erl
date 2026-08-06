@@ -20,7 +20,6 @@
 
 -export([
     start_link/0,
-    child_spec/0,
     health_check/0
 ]).
 
@@ -62,17 +61,6 @@
 -spec start_link() -> {ok, pid()} | {error, term()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
--spec child_spec() -> supervisor:child_spec().
-child_spec() ->
-    #{
-        id => ?SERVER,
-        start => {?MODULE, start_link, []},
-        type => worker,
-        modules => [?MODULE],
-        restart => permanent,
-        shutdown => 5000
-    }.
 
 -spec health_check() -> ok | {error, binary()}.
 health_check() ->
