@@ -878,7 +878,7 @@ fields_ws_opts_proxy_address_header.label:
 """Proxy address header"""
 
 fields_ws_opts_proxy_address_allow.desc:
-"""Specifies which sources are trusted to carry the original client's address and port in the `proxy_address_header` and `proxy_port_header` headers, typically the load balancers or reverse proxies in front of EMQX. The value is either a list of IPv4 or IPv6 CIDR ranges, or `per_security_profile` (the default): in the legacy security profile all sources are trusted, and in the hardened security profile none are, so forwarded headers are ignored until trusted ranges are configured.
+"""A list of IPv4 or IPv6 CIDR ranges specifying which sources are trusted to carry the original client's address and port in the `proxy_address_header` and `proxy_port_header` headers, typically the load balancers or reverse proxies in front of EMQX. The default (`["0.0.0.0/0", "::/0"]`) trusts all sources; note that the headers themselves are disabled unless their names are configured.
 
 The address taken from the header becomes the client's source address used for IP-based authorization rules, banned-client matching, and logging, so the header is consulted only when the connection's source address is trusted; otherwise the socket source address is used.
 

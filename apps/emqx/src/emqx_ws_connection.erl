@@ -879,7 +879,7 @@ resume_stats_timer(State = #state{stats_timer = disabled}) ->
 
 get_peer(Req, #{listener := {Type, Listener}}) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
-    Allow = resolve_proxy_address_allow(get_ws_opt(Type, Listener, proxy_address_allow)),
+    Allow = get_ws_opt(Type, Listener, proxy_address_allow),
     case is_addr_allowed(PeerAddr, Allow) of
         true ->
             get_forwarded_peer(Req, Type, Listener, Allow, PeerAddr, PeerPort);
@@ -914,21 +914,6 @@ get_forwarded_peer(Req, Type, Listener, Allow, PeerAddr, PeerPort) ->
     catch
         _:_ -> {Addr, PeerPort}
     end.
-
--define(CIDR_ALL_IPV4, {{0, 0, 0, 0}, {255, 255, 255, 255}, 0}).
--define(CIDR_ALL_IPV6, {
-    {0, 0, 0, 0, 0, 0, 0, 0},
-    {16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff, 16#ffff},
-    0
-}).
-
-resolve_proxy_address_allow(per_security_profile) ->
-    case emqx_security_profile:policy(ws_proxy_address_allow) of
-        any -> [?CIDR_ALL_IPV4, ?CIDR_ALL_IPV6];
-        none -> []
-    end;
-resolve_proxy_address_allow(CIDRs) when is_list(CIDRs) ->
-    CIDRs.
 
 is_addr_allowed(Addr, CIDRs) when is_list(CIDRs) ->
     lists:any(fun(CIDR) -> esockd_cidr:match(Addr, CIDR) end, CIDRs).

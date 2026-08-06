@@ -303,34 +303,16 @@ listener_ws_proxy_address_allow_test_() ->
             #{
                 <<"mqtt_ws_listener">> := #{
                     <<"websocket">> := #{
-                        <<"proxy_address_allow">> := per_security_profile
+                        <<"proxy_address_header">> := "",
+                        <<"proxy_port_header">> := "",
+                        <<"proxy_address_allow">> := [
+                            {{0, 0, 0, 0}, {255, 255, 255, 255}, 0},
+                            {?IPV6_MIN_ADDR, ?IPV6_MAX_ADDR, 0}
+                        ]
                     }
                 }
             },
             Check(#{}, CheckOpts)
-        ),
-        ?_assertMatch(
-            #{
-                <<"mqtt_ws_listener">> := #{
-                    <<"websocket">> := #{
-                        <<"proxy_address_allow">> := per_security_profile
-                    }
-                }
-            },
-            Check(#{<<"proxy_address_allow">> => <<"per_security_profile">>}, CheckOpts)
-        ),
-        ?_assertMatch(
-            #{
-                <<"mqtt_ws_listener">> := #{
-                    <<"websocket">> := #{
-                        <<"proxy_address_allow">> := <<"per_security_profile">>
-                    }
-                }
-            },
-            Check(
-                #{<<"proxy_address_allow">> => <<"per_security_profile">>},
-                #{required => false, make_serializable => true}
-            )
         ),
         ?_assertMatch(
             #{

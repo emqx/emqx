@@ -1103,7 +1103,7 @@ fields("ws_opts") ->
             sc(
                 string(),
                 #{
-                    default => <<"x-forwarded-for">>,
+                    default => <<"">>,
                     desc => ?DESC(fields_ws_opts_proxy_address_header)
                 }
             )},
@@ -1111,18 +1111,15 @@ fields("ws_opts") ->
             sc(
                 string(),
                 #{
-                    default => <<"x-forwarded-port">>,
+                    default => <<"">>,
                     desc => ?DESC(fields_ws_opts_proxy_port_header)
                 }
             )},
         {"proxy_address_allow",
             sc(
-                hoconsc:union([
-                    per_security_profile,
-                    hoconsc:array(typerefl:alias("string", any()))
-                ]),
+                hoconsc:array(typerefl:alias("string", any())),
                 #{
-                    default => per_security_profile,
+                    default => [<<"0.0.0.0/0">>, <<"::/0">>],
                     desc => ?DESC(fields_ws_opts_proxy_address_allow),
                     converter => fun cidr_array_converter/2
                 }
@@ -2275,11 +2272,6 @@ parse_ip_mask(IPMask) ->
 
 cidr_array_converter(undefined, _Opts) ->
     undefined;
-cidr_array_converter(V, Opts) when V =:= per_security_profile; V =:= <<"per_security_profile">> ->
-    case Opts of
-        #{make_serializable := true} -> <<"per_security_profile">>;
-        _ -> per_security_profile
-    end;
 cidr_array_converter(CIDR, Opts) when is_binary(CIDR) ->
     cidr_array_converter([CIDR], Opts);
 cidr_array_converter(CIDRs, #{make_serializable := true}) when is_list(CIDRs) ->
