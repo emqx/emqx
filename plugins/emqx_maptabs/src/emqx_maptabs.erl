@@ -48,6 +48,12 @@
     health_check/0
 ]).
 
+%% Config accessors
+-export([
+    max_tables/0,
+    max_rows_per_table/0
+]).
+
 %% cluster_rpc entrypoints: replayed on every node (also on rejoin);
 %% argument shapes must stay backward compatible. cluster_rpc appends
 %% an opts map (`#{kind => ...}') to the declared argument list.
@@ -71,6 +77,8 @@
 -define(TIMEOUT, 15000).
 -define(IX_HIT, 1).
 -define(IX_MISS, 2).
+-define(DEFAULT_MAX_TABLES, 100).
+-define(DEFAULT_MAX_ROWS_PER_TABLE, 10000).
 
 -record(commit, {name :: binary(), parsed :: map()}).
 -record(drop, {name :: binary()}).
@@ -223,6 +231,39 @@ health_check() ->
     end.
 
 %%--------------------------------------------------------------------
+%% Config
+%%--------------------------------------------------------------------
+
+%% Limits are read fresh on every load/reload, so a config update takes
+%% effect on the next load; already-loaded tables are never dropped by
+%% a limit change.
+-spec max_tables() -> pos_integer().
+max_tables() ->
+    config_pos_int(<<"max_tables">>, ?DEFAULT_MAX_TABLES).
+
+-spec max_rows_per_table() -> pos_integer().
+max_rows_per_table() ->
+    config_pos_int(<<"max_rows_per_table">>, ?DEFAULT_MAX_ROWS_PER_TABLE).
+
+config_pos_int(Key, Default) ->
+    try emqx_plugins:get_config(name_vsn(), #{}) of
+        Conf when is_map(Conf) ->
+            case maps:get(Key, Conf, Default) of
+                I when is_integer(I), I > 0 -> I;
+                _ -> Default
+            end;
+        _ ->
+            Default
+    catch
+        %% plugin app not (yet) fully set up, e.g. during cluster_rpc replay
+        _:_ -> Default
+    end.
+
+name_vsn() ->
+    {ok, Vsn} = application:get_key(emqx_maptabs, vsn),
+    iolist_to_binary([<<"emqx_maptabs-">>, Vsn]).
+
+%%--------------------------------------------------------------------
 %% cluster_rpc entrypoints
 %%--------------------------------------------------------------------
 
@@ -235,6 +276,8 @@ do_load_v1(Name, Bin, _ClusterRpcOpts) ->
     maybe
         ok ?= emqx_maptabs_loader:validate_name(Name),
         {ok, Parsed} ?= emqx_maptabs_loader:parse(Bin),
+        ok ?= check_row_limit(Parsed),
+        ok ?= check_table_limit_on_disk(Name),
         ok ?= write_table_file(Name, Bin),
         call(#commit{name = Name, parsed = Parsed})
     end.
@@ -406,13 +449,42 @@ delete_table_file(Name) ->
 table_file_path(Name) ->
     filename:join(tables_dir(), binary_to_list(Name) ++ ".json").
 
+check_row_limit(#{row_count := RowCount}) ->
+    Max = max_rows_per_table(),
+    case RowCount =< Max of
+        true ->
+            ok;
+        false ->
+            {error, #{reason => too_many_rows, row_count => RowCount, max_rows_per_table => Max}}
+    end.
+
+%% Replacing an existing table is always allowed; only a new table
+%% counts against the limit. The on-disk files are the count base so
+%% the check also works while the plugin app is stopped (replay).
+check_table_limit_on_disk(Name) ->
+    case filelib:is_regular(table_file_path(Name)) of
+        true ->
+            ok;
+        false ->
+            check_table_count(length(table_files()))
+    end.
+
+check_table_count(Count) ->
+    Max = max_tables(),
+    case Count < Max of
+        true -> ok;
+        false -> {error, #{reason => too_many_tables, table_count => Count, max_tables => Max}}
+    end.
+
+table_files() ->
+    lists:sort(filelib:wildcard(filename:join(tables_dir(), "*.json"))).
+
 %%--------------------------------------------------------------------
 %% Server-side cache operations
 %%--------------------------------------------------------------------
 
 load_all_from_disk() ->
-    Files = filelib:wildcard(filename:join(tables_dir(), "*.json")),
-    lists:foreach(fun(File) -> _ = load_file_into_cache(File) end, Files),
+    _ = reload_all(),
     ok.
 
 load_file_into_cache(File) ->
@@ -421,6 +493,7 @@ load_file_into_cache(File) ->
             {ok, Name} ?= emqx_maptabs_loader:table_name_from_path(File),
             {ok, Bin} ?= read_source_file(File),
             {ok, Parsed} ?= emqx_maptabs_loader:parse(Bin),
+            ok ?= check_row_limit(Parsed),
             commit(Name, Parsed)
         end,
     case Result of
@@ -477,8 +550,16 @@ delete_old_tid(Tid) ->
     ok.
 
 reload_all() ->
-    OnDisk = filelib:wildcard(filename:join(tables_dir(), "*.json")),
-    Pairs = [{F, N} || F <- OnDisk, {ok, N} <- [emqx_maptabs_loader:table_name_from_path(F)]],
+    OnDisk = table_files(),
+    Pairs0 = [{F, N} || F <- OnDisk, {ok, N} <- [emqx_maptabs_loader:table_name_from_path(F)]],
+    %% hand-copied files beyond the table limit are not loaded
+    {Pairs, Beyond} = split_at_table_limit(Pairs0),
+    Beyond =/= [] andalso
+        ?SLOG(warning, #{
+            msg => "maptab_files_beyond_table_limit",
+            max_tables => max_tables(),
+            skipped => [N || {_, N} <- Beyond]
+        }),
     OnDiskNames = [N || {_, N} <- Pairs],
     %% drop cached tables whose file is gone, then (re)load the rest
     Cached = [Name || {Name, _, _, _} <- ets:tab2list(?REGISTRY)],
@@ -488,11 +569,24 @@ reload_all() ->
     ),
     [{Name, load_file_into_cache(File)} || {File, Name} <- Pairs].
 
+split_at_table_limit(Pairs) ->
+    Max = max_tables(),
+    case length(Pairs) > Max of
+        true -> lists:split(Max, Pairs);
+        false -> {Pairs, []}
+    end.
+
 reload_one(Name) ->
-    case filelib:is_regular(table_file_path(Name)) of
-        true ->
+    case {filelib:is_regular(table_file_path(Name)), ets:member(?REGISTRY, Name)} of
+        {true, true} ->
             load_file_into_cache(table_file_path(Name));
-        false ->
+        {true, false} ->
+            %% new to the cache: counts against the table limit
+            maybe
+                ok ?= check_table_count(ets:info(?REGISTRY, size)),
+                load_file_into_cache(table_file_path(Name))
+            end;
+        {false, _} ->
             %% file gone: the cache follows the disk
             drop(Name)
     end.

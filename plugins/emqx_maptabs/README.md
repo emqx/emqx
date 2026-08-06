@@ -61,6 +61,17 @@ must be installed on all nodes of the cluster.
 Reloads swap the cache atomically: a concurrent reader sees the old or the new
 table, never a partial one.
 
+## Configuration
+
+- `max_tables` (default `100`): maximum number of mapping tables. Loading a
+  new table beyond the limit is rejected; replacing an existing table is
+  always allowed.
+- `max_rows_per_table` (default `10000`): maximum number of rows in a single
+  table; a file with more rows is rejected as a whole.
+
+Limits are checked at load time; changing a limit never drops already-loaded
+tables.
+
 ## CLI
 
 ```

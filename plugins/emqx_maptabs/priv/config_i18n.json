@@ -1,0 +1,18 @@
+{
+  "max_tables_label": {
+    "en": "Maximum tables",
+    "zh": "最大表数量"
+  },
+  "max_tables_desc": {
+    "en": "Maximum number of mapping tables. Loading a new table beyond this limit is rejected; replacing an existing table is always allowed.",
+    "zh": "映射表数量上限。超过上限后无法加载新表；替换已有表不受限制。"
+  },
+  "max_rows_per_table_label": {
+    "en": "Maximum rows per table",
+    "zh": "单表最大行数"
+  },
+  "max_rows_per_table_desc": {
+    "en": "Maximum number of rows in a single mapping table. A table file with more rows is rejected as a whole.",
+    "zh": "单个映射表的行数上限。超过上限的表文件将被整体拒绝。"
+  }
+}

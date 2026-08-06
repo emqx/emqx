@@ -333,6 +333,46 @@ t_plugin_lifecycle(Config) ->
     ?assertMatch({ok, _}, emqx_ctl:lookup_command(maptabs)),
     ok.
 
+t_limits_config(Config) ->
+    NameVsn = ?config(plugin_name_vsn, Config),
+    %% defaults from priv/config.hocon
+    ?assertEqual(100, emqx_maptabs:max_tables()),
+    ?assertEqual(10000, emqx_maptabs:max_rows_per_table()),
+    ok = load_table(?TABLE, [#{key => N} || N <- [1, 2, 3]]),
+    try
+        ok = emqx_plugins:update_config(
+            NameVsn,
+            #{<<"max_tables">> => 2, <<"max_rows_per_table">> => 2}
+        ),
+        ?assertEqual(2, emqx_maptabs:max_tables()),
+        ?assertEqual(2, emqx_maptabs:max_rows_per_table()),
+        %% row limit: whole file rejected, previous version kept
+        ?assertMatch(
+            {error, #{reason := too_many_rows, row_count := 3, max_rows_per_table := 2}},
+            load_table(?TABLE, [#{key => N, v => N} || N <- [1, 2, 3]])
+        ),
+        ?assertEqual(#{}, emqx_maptabs:lookup(?TABLE, 3)),
+        %% replacing an existing table is allowed even at the table limit
+        ok = load_table(?TABLE, [#{key => 1, v => <<"v2">>}]),
+        ok = load_table(<<"tab2">>, [#{key => 1}]),
+        %% a third table exceeds max_tables = 2
+        ?assertMatch(
+            {error, #{reason := too_many_tables, table_count := 2, max_tables := 2}},
+            load_table(<<"tab3">>, [#{key => 1}])
+        ),
+        %% deleting a table frees a slot
+        ok = emqx_maptabs:delete(<<"tab2">>),
+        ok = load_table(<<"tab3">>, [#{key => 1}])
+    after
+        %% the plugin config persists in the data dir across
+        %% reinstalls: restore defaults for the other test cases
+        ok = emqx_plugins:update_config(
+            NameVsn,
+            #{<<"max_tables">> => 100, <<"max_rows_per_table">> => 10000}
+        )
+    end,
+    ok.
+
 t_cli(_Config) ->
     mock_ctl_print(),
     try

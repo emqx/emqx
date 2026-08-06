@@ -1,1 +1,2 @@
-## emqx_maptabs has no configuration.
+max_tables = 100
+max_rows_per_table = 10000
