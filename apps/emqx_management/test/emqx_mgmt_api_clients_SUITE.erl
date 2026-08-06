@@ -1059,9 +1059,9 @@ t_query_clients_with_fields(Config) ->
 -doc """
 Tests that an exact-clientid query (the direct-lookup fast path) renders
 clients identically to `GET /clients/:clientid`, dedupes repeated IDs,
-skips unknown IDs, computes the single-page meta, applies the `fields`
-projection, and that combining exact IDs with another filter still narrows
-the result (generic path).
+skips unknown IDs, returns rows in requested-ID order, computes the
+single-page meta, applies the `fields` projection, and that combining
+exact IDs with another filter still narrows the result (generic path).
 """.
 t_list_clients_exact_lookup(Config) ->
     ClientId1 = ?CLIENTID(<<"1">>),
@@ -1104,6 +1104,11 @@ t_list_clients_exact_lookup(Config) ->
         lists:sort([Id || #{<<"clientid">> := Id} <- Rows])
     ),
     ?assertMatch(#{<<"count">> := 2, <<"hasnext">> := false}, Meta2),
+
+    %% Rows are returned in requested-ID order (first occurrence wins).
+    {ok, {?HTTP200, _, #{<<"data">> := OrderedRows}}} =
+        list_request([{<<"clientid">>, ClientId2}, {<<"clientid">>, ClientId1}], Config),
+    ?assertEqual([ClientId2, ClientId1], [Id || #{<<"clientid">> := Id} <- OrderedRows]),
 
     %% Only unknown IDs: empty page.
     ?assertMatch(
