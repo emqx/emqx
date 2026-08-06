@@ -46,8 +46,10 @@ JSON types are preserved for keys and values:
 The `type`/`signedness`/`endian` strings above are exactly what the builtin
 `subbits/6` rule function expects, so looked-up fields feed straight into it.
 
-Loading is fail-closed: invalid JSON, a row without `key`, duplicate keys, or
-a float key (`50.0`) rejects the whole file and keeps the previous version.
+A `key` must be a JSON integer or string. Loading is fail-closed: invalid
+JSON, a row without `key`, duplicate keys, or a key of any other type (float,
+boolean, null, array, object) rejects the whole file and keeps the previous
+version.
 
 ## Storage and clustering
 

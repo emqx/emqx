@@ -69,8 +69,7 @@ end_per_testcase(_TestCase, Config) ->
 t_lookup_semantics(_Config) ->
     ok = load_table(?TABLE, [
         #{key => 2, signal_name => <<"sig_f32">>, start_bit => 17, length => 32},
-        #{key => <<"str">>, note => <<"string keyed">>},
-        #{key => true, note => <<"bool keyed">>}
+        #{key => <<"str">>, note => <<"string keyed">>}
     ]),
     %% hit: value map without the key field
     ?assertEqual(
@@ -78,7 +77,6 @@ t_lookup_semantics(_Config) ->
         emqx_maptabs:lookup(?TABLE, 2)
     ),
     ?assertEqual(#{<<"note">> => <<"string keyed">>}, emqx_maptabs:lookup(?TABLE, <<"str">>)),
-    ?assertEqual(#{<<"note">> => <<"bool keyed">>}, emqx_maptabs:lookup(?TABLE, true)),
     %% single field and default
     ?assertEqual(<<"sig_f32">>, emqx_maptabs:lookup(?TABLE, 2, <<"signal_name">>)),
     ?assertEqual(undefined, emqx_maptabs:lookup(?TABLE, 2, <<"no_such_field">>)),
@@ -88,6 +86,7 @@ t_lookup_semantics(_Config) ->
     ?assertEqual(undefined, emqx_maptabs:lookup(?TABLE, 999)),
     ?assertEqual(undefined, emqx_maptabs:lookup(?TABLE, <<"2">>)),
     ?assertEqual(undefined, emqx_maptabs:lookup(?TABLE, 2.0)),
+    ?assertEqual(undefined, emqx_maptabs:lookup(?TABLE, true)),
     ?assertEqual(undefined, emqx_maptabs:lookup(<<"no_such_table">>, 2)),
     %% lookups never throw, even with unusual argument types
     ?assertEqual(undefined, emqx_maptabs:lookup(not_a_binary, 2)),
@@ -113,6 +112,10 @@ t_loader_validation(_Config) ->
     ?assertMatch(
         {error, #{reason := invalid_key_type}},
         Parse(<<"[{\"key\": null}]">>)
+    ),
+    ?assertMatch(
+        {error, #{reason := invalid_key_type}},
+        Parse(<<"[{\"key\": true}]">>)
     ),
     ?assertMatch(
         {error, #{reason := invalid_key_type}},

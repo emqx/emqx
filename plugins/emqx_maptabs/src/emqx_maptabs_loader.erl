@@ -20,8 +20,8 @@
 -define(NAME_RE, "^[a-zA-Z0-9_-]+$").
 
 %% Returns `{ok, #{rows := [{Key, ValueMap}], row_count := N, version := Hex}}'
-%% or `{error, Reason}'. Keys keep their native JSON type (integer, string,
-%% boolean); float keys are rejected to avoid inexact matching.
+%% or `{error, Reason}'. Keys keep their native JSON type but must be an
+%% integer or a string; float keys are rejected to avoid inexact matching.
 -spec parse(binary()) -> {ok, map()} | {error, term()}.
 parse(Bin) when is_binary(Bin) ->
     maybe
@@ -89,7 +89,7 @@ validate_rows([Row | _], N, _Seen, _Acc) ->
 
 row_key(Row, N) ->
     case maps:find(<<"key">>, Row) of
-        {ok, Key} when is_integer(Key); is_binary(Key); is_boolean(Key) ->
+        {ok, Key} when is_integer(Key); is_binary(Key) ->
             {ok, Key};
         {ok, Key} when is_float(Key) ->
             {error, #{reason => float_key, row_number => N, key => Key}};

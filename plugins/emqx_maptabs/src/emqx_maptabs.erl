@@ -125,9 +125,8 @@ lookup(_Table, _Key) ->
 -spec lookup(binary(), term(), binary()) -> term() | undefined.
 lookup(Table, Key, Field) ->
     case lookup(Table, Key) of
-        undefined -> undefined;
-        Values when is_binary(Field) -> maps:get(Field, Values, undefined);
-        _Values -> undefined
+        Values when is_map(Values) -> maps:get(Field, Values, undefined);
+        _ -> undefined
     end.
 
 -spec lookup(binary(), term(), binary(), term()) -> term().

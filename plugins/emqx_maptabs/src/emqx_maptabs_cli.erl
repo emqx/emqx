@@ -2,6 +2,7 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
+%% CLI for the emqx_maptabs plugin. All command output is JSON.
 -module(emqx_maptabs_cli).
 
 -export([
@@ -17,14 +18,12 @@ unload() ->
     emqx_ctl:unregister_command(maptabs).
 
 cmd(["list"]) ->
-    print_tables(node(), emqx_maptabs:list_local());
+    print_json(emqx_maptabs:list_local());
 cmd(["status"]) ->
-    lists:foreach(
-        fun(Node) ->
-            print_tables(Node, list_on_node(Node))
-        end,
-        emqx:running_nodes()
-    );
+    print_json([
+        #{node => Node, tables => list_on_node(Node)}
+     || Node <- emqx:running_nodes()
+    ]);
 cmd(["load", Path]) ->
     print_result(emqx_maptabs:load_file(Path));
 cmd(["reload"]) ->
@@ -34,9 +33,10 @@ cmd(["reload", Name]) ->
 cmd(["get", Name]) ->
     case emqx_maptabs:read_table_file(bin(Name)) of
         {ok, Content} ->
+            %% the table file content is already JSON
             emqx_ctl:print("~ts~n", [Content]);
         {error, Reason} ->
-            print_error(Reason)
+            print_result({error, Reason})
     end;
 cmd(["delete", Name]) ->
     print_result(emqx_maptabs:delete(bin(Name)));
@@ -63,48 +63,45 @@ list_on_node(Node) ->
         _:_ -> []
     end.
 
-print_tables(Node, Tables) ->
-    emqx_ctl:print("Node: ~ts~n", [atom_to_list(Node)]),
-    case Tables of
-        [] ->
-            emqx_ctl:print("  (no mapping tables)~n");
-        _ ->
-            lists:foreach(fun print_table/1, Tables)
-    end.
-
-print_table(#{
-    name := Name,
-    row_count := RowCount,
-    version := Version
-}) ->
-    emqx_ctl:print(
-        "  ~ts: rows=~w version=~ts~n",
-        [Name, RowCount, Version]
-    ).
-
 print_reload_results(Results) ->
-    lists:foreach(
-        fun({Node, Result}) ->
-            emqx_ctl:print("~ts: ~ts~n", [atom_to_list(Node), format_result(Result)])
-        end,
-        Results
-    ).
+    print_json([
+        #{node => Node, result => reload_result(Result)}
+     || {Node, Result} <- Results
+    ]).
+
+%% per-node reload result: `ok', `{error, _}', or a per-table list
+reload_result(Results) when is_list(Results) ->
+    [#{table => Name, result => reload_result(Result)} || {Name, Result} <- Results];
+reload_result(ok) ->
+    ok;
+reload_result({error, Reason}) ->
+    #{result => error, reason => json_term(Reason)};
+reload_result(Other) ->
+    json_term(Other).
 
 print_result(ok) ->
-    emqx_ctl:print("ok~n");
+    print_json(#{result => ok});
 print_result({error, Reason}) ->
-    print_error(Reason).
+    print_json(#{result => error, reason => json_term(Reason)}).
 
-print_error(Reason) ->
-    emqx_ctl:print("error: ~0p~n", [Reason]).
+print_json(Term) ->
+    emqx_ctl:print("~ts~n", [emqx_utils_json:encode(json_term(Term))]).
 
-format_result(ok) ->
-    "ok";
-format_result(Results) when is_list(Results) ->
-    %% per-table reload results
-    io_lib:format("~0p", [Results]);
-format_result(Other) ->
-    io_lib:format("~0p", [Other]).
+%% best-effort conversion of internal terms to JSON-encodable structures
+json_term(Term) when is_binary(Term); is_number(Term); is_atom(Term) ->
+    Term;
+json_term(Term) when is_map(Term) ->
+    maps:from_list([{json_key(K), json_term(V)} || {K, V} <- maps:to_list(Term)]);
+json_term(Term) when is_list(Term) ->
+    [json_term(E) || E <- Term];
+json_term(Term) ->
+    format_bin(Term).
+
+json_key(K) when is_atom(K); is_binary(K) -> K;
+json_key(K) -> format_bin(K).
+
+format_bin(Term) ->
+    iolist_to_binary(io_lib:format("~0p", [Term])).
 
 bin(Str) ->
     unicode:characters_to_binary(Str).
