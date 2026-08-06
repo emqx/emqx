@@ -21,6 +21,7 @@
 
 -behaviour(gen_server).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 %% API
@@ -43,6 +44,7 @@
     reload_cluster/1,
     reload_local/1,
     list_local/0,
+    list_on_node/1,
     read_table_file/1,
     tables_dir/0,
     health_check/0
@@ -51,7 +53,8 @@
 %% Config accessors
 -export([
     max_tables/0,
-    max_rows_per_table/0
+    max_rows_per_table/0,
+    max_table_file_bytes/0
 ]).
 
 %% cluster_rpc entrypoints: replayed on every node (also on rejoin);
@@ -59,8 +62,7 @@
 %% an opts map (`#{kind => ...}') to the declared argument list.
 -export([
     do_load_v1/3,
-    do_delete_v1/2,
-    preflight_v1/1
+    do_delete_v1/2
 ]).
 
 %% gen_server callbacks
@@ -77,10 +79,13 @@
 -define(TIMEOUT, 15000).
 -define(DEFAULT_MAX_TABLES, 100).
 -define(DEFAULT_MAX_ROWS_PER_TABLE, 10000).
+-define(DEFAULT_MAX_TABLE_FILE_BYTES, 10000000).
 
 -record(commit, {name :: binary(), parsed :: map()}).
 -record(drop, {name :: binary()}).
 -record(reload, {name :: all | binary()}).
+-record(list_tables, {}).
+-record(preflight, {}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -161,8 +166,9 @@ load_file(Path) ->
     maybe
         {ok, Name} ?= emqx_maptabs_loader:table_name_from_path(Path),
         {ok, Bin} ?= read_source_file(Path),
+        ok ?= check_file_size(Bin),
         {ok, _Parsed} ?= emqx_maptabs_loader:parse(Bin),
-        ok ?= preflight_cluster(Name),
+        ok ?= preflight_cluster(),
         multicall(do_load_v1, [Name, Bin])
     end.
 
@@ -171,7 +177,7 @@ load_file(Path) ->
 delete(Name) ->
     maybe
         ok ?= emqx_maptabs_loader:validate_name(Name),
-        ok ?= preflight_cluster(Name),
+        ok ?= preflight_cluster(),
         multicall(do_delete_v1, [Name])
     end.
 
@@ -180,15 +186,11 @@ delete(Name) ->
 %% trimmed before a node caught up, or files were copied by hand).
 -spec reload_cluster(all | binary()) -> [{node(), term()}].
 reload_cluster(Name) ->
-    [{Node, rpc_reload(Node, Name)} || Node <- emqx:running_nodes()].
+    [{Node, call_node(Node, #reload{name = Name})} || Node <- emqx:running_nodes()].
 
 -spec reload_local(all | binary()) -> term().
 reload_local(Name) ->
-    try
-        gen_server:call(?SERVER, #reload{name = Name}, ?TIMEOUT)
-    catch
-        exit:{noproc, _} -> {error, plugin_not_running}
-    end.
+    call_node(node(), #reload{name = Name}).
 
 %% Metadata of the tables cached on this node.
 -spec list_local() -> [map()].
@@ -199,6 +201,12 @@ list_local() ->
     catch
         error:badarg -> []
     end.
+
+-spec list_on_node(node()) -> [map()] | {error, term()}.
+list_on_node(Node) when Node =:= node() ->
+    list_local();
+list_on_node(Node) ->
+    call_node(Node, #list_tables{}).
 
 -spec read_table_file(binary()) -> {ok, binary()} | {error, term()}.
 read_table_file(Name) ->
@@ -233,6 +241,10 @@ max_tables() ->
 max_rows_per_table() ->
     config_pos_int(<<"max_rows_per_table">>, ?DEFAULT_MAX_ROWS_PER_TABLE).
 
+-spec max_table_file_bytes() -> pos_integer().
+max_table_file_bytes() ->
+    config_pos_int(<<"max_table_file_bytes">>, ?DEFAULT_MAX_TABLE_FILE_BYTES).
+
 config_pos_int(Key, Default) ->
     try emqx_plugins:get_config(name_vsn(), #{}) of
         Conf when is_map(Conf) ->
@@ -260,15 +272,26 @@ name_vsn() ->
 %% on this node the file is still written; the cache catches up from
 %% disk on the next plugin start.
 -spec do_load_v1(binary(), binary(), emqx_config:cluster_rpc_opts()) -> ok | {error, term()}.
-do_load_v1(Name, Bin, _ClusterRpcOpts) ->
+do_load_v1(Name, Bin, ClusterRpcOpts) ->
     maybe
         ok ?= emqx_maptabs_loader:validate_name(Name),
         {ok, Parsed} ?= emqx_maptabs_loader:parse(Bin),
-        ok ?= check_row_limit(Parsed),
-        ok ?= check_table_limit_on_disk(Name),
+        ok ?= check_limits(Name, Bin, Parsed, ClusterRpcOpts),
         ok ?= write_table_file(Name, Bin),
         call(#commit{name = Name, parsed = Parsed})
     end.
+
+%% Limits guard the initiating node only: replicating (and replaying)
+%% nodes must apply an already-committed transaction even if the limits
+%% were lowered in the meantime.
+check_limits(Name, Bin, Parsed, #{kind := ?KIND_INITIATE}) ->
+    maybe
+        ok ?= check_file_size(Bin),
+        ok ?= check_row_limit(Parsed),
+        check_table_limit_on_disk(Name)
+    end;
+check_limits(_Name, _Bin, _Parsed, _ClusterRpcOpts) ->
+    ok.
 
 -spec do_delete_v1(binary(), emqx_config:cluster_rpc_opts()) -> ok | {error, term()}.
 do_delete_v1(Name, _ClusterRpcOpts) ->
@@ -276,14 +299,6 @@ do_delete_v1(Name, _ClusterRpcOpts) ->
         ok ?= emqx_maptabs_loader:validate_name(Name),
         ok ?= delete_table_file(Name),
         call(#drop{name = Name})
-    end.
-
-%% Fails fast on nodes where a replicated update could not be applied.
--spec preflight_v1(binary()) -> ok | {error, term()}.
-preflight_v1(_Name) ->
-    maybe
-        ok ?= health_check(),
-        check_dir_writable()
     end.
 
 %%--------------------------------------------------------------------
@@ -303,6 +318,10 @@ handle_call(#reload{name = all}, _From, State) ->
     {reply, reload_all(), State};
 handle_call(#reload{name = Name}, _From, State) ->
     {reply, reload_one(Name), State};
+handle_call(#list_tables{}, _From, State) ->
+    {reply, list_local(), State};
+handle_call(#preflight{}, _From, State) ->
+    {reply, check_dir_writable(), State};
 handle_call(Request, From, State) ->
     ?SLOG(error, #{msg => "maptabs_unexpected_call", request => Request, from => From}),
     {reply, {error, unexpected_call}, State}.
@@ -341,10 +360,13 @@ multicall(Fun, Args) ->
         Other -> {error, Other}
     end.
 
-preflight_cluster(Name) ->
+%% Fails fast when a replicated update could not be applied on some
+%% node: the plugin must be running with a writable tables dir on all
+%% of them before the cluster_rpc transaction is initiated.
+preflight_cluster() ->
     Errors = lists:filtermap(
         fun(Node) ->
-            case rpc_preflight(Node, Name) of
+            case call_node(Node, #preflight{}) of
                 ok -> false;
                 {error, Reason} -> {true, {Node, Reason}}
             end
@@ -356,20 +378,14 @@ preflight_cluster(Name) ->
         _ -> {error, #{reason => preflight_failed, errors => Errors}}
     end.
 
-rpc_preflight(Node, Name) ->
+call_node(Node, Request) ->
     try
-        erpc:call(Node, ?MODULE, preflight_v1, [Name], ?TIMEOUT)
+        gen_server:call({?SERVER, Node}, Request, ?TIMEOUT)
     catch
-        Class:Reason ->
-            {error, {Class, Reason}}
-    end.
-
-rpc_reload(Node, Name) ->
-    try
-        erpc:call(Node, ?MODULE, reload_local, [Name], ?TIMEOUT)
-    catch
-        Class:Reason ->
-            {error, {Class, Reason}}
+        exit:{noproc, _} -> {error, plugin_not_running};
+        exit:{{nodedown, N}, _} -> {error, {nodedown, N}};
+        exit:{timeout, _} -> {error, timeout};
+        exit:Reason -> {error, Reason}
     end.
 
 check_dir_writable() ->
@@ -436,6 +452,19 @@ delete_table_file(Name) ->
 
 table_file_path(Name) ->
     filename:join(tables_dir(), binary_to_list(Name) ++ ".json").
+
+check_file_size(Bin) ->
+    Max = max_table_file_bytes(),
+    case byte_size(Bin) =< Max of
+        true ->
+            ok;
+        false ->
+            {error, #{
+                reason => table_file_too_large,
+                file_bytes => byte_size(Bin),
+                max_table_file_bytes => Max
+            }}
+    end.
 
 check_row_limit(#{row_count := RowCount}) ->
     Max = max_rows_per_table(),

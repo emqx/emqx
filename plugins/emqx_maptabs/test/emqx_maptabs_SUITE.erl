@@ -9,6 +9,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -define(TABLE, <<"can_signals">>).
 
@@ -334,14 +335,26 @@ t_limits_config(Config) ->
     %% defaults from priv/config.hocon
     ?assertEqual(100, emqx_maptabs:max_tables()),
     ?assertEqual(10000, emqx_maptabs:max_rows_per_table()),
+    ?assertEqual(10000000, emqx_maptabs:max_table_file_bytes()),
     ok = load_table(?TABLE, [#{key => N} || N <- [1, 2, 3]]),
     try
         ok = emqx_plugins:update_config(
             NameVsn,
-            #{<<"max_tables">> => 2, <<"max_rows_per_table">> => 2}
+            #{
+                <<"max_tables">> => 2,
+                <<"max_rows_per_table">> => 2,
+                <<"max_table_file_bytes">> => 100
+            }
         ),
         ?assertEqual(2, emqx_maptabs:max_tables()),
         ?assertEqual(2, emqx_maptabs:max_rows_per_table()),
+        ?assertEqual(100, emqx_maptabs:max_table_file_bytes()),
+        %% file-size limit: rejected before any replication
+        BigRow = #{key => 1, filler => binary:copy(<<"x">>, 200)},
+        ?assertMatch(
+            {error, #{reason := table_file_too_large, max_table_file_bytes := 100}},
+            load_table(?TABLE, [BigRow])
+        ),
         %% row limit: whole file rejected, previous version kept
         ?assertMatch(
             {error, #{reason := too_many_rows, row_count := 3, max_rows_per_table := 2}},
@@ -358,13 +371,25 @@ t_limits_config(Config) ->
         ),
         %% deleting a table frees a slot
         ok = emqx_maptabs:delete(<<"tab2">>),
-        ok = load_table(<<"tab3">>, [#{key => 1}])
+        ok = load_table(<<"tab3">>, [#{key => 1}]),
+        %% replicated (and replayed) transactions are exempt from the
+        %% limits: a config change must not fail replication
+        Rows3 = emqx_utils_json:encode([#{key => N} || N <- [1, 2, 3]]),
+        ?assertEqual(
+            ok,
+            emqx_maptabs:do_load_v1(?TABLE, Rows3, #{kind => ?KIND_REPLICATE})
+        ),
+        ?assertEqual(#{}, emqx_maptabs:lookup(?TABLE, 3))
     after
         %% the plugin config persists in the data dir across
         %% reinstalls: restore defaults for the other test cases
         ok = emqx_plugins:update_config(
             NameVsn,
-            #{<<"max_tables">> => 100, <<"max_rows_per_table">> => 10000}
+            #{
+                <<"max_tables">> => 100,
+                <<"max_rows_per_table">> => 10000,
+                <<"max_table_file_bytes">> => 10000000
+            }
         )
     end,
     ok.

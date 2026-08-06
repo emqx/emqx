@@ -70,6 +70,8 @@ table, never a partial one.
   always allowed.
 - `max_rows_per_table` (default `10000`): maximum number of rows in a single
   table; a file with more rows is rejected as a whole.
+- `max_table_file_bytes` (default `10000000`): maximum size of a table JSON
+  file; larger files are rejected before cluster replication.
 
 Limits are checked at load time; changing a limit never drops already-loaded
 tables.

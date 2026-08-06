@@ -1,2 +1,3 @@
 max_tables = 100
 max_rows_per_table = 10000
+max_table_file_bytes = 10000000

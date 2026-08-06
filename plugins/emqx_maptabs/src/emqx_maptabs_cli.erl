@@ -20,10 +20,7 @@ unload() ->
 cmd(["list"]) ->
     print_json(emqx_maptabs:list_local());
 cmd(["status"]) ->
-    print_json([
-        #{node => Node, tables => list_on_node(Node)}
-     || Node <- emqx:running_nodes()
-    ]);
+    print_json([status_entry(Node) || Node <- emqx:running_nodes()]);
 cmd(["load", Path]) ->
     print_result(emqx_maptabs:load_file(Path));
 cmd(["reload"]) ->
@@ -54,13 +51,12 @@ cmd(_) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-list_on_node(Node) when Node =:= node() ->
-    emqx_maptabs:list_local();
-list_on_node(Node) ->
-    try
-        erpc:call(Node, emqx_maptabs, list_local, [], 15000)
-    catch
-        _:_ -> []
+status_entry(Node) ->
+    case emqx_maptabs:list_on_node(Node) of
+        Tables when is_list(Tables) ->
+            #{node => Node, tables => Tables};
+        {error, Reason} ->
+            #{node => Node, error => json_term(Reason)}
     end.
 
 print_reload_results(Results) ->

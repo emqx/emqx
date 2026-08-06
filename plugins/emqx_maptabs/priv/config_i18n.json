@@ -14,5 +14,13 @@
   "max_rows_per_table_desc": {
     "en": "Maximum number of rows in a single mapping table. A table file with more rows is rejected as a whole.",
     "zh": "单个映射表的行数上限。超过上限的表文件将被整体拒绝。"
+  },
+  "max_table_file_bytes_label": {
+    "en": "Maximum table file bytes",
+    "zh": "表文件最大字节数"
+  },
+  "max_table_file_bytes_desc": {
+    "en": "Maximum size of a table JSON file in bytes. Larger files are rejected before cluster replication.",
+    "zh": "表 JSON 文件的最大字节数。超过上限的文件在集群复制前即被拒绝。"
   }
 }
