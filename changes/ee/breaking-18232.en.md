@@ -1,9 +1,9 @@
 Changed the default EMQX security profile from `legacy` to `hardened`. This implies multiple incompatible defaults.
 
-- **MQTT listener exposure is restricted by default.** MQTT TCP, SSL, WS, and WSS listeners bind to loopback if no bind address is configured.
-- **Dashboard HTTP exposure is restricted by default.** The Dashboard HTTP listener now listens on loopback if no bind address is configured.
-- **Explicit authentication is required.** Clients are denied when no authentication, either global or listener-specific, is configured, or when all authenticators are disabled. To explicitly allow anonymous access, set the listener's `enable_authn = false`.
-- **Authentication failures are not ignored.** Authenticator backend errors, malformed responses, precondition failures, and unavailable verification keys **immediately deny** access instead of continuing to another authenticator. Set `authentication_settings.ignore_backend_failures = true` to allow fallback to later authenticators.
+- **MQTT listener exposure is restricted by default.** MQTT TCP, SSL, WS, WSS, and QUIC listeners with omitted or port-only binds now listen on loopback.
+- **Dashboard HTTP exposure is restricted by default.** The Dashboard HTTP listener with omitted or port-only bind now listens on loopback.
+- **Explicit authentication is required.** Clients are denied when no authenticators are configured, or when all authenticators are disabled. To explicitly allow anonymous access, set the listener's `enable_authn = false`.
+- **Authentication failures are not ignored.** Authenticator backend errors, malformed responses, errors evaluating authenticator preconditions, and unavailable JWT verification keys deny access instead of continuing to another authenticator. Set `authentication_settings.ignore_backend_failures = true` to allow fallback to later authenticators.
 - **Authorization failures are not ignored.** Authorization backend errors, malformed rules, and template evaluation errors immediately deny the operation instead of continuing to later sources or falling back to permissive no-match behavior. Set `authorization.ignore_backend_failures = true` to ignore backend failures and proceed to the next authorization source.
 - **Dashboard default credentials are not accepted.** Local Dashboard accounts using the password `public` cannot log in, including persisted administrator accounts created before the upgrade.
 - **Access-control hook failures are not ignored.** Exceptions from authentication or authorization hooks interrupt processing and deny the request. This is particularly important for custom authentications and authorizations, such as those provided by plugins.

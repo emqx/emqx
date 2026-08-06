@@ -1231,7 +1231,7 @@ binfmt(Fmt, Args) ->
     iolist_to_binary(io_lib:format(Fmt, Args)).
 
 default_username() ->
-    emqx:get_config([dashboard, default_username], "").
+    emqx:get_config([dashboard, default_username], <<>>).
 
 default_password() ->
     RawWrapped = emqx_conf:get([dashboard, default_password], <<"">>),

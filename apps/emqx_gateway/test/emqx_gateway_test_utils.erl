@@ -259,11 +259,11 @@ disable_gateway_auth(Gateway) ->
 set_gateway_listeners_authn(Gateway, Enable) ->
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
-            ListenerConf = emqx:get_config([gateway, Gateway, listeners, Type, Name]),
+            ListenerConf = emqx_config:get_raw([gateway, Gateway, listeners, Type, Name]),
             {ok, _} = emqx_gateway_conf:update_listener(
                 Gateway,
                 {Type, Name},
-                ListenerConf#{enable_authn => Enable}
+                ListenerConf#{<<"enable_authn">> => Enable}
             )
         end,
         emqx_gateway_conf:listeners(Gateway)
