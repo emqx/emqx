@@ -1444,7 +1444,9 @@ t_failed_creation_then_fixed(Config) ->
         )
     ),
     wait_until_subscribers_are_ready(NPartitions, 120_000),
-    ?assertEqual({ok, connected}, health_check(Config)),
+    %% subscribers being ready does not imply the health check already
+    %% reports `connected'; the consumer group may still be rebalancing.
+    ?retry(500, 20, ?assertEqual({ok, connected}, health_check(Config))),
     ping_until_healthy(Config, _Period = 1_500, _Timeout = 24_000),
 
     {ok, C} = emqtt:start_link(),
@@ -1510,7 +1512,7 @@ t_receive_after_recovery(Config) ->
                 #{<<"kafka">> => #{<<"offset_reset_policy">> => <<"earliest">>}}
             ),
             ping_until_healthy(Config, _Period = 1_500, _Timeout0 = 24_000),
-            {ok, connected} = health_check(Config),
+            ?retry(500, 20, ?assertEqual({ok, connected}, health_check(Config))),
             %% 0) ensure each partition commits its offset so it can
             %% recover later.
             Messages0 = [
