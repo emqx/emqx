@@ -3063,7 +3063,7 @@ authz_fields() ->
             sc(
                 boolean(),
                 #{
-                    default => false,
+                    default => emqx_security_profile:policy(authz_default_include_mountpoint),
                     desc => ?DESC("authz_include_mountpoint")
                 }
             )}
