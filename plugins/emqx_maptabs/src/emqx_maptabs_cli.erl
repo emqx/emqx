@@ -75,13 +75,11 @@ print_tables(Node, Tables) ->
 print_table(#{
     name := Name,
     row_count := RowCount,
-    version := Version,
-    hits := Hits,
-    misses := Misses
+    version := Version
 }) ->
     emqx_ctl:print(
-        "  ~ts: rows=~w version=~ts hits=~w misses=~w~n",
-        [Name, RowCount, Version, Hits, Misses]
+        "  ~ts: rows=~w version=~ts~n",
+        [Name, RowCount, Version]
     ).
 
 print_reload_results(Results) ->

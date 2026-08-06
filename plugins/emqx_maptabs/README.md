@@ -75,7 +75,7 @@ tables.
 ## CLI
 
 ```
-emqx ctl maptabs list             # tables cached on this node (rows, version, hit/miss counters)
+emqx ctl maptabs list             # tables cached on this node (rows, version)
 emqx ctl maptabs status           # same, for every running node (drift detection)
 emqx ctl maptabs load <file>      # validate + replicate a table file to all nodes
 emqx ctl maptabs reload [<name>]  # re-read table files from local disk on all nodes (reconcile)

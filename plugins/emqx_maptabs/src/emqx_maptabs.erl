@@ -75,8 +75,6 @@
 -define(SERVER, ?MODULE).
 -define(REGISTRY, emqx_maptabs_registry).
 -define(TIMEOUT, 15000).
--define(IX_HIT, 1).
--define(IX_MISS, 2).
 -define(DEFAULT_MAX_TABLES, 100).
 -define(DEFAULT_MAX_ROWS_PER_TABLE, 10000).
 
@@ -113,8 +111,8 @@ child_spec() ->
 -spec lookup(binary(), term()) -> map() | undefined.
 lookup(Table, Key) when is_binary(Table) ->
     try ets:lookup(?REGISTRY, Table) of
-        [{_, Tid, Ctr, _Meta}] ->
-            lookup_key(Tid, Ctr, Key);
+        [{_, Tid, _Meta}] ->
+            lookup_key(Tid, Key);
         [] ->
             undefined
     catch
@@ -139,13 +137,11 @@ lookup(Table, Key, Field, Default) ->
         Value -> Value
     end.
 
-lookup_key(Tid, Ctr, Key) ->
+lookup_key(Tid, Key) ->
     try ets:lookup(Tid, Key) of
         [{_, Values}] ->
-            counters:add(Ctr, ?IX_HIT, 1),
             Values;
         [] ->
-            counters:add(Ctr, ?IX_MISS, 1),
             undefined
     catch
         %% table deleted by a concurrent swap; the registry already
@@ -195,19 +191,12 @@ reload_local(Name) ->
         exit:{noproc, _} -> {error, plugin_not_running}
     end.
 
-%% Metadata + hit/miss counters of the tables cached on this node.
+%% Metadata of the tables cached on this node.
 -spec list_local() -> [map()].
 list_local() ->
     try ets:tab2list(?REGISTRY) of
         Entries ->
-            lists:sort([
-                Meta#{
-                    name => Name,
-                    hits => counters:get(Ctr, ?IX_HIT),
-                    misses => counters:get(Ctr, ?IX_MISS)
-                }
-             || {Name, _Tid, Ctr, Meta} <- Entries
-            ])
+            lists:sort([Meta#{name => Name} || {Name, _Tid, Meta} <- Entries])
     catch
         error:badarg -> []
     end.
@@ -509,10 +498,10 @@ load_file_into_cache(File) ->
     end.
 
 commit(Name, #{rows := Rows, row_count := RowCount, version := Version}) ->
-    {OldTid, Ctr} =
+    OldTid =
         case ets:lookup(?REGISTRY, Name) of
-            [{_, Tid0, Ctr0, _}] -> {Tid0, Ctr0};
-            [] -> {undefined, counters:new(2, [write_concurrency])}
+            [{_, Tid0, _}] -> Tid0;
+            [] -> undefined
         end,
     NewTid = ets:new(emqx_maptabs_table, [set, protected, {read_concurrency, true}]),
     true = ets:insert(NewTid, Rows),
@@ -522,7 +511,7 @@ commit(Name, #{rows := Rows, row_count := RowCount, version := Version}) ->
         loaded_at => erlang:system_time(second)
     },
     %% single insert = atomic swap for readers
-    true = ets:insert(?REGISTRY, {Name, NewTid, Ctr, Meta}),
+    true = ets:insert(?REGISTRY, {Name, NewTid, Meta}),
     ok = delete_old_tid(OldTid),
     ?SLOG(info, #{
         msg => "maptab_loaded",
@@ -534,7 +523,7 @@ commit(Name, #{rows := Rows, row_count := RowCount, version := Version}) ->
 
 drop(Name) ->
     case ets:lookup(?REGISTRY, Name) of
-        [{_, OldTid, _Ctr, _}] ->
+        [{_, OldTid, _}] ->
             true = ets:delete(?REGISTRY, Name),
             ok = delete_old_tid(OldTid),
             ?SLOG(info, #{msg => "maptab_deleted", name => Name});
@@ -562,7 +551,7 @@ reload_all() ->
         }),
     OnDiskNames = [N || {_, N} <- Pairs],
     %% drop cached tables whose file is gone, then (re)load the rest
-    Cached = [Name || {Name, _, _, _} <- ets:tab2list(?REGISTRY)],
+    Cached = [Name || {Name, _, _} <- ets:tab2list(?REGISTRY)],
     lists:foreach(
         fun(Name) -> drop(Name) end,
         Cached -- OnDiskNames

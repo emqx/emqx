@@ -177,20 +177,13 @@ t_reload_and_delete(_Config) ->
     ?assertEqual(ok, emqx_maptabs:delete(?TABLE)),
     ok.
 
-t_metrics(_Config) ->
+t_list_local(_Config) ->
+    ?assertEqual([], emqx_maptabs:list_local()),
     ok = load_table(?TABLE, [#{key => 1, v => <<"v1">>}]),
-    [#{hits := Hits0, misses := Misses0}] = emqx_maptabs:list_local(),
-    _ = emqx_maptabs:lookup(?TABLE, 1),
-    _ = emqx_maptabs:lookup(?TABLE, 1, <<"v">>),
-    _ = emqx_maptabs:lookup(?TABLE, 999),
-    [#{name := ?TABLE, row_count := 1, hits := Hits, misses := Misses}] =
-        emqx_maptabs:list_local(),
-    ?assertEqual(Hits0 + 2, Hits),
-    ?assertEqual(Misses0 + 1, Misses),
-    %% counters survive a reload
-    ok = load_table(?TABLE, [#{key => 1, v => <<"v2">>}]),
-    [#{hits := Hits1}] = emqx_maptabs:list_local(),
-    ?assertEqual(Hits, Hits1),
+    ?assertMatch(
+        [#{name := ?TABLE, row_count := 1, version := <<_/binary>>, loaded_at := _}],
+        emqx_maptabs:list_local()
+    ),
     ok.
 
 t_atomic_reload(_Config) ->
