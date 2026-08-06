@@ -312,19 +312,25 @@ t_header_ipv6_source_default_allow(_) ->
 -doc "With an empty allow list, forwarded headers are ignored for every source.".
 t_header_empty_allow_list(_) ->
     set_header_test_ws_opts([]),
-    ConnInfo = ws_conn_info(
-        {{127, 0, 0, 1}, 3456},
+    Headers = #{
+        <<"x-forwarded-for">> => <<"100.100.100.100">>,
+        <<"x-forwarded-port">> => <<"1000">>
+    },
+    Ipv4Peer = {{127, 0, 0, 1}, 3456},
+    Ipv6Peer = {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 3456},
+    ?assertMatch(
         #{
-            <<"x-forwarded-for">> => <<"100.100.100.100">>,
-            <<"x-forwarded-port">> => <<"1000">>
-        }
+            socktype := ws,
+            peername := Ipv4Peer
+        },
+        ws_conn_info(Ipv4Peer, Headers)
     ),
     ?assertMatch(
         #{
             socktype := ws,
-            peername := {{127, 0, 0, 1}, 3456}
+            peername := Ipv6Peer
         },
-        ConnInfo
+        ws_conn_info(Ipv6Peer, Headers)
     ),
     set_ws_opts(proxy_address_allow, default_proxy_address_allow()).
 
