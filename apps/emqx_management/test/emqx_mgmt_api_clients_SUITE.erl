@@ -566,7 +566,8 @@ t_persistent_sessions5(Config) ->
 -doc """
 Tests that a disconnected durable session is found by an exact-clientid
 query, which resolves it through the direct-lookup fast path's fallback to
-durable session storage.
+durable session storage — and that the node-scoped variant does not return
+it, since a disconnected durable session is not attached to any node.
 """.
 t_persistent_sessions_exact_clientid_query(Config) ->
     [N1, _N2] = ?config(cluster_nodes, Config),
@@ -589,6 +590,13 @@ t_persistent_sessions_exact_clientid_query(Config) ->
                 }}},
             list_request(#{clientid => ClientId}, Config)
         )
+    ),
+    %% Node-scoped exact-ID queries only inspect live connections on the given
+    %% node: the disconnected durable session is not attached to any node and
+    %% is not returned.
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"data">> := [], <<"meta">> := #{<<"count">> := 0}}}},
+        list_request(#{clientid => ClientId, node => N1}, Config)
     ),
     %% Cleanup: reconnect and destroy the session.
     C2 = connect_client(#{port => Port1, clientid => ClientId}),

@@ -439,7 +439,7 @@ fields(list_clients_v1_inputs) ->
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => ?DESC("node_name"),
+                desc => ?DESC("node_filter"),
                 example => <<"emqx@127.0.0.1">>
             })}
         | fields(common_list_clients_input)
@@ -938,8 +938,10 @@ list_clients_query(QString) ->
 
 -doc """
 Fast path for exact-client-ID queries: resolves each ID via the channel
-registry (falling back to durable session storage for disconnected
-persistent sessions) and returns a single directly-computed page.
+registry and returns a single directly-computed page. Cluster-wide lookups
+fall back to durable session storage, so disconnected persistent sessions
+are found too; node-scoped lookups (`node` parameter) only inspect live
+connections on the given node.
 """.
 list_clients_by_id(ClientIds, QString) ->
     case maps:get(<<"node">>, QString, undefined) of
