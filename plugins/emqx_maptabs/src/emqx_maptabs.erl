@@ -23,6 +23,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("kernel/include/file.hrl").
 
 %% API
 -export([
@@ -165,8 +166,10 @@ lookup_key(Tid, Key) ->
 load_file(Path) ->
     maybe
         {ok, Name} ?= emqx_maptabs_loader:table_name_from_path(Path),
+        %% size is checked before reading: a mistakenly huge file must
+        %% not be pulled into memory at all
+        ok ?= check_source_file_size(Path),
         {ok, Bin} ?= read_source_file(Path),
-        ok ?= check_file_size(Bin),
         {ok, _Parsed} ?= emqx_maptabs_loader:parse(Bin),
         ok ?= preflight_cluster(),
         multicall(do_load_v1, [Name, Bin])
@@ -286,7 +289,7 @@ do_load_v1(Name, Bin, ClusterRpcOpts) ->
 %% were lowered in the meantime.
 check_limits(Name, Bin, Parsed, #{kind := ?KIND_INITIATE}) ->
     maybe
-        ok ?= check_file_size(Bin),
+        ok ?= check_file_size(byte_size(Bin)),
         ok ?= check_row_limit(Parsed),
         check_table_limit_on_disk(Name)
     end;
@@ -453,15 +456,27 @@ delete_table_file(Name) ->
 table_file_path(Name) ->
     filename:join(tables_dir(), binary_to_list(Name) ++ ".json").
 
-check_file_size(Bin) ->
+check_source_file_size(Path) ->
+    case file:read_file_info(Path) of
+        {ok, #file_info{size = Size}} ->
+            check_file_size(Size);
+        {error, Reason} ->
+            {error, #{
+                reason => failed_to_read_file,
+                path => unicode:characters_to_binary(Path),
+                detail => Reason
+            }}
+    end.
+
+check_file_size(Size) ->
     Max = max_table_file_bytes(),
-    case byte_size(Bin) =< Max of
+    case Size =< Max of
         true ->
             ok;
         false ->
             {error, #{
                 reason => table_file_too_large,
-                file_bytes => byte_size(Bin),
+                file_bytes => Size,
                 max_table_file_bytes => Max
             }}
     end.
