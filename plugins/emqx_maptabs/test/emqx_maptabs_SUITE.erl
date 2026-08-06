@@ -318,7 +318,7 @@ t_plugin_lifecycle(Config) ->
     ),
     ok = emqx_plugins:ensure_stopped(NameVsn),
     %% everything is cleaned up on stop...
-    ?assertEqual(undefined, whereis(emqx_maptabs)),
+    ?assertEqual(undefined, whereis(emqx_maptabs_server)),
     ?assertEqual(undefined, ets:whereis(emqx_maptabs_registry)),
     ?assertEqual({error, not_found}, emqx_rule_engine:get_external_function(maptab_lookup)),
     ?assertEqual(undefined, emqx_maptabs:lookup(?TABLE, 1)),

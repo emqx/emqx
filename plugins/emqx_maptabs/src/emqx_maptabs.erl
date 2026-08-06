@@ -2,34 +2,25 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Owner of the in-memory mapping-table caches.
+%% Public API of the emqx_maptabs plugin.
 %%
 %% The on-disk JSON files (one per table, under `tables_dir/0') are the
-%% source of truth; ETS is a read cache derived from them. Every table
-%% lives in its own ETS table; reloads build a fresh ETS table and swap
-%% it into the registry with a single insert, so readers see either the
-%% old or the new version, never a partial one.
+%% source of truth; ETS is a read cache derived from them, owned by
+%% emqx_maptabs_server. Lookups read the cache directly and never call
+%% the server.
 %%
 %% Updates are replicated with `emqx_cluster_rpc' (see `load_file/1' and
 %% `delete/1'): each node re-validates the content, writes the file
 %% atomically (temp file + rename) and reloads its cache. Nodes that were
-%% down during an update replay the transaction on rejoin. `reload/1' is
-%% the per-node reconcile fallback that re-reads the local files.
+%% down during an update replay the transaction on rejoin. `reload_cluster/1'
+%% is the per-node reconcile fallback that re-reads the local files.
 -module(emqx_maptabs).
 
 -feature(maybe_expr, enable).
 
--behaviour(gen_server).
-
+-include("emqx_maptabs.hrl").
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
 -include_lib("kernel/include/file.hrl").
-
-%% API
--export([
-    start_link/0,
-    child_spec/0
-]).
 
 %% Hot-path lookups (called from rule SQL via emqx_maptabs_rule_funcs)
 -export([
@@ -66,46 +57,18 @@
     do_delete_v1/2
 ]).
 
-%% gen_server callbacks
+%% Internal exports for emqx_maptabs_server
 -export([
-    init/1,
-    handle_call/3,
-    handle_cast/2,
-    handle_info/2,
-    terminate/2
+    read_source_file/1,
+    table_file_path/1,
+    table_files/0,
+    check_row_limit/1,
+    check_table_count/1
 ]).
 
--define(SERVER, ?MODULE).
--define(REGISTRY, emqx_maptabs_registry).
--define(TIMEOUT, 15000).
 -define(DEFAULT_MAX_TABLES, 100).
 -define(DEFAULT_MAX_ROWS_PER_TABLE, 10000).
 -define(DEFAULT_MAX_TABLE_FILE_BYTES, 10000000).
-
--record(commit, {name :: binary(), parsed :: map()}).
--record(drop, {name :: binary()}).
--record(reload, {name :: all | binary()}).
--record(list_tables, {}).
--record(preflight, {}).
-
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
-
--spec start_link() -> {ok, pid()} | {error, term()}.
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
--spec child_spec() -> supervisor:child_spec().
-child_spec() ->
-    #{
-        id => ?SERVER,
-        start => {?MODULE, start_link, []},
-        type => worker,
-        modules => [?MODULE],
-        restart => permanent,
-        shutdown => 5000
-    }.
 
 %%--------------------------------------------------------------------
 %% Lookups
@@ -116,7 +79,7 @@ child_spec() ->
 %% unknown table, or in-flight table swap yields `undefined'.
 -spec lookup(binary(), term()) -> map() | undefined.
 lookup(Table, Key) when is_binary(Table) ->
-    try ets:lookup(?REGISTRY, Table) of
+    try ets:lookup(?MAPTABS_REGISTRY, Table) of
         [{_, Tid, _Meta}] ->
             lookup_key(Tid, Key);
         [] ->
@@ -189,16 +152,16 @@ delete(Name) ->
 %% trimmed before a node caught up, or files were copied by hand).
 -spec reload_cluster(all | binary()) -> [{node(), term()}].
 reload_cluster(Name) ->
-    [{Node, call_node(Node, #reload{name = Name})} || Node <- emqx:running_nodes()].
+    [{Node, emqx_maptabs_server:reload(Node, Name)} || Node <- emqx:running_nodes()].
 
 -spec reload_local(all | binary()) -> term().
 reload_local(Name) ->
-    call_node(node(), #reload{name = Name}).
+    emqx_maptabs_server:reload(node(), Name).
 
 %% Metadata of the tables cached on this node.
 -spec list_local() -> [map()].
 list_local() ->
-    try ets:tab2list(?REGISTRY) of
+    try ets:tab2list(?MAPTABS_REGISTRY) of
         Entries ->
             lists:sort([Meta#{name => Name} || {Name, _Tid, Meta} <- Entries])
     catch
@@ -209,7 +172,7 @@ list_local() ->
 list_on_node(Node) when Node =:= node() ->
     list_local();
 list_on_node(Node) ->
-    call_node(Node, #list_tables{}).
+    emqx_maptabs_server:list_tables(Node).
 
 -spec read_table_file(binary()) -> {ok, binary()} | {error, term()}.
 read_table_file(Name) ->
@@ -224,10 +187,7 @@ tables_dir() ->
 
 -spec health_check() -> ok | {error, binary()}.
 health_check() ->
-    case whereis(?SERVER) of
-        undefined -> {error, <<"Plugin is not running">>};
-        Pid when is_pid(Pid) -> ok
-    end.
+    emqx_maptabs_server:health_check().
 
 %%--------------------------------------------------------------------
 %% Config
@@ -281,7 +241,7 @@ do_load_v1(Name, Bin, ClusterRpcOpts) ->
         {ok, Parsed} ?= emqx_maptabs_loader:parse(Bin),
         ok ?= check_limits(Name, Bin, Parsed, ClusterRpcOpts),
         ok ?= write_table_file(Name, Bin),
-        call(#commit{name = Name, parsed = Parsed})
+        emqx_maptabs_server:commit(Name, Parsed)
     end.
 
 %% Limits guard the initiating node only: replicating (and replaying)
@@ -301,60 +261,12 @@ do_delete_v1(Name, _ClusterRpcOpts) ->
     maybe
         ok ?= emqx_maptabs_loader:validate_name(Name),
         ok ?= delete_table_file(Name),
-        call(#drop{name = Name})
+        emqx_maptabs_server:drop(Name)
     end.
-
-%%--------------------------------------------------------------------
-%% gen_server callbacks
-%%--------------------------------------------------------------------
-
-init([]) ->
-    _ = ets:new(?REGISTRY, [named_table, set, protected, {read_concurrency, true}]),
-    ok = load_all_from_disk(),
-    {ok, #{}}.
-
-handle_call(#commit{name = Name, parsed = Parsed}, _From, State) ->
-    {reply, commit(Name, Parsed), State};
-handle_call(#drop{name = Name}, _From, State) ->
-    {reply, drop(Name), State};
-handle_call(#reload{name = all}, _From, State) ->
-    {reply, reload_all(), State};
-handle_call(#reload{name = Name}, _From, State) ->
-    {reply, reload_one(Name), State};
-handle_call(#list_tables{}, _From, State) ->
-    {reply, list_local(), State};
-handle_call(#preflight{}, _From, State) ->
-    {reply, check_dir_writable(), State};
-handle_call(Request, From, State) ->
-    ?SLOG(error, #{msg => "maptabs_unexpected_call", request => Request, from => From}),
-    {reply, {error, unexpected_call}, State}.
-
-handle_cast(Request, State) ->
-    ?SLOG(error, #{msg => "maptabs_unexpected_cast", request => Request}),
-    {noreply, State}.
-
-handle_info(Info, State) ->
-    ?SLOG(error, #{msg => "maptabs_unexpected_info", info => Info}),
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    %% the registry and all data tables are owned by this process and
-    %% are deleted with it
-    ok.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-call(Request) ->
-    try
-        gen_server:call(?SERVER, Request, ?TIMEOUT)
-    catch
-        %% plugin app stopped on this node: for replicated updates the
-        %% file is already on disk and the cache is rebuilt from it on
-        %% the next plugin start
-        exit:{noproc, _} -> ok
-    end.
 
 multicall(Fun, Args) ->
     case emqx_cluster_rpc:multicall(?MODULE, Fun, Args) of
@@ -369,7 +281,7 @@ multicall(Fun, Args) ->
 preflight_cluster() ->
     Errors = lists:filtermap(
         fun(Node) ->
-            case call_node(Node, #preflight{}) of
+            case emqx_maptabs_server:preflight(Node) of
                 ok -> false;
                 {error, Reason} -> {true, {Node, Reason}}
             end
@@ -379,35 +291,6 @@ preflight_cluster() ->
     case Errors of
         [] -> ok;
         _ -> {error, #{reason => preflight_failed, errors => Errors}}
-    end.
-
-call_node(Node, Request) ->
-    try
-        gen_server:call({?SERVER, Node}, Request, ?TIMEOUT)
-    catch
-        exit:{noproc, _} -> {error, plugin_not_running};
-        exit:{{nodedown, N}, _} -> {error, {nodedown, N}};
-        exit:{timeout, _} -> {error, timeout};
-        exit:Reason -> {error, Reason}
-    end.
-
-check_dir_writable() ->
-    Dir = tables_dir(),
-    Probe = filename:join(Dir, ".write_probe"),
-    maybe
-        ok ?= ensure_dir(Dir),
-        ok ?= file:write_file(Probe, <<>>),
-        _ = file:delete(Probe),
-        ok
-    else
-        {error, Reason} ->
-            {error, #{reason => tables_dir_not_writable, dir => Dir, detail => Reason}}
-    end.
-
-ensure_dir(Dir) ->
-    case filelib:ensure_path(Dir) of
-        ok -> ok;
-        {error, Reason} -> {error, Reason}
     end.
 
 read_source_file(Path) ->
@@ -438,6 +321,12 @@ write_table_file(Name, Bin) ->
             }}
     end.
 
+ensure_dir(Dir) ->
+    case filelib:ensure_path(Dir) of
+        ok -> ok;
+        {error, Reason} -> {error, Reason}
+    end.
+
 delete_table_file(Name) ->
     Path = table_file_path(Name),
     case file:delete(Path) of
@@ -455,6 +344,9 @@ delete_table_file(Name) ->
 
 table_file_path(Name) ->
     filename:join(tables_dir(), binary_to_list(Name) ++ ".json").
+
+table_files() ->
+    lists:sort(filelib:wildcard(filename:join(tables_dir(), "*.json"))).
 
 check_source_file_size(Path) ->
     case file:read_file_info(Path) of
@@ -506,119 +398,4 @@ check_table_count(Count) ->
     case Count < Max of
         true -> ok;
         false -> {error, #{reason => too_many_tables, table_count => Count, max_tables => Max}}
-    end.
-
-table_files() ->
-    lists:sort(filelib:wildcard(filename:join(tables_dir(), "*.json"))).
-
-%%--------------------------------------------------------------------
-%% Server-side cache operations
-%%--------------------------------------------------------------------
-
-load_all_from_disk() ->
-    _ = reload_all(),
-    ok.
-
-load_file_into_cache(File) ->
-    Result =
-        maybe
-            {ok, Name} ?= emqx_maptabs_loader:table_name_from_path(File),
-            {ok, Bin} ?= read_source_file(File),
-            {ok, Parsed} ?= emqx_maptabs_loader:parse(Bin),
-            ok ?= check_row_limit(Parsed),
-            commit(Name, Parsed)
-        end,
-    case Result of
-        ok ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "maptab_file_rejected",
-                file => unicode:characters_to_binary(File),
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
-
-commit(Name, #{rows := Rows, row_count := RowCount, version := Version}) ->
-    OldTid =
-        case ets:lookup(?REGISTRY, Name) of
-            [{_, Tid0, _}] -> Tid0;
-            [] -> undefined
-        end,
-    NewTid = ets:new(emqx_maptabs_table, [set, protected, {read_concurrency, true}]),
-    true = ets:insert(NewTid, Rows),
-    Meta = #{
-        row_count => RowCount,
-        version => Version,
-        loaded_at => erlang:system_time(second)
-    },
-    %% single insert = atomic swap for readers
-    true = ets:insert(?REGISTRY, {Name, NewTid, Meta}),
-    ok = delete_old_tid(OldTid),
-    ?SLOG(info, #{
-        msg => "maptab_loaded",
-        name => Name,
-        row_count => RowCount,
-        version => Version
-    }),
-    ok.
-
-drop(Name) ->
-    case ets:lookup(?REGISTRY, Name) of
-        [{_, OldTid, _}] ->
-            true = ets:delete(?REGISTRY, Name),
-            ok = delete_old_tid(OldTid),
-            ?SLOG(info, #{msg => "maptab_deleted", name => Name});
-        [] ->
-            ok
-    end,
-    ok.
-
-delete_old_tid(undefined) ->
-    ok;
-delete_old_tid(Tid) ->
-    true = ets:delete(Tid),
-    ok.
-
-reload_all() ->
-    OnDisk = table_files(),
-    Pairs0 = [{F, N} || F <- OnDisk, {ok, N} <- [emqx_maptabs_loader:table_name_from_path(F)]],
-    %% hand-copied files beyond the table limit are not loaded
-    {Pairs, Beyond} = split_at_table_limit(Pairs0),
-    Beyond =/= [] andalso
-        ?SLOG(warning, #{
-            msg => "maptab_files_beyond_table_limit",
-            max_tables => max_tables(),
-            skipped => [N || {_, N} <- Beyond]
-        }),
-    OnDiskNames = [N || {_, N} <- Pairs],
-    %% drop cached tables whose file is gone, then (re)load the rest
-    Cached = [Name || {Name, _, _} <- ets:tab2list(?REGISTRY)],
-    lists:foreach(
-        fun(Name) -> drop(Name) end,
-        Cached -- OnDiskNames
-    ),
-    [{Name, load_file_into_cache(File)} || {File, Name} <- Pairs].
-
-split_at_table_limit(Pairs) ->
-    Max = max_tables(),
-    case length(Pairs) > Max of
-        true -> lists:split(Max, Pairs);
-        false -> {Pairs, []}
-    end.
-
-reload_one(Name) ->
-    case {filelib:is_regular(table_file_path(Name)), ets:member(?REGISTRY, Name)} of
-        {true, true} ->
-            load_file_into_cache(table_file_path(Name));
-        {true, false} ->
-            %% new to the cache: counts against the table limit
-            maybe
-                ok ?= check_table_count(ets:info(?REGISTRY, size)),
-                load_file_into_cache(table_file_path(Name))
-            end;
-        {false, _} ->
-            %% file gone: the cache follows the disk
-            drop(Name)
     end.

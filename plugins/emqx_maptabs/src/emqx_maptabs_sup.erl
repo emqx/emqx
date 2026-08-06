@@ -18,4 +18,4 @@ init([]) ->
         intensity => 10,
         period => 10
     },
-    {ok, {SupFlags, [emqx_maptabs:child_spec()]}}.
+    {ok, {SupFlags, [emqx_maptabs_server:child_spec()]}}.

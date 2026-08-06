@@ -3,7 +3,7 @@
     {description, "EMQX Mapping Tables Plugin"},
     {vsn, {file, "VERSION"}},
     {modules, []},
-    {registered, [emqx_maptabs_sup, emqx_maptabs]},
+    {registered, [emqx_maptabs_sup, emqx_maptabs_server]},
     {applications, [
         kernel,
         stdlib,
