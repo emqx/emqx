@@ -1,0 +1,90 @@
+{
+ "$broadcast_topic_label": {
+  "en": "Broadcast Topic",
+  "zh": "广播 Topic"
+ },
+ "$broadcast_topic_desc": {
+  "en": "Default broadcast topic template. Use ${productKey} as placeholder.",
+  "zh": "默认广播 Topic 模板，使用 ${productKey} 作为占位符。"
+ },
+ "$batch_topic_label": {
+  "en": "Batch Topic",
+  "zh": "批量下发 Topic"
+ },
+ "$batch_topic_desc": {
+  "en": "Default batch publish topic template. Use ${productKey} and ${deviceName} as placeholders.",
+  "zh": "默认批量下发 Topic 模板，使用 ${productKey} 和 ${deviceName} 作为占位符。"
+ },
+ "$msg_ttl_label": {
+  "en": "Message TTL",
+  "zh": "消息存活时间"
+ },
+ "$msg_ttl_desc": {
+  "en": "Message time-to-live. Messages older than this will be deleted.",
+  "zh": "消息存活时间，超过此时间的消息将被清理。"
+ },
+ "$cleanup_interval_label": {
+  "en": "Cleanup Interval",
+  "zh": "清理间隔"
+ },
+ "$cleanup_interval_desc": {
+  "en": "Interval for scanning and cleaning expired messages.",
+  "zh": "扫描并清理过期消息的时间间隔。"
+ },
+ "$max_device_count_label": {
+  "en": "Max Device Count",
+  "zh": "最大设备数"
+ },
+ "$max_device_count_desc": {
+  "en": "Maximum number of devices per BatchPub request.",
+  "zh": "单次 BatchPub 请求的最大设备数。"
+ },
+ "$max_message_size_broadcast_label": {
+  "en": "Max Broadcast Size",
+  "zh": "最大广播消息大小"
+ },
+ "$max_message_size_broadcast_desc": {
+  "en": "Maximum message size (bytes) for PubBroadcast.",
+  "zh": "PubBroadcast 单条消息的最大字节数。"
+ },
+ "$max_message_size_batch_label": {
+  "en": "Max Batch Size",
+  "zh": "最大批量消息大小"
+ },
+ "$max_message_size_batch_desc": {
+  "en": "Maximum message size (bytes) for BatchPub. Binary size, not Base64 encoded.",
+  "zh": "BatchPub 单条消息的最大字节数（纯二进制大小，非 Base64 编码后的大小）。"
+ },
+ "$msg_warn_threshold_label": {
+  "en": "Message Warn Threshold",
+  "zh": "消息告警阈值"
+ },
+ "$msg_warn_threshold_desc": {
+  "en": "Warning threshold for pending message count.",
+  "zh": "待处理消息数的告警阈值。"
+ },
+ "$force_upgrade_qos_label": {
+  "en": "Force Upgrade QoS",
+  "zh": "强制升级 QoS"
+ },
+ "$force_upgrade_qos_desc": {
+  "en": "When true, QoS 1 messages are always published at QoS 1 regardless of the device subscription QoS. When false, the effective QoS is min(publish QoS, subscription QoS) and downgraded QoS 0 deliveries are completed immediately.",
+  "zh": "为 true 时,QoS 1 消息始终以 QoS 1 下发,忽略设备订阅 QoS;为 false 时,实际 QoS 取 min(发布 QoS, 订阅 QoS),降级为 QoS 0 的投递立即完成。"
+ },
+ "$delivery_pool_size_label": {
+  "en": "Delivery Pool Size",
+  "zh": "投递池大小"
+ },
+ "$delivery_pool_size_desc": {
+  "en": "Number of async delivery workers. 0 means one worker per scheduler.",
+  "zh": "异步投递 worker 数量。0 表示每个调度器一个 worker。"
+ },
+ "$delivery_queue_max_label": {
+  "en": "Delivery Queue Max",
+  "zh": "投递队列上限"
+ },
+ "$delivery_queue_max_desc": {
+  "en": "Maximum number of queued delivery tasks. Each task handles at most 200 devices (a BatchPub request with N online devices consumes ceil(N/200) tasks). When exceeded, new BatchPub requests are rejected with 429.",
+  "zh": "排队投递任务的最大数量。每个投递任务处理至多 200 个设备 (每次 BatchPub 请求占用 ceil(在线设备数/200) 个任务)。超过后新的 BatchPub 请求将被拒绝并返回 429。"
+ }
+}

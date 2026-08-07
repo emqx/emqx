@@ -1,0 +1,127 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+-module(emqx_bcast_metrics).
+
+-export([init/0]).
+-export([qos0_in/0, qos0_error/0]).
+-export([qos0_targeted/1, qos0_delivered/0, qos0_skipped/0, qos0_skipped/1]).
+-export([qos1_in/0]).
+-export([
+    qos1_wanted/1,
+    qos1_acked/0,
+    qos1_delivered_inline/0,
+    qos1_stored_offline/0,
+    qos1_stored_offline/1,
+    qos1_replayed/0
+]).
+-export([broadcast_in/0, broadcast_error/0]).
+-export([broadcast_devices_online/1, broadcast_delivery_count/1]).
+-export([register_in/0, register_refresh/0, register_error/0]).
+-export([delivery_submit_rejected/0, delivery_queue_depth/1]).
+-export([collect/0]).
+
+-include("emqx_bcast.hrl").
+
+-define(NS, <<"bcast">>).
+
+init() ->
+    create_tables_if_needed(),
+    declare_counters(),
+    declare_gauges(),
+    ok.
+
+create_tables_if_needed() ->
+    case ets:info(prometheus_registry_table) of
+        undefined ->
+            ets:new(prometheus_registry_table, [
+                bag, named_table, public, {read_concurrency, true}
+            ]);
+        _ ->
+            ok
+    end,
+    case ets:info(prometheus_counter_table) of
+        undefined ->
+            ets:new(prometheus_counter_table, [
+                set, named_table, public, {write_concurrency, true}
+            ]);
+        _ ->
+            ok
+    end.
+
+mname(Suffix) when is_list(Suffix) -> <<?NS/binary, "_", (list_to_binary(Suffix))/binary>>;
+mname(Suffix) when is_binary(Suffix) -> <<?NS/binary, "_", Suffix/binary>>.
+
+declare_counters() ->
+    Cs = [
+        {"batch_pub_qos0_in", "BatchPub QoS=0 API requests"},
+        {"batch_pub_qos0_error", "BatchPub QoS=0 API errors"},
+        {"batch_pub_qos0_targeted", "QoS=0 devices targeted"},
+        {"batch_pub_qos0_delivered", "QoS=0 devices delivered"},
+        {"batch_pub_qos0_skipped", "QoS=0 devices skipped"},
+        {"batch_pub_qos1_in", "BatchPub QoS=1 API requests"},
+        {"batch_pub_qos1_delivered_inline", "QoS=1 inline deliveries"},
+        {"batch_pub_qos1_stored_offline", "QoS=1 stored for offline"},
+        {"batch_pub_qos1_wanted", "QoS=1 total wanted acks"},
+        {"batch_pub_qos1_acked", "QoS=1 acks received"},
+        {"batch_pub_qos1_replayed", "QoS=1 replayed on reconnect"},
+        {"broadcast_pub_in", "PubBroadcast API requests"},
+        {"broadcast_pub_error", "PubBroadcast errors"},
+        {"broadcast_pub_devices_online", "PubBroadcast devices online"},
+        {"broadcast_pub_delivery_count", "PubBroadcast deliveries"},
+        {"register_message_in", "RegisterMessage API requests"},
+        {"register_message_refresh", "RegisterMessage TTL refresh"},
+        {"register_message_error", "RegisterMessage errors"},
+        {"delivery_submit_rejected", "Delivery tasks rejected due to full queue"}
+    ],
+    [
+        prometheus_counter:declare([
+            {registry, ?BCAST_REGISTRY},
+            {name, mname(N)},
+            {help, list_to_binary(H)}
+        ])
+     || {N, H} <- Cs
+    ],
+    ok.
+
+declare_gauges() ->
+    prometheus_gauge:declare([
+        {registry, ?BCAST_REGISTRY},
+        {name, mname("delivery_queue_depth")},
+        {help, <<"Queued but not yet started delivery tasks">>}
+    ]),
+    ok.
+
+%% helpers
+c(N) -> prometheus_counter:inc(?BCAST_REGISTRY, mname(N), [], 1).
+c(N, V) -> prometheus_counter:inc(?BCAST_REGISTRY, mname(N), [], V).
+
+qos0_in() -> c("batch_pub_qos0_in").
+qos0_error() -> c("batch_pub_qos0_error").
+qos0_targeted(N) -> c("batch_pub_qos0_targeted", N).
+qos0_delivered() -> c("batch_pub_qos0_delivered").
+qos0_skipped() -> c("batch_pub_qos0_skipped").
+qos0_skipped(N) -> c("batch_pub_qos0_skipped", N).
+
+qos1_in() -> c("batch_pub_qos1_in").
+qos1_wanted(N) -> c("batch_pub_qos1_wanted", N).
+qos1_acked() -> c("batch_pub_qos1_acked").
+qos1_delivered_inline() -> c("batch_pub_qos1_delivered_inline").
+qos1_stored_offline() -> c("batch_pub_qos1_stored_offline").
+qos1_stored_offline(N) -> c("batch_pub_qos1_stored_offline", N).
+qos1_replayed() -> c("batch_pub_qos1_replayed").
+
+broadcast_in() -> c("broadcast_pub_in").
+broadcast_error() -> c("broadcast_pub_error").
+broadcast_devices_online(N) -> c("broadcast_pub_devices_online", N).
+broadcast_delivery_count(N) -> c("broadcast_pub_delivery_count", N).
+
+register_in() -> c("register_message_in").
+register_refresh() -> c("register_message_refresh").
+register_error() -> c("register_message_error").
+
+delivery_submit_rejected() -> c("delivery_submit_rejected").
+delivery_queue_depth(N) ->
+    prometheus_gauge:set(?BCAST_REGISTRY, mname("delivery_queue_depth"), [], N).
+
+collect() -> prometheus_text_format:format(?BCAST_REGISTRY).
