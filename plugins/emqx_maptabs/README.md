@@ -9,9 +9,18 @@ DO
   subbits(hexstr2bin(c), 5, 12) AS item_id,
   maptab_lookup('signals', item_id) AS sig,
   maptab_lookup('signals', item_id, 'signal_name', 'Unknown') AS signal_name,
-  subbits(hexstr2bin(c), sig.start_bit, sig.length, sig.type, sig.signedness, sig.endian) AS data
+  CASE WHEN is_map(sig)
+    THEN subbits(hexstr2bin(c), sig.start_bit, sig.length, sig.type, sig.signedness, sig.endian)
+    ELSE 0.0
+  END AS data
 FROM "t/#"
 ```
+
+The `CASE WHEN is_map(sig)` guard matters: on a miss `sig` is `undefined`, and
+feeding `undefined` into `subbits` throws — inside a `FOREACH` that error drops
+the whole message (every array element), not just the unknown one. Guard any
+field access into a lookup result that can miss, or filter misses out in the
+`INCASE` clause.
 
 ## Rule SQL functions
 

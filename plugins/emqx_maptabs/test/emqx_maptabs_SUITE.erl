@@ -255,18 +255,26 @@ t_rule_sql_lookup_and_subbits(_Config) ->
     ]),
     FrameF32 = frame_hex(<<0:4, 2:12, 245.5:32/float-big, 0:16>>),
     FrameS8 = frame_hex(<<0:4, 3:12, (-5):8/signed-big, 0:40>>),
+    FrameUnknown = frame_hex(<<0:4, 999:12, 0:48>>),
+    %% the CASE .. is_map(sig) guard is load-bearing: subbits on the
+    %% undefined miss result throws, and a FOREACH item error drops the
+    %% whole message, not just the unknown frame
     SQL = <<
         "FOREACH payload.frames AS c "
         "DO "
         "subbits(hexstr2bin(c),5,12) AS item_id, "
         "maptab_lookup('can_signals', item_id) AS sig, "
         "maptab_lookup('can_signals', item_id, 'signal_name', 'Unknown') AS signal_name, "
-        "subbits(hexstr2bin(c), sig.start_bit, sig.length, sig.type, sig.signedness, sig.endian) AS data "
+        "CASE WHEN is_map(sig) "
+        "THEN subbits(hexstr2bin(c), sig.start_bit, sig.length, sig.type, sig.signedness, sig.endian) "
+        "ELSE 0.0 END AS data "
         "INCASE regex_match(c,'^[0-9A-Fa-f]{16}$') "
         "FROM \"t/can\""
     >>,
     Context = #{
-        payload => emqx_utils_json:encode(#{frames => [FrameF32, FrameS8, <<"zz">>]}),
+        payload => emqx_utils_json:encode(#{
+            frames => [FrameF32, FrameS8, FrameUnknown, <<"zz">>]
+        }),
         topic => <<"t/can">>
     },
     {ok, Results} = emqx_rule_sqltester:test(#{sql => SQL, context => Context}),
@@ -281,6 +289,11 @@ t_rule_sql_lookup_and_subbits(_Config) ->
                 <<"item_id">> := 3,
                 <<"signal_name">> := <<"sig_s8">>,
                 <<"data">> := -5
+            },
+            #{
+                <<"item_id">> := 999,
+                <<"signal_name">> := <<"Unknown">>,
+                <<"data">> := +0.0
             }
         ],
         Results
