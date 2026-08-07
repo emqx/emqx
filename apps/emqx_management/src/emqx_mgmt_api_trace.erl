@@ -655,7 +655,7 @@ gather_trace_logs(Trace = #{name := Name}, Nodes) ->
                 }),
                 error;
             ({Node, {badrpc, Reason}}) ->
-                ?SLOG(error, #{
+                ?SLOG(warning, #{
                     msg => "stream_trace_log_error",
                     node => Node,
                     trace => Name,
@@ -766,7 +766,7 @@ filter_trace_details(TraceLogDetail) ->
                 ?SLOG(error, Error#{msg => "get_trace_details_failed"}),
                 Acc;
             (Error, Acc) ->
-                ?SLOG(error, #{msg => "get_trace_details_failed", reason => Error}),
+                ?SLOG(warning, #{msg => "get_trace_details_failed", reason => Error}),
                 Acc
         end,
     lists:foldl(GroupFun, [], TraceLogDetail).

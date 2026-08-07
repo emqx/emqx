@@ -532,7 +532,7 @@ list_plugins(get, _) ->
     Nodes = emqx:running_nodes(),
     {Plugins, BadNodes} = emqx_mgmt_api_plugins_proto_v4:get_plugins(Nodes),
     BadNodes =/= [] andalso
-        ?SLOG(error, #{msg => "get_plugins_rpc_failed", bad_nodes => BadNodes}),
+        ?SLOG(warning, #{msg => "get_plugins_rpc_failed", bad_nodes => BadNodes}),
     {200, format_plugins(drop_bad_plugin_results(Plugins))}.
 
 get_plugins() ->
@@ -1413,7 +1413,7 @@ drop_bad_plugin_results(Results) ->
         Results
     ),
     Bad =/= [] andalso
-        ?SLOG(error, #{msg => "get_plugins_rpc_bad_results", results => Bad}),
+        ?SLOG(warning, #{msg => "get_plugins_rpc_bad_results", results => Bad}),
     Good.
 
 parse_position(#{<<"position">> := <<"front">>}, _) ->
