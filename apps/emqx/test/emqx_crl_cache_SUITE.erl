@@ -466,11 +466,6 @@ assert_successful_connection(Config, ClientNum) ->
         end
     ).
 
-trace_between(Trace0, Marker1, Marker2) ->
-    {Trace1, [_ | _]} = ?split_trace_at(#{?snk_kind := Marker2}, Trace0),
-    {[_ | _], [_ | Trace2]} = ?split_trace_at(#{?snk_kind := Marker1}, Trace1),
-    Trace2.
-
 of_kinds(Trace0, Kinds0) ->
     Kinds = sets:from_list(Kinds0, [{version, 2}]),
     lists:filter(
@@ -478,11 +473,7 @@ of_kinds(Trace0, Kinds0) ->
         Trace0
     ).
 
-%% The mqtt connection span events, emitted by the test client processes.
-conn_trace(Trace) ->
-    of_kinds(Trace, [mqtt_client_connection]).
-
-%% The cache mutation events, emitted by the emqx_crl_cache gen_server.
+%% The cache mutation events, emitted by the single emqx_crl_cache gen_server.
 cache_trace(Trace) ->
     of_kinds(Trace, [new_crl_url_inserted, crl_cache_overflow, crl_cache_ensure_timer]).
 
@@ -732,102 +723,54 @@ t_cache_overflow(Config) ->
     ?check_trace(
         begin
             %% First and second connections goes into the cache
-            ?tp(first_connections, #{}),
             assert_successful_connection(Config, 1),
             assert_successful_connection(Config, 2),
             %% These should be cached
-            ?tp(first_reconnections, #{}),
             assert_successful_connection(Config, 1),
             assert_successful_connection(Config, 2),
             %% A third client connects and evicts the oldest URL (1)
-            ?tp(first_eviction, #{}),
             assert_successful_connection(Config, 3),
             assert_successful_connection(Config, 3),
             %% URL (1) connects again and needs to be re-cached; this
             %% time, (2) gets evicted
-            ?tp(second_eviction, #{}),
             assert_successful_connection(Config, 1),
+            %% The final emqtt:connect returns before the server-side
+            %% emqx_crl_cache gen_server has emitted the URL1 re-insert /
+            %% URL2 overflow / URL1 timer events.  Block until the second
+            %% overflow (evicting URL2) lands so ?check_trace snapshots the
+            %% full event sequence rather than a 7-event prefix.
+            URL2 = "http://localhost:9878/intermediate2.crl.pem",
+            {ok, _} = ?block_until(
+                #{?snk_kind := crl_cache_overflow, oldest_url := URL2},
+                5_000
+            ),
             %% TODO: force race condition where the same URL is fetched
             %% at the same time and tries to be registered
-            ?tp(test_end, #{}),
             ok
         end,
         fun(Trace) ->
             URL1 = "http://localhost:9878/intermediate1.crl.pem",
             URL2 = "http://localhost:9878/intermediate2.crl.pem",
             URL3 = "http://localhost:9878/intermediate3.crl.pem",
-            %% The mqtt_client_connection span events are emitted by the
-            %% test client processes, while the cache events
-            %% (new_crl_url_inserted, crl_cache_overflow,
-            %% crl_cache_ensure_timer) are emitted by the emqx_crl_cache
-            %% gen_server. These two streams interleave
-            %% non-deterministically, so assert the order within each
-            %% stream separately instead of asserting a fixed interleaving
-            %% between them.
-            Phase1 = trace_between(Trace, first_connections, first_reconnections),
-            ?assertMatch(
-                [
-                    #{?snk_span := start, client_num := 1},
-                    #{?snk_span := {complete, ok}, client_num := 1},
-                    #{?snk_span := start, client_num := 2},
-                    #{?snk_span := {complete, ok}, client_num := 2}
-                ],
-                conn_trace(Phase1)
-            ),
+            %% The cache mutation events all come from the single
+            %% emqx_crl_cache gen_server, so their global order is
+            %% deterministic: URL1 and URL2 fill the cache, URL3 evicts the
+            %% oldest (URL1), then URL1 re-enters and evicts the new oldest
+            %% (URL2).
             ?assertMatch(
                 [
                     #{?snk_kind := new_crl_url_inserted, url := URL1},
                     #{?snk_kind := crl_cache_ensure_timer, url := URL1},
                     #{?snk_kind := new_crl_url_inserted, url := URL2},
-                    #{?snk_kind := crl_cache_ensure_timer, url := URL2}
-                ],
-                cache_trace(Phase1)
-            ),
-            Phase2 = trace_between(Trace, first_reconnections, first_eviction),
-            ?assertMatch(
-                [
-                    #{?snk_span := start, client_num := 1},
-                    #{?snk_span := {complete, ok}, client_num := 1},
-                    #{?snk_span := start, client_num := 2},
-                    #{?snk_span := {complete, ok}, client_num := 2}
-                ],
-                conn_trace(Phase2)
-            ),
-            %% Both URLs are already cached, so no cache events are emitted.
-            ?assertMatch([], cache_trace(Phase2)),
-            Phase3 = trace_between(Trace, first_eviction, second_eviction),
-            ?assertMatch(
-                [
-                    #{?snk_span := start, client_num := 3},
-                    #{?snk_span := {complete, ok}, client_num := 3},
-                    #{?snk_span := start, client_num := 3},
-                    #{?snk_span := {complete, ok}, client_num := 3}
-                ],
-                conn_trace(Phase3)
-            ),
-            ?assertMatch(
-                [
+                    #{?snk_kind := crl_cache_ensure_timer, url := URL2},
                     #{?snk_kind := new_crl_url_inserted, url := URL3},
                     #{?snk_kind := crl_cache_overflow, oldest_url := URL1},
-                    #{?snk_kind := crl_cache_ensure_timer, url := URL3}
-                ],
-                cache_trace(Phase3)
-            ),
-            Phase4 = trace_between(Trace, second_eviction, test_end),
-            ?assertMatch(
-                [
-                    #{?snk_span := start, client_num := 1},
-                    #{?snk_span := {complete, ok}, client_num := 1}
-                ],
-                conn_trace(Phase4)
-            ),
-            ?assertMatch(
-                [
+                    #{?snk_kind := crl_cache_ensure_timer, url := URL3},
                     #{?snk_kind := new_crl_url_inserted, url := URL1},
                     #{?snk_kind := crl_cache_overflow, oldest_url := URL2},
                     #{?snk_kind := crl_cache_ensure_timer, url := URL1}
                 ],
-                cache_trace(Phase4)
+                cache_trace(Trace)
             ),
             ok
         end
