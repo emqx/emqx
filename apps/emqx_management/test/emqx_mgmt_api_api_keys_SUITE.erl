@@ -1711,7 +1711,7 @@ t_ee_ns_admin_legacy_publish_only_scopes_stay_set(_Config) ->
     ),
     ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_PUBLISH]}}, read_app(Name)),
     %% Requesting the publish-only list is rejected with the remedy hint.
-    Auth = emqx_dashboard_SUITE:auth_header_(),
+    Auth = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     {error, {{_, 400, _}, _, RespBody}} =
         emqx_mgmt_api_test_util:request_api(
@@ -1767,7 +1767,7 @@ assert_400(Result) ->
     end.
 
 list_app() ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
         {ok, Apps} -> {ok, emqx_utils_json:decode(Apps)};
@@ -1775,7 +1775,7 @@ list_app() ->
     end.
 
 read_app(Name) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
         {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
@@ -1786,7 +1786,7 @@ create_app(Name) ->
     create_app(Name, #{}).
 
 create_app(Name, Extra) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     ExpiredAt = to_rfc3339(erlang:system_time(second) + 1000),
     App = Extra#{
@@ -1801,7 +1801,7 @@ create_app(Name, Extra) ->
     end.
 
 create_unexpired_app(Name, Params) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     App = maps:merge(#{name => Name, desc => <<"Note"/utf8>>, enable => true}, Params),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, App) of
@@ -1810,12 +1810,12 @@ create_unexpired_app(Name, Params) ->
     end.
 
 delete_app(Name) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     DeletePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath, AuthHeader).
 
 update_app(Name, Change) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
         {ok, Update} -> {ok, emqx_utils_json:decode(Update)};

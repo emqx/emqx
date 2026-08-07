@@ -110,9 +110,6 @@ uri(Host, Parts) when is_list(Host), is_list(Parts) ->
     NParts = [E || E <- Parts],
     Host ++ "/" ++ to_list(filename:join([?BASE_PATH, ?API_VERSION | NParts])).
 
-auth_header(Username) ->
-    auth_header(Username, <<"public">>).
-
 auth_header(Username, Password) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
@@ -128,7 +125,7 @@ multipart_formdata_request(Url, Username, Fields, Files) ->
     ContentType = lists:concat(["multipart/form-data; boundary=", Boundary]),
     Headers =
         [
-            auth_header(Username),
+            auth_header(Username, emqx_dashboard_admin:default_password()),
             {"Content-Length", integer_to_list(length(Body))}
         ],
     case httpc:request(post, {Url, Headers, ContentType, Body}, [], []) of

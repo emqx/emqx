@@ -228,20 +228,24 @@ init_per_testcase(TestCase, Config) ->
                 default_config_with_auto_observe_raw("[\"/3/0\",\"/1/0\"]");
             case102_mountpoint_peerhost_api ->
                 default_config_with_mountpoint_raw(
-                    "\"lwm2m/${peerhost}/${endpoint_name}/\""
+                    #{
+                        mountpoint =>
+                            ~S'"lwm2m/${peerhost}/${endpoint_name}/"'
+                    }
                 );
             case103_mountpoint_from_authn_client_attrs ->
-                default_config_with_mountpoint_raw(
-                    "\"lwm2m/${client_attrs.group}/${endpoint_name}/\""
-                );
+                default_config_with_mountpoint_raw(#{
+                    mountpoint => ~S'"lwm2m/${client_attrs.group}/${endpoint_name}/"',
+                    enable_authn => true
+                });
             _ ->
                 default_config()
         end,
     ok = emqx_conf_cli:load_config(?global_ns, GatewayConfig, #{mode => replace}),
     ensure_gateway_loaded(),
-
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
 
+    emqx_common_test_helpers:listeners_disable_authn_scoped(),
     {ok, C} = emqtt:start_link([
         {host, "localhost"},
         {port, 1883},
@@ -252,7 +256,7 @@ init_per_testcase(TestCase, Config) ->
 
     [{sock, ClientUdpSock}, {emqx_c, C} | Config].
 
-end_per_testcase(_AllTestCase, Config) ->
+end_per_testcase(_TestCase, Config) ->
     timer:sleep(300),
     cleanup_lwm2m_channels(),
     gen_udp:close(?config(sock, Config)),
@@ -283,29 +287,32 @@ default_config(Overrides) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = ~w\n"
-            "  mountpoint = \"lwm2m/${username}\"\n"
-            "  translators {\n"
-            "    command = {topic = \"/dn/#\", qos = 0}\n"
-            "    response = {topic = \"/up/resp\", qos = 0}\n"
-            "    notify = {topic = \"/up/notify\", qos = 0}\n"
-            "    register = {topic = \"/up/resp\", qos = 0}\n"
-            "    update = {topic = \"/up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = ~w
+                mountpoint = "lwm2m/${username}"
+                translators {
+                    command = {topic = "/dn/#", qos = 0}
+                    response = {topic = "/up/resp", qos = 0}
+                    notify = {topic = "/up/notify", qos = 0}
+                    register = {topic = "/up/resp", qos = 0}
+                    update = {topic = "/up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = ~w
+                }
+            }
+            """,
             [
                 XmlDir,
                 maps:get(auto_observe, Overrides, false),
-                maps:get(bind, Overrides, ?PORT)
+                maps:get(bind, Overrides, ?PORT),
+                maps:get(enable_authn, Overrides, false)
             ]
         )
     ).
@@ -321,30 +328,32 @@ default_config_with_auto_observe_raw(AutoObserveRaw) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = ~s\n"
-            "  mountpoint = \"lwm2m/${username}\"\n"
-            "  translators {\n"
-            "    command = {topic = \"/dn/#\", qos = 0}\n"
-            "    response = {topic = \"/up/resp\", qos = 0}\n"
-            "    notify = {topic = \"/up/notify\", qos = 0}\n"
-            "    register = {topic = \"/up/resp\", qos = 0}\n"
-            "    update = {topic = \"/up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = ~s
+                mountpoint = "lwm2m/${username}"
+                translators {
+                    command = {topic = "/dn/#", qos = 0}
+                    response = {topic = "/up/resp", qos = 0}
+                    notify = {topic = "/up/notify", qos = 0}
+                    register = {topic = "/up/resp", qos = 0}
+                    update = {topic = "/up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = false
+                }
+            }
+            """,
             [XmlDir, AutoObserveRaw, ?PORT]
         )
     ).
 
-default_config_with_mountpoint_raw(MountpointRaw) ->
+default_config_with_mountpoint_raw(#{mountpoint := MountpointRaw} = Overrides) ->
     XmlDir = filename:join(
         [
             emqx_common_test_helpers:proj_root(),
@@ -355,26 +364,28 @@ default_config_with_mountpoint_raw(MountpointRaw) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = false\n"
-            "  mountpoint = ~s\n"
-            "  translators {\n"
-            "    command = {topic = \"dn/#\", qos = 0}\n"
-            "    response = {topic = \"up/resp\", qos = 0}\n"
-            "    notify = {topic = \"up/notify\", qos = 0}\n"
-            "    register = {topic = \"up/resp\", qos = 0}\n"
-            "    update = {topic = \"up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
-            [XmlDir, MountpointRaw, ?PORT]
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = false
+                mountpoint = ~s
+                translators {
+                    command = {topic = "dn/#", qos = 0}
+                    response = {topic = "up/resp", qos = 0}
+                    notify = {topic = "up/notify", qos = 0}
+                    register = {topic = "up/resp", qos = 0}
+                    update = {topic = "up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = ~w
+                }
+            }
+            """,
+            [XmlDir, MountpointRaw, ?PORT, maps:get(enable_authn, Overrides, false)]
         )
     ).
 
@@ -389,26 +400,28 @@ default_config_with_update_condition_raw(UpdateConditionRaw) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = false\n"
-            "  mountpoint = \"lwm2m/${username}\"\n"
-            "  update_msg_publish_condition = ~s\n"
-            "  translators {\n"
-            "    command = {topic = \"/dn/#\", qos = 0}\n"
-            "    response = {topic = \"/up/resp\", qos = 0}\n"
-            "    notify = {topic = \"/up/notify\", qos = 0}\n"
-            "    register = {topic = \"/up/resp\", qos = 0}\n"
-            "    update = {topic = \"/up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = false
+                mountpoint = "lwm2m/${username}"
+                update_msg_publish_condition = ~s
+                translators {
+                    command = {topic = "/dn/#", qos = 0}
+                    response = {topic = "/up/resp", qos = 0}
+                    notify = {topic = "/up/notify", qos = 0}
+                    register = {topic = "/up/resp", qos = 0}
+                    update = {topic = "/up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = false
+                }
+            }
+            """,
             [XmlDir, UpdateConditionRaw, ?PORT]
         )
     ).
@@ -424,26 +437,28 @@ default_config_with_blockwise_max_block_size(MaxSize) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = false\n"
-            "  mountpoint = \"lwm2m/${username}\"\n"
-            "  blockwise { max_block_size = ~w }\n"
-            "  translators {\n"
-            "    command = {topic = \"/dn/#\", qos = 0}\n"
-            "    response = {topic = \"/up/resp\", qos = 0}\n"
-            "    notify = {topic = \"/up/notify\", qos = 0}\n"
-            "    register = {topic = \"/up/resp\", qos = 0}\n"
-            "    update = {topic = \"/up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = false
+                mountpoint = "lwm2m/${username}"
+                blockwise { max_block_size = ~w }
+                translators {
+                    command = {topic = "/dn/#", qos = 0}
+                    response = {topic = "/up/resp", qos = 0}
+                    notify = {topic = "/up/notify", qos = 0}
+                    register = {topic = "/up/resp", qos = 0}
+                    update = {topic = "/up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = false
+                }
+            }
+            """,
             [XmlDir, MaxSize, ?PORT]
         )
     ).

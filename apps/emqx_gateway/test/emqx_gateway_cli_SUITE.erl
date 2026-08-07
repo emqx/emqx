@@ -12,20 +12,22 @@
 
 %% The config with json format for mqtt-sn gateway
 -define(CONF_MQTTSN,
-    "\n"
-    "{\"idle_timeout\": \"30s\",\n"
-    " \"enable_stats\": true,\n"
-    " \"mountpoint\": \"mqttsn/\",\n"
-    " \"gateway_id\": 1,\n"
-    " \"broadcast\": true,\n"
-    " \"enable_qos3\": true,\n"
-    " \"predefined\": [{\"id\": 1001, \"topic\": \"pred/a\"}],\n"
-    " \"listeners\":\n"
-    "    [{\"type\": \"udp\",\n"
-    "      \"name\": \"ct\",\n"
-    "      \"bind\": \"1884\"\n"
-    "    }]\n"
-    "}\n"
+    """
+    {"idle_timeout": "30s",
+     "enable_stats": true,
+     "mountpoint": "mqttsn/",
+     "gateway_id": 1,
+     "broadcast": true,
+     "enable_qos3": true,
+     "predefined": [{"id": 1001, "topic": "pred/a"}],
+     "listeners":
+        [{"type": "udp",
+          "name": "ct",
+          "enable_authn": false,
+          "bind": "1884"
+        }]
+    }
+    """
 ).
 
 -import(emqx_gateway_test_utils, [sn_client_connect/1, sn_client_disconnect/1]).

@@ -99,7 +99,7 @@ t_case_coap(_) ->
             "/connection?clientid=client1&username=bad&password=bad",
     Login(LeftUrl, ?checkMatch({error, bad_request, _Data})),
 
-    disable_authn(coap, udp, default),
+    disable_authn(coap),
     NowRightUrl =
         Prefix ++
             "/connection?clientid=client1&username=bad&password=bad",
@@ -151,7 +151,7 @@ t_case_lwm2m(_) ->
     NoInfoUrl = "coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1",
     Login(NoInfoUrl, MakeCheker(ack, {error, bad_request})),
 
-    disable_authn(lwm2m, udp, default),
+    disable_authn(lwm2m),
     NowRightUrl = "coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1&imei=bad&password=bad",
     Login(NowRightUrl, MakeCheker(ack, {ok, created})),
 
@@ -183,7 +183,7 @@ t_case_mqttsn(_) ->
     Login(<<"badadmin">>, <<"badpassowrd">>, <<3, ?SN_CONNACK, 16#80>>),
     Login(<<"admin">>, <<"public">>, <<3, ?SN_CONNACK, 0>>),
 
-    disable_authn(mqttsn, udp, default),
+    disable_authn(mqttsn),
     Login(<<"badadmin">>, <<"badpassowrd">>, <<3, ?SN_CONNACK, 0>>),
     ok.
 
@@ -223,7 +223,7 @@ t_case_stomp(_) ->
         ?assertEqual(<<"Login Failed: not_authorized">>, Mod:get_field(body, Frame))
     end),
 
-    disable_authn(stomp, tcp, default),
+    disable_authn(stomp),
     Login(
         <<"bad">>,
         <<"bad">>,
@@ -234,11 +234,5 @@ t_case_stomp(_) ->
     ),
     ok.
 
-disable_authn(GwName, Type, Name) ->
-    RawCfg = emqx_conf:get_raw([gateway, GwName], #{}),
-    ListenerCfg = emqx_utils_maps:deep_get(
-        [<<"listeners">>, atom_to_binary(Type), atom_to_binary(Name)], RawCfg
-    ),
-    {ok, _} = emqx_gateway_conf:update_listener(GwName, {Type, Name}, ListenerCfg#{
-        <<"enable_authn">> => false
-    }).
+disable_authn(GwName) ->
+    emqx_gateway_test_utils:set_gateway_listeners_authn(GwName, false).

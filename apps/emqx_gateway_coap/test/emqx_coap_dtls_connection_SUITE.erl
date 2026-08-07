@@ -24,6 +24,7 @@
 
         listeners.dtls.default {
             bind = 5684
+            enable_authn = false
             dtls_options {
                 verify = verify_none
             }

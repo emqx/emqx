@@ -153,8 +153,7 @@ init_per_group(?cluster = Group, TCConfig) ->
 init_per_group(?local, TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf,
+            {emqx_conf, ~S'listeners.tcp.default.bind = "0.0.0.0:1883"'},
             emqx_connector,
             emqx_bridge_mqtt,
             emqx_bridge,

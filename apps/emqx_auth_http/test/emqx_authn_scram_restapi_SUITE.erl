@@ -29,9 +29,15 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(TCConfig) ->
-    Apps = emqx_cth_suite:start([cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_http], #{
-        work_dir => ?config(priv_dir, TCConfig)
-    }),
+    Apps = emqx_cth_suite:start(
+        [
+            cowboy,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_http
+        ],
+        #{work_dir => ?config(priv_dir, TCConfig)}
+    ),
 
     IdleTimeout = emqx_config:get([mqtt, idle_timeout]),
     [{apps, Apps}, {idle_timeout, IdleTimeout} | TCConfig].
@@ -56,7 +62,8 @@ init_per_testcase(_Case, TCConfig) ->
     [{http_port, HTTPPort} | TCConfig].
 
 end_per_testcase(_Case, _TCConfig) ->
-    ok = emqx_authn_scram_restapi_test_server:stop().
+    ok = emqx_authn_scram_restapi_test_server:stop(),
+    emqx_common_test_helpers:call_janitor().
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -250,6 +257,10 @@ t_destroy(TCConfig) ->
         [authentication],
         ?GLOBAL
     ),
+    ?assertEqual(
+        {error, {not_found, {chain, ?GLOBAL}}},
+        emqx_authn_chains:list_authenticators(?GLOBAL)
+    ),
 
     {ok, Pid2} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
@@ -257,11 +268,7 @@ t_destroy(TCConfig) ->
 
     ok = ct:sleep(1000),
 
-    ?CONNACK_PACKET(
-        ?RC_SUCCESS,
-        _,
-        _
-    ) = receive_packet().
+    ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
 t_acl(TCConfig) ->
     init_auth(TCConfig),

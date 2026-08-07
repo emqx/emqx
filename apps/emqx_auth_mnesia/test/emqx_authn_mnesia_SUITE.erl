@@ -26,9 +26,14 @@ groups() ->
     emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia], #{
-        work_dir => emqx_cth_suite:work_dir(Config)
-    }),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->

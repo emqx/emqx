@@ -34,16 +34,17 @@ groups() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf, #{
-                config => #{
-                    authorization =>
-                        #{
-                            cache => #{enable => true},
-                            no_match => deny,
-                            sources => []
-                        }
-                }
-            }},
+            {emqx_conf,
+                emqx_authz_test_lib:emqx_appspec(#{
+                    config => #{
+                        authorization =>
+                            #{
+                                cache => #{enable => true},
+                                no_match => deny,
+                                sources => []
+                            }
+                    }
+                })},
             {emqx_auth, #{after_start => fun() -> ok end}},
             emqx_bridge_http,
             emqx_management,
@@ -67,8 +68,11 @@ end_per_testcase(t_node_cache, _Config) ->
         uri(["authorization", "sources", "http"]),
         []
     ),
-    ok = emqx_authz_source_registry:unregister(http);
+    ok = emqx_authz_source_registry:unregister(http),
+    emqx_common_test_helpers:call_janitor(),
+    ok;
 end_per_testcase(_, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 t_clean_cache(_) ->

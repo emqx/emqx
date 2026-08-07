@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_mt.hrl").
@@ -68,6 +69,12 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 init_per_testcase(Case, Config) ->
+    %% Run MT authn hooks while assuming some authenticator accepted the client.
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
+    ok = emqx_hooks:add('client.authenticate', {?MODULE, allow_authentication, []}, ?HP_LOWEST),
+    on_exit(fun() ->
+        emqx_hooks:del('client.authenticate', {?MODULE, allow_authentication})
+    end),
     snabbkaffe:start_trace(),
     ?MODULE:Case({init, Config}).
 
@@ -120,6 +127,9 @@ connect(Opts0) ->
             erlang:error(E)
     end.
 
+allow_authentication(_ClientInfo, _DefaultResult) ->
+    {stop, ok}.
+
 setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
     {ok, Agent} = emqx_utils_agent:start_link(_BarType0 = binary()),
     SetType = fun() ->
@@ -128,6 +138,7 @@ setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
     end,
     AppSpecs = [
         {emqx_conf, #{
+            config => emqx_cth_suite:emqx_config_authn(true),
             before_start =>
                 fun(App, AppCfg) ->
                     SetType(),
@@ -136,7 +147,7 @@ setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
                     emqx_cth_suite:inhibit_config_loader(App, AppCfg)
                 end
         }},
-        emqx,
+        {emqx, #{config => emqx_cth_suite:emqx_config_authn(true)}},
         emqx_management,
         {emqx_mt, #{
             after_start =>
@@ -149,6 +160,11 @@ setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
                                 <<"set_as_attr">> => <<"tns">>
                             }
                         ]
+                    ),
+                    ok = emqx_hooks:add(
+                        'client.authenticate',
+                        {?MODULE, allow_authentication, []},
+                        ?HP_LOWEST
                     )
                 end
         }}

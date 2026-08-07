@@ -18,22 +18,21 @@
 ]).
 
 default_conf() ->
-    <<
-        "\n"
-        "gateway.coap\n"
-        "{\n"
-        "    idle_timeout = 30s\n"
-        "    enable_stats = false\n"
-        "    mountpoint = \"\"\n"
-        "    notify_type = qos\n"
-        "    connection_required = true\n"
-        "    subscribe_qos = qos1\n"
-        "    publish_qos = qos1\n"
-        "\n"
-        "    listeners.udp.default\n"
-        "    {bind = 5683}\n"
-        "}\n"
-    >>.
+    ~b"""
+    gateway.coap
+    {
+        idle_timeout = 30s
+        enable_stats = false
+        mountpoint = ""
+        notify_type = qos
+        connection_required = true
+        subscribe_qos = qos1
+        publish_qos = qos1
+
+        listeners.udp.default
+        {bind = 5683, enable_authn = false}
+    }
+    """.
 
 start_gateway(Config) ->
     start_gateway(Config, default_conf()).

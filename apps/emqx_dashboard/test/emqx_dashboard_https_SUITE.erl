@@ -53,11 +53,11 @@ t_update_conf('end', Config) ->
     ok.
 
 t_update_conf(_Config) ->
-    Headers = emqx_dashboard_SUITE:auth_header_(),
-    {ok, Client1} = emqx_dashboard_SUITE:request_dashboard(
+    Headers = emqx_common_test_http:default_user_auth_header(),
+    {ok, 200, Client1} = emqx_common_test_http:request_api(
         get, https_api_path(["clients"]), Headers
     ),
-    {ok, Client2} = emqx_dashboard_SUITE:request_dashboard(
+    {ok, 200, Client2} = emqx_common_test_http:request_api(
         get, http_api_path(["clients"]), Headers
     ),
     Raw = emqx:get_raw_config([<<"dashboard">>]),
@@ -83,7 +83,7 @@ t_update_conf(_Config) ->
         end
     ),
     ?assertEqual(Raw1, emqx:get_raw_config([<<"dashboard">>])),
-    {ok, Client3} = emqx_dashboard_SUITE:request_dashboard(
+    {ok, 200, Client3} = emqx_common_test_http:request_api(
         get, http_api_path(["clients"]), Headers
     ),
     ?assertEqual(Client1, Client3),
@@ -93,7 +93,7 @@ t_update_conf(_Config) ->
                 _,
                 {inet, [inet], econnrefused}
             ]}},
-        emqx_dashboard_SUITE:request_dashboard(get, https_api_path(["clients"]), Headers)
+        emqx_common_test_http:request_api(get, https_api_path(["clients"]), Headers)
     ),
     %% reset
     ?check_trace(
@@ -110,10 +110,10 @@ t_update_conf(_Config) ->
         end
     ),
     ?assertEqual(Raw, emqx:get_raw_config([<<"dashboard">>])),
-    {ok, Client1} = emqx_dashboard_SUITE:request_dashboard(
+    {ok, 200, Client1} = emqx_common_test_http:request_api(
         get, https_api_path(["clients"]), Headers
     ),
-    {ok, Client2} = emqx_dashboard_SUITE:request_dashboard(
+    {ok, 200, Client2} = emqx_common_test_http:request_api(
         get, http_api_path(["clients"]), Headers
     ).
 
@@ -368,12 +368,12 @@ assert_ranch_options(MaxConnections0, SSLCert, Verify) ->
     ok.
 
 assert_https_request() ->
-    Headers = emqx_dashboard_SUITE:auth_header_(),
+    Headers = emqx_common_test_http:default_user_auth_header(),
     lists:foreach(
         fun(Path) ->
             ApiPath = https_api_path([Path]),
-            case emqx_dashboard_SUITE:request_dashboard(get, ApiPath, Headers) of
-                {ok, _} -> ok;
+            case emqx_common_test_http:request_api(get, ApiPath, Headers) of
+                {ok, 200, _} -> ok;
                 {error, Reason} -> error({https_client_error, Reason})
             end
         end,

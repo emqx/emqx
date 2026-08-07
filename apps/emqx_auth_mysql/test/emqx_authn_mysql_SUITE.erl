@@ -42,9 +42,15 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_mysql], #{
-        work_dir => ?config(priv_dir, Config)
-    }),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_auth_mysql
+        ],
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
     {ok, _} = emqx_resource:create_local(
         ?MYSQL_RESOURCE,
         ?AUTHN_RESOURCE_GROUP,
@@ -165,7 +171,7 @@ t_destroy(_Config) ->
 
     % Authenticator should not be usable anymore
     ?assertMatch(
-        ignore,
+        {error, not_authorized},
         emqx_authn_mysql:authenticate(
             #{
                 username => <<"plain">>,

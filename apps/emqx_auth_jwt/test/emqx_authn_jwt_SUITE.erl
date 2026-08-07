@@ -25,9 +25,15 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_jwt], #{
-        work_dir => emqx_cth_suite:work_dir(Config)
-    }),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_auth_jwt
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -82,13 +88,19 @@ t_hmac_based(_) ->
 
     BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
     Credential2 = Credential#{password => BadJWS},
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential2, State)),
+    ?assertEqual({error, not_authorized}, emqx_authn_jwt:authenticate(Credential2, State)),
 
     NoneJWS = generate_none_jws(Payload),
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => NoneJWS}, State)),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_authn_jwt:authenticate(Credential#{password => NoneJWS}, State)
+    ),
 
     RSAJWS = generate_jws('public-key', Payload, test_rsa_key(private)),
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => RSAJWS}, State)),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_authn_jwt:authenticate(Credential#{password => RSAJWS}, State)
+    ),
 
     %% secret_base64_encoded
     Config2 = Config#{
@@ -227,12 +239,16 @@ t_public_key(_) ->
     },
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)),
     ?assertEqual(
-        ignore, emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State)
+        {error, not_authorized},
+        emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State)
     ),
 
     {ok, PublicKeyPEM} = file:read_file(PublicKey),
     HMACJWS = generate_jws('hmac-based', Payload, PublicKeyPEM),
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential#{password => HMACJWS}, State)),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_authn_jwt:authenticate(Credential#{password => HMACJWS}, State)
+    ),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
@@ -561,7 +577,10 @@ t_jwks_renewal(_Config) ->
 
     {ok, PublicKeyPEM} = file:read_file(test_rsa_key(public)),
     HMACJWS = generate_jws('hmac-based', Payload1, PublicKeyPEM),
-    ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential1#{password => HMACJWS}, State2)),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_authn_jwt:authenticate(Credential1#{password => HMACJWS}, State2)
+    ),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
     ok = emqx_utils_http_test_server:stop().

@@ -106,9 +106,11 @@ init_per_suite(Config) ->
 
     Apps = emqx_cth_suite:start(
         [
-            emqx,
             {emqx_conf,
-                "authorization { cache { enable = false }, no_match = deny, sources = [] }"},
+                emqx_authz_test_lib:emqx_appspec(#{
+                    config =>
+                        "authorization { cache { enable = false }, no_match = deny, sources = [] }"
+                })},
             emqx_auth,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}

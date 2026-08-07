@@ -12,6 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include("emqx_mt.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
 
@@ -110,6 +111,7 @@ init_per_testcase(TestCase, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),
     snabbkaffe:start_trace(),
+    maybe_enable_authn(TestCase),
     [{apps, Apps} | Config].
 
 end_per_testcase(TestCase, Config) when
@@ -179,6 +181,21 @@ stop_client(Pid) ->
     after 3000 ->
         exit(Pid, kill)
     end.
+
+maybe_enable_authn(TestCase) when
+    TestCase == t_allow_only_managed_namespaces;
+    TestCase == t_session_limit_exceeded
+->
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
+    ok = emqx_hooks:add('client.authenticate', {?MODULE, allow_authentication, []}, ?HP_LOWEST),
+    on_exit(fun() ->
+        emqx_hooks:del('client.authenticate', {?MODULE, allow_authentication})
+    end);
+maybe_enable_authn(_TestCase) ->
+    ok.
+
+allow_authentication(_ClientInfo, _DefaultResult) ->
+    {stop, ok}.
 
 url(Path) ->
     emqx_mgmt_api_test_util:api_path(["mt", Path]).

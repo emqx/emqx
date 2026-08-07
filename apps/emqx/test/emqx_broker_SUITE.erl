@@ -78,9 +78,10 @@ init_per_group(quic, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    Port = listener_port(quic, test),
     [
         {conn_fun, quic_connect},
-        {port, emqx_config:get([listeners, quic, test, bind])},
+        {port, Port},
         {ssl_opts, emqx_common_test_helpers:client_mtls()},
         {ssl, true},
         {group_apps, Apps}
@@ -97,6 +98,12 @@ end_per_group(connected_client_count_group, _Config) ->
     ok;
 end_per_group(_Group, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)).
+
+listener_port(Type, Name) ->
+    case emqx_config:get([listeners, Type, Name, bind]) of
+        {_, Port} -> Port;
+        Port -> Port
+    end.
 
 init_per_suite(Config) ->
     Config.
@@ -657,6 +664,7 @@ t_connect_client_never_negative({'end', _Config}) ->
 
 t_connack_auth_error({init, Config}) ->
     process_flag(trap_exit, true),
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
     emqx_hooks:put(
         'client.authenticate',
         {?MODULE, authenticate_deny, []},

@@ -60,7 +60,14 @@
     wait_for/4,
     wait_publishes/2,
     wait_mqtt_payload/1,
-    select_free_port/1
+    select_free_port/1,
+    listener_enable_authn/3,
+    listener_disable_authn/2,
+    listeners_enable_authn/1,
+    listeners_disable_authn/0,
+    listeners_enable_authn_scoped/1,
+    listeners_disable_authn_scoped/0,
+    listeners_enable_authn_scoped/0
 ]).
 
 -export([
@@ -791,6 +798,54 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
         {error, {already_started, _Pid}} -> ok;
         Other -> throw(Other)
     end.
+
+listener_disable_authn(Type, Name) ->
+    listener_enable_authn(Type, Name, false).
+
+listener_enable_authn(Type, Name, EnableAuthnValue) ->
+    OldEnableAuthnValue = emqx:get_config([listeners, Type, Name, enable_authn]),
+    {ok, _} = emqx:update_config(
+        [listeners, Type, Name], {update, #{<<"enable_authn">> => EnableAuthnValue}}
+    ),
+    OldEnableAuthnValue.
+
+listeners_disable_authn() ->
+    listeners_enable_authn(false).
+
+listeners_enable_authn(EnableAuthnValues) when is_map(EnableAuthnValues) ->
+    maps:fold(
+        fun({Type, Name}, EnableAuthnValue, OldEnableAuthnValues) ->
+            OldEnableAuthnValue = listener_enable_authn(Type, Name, EnableAuthnValue),
+            OldEnableAuthnValues#{{Type, Name} => OldEnableAuthnValue}
+        end,
+        #{},
+        EnableAuthnValues
+    );
+listeners_enable_authn(EnableAuthnValue) ->
+    EnableAuthnValues = maps:fold(
+        fun(Type, Listeners, Acc0) ->
+            maps:fold(
+                fun(Name, _Listener, Acc) ->
+                    Acc#{{Type, Name} => EnableAuthnValue}
+                end,
+                Acc0,
+                Listeners
+            )
+        end,
+        #{},
+        emqx:get_config([listeners])
+    ),
+    listeners_enable_authn(EnableAuthnValues).
+
+listeners_enable_authn_scoped(EnableAuthnValue) ->
+    OldEnableAuthnValues = listeners_enable_authn(EnableAuthnValue),
+    on_exit(fun() -> listeners_enable_authn(OldEnableAuthnValues) end).
+
+listeners_disable_authn_scoped() ->
+    listeners_enable_authn_scoped(false).
+
+listeners_enable_authn_scoped() ->
+    listeners_enable_authn_scoped(true).
 
 %%
 %% Clusterisation and multi-node testing

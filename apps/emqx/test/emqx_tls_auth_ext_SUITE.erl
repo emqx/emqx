@@ -35,13 +35,13 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(Apps).
 
 t_conf_check_default(_Config) ->
-    Opts = esockd:get_options({'ssl:default', {{0, 0, 0, 0}, 8883}}),
+    Opts = esockd:get_options({'ssl:default', {{127, 0, 0, 1}, 8883}}),
     SSLOpts = proplists:get_value(ssl_options, Opts),
     ?assertEqual(none, proplists:lookup(partial_chain, SSLOpts)),
     ?assertEqual(none, proplists:lookup(verify_fun, SSLOpts)).
 
 t_conf_check_auth_ext(_Config) ->
-    Opts = esockd:get_options({'ssl:auth_ext', 28883}),
+    Opts = esockd:get_options({'ssl:auth_ext', {{127, 0, 0, 1}, 28883}}),
     SSLOpts = proplists:get_value(ssl_options, Opts),
     %% Even when partial_chain is set to `false`
     ?assertMatch(Fun when is_function(Fun), proplists:get_value(partial_chain, SSLOpts)),

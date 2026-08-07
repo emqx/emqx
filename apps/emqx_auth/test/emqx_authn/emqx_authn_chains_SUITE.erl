@@ -95,8 +95,7 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
             emqx_auth
         ],
         #{work_dir => ?config(priv_dir)}
@@ -269,7 +268,10 @@ t_authenticate(Config) when is_list(Config) ->
         username => <<"good">>,
         password => <<"any">>
     },
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
+    ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo)),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual({ok, #{is_superuser => false}}, emqx_access_control:authenticate(ClientInfo))
+    end),
 
     register_provider(AuthNType, ?MODULE),
 
@@ -550,8 +552,8 @@ t_combine_authn_and_callback(Config) when is_list(Config) ->
         password => <<"any">>
     },
 
-    %% no emqx_authn_chains authenticators, anonymous is allowed
-    ?assertAuthSuccessForUser(bad),
+    %% no emqx_authn_chains authenticators, anonymous is denied
+    ?assertAuthFailureForUser(bad),
 
     AuthNType = ?config(authn_type),
     register_provider(AuthNType, ?MODULE),

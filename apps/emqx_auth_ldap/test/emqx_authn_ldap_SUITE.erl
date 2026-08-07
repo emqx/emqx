@@ -40,9 +40,15 @@ end_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_ldap], #{
-        work_dir => ?config(priv_dir, Config)
-    }),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_auth_ldap
+        ],
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -234,7 +240,7 @@ t_destroy(_Config) ->
 
     % Authenticator should not be usable anymore
     ?assertMatch(
-        ignore,
+        {error, not_authorized},
         emqx_authn_ldap:authenticate(
             #{
                 username => <<"mqttuser0001">>,

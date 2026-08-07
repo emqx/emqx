@@ -139,7 +139,7 @@ t_no_keys(_Config) ->
             ClientInfo = client_info(ClientId, JWT),
             ?check_trace(
                 ?assertMatch(
-                    ignore,
+                    {error, not_authorized},
                     emqx_gcp_device_authn:authenticate(ClientInfo, #{}),
                     DeviceId
                 ),

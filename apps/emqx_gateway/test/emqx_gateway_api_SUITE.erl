@@ -39,7 +39,7 @@ init_per_suite(Conf) ->
             emqx_auth,
             emqx_auth_mnesia,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            emqx_mgmt_api_test_util:emqx_dashboard(),
             {emqx_gateway, ?CONF_DEFAULT}
             | emqx_gateway_test_utils:all_gateway_apps()
         ],
@@ -165,7 +165,7 @@ t_gateway_mqttsn(_) ->
         predefined => [#{id => 1, topic => <<"t/a">>}],
         enable_qos3 => true,
         listeners => [
-            #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>}
+            #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>, enable_authn => false}
         ]
     },
     {204, _} = request(put, "/gateways/mqttsn", GwConf),
@@ -665,6 +665,7 @@ t_clients(_) ->
         ]
     },
     init_gw("mqttsn", GwConf),
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"mqttsn">>, false),
     Path = "/gateways/mqttsn/clients",
     MyClient = Path ++ "/my_client",
     MyClientSubscriptions = MyClient ++ "/subscriptions",

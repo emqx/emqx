@@ -80,7 +80,14 @@ groups() ->
 init_per_suite(TCConfig) ->
     emqx_utils:interactive_load(emqx_variform_bif),
     Apps = emqx_cth_suite:start(
-        [cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_http], #{
+        [
+            cowboy,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_auth_http
+        ],
+        #{
             work_dir => ?config(priv_dir, TCConfig)
         }
     ),
@@ -570,7 +577,7 @@ t_destroy(TCConfig) ->
 
     % Authenticator should not be usable anymore
     ?assertMatch(
-        ?EXCEPTION_IGNORE,
+        ?EXCEPTION_DENY,
         emqx_authn_http:authenticate(
             Credentials,
             State

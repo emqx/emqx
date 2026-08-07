@@ -428,14 +428,14 @@ listeners_test() ->
     DefaultKeyFile = <<"${EMQX_ETC_DIR}/certs/key.pem">>,
     ?assertMatch(
         #{
-            <<"bind">> := {{0, 0, 0, 0}, 1883},
+            <<"bind">> := {{127, 0, 0, 1}, 1883},
             <<"enable">> := true
         },
         Tcp
     ),
     ?assertMatch(
         #{
-            <<"bind">> := {{0, 0, 0, 0}, 8083},
+            <<"bind">> := {{127, 0, 0, 1}, 8083},
             <<"enable">> := true,
             <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"}
         },
@@ -443,7 +443,7 @@ listeners_test() ->
     ),
     ?assertMatch(
         #{
-            <<"bind">> := 9999,
+            <<"bind">> := {{127, 0, 0, 1}, 9999},
             <<"ssl_options">> := #{
                 <<"cacertfile">> := DefaultCacertFile,
                 <<"certfile">> := DefaultCertFile,
@@ -454,7 +454,7 @@ listeners_test() ->
     ),
     ?assertMatch(
         #{
-            <<"bind">> := 9998,
+            <<"bind">> := {{127, 0, 0, 1}, 9998},
             <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"},
             <<"ssl_options">> :=
                 #{
@@ -467,7 +467,7 @@ listeners_test() ->
     ),
     ?assertMatch(
         #{
-            <<"bind">> := 9997,
+            <<"bind">> := {{127, 0, 0, 1}, 9997},
             <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"},
             <<"ssl_options">> :=
                 #{
