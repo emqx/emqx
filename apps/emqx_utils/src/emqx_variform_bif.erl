@@ -772,7 +772,7 @@ Check whether a value is structurally a JWT (JWS compact serialization).
 
 Returns true only when the value is a string of exactly three dot-separated
 segments whose first segment base64url-decodes to a JSON object containing
-an "alg" field, and whose second segment is also base64url-decodable.
+an "alg" field, and whose other segments are also base64url-decodable.
 The signature is not verified and the payload is not inspected, so a true
 result means "looks like a JWT", not "is a valid JWT".
 The 5-segment JWE form returns false.
@@ -790,10 +790,11 @@ Examples:
 -spec is_jwt(term()) -> boolean().
 is_jwt(Token) when is_binary(Token) ->
     try
-        [Header, Payload, _Sig] = binary:split(Token, <<".">>, [global]),
+        [Header, Payload, Sig] = binary:split(Token, <<".">>, [global]),
         HeaderBin = base64:decode(Header, #{mode => urlsafe, padding => false}),
         _ = base64:decode(Payload, #{mode => urlsafe, padding => false}),
-        case emqx_utils_json:decode(HeaderBin, [return_maps]) of
+        _ = base64:decode(Sig, #{mode => urlsafe, padding => false}),
+        case emqx_utils_json:decode(HeaderBin) of
             #{<<"alg">> := _} ->
                 true;
             _ ->

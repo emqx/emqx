@@ -529,7 +529,7 @@ is_jwt_test_() ->
 create_jwt_token(PayloadMap) ->
     Header = base64url_encode(<<"{\"alg\":\"none\",\"typ\":\"JWT\"}">>),
     Payload = base64url_encode(emqx_utils_json:encode(PayloadMap)),
-    Signature = <<"signature">>,
+    Signature = base64url_encode(<<"signature">>),
     <<Header/binary, ".", Payload/binary, ".", Signature/binary>>.
 
 base64url_encode(Bin) ->

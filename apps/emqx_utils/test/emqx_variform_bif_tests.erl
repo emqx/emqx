@@ -240,7 +240,7 @@ atom_input_test_() ->
 create_jwt_token(PayloadMap) ->
     Header = base64url_encode(<<"{\"alg\":\"none\",\"typ\":\"JWT\"}">>),
     Payload = base64url_encode(emqx_utils_json:encode(PayloadMap)),
-    Signature = <<"signature">>,
+    Signature = base64url_encode(<<"signature">>),
     <<Header/binary, ".", Payload/binary, ".", Signature/binary>>.
 
 base64url_encode(Bin) ->
@@ -361,8 +361,11 @@ is_jwt_test_() ->
             emqx_variform_bif:is_jwt(<<NonObjectHeader/binary, ".eyJzdWIiOiIxIn0.c2ln">>)
         ),
         ?_assertNot(emqx_variform_bif:is_jwt(<<NoAlgHeader/binary, ".eyJzdWIiOiIxIn0.c2ln">>)),
-        %% payload segment must be base64url-decodable
+        %% payload and signature segments must be base64url-decodable
         ?_assertNot(emqx_variform_bif:is_jwt(BadPayload)),
+        ?_assertNot(
+            emqx_variform_bif:is_jwt(<<RS256Header/binary, ".eyJzdWIiOiIxIn0.not-base64url!">>)
+        ),
         %% padding is tolerated (same decode mode as jwt_value)
         ?_assert(emqx_variform_bif:is_jwt(PaddedToken))
     ].
