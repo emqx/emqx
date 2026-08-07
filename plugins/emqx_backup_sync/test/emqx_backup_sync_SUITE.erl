@@ -2809,12 +2809,16 @@ auth_runtime_status(Node) ->
             end),
             authz_allow => safe_eval(fun() ->
                 emqx_access_control:authorize(
-                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync">>
+                    emqx_authz_context:make(ClientInfo),
+                    ?AUTHZ_PUBLISH,
+                    <<"cluster/config/sync">>
                 )
             end),
             authz_deny => safe_eval(fun() ->
                 emqx_access_control:authorize(
-                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync/denied">>
+                    emqx_authz_context:make(ClientInfo),
+                    ?AUTHZ_PUBLISH,
+                    <<"cluster/config/sync/denied">>
                 )
             end)
         }
@@ -2846,11 +2850,15 @@ auth_runtime_usable(Node) ->
             ClientInfo = authz_client_info(?INTEGRATION_AUTHN_USER),
             AuthzAllow =
                 emqx_access_control:authorize(
-                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync">>
+                    emqx_authz_context:make(ClientInfo),
+                    ?AUTHZ_PUBLISH,
+                    <<"cluster/config/sync">>
                 ) =:= allow,
             AuthzDeny =
                 emqx_access_control:authorize(
-                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync/denied">>
+                    emqx_authz_context:make(ClientInfo),
+                    ?AUTHZ_PUBLISH,
+                    <<"cluster/config/sync/denied">>
                 ) =:= deny,
             AuthnOK andalso AuthnReject andalso AuthzAllow andalso AuthzDeny
         catch

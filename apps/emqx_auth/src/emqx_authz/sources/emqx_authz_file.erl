@@ -45,8 +45,8 @@ update(_State, #{path := _Path} = Source) ->
 
 destroy(_Source) -> ok.
 
-authorize(Client, PubSub, Topic, #{rules := Rules}) ->
-    emqx_authz_rule:matches(Client, PubSub, Topic, Rules).
+authorize(AuthzContext, PubSub, Topic, #{rules := Rules}) ->
+    emqx_authz_rule:matches(AuthzContext, PubSub, Topic, Rules).
 
 read_files(#{<<"path">> := Path} = Source) ->
     {ok, Rules} = read_file(Path),

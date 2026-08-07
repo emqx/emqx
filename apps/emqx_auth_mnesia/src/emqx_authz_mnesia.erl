@@ -116,14 +116,14 @@ authorize(
     #{
         username := Username,
         clientid := Clientid
-    } = ClientInfo,
+    } = AuthzContext,
     PubSub,
     Topic,
     #{type := built_in_database}
 ) ->
-    Namespace = get_namespace(ClientInfo),
+    Namespace = get_namespace(AuthzContext),
     Rules = load_rules_for_authorize(Namespace, Clientid, Username),
-    do_authorize(ClientInfo, PubSub, Topic, Rules).
+    do_authorize(AuthzContext, PubSub, Topic, Rules).
 
 %%--------------------------------------------------------------------
 %% Data backup
@@ -312,13 +312,13 @@ do_get_rules(Namespace, Key) when is_binary(Namespace) ->
         [] -> not_found
     end.
 
-do_authorize(_Client, _PubSub, _Topic, []) ->
+do_authorize(_AuthzContext, _PubSub, _Topic, []) ->
     nomatch;
-do_authorize(Client, PubSub, Topic, [Rule | Tail]) ->
+do_authorize(AuthzContext, PubSub, Topic, [Rule | Tail]) ->
     CompliledRule = compile_rule(Rule),
-    case emqx_authz_rule:match(Client, PubSub, Topic, CompliledRule) of
+    case emqx_authz_rule:match(AuthzContext, PubSub, Topic, CompliledRule) of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_authorize(Client, PubSub, Topic, Tail)
+        nomatch -> do_authorize(AuthzContext, PubSub, Topic, Tail)
     end.
 
 compile_rule({Permission, Who, Action, TopicFilter}) ->

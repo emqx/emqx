@@ -37,7 +37,7 @@
 
 %% Authorize client action.
 -callback authorize(
-    emqx_types:clientinfo(),
+    emqx_authz_context:t(),
     emqx_types:pubsub(),
     emqx_types:topic(),
     source_state()

@@ -49,6 +49,9 @@ t_legacy(_) ->
     ?assertEqual(ignore, emqx_security_profile:policy(authn_jwt_missing)),
     ?assertEqual(false, emqx_security_profile:policy(saml_signature_verification)),
     ?assertEqual(false, emqx_security_profile:policy(internal_subscription_checks)),
+    ?assertEqual(legacy, emqx_security_profile:policy(authz_context)),
+    ?assertEqual(false, emqx_security_profile:policy(delayed_publish_reauthorization)),
+    ?assertEqual(ignore, emqx_security_profile:policy(exhook_message_publish_failure)),
 
     %% Full defaults
     ?assertEqual({{0, 0, 0, 0}, 1883}, emqx:get_config([listeners, tcp, default, bind])),
@@ -91,6 +94,9 @@ t_hardened(_) ->
     ?assertEqual(deny, emqx_security_profile:policy(authn_jwt_missing)),
     ?assertEqual(true, emqx_security_profile:policy(saml_signature_verification)),
     ?assertEqual(true, emqx_security_profile:policy(internal_subscription_checks)),
+    ?assertEqual(restricted, emqx_security_profile:policy(authz_context)),
+    ?assertEqual(true, emqx_security_profile:policy(delayed_publish_reauthorization)),
+    ?assertEqual(deny, emqx_security_profile:policy(exhook_message_publish_failure)),
 
     %% Full defaults are secure in hardened profile
     ?assertEqual({{127, 0, 0, 1}, 1883}, emqx:get_config([listeners, tcp, default, bind])),

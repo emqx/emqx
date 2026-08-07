@@ -7,6 +7,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include("emqx_stomp.hrl").
 
 -compile(export_all).
@@ -72,6 +74,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     snabbkaffe:stop(),
     ok.
 
@@ -695,6 +698,100 @@ t_transaction(_) ->
                 body = _
             },
             _, _} = parse(Data3)
+    end).
+
+t_transaction_message_ingress(_) ->
+    Mountpoint = <<"stomp/">>,
+    Topic = <<"source">>,
+    RewrittenTopic = <<"target">>,
+    MountedTopic = <<Mountpoint/binary, RewrittenTopic/binary>>,
+    TxId = <<"tx-pre-authz">>,
+    Payload = <<"transactional">>,
+    TestPid = self(),
+    update_stomp_with_mountpoint(Mountpoint),
+    emqx_common_test_helpers:on_exit(fun() -> update_stomp_with_mountpoint(<<>>) end),
+    ok = emqx:subscribe(Topic),
+    ok = emqx:subscribe(RewrittenTopic),
+    ok = emqx:subscribe(MountedTopic),
+    ok = emqx:subscribe(<<Mountpoint/binary, MountedTopic/binary>>),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx:unsubscribe(Topic),
+        emqx:unsubscribe(RewrittenTopic),
+        emqx:unsubscribe(MountedTopic),
+        emqx:unsubscribe(<<Mountpoint/binary, MountedTopic/binary>>)
+    end),
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, stomp_message_ingress, [TestPid, RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_hooks:del('message.ingress', {?MODULE, stomp_message_ingress}),
+        ok
+    end),
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        ok = send_begin_frame(Sock, TxId),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+
+        %% Ingress runs on SEND and sees the logical message, authz context, and STOMP metadata.
+        ok = send_message_frame(Sock, Topic, Payload, [
+            {<<"transaction">>, TxId},
+            {<<"x-custom">>, <<"value">>}
+        ]),
+        SendMsg =
+            receive
+                {message_ingress, Ctx, Msg} ->
+                    ?assertMatch(#{authz_ctx := #{clientid := _}}, Ctx),
+                    ?assertEqual(Topic, emqx_message:topic(Msg)),
+                    ?assertEqual(Payload, emqx_message:payload(Msg)),
+                    ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
+                    ?assertMatch(
+                        #{
+                            proto_ver := ?STOMP_VER,
+                            protocol := stomp,
+                            username := <<"guest">>,
+                            peerhost := _,
+                            stomp_headers := [{<<"x-custom">>, <<"value">>}]
+                        },
+                        emqx_message:get_headers(Msg)
+                    ),
+                    Msg
+            after 1000 ->
+                ct:fail(message_ingress_hook_not_called)
+            end,
+        %% The hook may rewrite the message, but the transaction buffers it until COMMIT.
+        ?assertNotReceive({deliver, _, _}, 100),
+
+        BeforeCommit = erlang:system_time(millisecond),
+        ok = gen_tcp:send(
+            Sock,
+            serialize(<<"COMMIT">>, [{<<"transaction">>, TxId}])
+        ),
+        ?assertMatch(
+            {ok, #stomp_frame{
+                command = <<"RECEIPT">>,
+                headers = [{<<"receipt-id">>, <<"rp-source">>}]
+            }},
+            recv_a_frame(Sock)
+        ),
+        %% COMMIT publishes the same message with the rewritten topic mounted exactly once.
+        receive
+            {deliver, MountedTopic, PublishedMsg} ->
+                %% Transaction buffering preserves identity, timestamp, and hook-added headers.
+                ?assertEqual(emqx_message:id(SendMsg), emqx_message:id(PublishedMsg)),
+                ?assertEqual(
+                    emqx_message:timestamp(SendMsg), emqx_message:timestamp(PublishedMsg)
+                ),
+                ?assert(emqx_message:timestamp(PublishedMsg) =< BeforeCommit),
+                ?assertEqual(true, emqx_message:get_header(ingress, PublishedMsg))
+        after 1000 ->
+            ct:fail(transactional_message_not_published)
+        end,
+        %% Catch original, unmounted rewritten, or double-mounted publications.
+        ?assertNotReceive({deliver, _, _}, 100),
+        ok = send_disconnect_frame(Sock)
     end).
 
 t_receipt_in_error(_) ->
@@ -1476,6 +1573,10 @@ send_message_frame(Sock, Topic, Payload, Headers0) ->
             | Headers0
         ],
     ok = gen_tcp:send(Sock, serialize(<<"SEND">>, Headers, Payload)).
+
+stomp_message_ingress(Ctx, Msg, TestPid, RewrittenTopic) ->
+    TestPid ! {message_ingress, Ctx, Msg},
+    {ok, emqx_message:set_header(ingress, true, Msg#message{topic = RewrittenTopic})}.
 
 send_begin_frame(Sock, TxId) ->
     Headers =
