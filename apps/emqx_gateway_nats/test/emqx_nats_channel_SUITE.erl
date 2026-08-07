@@ -190,7 +190,7 @@ t_listener_authn_disabled_keeps_mountpoint_and_authn_hooks(Config) ->
         0
     ),
     Username = <<"listener-auth-disabled-user">>,
-    update_nats_tcp_listener_authn_and_mountpoint(false, <<"${username}/">>),
+    update_nats_listeners_authn_and_mountpoint(false, <<"${username}/">>),
     ClientOpts = maps:merge(
         tcp_client_opts(Config),
         #{
@@ -487,16 +487,10 @@ restore_nats_conf(Conf) ->
     restore_nats_listeners(Conf),
     ok.
 
-update_nats_tcp_listener_authn_and_mountpoint(EnableAuthn, Mountpoint) ->
+update_nats_listeners_authn_and_mountpoint(EnableAuthn, Mountpoint) ->
     Conf = emqx:get_raw_config([gateway, nats]),
     _ = emqx_gateway_conf:update_gateway(nats, Conf#{<<"mountpoint">> => Mountpoint}),
-    ListenerConf0 = emqx_conf:get([gateway, nats, listeners, tcp, default]),
-    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
-    ok =
-        case emqx_gateway_conf:update_listener(nats, {tcp, default}, ListenerConf1) of
-            ok -> ok;
-            {ok, _} -> ok
-        end,
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(nats, EnableAuthn),
     ok.
 
 restore_nats_listeners(Conf) ->

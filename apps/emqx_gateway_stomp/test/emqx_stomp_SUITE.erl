@@ -109,23 +109,13 @@ update_stomp_with_mountpoint(Mountpoint) ->
 
 with_stomp_tcp_listener_authn(EnableAuthn, Fun) ->
     ListenerPath = [gateway, stomp, listeners, tcp, default],
-    PrevListenerConf = emqx_conf:get(ListenerPath),
+    PrevListenerConf = emqx:get_raw_config(ListenerPath),
     try
-        update_stomp_tcp_listener_authn(EnableAuthn),
+        ok = emqx_gateway_test_utils:set_gateway_listeners_authn(stomp, EnableAuthn),
         Fun()
     after
         ok = update_stomp_tcp_listener(PrevListenerConf)
     end.
-
-update_stomp_tcp_listener_authn(EnableAuthn) ->
-    ListenerConf0 = emqx_conf:get([gateway, stomp, listeners, tcp, default]),
-    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
-    ok = update_stomp_tcp_listener(ListenerConf1),
-    ?assertEqual(
-        EnableAuthn,
-        emqx_conf:get([gateway, stomp, listeners, tcp, default, enable_authn], undefined)
-    ),
-    ok.
 
 update_stomp_tcp_listener(ListenerConf) ->
     case emqx_gateway_conf:update_listener(stomp, {tcp, default}, ListenerConf) of

@@ -93,29 +93,18 @@ update_coap_with_mountpoint(Mp) ->
 
 with_connectionless_coap(EnableAuthn, Fun) ->
     OldConf = emqx:get_raw_config([gateway, coap]),
-    OldListenerConf = emqx_conf:get([gateway, coap, listeners, udp, default]),
+    OldListenerConf = emqx:get_raw_config([gateway, coap, listeners, udp, default]),
     try
         {ok, _} = emqx_gateway_conf:update_gateway(
             coap,
             OldConf#{<<"connection_required">> => <<"false">>}
         ),
-        ok = update_coap_udp_listener_authn(EnableAuthn),
+        ok = emqx_gateway_test_utils:set_gateway_listeners_authn(coap, EnableAuthn),
         Fun()
     after
         ok = update_coap_udp_listener(OldListenerConf),
         {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
     end.
-
-update_coap_udp_listener_authn(EnableAuthn) ->
-    ListenerPath = [gateway, coap, listeners, udp, default],
-    ListenerConf0 = emqx_conf:get(ListenerPath),
-    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
-    ok = update_coap_udp_listener(ListenerConf1),
-    ?assertEqual(
-        EnableAuthn,
-        emqx_conf:get([gateway, coap, listeners, udp, default, enable_authn], undefined)
-    ),
-    ok.
 
 update_coap_udp_listener(ListenerConf) ->
     case emqx_gateway_conf:update_listener(coap, {udp, default}, ListenerConf) of
