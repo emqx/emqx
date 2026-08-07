@@ -15,7 +15,9 @@ all() ->
 init_per_suite(Config) ->
     EmqxConfig = #{
         listeners => #{
-            tcp => #{default => #{bind => 18884}},
+            %% `emqx_cth_suite' disables listener authn by default, which would
+            %% bypass the `client.authenticate' hook this plugin relies on.
+            tcp => #{default => #{bind => 18884, enable_authn => true}},
             ssl => #{default => #{bind => 0}},
             ws => #{default => #{bind => 0}},
             wss => #{default => #{bind => 0}}
