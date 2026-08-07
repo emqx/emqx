@@ -91,7 +91,8 @@ schema("/data/import") ->
                 204 => <<"No Content">>,
                 400 => emqx_dashboard_swagger:error_codes(
                     [?BAD_REQUEST], ?DESC("import_failed")
-                )
+                ),
+                500 => emqx_dashboard_swagger:error_codes([?SERVICE_UNAVAILABLE])
             }
         }
     };
@@ -147,7 +148,8 @@ schema("/data/files/:filename") ->
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     [?NOT_FOUND], ?DESC("backup_file_not_found")
-                )
+                ),
+                500 => emqx_dashboard_swagger:error_codes([?SERVICE_UNAVAILABLE])
             }
         },
         delete => #{
@@ -165,7 +167,8 @@ schema("/data/files/:filename") ->
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     [?NOT_FOUND], ?DESC("backup_file_not_found")
-                )
+                ),
+                500 => emqx_dashboard_swagger:error_codes([?SERVICE_UNAVAILABLE])
             }
         }
     }.
