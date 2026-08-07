@@ -836,7 +836,15 @@ metric_data_ns(all, MetricSpecs, Mode) ->
     NsToMetrics = maps:remove(?global_ns, NsToMetrics0),
     do_metric_data_ns(NsToMetrics, MetricSpecs, Mode);
 metric_data_ns(Namespace, MetricSpecs, Mode) when is_binary(Namespace) ->
-    NsToMetrics = #{Namespace => emqx_metrics:all(Namespace)},
+    NsToMetrics =
+        case emqx_metrics:all(Namespace) of
+            [] ->
+                %% No metrics counters for this namespace: omit it, as the `all' clause
+                %% does for namespaces absent from `emqx_metrics:all_ns/0'.
+                #{};
+            Metrics ->
+                #{Namespace => Metrics}
+        end,
     do_metric_data_ns(NsToMetrics, MetricSpecs, Mode).
 
 do_metric_data_ns(NsToMetrics, MetricSpecs, Mode) ->
@@ -872,8 +880,8 @@ gather_session_ns_data(all) ->
             {ok, N} ->
                 Acc#{Namespace => [{emqx_sessions_count, N}]};
             {error, _} ->
-                %% race?
-                Acc#{Namespace => [{emqx_sessions_count, 0}]}
+                %% Namespace deleted concurrently: omit it.
+                Acc
         end
     end,
     InitAcc = #{},
@@ -883,7 +891,8 @@ gather_session_ns_data(Namespace) when is_binary(Namespace) ->
         {ok, N} ->
             #{Namespace => [{emqx_sessions_count, N}]};
         {error, _} ->
-            #{Namespace => [{emqx_sessions_count, 0}]}
+            %% Unknown namespace: omit the metric instead of fabricating a zero.
+            #{}
     end.
 
 authz_metric_ns(Namespace, MetricSpecs, Mode) when is_binary(Namespace); Namespace == all ->
@@ -899,8 +908,13 @@ gather_authz_ns_data(all) ->
         emqx_authz_mnesia:record_count_per_namespace()
     );
 gather_authz_ns_data(Namespace) when is_binary(Namespace) ->
-    N = emqx_authz_mnesia:record_count(Namespace),
-    #{Namespace => [{emqx_authz_builtin_record_count, N}]}.
+    case emqx_mt_state:is_known_ns(Namespace) of
+        true ->
+            N = emqx_authz_mnesia:record_count(Namespace),
+            #{Namespace => [{emqx_authz_builtin_record_count, N}]};
+        false ->
+            #{}
+    end.
 
 authn_metric_ns(Namespace, MetricSpecs, Mode) when is_binary(Namespace); Namespace == all ->
     NsToMetrics = gather_authn_ns_data(Namespace),
@@ -915,8 +929,13 @@ gather_authn_ns_data(all) ->
         emqx_authn_mnesia:record_count_per_namespace()
     );
 gather_authn_ns_data(Namespace) when is_binary(Namespace) ->
-    N = emqx_authn_mnesia:record_count(Namespace),
-    #{Namespace => [{emqx_authn_builtin_record_count, N}]}.
+    case emqx_mt_state:is_known_ns(Namespace) of
+        true ->
+            N = emqx_authn_mnesia:record_count(Namespace),
+            #{Namespace => [{emqx_authn_builtin_record_count, N}]};
+        false ->
+            #{}
+    end.
 
 client_metric_data(Mode) ->
     Acc = listener_shutdown_counts(Mode),
