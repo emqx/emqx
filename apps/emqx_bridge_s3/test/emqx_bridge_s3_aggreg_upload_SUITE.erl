@@ -34,6 +34,7 @@
 ]).
 
 -define(LIMIT_TOLERANCE, 1.1).
+-define(AGGREG_SUP, emqx_bridge_s3_sup).
 
 %% CT Setup
 
@@ -529,8 +530,14 @@ t_aggreg_next_rotate(Config) ->
     NSent = receive_sender_reports(Senders),
     %% Wait for the last delivery to complete.
     ok = timer:sleep(round(?CONF_TIME_INTERVAL * 0.5)),
-    ?block_until(
-        #{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}, infinity, 0
+    ?retry(
+        500,
+        20,
+        begin
+            true = emqx_connector_aggregator:is_empty(AggregId),
+            false = emqx_bridge_v2_testlib:is_connector_aggregator_delivery_ongoing(?AGGREG_SUP),
+            false = emqx_connector_aggregator:has_deliveries(AggregId)
+        end
     ),
     %% There should be at least 2 time windows of aggregated records.
     Uploads = [K || #{key := K} <- emqx_bridge_s3_test_helpers:list_objects(Bucket)],

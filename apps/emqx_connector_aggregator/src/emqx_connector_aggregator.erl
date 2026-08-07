@@ -31,7 +31,7 @@
 ]).
 
 %% For testing only
--export([where/1]).
+-export([where/1, is_empty/1, has_deliveries/1]).
 
 -export_type([
     container_type/0,
@@ -87,6 +87,24 @@ tick(Name, Timestamp) ->
 
 take_error(Name) ->
     gen_server:call(?SRVREF(Name), take_error).
+
+%% testing/debug only
+is_empty(Name) ->
+    case lookup_current_buffer(Name) of
+        #buffer{cnt_records = Counter} ->
+            case read_counter(Counter) of
+                0 ->
+                    true;
+                _ ->
+                    false
+            end;
+        _ ->
+            true
+    end.
+
+%% testing/debug only
+has_deliveries(Name) ->
+    gen_server:call(?SRVREF(Name), has_deliveries).
 
 buffer_to_map(#buffer{} = Buffer) ->
     #{
@@ -212,7 +230,10 @@ handle_call({rotate_buffer, FD}, _From, St0) ->
     {reply, Buffer, St};
 handle_call(take_error, _From, St0) ->
     {MaybeError, St} = handle_take_error(St0),
-    {reply, MaybeError, St}.
+    {reply, MaybeError, St};
+handle_call(has_deliveries, _From, St) ->
+    Deliveries = St#st.deliveries,
+    {reply, map_size(Deliveries) /= 0, St}.
 
 handle_cast({close_buffer, Timestamp}, St0) ->
     St = handle_close_buffer(Timestamp, St0),
@@ -535,6 +556,9 @@ inc_counter({Tab, Counter}, Size) ->
 
 del_counter({Tab, Counter}) ->
     ets:delete(Tab, Counter).
+
+read_counter({Tab, Counter}) ->
+    ets:lookup_element(Tab, Counter, ?COUNTER_POS, 0).
 
 -undef(COUNTER_POS).
 
