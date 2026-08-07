@@ -165,7 +165,8 @@ monitor(delete, _) ->
     Nodes = emqx:running_nodes(),
     Results = emqx_dashboard_proto_v2:clear_table(Nodes),
     NodeResults = lists:zip(Nodes, Results),
-    NodeErrors = [Result || Result = {_Node, NOk} <- NodeResults, NOk =/= {atomic, ok}],
+    %% clear_table is an erpc multicall: each per-node success is {ok, {atomic, ok}}
+    NodeErrors = [Result || Result = {_Node, NOk} <- NodeResults, NOk =/= {ok, {atomic, ok}}],
     NodeErrors == [] orelse
         ?SLOG(warning, #{
             msg => "clear_monitor_metrics_rpc_errors",
