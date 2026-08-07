@@ -166,10 +166,10 @@ deliver_qos1(
     emqx_bcast_metrics:qos1_in(),
     emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
     {Targets, Offline} = resolve(DeviceNames, ProductKey, TopicTemplate),
-    case emqx_bcast_deliver:has_capacity(length(Targets)) of
-        false ->
+    case emqx_bcast_deliver:try_reserve(length(Targets)) of
+        {error, overloaded} ->
             queue_full_response(RequestId);
-        true ->
+        ok ->
             DeliveryId = emqx_bcast_utils:gen_guid(),
             case
                 emqx_bcast_storage:create_message_and_delivery(
@@ -185,9 +185,10 @@ deliver_qos1(
             of
                 {ok, ApiMsgId, _Delivery} ->
                     ok = count_offline(1, Offline),
-                    _ = submit_qos1(Targets, Payload, DeliveryId, ProductKey),
+                    submit_qos1_reserved(Targets, Payload, DeliveryId, ProductKey),
                     {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
                 {error, _} ->
+                    emqx_bcast_deliver:release_reservation(length(Targets)),
                     {ok, 500, #{},
                         emqx_bcast_api:error_response(
                             RequestId, <<"InternalError">>, <<"Storage error">>
@@ -198,10 +199,10 @@ deliver_qos1({reuse, ApiMsgId, MsgGuid}, DeviceNames, ProductKey, TopicTemplate,
     emqx_bcast_metrics:qos1_in(),
     emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
     {Targets, Offline} = resolve(DeviceNames, ProductKey, TopicTemplate),
-    case emqx_bcast_deliver:has_capacity(length(Targets)) of
-        false ->
+    case emqx_bcast_deliver:try_reserve(length(Targets)) of
+        {error, overloaded} ->
             queue_full_response(RequestId);
-        true ->
+        ok ->
             DeliveryId = emqx_bcast_utils:gen_guid(),
             _Delivery = emqx_bcast_storage:create_delivery(
                 DeliveryId,
@@ -219,20 +220,27 @@ deliver_qos1({reuse, ApiMsgId, MsgGuid}, DeviceNames, ProductKey, TopicTemplate,
             {ok, Msg} = emqx_bcast_storage:lookup_message(MsgGuid),
             Payload = Msg#bcast_message.payload,
             ok = count_offline(1, Offline),
-            _ = submit_qos1(Targets, Payload, DeliveryId, ProductKey),
+            submit_qos1_reserved(Targets, Payload, DeliveryId, ProductKey),
             {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}
     end.
 
-submit_qos1(Targets, Payload, DeliveryId, ProductKey) ->
+%% Submit chunks for a delivery whose queue slots were reserved upfront via
+%% emqx_bcast_deliver:try_reserve/1.
+submit_qos1_reserved(Targets, Payload, DeliveryId, ProductKey) ->
+    ok = emqx_bcast_deliver:submit_targets_reserved(
+        Targets, qos1_ctx(Payload, DeliveryId, ProductKey)
+    ).
+
+qos1_ctx(Payload, DeliveryId, ProductKey) ->
     Config = persistent_term:get({?APP, config}, #{}),
     ForceUpgrade = maps:get(force_upgrade_qos, Config, true),
-    emqx_bcast_deliver:submit_targets(Targets, #{
+    #{
         qos => 1,
         payload => Payload,
         delivery_id => DeliveryId,
         product_key => ProductKey,
         force_upgrade_qos => ForceUpgrade
-    }).
+    }.
 
 queue_full_response(RequestId) ->
     {ok, 429, #{},

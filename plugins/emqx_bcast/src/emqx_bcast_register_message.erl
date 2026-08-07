@@ -27,11 +27,20 @@ validate(_MC, _MI) when _MC =/= undefined, _MI =/= undefined ->
     {error, <<"MessageIdContentConflict">>, <<"Only one of MessageContent or MessageId allowed">>};
 validate(MessageContent, _MI) when MessageContent =/= undefined ->
     case emqx_bcast_utils:decode_base64(MessageContent) of
-        {ok, Payload} -> {create, Payload};
-        {error, _} -> {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
+        {ok, Payload} ->
+            case byte_size(Payload) =< get_max_message_size_batch() of
+                true -> {create, Payload};
+                false -> {error, <<"MessageTooLarge">>, <<"Message too large">>}
+            end;
+        {error, _} ->
+            {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
     end;
 validate(_MC, MessageId) when MessageId =/= undefined ->
     {refresh, MessageId}.
+
+get_max_message_size_batch() ->
+    Config = persistent_term:get({?APP, config}, #{}),
+    maps:get(max_message_size_batch, Config, 10240).
 
 do_create(Payload, RequestId) ->
     Hash = emqx_bcast_utils:sha256(Payload),

@@ -15,7 +15,6 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_bcast_sup:start_link(),
     ok = emqx_bcast_metrics:init(),
     ok = emqx_bcast:init_tables(),
-    ok = emqx_bcast:rebuild_index(),
     ok = emqx_bcast:hook(),
     {ok, Sup}.
 

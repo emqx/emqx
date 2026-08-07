@@ -7,7 +7,6 @@
     hook/0,
     unhook/0,
     init_tables/0,
-    rebuild_index/0,
     register_device/3,
     unregister_device/2,
     lookup_device/1,
@@ -58,7 +57,8 @@ create_mnesia_tables() ->
         {?TAB_MSG, bcast_message, record_info(fields, bcast_message)},
         {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id)},
         {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash)},
-        {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg)}
+        {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg)},
+        {?TAB_MSG_IDX, bcast_msg_index, record_info(fields, bcast_msg_index)}
     ],
     lists:foreach(
         fun({Tab, RecordName, Attributes}) ->
@@ -81,14 +81,6 @@ create_ets_tables() ->
     ]),
     ensure_ets(?TAB_DEV_CLIENT, [
         named_table, public, set, {keypos, #bcast_device_client.clientid}, {read_concurrency, true}
-    ]),
-    ensure_ets(?TAB_MSG_IDX, [
-        named_table,
-        public,
-        set,
-        {keypos, #bcast_msg_index.key},
-        {read_concurrency, true},
-        {write_concurrency, true}
     ]),
     emqx_bcast_subscription:init(),
     ok.
@@ -357,37 +349,3 @@ pending_payload(DeliveryId) ->
 
 get_product_key(#{client_attrs := #{<<"tns">> := Tns}}) -> Tns;
 get_product_key(_ClientInfo) -> <<"default">>.
-
-rebuild_index() ->
-    ensure_ets(?TAB_MSG_IDX, [
-        named_table,
-        public,
-        set,
-        {keypos, #bcast_msg_index.key},
-        {read_concurrency, true},
-        {write_concurrency, true}
-    ]),
-    ets:delete_all_objects(?TAB_MSG_IDX),
-    Deliveries = mnesia:dirty_match_object(bcast_msg, #bcast_msg{_ = '_'}),
-    lists:foreach(
-        fun(#bcast_msg{delivery_id = Did, product_key = PK, device_names = DNs}) ->
-            lists:foreach(
-                fun(DN) ->
-                    Key = {PK, DN},
-                    case ets:lookup(?TAB_MSG_IDX, Key) of
-                        [#bcast_msg_index{delivery_ids = Ids}] ->
-                            ets:insert(?TAB_MSG_IDX, #bcast_msg_index{
-                                key = Key, delivery_ids = [Did | Ids]
-                            });
-                        [] ->
-                            ets:insert(?TAB_MSG_IDX, #bcast_msg_index{
-                                key = Key, delivery_ids = [Did]
-                            })
-                    end
-                end,
-                DNs
-            )
-        end,
-        Deliveries
-    ),
-    ok.
