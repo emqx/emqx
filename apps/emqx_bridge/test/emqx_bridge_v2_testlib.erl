@@ -2793,8 +2793,8 @@ is_connector_aggregator_delivery_ongoing(SupRef) ->
     Deliveries = [
         P
      || {_, P, worker, _} <- FlatTree,
-        case proc_lib:initial_call(P) of
-            {emqx_connector_aggreg_delivery, _, _} ->
+        case proc_lib:get_label(P) of
+            {aggreg_delivery, _, _} ->
                 true;
             _ ->
                 false
