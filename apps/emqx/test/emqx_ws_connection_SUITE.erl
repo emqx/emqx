@@ -37,7 +37,17 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin,
-    TestCase =/= t_header
+    TestCase =/= t_header,
+    TestCase =/= t_header_source_not_allowed,
+    TestCase =/= t_header_ipv6_source_allowed,
+    TestCase =/= t_header_ipv6_source_ipv4_only_allow,
+    TestCase =/= t_header_ipv6_source_default_allow,
+    TestCase =/= t_header_empty_allow_list,
+    TestCase =/= t_header_multi_hop,
+    TestCase =/= t_header_all_entries_trusted,
+    TestCase =/= t_header_unparseable_entry,
+    TestCase =/= t_header_mixed_family_ipv4_only_allow,
+    TestCase =/= t_header_proxy_disabled_by_empty_name
 ->
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
@@ -60,7 +70,17 @@ end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_non_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
-    TestCase =/= t_header
+    TestCase =/= t_header,
+    TestCase =/= t_header_source_not_allowed,
+    TestCase =/= t_header_ipv6_source_allowed,
+    TestCase =/= t_header_ipv6_source_ipv4_only_allow,
+    TestCase =/= t_header_ipv6_source_default_allow,
+    TestCase =/= t_header_empty_allow_list,
+    TestCase =/= t_header_multi_hop,
+    TestCase =/= t_header_all_entries_trusted,
+    TestCase =/= t_header_unparseable_entry,
+    TestCase =/= t_header_mixed_family_ipv4_only_allow,
+    TestCase =/= t_header_proxy_disabled_by_empty_name
 ->
     meck:unload([cowboy_req]);
 end_per_testcase(_, Config) ->
@@ -88,29 +108,251 @@ t_info(_) ->
 set_ws_opts(Key, Val) ->
     emqx_config:put_listener_conf(ws, default, [websocket, Key], Val).
 
-t_header(_) ->
+set_header_test_ws_opts(ProxyAddressAllow) ->
     set_ws_opts(fail_if_no_subprotocol, false),
     set_ws_opts(proxy_address_header, <<"x-forwarded-for">>),
     set_ws_opts(proxy_port_header, <<"x-forwarded-port">>),
+    set_ws_opts(proxy_address_allow, [
+        esockd_cidr:parse(CIDR, true)
+     || CIDR <- ProxyAddressAllow
+    ]).
+
+%% the schema default of proxy_address_allow
+default_proxy_address_allow() ->
+    [esockd_cidr:parse(CIDR, true) || CIDR <- ["0.0.0.0/0", "::/0"]].
+
+ws_conn_info(Peer, Headers) ->
     {_Module, _Req, [ConnInfo, _], _ModOpts} = ?ws_conn:init(
         #{
-            peer => {{127, 0, 0, 1}, 3456},
+            peer => Peer,
             sock => {{127, 0, 0, 1}, 54321},
             cert => undefined,
-            headers => #{
-                <<"x-forwarded-for">> => <<"100.100.100.100, 99.99.99.99">>,
-                <<"x-forwarded-port">> => <<"1000">>
-            }
+            headers => Headers
         },
         #{
             zone => default,
             listener => {ws, default}
         }
     ),
+    ConnInfo.
+
+-doc "Under the default allow list, forwarded headers are honored and the leftmost entry is used.".
+t_header(_) ->
+    set_header_test_ws_opts(["0.0.0.0/0", "::/0"]),
+    ConnInfo = ws_conn_info(
+        {{127, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100, 99.99.99.99">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
     ?assertMatch(
         #{
             socktype := ws,
             peername := {{100, 100, 100, 100}, 1000}
+        },
+        ConnInfo
+    ).
+
+-doc "Forwarded headers are ignored for a source outside the allow list.".
+t_header_source_not_allowed(_) ->
+    set_header_test_ws_opts(["10.0.0.0/8"]),
+    ConnInfo = ws_conn_info(
+        {{127, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{127, 0, 0, 1}, 3456}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, default_proxy_address_allow()).
+
+-doc "Forwarded headers are honored for an IPv6 source within an IPv6 allow range.".
+t_header_ipv6_source_allowed(_) ->
+    set_header_test_ws_opts(["2001:db8::/32"]),
+    ConnInfo = ws_conn_info(
+        {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"2001:db8::ff">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{16#2001, 16#db8, 0, 0, 0, 0, 0, 16#ff}, 1000}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, default_proxy_address_allow()).
+
+-doc """
+In a multi-entry header, entries are scanned right to left and entries
+within the allow list (intermediate proxies) are skipped; the first entry
+outside the list is used as the client address.
+""".
+t_header_multi_hop(_) ->
+    set_header_test_ws_opts(["10.0.0.0/8"]),
+    ConnInfo = ws_conn_info(
+        {{10, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"9.9.9.9, 192.168.1.7, 10.0.0.5">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{192, 168, 1, 7}, 1000}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, default_proxy_address_allow()).
+
+-doc "When every header entry is within the allow list, the leftmost entry is used.".
+t_header_all_entries_trusted(_) ->
+    set_header_test_ws_opts(["10.0.0.0/8"]),
+    ConnInfo = ws_conn_info(
+        {{10, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"10.1.1.1, 10.2.2.2">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{10, 1, 1, 1}, 1000}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, default_proxy_address_allow()).
+
+-doc "A selected header entry that does not parse as an IP address falls back to the socket source address.".
+t_header_unparseable_entry(_) ->
+    set_header_test_ws_opts(["10.0.0.0/8"]),
+    ConnInfo = ws_conn_info(
+        {{10, 0, 0, 1}, 3456},
+        #{<<"x-forwarded-for">> => <<"garbage, 10.0.0.5">>}
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{10, 0, 0, 1}, 3456}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, default_proxy_address_allow()).
+
+-doc """
+Under an IPv4-only allow list, an IPv6 entry in the header is
+outside the list and is therefore selected as the client address.
+""".
+t_header_mixed_family_ipv4_only_allow(_) ->
+    set_header_test_ws_opts(["0.0.0.0/0"]),
+    ConnInfo = ws_conn_info(
+        {{127, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100, 2001:db8::1">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 1000}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, default_proxy_address_allow()).
+
+-doc "An IPv4-only allow list does not cover IPv6 sources, so forwarded headers are ignored for an IPv6 source.".
+t_header_ipv6_source_ipv4_only_allow(_) ->
+    set_header_test_ws_opts(["0.0.0.0/0"]),
+    ConnInfo = ws_conn_info(
+        {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 3456}
+        },
+        ConnInfo
+    ),
+    set_ws_opts(proxy_address_allow, default_proxy_address_allow()).
+
+-doc "Under the default allow list, forwarded headers are honored for IPv6 sources as well.".
+t_header_ipv6_source_default_allow(_) ->
+    set_header_test_ws_opts(["0.0.0.0/0", "::/0"]),
+    ConnInfo = ws_conn_info(
+        {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{100, 100, 100, 100}, 1000}
+        },
+        ConnInfo
+    ).
+
+-doc "With an empty allow list, forwarded headers are ignored for every source.".
+t_header_empty_allow_list(_) ->
+    set_header_test_ws_opts([]),
+    Headers = #{
+        <<"x-forwarded-for">> => <<"100.100.100.100">>,
+        <<"x-forwarded-port">> => <<"1000">>
+    },
+    Ipv4Peer = {{127, 0, 0, 1}, 3456},
+    Ipv6Peer = {{16#2001, 16#db8, 0, 0, 0, 0, 0, 1}, 3456},
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := Ipv4Peer
+        },
+        ws_conn_info(Ipv4Peer, Headers)
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := Ipv6Peer
+        },
+        ws_conn_info(Ipv6Peer, Headers)
+    ),
+    set_ws_opts(proxy_address_allow, default_proxy_address_allow()).
+
+-doc """
+Empty `proxy_address_header`/`proxy_port_header` means forwarded headers are
+never consulted; `peername` is the socket peer.
+""".
+t_header_proxy_disabled_by_empty_name(_) ->
+    set_ws_opts(fail_if_no_subprotocol, false),
+    set_ws_opts(proxy_address_header, <<"">>),
+    set_ws_opts(proxy_port_header, <<"">>),
+    ConnInfo = ws_conn_info(
+        {{127, 0, 0, 1}, 3456},
+        #{
+            <<"x-forwarded-for">> => <<"100.100.100.100, 99.99.99.99">>,
+            <<"x-forwarded-port">> => <<"1000">>
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{127, 0, 0, 1}, 3456}
         },
         ConnInfo
     ).

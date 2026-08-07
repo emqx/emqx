@@ -758,7 +758,9 @@ conn_congestion_enable_alarm.label:
 fields_ws_opts_proxy_port_header.desc:
 """The HTTP request header that carries the original client's source port, EMQX will take the leftmost port in the header as the original client's source port.
 
-This option is typically used when EMQX is deployed behind a WebSocket proxy."""
+This option is typically used when EMQX is deployed behind a WebSocket proxy.
+
+Set to an empty string (<code>""</code>) to disable it, so the source port of the WebSocket connection is always used."""
 
 fields_ws_opts_proxy_port_header.label:
 """Proxy port header"""
@@ -866,12 +868,26 @@ fields_mqtt_quic_listener_server_resumption_level.label:
 """Server resumption level"""
 
 fields_ws_opts_proxy_address_header.desc:
-"""The HTTP request header that carries the original client's IP address, EMQX will take the leftmost IP in the header as the original client's IP.
+"""The HTTP request header that carries the original client's IP address.
 
-This option is typically used when EMQX is deployed behind a WebSocket proxy."""
+This option is typically used when EMQX is deployed behind a WebSocket proxy. Which connections' headers are honored, and how the client address is selected from a multi-entry header, is controlled by `proxy_address_allow`.
+
+Set to an empty string (<code>""</code>) to disable it, so the source IP address of the WebSocket connection is always used."""
 
 fields_ws_opts_proxy_address_header.label:
 """Proxy address header"""
+
+fields_ws_opts_proxy_address_allow.desc:
+"""A list of IPv4 or IPv6 CIDR ranges specifying which sources are trusted to carry the original client's address and port in the `proxy_address_header` and `proxy_port_header` headers, typically the load balancers or reverse proxies in front of EMQX. The default (`["0.0.0.0/0", "::/0"]`) trusts all sources; note that the headers themselves are disabled unless their names are configured.
+
+The address taken from the header becomes the client's source address used for IP-based authorization rules, banned-client matching, and logging, so the header is consulted only when the connection's source address is trusted; otherwise the socket source address is used.
+
+When the header lists several addresses, they are scanned from right to left and trusted entries (intermediate proxies) are skipped: the first entry outside the trusted ranges is used as the client address. If all entries are trusted, the leftmost entry is used.
+
+Note that CIDR ranges match by address family: for example, a list containing only `0.0.0.0/0` covers all IPv4 sources but no IPv6 sources."""
+
+fields_ws_opts_proxy_address_allow.label:
+"""Trusted proxy address ranges"""
 
 sysmon_os_sysmem_high_watermark.desc:
 """The threshold, as percentage of system memory,
