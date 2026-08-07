@@ -319,6 +319,54 @@ jwt_value_test_() ->
         )
     ].
 
+is_jwt_test_() ->
+    SimpleToken = create_jwt_token(#{<<"sub">> => <<"1234567890">>}),
+    %% Real-world HS256 token (jwt.io example)
+    HS256Token = <<
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ."
+        "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+    >>,
+    RS256Header = base64url_encode(<<"{\"alg\":\"RS256\",\"typ\":\"JWT\"}">>),
+    RS256Token = <<RS256Header/binary, ".eyJzdWIiOiIxIn0.c2ln">>,
+    NoAlgHeader = base64url_encode(<<"{\"typ\":\"JWT\"}">>),
+    NonObjectHeader = base64url_encode(<<"[1,2,3]">>),
+    NonJsonHeader = base64url_encode(<<"not json">>),
+    BadPayload = <<RS256Header/binary, ".not-base64url!.c2ln">>,
+    %% Header whose base64 form carries '=' padding
+    PaddedHeader = base64:encode(<<"{\"alg\":\"none\"}">>),
+    PaddedToken = <<PaddedHeader/binary, ".eyJzdWIiOiIxIn0.c2ln">>,
+    [
+        ?_assert(emqx_variform_bif:is_jwt(SimpleToken)),
+        ?_assert(emqx_variform_bif:is_jwt(HS256Token)),
+        ?_assert(emqx_variform_bif:is_jwt(RS256Token)),
+        %% empty signature segment (unsecured JWS form) is still structurally a JWT
+        ?_assert(emqx_variform_bif:is_jwt(<<RS256Header/binary, ".eyJzdWIiOiIxIn0.">>)),
+        %% never throws: null / undefined / non-binary
+        ?_assertNot(emqx_variform_bif:is_jwt(undefined)),
+        ?_assertNot(emqx_variform_bif:is_jwt(null)),
+        ?_assertNot(emqx_variform_bif:is_jwt(42)),
+        ?_assertNot(emqx_variform_bif:is_jwt(some_atom)),
+        %% plain strings and garbage
+        ?_assertNot(emqx_variform_bif:is_jwt(<<>>)),
+        ?_assertNot(emqx_variform_bif:is_jwt(<<"a-plain-password">>)),
+        ?_assertNot(emqx_variform_bif:is_jwt(<<"...">>)),
+        %% wrong segment count: 2-part and 5-part (JWE)
+        ?_assertNot(emqx_variform_bif:is_jwt(<<RS256Header/binary, ".eyJzdWIiOiIxIn0">>)),
+        ?_assertNot(emqx_variform_bif:is_jwt(<<RS256Header/binary, ".a.b.c.d">>)),
+        %% header problems: not decodable, not JSON, not an object, no alg
+        ?_assertNot(emqx_variform_bif:is_jwt(<<"not-base64url!.eyJzdWIiOiIxIn0.c2ln">>)),
+        ?_assertNot(emqx_variform_bif:is_jwt(<<NonJsonHeader/binary, ".eyJzdWIiOiIxIn0.c2ln">>)),
+        ?_assertNot(
+            emqx_variform_bif:is_jwt(<<NonObjectHeader/binary, ".eyJzdWIiOiIxIn0.c2ln">>)
+        ),
+        ?_assertNot(emqx_variform_bif:is_jwt(<<NoAlgHeader/binary, ".eyJzdWIiOiIxIn0.c2ln">>)),
+        %% payload segment must be base64url-decodable
+        ?_assertNot(emqx_variform_bif:is_jwt(BadPayload)),
+        %% padding is tolerated (same decode mode as jwt_value)
+        ?_assert(emqx_variform_bif:is_jwt(PaddedToken))
+    ].
+
 json_value_test_() ->
     %% Simple JSON binary
     SimpleJson = emqx_utils_json:encode(#{
