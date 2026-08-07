@@ -246,7 +246,12 @@ t_configs_node(_) ->
     ?assertMatch({error, {_, 500, _}}, get_configs_with_json("bad_node")),
 
     ?assertEqual({ok, #{<<"log">> => 1}}, get_configs_with_binary("log", Node)),
-    ?assertEqual({ok, #{<<"log">> => 2}}, get_configs_with_binary("log", "other_node")).
+    ?assertEqual({ok, #{<<"log">> => 2}}, get_configs_with_binary("log", "other_node")),
+
+    %% The text/plain (v2) flavor degrades the same way as the JSON one:
+    %% unknown node -> 404, RPC failure -> structured 500 (not a crash).
+    ?assertMatch({error, {_, 404, _}}, get_configs_with_binary("log", "unknown_node")),
+    ?assertMatch({error, {_, 500, _}}, get_configs_with_binary("log", "bad_node")).
 
 %% v2 version binary
 t_configs_key(_Config) ->

@@ -391,18 +391,32 @@ handle_configs_v1_result(_Node, Res) ->
 
 get_configs_v2(QueryStr) ->
     Node = maps:get(<<"node">>, QueryStr, node()),
-    Conf =
+    case lists:member(Node, emqx:running_nodes()) of
+        false ->
+            Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
+            {404, #{code => 'NOT_FOUND', message => Message}};
+        true ->
+            do_get_configs_v2(Node, QueryStr)
+    end.
+
+do_get_configs_v2(Node, QueryStr) ->
+    Res =
         case maps:find(<<"key">>, QueryStr) of
             error ->
                 emqx_conf_proto_v5:get_hocon_config(Node, ?global_ns);
             {ok, Key} ->
                 emqx_conf_proto_v5:get_hocon_config(Node, ?global_ns, atom_to_binary(Key))
         end,
-    {
-        200,
-        #{<<"content-type">> => <<"text/plain">>},
-        iolist_to_binary(hocon_pp:do(Conf, #{}))
-    }.
+    case Res of
+        {badrpc, _} = Err ->
+            handle_configs_v1_result(Node, Err);
+        Conf ->
+            {
+                200,
+                #{<<"content-type">> => <<"text/plain">>},
+                iolist_to_binary(hocon_pp:do(Conf, #{}))
+            }
+    end.
 
 conf_path_reset(Req) ->
     <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),
