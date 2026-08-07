@@ -5,7 +5,7 @@ defmodule EMQXConnectorAggregator.MixProject do
   def project do
     [
       app: :emqx_connector_aggregator,
-      version: "6.1.1",
+      version: "6.1.2",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
