@@ -653,6 +653,14 @@ gather_trace_logs(Trace = #{name := Name}, Nodes) ->
                     trace => Name,
                     reason => Reason
                 }),
+                error;
+            ({Node, {badrpc, Reason}}) ->
+                ?SLOG(error, #{
+                    msg => "stream_trace_log_error",
+                    node => Node,
+                    trace => Name,
+                    reason => Reason
+                }),
                 error
         end,
         NodeResults
@@ -753,8 +761,11 @@ filter_trace_details(TraceLogDetail) ->
         fun
             ({ok, Info}, Acc) ->
                 [Info | Acc];
-            ({error, Error}, Acc) ->
+            ({error, Error}, Acc) when is_map(Error) ->
                 ?SLOG(error, Error#{msg => "get_trace_details_failed"}),
+                Acc;
+            (Error, Acc) ->
+                ?SLOG(error, #{msg => "get_trace_details_failed", reason => Error}),
                 Acc
         end,
     lists:foldl(GroupFun, [], TraceLogDetail).
@@ -800,7 +811,7 @@ do_stream_trace_log(Name, Query, Position, Bytes) ->
                 ?BAD_REQUEST(<<"INVALID_PARAMETER">>, <<"Invalid cursor">>);
             {error, stale_cursor} ->
                 ?BAD_REQUEST(<<"STALE_CURSOR">>, <<"Stale cursor">>);
-            {badrpc, nodedown} ->
+            {badrpc, _} ->
                 ?SERVICE_UNAVAILABLE(<<"Node is unavailable">>)
         end
     else
@@ -892,9 +903,18 @@ cluster_trace_details(Name) ->
 node_stream_trace_log(Node, Name, Cont, Limit) ->
     emqx_mgmt_trace_proto_v3:stream_trace_log(Node, Name, Cont, Limit).
 
-filter_bad_replies({GoodRes, BadNodes}) ->
+filter_bad_replies({GoodRes0, BadNodes}) ->
     BadNodes =/= [] andalso
         ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes}),
+    {GoodRes, BadRes} = lists:partition(
+        fun
+            ({badrpc, _}) -> false;
+            (_) -> true
+        end,
+        GoodRes0
+    ),
+    BadRes =/= [] andalso
+        ?SLOG(error, #{msg => "rpc_call_failed", errors => BadRes}),
     GoodRes.
 
 supported_running_nodes() ->
