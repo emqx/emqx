@@ -212,14 +212,29 @@ do_subscriptions_query(QString0) ->
     end.
 
 do_subscriptions_query_mem(QString) ->
-    Args = [?SUBOPTION, QString, ?SUBS_QSCHEMA, fun ?MODULE:qs2ms/2, fun ?MODULE:format/2],
+    Options = #{accumulate_rows_on_node => true},
     case maps:get(<<"node">>, QString, undefined) of
         undefined ->
-            erlang:apply(fun emqx_mgmt_api:cluster_query/5, Args);
+            emqx_mgmt_api:cluster_query(
+                ?SUBOPTION,
+                QString,
+                ?SUBS_QSCHEMA,
+                fun ?MODULE:qs2ms/2,
+                fun ?MODULE:format/2,
+                Options
+            );
         Node0 ->
             case emqx_utils:safe_to_existing_atom(Node0) of
                 {ok, Node1} ->
-                    erlang:apply(fun emqx_mgmt_api:node_query/6, [Node1 | Args]);
+                    emqx_mgmt_api:node_query(
+                        Node1,
+                        ?SUBOPTION,
+                        QString,
+                        ?SUBS_QSCHEMA,
+                        fun ?MODULE:qs2ms/2,
+                        fun ?MODULE:format/2,
+                        Options
+                    );
                 {error, _} ->
                     {error, Node0, {badrpc, <<"invalid node">>}}
             end
@@ -303,11 +318,11 @@ dssub_to_subscription(DSSub = {SessionID, Topic, _}) ->
             Sub
     end.
 
-enrich_dssub({SessionId, Topic}) ->
+enrich_dssub({SessionID, Topic}) ->
     %% TODO: Suboptimal, especially with DS-backed session storage.
-    case emqx_persistent_session_ds:get_client_subscription(SessionId, Topic) of
+    case emqx_persistent_session_ds:get_client_subscription(SessionID, Topic) of
         Subscription = #{} ->
-            {SessionId, Topic, Subscription};
+            {SessionID, Topic, Subscription};
         undefined ->
             undefined
     end.
