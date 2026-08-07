@@ -47,6 +47,7 @@
 -define(sessds_sub_down, sessds_sub_down).
 
 -define(sessds_takeover_conflict, sessds_takeover_conflict).
+-define(sessds_drop_conflict, sessds_drop_conflict).
 
 -define(sessds_expired, sessds_expired).
 

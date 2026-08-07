@@ -947,6 +947,38 @@ t_state_commit_conflict(_Config) ->
         end
     ).
 
+%% @doc This testcase verifies that concurrent deletion of the same
+%% session state is idempotent: the actor that loses the race on the
+%% collection guard gets `ok' instead of crashing. This happens e.g.
+%% when a client reconnects with clean start while the previous
+%% channel is terminating and dropping the expired session.
+t_state_drop_conflict(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_state_drop_conflict(_Config) ->
+    ?check_trace(
+        begin
+            Id = <<"clientid">>,
+            %% Create and commit a session:
+            S0 = emqx_persistent_session_ds_state:create_new(Id),
+            _ = emqx_persistent_session_ds_state:commit(S0, #{lifetime => new, sync => true}),
+            %% Two actors open the same state, as happens when a
+            %% clean-start reconnect and the terminating old channel
+            %% both drop the session:
+            {ok, A} = emqx_persistent_session_ds_state:open(Id),
+            {ok, B} = emqx_persistent_session_ds_state:open(Id),
+            %% A wins the race:
+            ?assertEqual(ok, emqx_persistent_session_ds_state:delete(A)),
+            %% B loses, but the deletion is idempotent:
+            ?assertEqual(ok, emqx_persistent_session_ds_state:delete(B)),
+            %% The session is gone:
+            ?assertEqual(undefined, emqx_persistent_session_ds_state:open(Id)),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(?sessds_drop_conflict, Trace))
+        end
+    ).
+
 t_fuzz(init, Config) ->
     start_local(?FUNCTION_NAME, Config).
 t_fuzz(_Config) ->

@@ -330,7 +330,7 @@ delete(
         retries => trans_retries(),
         retry_interval => trans_retry_interval()
     },
-    {atomic, _, _} =
+    Result =
         emqx_ds:trans(
             Opts,
             fun() ->
@@ -339,7 +339,25 @@ delete(
                 emqx_ds_pmap:tx_delete_guard(ClientId)
             end
         ),
-    ok.
+    case Result of
+        {atomic, _, _} ->
+            ok;
+        {error, unrecoverable, {precondition_failed, Conflict}} ->
+            %% The session state was concurrently deleted, or it now
+            %% belongs to a newer incarnation of the client that must
+            %% not be deleted. Either way, there's nothing left to do:
+            ?tp(warning, ?sessds_drop_conflict, #{
+                id => ClientId, conflict => Conflict, channel => self()
+            }),
+            ok;
+        {error, Class, Reason} ->
+            error(
+                {failed_to_delete_session, #{
+                    id => ClientId,
+                    Class => Reason
+                }}
+            )
+    end.
 
 tx_del_session_data(ClientId) ->
     emqx_ds_pmap:tx_destroy(ClientId, ?top_metadata),
