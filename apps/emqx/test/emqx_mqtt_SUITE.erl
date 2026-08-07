@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(STATS_KYES, [
     recv_pkt,
@@ -67,6 +68,54 @@ t_message_expiry_interval(_) ->
 t_message_not_expiry_interval(_) ->
     run_message_expiry_interval(<<"noexp">>, fun message_expiry_interval_not_exipred/4).
 
+-doc """
+A live subscriber skips an expired message that was held in the mqueue by delivery
+rate limiting.
+""".
+t_delivery_limited_queued_messages_expire(_Config) ->
+    Topic = ~"t/delivery_limited_expired",
+    SubscriberId = ~"delivery_limited_expired_sub",
+    PublisherId = ~"delivery_limited_expired_pub",
+    {ok, CPub} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, PublisherId}
+    ]),
+    {ok, CSub} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, SubscriberId},
+        {auto_ack, false}
+    ]),
+    configure_delivery_limiters(tcp, default, ~"1/5s"),
+    try
+        {ok, _} = emqtt:connect(CPub),
+        {ok, _} = emqtt:connect(CSub),
+        {ok, _, [1]} = emqtt:subscribe(CSub, Topic, 1),
+
+        publish_with_expiry(CPub, Topic, ~"1", ?QOS_1, 60),
+        publish_with_expiry(CPub, Topic, ~"2", ?QOS_1, 2),
+        publish_with_expiry(CPub, Topic, ~"3", ?QOS_1, 60),
+
+        ct:sleep(3000),
+
+        configure_delivery_limiters(tcp, default, ~"infinity"),
+
+        {publish, Pub1} = ?assertReceive({publish, #{client_pid := CSub, topic := Topic}}),
+        ok = emqtt:puback(CSub, maps:get(packet_id, Pub1)),
+        {publish, Pub2} = ?assertReceive({publish, #{client_pid := CSub, topic := Topic}}),
+        ?assertMatch(
+            [
+                #{payload := ~"1"},
+                #{payload := ~"3"}
+            ],
+            [Pub1, Pub2]
+        ),
+        ?assertNotReceive({publish, #{client_pid := CSub, topic := Topic}}, 3000)
+    after
+        emqtt:stop(CSub),
+        emqtt:stop(CPub),
+        configure_delivery_limiters(tcp, default, ~"infinity")
+    end.
+
 %% Each QoS iteration uses a fresh set of clientids (tagged with the test name
 %% and the QoS) so that no session/mqueue/subscription state leaks from one
 %% iteration to the next, nor between the two expiry-interval tests. Reusing a
@@ -121,6 +170,21 @@ message_expiry_interval_init(Tag) ->
     %% handshake widens the window).
     ok = wait_until_session_disconnected(<<"Client-Verify-", Tag/binary>>),
     {CPublish, CControl}.
+
+configure_delivery_limiters(Type, Name, MessagesRate) ->
+    {ok, _} = emqx:update_config(
+        [listeners, Type, Name],
+        {update, #{<<"delivery_messages_rate">> => MessagesRate}}
+    ).
+
+publish_with_expiry(Publisher, Topic, Payload, QoS, ExpiryInterval) ->
+    {ok, _} = emqtt:publish(
+        Publisher,
+        Topic,
+        #{'Message-Expiry-Interval' => ExpiryInterval},
+        Payload,
+        [{qos, QoS}]
+    ).
 
 wait_until_session_disconnected(ClientId) ->
     wait_until_session_disconnected(ClientId, 100).
