@@ -22,9 +22,26 @@ the whole message (every array element), not just the unknown one. Guard any
 field access into a lookup result that can miss, or filter misses out in the
 `INCASE` clause.
 
+Alternatively, supply a **complete** default row and skip the guard entirely —
+every field `subbits` needs is then always present:
+
+```sql
+maptab_lookup('signals', item_id,
+  json_decode('{"signal_name":"Unknown","start_bit":17,"length":48,"type":"bits","signedness":"unsigned","endian":"big"}')) AS sig,
+subbits(hexstr2bin(c), sig.start_bit, sig.length, sig.type, sig.signedness, sig.endian) AS data
+```
+
+Note an *empty* default (`map_new()`) does not remove the need for the guard:
+the row fields are still missing, so `sig.start_bit` is `undefined` and
+`subbits` throws all the same.
+
 ## Rule SQL functions
 
 - `maptab_lookup(Table, Key)` — the row's value map, or `undefined` when absent.
+- `maptab_lookup(Table, Key, DefaultRow)` — the row's value map, or the given
+  map on a miss (a field name is always a string, so a map third argument
+  unambiguously selects this form). Build the default with `map_new()`,
+  `map_put(...)`, or `json_decode('{...}')`.
 - `maptab_lookup(Table, Key, Field)` — a single value field, or `undefined`.
 - `maptab_lookup(Table, Key, Field, Default)` — same, with a caller-supplied default.
 

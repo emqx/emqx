@@ -300,6 +300,46 @@ t_rule_sql_lookup_and_subbits(_Config) ->
     ),
     ok.
 
+t_rule_sql_default_row(_Config) ->
+    ok = load_table(?TABLE, [
+        #{
+            key => 3,
+            signal_name => <<"sig_s8">>,
+            start_bit => 17,
+            length => 8,
+            type => <<"integer">>,
+            signedness => <<"signed">>,
+            endian => <<"big">>
+        }
+    ]),
+    FrameS8 = frame_hex(<<0:4, 3:12, (-5):8/signed-big, 0:40>>),
+    FrameUnknown = frame_hex(<<0:4, 999:12, 1:48>>),
+    %% a complete default row makes the decode guard-free: every field
+    %% subbits needs is present even on a miss
+    SQL = <<
+        "FOREACH payload.frames AS c "
+        "DO "
+        "maptab_lookup('can_signals', subbits(hexstr2bin(c),5,12), "
+        "json_decode('{\"signal_name\":\"Unknown\",\"start_bit\":17,\"length\":48,"
+        "\"type\":\"bits\",\"signedness\":\"unsigned\",\"endian\":\"big\"}')) AS sig, "
+        "sig.signal_name AS signal_name, "
+        "subbits(hexstr2bin(c), sig.start_bit, sig.length, sig.type, sig.signedness, sig.endian) AS data "
+        "FROM \"t/can\""
+    >>,
+    Context = #{
+        payload => emqx_utils_json:encode(#{frames => [FrameS8, FrameUnknown]}),
+        topic => <<"t/can">>
+    },
+    {ok, Results} = emqx_rule_sqltester:test(#{sql => SQL, context => Context}),
+    ?assertMatch(
+        [
+            #{<<"signal_name">> := <<"sig_s8">>, <<"data">> := -5},
+            #{<<"signal_name">> := <<"Unknown">>, <<"data">> := <<1:48>>}
+        ],
+        Results
+    ),
+    ok.
+
 t_rule_sql_miss_path(_Config) ->
     ok = load_table(?TABLE, [#{key => 2, signal_name => <<"sig_f32">>}]),
     UnknownFrame = frame_hex(<<0:4, 999:12, 0:48>>),

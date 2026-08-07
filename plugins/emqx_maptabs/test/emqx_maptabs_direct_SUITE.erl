@@ -85,6 +85,20 @@ t_lookup_semantics(_Config) ->
         <<"dflt">>,
         emqx_maptabs_rule_funcs:rsf_maptab_lookup([?TABLE, 404, <<"x">>, <<"dflt">>])
     ),
+    %% a map third argument is a whole-row default
+    DefaultRow = #{<<"signal_name">> => <<"Unknown">>},
+    ?assertEqual(
+        #{<<"note">> => <<"string keyed">>},
+        emqx_maptabs_rule_funcs:rsf_maptab_lookup([?TABLE, <<"str">>, DefaultRow])
+    ),
+    ?assertEqual(
+        DefaultRow,
+        emqx_maptabs_rule_funcs:rsf_maptab_lookup([?TABLE, 404, DefaultRow])
+    ),
+    ?assertEqual(
+        #{},
+        emqx_maptabs_rule_funcs:rsf_maptab_lookup([<<"no_such">>, 1, #{}])
+    ),
     %% metadata
     ?assertMatch(
         [#{name := ?TABLE, row_count := 2, version := <<_/binary>>, loaded_at := _}],
