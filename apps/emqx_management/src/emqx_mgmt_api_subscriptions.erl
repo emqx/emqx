@@ -318,11 +318,11 @@ dssub_to_subscription(DSSub = {SessionID, Topic, _}) ->
             Sub
     end.
 
-enrich_dssub({SessionId, Topic}) ->
+enrich_dssub({SessionID, Topic}) ->
     %% TODO: Suboptimal, especially with DS-backed session storage.
-    case emqx_persistent_session_ds:get_client_subscription(SessionId, Topic) of
+    case emqx_persistent_session_ds:get_client_subscription(SessionID, Topic) of
         Subscription = #{} ->
-            {SessionId, Topic, Subscription};
+            {SessionID, Topic, Subscription};
         undefined ->
             undefined
     end.
