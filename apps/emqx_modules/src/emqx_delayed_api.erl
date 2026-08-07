@@ -244,7 +244,9 @@ delayed_message(delete, #{bindings := #{node := NodeBin, msgid := HexId}}) ->
                 ok ->
                     {204};
                 {error, not_found} ->
-                    {404, generate_http_code_map(not_found, Id)}
+                    {404, generate_http_code_map(not_found, Id)};
+                {badrpc, _} ->
+                    {400, generate_http_code_map(invalid_node, NodeBin)}
             end
         end
     ).
