@@ -649,6 +649,18 @@ t_register_message_invalid_base64(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"InvalidBase64">>, maps:get(<<"Code">>, Resp)).
 
+t_register_message_too_large(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    MaxSize = maps:get(max_message_size_batch, Cfg, 10240),
+    Payload = crypto:strong_rand_bytes(MaxSize + 1),
+    Body = #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageContent">> => base64:encode(Payload)
+    },
+    Request = #{body => Body},
+    {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+    ?assertEqual(<<"MessageTooLarge">>, maps:get(<<"Code">>, Resp)).
+
 t_register_message_empty(_Config) ->
     Body = #{<<"Action">> => <<"RegisterMessage">>},
     Request = #{body => Body},
@@ -937,6 +949,14 @@ t_mgmt_list_messages_pagination(_Config) ->
     Ids1 = [maps:get(<<"MessageId">>, I) || I <- Items1],
     Ids2 = [maps:get(<<"MessageId">>, I) || I <- Items2],
     ?assertEqual([], [I || I <- Ids1, lists:member(I, Ids2)]).
+
+t_mgmt_list_messages_offset_overflow(_Config) ->
+    [create_test_msg(<<"mgmt-off-", (integer_to_binary(N))/binary>>) || N <- [1, 2, 3]],
+    %% An offset past the last record must return an empty page, not crash.
+    {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"messages">>], #{
+        query_string => #{<<"limit">> => <<"10">>, <<"offset">> => <<"1000000">>}
+    }),
+    ?assertEqual([], maps:get(<<"Messages">>, Resp)).
 
 t_mgmt_get_message(_Config) ->
     {ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt-get">>),
