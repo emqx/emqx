@@ -2789,6 +2789,52 @@ cluster_testcases(Module, ClusterKey) ->
         emqx_common_test_helpers:all(Module)
     ).
 
+%% given a supervisor ref that parents a `emqx_connector_aggreg_upload_sup`, checks if
+%% there are any deliveries ongoing.
+is_connector_aggregator_delivery_ongoing(SupRef) ->
+    FlattenTree = fun Recur(Sup) ->
+        Children = supervisor:which_children(Sup),
+        Sups = [P || {_, P, supervisor, _} <- Children],
+        Children ++ [Recur(S) || S <- Sups]
+    end,
+    FlatTree = FlattenTree(SupRef),
+    Deliveries = [
+        P
+     || {_, P, worker, _} <- FlatTree,
+        case proc_lib:get_label(P) of
+            {aggreg_delivery, _, _} ->
+                true;
+            _ ->
+                false
+        end
+    ],
+    Deliveries /= [].
+
+print_tree(SupRef) ->
+    Res = do_print_tree(SupRef, 0),
+    ct:pal("~s", [Res]).
+
+do_print_child({Id, _Pid, worker, Mod}, Level) ->
+    io_lib:format("~s* [w] ~p\n", [binary:copy(<<" ">>, Level * 2), do_format_child_id(Id, Mod)]);
+do_print_child({Id, Pid, supervisor, Mod}, Level) ->
+    [
+        io_lib:format("~s* [s] ~p\n", [binary:copy(<<" ">>, Level * 2), do_format_child_id(Id, Mod)]),
+        do_print_tree(Pid, Level + 1)
+    ].
+
+do_format_child_id(undefined, Mod) ->
+    {undefined, Mod};
+do_format_child_id(Id, _Mod) ->
+    Id.
+
+do_print_tree(SupRef, Level) ->
+    lists:map(
+        fun(Child) ->
+            do_print_child(Child, Level)
+        end,
+        supervisor:which_children(SupRef)
+    ).
+
 generate_cert_pem_bundle(Opts0) ->
     #{
         cert := CertRoot,
