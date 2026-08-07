@@ -34,5 +34,9 @@ kadmin.local -w password -q "ktadd  -k /var/lib/secret/rig.keytab -norandkey rig
 kadmin.local -w password -q "ktadd  -k /var/lib/secret/erlang.keytab -norandkey mqtt/erlang.emqx.net@KDC.EMQX.NET " > /dev/null
 kadmin.local -w password -q "ktadd  -k /var/lib/secret/krb_authn_cli.keytab -norandkey krb_authn_cli@KDC.EMQX.NET " > /dev/null
 
+# The test containers read these keytabs as a non-root user; keep them
+# readable no matter who owns them by the time consumers open them.
+chmod a+r /var/lib/secret/*.keytab
+
 echo STARTING KDC
 /usr/sbin/krb5kdc -n
