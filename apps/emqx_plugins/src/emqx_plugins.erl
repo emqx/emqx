@@ -8,8 +8,44 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+%% Response headers that plugin API callbacks are allowed to set. An
+%% allow-list is used instead of a deny-list because a deny-list is doomed to
+%% be incomplete — every new browser security mechanism adds another header
+%% to deny. Plugins that need a custom header must prefix it with
+%% `x-plugin-'. All names must be lower-case binary because
+%% `normalize_headers/1' lower-cases keys.
+-define(PLUGIN_API_ALLOWED_HEADERS, [
+    %% content metadata
+    <<"content-type">>,
+    <<"content-language">>,
+    <<"content-disposition">>,
+    <<"content-range">>,
+    <<"accept-ranges">>,
+    %% caching
+    <<"cache-control">>,
+    <<"expires">>,
+    <<"pragma">>,
+    %% entity/validation
+    <<"etag">>,
+    <<"last-modified">>,
+    <<"age">>,
+    <<"vary">>,
+    %% misc safe
+    <<"retry-after">>,
+    %% correlation ids
+    <<"x-request-id">>,
+    <<"x-correlation-id">>,
+    %% rate limiting
+    <<"x-ratelimit-limit">>,
+    <<"x-ratelimit-remaining">>,
+    <<"x-ratelimit-reset">>
+]).
+
+-define(PLUGIN_API_CUSTOM_HEADER_PREFIX, <<"x-plugin-">>).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-export([map_plugin_api_result/1]).
 -endif.
 
 -export([
@@ -376,7 +412,7 @@ delete_state(NameVsn) ->
     ensure_delete_state(NameVsn).
 
 %% @doc Write the package file.
--spec write_package(name_vsn(), binary()) -> ok.
+-spec write_package(name_vsn(), binary()) -> ok | {error, map()}.
 write_package(NameVsn, Bin) ->
     emqx_plugins_fs:write_tar(NameVsn, Bin).
 
@@ -664,15 +700,27 @@ resolve_active_name_vsn(Plugin0, ActiveNameVsns) ->
     end.
 
 map_plugin_api_result({ok, Status, Headers, Body}) when is_integer(Status) ->
-    {Status, normalize_headers(Headers), Body};
+    {Status, filter_plugin_api_headers(normalize_headers(Headers)), Body};
 map_plugin_api_result({error, Code, Msg}) ->
     {400, #{code => to_bin(Code), message => to_bin(Msg)}};
 map_plugin_api_result({error, Status, Headers, Body}) when is_integer(Status) ->
-    {Status, normalize_headers(Headers), Body};
+    {Status, filter_plugin_api_headers(normalize_headers(Headers)), Body};
 map_plugin_api_result({error, not_found}) ->
     {404, #{code => <<"NOT_FOUND">>, message => <<"Plugin API Not Found">>}};
 map_plugin_api_result(_Other) ->
     {500, #{code => <<"INTERNAL_ERROR">>, message => <<"Invalid Plugin API Response">>}}.
+
+filter_plugin_api_headers(Headers) ->
+    maps:filter(fun(K, _V) -> is_allowed_header(K) end, Headers).
+
+is_allowed_header(Header) when is_binary(Header) ->
+    Lower = to_bin(string:lowercase(Header)),
+    lists:member(Lower, ?PLUGIN_API_ALLOWED_HEADERS) orelse is_custom_header(Lower);
+is_allowed_header(_) ->
+    false.
+
+is_custom_header(Header) ->
+    nomatch =/= string:prefix(Header, ?PLUGIN_API_CUSTOM_HEADER_PREFIX).
 
 normalize_headers(Headers) when is_map(Headers) ->
     maps:from_list([{to_bin(K), iolist_to_binary(V)} || {K, V} <- maps:to_list(Headers)]);
@@ -968,15 +1016,19 @@ get_tar(NameVsn) ->
 
 -spec install_package(name_vsn(), binary()) -> ok | {error, term()}.
 install_package(NameVsn, Bin) ->
-    ok = write_package(NameVsn, Bin),
-    case ensure_installed(NameVsn, ?fresh_install) of
-        {error, #{reason := plugin_not_found}} = NotFound ->
-            NotFound;
-        {error, _} = Error ->
-            _ = delete_package(NameVsn),
-            Error;
-        Result ->
-            Result
+    case write_package(NameVsn, Bin) of
+        ok ->
+            case ensure_installed(NameVsn, ?fresh_install) of
+                {error, #{reason := plugin_not_found}} = NotFound ->
+                    NotFound;
+                {error, _} = Error ->
+                    _ = delete_package(NameVsn),
+                    Error;
+                Result ->
+                    Result
+            end;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
@@ -1106,7 +1158,8 @@ get_package_from_node(Node, NameVsn) ->
 get_package_from_any_node([], _NameVsn, Errors) ->
     {error, Errors};
 get_package_from_any_node([Node | T], NameVsn, Errors) ->
-    case emqx_plugins_proto_v2:get_tar(Node, NameVsn, infinity) of
+    Timeout = emqx_plugins_fs:max_extraction_time_ms(),
+    case emqx_plugins_proto_v2:get_tar(Node, NameVsn, Timeout) of
         {ok, _} = Res ->
             ?SLOG(debug, #{
                 msg => "get_plugin_tar_from_cluster_successfully",

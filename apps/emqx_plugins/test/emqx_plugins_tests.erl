@@ -206,3 +206,71 @@ unmeck_emqx() ->
     meck:unload(emqx),
     meck:unload(emqx_plugins_serde),
     ok.
+
+%%--------------------------------------------------------------------
+%% plugin API response header filtering (allow-list)
+%%--------------------------------------------------------------------
+
+map_plugin_api_result_filters_forbidden_headers_test() ->
+    Stripped = [
+        %% auth
+        <<"authorization">>,
+        <<"www-authenticate">>,
+        %% cookies
+        <<"set-cookie">>,
+        <<"cookie">>,
+        %% CORS
+        <<"access-control-allow-origin">>,
+        <<"access-control-request-method">>,
+        %% redirects
+        <<"location">>,
+        <<"refresh">>,
+        %% security/policy
+        <<"content-security-policy">>,
+        <<"strict-transport-security">>,
+        <<"x-frame-options">>,
+        <<"x-content-type-options">>,
+        <<"referrer-policy">>,
+        %% custom header without the x-plugin- prefix
+        <<"x-custom">>,
+        %% non-binary key is dropped too
+        content_type
+    ],
+    Allowed = [
+        <<"content-type">>,
+        <<"cache-control">>,
+        <<"etag">>,
+        <<"x-request-id">>,
+        <<"x-plugin-custom">>,
+        <<"x-plugin-set-cookie">>
+    ],
+    Headers = maps:from_list([{K, <<"1">>} || K <- Stripped ++ Allowed]),
+    {200, RespHeaders, #{ok := true}} = emqx_plugins:map_plugin_api_result(
+        {ok, 200, Headers, #{ok => true}}
+    ),
+    [?assertNot(maps:is_key(K, RespHeaders)) || K <- Stripped],
+    [?assertEqual(<<"1">>, maps:get(K, RespHeaders)) || K <- Allowed],
+    %% error clause is filtered too
+    {401, ErrHeaders, #{error := true}} = emqx_plugins:map_plugin_api_result(
+        {error, 401, Headers, #{error => true}}
+    ),
+    [?assertNot(maps:is_key(K, ErrHeaders)) || K <- Stripped],
+    [?assertEqual(<<"1">>, maps:get(K, ErrHeaders)) || K <- Allowed].
+
+map_plugin_api_result_case_insensitive_test() ->
+    Headers = #{
+        <<"Set-Cookie">> => <<"a">>,
+        <<"LOCATION">> => <<"b">>,
+        <<"Content-Type">> => <<"c">>,
+        <<"X-Plugin-Foo">> => <<"d">>
+    },
+    {200, RespHeaders, #{}} = emqx_plugins:map_plugin_api_result({ok, 200, Headers, #{}}),
+    %% Stripped regardless of input case
+    [
+        ?assertNot(maps:is_key(K, RespHeaders))
+     || K <- [<<"set-cookie">>, <<"Set-Cookie">>, <<"location">>, <<"LOCATION">>]
+    ],
+    %% Allowed headers preserved (normalization keeps original case)
+    ?assertEqual(<<"c">>, iolist_to_binary(maps:get(<<"Content-Type">>, RespHeaders))),
+    %% custom header with x-plugin- prefix passes (prefix matched case-insensitively)
+    ?assertEqual(<<"d">>, iolist_to_binary(maps:get(<<"X-Plugin-Foo">>, RespHeaders))).
