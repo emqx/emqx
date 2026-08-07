@@ -1092,13 +1092,17 @@ handle_operation(Namespace, ConfRootKey, Id, Op) ->
 handle_node_operation(Namespace, ConfRootKey, Node, Id, Op) ->
     ?TRY_PARSE_ID(
         Id,
-        case emqx_utils:safe_to_existing_atom(Node, utf8) of
-            {ok, TargetNode} ->
-                {ProtoMod, OperFunc} = operation_func(Op),
-                BPAPIArgs = [[TargetNode], Namespace, ConfRootKey, BridgeType, BridgeName],
-                call_operation_if_enabled(
-                    ProtoMod, OperFunc, Namespace, ConfRootKey, BridgeType, BridgeName, BPAPIArgs
-                );
+        maybe
+            {ok, TargetNode} ?= emqx_utils:safe_to_existing_atom(Node, utf8),
+            true ?= lists:member(TargetNode, emqx:running_nodes()),
+            {ProtoMod, OperFunc} = operation_func(Op),
+            BPAPIArgs = [[TargetNode], Namespace, ConfRootKey, BridgeType, BridgeName],
+            call_operation_if_enabled(
+                ProtoMod, OperFunc, Namespace, ConfRootKey, BridgeType, BridgeName, BPAPIArgs
+            )
+        else
+            false ->
+                ?NOT_FOUND(<<"Node not found: ", Node/binary>>);
             {error, _} ->
                 ?NOT_FOUND(<<"Invalid node name: ", Node/binary>>)
         end
@@ -1168,8 +1172,14 @@ is_ok(ResL) ->
         )
     of
         [] -> {ok, [Res || {ok, Res} <- ResL]};
-        ErrL -> hd(ErrL)
+        ErrL -> to_error(hd(ErrL))
     end.
+
+%% Normalize the remaining erpc:multicall failure shapes into `{error, _}'.
+to_error({error, _} = Error) -> Error;
+to_error({throw, Reason}) -> {error, Reason};
+to_error({exit, Reason}) -> {error, Reason};
+to_error(Reason) -> {error, Reason}.
 
 %% bridge helpers
 -spec lookup_from_all_nodes(maybe_namespace(), emqx_bridge_v2:root_cfg_key(), _, _, _) -> _.
