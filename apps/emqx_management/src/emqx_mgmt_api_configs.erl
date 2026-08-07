@@ -96,7 +96,7 @@ schema("/configs") ->
                     )},
                 {node,
                     hoconsc:mk(
-                        typerefl:atom(),
+                        binary(),
                         #{
                             in => query,
                             required => false,
@@ -358,15 +358,13 @@ find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Pre
 %% `get_configs_v2/1` returns the same content as HOCON (text/plain), which can be fed back into
 %% `PUT /configs` to reload configuration.
 get_configs_v1(QueryStr) ->
-    Node = maps:get(<<"node">>, QueryStr, node()),
-    case lists:member(Node, emqx:running_nodes()) of
-        false ->
-            Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
-            {404, #{code => 'NOT_FOUND', message => Message}};
-        true ->
+    case find_node(QueryStr) of
+        {ok, Node} ->
             handle_configs_v1_result(
                 Node, get_configs_v1_by_key(Node, maps:find(<<"key">>, QueryStr))
-            )
+            );
+        {error, not_found} ->
+            node_not_found_response(QueryStr)
     end.
 
 get_configs_v1_by_key(Node, error) ->
@@ -384,19 +382,16 @@ get_configs_v1_by_key(Node, {ok, Key}) ->
     end.
 
 handle_configs_v1_result(Node, {badrpc, R}) ->
-    Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
-    {500, #{code => 'BAD_NODE', message => Message}};
+    bad_node_response(Node, R);
 handle_configs_v1_result(_Node, Res) ->
     {200, Res}.
 
 get_configs_v2(QueryStr) ->
-    Node = maps:get(<<"node">>, QueryStr, node()),
-    case lists:member(Node, emqx:running_nodes()) of
-        false ->
-            Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
-            {404, #{code => 'NOT_FOUND', message => Message}};
-        true ->
-            do_get_configs_v2(Node, QueryStr)
+    case find_node(QueryStr) of
+        {ok, Node} ->
+            do_get_configs_v2(Node, QueryStr);
+        {error, not_found} ->
+            node_not_found_response(QueryStr)
     end.
 
 do_get_configs_v2(Node, QueryStr) ->
@@ -408,8 +403,8 @@ do_get_configs_v2(Node, QueryStr) ->
                 emqx_conf_proto_v5:get_hocon_config(Node, ?global_ns, atom_to_binary(Key))
         end,
     case Res of
-        {badrpc, _} = Err ->
-            handle_configs_v1_result(Node, Err);
+        {badrpc, R} ->
+            bad_node_response(Node, R);
         Conf ->
             {
                 200,
@@ -417,6 +412,32 @@ do_get_configs_v2(Node, QueryStr) ->
                 iolist_to_binary(hocon_pp:do(Conf, #{}))
             }
     end.
+
+find_node(QueryStr) ->
+    case maps:find(<<"node">>, QueryStr) of
+        error -> {ok, node()};
+        {ok, NodeBin} -> find_running_node(NodeBin)
+    end.
+
+find_running_node(NodeBin) ->
+    case emqx_utils:safe_to_existing_atom(NodeBin, utf8) of
+        {ok, Node} ->
+            case lists:member(Node, emqx:running_nodes()) of
+                true -> {ok, Node};
+                false -> {error, not_found}
+            end;
+        {error, _} ->
+            {error, not_found}
+    end.
+
+node_not_found_response(QueryStr) ->
+    Node = maps:get(<<"node">>, QueryStr, node()),
+    Message = list_to_binary(io_lib:format("Bad node ~ts, reason not found", [Node])),
+    {404, #{code => 'NOT_FOUND', message => Message}}.
+
+bad_node_response(Node, Reason) ->
+    Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, Reason])),
+    {500, #{code => 'BAD_NODE', message => Message}}.
 
 conf_path_reset(Req) ->
     <<"/api/v5", ?PREFIX_RESET, Path/binary>> = cowboy_req:path(Req),

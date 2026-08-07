@@ -1101,9 +1101,9 @@ handle_node_operation(Namespace, ConfRootKey, Node, Id, Op) ->
                 ProtoMod, OperFunc, Namespace, ConfRootKey, BridgeType, BridgeName, BPAPIArgs
             )
         else
-            false ->
-                ?NOT_FOUND(<<"Node not found: ", Node/binary>>);
-            {error, _} ->
+            %% One response for both unknown atoms and non-member nodes, to not
+            %% disclose whether a given node name exists as an atom.
+            _ ->
                 ?NOT_FOUND(<<"Invalid node name: ", Node/binary>>)
         end
     ).

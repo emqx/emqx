@@ -235,7 +235,7 @@ delayed_message(get, #{bindings := #{node := NodeBin, msgid := HexId}}) ->
         end
     );
 delayed_message(delete, #{bindings := #{node := NodeBin, msgid := HexId}}) ->
-    MaybeNode = make_maybe(NodeBin, invalid_node, fun erlang:binary_to_atom/1),
+    MaybeNode = make_maybe(NodeBin, invalid_node, fun erlang:binary_to_existing_atom/1),
     MaybeId = make_maybe(HexId, id_schema_error, fun emqx_guid:from_hexstr/1),
     with_maybe(
         [MaybeNode, MaybeId],

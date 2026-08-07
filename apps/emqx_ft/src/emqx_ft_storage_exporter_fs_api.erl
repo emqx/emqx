@@ -125,8 +125,12 @@ fields(file_node) ->
                 )};
         error:{erpc, _} ->
             {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)};
-        error:{exception, Reason, _Stack} ->
-            ?SLOG(warning, #{msg => "get_ready_transfer_fail", error => Reason}),
+        error:{exception, Reason, Stacktrace} ->
+            ?SLOG(warning, #{
+                msg => "get_ready_transfer_fail",
+                error => Reason,
+                stacktrace => Stacktrace
+            }),
             {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
     end.
 

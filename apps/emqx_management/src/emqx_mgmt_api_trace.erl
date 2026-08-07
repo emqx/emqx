@@ -916,7 +916,7 @@ filter_bad_replies({GoodRes0, BadNodes}) ->
         ?SLOG(warning, #{
             msg => "rpc_failed_to_read_trace",
             bad_nodes => BadNodes,
-            errors => BadRes
+            errors => [Reason || {badrpc, Reason} <- BadRes]
         }),
     GoodRes.
 

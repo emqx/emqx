@@ -148,7 +148,7 @@ t_plugins(_Config) ->
 cluster-wide plugin listing RPC instead of crashing with badmatch.
 """.
 t_list_plugins_rpc_failure(_Config) ->
-    ok = meck:new(emqx_mgmt_api_plugins_proto_v4, [passthrough, no_link]),
+    ok = meck:new(emqx_mgmt_api_plugins_proto_v4, [passthrough]),
     try
         meck:expect(
             emqx_mgmt_api_plugins_proto_v4,
