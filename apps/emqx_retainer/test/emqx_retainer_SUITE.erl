@@ -151,7 +151,14 @@ t_store_and_clean(_) ->
         <<"this is a retained message">>,
         [{qos, 0}, {retain, true}]
     ),
-    timer:sleep(100),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok, [#message{payload = <<"this is a retained message">>}]},
+            emqx_retainer:read_message(<<"retained">>)
+        )
+    ),
 
     {ok, _, List} = emqx_retainer:page_read(<<"retained">>, 1, 10),
     ?assertEqual(1, length(List)),
@@ -170,7 +177,7 @@ t_store_and_clean(_) ->
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
 
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
-    timer:sleep(100),
+    ?retry(100, 20, ?assertMatch({ok, []}, emqx_retainer:read_message(<<"retained">>))),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(1))),
     ?assertMatch(
@@ -235,6 +242,7 @@ t_retain_handling(Config) ->
     ?assertEqual(0, length(receive_messages(1))),
 
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
+    ?retry(100, 20, ?assertMatch({ok, []}, emqx_retainer:read_message(<<"retained">>))),
     ok = emqtt:disconnect(C1).
 
 t_wildcard_subscription(Config) ->
