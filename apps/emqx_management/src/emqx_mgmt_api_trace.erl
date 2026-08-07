@@ -670,7 +670,8 @@ gather_trace_logs(Trace = #{name := Name}, Nodes) ->
             TraceFiles = [Filename || {_Node, {ok, _, Filename}} <- NonEmpty],
             serve_trace_log_archive(Trace, ZipDir, TraceFiles);
         #{error := Reasons} ->
-            ok = file:del_dir_r(ZipDir),
+            %% Best-effort cleanup: the dir does not exist if no log was written.
+            _ = file:del_dir_r(ZipDir),
             ?INTERNAL_ERROR(Reasons);
         #{empty := _} ->
             ?NOT_FOUND(<<"Trace is empty">>)
