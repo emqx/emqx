@@ -905,8 +905,6 @@ node_stream_trace_log(Node, Name, Cont, Limit) ->
     emqx_mgmt_trace_proto_v3:stream_trace_log(Node, Name, Cont, Limit).
 
 filter_bad_replies({GoodRes0, BadNodes}) ->
-    BadNodes =/= [] andalso
-        ?SLOG(error, #{msg => "rpc_call_failed", bad_nodes => BadNodes}),
     {GoodRes, BadRes} = lists:partition(
         fun
             ({badrpc, _}) -> false;
@@ -914,8 +912,12 @@ filter_bad_replies({GoodRes0, BadNodes}) ->
         end,
         GoodRes0
     ),
-    BadRes =/= [] andalso
-        ?SLOG(error, #{msg => "rpc_call_failed", errors => BadRes}),
+    (BadNodes =/= [] orelse BadRes =/= []) andalso
+        ?SLOG(warning, #{
+            msg => "rpc_failed_to_read_trace",
+            bad_nodes => BadNodes,
+            errors => BadRes
+        }),
     GoodRes.
 
 supported_running_nodes() ->
