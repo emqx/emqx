@@ -562,6 +562,9 @@ try_consume_connector_limiter(ConnResId, ConnState) ->
         catch
             error:{erpc, _} ->
                 %% Treating erpc errors as a timeout
+                timeout;
+            error:{exception, _, _} ->
+                %% Crash on the coordinator; treated the same as a transport error
                 timeout
         end
     end.
@@ -593,6 +596,9 @@ try_consume_action_limiter(ConnResId, ChanResId, ChanState) ->
         catch
             error:{erpc, _} ->
                 %% Treating erpc errors as a timeout
+                timeout;
+            error:{exception, _, _} ->
+                %% Crash on the coordinator; treated the same as a transport error
                 timeout
         end
     end.

@@ -782,8 +782,15 @@ is_ok(ResL) ->
         )
     of
         [] -> {ok, [Res || {ok, Res} <- ResL]};
-        ErrL -> hd(ErrL)
+        ErrL -> to_error(hd(ErrL))
     end.
+
+%% Normalize the remaining erpc:multicall failure shapes into `{error, _}'.
+to_error({error, _} = Error) -> Error;
+to_error(timeout) -> timeout;
+to_error({throw, Reason}) -> {error, Reason};
+to_error({exit, Reason}) -> {error, Reason};
+to_error(Reason) -> {error, Reason}.
 
 filter_out_request_body(Conf) ->
     ExtraConfs = [

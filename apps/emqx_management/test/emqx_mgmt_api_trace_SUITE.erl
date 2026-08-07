@@ -720,6 +720,30 @@ t_stream_log_errors(_Config) ->
     {error, {_, 404, _}} =
         request_api(get, api_path("trace/err_stream_log_not_found/log")).
 
+-doc """
+RPC failures other than `nodedown' (e.g. `timeout') while streaming a trace log
+return a structured 503, and downloading a trace over a failing RPC returns a
+structured 500 instead of crashing.
+""".
+t_stream_log_badrpc(_Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Now = erlang:system_time(second),
+    create_trace(<<"badrpc_stream_log">>, ClientId, Now - 10),
+    ok = meck:new(emqx_mgmt_trace_proto_v3, [passthrough]),
+    try
+        meck:expect(emqx_mgmt_trace_proto_v3, stream_trace_log, 4, {badrpc, timeout}),
+        ?assertMatch(
+            {error, {_, 503, _}},
+            request_api(get, api_path("trace/badrpc_stream_log/log"))
+        ),
+        {error, {{_, 500, _}, _Headers, Body}} =
+            request_api(get, api_path("trace/badrpc_stream_log/download"), [], true),
+        ?assertMatch(#{<<"code">> := <<"INTERNAL_ERROR">>}, json(Body)),
+        ?assertNotEqual(nomatch, string:find(Body, <<"badrpc">>))
+    after
+        meck:unload(emqx_mgmt_trace_proto_v3)
+    end.
+
 t_stream_log_stale(_Config) ->
     %% Configure relatively low size limit:
     MaxSize = 100 * 1024,

@@ -376,11 +376,16 @@ takeover_session_begin(_ClientId, undefined) ->
 -spec takeover_session_end(takeover_state()) ->
     {ok, _ReplayContext} | {error, _Reason}.
 takeover_session_end({ConnMod, ChanPid}) ->
-    case emqx_cm_proto_v3:takeover_finish(ConnMod, ChanPid) of
+    try emqx_cm_proto_v3:takeover_finish(ConnMod, ChanPid) of
         {ok, Pendings} ->
             {ok, Pendings};
         {error, _} = Error ->
             Error
+    catch
+        error:{erpc, Reason} ->
+            {error, {erpc, Reason}};
+        error:{exception, Reason, _Stack} ->
+            {error, Reason}
     end.
 
 -spec pick_channel(emqx_types:clientid()) ->
