@@ -1,0 +1,21 @@
+%% -*- mode: erlang -*-
+{application, emqx_maptabs, [
+    {description, "EMQX Mapping Tables Plugin"},
+    {vsn, {file, "VERSION"}},
+    {modules, []},
+    {registered, [emqx_maptabs_sup, emqx_maptabs_server]},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        emqx_utils,
+        emqx_ctl,
+        emqx_conf,
+        emqx_plugins,
+        emqx_rule_engine
+    ]},
+    {mod, {emqx_maptabs_app, []}},
+    {env, []},
+    {licenses, ["Apache-2.0"]},
+    {maintainers, ["EMQX <emqx@emqx.io>"]}
+]}.
