@@ -35,9 +35,12 @@ common_ehttpc_pool_opts(Params) ->
         connect_timeout := ConnectTimeout,
         pipelining := Pipelining,
         max_inactive := MaxInactive,
-        proxy := ProxyConfig0
+        proxy := ProxyConfig0,
+        ssl := SSLConfig
     } = Params,
-    TransportOpts = emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none}),
+    %% Snowflake endpoints are always HTTPS: force TLS on regardless of `ssl.enable`,
+    %% while honouring the rest of the configured `ssl` options.
+    TransportOpts = emqx_tls_lib:to_client_opts(SSLConfig#{enable => true}),
     ProxyConfig =
         case ProxyConfig0 of
             none ->
