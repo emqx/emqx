@@ -1709,7 +1709,7 @@ t_olp_reject(Config) ->
     ?assertEqual(
         {error,
             {transport_down, #{
-                error => 346,
+                error => 11,
                 status =>
                     user_canceled
             }}},
