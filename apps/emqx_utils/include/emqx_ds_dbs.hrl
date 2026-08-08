@@ -12,6 +12,9 @@
 %% `messages' DB stores MQTT messages sent to durable sessions:
 -define(PERSISTENT_MESSAGE_DB, messages).
 
+%% `retained' DB stores retained messages
+-define(RETAINED_MESSAGES_DB, retained_messages).
+
 %% `sessions' DB stores state of the durable sessions
 -define(DURABLE_SESSION_STATE_DB, sessions).
 
