@@ -4,8 +4,6 @@
 
 -module(emqx_mgmt_api_data_backup).
 
--feature(maybe_expr, enable).
-
 -behaviour(minirest_api).
 
 -include_lib("emqx/include/logger.hrl").

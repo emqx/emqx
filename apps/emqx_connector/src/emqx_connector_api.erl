@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_api).
 
--feature(maybe_expr, enable).
-
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").

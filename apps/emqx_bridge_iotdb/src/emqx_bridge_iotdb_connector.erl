@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_iotdb_connector).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_connector_examples).
 
 -behaviour(emqx_resource).

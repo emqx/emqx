@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_connector_examples).
 
 -include_lib("typerefl/include/types.hrl").

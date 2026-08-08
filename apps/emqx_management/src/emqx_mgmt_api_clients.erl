@@ -4,8 +4,6 @@
 
 -module(emqx_mgmt_api_clients).
 
--feature(maybe_expr, enable).
-
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").

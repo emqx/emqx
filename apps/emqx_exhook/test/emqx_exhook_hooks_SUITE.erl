@@ -2,10 +2,14 @@
 %% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(prop_exhook_hooks).
+-module(emqx_exhook_hooks_SUITE).
+
+-compile(export_all).
+-compile(nowarn_export_all).
 
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
 
 -import(
@@ -23,28 +27,65 @@
     ]
 ).
 
--define(CONF_DEFAULT, <<
-    "\n"
-    "exhook {\n"
-    "  servers =\n"
-    "    [ { name = default,\n"
-    "        url = \"http://127.0.0.1:9000\"\n"
-    "      }\n"
-    "    ]\n"
-    "}\n"
->>).
-
--define(ALL(Vars, Types, Exprs),
-    ?SETUP(
-        fun() ->
-            State = do_setup(),
-            fun() -> do_teardown(State) end
-        end,
-        ?FORALL(Vars, Types, Exprs)
-    )
+-define(CONF_DEFAULT,
+    ~b"""
+    exhook {
+      servers =
+        [ { name = default,
+            url = "http://127.0.0.1:9000"
+          }
+        ]
+    }
+    """
 ).
+
+-define(ALL(Vars, Types, Exprs), ?FORALL(Vars, Types, Exprs)).
+-define(PROPTEST(Property), ?assert(proper:quickcheck(Property, [{to_file, user}]))).
 -define(DEFAULT_CLUSTER_NAME_ATOM, emqxcl).
 -define(DEFAULT_CLUSTER_NAME_BIN, <<"emqxcl">>).
+
+all() -> emqx_common_test_helpers:all(?MODULE).
+
+init_per_testcase(TestCase, Config) ->
+    logger:set_primary_config(#{level => warning}),
+    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
+    _ = emqx_exhook_demo_svr:start(),
+    Apps = emqx_cth_suite:start(
+        [emqx, {emqx_exhook, ?CONF_DEFAULT}],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
+    %% waiting first loaded event
+    {'on_provider_loaded', _} = emqx_exhook_demo_svr:take(),
+    [{apps, Apps} | Config].
+
+end_per_testcase(_TestCase, Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    %% waiting last unloaded event
+    {'on_provider_unloaded', _} = emqx_exhook_demo_svr:take(),
+    _ = emqx_exhook_demo_svr:stop(),
+    logger:set_primary_config(#{level => notice}),
+    timer:sleep(2000),
+    ok.
+
+t_client_connect(_Config) -> ?PROPTEST(prop_client_connect()).
+t_client_connack(_Config) -> ?PROPTEST(prop_client_connack()).
+t_client_authenticate(_Config) -> ?PROPTEST(prop_client_authenticate()).
+t_client_authorize(_Config) -> ?PROPTEST(prop_client_authorize()).
+t_client_connected(_Config) -> ?PROPTEST(prop_client_connected()).
+t_client_disconnected(_Config) -> ?PROPTEST(prop_client_disconnected()).
+t_client_subscribe(_Config) -> ?PROPTEST(prop_client_subscribe()).
+t_client_unsubscribe(_Config) -> ?PROPTEST(prop_client_unsubscribe()).
+t_session_created(_Config) -> ?PROPTEST(prop_session_created()).
+t_session_subscribed(_Config) -> ?PROPTEST(prop_session_subscribed()).
+t_session_unsubscribed(_Config) -> ?PROPTEST(prop_session_unsubscribed()).
+t_session_resumed(_Config) -> ?PROPTEST(prop_session_resumed()).
+t_session_discarded(_Config) -> ?PROPTEST(prop_session_discared()).
+t_session_takenover(_Config) -> ?PROPTEST(prop_session_takenover()).
+t_session_terminated(_Config) -> ?PROPTEST(prop_session_terminated()).
+t_message_publish(_Config) -> ?PROPTEST(prop_message_publish()).
+t_message_dropped(_Config) -> ?PROPTEST(prop_message_dropped()).
+t_message_delivered(_Config) -> ?PROPTEST(prop_message_delivered()).
+t_message_acked(_Config) -> ?PROPTEST(prop_message_acked()).
 
 %%--------------------------------------------------------------------
 %% Properties
@@ -602,30 +643,6 @@ from_message(Msg) ->
             emqx_message:get_headers(Msg)
         )
     }.
-
-%%--------------------------------------------------------------------
-%% Helper
-%%--------------------------------------------------------------------
-
-do_setup() ->
-    logger:set_primary_config(#{level => warning}),
-    ok = ekka:start(),
-    application:set_env(ekka, cluster_name, ?DEFAULT_CLUSTER_NAME_ATOM),
-    _ = emqx_exhook_demo_svr:start(),
-    ok = emqx_config:init_load(emqx_exhook_schema, ?CONF_DEFAULT),
-    emqx_common_test_helpers:start_apps([emqx_exhook]),
-    %% waiting first loaded event
-    {'on_provider_loaded', _} = emqx_exhook_demo_svr:take(),
-    ok.
-
-do_teardown(_) ->
-    emqx_common_test_helpers:stop_apps([emqx_exhook]),
-    %% waiting last unloaded event
-    {'on_provider_unloaded', _} = emqx_exhook_demo_svr:take(),
-    _ = emqx_exhook_demo_svr:stop(),
-    logger:set_primary_config(#{level => notice}),
-    timer:sleep(2000),
-    ok.
 
 %%--------------------------------------------------------------------
 %% Generators

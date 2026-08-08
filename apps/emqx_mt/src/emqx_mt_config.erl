@@ -4,8 +4,6 @@
 
 -module(emqx_mt_config).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_config_backup).
 -behaviour(emqx_db_backup).
 

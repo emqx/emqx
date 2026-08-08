@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_snowflake_aggregated_impl).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_resource).
 -behaviour(emqx_connector_aggreg_delivery).
 

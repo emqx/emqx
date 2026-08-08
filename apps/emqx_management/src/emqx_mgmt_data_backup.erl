@@ -4,8 +4,6 @@
 
 -module(emqx_mgmt_data_backup).
 
--feature(maybe_expr, enable).
-
 -export([
     export/0,
     all_table_set_names/0,

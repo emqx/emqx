@@ -1378,7 +1378,7 @@ create_api_key(Name, Scopes) ->
     },
     case
         emqx_mgmt_api_test_util:request_api(
-            post, Path, "", emqx_dashboard_SUITE:auth_header_(), Body
+            post, Path, "", emqx_common_test_http:default_user_auth_header(), Body
         )
     of
         {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
@@ -1387,7 +1387,9 @@ create_api_key(Name, Scopes) ->
 
 delete_api_key(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
-    _ = emqx_mgmt_api_test_util:request_api(delete, Path, emqx_dashboard_SUITE:auth_header_()),
+    _ = emqx_mgmt_api_test_util:request_api(
+        delete, Path, emqx_common_test_http:default_user_auth_header()
+    ),
     ok.
 
 assert_response_payload(ResponseMap, ExpectedPayload) ->
