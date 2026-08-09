@@ -14,7 +14,6 @@ UNS Governance hook callbacks for publish authorization and payload checks.
 
 -define(AUTHZ_HOOK, {?MODULE, on_client_authorize, []}).
 -define(PUBLISH_HOOK, {?MODULE, on_message_publish, []}).
--define(PDICT_KEY, emqx_unsgov_model_id).
 
 hook() ->
     ok = emqx_hooks:put('client.authorize', ?AUTHZ_HOOK, ?HP_AUTHZ + 1),
@@ -29,7 +28,6 @@ on_client_authorize(_ClientInfo, #{action_type := publish}, Topic, Result) ->
         ok ?= check_not_exempt(Topic),
         {allow, ModelId} ?= emqx_unsgov_store:validate_topic(Topic),
         ?LOG(debug, #{msg => "acl_allow", topic => Topic, model_id => ModelId}),
-        erlang:put(?PDICT_KEY, ModelId),
         {ok, Result}
     else
         exempt ->
@@ -43,12 +41,24 @@ on_client_authorize(_ClientInfo, #{action_type := publish}, Topic, Result) ->
 on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
     {ok, Result}.
 
+-doc """
+Validates the payload of every message published to a governed topic.
+Resolves the governing model from the topic, independently of
+`on_client_authorize/4` (which may be skipped on authorization cache hits).
+""".
 on_message_publish(Message) ->
-    case erlang:erase(?PDICT_KEY) of
-        undefined ->
+    Topic = emqx_message:topic(Message),
+    maybe
+        ok ?= check_not_exempt(Topic),
+        {allow, ModelId} ?= emqx_unsgov_store:validate_topic(Topic),
+        handle_message_publish(ModelId, Message)
+    else
+        exempt ->
             {ok, Message};
-        ModelId ->
-            handle_message_publish(ModelId, Message)
+        {deny, _DeniedBy, _Reason} ->
+            %% Topic does not resolve to a governing model; topic-structure
+            %% enforcement is handled by on_client_authorize/4.
+            {ok, Message}
     end.
 
 handle_message_publish(ModelId, Message) ->
