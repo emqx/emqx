@@ -70,8 +70,11 @@ fields(connector_config) ->
 %% default: connections to the default endpoint are verified against the OS CA bundle.
 ssl_fields() ->
     [
-        {ssl, SC#{default => #{<<"enable">> => true, <<"verify">> => <<"verify_peer">>}}}
-     || {ssl, SC} <- emqx_connector_schema_lib:ssl_fields()
+        {ssl, #{
+            type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
+            default => #{<<"enable">> => true, <<"verify">> => <<"verify_peer">>},
+            desc => ?DESC(emqx_connector_schema_lib, "ssl")
+        }}
     ].
 
 desc("config_connector") ->
