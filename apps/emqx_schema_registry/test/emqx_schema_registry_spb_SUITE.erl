@@ -300,6 +300,33 @@ singleton_aliased_metric(Name, Alias) ->
         <<"timestamp">> => 1678094561521
     }.
 
+%% Runs `Fun` in a spawned process, optionally labeled via `proc_lib:set_label/1`, and
+%% returns its result.
+run_in_process(Label, Fun) ->
+    Parent = self(),
+    {Pid, MRef} = spawn_monitor(fun() ->
+        Label =/= undefined andalso proc_lib:set_label(Label),
+        Parent ! {result, self(), Fun()}
+    end),
+    receive
+        {result, Pid, Res} ->
+            erlang:demonitor(MRef, [flush]),
+            Res;
+        {'DOWN', MRef, process, Pid, Reason} ->
+            error({worker_died, Reason})
+    after 5_000 ->
+        error(timeout)
+    end.
+
+%% Drives the publish hook directly in the calling process, as the broker does for the
+%% process that publishes the message.
+hook_publish(NodeOrDevice, MsgType, Payload0) ->
+    Topic = spb_topic(NodeOrDevice, MsgType, _Opts = #{}),
+    Payload = spb_encode(Payload0),
+    Message = emqx_message:make(<<"from">>, Topic, Payload),
+    _ = emqx_schema_registry_spb_hookcb:on_message_publish(Message),
+    ok.
+
 create_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
@@ -708,4 +735,53 @@ t_disabled(_TCConfig) ->
         not is_map_key(<<"name">>, M),
         #{data_topic => NDataTopic}
     ),
+    ok.
+
+-doc """
+Checks that the publish hook maintains the alias mapping when it runs in a process
+labeled as an MQTT client channel process (`{clientid, _}` proc label).
+""".
+t_alias_cache_in_client_process(_TCConfig) ->
+    Name = <<"name">>,
+    Alias = 1,
+    Mapping = run_in_process({clientid, <<"c1">>}, fun() ->
+        hook_publish(node, <<"NBIRTH">>, singleton_aliased_metric(Name, Alias)),
+        hook_publish(node, <<"NDATA">>, singleton_aliased_metric(no_name, Alias)),
+        emqx_schema_registry_spb_state:get_current_alias_mapping()
+    end),
+    ?assertEqual(#{Alias => Name}, Mapping),
+    ok.
+
+-doc """
+Checks that the publish hook does not touch the alias cache when it runs in a process
+without a `{clientid, _}` proc label, such as a bridge ingress or `emqx_pool` worker
+publishing on behalf of many clients.
+""".
+t_no_alias_cache_in_non_client_process(_TCConfig) ->
+    Name = <<"name">>,
+    Alias = 1,
+    Mapping = run_in_process(_Label = undefined, fun() ->
+        hook_publish(node, <<"NBIRTH">>, singleton_aliased_metric(Name, Alias)),
+        hook_publish(node, <<"NDATA">>, singleton_aliased_metric(no_name, Alias)),
+        emqx_schema_registry_spb_state:get_current_alias_mapping()
+    end),
+    ?assertEqual(#{}, Mapping),
+    ok.
+
+-doc """
+Checks that alias mappings registered in one client channel process are not visible in
+another, even for the same namespace, group id and edge node id.
+""".
+t_alias_cache_isolated_per_process(_TCConfig) ->
+    Name = <<"name">>,
+    Alias = 1,
+    #{} = run_in_process({clientid, <<"c1">>}, fun() ->
+        hook_publish(node, <<"NBIRTH">>, singleton_aliased_metric(Name, Alias)),
+        emqx_schema_registry_spb_state:get_current_alias_mapping()
+    end),
+    Mapping = run_in_process({clientid, <<"c2">>}, fun() ->
+        hook_publish(node, <<"NDATA">>, singleton_aliased_metric(no_name, Alias)),
+        emqx_schema_registry_spb_state:get_current_alias_mapping()
+    end),
+    ?assertEqual(#{}, Mapping),
     ok.
