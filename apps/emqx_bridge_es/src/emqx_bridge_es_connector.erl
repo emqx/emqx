@@ -38,7 +38,7 @@
     connector_example_values/0
 ]).
 
--export([render_template/2]).
+-export([render_template/3]).
 -export([convert_server/2]).
 
 %% emqx_connector_resource behaviour callbacks
@@ -71,13 +71,8 @@
 
 -define(CONNECTOR_TYPE, elasticsearch).
 
-%% Literal prefix tagging the request-path template handed to the HTTP
-%% connector, so `render_template/2' can tell it apart from the body
-%% template and URL-encode the interpolated values.
--define(PATH_TEMPLATE_TAG, "__path_template__:").
-
 -ifdef(TEST).
--export([path_template/1]).
+-export([path/1]).
 -endif.
 
 %%-------------------------------------------------------------------------------------
@@ -314,13 +309,13 @@ on_add_channel(
             {error, already_exists};
         _ ->
             Parameter1 = Parameter#{
-                path => path_template(Parameter),
+                path => path(Parameter),
                 method => method(Parameter),
                 body => get_body_template(Parameter)
             },
             ChannelConfig = #{
                 parameters => Parameter1,
-                render_template_func => fun ?MODULE:render_template/2
+                render_template_func => fun ?MODULE:render_template/3
             },
             {ok, State} = emqx_bridge_http_connector:on_add_channel(
                 InstanceId, State0, ChannelId, ChannelConfig
@@ -346,17 +341,17 @@ on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
             {error, not_exists}
     end.
 
-render_template([<<"update_without_doc_template">>], Msg) ->
+render_template(_RenderContext, [<<"update_without_doc_template">>], Msg) ->
     emqx_utils_json:encode(#{<<"doc">> => Msg});
-render_template([<<"create_without_doc_template">>], Msg) ->
+render_template(_RenderContext, [<<"create_without_doc_template">>], Msg) ->
     emqx_utils_json:encode(#{<<"doc">> => Msg, <<"doc_as_upsert">> => true});
-render_template([<<?PATH_TEMPLATE_TAG, First/binary>> | Template], Msg) ->
-    %% Request-path template: URL-encode interpolated values so each one
-    %% stays within its path segment; literal template text is untouched.
+render_template(path, Template, Msg) ->
+    %% URL-encode interpolated values so each one stays within its path
+    %% segment; literal template text is untouched.
     Opts = #{var_trans => fun to_urlencoded_string/2},
-    {String, _Errors} = emqx_template:render([First | Template], {emqx_jsonish, Msg}, Opts),
+    {String, _Errors} = emqx_template:render(Template, {emqx_jsonish, Msg}, Opts),
     String;
-render_template(Template, Msg) ->
+render_template(_RenderContext, Template, Msg) ->
     % Ignoring errors here, undefined bindings will be replaced with empty string.
     Opts = #{var_trans => fun to_string/2},
     {String, _Errors} = emqx_template:render(Template, {emqx_jsonish, Msg}, Opts),
@@ -369,15 +364,17 @@ render_template(Template, Msg) ->
 to_string(Name, Value) ->
     emqx_template:to_string(render_var(Name, Value)).
 to_urlencoded_string(Name, Value) ->
-    uri_string:quote(to_string(Name, Value)).
+    try
+        uri_string:quote(to_string(Name, Value))
+    catch
+        throw:{error, Reason, _} ->
+            error({failed_to_urlencode_path_value, Name, Reason})
+    end.
 render_var(_, undefined) ->
     % NOTE Any allowed but undefined binding will be replaced with empty string
     <<>>;
 render_var(_Name, Value) ->
     Value.
-path_template(Parameter) ->
-    [?PATH_TEMPLATE_TAG, path(Parameter)].
-
 %% delete DELETE /<index>/_doc/<_id>
 path(#{action := delete, id := Id, index := Index} = Action) ->
     BasePath = ["/", Index, "/_doc/", Id],
