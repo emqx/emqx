@@ -364,6 +364,7 @@ render_template(_RenderContext, Template, Msg) ->
 
 to_string(Name, Value) ->
     emqx_template:to_string(render_var(Name, Value)).
+
 to_urlencoded_string(Name, Value) ->
     try
         uri_string:quote(to_string(Name, Value))
@@ -371,6 +372,7 @@ to_urlencoded_string(Name, Value) ->
         throw:{error, Reason, _} ->
             error({failed_to_urlencode_path_value, Name, Reason})
     end.
+
 render_var(_, undefined) ->
     % NOTE Any allowed but undefined binding will be replaced with empty string
     <<>>;
