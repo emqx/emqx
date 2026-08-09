@@ -111,24 +111,27 @@ body_render_unchanged_test_() ->
     [
         ?_assertEqual(
             <<"{\"a\":\"x#y/z ?\"}">>,
-            render(emqx_template:parse(<<"${payload.doc}">>), ?MSG)
+            render(body, emqx_template:parse(<<"${payload.doc}">>), ?MSG)
         ),
         ?_assertEqual(
             <<"{\"doc\":{\"a\":\"x#y/z ?\"}}">>,
-            render(emqx_template:parse(<<"{\"doc\":${payload.doc}}">>), ?MSG)
+            render(body, emqx_template:parse(<<"{\"doc\":${payload.doc}}">>), ?MSG)
         ),
         ?_assertEqual(
             emqx_utils_json:encode(#{<<"doc">> => ?MSG}),
-            render([<<"update_without_doc_template">>], ?MSG)
+            render(body, [<<"update_without_doc_template">>], ?MSG)
         )
     ].
 
 %% Renders a path exactly as `emqx_bridge_http_connector' does: the
 %% template built at channel creation is parsed with
-%% `emqx_template:parse/1' and rendered with `render_template/2'.
+%% `emqx_template:parse/1' and rendered with `render_template/3' in
+%% the `path' render context.
 render_path(Parameter, Msg) ->
-    PathTemplate = emqx_bridge_es_connector:path_template(Parameter),
-    render(emqx_template:parse(PathTemplate), Msg).
+    PathTemplate = emqx_bridge_es_connector:path(Parameter),
+    render(path, emqx_template:parse(PathTemplate), Msg).
 
-render(Template, Msg) ->
-    unicode:characters_to_binary(emqx_bridge_es_connector:render_template(Template, Msg)).
+render(RenderContext, Template, Msg) ->
+    unicode:characters_to_binary(
+        emqx_bridge_es_connector:render_template(RenderContext, Template, Msg)
+    ).
