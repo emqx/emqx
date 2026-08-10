@@ -5,7 +5,7 @@ defmodule EMQXConnector.MixProject do
   def project do
     [
       app: :emqx_connector,
-      version: "6.1.3",
+      version: "6.1.4",
       build_path: "../../_build",
       # erlc_options: [
       #   # config_path: "../../config/config.exs",

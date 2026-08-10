@@ -137,7 +137,8 @@ gather_aliases(Metrics) ->
         Metrics
     ).
 
-%% Called in channel process context.
+%% Only reached from MQTT client channel processes; the hook callback enforces this
+%% (see `emqx_schema_registry_spb_hookcb:is_client_process/0').
 insert_alias_mapping(Key, Mapping) ->
     Mappings0 = get_known_mappings_pd(),
     Mappings = Mappings0#{Key => Mapping},
