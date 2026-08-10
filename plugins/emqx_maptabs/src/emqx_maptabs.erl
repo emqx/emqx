@@ -16,8 +16,6 @@
 %% is the per-node reconcile fallback that re-reads the local files.
 -module(emqx_maptabs).
 
--feature(maybe_expr, enable).
-
 -include("emqx_maptabs.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("kernel/include/file.hrl").

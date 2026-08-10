@@ -9,8 +9,6 @@
 %% is fail-closed: any invalid row rejects the whole file.
 -module(emqx_maptabs_loader).
 
--feature(maybe_expr, enable).
-
 -export([
     parse/1,
     validate_name/1,

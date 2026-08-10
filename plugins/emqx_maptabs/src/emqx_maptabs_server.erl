@@ -11,8 +11,6 @@
 %% (emqx_maptabs:lookup) never calls it.
 -module(emqx_maptabs_server).
 
--feature(maybe_expr, enable).
-
 -behaviour(gen_server).
 
 -include("emqx_maptabs.hrl").
