@@ -63,8 +63,19 @@ fields(connector_config) ->
         {pool_size, mk(pos_integer(), #{default => 8, desc => ?DESC("pool_size")})},
         emqx_bridge_gcp_pubsub_schema_lib:authentication_field()
     ] ++
-        emqx_connector_schema_lib:ssl_fields(#{enable_by_default => true}) ++
+        ssl_fields() ++
         emqx_connector_schema:resource_opts().
+
+%% Same as `emqx_connector_schema_lib:ssl_fields/1', with peer verification on by
+%% default: connections to the default endpoint are verified against the OS CA bundle.
+ssl_fields() ->
+    [
+        {ssl, #{
+            type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
+            default => #{<<"enable">> => true, <<"verify">> => <<"verify_peer">>},
+            desc => ?DESC(emqx_connector_schema_lib, "ssl")
+        }}
+    ].
 
 desc("config_connector") ->
     ?DESC("config_connector");
