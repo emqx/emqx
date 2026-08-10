@@ -78,7 +78,11 @@ t_bad_application_name_config(_Config) ->
      || Name <- [
             <<>>,
             <<"bad", 0, "name">>,
-            binary:copy(<<"a">>, 64)
+            <<"bad\nname">>,
+            <<"bad", 16#7F, "name">>,
+            binary:copy(<<"a">>, 64),
+            <<"é"/utf8>>,
+            <<"中"/utf8>>
         ]
     ],
     ok.

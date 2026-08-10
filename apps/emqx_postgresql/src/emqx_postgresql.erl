@@ -113,13 +113,20 @@ validate_application_name_binary(ApplicationName) when is_binary(ApplicationName
     case binary:match(ApplicationName, <<0>>) of
         {_, _} ->
             {error, application_name_cannot_contain_null_byte};
-        nomatch when byte_size(ApplicationName) =< ?MAX_APPLICATION_NAME_BYTES ->
-            ok;
+        nomatch when byte_size(ApplicationName) > ?MAX_APPLICATION_NAME_BYTES ->
+            {error, application_name_too_long};
         nomatch ->
-            {error, application_name_too_long}
+            validate_application_name_characters(ApplicationName)
     end;
 validate_application_name_binary(_) ->
     {error, invalid_string}.
+
+validate_application_name_characters(<<>>) ->
+    ok;
+validate_application_name_characters(<<Char, Rest/binary>>) when Char >= 16#20, Char =< 16#7E ->
+    validate_application_name_characters(Rest);
+validate_application_name_characters(_) ->
+    {error, application_name_must_contain_only_printable_ascii_characters}.
 
 %% ===================================================================
 resource_type() -> pgsql.
