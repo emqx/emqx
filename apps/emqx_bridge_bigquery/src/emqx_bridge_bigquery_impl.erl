@@ -200,8 +200,9 @@ on_get_channel_status(
     ChanResId,
     ConnState = #{?installed_channels := InstalledChannels}
 ) when is_map_key(ChanResId, InstalledChannels) ->
-    #{?client := Client, ?project_id := ProjectId} = ConnState,
+    #{?client := Client} = ConnState,
     #{
+        ?project_id := ProjectId,
         ?table := Table,
         ?dataset := Dataset,
         ?request_ttl := RequestTTL
@@ -316,7 +317,14 @@ create_channel(ChanConfig, ConnState) ->
             request_ttl := RequestTTL
         }
     } = ChanConfig,
-    #{?client := Client, ?project_id := ProjectId} = ConnState,
+    #{?client := Client, ?project_id := ProjectId0} = ConnState,
+    ProjectId =
+        case ChanConfig of
+            #{parameters := #{project_id := ProjectId1}} ->
+                ProjectId1;
+            _ ->
+                ProjectId0
+        end,
     Opts = #{?request_ttl => RequestTTL},
     maybe
         {ok, _} ?= get_table(Client, ProjectId, Dataset, Table, Opts),
@@ -333,6 +341,7 @@ create_channel(ChanConfig, ConnState) ->
                 }
             ),
         ActionState = #{
+            ?project_id => ProjectId,
             ?dataset => Dataset,
             ?table => Table,
             ?insert_all_path => InsertAllPath,

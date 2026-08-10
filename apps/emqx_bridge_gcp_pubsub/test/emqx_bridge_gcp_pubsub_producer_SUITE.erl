@@ -2452,12 +2452,12 @@ receive_request_method_and_path() ->
         error({timeout_waiting_for_http_request, #{mailbox => Mailbox}})
     end.
 
-t_bare_topic_paths() ->
-    [{matrix, true}].
 -doc """
 Verifies that a bare topic name is resolved against the service account's own project
 when building the topic existence check and publish paths.
 """.
+t_bare_topic_paths() ->
+    [{matrix, true}].
 t_bare_topic_paths(matrix) ->
     [[?mocked_gcp]];
 t_bare_topic_paths(TCConfig) ->
@@ -2479,13 +2479,13 @@ t_bare_topic_paths(TCConfig) ->
     ),
     ok.
 
-t_cross_project_topic_paths() ->
-    [{matrix, true}].
 -doc """
 Verifies that a fully-qualified `projects/<project-id>/topics/<topic-name>` topic is
 published to (and health-checked against) the project from the topic path rather than
 the service account's own project.
 """.
+t_cross_project_topic_paths() ->
+    [{matrix, true}].
 t_cross_project_topic_paths(matrix) ->
     [[?mocked_gcp]];
 t_cross_project_topic_paths(TCConfig) ->

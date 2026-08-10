@@ -1,5 +1,5 @@
 services:
-  bigquery:
+  bigquery: &bigquery
     container_name: bigquery
     image: ghcr.io/goccy/bigquery-emulator:0.6.6
     restart: always
@@ -16,3 +16,9 @@ services:
       retries: 5
     command:
       - "--project=myproject"
+
+  bigquery2:
+    <<: *bigquery
+    container_name: bigquery2
+    command:
+      - "--project=overridden_project_id"

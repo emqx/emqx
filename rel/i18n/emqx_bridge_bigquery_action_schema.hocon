@@ -23,6 +23,12 @@ emqx_bridge_bigquery_action_schema {
     """BigQuery Table."""
   }
 
+  project_id {
+    label: """Project Id"""
+    desc:
+    """If defined, overrides the project ID extracted from the authentication config.  Applies only to this action."""
+  }
+
 
 parameters.desc:
 """Action-specific parameters."""
