@@ -986,19 +986,6 @@ route_udp_proxy_reply(NSock, {outgoing, Data}) ->
 route_udp_proxy_reply(_NSock, Reply) ->
     Reply.
 
-commit_udp_proxy(
-    NSock = {esockd_udp_proxy, ProxyId, _Socket},
-    State = #state{socket = {esockd_udp_proxy, ProxyId, _OldSocket}}
-) ->
-    State#state{socket = NSock, sockstate = running};
-commit_udp_proxy(
-    NSock = {esockd_udp_proxy, _ProxyId, _Socket},
-    State = #state{socket = {esockd_udp_proxy, OldProxyId, _OldSocket}}
-) ->
-    %% Deferred proxy candidates use source-scoped connection IDs, so close
-    %% the old owner explicitly after the channel has accepted the new source.
-    ok = esockd_udp_proxy:close(OldProxyId),
-    State#state{socket = NSock, sockstate = running};
 commit_udp_proxy(NSock, State) ->
     State#state{socket = NSock, sockstate = running}.
 
