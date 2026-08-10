@@ -30,6 +30,9 @@ spec:
           port: {{ .Values.service.mqttssl }}
 ---
 {{- end }}
+{{- if and .Values.tlsRoute.wss.enabled (not .Values.service.wsEnabled) }}
+{{- fail "tlsRoute.wss.enabled requires service.wsEnabled=true" }}
+{{- end }}
 {{- if .Values.tlsRoute.wss.enabled }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: TLSRoute

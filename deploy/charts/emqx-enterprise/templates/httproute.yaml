@@ -34,6 +34,9 @@ spec:
           port: {{ .Values.service.dashboard }}
 ---
 {{- end }}
+{{- if and .Values.httpRoute.ws.enabled (not .Values.service.wsEnabled) }}
+{{- fail "httpRoute.ws.enabled requires service.wsEnabled=true" }}
+{{- end }}
 {{- if .Values.httpRoute.ws.enabled }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
