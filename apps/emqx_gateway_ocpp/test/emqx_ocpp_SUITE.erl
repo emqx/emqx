@@ -25,6 +25,7 @@
 
 -define(CONF_DEFAULT,
     ~b"""
+    authorization.include_mountpoint = true
     gateway.ocpp {
         mountpoint = "ocpp/"
         default_heartbeat_interval = "60s"
@@ -387,7 +388,7 @@ t_authz_denies_upstream_publish(_Config) ->
     BrokerTopic = <<"ocpp/", AuthzTopic/binary>>,
     ok = emqx:subscribe(BrokerTopic),
     try
-        with_gateway_authz_result(ocpp, publish, AuthzTopic, deny, fun() ->
+        with_gateway_authz_result(ocpp, publish, BrokerTopic, deny, fun() ->
             {ok, Client} = connect("127.0.0.1", 33033, ClientId),
             try
                 ok = send_msg(Client, boot_notification(<<"authz-up-denied-id">>)),
@@ -407,7 +408,7 @@ t_authz_allows_upstream_publish(_Config) ->
     BrokerTopic = <<"ocpp/", AuthzTopic/binary>>,
     ok = emqx:subscribe(BrokerTopic),
     try
-        with_gateway_authz_result(ocpp, publish, AuthzTopic, allow, fun() ->
+        with_gateway_authz_result(ocpp, publish, BrokerTopic, allow, fun() ->
             {ok, Client} = connect("127.0.0.1", 33033, ClientId),
             try
                 ok = send_msg(Client, boot_notification(UniqueId)),
@@ -432,7 +433,7 @@ t_authz_denies_auto_subscribe(_Config) ->
     UniqueId = <<"authz-dn-denied-id">>,
     AuthzTopic = <<"cs/", ClientId/binary>>,
     BrokerTopic = <<"ocpp/", AuthzTopic/binary>>,
-    with_gateway_authz_result(ocpp, subscribe, AuthzTopic, deny, fun() ->
+    with_gateway_authz_result(ocpp, subscribe, BrokerTopic, deny, fun() ->
         {ok, Client} = connect("127.0.0.1", 33033, ClientId),
         try
             timer:sleep(100),
@@ -449,7 +450,7 @@ t_authz_allows_auto_subscribe(_Config) ->
     UniqueId = <<"authz-dn-allowed-id">>,
     AuthzTopic = <<"cs/", ClientId/binary>>,
     BrokerTopic = <<"ocpp/", AuthzTopic/binary>>,
-    with_gateway_authz_result(ocpp, subscribe, AuthzTopic, allow, fun() ->
+    with_gateway_authz_result(ocpp, subscribe, BrokerTopic, allow, fun() ->
         {ok, Client} = connect("127.0.0.1", 33033, ClientId),
         try
             timer:sleep(100),
