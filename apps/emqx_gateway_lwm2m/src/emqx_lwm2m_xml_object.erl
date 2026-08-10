@@ -12,6 +12,7 @@
     get_obj_def_assertive/2,
     get_object_id/1,
     get_object_name/1,
+    get_object_and_resource_id/2,
     get_resource_type/2,
     get_resource_name/2,
     get_resource_operations/2
@@ -37,6 +38,14 @@ get_object_id(ObjDefinition) ->
 get_object_name(ObjDefinition) ->
     [#xmlText{value = ObjectName}] = xmerl_xpath:string("Name/text()", ObjDefinition),
     ObjectName.
+
+get_object_and_resource_id(ResourceNameBinary, ObjDefinition) ->
+    ResourceNameString = binary_to_list(ResourceNameBinary),
+    [#xmlText{value = ObjectId}] = xmerl_xpath:string("ObjectID/text()", ObjDefinition),
+    [#xmlAttribute{value = ResourceId}] = xmerl_xpath:string(
+        "Resources/Item/Name[.=\"" ++ ResourceNameString ++ "\"]/../@ID", ObjDefinition
+    ),
+    {ObjectId, ResourceId}.
 
 get_resource_type(ResourceIdInt, ObjDefinition) ->
     ResourceIdString = integer_to_list(ResourceIdInt),
