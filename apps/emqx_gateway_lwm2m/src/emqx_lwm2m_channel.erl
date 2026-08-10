@@ -684,15 +684,17 @@ with_context(subscribe, [Topic, Opts], Ctx, ClientInfo) ->
     Action = subscribe_action(Opts),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
         allow ->
-            run_hooks(Ctx, 'session.subscribed', [ClientInfo, Topic, Opts]),
+            Mountpoint = maps:get(mountpoint, ClientInfo, undefined),
+            MountedTopic = emqx_mountpoint:mount(Mountpoint, Topic),
+            run_hooks(Ctx, 'session.subscribed', [ClientInfo, MountedTopic, Opts]),
             ?SLOG(debug, #{
                 msg => "subscribe_topic_succeed",
-                topic => Topic,
+                topic => MountedTopic,
                 clientid => ClientId,
                 endpoint_name => EndpointName
             }),
-            emqx_broker:subscribe(Topic, ClientId, Opts),
-            ok;
+            emqx_broker:subscribe(MountedTopic, ClientId, Opts),
+            {ok, MountedTopic};
         _ ->
             ?SLOG(error, #{
                 msg => "subscribe_denied",
