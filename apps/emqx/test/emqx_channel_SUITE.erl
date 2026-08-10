@@ -662,6 +662,25 @@ t_process_publish_message_ingress(_) ->
         ct:fail(prepared_message_not_published)
     end.
 
+t_process_publish_message_ingress_error(_) ->
+    OldDenyAction = emqx:get_config([authorization, deny_action], ignore),
+    {ok, _} = emqx:update_config([authorization, deny_action], ignore),
+    on_exit(fun() ->
+        {ok, _} = emqx:update_config([authorization, deny_action], OldDenyAction)
+    end),
+    ok = emqx_hooks:put(
+        'message.ingress', {?MODULE, message_ingress_error, []}, ?HP_HIGHEST
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del('message.ingress', {?MODULE, message_ingress_error})
+    end),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> ct:fail(message_was_published) end),
+    Publish = ?PUBLISH_PACKET(?QOS_1, <<"source">>, 1, <<"payload">>),
+    ?assertMatch(
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_NOT_AUTHORIZED)}, _},
+        emqx_channel:process_publish(Publish, channel())
+    ).
+
 t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
     TopicFilters = [TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
@@ -1320,6 +1339,9 @@ message_ingress(
     Msg = #message{topic = <<"source">>}
 ) ->
     {ok, emqx_message:set_header(ingress, value, Msg#message{topic = <<"target">>})}.
+
+message_ingress_error(_Ctx, _Msg) ->
+    {stop, {error, ingress_denied}}.
 
 t_check_sub_authzs(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),

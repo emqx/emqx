@@ -3012,7 +3012,7 @@ do_check_pub_authz(
             {error, ?RC_TOPIC_NAME_INVALID, Channel};
         {error, Reason} ->
             ?SLOG(warning, #{msg => "message_ingress_failed", reason => Reason}),
-            {error, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel}
+            {error, ?RC_NOT_AUTHORIZED, Channel}
     end.
 
 %%--------------------------------------------------------------------
