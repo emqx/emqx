@@ -53,6 +53,21 @@ only matches an integer argument and a string key only matches a string
 argument (`50`, `'50'` are different keys). Cast the argument in the rule when
 needed, e.g. an `item_id` extracted with `subbits` is already an integer.
 
+## Access and sharing
+
+Only the administrator manages tables (through the CLI). All tables are
+shared: a lookup returns the same rows for every client, whether or not the
+client belongs to a multi-tenancy namespace. The plugin does not scope tables
+or lookups by tenant namespace.
+
+When rows must differ per tenant, encode the tenant in the data: compose the
+lookup key from the `tns` client attribute (for example
+`maptab_lookup('signals', concat(client_attrs.tns, ':', item_id))`), or use
+one table per tenant and compose the table name the same way. Apply the
+convention to every key in the table and to every lookup site: a lookup that
+omits the tenant part is a plain miss only when no bare key exists in the
+table.
+
 ## Table files
 
 A table is a single JSON file; the file name (minus `.json`) is the table
