@@ -34,7 +34,8 @@ defmodule EMQXRuleEngine.MixProject do
           {:emqx_bridge, in_umbrella: true},
           :rulesql,
           :emqtt,
-          :uuid
+          :uuid,
+          {:lz4b, "0.0.13"}
         ]
     )
   end

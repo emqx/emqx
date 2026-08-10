@@ -1236,6 +1236,43 @@ prop_zip_compress_fun() ->
     ).
 
 %%------------------------------------------------------------------------------
+%% Test cases for LZ4 Frame funcs
+%%------------------------------------------------------------------------------
+
+t_lz4_funcs(_) ->
+    ?PROPTEST(prop_lz4_fun).
+
+prop_lz4_fun() ->
+    ?FORALL(
+        S,
+        binary(),
+        begin
+            Compressed = apply_func(lz4_compress, [S]),
+            <<16#04, 16#22, 16#4D, 16#18, _/binary>> = Compressed,
+            S == apply_func(lz4_uncompress, [Compressed])
+        end
+    ).
+
+t_lz4_funcs_sql(_) ->
+    Data = <<"hello LZ4">>,
+    Compressed = apply_func(lz4_compress, [Data]),
+    ?assertMatch(
+        {ok, #{<<"decoded">> := Data}},
+        emqx_rule_sqltester:test(
+            #{
+                sql => <<"SELECT lz4_uncompress(payload) AS decoded FROM \"t/#\"">>,
+                context => #{topic => <<"t/1">>, payload => Compressed}
+            }
+        )
+    ).
+
+t_lz4_invalid_frame(_) ->
+    ?assertError(
+        _,
+        apply_func(lz4_uncompress, [<<0:152>>])
+    ).
+
+%%------------------------------------------------------------------------------
 %% Test cases for base64
 %%------------------------------------------------------------------------------
 
