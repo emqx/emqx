@@ -138,7 +138,7 @@ t_message_ingress(Config) ->
     Payload = <<"payload">>,
     NATSHeaders = #{<<"x-custom">> => <<"value">>},
     TestPid = self(),
-    update_nats_tcp_listener_authn_and_mountpoint(false, Mountpoint),
+    update_nats_listeners_authn_and_mountpoint(false, Mountpoint),
     ok = emqx:subscribe(Topic),
     ok = emqx:subscribe(RewrittenTopic),
     ok = emqx:subscribe(MountedTopic),
