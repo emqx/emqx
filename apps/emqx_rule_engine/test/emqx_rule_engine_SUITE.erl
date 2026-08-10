@@ -13,6 +13,7 @@
 
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -include_lib("emqx/include/emqx_config.hrl").
 
@@ -71,6 +72,8 @@ groups() ->
             t_sqlselect_2,
             t_sqlselect_3,
             t_direct_dispatch,
+            t_republish_message_ingress,
+            t_republish_delayed_message,
             t_sqlselect_message_publish_event_keep_original_props_1,
             t_sqlselect_message_publish_event_keep_original_props_2,
             t_sqlselect_missing_template_vars_render_as_undefined,
@@ -2513,6 +2516,68 @@ t_direct_dispatch(_Config) ->
     emqtt:stop(Sub),
     delete_rule(Rule).
 
+%% Verify that republish runs message ingress and publishes the transformed message.
+t_republish_message_ingress(_Config) ->
+    SourceTopic = <<"republish/ingress/source">>,
+    TargetTopic = <<"republish/ingress/target">>,
+    RewrittenTopic = <<"republish/ingress/rewritten">>,
+    TestPid = self(),
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, republish_message_ingress, [TestPid, RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del('message.ingress', {?MODULE, republish_message_ingress})
+    end),
+    {ok, Rule} = create_rule(#{
+        sql => <<"SELECT * FROM ", $\", SourceTopic/binary, $\">>,
+        id => ?TMP_RULEID,
+        actions => [republish_action(TargetTopic)]
+    }),
+    {ok, Client} = emqtt:start_link([{clientid, <<"republish-ingress-client">>}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, RewrittenTopic, 0),
+    ok = emqtt:publish(Client, SourceTopic, <<"payload">>, 0),
+    receive
+        {republish_message_ingress, #{authz_ctx := AuthzCtx}, Msg} ->
+            ?assertEqual(?TMP_RULEID, maps:get(clientid, AuthzCtx)),
+            ?assertEqual(true, maps:get(is_superuser, AuthzCtx)),
+            ?assertEqual(TargetTopic, emqx_message:topic(Msg))
+    after 2000 ->
+        ct:fail(republish_message_ingress_not_called)
+    end,
+    receive
+        {publish, #{topic := RewrittenTopic, payload := <<"payload">>}} ->
+            ok
+    after 2000 ->
+        ct:fail(republished_message_not_rewritten)
+    end,
+    emqtt:stop(Client),
+    delete_rule(Rule).
+
+%% Verify that republishing to a delayed topic schedules and delivers the message.
+t_republish_delayed_message(_Config) ->
+    SourceTopic = <<"republish/delayed/source">>,
+    DelayedTarget = <<"republish/delayed/target">>,
+    {ok, Rule} = create_rule(#{
+        sql => <<"SELECT * FROM ", $\", SourceTopic/binary, $\">>,
+        id => ?TMP_RULEID,
+        actions => [republish_action(<<"$delayed/1/", DelayedTarget/binary>>)]
+    }),
+    {ok, Client} = emqtt:start_link([{clientid, <<"republish-delayed-client">>}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, DelayedTarget, 0),
+    ok = emqtt:publish(Client, SourceTopic, <<"delayed">>, 0),
+    receive
+        {publish, #{topic := DelayedTarget, payload := <<"delayed">>}} ->
+            ok
+    after 5000 ->
+        ct:fail(delayed_republished_message_not_received)
+    end,
+    emqtt:stop(Client),
+    delete_rule(Rule).
+
 t_sqlselect_message_publish_event_keep_original_props_1(_Config) ->
     %% republish the client.connected msg
     Topic = <<"foo/bar/1">>,
@@ -4592,6 +4657,15 @@ republish_action(Topic, Payload, UserProperties, MQTTProperties, DirectDispatch)
             direct_dispatch => DirectDispatch
         }
     }.
+
+republish_message_ingress(Ctx, Msg = #message{headers = Headers}, TestPid, RewrittenTopic) ->
+    case Headers of
+        #{republish_by := _} ->
+            TestPid ! {republish_message_ingress, Ctx, Msg},
+            {ok, Msg#message{topic = RewrittenTopic}};
+        #{} ->
+            {ok, Msg}
+    end.
 
 action_response(Selected, Envs, Args) ->
     ?tp(action_response, #{

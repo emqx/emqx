@@ -249,6 +249,24 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps, DirectDispatch) ->
         payload = Payload,
         timestamp = erlang:system_time(millisecond)
     },
+    IngressResult =
+        case DirectDispatch of
+            true -> {ok, Msg};
+            false -> emqx_message_ingress:ingress(republish_clientinfo(RuleId), Msg)
+        end,
+    case IngressResult of
+        {ok, NMsg} ->
+            do_safe_publish(NMsg, DirectDispatch);
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "republish_message_ingress_failed",
+                rule_id => RuleId,
+                reason => Reason
+            }),
+            error
+    end.
+
+do_safe_publish(Msg, DirectDispatch) ->
     case
         emqx_broker:safe_publish(Msg, #{
             bypass_hook => DirectDispatch, hook_prohibition_as_error => true
@@ -262,6 +280,20 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps, DirectDispatch) ->
         {blocked, _Msg} ->
             error
     end.
+
+republish_clientinfo(RuleId) ->
+    #{
+        zone => default,
+        protocol => rule_engine,
+        peerhost => {127, 0, 0, 1},
+        peername => {{127, 0, 0, 1}, 0},
+        sockport => 0,
+        clientid => RuleId,
+        username => undefined,
+        is_bridge => false,
+        is_superuser => true,
+        mountpoint => undefined
+    }.
 
 parse_simple_var(Data) when is_binary(Data) ->
     emqx_template:parse(Data);
