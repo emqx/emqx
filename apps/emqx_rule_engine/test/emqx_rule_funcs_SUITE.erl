@@ -1272,6 +1272,14 @@ t_lz4_invalid_frame(_) ->
         apply_func(lz4_uncompress, [<<0:152>>])
     ).
 
+t_lz4_truncated_frame(_) ->
+    Compressed = apply_func(lz4_compress, [binary:copy(<<"hello">>, 1000)]),
+    Truncated = binary:part(Compressed, 0, byte_size(Compressed) - 1),
+    ?assertError(
+        incomplete_frame,
+        apply_func(lz4_uncompress, [Truncated])
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases for base64
 %%------------------------------------------------------------------------------
