@@ -811,6 +811,30 @@ ensure_token_resources_cleared() ->
     ?assertMatch([], ets:tab2list(?TOKEN_TAB)),
     ok.
 
+path_recording_handler() ->
+    fun(Req0, State) ->
+        Method = cowboy_req:method(Req0),
+        Path = cowboy_req:path(Req0),
+        {ok, _Body, Req} = cowboy_req:read_body(Req0),
+        test_pid() ! {http_request, Method, Path},
+        Rep = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            emqx_utils_json:encode(#{messageIds => [<<"6058891368195201">>]}),
+            Req
+        ),
+        {ok, Rep, State}
+    end.
+
+receive_request_method_and_path() ->
+    receive
+        {http_request, Method, Path} ->
+            {Method, Path}
+    after 10_000 ->
+        {messages, Mailbox} = process_info(self(), messages),
+        error({timeout_waiting_for_http_request, #{mailbox => Mailbox}})
+    end.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -2328,36 +2352,12 @@ t_wif_auth_optional_audience(TCConfig) when is_list(TCConfig) ->
     ),
     ok.
 
-path_recording_handler() ->
-    fun(Req0, State) ->
-        Method = cowboy_req:method(Req0),
-        Path = cowboy_req:path(Req0),
-        {ok, _Body, Req} = cowboy_req:read_body(Req0),
-        test_pid() ! {http_request, Method, Path},
-        Rep = cowboy_req:reply(
-            200,
-            #{<<"content-type">> => <<"application/json">>},
-            emqx_utils_json:encode(#{messageIds => [<<"6058891368195201">>]}),
-            Req
-        ),
-        {ok, Rep, State}
-    end.
-
-receive_request_method_and_path() ->
-    receive
-        {http_request, Method, Path} ->
-            {Method, Path}
-    after 10_000 ->
-        {messages, Mailbox} = process_info(self(), messages),
-        error({timeout_waiting_for_http_request, #{mailbox => Mailbox}})
-    end.
-
-t_bare_topic_paths() ->
-    [{matrix, true}].
 -doc """
 Verifies that a bare topic name is resolved against the service account's own project
 when building the topic existence check and publish paths.
 """.
+t_bare_topic_paths() ->
+    [{matrix, true}].
 t_bare_topic_paths(matrix) ->
     [[?mocked_gcp]];
 t_bare_topic_paths(TCConfig) ->
@@ -2379,13 +2379,13 @@ t_bare_topic_paths(TCConfig) ->
     ),
     ok.
 
-t_cross_project_topic_paths() ->
-    [{matrix, true}].
 -doc """
 Verifies that a fully-qualified `projects/<project-id>/topics/<topic-name>` topic is
 published to (and health-checked against) the project from the topic path rather than
 the service account's own project.
 """.
+t_cross_project_topic_paths() ->
+    [{matrix, true}].
 t_cross_project_topic_paths(matrix) ->
     [[?mocked_gcp]];
 t_cross_project_topic_paths(TCConfig) ->
@@ -2405,5 +2405,26 @@ t_cross_project_topic_paths(TCConfig) ->
     ?assertEqual(
         {<<"POST">>, <<"/v1/projects/other-project/topics/other-topic:publish">>},
         receive_request_method_and_path()
+    ),
+    ok.
+
+-doc """
+Verifies that reading the connector with a legacy service account field (in the root of
+the connector config) via the HTTP API returns a redacted service account.
+
+In 6.2.0, this was moved to under an `authentication` key.
+""".
+t_legacy_service_account_json_redact() ->
+    [{matrix, true}].
+t_legacy_service_account_json_redact(matrix) ->
+    [[?mocked_gcp]];
+t_legacy_service_account_json_redact(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"authentication">> := #{<<"service_account_json">> := <<"******">>}}},
+        create_connector_api(TCConfig, #{})
+    ),
+    ?assertMatch(
+        {200, #{<<"authentication">> := #{<<"service_account_json">> := <<"******">>}}},
+        get_connector_api(TCConfig)
     ),
     ok.

@@ -83,14 +83,13 @@ on_start(
     InstId,
     Config = #{
         server := Server,
-        parameters := #{
-            username := Username,
-            password := Password,
-            database := Database
-        } = _Parameters,
+        parameters := Parameters,
         ssl := SSL
     }
 ) ->
+    Username = maps:get(username, Parameters, <<>>),
+    Password = maps:get(password, Parameters, <<>>),
+    Database = maps:get(database, Parameters, <<>>),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(
         Server, ?DATALAYERS_HOST_ARROW_OPTIONS
     ),

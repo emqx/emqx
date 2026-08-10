@@ -172,7 +172,14 @@ terminate(_Reason, _StateName, #{}) ->
 pread(Node, Segment, #{storage := Storage, transfer := Transfer}) when Node =:= node() ->
     emqx_ft_storage_fs:pread(Storage, Transfer, Segment, 0, segsize(Segment));
 pread(Node, Segment, #{transfer := Transfer}) ->
-    emqx_ft_storage_fs_proto_v1:pread(Node, Transfer, Segment, 0, segsize(Segment)).
+    try
+        emqx_ft_storage_fs_proto_v1:pread(Node, Transfer, Segment, 0, segsize(Segment))
+    catch
+        error:{erpc, Reason} ->
+            {error, {erpc, Reason}};
+        error:{exception, Reason, _Stack} ->
+            {error, Reason}
+    end.
 
 %%
 
