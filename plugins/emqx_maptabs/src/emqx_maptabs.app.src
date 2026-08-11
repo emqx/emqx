@@ -4,15 +4,15 @@
     {vsn, {file, "VERSION"}},
     {modules, []},
     {registered, [emqx_maptabs_sup, emqx_maptabs_server]},
+    %% Host apps the plugin calls (emqx_ctl, emqx_conf, emqx_plugins,
+    %% emqx_rule_engine) must not be listed: plugins boot-start from
+    %% within the emqx_plugins app start, and ensure_all_started times
+    %% out on any dependency that is not already running at that point.
+    %% Only the modules are needed; the release ships them regardless.
     {applications, [
         kernel,
         stdlib,
-        emqx,
-        emqx_utils,
-        emqx_ctl,
-        emqx_conf,
-        emqx_plugins,
-        emqx_rule_engine
+        emqx
     ]},
     {mod, {emqx_maptabs_app, []}},
     {env, []},
