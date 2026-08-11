@@ -4,8 +4,6 @@
 
 -module(emqx_bridge_mqtt_connector_schema).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_connector_examples).
 
 -include_lib("typerefl/include/types.hrl").

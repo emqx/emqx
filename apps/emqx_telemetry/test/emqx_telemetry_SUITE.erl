@@ -136,7 +136,7 @@ init_per_testcase(t_exhook_info, Config) ->
     _ = gen_tcp:close(Sock),
     Config;
 init_per_testcase(t_cluster_uuid, Config) ->
-    Node = start_peer(n1),
+    Node = start_peer(n1, Config),
     [{n1, Node} | Config];
 init_per_testcase(t_uuid_restored_from_file, Config) ->
     Config;
@@ -765,40 +765,36 @@ find_gen_rpc_port() ->
     {ok, {_, Port}} = inet:sockname(EPort),
     Port.
 
-start_peer(Name) ->
-    Port = find_gen_rpc_port(),
+start_peer(Name, Config) ->
+    LocalRPCPort = find_gen_rpc_port(),
     TestNode = node(),
-    Handler =
-        fun
-            (emqx) ->
-                application:set_env(emqx, boot_modules, []),
-                emqx_cluster:join(TestNode),
-                emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
-                ok;
-            (_App) ->
-                emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
-                ok
-        end,
-    Opts = #{
-        env => [
-            {gen_rpc, tcp_server_port, 9002},
-            {gen_rpc, port_discovery, manual},
-            {gen_rpc, client_config_per_node, {internal, #{TestNode => Port}}}
-        ],
-
-        load_schema => false,
-        configure_gen_rpc => false,
-        env_handler => Handler,
-        load_apps => [gen_rpc, emqx],
-        listener_ports => [],
-        apps => [emqx, emqx_conf, emqx_retainer, emqx_modules, emqx_telemetry]
-    },
-
-    emqx_common_test_helpers:start_peer(Name, Opts).
+    PeerNode = emqx_cth_cluster:node_name(Name),
+    PeerRPCPort = 9002,
+    Apps = [
+        {gen_rpc, #{
+            override_env => [
+                {client_config_per_node,
+                    {internal, #{
+                        TestNode => {tcp, LocalRPCPort},
+                        PeerNode => {tcp, PeerRPCPort}
+                    }}}
+            ]
+        }},
+        {emqx, #{override_env => [{boot_modules, []}]}},
+        {emqx_conf, ?MODULES_CONF},
+        emqx_retainer,
+        emqx_modules,
+        emqx_telemetry
+    ],
+    [Node] = emqx_cth_cluster:start(
+        [{Name, #{base_port => PeerRPCPort + 1, join_to => TestNode, apps => Apps}}],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Node.
 
 stop_peer(Node) ->
     rpc:call(Node, ?MODULE, leave_cluster, []),
-    ok = emqx_cth_peer:stop(Node),
+    ok = emqx_cth_cluster:stop([Node]),
     ?assertEqual([node()], mria:running_nodes()),
     ?assertEqual([], nodes()),
     _ = application:stop(mria),

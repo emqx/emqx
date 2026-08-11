@@ -1434,7 +1434,9 @@ setup_node(Node, Port) ->
     ok = rpc:call(Node, mria, join, [node()]),
 
     %% Here we start the node and make it join the cluster
-    ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [[], EnvHandler]),
+    [_ | _] = rpc:call(Node, emqx_cth_suite, start_apps, [
+        [{emqx, #{before_start => EnvHandler, config => false}}], #{}
+    ]),
 
     ok.
 

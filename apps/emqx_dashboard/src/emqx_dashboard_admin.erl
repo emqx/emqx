@@ -6,8 +6,6 @@
 
 -module(emqx_dashboard_admin).
 
--feature(maybe_expr, enable).
-
 -include("emqx_dashboard.hrl").
 -include("emqx_dashboard_rbac.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").

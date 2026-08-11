@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_broker_mon).
 
--feature(maybe_expr, enable).
-
 -behaviour(gen_server).
 
 %% API

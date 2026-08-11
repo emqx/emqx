@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_v2_testlib).
 
--feature(maybe_expr, enable).
-
 -compile(nowarn_export_all).
 -compile(export_all).
 

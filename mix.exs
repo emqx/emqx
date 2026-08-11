@@ -895,8 +895,7 @@ defmodule EMQXUmbrella.MixProject do
 
     # the elixir version of escript + start.boot required the boot_var
     # RELEASE_LIB to be defined.
-    # enable-feature is not required when 1.6.x
-    boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib -enable-feature maybe_expr"
+    boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
 
     path = Path.join([release.path, "bin", escript_name])
     File.write!(path, [shebang, "\n", boot_var, "\n", rest])

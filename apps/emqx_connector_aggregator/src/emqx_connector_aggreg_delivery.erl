@@ -6,8 +6,6 @@
 %% backend, wrapped in a configurable general-purpose container.
 -module(emqx_connector_aggreg_delivery).
 
--feature(maybe_expr, enable).
-
 -behaviour(gen_server).
 
 -include_lib("snabbkaffe/include/trace.hrl").

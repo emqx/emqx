@@ -4,8 +4,6 @@
 
 -module(emqx_mgmt_api_banned).
 
--feature(maybe_expr, enable).
-
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("typerefl/include/types.hrl").
