@@ -226,6 +226,12 @@
     zip_uncompress/1
 ]).
 
+%% LZ4 Funcs
+-export([
+    lz4_compress/1,
+    lz4_uncompress/1
+]).
+
 %% Data encode and decode
 -export([
     base64_encode/1,
@@ -1143,6 +1149,23 @@ zip_compress(S) when is_binary(S) ->
 
 zip_uncompress(S) when is_binary(S) ->
     zlib:uncompress(S).
+
+%%------------------------------------------------------------------------------
+%% LZ4 Frame Funcs
+%%------------------------------------------------------------------------------
+
+-doc "Compresses a binary using the LZ4 Frame format.".
+lz4_compress(S) when is_binary(S) ->
+    unwrap_lz4_result(lz4b_nif:dirty_compress_frame(S, 0)).
+
+-doc "Decompresses a binary in the LZ4 Frame format.".
+lz4_uncompress(S) when is_binary(S) ->
+    unwrap_lz4_result(lz4b_nif:dirty_decompress_frame(S, 0)).
+
+unwrap_lz4_result({ok, Result}) ->
+    Result;
+unwrap_lz4_result({error, Reason}) ->
+    erlang:error(Reason).
 
 %%------------------------------------------------------------------------------
 %% Data encode and decode Funcs
