@@ -1,0 +1,42 @@
+emqx_bridge_zerobus_connector_schema {
+  config_connector {
+    label: """Zerobus Connector Configuration"""
+    desc:
+    """Configuration for a connector to Zerobus."""
+  }
+
+  zerobus_endpoint {
+    label: "Zerobus Endpoint"
+    desc: """Endpoint for the Zerobus ingestion service.  Port number must be specified."""
+  }
+
+  authentication {
+    label: "Authentication"
+    desc: """Authentication configuration."""
+  }
+
+  connect_timeout {
+    label: "Connect Timeout"
+    desc: """Timeout when connecting to Zerobus."""
+  }
+
+  pool_size {
+    label: "Pool Size"
+    desc: """Connection pool size."""
+  }
+
+  workspace_id {
+    label: "Workspace Id"
+    desc: """Zerobus workspace ID."""
+  }
+
+  workspace_url {
+    label: "Workspace URL"
+    desc: """Zerobus workspace URL."""
+  }
+
+  transport_type {
+    label: "Transport Type"
+    desc: """Transport type to use to connect to Zerobus."""
+  }
+}

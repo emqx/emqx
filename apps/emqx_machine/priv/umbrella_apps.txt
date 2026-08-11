@@ -62,6 +62,7 @@ emqx_bridge_syskeeper
 emqx_bridge_tablestore
 emqx_bridge_tdengine
 emqx_bridge_timescale
+emqx_bridge_zerobus
 emqx_cluster_link
 emqx_conf
 emqx_connector

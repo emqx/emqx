@@ -1,0 +1,13 @@
+syntax = "proto2";
+
+package air_quality;
+
+message table_something_else {
+	optional string name = 1;
+}
+
+message table_air_quality {
+	optional string device_name = 1;
+	optional int32 temp = 2;
+	optional int64 humidity = 3;
+}

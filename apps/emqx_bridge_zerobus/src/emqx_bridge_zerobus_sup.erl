@@ -1,0 +1,56 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+-module(emqx_bridge_zerobus_sup).
+
+%% API
+-export([
+    start_link/0,
+    start_child/1,
+    delete_child/1
+]).
+
+%% `supervisor' API
+-export([init/1]).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
+-include("emqx_bridge_zerobus.hrl").
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
+
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+start_child(ChildSpec) ->
+    supervisor:start_child(?MODULE, ChildSpec).
+
+delete_child(ChildId) ->
+    case supervisor:terminate_child(?MODULE, ChildId) of
+        ok ->
+            supervisor:delete_child(?MODULE, ChildId);
+        Error ->
+            Error
+    end.
+
+%%------------------------------------------------------------------------------
+%% `supervisor' API
+%%------------------------------------------------------------------------------
+
+init([]) ->
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 10,
+        period => 1
+    },
+    ChildSpecs = [],
+    ok = emqx_utils_ets:new(?META_TAB, [ordered_set, public]),
+    {ok, {SupFlags, ChildSpecs}}.
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------

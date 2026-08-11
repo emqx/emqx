@@ -192,7 +192,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:grpc),
     do:
       {:grpc,
-       github: "emqx/grpc-erl", tag: "0.7.7", override: true, system_env: emqx_app_system_env()}
+       github: "emqx/grpc-erl", tag: "0.7.9", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
     do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-3", override: true}
@@ -208,7 +208,13 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:getopt), do: {:getopt, "1.0.3", manager: :rebar3, override: true}
   def common_dep(:telemetry), do: {:telemetry, "1.3.0", manager: :rebar3, override: true}
   # in conflict by grpc and eetcd
-  def common_dep(:gpb), do: {:gpb, "4.21.5", override: true, runtime: false}
+  # N.B.: it's important to use `make` as the manager for `gpb`.  Its compilation pipeline
+  # first compile its core modules, then uses itself to compile `descr_scr/*` files, which
+  # are needed to generate descriptor protobuf info used by some applications (e.g.:
+  # zerobus).  When not using `make` as the manager, it is needed to compile `:gpb`
+  # **twice** for the descriptor beams to be correctly placed in the ebin directory...
+  def common_dep(:gpb), do: {:gpb, "4.21.5", override: true, runtime: false, manager: :make}
+
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.16.13-emqx-2", override: true}
 
   # in conflict by emqx_connector and system_monitor

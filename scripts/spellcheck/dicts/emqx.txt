@@ -72,6 +72,7 @@ customizable
 Cygwin
 datagram
 datagrams
+Databricks
 Datalayers
 DES
 desc
@@ -351,3 +352,4 @@ ws
 wss
 xml
 XMLs
+Zerobus

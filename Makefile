@@ -336,6 +336,7 @@ fmt: $(REBAR)
                     -name '*.eterm' -o \
                     -name '*.escript' \) \
                     -not -path '*/apps/emqx_bridge_bigtable/src/generated/*' \
+                    -not -path '*/apps/emqx_bridge_zerobus/src/generated/*' \
                     -not -path '*/apps/emqx_exhook/src/pb/*' \
                     -not -path '*/_build/*' \
                     -not -path '*/deps/*' \

@@ -62,6 +62,7 @@ emqx_bridge_syskeeper: none
 emqx_bridge_tablestore: none
 emqx_bridge_tdengine: none
 emqx_bridge_timescale: none
+emqx_bridge_zerobus: none
 emqx_cluster_link: none
 emqx_conf: all
 emqx_connector: all

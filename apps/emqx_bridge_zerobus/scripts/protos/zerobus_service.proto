@@ -1,0 +1,234 @@
+// https://github.com/databricks/zerobus-sdk/blob/43bc824ad28c08a18c3c3392a789992c33c96ada/rust/sdk/zerobus_service.proto
+syntax = "proto2";
+
+import "google/protobuf/duration.proto";
+
+package databricks.zerobus;
+
+// Canonical Zerobus gRPC service schema — the single source of truth for every
+// SDK's generated bindings: the Rust core, the Java SDK, the cgo Go SDK tests,
+// and the pure-Go SDK (purego). The Java options below apply at codegen. The
+// two Go consumers target different import paths, so neither a go_package is set
+// here — each supplies its own via a protoc `M` override at generation time
+// (see go/tests/generate_proto.sh and purego/internal/zerobuspb/gen.go).
+option java_package = "com.databricks.zerobus";
+option java_outer_classname = "ZerobusProto";
+option java_multiple_files = true;
+
+// Version information for the Zerobus service.
+// Current version: v1 (package: databricks.zerobus).
+//
+// Version History:
+// - v1: Initial release with ephemeral streams support.
+//
+// API Stability: STABLE.
+// This API is considered stable and backward-compatible within major versions.
+// Breaking changes will be introduced in new major versions.
+//
+// Versioning Strategy:
+// - Major versions: New endpoints or package names (e.g., databricks.zerobus.v2).
+// - Minor versions: Backward-compatible additions within same package.
+// - Patch versions: Bug fixes and non-breaking changes.
+
+/*
+ * The Zerobus service provides streaming capabilities for ingesting data records
+ * into Databricks tables with high throughput and low latency.
+ */
+service Zerobus {
+  /*
+   * EphemeralStream creates a streaming session for ingesting records.
+   *
+   * This is a bidirectional streaming RPC that allows clients to:
+   * - Create new ephemeral ingestion streams by sending a CreateIngestStreamRequest.
+   * - Ingest records by sending an IngestRecordRequest.
+   * - Receive durability confirmations via IngestRecordResponse.
+   */
+  rpc EphemeralStream(stream EphemeralStreamRequest) returns (stream EphemeralStreamResponse);
+}
+
+/*
+ * Record type that will be accepted in the stream.
+ *
+ * Defaults to RECORD_TYPE_UNSPECIFIED, which returns an error on stream creation.
+ */
+enum RecordType {
+  RECORD_TYPE_UNSPECIFIED = 0;
+  PROTO = 1;
+  JSON = 2;
+}
+
+/*
+ * Batch of JSON-encoded records.
+ *
+ * This message contains multiple JSON records that will be ingested together.
+ * Each string in the array represents a complete JSON object.
+ */
+message JsonRecordBatch {
+  // Array of JSON-encoded records.
+  repeated string records = 1;
+}
+
+/*
+ * Batch of protobuf-encoded records.
+ *
+ * This message contains multiple protobuf-encoded records that will be ingested together.
+ * Each record must be serialized according to the protobuf descriptor provided in the
+ * CreateIngestStreamRequest.
+ */
+message ProtoEncodedRecordBatch {
+  // Array of protobuf-encoded records.
+  repeated bytes records = 1;
+}
+
+/*
+ * Request to create a new ephemeral ingestion stream.
+ *
+ * This message initiates the streaming session and must be the first message
+ * sent by the client in the EphemeralStream RPC.
+ */
+message CreateIngestStreamRequest {
+  // Three part name of the target destination table for data ingestion.
+  //
+  // This is a required field for all stream creation requests.
+  optional string table_name = 1;
+
+  // NOT SUPPORTED: Stream identifier for opening existing persisted streams.
+  // optional string stream_id = 2;
+  reserved "stream_id";
+  reserved 2;
+
+  // Protocol buffer descriptor for record serialization/deserialization.
+  //
+  // This descriptor defines the structure of the records being ingested.
+  // It must be compatible with the target table's schema.
+  //
+  // This is a required field for all stream creation requests.
+  optional bytes descriptor_proto = 3;
+
+  // Record type that will be accepted in the stream.
+  // Defaults to PROTO for backwards compatibility.
+  optional RecordType record_type = 4;
+}
+
+/*
+ * Response confirming the creation of an ephemeral ingestion stream.
+ *
+ * This message is sent by the server in response to a CreateIngestStreamRequest
+ * and contains the stream identifier and initial offset information.
+ */
+message CreateIngestStreamResponse {
+  // Unique identifier assigned to this ephemeral ingestion stream.
+  optional string stream_id = 1;
+
+  // NOT SUPPORTED: Last acknowledged offset for this stream.
+  // optional int64 last_offset_id = 2;
+  reserved "last_offset_id";
+  reserved 2;
+}
+
+/*
+ * Request to ingest a single record into the stream.
+ *
+ * This message is sent by the client after the initial CreateIngestStreamRequest
+ * to stream individual records for ingestion.
+ */
+message IngestRecordRequest {
+  // Unique identifier for this record within the stream.
+  optional int64 offset_id = 1;
+
+  // Serialized record data.
+  oneof record {
+    // The proto encoded record must be serialized according to the protobuf descriptor
+    // provided in the CreateIngestStreamRequest.
+    bytes proto_encoded_record = 2;
+    string json_record = 3;
+  }
+}
+
+/*
+ * Request to ingest a batch of records into the stream.
+ *
+ * This message is sent by the client after the initial CreateIngestStreamRequest
+ * to stream batches of records for ingestion.
+ */
+message IngestRecordBatchRequest {
+  // Unique identifier for this batch within the stream.
+  optional int64 offset_id = 1;
+
+  // Batch of serialized records.
+  // The batch can contain multiple records encoded as either protobuf or JSON.
+  oneof batch {
+    // Batch of protobuf-encoded records. Each record must be serialized according to
+    // the protobuf descriptor provided in the CreateIngestStreamRequest.
+    ProtoEncodedRecordBatch proto_encoded_batch = 2;
+
+    // Batch of JSON-encoded records.
+    JsonRecordBatch json_batch = 3;
+  }
+}
+
+/*
+ * A message in the EphemeralStream bidirectional stream.
+ *
+ * This message type allows the client to send either stream creation requests
+ * or record ingestion requests (individual or batched) through the same stream.
+ */
+message EphemeralStreamRequest {
+  oneof payload {
+    // Initial request to create an ephemeral stream.
+    // Must be the first message in the stream.
+    // All subsequent messages should be ingest_record or ingest_record_batch.
+    CreateIngestStreamRequest create_stream = 1;
+
+    // Request to ingest a record.
+    // Can only be sent after a successful create_stream request.
+    // Multiple ingest_record messages can be sent in sequence.
+    IngestRecordRequest ingest_record = 2;
+
+    // Request to ingest a batch of records.
+    // Can only be sent after a successful create_stream request.
+    // Multiple ingest_record_batch messages can be sent in sequence.
+    IngestRecordBatchRequest ingest_record_batch = 3;
+  }
+}
+
+/*
+ * Acknowledgment for all records up to the specified offset.
+ *
+ * This message is sent by the server to confirm that records have been
+ * successfully ingested and are durable.
+ */
+message IngestRecordResponse {
+  // Highest offset that has been durably acknowledged.
+  //
+  // This offset indicates that all records with
+  // offset_id <= durability_ack_up_to_offset have been made durable.
+  optional int64 durability_ack_up_to_offset = 1;
+}
+
+/*
+ * Signal that the server will close the stream after the specified duration.
+ */
+message CloseStreamSignal {
+  // Duration after which the server will close the stream.
+  optional google.protobuf.Duration duration = 1;
+}
+
+/*
+ * A message in the EphemeralStream response stream.
+ *
+ * This message type allows the server to send either stream creation responses
+ * or record ingestion responses through the same stream.
+ */
+message EphemeralStreamResponse {
+  oneof payload {
+    // Response to a create_stream request.
+    CreateIngestStreamResponse create_stream_response = 1;
+
+    // Response to ingest_record requests.
+    IngestRecordResponse ingest_record_response = 2;
+
+    // Signal that the server will close the stream after the specified duration.
+    CloseStreamSignal close_stream_signal = 3;
+  }
+}

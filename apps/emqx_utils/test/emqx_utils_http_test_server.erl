@@ -48,46 +48,57 @@ start_link(Port, Path) ->
     start_link(Port, Path, false).
 
 start_link(Port, Path, SSLOpts) ->
+    start_link(Port, Path, SSLOpts, _Name = ?MODULE).
+
+start_link(Port, Path, SSLOpts, Name) ->
     case Port of
         random ->
             PickedPort = pick_port_number(56000),
-            {ok, Pid} = supervisor:start_link({local, ?MODULE}, ?MODULE, [PickedPort, Path, SSLOpts]),
+            {ok, Pid} = supervisor:start_link({local, Name}, ?MODULE, [
+                Name, PickedPort, Path, SSLOpts
+            ]),
             {ok, {PickedPort, Pid}};
         _ ->
-            supervisor:start_link({local, ?MODULE}, ?MODULE, [Port, Path, SSLOpts])
+            supervisor:start_link({local, Name}, ?MODULE, [Name, Port, Path, SSLOpts])
     end.
 
 stop() ->
+    stop(?MODULE).
+
+stop(Name) ->
     try
-        gen_server:stop(?MODULE)
+        gen_server:stop(Name)
     catch
         exit:noproc ->
             ok
     end.
 
 set_handler(F) when is_function(F, 2) ->
-    true = ets:insert(?MODULE, {handler, F}),
+    set_handler(?MODULE, F).
+
+set_handler(Name, F) when is_function(F, 2) ->
+    true = ets:insert(Name, {handler, F}),
     ok.
 
 %%------------------------------------------------------------------------------
 %% supervisor API
 %%------------------------------------------------------------------------------
 
-init([Port, Path, SSLOpts]) ->
+init([Name, Port, Path, SSLOpts]) ->
     Dispatch = cowboy_router:compile(
         [
-            {'_', [{Path, ?MODULE, []}]}
+            {'_', [{Path, ?MODULE, #{name => Name}}]}
         ]
     ),
 
     ProtoOpts = #{env => #{dispatch => Dispatch}},
 
-    Tab = ets:new(?MODULE, [set, named_table, public]),
+    Tab = ets:new(Name, [set, named_table, public]),
     ets:insert(Tab, {handler, fun default_handler/2}),
 
     {Transport, TransOpts, CowboyModule} = transport_settings(Port, SSLOpts),
 
-    ChildSpec = ranch:child_spec(?MODULE, Transport, TransOpts, CowboyModule, ProtoOpts),
+    ChildSpec = ranch:child_spec(Name, Transport, TransOpts, CowboyModule, ProtoOpts),
 
     {ok, {#{}, [ChildSpec]}}.
 
@@ -96,7 +107,8 @@ init([Port, Path, SSLOpts]) ->
 %%------------------------------------------------------------------------------
 
 init(Req, State) ->
-    [{handler, Handler}] = ets:lookup(?MODULE, handler),
+    #{name := Name} = State,
+    [{handler, Handler}] = ets:lookup(Name, handler),
     Handler(Req, State).
 
 %%------------------------------------------------------------------------------

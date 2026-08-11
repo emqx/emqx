@@ -41,7 +41,7 @@
     build_serdes/1
 ]).
 
-%% for testing
+%% for emqx_bridge_zerobus / testing
 -export([
     get_serde/1
 ]).
