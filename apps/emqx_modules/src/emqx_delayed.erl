@@ -139,8 +139,10 @@ on_message_ingress(
 ) ->
     case parse_delayed_topic(Data) of
         {ok, Delay, Topic} ->
-            Delayed0 = #{delay => Delay},
-            Delayed = maybe_put_authz_context(AuthzContext, Delayed0),
+            Delayed = #{
+                delay => Delay,
+                authz_context => emqx_authz_context:make_persist(AuthzContext)
+            },
             NMsg = emqx_message:set_header(?DELAYED_HEADER, Delayed, Msg#message{topic = Topic}),
             {ok, NMsg};
         {error, Reason} ->
@@ -199,12 +201,6 @@ parse_delay(DelayBin) ->
             error
     catch
         error:badarg -> error
-    end.
-
-maybe_put_authz_context(AuthzContext, Delayed) ->
-    case emqx_security_profile:policy(delayed_publish_reauthorization) of
-        false -> Delayed;
-        true -> Delayed#{authz_context => emqx_authz_context:make_persist(AuthzContext)}
     end.
 
 delayed_publish_at({interval, Interval}, Timestamp) when

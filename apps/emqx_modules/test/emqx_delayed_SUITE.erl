@@ -11,6 +11,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -321,6 +322,37 @@ t_reauthorize_legacy_delayed_message(_) ->
     after
         emqx_broker:unsubscribe(Topic)
     end.
+
+t_reauthorize_legacy_delayed_message_after_hardening(_) ->
+    ClientInfo = test_clientinfo(<<"legacy-hardened-client">>),
+    Topic = <<"legacy-hardened/target">>,
+    Msg0 = emqx_message:make(
+        maps:get(clientid, ClientInfo),
+        ?QOS_1,
+        <<"$delayed/1/", Topic/binary>>,
+        <<"payload">>
+    ),
+    {ok, Msg} = prepare_delayed_message(ClientInfo, Msg0),
+    ?assertMatch(
+        #{authz_context := #{clientid := <<"legacy-hardened-client">>}},
+        emqx_message:get_header(delayed, Msg)
+    ),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, replay_authz, []}, ?HP_HIGHEST),
+    persistent_term:put({?MODULE, replay_authz_result}, deny),
+    snabbkaffe:start_trace(),
+    ?assertWaitEvent(
+        begin
+            {stop, _} = on_message_publish(Msg),
+            emqx_common_test_helpers:set_security_profile("hardened")
+        end,
+        #{
+            ?snk_kind := ignore_delayed_message_publish,
+            reason := "authorization denied"
+        },
+        5000
+    ),
+    snabbkaffe:stop(),
+    ?assertEqual([], mnesia:dirty_all_keys(emqx_delayed)).
 
 t_hardened_missing_authz_context(_) ->
     ClientId = <<"missing-context-client">>,
