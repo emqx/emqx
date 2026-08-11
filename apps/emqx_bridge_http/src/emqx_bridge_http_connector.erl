@@ -31,7 +31,7 @@
 ]).
 
 -export([reply_delegator/3]).
--export([render_template/2]).
+-export([render_template/2, render_template/3]).
 
 -export([
     roots/0,
@@ -266,7 +266,7 @@ on_add_channel(
 ) ->
     InstalledActions = maps:get(installed_actions, OldState, #{}),
     {ok, ActionState} = do_create_http_action(ActionConfig),
-    RenderTmplFunc = maps:get(render_template_func, ActionConfig, fun ?MODULE:render_template/2),
+    RenderTmplFunc = maps:get(render_template_func, ActionConfig, fun ?MODULE:render_template/3),
     ActionState1 = ActionState#{render_template_func => RenderTmplFunc},
     NewInstalledActions = maps:put(ActionId, ActionState1, InstalledActions),
     NewState = maps:put(installed_actions, NewInstalledActions, OldState),
@@ -700,7 +700,7 @@ drop_ehttpc_worker_down_call_args({ehttpc_worker_down, _}) ->
     ehttpc_worker_down.
 
 render_headers(HeadersTemplate) ->
-    RenderTemplateFn = fun render_template/2,
+    RenderTemplateFn = fun render_template/3,
     render_headers(HeadersTemplate, RenderTemplateFn, _Msg = #{}).
 
 %%--------------------------------------------------------------------
@@ -777,9 +777,9 @@ parse_template(String) ->
 process_request_and_action(Request, ActionState, Msg) ->
     MethodTemplate = maps:get(method, ActionState),
     RenderTmplFunc = maps:get(render_template_func, ActionState),
-    Method = make_method(render_template_string(MethodTemplate, RenderTmplFunc, Msg)),
-    PathPrefix = unicode:characters_to_list(RenderTmplFunc(maps:get(path, Request), Msg)),
-    PathSuffix = unicode:characters_to_list(RenderTmplFunc(maps:get(path, ActionState), Msg)),
+    Method = make_method(render_template_string(method, MethodTemplate, RenderTmplFunc, Msg)),
+    PathPrefix = unicode:characters_to_list(RenderTmplFunc(path, maps:get(path, Request), Msg)),
+    PathSuffix = unicode:characters_to_list(RenderTmplFunc(path, maps:get(path, ActionState), Msg)),
 
     Path =
         case PathSuffix of
@@ -819,10 +819,12 @@ process_request(
     } = Conf,
     Msg
 ) ->
-    RenderTemplateFun = fun render_template/2,
+    RenderTemplateFun = fun render_template/3,
     Conf#{
-        method => make_method(render_template_string(MethodTemplate, RenderTemplateFun, Msg)),
-        path => unicode:characters_to_list(RenderTemplateFun(PathTemplate, Msg)),
+        method => make_method(
+            render_template_string(method, MethodTemplate, RenderTemplateFun, Msg)
+        ),
+        path => unicode:characters_to_list(RenderTemplateFun(path, PathTemplate, Msg)),
         body => render_request_body(BodyTemplate, RenderTemplateFun, Msg),
         headers => render_headers(HeadersTemplate, RenderTemplateFun, Msg),
         request_timeout => ReqTimeout
@@ -831,13 +833,13 @@ process_request(
 render_request_body(undefined, _, Msg) ->
     emqx_utils_json:encode(Msg);
 render_request_body(BodyTks, RenderTmplFunc, Msg) ->
-    RenderTmplFunc(BodyTks, Msg).
+    RenderTmplFunc(body, BodyTks, Msg).
 
 render_headers(HeaderTks, RenderTmplFunc, Msg) ->
     lists:filtermap(
         fun({KTks, VTks}) ->
-            K = render_template_string(KTks, RenderTmplFunc, Msg),
-            V = render_template_string(emqx_secret:unwrap(VTks), RenderTmplFunc, Msg),
+            K = render_template_string(header, KTks, RenderTmplFunc, Msg),
+            V = render_template_string(header, emqx_secret:unwrap(VTks), RenderTmplFunc, Msg),
             case safe_http_header(K, V) of
                 true ->
                     {true, {K, V}};
@@ -873,8 +875,13 @@ render_template(Template, Msg) ->
     {String, _Errors} = emqx_template:render(Template, {emqx_jsonish, Msg}),
     String.
 
-render_template_string(Template, RenderTmplFunc, Msg) ->
-    unicode:characters_to_binary(RenderTmplFunc(Template, Msg)).
+%% The `render_template_func' contract: the first argument tells the render
+%% function which part of the request is being rendered.
+render_template(_RenderContext, Template, Msg) ->
+    render_template(Template, Msg).
+
+render_template_string(RenderContext, Template, RenderTmplFunc, Msg) ->
+    unicode:characters_to_binary(RenderTmplFunc(RenderContext, Template, Msg)).
 
 make_method(M) when M == <<"POST">>; M == <<"post">> -> post;
 make_method(M) when M == <<"PUT">>; M == <<"put">> -> put;
@@ -1095,7 +1102,7 @@ drop_unsafe_headers_test() ->
         <<"good">> => <<"alice">>,
         <<"tns">> => <<"alice\r\nX-Override: allow">>
     },
-    Rendered = render_headers(HeadersTemplate, fun render_template/2, Msg),
+    Rendered = render_headers(HeadersTemplate, fun render_template/3, Msg),
     Names = [K || {K, _} <- Rendered],
     ?assert(lists:member(<<"x-clean">>, Names)),
     ?assertNot(lists:member(<<"x-tns">>, Names)).

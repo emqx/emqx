@@ -175,6 +175,11 @@ t_store_and_clean(_) ->
     ),
 
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
+    %% Wait until the unsubscribe has propagated (no subscribers left for the
+    %% topic) before publishing the clear, otherwise the empty-payload publish
+    %% is delivered to this still-subscribed client as a normal message and is
+    %% later mistaken for a stale retained delivery.
+    ?retry(100, 20, ?assertEqual([], emqx_broker:subscribers(<<"retained">>))),
 
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
     ?retry(100, 20, ?assertMatch({ok, []}, emqx_retainer:read_message(<<"retained">>))),
