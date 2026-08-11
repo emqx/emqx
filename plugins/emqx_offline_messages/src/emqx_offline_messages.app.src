@@ -10,8 +10,7 @@
         emqx,
         emqx_resource,
         emqx_redis,
-        emqx_mysql,
-        emqx_plugins
+        emqx_mysql
     ]},
     {mod, {emqx_offline_messages_app, []}},
     {env, []},

@@ -551,6 +551,32 @@ t_allows_missing_default_config(Config) ->
     ?assert(is_app_running(invalid_plugin)),
     ok = emqx_plugins:ensure_stopped(NameVsn).
 
+%% A plugin declaring emqx_plugins in its applications list must still load
+%% and start: the dependency is dropped from the app spec at load time.
+%% Waiting for it deadlocks plugin start during node boot.
+t_ignores_emqx_plugins_dependency({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = replace_tar_entry(
+        NameVsn,
+        "invalid_plugin.app",
+        <<
+            "{application, invalid_plugin, [{vsn, \"0.1.0\"},"
+            " {applications, [kernel, stdlib, emqx_plugins]}]}.\n"
+        >>
+    ),
+    [{name_vsn, NameVsn} | Config];
+t_ignores_emqx_plugins_dependency({'end', Config}) ->
+    _ = emqx_plugins:ensure_stopped(?config(name_vsn, Config)),
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_ignores_emqx_plugins_dependency(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(invalid_plugin)),
+    ?assertEqual({ok, [kernel, stdlib]}, application:get_key(invalid_plugin, applications)),
+    ok = emqx_plugins:ensure_stopped(NameVsn).
+
 t_rejects_invalid_schema_on_reconfigure({init, Config}) ->
     NameVsn = "invalid_plugin-1.0.0",
     ok = make_plugin_tar(NameVsn),
