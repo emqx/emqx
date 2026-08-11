@@ -38,7 +38,7 @@
     connector_example_values/0
 ]).
 
--export([render_template/2]).
+-export([render_template/3]).
 -export([convert_server/2]).
 
 %% emqx_connector_resource behaviour callbacks
@@ -70,6 +70,10 @@
 -type manager_id() :: binary().
 
 -define(CONNECTOR_TYPE, elasticsearch).
+
+-ifdef(TEST).
+-export([path/1]).
+-endif.
 
 %%-------------------------------------------------------------------------------------
 %% connector examples
@@ -312,7 +316,7 @@ on_add_channel(
             },
             ChannelConfig = #{
                 parameters => Parameter1,
-                render_template_func => fun ?MODULE:render_template/2
+                render_template_func => fun ?MODULE:render_template/3
             },
             {ok, State} = emqx_bridge_http_connector:on_add_channel(
                 InstanceId, State0, ChannelId, ChannelConfig
@@ -338,11 +342,17 @@ on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
             {error, not_exists}
     end.
 
-render_template([<<"update_without_doc_template">>], Msg) ->
+render_template(_RenderContext, [<<"update_without_doc_template">>], Msg) ->
     emqx_utils_json:encode(#{<<"doc">> => Msg});
-render_template([<<"create_without_doc_template">>], Msg) ->
+render_template(_RenderContext, [<<"create_without_doc_template">>], Msg) ->
     emqx_utils_json:encode(#{<<"doc">> => Msg, <<"doc_as_upsert">> => true});
-render_template(Template, Msg) ->
+render_template(path, Template, Msg) ->
+    %% URL-encode interpolated values so each one stays within its path
+    %% segment; literal template text is untouched.
+    Opts = #{var_trans => fun to_urlencoded_string/2},
+    {String, _Errors} = emqx_template:render(Template, {emqx_jsonish, Msg}, Opts),
+    String;
+render_template(_RenderContext, Template, Msg) ->
     % Ignoring errors here, undefined bindings will be replaced with empty string.
     Opts = #{var_trans => fun to_string/2},
     {String, _Errors} = emqx_template:render(Template, {emqx_jsonish, Msg}, Opts),
@@ -354,6 +364,13 @@ render_template(Template, Msg) ->
 
 to_string(Name, Value) ->
     emqx_template:to_string(render_var(Name, Value)).
+to_urlencoded_string(Name, Value) ->
+    try
+        uri_string:quote(to_string(Name, Value))
+    catch
+        throw:{error, Reason, _} ->
+            error({failed_to_urlencode_path_value, Name, Reason})
+    end.
 render_var(_, undefined) ->
     % NOTE Any allowed but undefined binding will be replaced with empty string
     <<>>;

@@ -1479,12 +1479,11 @@ t_subscribe_shared_topic(Config) ->
     ),
 
     %% assert subscription
-    %% The subscribe requests above return as soon as the API call is
-    %% accepted; the subscription tables are populated asynchronously, so
-    %% retry until both subscriptions are registered.
+    %% The subscribe API returns before the global subscription tables are
+    %% updated, so retry until the async registration is visible.
     ?retry(
-        _Interval = 100,
-        _Attempts = 20,
+        _Interval = 200,
+        _Attempts = 10,
         ?assertMatch(
             [
                 {_, #share{group = <<"group">>, topic = <<"testtopic">>}},
@@ -1535,7 +1534,7 @@ t_subscribe_shared_topic(Config) ->
     ),
 
     %% assert subscription
-    ?assertEqual([], ets:tab2list(?SUBSCRIPTION)),
+    ?retry(200, 10, ?assertEqual([], ets:tab2list(?SUBSCRIPTION))),
     ?assertEqual([], ets:tab2list(?SUBOPTION)),
     ?assertEqual([], ets:tab2list(emqx_shared_subscription)),
 
