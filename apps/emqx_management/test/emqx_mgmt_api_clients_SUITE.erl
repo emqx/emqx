@@ -1464,12 +1464,18 @@ t_subscribe_shared_topic(Config) ->
     ),
 
     %% assert subscription
-    ?assertMatch(
-        [
-            {_, #share{group = <<"group">>, topic = <<"testtopic">>}},
-            {_, <<"t/#">>}
-        ],
-        ets:tab2list(?SUBSCRIPTION)
+    %% The subscribe API returns before the global subscription tables are
+    %% updated, so retry until the async registration is visible.
+    ?retry(
+        _Interval = 200,
+        _Attempts = 10,
+        ?assertMatch(
+            [
+                {_, #share{group = <<"group">>, topic = <<"testtopic">>}},
+                {_, <<"t/#">>}
+            ],
+            ets:tab2list(?SUBSCRIPTION)
+        )
     ),
 
     ?assertMatch(
@@ -1509,7 +1515,7 @@ t_subscribe_shared_topic(Config) ->
     ),
 
     %% assert subscription
-    ?assertEqual([], ets:tab2list(?SUBSCRIPTION)),
+    ?retry(200, 10, ?assertEqual([], ets:tab2list(?SUBSCRIPTION))),
     ?assertEqual([], ets:tab2list(?SUBOPTION)),
     ?assertEqual([], ets:tab2list(emqx_shared_subscription)),
 
