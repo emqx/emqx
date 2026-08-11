@@ -77,7 +77,7 @@ t_run_case(Config) ->
     ok = setup_authenticator(Case0),
     Case = create_client_info(Case0),
     ok = maybe_make_delay(Case),
-    ok = emqx_authz_test_lib:run_checks(Case).
+    ok = emqx_authz_test_lib:run_table_checks(Case).
 
 %% NOTE
 %% In the table cases we cheat a bit, performing authentication and authorization

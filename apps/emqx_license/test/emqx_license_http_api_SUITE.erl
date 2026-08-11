@@ -12,10 +12,21 @@
 -include_lib("emqx_license.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
     emqx_license_test_lib:mock_parser(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_license_test_lib:unmock_parser().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Setting = emqx_license_schema:default_setting(),
     Key = emqx_license_test_lib:make_license(#{max_sessions => "100"}),
     LicenseConf = maps:merge(#{key => Key}, Setting),
@@ -36,13 +47,13 @@ init_per_suite(Config) ->
                 }
             """)
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
-    emqx_license_test_lib:unmock_parser(),
-    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
+end_per_group(_Profile, Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(Case, Config) ->
     ?MODULE:Case({init, Config}).

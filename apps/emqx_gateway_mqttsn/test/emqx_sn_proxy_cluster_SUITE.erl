@@ -17,7 +17,25 @@
 -define(FNU, 0).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
+
+init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(_Profile, _Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
 t_asleep_pingreq_reroutes_across_nodes_and_retires_old_proxy(Config) ->
     QoS = 1,
@@ -109,7 +127,12 @@ start_mqttsn_cluster(Config) ->
             {cluster_node_name(?FUNCTION_NAME, 1), #{apps => Apps1}},
             {cluster_node_name(?FUNCTION_NAME, 2), #{apps => Apps2}}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        #{
+            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+            env_vars => [
+                {"EMQX_SECURITY_PROFILE", atom_to_list(?config(security_profile, Config))}
+            ]
+        }
     ),
     [Node1, Node2] = Nodes = emqx_cth_cluster:start(NodeSpecs),
     ?retry(

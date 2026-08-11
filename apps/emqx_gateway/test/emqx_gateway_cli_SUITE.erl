@@ -36,19 +36,30 @@
 %% Setup
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() -> [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [emqx, emqx_conf, emqx_gateway],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
-    [{apps, Apps} | Config].
+    [{apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
-    Apps = ?config(apps, Config),
-    emqx_cth_suite:stop(Apps),
-    ok.
+end_per_group(_Profile, Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(_, Conf) ->
     Self = self(),

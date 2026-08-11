@@ -19,7 +19,8 @@ all() ->
     [
         {group, unit_tests},
         {group, integration_tests},
-        {group, api_tests}
+        {group, legacy},
+        {group, hardened}
     ].
 
 suite() -> [{timetrap, {minutes, 1}}].
@@ -56,7 +57,9 @@ groups() ->
             t_api_update_scopes,
             t_api_post_materialises_default_scopes,
             t_api_legacy_record_shows_unset_sentinel
-        ]}
+        ]},
+        {legacy, [], [{group, api_tests}]},
+        {hardened, [], [{group, api_tests}]}
     ].
 
 init_per_suite(Config) ->
@@ -75,6 +78,9 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     application:stop(hackney).
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
 init_per_group(unit_tests, Config) ->
     emqx_mgmt_api_key_scopes:clear_cache(),
     Config;
@@ -82,6 +88,8 @@ init_per_group(_Group, Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
     Config.
 
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, Config) ->
     Config.
 

@@ -63,7 +63,8 @@
 -export([
     start_ekka/0,
     start_epmd/0,
-    ebin_path/0
+    ebin_path/0,
+    listener_port/1
 ]).
 
 -export([clear_screen/0]).
@@ -665,6 +666,11 @@ is_lib(Path) ->
     string:prefix(Path, code:lib_dir()) =:= nomatch andalso
         string:str(Path, "_build/default/plugins") =:= 0.
 
+-spec listener_port(non_neg_integer() | {term(), non_neg_integer()}) -> non_neg_integer().
+listener_port(Port) when is_integer(Port) ->
+    Port;
+listener_port({_Host, Port}) ->
+    Port.
 %% Useful when iterating on the tests in a loop, to get rid of all the garbaged printed
 %% before the test itself beings.
 %% Only actually does anything if the environment variable `CLEAR_SCREEN' is set to `true'
@@ -1378,6 +1384,7 @@ capture_io_format(Fn) ->
         end,
     {Result, format_io_requests(Prints)}.
 
+-spec with_security_profile(legacy | hardened | string(), fun(() -> Result)) -> Result.
 with_security_profile(Profile, Fun) ->
     set_security_profile(Profile),
     try
@@ -1386,7 +1393,10 @@ with_security_profile(Profile, Fun) ->
         clear_security_profile()
     end.
 
-set_security_profile(Profile) ->
+-spec set_security_profile(legacy | hardened | string()) -> ok.
+set_security_profile(Profile) when is_atom(Profile) ->
+    set_security_profile(atom_to_list(Profile));
+set_security_profile(Profile) when is_list(Profile) ->
     os:putenv(?SECURITY_PROFILE_ENV_VAR, Profile),
     emqx_security_profile:clear_profile(),
     ok.

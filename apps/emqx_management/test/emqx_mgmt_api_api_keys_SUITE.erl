@@ -66,10 +66,12 @@
     created_at = 0 :: integer() | '_'
 }).
 
-all() -> [{group, parallel}, {group, sequence}].
+all() -> [{group, legacy}, {group, hardened}, {group, sequence}].
 suite() -> [{timetrap, {minutes, 1}}].
 groups() ->
     [
+        {legacy, [], [{group, parallel}]},
+        {hardened, [], [{group, parallel}]},
         {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
         {parallel, [parallel], ?EE_CASES},
         {sequence, [], [
@@ -107,6 +109,19 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     application:stop(hackney).
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = reset_api_key_state(),
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
+init_per_group(_Group, Config) ->
+    Config.
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = reset_api_key_state(),
+    emqx_common_test_helpers:clear_security_profile();
+end_per_group(_Group, Config) ->
+    Config.
 
 %% Bootstrap-file tests insert records into the api_key Mnesia table
 %% without cleanup; the historical sequence group relies on disjoint key
@@ -152,6 +167,15 @@ reset_bootstrap_state() ->
             end
         end,
         Apps
+    ),
+    ok.
+
+reset_api_key_state() ->
+    lists:foreach(
+        fun(#{name := Name}) ->
+            {ok, ok} = emqx_mgmt_auth:delete(Name)
+        end,
+        emqx_mgmt_auth:list()
     ),
     ok.
 

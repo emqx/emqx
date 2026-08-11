@@ -434,7 +434,7 @@ work_dir(CTConfig) ->
 %% @doc Determine the unique work directory for the current testcase run.
 %% Be careful when testcase runs under no groups, and its name matches the name of a
 %% previously executed test group, it's best to avoid such naming.
--spec work_dir(TestCaseName :: atom(), CTConfig :: proplists:proplist()) ->
+-spec work_dir(TestCaseName :: file:name_all(), CTConfig :: proplists:proplist()) ->
     file:filename_all().
 work_dir(TCName, CTConfig) ->
     WorkDir = work_dir(CTConfig),

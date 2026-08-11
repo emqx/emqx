@@ -24,7 +24,20 @@
 ).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all(?MODULE) -- ProfileCases).
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
@@ -179,7 +192,18 @@ t_response_handling(TCConfig) ->
                 ],
                 ?of_kind(authz_http_request_failure, Trace)
             ),
-            ?assertEqual([], ?of_kind(authz_non_superuser, Trace)),
+            case ?config(security_profile, TCConfig) of
+                legacy ->
+                    ?assert(
+                        ?strict_causality(
+                            #{?snk_kind := authz_http_request_failure},
+                            #{?snk_kind := authz_non_superuser, result := nomatch},
+                            Trace
+                        )
+                    );
+                hardened ->
+                    ?assertEqual([], ?of_kind(authz_non_superuser, Trace))
+            end,
             ok
         end
     ),
@@ -507,7 +531,7 @@ t_bad_response_content_type(TCConfig) ->
         end
     ).
 
-t_bad_response_content_type_legacy_ignores(TCConfig) ->
+t_bad_response_content_type_profile(TCConfig) ->
     ClientInfo = #{
         clientid => <<"client id">>,
         username => <<"user name">>,
@@ -521,33 +545,15 @@ t_bad_response_content_type_legacy_ignores(TCConfig) ->
     },
     ok = setup_bad_response_content_type(TCConfig),
     {ok, _} = emqx:update_config([authorization, no_match], allow),
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual(
-            allow,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
-        )
-    end).
-
-t_bad_response_content_type_hardened_denies(TCConfig) ->
-    ClientInfo = #{
-        clientid => <<"client id">>,
-        username => <<"user name">>,
-        peerhost => {127, 0, 0, 1},
-        protocol => <<"MQTT">>,
-        mountpoint => <<"MOUNTPOINT">>,
-        zone => default,
-        listener => 'tcp:default',
-        cn => ?PH_CERT_CN_NAME,
-        dn => ?PH_CERT_SUBJECT
-    },
-    ok = setup_bad_response_content_type(TCConfig),
-    {ok, _} = emqx:update_config([authorization, no_match], allow),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual(
-            deny,
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
-        )
-    end).
+    Expected =
+        case ?config(security_profile, TCConfig) of
+            legacy -> allow;
+            hardened -> deny
+        end,
+    ?assertEqual(
+        Expected,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ).
 
 %% Checks that we bump the correct metrics when we receive an error response
 t_bad_response(TCConfig) ->
@@ -590,42 +596,64 @@ t_bad_response(TCConfig) ->
         dn => ?PH_CERT_SUBJECT
     },
 
+    MetricsBefore = get_metrics(),
     ?assertEqual(
         deny,
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
+    {ExpectedIgnore, ExpectedDeny, ExpectedGlobalIncrements} =
+        case ?config(security_profile, TCConfig) of
+            legacy ->
+                {1, 0, #{
+                    'authorization.superuser' => 0,
+                    'authorization.matched.allow' => 0,
+                    'authorization.matched.deny' => 0,
+                    'authorization.nomatch' => 1
+                }};
+            hardened ->
+                {0, 1, #{
+                    'authorization.superuser' => 0,
+                    'authorization.matched.allow' => 0,
+                    'authorization.matched.deny' => 1,
+                    'authorization.nomatch' => 0
+                }}
+        end,
+    MetricsAfter = get_metrics(),
     ?assertMatch(
         #{
             counters := #{
                 total := 1,
-                ignore := 0,
+                ignore := ExpectedIgnore,
                 nomatch := 0,
                 allow := 0,
-                deny := 1
-            },
-            'authorization.superuser' := 0,
-            'authorization.matched.allow' := 0,
-            'authorization.matched.deny' := 1,
-            'authorization.nomatch' := 0
+                deny := ExpectedDeny
+            }
         },
-        get_metrics()
+        MetricsAfter
+    ),
+    ?assertEqual(
+        ExpectedGlobalIncrements,
+        maps:map(
+            fun(Name, Value) -> Value - maps:get(Name, MetricsBefore) end,
+            maps:with(maps:keys(ExpectedGlobalIncrements), MetricsAfter)
+        )
     ),
     ?assertMatch(
         {200, #{
             <<"metrics">> := #{
-                <<"ignore">> := 0,
+                <<"ignore">> := ExpectedIgnore,
                 <<"nomatch">> := 0,
                 <<"allow">> := 0,
-                <<"deny">> := 1,
+                <<"deny">> := ExpectedDeny,
                 <<"total">> := 1
             },
             <<"node_metrics">> := [
                 #{
                     <<"metrics">> := #{
-                        <<"ignore">> := 0,
+                        <<"ignore">> := ExpectedIgnore,
                         <<"nomatch">> := 0,
                         <<"allow">> := 0,
-                        <<"deny">> := 1,
+                        <<"deny">> := ExpectedDeny,
                         <<"total">> := 1
                     }
                 }
@@ -1330,3 +1358,6 @@ setup_bad_response_content_type(TCConfig) ->
             }
         }
     ).
+
+profile_cases() ->
+    [t_bad_response_content_type_profile, t_bad_response, t_response_handling].

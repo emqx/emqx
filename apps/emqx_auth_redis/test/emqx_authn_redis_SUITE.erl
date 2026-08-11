@@ -167,8 +167,10 @@ test_create_invalid_config(InvalidAuthConfig, Path) ->
 t_authenticate(_Config) ->
     ok = lists:foreach(
         fun(Sample) ->
-            ct:pal("test_user_auth sample: ~p", [Sample]),
-            test_user_auth(Sample)
+            emqx_authn_test_lib:with_security_profiles(Sample, fun(ProfileSample) ->
+                ct:pal("test_user_auth sample: ~p", [ProfileSample]),
+                test_user_auth(ProfileSample)
+            end)
         end,
         cases()
     ).
@@ -211,6 +213,11 @@ test_user_auth(
     ).
 
 t_destroy(_Config) ->
+    emqx_authn_test_lib:with_security_profiles(#{}, fun(Sample) ->
+        run(Sample, #{}, fun() -> test_destroy(Sample) end)
+    end).
+
+test_destroy(#{security_profile := Profile}) ->
     AuthConfig = raw_redis_auth_config(),
 
     {ok, _} = emqx:update_config(
@@ -235,8 +242,13 @@ t_destroy(_Config) ->
     ),
 
     % Authenticator should not be usable anymore
-    ?assertMatch(
-        {error, not_authorized},
+    Expected =
+        case Profile of
+            legacy -> ignore;
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(
+        Expected,
         emqx_authn_redis:authenticate(
             #{
                 username => <<"plain">>,
@@ -774,7 +786,7 @@ run([failure | Rest], #{backend_failure := true} = Sample, Credentials, Auth) ->
 run([failure | Rest], Sample, Credentials, Auth) ->
     run(Rest, Sample, Credentials, Auth);
 run([profile | Rest], #{security_profile := Profile} = Sample, Credentials, Auth) ->
-    emqx_common_test_helpers:with_security_profile(atom_to_list(Profile), fun() ->
+    emqx_common_test_helpers:with_security_profile(Profile, fun() ->
         run(Rest, Sample, Credentials, Auth)
     end);
 run([profile | Rest], Sample, Credentials, Auth) ->

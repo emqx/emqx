@@ -41,7 +41,14 @@
 %% Setups
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    ProfileCases = profile_cases(),
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileCases) ++
+        [{group, legacy}, {group, hardened}].
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
 
 init_per_suite(Config) ->
     {ok, Apps} = application:ensure_all_started(grpc),
@@ -49,6 +56,13 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(t_health_check = TC, Config) ->
     common_init(TC, Config);
@@ -92,6 +106,9 @@ common_stop(TC, Config) ->
     emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config),
     emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
+
+profile_cases() ->
+    [t_access_failed_if_no_server_running, t_handler_tcp, t_handler_ws].
 
 %%--------------------------------------------------------------------
 %% Test cases

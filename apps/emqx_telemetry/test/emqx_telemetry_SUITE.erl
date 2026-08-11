@@ -20,7 +20,14 @@
     }
 }).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    ProfileCases = profile_cases(),
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileCases) ++
+        [{group, legacy}, {group, hardened}].
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
 
 suite() ->
     [
@@ -59,6 +66,13 @@ end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     ok = emqx_cth_suite:stop(Apps),
     ok.
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(t_get_telemetry_without_memsup, Config) ->
     ok = application:stop(os_mon),
@@ -155,6 +169,9 @@ init_per_testcase(_Testcase, Config) ->
     mock_httpc(),
     Config.
 
+profile_cases() ->
+    [t_num_clients].
+
 end_per_testcase(t_get_telemetry_without_memsup, Config) ->
     application:start(os_mon),
     end_per_testcase(t_get_telemetry, Config);
@@ -186,6 +203,7 @@ end_per_testcase(t_enable, _Config) ->
 end_per_testcase(t_send_after_enable, _Config) ->
     meck:unload([httpc, emqx_telemetry_config]);
 end_per_testcase(t_rule_engine_and_data_bridge_info, _Config) ->
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok;
 end_per_testcase(t_exhook_info, _Config) ->
     emqx_exhook_demo_svr:stop(),

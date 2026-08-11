@@ -446,8 +446,9 @@ t_slow_rlog_routing_consistency(Config) ->
 %%
 
 get_mqtt_tcp_port(Node) ->
-    {_, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
-    Port.
+    emqx_common_test_helpers:listener_port(
+        erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]])
+    ).
 
 slowdown_mria_rlog(MnesiaHook, Nodes, DelayMs) ->
     MnesiaHook1 = fun(Tid, CommitData) ->

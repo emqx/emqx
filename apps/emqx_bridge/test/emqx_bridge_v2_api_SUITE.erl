@@ -329,8 +329,9 @@ on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
     {stop, ResCtx#{exists := true}}.
 
 get_tcp_mqtt_port(Node) ->
-    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
-    Port.
+    emqx_common_test_helpers:listener_port(
+        erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]])
+    ).
 
 work_dir_random_suffix(Name0, CTConfig) ->
     Name = iolist_to_binary([emqx_utils_conv:bin(Name0), emqx_utils:rand_id(5)]),

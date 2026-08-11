@@ -39,7 +39,20 @@
 ]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all(?MODULE) -- ProfileCases).
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(Config) ->
     %% Load all applications to ensure swagger.json is fully generated.
@@ -201,7 +214,7 @@ t_admin_delete_default_username(_TCConfig) ->
     ?assertMatch([_ | _], emqx_dashboard_admin:lookup_user(DefaultUsername)),
     ok.
 
-t_default_public_password_login_security_profile(_TCConfig) ->
+t_default_public_password_login_security_profile(TCConfig) ->
     mnesia:clear_table(?ADMIN),
     Username = <<"someuser">>,
     PublicPassword = <<"public">>,
@@ -209,27 +222,26 @@ t_default_public_password_login_security_profile(_TCConfig) ->
         Username, PublicPassword, ?ROLE_SUPERUSER, <<"public password test">>, #{}
     ),
 
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertMatch(
-            {ok, {{_, 200, _}, _, _}},
-            login_api(Username, PublicPassword)
-        )
-    end),
-
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        {ok, {{_, 401, _}, _, Body}} = login_api(Username, PublicPassword),
-        #{
-            <<"code">> := <<"BAD_USERNAME_OR_PWD">>,
-            <<"message">> := Message
-        } = json(Body),
-        ?assertNotEqual(
-            nomatch,
-            binary:match(
-                Message,
-                <<"Default admin password must be changed before login is allowed.">>
+    case ?config(security_profile, TCConfig) of
+        legacy ->
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, _}},
+                login_api(Username, PublicPassword)
+            );
+        hardened ->
+            {ok, {{_, 401, _}, _, Body}} = login_api(Username, PublicPassword),
+            #{
+                <<"code">> := <<"BAD_USERNAME_OR_PWD">>,
+                <<"message">> := Message
+            } = json(Body),
+            ?assertNotEqual(
+                nomatch,
+                binary:match(
+                    Message,
+                    <<"Default admin password must be changed before login is allowed.">>
+                )
             )
-        )
-    end).
+    end.
 
 t_rest_api(_Config) ->
     mnesia:clear_table(?ADMIN),
@@ -792,6 +804,9 @@ bin(X) -> iolist_to_binary(X).
 
 random_num() ->
     erlang:system_time(nanosecond).
+
+profile_cases() ->
+    [t_default_public_password_login_security_profile].
 
 http_get(Parts) ->
     request_api(get, api_path(Parts), auth_header(<<"admin">>, <<"public_www1">>)).

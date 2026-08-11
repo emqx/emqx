@@ -23,13 +23,20 @@ all() ->
 
 groups() ->
     CTs = emqx_common_test_helpers:all(?MODULE),
+    ProfileTests = [
+        t_no_auth_config_anonymous_pub_sub_connect,
+        t_listener_authn_disabled_allows_anonymous_pub_sub_connect
+    ],
+    TransportTests = (CTs -- ProfileTests) ++ [{group, legacy}, {group, hardened}],
     [
         {emqx_gateway, [], emqx_group_members()},
         {nats_server, [], nats_group_members()},
-        {tcp, [], CTs},
-        {ws, [], CTs},
-        {wss, [], CTs},
-        {ssl, [], CTs}
+        {tcp, [], TransportTests},
+        {ws, [], TransportTests},
+        {wss, [], TransportTests},
+        {ssl, [], TransportTests},
+        {legacy, [], [t_no_auth_config_anonymous_pub_sub_connect]},
+        {hardened, [], ProfileTests}
     ].
 
 init_per_suite(Config) ->
@@ -71,6 +78,9 @@ init_per_group(nats_server, Config) ->
         {skip, Reason} ->
             {skip, Reason}
     end;
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
 init_per_group(tcp, Config) ->
     Target = target_from(Config),
     BaseOpts = default_tcp_client_opts(Target),
@@ -103,6 +113,8 @@ init_per_group(ssl, Config) ->
             group_config(Target, ssl, BaseOpts) ++ Config
     end.
 
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, _Config) ->
     ok.
 
@@ -578,11 +590,9 @@ required_caps(t_nkey_auth_priority_over_jwt) ->
     [jwt_auth];
 required_caps(t_nkey_auth_fallback_to_jwt) ->
     [jwt_auth];
-required_caps(t_hardened_no_auth_config_rejects_anonymous_pub_sub_connect) ->
+required_caps(t_no_auth_config_anonymous_pub_sub_connect) ->
     [security_profile];
-required_caps(t_legacy_no_auth_config_allows_anonymous_pub_sub_connect) ->
-    [security_profile];
-required_caps(t_hardened_listener_authn_disabled_allows_anonymous_pub_sub_connect) ->
+required_caps(t_listener_authn_disabled_allows_anonymous_pub_sub_connect) ->
     [security_profile];
 required_caps(_TestCase) ->
     [].
@@ -1826,35 +1836,29 @@ t_auth_dynamic_enable_disable(Config) ->
     recv_ok_frame(Client3),
     emqx_nats_client:stop(Client3).
 
-t_hardened_no_auth_config_rejects_anonymous_pub_sub_connect(Config) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        with_nats_empty_auth(true, fun() ->
-            ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
-            assert_info_auth_required(ClientOpts, true),
-            assert_pre_connect_publish_rejected(ClientOpts),
-            assert_pre_connect_subscribe_rejected(ClientOpts),
-            assert_connect_rejected(ClientOpts)
-        end)
+t_no_auth_config_anonymous_pub_sub_connect(Config) ->
+    Profile = ?config(security_profile, Config),
+    with_nats_empty_auth(true, fun() ->
+        ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
+        case Profile of
+            legacy ->
+                assert_info_auth_required(ClientOpts, false),
+                assert_pre_connect_pub_sub_allowed(ClientOpts),
+                assert_connect_allowed(ClientOpts);
+            hardened ->
+                assert_info_auth_required(ClientOpts, true),
+                assert_pre_connect_publish_rejected(ClientOpts),
+                assert_pre_connect_subscribe_rejected(ClientOpts),
+                assert_connect_rejected(ClientOpts)
+        end
     end).
 
-t_legacy_no_auth_config_allows_anonymous_pub_sub_connect(Config) ->
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        with_nats_empty_auth(true, fun() ->
-            ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
-            assert_info_auth_required(ClientOpts, false),
-            assert_pre_connect_pub_sub_allowed(ClientOpts),
-            assert_connect_allowed(ClientOpts)
-        end)
-    end).
-
-t_hardened_listener_authn_disabled_allows_anonymous_pub_sub_connect(Config) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        with_nats_empty_auth(false, fun() ->
-            ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
-            assert_info_auth_required(ClientOpts, false),
-            assert_pre_connect_pub_sub_allowed(ClientOpts),
-            assert_connect_allowed(ClientOpts)
-        end)
+t_listener_authn_disabled_allows_anonymous_pub_sub_connect(Config) ->
+    with_nats_empty_auth(false, fun() ->
+        ClientOpts = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
+        assert_info_auth_required(ClientOpts, false),
+        assert_pre_connect_pub_sub_allowed(ClientOpts),
+        assert_connect_allowed(ClientOpts)
     end).
 
 t_token_auth_plain_success(init, Config) ->

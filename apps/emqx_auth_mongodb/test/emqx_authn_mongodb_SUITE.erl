@@ -105,8 +105,10 @@ t_create_invalid(_Config) ->
 t_authenticate(_Config) ->
     ok = lists:foreach(
         fun(Sample) ->
-            ct:pal("test_user_auth sample: ~p", [Sample]),
-            test_user_auth(Sample)
+            emqx_authn_test_lib:with_security_profiles(Sample, fun(ProfileSample) ->
+                ct:pal("test_user_auth sample: ~p", [ProfileSample]),
+                test_user_auth(ProfileSample)
+            end)
         end,
         applicable_cases()
     ).
@@ -154,6 +156,11 @@ test_user_auth(
     ).
 
 t_destroy(Config) ->
+    emqx_authn_test_lib:with_security_profiles(#{}, fun(Sample) ->
+        run(Sample, #{}, fun() -> test_destroy(Config, Sample) end)
+    end).
+
+test_destroy(Config, #{security_profile := Profile}) ->
     Client = ?config(mongo_client, Config),
     ok = init_seeds(Client),
     AuthConfig = raw_mongo_auth_config(),
@@ -180,8 +187,13 @@ t_destroy(Config) ->
     ),
 
     % Authenticator should not be usable anymore
-    ?assertMatch(
-        {error, not_authorized},
+    Expected =
+        case Profile of
+            legacy -> ignore;
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(
+        Expected,
         emqx_authn_mongodb:authenticate(
             #{
                 username => <<"plain">>,
@@ -640,7 +652,7 @@ run([failure | Rest], #{backend_failure := true} = Sample, Credentials, Auth) ->
 run([failure | Rest], Sample, Credentials, Auth) ->
     run(Rest, Sample, Credentials, Auth);
 run([profile | Rest], #{security_profile := Profile} = Sample, Credentials, Auth) ->
-    emqx_common_test_helpers:with_security_profile(atom_to_list(Profile), fun() ->
+    emqx_common_test_helpers:with_security_profile(Profile, fun() ->
         run(Rest, Sample, Credentials, Auth)
     end);
 run([profile | Rest], Sample, Credentials, Auth) ->

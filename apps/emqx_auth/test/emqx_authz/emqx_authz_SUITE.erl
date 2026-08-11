@@ -20,7 +20,20 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all(?MODULE) -- ProfileCases).
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -477,25 +490,15 @@ t_pre_config_update_crash(_) ->
     ),
     ok = meck:unload(emqx_authz_fake_source).
 
-t_authorizer_crash_legacy_continues_chain(_) ->
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        {Result, Calls} = authorize_with_crashing_http_and_allowing_redis(),
-        ?assertEqual(
-            allow,
-            Result
-        ),
-        ?assertEqual([http, redis], Calls)
-    end).
-
-t_authorizer_crash_hardened_denies_and_aborts_chain(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        {Result, Calls} = authorize_with_crashing_http_and_allowing_redis(),
-        ?assertEqual(
-            deny,
-            Result
-        ),
-        ?assertEqual([http], Calls)
-    end).
+t_authorizer_crash(Config) ->
+    {ExpectedResult, ExpectedCalls} =
+        case ?config(security_profile, Config) of
+            legacy -> {allow, [http, redis]};
+            hardened -> {deny, [http]}
+        end,
+    {Result, Calls} = authorize_with_crashing_http_and_allowing_redis(),
+    ?assertEqual(ExpectedResult, Result),
+    ?assertEqual(ExpectedCalls, Calls).
 
 t_authz_backend_failure_policy_override(_) ->
     on_exit(fun() ->
@@ -735,7 +738,7 @@ t_publish_last_will_testament_denied_topic(_Config) ->
 
     ok.
 
-t_alias_prefix(_Config) ->
+t_alias_prefix(Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_FILE_CLIENT_ATTR]),
     %% '^.*-(.*)$': extract the suffix after the last '-'
     {ok, Compiled} = emqx_variform:compile("concat(regex_extract(clientid,'^.*-(.*)$'))"),
@@ -758,7 +761,11 @@ t_alias_prefix(_Config) ->
     NonMatching = <<"clientid_which_has_no_dash">>,
     {ok, C2} = emqtt:start_link([{clientid, NonMatching}, {proto_ver, v5}]),
     ?assertMatch({ok, _}, emqtt:connect(C2)),
-    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C2, <<"client_attrs_backup">>)),
+    ExpectedBackupCode = expected_backup_code(Config),
+    ?assertMatch(
+        {ok, _, [ExpectedBackupCode]},
+        emqtt:subscribe(C2, <<"client_attrs_backup">>)
+    ),
     %% assert '${client_attrs.alias}/#' is not rendered as '/#'
     ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C2, <<"/#">>)),
     unlink(C2),
@@ -766,7 +773,7 @@ t_alias_prefix(_Config) ->
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     ok.
 
-t_non_existing_attr(_Config) ->
+t_non_existing_attr(Config) ->
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_FILE_CLIENT_NO_SUCH_ATTR]),
     %% '^.*-(.*)$': extract the suffix after the last '-'
     {ok, Compiled} = emqx_variform:compile("concat(regex_extract(clientid,'^.*-(.*)$'))"),
@@ -780,7 +787,11 @@ t_non_existing_attr(_Config) ->
     ClientId = <<"org1-name3">>,
     {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
     ?assertMatch({ok, _}, emqtt:connect(C)),
-    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, <<"client_attrs_backup">>)),
+    ExpectedBackupCode = expected_backup_code(Config),
+    ?assertMatch(
+        {ok, _, [ExpectedBackupCode]},
+        emqtt:subscribe(C, <<"client_attrs_backup">>)
+    ),
     %% assert '${client_attrs.nonexist}/#' is not rendered as '/#'
     ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C, <<"/#">>)),
     unlink(C),
@@ -1025,6 +1036,15 @@ authorize_with_crashing_http_and_allowing_redis() ->
         {Result, collect_authz_calls(Ref)}
     after
         ok = meck:unload(emqx_authz_fake_source)
+    end.
+
+profile_cases() ->
+    [t_authorizer_crash, t_alias_prefix, t_non_existing_attr].
+
+expected_backup_code(Config) ->
+    case ?config(security_profile, Config) of
+        legacy -> ?RC_SUCCESS;
+        hardened -> ?RC_NOT_AUTHORIZED
     end.
 
 collect_authz_calls(Ref) ->

@@ -114,7 +114,7 @@ run_test(_Client, #{name := extended_query_with_order_skip_limit}, true) ->
 run_test(Client, Case, UseLegacyProtocol) ->
     ok = setup_source_data(Client, Case),
     ok = setup_authz_source(Case#{use_legacy_protocol => UseLegacyProtocol}),
-    ok = emqx_authz_test_lib:run_checks(Case).
+    ok = emqx_authz_test_lib:run_table_checks(Case).
 
 t_node_cache(Config) ->
     Client = ?config(mongo_client, Config),

@@ -33,9 +33,21 @@
 >>).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     application:load(emqx_gateway_gbt32960),
     Apps = emqx_cth_suite:start(
         [
@@ -45,15 +57,15 @@ init_per_suite(Config) ->
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
+end_per_group(_Profile, Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_case01_auth_expire;
