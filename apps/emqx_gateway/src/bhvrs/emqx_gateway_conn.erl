@@ -530,8 +530,6 @@ handle_msg({outgoing, NSock = {esockd_udp_proxy, _, _}, Data}, State) ->
     handle_outgoing_via_socket(Data, NSock, State);
 handle_msg({outgoing, Data}, State) ->
     handle_outgoing(Data, State);
-handle_msg({udp_proxy, _Decision}, State) ->
-    {ok, State};
 handle_msg({Error, _Sock, Reason}, State) when
     Error == tcp_error; Error == ssl_error
 ->
@@ -919,26 +917,20 @@ handle_udp_proxy_incoming(Packet, NSock, State) ->
 %%--------------------------------------------------------------------
 %% With Channel
 
-with_channel(Fun, Args, State = #state{chann_mod = ChannMod, channel = Channel}) ->
-    case call_channel(ChannMod, Fun, Args, Channel) of
-        ok ->
-            {ok, State};
-        {ok, NChannel} ->
-            {ok, State#state{channel = NChannel}};
-        {ok, Replies, NChannel} ->
-            {ok, next_msgs(Replies), State#state{channel = NChannel}};
-        {shutdown, Reason, NChannel} ->
-            shutdown(Reason, State#state{channel = NChannel});
-        {shutdown, Reason, Packet, NChannel} ->
-            NState = State#state{channel = NChannel},
-            {ok, NState1} = handle_outgoing(Packet, NState),
-            shutdown(Reason, NState1)
-    end.
+with_channel(Fun, Args, State) ->
+    with_channel(
+        Fun,
+        Args,
+        fun handle_channel_replies/2,
+        fun handle_outgoing/2,
+        State
+    ).
 
-with_udp_proxy_channel(
+with_channel(
     Fun,
     Args,
-    NSock,
+    ReplyHandler,
+    OutgoingHandler,
     State = #state{chann_mod = ChannMod, channel = Channel}
 ) ->
     case call_channel(ChannMod, Fun, Args, Channel) of
@@ -947,14 +939,33 @@ with_udp_proxy_channel(
         {ok, NChannel} ->
             {ok, State#state{channel = NChannel}};
         {ok, Replies, NChannel} ->
-            handle_udp_proxy_replies(NSock, Replies, State#state{channel = NChannel});
+            ReplyHandler(Replies, State#state{channel = NChannel});
         {shutdown, Reason, NChannel} ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
             NState = State#state{channel = NChannel},
-            {ok, NState1} = handle_outgoing_via_socket(Packet, NSock, NState),
+            {ok, NState1} = OutgoingHandler(Packet, NState),
             shutdown(Reason, NState1)
     end.
+
+with_udp_proxy_channel(
+    Fun,
+    Args,
+    NSock,
+    State
+) ->
+    ReplyHandler = fun(Replies, NState) ->
+        handle_udp_proxy_replies(NSock, Replies, NState)
+    end,
+    OutgoingHandler = fun(Packet, NState) ->
+        handle_outgoing_via_socket(Packet, NSock, NState)
+    end,
+    with_channel(Fun, Args, ReplyHandler, OutgoingHandler, State).
+
+handle_channel_replies(Replies0, State) ->
+    Replies = ensure_reply_list(Replies0),
+    {_Decision, Replies1} = take_udp_proxy_decision(Replies, reject, []),
+    {ok, next_msgs(Replies1), State}.
 
 handle_udp_proxy_replies(NSock, Replies0, State) ->
     Replies = ensure_reply_list(Replies0),
@@ -962,7 +973,7 @@ handle_udp_proxy_replies(NSock, Replies0, State) ->
     NState =
         case Decision of
             commit ->
-                commit_udp_proxy(NSock, State);
+                switch_udp_proxy_downlink(NSock, State);
             reject ->
                 State
         end,
@@ -986,7 +997,7 @@ route_udp_proxy_reply(NSock, {outgoing, Data}) ->
 route_udp_proxy_reply(_NSock, Reply) ->
     Reply.
 
-commit_udp_proxy(NSock, State) ->
+switch_udp_proxy_downlink(NSock, State) ->
     State#state{socket = NSock, sockstate = running}.
 
 call_channel(ChannMod, Fun, [Arg1], Channel) ->

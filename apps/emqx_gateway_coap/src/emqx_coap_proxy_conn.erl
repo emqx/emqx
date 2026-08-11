@@ -60,8 +60,9 @@ peer_id(Peer) ->
 proxy_connection_id({peer, _} = CId, _Peer) ->
     CId;
 proxy_connection_id(CId, Peer) ->
-    %% esockd takes over an existing proxy as soon as the same connection ID
-    %% is attached.  Keep candidates isolated until CoAP validates the token.
+    %% esockd_udp_proxy_db:attach/2 stops the proxy already registered with the
+    %% same ID.  Scope candidates by peer until the gateway connection validates
+    %% the token and switches its persistent downlink socket.
     {coap_udp_proxy, Peer, CId}.
 
 logical_connection_id({coap_udp_proxy, _Peer, CId}) ->
