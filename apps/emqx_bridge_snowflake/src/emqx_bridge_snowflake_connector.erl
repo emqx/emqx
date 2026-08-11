@@ -62,6 +62,10 @@
 %% Internal exports only for mocking
 -export([do_insert_files_request/4, do_insert_report_request/4]).
 
+-ifdef(TEST).
+-export([http_pool_transport_opts/1]).
+-endif.
+
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
@@ -78,11 +82,13 @@
     password := emqx_schema_secret:secret(),
     dsn := binary(),
     pool_size := pos_integer(),
-    proxy := none | proxy_config()
+    proxy := none | proxy_config(),
+    ssl => map()
 }.
 -type connector_state() :: #{
     account := account(),
     server := #{host := binary(), port := emqx_schema:port_number()},
+    ssl := map(),
     installed_actions := #{action_resource_id() => action_state()}
 }.
 
@@ -219,6 +225,7 @@ on_start(ConnResId, ConnConfig) ->
             State = #{
                 account => Account,
                 server => #{host => Host, port => Port},
+                ssl => maps:get(ssl, ConnConfig, #{}),
                 installed_actions => #{}
             },
             {ok, State};
@@ -675,7 +682,7 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
         <<"/insertReport">>
     ]),
     JWTConfig = jwt_config(ActionResId, ActionConfig, ConnState),
-    TransportOpts = emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none}),
+    TransportOpts = http_pool_transport_opts(maps:get(ssl, ConnState, #{})),
     ProxyConfig =
         case ProxyConfig0 of
             none ->
@@ -719,6 +726,11 @@ start_http_pool(ActionResId, ActionConfig, ConnState) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+http_pool_transport_opts(SSLConfig) ->
+    %% Snowflake endpoints are always HTTPS: force TLS on regardless of `ssl.enable`,
+    %% while honouring the rest of the configured `ssl` options.
+    emqx_tls_lib:to_client_opts(SSLConfig#{enable => true}).
 
 start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0) ->
     maybe

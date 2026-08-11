@@ -51,3 +51,36 @@ validation_test_() ->
                 )
             )}
     ].
+
+ssl_transport_opts_test_() ->
+    TransportOpts = fun(SSL) ->
+        emqx_bridge_snowflake_connector:http_pool_transport_opts(SSL)
+    end,
+    [
+        {"untouched config keeps verify_none",
+            ?_assertEqual(
+                verify_none,
+                proplists:get_value(verify, TransportOpts(#{}))
+            )},
+        {"configured verify is applied",
+            ?_assertEqual(
+                verify_peer,
+                proplists:get_value(verify, TransportOpts(#{verify => verify_peer}))
+            )},
+        {"configured server_name_indication is applied",
+            ?_assertEqual(
+                "custom.sni.host",
+                proplists:get_value(
+                    server_name_indication,
+                    TransportOpts(#{
+                        verify => verify_peer,
+                        server_name_indication => <<"custom.sni.host">>
+                    })
+                )
+            )},
+        {"TLS options are built even when ssl.enable is false",
+            ?_assertMatch(
+                [_ | _],
+                TransportOpts(#{enable => false, verify => verify_none})
+            )}
+    ].
