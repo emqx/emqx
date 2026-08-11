@@ -54,6 +54,10 @@ init_per_group(?global, Config) ->
     [{ns, ?global_ns} | Config];
 init_per_group(?ns, Config) ->
     [{ns, ?NS} | Config];
+init_per_group(distinct_users, Config) ->
+    [{user_ids, {<<"u">>, <<"v">>}} | Config];
+init_per_group(same_user, Config) ->
+    [{user_ids, {<<"u">>, <<"u">>}} | Config];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -269,34 +273,35 @@ t_update(_) ->
 t_destroy() ->
     [{matrix, true}].
 t_destroy(matrix) ->
-    [[?global], [?ns]];
+    [[?global, distinct_users], [?ns, same_user]];
 t_destroy(TCConfig) ->
     Namespace = ns(TCConfig),
+    {UserId, OtherUserId} = ?config(user_ids, TCConfig),
     Config = config(),
     OtherConfig = Config#{user_group => <<"stomp:global">>},
     {ok, State0} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
     {ok, StateOther} = emqx_authn_mnesia:create(?AUTHN_ID, OtherConfig),
 
-    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
-    User2 = add_ns(#{user_id => <<"u">>, password => <<"p">>}, ?OTHER_NS),
+    User = maybe_add_ns(#{user_id => UserId, password => <<"p">>}, TCConfig),
+    User2 = add_ns(#{user_id => OtherUserId, password => <<"p">>}, ?OTHER_NS),
 
     {ok, _} = emqx_authn_mnesia:add_user(User, State0),
     {ok, _} = emqx_authn_mnesia:add_user(User2, State0),
     {ok, _} = emqx_authn_mnesia:add_user(User, StateOther),
     {ok, _} = emqx_authn_mnesia:add_user(User2, StateOther),
 
-    {ok, _} = lookup_user(Namespace, <<"u">>, State0),
-    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, State0),
-    {ok, _} = lookup_user(Namespace, <<"u">>, StateOther),
-    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, StateOther),
+    {ok, _} = lookup_user(Namespace, UserId, State0),
+    {ok, _} = lookup_user(?OTHER_NS, OtherUserId, State0),
+    {ok, _} = lookup_user(Namespace, UserId, StateOther),
+    {ok, _} = lookup_user(?OTHER_NS, OtherUserId, StateOther),
 
     ok = emqx_authn_mnesia:destroy(State0),
 
     {ok, State1} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
-    {error, not_found} = lookup_user(Namespace, <<"u">>, State1),
-    {error, not_found} = lookup_user(?OTHER_NS, <<"u">>, State1),
-    {ok, _} = lookup_user(Namespace, <<"u">>, StateOther),
-    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, StateOther),
+    {error, not_found} = lookup_user(Namespace, UserId, State1),
+    {error, not_found} = lookup_user(?OTHER_NS, OtherUserId, State1),
+    {ok, _} = lookup_user(Namespace, UserId, StateOther),
+    {ok, _} = lookup_user(?OTHER_NS, OtherUserId, StateOther),
 
     ok.
 
@@ -310,8 +315,9 @@ t_purge_namespace(_TCConfig) ->
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
     {ok, StateOtherGroup} = emqx_authn_mnesia:create(?AUTHN_ID, OtherGroupConfig),
 
+    GlobalUser = #{user_id => <<"global">>, password => <<"p">>},
     User = #{user_id => <<"u">>, password => <<"p">>},
-    {ok, _} = emqx_authn_mnesia:add_user(User, State),
+    {ok, _} = emqx_authn_mnesia:add_user(GlobalUser, State),
     {ok, _} = emqx_authn_mnesia:add_user(add_ns(User, ?NS), State),
     {ok, _} = emqx_authn_mnesia:add_user(add_ns(User, ?NS), StateOtherGroup),
     {ok, _} = emqx_authn_mnesia:add_user(add_ns(User, ?OTHER_NS), State),
@@ -320,7 +326,7 @@ t_purge_namespace(_TCConfig) ->
 
     {error, not_found} = lookup_user(?NS, <<"u">>, State),
     {error, not_found} = lookup_user(?NS, <<"u">>, StateOtherGroup),
-    {ok, _} = lookup_user(?global_ns, <<"u">>, State),
+    {ok, _} = lookup_user(?global_ns, <<"global">>, State),
     {ok, _} = lookup_user(?OTHER_NS, <<"u">>, State),
     ?assertEqual(0, emqx_authn_mnesia:record_count(?NS)),
 
@@ -400,7 +406,12 @@ t_add_user(TCConfig) ->
     {error, already_exist} = emqx_authn_mnesia:add_user(User, State),
 
     OtherUser = add_ns(User, ?OTHER_NS),
-    {ok, _} = emqx_authn_mnesia:add_user(OtherUser, State),
+    case ns(TCConfig) of
+        ?global_ns ->
+            {error, already_exist} = emqx_authn_mnesia:add_user(OtherUser, State);
+        _ ->
+            {ok, _} = emqx_authn_mnesia:add_user(OtherUser, State)
+    end,
 
     ok.
 
@@ -669,6 +680,42 @@ t_import_records_algorithm_in_generated_mode(_) ->
         },
         emqx_authn_mnesia:rec_to_map(PrehashedRecord)
     ).
+
+t_global_user_conflict(_TCConfig) ->
+    Config = config(),
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+    Namespace = ?NS,
+    Username = <<"u">>,
+    PasswordNs = <<"pns">>,
+    PasswordGlobal = <<"pglobal">>,
+    UserNs = add_ns(#{user_id => Username, password => PasswordNs}, Namespace),
+    UserGlobal = #{user_id => Username, password => PasswordGlobal},
+
+    {ok, _} = emqx_authn_mnesia:add_user(UserNs, State),
+    {ok, _} = emqx_authn_mnesia:add_user(UserGlobal, State),
+    ignore = emqx_authn_mnesia:authenticate(
+        add_ns_clientinfo(#{username => Username, password => PasswordNs}, Namespace),
+        State
+    ),
+    ignore = emqx_authn_mnesia:authenticate(
+        add_ns_clientinfo(#{username => Username, password => PasswordGlobal}, Namespace),
+        State
+    ),
+    {ok, _} = emqx_authn_mnesia:authenticate(
+        #{username => Username, password => PasswordGlobal}, State
+    ),
+
+    ok = delete_user(?global_ns, Username, State),
+    {ok, _} = emqx_authn_mnesia:authenticate(
+        add_ns_clientinfo(#{username => Username, password => PasswordNs}, Namespace),
+        State
+    ),
+
+    {ok, _} = emqx_authn_mnesia:add_user(UserGlobal, State),
+    {error, already_exist} = emqx_authn_mnesia:add_user(
+        add_ns(#{user_id => Username, password => PasswordNs}, ?OTHER_NS), State
+    ),
+    ok.
 
 t_delete_user() ->
     [{matrix, true}].
@@ -1046,11 +1093,11 @@ t_import_users_duplicated_records(_) ->
         read_tables()
     ),
 
-    %% Namespaced users on different namespaces are independent.
+    %% A global user prevents imports of the same user ID into namespaces.
     ok = emqx_authn_mnesia:destroy(State),
     {ok, State2} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
     ?assertMatch(
-        {ok, _},
+        {ok, #{total := 5, success := 1, override := 1, failed := 3}},
         emqx_authn_mnesia:import_users(
             sample_filename_and_data(plain, <<"user-credentials-plain-dup-ns.json">>),
             State2
@@ -1062,18 +1109,6 @@ t_import_users_duplicated_records(_) ->
                 namespace := ?global,
                 user_id := <<"myuser1">>,
                 password_hash := <<"password5">>,
-                is_superuser := false
-            },
-            #{
-                namespace := <<"ns1">>,
-                user_id := <<"myuser1">>,
-                password_hash := <<"password4">>,
-                is_superuser := false
-            },
-            #{
-                namespace := <<"ns2">>,
-                user_id := <<"myuser1">>,
-                password_hash := <<"password3">>,
                 is_superuser := false
             }
         ],
@@ -1203,20 +1238,19 @@ t_namespace_fallback_to_global(_TCConfig) ->
         )
     ),
 
-    %% Now, we create a namespaced user with the same username and different password.
-    %% Authentication should now return this new user.
+    %% A global user reserves its user ID across all namespaces.
     PasswordNs = <<"pns">>,
     UserNs = add_ns(#{user_id => Username, password => PasswordNs}, Namespace),
-    {ok, _} = emqx_authn_mnesia:add_user(UserNs, State),
+    {error, already_exist} = emqx_authn_mnesia:add_user(UserNs, State),
     ?assertMatch(
-        {error, bad_username_or_password},
+        {ok, _},
         emqx_authn_mnesia:authenticate(
             add_ns_clientinfo(#{username => Username, password => PasswordGlobal}, Namespace),
             State
         )
     ),
     ?assertMatch(
-        {ok, _},
+        {error, bad_username_or_password},
         emqx_authn_mnesia:authenticate(
             add_ns_clientinfo(#{username => Username, password => PasswordNs}, Namespace),
             State
