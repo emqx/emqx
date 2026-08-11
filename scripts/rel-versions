@@ -5,10 +5,10 @@
 # Example: if HEAD is on a v6.0 topic branch (last reachable GA tag is 6.0.3),
 # this prints
 #
-#     6.0.4, 6.1.4, 6.2.3, 6.3.0
+#     6.0.4, 6.1.4, 6.2.3, 6.3.0, 6.4.0
 #
-# A downstream line that has no GA tag yet (e.g. dev-63 before 6.3.0 ships)
-# contributes its first GA version, M.N.0 (6.3.0 above).
+# A downstream line that has no GA tag yet (e.g. dev-64 before 6.4.0 ships)
+# contributes its first GA version, M.N.0 (6.4.0 above).
 #
 # computed by running `git describe <remote>/dev-XX --tags --match 'X.Y.*'
 # --exclude '*-*'` against the matching dev-XX branch (so the answers reflect
@@ -18,7 +18,7 @@
 # from the lookup; the script computes "next patch after the most recent GA".
 #
 # Branches in the forward-sync chain (v6 line):
-#   dev-60 -> dev-61 -> dev-62 -> dev-63
+#   dev-60 -> dev-61 -> dev-62 -> dev-63 -> dev-64
 #
 # The script auto-detects the remote pointing at github.com:emqx/emqx from
 # `git remote -v` -- it doesn't assume the remote is called `origin`.
@@ -99,7 +99,7 @@ start_minor="${BASH_REMATCH[2]}"
 # Forward-sync chain per major version.
 # ---------------------------------------------------------------------------
 case "$start_major" in
-    6) chain=(60 61 62 63) ;;
+    6) chain=(60 61 62 63 64) ;;
     *)
         echo "error: unsupported major version $start_major" >&2
         exit 1
@@ -107,7 +107,7 @@ case "$start_major" in
 esac
 
 # Encode the starting minor the same way the chain entries are encoded:
-# chain entries are e.g. 60, 61, 62, 63 (concatenation of major+minor).
+# chain entries are e.g. 60, 61, 62, 63, 64 (concatenation of major+minor).
 start_key="${start_major}${start_minor}"
 
 # ---------------------------------------------------------------------------

@@ -234,6 +234,7 @@ on_start(ConnResId, ConnConfig) ->
             State = #{
                 account => Account,
                 server => #{host => Host, port => Port},
+                ssl => maps:get(ssl, ConnConfig, #{}),
                 installed_actions => #{}
             },
             {ok, State};
@@ -706,7 +707,7 @@ start_aggregated_http_pool(ConnResId, ActionResId, ActionConfig, ConnState) ->
             {port, Port},
             {pool_type, random},
             {pool_size, PoolSize}
-            | common_ehttpc_pool_opts(ActionConfig)
+            | common_ehttpc_pool_opts(ActionConfig, ConnState)
         ],
     allocate(ConnResId, ?aggregated_http_pool(ActionResId), ActionResId),
     case ehttpc_sup:start_pool(ActionResId, PoolOpts) of
@@ -1142,7 +1143,7 @@ mk_odbc_authn_opt(_ConnConfig) ->
     %% Users can place password in `/etc/odbc.ini`.
     [].
 
-common_ehttpc_pool_opts(ActionConfig) ->
+common_ehttpc_pool_opts(ActionConfig, ConnState) ->
     #{
         parameters := #{
             connect_timeout := ConnectTimeout,
@@ -1155,7 +1156,8 @@ common_ehttpc_pool_opts(ActionConfig) ->
         connect_timeout => ConnectTimeout,
         pipelining => Pipelining,
         max_inactive => MaxInactive,
-        proxy => ProxyConfig
+        proxy => ProxyConfig,
+        ssl => maps:get(ssl, ConnState, #{})
     },
     emqx_bridge_snowflake_lib:common_ehttpc_pool_opts(Params).
 

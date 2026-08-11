@@ -421,20 +421,24 @@ reset() ->
 
 reset(Topic) ->
     Nodes = mria:running_nodes(),
-    {SuccResList, []} = emqx_topic_metrics_proto_v1:reset(Nodes, Topic),
-    case
-        lists:filter(
-            fun
-                ({error, _}) -> true;
-                (_) -> false
-            end,
-            SuccResList
-        )
-    of
-        [{error, Reason} | _] ->
-            {error, Reason};
-        [] ->
-            ok
+    case emqx_topic_metrics_proto_v1:reset(Nodes, Topic) of
+        {SuccResList, []} ->
+            case
+                lists:filter(
+                    fun
+                        ({error, _}) -> true;
+                        (_) -> false
+                    end,
+                    SuccResList
+                )
+            of
+                [{error, Reason} | _] ->
+                    {error, Reason};
+                [] ->
+                    ok
+            end;
+        {_, FailedNodes} ->
+            {error, {badrpc, FailedNodes}}
     end.
 
 %%--------------------------------------------------------------------
@@ -462,7 +466,9 @@ reason2httpresp(topic_not_found) ->
     {404, #{code => ?TOPIC_NOT_FOUND, message => Msg}};
 reason2httpresp(not_found) ->
     Msg = <<"Topic not found">>,
-    {404, #{code => ?TOPIC_NOT_FOUND, message => Msg}}.
+    {404, #{code => ?TOPIC_NOT_FOUND, message => Msg}};
+reason2httpresp({badrpc, RPCReason}) ->
+    {500, RPCReason}.
 
 get_cluster_response(Args) ->
     case erlang:apply(?MODULE, cluster_accumulation_metrics, Args) of

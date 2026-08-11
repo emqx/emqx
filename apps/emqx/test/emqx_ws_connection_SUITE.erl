@@ -36,7 +36,8 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
     TestCase =/= t_ws_non_check_origin,
-    TestCase =/= t_header
+    TestCase =/= t_header,
+    TestCase =/= t_header_proxy_disabled_by_empty_name
 ->
     %% Mock cowboy_req
     ok = meck:new(cowboy_req, [passthrough, no_history, no_link]),
@@ -59,7 +60,8 @@ end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_non_check_origin,
     TestCase =/= t_ws_pingreq_before_connected,
-    TestCase =/= t_header
+    TestCase =/= t_header,
+    TestCase =/= t_header_proxy_disabled_by_empty_name
 ->
     meck:unload([cowboy_req]);
 end_per_testcase(_, Config) ->
@@ -110,6 +112,37 @@ t_header(_) ->
         #{
             socktype := ws,
             peername := {{100, 100, 100, 100}, 1000}
+        },
+        ConnInfo
+    ).
+
+-doc """
+Empty `proxy_address_header`/`proxy_port_header` means forwarded headers are
+never consulted; `peername` is the socket peer.
+""".
+t_header_proxy_disabled_by_empty_name(_) ->
+    set_ws_opts(fail_if_no_subprotocol, false),
+    set_ws_opts(proxy_address_header, <<"">>),
+    set_ws_opts(proxy_port_header, <<"">>),
+    {_Module, _Req, [ConnInfo, _], _ModOpts} = ?ws_conn:init(
+        #{
+            peer => {{127, 0, 0, 1}, 3456},
+            sock => {{127, 0, 0, 1}, 54321},
+            cert => undefined,
+            headers => #{
+                <<"x-forwarded-for">> => <<"100.100.100.100, 99.99.99.99">>,
+                <<"x-forwarded-port">> => <<"1000">>
+            }
+        },
+        #{
+            zone => default,
+            listener => {ws, default}
+        }
+    ),
+    ?assertMatch(
+        #{
+            socktype := ws,
+            peername := {{127, 0, 0, 1}, 3456}
         },
         ConnInfo
     ).
