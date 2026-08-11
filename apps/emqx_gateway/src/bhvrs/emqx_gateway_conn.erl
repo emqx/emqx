@@ -962,10 +962,13 @@ with_udp_proxy_channel(
     end,
     with_channel(Fun, Args, ReplyHandler, OutgoingHandler, State).
 
-handle_channel_replies(Replies0, State) ->
-    Replies = ensure_reply_list(Replies0),
+handle_channel_replies({udp_proxy, _Decision}, State) ->
+    {ok, State};
+handle_channel_replies(Reply, State) when is_tuple(Reply) ->
+    {ok, Reply, State};
+handle_channel_replies(Replies, State) when is_list(Replies) ->
     {_Decision, Replies1} = take_udp_proxy_decision(Replies, reject, []),
-    {ok, next_msgs(Replies1), State}.
+    {ok, Replies1, State}.
 
 handle_udp_proxy_replies(NSock, Replies0, State) ->
     Replies = ensure_reply_list(Replies0),
