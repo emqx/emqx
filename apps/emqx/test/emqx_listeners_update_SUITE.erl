@@ -15,14 +15,31 @@
 
 -define(LISTENERS, [listeners]).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    [{apps, Apps} | Config].
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
 
-end_per_suite(Config) ->
-    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
+    ),
+    [{apps, Apps}, {security_profile, Profile} | Config].
+
+end_per_group(_Profile, Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(_TestCase, Config) ->
     Init = emqx:get_raw_config(?LISTENERS),
@@ -33,22 +50,31 @@ end_per_testcase(_TestCase, Config) ->
     {ok, _} = emqx:update_config(?LISTENERS, Conf),
     ok.
 
-t_default_conf(_Config) ->
+t_default_conf(Config) ->
+    Profile = ?config(security_profile, Config),
+    TcpBind = expected_default_bind(Profile, 1883),
+    SslBind = expected_default_bind(Profile, 8883),
+    WsBind = expected_default_bind(Profile, 8083),
+    WssBind = expected_default_bind(Profile, 8084),
+    RawTcpBind = format_raw_bind(TcpBind),
+    RawSslBind = format_raw_bind(SslBind),
+    RawWsBind = format_raw_bind(WsBind),
+    RawWssBind = format_raw_bind(WssBind),
     ?assertMatch(
         #{
-            <<"tcp">> := #{<<"default">> := #{<<"bind">> := <<"127.0.0.1:1883">>}},
-            <<"ssl">> := #{<<"default">> := #{<<"bind">> := <<"127.0.0.1:8883">>}},
-            <<"ws">> := #{<<"default">> := #{<<"bind">> := <<"127.0.0.1:8083">>}},
-            <<"wss">> := #{<<"default">> := #{<<"bind">> := <<"127.0.0.1:8084">>}}
+            <<"tcp">> := #{<<"default">> := #{<<"bind">> := RawTcpBind}},
+            <<"ssl">> := #{<<"default">> := #{<<"bind">> := RawSslBind}},
+            <<"ws">> := #{<<"default">> := #{<<"bind">> := RawWsBind}},
+            <<"wss">> := #{<<"default">> := #{<<"bind">> := RawWssBind}}
         },
         emqx:get_raw_config(?LISTENERS)
     ),
     ?assertMatch(
         #{
-            tcp := #{default := #{bind := {{127, 0, 0, 1}, 1883}}},
-            ssl := #{default := #{bind := {{127, 0, 0, 1}, 8883}}},
-            ws := #{default := #{bind := {{127, 0, 0, 1}, 8083}}},
-            wss := #{default := #{bind := {{127, 0, 0, 1}, 8084}}}
+            tcp := #{default := #{bind := TcpBind}},
+            ssl := #{default := #{bind := SslBind}},
+            ws := #{default := #{bind := WsBind}},
+            wss := #{default := #{bind := WssBind}}
         },
         emqx:get_config(?LISTENERS)
     ),
@@ -391,7 +417,8 @@ t_update_empty_ssl_options_conf(_Conf) ->
     ),
     ok.
 
-t_add_delete_conf(_Conf) ->
+t_add_delete_conf(Config) ->
+    DefaultSslBind = expected_default_bind(?config(security_profile, Config), 8883),
     Raw = emqx:get_raw_config(?LISTENERS),
     %% add
     #{<<"tcp">> := #{<<"default">> := Tcp}} = Raw,
@@ -404,10 +431,13 @@ t_add_delete_conf(_Conf) ->
     %% deleted
     ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw)),
     ?assertError(not_found, current_conns(<<"tcp:new">>, {{127, 0, 0, 1}, 1987})),
-    ?assertEqual(0, current_conns(<<"ssl:default">>, {{127, 0, 0, 1}, 8883})),
+    ?assertEqual(0, current_conns(<<"ssl:default">>, DefaultSslBind)),
     ok.
 
-t_delete_default_conf(_Conf) ->
+t_delete_default_conf(Config) ->
+    Profile = ?config(security_profile, Config),
+    DefaultTcpBind = expected_default_bind(Profile, 1883),
+    DefaultSslBind = expected_default_bind(Profile, 8883),
     Raw = emqx:get_raw_config(?LISTENERS),
     %% delete default listeners
     Raw1 = emqx_utils_maps:deep_put([<<"tcp">>, <<"default">>], Raw, ?TOMBSTONE_VALUE),
@@ -415,15 +445,15 @@ t_delete_default_conf(_Conf) ->
     Raw3 = emqx_utils_maps:deep_put([<<"ws">>, <<"default">>], Raw2, ?TOMBSTONE_VALUE),
     Raw4 = emqx_utils_maps:deep_put([<<"wss">>, <<"default">>], Raw3, ?TOMBSTONE_VALUE),
     ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw4)),
-    ?assertError(not_found, current_conns(<<"tcp:default">>, {{127, 0, 0, 1}, 1883})),
-    ?assertError(not_found, current_conns(<<"ssl:default">>, {{127, 0, 0, 1}, 8883})),
+    ?assertError(not_found, current_conns(<<"tcp:default">>, DefaultTcpBind)),
+    ?assertError(not_found, current_conns(<<"ssl:default">>, DefaultSslBind)),
     ?assertMatch({error, not_found}, is_running('ws:default')),
     ?assertMatch({error, not_found}, is_running('wss:default')),
 
     %% reset
     ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw)),
-    ?assertEqual(0, current_conns(<<"tcp:default">>, {{127, 0, 0, 1}, 1883})),
-    ?assertEqual(0, current_conns(<<"ssl:default">>, {{127, 0, 0, 1}, 8883})),
+    ?assertEqual(0, current_conns(<<"tcp:default">>, DefaultTcpBind)),
+    ?assertEqual(0, current_conns(<<"ssl:default">>, DefaultSslBind)),
     ?assert(is_running('ws:default')),
     ?assert(is_running('wss:default')),
     ok.
@@ -444,3 +474,9 @@ emqtt_connect(Opts) ->
 
 format_bind(Bind) ->
     iolist_to_binary(emqx_listeners:format_bind(Bind)).
+
+expected_default_bind(legacy, Port) -> Port;
+expected_default_bind(hardened, Port) -> {{127, 0, 0, 1}, Port}.
+
+format_raw_bind(Port) when is_integer(Port) -> Port;
+format_raw_bind({{127, 0, 0, 1}, Port}) -> <<"127.0.0.1:", (integer_to_binary(Port))/binary>>.

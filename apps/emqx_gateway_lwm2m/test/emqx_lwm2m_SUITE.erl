@@ -35,6 +35,9 @@
 %%--------------------------------------------------------------------
 
 all() ->
+    [{group, legacy}, {group, hardened}].
+
+profile_groups() ->
     [
         {group, test_grp_0_register},
         {group, test_grp_1_read},
@@ -56,6 +59,8 @@ suite() -> [{timetrap, {seconds, 90}}].
 groups() ->
     RepeatOpt = {repeat_until_all_ok, 1},
     [
+        {legacy, [], profile_groups()},
+        {hardened, [], profile_groups()},
         {test_grp_0_register, [RepeatOpt], [
             case01_register,
             case01_auth_expire,
@@ -190,6 +195,14 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -200,14 +213,18 @@ init_per_suite(Config) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     {ok, _} = emqx_gateway_auth_ct:start(),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps}, {security_profile, Profile} | Config];
+init_per_group(_Group, Config) ->
+    Config.
 
-end_per_suite(Config) ->
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
     ok = emqx_gateway_auth_ct:stop(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
+end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(TestCase, Config) ->

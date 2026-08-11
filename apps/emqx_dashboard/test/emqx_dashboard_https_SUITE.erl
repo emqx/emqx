@@ -26,10 +26,23 @@
 ]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileCases) ++
+        [{group, legacy}, {group, hardened}].
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
 
 init_per_suite(Config) -> Config.
 end_per_suite(_Config) -> ok.
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(Case, Config) ->
     emqx_common_test_helpers:init_per_testcase(?MODULE, Case, Config).
@@ -379,6 +392,15 @@ assert_https_request() ->
         end,
         ?OVERVIEWS
     ).
+
+profile_cases() ->
+    [
+        t_update_conf,
+        t_default_ssl_cert,
+        t_compatibility_ssl_cert,
+        t_normal_ssl_cert,
+        t_verify_cacertfile
+    ].
 
 https_api_path(Parts) ->
     ?HOST_HTTPS ++ filename:join([?BASE_PATH | Parts]).

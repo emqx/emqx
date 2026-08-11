@@ -90,7 +90,20 @@ destroy(_State) ->
     ok.
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all(?MODULE) -- ProfileCases).
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -268,10 +281,12 @@ t_authenticate(Config) when is_list(Config) ->
         username => <<"good">>,
         password => <<"any">>
     },
-    ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo)),
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual({ok, #{is_superuser => false}}, emqx_access_control:authenticate(ClientInfo))
-    end),
+    Expected =
+        case ?config(security_profile) of
+            legacy -> {ok, #{is_superuser => false}};
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(Expected, emqx_access_control:authenticate(ClientInfo)),
 
     register_provider(AuthNType, ?MODULE),
 
@@ -300,7 +315,7 @@ t_authenticate({'end', Config}) ->
 t_authenticate_rejection_log({init, Config}) ->
     [
         {listener_id, 'tcp:default'},
-        {authn_type, {password_based, built_in_database}}
+        {authn_type, {password_based, mysql}}
         | Config
     ];
 t_authenticate_rejection_log(Config) when is_list(Config) ->
@@ -309,7 +324,7 @@ t_authenticate_rejection_log(Config) when is_list(Config) ->
     ok = register_provider(AuthNType, ?MODULE),
     AuthenticatorConfig = #{
         mechanism => password_based,
-        backend => built_in_database,
+        backend => mysql,
         enable => true
     },
     {ok, _} = ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig),
@@ -330,7 +345,7 @@ t_authenticate_rejection_log(Config) when is_list(Config) ->
         [
             #{
                 msg := authenticator_rejection,
-                authenticator := <<"password_based:built_in_database">>,
+                authenticator := <<"password_based:mysql">>,
                 provider := _,
                 reason := bad_username_or_password
             }
@@ -552,8 +567,11 @@ t_combine_authn_and_callback(Config) when is_list(Config) ->
         password => <<"any">>
     },
 
-    %% no emqx_authn_chains authenticators, anonymous is denied
-    ?assertAuthFailureForUser(bad),
+    %% no emqx_authn_chains authenticators
+    assert_authn_profile_result(
+        Config,
+        emqx_access_control:authenticate(ClientInfo#{username => <<"bad">>})
+    ),
 
     AuthNType = ?config(authn_type),
     register_provider(AuthNType, ?MODULE),
@@ -632,16 +650,10 @@ t_authn_not_configured_missing_chain(Config) when is_list(Config) ->
     ok = cleanup_authn_not_configured_chains(),
     ClientInfo = authn_not_configured_clientinfo(),
 
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo))
-    end),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo))
-    end),
+    assert_authn_profile_result(Config, emqx_access_control:authenticate(ClientInfo)),
     ok;
 t_authn_not_configured_missing_chain({'end', _Config}) ->
-    ok = cleanup_authn_not_configured_chains(),
-    emqx_common_test_helpers:clear_security_profile().
+    cleanup_authn_not_configured_chains().
 
 t_authn_not_configured_empty_chain({'init', Config}) ->
     Config;
@@ -658,40 +670,25 @@ t_authn_not_configured_empty_chain(Config) when is_list(Config) ->
     {ok, _} = ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig),
     ClientInfo = authn_not_configured_clientinfo(),
 
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo))
-    end),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo))
-    end),
+    assert_authn_profile_result(Config, emqx_access_control:authenticate(ClientInfo)),
     ok;
 t_authn_not_configured_empty_chain({'end', _Config}) ->
     ok = cleanup_authn_not_configured_chains(),
-    ok = ?AUTHN:deregister_provider({password_based, built_in_database}),
-    emqx_common_test_helpers:clear_security_profile().
+    ?AUTHN:deregister_provider({password_based, built_in_database}).
 
-t_authn_backend_failure_legacy_continues_chain({'init', Config}) ->
+t_authn_backend_failure({'init', Config}) ->
     setup_backend_failure_chain(),
     Config;
-t_authn_backend_failure_legacy_continues_chain(Config) when is_list(Config) ->
+t_authn_backend_failure(Config) when is_list(Config) ->
     ClientInfo = backend_failure_clientinfo(),
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual({ok, #{is_superuser => true}}, emqx_access_control:authenticate(ClientInfo))
-    end),
+    Expected =
+        case ?config(security_profile) of
+            legacy -> {ok, #{is_superuser => true}};
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(Expected, emqx_access_control:authenticate(ClientInfo)),
     ok;
-t_authn_backend_failure_legacy_continues_chain({'end', _Config}) ->
-    cleanup_backend_failure_chain().
-
-t_authn_backend_failure_hardened_aborts_chain({'init', Config}) ->
-    setup_backend_failure_chain(),
-    Config;
-t_authn_backend_failure_hardened_aborts_chain(Config) when is_list(Config) ->
-    ClientInfo = backend_failure_clientinfo(),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo))
-    end),
-    ok;
-t_authn_backend_failure_hardened_aborts_chain({'end', _Config}) ->
+t_authn_backend_failure({'end', _Config}) ->
     cleanup_backend_failure_chain().
 
 t_authn_backend_failure_policy_override({'init', Config}) ->
@@ -728,6 +725,21 @@ cleanup_authn_not_configured_chains() ->
     _ = ?AUTHN:delete_chain('mqtt:global'),
     ok.
 
+profile_cases() ->
+    [
+        t_authenticate,
+        t_combine_authn_and_callback,
+        t_authn_not_configured_missing_chain,
+        t_authn_not_configured_empty_chain,
+        t_authn_backend_failure
+    ].
+
+assert_authn_profile_result(Config, Result) ->
+    case ?config(security_profile) of
+        legacy -> ?assertMatch({ok, _}, Result);
+        hardened -> ?assertEqual({error, not_authorized}, Result)
+    end.
+
 backend_failure_clientinfo() ->
     #{
         zone => default,
@@ -760,7 +772,7 @@ cleanup_backend_failure_chain() ->
     ok = ?AUTHN:deregister_provider({password_based, built_in_database}),
     ok = ?AUTHN:deregister_provider({password_based, mysql}),
     {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], false),
-    emqx_common_test_helpers:clear_security_profile().
+    ok.
 
 hook(Priority) ->
     ok = emqx_hooks:put(

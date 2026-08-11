@@ -45,9 +45,21 @@ gateway.nats {
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     application:load(emqx_gateway_nats),
     TcpPort = emqx_common_test_helpers:select_free_port(tcp),
     SslPort = emqx_common_test_helpers:select_free_port(ssl),
@@ -60,7 +72,7 @@ init_per_suite(Config) ->
             emqx_management,
             emqx_common_test_http:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     RawConf = emqx:get_raw_config([gateway, nats]),
     ok = disable_auth(),
@@ -68,14 +80,15 @@ init_per_suite(Config) ->
         {suite_apps, Apps},
         {tcp_port, TcpPort},
         {ssl_port, SslPort},
-        {raw_conf, RawConf}
+        {raw_conf, RawConf},
+        {security_profile, Profile}
         | Config
     ].
 
-end_per_suite(Config) ->
+end_per_group(_Profile, Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(_TestCase, Config) ->
     Config.

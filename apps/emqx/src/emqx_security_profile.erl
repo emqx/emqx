@@ -15,8 +15,8 @@ e.g. in schema validation code.
 -define(PT_KEY, {?MODULE, profile}).
 -define(PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 
-%% Since 6.3
--define(PROFILE_DEFAULT, hardened).
+%% Change to hardened in v7.0
+-define(PROFILE_DEFAULT, legacy).
 
 -export([profile/0, policy/1, clear_profile/0]).
 

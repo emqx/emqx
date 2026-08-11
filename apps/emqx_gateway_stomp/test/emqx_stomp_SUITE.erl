@@ -42,7 +42,20 @@
     "}\n"
 >>).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    ProfileTests = hardened_profile_tests(),
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileTests) ++ [{group, hardened}].
+
+groups() ->
+    [{hardened, [], hardened_profile_tests()}].
+
+hardened_profile_tests() ->
+    [
+        t_hardened_rejects_pre_connect_send,
+        t_hardened_rejects_pre_connect_subscribe,
+        t_hardened_rejects_pre_connect_transactional_send,
+        t_hardened_listener_authn_disabled_allows_pub_sub
+    ].
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -67,6 +80,13 @@ end_per_suite(Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
+
+init_per_group(hardened, Config) ->
+    ok = emqx_common_test_helpers:set_security_profile("hardened"),
+    [{security_profile, hardened} | Config].
+
+end_per_group(hardened, _Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_auth_expire;
@@ -233,81 +253,73 @@ t_auth_failed(_) ->
     meck:unload(emqx_access_control).
 
 t_hardened_rejects_pre_connect_send(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        Topic = <<"security/stomp/pre-connect-send">>,
-        Payload = <<"blocked">>,
-        emqx:subscribe(Topic),
-        try
-            with_connection(fun(Sock) ->
-                ok = send_message_frame(Sock, Topic, Payload),
-                assert_error_and_closed(Sock)
-            end),
-            receive
-                {deliver, Topic, _Msg} ->
-                    ct:fail(pre_connect_send_was_published)
-            after 500 ->
-                ok
-            end
-        after
-            emqx:unsubscribe(Topic)
-        end
-    end).
-
-t_hardened_rejects_pre_connect_subscribe(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        Topic = <<"security/stomp/pre-connect-subscribe">>,
+    Topic = <<"security/stomp/pre-connect-send">>,
+    Payload = <<"blocked">>,
+    emqx:subscribe(Topic),
+    try
         with_connection(fun(Sock) ->
-            ok = send_subscribe_frame(Sock, 0, Topic),
+            ok = send_message_frame(Sock, Topic, Payload),
             assert_error_and_closed(Sock)
         end),
-        timer:sleep(100),
-        ?assertEqual([], emqx:subscribers(Topic))
-    end).
+        receive
+            {deliver, Topic, _Msg} ->
+                ct:fail(pre_connect_send_was_published)
+        after 500 ->
+            ok
+        end
+    after
+        emqx:unsubscribe(Topic)
+    end.
+
+t_hardened_rejects_pre_connect_subscribe(_) ->
+    Topic = <<"security/stomp/pre-connect-subscribe">>,
+    with_connection(fun(Sock) ->
+        ok = send_subscribe_frame(Sock, 0, Topic),
+        assert_error_and_closed(Sock)
+    end),
+    timer:sleep(100),
+    ?assertEqual([], emqx:subscribers(Topic)).
 
 t_hardened_rejects_pre_connect_transactional_send(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        Topic = <<"security/stomp/pre-connect-transaction">>,
-        Payload = <<"blocked">>,
-        emqx:subscribe(Topic),
-        try
-            with_connection(fun(Sock) ->
-                ok = send_begin_frame(Sock, <<"tx-pre-connect">>),
-                ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
-                ok = send_message_frame(Sock, Topic, Payload, [
-                    {<<"transaction">>, <<"tx-pre-connect">>}
-                ]),
-                assert_error_and_closed(Sock)
-            end),
-            receive
-                {deliver, Topic, _Msg} ->
-                    ct:fail(pre_connect_transactional_send_was_published)
-            after 500 ->
-                ok
-            end
-        after
-            emqx:unsubscribe(Topic)
+    Topic = <<"security/stomp/pre-connect-transaction">>,
+    Payload = <<"blocked">>,
+    emqx:subscribe(Topic),
+    try
+        with_connection(fun(Sock) ->
+            ok = send_begin_frame(Sock, <<"tx-pre-connect">>),
+            ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+            ok = send_message_frame(Sock, Topic, Payload, [
+                {<<"transaction">>, <<"tx-pre-connect">>}
+            ]),
+            assert_error_and_closed(Sock)
+        end),
+        receive
+            {deliver, Topic, _Msg} ->
+                ct:fail(pre_connect_transactional_send_was_published)
+        after 500 ->
+            ok
         end
-    end).
+    after
+        emqx:unsubscribe(Topic)
+    end.
 
 t_hardened_listener_authn_disabled_allows_pub_sub(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        with_stomp_tcp_listener_authn(false, fun() ->
-            with_connection(fun(Sock) ->
-                Topic = <<"security/stomp/authn-disabled">>,
-                Payload = <<"allowed">>,
-                ok = send_connection_frame(Sock, undefined, undefined),
-                ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+    with_stomp_tcp_listener_authn(false, fun() ->
+        with_connection(fun(Sock) ->
+            Topic = <<"security/stomp/authn-disabled">>,
+            Payload = <<"allowed">>,
+            ok = send_connection_frame(Sock, undefined, undefined),
+            ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
 
-                ok = send_subscribe_frame(Sock, 0, Topic),
-                ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+            ok = send_subscribe_frame(Sock, 0, Topic),
+            ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
 
-                ok = send_message_frame(Sock, Topic, Payload),
-                ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
-                ?assertMatch(
-                    {ok, #stomp_frame{command = <<"MESSAGE">>, body = Payload}},
-                    recv_a_frame(Sock)
-                )
-            end)
+            ok = send_message_frame(Sock, Topic, Payload),
+            ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+            ?assertMatch(
+                {ok, #stomp_frame{command = <<"MESSAGE">>, body = Payload}},
+                recv_a_frame(Sock)
+            )
         end)
     end).
 

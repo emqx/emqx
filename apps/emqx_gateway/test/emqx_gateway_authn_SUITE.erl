@@ -36,11 +36,22 @@
 -define(AUTHNS, [authn_http]).
 
 all() ->
-    emqx_gateway_auth_ct:group_names(?AUTHNS).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    emqx_gateway_auth_ct:init_groups(?MODULE, ?AUTHNS).
+    AuthGroups = emqx_gateway_auth_ct:group_names(?AUTHNS),
+    [
+        {legacy, [], AuthGroups},
+        {hardened, [], AuthGroups}
+        | emqx_gateway_auth_ct:init_groups(?MODULE, ?AUTHNS)
+    ].
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    {ok, Apps1} = application:ensure_all_started(grpc),
+    {ok, Apps2} = application:ensure_all_started(cowboy),
+    {ok, _} = emqx_gateway_auth_ct:start(),
+    [{profile_apps, Apps1 ++ Apps2}, {security_profile, Profile} | Config];
 init_per_group(AuthName, Conf) ->
     Apps = emqx_cth_suite:start(
         [
@@ -57,6 +68,10 @@ init_per_group(AuthName, Conf) ->
     ok = emqx_gateway_auth_ct:start_auth(AuthName),
     [{group_apps, Apps} | Conf].
 
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_gateway_auth_ct:stop(),
+    ok = emqx_cth_suite:stop_apps(?config(profile_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(AuthName, Conf) ->
     ok = emqx_gateway_auth_ct:stop_auth(AuthName),
     _ = emqx_common_test_http:delete_default_app(),
@@ -65,15 +80,11 @@ end_per_group(AuthName, Conf) ->
     Conf.
 
 init_per_suite(Config) ->
-    {ok, Apps1} = application:ensure_all_started(grpc),
-    {ok, Apps2} = application:ensure_all_started(cowboy),
-    {ok, _} = emqx_gateway_auth_ct:start(),
-    [{suite_apps, Apps1 ++ Apps2} | Config].
-
-end_per_suite(Config) ->
-    ok = emqx_gateway_auth_ct:stop(),
-    ok = emqx_cth_suite:stop_apps(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile(),
     Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
 %%------------------------------------------------------------------------------
 %% Tests

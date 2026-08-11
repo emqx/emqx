@@ -19,28 +19,39 @@
 -define(AUTHN_PATH, [authentication]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    [].
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf,
                 emqx_authn_test_lib:emqx_appspec(#{
-                    config => "authorization.no_match = deny, authorization.cache.enable = false"
+                    config =>
+                        "authorization.no_match = deny, authorization.cache.enable = false"
                 })},
             emqx_auth,
             emqx_auth_jwt
         ],
-        #{work_dir => ?config(priv_dir, Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
+end_per_group(_Profile, Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
-    emqx_cth_suite:stop(?config(suite_apps, Config)).
+    emqx_cth_suite:stop(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(_TestCase, Config) ->
     emqx_authn_test_lib:delete_authenticators(

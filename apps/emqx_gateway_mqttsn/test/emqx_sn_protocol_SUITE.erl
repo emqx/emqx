@@ -96,7 +96,18 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileTests = hardened_profile_tests(),
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileTests) ++ [{group, hardened}].
+
+groups() ->
+    [{hardened, [], hardened_profile_tests()}].
+
+hardened_profile_tests() ->
+    [
+        t_publish_negqos_idle_requires_authn_in_hardened_profile,
+        t_publish_negqos_idle_allows_authn_in_hardened_profile,
+        t_publish_negqos_idle_rejects_bad_authn_in_hardened_profile
+    ].
 
 init_per_suite(Config) ->
     PrivDir = ?config(priv_dir, Config),
@@ -128,6 +139,13 @@ end_per_suite(Config) ->
     {ok, _} = emqx:remove_config([gateway, mqttsn]),
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)).
+
+init_per_group(hardened, Config) ->
+    ok = emqx_common_test_helpers:set_security_profile("hardened"),
+    [{security_profile, hardened} | Config].
+
+end_per_group(hardened, _Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_gateway_test_utils:disable_gateway_auth(<<"mqttsn">>),
@@ -775,20 +793,18 @@ t_publish_negqos_idle_requires_authn_in_hardened_profile(_) ->
     ok = emqx:subscribe(Topic),
     ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"mqttsn">>, true),
     try
-        emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-            {ok, Socket} = gen_udp:open(0, [binary]),
-            ?check_trace(
-                begin
-                    send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
-                    ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 500)
-                end,
-                fun(Trace0) ->
-                    Trace = ?of_kind(idle_negative_qos_publish_rejected, Trace0),
-                    ?assertMatch([#{return_code := ?SN_RC2_NOT_AUTHORIZE}], Trace)
-                end
-            ),
-            gen_udp:close(Socket)
-        end)
+        {ok, Socket} = gen_udp:open(0, [binary]),
+        ?check_trace(
+            begin
+                send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 500)
+            end,
+            fun(Trace0) ->
+                Trace = ?of_kind(idle_negative_qos_publish_rejected, Trace0),
+                ?assertMatch([#{return_code := ?SN_RC2_NOT_AUTHORIZE}], Trace)
+            end
+        ),
+        gen_udp:close(Socket)
     after
         emqx_gateway_test_utils:set_gateway_listeners_authn(<<"mqttsn">>, false),
         emqx:unsubscribe(Topic)
@@ -812,12 +828,10 @@ t_publish_negqos_idle_allows_authn_in_hardened_profile(_) ->
         is_superuser => false
     }),
     try
-        emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-            {ok, Socket} = gen_udp:open(0, [binary]),
-            send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
-            ?assertReceive({deliver, Topic, #message{payload = Payload}}, 1000),
-            gen_udp:close(Socket)
-        end)
+        {ok, Socket} = gen_udp:open(0, [binary]),
+        send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+        ?assertReceive({deliver, Topic, #message{payload = Payload}}, 1000),
+        gen_udp:close(Socket)
     after
         emqx_gateway_test_utils:delete_gateway_auth_user(<<"mqttsn">>, <<"user1">>),
         emqx_gateway_test_utils:disable_gateway_auth(<<"mqttsn">>),
@@ -836,20 +850,18 @@ t_publish_negqos_idle_rejects_bad_authn_in_hardened_profile(_) ->
         is_superuser => false
     }),
     try
-        emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-            {ok, Socket} = gen_udp:open(0, [binary]),
-            ?check_trace(
-                begin
-                    send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
-                    ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 500)
-                end,
-                fun(Trace0) ->
-                    Trace = ?of_kind(idle_negative_qos_publish_rejected, Trace0),
-                    ?assertMatch([#{return_code := ?SN_RC2_NOT_AUTHORIZE}], Trace)
-                end
-            ),
-            gen_udp:close(Socket)
-        end)
+        {ok, Socket} = gen_udp:open(0, [binary]),
+        ?check_trace(
+            begin
+                send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 500)
+            end,
+            fun(Trace0) ->
+                Trace = ?of_kind(idle_negative_qos_publish_rejected, Trace0),
+                ?assertMatch([#{return_code := ?SN_RC2_NOT_AUTHORIZE}], Trace)
+            end
+        ),
+        gen_udp:close(Socket)
     after
         emqx_gateway_test_utils:delete_gateway_auth_user(<<"mqttsn">>, <<"user1">>),
         emqx_gateway_test_utils:disable_gateway_auth(<<"mqttsn">>),

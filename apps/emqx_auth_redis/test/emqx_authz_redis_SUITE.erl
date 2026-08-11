@@ -63,7 +63,7 @@ t_run_case(Config) ->
     Case = ?config(test_case, Config),
     ok = setup_source_data(Case),
     ok = setup_authz_source(Case),
-    ok = emqx_authz_test_lib:run_checks(Case).
+    ok = emqx_authz_test_lib:run_table_checks(Case).
 
 %% should still succeed to create even if the config will not work,
 %% because it's not a part of the schema check

@@ -23,13 +23,19 @@ all() ->
     %% * t_connect_silent_idle_timeout
     %% * t_connect_idle_timeout
     [
-        {group, gen_tcp_listener},
-        {group, ssl_listener},
-        {group, socket_listener}
+        {group, legacy},
+        {group, hardened}
     ].
 
 groups() ->
+    ListenerGroups = [
+        {group, gen_tcp_listener},
+        {group, ssl_listener},
+        {group, socket_listener}
+    ],
     [
+        {legacy, [], ListenerGroups},
+        {hardened, [], ListenerGroups},
         {gen_tcp_listener, [], [
             {group, mqttv3},
             {group, mqttv4},
@@ -122,11 +128,16 @@ init_per_suite(Config) ->
     %% Logging them for large messages is expensive, and it disrupts stress tests
     %% expectations.
     logger:set_module_level(emqx_session_events, none),
+    emqx_common_test_helpers:clear_security_profile(),
     Config.
 
 end_per_suite(_Config) ->
-    logger:unset_module_level(emqx_session_events).
+    logger:unset_module_level(emqx_session_events),
+    emqx_common_test_helpers:clear_security_profile().
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
 init_per_group(gen_tcp_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -195,6 +206,8 @@ end_per_group(GroupName, Config) when
     GroupName == socket_listener
 ->
     emqx_cth_suite:stop(?config(group_apps, Config));
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_GroupName, _Config) ->
     ok.
 

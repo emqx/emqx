@@ -30,12 +30,25 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all_with_matrix(?MODULE).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+    Tests = emqx_common_test_helpers:all_with_matrix(?MODULE),
+    [
+        {legacy, [], Tests},
+        {hardened, [], Tests}
+        | emqx_common_test_helpers:groups_with_matrix(?MODULE)
+    ].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             emqx_ctl,
@@ -49,9 +62,7 @@ init_per_suite(Config) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{
-            work_dir => ?config(priv_dir, Config)
-        }
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     ?AUTHN:delete_chain(?GLOBAL),
     {ok, Chains} = ?AUTHN:list_chains(),
@@ -61,12 +72,7 @@ init_per_suite(Config) ->
         {?MODULE, on_namespace_resource_pre_create, []},
         ?HP_HIGHEST
     ),
-    [{apps, Apps} | Config].
-
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
-    ok.
-
+    [{apps, Apps}, {security_profile, Profile} | Config];
 init_per_group(?global, TCConfig) ->
     AuthHeader = create_superuser(),
     [
@@ -102,6 +108,9 @@ init_per_group(?ns, TCConfig) ->
 init_per_group(_Group, TCConfig) ->
     TCConfig.
 
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, _TCConfig) ->
     ok.
 

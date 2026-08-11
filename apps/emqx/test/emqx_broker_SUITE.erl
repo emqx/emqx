@@ -18,8 +18,8 @@
 
 all() ->
     [
-        {group, all_cases},
-        {group, connected_client_count_group}
+        {group, legacy},
+        {group, hardened}
     ].
 
 groups() ->
@@ -31,7 +31,10 @@ groups() ->
         t_connected_client_stats
     ],
     OtherTCs = TCs -- ConnClientTCs,
+    ProfileGroups = [{group, all_cases}, {group, connected_client_count_group}],
     [
+        {legacy, [], ProfileGroups},
+        {hardened, [], ProfileGroups},
         {all_cases, [], OtherTCs},
         {connected_client_count_group, [
             {group, tcp},
@@ -43,6 +46,9 @@ groups() ->
         {quic, [], ConnClientTCs}
     ].
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
 init_per_group(connected_client_count_group, Config) ->
     Config;
 init_per_group(tcp, Config) ->
@@ -96,6 +102,8 @@ init_per_group(_Group, Config) ->
 
 end_per_group(connected_client_count_group, _Config) ->
     ok;
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)).
 
@@ -106,10 +114,11 @@ listener_port(Type, Name) ->
     end.
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
     Config.
 
 end_per_suite(_Config) ->
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(Case, Config) ->
     ?MODULE:Case({init, Config}).

@@ -121,6 +121,24 @@ base_client_info() ->
 client_info(Overrides) ->
     maps:merge(base_client_info(), Overrides).
 
+run_table_checks(Case) ->
+    with_security_profiles(Case, fun run_checks/1).
+
+with_security_profiles(Case, Fun) ->
+    Profiles =
+        case Case of
+            #{security_profile := Profile} -> [Profile];
+            #{} -> [legacy, hardened]
+        end,
+    lists:foreach(
+        fun(Profile) ->
+            Name = maps:get(name, Case, undefined),
+            ct:pal("table case ~p security profile: ~p", [Name, Profile]),
+            Fun(Case#{security_profile => Profile})
+        end,
+        Profiles
+    ).
+
 run_checks(#{checks := Checks} = Case) ->
     SecurityProfile = atom_to_list(maps:get(security_profile, Case, legacy)),
     emqx_common_test_helpers:with_security_profile(SecurityProfile, fun() ->

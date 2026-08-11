@@ -50,7 +50,8 @@ For cases where a single connector has both actions and sources, see
 all() ->
     [
         {group, ?cluster},
-        {group, ?local}
+        {group, legacy},
+        {group, hardened}
     ].
 
 groups() ->
@@ -67,7 +68,9 @@ groups() ->
     ClusterTCs = merge_custom_groups(?cluster, cluster_testcases(), CustomMatrix),
     [
         {?cluster, ClusterTCs},
-        {?local, LocalTCs}
+        {?local, LocalTCs},
+        {legacy, [], [{group, ?local}]},
+        {hardened, [], [{group, ?local}]}
     ].
 
 merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
@@ -129,6 +132,9 @@ init_per_group(?cluster = Group, TCConfig) ->
         #{work_dir => emqx_cth_suite:work_dir(Group, TCConfig)}
     ),
     [{nodes, Nodes} | TCConfig];
+init_per_group(Profile, TCConfig) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | TCConfig];
 init_per_group(?local, TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
@@ -167,6 +173,8 @@ end_per_group(?cluster, TCConfig) ->
     Nodes = get_config(nodes, TCConfig),
     ok = emqx_cth_cluster:stop(Nodes),
     ok;
+end_per_group(Profile, _TCConfig) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(?local, TCConfig) ->
     Apps = get_config(apps, TCConfig),
     emqx_cth_suite:stop(Apps),
@@ -243,12 +251,14 @@ get_tc_prop(TestCase, Key, Default) ->
     end.
 
 get_tcp_mqtt_port(Node) ->
-    {_Host, Port} = ?ON(Node, emqx_config:get([listeners, tcp, default, bind])),
-    Port.
+    emqx_common_test_helpers:listener_port(
+        ?ON(Node, emqx_config:get([listeners, tcp, default, bind]))
+    ).
 
 get_ssl_mqtt_port() ->
-    {_Host, Port} = emqx_config:get([listeners, ssl, default, bind]),
-    Port.
+    emqx_common_test_helpers:listener_port(
+        emqx_config:get([listeners, ssl, default, bind])
+    ).
 
 setup_auth_header(TCConfig) ->
     case get_config(nodes, TCConfig, undefined) of

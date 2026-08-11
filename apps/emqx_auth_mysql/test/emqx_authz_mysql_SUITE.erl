@@ -74,13 +74,13 @@ t_run_case(Config) ->
     Case = ?config(test_case, Config),
     ok = setup_source_data(Case),
     ok = setup_authz_source(Case, #{}),
-    ok = emqx_authz_test_lib:run_checks(Case).
+    ok = emqx_authz_test_lib:run_table_checks(Case).
 
 t_run_case_with_disable_prepared_statements(Config) ->
     Case = ?config(test_case, Config),
     ok = setup_source_data(Case),
     ok = setup_authz_source(Case, #{<<"disable_prepared_statements">> => true}),
-    ok = emqx_authz_test_lib:run_checks(Case).
+    ok = emqx_authz_test_lib:run_table_checks(Case).
 
 t_create_invalid(_Config) ->
     BadConfig = maps:merge(

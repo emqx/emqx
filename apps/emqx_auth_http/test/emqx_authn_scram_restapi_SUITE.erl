@@ -26,9 +26,21 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(TCConfig) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    TCConfig.
+
+end_per_suite(_TCConfig) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, TCConfig) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             cowboy,
@@ -36,20 +48,16 @@ init_per_suite(TCConfig) ->
             emqx_auth,
             emqx_auth_http
         ],
-        #{work_dir => ?config(priv_dir, TCConfig)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, TCConfig)}
     ),
-
     IdleTimeout = emqx_config:get([mqtt, idle_timeout]),
-    [{apps, Apps}, {idle_timeout, IdleTimeout} | TCConfig].
+    [{apps, Apps}, {idle_timeout, IdleTimeout}, {security_profile, Profile} | TCConfig].
 
-end_per_suite(TCConfig) ->
+end_per_group(_Profile, TCConfig) ->
     ok = emqx_config:put([mqtt, idle_timeout], ?config(idle_timeout, TCConfig)),
-    emqx_authn_test_lib:delete_authenticators(
-        [authentication],
-        ?GLOBAL
-    ),
-    ok = emqx_cth_suite:stop(?config(apps, TCConfig)),
-    ok.
+    emqx_authn_test_lib:delete_authenticators([authentication], ?GLOBAL),
+    emqx_cth_suite:stop(?config(apps, TCConfig)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(_Case, TCConfig) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -268,7 +276,10 @@ t_destroy(TCConfig) ->
 
     ok = ct:sleep(1000),
 
-    ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
+    case ?config(security_profile, TCConfig) of
+        legacy -> ?CONNACK_PACKET(?RC_SUCCESS, _, _) = receive_packet();
+        hardened -> ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet()
+    end.
 
 t_acl(TCConfig) ->
     init_auth(TCConfig),

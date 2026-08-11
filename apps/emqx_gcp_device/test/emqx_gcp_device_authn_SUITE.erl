@@ -19,7 +19,20 @@
 -define(REGISTRY, <<"my-registry">>).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all(?MODULE) -- ProfileCases).
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(Config0) ->
     ok = snabbkaffe:start_trace(),
@@ -81,8 +94,13 @@ t_destroy(Config) ->
         emqx_access_control:authenticate(Credential)
     ),
     emqx_authn_test_lib:delete_authenticators([authentication], ?GLOBAL),
-    ?assertMatch(
-        {error, not_authorized},
+    Expected =
+        case ?config(security_profile, Config) of
+            legacy -> ignore;
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(
+        Expected,
         emqx_gcp_device_authn:authenticate(Credential, #{})
     ).
 
@@ -106,6 +124,9 @@ t_expired_client(Config) ->
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
+
+profile_cases() ->
+    [t_destroy].
 
 raw_config() ->
     #{

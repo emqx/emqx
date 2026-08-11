@@ -22,7 +22,20 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all(?MODULE) -- ProfileCases).
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -49,7 +62,7 @@ end_per_testcase(_TestCase, _Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_hmac_based(_) ->
+t_hmac_based(ProfileConfig) ->
     Secret = <<"abcdef">>,
     Config = #{
         mechanism => jwt,
@@ -88,17 +101,20 @@ t_hmac_based(_) ->
 
     BadJWS = generate_jws('hmac-based', Payload, <<"bad_secret">>),
     Credential2 = Credential#{password => BadJWS},
-    ?assertEqual({error, not_authorized}, emqx_authn_jwt:authenticate(Credential2, State)),
+    ?assertEqual(
+        expected_backend_failure(ProfileConfig),
+        emqx_authn_jwt:authenticate(Credential2, State)
+    ),
 
     NoneJWS = generate_none_jws(Payload),
     ?assertEqual(
-        {error, not_authorized},
+        expected_backend_failure(ProfileConfig),
         emqx_authn_jwt:authenticate(Credential#{password => NoneJWS}, State)
     ),
 
     RSAJWS = generate_jws('public-key', Payload, test_rsa_key(private)),
     ?assertEqual(
-        {error, not_authorized},
+        expected_backend_failure(ProfileConfig),
         emqx_authn_jwt:authenticate(Credential#{password => RSAJWS}, State)
     ),
 
@@ -214,7 +230,7 @@ t_on_missing_jwt(_) ->
     ?assertEqual(ok, emqx_authn_jwt:destroy(DenyState)),
     ok.
 
-t_public_key(_) ->
+t_public_key(ProfileConfig) ->
     PublicKey = test_rsa_key(public),
     PrivateKey = test_rsa_key(private),
     Config = #{
@@ -239,29 +255,27 @@ t_public_key(_) ->
     },
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)),
     ?assertEqual(
-        {error, not_authorized},
+        expected_backend_failure(ProfileConfig),
         emqx_authn_jwt:authenticate(Credential#{password => <<"badpassword">>}, State)
     ),
 
     {ok, PublicKeyPEM} = file:read_file(PublicKey),
     HMACJWS = generate_jws('hmac-based', Payload, PublicKeyPEM),
     ?assertEqual(
-        {error, not_authorized},
+        expected_backend_failure(ProfileConfig),
         emqx_authn_jwt:authenticate(Credential#{password => HMACJWS}, State)
     ),
 
     ?assertEqual(ok, emqx_authn_jwt:destroy(State)),
     ok.
 
-t_invalid_signature_legacy_ignores(_) ->
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual({ok, #{is_superuser => false}}, authenticate_with_invalid_signature())
-    end).
-
-t_invalid_signature_hardened_denies(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual({error, not_authorized}, authenticate_with_invalid_signature())
-    end).
+t_invalid_signature(Config) ->
+    Expected =
+        case ?config(security_profile, Config) of
+            legacy -> {ok, #{is_superuser => false}};
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(Expected, authenticate_with_invalid_signature()).
 
 t_invalid_signature_trace_redacts_hmac_jwks(_) ->
     Secret = <<"abcdef">>,
@@ -473,7 +487,7 @@ t_complex_template(_) ->
     },
     ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential1, State)).
 
-t_jwks_renewal(_Config) ->
+t_jwks_renewal(Config) ->
     {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
     ok = emqx_utils_http_test_server:set_handler(fun jwks_handler/2),
 
@@ -512,8 +526,8 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    assert_jwks_backend_failure(Credential0, State0),
-    assert_jwks_backend_failure(Credential0#{password => <<"badpassword">>}, State0),
+    assert_jwks_backend_failure(Config, Credential0, State0),
+    assert_jwks_backend_failure(Config, Credential0#{password => <<"badpassword">>}, State0),
 
     ClientSSLOpts = client_ssl_opts(),
     BadClientSSLOpts = ClientSSLOpts#{server_name_indication => "authn-server-unknown-host"},
@@ -534,8 +548,8 @@ t_jwks_renewal(_Config) ->
 
     ok = snabbkaffe:stop(),
 
-    assert_jwks_backend_failure(Credential0, State1),
-    assert_jwks_backend_failure(Credential0#{password => <<"badpassword">>}, State0),
+    assert_jwks_backend_failure(Config, Credential0, State1),
+    assert_jwks_backend_failure(Config, Credential0#{password => <<"badpassword">>}, State0),
 
     GoodConfig = BadConfig1#{
         ssl => ClientSSLOpts,
@@ -578,7 +592,7 @@ t_jwks_renewal(_Config) ->
     {ok, PublicKeyPEM} = file:read_file(test_rsa_key(public)),
     HMACJWS = generate_jws('hmac-based', Payload1, PublicKeyPEM),
     ?assertEqual(
-        {error, not_authorized},
+        expected_backend_failure(Config),
         emqx_authn_jwt:authenticate(Credential1#{password => HMACJWS}, State2)
     ),
 
@@ -834,7 +848,7 @@ t_jwks_te_header_user_supplied(_Config) ->
     ok.
 
 %% Verify default verify behavior for jwk fetching
-t_jwks_default_ssl_verify_profiles(_Config) ->
+t_jwks_default_ssl_verify_profiles(Config) ->
     {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
     on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
     ok = emqx_utils_http_test_server:set_handler(jwks_handler_spy()),
@@ -848,68 +862,48 @@ t_jwks_default_ssl_verify_profiles(_Config) ->
         password => JWS
     },
 
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        Config = jwks_api_config(#{
-            <<"enable">> => true,
-            <<"cacertfile">> => cert_file("ca.crt"),
-            <<"certfile">> => cert_file("client.crt"),
-            <<"keyfile">> => cert_file("client.key"),
-            <<"server_name_indication">> => <<"authn-server-unknown-host">>
-        }),
-        %% Legacy defaults to verify_none and updates keys successfully.
-        {
-            {ok, #{raw_config := [#{<<"ssl">> := #{<<"verify">> := <<"verify_none">>}}]}},
-            {ok, #{response := {{_, 200, _}, _, _}}}
-        } = ?wait_async_action(
-            emqx_authn_api:update_config(
-                [authentication],
-                {create_authenticator, 'mqtt:global', Config}
-            ),
-            #{?snk_kind := jwks_endpoint_response},
-            5_000
+    AuthenticatorConfig = jwks_api_config(#{
+        <<"enable">> => true,
+        <<"cacertfile">> => cert_file("ca.crt"),
+        <<"certfile">> => cert_file("client.crt"),
+        <<"keyfile">> => cert_file("client.key"),
+        <<"server_name_indication">> => <<"authn-server-unknown-host">>
+    }),
+    Result = ?wait_async_action(
+        emqx_authn_api:update_config(
+            [authentication],
+            {create_authenticator, 'mqtt:global', AuthenticatorConfig}
         ),
-        ?assertReceive({http_request, _}),
-        {ok, [#{provider := emqx_authn_jwt, state := State}]} =
-            emqx_authn_chains:list_authenticators('mqtt:global'),
-        ?assertMatch(
-            {ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential, State)
-        ),
-        ok = delete_jwks_authenticator()
-    end),
-
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        Config = jwks_api_config(#{
-            <<"enable">> => true,
-            <<"cacertfile">> => cert_file("ca.crt"),
-            <<"certfile">> => cert_file("client.crt"),
-            <<"keyfile">> => cert_file("client.key"),
-            <<"server_name_indication">> => <<"authn-server-unknown-host">>
-        }),
-        {
-            {ok, #{raw_config := [#{<<"ssl">> := #{<<"verify">> := <<"verify_peer">>}}]}},
-            {ok, #{response := {error, _}}}
-        } = ?wait_async_action(
-            emqx_authn_api:update_config(
-                [authentication],
-                {create_authenticator, 'mqtt:global', Config}
-            ),
-            #{?snk_kind := jwks_endpoint_response},
-            5_000
-        ),
-        ?assertNotReceive({http_request, _}),
-        {ok, [#{provider := emqx_authn_jwt, state := State}]} =
-            emqx_authn_chains:list_authenticators('mqtt:global'),
-        ?assertEqual(
-            {error, not_authorized},
-            emqx_authn_jwt:authenticate(Credential, State)
-        ),
-        ok = delete_jwks_authenticator()
-    end),
+        #{?snk_kind := jwks_endpoint_response},
+        5_000
+    ),
+    case ?config(security_profile, Config) of
+        legacy ->
+            {
+                {ok, #{raw_config := [#{<<"ssl">> := #{<<"verify">> := <<"verify_none">>}}]}},
+                {ok, #{response := {{_, 200, _}, _, _}}}
+            } = Result,
+            ?assertReceive({http_request, _});
+        hardened ->
+            {
+                {ok, #{raw_config := [#{<<"ssl">> := #{<<"verify">> := <<"verify_peer">>}}]}},
+                {ok, #{response := {error, _}}}
+            } = Result,
+            ?assertNotReceive({http_request, _})
+    end,
+    {ok, [#{provider := emqx_authn_jwt, state := State}]} =
+        emqx_authn_chains:list_authenticators('mqtt:global'),
+    AuthResult = emqx_authn_jwt:authenticate(Credential, State),
+    case ?config(security_profile, Config) of
+        legacy -> ?assertMatch({ok, #{is_superuser := false}}, AuthResult);
+        hardened -> ?assertEqual({error, not_authorized}, AuthResult)
+    end,
+    ok = delete_jwks_authenticator(),
     ok = snabbkaffe:stop(),
     ok.
 
 %% @doc verify that the authenticator state is actually updated when we update its config
-t_jwks_config_update(_Config) ->
+t_jwks_config_update(TCConfig) ->
     {ok, _} = emqx_utils_http_test_server:start_link(?JWKS_PORT, ?JWKS_PATH, server_ssl_opts()),
     ok = emqx_utils_http_test_server:set_handler(fun jwks_handler/2),
 
@@ -947,7 +941,7 @@ t_jwks_config_update(_Config) ->
     ok = snabbkaffe:stop(),
 
     %% The authentication should fail, because the `from` is set to `username` in settings
-    assert_jwks_backend_failure(Credential, State0),
+    assert_jwks_backend_failure(TCConfig, Credential, State0),
 
     %% Fix from field in the config
     ok = snabbkaffe:start_trace(),
@@ -1533,16 +1527,24 @@ force_jwks_refresh(Pid) ->
     ),
     ok.
 
-assert_jwks_backend_failure(Credential, State) ->
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual(ignore, emqx_authn_jwt:authenticate(Credential, State))
-    end),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual(
-            {error, not_authorized},
-            emqx_authn_jwt:authenticate(Credential, State)
-        )
-    end).
+assert_jwks_backend_failure(Config, Credential, State) ->
+    ?assertEqual(expected_backend_failure(Config), emqx_authn_jwt:authenticate(Credential, State)).
+
+profile_cases() ->
+    [
+        t_hmac_based,
+        t_public_key,
+        t_invalid_signature,
+        t_jwks_renewal,
+        t_jwks_default_ssl_verify_profiles,
+        t_jwks_config_update
+    ].
+
+expected_backend_failure(Config) ->
+    case ?config(security_profile, Config) of
+        legacy -> ignore;
+        hardened -> {error, not_authorized}
+    end.
 
 test_rsa_key(public) ->
     data_file("public_key.pem");

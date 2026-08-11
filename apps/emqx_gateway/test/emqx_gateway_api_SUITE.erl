@@ -18,6 +18,7 @@
 ).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% this parses to #{}, will not cause config cleanup
@@ -30,9 +31,21 @@
 %% Setup
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() -> [{group, legacy}, {group, hardened}].
 
-init_per_suite(Conf) ->
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
+
+init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -43,13 +56,14 @@ init_per_suite(Conf) ->
             {emqx_gateway, ?CONF_DEFAULT}
             | emqx_gateway_test_utils:all_gateway_apps()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Conf)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     _ = emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Conf].
+    [{group_apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Conf) ->
-    ok = emqx_cth_suite:stop(proplists:get_value(suite_apps, Conf)).
+end_per_group(_Profile, Config) ->
+    ok = emqx_cth_suite:stop(?config(group_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(t_gateway_fail, Config) ->
     meck:expect(
