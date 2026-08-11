@@ -11,9 +11,11 @@
 %%
 %% Updates are replicated with `emqx_cluster_rpc' (see `load_file/1' and
 %% `delete/1'): each node re-validates the content, writes the file
-%% atomically (temp file + rename) and reloads its cache. Nodes that were
-%% down during an update replay the transaction on rejoin. `reload_cluster/1'
-%% is the per-node reconcile fallback that re-reads the local files.
+%% atomically (temp file + rename) and reloads its cache. A node that
+%% was down during an update pulls the missed tables from a running
+%% peer when the plugin starts (see emqx_maptabs_server peer sync).
+%% `reload_cluster/1' is the per-node reconcile fallback that re-reads
+%% the local files.
 -module(emqx_maptabs).
 
 -include("emqx_maptabs.hrl").
@@ -58,6 +60,7 @@
 %% Internal exports for emqx_maptabs_server
 -export([
     read_source_file/1,
+    write_table_file/2,
     table_file_path/1,
     table_files/0,
     check_row_limit/1,

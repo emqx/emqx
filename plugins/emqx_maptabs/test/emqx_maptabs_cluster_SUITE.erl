@@ -111,8 +111,9 @@ t_down_node_catches_up_on_restart(Config) ->
     %% update while the peer is down: cluster_rpc records the transaction
     ok = load_table_on_node(Node1, ?TABLE, [#{key => 1, v => <<"v2">>}]),
     ?assertEqual(#{<<"v">> => <<"v2">>}, erpc:call(Node1, emqx_maptabs, lookup, [?TABLE, 1])),
-    %% the restarted node replays the missed transaction; the file is
-    %% rewritten during replay and the plugin picks it up on start
+    %% the restarted node pulls the missed update from its peer when
+    %% the plugin starts (production boots do not replay cluster_rpc
+    %% transactions for plugins; see the smoke test)
     [Node2] = emqx_cth_cluster:restart(Node2Spec),
     ok = erpc:call(Node2, emqx_plugins, ensure_started, [?config(plugin_name_vsn, Config)]),
     ?retry(

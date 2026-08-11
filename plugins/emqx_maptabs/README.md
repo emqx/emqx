@@ -97,9 +97,14 @@ version.
 The on-disk JSON files under `<data_dir>/plugins/emqx_maptabs/tables/` are the
 source of truth; ETS is a per-node read cache. `maptabs load` and
 `maptabs delete` run as a `cluster_rpc` transaction: every node re-validates
-the content, writes the file atomically and swaps its cache, and a node that
-was down during an update replays the transaction when it rejoins. The plugin
-must be installed on all nodes of the cluster.
+the content, writes the file atomically and swaps its cache. The plugin must
+be installed on all nodes of the cluster.
+
+A node that was down during an update catches up when the plugin starts: it
+pulls every table it is missing (or holds a different version of) from a
+running peer. A delete that the node missed is not replayed this way — the
+node keeps its stale table; `maptabs status` shows such drift, and running
+`maptabs delete` again removes the leftover.
 
 Reloads swap the cache atomically: a concurrent reader sees the old or the new
 table, never a partial one.
