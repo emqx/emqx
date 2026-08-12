@@ -300,6 +300,7 @@ ensure_app_running() ->
     end.
 
 wipe_tables() ->
+    {atomic, ok} = mria:clear_table(emqx_maptabs_index),
     {atomic, ok} = mria:clear_table(emqx_maptabs),
     _ = emqx_maptabs:reconcile_cluster(),
     ok.

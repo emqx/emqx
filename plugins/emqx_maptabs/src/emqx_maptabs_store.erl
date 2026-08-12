@@ -2,9 +2,12 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Durable storage for mapping tables: a mria table with one record per
-%% mapping table, replicated to every node and recovered by mria after
-%% a node restart. The per-node ETS caches are derived from it (see
+%% Durable storage for mapping tables, replicated to every node and
+%% recovered by mria after a node restart. Split over two tables (see
+%% the header file): the disc_copies index is the authority on
+%% existence and version, the rocksdb blob table keeps the JSON
+%% payloads on disk. Every write updates both in one transaction. The
+%% per-node ETS caches are derived from this storage (see
 %% emqx_maptabs_server).
 -module(emqx_maptabs_store).
 
@@ -16,52 +19,89 @@
     delete/1,
     get/1,
     versions/0,
-    count/0
+    count/0,
+    purge_stale_blobs/0
 ]).
 
 -spec create_tables() -> ok.
 create_tables() ->
-    ok = mria:create_table(?MAPTABS_TAB, [
+    ok = mria:create_table(?MAPTABS_INDEX_TAB, [
         {type, set},
         {rlog_shard, ?MAPTABS_SHARD},
         {storage, disc_copies},
+        {record_name, maptab_index},
+        {attributes, record_info(fields, maptab_index)}
+    ]),
+    ok = mria:create_table(?MAPTABS_TAB, [
+        {type, set},
+        {rlog_shard, ?MAPTABS_SHARD},
+        {storage, rocksdb_copies},
         {record_name, maptab},
         {attributes, record_info(fields, maptab)}
     ]),
-    ok = mria:wait_for_tables([?MAPTABS_TAB]).
+    ok = mria:wait_for_tables([?MAPTABS_INDEX_TAB, ?MAPTABS_TAB]).
 
 %% The caller is responsible for validating the JSON before storing it.
 -spec put(binary(), binary()) -> ok | {error, term()}.
 put(Name, Json) ->
-    Rec = #maptab{
-        name = Name,
-        json = Json,
-        version = emqx_maptabs_loader:version(Json),
-        updated_at = erlang:system_time(second)
-    },
-    transaction(fun() -> mnesia:write(?MAPTABS_TAB, Rec, write) end).
+    Version = emqx_maptabs_loader:version(Json),
+    Now = erlang:system_time(second),
+    Index = #maptab_index{name = Name, version = Version, updated_at = Now},
+    Blob = #maptab{name = Name, json = Json, version = Version, updated_at = Now},
+    transaction(fun() ->
+        ok = mnesia:write(?MAPTABS_TAB, Blob, write),
+        ok = mnesia:write(?MAPTABS_INDEX_TAB, Index, write)
+    end).
 
 -spec delete(binary()) -> ok | {error, term()}.
 delete(Name) ->
-    transaction(fun() -> mnesia:delete(?MAPTABS_TAB, Name, write) end).
+    transaction(fun() ->
+        ok = mnesia:delete(?MAPTABS_INDEX_TAB, Name, write),
+        ok = mnesia:delete(?MAPTABS_TAB, Name, write)
+    end).
 
+%% Only indexed blobs are served: a blob whose index entry is gone
+%% (e.g. left behind by a restart that missed a delete) does not exist.
 -spec get(binary()) -> {ok, #maptab{}} | {error, not_found}.
 get(Name) ->
-    case mnesia:dirty_read(?MAPTABS_TAB, Name) of
-        [Rec] -> {ok, Rec};
-        [] -> {error, not_found}
+    case mnesia:dirty_read(?MAPTABS_INDEX_TAB, Name) of
+        [#maptab_index{}] ->
+            case mnesia:dirty_read(?MAPTABS_TAB, Name) of
+                [Rec] -> {ok, Rec};
+                [] -> {error, not_found}
+            end;
+        [] ->
+            {error, not_found}
     end.
 
-%% `{Name, Version}' of every stored table, without loading the JSON
-%% payloads.
+%% `{Name, Version}' of every stored table, from the index only.
 -spec versions() -> #{binary() => binary()}.
 versions() ->
-    MS = [{#maptab{name = '$1', version = '$2', _ = '_'}, [], [{{'$1', '$2'}}]}],
-    maps:from_list(mnesia:dirty_select(?MAPTABS_TAB, MS)).
+    MS = [{#maptab_index{name = '$1', version = '$2', _ = '_'}, [], [{{'$1', '$2'}}]}],
+    maps:from_list(mnesia:dirty_select(?MAPTABS_INDEX_TAB, MS)).
 
 -spec count() -> non_neg_integer().
 count() ->
-    mnesia:table_info(?MAPTABS_TAB, size).
+    mnesia:table_info(?MAPTABS_INDEX_TAB, size).
+
+%% Deletes blobs that have no index entry. The index membership is
+%% re-checked inside the transaction, so a blob of a concurrent put is
+%% never removed.
+-spec purge_stale_blobs() -> ok.
+purge_stale_blobs() ->
+    Indexed = versions(),
+    Stale = [K || K <- mnesia:dirty_all_keys(?MAPTABS_TAB), not is_map_key(K, Indexed)],
+    lists:foreach(
+        fun(Name) ->
+            _ = transaction(fun() ->
+                case mnesia:read(?MAPTABS_INDEX_TAB, Name, read) of
+                    [] -> mnesia:delete(?MAPTABS_TAB, Name, write);
+                    [_] -> ok
+                end
+            end)
+        end,
+        Stale
+    ).
 
 transaction(Fun) ->
     case mria:transaction(?MAPTABS_SHARD, Fun) of

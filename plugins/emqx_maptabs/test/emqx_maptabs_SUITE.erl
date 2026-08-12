@@ -470,6 +470,7 @@ t_cli(_Config) ->
 %% the storage table survives plugin reinstalls; before the first
 %% install it does not exist yet
 wipe_storage() ->
+    _ = catch mria:clear_table(emqx_maptabs_index),
     _ = catch mria:clear_table(emqx_maptabs),
     ok.
 

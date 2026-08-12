@@ -80,7 +80,8 @@ list_tables(Node) ->
 init([]) ->
     ok = emqx_maptabs_store:create_tables(),
     _ = ets:new(?MAPTABS_REGISTRY, [named_table, set, protected, {read_concurrency, true}]),
-    {ok, _} = mnesia:subscribe({table, ?MAPTABS_TAB, simple}),
+    %% every storage write and delete touches the index table
+    {ok, _} = mnesia:subscribe({table, ?MAPTABS_INDEX_TAB, simple}),
     ok = do_reconcile(),
     {ok, #{reconcile_timer => undefined}}.
 
@@ -158,7 +159,7 @@ do_reconcile() ->
         end,
         Cached
     ),
-    maps:foreach(
+    ok = maps:foreach(
         fun(Name, Version) ->
             case maps:get(Name, Cached, undefined) of
                 Version -> ok;
@@ -166,7 +167,8 @@ do_reconcile() ->
             end
         end,
         Stored
-    ).
+    ),
+    emqx_maptabs_store:purge_stale_blobs().
 
 load_into_cache(Name) ->
     Result =
