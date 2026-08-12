@@ -393,17 +393,18 @@ handle_configs_v1_result(Node, {badrpc, R}) ->
     Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
     {500, #{code => 'BAD_NODE', message => Message}};
 handle_configs_v1_result(_Node, Res) ->
-    {200, Res}.
+    {200, emqx_utils:redact(Res)}.
 
 get_configs_v2(QueryStr) ->
     Node = maps:get(<<"node">>, QueryStr, node()),
-    Conf =
+    Conf0 =
         case maps:find(<<"key">>, QueryStr) of
             error ->
                 emqx_conf_proto_v5:get_hocon_config(Node, ?global_ns);
             {ok, Key} ->
                 emqx_conf_proto_v5:get_hocon_config(Node, ?global_ns, atom_to_binary(Key))
         end,
+    Conf = emqx_config:fill_defaults(Conf0, #{obfuscate_sensitive_values => true}),
     {
         200,
         #{<<"content-type">> => <<"text/plain">>},

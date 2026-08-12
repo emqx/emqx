@@ -1749,7 +1749,9 @@ enrich_fallback_actions_info(Namespace, Info) ->
 
 fill_defaults(ConfRootKey, Type, RawConf) ->
     PackedConf = pack_bridge_conf(ConfRootKey, Type, RawConf),
-    FullConf = emqx_config:fill_defaults(emqx_bridge_v2_schema, PackedConf, #{}),
+    FullConf = emqx_config:fill_defaults(emqx_bridge_v2_schema, PackedConf, #{
+        obfuscate_sensitive_values => true
+    }),
     unpack_bridge_conf(ConfRootKey, Type, FullConf).
 
 pack_bridge_conf(ConfRootKey, Type, RawConf) ->

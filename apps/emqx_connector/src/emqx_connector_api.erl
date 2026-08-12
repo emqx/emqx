@@ -781,7 +781,9 @@ format_resource_data(K, V, Result) ->
 
 fill_defaults(Type, RawConf) ->
     PackedConf = pack_connector_conf(Type, RawConf),
-    FullConf = emqx_config:fill_defaults(emqx_connector_schema, PackedConf, #{}),
+    FullConf = emqx_config:fill_defaults(emqx_connector_schema, PackedConf, #{
+        obfuscate_sensitive_values => true
+    }),
     unpack_connector_conf(Type, FullConf).
 
 pack_connector_conf(Type, RawConf) ->
