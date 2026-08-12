@@ -39,6 +39,7 @@ all() ->
         t_move_after,
         t_delete,
         t_hooks,
+        t_ssl_password_obfuscated,
         t_update
     ].
 
@@ -279,6 +280,43 @@ t_hooks(_Cfg) ->
         },
         Hook1
     ).
+
+-doc """
+GET /exhooks renders the gRPC client `ssl.password` as `******`,
+and a round-tripped `******` value does not overwrite the stored secret.
+""".
+t_ssl_password_obfuscated(Cfg) ->
+    Template = proplists:get_value(template, Cfg),
+    Password = <<"exhook-passwd">>,
+    Body = Template#{
+        <<"enable">> => false,
+        <<"ssl">> => #{<<"enable">> => false, <<"password">> => Password}
+    },
+    {ok, _} = request_api(
+        put,
+        api_path(["exhooks", "default"]),
+        "",
+        auth_header_(),
+        Body
+    ),
+    {ok, ListData} = request_api(get, api_path(["exhooks"]), "", auth_header_()),
+    ?assertMatch([#{ssl := #{password := <<"******">>}}], decode_json(ListData)),
+    {ok, GetData} = request_api(get, api_path(["exhooks", "default"]), "", auth_header_()),
+    ?assertMatch(#{ssl := #{password := <<"******">>}}, decode_json(GetData)),
+    %% the stored config keeps the real password
+    [RawConf] = emqx:get_raw_config([exhook, servers]),
+    ?assertEqual(Password, emqx_utils_maps:deep_get([<<"ssl">>, <<"password">>], RawConf)),
+    %% a round-tripped body with the obfuscated value keeps the stored secret
+    Body1 = Body#{<<"ssl">> => #{<<"enable">> => false, <<"password">> => <<"******">>}},
+    {ok, _} = request_api(
+        put,
+        api_path(["exhooks", "default"]),
+        "",
+        auth_header_(),
+        Body1
+    ),
+    [RawConf1] = emqx:get_raw_config([exhook, servers]),
+    ?assertEqual(Password, emqx_utils_maps:deep_get([<<"ssl">>, <<"password">>], RawConf1)).
 
 t_update(Cfg) ->
     Template = proplists:get_value(template, Cfg),
