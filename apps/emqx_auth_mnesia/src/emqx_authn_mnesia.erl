@@ -1059,6 +1059,20 @@ bootstrap_user_from_file(Config, State) ->
 lookup_user_with_fallback(?global_ns, UserGroup, UserId) ->
     do_lookup_user(?global_ns, UserGroup, UserId);
 lookup_user_with_fallback(Namespace, UserGroup, UserId) when is_binary(Namespace) ->
+    lookup_namespaced_user_with_fallback(
+        emqx_security_profile:policy(authn_mnesia_mt_user_conflict_protection),
+        Namespace,
+        UserGroup,
+        UserId
+    ).
+
+lookup_namespaced_user_with_fallback(false, Namespace, UserGroup, UserId) ->
+    maybe
+        error ?= do_lookup_user(Namespace, UserGroup, UserId),
+        true ?= is_namespace_empty(Namespace) orelse error,
+        do_lookup_user(?global_ns, UserGroup, UserId)
+    end;
+lookup_namespaced_user_with_fallback(true, Namespace, UserGroup, UserId) ->
     case do_lookup_user(Namespace, UserGroup, UserId) of
         {ok, _} = NamespacedUser ->
             case do_lookup_user(?global_ns, UserGroup, UserId) of
@@ -1119,15 +1133,20 @@ do_lookup_conflicting_global_txn(#user_info{}) ->
 do_lookup_conflicting_global_txn(#?AUTHN_NS_TAB{
     user_id = ?AUTHN_NS_KEY(_, UserGroup, UserId)
 }) ->
-    case mnesia:read(?TAB, {UserGroup, UserId}, write) of
-        [] ->
-            mnesia:read(
-                ?AUTHN_NS_TAB,
-                ?AUTHN_NS_KEY(?global_ns, UserGroup, UserId),
-                write
-            );
-        Records ->
-            Records
+    case emqx_security_profile:policy(authn_mnesia_mt_user_conflict_protection) of
+        false ->
+            [];
+        true ->
+            case mnesia:read(?TAB, {UserGroup, UserId}, write) of
+                [] ->
+                    mnesia:read(
+                        ?AUTHN_NS_TAB,
+                        ?AUTHN_NS_KEY(?global_ns, UserGroup, UserId),
+                        write
+                    );
+                Records ->
+                    Records
+            end
     end.
 
 is_namespace_empty(Namespace) when is_binary(Namespace) ->
