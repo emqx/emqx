@@ -14,7 +14,15 @@
 %% {error, overloaded} and the API responds 429.
 -module(emqx_bcast_deliver).
 
--export([submit_targets/2, submit_task/1, has_capacity/1, queue_depth/0]).
+-export([
+    submit_targets/2,
+    submit_targets_reserved/2,
+    submit_task/1,
+    try_reserve/1,
+    release_reservation/1,
+    has_capacity/1,
+    queue_depth/0
+]).
 -export([deliver_chunk/2]).
 
 -include("emqx_bcast.hrl").
@@ -29,14 +37,19 @@
 %%          delivery_id => binary(), product_key => binary(),
 %%          force_upgrade_qos => boolean()}
 submit_targets(Targets, Ctx) ->
-    submit_chunks(chunk(Targets), Ctx).
+    submit_chunks(chunk(Targets), fun submit_task/1, Ctx).
 
-submit_chunks([], _Ctx) ->
+%% Submit after try_reserve/1 succeeded: the queue slots are already counted,
+%% so tasks are handed to the pool without another capacity check.
+submit_targets_reserved(Targets, Ctx) ->
+    submit_chunks(chunk(Targets), fun submit_task_reserved/1, Ctx).
+
+submit_chunks([], _Submit, _Ctx) ->
     ok;
-submit_chunks([Chunk | Rest], Ctx) ->
-    case submit_task(fun() -> deliver_chunk(Chunk, Ctx) end) of
+submit_chunks([Chunk | Rest], Submit, Ctx) ->
+    case Submit(fun() -> deliver_chunk(Chunk, Ctx) end) of
         ok ->
-            submit_chunks(Rest, Ctx);
+            submit_chunks(Rest, Submit, Ctx);
         {error, overloaded} = Error ->
             ?SLOG(warning, #{
                 msg => "bcast_delivery_submit_overloaded",
@@ -52,13 +65,7 @@ submit_task(Fun) when is_function(Fun, 0) ->
     ok = emqx_bcast_metrics:delivery_queue_depth(Depth),
     case Depth =< Max of
         true ->
-            Wrapped = fun() ->
-                atomics:sub(Counter, 1, 1),
-                ok = emqx_bcast_metrics:delivery_queue_depth(atomics:get(Counter, 1)),
-                Fun()
-            end,
-            emqx_pool:async_submit_to_pool(?POOL, Wrapped, []),
-            ok;
+            submit_counted(Counter, Fun);
         false ->
             atomics:sub(Counter, 1, 1),
             ok = emqx_bcast_metrics:delivery_queue_depth(atomics:get(Counter, 1)),
@@ -66,9 +73,48 @@ submit_task(Fun) when is_function(Fun, 0) ->
             {error, overloaded}
     end.
 
+%% Queue slots were reserved upfront by try_reserve/1; hand the task to the
+%% pool directly, the counter already accounts for it.
+submit_task_reserved(Fun) when is_function(Fun, 0) ->
+    submit_counted(counter(), Fun).
+
+submit_counted(Counter, Fun) ->
+    Wrapped = fun() ->
+        atomics:sub(Counter, 1, 1),
+        ok = emqx_bcast_metrics:delivery_queue_depth(atomics:get(Counter, 1)),
+        Fun()
+    end,
+    emqx_pool:async_submit_to_pool(?POOL, Wrapped, []),
+    ok.
+
+%% Atomically reserve queue slots for TargetCount targets. Callers that need
+%% a 200-only-on-success guarantee (QoS=1) must reserve before writing any
+%% storage record and submit with submit_targets_reserved/2 afterwards; a
+%% failed reservation releases nothing (the counter was never bumped past the
+%% limit) and a storage failure after reservation must call
+%% release_reservation/1.
+try_reserve(TargetCount) ->
+    Counter = counter(),
+    ChunkCount = needed_slots(TargetCount),
+    Depth = atomics:add_get(Counter, 1, ChunkCount),
+    ok = emqx_bcast_metrics:delivery_queue_depth(Depth),
+    case Depth =< queue_max() of
+        true ->
+            ok;
+        false ->
+            atomics:sub(Counter, ChunkCount, 1),
+            ok = emqx_bcast_metrics:delivery_queue_depth(atomics:get(Counter, 1)),
+            {error, overloaded}
+    end.
+
+release_reservation(TargetCount) ->
+    Counter = counter(),
+    ChunkCount = needed_slots(TargetCount),
+    atomics:sub(Counter, ChunkCount, 1),
+    ok = emqx_bcast_metrics:delivery_queue_depth(atomics:get(Counter, 1)).
+
 %% Whether submitting tasks for this many targets would exceed the queue
-%% limit. Used by the API handler to reject with 429 before creating any
-%% QoS=1 delivery record.
+%% limit. Used by the QoS=0 API handler to reject with 429 before delivery.
 has_capacity(TargetCount) ->
     atomics:get(counter(), 1) + needed_slots(TargetCount) =< queue_max().
 

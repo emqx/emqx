@@ -25,21 +25,27 @@ load() ->
 update(Config) ->
     persistent_term:put({?APP, config}, normalize(Config)).
 
+%% The plugin config map from emqx_plugins uses binary keys (JSON-decoded),
+%% while the normalized config in persistent_term uses atoms.
 normalize(Config) ->
     #{
-        broadcast_topic => maps:get(broadcast_topic, Config, <<"/sys/broadcast/${productKey}">>),
-        batch_topic => maps:get(batch_topic, Config, <<"/${productKey}/${deviceName}/user/get">>),
-        msg_ttl => duration_to_sec(msg_ttl, maps:get(msg_ttl, Config, <<"15d">>)),
-        cleanup_interval => duration_to_sec(
-            cleanup_interval, maps:get(cleanup_interval, Config, <<"60s">>)
+        broadcast_topic => maps:get(
+            <<"broadcast_topic">>, Config, <<"/sys/broadcast/${productKey}">>
         ),
-        max_device_count => maps:get(max_device_count, Config, 10000),
-        max_message_size_broadcast => maps:get(max_message_size_broadcast, Config, 65536),
-        max_message_size_batch => maps:get(max_message_size_batch, Config, 10240),
-        msg_warn_threshold => maps:get(msg_warn_threshold, Config, 100000),
-        force_upgrade_qos => maps:get(force_upgrade_qos, Config, true),
-        delivery_pool_size => pool_size(maps:get(delivery_pool_size, Config, 0)),
-        delivery_queue_max => maps:get(delivery_queue_max, Config, 10000)
+        batch_topic => maps:get(
+            <<"batch_topic">>, Config, <<"/${productKey}/${deviceName}/user/get">>
+        ),
+        msg_ttl => duration_to_sec(msg_ttl, maps:get(<<"msg_ttl">>, Config, <<"15d">>)),
+        cleanup_interval => duration_to_sec(
+            cleanup_interval, maps:get(<<"cleanup_interval">>, Config, <<"60s">>)
+        ),
+        max_device_count => maps:get(<<"max_device_count">>, Config, 10000),
+        max_message_size_broadcast => maps:get(<<"max_message_size_broadcast">>, Config, 65536),
+        max_message_size_batch => maps:get(<<"max_message_size_batch">>, Config, 10240),
+        msg_warn_threshold => maps:get(<<"msg_warn_threshold">>, Config, 100000),
+        force_upgrade_qos => maps:get(<<"force_upgrade_qos">>, Config, true),
+        delivery_pool_size => pool_size(maps:get(<<"delivery_pool_size">>, Config, 0)),
+        delivery_queue_max => maps:get(<<"delivery_queue_max">>, Config, 10000)
     }.
 
 pool_size(0) -> erlang:system_info(schedulers);

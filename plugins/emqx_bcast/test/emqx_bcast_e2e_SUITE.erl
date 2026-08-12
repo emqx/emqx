@@ -62,6 +62,7 @@ end_per_testcase(_Case, _Config) -> ok.
 connect(ClientId) ->
     {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
+    put_clients(C, ClientId),
     C.
 
 sub(C, Topic) ->
@@ -77,7 +78,46 @@ unsub(C, Topic) ->
     emqtt:unsubscribe(C, Topic).
 
 disconnect(C) ->
-    emqtt:disconnect(C).
+    ok = emqtt:disconnect(C),
+    case take_clients(C) of
+        {ok, ClientId} -> wait_channel_gone(ClientId);
+        error -> ok
+    end.
+
+%% Reconnecting with the same clientid right after disconnect races with the
+%% old channel's async cleanup: while the stale row is still registered,
+%% emqx_cm refuses the new connection (CONNACK server_unavailable). Wait
+%% until the old channel is fully unregistered before returning.
+wait_channel_gone(ClientId) ->
+    wait_channel_gone(ClientId, 100).
+
+wait_channel_gone(ClientId, 0) ->
+    error({channel_still_registered, ClientId});
+wait_channel_gone(ClientId, N) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [] ->
+            ok;
+        _ ->
+            ct:sleep(50),
+            wait_channel_gone(ClientId, N - 1)
+    end.
+
+%% The client pid -> clientid map must survive across test cases, which run in
+%% separate processes. persistent_term is process-independent, so it works no
+%% matter which process calls connect/1 or disconnect/1.
+put_clients(C, ClientId) ->
+    Clients = persistent_term:get({?MODULE, clients}, []),
+    persistent_term:put({?MODULE, clients}, [{C, ClientId} | Clients]).
+
+take_clients(C) ->
+    Clients = persistent_term:get({?MODULE, clients}, []),
+    case lists:keytake(C, 1, Clients) of
+        {value, {C, ClientId}, Rest} ->
+            persistent_term:put({?MODULE, clients}, Rest),
+            {ok, ClientId};
+        false ->
+            error
+    end.
 
 api_call(Body) -> emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}).
 
@@ -464,3 +504,109 @@ t_qos_force_upgrade_true(_Config) ->
     [Msg] = recv(1),
     ?assertEqual(?PAYLOAD, maps:get(payload, Msg)),
     disconnect(C1).
+
+%%--------------------------------------------------------------------
+%% Review regression tests
+%%--------------------------------------------------------------------
+
+%% 32 identical inline QoS=1 BatchPub calls run concurrently per round must
+%% all resolve to a single MessageId: the hash lookup-or-create must be
+%% atomic, otherwise concurrent callers blind-write different records.
+t_batch_pub_concurrent_inline_dedup(_Config) ->
+    Parent = self(),
+    RoundIds =
+        lists:map(
+            fun(Round) ->
+                Payload = base64:encode(crypto:strong_rand_bytes(16)),
+                Body = #{
+                    <<"Action">> => <<"BatchPub">>,
+                    <<"ProductKey">> => <<"default">>,
+                    <<"DeviceName">> => [<<"e2e_dedup_", (integer_to_binary(Round))/binary>>],
+                    <<"MessageContent">> => Payload,
+                    <<"Qos">> => 1
+                },
+                Pids = [
+                    spawn(fun() ->
+                        Res = api_call(Body),
+                        Parent ! {dedup_result, self(), Res}
+                    end)
+                 || _ <- lists:seq(1, 32)
+                ],
+                Results = [
+                    receive
+                        {dedup_result, P, R} -> R
+                    end
+                 || P <- Pids
+                ],
+                ?assertEqual(32, length(Results)),
+                SuccessIds = [maps:get(<<"MessageId">>, Resp) || {ok, 200, _, Resp} <- Results],
+                ?assertEqual(32, length(SuccessIds)),
+                lists:usort(SuccessIds)
+            end,
+            lists:seq(1, 20)
+        ),
+    lists:foreach(fun(Ids) -> ?assertEqual(1, length(Ids)) end, RoundIds).
+
+%% With one subscribed client, pool size 1 and queue limit 1, 128 concurrent
+%% QoS=1 calls must not lose submissions: every 200 response has its message
+%% delivered. Admission (capacity check + reservation) must be atomic.
+t_batch_pub_admission_concurrent(_Config) ->
+    Cfg = persistent_term:get({emqx_bcast, config}),
+    OriginalPoolSize = maps:get(delivery_pool_size, Cfg, erlang:system_info(schedulers)),
+    persistent_term:put({emqx_bcast, config}, Cfg#{delivery_pool_size => 1, delivery_queue_max => 1}),
+    ok = emqx_bcast_sup:restart_deliver_pool(1),
+    try
+        run_admission_burst(128)
+    after
+        persistent_term:put({emqx_bcast, config}, Cfg),
+        ok = emqx_bcast_sup:restart_deliver_pool(OriginalPoolSize)
+    end.
+
+run_admission_burst(N) ->
+    C1 = connect(<<"e2e_adm_1">>),
+    sub_default(C1, <<"e2e_adm_1">>),
+    ct:sleep(10),
+    Parent = self(),
+    Pids = [
+        spawn(fun() ->
+            Body = #{
+                <<"Action">> => <<"BatchPub">>,
+                <<"ProductKey">> => <<"default">>,
+                <<"DeviceName">> => [<<"e2e_adm_1">>],
+                <<"MessageContent">> => base64:encode(crypto:strong_rand_bytes(8)),
+                <<"Qos">> => 1
+            },
+            Res = api_call(Body),
+            Parent ! {adm_result, self(), Res}
+        end)
+     || _ <- lists:seq(1, N)
+    ],
+    Results = [
+        receive
+            {adm_result, P, R} -> R
+        end
+     || P <- Pids
+    ],
+    ?assertEqual(N, length(Results)),
+    Success = length([1 || {ok, 200, _, _} <- Results]),
+    QueueFull = length([1 || {ok, 429, _, _} <- Results]),
+    ?assertEqual(N, Success + QueueFull),
+    %% Drain: wait for the pool queue to empty, then collect everything the
+    %% client received. A 200 response must guarantee the chunk was queued.
+    ?assert(wait_until(fun() -> emqx_bcast_deliver:queue_depth() =:= 0 end, 100)),
+    ct:sleep(100),
+    Msgs = recv(Success),
+    Tail = recv(1),
+    ?assertEqual(Success, length(Msgs) + length(Tail)),
+    disconnect(C1).
+
+wait_until(Fun, Attempts) when Attempts > 0 ->
+    case Fun() of
+        true ->
+            true;
+        _ ->
+            ct:sleep(100),
+            wait_until(Fun, Attempts - 1)
+    end;
+wait_until(_Fun, 0) ->
+    false.
