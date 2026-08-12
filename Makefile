@@ -20,7 +20,10 @@ print-dashboard-version:
 	@echo $(EMQX_DASHBOARD_VERSION)
 
 export EMQX_REL_FORM ?= tgz
-export QUICER_TLS_VER ?= sys
+# quicer 0.4+ (msquic 2.5+) requires OpenSSL >= 3.0 to link the system
+# libcrypto ('sys'); fall back to quicer's bundled TLS otherwise.
+QUICER_TLS_VER_DEFAULT := $(shell $(SCRIPTS)/quicer-tls-ver.sh)
+export QUICER_TLS_VER ?= $(QUICER_TLS_VER_DEFAULT)
 
 -include default-profile.mk
 PROFILE ?= emqx-enterprise
