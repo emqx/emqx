@@ -684,6 +684,17 @@ t_import_records_algorithm_in_generated_mode(_) ->
 t_global_user_conflict(_TCConfig) ->
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        assert_global_user_conflict_hardened(State)
+    end),
+
+    reset_tables(),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        assert_global_user_conflict_legacy(State)
+    end),
+    ok.
+
+assert_global_user_conflict_hardened(State) ->
     Namespace = ?NS,
     Username = <<"u">>,
     PasswordNs = <<"pns">>,
@@ -713,6 +724,29 @@ t_global_user_conflict(_TCConfig) ->
 
     {ok, _} = emqx_authn_mnesia:add_user(UserGlobal, State),
     {error, already_exist} = emqx_authn_mnesia:add_user(
+        add_ns(#{user_id => Username, password => PasswordNs}, ?OTHER_NS), State
+    ),
+    ok.
+
+assert_global_user_conflict_legacy(State) ->
+    Namespace = ?NS,
+    Username = <<"u">>,
+    PasswordNs = <<"pns">>,
+    PasswordGlobal = <<"pglobal">>,
+    UserNs = add_ns(#{user_id => Username, password => PasswordNs}, Namespace),
+    UserGlobal = #{user_id => Username, password => PasswordGlobal},
+
+    {ok, _} = emqx_authn_mnesia:add_user(UserNs, State),
+    {ok, _} = emqx_authn_mnesia:add_user(UserGlobal, State),
+    {ok, _} = emqx_authn_mnesia:authenticate(
+        add_ns_clientinfo(#{username => Username, password => PasswordNs}, Namespace),
+        State
+    ),
+    {error, bad_username_or_password} = emqx_authn_mnesia:authenticate(
+        add_ns_clientinfo(#{username => Username, password => PasswordGlobal}, Namespace),
+        State
+    ),
+    {ok, _} = emqx_authn_mnesia:add_user(
         add_ns(#{user_id => Username, password => PasswordNs}, ?OTHER_NS), State
     ),
     ok.
@@ -1093,16 +1127,54 @@ t_import_users_duplicated_records(_) ->
         read_tables()
     ),
 
-    %% A global user prevents imports of the same user ID into namespaces.
+    %% The legacy profile keeps users in different namespaces independent.
     ok = emqx_authn_mnesia:destroy(State),
     {ok, State2} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
-    ?assertMatch(
-        {ok, #{total := 5, success := 1, override := 1, failed := 3}},
-        emqx_authn_mnesia:import_users(
-            sample_filename_and_data(plain, <<"user-credentials-plain-dup-ns.json">>),
-            State2
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_authn_mnesia:import_users(
+                sample_filename_and_data(plain, <<"user-credentials-plain-dup-ns.json">>),
+                State2
+            )
         )
+    end),
+    ?assertMatch(
+        [
+            #{
+                namespace := ?global,
+                user_id := <<"myuser1">>,
+                password_hash := <<"password5">>,
+                is_superuser := false
+            },
+            #{
+                namespace := <<"ns1">>,
+                user_id := <<"myuser1">>,
+                password_hash := <<"password4">>,
+                is_superuser := false
+            },
+            #{
+                namespace := <<"ns2">>,
+                user_id := <<"myuser1">>,
+                password_hash := <<"password3">>,
+                is_superuser := false
+            }
+        ],
+        read_tables()
     ),
+
+    %% The hardened profile rejects namespaced users that conflict with a global user.
+    ok = emqx_authn_mnesia:destroy(State2),
+    {ok, State3} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertMatch(
+            {ok, #{total := 5, success := 1, override := 1, failed := 3}},
+            emqx_authn_mnesia:import_users(
+                sample_filename_and_data(plain, <<"user-credentials-plain-dup-ns.json">>),
+                State3
+            )
+        )
+    end),
     ?assertMatch(
         [
             #{

@@ -94,7 +94,7 @@ t_smoke_restart(TCConfig) ->
 
     Users = [
         #{namespace => Ns, user_id => UId, password => <<"p">>}
-     || Ns <- [?global_ns, Ns1, Ns2],
+     || Ns <- [Ns1, Ns2, ?global_ns],
         UId <- [<<"u1">>, <<"u2">>]
     ],
     ?ON(

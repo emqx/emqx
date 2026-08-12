@@ -62,7 +62,8 @@ Returns policy depending on the current security profile.
     (plugin_install_sha256_binding) -> optional | required;
     (authn_builtin_default_autogenerate_password) -> boolean();
     (authn_builtin_default_manual_password_hash) -> sha256 | pbkdf2;
-    (authn_builtin_accept_weak_password_hash) -> boolean().
+    (authn_builtin_accept_weak_password_hash) -> boolean();
+    (authn_mnesia_mt_user_conflict_protection) -> boolean().
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -157,6 +158,11 @@ policy(authn_builtin_accept_weak_password_hash) ->
     case profile() of
         legacy -> true;
         hardened -> false
+    end;
+policy(authn_mnesia_mt_user_conflict_protection) ->
+    case profile() of
+        legacy -> false;
+        hardened -> true
     end.
 
 -doc """
