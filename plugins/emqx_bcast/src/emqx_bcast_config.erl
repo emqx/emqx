@@ -8,14 +8,24 @@
 -include("emqx_bcast.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--define(NAME_VSN, <<"emqx_bcast-0.1.0">>).
-
 -define(DEFAULT_MSG_TTL, 15 * 86400).
 -define(DEFAULT_CLEANUP_INTERVAL, 60).
 
+%% The plugin config namespace is keyed by name-vsn (e.g. "emqx_bcast-0.1.1");
+%% derive it from the app version so it always matches the installed package.
+%% application:get_key/2 returns the version as a charlist.
+name_vsn() ->
+    Name = atom_to_binary(?APP),
+    Vsn =
+        case application:get_key(?APP, vsn) of
+            {ok, V} -> iolist_to_binary(V);
+            _ -> <<"0.0.0">>
+        end,
+    <<Name/binary, "-", Vsn/binary>>.
+
 load() ->
     Config =
-        try emqx_plugins:get_config(?NAME_VSN, #{}) of
+        try emqx_plugins:get_config(name_vsn(), #{}) of
             C -> C
         catch
             _:_ -> #{}
