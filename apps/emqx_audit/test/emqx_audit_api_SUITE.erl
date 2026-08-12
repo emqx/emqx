@@ -64,6 +64,7 @@ init_per_suite(Config) ->
                 schema_mod => emqx_enterprise_schema
             }},
             emqx_modules,
+            emqx_license,
             emqx_audit,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
@@ -324,6 +325,61 @@ kickout_clients() ->
     {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse2 = emqx_utils_json:decode(Clients2, [return_maps]),
     ?assertMatch(#{<<"data">> := []}, ClientsResponse2).
+
+%% The audit log records the `POST /license` request body as `******`
+%% so the license key does not appear in cleartext in `GET /audit`.
+t_license_key_redacted(_) ->
+    StartAt = erlang:system_time(microsecond),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    LicensePath = emqx_mgmt_api_test_util:api_path(["license"]),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(
+        post, LicensePath, "", AuthHeader, #{<<"key">> => <<"default">>}
+    ),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    Query =
+        lists:flatten(
+            io_lib:format(
+                "operation_id=/license&gte_created_at=~B&limit=1",
+                [StartAt]
+            )
+        ),
+    Res = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{
+                    <<"operation_id">> := <<"/license">>,
+                    <<"http_request">> := #{<<"method">> := <<"post">>, <<"body">> := _}
+                }
+            ]
+        },
+        emqx_utils_json:decode(Res, [return_maps])
+    ),
+    #{<<"data">> := [#{<<"http_request">> := #{<<"body">> := AuditBody}}]} =
+        emqx_utils_json:decode(Res, [return_maps]),
+    %% the recorded body is redacted: no license key, only the redaction mark
+    ?assertEqual(nomatch, binary:match(AuditBody, <<"default">>), AuditBody),
+    ?assertNotEqual(nomatch, binary:match(AuditBody, <<"******">>), AuditBody),
+    ok.
+
+wait_for_matching_audit_entry(_AuditPath, _Query, _AuthHeader, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entry_not_found_in_time);
+wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, RemainMs) ->
+    case emqx_mgmt_api_test_util:request_api(get, AuditPath, Query, AuthHeader) of
+        {ok, Res} ->
+            case emqx_utils_json:decode(Res, [return_maps]) of
+                #{<<"data">> := [_ | _]} ->
+                    Res;
+                _ ->
+                    SleepMs = 100,
+                    ct:sleep(SleepMs),
+                    wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, RemainMs - SleepMs)
+            end;
+        _ ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, RemainMs - SleepMs)
+    end.
 
 wait_for_dirty_write_log_done(MaxMs) ->
     Size = mnesia:table_info(emqx_audit, size),
