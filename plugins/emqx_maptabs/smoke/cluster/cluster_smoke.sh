@@ -17,21 +17,23 @@
 ##   3) Installs, starts, and enables the plugin on both nodes via
 ##      'emqx ctl plugins'.
 ##   4) LOAD: loads a table on emqx1 via 'emqx ctl maptabs load' and
-##      asserts on BOTH nodes: the table file exists on disk, 'maptabs
-##      list' reports the same content version, and a rule-SQL
-##      'maptab_lookup' through each node's /rule_test API returns the
-##      row (proves the ETS cache and the registered rule function work
-##      end to end on every node, not just the initiating one).
+##      asserts on BOTH nodes: 'maptabs list' reports the same content
+##      version, and a rule-SQL 'maptab_lookup' through each node's
+##      /rule_test API returns the row (proves the ETS cache and the
+##      registered rule function work end to end on every node, not
+##      just the initiating one).
 ##   5) UPDATE: loads a changed table from emqx2 and asserts emqx1 sees
 ##      the new version and the new row values ('maptabs status' shows
 ##      no version drift between the nodes).
 ##   6) CATCH-UP: stops emqx2, loads another update on emqx1, restarts
-##      emqx2, and asserts emqx2 converges to the latest version (on
-##      start the plugin pulls the tables it missed from a running
-##      peer; the boot-time cluster-config sync does not replay
-##      cluster_rpc transactions for plugins).
-##   7) DELETE: deletes the table from emqx2 and asserts file + cache
-##      are gone on both nodes and lookups miss (return the default).
+##      emqx2, and asserts emqx2 converges to the latest version (mria
+##      recovers the replicated storage on restart and the plugin
+##      rebuilds its cache from it).
+##   7) DELETE: deletes the table from emqx2 and asserts storage +
+##      cache are gone on both nodes and lookups miss (return the
+##      default).
+##   8) MISSED DELETE: deletes a table on emqx1 while emqx2 is down and
+##      asserts the restarted emqx2 drops it too.
 ##
 ## Usage:
 ##   plugins/emqx_maptabs/smoke/cluster/cluster_smoke.sh [--keep-up]
@@ -53,7 +55,6 @@ TARBALL="$PLUGIN.tar.gz"
 
 TABLE="can_signals"
 TABLE_FILE_IN_CONTAINER="/tmp/$TABLE.json"
-TABLE_FILE_ON_DISK="/opt/emqx/data/plugins/emqx_maptabs/tables/$TABLE.json"
 NODES=(maptabs-cluster-emqx1 maptabs-cluster-emqx2)
 API_PORTS=(18093 18094)
 
@@ -266,8 +267,6 @@ assert_table_everywhere() {
                 || fail "$label: $node did not converge (version=$version lookup=$got, expected version=$expect_version lookup=$expect_name)"
             sleep 2
         done
-        docker exec "$node" test -f "$TABLE_FILE_ON_DISK" \
-            || fail "$label: $node is missing $TABLE_FILE_ON_DISK"
         info "$label: $node ok (version=$version, lookup($key)=$got)"
     done
 }
@@ -334,6 +333,21 @@ scenario_catch_up() {
     assert_table_everywhere "$version" 2 "sig_f32_v3" "CATCH-UP"
 }
 
+assert_table_gone_on() {
+    local label="$1" node="$2" port="$3"
+    local elapsed=0
+    while [[ -n "$(version_on "$node")" ]]; do
+        elapsed=$((elapsed + 2))
+        [[ $elapsed -lt 60 ]] || fail "$label: $node still lists $TABLE"
+        sleep 2
+    done
+    local got
+    got=$(rule_lookup_on "$port" 2)
+    [[ "$got" == "none" ]] \
+        || fail "$label: lookup on $node returned '$got', expected the default 'none'"
+    info "$label: $node ok (table gone, lookup falls back to default)"
+}
+
 scenario_delete() {
     info "DELETE: deleting $TABLE from emqx2, expecting cluster-wide removal"
     local out
@@ -342,20 +356,33 @@ scenario_delete() {
         || fail "DELETE: delete on emqx2 did not return ok: $out"
     local i
     for i in "${!NODES[@]}"; do
-        local node="${NODES[$i]}" port="${API_PORTS[$i]}"
-        local elapsed=0
-        while [[ -n "$(version_on "$node")" ]]; do
-            elapsed=$((elapsed + 2))
-            [[ $elapsed -lt 60 ]] || fail "DELETE: $node still lists $TABLE"
-            sleep 2
-        done
-        docker exec "$node" test -f "$TABLE_FILE_ON_DISK" \
-            && fail "DELETE: $node still has $TABLE_FILE_ON_DISK"
-        local got
-        got=$(rule_lookup_on "$port" 2)
-        [[ "$got" == "none" ]] \
-            || fail "DELETE: lookup on $node returned '$got', expected the default 'none'"
-        info "DELETE: $node ok (table gone, lookup falls back to default)"
+        assert_table_gone_on "DELETE" "${NODES[$i]}" "${API_PORTS[$i]}"
+    done
+}
+
+scenario_missed_delete() {
+    info "MISSED-DELETE: deleting $TABLE while emqx2 is down, expecting removal after restart"
+    put_table_file "${NODES[0]}" "$(rows_v1)"
+    load_on "${NODES[0]}"
+    local version
+    version=$(version_on "${NODES[0]}")
+    assert_table_everywhere "$version" 2 "sig_f32" "MISSED-DELETE(setup)"
+    docker stop maptabs-cluster-emqx2 >/dev/null
+    local out
+    out=$(maptabs_cli "${NODES[0]}" delete "$TABLE")
+    echo "$out" | jq -e '.result == "ok"' >/dev/null \
+        || fail "MISSED-DELETE: delete on emqx1 did not return ok: $out"
+    docker start maptabs-cluster-emqx2 >/dev/null
+    info "MISSED-DELETE: waiting for emqx2 to boot"
+    local elapsed=0
+    while ! docker exec maptabs-cluster-emqx2 emqx ctl status 2>/dev/null | grep -q 'is started'; do
+        sleep 2
+        elapsed=$((elapsed + 2))
+        [[ $elapsed -lt 120 ]] || fail "MISSED-DELETE: emqx2 did not restart within 120s"
+    done
+    local i
+    for i in "${!NODES[@]}"; do
+        assert_table_gone_on "MISSED-DELETE" "${NODES[$i]}" "${API_PORTS[$i]}"
     done
 }
 
@@ -369,6 +396,7 @@ main() {
     scenario_update
     scenario_catch_up
     scenario_delete
+    scenario_missed_delete
     info "PASS"
 }
 

@@ -4,18 +4,17 @@
 
 %% Public API of the emqx_maptabs plugin.
 %%
-%% The on-disk JSON files (one per table, under `tables_dir/0') are the
-%% source of truth; ETS is a read cache derived from them, owned by
-%% emqx_maptabs_server. Lookups read the cache directly and never call
+%% Mapping tables are stored in a replicated mria table (see
+%% emqx_maptabs_store), one record per table holding the validated JSON
+%% source. ETS is a per-node read cache derived from it, owned by
+%% emqx_maptabs_server; lookups read the cache directly and never call
 %% the server.
 %%
-%% Updates are replicated with `emqx_cluster_rpc' (see `load_file/1' and
-%% `delete/1'): each node re-validates the content, writes the file
-%% atomically (temp file + rename) and reloads its cache. A node that
-%% was down during an update pulls the missed tables from a running
-%% peer when the plugin starts (see emqx_maptabs_server peer sync).
-%% `reload_cluster/1' is the per-node reconcile fallback that re-reads
-%% the local files.
+%% An update is a single-record transaction: mria replicates it to
+%% every node (a node that was down catches up on restart), and each
+%% node's server follows the storage through mnesia table events. The
+%% local node's cache is brought up to date synchronously before a
+%% load/delete returns.
 -module(emqx_maptabs).
 
 -include("emqx_maptabs.hrl").
@@ -33,12 +32,10 @@
 -export([
     load_file/1,
     delete/1,
-    reload_cluster/1,
-    reload_local/1,
+    reconcile_cluster/0,
     list_local/0,
     list_on_node/1,
-    read_table_file/1,
-    tables_dir/0,
+    read_table/1,
     health_check/0
 ]).
 
@@ -47,24 +44,6 @@
     max_tables/0,
     max_rows_per_table/0,
     max_table_file_bytes/0
-]).
-
-%% cluster_rpc entrypoints: replayed on every node (also on rejoin);
-%% argument shapes must stay backward compatible. cluster_rpc appends
-%% an opts map (`#{kind => ...}') to the declared argument list.
--export([
-    do_load_v1/3,
-    do_delete_v1/2
-]).
-
-%% Internal exports for emqx_maptabs_server
--export([
-    read_source_file/1,
-    write_table_file/2,
-    table_file_path/1,
-    table_files/0,
-    check_row_limit/1,
-    check_table_count/1
 ]).
 
 -define(DEFAULT_MAX_TABLES, 100).
@@ -122,42 +101,41 @@ lookup_key(Tid, Key) ->
 %% Management API
 %%--------------------------------------------------------------------
 
-%% Loads a table file from a local path and replicates it to all nodes.
-%% The content is validated and all nodes are preflight-checked (plugin
-%% running, tables dir writable) before the cluster_rpc transaction, so
-%% a broken node fails the request fast instead of lagging forever.
+%% Loads a table file from a local path: validate, store the JSON in
+%% the replicated table, and bring the local cache up to date. Other
+%% nodes follow the storage through table events.
 -spec load_file(file:filename_all()) -> ok | {error, term()}.
 load_file(Path) ->
     maybe
+        ok ?= health_check(),
         {ok, Name} ?= emqx_maptabs_loader:table_name_from_path(Path),
         %% size is checked before reading: a mistakenly huge file must
         %% not be pulled into memory at all
         ok ?= check_source_file_size(Path),
         {ok, Bin} ?= read_source_file(Path),
-        {ok, _Parsed} ?= emqx_maptabs_loader:parse(Bin),
-        ok ?= preflight_cluster(),
-        multicall(do_load_v1, [Name, Bin])
+        {ok, Parsed} ?= emqx_maptabs_loader:parse(Bin),
+        ok ?= check_row_limit(Parsed),
+        ok ?= check_table_limit(Name),
+        ok ?= emqx_maptabs_store:put(Name, Bin),
+        emqx_maptabs_server:reconcile(node())
     end.
 
-%% Deletes a table (file + cache) on all nodes.
+%% Deletes a table on all nodes.
 -spec delete(binary()) -> ok | {error, term()}.
 delete(Name) ->
     maybe
+        ok ?= health_check(),
         ok ?= emqx_maptabs_loader:validate_name(Name),
-        ok ?= preflight_cluster(),
-        multicall(do_delete_v1, [Name])
+        ok ?= emqx_maptabs_store:delete(Name),
+        emqx_maptabs_server:reconcile(node())
     end.
 
-%% Re-reads table files from the local disk of every running node.
-%% This is the reconcile fallback (e.g. after the cluster_rpc log was
-%% trimmed before a node caught up, or files were copied by hand).
--spec reload_cluster(all | binary()) -> [{node(), term()}].
-reload_cluster(Name) ->
-    [{Node, emqx_maptabs_server:reload(Node, Name)} || Node <- emqx:running_nodes()].
-
--spec reload_local(all | binary()) -> term().
-reload_local(Name) ->
-    emqx_maptabs_server:reload(node(), Name).
+%% Rebuilds the cache from storage on every running node. Normally a
+%% no-op (caches follow storage through table events); this is the
+%% operator fallback.
+-spec reconcile_cluster() -> [{node(), term()}].
+reconcile_cluster() ->
+    [{Node, emqx_maptabs_server:reconcile(Node)} || Node <- emqx:running_nodes()].
 
 %% Metadata of the tables cached on this node.
 -spec list_local() -> [map()].
@@ -175,16 +153,14 @@ list_on_node(Node) when Node =:= node() ->
 list_on_node(Node) ->
     emqx_maptabs_server:list_tables(Node).
 
--spec read_table_file(binary()) -> {ok, binary()} | {error, term()}.
-read_table_file(Name) ->
+%% The stored JSON source of a table.
+-spec read_table(binary()) -> {ok, binary()} | {error, term()}.
+read_table(Name) ->
     maybe
         ok ?= emqx_maptabs_loader:validate_name(Name),
-        read_source_file(table_file_path(Name))
+        {ok, #maptab{json = Json}} ?= emqx_maptabs_store:get(Name),
+        {ok, Json}
     end.
-
--spec tables_dir() -> file:filename().
-tables_dir() ->
-    filename:join([emqx:data_dir(), "plugins", "emqx_maptabs", "tables"]).
 
 -spec health_check() -> ok | {error, binary()}.
 health_check() ->
@@ -194,7 +170,7 @@ health_check() ->
 %% Config
 %%--------------------------------------------------------------------
 
-%% Limits are read fresh on every load/reload, so a config update takes
+%% Limits are read fresh on every load, so a config update takes
 %% effect on the next load; already-loaded tables are never dropped by
 %% a limit change.
 -spec max_tables() -> pos_integer().
@@ -219,7 +195,7 @@ config_pos_int(Key, Default) ->
         _ ->
             Default
     catch
-        %% plugin app not (yet) fully set up, e.g. during cluster_rpc replay
+        %% plugin app not (yet) fully set up
         _:_ -> Default
     end.
 
@@ -228,71 +204,8 @@ name_vsn() ->
     iolist_to_binary([<<"emqx_maptabs-">>, Vsn]).
 
 %%--------------------------------------------------------------------
-%% cluster_rpc entrypoints
-%%--------------------------------------------------------------------
-
-%% Runs on every node (including replay on rejoin): re-validate, write
-%% the file atomically, reload the cache. If the plugin app is stopped
-%% on this node the file is still written; the cache catches up from
-%% disk on the next plugin start.
--spec do_load_v1(binary(), binary(), emqx_config:cluster_rpc_opts()) -> ok | {error, term()}.
-do_load_v1(Name, Bin, ClusterRpcOpts) ->
-    maybe
-        ok ?= emqx_maptabs_loader:validate_name(Name),
-        {ok, Parsed} ?= emqx_maptabs_loader:parse(Bin),
-        ok ?= check_limits(Name, Bin, Parsed, ClusterRpcOpts),
-        ok ?= write_table_file(Name, Bin),
-        emqx_maptabs_server:commit(Name, Parsed)
-    end.
-
-%% Limits guard the initiating node only: replicating (and replaying)
-%% nodes must apply an already-committed transaction even if the limits
-%% were lowered in the meantime.
-check_limits(Name, Bin, Parsed, #{kind := ?KIND_INITIATE}) ->
-    maybe
-        ok ?= check_file_size(byte_size(Bin)),
-        ok ?= check_row_limit(Parsed),
-        check_table_limit_on_disk(Name)
-    end;
-check_limits(_Name, _Bin, _Parsed, _ClusterRpcOpts) ->
-    ok.
-
--spec do_delete_v1(binary(), emqx_config:cluster_rpc_opts()) -> ok | {error, term()}.
-do_delete_v1(Name, _ClusterRpcOpts) ->
-    maybe
-        ok ?= emqx_maptabs_loader:validate_name(Name),
-        ok ?= delete_table_file(Name),
-        emqx_maptabs_server:drop(Name)
-    end.
-
-%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-multicall(Fun, Args) ->
-    case emqx_cluster_rpc:multicall(?MODULE, Fun, Args) of
-        ok -> ok;
-        {error, Reason} -> {error, Reason};
-        Other -> {error, Other}
-    end.
-
-%% Fails fast when a replicated update could not be applied on some
-%% node: the plugin must be running with a writable tables dir on all
-%% of them before the cluster_rpc transaction is initiated.
-preflight_cluster() ->
-    Errors = lists:filtermap(
-        fun(Node) ->
-            case emqx_maptabs_server:preflight(Node) of
-                ok -> false;
-                {error, Reason} -> {true, {Node, Reason}}
-            end
-        end,
-        emqx:running_nodes()
-    ),
-    case Errors of
-        [] -> ok;
-        _ -> {error, #{reason => preflight_failed, errors => Errors}}
-    end.
 
 read_source_file(Path) ->
     case file:read_file(Path) of
@@ -305,49 +218,6 @@ read_source_file(Path) ->
                 detail => Reason
             }}
     end.
-
-write_table_file(Name, Bin) ->
-    Path = table_file_path(Name),
-    Tmp = Path ++ ".tmp",
-    maybe
-        ok ?= ensure_dir(tables_dir()),
-        ok ?= file:write_file(Tmp, Bin),
-        ok ?= file:rename(Tmp, Path)
-    else
-        {error, Reason} ->
-            {error, #{
-                reason => failed_to_write_table_file,
-                path => unicode:characters_to_binary(Path),
-                detail => Reason
-            }}
-    end.
-
-ensure_dir(Dir) ->
-    case filelib:ensure_path(Dir) of
-        ok -> ok;
-        {error, Reason} -> {error, Reason}
-    end.
-
-delete_table_file(Name) ->
-    Path = table_file_path(Name),
-    case file:delete(Path) of
-        ok ->
-            ok;
-        {error, enoent} ->
-            ok;
-        {error, Reason} ->
-            {error, #{
-                reason => failed_to_delete_table_file,
-                path => unicode:characters_to_binary(Path),
-                detail => Reason
-            }}
-    end.
-
-table_file_path(Name) ->
-    filename:join(tables_dir(), binary_to_list(Name) ++ ".json").
-
-table_files() ->
-    lists:sort(filelib:wildcard(filename:join(tables_dir(), "*.json"))).
 
 check_source_file_size(Path) ->
     case file:read_file_info(Path) of
@@ -384,19 +254,18 @@ check_row_limit(#{row_count := RowCount}) ->
     end.
 
 %% Replacing an existing table is always allowed; only a new table
-%% counts against the limit. The on-disk files are the count base so
-%% the check also works while the plugin app is stopped (replay).
-check_table_limit_on_disk(Name) ->
-    case filelib:is_regular(table_file_path(Name)) of
-        true ->
+%% counts against the limit.
+check_table_limit(Name) ->
+    case emqx_maptabs_store:get(Name) of
+        {ok, _} ->
             ok;
-        false ->
-            check_table_count(length(table_files()))
-    end.
-
-check_table_count(Count) ->
-    Max = max_tables(),
-    case Count < Max of
-        true -> ok;
-        false -> {error, #{reason => too_many_tables, table_count => Count, max_tables => Max}}
+        {error, not_found} ->
+            Count = emqx_maptabs_store:count(),
+            Max = max_tables(),
+            case Count < Max of
+                true ->
+                    ok;
+                false ->
+                    {error, #{reason => too_many_tables, table_count => Count, max_tables => Max}}
+            end
     end.

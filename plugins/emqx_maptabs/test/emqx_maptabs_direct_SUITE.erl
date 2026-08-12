@@ -105,7 +105,7 @@ t_lookup_semantics(_Config) ->
         emqx_maptabs:list_local()
     ),
     ?assertEqual(emqx_maptabs:list_local(), emqx_maptabs:list_on_node(node())),
-    ?assertMatch({ok, <<_/binary>>}, emqx_maptabs:read_table_file(?TABLE)),
+    ?assertMatch({ok, <<_/binary>>}, emqx_maptabs:read_table(?TABLE)),
     ok.
 
 t_loader_validation(_Config) ->
@@ -162,10 +162,11 @@ t_limits(_Config) ->
     %% replacing the only table is fine; a second one exceeds max_tables
     ok = load_table(?TABLE, [#{key => 1, v => <<"v2">>}]),
     ?assertMatch({error, #{reason := too_many_tables}}, load_table(<<"more">>, [#{key => 1}])),
-    %% replicated transactions bypass the limits
+    %% the cache follows storage unconditionally: limits guard only the
+    %% load entrypoint, a replicated record is applied as is
     Rows3 = emqx_utils_json:encode([#{key => N} || N <- [1, 2, 3]]),
-    ?assertEqual(ok, emqx_maptabs:do_load_v1(?TABLE, Rows3, #{kind => ?KIND_REPLICATE})),
-    ?assertEqual(#{}, emqx_maptabs:lookup(?TABLE, 3)),
+    ok = emqx_maptabs_store:put(?TABLE, Rows3),
+    ok = wait_lookup(?TABLE, 3, #{}),
     %% invalid config values fall back to the defaults
     mock_limits(#{<<"max_tables">> => -1, <<"max_rows_per_table">> => <<"nan">>}),
     ?assertEqual(100, emqx_maptabs:max_tables()),
@@ -174,46 +175,26 @@ t_limits(_Config) ->
     meck:unload(emqx_plugins),
     ok.
 
-t_reload_and_delete(_Config) ->
+t_cache_follows_storage(_Config) ->
     ok = load_table(?TABLE, [#{key => 1, v => <<"v1">>}]),
-    TabPath = table_file_path(?TABLE),
-    %% hand-edit + reload one
-    ok = file:write_file(TabPath, emqx_utils_json:encode([#{key => 1, v => <<"v2">>}])),
-    ?assertMatch([{_, ok}], emqx_maptabs:reload_cluster(?TABLE)),
+    %% a direct storage write (as a replicated update from another node
+    %% would be) reaches the cache through table events
+    ok = emqx_maptabs_store:put(?TABLE, emqx_utils_json:encode([#{key => 1, v => <<"v2">>}])),
+    ok = wait_lookup(?TABLE, 1, #{<<"v">> => <<"v2">>}),
+    ok = emqx_maptabs_store:put(<<"extra">>, emqx_utils_json:encode([#{key => 7}])),
+    ok = wait_lookup(<<"extra">>, 7, #{}),
+    %% so does a direct storage delete
+    ok = emqx_maptabs_store:delete(<<"extra">>),
+    ok = wait_lookup(<<"extra">>, 7, undefined),
+    %% the operator reconcile fallback is a cheap no-op when in sync
+    ?assertMatch([{_, ok}], emqx_maptabs:reconcile_cluster()),
     ?assertEqual(#{<<"v">> => <<"v2">>}, emqx_maptabs:lookup(?TABLE, 1)),
-    %% a hand-copied new file is picked up by named reload
-    Extra = table_file_path(<<"extra">>),
-    ok = file:write_file(Extra, emqx_utils_json:encode([#{key => 7}])),
-    ?assertEqual(ok, emqx_maptabs:reload_local(<<"extra">>)),
-    ?assertEqual(#{}, emqx_maptabs:lookup(<<"extra">>, 7)),
-    %% reload all reconciles: gone file drops, invalid file is rejected
-    ok = file:delete(Extra),
-    ok = file:write_file(table_file_path(<<"bad">>), <<"{oops">>),
-    Results = emqx_maptabs:reload_local(all),
-    ?assertMatch({_, {error, #{reason := invalid_json}}}, lists:keyfind(<<"bad">>, 1, Results)),
-    ?assertEqual(undefined, emqx_maptabs:lookup(<<"extra">>, 7)),
-    ?assertEqual(#{<<"v">> => <<"v2">>}, emqx_maptabs:lookup(?TABLE, 1)),
-    ok = file:delete(table_file_path(<<"bad">>)),
-    %% reload of a never-existing table is a no-op drop
-    ?assertEqual(ok, emqx_maptabs:reload_local(<<"ghost">>)),
-    %% files beyond max_tables are skipped on full reload
-    ok = file:write_file(table_file_path(<<"zzz">>), emqx_utils_json:encode([#{key => 9}])),
-    mock_limits(#{<<"max_tables">> => 1}),
-    _ = emqx_maptabs:reload_local(all),
-    ?assertEqual(#{<<"v">> => <<"v2">>}, emqx_maptabs:lookup(?TABLE, 1)),
-    ?assertEqual(undefined, emqx_maptabs:lookup(<<"zzz">>, 9)),
-    %% a new-to-cache table is refused by named reload at the limit
-    ?assertMatch({error, #{reason := too_many_tables}}, emqx_maptabs:reload_local(<<"zzz">>)),
-    meck:unload(emqx_plugins),
-    %% delete: file + cache, idempotent, name validated
+    %% delete: storage + cache, idempotent, name validated
     ok = emqx_maptabs:delete(?TABLE),
-    ?assertNot(filelib:is_regular(TabPath)),
+    ?assertEqual({error, not_found}, emqx_maptabs_store:get(?TABLE)),
     ?assertEqual(undefined, emqx_maptabs:lookup(?TABLE, 1)),
     ok = emqx_maptabs:delete(?TABLE),
     ?assertMatch({error, #{reason := invalid_table_name}}, emqx_maptabs:delete(<<"b/d">>)),
-    %% do_delete_v1 is also directly callable (replay path)
-    ok = file:write_file(table_file_path(<<"zap">>), emqx_utils_json:encode([#{key => 1}])),
-    ?assertEqual(ok, emqx_maptabs:do_delete_v1(<<"zap">>, #{kind => ?KIND_REPLICATE})),
     ok.
 
 t_load_errors(_Config) ->
@@ -226,11 +207,8 @@ t_load_errors(_Config) ->
         {error, #{reason := invalid_json}},
         load_json_file(binary_to_list(?TABLE), <<"{not json">>)
     ),
-    ?assertMatch(
-        {error, #{reason := failed_to_read_file}},
-        emqx_maptabs:read_table_file(<<"no_such_table">>)
-    ),
-    ?assertMatch({error, #{reason := invalid_table_name}}, emqx_maptabs:read_table_file(<<"a b">>)),
+    ?assertEqual({error, not_found}, emqx_maptabs:read_table(<<"no_such_table">>)),
+    ?assertMatch({error, #{reason := invalid_table_name}}, emqx_maptabs:read_table(<<"a b">>)),
     ok.
 
 t_stopped_plugin(_Config) ->
@@ -240,69 +218,15 @@ t_stopped_plugin(_Config) ->
     ?assertEqual({error, <<"Plugin is not running">>}, emqx_maptabs:health_check()),
     ?assertEqual(undefined, emqx_maptabs:lookup(?TABLE, 1)),
     ?assertEqual([], emqx_maptabs:list_local()),
-    ?assertEqual({error, plugin_not_running}, emqx_maptabs:reload_local(all)),
-    ?assertMatch(
-        {error, #{reason := preflight_failed, errors := [{_, plugin_not_running}]}},
-        emqx_maptabs:load_file(Path)
-    ),
-    %% replicated cache ops degrade to ok while the file ops still work
+    ?assertMatch([{_, {error, plugin_not_running}}], emqx_maptabs:reconcile_cluster()),
+    ?assertEqual({error, <<"Plugin is not running">>}, emqx_maptabs:load_file(Path)),
+    %% storage stays writable while the plugin app is stopped, as it is
+    %% when another node initiates a replicated update
     Rows = emqx_utils_json:encode([#{key => 1, v => <<"v2">>}]),
-    ?assertEqual(ok, emqx_maptabs:do_load_v1(?TABLE, Rows, #{kind => ?KIND_REPLICATE})),
+    ?assertEqual(ok, emqx_maptabs_store:put(?TABLE, Rows)),
     ok = ensure_app_running(),
-    %% the file written while stopped is loaded at start
+    %% the record written while stopped is loaded at start
     ?assertEqual(#{<<"v">> => <<"v2">>}, emqx_maptabs:lookup(?TABLE, 1)),
-    ok.
-
-t_readonly_dir(_Config) ->
-    Dir = emqx_maptabs:tables_dir(),
-    ok = filelib:ensure_path(Dir),
-    ok = file:change_mode(Dir, 8#555),
-    Probe = filename:join(Dir, ".probe"),
-    case file:write_file(Probe, <<>>) of
-        {error, eacces} ->
-            try
-                Path = write_json_file("ro_probe", [#{key => 1}]),
-                ?assertMatch(
-                    {error, #{reason := preflight_failed}},
-                    emqx_maptabs:load_file(Path)
-                ),
-                %% write and delete failures surface as errors on the
-                %% replicated path too
-                Rows = emqx_utils_json:encode([#{key => 1}]),
-                ?assertMatch(
-                    {error, #{reason := failed_to_write_table_file}},
-                    emqx_maptabs:do_load_v1(<<"ro_probe">>, Rows, #{kind => ?KIND_REPLICATE})
-                )
-            after
-                ok = file:change_mode(Dir, 8#755)
-            end;
-        ok ->
-            %% running as a privileged user: mode bits are not enforced
-            _ = file:delete(Probe),
-            ok = file:change_mode(Dir, 8#755),
-            ct:comment("privileged user, read-only dir not enforceable")
-    end,
-    ok.
-
-t_delete_readonly_dir(_Config) ->
-    ok = load_table(?TABLE, [#{key => 1}]),
-    Dir = emqx_maptabs:tables_dir(),
-    ok = file:change_mode(Dir, 8#555),
-    case file:delete(filename:join(Dir, "not_there.json")) of
-        {error, enoent} ->
-            try
-                Result = emqx_maptabs:do_delete_v1(?TABLE, #{kind => ?KIND_REPLICATE}),
-                case Result of
-                    {error, #{reason := failed_to_delete_table_file}} -> ok;
-                    %% privileged user: deletion succeeds despite the mode
-                    ok -> ct:comment("privileged user, read-only dir not enforceable")
-                end
-            after
-                ok = file:change_mode(Dir, 8#755)
-            end;
-        _ ->
-            ok = file:change_mode(Dir, 8#755)
-    end,
     ok.
 
 t_server_edges(_Config) ->
@@ -313,10 +237,9 @@ t_server_edges(_Config) ->
     %% remote-call error mapping
     Fake = 'no_such_node@127.0.0.1',
     ?assertMatch({error, {nodedown, Fake}}, emqx_maptabs_server:list_tables(Fake)),
-    ?assertMatch({error, {nodedown, Fake}}, emqx_maptabs_server:preflight(Fake)),
-    ?assertMatch({error, {nodedown, Fake}}, emqx_maptabs_server:reload(Fake, all)),
-    %% no tables on disk: full reload reconciles to an empty result
-    ?assertMatch([{_, []}], emqx_maptabs:reload_cluster(all)),
+    ?assertMatch({error, {nodedown, Fake}}, emqx_maptabs_server:reconcile(Fake)),
+    %% empty storage: reconcile is a no-op
+    ?assertMatch([{_, ok}], emqx_maptabs:reconcile_cluster()),
     ok.
 
 t_app_callbacks(_Config) ->
@@ -334,7 +257,6 @@ t_cli(_Config) ->
     _ = emqx_maptabs_cli:cmd(["status"]),
     _ = emqx_maptabs_cli:cmd(["get", binary_to_list(?TABLE)]),
     _ = emqx_maptabs_cli:cmd(["reload"]),
-    _ = emqx_maptabs_cli:cmd(["reload", binary_to_list(?TABLE)]),
     _ = emqx_maptabs_cli:cmd(["delete", binary_to_list(?TABLE)]),
     ?assertEqual(undefined, emqx_maptabs:lookup(?TABLE, 1)),
     _ = emqx_maptabs_cli:cmd(["get", "no_such_table"]),
@@ -378,13 +300,24 @@ ensure_app_running() ->
     end.
 
 wipe_tables() ->
-    _ = file:del_dir_r(emqx_maptabs:tables_dir()),
-    _ = emqx_maptabs:reload_local(all),
+    {atomic, ok} = mria:clear_table(emqx_maptabs),
+    _ = emqx_maptabs:reconcile_cluster(),
     ok.
 
-table_file_path(Name) ->
-    ok = filelib:ensure_path(emqx_maptabs:tables_dir()),
-    filename:join(emqx_maptabs:tables_dir(), binary_to_list(Name) ++ ".json").
+%% waits out the event-driven cache update
+wait_lookup(Table, Key, Expected) ->
+    wait_lookup(Table, Key, Expected, 50).
+
+wait_lookup(Table, Key, Expected, Retries) ->
+    case emqx_maptabs:lookup(Table, Key) of
+        Expected ->
+            ok;
+        Other when Retries =< 0 ->
+            error({lookup_did_not_converge, #{expected => Expected, got => Other}});
+        _ ->
+            timer:sleep(100),
+            wait_lookup(Table, Key, Expected, Retries - 1)
+    end.
 
 load_table(Name, Rows) ->
     load_json_file(binary_to_list(Name), emqx_utils_json:encode(Rows)).

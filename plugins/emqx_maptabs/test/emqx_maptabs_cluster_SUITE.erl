@@ -54,16 +54,16 @@ end_per_testcase(_TestCase, Config) ->
 t_load_replicates_to_all_nodes(Config) ->
     [Node1, Node2] = ?config(nodes, Config),
     ok = load_table_on_node(Node1, ?TABLE, [#{key => 1, v => <<"v1">>}]),
-    lists:foreach(
-        fun(Node) ->
-            ?assertEqual(
-                #{<<"v">> => <<"v1">>},
-                erpc:call(Node, emqx_maptabs, lookup, [?TABLE, 1])
-            ),
-            Path = table_file_path_on_node(Node),
-            ?assert(erpc:call(Node, filelib, is_regular, [Path]))
-        end,
-        [Node1, Node2]
+    %% the initiating node's cache is up to date synchronously; the
+    %% peer's cache follows the replicated record through table events
+    ?assertEqual(#{<<"v">> => <<"v1">>}, erpc:call(Node1, emqx_maptabs, lookup, [?TABLE, 1])),
+    ?retry(
+        200,
+        50,
+        ?assertEqual(
+            #{<<"v">> => <<"v1">>},
+            erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])
+        )
     ),
     %% both nodes report the same version
     [#{version := Vsn1}] = erpc:call(Node1, emqx_maptabs, list_local, []),
@@ -75,31 +75,41 @@ t_delete_replicates_to_all_nodes(Config) ->
     [Node1, Node2] = ?config(nodes, Config),
     ok = load_table_on_node(Node1, ?TABLE, [#{key => 1, v => <<"v1">>}]),
     %% delete initiated from the other node
+    ?retry(
+        200,
+        50,
+        ?assertEqual(
+            #{<<"v">> => <<"v1">>},
+            erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])
+        )
+    ),
     ok = erpc:call(Node2, emqx_maptabs, delete, [?TABLE]),
-    lists:foreach(
-        fun(Node) ->
-            ?assertEqual(undefined, erpc:call(Node, emqx_maptabs, lookup, [?TABLE, 1])),
-            Path = table_file_path_on_node(Node),
-            ?assertNot(erpc:call(Node, filelib, is_regular, [Path]))
-        end,
-        [Node1, Node2]
+    ?assertEqual(undefined, erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])),
+    ?retry(
+        200,
+        50,
+        ?assertEqual(undefined, erpc:call(Node1, emqx_maptabs, lookup, [?TABLE, 1]))
     ),
     ok.
 
-t_preflight_blocks_when_plugin_stopped(Config) ->
+t_load_while_peer_plugin_stopped(Config) ->
     [Node1, Node2] = ?config(nodes, Config),
     NameVsn = ?config(plugin_name_vsn, Config),
     ok = erpc:call(Node2, emqx_plugins, ensure_stopped, [NameVsn]),
-    ?assertMatch(
-        {error, #{reason := preflight_failed, errors := [{Node2, _}]}},
-        load_table_on_node(Node1, ?TABLE, [#{key => 1, v => <<"v1">>}])
-    ),
-    ?assertEqual(undefined, erpc:call(Node1, emqx_maptabs, lookup, [?TABLE, 1])),
-    ok = erpc:call(Node2, emqx_plugins, ensure_started, [NameVsn]),
+    %% a stopped peer does not block the update: storage replicates
+    %% regardless, and the peer's cache is rebuilt when its plugin
+    %% starts again
     ok = load_table_on_node(Node1, ?TABLE, [#{key => 1, v => <<"v1">>}]),
-    ?assertEqual(
-        #{<<"v">> => <<"v1">>},
-        erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])
+    ?assertEqual(#{<<"v">> => <<"v1">>}, erpc:call(Node1, emqx_maptabs, lookup, [?TABLE, 1])),
+    ?assertEqual(undefined, erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])),
+    ok = erpc:call(Node2, emqx_plugins, ensure_started, [NameVsn]),
+    ?retry(
+        200,
+        50,
+        ?assertEqual(
+            #{<<"v">> => <<"v1">>},
+            erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])
+        )
     ),
     ok.
 
@@ -108,12 +118,10 @@ t_down_node_catches_up_on_restart(Config) ->
     [_, Node2Spec] = ?config(node_specs, Config),
     ok = load_table_on_node(Node1, ?TABLE, [#{key => 1, v => <<"v1">>}]),
     ok = emqx_cth_cluster:stop([Node2]),
-    %% update while the peer is down: cluster_rpc records the transaction
+    %% update while the peer is down: mria recovers the replica on
+    %% restart and the plugin rebuilds its cache from it
     ok = load_table_on_node(Node1, ?TABLE, [#{key => 1, v => <<"v2">>}]),
     ?assertEqual(#{<<"v">> => <<"v2">>}, erpc:call(Node1, emqx_maptabs, lookup, [?TABLE, 1])),
-    %% the restarted node pulls the missed update from its peer when
-    %% the plugin starts (production boots do not replay cluster_rpc
-    %% transactions for plugins; see the smoke test)
     [Node2] = emqx_cth_cluster:restart(Node2Spec),
     ok = erpc:call(Node2, emqx_plugins, ensure_started, [?config(plugin_name_vsn, Config)]),
     ?retry(
@@ -123,6 +131,36 @@ t_down_node_catches_up_on_restart(Config) ->
             #{<<"v">> => <<"v2">>},
             erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])
         )
+    ),
+    ok.
+
+t_down_node_catches_up_missed_delete(Config) ->
+    [Node1, Node2] = ?config(nodes, Config),
+    [_, Node2Spec] = ?config(node_specs, Config),
+    ok = load_table_on_node(Node1, ?TABLE, [#{key => 1, v => <<"v1">>}]),
+    ?retry(
+        200,
+        50,
+        ?assertEqual(
+            #{<<"v">> => <<"v1">>},
+            erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1])
+        )
+    ),
+    ok = emqx_cth_cluster:stop([Node2]),
+    %% delete while the peer is down: the record is gone from the
+    %% recovered replica, so the rebuilt cache follows
+    ok = erpc:call(Node1, emqx_maptabs, delete, [?TABLE]),
+    [Node2] = emqx_cth_cluster:restart(Node2Spec),
+    ok = erpc:call(Node2, emqx_plugins, ensure_started, [?config(plugin_name_vsn, Config)]),
+    ?retry(
+        1000,
+        10,
+        ?assertEqual(undefined, erpc:call(Node2, emqx_maptabs, lookup, [?TABLE, 1]))
+    ),
+    ?retry(
+        1000,
+        10,
+        ?assertEqual([], erpc:call(Node2, emqx_maptabs, list_local, []))
     ),
     ok.
 
@@ -150,10 +188,6 @@ load_table_on_node(Node, Name, Rows) ->
     ok = erpc:call(Node, filelib, ensure_dir, [Path]),
     ok = erpc:call(Node, file, write_file, [Path, Json]),
     erpc:call(Node, emqx_maptabs, load_file, [Path]).
-
-table_file_path_on_node(Node) ->
-    Dir = erpc:call(Node, emqx_maptabs, tables_dir, []),
-    filename:join(Dir, binary_to_list(?TABLE) ++ ".json").
 
 install_and_start_plugin_on_nodes(Nodes, Config) ->
     lists:foreach(

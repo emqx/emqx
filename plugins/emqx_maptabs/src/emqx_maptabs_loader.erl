@@ -12,7 +12,8 @@
 -export([
     parse/1,
     validate_name/1,
-    table_name_from_path/1
+    table_name_from_path/1,
+    version/1
 ]).
 
 -define(NAME_RE, "^[a-zA-Z0-9_-]+$").
@@ -103,5 +104,8 @@ check_duplicate(Key, Seen, N) ->
         false -> ok
     end.
 
+%% Content version of a table: hash of the JSON source. The stored
+%% record and the cache metadata use the same value.
+-spec version(binary()) -> binary().
 version(Bin) ->
     binary:encode_hex(erlang:md5(Bin), lowercase).

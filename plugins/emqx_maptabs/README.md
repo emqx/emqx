@@ -94,19 +94,16 @@ version.
 
 ## Storage and clustering
 
-The on-disk JSON files under `<data_dir>/plugins/emqx_maptabs/tables/` are the
-source of truth; ETS is a per-node read cache. `maptabs load` and
-`maptabs delete` run as a `cluster_rpc` transaction: every node re-validates
-the content, writes the file atomically and swaps its cache. The plugin must
-be installed on all nodes of the cluster.
+Tables are stored in the broker's built-in replicated database (mria), one
+record per table holding the validated JSON source. `maptabs load` and
+`maptabs delete` are single-record transactions; the database replicates them
+to every node, and each node's in-memory cache follows the storage. A node
+that was down during an update — or a delete — catches up automatically when
+it restarts: the database recovers the replicated records and the plugin
+rebuilds its cache from them. The plugin must be installed on all nodes of
+the cluster.
 
-A node that was down during an update catches up when the plugin starts: it
-pulls every table it is missing (or holds a different version of) from a
-running peer. A delete that the node missed is not replayed this way — the
-node keeps its stale table; `maptabs status` shows such drift, and running
-`maptabs delete` again removes the leftover.
-
-Reloads swap the cache atomically: a concurrent reader sees the old or the new
+Cache updates swap atomically: a concurrent reader sees the old or the new
 table, never a partial one.
 
 ## Configuration
@@ -125,10 +122,10 @@ tables.
 ## CLI
 
 ```
-emqx ctl maptabs list             # tables cached on this node (rows, version)
-emqx ctl maptabs status           # same, for every running node (drift detection)
-emqx ctl maptabs load <file>      # validate + replicate a table file to all nodes
-emqx ctl maptabs reload [<name>]  # re-read table files from local disk on all nodes (reconcile)
-emqx ctl maptabs get <name>       # print the table file content
-emqx ctl maptabs delete <name>    # delete a table on all nodes
+emqx ctl maptabs list         # tables cached on this node (rows, version)
+emqx ctl maptabs status       # same, for every running node (drift detection)
+emqx ctl maptabs load <file>  # validate + replicate a table file to all nodes
+emqx ctl maptabs reload       # rebuild the cache from storage on all nodes (reconcile)
+emqx ctl maptabs get <name>   # print the stored table content
+emqx ctl maptabs delete <name># delete a table on all nodes
 ```

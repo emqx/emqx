@@ -24,13 +24,14 @@ cmd(["status"]) ->
 cmd(["load", Path]) ->
     print_result(emqx_maptabs:load_file(Path));
 cmd(["reload"]) ->
-    print_reload_results(emqx_maptabs:reload_cluster(all));
-cmd(["reload", Name]) ->
-    print_reload_results(emqx_maptabs:reload_cluster(bin(Name)));
+    print_json([
+        #{node => Node, result => json_result(Result)}
+     || {Node, Result} <- emqx_maptabs:reconcile_cluster()
+    ]);
 cmd(["get", Name]) ->
-    case emqx_maptabs:read_table_file(bin(Name)) of
+    case emqx_maptabs:read_table(bin(Name)) of
         {ok, Content} ->
-            %% the table file content is already JSON
+            %% the stored table content is already JSON
             emqx_ctl:print("~ts~n", [Content]);
         {error, Reason} ->
             print_result({error, Reason})
@@ -42,8 +43,8 @@ cmd(_) ->
         {"maptabs list", "List mapping tables cached on this node"},
         {"maptabs status", "List mapping tables on every running node"},
         {"maptabs load <file>", "Load a table JSON file and replicate it to all nodes"},
-        {"maptabs reload [<name>]", "Re-read table files from local disk on all nodes"},
-        {"maptabs get <name>", "Print the table file content"},
+        {"maptabs reload", "Rebuild the cache from storage on all nodes"},
+        {"maptabs get <name>", "Print the stored table content"},
         {"maptabs delete <name>", "Delete a table on all nodes"}
     ]).
 
@@ -59,20 +60,11 @@ status_entry(Node) ->
             #{node => Node, error => json_term(Reason)}
     end.
 
-print_reload_results(Results) ->
-    print_json([
-        #{node => Node, result => reload_result(Result)}
-     || {Node, Result} <- Results
-    ]).
-
-%% per-node reload result: `ok', `{error, _}', or a per-table list
-reload_result(Results) when is_list(Results) ->
-    [#{table => Name, result => reload_result(Result)} || {Name, Result} <- Results];
-reload_result(ok) ->
+json_result(ok) ->
     ok;
-reload_result({error, Reason}) ->
+json_result({error, Reason}) ->
     #{result => error, reason => json_term(Reason)};
-reload_result(Other) ->
+json_result(Other) ->
     json_term(Other).
 
 print_result(ok) ->
