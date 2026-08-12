@@ -33,7 +33,7 @@ pool_size.desc:
 desc_probe_table_name.label:
 """Probe Table Name"""
 desc_probe_table_name.desc:
-"""Name of an existing timeseries table used to probe connectivity for health checks. When unset, a raw TCP probe against the endpoint is used instead."""
+"""Name of an existing timeseries table used to probe connectivity for health checks. When unset, the health check falls back to listing all timeseries tables."""
 
 desc_table_name.label:
 """Table Name"""

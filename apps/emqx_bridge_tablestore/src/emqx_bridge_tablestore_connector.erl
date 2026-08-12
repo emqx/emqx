@@ -84,7 +84,7 @@ on_start(InstId, Config) ->
     ?LOG_T(info, #{msg => ots_start, ots_opts => BaseOpts}),
     {ok, ClientRef} = start_ots_ts_client(InstId, BaseOpts ++ SecretOpts),
     ProbeTableName = maps:get(probe_table_name, Config, undefined),
-    case probe_ots(ClientRef, ProbeTableName, BaseOpts) of
+    case probe_ots(ClientRef, ProbeTableName) of
         ok ->
             {ok, #{
                 client_ref => ClientRef,
@@ -101,11 +101,8 @@ on_stop(_InstId, #{client_ref := ClientRef} = State) ->
     ots_ts_client:stop(ClientRef),
     State.
 
-on_get_status(
-    _InstId,
-    #{client_ref := ClientRef, probe_table_name := ProbeTableName, ots_opts := OtsOpts}
-) ->
-    case probe_ots(ClientRef, ProbeTableName, OtsOpts) of
+on_get_status(_InstId, #{client_ref := ClientRef, probe_table_name := ProbeTableName}) ->
+    case probe_ots(ClientRef, ProbeTableName) of
         ok -> ?status_connected;
         _ -> ?status_connecting
     end.
@@ -166,10 +163,21 @@ send_batch_data(BatchDataList, ClientRef, ChannelId) ->
 start_ots_ts_client(_, OtsOpts) ->
     ots_ts_client:start(OtsOpts).
 
-probe_ots(_ClientRef, undefined, OtsOpts) ->
-    tcp_probe_ots(proplists:get_value(endpoint, OtsOpts));
-probe_ots(ClientRef, ProbeTableName, _OtsOpts) ->
+probe_ots(ClientRef, undefined) ->
+    list_ots_tables(ClientRef);
+probe_ots(ClientRef, ProbeTableName) ->
     describe_ots_table(ClientRef, ProbeTableName).
+
+list_ots_tables(ClientRef) ->
+    try
+        case ots_ts_client:list_tables(ClientRef) of
+            {ok, _} -> ok;
+            {error, Reason} -> {error, Reason}
+        end
+    catch
+        Err:CReason:CST ->
+            {error, #{error => Err, reason => CReason, stacktrace => CST}}
+    end.
 
 describe_ots_table(ClientRef, ProbeTableName) ->
     try
@@ -180,30 +188,6 @@ describe_ots_table(ClientRef, ProbeTableName) ->
     catch
         Err:CReason:CST ->
             {error, #{error => Err, reason => CReason, stacktrace => CST}}
-    end.
-
-tcp_probe_ots(Endpoint) ->
-    case parse_endpoint(Endpoint) of
-        {ok, Host, Port} ->
-            case gen_tcp:connect(Host, Port, [binary, {active, false}], 5000) of
-                {ok, Sock} ->
-                    gen_tcp:close(Sock),
-                    ok;
-                {error, TcpReason} ->
-                    {error, #{error => tcp_probe_failed, reason => TcpReason}}
-            end;
-        {error, ParseReason} ->
-            {error, #{error => bad_endpoint, reason => ParseReason}}
-    end.
-
-parse_endpoint(Endpoint) ->
-    try uri_string:parse(Endpoint) of
-        #{host := Host} = Uri ->
-            {ok, Host, maps:get(port, Uri, 443)};
-        _ ->
-            {error, invalid_uri}
-    catch
-        _:_ -> {error, invalid_uri}
     end.
 
 preproc_tags(Tags) ->
