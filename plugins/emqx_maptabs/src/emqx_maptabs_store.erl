@@ -44,10 +44,12 @@ create_tables() ->
 %% The caller is responsible for validating the JSON before storing it.
 -spec put(binary(), binary()) -> ok | {error, term()}.
 put(Name, Json) ->
-    Version = emqx_maptabs_loader:version(Json),
-    Now = erlang:system_time(second),
-    Index = #maptab_index{name = Name, version = Version, updated_at = Now},
-    Blob = #maptab{name = Name, json = Json, version = Version, updated_at = Now},
+    Index = #maptab_index{
+        name = Name,
+        version = emqx_maptabs_loader:version(Json),
+        updated_at = erlang:system_time(second)
+    },
+    Blob = #maptab{name = Name, json = Json},
     transaction(fun() ->
         ok = mnesia:write(?MAPTABS_TAB, Blob, write),
         ok = mnesia:write(?MAPTABS_INDEX_TAB, Index, write)

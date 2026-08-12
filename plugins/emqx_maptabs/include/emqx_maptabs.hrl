@@ -29,11 +29,10 @@
     extra = #{} :: map()
 }).
 
+%% version and updated_at live in the index only
 -record(maptab, {
     name :: binary(),
     json :: binary(),
-    version :: binary(),
-    updated_at :: integer(),
     %% reserved for future use
     extra = #{} :: map()
 }).
