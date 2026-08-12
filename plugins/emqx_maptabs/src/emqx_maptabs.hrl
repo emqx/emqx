@@ -18,5 +18,7 @@
     name :: binary(),
     json :: binary(),
     version :: binary(),
-    updated_at :: integer()
+    updated_at :: integer(),
+    %% reserved for future use
+    extra = #{} :: map()
 }).
