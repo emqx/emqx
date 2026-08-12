@@ -844,8 +844,8 @@ trigger(Event) -> erlang:send(self(), Event).
 
 get_peer(Req, Opts) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
-    AddrHeader = cowboy_req:header(
-        emqx_utils_maps:deep_get([websocket, proxy_address_header], Opts), Req, <<>>
+    AddrHeader = forwarded_header(
+        emqx_utils_maps:deep_get([websocket, proxy_address_header], Opts), Req
     ),
     ClientAddr =
         case string:tokens(binary_to_list(AddrHeader), ", ") of
@@ -861,8 +861,8 @@ get_peer(Req, Opts) ->
             _ ->
                 PeerAddr
         end,
-    PortHeader = cowboy_req:header(
-        emqx_utils_maps:deep_get([websocket, proxy_port_header], Opts), Req, <<>>
+    PortHeader = forwarded_header(
+        emqx_utils_maps:deep_get([websocket, proxy_port_header], Opts), Req
     ),
     ClientPort =
         case string:tokens(binary_to_list(PortHeader), ", ") of
@@ -876,6 +876,11 @@ get_peer(Req, Opts) ->
     catch
         _:_ -> {Addr, PeerPort}
     end.
+
+%% Configured header names are strings; cowboy header names are lowercase
+%% binaries. An empty name reads no header.
+forwarded_header(Name, Req) ->
+    cowboy_req:header(iolist_to_binary(string:lowercase(Name)), Req, <<>>).
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 to_bin(L) when is_list(L) -> list_to_binary(L);
