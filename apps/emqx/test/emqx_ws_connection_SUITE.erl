@@ -114,6 +114,42 @@ t_header(_) ->
         ConnInfo
     ).
 
+%% An empty proxy_address_header/proxy_port_header disables the
+%% forwarded-address lookup: peername is the real socket peer even when
+%% the request carries x-forwarded-for/x-forwarded-port headers.
+t_header_proxy_disabled_by_empty_name(_) ->
+    ok = meck:expect(
+        cowboy_req,
+        header,
+        fun
+            (<<"x-forwarded-for">>, _, _) -> <<"100.100.100.100, 99.99.99.99">>;
+            (<<"x-forwarded-port">>, _, _) -> <<"1000">>;
+            (_, _, Default) -> Default
+        end
+    ),
+    set_ws_opts(proxy_address_header, <<"">>),
+    set_ws_opts(proxy_port_header, <<"">>),
+    {ok, St, _} = ?ws_conn:websocket_init([
+        conninfo(),
+        #{
+            zone => default,
+            limiter => undefined,
+            listener => {ws, default}
+        }
+    ]),
+    WsPid = spawn(fun() ->
+        receive
+            {call, From, info} ->
+                gen_server:reply(From, ?ws_conn:info(St))
+        end
+    end),
+    #{sockinfo := SockInfo} = ?ws_conn:call(WsPid, info),
+    #{
+        socktype := ws,
+        peername := {{127, 0, 0, 1}, 3456},
+        sockstate := running
+    } = SockInfo.
+
 t_info_channel(_) ->
     #{conn_state := connected} = ?ws_conn:info(channel, st()).
 

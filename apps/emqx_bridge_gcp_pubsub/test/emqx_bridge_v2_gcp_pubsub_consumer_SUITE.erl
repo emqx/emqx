@@ -137,6 +137,13 @@ create_connector_api(Config, Overrides) ->
 create_source_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:create_source_api(TCConfig, Overrides).
 
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
 get_source_api(TCConfig) ->
     #{type := Type, name := Name} =
         emqx_bridge_v2_testlib:get_common_values(TCConfig),
@@ -400,5 +407,19 @@ t_post_upgrade_pr_17624(TCConfig) ->
             ),
             ok
         end
+    ),
+    ok.
+
+%% Verifies that reading the connector with a legacy service account field (in the root of
+%% the connector config) via the HTTP API returns a redacted service account.
+%% In 6.2.0, this was moved to under an `authentication` key.
+t_legacy_service_account_json_redact(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"service_account_json">> := <<"******">>}},
+        create_connector_api(TCConfig, #{})
+    ),
+    ?assertMatch(
+        {200, #{<<"service_account_json">> := <<"******">>}},
+        get_connector_api(TCConfig)
     ),
     ok.
