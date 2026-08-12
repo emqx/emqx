@@ -38,8 +38,10 @@
 -define(JT808_MOUNTPOINT, "jt808/" ?JT808_PHONE "/").
 %% <<"jt808/000123456789/000123456789/up">>
 -define(JT808_UP_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/up">>).
+-define(JT808_UP_AUTHZ_TOPIC, <<?JT808_PHONE, "/up">>).
 %% <<"jt808/000123456789/000123456789/dn">>
 -define(JT808_DN_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/dn">>).
+-define(JT808_DN_AUTHZ_TOPIC, <<?JT808_PHONE, "/dn">>).
 %% <<"jt808/000123456790/000123456790/dn">>
 -define(JT808_VICTIM_DN_TOPIC, <<"jt808/" ?JT808_VICTIM_PHONE "/" ?JT808_VICTIM_PHONE "/dn">>).
 
@@ -170,6 +172,7 @@ init_per_testcase(Case, Config) ->
     [{suite_apps, Apps} | Config].
 
 end_per_testcase(_Case, Config) ->
+    emqx_common_test_helpers:call_janitor(),
     try
         ok = emqx_jt808_auth_http_test_server:stop()
     catch
@@ -794,7 +797,7 @@ t_case04(_) ->
 t_authz_denies_upstream_publish(_) ->
     ok = emqx:subscribe(?JT808_UP_TOPIC),
     try
-        with_gateway_authz_result(jt808, publish, ?JT808_UP_TOPIC, deny, fun() ->
+        with_gateway_authz_result(jt808, publish, ?JT808_UP_AUTHZ_TOPIC, deny, fun() ->
             {ok, Socket} = connect_jt808(),
             try
                 send_event_report(Socket, 98, 79),
@@ -811,7 +814,7 @@ t_authz_denies_upstream_publish(_) ->
 t_authz_allows_upstream_publish(_) ->
     ok = emqx:subscribe(?JT808_UP_TOPIC),
     try
-        with_gateway_authz_result(jt808, publish, ?JT808_UP_TOPIC, allow, fun() ->
+        with_gateway_authz_result(jt808, publish, ?JT808_UP_AUTHZ_TOPIC, allow, fun() ->
             {ok, Socket} = connect_jt808(),
             try
                 send_event_report(Socket, 98, 79),
@@ -832,8 +835,25 @@ t_authz_allows_upstream_publish(_) ->
         emqx:unsubscribe(?JT808_UP_TOPIC)
     end.
 
+t_authz_include_mountpoint_upstream_publish(_) ->
+    OldIncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
+    ok = emqx_config:put([authorization, include_mountpoint], true),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_config:put([authorization, include_mountpoint], OldIncludeMountpoint)
+    end),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+    emqx_common_test_helpers:on_exit(fun() -> emqx:unsubscribe(?JT808_UP_TOPIC) end),
+    %% Authz sees the mounted topic, and publication applies the mountpoint only once.
+    with_gateway_authz_result(jt808, publish, ?JT808_UP_TOPIC, allow, fun() ->
+        {ok, Socket} = connect_jt808(),
+        send_event_report(Socket, 98, 79),
+        timer:sleep(100),
+        {?JT808_UP_TOPIC, _Payload} = receive_msg(),
+        ok = gen_tcp:close(Socket)
+    end).
+
 t_authz_denies_auto_subscribe(_) ->
-    with_gateway_authz_result(jt808, subscribe, ?JT808_DN_TOPIC, deny, fun() ->
+    with_gateway_authz_result(jt808, subscribe, ?JT808_DN_AUTHZ_TOPIC, deny, fun() ->
         {ok, Socket} = connect_jt808(false),
         try
             timer:sleep(100),
@@ -847,7 +867,7 @@ t_authz_denies_auto_subscribe(_) ->
     end).
 
 t_authz_allows_auto_subscribe(_) ->
-    with_gateway_authz_result(jt808, subscribe, ?JT808_DN_TOPIC, allow, fun() ->
+    with_gateway_authz_result(jt808, subscribe, ?JT808_DN_AUTHZ_TOPIC, allow, fun() ->
         {ok, Socket} = connect_jt808(),
         try
             timer:sleep(100),
@@ -864,12 +884,15 @@ t_authz_allows_auto_subscribe(_) ->
 t_case04_mountpoint_from_register_clientinfo(_) ->
     ClientId = <<"000123456789">>,
     Mountpoint = <<"jt808/custom/000123456789/">>,
+    UpTopic = <<Mountpoint/binary, ?JT808_PHONE, "/up">>,
+    DnTopic = <<Mountpoint/binary, ?JT808_PHONE, "/dn">>,
     update_jt808_with_mountpoint(<<"jt808/custom/${clientid}/">>),
-    ok = emqx:subscribe(?JT808_UP_TOPIC),
+    ok = emqx:subscribe(UpTopic),
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     try
         {ok, AuthCode} = client_regi_procedure(Socket),
-        ok = client_auth_procedure(Socket, AuthCode),
+        ok = client_auth_procedure(Socket, AuthCode, false),
+        ?assert(lists:member(DnTopic, emqx:topics())),
         ?assertMatch(
             #{clientinfo := #{mountpoint := Mountpoint}},
             emqx_gateway_cm:get_chan_info(jt808, ClientId)
@@ -889,7 +912,7 @@ t_case04_mountpoint_from_register_clientinfo(_) ->
         ok = gen_tcp:send(Socket, S3),
         {ok, _Packet4} = gen_tcp:recv(Socket, 0, 500),
         timer:sleep(100),
-        {?JT808_UP_TOPIC, Payload} = receive_msg(),
+        {UpTopic, Payload} = receive_msg(),
         ?assertEqual(
             EventReportId,
             emqx_utils_maps:deep_get([<<"body">>, <<"id">>], emqx_utils_json:decode(Payload))
@@ -3518,8 +3541,8 @@ raw_jt808_config() ->
         <<"mountpoint">> => <<"jt808/${clientid}/">>,
         <<"proto">> =>
             #{
-                <<"dn_topic">> => <<"jt808/${clientid}/${phone}/dn">>,
-                <<"up_topic">> => <<"jt808/${clientid}/${phone}/up">>
+                <<"dn_topic">> => <<"${phone}/dn">>,
+                <<"up_topic">> => <<"${phone}/up">>
             },
         <<"retry_interval">> => <<"8s">>
     }.

@@ -573,6 +573,7 @@ t_exhook_info(_Config) ->
             'message.acked',
             'message.delivered',
             'message.dropped',
+            'message.ingress',
             'message.publish',
             'session.created',
             'session.discarded',
@@ -637,7 +638,10 @@ mock_advanced_mqtt_features() ->
             Message = emqx_message:make(
                 <<"$delayed/", DelaySec/binary, "/delayed">>, <<"payload">>
             ),
-            {stop, _} = emqx_delayed:on_message_publish(Message)
+            {ok, IngressedMessage} = emqx_delayed:on_message_ingress(
+                #{authz_ctx => #{}}, Message
+            ),
+            {stop, _} = emqx_delayed:on_message_publish(IngressedMessage)
         end,
         lists:seq(1, 4)
     ),

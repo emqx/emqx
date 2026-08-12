@@ -127,7 +127,7 @@ t_access_failed_if_no_server_running(Config) ->
     ?assertMatch(
         allow,
         emqx_access_control:authorize(
-            ClientInfo#{username => <<"gooduser">>},
+            emqx_authz_context:make(ClientInfo#{username => <<"gooduser">>}),
             ?AUTHZ_PUBLISH,
             <<"acl/1">>
         )
@@ -136,7 +136,7 @@ t_access_failed_if_no_server_running(Config) ->
     ?assertMatch(
         deny,
         emqx_access_control:authorize(
-            ClientInfo#{username => <<"baduser">>},
+            emqx_authz_context:make(ClientInfo#{username => <<"baduser">>}),
             ?AUTHZ_PUBLISH,
             <<"acl/2">>
         )
@@ -156,12 +156,56 @@ t_access_failed_if_no_server_running(Config) ->
     ),
 
     Message = emqx_message:make(<<"t/1">>, <<"abc">>),
-    ?assertMatch(
+    ?assertEqual(
         {stop, Message},
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            emqx_exhook_handler:on_message_publish(Message)
+        end)
+    ),
+    {stop, DeniedMessage} = emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         emqx_exhook_handler:on_message_publish(Message)
+    end),
+    ?assertEqual(false, emqx_message:get_header(allow_publish, DeniedMessage)),
+    ?assertMatch(
+        {stop, {error, not_authorized}},
+        emqx_exhook_handler:on_message_ingress(
+            #{authz_ctx => emqx_authz_context:make(ClientInfo)}, Message
+        )
     ),
     emqx_exhook_mgr:enable(<<"default">>),
     assert_get_basic_usage_info(Config).
+
+t_message_ingress(_) ->
+    _ = emqx_exhook_demo_svr:flush(),
+    AuthzContext = #{
+        clientid => <<"ingress-client">>,
+        username => <<"ingress-user">>,
+        peername => {{127, 0, 0, 1}, 3456},
+        sockport => 1883,
+        protocol => mqtt,
+        mountpoint => undefined
+    },
+    Message = emqx_message:make(<<"ingress-client">>, 0, <<"/ingress">>, <<"payload">>),
+    {ok, IngressedMessage} = emqx_message_ingress:ingress(AuthzContext, Message),
+    ?assertEqual(<<"/ingressed">>, emqx_message:topic(IngressedMessage)),
+    ?assertMatch(
+        {on_message_ingress, #{
+            clientinfo := #{clientid := <<"ingress-client">>, password := <<>>},
+            message := #{topic := <<"/ingress">>}
+        }},
+        emqx_exhook_demo_svr:take()
+    ),
+    MessageMap = emqx_message:to_map(Message),
+    DeniedMessage = emqx_message:from_map(MessageMap#{topic => <<"/denied-ingress">>}),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_message_ingress:ingress(AuthzContext, DeniedMessage)
+    ),
+    InvalidMessage = emqx_message:from_map(MessageMap#{topic => <<"/invalid-ingress">>}),
+    ?assertMatch(
+        {error, {invalid_exhook_response, _}},
+        emqx_message_ingress:ingress(AuthzContext, InvalidMessage)
+    ).
 
 t_lookup(_) ->
     Result = emqx_exhook_mgr:lookup(<<"default">>),
@@ -403,12 +447,14 @@ t_handler(ConnFun, Port, CId) ->
                 topic := <<"/exhook">>,
                 clientinfo := #{clientid := CId}
             }},
+            {on_message_ingress, #{message := #{topic := <<"/exhook">>, qos := 0}}},
             {on_client_authorize, #{
                 type := 'PUBLISH',
                 topic := <<"/exhook">>,
                 clientinfo := #{clientid := CId}
             }},
             {on_message_publish, #{message := #{topic := <<"/exhook">>, qos := 0}}},
+            {on_message_ingress, #{message := #{topic := <<"/ignore">>, qos := 0}}},
             {on_client_authorize, #{
                 type := 'PUBLISH',
                 topic := <<"/ignore">>,
@@ -446,6 +492,7 @@ t_handler(ConnFun, Port, CId) ->
 
     ?assertMatch(
         [
+            {on_message_ingress, #{message := #{topic := <<"$SYS">>, qos := 0}}},
             {on_client_authorize, #{
                 type := 'PUBLISH',
                 topic := <<"$SYS">>,
@@ -504,6 +551,7 @@ t_handler(ConnFun, Port, CId) ->
                 topic := <<"/exhook1">>,
                 clientinfo := #{clientid := CId}
             }},
+            {on_message_ingress, #{message := #{topic := <<"/exhook1">>, qos := 1}}},
             {on_client_authorize, #{
                 type := 'PUBLISH',
                 topic := <<"/exhook1">>,
@@ -774,6 +822,7 @@ assert_get_basic_usage_info(_Config) ->
             'message.acked',
             'message.delivered',
             'message.dropped',
+            'message.ingress',
             'message.publish',
             'session.created',
             'session.discarded',

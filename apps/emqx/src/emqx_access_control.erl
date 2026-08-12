@@ -11,6 +11,7 @@
 -export([
     authenticate/1,
     authorize/3,
+    authorize/4,
     format_action/1
 ]).
 
@@ -73,7 +74,6 @@
 end).
 
 -define(DEFAULT_AUTH_RESULT_PT_KEY, {?MODULE, default_authn_result}).
-
 -define(IS_AUTH_ERROR(Result),
     (Result =:= client_identifier_not_valid orelse
         Result =:= bad_username_or_password orelse
@@ -149,28 +149,21 @@ authenticate(Credential) ->
     end.
 
 %% @doc Check Authorization
--spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic()) ->
+-spec authorize(emqx_authz_context:t(), emqx_types:pubsub(), emqx_types:topic()) ->
     authz_result().
-authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
-    case binary:split(Data, <<"/">>) of
-        [_, Topic] ->
-            authorize(ClientInfo, Action, Topic);
-        _ ->
-            ?SLOG(warning, #{
-                msg => "invalid_delayed_topic_format",
-                expected_example => "$delayed/1/t/foo",
-                got => RawTopic
-            }),
-            inc_authz_metrics(deny),
-            deny
-    end;
-authorize(ClientInfo, Action, Topic0) ->
+authorize(AuthzContext, Action, Topic) ->
+    authorize(AuthzContext, Action, Topic, #{}).
+
+-spec authorize(
+    emqx_authz_context:t(), emqx_types:pubsub(), emqx_types:topic(), #{cache => boolean()}
+) -> authz_result().
+authorize(AuthzContext, Action, Topic0, Opts) ->
     IncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
-    Topic = maybe_mount_prefix(IncludeMountpoint, ClientInfo, Topic0),
+    Topic = maybe_mount_prefix(IncludeMountpoint, AuthzContext, Topic0),
     {Result, _Cacheable} =
-        case emqx_authz_cache:is_enabled(Topic) of
-            true -> check_authorization_cache(ClientInfo, Action, Topic);
-            false -> do_authorize_with_cache_policy(ClientInfo, Action, Topic)
+        case maps:get(cache, Opts, true) andalso emqx_authz_cache:is_enabled(Topic) of
+            true -> check_authorization_cache(AuthzContext, Action, Topic);
+            false -> do_authorize_with_cache_policy(AuthzContext, Action, Topic)
         end,
     inc_authz_metrics(Result),
     Result.
@@ -230,11 +223,11 @@ is_username_defined(#{username := <<>>}) -> false;
 is_username_defined(#{username := _Username}) -> true;
 is_username_defined(_) -> false.
 
-check_authorization_cache(ClientInfo, Action, Topic) ->
+check_authorization_cache(AuthzContext, Action, Topic) ->
     case emqx_authz_cache:get_authz_cache(Action, Topic) of
         not_found ->
             inc_authz_metrics(cache_miss),
-            {AuthzResult, Cacheable} = do_authorize_with_cache_policy(ClientInfo, Action, Topic),
+            {AuthzResult, Cacheable} = do_authorize_with_cache_policy(AuthzContext, Action, Topic),
             case Cacheable of
                 true -> emqx_authz_cache:put_authz_cache(Action, Topic, AuthzResult);
                 false -> ok
@@ -243,22 +236,22 @@ check_authorization_cache(ClientInfo, Action, Topic) ->
         AuthzResult ->
             emqx_hooks:run(
                 'client.check_authz_complete',
-                [ClientInfo, Action, Topic, AuthzResult, cache]
+                [AuthzContext, Action, Topic, AuthzResult, cache]
             ),
             inc_authz_metrics(cache_hit),
             {AuthzResult, true}
     end.
 
-do_authorize_with_cache_policy(ClientInfo, Action, Topic) ->
+do_authorize_with_cache_policy(AuthzContext, Action, Topic) ->
     NoMatch = emqx:get_config([authorization, no_match], deny),
     Default = #{result => NoMatch, from => default},
-    case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
+    case run_hooks('client.authorize', [AuthzContext, Action, Topic], Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
             From = maps:get(from, AuthzResult, unknown),
             ok = log_result(Topic, Action, From, Result),
             emqx_hooks:run(
                 'client.check_authz_complete',
-                [ClientInfo, Action, Topic, Result, From]
+                [AuthzContext, Action, Topic, Result, From]
             ),
             {Result, should_cache_authz_result(AuthzResult)};
         Other ->
@@ -269,20 +262,20 @@ do_authorize_with_cache_policy(ClientInfo, Action, Topic) ->
             }),
             emqx_hooks:run(
                 'client.check_authz_complete',
-                [ClientInfo, Action, Topic, deny, unknown_return_format]
+                [AuthzContext, Action, Topic, deny, unknown_return_format]
             ),
             {deny, true}
     end.
 
-maybe_mount_prefix(false = _IncludeMountpoint, _ClientInfo, Topic0) ->
+maybe_mount_prefix(false = _IncludeMountpoint, _AuthzContext, Topic0) ->
     Topic0;
 maybe_mount_prefix(
-    true = _IncludeMountpoint, #{mountpoint := Mountpoint} = _ClientInfo, Topic0
+    true = _IncludeMountpoint, #{mountpoint := Mountpoint} = _AuthzContext, Topic0
 ) when
     is_binary(Mountpoint)
 ->
     emqx_mountpoint:mount(Mountpoint, Topic0);
-maybe_mount_prefix(true = _IncludeMountpoint, _ClientInfo, Topic0) ->
+maybe_mount_prefix(true = _IncludeMountpoint, _AuthzContext, Topic0) ->
     Topic0.
 
 should_cache_authz_result(AuthzResult) ->

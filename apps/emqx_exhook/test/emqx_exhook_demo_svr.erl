@@ -43,6 +43,7 @@
     on_session_discarded/2,
     on_session_takenover/2,
     on_session_terminated/2,
+    on_message_ingress/2,
     on_message_publish/2,
     on_message_delivered/2,
     on_message_dropped/2,
@@ -173,6 +174,7 @@ on_provider_loaded(#{meta := #{cluster_name := Name}} = Req, Md) ->
         ],
     HooksMessage =
         [
+            #{name => <<"message.ingress">>},
             #{name => <<"message.publish">>},
             #{name => <<"message.delivered">>},
             #{name => <<"message.acked">>},
@@ -361,6 +363,32 @@ on_session_terminated(Req, Md) ->
     in(?FUNCTION_NAME, Req),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
+
+-spec on_message_ingress(emqx_exhook_pb:message_ingress_request(), grpc:metadata()) ->
+    {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
+on_message_ingress(#{message := #{topic := Topic} = Msg} = Req, Md) ->
+    in(?FUNCTION_NAME, Req),
+    case Topic of
+        <<"/ingress">> ->
+            {ok,
+                #{
+                    type => 'CONTINUE',
+                    value => {message, Msg#{topic => <<"/ingressed">>}}
+                },
+                Md};
+        <<"/denied-ingress">> ->
+            {ok,
+                #{
+                    type => 'STOP_AND_RETURN',
+                    value => {bool_result, false}
+                },
+                Md};
+        <<"/invalid-ingress">> ->
+            {ok, #{type => 'CONTINUE'}, Md};
+        _ ->
+            {ok, #{type => 'IGNORE'}, Md}
+    end.
 
 -spec on_message_publish(emqx_exhook_pb:message_publish_request(), grpc:metadata()) ->
     {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}

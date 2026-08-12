@@ -95,53 +95,53 @@ destroy(_Source) -> ok.
 %%        ...
 %%    ]
 %%
-authorize(#{acl := Acl} = Client, PubSub, Topic, _Source) ->
-    case check(Client, Acl) of
+authorize(#{acl := Acl} = AuthzContext, PubSub, Topic, _Source) ->
+    case check(AuthzContext, Acl) of
         {ok, Rules} when ?IS_V2(Rules) ->
-            authorize_v2(Client, PubSub, Topic, Rules);
+            authorize_v2(AuthzContext, PubSub, Topic, Rules);
         {ok, Rules} when ?IS_V1(Rules) ->
-            authorize_v1(Client, PubSub, Topic, Rules);
+            authorize_v1(AuthzContext, PubSub, Topic, Rules);
         {error, MatchResult} ->
             MatchResult
     end;
-authorize(_Client, _PubSub, _Topic, _Source) ->
+authorize(_AuthzContext, _PubSub, _Topic, _Source) ->
     ignore.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-check(Client, #{expire := Expire, rules := Rules}) ->
-    Now = now(Client),
+check(AuthzContext, #{expire := Expire, rules := Rules}) ->
+    Now = now(AuthzContext),
     case Expire of
         N when is_integer(N) andalso N >= Now -> {ok, Rules};
         undefined -> {ok, Rules};
         _ -> {error, {matched, deny}}
     end;
 %% no expire
-check(_Client, #{rules := Rules}) ->
+check(_AuthzContext, #{rules := Rules}) ->
     {ok, Rules};
 %% no rules — no match
-check(_Client, #{}) ->
+check(_AuthzContext, #{}) ->
     {error, nomatch}.
 
-authorize_v1(Client, PubSub, Topic, AclRules) ->
-    authorize_v1(Client, PubSub, Topic, AclRules, ?RULE_NAMES).
+authorize_v1(AuthzContext, PubSub, Topic, AclRules) ->
+    authorize_v1(AuthzContext, PubSub, Topic, AclRules, ?RULE_NAMES).
 
-authorize_v1(_Client, _PubSub, _Topic, _AclRules, []) ->
+authorize_v1(_AuthzContext, _PubSub, _Topic, _AclRules, []) ->
     {matched, deny};
-authorize_v1(Client, PubSub, Topic, AclRules, [{Keys, Action} | RuleNames]) ->
+authorize_v1(AuthzContext, PubSub, Topic, AclRules, [{Keys, Action} | RuleNames]) ->
     TopicFilters = get_topic_filters_v1(Keys, AclRules, []),
     case
         emqx_authz_rule:match(
-            Client,
+            AuthzContext,
             PubSub,
             Topic,
             emqx_authz_rule:compile({allow, all, Action, TopicFilters})
         )
     of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> authorize_v1(Client, PubSub, Topic, AclRules, RuleNames)
+        nomatch -> authorize_v1(AuthzContext, PubSub, Topic, AclRules, RuleNames)
     end.
 
 get_topic_filters_v1([], _Rules, Default) ->
@@ -152,10 +152,10 @@ get_topic_filters_v1([Key | Keys], Rules, Default) ->
         #{} -> get_topic_filters_v1(Keys, Rules, Default)
     end.
 
-authorize_v2(Client, PubSub, Topic, Rules) ->
-    emqx_authz_rule:matches(Client, PubSub, Topic, Rules).
+authorize_v2(AuthzContext, PubSub, Topic, Rules) ->
+    emqx_authz_rule:matches(AuthzContext, PubSub, Topic, Rules).
 
 now(#{now_time := Now}) ->
     erlang:convert_time_unit(Now, millisecond, second);
-now(_Client) ->
+now(_AuthzContext) ->
     erlang:system_time(second).

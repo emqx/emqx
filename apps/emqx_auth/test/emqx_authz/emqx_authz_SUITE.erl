@@ -92,6 +92,35 @@ end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(),
     ok.
 
+t_vars_for_rule_query_peerport(_) ->
+    ClientInfo = #{peername => {{127, 0, 0, 1}, 1883}},
+    ?assertMatch(#{peerport := 1883}, emqx_authz_utils:authz_vars(ClientInfo)),
+    ?assertMatch(
+        #{peerport := 8883},
+        emqx_authz_utils:authz_vars(ClientInfo#{peerport => 8883})
+    ),
+    ?assertMatch(
+        #{peerport := 1883},
+        emqx_authz_utils:vars_for_rule_query(ClientInfo, ?AUTHZ_PUBLISH(?QOS_1, false))
+    ).
+
+t_client_info_acl_expire_uses_restricted_now_time(_) ->
+    Rule = emqx_authz_rule:compile({allow, all, publish, [<<"#">>]}),
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
+    ACL = #{expire => 2, rules => [Rule]},
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        UnexpiredContext = emqx_authz_context:make(ClientInfo#{acl => ACL, now_time => 1_000}),
+        ?assertEqual(
+            {matched, allow},
+            emqx_authz_client_info:authorize(UnexpiredContext, ?AUTHZ_PUBLISH, <<"t">>, #{})
+        ),
+        ExpiredContext = emqx_authz_context:make(ClientInfo#{acl => ACL, now_time => 3_000}),
+        ?assertEqual(
+            {matched, deny},
+            emqx_authz_client_info:authorize(ExpiredContext, ?AUTHZ_PUBLISH, <<"t">>, #{})
+        )
+    end).
+
 -define(SOURCE_HTTP, #{
     <<"type">> => <<"http">>,
     <<"enable">> => true,
@@ -865,31 +894,44 @@ t_skipped_as_superuser(_Config) ->
         listener => 'tcp:default',
         is_superuser => true
     },
+    AuthzContext = emqx_authz_context:make(ClientInfo),
     ?check_trace(
         begin
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_0), <<"p/t/0">>)
+                emqx_access_control:authorize(
+                    AuthzContext, ?AUTHZ_PUBLISH(?QOS_0), <<"p/t/0">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_1), <<"p/t/1">>)
+                emqx_access_control:authorize(
+                    AuthzContext, ?AUTHZ_PUBLISH(?QOS_1), <<"p/t/1">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(?QOS_2), <<"p/t/2">>)
+                emqx_access_control:authorize(
+                    AuthzContext, ?AUTHZ_PUBLISH(?QOS_2), <<"p/t/2">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_0), <<"s/t/0">>)
+                emqx_access_control:authorize(
+                    AuthzContext, ?AUTHZ_SUBSCRIBE(?QOS_0), <<"s/t/0">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_1), <<"s/t/1">>)
+                emqx_access_control:authorize(
+                    AuthzContext, ?AUTHZ_SUBSCRIBE(?QOS_1), <<"s/t/1">>
+                )
             ),
             ?assertEqual(
                 allow,
-                emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_2), <<"s/t/2">>)
+                emqx_access_control:authorize(
+                    AuthzContext, ?AUTHZ_SUBSCRIBE(?QOS_2), <<"s/t/2">>
+                )
             )
         end,
         fun(Trace) ->
@@ -969,7 +1011,9 @@ t_mount_prefix_for_authz(_TCConfig) ->
     MountedTopic4 = <<Username/binary, "/", Topic4/binary>>,
     ?check_trace(
         begin
-            emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_2), Topic1),
+            emqx_access_control:authorize(
+                emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE(?QOS_2), Topic1
+            ),
             ?assertReceive({authz, #{topic := MountedTopic1}}),
             %% Check that real client works
             _ = emqtt:subscribe(C1, Topic2, [{qos, 1}]),
@@ -1029,7 +1073,7 @@ authorize_with_crashing_http_and_allowing_redis() ->
         ),
         {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_HTTP, ?SOURCE_REDIS]),
         Result = emqx_access_control:authorize(
-            emqx_authz_test_lib:base_client_info(),
+            emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
             ?AUTHZ_PUBLISH,
             <<"t">>
         ),

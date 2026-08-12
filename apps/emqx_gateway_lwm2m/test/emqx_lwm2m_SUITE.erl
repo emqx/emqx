@@ -23,6 +23,7 @@
 -include_lib("emqx_gateway_coap/include/emqx_coap.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -190,7 +191,8 @@ groups() ->
             case142_clear_blockwise_downlink,
             case143_blockwise_busy_no_context,
             case144_blockwise_consume_only,
-            case147_cleanup_lwm2m_channels
+            case147_cleanup_lwm2m_channels,
+            case148_subscribe_mountpoint_after_authorization
         ]}
     ].
 
@@ -5305,6 +5307,43 @@ case118_authorize_denied(Config) ->
         {ok, _} = emqx:update_config([authorization], OldAuthz)
     end.
 
+case148_subscribe_mountpoint_after_authorization(Config) ->
+    OldIncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
+    ok = emqx_config:put([authorization, include_mountpoint], true),
+    Hook = {?MODULE, capture_lwm2m_subscribe_authz, [self()]},
+    ok = emqx_hooks:put('client.authorize', Hook, ?HP_HIGHEST),
+    try
+        UdpSock = ?config(sock, Config),
+        Epn = "urn:oma:lwm2m:oma:148",
+        MountedTopic = list_to_binary("lwm2m/" ++ Epn ++ "/dn/#"),
+        test_send_coap_request(
+            UdpSock,
+            post,
+            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
+            #coap_content{
+                content_format = <<"text/plain">>,
+                payload = <<"</1>, </2>, </3>, </4>, </5>">>
+            },
+            [],
+            12
+        ),
+        #coap_message{method = Method} = test_recv_coap_response(UdpSock),
+        ?assertEqual({ok, created}, Method),
+        receive
+            {lwm2m_subscribe_authz, MountedTopic} -> ok
+        after 1000 ->
+            ct:fail(subscribe_authorization_not_called)
+        end,
+        ?retry(
+            100,
+            10,
+            ?assert(lists:member(MountedTopic, test_mqtt_broker:get_subscrbied_topics()))
+        )
+    after
+        ok = emqx_hooks:del('client.authorize', Hook),
+        ok = emqx_config:put([authorization, include_mountpoint], OldIncludeMountpoint)
+    end.
+
 case119_open_session_error(Config) ->
     UdpSock = ?config(sock, Config),
     Epn = "urn:oma:lwm2m:oma:119",
@@ -6114,16 +6153,23 @@ lwm2m_channels() ->
 
 capture_with_context(Pid) ->
     fun
-        (publish, [_Topic, Msg]) ->
+        (publish, [Msg]) ->
             Pid ! {publish, Msg},
             ok;
-        (subscribe, [_Topic, _Opts]) ->
-            ok;
+        (subscribe, [Topic, _Opts]) ->
+            {ok, Topic};
         (metrics, _Name) ->
             ok;
         (_, _) ->
             ok
     end.
+
+capture_lwm2m_subscribe_authz(_AuthzContext, Action, Topic, _Default, Pid) ->
+    case Action of
+        #{action_type := subscribe} -> Pid ! {lwm2m_subscribe_authz, Topic};
+        _ -> ok
+    end,
+    {stop, #{result => allow, from => test}}.
 
 wait_publish_payload() ->
     receive
@@ -6508,8 +6554,8 @@ request(
 
 with_context_stub() ->
     fun
-        (publish, [_Topic, _Msg]) -> ok;
-        (subscribe, [_Topic, _Opts]) -> ok;
+        (publish, [_Msg]) -> ok;
+        (subscribe, [Topic, _Opts]) -> {ok, Topic};
         (metrics, _Name) -> ok;
         (_, _) -> ok
     end.

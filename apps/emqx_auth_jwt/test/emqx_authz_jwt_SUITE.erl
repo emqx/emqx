@@ -53,7 +53,12 @@ end_per_group(_Profile, Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_common_test_helpers:clear_security_profile().
 
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) ->
+    case TestCase of
+        t_topic_rules -> emqx_common_test_helpers:set_security_profile("hardened");
+        t_topic_rules_v2 -> emqx_common_test_helpers:set_security_profile("hardened");
+        _ -> ok
+    end,
     emqx_authn_test_lib:delete_authenticators(
         ?AUTHN_PATH,
         ?GLOBAL
@@ -68,6 +73,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
     emqx_authn_test_lib:delete_authenticators(
         ?AUTHN_PATH,
         ?GLOBAL
