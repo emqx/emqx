@@ -11,6 +11,12 @@
 -export([on_handle_api_call/4]).
 
 start(_StartType, _StartArgs) ->
+    %% Use the prometheus app provided by the EMQX release instead of
+    %% bundling one in the plugin package: bundling conflicts with nodes
+    %% that already load prometheus (e.g. the built-in emqx_prometheus).
+    %% ensure_all_started is idempotent: it reuses an already-started
+    %% prometheus, or starts the release's copy otherwise.
+    {ok, _} = application:ensure_all_started(prometheus),
     ok = emqx_bcast_config:load(),
     {ok, Sup} = emqx_bcast_sup:start_link(),
     ok = emqx_bcast_metrics:init(),
