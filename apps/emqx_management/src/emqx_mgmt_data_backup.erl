@@ -495,7 +495,7 @@ upload(Namespace, BackupFilename, BackupFileContent) ->
         {ok, FilePath} ?= backup_path(Namespace, BackupFilename),
         case filelib:is_file(FilePath) of
             true -> {error, {already_exists, BackupFilename}};
-            false -> do_upload(FilePath, BackupFileContent)
+            false -> do_upload(Namespace, FilePath, BackupFileContent)
         end
     end.
 
@@ -550,6 +550,8 @@ format_error(invalid_version) ->
     "invalid backup archive content: wrong EMQX version value in " ?META_FILENAME;
 format_error(bad_archive_dir) ->
     "invalid backup archive content: all files in the archive must be under <backup name> directory";
+format_error(bad_archive_member) ->
+    "invalid backup archive content: only regular files and directories are allowed in the archive";
 format_error(not_found) ->
     "backup file not found";
 format_error(bad_backup_name) ->
@@ -629,12 +631,12 @@ maybe_not_found({error, enoent}) ->
 maybe_not_found(Other) ->
     Other.
 
-do_upload(BackupFilePath, BackupFileContent) ->
+do_upload(Namespace, BackupFilePath, BackupFileContent) ->
     try
         maybe
-            {ok, BackupDir} ?= backup_dir(BackupFilePath),
+            {ok, BackupDir} ?= backup_dir(Namespace, BackupFilePath),
             ok ?= file:write_file(BackupFilePath, BackupFileContent),
-            ok ?= extract_backup(BackupFilePath),
+            ok ?= extract_backup(Namespace, BackupFilePath),
             {ok, _} ?= validate_backup(BackupDir),
             HoconFilename = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
             ok ?=
@@ -673,7 +675,7 @@ do_upload(BackupFilePath, BackupFileContent) ->
             }),
             {error, Reason}
     after
-        cleanup_backup_dir(BackupFilePath)
+        cleanup_backup_dir(Namespace, BackupFilePath)
     end.
 
 prepare_new_backup(Opts) ->
@@ -930,9 +932,9 @@ do_import(BackupFilePath, Opts) ->
     Namespace = maps:get(namespace, Opts, ?global_ns),
     try
         maybe
-            {ok, BackupDir} ?= backup_dir(BackupFilePath),
+            {ok, BackupDir} ?= backup_dir(Namespace, BackupFilePath),
             ok ?= validate_backup_basename(BackupFilePath),
-            ok ?= extract_backup(BackupFilePath),
+            ok ?= extract_backup(Namespace, BackupFilePath),
             {ok, _} ?= validate_backup(BackupDir),
             {ok, #{conf_errors := ConfErrors, mnesia_errors := MnesiaErrors}} ?=
                 do_import_for_namespace(Namespace, BackupDir, Opts),
@@ -959,7 +961,7 @@ do_import(BackupFilePath, Opts) ->
             }),
             {error, Reason}
     after
-        cleanup_backup_dir(BackupFilePath)
+        cleanup_backup_dir(Namespace, BackupFilePath)
     end.
 
 log_import_result(_BackupFilePath, #{db_errors := DbErrors, config_errors := ConfErrors}) when
@@ -1304,10 +1306,10 @@ try_traverse_backup(Fun) ->
             {'EXIT', {Reason, Stacktrace}}
     end.
 
-extract_backup(BackupFilePath) ->
+extract_backup(Namespace, BackupFilePath) ->
     ?SLOG(debug, #{msg => "extract_backup", backup_file_path => BackupFilePath}),
-    RootBackupDir = root_backup_dir(),
     maybe
+        {ok, RootBackupDir} ?= backup_root_dir(Namespace),
         ok ?= validate_filenames(BackupFilePath),
         ?SLOG(debug, #{
             msg => "extracting_backup", backup => BackupFilePath, root_backup_dir => RootBackupDir
@@ -1317,20 +1319,40 @@ extract_backup(BackupFilePath) ->
 
 validate_filenames(BackupFilePath) ->
     maybe
-        {ok, Filenames} ?= format_tar_error(erl_tar:table(BackupFilePath, [compressed])),
+        {ok, Members} ?= format_tar_error(erl_tar:table(BackupFilePath, [compressed, verbose])),
         BackupName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
-        IsValid = lists:all(
-            fun(Filename) ->
-                [Root | _] = filename:split(Filename),
-                Root =:= BackupName
-            end,
-            Filenames
-        ),
-        case IsValid of
-            true -> ok;
-            false -> {error, bad_archive_dir}
-        end
+        validate_tar_members(BackupName, Members)
     end.
+
+validate_tar_members(_BackupName, []) ->
+    ok;
+validate_tar_members(BackupName, [Member | Rest]) ->
+    case validate_tar_member(BackupName, Member) of
+        ok -> validate_tar_members(BackupName, Rest);
+        Error -> Error
+    end.
+
+%% Only regular files and directories confined to the `<backup name>/' subtree may be
+%% extracted: link members or path traversal could reach files outside the backup directory.
+validate_tar_member(BackupName, {Filename, Type, _Size, _MTime, _Mode, _Uid, _Gid}) when
+    Type =:= regular; Type =:= directory
+->
+    [Root | _] = Components = filename:split(Filename),
+    IsValid =
+        filename:pathtype(Filename) =:= relative andalso
+            Root =:= BackupName andalso
+            not lists:member("..", Components),
+    case IsValid of
+        true -> ok;
+        false -> {error, bad_archive_dir}
+    end;
+validate_tar_member(_BackupName, {Filename, Type, _Size, _MTime, _Mode, _Uid, _Gid}) ->
+    ?SLOG(warning, #{
+        msg => "bad_backup_archive_member",
+        filename => Filename,
+        type => Type
+    }),
+    {error, bad_archive_member}.
 
 import_cluster_hocon(BackupDir, Opts) ->
     HoconFilename = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
@@ -1687,13 +1709,23 @@ validate_backup_basename(BackupFilePath) ->
         false -> {error, bad_backup_name}
     end.
 
-backup_dir(BackupFilePath) ->
+backup_dir(Namespace, BackupFilePath) ->
     BaseName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
-    RootBackupDir = root_backup_dir(),
-    case filelib:safe_relative_path(BaseName, RootBackupDir) of
-        unsafe -> {error, unsafe_backup_name};
-        _ -> {ok, filename:join(RootBackupDir, BaseName)}
+    maybe
+        ok ?= validate_extract_dir_name(Namespace, BaseName),
+        {ok, RootBackupDir} ?= backup_root_dir(Namespace),
+        case filelib:safe_relative_path(BaseName, RootBackupDir) of
+            unsafe -> {error, unsafe_backup_name};
+            _ -> {ok, filename:join(RootBackupDir, BaseName)}
+        end
     end.
+
+%% In the global root, `ns/' holds the namespaced backups; a backup named `ns' would
+%% extract into it and its cleanup would delete it.
+validate_extract_dir_name(?global_ns, ?NS_BACKUP_SUBDIR) ->
+    {error, unsafe_backup_name};
+validate_extract_dir_name(_Namespace, _BaseName) ->
+    ok.
 
 backup_path(Filename) ->
     backup_path(?global_ns, Filename).
@@ -1734,9 +1766,9 @@ namespaced_backup_dir(Namespace) ->
             {ok, Dir}
     end.
 
-cleanup_backup_dir(BackupFilePath) ->
+cleanup_backup_dir(Namespace, BackupFilePath) ->
     maybe
-        {ok, BackupDir} ?= backup_dir(BackupFilePath),
+        {ok, BackupDir} ?= backup_dir(Namespace, BackupFilePath),
         file:del_dir_r(BackupDir)
     end.
 
