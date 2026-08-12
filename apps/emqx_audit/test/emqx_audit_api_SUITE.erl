@@ -52,6 +52,7 @@ init_per_suite(Config) ->
                 schema_mod => emqx_enterprise_schema
             }},
             emqx_modules,
+            emqx_license,
             emqx_audit,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
@@ -309,6 +310,44 @@ t_max_size(_Config) ->
     ExpectSize = emqx:get_config([log, audit, cache_size]),
     Size2 = SizeFun(),
     ?assertEqual(ExpectSize, Size2, {sys:get_state(emqx_audit)}),
+    ok.
+
+-doc """
+The audit log records the `POST /license` request body as `******`
+so the license key does not appear in cleartext in `GET /audit`.
+""".
+t_license_key_redacted(_) ->
+    StartAt = erlang:system_time(microsecond),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    LicensePath = emqx_mgmt_api_test_util:api_path(["license"]),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(
+        post, LicensePath, "", AuthHeader, #{<<"key">> => <<"default">>}
+    ),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    Query =
+        lists:flatten(
+            io_lib:format(
+                "operation_id=/license&gte_created_at=~B&limit=1",
+                [StartAt]
+            )
+        ),
+    Res = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{
+                    <<"operation_id">> := <<"/license">>,
+                    <<"http_request">> := #{<<"method">> := <<"post">>, <<"body">> := _}
+                }
+            ]
+        },
+        emqx_utils_json:decode(Res)
+    ),
+    #{<<"data">> := [#{<<"http_request">> := #{<<"body">> := AuditBody}}]} =
+        emqx_utils_json:decode(Res),
+    %% the recorded body is redacted: no license key, only the redaction mark
+    ?assertEqual(nomatch, binary:match(AuditBody, <<"default">>), AuditBody),
+    ?assertNotEqual(nomatch, binary:match(AuditBody, <<"******">>), AuditBody),
     ok.
 
 t_kickout_clients_without_log(_) ->

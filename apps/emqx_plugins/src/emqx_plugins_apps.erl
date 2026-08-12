@@ -323,7 +323,8 @@ do_load_plugin_app(AppName, Ebin) ->
     Modules = filelib:wildcard(filename:join([Ebin, "*.beam"])),
     maybe
         ok ?= load_modules(Modules),
-        ok ?= application:load(AppName)
+        {ok, AppSpec} ?= read_app_spec(AppName, Ebin),
+        ok ?= application:load(drop_self_dep(AppSpec))
     else
         {error, {already_loaded, _}} ->
             ok;
@@ -333,6 +334,40 @@ do_load_plugin_app(AppName, Ebin) ->
                 name => AppName,
                 reason => Reason
             }}
+    end.
+
+read_app_spec(AppName, Ebin) ->
+    AppFile = filename:join(Ebin, atom_to_list(AppName) ++ ".app"),
+    case file:consult(AppFile) of
+        {ok, [{application, AppName, Props}]} ->
+            {ok, {application, AppName, Props}};
+        {ok, Other} ->
+            {error, {bad_app_file, AppFile, Other}};
+        {error, Reason} ->
+            {error, {bad_app_file, AppFile, Reason}}
+    end.
+
+%% Plugin apps are started from within the emqx_plugins application's own
+%% start/2. A plugin that declares emqx_plugins in its applications list makes
+%% ensure_all_started/1 wait for emqx_plugins to finish starting, which cannot
+%% happen until the plugin start returns: plugin start times out on every node
+%% boot. The dependency is satisfied by construction (emqx_plugins is running
+%% or starting whenever a plugin is started), so drop it from the app spec.
+drop_self_dep({application, AppName, Props} = AppSpec) ->
+    Deps = proplists:get_value(applications, Props, []),
+    case lists:member(emqx_plugins, Deps) of
+        true ->
+            ?SLOG(warning, #{
+                msg => "plugin_app_declares_emqx_plugins_dependency",
+                name => AppName,
+                hint =>
+                    "remove emqx_plugins from the applications list"
+                    " in the plugin app's .app.src file"
+            }),
+            Deps1 = {applications, lists:delete(emqx_plugins, Deps)},
+            {application, AppName, lists:keyreplace(applications, 1, Props, Deps1)};
+        false ->
+            AppSpec
     end.
 
 load_modules([]) ->
@@ -347,6 +382,10 @@ load_modules([BeamFile | Modules]) ->
             {error, #{msg => "failed_to_load_plugin_beam", path => BeamFile, reason => Reason}}
     end.
 
+%% Plugin apps are started while the emqx_plugins application itself is
+%% starting during node boot. Applications a plugin declares in its .app.src
+%% must be running by then; EMQX apps that start after emqx_plugins (for
+%% example emqx_management) cannot be declared as plugin dependencies.
 start_app(App) ->
     case run_with_timeout(application, ensure_all_started, [App], 10_000) of
         {ok, {ok, Started}} ->
@@ -360,12 +399,25 @@ start_app(App) ->
                 app => App,
                 reason => Reason
             }};
-        {error, Reason} ->
+        {error, timeout} ->
             {error, #{
                 msg => "failed_to_start_plugin_app",
                 app => App,
-                reason => Reason
+                reason => timeout,
+                not_running_deps => not_running_deps(App),
+                hint =>
+                    "all applications a plugin declares in its .app.src"
+                    " must be running before plugins start during node boot"
             }}
+    end.
+
+not_running_deps(App) ->
+    case application:get_key(App, applications) of
+        {ok, Deps} ->
+            Running = [N || {N, _} <- running_apps()],
+            [Dep || Dep <- Deps, not lists:member(Dep, Running)];
+        undefined ->
+            []
     end.
 
 %% On one hand, Elixir plugins might include Elixir itself, when targetting a non-Elixir
