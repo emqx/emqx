@@ -78,6 +78,21 @@ auth_header() ->
     {ok, API} = emqx_common_test_http:create_default_app(),
     emqx_common_test_http:auth_header(API).
 
+update_config(Config) ->
+    URL = emqx_mgmt_api_test_util:uri(["opentelemetry"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => put,
+        url => URL,
+        body => Config
+    }).
+
+get_config() ->
+    URL = emqx_mgmt_api_test_util:uri(["opentelemetry"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => URL
+    }).
+
 t_get(Config) ->
     Auth = ?config(auth, Config),
     Path = ?OTEL_API_PATH,
@@ -281,3 +296,49 @@ t_put_cert(Config) ->
     ),
     ct:pal("CA certfile1: ~p", [CaFile1]),
     ?assertNot(filelib:is_file(CaFile1)).
+
+-doc """
+Smoke tests that verify that the api matches the root schema, by updating it with a
+dynatrace config.
+""".
+t_dynatrace(_TCConfig) ->
+    Conf = #{
+        ~"type" => ~"dynatrace",
+        ~"exporter" => #{
+            ~"auth" => #{
+                ~"enable" => true,
+                ~"kind" => ~"dynatrace_oauth2",
+                ~"client_id" => ~"myclientid",
+                ~"client_secret" => ~"myclientsecret",
+                ~"resource" => ~"someres",
+                ~"token_endpoint" => ~"https://127.0.0.1:9998/sso/oauth2/token"
+            },
+            ~"endpoint" => ~"https://127.0.0.1:9997/api/v2/otlp"
+        },
+        ~"logs" => #{~"enable" => true},
+        ~"traces" => #{~"enable" => true}
+    },
+    ?assertMatch(
+        {200, _},
+        update_config(Conf)
+    ),
+    ?assertMatch(
+        {200, #{
+            ~"type" := ~"dynatrace",
+            ~"exporter" := #{
+                ~"auth" := #{
+                    ~"enable" := true,
+                    ~"kind" := ~"dynatrace_oauth2",
+                    ~"client_id" := ~"myclientid",
+                    ~"client_secret" := ~"******",
+                    ~"resource" := ~"someres",
+                    ~"token_endpoint" := ~"https://127.0.0.1:9998/sso/oauth2/token"
+                },
+                ~"endpoint" := ~"https://127.0.0.1:9997/api/v2/otlp"
+            },
+            ~"logs" := #{~"enable" := true},
+            ~"traces" := #{~"enable" := true}
+        }},
+        get_config()
+    ),
+    ok.

@@ -85,13 +85,17 @@ get_raw() ->
     Conf.
 
 otel_config_schema() ->
-    emqx_dashboard_swagger:schema_with_example(
-        hoconsc:ref(emqx_otel_schema, "opentelemetry"),
-        otel_config_example()
+    emqx_dashboard_swagger:schema_with_examples(
+        emqx_otel_schema:root_type(),
+        #{
+            ~"generic" => otel_config_example(),
+            ~"dynatrace" => dynatrace_config_example()
+        }
     ).
 
 otel_config_example() ->
     #{
+        type => ~"generic",
         exporter => #{
             endpoint => "http://localhost:4317",
             headers => #{},
@@ -103,6 +107,48 @@ otel_config_example() ->
         },
         metrics => #{
             enable => true
+        },
+        traces => #{
+            enable => true,
+            max_queue_size => 2048,
+            scheduled_delay => "5s",
+            filter => #{
+                trace_all => false,
+                trace_mode => legacy,
+                e2e_tracing_options => #{
+                    cluster_identifier => "emqxcl",
+                    msg_trace_level => 0,
+                    clientid_match_rules_max => 30,
+                    topic_match_rules_max => 30,
+                    sample_ratio => "10%",
+                    client_connect_disconnect => true,
+                    client_subscribe_unsubscribe => true,
+                    client_messaging => true,
+                    follow_traceparent => true
+                }
+            }
+        }
+    }.
+
+dynatrace_config_example() ->
+    #{
+        type => ~"dynatrace",
+        exporter => #{
+            endpoint => "https://xxxx.live.dynatrace.com/api/v2/oltp",
+            auth => #{
+                ~"enable" => true,
+                ~"kind" => ~"dynatrace_oauth2",
+                ~"client_id" => ~"myclientid",
+                ~"client_secret" => ~"******",
+                ~"resource" => ~"someres",
+                ~"token_endpoint" => ~"https://127.0.0.1:9998/sso/oauth2/token"
+            },
+            headers => #{},
+            ssl_options => #{}
+        },
+        logs => #{
+            enable => true,
+            level => warning
         },
         traces => #{
             enable => true,
