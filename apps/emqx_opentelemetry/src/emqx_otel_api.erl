@@ -88,8 +88,16 @@ otel_config_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
         emqx_otel_schema:root_type(),
         #{
-            ~"generic" => otel_config_example(),
-            ~"dynatrace" => dynatrace_config_example()
+            ~"generic" =>
+                #{
+                    summary => ?DESC("example_generic"),
+                    value => otel_config_example()
+                },
+            ~"dynatrace" =>
+                #{
+                    summary => ?DESC("example_dynatrace"),
+                    value => dynatrace_config_example()
+                }
         }
     ).
 
@@ -134,7 +142,7 @@ dynatrace_config_example() ->
     #{
         type => ~"dynatrace",
         exporter => #{
-            endpoint => "https://xxxx.live.dynatrace.com/api/v2/oltp",
+            endpoint => "https://xxxx.live.dynatrace.com/api/v2/otlp",
             auth => #{
                 ~"enable" => true,
                 ~"kind" => ~"dynatrace_oauth2",
