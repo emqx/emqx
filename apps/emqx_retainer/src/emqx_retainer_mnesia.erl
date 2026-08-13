@@ -787,7 +787,12 @@ do_reindex_batch(Stream0, Done) ->
 
 wait_dispatch_complete(Timeout) ->
     Nodes = emqx:running_nodes(),
-    {Results, []} = emqx_retainer_proto_v2:wait_dispatch_complete(Nodes, Timeout),
+    {Results, BadNodes} = emqx_retainer_proto_v2:wait_dispatch_complete(Nodes, Timeout),
+    BadNodes =/= [] andalso
+        ?SLOG(warning, #{
+            msg => "retainer_wait_dispatch_complete_partial",
+            bad_nodes => BadNodes
+        }),
     lists:all(
         fun(Result) -> Result =:= ok end,
         Results

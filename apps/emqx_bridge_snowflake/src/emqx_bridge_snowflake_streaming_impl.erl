@@ -308,7 +308,8 @@ init_setup_pool(ConnResId, ConnConfig) ->
         connect_timeout => ConnectTimeout,
         pipelining => Pipelining,
         max_inactive => MaxInactive,
-        proxy => ProxyConfig
+        proxy => ProxyConfig,
+        ssl => maps:get(ssl, ConnConfig, #{})
     }),
     SetupPoolOpts =
         [

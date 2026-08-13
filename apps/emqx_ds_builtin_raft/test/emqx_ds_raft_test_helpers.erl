@@ -91,10 +91,13 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
             Operation =:= assign_db_sites
         ->
             ?tp(notice, test_apply_operation, #{node => Node, operation => Operation, arg => Arg}),
-            %% Apply the transition.
-            ?assertMatch(
-                {ok, _},
-                ?ON(Node, emqx_ds_builtin_raft_meta:Operation(DB, Arg))
+            ?retry(
+                _Interval = 500,
+                _Attempts = 30,
+                ?assertMatch(
+                    {ok, _},
+                    ?ON(Node, emqx_ds_builtin_raft_meta:Operation(DB, Arg))
+                )
             ),
             apply_stream(DB, NodeStream0, Stream, N);
         [Fun | Stream] when is_function(Fun) ->

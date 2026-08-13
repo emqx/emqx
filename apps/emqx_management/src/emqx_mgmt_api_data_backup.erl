@@ -89,7 +89,8 @@ schema("/data/import") ->
                 204 => <<"No Content">>,
                 400 => emqx_dashboard_swagger:error_codes(
                     [?BAD_REQUEST], ?DESC("import_failed")
-                )
+                ),
+                500 => emqx_dashboard_swagger:error_codes([?SERVICE_UNAVAILABLE])
             }
         }
     };
@@ -145,7 +146,8 @@ schema("/data/files/:filename") ->
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     [?NOT_FOUND], ?DESC("backup_file_not_found")
-                )
+                ),
+                500 => emqx_dashboard_swagger:error_codes([?SERVICE_UNAVAILABLE])
             }
         },
         delete => #{
@@ -163,7 +165,8 @@ schema("/data/files/:filename") ->
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     [?NOT_FOUND], ?DESC("backup_file_not_found")
-                )
+                ),
+                500 => emqx_dashboard_swagger:error_codes([?SERVICE_UNAVAILABLE])
             }
         }
     }.
@@ -311,7 +314,7 @@ data_import_checked(Namespace, FileNode, Filename, _Req) when is_binary(Namespac
             }};
         {badrpc, Reason} ->
             {500, #{
-                code => ?SERVICE_UNAVAILABLE(Reason),
+                code => ?SERVICE_UNAVAILABLE,
                 message => emqx_mgmt_data_backup:format_error(Reason)
             }}
     end.
@@ -319,13 +322,21 @@ data_import_checked(Namespace, FileNode, Filename, _Req) when is_binary(Namespac
 do_data_import(FileNode, Filename, Namespace) ->
     CoreNode = core_node(FileNode),
     Opts = emqx_utils_maps:put_if(#{}, namespace, Namespace, is_binary(Namespace)),
-    Res = emqx_mgmt_data_backup_proto_v2:import_file(
-        CoreNode,
-        FileNode,
-        Filename,
-        Opts,
-        infinity
-    ),
+    Res =
+        try
+            emqx_mgmt_data_backup_proto_v2:import_file(
+                CoreNode,
+                FileNode,
+                Filename,
+                Opts,
+                infinity
+            )
+        catch
+            error:{erpc, Reason0} ->
+                {badrpc, Reason0};
+            error:{exception, Reason0, _Stack} ->
+                {badrpc, Reason0}
+        end,
     case Res of
         {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} ->
             case DbErrs =:= #{} andalso ConfErrs =:= #{} of
@@ -337,7 +348,7 @@ do_data_import(FileNode, Filename, Namespace) ->
             end;
         {badrpc, Reason} ->
             {500, #{
-                code => ?SERVICE_UNAVAILABLE(Reason),
+                code => ?SERVICE_UNAVAILABLE,
                 message => emqx_mgmt_data_backup:format_error(Reason)
             }};
         {error, Reason} ->
@@ -452,7 +463,7 @@ handle_file_op_response({error, Reason}) ->
     {400, #{code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)}};
 handle_file_op_response({badrpc, Reason}) ->
     {500, #{
-        code => ?SERVICE_UNAVAILABLE(Reason),
+        code => ?SERVICE_UNAVAILABLE,
         message => emqx_mgmt_data_backup:format_error(Reason)
     }}.
 

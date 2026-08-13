@@ -130,6 +130,29 @@ t_import_ee_backup(Config) ->
         ce -> ok
     end.
 
+%% An RPC failure while importing a backup yields the structured 500
+%% SERVICE_UNAVAILABLE response instead of an unhandled exception (erpc raises,
+%% it does not return `{badrpc, _}').
+t_import_rpc_failure(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    Auth = ?config(auth, Config),
+    {ok, RespBody} = export_backup(?NODE1_PORT, Auth),
+    #{<<"filename">> := FileName} = emqx_utils_json:decode(RespBody),
+    ok = ?ON(N1, begin
+        ok = meck:new(emqx_mgmt_data_backup_proto_v2, [passthrough, no_link, no_history]),
+        meck:expect(emqx_mgmt_data_backup_proto_v2, import_file, fun(_, _, _, _, _) ->
+            erlang:error({erpc, noconnection})
+        end),
+        ok
+    end),
+    try
+        {Status, Body} = import_backup_full(?NODE1_PORT, Auth, FileName),
+        ?assertEqual(500, Status),
+        ?assertMatch(#{<<"code">> := <<"SERVICE_UNAVAILABLE">>}, Body)
+    after
+        ?ON(N1, meck:unload(emqx_mgmt_data_backup_proto_v2))
+    end.
+
 %% Verifies that we not only check, but also use the checked **and converted**
 %% configuration being imported, so that we don't store non-converted raw configs in PT.
 t_import_checks_config(TCConfig) ->

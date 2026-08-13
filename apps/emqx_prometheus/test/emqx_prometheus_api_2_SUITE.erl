@@ -328,6 +328,89 @@ t_namespaced_stats_mt_not_started(TCConfig) ->
     ok.
 
 -doc """
+Checks that requesting stats for a specific namespace while `emqx_mt' is not running (its
+tables do not exist, so no namespace is known) responds successfully with the namespaced
+metrics omitted, instead of fabricating zero-valued samples for a namespace that does not
+exist.
+""".
+t_namespaced_stats_unknown_ns_mt_not_started(TCConfig) ->
+    start_local(?FUNCTION_NAME, TCConfig, #{}),
+    AuthHeader = global_admin_auth_header(),
+    lists:foreach(
+        fun(Mode) ->
+            ct:pal("mode ~s", [Mode]),
+            {200, Res} = get_namespaced_stats(Mode, #{
+                auth_header => AuthHeader,
+                ns => <<"unknown_ns">>
+            }),
+            ?assertNot(is_map_key(<<"emqx_sessions_count">>, Res), Res),
+            ?assertNot(is_map_key(<<"emqx_authz_builtin_record_count">>, Res), Res),
+            ?assertNot(is_map_key(<<"emqx_authn_builtin_record_count">>, Res), Res),
+            ?assertNot(is_map_key(<<"emqx_bytes_received">>, Res), Res)
+        end,
+        ?PROM_DATA_MODES
+    ),
+    ok.
+
+-doc """
+Checks that requesting stats for a namespace name that was never created responds
+successfully with the namespaced metrics omitted, while metrics for a known namespace are
+still reported.
+""".
+t_namespaced_stats_unknown_ns(TCConfig) ->
+    start_local(?FUNCTION_NAME, TCConfig, #{
+        extra_apps => [
+            emqx_auth_mnesia,
+            emqx_auth,
+            emqx_mt
+        ]
+    }),
+    GetLabels = fun(Key, Res) -> lists:sort(maps:keys(maps:get(Key, Res, #{}))) end,
+    Ns1 = <<"ns1">>,
+    ok = emqx_mt_config:create_managed_ns(Ns1),
+    AuthHeader = global_admin_auth_header(),
+    lists:foreach(
+        fun(Mode) ->
+            ct:pal("mode ~s", [Mode]),
+            {200, UnknownRes} = get_namespaced_stats(Mode, #{
+                auth_header => AuthHeader,
+                ns => <<"unknown_ns">>
+            }),
+            ?assertNot(is_map_key(<<"emqx_sessions_count">>, UnknownRes), UnknownRes),
+            ?assertNot(
+                is_map_key(<<"emqx_authz_builtin_record_count">>, UnknownRes), UnknownRes
+            ),
+            ?assertNot(
+                is_map_key(<<"emqx_authn_builtin_record_count">>, UnknownRes), UnknownRes
+            ),
+            ?assertNot(is_map_key(<<"emqx_bytes_received">>, UnknownRes), UnknownRes),
+            %% The known namespace is still reported.
+            {200, KnownRes} = get_namespaced_stats(Mode, #{
+                auth_header => AuthHeader,
+                ns => Ns1
+            }),
+            ?assertMatch(
+                [#{<<"namespace">> := Ns1}],
+                GetLabels(<<"emqx_sessions_count">>, KnownRes)
+            ),
+            ?assertMatch(
+                [#{<<"namespace">> := Ns1}],
+                GetLabels(<<"emqx_authz_builtin_record_count">>, KnownRes)
+            ),
+            ?assertMatch(
+                [#{<<"namespace">> := Ns1}],
+                GetLabels(<<"emqx_authn_builtin_record_count">>, KnownRes)
+            ),
+            ?assertMatch(
+                [#{<<"namespace">> := Ns1}],
+                GetLabels(<<"emqx_bytes_received">>, KnownRes)
+            )
+        end,
+        ?PROM_DATA_MODES
+    ),
+    ok.
+
+-doc """
 Regression test for the case where there is an action whose connector does not exist.
 
 This may arise if someone manually edits the configuration and starts up the node like that.
