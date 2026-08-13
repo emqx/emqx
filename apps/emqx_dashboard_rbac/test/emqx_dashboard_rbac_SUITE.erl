@@ -744,6 +744,47 @@ t_global_only_message_endpoints_reject_namespaced_actors(_) ->
         global_only_message_endpoint_handlers()
     ).
 
+-doc """
+File Transfer file listing and download endpoints expose client-uploaded file
+content from the global FT store, so they must reject all namespaced actors
+(login users and API keys, any role) while remaining available to global
+principals.  The FT config endpoint (`'/file_transfer'`) is not restricted.
+""".
+t_file_transfer_endpoints_reject_namespaced_actors(_) ->
+    Req = #{},
+    Expected = {error, <<"File Transfer endpoints are not available to namespaced users">>},
+    lists:foreach(
+        fun(HandlerInfo) ->
+            lists:foreach(
+                fun(ActorContext) ->
+                    ?assertEqual(
+                        Expected,
+                        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+                    )
+                end,
+                namespaced_actor_contexts()
+            ),
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_admin_actor_context())
+            ),
+            assert_global_viewer_rbac(Req, HandlerInfo)
+        end,
+        file_transfer_content_endpoint_handlers()
+    ),
+    %% Sanity: the FT config endpoint stays readable for namespaced actors.
+    ConfigHandlerInfo = #{method => get, module => emqx_ft_api, function => '/file_transfer'},
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertMatch(
+                {ok, _},
+                emqx_dashboard_rbac:check_rbac(Req, ConfigHandlerInfo, ActorContext)
+            )
+        end,
+        namespaced_actor_contexts() ++
+            [global_admin_actor_context(), global_viewer_actor_context()]
+    ).
+
 t_tracing_config_update_rejects_namespaced_actors(_) ->
     Req = #{},
     HandlerInfo = #{method => put, module => emqx_mgmt_api_trace, function => config},
@@ -778,6 +819,21 @@ global_only_message_endpoint_handlers() ->
         #{method => get, module => emqx_delayed_api, function => delayed_message},
         #{method => delete, module => emqx_delayed_api, function => delayed_message},
         #{method => delete, module => emqx_delayed_api, function => delayed_message_topic}
+    ].
+
+file_transfer_content_endpoint_handlers() ->
+    [
+        #{method => get, module => emqx_ft_api, function => '/file_transfer/files'},
+        #{
+            method => get,
+            module => emqx_ft_api,
+            function => '/file_transfer/files/:clientid/:fileid'
+        },
+        #{
+            method => get,
+            module => emqx_ft_storage_exporter_fs_api,
+            function => '/file_transfer/file'
+        }
     ].
 
 namespaced_actor_contexts() ->

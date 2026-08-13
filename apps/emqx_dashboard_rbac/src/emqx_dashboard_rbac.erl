@@ -52,6 +52,8 @@
 -define(RETAINER_API(METHOD, FN), ?API(emqx_retainer_api, METHOD, FN)).
 -define(DELAYED_API(METHOD, FN), ?API(emqx_delayed_api, METHOD, FN)).
 -define(API_KEY_API(METHOD, FN), ?API(emqx_mgmt_api_api_keys, METHOD, FN)).
+-define(FT_API(METHOD, FN), ?API(emqx_ft_api, METHOD, FN)).
+-define(FT_FS_API(METHOD, FN), ?API(emqx_ft_storage_exporter_fs_api, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -248,6 +250,19 @@ do_check_rbac(#{?namespace := Namespace}, _, ?DELAYED_API(_, Fn)) when
     %% coarse global-only endpoint decision here; filters should resolve or
     %% validate a namespace, not define the static RBAC surface.
     {error, <<"Delayed message endpoints are not available to namespaced users">>};
+do_check_rbac(#{?namespace := Namespace}, _, ?FT_API(get, Fn)) when
+    is_binary(Namespace) andalso
+        (Fn == '/file_transfer/files' orelse
+            Fn == '/file_transfer/files/:clientid/:fileid')
+->
+    %% The File Transfer store is global and holds client-uploaded file content.
+    %% Listing or downloading would expose files uploaded outside the caller's
+    %% namespace.
+    {error, <<"File Transfer endpoints are not available to namespaced users">>};
+do_check_rbac(#{?namespace := Namespace}, _, ?FT_FS_API(get, '/file_transfer/file')) when
+    is_binary(Namespace)
+->
+    {error, <<"File Transfer endpoints are not available to namespaced users">>};
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong

@@ -1711,7 +1711,7 @@ t_olp_reject(Config) ->
     ?assertEqual(
         {error,
             {transport_down, #{
-                error => 346,
+                error => 11,
                 status =>
                     user_canceled
             }}},
@@ -2223,8 +2223,19 @@ t_quic_takeover_tls(Config) ->
     {ok, _} = emqtt:connect(CTLS),
     {ok, _Prop, [1]} = emqtt:subscribe(CTLS, #{}, <<"topic/takeover">>, 1),
     ClientId = proplists:get_value(clientid, emqtt:info(CTLS)),
-    #{session := Session, conninfo := #{connected_at := TLSConnectedAT}} =
-        ChanTLS = emqx_cm:get_chan_info(ClientId),
+    {Session, TLSConnectedAT, ChanTLS} = ?retry(
+        _Interval0 = 100,
+        _NAttempts0 = 30,
+        begin
+            CI = emqx_cm:get_chan_info(ClientId),
+            #{
+                session := S = #{subscriptions := #{<<"topic/takeover">> := _}},
+                conninfo := #{connected_at := CA},
+                sockinfo := #{socktype := ssl}
+            } = CI,
+            {S, CA, CI}
+        end
+    ),
     ct:pal("~p~n", [ChanTLS]),
     %% WHEN: QUIC connection takeover
     {ok, C0} = emqtt:start_link([
