@@ -103,7 +103,9 @@ ensure_apps_started() ->
     ?SLOG(notice, #{msg => "(re)starting_emqx_apps"}),
     lists:foreach(fun start_one_app/1, sorted_reboot_apps()),
     %% Start plugin applications only after all EMQX applications are up,
-    %% so a plugin may depend on any of them.
+    %% so a plugin may depend on any of them.  Plugin apps are not part of
+    %% `sorted_reboot_apps/0'; `stop_apps/0' stops them explicitly via
+    %% `emqx_plugins:ensure_stopped/0'.
     %% Note: this function is also the ekka cluster join/leave callback,
     %% so plugins restart after a join as well (see `start_autocluster/0').
     ok = emqx_plugins:ensure_started(),

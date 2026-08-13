@@ -218,8 +218,9 @@ t_demo_install_start_stop_uninstall(Config) ->
 (tail of `emqx_machine_boot:ensure_apps_started/0').
 A broken configured plugin must be collected and logged, not raised,
 so it cannot fail the node boot, and the plugins configured after it
-must still start.  The call must also be idempotent, because a cluster
-join re-runs `ensure_apps_started/0'.
+must still start.  The call must also survive the cluster-join cycle:
+a join runs `stop_apps/0' (`emqx_plugins:ensure_stopped/0') and then
+re-runs `ensure_apps_started/0'.
 """.
 t_boot_start_tolerates_broken_plugin({init, Config}) ->
     #{package := Package} = get_demo_plugin_package(),
@@ -237,7 +238,16 @@ t_boot_start_tolerates_broken_plugin(Config) ->
     ok = emqx_plugins:put_configured([Broken, Good]),
     ?assertEqual(ok, emqx_plugins:ensure_started()),
     ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
-    %% idempotent (cluster join re-runs the boot tail)
+    %% Re-running with plugins already up must be a no-op.
+    ?assertEqual(ok, emqx_plugins:ensure_started()),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    %% A cluster join runs `stop_apps/0' (which calls
+    %% `emqx_plugins:ensure_stopped/0') and then re-runs
+    %% `ensure_apps_started/0'.  Simulate the plugin-relevant part of that
+    %% cycle; calling `stop_apps/0' itself would stop this CT node's apps.
+    %% The real join path is covered by `t_start_node_with_plugin_enabled'.
+    ok = emqx_plugins:ensure_stopped(),
+    ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     ?assertEqual(ok, emqx_plugins:ensure_started()),
     ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
     ok.
