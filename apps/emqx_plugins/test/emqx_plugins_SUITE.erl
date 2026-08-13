@@ -213,6 +213,33 @@ t_demo_install_start_stop_uninstall(Config) ->
     ?assertMatch([<<"[]">>], emqx_plugins_cli:list(fun(_, L) -> L end)),
     ok.
 
+%% `ensure_started/0' runs on the boot path
+%% (tail of `emqx_machine_boot:ensure_apps_started/0').
+%% A broken configured plugin must be collected and logged, not raised,
+%% so it cannot fail the node boot, and the plugins configured after it
+%% must still start.  The call must also be idempotent, because a cluster
+%% join re-runs `ensure_apps_started/0'.
+t_boot_start_tolerates_broken_plugin({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_boot_start_tolerates_broken_plugin({'end', Config}) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    ok;
+t_boot_start_tolerates_broken_plugin(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    Broken = #{name_vsn => <<"missing_plugin-1.0.0">>, enable => true},
+    Good = #{name_vsn => bin(NameVsn), enable => true},
+    ok = emqx_plugins:put_configured([Broken, Good]),
+    ?assertEqual(ok, emqx_plugins:ensure_started()),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    %% idempotent (cluster join re-runs the boot tail)
+    ?assertEqual(ok, emqx_plugins:ensure_started()),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    ok.
+
 %% help function to create a info file.
 %% The file is in JSON format when built
 %% but since we are using hocon:load to load it
@@ -1322,6 +1349,11 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
             %% Hack: we use `restart' here to disable the clean state verification, as we
             %% just created and populated the `plugins' directory...
             [N1, N2 | _] = lists:flatmap(fun emqx_cth_cluster:restart/1, NodeSpecs),
+            %% `emqx_cth_cluster' starts applications individually and never runs
+            %% `emqx_machine_boot:ensure_apps_started/0', which starts plugin apps at
+            %% the end of the real node boot.  Emulate that boot tail here.
+            ok = ?ON(N1, emqx_plugins:ensure_started()),
+            ok = ?ON(N2, emqx_plugins:ensure_started()),
             ct:pal("checking N1 state"),
             ?ON(N1, assert_started_and_hooks_loaded()),
             ct:pal("checking N2 state"),
@@ -1344,10 +1376,13 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
                 end,
                 ekka:callback(start, StartCallback)
             end),
+            %% `emqx_machine_boot_apps_started' fires after the boot tail has
+            %% started the plugin apps, so the assertions below cannot race
+            %% with the plugin start.
             {ok, {ok, _}} =
                 ?wait_async_action(
                     ?ON(N2, emqx_cluster:join(N1)),
-                    #{?snk_kind := "emqx_plugins_app_started"}
+                    #{?snk_kind := emqx_machine_boot_apps_started}
                 ),
             ct:pal("checking N1 state after join"),
             ?ON(N1, assert_started_and_hooks_loaded()),
