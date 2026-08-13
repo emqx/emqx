@@ -425,7 +425,8 @@ do_check_rbac(
     #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?AUTHN_API(_, Fn)
 ) when
     is_binary(Namespace) andalso
-        (Fn == authenticator_users orelse Fn == authenticator_user)
+        (Fn == authenticator_users orelse Fn == authenticator_user orelse
+            Fn == authenticator_user_password_rotate)
 ->
     %% Authentication management.
     %%

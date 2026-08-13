@@ -58,7 +58,7 @@ t_check_schema(_Config) ->
     ?assertThrow(
         #{
             path := "authentication.1.password_hash_algorithm.name",
-            matched_type := "authn:builtin_db/authn_hash:simple",
+            matched_type := "authn:builtin_db_manual/authn_hash:simple",
             reason := unable_to_convert_to_enum_symbol
         },
         Check(ConfigNotOk)
@@ -77,7 +77,7 @@ t_check_schema(_Config) ->
         #{
             path := "authentication.1.password_hash_algorithm",
             reason := "algorithm_name_missing",
-            matched_type := "authn:builtin_db"
+            matched_type := "authn:builtin_db_manual"
         },
         Check(ConfigMissingAlgoName)
     ).

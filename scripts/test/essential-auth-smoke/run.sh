@@ -66,7 +66,7 @@ fi
 
 ## Sanity: exactly one user was bootstrapped from the CSV.
 user_count="$(docker exec "${CONTAINER}" emqx eval \
-  'mnesia:table_info(emqx_authn_mnesia, size).' 2>/dev/null | tr -d '[:space:]')"
+  'emqx_authn_mnesia:record_count(global).' 2>/dev/null | tr -d '[:space:]')"
 echo "bootstrapped authn users: ${user_count}"
 if [ "${user_count}" != "1" ]; then
   echo "expected exactly 1 bootstrapped user, got '${user_count}'"

@@ -481,9 +481,16 @@ assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, Client
 
 mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
     AppSpecs = [
-        {emqx_conf,
-            "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]\n"
-            "authentication = [{mechanism = password_based, backend = built_in_database}]"},
+        {emqx_conf, """
+        mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]
+        authentication = [
+            {
+                mechanism = password_based,
+                backend = built_in_database,
+                autogenerate_password = false
+            }
+        ]
+        """},
         emqx_auth_mnesia,
         emqx_auth,
         emqx_mt,

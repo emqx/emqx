@@ -92,7 +92,10 @@ assert_policies(legacy) ->
     ?assertEqual(false, emqx_security_profile:policy(internal_subscription_checks)),
     ?assertEqual(legacy, emqx_security_profile:policy(authz_context)),
     ?assertEqual(false, emqx_security_profile:policy(delayed_publish_reauthorization)),
-    ?assertEqual(ignore, emqx_security_profile:policy(exhook_message_publish_failure));
+    ?assertEqual(ignore, emqx_security_profile:policy(exhook_message_publish_failure)),
+    ?assertEqual(false, emqx_security_profile:policy(authn_builtin_default_autogenerate_password)),
+    ?assertEqual(sha256, emqx_security_profile:policy(authn_builtin_default_manual_password_hash)),
+    ?assertEqual(true, emqx_security_profile:policy(authn_builtin_accept_weak_password_hash));
 assert_policies(hardened) ->
     ?assertEqual(deny, emqx_security_profile:policy(authn_backend_failure)),
     ?assertEqual(deny, emqx_security_profile:policy(authz_backend_failure)),
@@ -102,7 +105,10 @@ assert_policies(hardened) ->
     ?assertEqual(true, emqx_security_profile:policy(internal_subscription_checks)),
     ?assertEqual(restricted, emqx_security_profile:policy(authz_context)),
     ?assertEqual(true, emqx_security_profile:policy(delayed_publish_reauthorization)),
-    ?assertEqual(deny, emqx_security_profile:policy(exhook_message_publish_failure)).
+    ?assertEqual(deny, emqx_security_profile:policy(exhook_message_publish_failure)),
+    ?assertEqual(true, emqx_security_profile:policy(authn_builtin_default_autogenerate_password)),
+    ?assertEqual(pbkdf2, emqx_security_profile:policy(authn_builtin_default_manual_password_hash)),
+    ?assertEqual(false, emqx_security_profile:policy(authn_builtin_accept_weak_password_hash)).
 
 assert_default_binds(Profile, Source) ->
     ?assertEqual(

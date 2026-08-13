@@ -52,6 +52,9 @@ destroy(_State) ->
 add_user(_UserInfo, _State) ->
     {ok, #{user_id => <<"u">>, is_superuser => false}}.
 
+rotate_password(_Namespace, UserID, _State) ->
+    {ok, #{user_id => UserID, password => <<"rotated">>}}.
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -93,6 +96,10 @@ end_per_testcase(_Case, _Config) ->
 
 testcase_provider_opts(t_user_ops_enabled_dispatches) ->
     #{support_user_operations => true};
+testcase_provider_opts(t_rotate_password_dispatches) ->
+    #{support_user_operations => true};
+testcase_provider_opts(t_missing_optional_callback_short_circuits) ->
+    #{support_user_operations => true};
 testcase_provider_opts(_Case) ->
     #{}.
 
@@ -119,6 +126,20 @@ t_user_ops_enabled_dispatches(_Config) ->
         emqx_authn_chains:add_user(?CHAIN, ?AUTHENTICATOR_ID, #{
             user_id => <<"u">>, password => <<"p">>
         })
+    ).
+
+%% Checks that password rotation dispatches to a provider with user operations enabled.
+t_rotate_password_dispatches(_Config) ->
+    ?assertEqual(
+        {ok, #{user_id => <<"u">>, password => <<"rotated">>}},
+        emqx_authn_chains:rotate_password(?CHAIN, ?AUTHENTICATOR_ID, global, <<"u">>)
+    ).
+
+%% Checks that a missing optional provider callback returns unsupported_operation.
+t_missing_optional_callback_short_circuits(_Config) ->
+    ?assertEqual(
+        {error, unsupported_operation},
+        emqx_authn_chains:import_users(?CHAIN, ?AUTHENTICATOR_ID, <<"users.csv">>)
     ).
 
 %% Regression: authenticate/2 is mandatory and is dispatched directly,

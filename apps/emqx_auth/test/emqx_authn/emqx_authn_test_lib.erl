@@ -24,6 +24,14 @@ http_example() ->
 built_in_database_example() ->
     authenticator_example('password_based:built_in_database').
 
+built_in_database_generated_example() ->
+    #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        autogenerate_password => true,
+        user_id_type => <<"username">>
+    }.
+
 jwt_example() ->
     authenticator_example(jwt).
 
@@ -100,8 +108,9 @@ add_permissive_builtin_authenticator(Path, Chain, Username, Password) ->
     Config = #{
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
+        <<"autogenerate_password">> => false,
         <<"password_hash_algorithm">> => #{
-            <<"name">> => <<"plain">>,
+            <<"name">> => <<"sha256">>,
             <<"salt_position">> => <<"disable">>
         }
     },

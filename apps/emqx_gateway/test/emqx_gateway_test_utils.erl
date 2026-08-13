@@ -241,6 +241,7 @@ enable_gateway_auth(Gateway) ->
     AuthConf = #{
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
+        <<"autogenerate_password">> => false,
         <<"password_hash_algorithm">> => #{
             <<"name">> => <<"sha256">>,
             <<"salt_position">> => <<"prefix">>

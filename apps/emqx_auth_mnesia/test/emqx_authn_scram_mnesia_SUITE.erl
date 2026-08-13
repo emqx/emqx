@@ -424,6 +424,9 @@ t_add_user(TCConfig) ->
     Config = config(),
     {ok, State} = emqx_authn_scram_mnesia:create(<<"authn-id">>, Config),
 
+    {error, password_required} = emqx_authn_scram_mnesia:add_user(
+        maybe_add_ns(#{user_id => <<"passwordless">>}, TCConfig), State
+    ),
     User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
     {ok, _} = emqx_authn_scram_mnesia:add_user(User, State),
     {error, already_exist} = emqx_authn_scram_mnesia:add_user(User, State),

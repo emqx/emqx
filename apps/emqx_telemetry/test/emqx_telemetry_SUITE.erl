@@ -684,6 +684,7 @@ create_authn(ChainName, built_in_database) ->
             backend => built_in_database,
             enable => true,
             user_id_type => username,
+            autogenerate_password => false,
             password_hash_algorithm => #{
                 name => plain,
                 salt_position => suffix
