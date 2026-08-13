@@ -157,6 +157,25 @@ t_plugins(_Config) ->
     ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
     ok.
 
+-doc """
+`GET /plugins` tolerates unreachable nodes and remote crashes in the
+cluster-wide plugin listing RPC instead of crashing with badmatch.
+""".
+t_list_plugins_rpc_failure(_Config) ->
+    ok = meck:new(emqx_mgmt_api_plugins_proto_v4, [passthrough]),
+    try
+        meck:expect(
+            emqx_mgmt_api_plugins_proto_v4,
+            get_plugins,
+            fun(_Nodes) ->
+                {[{node(), []}, {badrpc, {'EXIT', boom}}], ['badnode@nohost']}
+            end
+        ),
+        ?assertEqual([], list_plugins())
+    after
+        meck:unload(emqx_mgmt_api_plugins_proto_v4)
+    end.
+
 t_install_plugin_sha256_match(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),

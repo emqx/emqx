@@ -313,7 +313,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:parquer, github: "emqx/parquer", tag: "0.1.8", manager: :rebar3}
 
   def common_dep(:greptimedb),
-    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.1"}
+    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.2"}
 
   def common_dep(:greptimedb_rs),
     do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.12"}
@@ -1119,7 +1119,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict with emqx and emqtt
       do: [
         {:quicer,
-         github: "emqx/quic", tag: "0.2.16", override: true, system_env: quicer_build_env()}
+         github: "emqx/quic", tag: "0.4.8", override: true, system_env: quicer_build_env()}
       ],
       else: []
   end

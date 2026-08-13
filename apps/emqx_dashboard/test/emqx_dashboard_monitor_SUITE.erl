@@ -786,8 +786,12 @@ t_monitor_reset(Config) when is_list(Config) ->
         ),
     {ok, Samplers} = request(["monitor"], "latest=1"),
     ?assertEqual(1, erlang:length(Samplers)),
-    ok = delete(["monitor"]),
-    ?assertMatch({ok, []}, request(["monitor"], "latest=1")),
+    %% Re-delete each attempt: a sample the periodic sampler flushed after the
+    %% delete stays until the next delete, so re-GET alone can't reach empty.
+    ?retry(100, 50, begin
+        ok = delete(["monitor"]),
+        ?assertMatch({ok, []}, request(["monitor"], "latest=1"))
+    end),
     ok.
 
 t_monitor_api_error(Config) when is_list(Config) ->
@@ -926,8 +930,12 @@ t_persistent_session_stats(Config) when is_list(Config) ->
         )
     end),
     ?assertNotMatch({ok, []}, ?ON(N1, request(["monitor"]))),
-    ?assertMatch(ok, ?ON(N1, delete(["monitor"]))),
-    ?assertMatch({ok, []}, ?ON(N1, request(["monitor"]))),
+    %% Re-delete each attempt: a sample the periodic sampler flushed after the
+    %% delete stays until the next delete, so re-GET alone can't reach empty.
+    ?retry(100, 50, begin
+        ?assertMatch(ok, ?ON(N1, delete(["monitor"]))),
+        ?assertMatch({ok, []}, ?ON(N1, request(["monitor"])))
+    end),
     ok.
 
 %% Checks that we get consistent data when changing the requested time window for

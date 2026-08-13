@@ -185,6 +185,21 @@ t_messages(_) ->
 
     ok = emqtt:disconnect(C1).
 
+-doc """
+DELETE of a delayed message on an unreachable node returns a structured 400
+(same as the sibling GET handler) instead of crashing with case_clause on the
+`{badrpc, _}` RPC result.
+""".
+t_delete_message_unreachable_node(_) ->
+    MsgId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            delete,
+            uri(["mqtt", "delayed", "messages", atom_to_list('unknownnode@127.0.0.1'), MsgId])
+        )
+    ).
+
 t_delete_messages_via_topic(_) ->
     clear_all_record(),
     emqx_delayed:load(),

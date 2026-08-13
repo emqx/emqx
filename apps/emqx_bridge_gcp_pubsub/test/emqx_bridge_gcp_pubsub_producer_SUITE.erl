@@ -2507,3 +2507,24 @@ t_cross_project_topic_paths(TCConfig) ->
         receive_request_method_and_path()
     ),
     ok.
+
+-doc """
+Verifies that reading the connector with a legacy service account field (in the root of
+the connector config) via the HTTP API returns a redacted service account.
+
+In 6.2.0, this was moved to under an `authentication` key.
+""".
+t_legacy_service_account_json_redact() ->
+    [{matrix, true}].
+t_legacy_service_account_json_redact(matrix) ->
+    [[?mocked_gcp]];
+t_legacy_service_account_json_redact(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"authentication">> := #{<<"service_account_json">> := <<"******">>}}},
+        create_connector_api(TCConfig, #{})
+    ),
+    ?assertMatch(
+        {200, #{<<"authentication">> := #{<<"service_account_json">> := <<"******">>}}},
+        get_connector_api(TCConfig)
+    ),
+    ok.

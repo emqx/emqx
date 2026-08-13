@@ -574,8 +574,9 @@ Simple assertions about namespaced user permissions.
      are mostly to avoid accidentally mutating the wrong resources rather than hiding
      information.
    - Exception: endpoints whose response would expose MQTT payload content (per-client
-     mqueue/inflight, retained, delayed) are denied for namespaced users by RBAC, because
-     the underlying stores are global and cannot be safely filtered by namespace.  Those
+     mqueue/inflight, retained, delayed) or client-uploaded file content (File Transfer
+     listing and download) are denied for namespaced users by RBAC, because the
+     underlying stores are global and cannot be safely filtered by namespace.  Those
      handlers are kept in a static deny list here so this assertion does not have to
      reach into RBAC internals.
 """.
@@ -632,7 +633,18 @@ namespaced_get_denylist() ->
         #{method => get, module => emqx_retainer_api, function => '/messages'},
         #{method => get, module => emqx_retainer_api, function => with_topic_warp},
         #{method => get, module => emqx_delayed_api, function => delayed_messages},
-        #{method => get, module => emqx_delayed_api, function => delayed_message}
+        #{method => get, module => emqx_delayed_api, function => delayed_message},
+        #{method => get, module => emqx_ft_api, function => '/file_transfer/files'},
+        #{
+            method => get,
+            module => emqx_ft_api,
+            function => '/file_transfer/files/:clientid/:fileid'
+        },
+        #{
+            method => get,
+            module => emqx_ft_storage_exporter_fs_api,
+            function => '/file_transfer/file'
+        }
     ].
 
 -doc """
