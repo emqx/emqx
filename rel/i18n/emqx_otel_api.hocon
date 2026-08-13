@@ -15,4 +15,14 @@ update_config_failed.desc:
 update_config_failed.label:
 """Update Config Failed"""
 
+  example_generic {
+    label: "Generic Opentelemetry Example"
+    desc: "Generic Opentelemetry Example"
+  }
+
+  example_dynatrace {
+    label: "Dynatrace Opentelemetry Example"
+    desc: "Dynatrace Opentelemetry Example"
+  }
+
 }
