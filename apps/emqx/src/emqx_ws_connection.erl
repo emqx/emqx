@@ -159,7 +159,18 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 %% WebSocket callbacks
 %%--------------------------------------------------------------------
 
-init(Req, #{listener := {Type, Listener}} = Opts) ->
+init(Req, Opts) ->
+    case emqx_node_readiness:is_ready() of
+        true ->
+            do_init(Req, Opts);
+        false ->
+            %% Refuse connections until node boot completes,
+            %% i.e. before plugin hooks are registered.
+            ?SLOG_THROTTLE(warning, #{msg => connection_rejected_due_to_node_not_ready}),
+            {ok, cowboy_req:reply(503, Req), #{}}
+    end.
+
+do_init(Req, #{listener := {Type, Listener}} = Opts) ->
     WsOpts = get_ws_opts(Type, Listener),
     case check_request_origin(Req, WsOpts) of
         ok ->

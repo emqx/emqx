@@ -267,6 +267,18 @@ is_datadram_socket({esockd_udp_proxy, _ProxyId, Sock}) -> erlang:is_port(Sock).
 %%--------------------------------------------------------------------
 
 init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
+    case emqx_node_readiness:is_ready() of
+        true ->
+            do_init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod);
+        false ->
+            %% Refuse connections until node boot completes,
+            %% i.e. before plugin hooks are registered.
+            ?SLOG_THROTTLE(warning, #{msg => connection_rejected_due_to_node_not_ready}),
+            ok = esockd_close(WrappedSock),
+            erlang:exit({shutdown, node_not_ready})
+    end.
+
+do_init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
     case esockd_wait(WrappedSock) of
         {ok, NWrappedSock} ->
             Peername = esockd_peername(NWrappedSock, Peername0),

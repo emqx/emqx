@@ -308,6 +308,18 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 
 init(Parent, Transport, RawSocket, Options) ->
+    case emqx_node_readiness:is_ready() of
+        true ->
+            do_init(Parent, Transport, RawSocket, Options);
+        false ->
+            %% Refuse connections until node boot completes,
+            %% i.e. before plugin hooks are registered.
+            ?SLOG_THROTTLE(warning, #{msg => connection_rejected_due_to_node_not_ready}),
+            ok = Transport:fast_close(RawSocket),
+            erlang:exit({shutdown, node_not_ready})
+    end.
+
+do_init(Parent, Transport, RawSocket, Options) ->
     case Transport:wait(RawSocket) of
         {ok, Socket} ->
             ?tp(connection_started, #{
