@@ -315,10 +315,14 @@ init(Parent, Transport, RawSocket, Options) ->
             %% Refuse to serve before node boot completes: authn/authz
             %% hooks (e.g. from plugins) may not be installed yet.
             %% The exit reason feeds the listener's shutdown counter.
+            %% The peername lookup must not crash on the pre-wait QUIC
+            %% socket shape, hence the catch-all.
             Peername =
-                case Transport:peername(RawSocket) of
+                try Transport:peername(RawSocket) of
                     {ok, Peer} -> esockd:format(Peer);
-                    {error, _} -> unknown
+                    _ -> unknown
+                catch
+                    _:_ -> unknown
                 end,
             ?SLOG(info, #{
                 msg => connection_refused_before_boot_complete,

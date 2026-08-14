@@ -13,17 +13,37 @@
 
 -define(TCP_PORT, 20831).
 -define(WS_PORT, 20832).
+-define(QUIC_PORT, 20833).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    _ = emqx_common_test_helpers:gen_ca(PrivDir, "ca"),
+    _ = emqx_common_test_helpers:gen_host_cert("server", "ca", PrivDir, #{}),
     ListenerConf = io_lib:format(
         "listeners.tcp.default.bind = ~b\n"
-        "listeners.ws.default.bind = ~b",
-        [?TCP_PORT, ?WS_PORT]
+        "listeners.ws.default.bind = ~b\n"
+        "listeners.quic.default {\n"
+        "  enable = true\n"
+        "  bind = ~b\n"
+        "  ssl_options {\n"
+        "    cacertfile = \"~ts\"\n"
+        "    certfile = \"~ts\"\n"
+        "    keyfile = \"~ts\"\n"
+        "  }\n"
+        "}",
+        [
+            ?TCP_PORT,
+            ?WS_PORT,
+            ?QUIC_PORT,
+            filename:join(PrivDir, "ca.pem"),
+            filename:join(PrivDir, "server.pem"),
+            filename:join(PrivDir, "server.key")
+        ]
     ),
     Apps = emqx_cth_suite:start(
-        [{emqx, ListenerConf}],
+        [quicer, {emqx, ListenerConf}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -73,6 +93,18 @@ t_gate_ws_connection(_Config) ->
     ?assertMatch({error, _}, try_connect(fun emqtt:ws_connect/1, #{port => ?WS_PORT})),
     ok = emqx_node_readiness:mark_ready(),
     ?assertEqual(ok, try_connect(fun emqtt:ws_connect/1, #{port => ?WS_PORT})).
+
+-doc "A QUIC MQTT connection is refused while the node is not ready, accepted once ready.".
+t_gate_quic_connection(_Config) ->
+    QuicOpts = #{
+        port => ?QUIC_PORT,
+        ssl => true,
+        ssl_opts => [{verify, verify_none}]
+    },
+    ok = emqx_node_readiness:mark_not_ready(),
+    ?assertMatch({error, _}, try_connect(fun emqtt:quic_connect/1, QuicOpts)),
+    ok = emqx_node_readiness:mark_ready(),
+    ?assertEqual(ok, try_connect(fun emqtt:quic_connect/1, QuicOpts)).
 
 -doc "A cluster join is refused on both the joining and the target node while not ready.".
 t_gate_cluster_join(_Config) ->
