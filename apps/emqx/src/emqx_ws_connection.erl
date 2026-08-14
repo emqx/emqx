@@ -164,9 +164,9 @@ init(Req, Opts) ->
         true ->
             do_init(Req, Opts);
         false ->
-            %% Refuse connections until node boot completes,
-            %% i.e. before plugin hooks are registered.
-            ?SLOG_THROTTLE(warning, #{msg => connection_rejected_due_to_node_not_ready}),
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            ?SLOG(info, #{msg => ws_connection_refused_before_boot_complete}),
             {ok, cowboy_req:reply(503, Req), #{}}
     end.
 

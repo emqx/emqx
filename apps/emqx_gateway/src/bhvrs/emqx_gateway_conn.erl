@@ -271,12 +271,26 @@ init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
         true ->
             do_init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod);
         false ->
-            %% Refuse connections until node boot completes,
-            %% i.e. before plugin hooks are registered.
-            ?SLOG_THROTTLE(warning, #{msg => connection_rejected_due_to_node_not_ready}),
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            ?SLOG(warning, #{
+                msg => connection_refused_before_boot_complete,
+                peername => gate_peername(WrappedSock, Peername0),
+                channel_module => ChannMod
+            }),
             ok = esockd_close(WrappedSock),
             erlang:exit({shutdown, node_not_ready})
     end.
+
+gate_peername({esockd_transport, Sock}, undefined) ->
+    case esockd_transport:peername(Sock) of
+        {ok, Peername} -> esockd:format(Peername);
+        {error, _} -> unknown
+    end;
+gate_peername(_WrappedSock, Peername) when Peername =/= undefined ->
+    esockd:format(Peername);
+gate_peername(_WrappedSock, undefined) ->
+    unknown.
 
 do_init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
     case esockd_wait(WrappedSock) of

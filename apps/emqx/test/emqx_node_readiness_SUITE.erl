@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TCP_PORT, 20831).
 -define(WS_PORT, 20832).
@@ -45,10 +46,24 @@ t_readiness_flag(_Config) ->
     ok = emqx_node_readiness:mark_ready(),
     ?assert(emqx_node_readiness:is_ready()).
 
--doc "A TCP MQTT connection is refused while the node is not ready, accepted once ready.".
+-doc """
+A TCP MQTT connection is refused while the node is not ready, accepted once
+ready.  The refusal is recorded in the listener's shutdown counter.
+""".
 t_gate_tcp_connection(_Config) ->
     ok = emqx_node_readiness:mark_not_ready(),
     ?assertMatch({error, _}, try_connect(fun emqtt:connect/1, #{port => ?TCP_PORT})),
+    Bind = emqx_config:get([listeners, tcp, default, bind]),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {node_not_ready, _},
+            lists:keyfind(
+                node_not_ready, 1, emqx_listeners:shutdown_count(<<"tcp:default">>, Bind)
+            )
+        )
+    ),
     ok = emqx_node_readiness:mark_ready(),
     ?assertEqual(ok, try_connect(fun emqtt:connect/1, #{port => ?TCP_PORT})).
 

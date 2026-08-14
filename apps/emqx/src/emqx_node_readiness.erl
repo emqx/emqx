@@ -7,31 +7,34 @@
 -moduledoc """
 Node readiness flag.
 
-MQTT connection processes check this flag at init and refuse the
-connection while the node is not ready.
+Connection processes (MQTT and gateway) check this flag at init and
+refuse to serve until the node has finished booting, so no client can
+connect before authentication, authorization and plugin hooks are
+installed.  The `GET /status` REST API and cluster join checks read it
+too.
 
-The flag defaults to `true`. Only the managed boot sequence
-(`emqx_machine_boot:ensure_apps_started/0`) clears it, then sets it
-back once all applications and plugins are started. Contexts that do
-not boot through `emqx_machine` (for example test suites) never clear
-the flag, so they are not affected.
+The flag defaults to `true`: only the managed boot sequence
+(`emqx_machine_boot:ensure_apps_started/0`) clears it and sets it back
+once all applications (including plugins) are started.  Contexts that
+do not boot through `emqx_machine` (test suites) are therefore always
+ready.
 """.
 
 -export([is_ready/0, mark_ready/0, mark_not_ready/0]).
 
 -define(KEY, {?MODULE, ready}).
 
--doc "Return `true` if the node is ready to serve MQTT connections.".
+-doc "Return `true` once this node has finished booting.".
 -spec is_ready() -> boolean().
 is_ready() ->
     persistent_term:get(?KEY, true).
 
--doc "Mark the node ready to serve MQTT connections.".
+-doc "Mark the node as fully booted.".
 -spec mark_ready() -> ok.
 mark_ready() ->
     persistent_term:put(?KEY, true).
 
--doc "Mark the node not ready. New MQTT connections are refused.".
+-doc "Mark the node as booting. Connection processes refuse to serve.".
 -spec mark_not_ready() -> ok.
 mark_not_ready() ->
     persistent_term:put(?KEY, false).

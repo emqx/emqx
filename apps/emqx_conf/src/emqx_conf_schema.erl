@@ -84,7 +84,6 @@
     connection_rejected_due_to_license_limit_reached,
     connection_rejected_due_to_trial_license_uptime_limit,
     connection_rejected_due_to_license_expired,
-    connection_rejected_due_to_node_not_ready,
     listener_accept_throttled_due_to_quota_exceeded,
     listener_accept_refused_reached_max_connections,
     failed_to_consume_from_limiter,
