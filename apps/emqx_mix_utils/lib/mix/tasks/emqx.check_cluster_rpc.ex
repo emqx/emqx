@@ -40,11 +40,12 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
   ## Scope
 
   Umbrella apps and in-tree plugins are checked. Plugins are separate mix
-  projects outside the umbrella build, so this task compiles `plugins/*/src`
-  itself (with debug_info, against the loaded code path) and adds the beams to
-  the xref graph. Plugins must not use `emqx_cluster_rpc` at all: their MFAs
-  are not replayed on a rebooted node, and their code may not even be loaded
-  when catch-up runs — any plugin caller is reported as a violation.
+  projects outside the umbrella build, so this task builds each one with its
+  own build tool (as `scripts/build-plugins.sh --compile-only` does) and adds
+  the resulting beams to the xref graph. Plugins must not use
+  `emqx_cluster_rpc` at all: their MFAs are not replayed on a rebooted node,
+  and their code may not even be loaded when catch-up runs — any plugin caller
+  is reported as a violation.
   """
 
   @requirements ["compile", "loadpaths"]
@@ -89,6 +90,7 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
     end
 
     callers = find_multicall_callers()
+    :xref.stop(@xref)
     {violations, targets} = Enum.reduce(callers, {[], []}, &collect/2)
     stale = @exemptions -- targets
     Enum.each(Enum.reverse(violations), &report_violation/1)
@@ -132,36 +134,32 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
     end
   end
 
-  # In-tree plugins are not part of the umbrella build: compile them here so
-  # their beams enter the analysis.
+  # In-tree plugins are not part of the umbrella build: build each one with
+  # its own build tool (same invocation as scripts/build-plugins.sh
+  # --compile-only) so its compile options are honored and rebuilds are
+  # incremental. Plugin mix.exs sets build_path: "../../_build", so the beams
+  # land in the shared build tree.
   defp compile_plugins() do
-    out_root = "_build/cluster_rpc_check_plugins"
-    File.rm_rf!(out_root)
+    mix = Path.absname("mix")
 
-    for plugin_dir <- Path.wildcard("plugins/*") do
-      compile_plugin(plugin_dir, Path.join(out_root, Path.basename(plugin_dir)))
+    for plugin_dir <- Path.wildcard("plugins/*"),
+        plugin_app?(plugin_dir) do
+      case System.cmd(mix, ~w(do deps.get + compile),
+             cd: plugin_dir,
+             env: [{"MIX_ENV", to_string(Mix.env())}],
+             into: IO.stream(:stdio, :line)
+           ) do
+        {_, 0} -> :ok
+        {_, status} -> Mix.raise("compiling plugin #{plugin_dir} failed with status #{status}")
+      end
+
+      Path.join([Mix.Project.build_path(), "lib", Path.basename(plugin_dir), "ebin"])
     end
   end
 
-  defp compile_plugin(plugin_dir, out_dir) do
-    File.mkdir_p!(out_dir)
-
-    opts = [
-      :debug_info,
-      :report_errors,
-      outdir: to_charlist(out_dir),
-      i: to_charlist(Path.join(plugin_dir, "src")),
-      i: to_charlist(Path.join(plugin_dir, "include"))
-    ]
-
-    for src <- Path.wildcard(Path.join(plugin_dir, "src/**/*.erl")) do
-      case :compile.file(to_charlist(src), opts) do
-        {:ok, _} -> :ok
-        :error -> Mix.raise("failed to compile #{src}")
-      end
-    end
-
-    out_dir
+  defp plugin_app?(plugin_dir) do
+    mix_exs = Path.join(plugin_dir, "mix.exs")
+    File.exists?(mix_exs) and File.read!(mix_exs) =~ "emqx_plugin:"
   end
 
   # Resolve a multicall caller to its target {m, f} via the metadata that
