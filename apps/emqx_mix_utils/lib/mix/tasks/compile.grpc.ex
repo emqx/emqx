@@ -54,6 +54,8 @@ defmodule Mix.Tasks.Compile.Grpc do
 
     manifest_data = read_manifest(manifest())
 
+    gpb_opts_overrides = Map.get(config[:grpc_opts], :gpb_opts_overrides, %{})
+
     context =
       %{
         manifest_data: manifest_data,
@@ -61,13 +63,17 @@ defmodule Mix.Tasks.Compile.Grpc do
         app_build_path: app_build_path,
         out_dir: out_dir,
         proto_dirs: proto_dirs,
-        gpb_opts: gpb_opts
+        gpb_opts: gpb_opts,
+        gpb_opts_overrides: gpb_opts_overrides
       }
       |> Map.merge(Map.take(config[:grpc_opts], [:generate_server?, :generate_client?]))
 
     Enum.each(proto_srcs, &compile_pb(&1, context))
 
-    manifest_data = Map.put(manifest_data, :app_gpb_opts, gpb_opts)
+    manifest_data =
+      manifest_data
+      |> Map.put(:app_gpb_opts, gpb_opts)
+      |> Map.put(:overridden_gpb_opts, gpb_opts_overrides)
 
     if Process.get(@stale?, false) do
       write_manifest(manifest(), manifest_data)
@@ -87,9 +93,12 @@ defmodule Mix.Tasks.Compile.Grpc do
       manifest_data: manifest_data,
       out_dir: out_dir,
       proto_dirs: proto_dirs,
-      gpb_opts: gpb_opts
+      gpb_opts: gpb_opts0,
+      gpb_opts_overrides: gpb_opts_overrides
     } = context
 
+    relative_proto_src = Path.relative_to(proto_src, app_root)
+    gpb_opts = Map.get(gpb_opts_overrides, relative_proto_src, gpb_opts0)
     manifest_modified_time = Mix.Utils.last_modified(manifest())
     ebin_path = Path.join([app_build_path, "ebin"])
     basename = proto_src |> Path.basename(".proto") |> to_charlist()
@@ -105,11 +114,12 @@ defmodule Mix.Tasks.Compile.Grpc do
     proto_compilation_needed? =
       stale?(proto_src, manifest_modified_time) ||
         stale?(generated_src, manifest_modified_time) ||
-        compile_opts_stale?(gpb_opts, manifest_data)
+        compile_opts_stale?(relative_proto_src, gpb_opts, manifest_data)
 
     if proto_compilation_needed? do
       Process.put(@stale?, true)
       debug("compiling proto file: #{proto_src}")
+      debug("opts: #{inspect(opts, pretty: true)}")
       File.mkdir_p!(out_dir)
       # TODO: better error logging...
       :ok = :gpb_compile.file(to_charlist(proto_src), opts)
@@ -285,8 +295,11 @@ defmodule Mix.Tasks.Compile.Grpc do
     end
   end
 
-  defp compile_opts_stale?(gpb_opts, manifest_data) do
-    previous_gpb_opts = get_in(manifest_data, [:app_gpb_opts]) || :undefined
+  defp compile_opts_stale?(relative_proto_src, gpb_opts, manifest_data) do
+    previous_gpb_opts =
+      get_in(manifest_data, [:overridden_gpb_opts, relative_proto_src]) ||
+        get_in(manifest_data, [:app_gpb_opts]) || :undefined
+
     previous_gpb_opts != gpb_opts
   end
 
