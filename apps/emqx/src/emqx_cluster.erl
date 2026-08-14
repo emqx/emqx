@@ -30,7 +30,7 @@
 -endif.
 
 join(PeerNode) ->
-    case is_booting() andalso mria_rlog:role() =:= core of
+    case not is_boot_complete() andalso mria_rlog:role() =:= core of
         true ->
             {error,
                 "This node has not fully booted yet. "
@@ -71,6 +71,16 @@ set_booting(Bool) when is_boolean(Bool) ->
 is_booting() ->
     application:get_env(emqx, boot_in_progress, false).
 
+-doc """
+Return `true` once this node's boot is complete.
+
+`is_booting/0` covers the first managed boot up to the point where the
+ekka join callbacks are registered; `emqx_node_readiness` also covers
+the `ensure_apps_started/0` re-run a cluster rejoin triggers.
+""".
+is_boot_complete() ->
+    not is_booting() andalso emqx_node_readiness:is_ready().
+
 leave() ->
     ekka:leave().
 
@@ -92,9 +102,28 @@ check_permission(PeerNode) ->
     end.
 
 %% @doc Check if the requesting node is allowed to join the cluster.
-%% Called by license checker for community license.
+%% Called on the join target node via `emqx_cluster_proto_v1:can_i_join/2'.
 -spec can_i_join(node()) -> ok | {error, string()}.
 can_i_join(_RequestingNode) ->
+    maybe
+        ok ?= check_boot_complete(),
+        ok ?= check_single_node_mode()
+    end.
+
+-doc "Refuse join requests while this node's boot is not complete.".
+check_boot_complete() ->
+    case is_boot_complete() of
+        false ->
+            Msg = io_lib:format(
+                "Node ~s has not fully booted yet. Please retry after it is started.",
+                [node()]
+            ),
+            {error, lists:flatten(Msg)};
+        true ->
+            ok
+    end.
+
+check_single_node_mode() ->
     case is_single_node_mode() of
         true ->
             Msg = lists:flatten(io_lib:format("Node ~s has a single node license", [node()])),

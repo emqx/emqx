@@ -59,6 +59,17 @@ t_gate_ws_connection(_Config) ->
     ok = emqx_node_readiness:mark_ready(),
     ?assertEqual(ok, try_connect(fun emqtt:ws_connect/1, #{port => ?WS_PORT})).
 
+-doc "A cluster join is refused on both the joining and the target node while not ready.".
+t_gate_cluster_join(_Config) ->
+    ok = emqx_node_readiness:mark_not_ready(),
+    ?assertMatch({error, _}, emqx_cluster:can_i_join(node())),
+    ?assertMatch(
+        {error, "This node has not fully booted" ++ _},
+        emqx_cluster:join('nosuchnode@127.0.0.1')
+    ),
+    ok = emqx_node_readiness:mark_ready(),
+    ?assertEqual(ok, emqx_cluster:can_i_join(node())).
+
 try_connect(ConnFun, Opts0) ->
     Opts = maps:merge(#{host => "127.0.0.1", connect_timeout => 5}, Opts0),
     {ok, Client} = emqtt:start_link(Opts),
