@@ -290,7 +290,7 @@ websocket_init([Req, Opts]) ->
         false ->
             %% Refuse to serve before node boot completes: authn/authz
             %% hooks (e.g. from plugins) may not be installed yet.
-            ?SLOG_THROTTLE(warning, #{msg => connection_refused_before_boot_complete}),
+            ?SLOG(info, #{msg => ws_connection_refused_before_boot_complete}),
             {stop, node_not_ready}
     end.
 

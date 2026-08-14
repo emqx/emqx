@@ -21,6 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -49,12 +50,24 @@ t_mark_ready_toggle(_Config) ->
     ?assert(emqx_node_readiness:is_ready()).
 
 %% Checks that a TCP MQTT connection is refused while the node is not
-%% ready, and accepted again once it is ready.
+%% ready, and accepted again once it is ready.  Also checks that the
+%% refusal is recorded in the listener's shutdown counter.
 t_tcp_connection_gated(_Config) ->
     process_flag(trap_exit, true),
     ok = emqx_node_readiness:mark_not_ready(),
     {ok, C1} = emqtt:start_link([{host, "127.0.0.1"}, {port, 1883}]),
     ?assertMatch({error, _}, emqtt:connect(C1)),
+    Bind = emqx_config:get([listeners, tcp, default, bind]),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {node_not_ready, _},
+            lists:keyfind(
+                node_not_ready, 1, emqx_listeners:shutdown_count(<<"tcp:default">>, Bind)
+            )
+        )
+    ),
     ok = emqx_node_readiness:mark_ready(),
     {ok, C2} = emqtt:start_link([{host, "127.0.0.1"}, {port, 1883}]),
     ?assertMatch({ok, _}, emqtt:connect(C2)),
