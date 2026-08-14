@@ -284,6 +284,17 @@ check_origin_header(Req, #{listener := {Type, Listener}} = Opts) ->
     end.
 
 websocket_init([Req, Opts]) ->
+    case emqx_node_readiness:is_ready() of
+        true ->
+            do_websocket_init(Req, Opts);
+        false ->
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            ?SLOG_THROTTLE(warning, #{msg => connection_refused_before_boot_complete}),
+            {stop, node_not_ready}
+    end.
+
+do_websocket_init(Req, Opts) ->
     #{zone := Zone, limiter := LimiterCfg, listener := {Type, Listener} = ListenerCfg} = Opts,
     case check_max_connection(Type, Listener) of
         allow ->

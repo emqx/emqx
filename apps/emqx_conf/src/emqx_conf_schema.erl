@@ -85,6 +85,7 @@
     authorization_permission_denied,
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
+    connection_refused_before_boot_complete,
     connection_rejected_due_to_license_limit_reached,
     data_bridge_buffer_overflow,
     dropped_qos0_msg,

@@ -302,6 +302,18 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 
 init(Parent, Transport, RawSocket, Options) ->
+    case emqx_node_readiness:is_ready() of
+        true ->
+            do_init(Parent, Transport, RawSocket, Options);
+        false ->
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            ?SLOG_THROTTLE(warning, #{msg => connection_refused_before_boot_complete}),
+            ok = Transport:fast_close(RawSocket),
+            erlang:exit(normal)
+    end.
+
+do_init(Parent, Transport, RawSocket, Options) ->
     case Transport:wait(RawSocket) of
         {ok, Socket} ->
             run_loop(Parent, init_state(Transport, Socket, Options));

@@ -279,6 +279,18 @@ is_datadram_socket({esockd_udp_proxy, _ProxyId, Sock}) -> erlang:is_port(Sock).
 %%--------------------------------------------------------------------
 
 init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
+    case emqx_node_readiness:is_ready() of
+        true ->
+            do_init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod);
+        false ->
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            ?SLOG_THROTTLE(warning, #{msg => connection_refused_before_boot_complete}),
+            ok = esockd_close(WrappedSock),
+            erlang:exit(normal)
+    end.
+
+do_init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
     case esockd_wait(WrappedSock) of
         {ok, NWrappedSock} ->
             Peername = esockd_peername(NWrappedSock, Peername0),
