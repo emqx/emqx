@@ -21,22 +21,25 @@
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 start(_StartType, _StartArgs) ->
-    ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
-    _ = emqx_config:create_tables(),
-    ensure_allowed_namespaced_root_keys(),
-    try
-        ok = init_conf()
-    catch
-        C:E:St ->
-            ?SLOG(critical, #{
-                msg => "failed_to_load_config", error => C, reason => E, stacktrace => St
-            }),
-            exit_loop(1)
-    end,
-    ok = emqx_config_logger:refresh_config(),
-    {ok, Sup} = emqx_conf_sup:start_link(),
-    emqx_conf_cli:load(),
-    {ok, Sup}.
+    maybe
+        {ok, Tables} ?= emqx_cluster_rpc:create_tables(),
+        ok = mria:wait_for_tables(Tables),
+        _ = emqx_config:create_tables(),
+        ensure_allowed_namespaced_root_keys(),
+        try
+            ok = init_conf()
+        catch
+            C:E:St ->
+                ?SLOG(critical, #{
+                    msg => "failed_to_load_config", error => C, reason => E, stacktrace => St
+                }),
+                exit_loop(1)
+        end,
+        ok = emqx_config_logger:refresh_config(),
+        {ok, Sup} = emqx_conf_sup:start_link(),
+        emqx_conf_cli:load(),
+        {ok, Sup}
+    end.
 
 stop(_State) ->
     emqx_config:clear_all_invalid_namespaced_configs(),
