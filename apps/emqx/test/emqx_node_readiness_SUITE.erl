@@ -27,7 +27,10 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.quic.test { enable = true }"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -71,6 +74,20 @@ t_tcp_connection_gated(_Config) ->
     ok = emqx_node_readiness:mark_ready(),
     {ok, C2} = emqtt:start_link([{host, "127.0.0.1"}, {port, 1883}]),
     ?assertMatch({ok, _}, emqtt:connect(C2)),
+    ok = emqtt:disconnect(C2).
+
+%% Checks that a QUIC MQTT connection is refused while the node is not
+%% ready, and accepted again once it is ready.
+t_quic_connection_gated(_Config) ->
+    process_flag(trap_exit, true),
+    Port = emqx_config:get([listeners, quic, test, bind]),
+    ClientOpts = [{host, "127.0.0.1"}, {port, Port}, {ssl_opts, [{verify, verify_none}]}],
+    ok = emqx_node_readiness:mark_not_ready(),
+    {ok, C1} = emqtt:start_link(ClientOpts),
+    ?assertMatch({error, _}, emqtt:quic_connect(C1)),
+    ok = emqx_node_readiness:mark_ready(),
+    {ok, C2} = emqtt:start_link(ClientOpts),
+    ?assertMatch({ok, _}, emqtt:quic_connect(C2)),
     ok = emqtt:disconnect(C2).
 
 %% Checks that a WebSocket MQTT connection is refused while the node is
