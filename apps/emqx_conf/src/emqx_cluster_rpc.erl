@@ -90,25 +90,27 @@
 %%% API
 %%%===================================================================
 
+-spec create_tables() -> {ok, [mria:table()]} | {error, _}.
 create_tables() ->
-    ok = mria:create_table(?CLUSTER_MFA, [
-        {type, ordered_set},
-        {rlog_shard, ?CLUSTER_RPC_SHARD},
-        {storage, disc_copies},
-        {record_name, cluster_rpc_mfa},
-        {attributes, record_info(fields, cluster_rpc_mfa)}
-    ]),
-    ok = mria:create_table(?CLUSTER_COMMIT, [
-        {type, set},
-        {rlog_shard, ?CLUSTER_RPC_SHARD},
-        {storage, disc_copies},
-        {record_name, cluster_rpc_commit},
-        {attributes, record_info(fields, cluster_rpc_commit)}
-    ]),
-    [
-        ?CLUSTER_MFA,
-        ?CLUSTER_COMMIT
-    ].
+    maybe
+        ok ?=
+            mria:create_table(?CLUSTER_MFA, [
+                {type, ordered_set},
+                {rlog_shard, ?CLUSTER_RPC_SHARD},
+                {storage, disc_copies},
+                {record_name, cluster_rpc_mfa},
+                {attributes, record_info(fields, cluster_rpc_mfa)}
+            ]),
+        ok ?=
+            mria:create_table(?CLUSTER_COMMIT, [
+                {type, set},
+                {rlog_shard, ?CLUSTER_RPC_SHARD},
+                {storage, disc_copies},
+                {record_name, cluster_rpc_commit},
+                {attributes, record_info(fields, cluster_rpc_commit)}
+            ]),
+        {ok, [?CLUSTER_MFA, ?CLUSTER_COMMIT]}
+    end.
 
 start_link() ->
     start_link(node(), ?MODULE, get_retry_ms()).
