@@ -302,6 +302,28 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 
 init(Parent, Transport, RawSocket, Options) ->
+    case emqx_node_readiness:is_ready() of
+        true ->
+            do_init(Parent, Transport, RawSocket, Options);
+        false ->
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            %% The exit reason feeds the listener's shutdown counter.
+            Peername =
+                case Transport:peername(RawSocket) of
+                    {ok, Peer} -> esockd:format(Peer);
+                    {error, _} -> unknown
+                end,
+            ?SLOG(info, #{
+                msg => connection_refused_before_boot_complete,
+                transport => Transport,
+                peername => Peername
+            }),
+            ok = Transport:fast_close(RawSocket),
+            erlang:exit({shutdown, node_not_ready})
+    end.
+
+do_init(Parent, Transport, RawSocket, Options) ->
     case Transport:wait(RawSocket) of
         {ok, Socket} ->
             run_loop(Parent, init_state(Transport, Socket, Options));
