@@ -18,7 +18,6 @@
 -export([broadcast_in/0, broadcast_error/0]).
 -export([broadcast_devices_online/1, broadcast_delivery_count/1]).
 -export([register_in/0, register_refresh/0, register_error/0]).
--export([delivery_submit_rejected/0, delivery_queue_depth/1]).
 -export([collect/0]).
 
 -include("emqx_bcast.hrl").
@@ -71,8 +70,7 @@ declare_counters() ->
         {"broadcast_pub_delivery_count", "PubBroadcast deliveries"},
         {"register_message_in", "RegisterMessage API requests"},
         {"register_message_refresh", "RegisterMessage TTL refresh"},
-        {"register_message_error", "RegisterMessage errors"},
-        {"delivery_submit_rejected", "Delivery tasks rejected due to full queue"}
+        {"register_message_error", "RegisterMessage errors"}
     ],
     [
         prometheus_counter:declare([
@@ -85,11 +83,6 @@ declare_counters() ->
     ok.
 
 declare_gauges() ->
-    prometheus_gauge:declare([
-        {registry, ?BCAST_REGISTRY},
-        {name, mname("delivery_queue_depth")},
-        {help, <<"Queued but not yet started delivery tasks">>}
-    ]),
     ok.
 
 %% helpers
@@ -120,8 +113,5 @@ register_in() -> c("register_message_in").
 register_refresh() -> c("register_message_refresh").
 register_error() -> c("register_message_error").
 
-delivery_submit_rejected() -> c("delivery_submit_rejected").
-delivery_queue_depth(N) ->
-    prometheus_gauge:set(?BCAST_REGISTRY, mname("delivery_queue_depth"), [], N).
 
 collect() -> prometheus_text_format:format(?BCAST_REGISTRY).

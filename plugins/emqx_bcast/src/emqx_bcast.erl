@@ -7,6 +7,11 @@
     hook/0,
     unhook/0,
     init_tables/0,
+    is_core/0,
+    core_nodes/0,
+    random_core/0,
+    rpc_core/3,
+    rpc_core/4,
     register_device/3,
     unregister_device/2,
     lookup_device/1,
@@ -16,6 +21,7 @@
     on_client_subscribe/3,
     on_client_unsubscribe/3,
     on_session_resumed/2,
+    on_client_ping/2,
     on_message_acked/2,
     on_delivery_completed/2
 ]).
@@ -28,7 +34,58 @@
 -define(TAB_MSG_REC, bcast_msg).
 -define(TAB_MSG_IDX, bcast_msg_index).
 -define(TAB_DEV_SUB, bcast_device_sub).
--define(TAB_DEV_CLIENT, bcast_device_client).
+
+-define(SUBS_PD, {?MODULE, subscriptions}).
+
+%%--------------------------------------------------------------------
+%% Role helpers
+%%--------------------------------------------------------------------
+
+is_core() ->
+    try mria_config:whoami() =/= replicant
+    catch
+        _:_ -> true
+    end.
+
+core_nodes() ->
+    try mria_membership:running_core_nodelist() of
+        [] -> fallback_core_nodes();
+        Nodes -> Nodes
+    catch
+        _:_ -> fallback_core_nodes()
+    end.
+
+fallback_core_nodes() ->
+    try emqx:running_nodes() of
+        [] -> [node()];
+        Nodes -> Nodes
+    catch
+        _:_ -> [node()]
+    end.
+
+random_core() ->
+    Nodes = core_nodes(),
+    lists:nth(erlang:phash2(erlang:unique_integer(), length(Nodes)) + 1, Nodes).
+
+rpc_core(Mod, Fun, Args) ->
+    rpc_core(Mod, Fun, Args, 15000).
+
+rpc_core(Mod, Fun, Args, Timeout) ->
+    case is_core() of
+        true ->
+            apply(Mod, Fun, Args);
+        false ->
+            Core = random_core(),
+            case Core =:= node() of
+                true -> apply(Mod, Fun, Args);
+                false -> emqx_rpc:call(?MODULE, Core, Mod, Fun, Args, Timeout)
+            end
+    end.
+
+
+%%--------------------------------------------------------------------
+%% Hooks
+%%--------------------------------------------------------------------
 
 hook() ->
     ok = emqx_hooks:put('client.connected', {?MODULE, on_client_connected, []}, ?HP_HIGHEST),
@@ -36,6 +93,7 @@ hook() ->
     ok = emqx_hooks:put('client.subscribe', {?MODULE, on_client_subscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.unsubscribe', {?MODULE, on_client_unsubscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
+    ok = emqx_hooks:put('client.ping', {?MODULE, on_client_ping, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_HIGHEST).
 
@@ -45,42 +103,57 @@ unhook() ->
     ok = emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe}),
     ok = emqx_hooks:del('client.unsubscribe', {?MODULE, on_client_unsubscribe}),
     ok = emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
+    ok = emqx_hooks:del('client.ping', {?MODULE, on_client_ping}),
     ok = emqx_hooks:del('message.acked', {?MODULE, on_message_acked}),
     ok = emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}).
+
+%%--------------------------------------------------------------------
+%% Tables
+%%--------------------------------------------------------------------
 
 init_tables() ->
     ok = create_mnesia_tables(),
     ok = create_ets_tables().
 
 create_mnesia_tables() ->
-    Tables = [
-        {?TAB_MSG, bcast_message, record_info(fields, bcast_message)},
-        {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id)},
-        {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash)},
-        {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg)},
-        {?TAB_MSG_IDX, bcast_msg_index, record_info(fields, bcast_msg_index)}
-    ],
-    lists:foreach(
-        fun({Tab, RecordName, Attributes}) ->
-            ok = mria:create_table(Tab, [
-                {rlog_shard, ?BCAST_SHARD},
-                {storage, disc_copies},
-                {record_name, RecordName},
-                {attributes, Attributes},
-                {type, set}
-            ])
-        end,
-        Tables
-    ),
-    ok = mria_rlog:ensure_shard(?BCAST_SHARD),
-    ok = mria:wait_for_tables([Tab || {Tab, _, _} <- Tables]).
+    case is_core() of
+        false ->
+            ok;
+        true ->
+            Tables = [
+                {?TAB_MSG, bcast_message, record_info(fields, bcast_message)},
+                {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id)},
+                {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash)},
+                {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg)},
+                {?TAB_MSG_IDX, bcast_msg_index, record_info(fields, bcast_msg_index)}
+            ],
+            lists:foreach(
+                fun({Tab, RecordName, Attributes}) ->
+                    ok = create_mnesia_table(Tab, RecordName, Attributes)
+                end,
+                Tables
+            ),
+            mnesia:wait_for_tables([Tab || {Tab, _, _} <- Tables], 15000)
+    end.
+
+create_mnesia_table(Tab, RecordName, Attributes) ->
+    try mnesia:create_table(Tab, [
+        {disc_copies, [node()]},
+        {type, set},
+        {record_name, RecordName},
+        {attributes, Attributes}
+    ]) of
+        {atomic, ok} -> ok;
+        {aborted, {already_exists, Tab}} -> ok;
+        {aborted, Reason} -> erlang:error({create_table_failed, Tab, Reason})
+    catch
+        error:{aborted, {already_exists, Tab}} -> ok;
+        throw:{aborted, {already_exists, Tab}} -> ok
+    end.
 
 create_ets_tables() ->
     ensure_ets(?TAB_DEV_SUB, [
         named_table, public, set, {keypos, #bcast_device_sub.key}, {read_concurrency, true}
-    ]),
-    ensure_ets(?TAB_DEV_CLIENT, [
-        named_table, public, set, {keypos, #bcast_device_client.clientid}, {read_concurrency, true}
     ]),
     emqx_bcast_subscription:init(),
     ok.
@@ -91,31 +164,33 @@ ensure_ets(Name, Opts) ->
         _ -> ok
     end.
 
+%%--------------------------------------------------------------------
+%% Device table helpers (node-local ETS, replicant + core)
+%%--------------------------------------------------------------------
+
 register_device(ProductKey, DeviceName, Pid) ->
     ensure_ets(?TAB_DEV_SUB, [
         named_table, public, set, {keypos, #bcast_device_sub.key}, {read_concurrency, true}
     ]),
-    ensure_ets(?TAB_DEV_CLIENT, [
-        named_table, public, set, {keypos, #bcast_device_client.clientid}, {read_concurrency, true}
-    ]),
-    ClientId = DeviceName,
     ets:insert(?TAB_DEV_SUB, #bcast_device_sub{
-        key = {ProductKey, DeviceName}, clientid = ClientId, pid = Pid
-    }),
-    ets:insert(?TAB_DEV_CLIENT, #bcast_device_client{
-        clientid = ClientId, pk_dn = {ProductKey, DeviceName}, pid = Pid
+        key = {ProductKey, DeviceName}, clientid = DeviceName, pid = Pid
     }).
 
 unregister_device(ClientId, Pid) ->
-    case ets:lookup(?TAB_DEV_CLIENT, ClientId) of
-        [#bcast_device_client{pid = Pid} = Entry] ->
-            ets:delete(?TAB_DEV_SUB, Entry#bcast_device_client.pk_dn),
-            ets:delete(?TAB_DEV_CLIENT, ClientId);
-        [#bcast_device_client{}] ->
-            %% stale disconnect: a newer connection has taken over
+    case ets:info(?TAB_DEV_SUB) of
+        undefined ->
             ok;
-        [] ->
-            ok
+        _ ->
+            case ets:match_object(?TAB_DEV_SUB, #bcast_device_sub{
+                clientid = ClientId, pid = Pid, _ = '_'
+            }) of
+                [] -> ok;
+                Entries ->
+                    lists:foreach(
+                        fun(#bcast_device_sub{key = Key}) -> ets:delete(?TAB_DEV_SUB, Key) end,
+                        Entries
+                    )
+            end
     end.
 
 lookup_device({ProductKey, DeviceName}) ->
@@ -134,18 +209,24 @@ lookup_devices_by_product(ProductKey) ->
         undefined ->
             [];
         _ ->
-            ets:match(?TAB_DEV_SUB, #bcast_device_sub{
-                key = {ProductKey, '_'}, clientid = '$1', pid = '$2', _ = '_'
-            })
+            [{DeviceName, Pid} || [DeviceName, _ClientId, Pid] <- ets:match(
+                ?TAB_DEV_SUB,
+                #bcast_device_sub{key = {ProductKey, '$1'}, clientid = '$2', pid = '$3', _ = '_'}
+            )]
     end.
+
+%%--------------------------------------------------------------------
+%% Client hooks: all hooks only cast into local pools (never block the
+%% channel process), except the process-dictionary subscription cache which
+%% is deliberately process-local.
+%%--------------------------------------------------------------------
 
 on_client_connected(ClientInfo, _ConnInfo) ->
     try
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
-        DeviceName = ClientId,
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast:register_device(ProductKey, DeviceName, Pid)
+        gen_server:cast(emqx_bcast_pull_pool, {client_connected, ClientId, Pid, ProductKey})
     catch
         _E:_R:_ST ->
             ok
@@ -156,27 +237,22 @@ on_client_disconnected(ClientInfo, _Reason, _ConnInfo) ->
     try
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
-        emqx_bcast:unregister_device(ClientId, Pid),
-        emqx_bcast_subscription:clear(ClientId, Pid),
-        erlang:erase({?MODULE, replayed})
+        gen_server:cast(emqx_bcast_pull_pool, {client_disconnected, ClientId, Pid}),
+        gen_server:cast(emqx_bcast_ack_pool, {client_down, ClientId}),
+        erase_subs()
     catch
         _E:_R:_ST ->
             ok
-    end.
+    end,
+    ok.
 
 on_client_subscribe(ClientInfo, _Properties, TopicFilters) ->
     try
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
-        lists:foreach(
-            fun({TopicFilter, Opts}) ->
-                Qos = maps:get(qos, Opts, 0),
-                emqx_bcast_subscription:add(ClientId, Pid, {TopicFilter, Qos})
-            end,
-            TopicFilters
-        ),
+        Full = store_subs(TopicFilters, add),
         ProductKey = get_product_key(ClientInfo),
-        replay_pending(ProductKey, ClientId, Pid)
+        gen_server:cast(emqx_bcast_pull_pool, {subscribe, ClientId, Pid, ProductKey, Full})
     catch
         _E:_R:_ST ->
             ok
@@ -187,13 +263,9 @@ on_client_unsubscribe(ClientInfo, _Properties, TopicFilters) ->
     try
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
-        lists:foreach(
-            fun({TopicFilter, Opts}) ->
-                Qos = maps:get(qos, Opts, 0),
-                emqx_bcast_subscription:remove(ClientId, Pid, {TopicFilter, Qos})
-            end,
-            TopicFilters
-        )
+        Full = store_subs(TopicFilters, remove),
+        ProductKey = get_product_key(ClientInfo),
+        gen_server:cast(emqx_bcast_pull_pool, {unsubscribe, ClientId, Pid, ProductKey, Full})
     catch
         _E:_R:_ST ->
             ok
@@ -204,67 +276,28 @@ on_session_resumed(ClientInfo, SessionInfo) ->
     try
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
-        Subscriptions = maps:get(subscriptions, SessionInfo, #{}),
-        emqx_bcast_subscription:backfill(ClientId, Pid, Subscriptions),
+        Full = subscriptions_from_session(SessionInfo),
+        put_subs(Full),
         ProductKey = get_product_key(ClientInfo),
-        replay_pending(ProductKey, ClientId, Pid)
+        gen_server:cast(emqx_bcast_pull_pool, {subscribe, ClientId, Pid, ProductKey, Full})
     catch
         _E:_R:_ST ->
             ok
     end,
     ok.
 
-%% Replay each pending delivery at most once per connection. Track already
-%% replayed delivery ids in the process dictionary so that a client that
-%% subscribes, unsubscribes and resubscribes (or sends several SUBSCRIBE
-%% packets on connect) does not receive the same offline message twice.
-replay_pending(ProductKey, ClientId, Pid) ->
-    {ok, DeliveryIds} = emqx_bcast_storage:get_device_deliveries({ProductKey, ClientId}),
-    lists:foreach(
-        fun(DeliveryId) ->
-            maybe_replay(DeliveryId, ProductKey, ClientId, Pid)
-        end,
-        DeliveryIds
-    ).
-
-%% Replay a delivery unless it was already replayed in this connection, or
-%% the client is not subscribed to its topic.
-maybe_replay(DeliveryId, ProductKey, ClientId, Pid) ->
-    case lists:member(DeliveryId, replayed()) of
-        true ->
-            ok;
-        false ->
-            case subscription_qos(DeliveryId, ProductKey, ClientId) of
-                {ok, SubQos} ->
-                    replay_delivery(Pid, ProductKey, ClientId, DeliveryId, SubQos),
-                    mark_replayed(DeliveryId);
-                skip ->
-                    ok
-            end
-    end.
-
-%% The QoS the client would receive the delivery with, or skip when the
-%% delivery is gone or no subscription matches.
-subscription_qos(DeliveryId, ProductKey, ClientId) ->
-    case mnesia:dirty_read(bcast_msg, DeliveryId) of
-        [#bcast_msg{topic_template = Template}] ->
-            Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, ClientId),
-            case emqx_bcast_subscription:match(ClientId, Topic) of
-                {ok, SubQos} -> {ok, SubQos};
-                false -> skip
-            end;
-        [] ->
-            skip
-    end.
-
-replayed() ->
-    case erlang:get({?MODULE, replayed}) of
-        undefined -> [];
-        Replayed -> Replayed
-    end.
-
-mark_replayed(DeliveryId) ->
-    erlang:put({?MODULE, replayed}, [DeliveryId | replayed()]).
+on_client_ping(ClientInfo, _ConnInfo) ->
+    try
+        #{clientid := ClientId} = ClientInfo,
+        Pid = self(),
+        ProductKey = get_product_key(ClientInfo),
+        Full = get_subs(),
+        gen_server:cast(emqx_bcast_pull_pool, {ping, ClientId, Pid, ProductKey, Full})
+    catch
+        _E:_R:_ST ->
+            ok
+    end,
+    ok.
 
 on_message_acked(ClientInfo, Msg) ->
     case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
@@ -272,8 +305,12 @@ on_message_acked(ClientInfo, Msg) ->
             ok;
         DeliveryId ->
             #{clientid := DeviceName} = ClientInfo,
-            ProductKey = get_product_key(ClientInfo),
-            count_ack(ProductKey, DeviceName, DeliveryId),
+            ProductKey =
+                case emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined) of
+                    undefined -> get_product_key(ClientInfo);
+                    PK -> PK
+                end,
+            emqx_bcast_ack_pool:ack(DeviceName, DeliveryId, ProductKey),
             ok
     end.
 
@@ -282,70 +319,59 @@ on_delivery_completed(Msg, #{clientid := ClientId}) ->
         undefined ->
             ok;
         DeliveryId ->
-            ProductKey = emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined),
-            count_ack(ProductKey, ClientId, DeliveryId),
-            ok
+            case emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined) of
+                undefined ->
+                    ok;
+                ProductKey ->
+                    emqx_bcast_ack_pool:ack(ClientId, DeliveryId, ProductKey),
+                    ok
+            end
     end.
 
-count_ack(undefined, _DeviceName, _DeliveryId) ->
-    ok;
-count_ack(ProductKey, DeviceName, DeliveryId) ->
-    case emqx_bcast_storage:process_ack(ProductKey, DeviceName, DeliveryId) of
-        counted -> emqx_bcast_metrics:qos1_acked();
-        _ -> ok
+%%--------------------------------------------------------------------
+%% Process dictionary subscription cache
+%%--------------------------------------------------------------------
+
+store_subs(TopicFilters, add) ->
+    Current = get_subs(),
+    Updated =
+        case add of
+            add -> lists:foldl(fun add_sub/2, Current, TopicFilters);
+            remove -> lists:foldl(fun remove_sub/2, Current, TopicFilters)
+        end,
+    put_subs(Updated),
+    Updated.
+
+add_sub({TopicFilter, Opts}, Acc) ->
+    Qos = maps:get(qos, Opts, 0),
+    [{TopicFilter, Qos} | lists:keydelete(TopicFilter, 1, Acc)].
+
+remove_sub({TopicFilter, _Opts}, Acc) ->
+    lists:keydelete(TopicFilter, 1, Acc).
+
+put_subs(Subs) ->
+    erlang:put(?SUBS_PD, Subs).
+
+get_subs() ->
+    case erlang:get(?SUBS_PD) of
+        undefined -> [];
+        Subs -> Subs
     end.
 
-replay_delivery(Pid, ProductKey, DeviceName, DeliveryId, SubQos) ->
-    case pending_payload(DeliveryId) of
-        {ok, Payload, Template} ->
-            Topic = emqx_bcast_utils:expand_topic(Template, ProductKey, DeviceName),
-            deliver_replay(Pid, ProductKey, DeviceName, DeliveryId, Topic, Payload, SubQos);
-        not_found ->
-            ok
-    end.
+erase_subs() ->
+    erlang:erase(?SUBS_PD),
+    ok.
 
-%% Deliver the replay at QoS 1 when force_upgrade_qos is enabled or the client
-%% subscribed at QoS >= 1, QoS 0 otherwise. A QoS 0 replay is completed
-%% immediately since no PUBACK will ever arrive.
-deliver_replay(Pid, ProductKey, DeviceName, DeliveryId, Topic, Payload, SubQos) ->
-    case should_upgrade(SubQos) of
-        true ->
-            Msg = emqx_message:make(
-                DeliveryId,
-                DeviceName,
-                ?QOS_1,
-                Topic,
-                Payload,
-                #{},
-                #{
-                    ?BCAST_DELIVERY_ID => DeliveryId,
-                    ?BCAST_PRODUCT_KEY => ProductKey
-                }
-            ),
-            Pid ! #deliver{topic = Topic, message = Msg},
-            emqx_bcast_metrics:qos1_replayed();
-        false ->
-            Msg = emqx_message:make(DeviceName, ?QOS_0, Topic, Payload),
-            Pid ! #deliver{topic = Topic, message = Msg},
-            count_ack(ProductKey, DeviceName, DeliveryId)
-    end.
+subscriptions_from_session(SessionInfo) ->
+    maps:fold(
+        fun(Filter, Opts, Acc) -> [{Filter, maps:get(qos, Opts, 0)} | Acc] end,
+        [],
+        maps:get(subscriptions, SessionInfo, #{})
+    ).
 
-should_upgrade(SubQos) ->
-    Config = persistent_term:get({?APP, config}, #{}),
-    maps:get(force_upgrade_qos, Config, true) orelse SubQos >= 1.
-
-%% The payload and topic template of a pending delivery, or not_found when
-%% the delivery or its message is gone.
-pending_payload(DeliveryId) ->
-    case mnesia:dirty_read(bcast_msg, DeliveryId) of
-        [#bcast_msg{msg_id = MsgId, topic_template = Template}] ->
-            case emqx_bcast_storage:lookup_message(MsgId) of
-                {ok, #bcast_message{payload = Payload}} -> {ok, Payload, Template};
-                {error, not_found} -> not_found
-            end;
-        [] ->
-            not_found
-    end.
+%%--------------------------------------------------------------------
+%% Misc
+%%--------------------------------------------------------------------
 
 get_product_key(#{client_attrs := #{<<"tns">> := Tns}}) -> Tns;
 get_product_key(_ClientInfo) -> <<"default">>.

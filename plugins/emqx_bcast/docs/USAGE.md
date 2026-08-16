@@ -98,10 +98,10 @@ curl -su "$API_KEY" \
   -d '{"Action":"BatchPub","ProductKey":"P1","DeviceName":["online_device","offline_device"],"MessageContent":"SGVsbG8=","Qos":1}'
 ```
 
-- `online_device` -- queued for immediate delivery by async workers, waits for PUBACK
-- `offline_device` -- stored in Mnesia, replayed when the device reconnects
+- `online_device` -- the core broadcasts a trigger, the node serving the device pulls the delivery and waits for PUBACK
+- `offline_device` -- stored in core Mnesia, pulled and delivered when the device reconnects and subscribes
 
-The delivery record is automatically deleted once all devices have acknowledged. Note that a `200` response means the request was accepted; online delivery completes asynchronously shortly after.
+The delivery record is automatically deleted once all devices have acknowledged. Note that a `200` response means the request was accepted and stored; delivery completes asynchronously shortly after.
 
 ### Scenario 4: QoS=0 Fire-and-Forget
 
@@ -132,8 +132,6 @@ curl -su "$API_KEY" "$HOST/api/v5/plugin_api/emqx_bcast/metrics"
 Key metrics to watch:
 - **`bcast_batch_pub_qos1_wanted - bcast_batch_pub_qos1_acked`** -- backlog of unacknowledged deliveries
 - **`rate(bcast_batch_pub_qos1_acked[5m]) / rate(bcast_batch_pub_qos1_wanted[5m])`** -- delivery success rate
-- **`bcast_delivery_queue_depth`** -- queued async delivery tasks; sustained growth means workers cannot keep up
-- **`bcast_delivery_submit_rejected`** -- BatchPub requests rejected with 429 due to a full queue
 
 ### Dedicated Watch Script
 
@@ -158,8 +156,7 @@ Real-time display of connected clients, wanted/acked/replayed counts.
 | `max_message_size_batch` | `10240` | Max BatchPub payload binary (bytes, 10 KiB) |
 | `msg_warn_threshold` | `100000` | Log warning when pending messages exceed this |
 | `force_upgrade_qos` | `true` | When true, QoS 1 messages are always delivered at QoS 1 regardless of subscription QoS; when false, effective QoS is min(publish, subscription) and downgraded QoS 0 deliveries complete immediately |
-| `delivery_pool_size` | `0` | Number of async delivery workers. 0 means one worker per scheduler. Changing it restarts the pool |
-| `delivery_queue_max` | `10000` | Max queued delivery tasks. Each task handles at most 200 devices; a BatchPub request with N online devices consumes ceil(N/200) tasks. Exceeding this rejects with 429 `DeliveryQueueFull` |
+| `delivery_pool_size` | `0` | Number of async workers for each of the three pools (pull, ack and pull-server). 0 means one worker per scheduler. Changing it restarts the pools |
 
 ---
 
@@ -172,5 +169,3 @@ Real-time display of connected clients, wanted/acked/replayed counts.
 **Messages not delivered to offline devices**: Check that `msg_ttl` hasn't expired. Verify the device's `ProductKey` and `DeviceName` match between the API call and MQTT client connection.
 
 **High pending count**: If `bcast_batch_pub_qos1_wanted - bcast_batch_pub_qos1_acked` is growing, check that offline devices are eventually reconnecting within the TTL window. Consider increasing `msg_ttl` for longer offline tolerance.
-
-**429 DeliveryQueueFull**: The async delivery queue is saturated. Check `bcast_delivery_queue_depth`; increase `delivery_pool_size` or `delivery_queue_max`, or reduce the BatchPub request rate. Note that each BatchPub request with N online devices consumes ceil(N/200) queue slots: large batches consume proportionally more. Rejected requests store nothing and can be retried safely.

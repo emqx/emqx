@@ -6,7 +6,7 @@
 -include("emqx_bcast.hrl").
 
 -export([init/0]).
--export([add/3, remove/3, clear/2, match/2, backfill/3]).
+-export([add/3, remove/3, clear/2, match/2, backfill/3, replace/3, topics/1]).
 
 -define(TAB, bcast_subscription).
 
@@ -97,4 +97,20 @@ backfill(ClientId, Pid, Subscriptions) ->
             ets:insert(?TAB, #bcast_subscription{
                 clientid = ClientId, pid = Pid, topics = Topics
             })
+    end.
+
+replace(ClientId, Pid, Topics) ->
+    case Topics of
+        [] ->
+            clear(ClientId, Pid);
+        _ ->
+            ets:insert(?TAB, #bcast_subscription{
+                clientid = ClientId, pid = Pid, topics = Topics
+            })
+    end.
+
+topics(ClientId) ->
+    case ets:lookup(?TAB, ClientId) of
+        [#bcast_subscription{topics = Topics}] -> Topics;
+        [] -> []
     end.

@@ -111,17 +111,6 @@
         "label": "$delivery_pool_size_label",
         "description": "$delivery_pool_size_desc"
       }
-    },
-    {
-      "name": "delivery_queue_max",
-      "type": "int",
-      "default": 10000,
-      "$ui": {
-        "component": "input-number",
-        "flex": 12,
-        "label": "$delivery_queue_max_label",
-        "description": "$delivery_queue_max_desc"
-      }
     }
   ]
 }

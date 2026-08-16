@@ -8,4 +8,3 @@ max_message_size_batch = 10240
 msg_warn_threshold = 100000
 force_upgrade_qos = true
 delivery_pool_size = 0
-delivery_queue_max = 10000

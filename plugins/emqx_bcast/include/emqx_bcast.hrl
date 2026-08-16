@@ -12,7 +12,6 @@
 -define(BCAST_DELIVERY_ID, bcast_delivery_id).
 -define(BCAST_PRODUCT_KEY, bcast_product_key).
 -define(BCAST_REGISTRY, bcast).
--define(BCAST_SHARD, emqx_bcast_shard).
 
 -record(bcast_message, {
     msg_id :: binary(),
@@ -47,7 +46,7 @@
 
 -record(bcast_msg_index, {
     key :: {binary(), binary()},
-    delivery_ids :: [binary()]
+    deliveries :: [{binary(), stored | pending}]
 }).
 
 -record(bcast_device_sub, {
@@ -56,16 +55,26 @@
     pid :: pid()
 }).
 
--record(bcast_device_client, {
-    clientid :: binary(),
-    pk_dn :: {binary(), binary()},
-    pid :: pid()
-}).
-
 -record(bcast_subscription, {
     clientid :: binary(),
     pid :: pid(),
     topics :: [{binary(), non_neg_integer()}]
+}).
+
+-record(bcast_buffer_entry, {
+    clientid :: binary(),
+    delivery_id :: binary(),
+    product_key :: binary(),
+    topic_template :: binary(),
+    payload :: binary(),
+    pid :: pid()
+}).
+
+-record(bcast_buffer3, {
+    clientid :: binary(),
+    product_key :: binary(),
+    topics :: [{binary(), non_neg_integer()}],
+    pid :: pid()
 }).
 
 -endif.

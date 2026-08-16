@@ -3,6 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bcast_storage).
 
+%% Message records.
 -export([
     create_message/4,
     lookup_message_by_hash/1,
@@ -10,11 +11,27 @@
     refresh_message_ttl/1,
     lookup_or_create_message/4,
     create_message_and_delivery/8,
-    create_delivery/6,
-    process_ack/3,
-    get_device_deliveries/1,
+    create_delivery/6
+]).
+
+%% Index / delivery state.
+-export([
     add_index_entries/3,
     remove_index_entries/3,
+    get_device_deliveries/1,
+    get_device_delivery_entries/1
+]).
+
+%% Acking and claim (core authoritative paths).
+-export([
+    process_ack/3,
+    process_ack_batch/1,
+    claim_want_next_batch/1,
+    release_claim/3
+]).
+
+%% Management and cleanup.
+-export([
     list_messages/2,
     get_message_by_api_id/1,
     delete_message/1,
@@ -26,20 +43,25 @@
 
 -include("emqx_bcast.hrl").
 
+-define(TAB_MSG, bcast_message).
+-define(TAB_MSG_API_ID, bcast_message_api_id).
+-define(TAB_MSG_HASH, bcast_message_hash).
+-define(TAB_MSG_REC, bcast_msg).
+-define(TAB_MSG_IDX, bcast_msg_index).
+
+%%--------------------------------------------------------------------
+%% Message create / lookup
+%%--------------------------------------------------------------------
+
 lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
-    case
-        mria:transaction(?BCAST_SHARD, fun() ->
-            do_lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId, Now, TTL)
-        end)
-    of
-        {atomic, Result} -> Result;
-        {aborted, Reason} -> {error, Reason}
-    end.
+    transaction(fun() ->
+        do_lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId, Now, TTL)
+    end).
 
 do_lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
-    case mnesia:wread({bcast_message_hash, Hash}) of
+    case mnesia:wread({?TAB_MSG_HASH, Hash}) of
         [] ->
             Record = #bcast_message{
                 msg_id = MsgId,
@@ -56,22 +78,20 @@ do_lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
             mnesia:write(ApiIdRecord),
             {created, ApiMsgId, MsgId};
         [#bcast_message_hash{msg_id = ExistingMsgId}] ->
-            [Existing] = mnesia:read(bcast_message, ExistingMsgId, read),
+            [Existing] = mnesia:read(?TAB_MSG, ExistingMsgId, read),
             mnesia:write(Existing#bcast_message{expires_at = Now + TTL}),
             {existing, Existing#bcast_message.api_msg_id, ExistingMsgId}
     end.
 
-%% Message dedup, delivery record creation and index insertion in one shard
-%% transaction: the hash lookup-or-create is a read-modify-write, so it needs
-%% a transactional write lock, and the index update must not lose concurrent
-%% entries. One BatchPub QoS=1 call therefore costs one rlog round trip.
+%% Message dedup, delivery record creation and index insertion in one
+%% transaction. This path runs only on core nodes.
 create_message_and_delivery(
     Payload, Hash, ApiMsgId, MsgId, DeliveryId, ProductKey, TopicTemplate, DeviceNames
 ) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
     case
-        mria:transaction(?BCAST_SHARD, fun() ->
+        transaction(fun() ->
             {Status, ResolvedApiMsgId, ResolvedMsgId} = do_lookup_or_create_message(
                 Payload, Hash, ApiMsgId, MsgId, Now, TTL
             ),
@@ -87,7 +107,7 @@ create_message_and_delivery(
                 expires_at = Now + TTL
             },
             mnesia:write(Delivery),
-            add_index_entries_tx(ProductKey, DeviceNames, DeliveryId),
+            add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, stored),
             {Status, ResolvedApiMsgId, Delivery}
         end)
     of
@@ -110,7 +130,7 @@ create_message(ApiMsgId, MsgId, Hash, Payload) ->
     },
     HashRecord = #bcast_message_hash{hash = Hash, msg_id = MsgId},
     ApiIdRecord = #bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId},
-    {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
+    {atomic, ok} = transaction(fun() ->
         mnesia:write(Record),
         mnesia:write(HashRecord),
         mnesia:write(ApiIdRecord)
@@ -118,7 +138,7 @@ create_message(ApiMsgId, MsgId, Hash, Payload) ->
     ok.
 
 lookup_message_by_hash(Hash) ->
-    case mnesia:dirty_read(bcast_message_hash, Hash) of
+    case mnesia:dirty_read(?TAB_MSG_HASH, Hash) of
         [#bcast_message_hash{msg_id = MsgId}] ->
             lookup_message(MsgId);
         [] ->
@@ -126,7 +146,7 @@ lookup_message_by_hash(Hash) ->
     end.
 
 lookup_message(MsgId) ->
-    case mnesia:dirty_read(bcast_message, MsgId) of
+    case mnesia:dirty_read(?TAB_MSG, MsgId) of
         [#bcast_message{} = Msg] ->
             {ok, Msg};
         [] ->
@@ -136,15 +156,19 @@ lookup_message(MsgId) ->
 refresh_message_ttl(MsgId) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
-    mria:sync_dirty(?BCAST_SHARD, fun() ->
-        case lookup_message(MsgId) of
-            {ok, Msg} ->
+    transaction(fun() ->
+        case mnesia:read(?TAB_MSG, MsgId, read) of
+            [#bcast_message{} = Msg] ->
                 mnesia:write(Msg#bcast_message{expires_at = Now + TTL}),
                 ok;
-            Error ->
-                Error
+            [] ->
+                {error, not_found}
         end
     end).
+
+%%--------------------------------------------------------------------
+%% Deliveries and index
+%%--------------------------------------------------------------------
 
 create_delivery(DeliveryId, MsgId, ProductKey, TopicTemplate, DeviceNames, TargetCount) ->
     Now = emqx_bcast_utils:now_sec(),
@@ -160,24 +184,23 @@ create_delivery(DeliveryId, MsgId, ProductKey, TopicTemplate, DeviceNames, Targe
         created_at = Now,
         expires_at = Now + TTL
     },
-    {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
+    {atomic, ok} = transaction(fun() ->
         mnesia:write(Delivery),
-        add_index_entries_tx(ProductKey, DeviceNames, DeliveryId)
+        add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, stored)
     end),
     Delivery.
 
-%% Index entries are shard records: {ProductKey, DeviceName} -> [DeliveryId].
-%% The read-modify-write runs inside a shard transaction so concurrent
-%% deliveries for the same device cannot overwrite each other, and every node
-%% sees the same index, so replay and ACK handling are cluster-consistent.
+%% Index entries are {ProductKey, DeviceName} -> [{DeliveryId, State}].
+%% The read-modify-write runs inside a transaction so concurrent deliveries
+%% for the same device cannot overwrite each other.
 add_index_entries(ProductKey, DeviceNames, DeliveryId) ->
-    {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
-        add_index_entries_tx(ProductKey, DeviceNames, DeliveryId)
+    {atomic, ok} = transaction(fun() ->
+        add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, stored)
     end),
     ok.
 
 remove_index_entries(ProductKey, DeviceNames, DeliveryId) ->
-    {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
+    {atomic, ok} = transaction(fun() ->
         lists:foreach(
             fun(DN) -> remove_index_entry_tx({ProductKey, DN}, DeliveryId) end,
             DeviceNames
@@ -185,97 +208,239 @@ remove_index_entries(ProductKey, DeviceNames, DeliveryId) ->
     end),
     ok.
 
-add_index_entries_tx(ProductKey, DeviceNames, DeliveryId) ->
+add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, State) ->
     lists:foreach(
         fun(DN) ->
             Key = {ProductKey, DN},
-            Ids =
-                case mnesia:wread({bcast_msg_index, Key}) of
-                    [#bcast_msg_index{delivery_ids = Ids0}] -> Ids0;
+            Entries =
+                case mnesia:wread({?TAB_MSG_IDX, Key}) of
+                    [#bcast_msg_index{deliveries = Es}] -> Es;
                     [] -> []
                 end,
-            case lists:member(DeliveryId, Ids) of
+            case lists:keymember(DeliveryId, 1, Entries) of
                 true ->
                     ok;
                 false ->
-                    mnesia:write(#bcast_msg_index{key = Key, delivery_ids = [DeliveryId | Ids]})
+                    mnesia:write(#bcast_msg_index{
+                        key = Key,
+                        deliveries = [{DeliveryId, State} | Entries]
+                    })
             end
         end,
         DeviceNames
     ).
 
 remove_index_entry_tx(Key, DeliveryId) ->
-    case mnesia:wread({bcast_msg_index, Key}) of
-        [#bcast_msg_index{delivery_ids = Ids}] ->
-            case Ids -- [DeliveryId] of
-                Ids ->
-                    ok;
+    case mnesia:wread({?TAB_MSG_IDX, Key}) of
+        [#bcast_msg_index{deliveries = Entries}] ->
+            NewEntries = lists:keydelete(DeliveryId, 1, Entries),
+            case NewEntries of
                 [] ->
-                    mnesia:delete({bcast_msg_index, Key});
-                NewIds ->
-                    mnesia:write(#bcast_msg_index{key = Key, delivery_ids = NewIds})
+                    mnesia:delete({?TAB_MSG_IDX, Key});
+                _ ->
+                    mnesia:write(#bcast_msg_index{key = Key, deliveries = NewEntries})
             end;
         [] ->
             ok
     end.
 
-process_ack(ProductKey, DeviceName, DeliveryId) ->
-    Key = {ProductKey, DeviceName},
-    Result =
-        mria:transaction(?BCAST_SHARD, fun() ->
-            case mnesia:wread({bcast_msg_index, Key}) of
-                [#bcast_msg_index{delivery_ids = Ids}] ->
-                    case lists:member(DeliveryId, Ids) of
-                        true ->
-                            remove_index_entry_tx(Key, DeliveryId),
-                            case mnesia:wread({bcast_msg, DeliveryId}) of
-                                [#bcast_msg{counter = C, target_ack_count = T} = D] ->
-                                    NewC = C + 1,
-                                    case NewC >= T of
-                                        true ->
-                                            mnesia:delete({bcast_msg, DeliveryId}),
-                                            %% remove the remaining devices' index
-                                            %% entries in the same transaction
-                                            lists:foreach(
-                                                fun(DN) ->
-                                                    remove_index_entry_tx(
-                                                        {ProductKey, DN}, DeliveryId
-                                                    )
-                                                end,
-                                                D#bcast_msg.device_names
-                                            ),
-                                            counted;
-                                        false ->
-                                            mnesia:write(D#bcast_msg{counter = NewC}),
-                                            counted
-                                    end;
-                                [] ->
-                                    counted
-                            end;
-                        false ->
-                            %% already acked (or delivery completed): the entry
-                            %% is gone, so a duplicate ACK does not count twice
-                            duplicate
-                    end;
-                [] ->
-                    not_found
-            end
-        end),
-    case Result of
-        {atomic, AckResult} -> AckResult;
-        {aborted, Reason} -> {error, Reason}
-    end.
-
 get_device_deliveries({ProductKey, DeviceName}) ->
-    case mnesia:dirty_read(bcast_msg_index, {ProductKey, DeviceName}) of
-        [#bcast_msg_index{delivery_ids = Ids}] ->
-            {ok, Ids};
+    case mnesia:dirty_read(?TAB_MSG_IDX, {ProductKey, DeviceName}) of
+        [#bcast_msg_index{deliveries = Entries}] ->
+            {ok, [DeliveryId || {DeliveryId, _State} <- Entries]};
         [] ->
             {ok, []}
     end.
 
-%% Management queries. Read paths use dirty operations; records are
-%% replicated to every core node by the mria shard.
+get_device_delivery_entries({ProductKey, DeviceName}) ->
+    case mnesia:dirty_read(?TAB_MSG_IDX, {ProductKey, DeviceName}) of
+        [#bcast_msg_index{deliveries = Entries}] ->
+            {ok, Entries};
+        [] ->
+            {ok, []}
+    end.
+
+%%--------------------------------------------------------------------
+%% Acking
+%%--------------------------------------------------------------------
+
+process_ack(ProductKey, DeviceName, DeliveryId) ->
+    case process_ack_batch([{ProductKey, DeviceName, DeliveryId}]) of
+        [Result | _] -> Result;
+        [] -> not_found
+    end.
+
+%% One transaction for the whole ack batch (F5).
+process_ack_batch(Acks) ->
+    case transaction(fun() -> process_ack_batch_tx(Acks, []) end) of
+        {atomic, Results} -> Results;
+        {aborted, Reason} -> [{error, Reason} || _ <- Acks]
+    end.
+
+process_ack_batch_tx([], Acc) ->
+    lists:reverse(Acc);
+process_ack_batch_tx([{ProductKey, DeviceName, DeliveryId} | Rest], Acc) ->
+    Result = process_ack_one_tx(ProductKey, DeviceName, DeliveryId),
+    process_ack_batch_tx(Rest, [Result | Acc]).
+
+process_ack_one_tx(ProductKey, DeviceName, DeliveryId) ->
+    Key = {ProductKey, DeviceName},
+    case mnesia:wread({?TAB_MSG_IDX, Key}) of
+        [#bcast_msg_index{deliveries = Entries}] ->
+            case lists:keytake(DeliveryId, 1, Entries) of
+                {value, {DeliveryId, _State}, NewEntries} ->
+                    write_index_entries(Key, NewEntries),
+                    case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
+                        [#bcast_msg{counter = C, target_ack_count = T} = D] ->
+                            NewC = C + 1,
+                            case NewC >= T of
+                                true ->
+                                    mnesia:delete({?TAB_MSG_REC, DeliveryId}),
+                                    %% Remove the remaining devices' index
+                                    %% entries in the same transaction.
+                                    lists:foreach(
+                                        fun(DN) ->
+                                            remove_index_entry_tx(
+                                                {ProductKey, DN}, DeliveryId
+                                            )
+                                        end,
+                                        D#bcast_msg.device_names
+                                    ),
+                                    maybe_delete_empty_message(D#bcast_msg.msg_id),
+                                    counted;
+                                false ->
+                                    mnesia:write(D#bcast_msg{counter = NewC}),
+                                    counted
+                            end;
+                        [] ->
+                            counted
+                    end;
+                false ->
+                    %% Already acked (or delivery completed): the entry is
+                    %% gone, so a duplicate ACK does not count twice.
+                    duplicate
+            end;
+        [] ->
+            not_found
+    end.
+
+write_index_entries(Key, []) ->
+    mnesia:delete({?TAB_MSG_IDX, Key});
+write_index_entries(Key, NewEntries) ->
+    mnesia:write(#bcast_msg_index{key = Key, deliveries = NewEntries}).
+
+maybe_delete_empty_message(MsgId) ->
+    case mnesia:match_object(#bcast_msg{msg_id = MsgId, _ = '_'}) of
+        [] ->
+            case mnesia:read(?TAB_MSG, MsgId, write) of
+                [#bcast_message{content_hash = Hash, api_msg_id = ApiMsgId}] ->
+                    mnesia:delete({?TAB_MSG, MsgId}),
+                    mnesia:delete({?TAB_MSG_HASH, Hash}),
+                    mnesia:delete({?TAB_MSG_API_ID, ApiMsgId}),
+                    ok;
+                [] ->
+                    ok
+            end;
+        _ ->
+            ok
+    end.
+
+%%--------------------------------------------------------------------
+%% Want-next claim (core side)
+%%--------------------------------------------------------------------
+
+%% Entries :: [#{clientid := binary(), product_key := binary(),
+%%               topics := [{binary(), non_neg_integer()}]}]
+%% Returns :: [{ClientId, {ok, DeliverMap} | no_more}]
+claim_want_next_batch(Entries) ->
+    case transaction(fun() -> claim_want_next_batch_tx(Entries, []) end) of
+        {atomic, Results} -> Results;
+        {aborted, _Reason} -> [{ClientId, no_more} || #{clientid := ClientId} <- Entries]
+    end.
+
+claim_want_next_batch_tx([], Acc) ->
+    lists:reverse(Acc);
+claim_want_next_batch_tx([#{clientid := ClientId, product_key := ProductKey} = Entry | Rest], Acc) ->
+    Topics = maps:get(topics, Entry, []),
+    Result = claim_one_tx(ProductKey, ClientId, Topics),
+    claim_want_next_batch_tx(Rest, [{ClientId, Result} | Acc]).
+
+claim_one_tx(ProductKey, DeviceName, Topics) ->
+    Key = {ProductKey, DeviceName},
+    case mnesia:wread({?TAB_MSG_IDX, Key}) of
+        [] ->
+            no_more;
+        [#bcast_msg_index{deliveries = Entries}] ->
+            claim_from_entries(Key, Entries, Topics, ProductKey, DeviceName, [])
+    end.
+
+claim_from_entries(_Key, [], _Topics, _PK, _DN, _Kept) ->
+    %% Nothing matched. Do not rewrite the index record: a later subscription
+    %% change may make one of the stored entries deliverable.
+    no_more;
+claim_from_entries(Key, [{DeliveryId, State} | Rest], Topics, PK, DN, Kept) ->
+    case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
+        [#bcast_msg{msg_id = MsgId, topic_template = Template}] ->
+            Topic = emqx_bcast_utils:expand_topic(Template, PK, DN),
+            case topics_match(Topic, Topics) of
+                true ->
+                    case mnesia:read(?TAB_MSG, MsgId, read) of
+                        [#bcast_message{payload = Payload}] ->
+                            NewEntries = lists:reverse(Kept) ++ [{DeliveryId, pending} | Rest],
+                            mnesia:write(#bcast_msg_index{key = Key, deliveries = NewEntries}),
+                            {ok, #{
+                                delivery_id => DeliveryId,
+                                product_key => PK,
+                                topic_template => Template,
+                                payload => Payload,
+                                claimed_state => State
+                            }};
+                        [] ->
+                            %% Stale index: remove the entry and keep looking.
+                            claim_from_entries(
+                                Key, Rest, Topics, PK, DN, Kept
+                            )
+                    end;
+                false ->
+                    claim_from_entries(Key, Rest, Topics, PK, DN, [{DeliveryId, State} | Kept])
+            end;
+        [] ->
+            %% Stale index entry: drop it and keep looking.
+            claim_from_entries(Key, Rest, Topics, PK, DN, Kept)
+    end.
+
+topics_match(_Topic, []) ->
+    false;
+topics_match(Topic, [{Filter, _Qos} | Rest]) ->
+    case emqx_topic:match(Topic, Filter) of
+        true -> true;
+        false -> topics_match(Topic, Rest)
+    end.
+
+%% Put a claimed delivery back to `stored` (used by pull_pool when the claim
+%% arrived after the client unsubscribed, so no deliver was emitted).
+release_claim(ProductKey, DeviceName, Did) ->
+    Key = {ProductKey, DeviceName},
+    {atomic, ok} = transaction(fun() ->
+        case mnesia:wread({?TAB_MSG_IDX, Key}) of
+            [#bcast_msg_index{deliveries = Entries}] ->
+                NewEntries = lists:map(
+                    fun
+                        ({EntryId, pending}) when EntryId =:= Did -> {EntryId, stored};
+                        (Entry) -> Entry
+                    end,
+                    Entries
+                ),
+                mnesia:write(#bcast_msg_index{key = Key, deliveries = NewEntries});
+            [] ->
+                ok
+        end
+    end),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Management queries
+%%--------------------------------------------------------------------
 
 list_messages(Limit, Offset) ->
     All = mnesia:dirty_match_object(#bcast_message{_ = '_'}),
@@ -288,7 +453,7 @@ list_messages(Limit, Offset) ->
     {length(All), Page}.
 
 get_message_by_api_id(ApiMsgId) ->
-    case mnesia:dirty_read(bcast_message_api_id, ApiMsgId) of
+    case mnesia:dirty_read(?TAB_MSG_API_ID, ApiMsgId) of
         [#bcast_message_api_id{msg_id = MsgId}] ->
             case lookup_message(MsgId) of
                 {ok, Msg} ->
@@ -304,22 +469,22 @@ get_message_by_api_id(ApiMsgId) ->
     end.
 
 delete_message(ApiMsgId) ->
-    case mnesia:dirty_read(bcast_message_api_id, ApiMsgId) of
+    case mnesia:dirty_read(?TAB_MSG_API_ID, ApiMsgId) of
         [] ->
             {error, not_found};
         [#bcast_message_api_id{msg_id = MsgId}] ->
             case
-                mria:transaction(?BCAST_SHARD, fun() ->
+                transaction(fun() ->
                     Deliveries = mnesia:match_object(#bcast_msg{msg_id = MsgId, _ = '_'}),
                     lists:foreach(
-                        fun(D) -> mnesia:delete({bcast_msg, D#bcast_msg.delivery_id}) end,
+                        fun(D) -> mnesia:delete({?TAB_MSG_REC, D#bcast_msg.delivery_id}) end,
                         Deliveries
                     ),
-                    case mnesia:read(bcast_message, MsgId, write) of
+                    case mnesia:read(?TAB_MSG, MsgId, write) of
                         [#bcast_message{content_hash = Hash}] ->
-                            mnesia:delete({bcast_message, MsgId}),
-                            mnesia:delete({bcast_message_hash, Hash}),
-                            mnesia:delete({bcast_message_api_id, ApiMsgId});
+                            mnesia:delete({?TAB_MSG, MsgId}),
+                            mnesia:delete({?TAB_MSG_HASH, Hash}),
+                            mnesia:delete({?TAB_MSG_API_ID, ApiMsgId});
                         [] ->
                             ok
                     end,
@@ -327,7 +492,7 @@ delete_message(ApiMsgId) ->
                 end)
             of
                 {atomic, Deliveries} ->
-                    {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
+                    {atomic, ok} = transaction(fun() ->
                         lists:foreach(
                             fun(D) ->
                                 lists:foreach(
@@ -350,7 +515,7 @@ delete_message(ApiMsgId) ->
     end.
 
 get_delivery(DeliveryId) ->
-    case mnesia:dirty_read(bcast_msg, DeliveryId) of
+    case mnesia:dirty_read(?TAB_MSG_REC, DeliveryId) of
         [#bcast_msg{} = D] ->
             ApiMsgId =
                 case lookup_message(D#bcast_msg.msg_id) of
@@ -363,25 +528,25 @@ get_delivery(DeliveryId) ->
     end.
 
 deliveries_for_device(ProductKey, DeviceName) ->
-    {ok, Ids} = get_device_deliveries({ProductKey, DeviceName}),
+    {ok, Entries} = get_device_delivery_entries({ProductKey, DeviceName}),
     Found = lists:filtermap(
-        fun(Id) ->
+        fun({Id, _State}) ->
             case get_delivery(Id) of
                 {ok, D, ApiMsgId} -> {true, {D, ApiMsgId}};
                 {error, not_found} -> false
             end
         end,
-        Ids
+        Entries
     ),
     {ok, Found}.
 
 delete_delivery(DeliveryId) ->
-    case mnesia:dirty_read(bcast_msg, DeliveryId) of
+    case mnesia:dirty_read(?TAB_MSG_REC, DeliveryId) of
         [] ->
             {error, not_found};
         [#bcast_msg{product_key = ProductKey, device_names = DeviceNames}] ->
-            {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
-                mnesia:delete({bcast_msg, DeliveryId}),
+            {atomic, ok} = transaction(fun() ->
+                mnesia:delete({?TAB_MSG_REC, DeliveryId}),
                 lists:foreach(
                     fun(DN) -> remove_index_entry_tx({ProductKey, DN}, DeliveryId) end,
                     DeviceNames
@@ -397,13 +562,13 @@ cleanup_expired() ->
 
 cleanup_expired_deliveries(Now) ->
     Expired = mnesia:dirty_select(
-        bcast_msg,
+        ?TAB_MSG_REC,
         [{#bcast_msg{expires_at = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}]
     ),
     lists:foreach(
         fun(#bcast_msg{delivery_id = Did, device_names = DNs, product_key = PK}) ->
-            {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
-                mnesia:delete({bcast_msg, Did}),
+            {atomic, ok} = transaction(fun() ->
+                mnesia:delete({?TAB_MSG_REC, Did}),
                 lists:foreach(
                     fun(DN) -> remove_index_entry_tx({PK, DN}, Did) end,
                     DNs
@@ -415,16 +580,23 @@ cleanup_expired_deliveries(Now) ->
 
 cleanup_expired_messages(Now) ->
     Expired = mnesia:dirty_select(
-        bcast_message,
+        ?TAB_MSG,
         [{#bcast_message{expires_at = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}]
     ),
     lists:foreach(
         fun(#bcast_message{msg_id = Mid, content_hash = Hash, api_msg_id = ApiId}) ->
-            {atomic, ok} = mria:transaction(?BCAST_SHARD, fun() ->
-                mnesia:delete({bcast_message, Mid}),
-                mnesia:delete({bcast_message_hash, Hash}),
-                mnesia:delete({bcast_message_api_id, ApiId})
+            {atomic, ok} = transaction(fun() ->
+                mnesia:delete({?TAB_MSG, Mid}),
+                mnesia:delete({?TAB_MSG_HASH, Hash}),
+                mnesia:delete({?TAB_MSG_API_ID, ApiId})
             end)
         end,
         Expired
     ).
+
+%%--------------------------------------------------------------------
+%% Internal
+%%--------------------------------------------------------------------
+
+transaction(Fun) ->
+    mnesia:transaction(Fun).

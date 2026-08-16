@@ -178,10 +178,9 @@ t_cluster_ack_idempotent_across_nodes(Config) ->
     Acked =
         wait_until(
             fun() ->
-                case erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, DN1}]) of
-                    {ok, []} -> true;
-                    _ -> false
-                end
+                {ok, []} =:= erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, DN1}])
+                    andalso
+                {ok, []} =:= erpc:call(N2, emqx_bcast_storage, get_device_deliveries, [{PK, DN1}])
             end,
             50
         ),

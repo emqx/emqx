@@ -61,7 +61,7 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 
 > Messages are delivered directly to the target client processes via internal channels, bypassing subscription state and ACL checks.
 
-> Delivery is asynchronous: a `200` response means the request was accepted, not that all devices have received the message. For QoS=1, messages to offline devices are stored and delivered when the device reconnects. If the internal delivery queue is full, the request is rejected with `429 DeliveryQueueFull` and nothing is stored.
+> Delivery is asynchronous: a `200` response means the request was accepted, not that all devices have received the message. For QoS=1, messages to offline devices are stored on core and delivered when the device reconnects.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -275,7 +275,6 @@ unknown.
 | `UnknownAction` | 400 | Action value is not recognized |
 | `InvalidParams` | 400 | Missing required query parameters on management endpoints |
 | `DeliveryNotFound` | 404 | DeliveryId does not exist (management endpoints) |
-| `DeliveryQueueFull` | 429 | Async delivery queue is full; retry later. Nothing is stored for rejected requests |
 | `InternalError` | 500 | Internal server error |
 
 ---
@@ -313,17 +312,10 @@ This endpoint is separate from the built-in EMQX Prometheus endpoints.
 | `bcast_register_message_in` | RegisterMessage API requests |
 | `bcast_register_message_refresh` | RegisterMessage TTL refresh |
 | `bcast_register_message_error` | RegisterMessage errors |
-| `bcast_delivery_submit_rejected` | BatchPub requests rejected because the delivery queue was full |
 
 Delivery counters (`delivered`, `delivered_inline`, `acked`) are incremented
 by asynchronous delivery workers, so they lag the API response by the time the
 queued tasks take to execute.
-
-### Gauges
-
-| Metric | Description |
-|--------|-------------|
-| `bcast_delivery_queue_depth` | Queued but not yet started delivery tasks |
 
 QoS=1 delivery completion is tracked by comparing `wanted` against `acked`
 (a delivery is fully acknowledged when `acked` reaches `wanted` per DeliveryId).
