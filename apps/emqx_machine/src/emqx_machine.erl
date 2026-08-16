@@ -10,9 +10,9 @@
     brutal_shutdown/0,
     is_ready/0,
 
-    setup_classy_hooks/1,
+    register_hooks/1,
     set_readiness/2,
-    migrate_site_id/0,
+    maybe_migrate_cluster/0,
     manage_business_apps/2,
 
     node_status/0,
@@ -45,13 +45,16 @@ start() ->
     ok = configure_otel_deps(),
     %% Hand over control to classy:
     ClassyDir = filename:join(emqx:data_dir(), "classy"),
-    ok = filelib:ensure_path(ClassyDir),
     application:set_env(classy, table_dir, ClassyDir),
-    application:set_env(
-        classy, setup_hooks, {?MODULE, setup_classy_hooks, [fun ?MODULE:manage_business_apps/2]}
-    ),
-    {ok, _} = application:ensure_all_started(classy, permanent),
-    ok.
+    ok = filelib:ensure_path(ClassyDir),
+    %% Start classy app in dormant mode, which enables registration of hooks:
+    {ok, _} = application:ensure_all_started(classy),
+    %% Start mria in dormant mode:
+    {ok, _} = application:ensure_all_started(mria),
+    %% Setup EMQX hooks:
+    register_hooks(fun ?MODULE:manage_business_apps/2),
+    %% Launch:
+    ok = classy:start_system().
 
 -doc """
 Return true if the machine has ran all necessary for the cluster run level.
@@ -88,10 +91,9 @@ setup_vm() ->
 %% 9999 mria is running
 %% 100  most business applications are running
 %% 0    readiness flag is set
-setup_classy_hooks(OnRunLevel) ->
-    _ = classy:on_node_init(fun ?MODULE:migrate_site_id/0, 100),
-    %% Mria:
-    _ = setup_mria(),
+register_hooks(OnRunLevel) ->
+    %% Classy:
+    _ = classy:on_node_init(fun ?MODULE:maybe_migrate_cluster/0, 100),
     %% Cluster:
     _ = classy:pre_join(fun emqx_cluster:pre_join/4, 50),
     _ = classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 50),
@@ -101,6 +103,16 @@ setup_classy_hooks(OnRunLevel) ->
     %% Staged application start:
     _ = classy:run_level(OnRunLevel, 100),
     _ = classy:run_level(fun ?MODULE:set_readiness/2, 0),
+    %% Mria:
+    %%
+    %% Register mria callbacks that help to check compatibility of the
+    %% replicant with the core node. Currently they rely on the exact
+    %% match of the version of EMQX OTP application:
+    mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
+    mria_config:register_callback(lb_custom_info_check, fun ?MODULE:mria_lb_custom_info_check/1),
+    configure_shard_transports(),
+    set_mnesia_extra_diagnostic_checks(),
+    mria_config:register_callback(heal_partition, fun emqx_broker_heal:on_autoheal/1),
     ok.
 
 -doc false.
@@ -127,28 +139,28 @@ manage_business_apps(From, To) ->
             ok
     end.
 
-migrate_site_id() ->
-    case emqx_dsch_migrate:read_old() of
-        {ok, #{schema := #{site := Site}}} ->
-            ?SLOG(notice, #{msg => "migrate_site_id", site => Site}),
-            classy_node:maybe_init_the_site(Site);
-        _ ->
-            ok
-    end.
-
-setup_mria() ->
-    %% Register mria callbacks that help to check compatibility of the
-    %% replicant with the core node. Currently they rely on the exact
-    %% match of the version of EMQX OTP application:
-    mria_app:on_node_init(),
-    mria_config:register_callback(lb_custom_info, fun ?MODULE:mria_lb_custom_info/0),
-    mria_config:register_callback(lb_custom_info_check, fun ?MODULE:mria_lb_custom_info_check/1),
-    configure_shard_transports(),
-    set_mnesia_extra_diagnostic_checks(),
-    mria_config:register_callback(heal_partition, fun emqx_broker_heal:on_autoheal/1),
-    ok.
+maybe_migrate_cluster() ->
+    %% Use DS site ID:
+    MaybeSite =
+        case emqx_dsch_migrate:read_old() of
+            {ok, #{schema := #{site := Site}}} ->
+                Site;
+            _ ->
+                undefined
+        end,
+    %% Use hash of the mnesia schema cookie as the initial cluster ID:
+    MaybeCluster =
+        case mria_mnesia:schema_cookie() of
+            {ok, Cookie} ->
+                mria_app:cookie_to_cluster_id(Cookie);
+            undefined ->
+                undefined
+        end,
+    ?SLOG(notice, #{msg => "migrate_old_cluster", site => MaybeSite, cluster => MaybeCluster}),
+    classy_node:maybe_init_the_site(MaybeSite, MaybeCluster).
 
 graceful_shutdown() ->
+    classy:stop_system(),
     emqx_machine_terminator:graceful_wait().
 
 %% only used when failed to boot
@@ -162,7 +174,11 @@ set_backtrace_depth() ->
 
 %% @doc Return true if boot is complete.
 is_ready() ->
-    emqx_machine_terminator:is_running().
+    case classy:run_level() of
+        quorum -> true;
+        cluster -> true;
+        _ -> false
+    end.
 
 node_status() ->
     emqx_utils_json:encode(#{
