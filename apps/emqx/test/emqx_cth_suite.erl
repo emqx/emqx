@@ -167,13 +167,16 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     % "Managed" applications are not started immediately, but instead
     % passed to classy hook that manages them depending on the run
     % level:
-    SystemSpecs = [{App, proplists:get_value(App, AppSpecs, #{})} || App <- [gen_rpc, classy]],
+    SystemSpecs = [
+        {App, proplists:get_value(App, AppSpecs, #{})}
+     || App <- [gen_rpc, classy, mria]
+    ],
     ManagedSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, SystemSpecs)],
 
     application:set_env(
         classy,
         setup_hooks,
-        {emqx_machine, setup_classy_hooks, [on_run_level(ManagedSpecs)]}
+        {emqx_machine, register_hooks, [on_run_level(ManagedSpecs)]}
     ),
     ClassyApps = start_apps(SystemSpecs, SuiteOpts),
     % 6. Start apps following instructions.
