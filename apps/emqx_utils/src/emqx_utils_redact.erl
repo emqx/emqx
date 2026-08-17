@@ -18,9 +18,12 @@
 
 -export([redact/1, redact/2, redact_headers/1, is_sensitive_key/1, is_redacted/2, is_redacted/3]).
 -export([deobfuscate/2]).
+-export([redacted_value/0]).
 
 -define(REDACT_VAL, "******").
 -define(IS_KEY_HEADERS(K), (K == headers orelse K == <<"headers">> orelse K == "headers")).
+
+redacted_value() -> <<?REDACT_VAL>>.
 
 %% NOTE: keep alphabetical order
 is_sensitive_key(access_key_id) -> true;
