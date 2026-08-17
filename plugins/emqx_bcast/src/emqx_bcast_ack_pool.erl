@@ -45,19 +45,16 @@ handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
     State1 = State#state{acks = Acks},
     State2 = maybe_flush(State1),
     {noreply, State2};
-
 handle_cast({client_down, _ClientId}, State) ->
     %% A client went down; do not drop already-acked-but-unreported acks.
     %% Flushing the whole batch is safe because ack accounting is idempotent
     %% on core (duplicate ACKs do not count twice).
     {noreply, flush(State)};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(flush_acks, State) ->
     {noreply, flush(State#state{timer = undefined})};
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -96,7 +93,8 @@ flush(State = #state{acks = Acks}) ->
     end,
     State#state{acks = [], timer = undefined}.
 
-cancel_timer(undefined) -> ok;
+cancel_timer(undefined) ->
+    ok;
 cancel_timer(TRef) ->
     _ = erlang:cancel_timer(TRef),
     ok.

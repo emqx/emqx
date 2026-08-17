@@ -42,7 +42,8 @@
 %%--------------------------------------------------------------------
 
 is_core() ->
-    try mria_config:whoami() =/= replicant
+    try
+        mria_config:whoami() =/= replicant
     catch
         _:_ -> true
     end.
@@ -81,7 +82,6 @@ rpc_core(Mod, Fun, Args, Timeout) ->
                 false -> emqx_rpc:call(?MODULE, Core, Mod, Fun, Args, Timeout)
             end
     end.
-
 
 %%--------------------------------------------------------------------
 %% Hooks
@@ -136,12 +136,14 @@ create_mnesia_tables() ->
     end.
 
 create_mnesia_table(Tab, RecordName, Attributes) ->
-    try mnesia:create_table(Tab, [
-        {disc_copies, [node()]},
-        {type, set},
-        {record_name, RecordName},
-        {attributes, Attributes}
-    ]) of
+    try
+        mnesia:create_table(Tab, [
+            {disc_copies, [node()]},
+            {type, set},
+            {record_name, RecordName},
+            {attributes, Attributes}
+        ])
+    of
         {atomic, ok} -> ok;
         {aborted, {already_exists, Tab}} -> ok;
         {aborted, Reason} -> erlang:error({create_table_failed, Tab, Reason})
@@ -211,10 +213,13 @@ unregister_device(ClientId, Pid) ->
         undefined ->
             ok;
         _ ->
-            case ets:match_object(?TAB_DEV_SUB, #bcast_device_sub{
-                clientid = ClientId, pid = Pid, _ = '_'
-            }) of
-                [] -> ok;
+            case
+                ets:match_object(?TAB_DEV_SUB, #bcast_device_sub{
+                    clientid = ClientId, pid = Pid, _ = '_'
+                })
+            of
+                [] ->
+                    ok;
                 Entries ->
                     lists:foreach(
                         fun(#bcast_device_sub{key = Key}) -> ets:delete(?TAB_DEV_SUB, Key) end,
@@ -239,10 +244,15 @@ lookup_devices_by_product(ProductKey) ->
         undefined ->
             [];
         _ ->
-            [{DeviceName, Pid} || [DeviceName, _ClientId, Pid] <- ets:match(
-                ?TAB_DEV_SUB,
-                #bcast_device_sub{key = {ProductKey, '$1'}, clientid = '$2', pid = '$3', _ = '_'}
-            )]
+            [
+                {DeviceName, Pid}
+             || [DeviceName, _ClientId, Pid] <- ets:match(
+                    ?TAB_DEV_SUB,
+                    #bcast_device_sub{
+                        key = {ProductKey, '$1'}, clientid = '$2', pid = '$3', _ = '_'
+                    }
+                )
+            ]
     end.
 
 %%--------------------------------------------------------------------

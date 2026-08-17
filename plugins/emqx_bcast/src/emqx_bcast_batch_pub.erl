@@ -127,7 +127,8 @@ resolve_content_ids(Hash) ->
     end.
 
 submit_qos1_task(Fun) ->
-    try emqx_pool:async_submit_to_pool(?WORKER_POOL, Fun)
+    try
+        emqx_pool:async_submit_to_pool(?WORKER_POOL, Fun)
     catch
         _:_ -> Fun()
     end.

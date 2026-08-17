@@ -39,26 +39,26 @@ init([]) ->
             pool_spec(bcast_pull_pool_sup, PoolSize),
             pool_spec(bcast_ack_pool_sup, PoolSize)
         ] ++
-        core_pool_specs(Core, PoolSize) ++
-        [
-            #{
-                id => emqx_bcast_pull_pool,
-                start => {emqx_bcast_pull_pool, start_link, []},
-                restart => permanent,
-                shutdown => 5000,
-                type => worker,
-                modules => [emqx_bcast_pull_pool]
-            },
-            #{
-                id => emqx_bcast_ack_pool,
-                start => {emqx_bcast_ack_pool, start_link, []},
-                restart => permanent,
-                shutdown => 5000,
-                type => worker,
-                modules => [emqx_bcast_ack_pool]
-            }
-        ] ++
-        core_children(Core),
+            core_pool_specs(Core, PoolSize) ++
+            [
+                #{
+                    id => emqx_bcast_pull_pool,
+                    start => {emqx_bcast_pull_pool, start_link, []},
+                    restart => permanent,
+                    shutdown => 5000,
+                    type => worker,
+                    modules => [emqx_bcast_pull_pool]
+                },
+                #{
+                    id => emqx_bcast_ack_pool,
+                    start => {emqx_bcast_ack_pool, start_link, []},
+                    restart => permanent,
+                    shutdown => 5000,
+                    type => worker,
+                    modules => [emqx_bcast_ack_pool]
+                }
+            ] ++
+            core_children(Core),
     {ok, {SupFlags, Children}}.
 
 core_pool_specs(true, PoolSize) ->

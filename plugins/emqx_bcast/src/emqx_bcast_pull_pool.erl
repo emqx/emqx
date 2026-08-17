@@ -95,12 +95,22 @@ do_want_next(Core, Node, Entries) ->
     Results =
         case Core =:= node() of
             true ->
-                try emqx_bcast_pull_server_pool:want_next(Node, Entries)
+                try
+                    emqx_bcast_pull_server_pool:want_next(Node, Entries)
                 catch
                     _:_ -> []
                 end;
             false ->
-                try emqx_rpc:call(?MODULE, Core, emqx_bcast_pull_server_pool, want_next, [Node, Entries], 15000) of
+                try
+                    emqx_rpc:call(
+                        ?MODULE,
+                        Core,
+                        emqx_bcast_pull_server_pool,
+                        want_next,
+                        [Node, Entries],
+                        15000
+                    )
+                of
                     R when is_list(R) -> R;
                     _ -> []
                 catch
@@ -111,14 +121,16 @@ do_want_next(Core, Node, Entries) ->
 
 do_deliver_pending(Entries) ->
     lists:foreach(
-        fun(#bcast_buffer_entry{
-            clientid = ClientId,
-            delivery_id = DeliveryId,
-            product_key = ProductKey,
-            topic_template = TopicTemplate,
-            payload = Payload,
-            pid = Pid
-        }) ->
+        fun(
+            #bcast_buffer_entry{
+                clientid = ClientId,
+                delivery_id = DeliveryId,
+                product_key = ProductKey,
+                topic_template = TopicTemplate,
+                payload = Payload,
+                pid = Pid
+            }
+        ) ->
             Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, ClientId),
             Msg = emqx_message:make(
                 DeliveryId,
@@ -175,26 +187,21 @@ handle_cast({client_connected, ClientId, Pid, ProductKey}, State) ->
     Ref = monitor(process, Pid),
     Mons = maps:put(Ref, {Pid, ClientId}, State#state.mons),
     {noreply, State#state{mons = Mons}};
-
 handle_cast({client_disconnected, ClientId, Pid}, State) ->
     cleanup_client(ClientId, Pid),
     {noreply, State};
-
 handle_cast({subscribe, ClientId, Pid, ProductKey, Topics}, State) ->
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
     emqx_bcast_subscription:replace(ClientId, Pid, Topics),
     {noreply, trigger_want_next(ClientId, Pid, ProductKey, Topics, State)};
-
 handle_cast({unsubscribe, ClientId, Pid, ProductKey, Topics}, State) ->
     _ = ProductKey,
     emqx_bcast_subscription:replace(ClientId, Pid, Topics),
     {noreply, State};
-
 handle_cast({ping, ClientId, Pid, ProductKey, Topics}, State) ->
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
     emqx_bcast_subscription:replace(ClientId, Pid, Topics),
     {noreply, trigger_want_next(ClientId, Pid, ProductKey, Topics, State)};
-
 handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
     {Pid, State0} =
         case take_pending(ClientId, DeliveryId, State) of
@@ -215,7 +222,6 @@ handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
                 trigger_want_next(ClientId, Pid, ProductKey, Topics, State0)
         end,
     {noreply, State2};
-
 handle_cast({qos0_deliver, ProductKey, TopicTemplate, Payload}, State) ->
     Devices = emqx_bcast:lookup_devices_by_product(ProductKey),
     Targets = lists:filtermap(
@@ -238,7 +244,6 @@ handle_cast({qos0_deliver, ProductKey, TopicTemplate, Payload}, State) ->
             submit_to_worker(fun() -> do_deliver_qos0(Targets) end)
     end,
     {noreply, State};
-
 handle_cast({qos1_core_trigger, ProductKey, DeviceNames, TopicTemplate}, State) ->
     State1 = lists:foldl(
         fun(DeviceName, AccState) ->
@@ -260,11 +265,9 @@ handle_cast({qos1_core_trigger, ProductKey, DeviceNames, TopicTemplate}, State) 
         DeviceNames
     ),
     {noreply, State1};
-
 handle_cast({deliver_results, Results}, State) ->
     {NewEntries, State1} = process_deliver_results(Results, State),
     {noreply, fill_and_deliver(NewEntries, State1)};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -281,7 +284,6 @@ handle_info(flush_buffer3, State) ->
             submit_to_worker(fun() -> do_want_next(Core, node(), Maps) end),
             {noreply, State#state{flush_timer = undefined}}
     end;
-
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
     case maps:take(Ref, State#state.mons) of
         {{Pid, ClientId}, Mons} ->
@@ -291,7 +293,6 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
         error ->
             {noreply, State}
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -409,7 +410,6 @@ take_pending(ClientId, DeliveryId, State) ->
             none
     end.
 
-
 %%--------------------------------------------------------------------
 %% Internal: deliver-results processing and AB filling
 %%--------------------------------------------------------------------
@@ -511,7 +511,8 @@ inactive_side(#state{active = a}) -> b;
 inactive_side(#state{active = b}) -> a.
 
 submit_to_worker(Fun) ->
-    try emqx_pool:async_submit_to_pool(?WORKER_POOL, Fun)
+    try
+        emqx_pool:async_submit_to_pool(?WORKER_POOL, Fun)
     catch
         _:_ -> Fun()
     end.

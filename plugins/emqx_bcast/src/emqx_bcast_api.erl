@@ -18,7 +18,9 @@ handle(Method, Path, Request) ->
             handle_local(Method, Path, Request);
         false ->
             Core = emqx_bcast:random_core(),
-            case emqx_rpc:call(?MODULE, Core, ?MODULE, handle_local, [Method, Path, Request], 30000) of
+            case
+                emqx_rpc:call(?MODULE, Core, ?MODULE, handle_local, [Method, Path, Request], 30000)
+            of
                 {badrpc, Reason} ->
                     {error, 500, #{},
                         error_response(
