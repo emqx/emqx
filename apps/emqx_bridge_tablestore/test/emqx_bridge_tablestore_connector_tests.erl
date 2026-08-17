@@ -4,10 +4,20 @@
 -module(emqx_bridge_tablestore_connector_tests).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -define(CONF, #{
     instance_name => <<"instance">>,
-    endpoint => <<"endpoint">>,
+    endpoint => <<"https://test.cn-hangzhou.ots.aliyuncs.com">>,
+    access_key_id => <<"access_key_id">>,
+    access_key_secret => <<"access_key_secret">>,
+    pool_size => 8,
+    probe_table_name => <<"probe_table">>
+}).
+
+-define(CONF_NO_PROBE, #{
+    instance_name => <<"instance">>,
+    endpoint => <<"https://test.cn-hangzhou.ots.aliyuncs.com">>,
     access_key_id => <<"access_key_id">>,
     access_key_secret => <<"access_key_secret">>,
     pool_size => 8
@@ -56,31 +66,35 @@
 }).
 
 start_connector_test_() ->
-    {timeout, 30,
-        {setup,
-            fun() ->
-                meck:new(ots_ts_client, [no_history]),
-                ok = meck:expect(ots_ts_client, start, fun(_OtsOpts) ->
-                    {ok, dummy_client_ref}
-                end),
-                ok = meck:expect(ots_ts_client, list_tables, fun(_CRef) ->
-                    {ok, []}
-                end),
-                ok = meck:expect(ots_ts_client, stop, fun(_CRef) ->
-                    ok
-                end),
-                emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF)
-            end,
-            fun(_) ->
-                meck:unload(ots_ts_client)
-            end,
-            fun({ok, #{client_ref := ClientRef, ots_opts := OtsOpts}}) ->
-                [
-                    ?_assertEqual(dummy_client_ref, ClientRef),
-                    ?_assertEqual(<<"endpoint">>, proplists:get_value(endpoint, OtsOpts)),
-                    ?_assertEqual(8, proplists:get_value(pool_size, OtsOpts))
-                ]
-            end}}.
+    {setup,
+        fun() ->
+            meck:new(ots_ts_client, [no_history]),
+            ok = meck:expect(ots_ts_client, start, fun(_OtsOpts) ->
+                {ok, dummy_client_ref}
+            end),
+            ok = meck:expect(ots_ts_client, describe_table, fun(
+                _CRef, #{table_name := <<"probe_table">>}
+            ) ->
+                {ok, #{table_name => "probe_table", status => "ACTIVE", time_to_live => 3}}
+            end),
+            ok = meck:expect(ots_ts_client, stop, fun(_CRef) ->
+                ok
+            end),
+            emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF)
+        end,
+        fun(_) ->
+            meck:unload(ots_ts_client)
+        end,
+        fun({ok, #{client_ref := ClientRef, ots_opts := OtsOpts}}) ->
+            [
+                ?_assertEqual(dummy_client_ref, ClientRef),
+                ?_assertEqual(
+                    <<"https://test.cn-hangzhou.ots.aliyuncs.com">>,
+                    proplists:get_value(endpoint, OtsOpts)
+                ),
+                ?_assertEqual(8, proplists:get_value(pool_size, OtsOpts))
+            ]
+        end}.
 
 start_connector_failure_test_() ->
     {setup,
@@ -89,8 +103,8 @@ start_connector_failure_test_() ->
             ok = meck:expect(ots_ts_client, start, fun(_OtsOpts) ->
                 {ok, dummy_client_ref}
             end),
-            ok = meck:expect(ots_ts_client, list_tables, fun(_CRef) ->
-                {error, not_found}
+            ok = meck:expect(ots_ts_client, describe_table, fun(_CRef, _SQL) ->
+                {error, #{code => "OTSParameterInvalid", message => "bad request"}}
             end),
             ok = meck:expect(ots_ts_client, stop, fun(_CRef) ->
                 ok
@@ -102,8 +116,182 @@ start_connector_failure_test_() ->
         fun(_) ->
             [
                 ?_assertMatch(
-                    {error, not_found}, emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF)
+                    {error, #{code := "OTSParameterInvalid"}},
+                    emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF)
                 )
+            ]
+        end}.
+
+start_connector_with_missing_probe_table_test_() ->
+    {setup,
+        fun() ->
+            meck:new(ots_ts_client, [no_history]),
+            ok = meck:expect(ots_ts_client, start, fun(_OtsOpts) ->
+                {ok, dummy_client_ref}
+            end),
+            ok = meck:expect(ots_ts_client, describe_table, fun(
+                _CRef, #{table_name := <<"probe_table">>}
+            ) ->
+                {error, #{code => "OTSObjectNotExist", message => "table not found"}}
+            end),
+            ok = meck:expect(ots_ts_client, stop, fun(_CRef) ->
+                ok
+            end),
+            emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF)
+        end,
+        fun(_) ->
+            meck:unload(ots_ts_client)
+        end,
+        fun(_) ->
+            [
+                ?_assertMatch(
+                    {error, #{code := "OTSObjectNotExist"}},
+                    emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF)
+                )
+            ]
+        end}.
+
+start_connector_list_tables_fallback_test_() ->
+    {setup,
+        fun() ->
+            meck:new(ots_ts_client, [no_history]),
+            ok = meck:expect(ots_ts_client, start, fun(_OtsOpts) ->
+                {ok, dummy_client_ref}
+            end),
+            ok = meck:expect(ots_ts_client, list_tables, fun(_CRef) ->
+                {ok, []}
+            end),
+            ok = meck:expect(ots_ts_client, stop, fun(_CRef) ->
+                ok
+            end),
+            emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF_NO_PROBE)
+        end,
+        fun(_) ->
+            meck:unload(ots_ts_client)
+        end,
+        fun({ok, #{client_ref := ClientRef}}) ->
+            [
+                ?_assertEqual(dummy_client_ref, ClientRef)
+            ]
+        end}.
+
+start_connector_list_tables_fallback_failure_test_() ->
+    {setup,
+        fun() ->
+            meck:new(ots_ts_client, [no_history]),
+            ok = meck:expect(ots_ts_client, start, fun(_OtsOpts) ->
+                {ok, dummy_client_ref}
+            end),
+            ok = meck:expect(ots_ts_client, list_tables, fun(_CRef) ->
+                {error, #{reason => timeout}}
+            end),
+            ok = meck:expect(ots_ts_client, stop, fun(_CRef) ->
+                ok
+            end),
+            emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF_NO_PROBE)
+        end,
+        fun(_) ->
+            meck:unload(ots_ts_client)
+        end,
+        fun(_) ->
+            [
+                ?_assertMatch(
+                    {error, #{reason := timeout}},
+                    emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF_NO_PROBE)
+                )
+            ]
+        end}.
+
+on_get_status_describe_probe_test_() ->
+    {setup,
+        fun() ->
+            meck:new(ots_ts_client, [no_history]),
+            ok = meck:expect(ots_ts_client, start, fun(_OtsOpts) ->
+                {ok, dummy_client_ref}
+            end),
+            ok = meck:expect(ots_ts_client, describe_table, fun(_CRef, _SQL) ->
+                {ok, #{}}
+            end),
+            ok = meck:expect(ots_ts_client, stop, fun(_CRef) ->
+                ok
+            end),
+            {ok, State} = emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF),
+            State
+        end,
+        fun(_) ->
+            meck:unload(ots_ts_client)
+        end,
+        fun(State) ->
+            [
+                ?_test(begin
+                    ok = meck:expect(ots_ts_client, describe_table, fun(_CRef, _SQL) ->
+                        {ok, #{table_name => "probe_table", status => "ACTIVE"}}
+                    end),
+                    ?assertEqual(
+                        connected,
+                        emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
+                    )
+                end),
+                ?_test(begin
+                    ok = meck:expect(ots_ts_client, describe_table, fun(_CRef, _SQL) ->
+                        {error, #{code => "OTSAuthFailed"}}
+                    end),
+                    ?assertEqual(
+                        connecting,
+                        emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
+                    )
+                end),
+                ?_test(begin
+                    ok = meck:expect(ots_ts_client, describe_table, fun(_CRef, _SQL) ->
+                        {error, #{reason => timeout}}
+                    end),
+                    ?assertEqual(
+                        connecting,
+                        emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
+                    )
+                end)
+            ]
+        end}.
+
+on_get_status_list_tables_fallback_test_() ->
+    {setup,
+        fun() ->
+            meck:new(ots_ts_client, [no_history]),
+            ok = meck:expect(ots_ts_client, start, fun(_OtsOpts) ->
+                {ok, dummy_client_ref}
+            end),
+            ok = meck:expect(ots_ts_client, list_tables, fun(_CRef) ->
+                {ok, []}
+            end),
+            ok = meck:expect(ots_ts_client, stop, fun(_CRef) ->
+                ok
+            end),
+            {ok, State} = emqx_bridge_tablestore_connector:on_start(test_inst, ?CONF_NO_PROBE),
+            State
+        end,
+        fun(_) ->
+            meck:unload(ots_ts_client)
+        end,
+        fun(State) ->
+            [
+                ?_test(begin
+                    ok = meck:expect(ots_ts_client, list_tables, fun(_CRef) ->
+                        {ok, [#{table_name => "table_a", status => "ACTIVE"}]}
+                    end),
+                    ?assertEqual(
+                        connected,
+                        emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
+                    )
+                end),
+                ?_test(begin
+                    ok = meck:expect(ots_ts_client, list_tables, fun(_CRef) ->
+                        {error, #{reason => timeout}}
+                    end),
+                    ?assertEqual(
+                        connecting,
+                        emqx_bridge_tablestore_connector:on_get_status(test_inst, State)
+                    )
+                end)
             ]
         end}.
 

@@ -140,8 +140,16 @@ broker_status() ->
 
 application_status() ->
     case lists:keysearch(emqx, 1, application:which_applications()) of
-        false -> not_running;
-        {value, _Val} -> running
+        false ->
+            not_running;
+        {value, _Val} ->
+            %% Report not_running (HTTP 503) until node boot completes,
+            %% so load balancers stop routing MQTT to a node that
+            %% refuses connections.
+            case emqx_node_readiness:is_ready() of
+                true -> running;
+                false -> not_running
+            end
     end.
 
 cluster() ->
