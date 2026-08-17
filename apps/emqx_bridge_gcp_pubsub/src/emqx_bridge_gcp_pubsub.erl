@@ -17,7 +17,7 @@
     desc/1
 ]).
 -export([
-    service_account_json_validator/1,
+    service_account_json_validator/2,
     service_account_json_converter/2,
     decode_service_account_json/1,
     pubsub_topic_validator/1
@@ -87,7 +87,7 @@ fields(connector_config) ->
             emqx_schema_secret:mk(
                 #{
                     required => true,
-                    validator => fun ?MODULE:service_account_json_validator/1,
+                    validator => fun ?MODULE:service_account_json_validator/2,
                     converter => fun ?MODULE:service_account_json_converter/2,
                     desc => ?DESC("service_account_json")
                 }
@@ -258,11 +258,22 @@ type_field_consumer() ->
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
 
--spec service_account_json_validator(emqx_secret:t(binary())) ->
+-spec service_account_json_validator(emqx_secret:t(binary()), hocon_tconf:opts()) ->
     ok
     | {error, {wrong_type, term()}}
     | {error, {missing_keys, [binary()]}}.
-service_account_json_validator(Val) ->
+service_account_json_validator(Val0, Opts) ->
+    MaybeObfuscated = maps:get(maybe_obfuscated, Opts, false),
+    Redacted = emqx_utils_redact:redacted_value(),
+    case emqx_secret:unwrap(Val0) of
+        Redacted when MaybeObfuscated ->
+            %% we'll deobfuscate in the http api handler
+            ok;
+        Val ->
+            do_service_account_json_validator(Val)
+    end.
+
+do_service_account_json_validator(Val) ->
     case emqx_utils_json:safe_decode(emqx_secret:unwrap(Val)) of
         {ok, Map} ->
             ExpectedKeys = [

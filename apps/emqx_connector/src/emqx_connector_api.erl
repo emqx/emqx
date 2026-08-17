@@ -80,12 +80,18 @@ check_api_schema(Request, #{path := "/connectors/:id", method := put = Method} =
             {_, Ref} = emqx_connector_info:api_schema(ConnectorType, atom_to_list(Method)),
             Schema = hoconsc:mk(Ref),
             emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(
-                Request, refine_api_schema(Schema, Metadata)
+                Request, refine_api_schema(Schema, Metadata), #{
+                    maybe_obfuscated => true
+                }
             )
     catch
         throw:#{reason := Reason} ->
             ?NOT_FOUND(<<"Invalid connector id, ", Reason/binary>>)
     end;
+check_api_schema(Request, #{path := "/connectors_probe", method := post} = Metadata) ->
+    emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(
+        Request, Metadata, #{maybe_obfuscated => true}
+    );
 check_api_schema(Request, Metadata) ->
     emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(Request, Metadata).
 
@@ -403,7 +409,11 @@ schema("/connectors_probe") ->
 '/connectors_probe'(post, Request) ->
     Namespace = emqx_dashboard:get_namespace(Request),
     RequestMeta = #{module => ?MODULE, method => post, path => "/connectors_probe"},
-    case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
+    case
+        emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta, #{
+            maybe_obfuscated => true
+        })
+    of
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
             Params1 = maybe_deobfuscate_connector_probe(Namespace, Params),
             case

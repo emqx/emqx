@@ -90,7 +90,7 @@ fields(connector_config) ->
             emqx_schema_secret:mk(
                 #{
                     required => true,
-                    validator => fun emqx_bridge_gcp_pubsub:service_account_json_validator/1,
+                    validator => fun emqx_bridge_gcp_pubsub:service_account_json_validator/2,
                     desc => ?DESC(emqx_bridge_gcp_pubsub, "service_account_json")
                 }
             )}
