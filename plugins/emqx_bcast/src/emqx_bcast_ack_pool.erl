@@ -34,6 +34,9 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
+    %% Ack received on the client's own node: count it here so the metric is
+    %% node-local (aggregated across nodes by the observer).
+    emqx_bcast_metrics:qos1_acked(),
     %% 1. Atomically delete the in-progress pending entry and trigger the next
     %%    want_next in pull_pool.
     gen_server:cast(emqx_bcast_pull_pool, {ack, ClientId, DeliveryId, ProductKey}),

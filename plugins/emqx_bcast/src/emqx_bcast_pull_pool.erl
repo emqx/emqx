@@ -133,7 +133,7 @@ do_deliver_pending(Entries) ->
                 }
             ),
             Pid ! #deliver{topic = Topic, message = Msg},
-            emqx_bcast_metrics:qos1_delivered_inline()
+            emqx_bcast_metrics:qos1_delivered()
         end,
         Entries
     ).
@@ -234,7 +234,7 @@ handle_cast({qos0_deliver, ProductKey, TopicTemplate, Payload}, State) ->
         [] ->
             ok;
         _ ->
-            emqx_bcast_metrics:broadcast_delivery_count(length(Targets)),
+            emqx_bcast_metrics:qos0_delivery_count(length(Targets)),
             submit_to_worker(fun() -> do_deliver_qos0(Targets) end)
     end,
     {noreply, State};
