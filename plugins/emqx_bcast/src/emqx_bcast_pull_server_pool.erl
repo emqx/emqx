@@ -31,12 +31,12 @@ ack_batch(Acks) ->
 %% to all nodes; each local pull_pool checks online + subscription and drops
 %% silently when either check fails.
 qos0_broadcast(ProductKey, TopicTemplate, Payload) ->
-    broadcast_to_pull_pools({qos0_deliver_local, ProductKey, TopicTemplate, Payload}).
+    broadcast_to_pull_pools({qos0_deliver_local, [ProductKey, TopicTemplate, Payload]}).
 
 %% QoS1 BatchPub: pure trigger signal (no payload). Each pull_pool checks
 %% online + subscription and turns the trigger into a want_next batch entry.
 qos1_trigger(ProductKey, DeviceNames, TopicTemplate) ->
-    broadcast_to_pull_pools({qos1_core_trigger_local, ProductKey, DeviceNames, TopicTemplate}).
+    broadcast_to_pull_pools({qos1_core_trigger_local, [ProductKey, DeviceNames, TopicTemplate]}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

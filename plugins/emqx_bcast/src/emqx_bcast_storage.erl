@@ -56,9 +56,14 @@
 lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
-    transaction(fun() ->
-        do_lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId, Now, TTL)
-    end).
+    case
+        transaction(fun() ->
+            do_lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId, Now, TTL)
+        end)
+    of
+        {atomic, Result} -> Result;
+        {aborted, Reason} -> {error, Reason}
+    end.
 
 do_lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
     case mnesia:wread({?TAB_MSG_HASH, Hash}) of

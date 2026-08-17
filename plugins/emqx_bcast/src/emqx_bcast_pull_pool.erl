@@ -308,14 +308,15 @@ code_change(_OldVsn, State, _Extra) ->
 ensure_buffer_table(Name, KeyPos) ->
     case ets:info(Name) of
         undefined ->
-            ets:new(Name, [
+            _ = ets:new(Name, [
                 named_table,
                 public,
                 set,
                 {keypos, KeyPos},
                 {read_concurrency, true},
                 {write_concurrency, true}
-            ]);
+            ]),
+            ok;
         _ ->
             ok
     end.

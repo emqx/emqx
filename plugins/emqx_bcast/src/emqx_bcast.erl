@@ -334,11 +334,12 @@ on_delivery_completed(Msg, #{clientid := ClientId}) ->
 
 store_subs(TopicFilters, add) ->
     Current = get_subs(),
-    Updated =
-        case add of
-            add -> lists:foldl(fun add_sub/2, Current, TopicFilters);
-            remove -> lists:foldl(fun remove_sub/2, Current, TopicFilters)
-        end,
+    Updated = lists:foldl(fun add_sub/2, Current, TopicFilters),
+    put_subs(Updated),
+    Updated;
+store_subs(TopicFilters, remove) ->
+    Current = get_subs(),
+    Updated = lists:foldl(fun remove_sub/2, Current, TopicFilters),
     put_subs(Updated),
     Updated.
 
