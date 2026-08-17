@@ -40,11 +40,12 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
   ## Scope
 
   Umbrella apps and in-tree plugins are checked. Plugins are separate mix
-  projects outside the umbrella build, so this task builds each one with its
-  own build tool (as `scripts/build-plugins.sh --compile-only` does) and adds
-  the resulting beams to the xref graph. A plugin caller must follow the same
-  target rules as an umbrella caller, but plugins cannot host BPAPI proto
-  modules, so an audited plugin caller is exempted by module name via
+  projects outside the umbrella build; their beams are loaded from the shared
+  build tree (plugin mix.exs sets `build_path: "../../_build"`). Run
+  `scripts/build-plugins.sh --compile-only` (as the static_checks make target
+  does) or `make plugins` to produce them. A plugin caller must follow the
+  same target rules as an umbrella caller, but plugins cannot host BPAPI
+  proto modules, so an audited plugin caller is exempted by module name via
   `@exempted_callers` instead. A plugin caller must additionally accept that
   a live node where the plugin app is not running fails the apply and retries
   until the plugin starts — the boot path is unaffected because catch-up
@@ -125,7 +126,7 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
       {:ok, _} = :xref.add_application(@xref, to_charlist(app.opts[:build]))
     end)
 
-    for ebin_dir <- compile_plugins() do
+    for ebin_dir <- plugin_ebin_dirs() do
       # The beams must be loadable to read a plugin proto module's bpapi_meta/0:
       true = Code.append_path(ebin_dir)
       {:ok, _} = :xref.add_directory(@xref, to_charlist(ebin_dir))
@@ -146,26 +147,22 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
     end
   end
 
-  # In-tree plugins are not part of the umbrella build: build each one with
-  # its own build tool (same invocation as scripts/build-plugins.sh
-  # --compile-only) so its compile options are honored and rebuilds are
-  # incremental. Plugin mix.exs sets build_path: "../../_build", so the beams
-  # land in the shared build tree.
-  defp compile_plugins() do
-    mix = Path.absname("mix")
-
+  # In-tree plugins are not part of the umbrella build: load their beams from
+  # the shared build tree, where the plugin build (scripts/build-plugins.sh
+  # --compile-only, run by the static_checks make target) puts them.
+  defp plugin_ebin_dirs() do
     for plugin_dir <- Path.wildcard("plugins/*"),
         plugin_app?(plugin_dir) do
-      case System.cmd(mix, ~w(do deps.get + compile),
-             cd: plugin_dir,
-             env: [{"MIX_ENV", to_string(Mix.env())}],
-             into: IO.stream(:stdio, :line)
-           ) do
-        {_, 0} -> :ok
-        {_, status} -> Mix.raise("compiling plugin #{plugin_dir} failed with status #{status}")
+      ebin_dir = Path.join([Mix.Project.build_path(), "lib", Path.basename(plugin_dir), "ebin"])
+
+      if Path.wildcard(Path.join(ebin_dir, "*.beam")) == [] do
+        Mix.raise(
+          "no beams for plugin #{plugin_dir} in #{ebin_dir}; " <>
+            "run 'scripts/build-plugins.sh --compile-only' first"
+        )
       end
 
-      Path.join([Mix.Project.build_path(), "lib", Path.basename(plugin_dir), "ebin"])
+      ebin_dir
     end
   end
 
