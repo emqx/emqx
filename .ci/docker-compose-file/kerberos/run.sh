@@ -36,6 +36,13 @@ kadmin.local -w password -q "ktadd  -k /var/lib/secret/rig.keytab -norandkey rig
 kadmin.local -w password -q "ktadd  -k /var/lib/secret/erlang.keytab -norandkey mqtt/erlang.emqx.net@KDC.EMQX.NET "
 kadmin.local -w password -q "ktadd  -k /var/lib/secret/krb_authn_cli.keytab -norandkey krb_authn_cli@KDC.EMQX.NET "
 
+# Test containers read these keytabs as non-root users.
+# ktadd creates the keytabs with mode 0600 and owner root.
+# The chown below runs only when DOCKER_USER is set, and a consumer
+# can open a keytab before the chown runs or with a different uid.
+# chmod keeps the keytabs readable for every consumer.
+chmod a+r /var/lib/secret/*.keytab
+
 echo "===== Dump logs"
 
 for fn in /var/log/kerberos/* ; do
