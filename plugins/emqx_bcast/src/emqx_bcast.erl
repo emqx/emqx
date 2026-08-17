@@ -7,6 +7,7 @@
     hook/0,
     unhook/0,
     init_tables/0,
+    ensure_core_copies/0,
     is_core/0,
     core_nodes/0,
     random_core/0,
@@ -21,8 +22,7 @@
     on_client_subscribe/3,
     on_client_unsubscribe/3,
     on_session_resumed/2,
-    on_client_ping/2,
-    on_message_acked/2,
+    on_client_ping/3,
     on_delivery_completed/2
 ]).
 
@@ -94,7 +94,6 @@ hook() ->
     ok = emqx_hooks:put('client.unsubscribe', {?MODULE, on_client_unsubscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.ping', {?MODULE, on_client_ping, []}, ?HP_HIGHEST),
-    ok = emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_HIGHEST).
 
 unhook() ->
@@ -104,7 +103,6 @@ unhook() ->
     ok = emqx_hooks:del('client.unsubscribe', {?MODULE, on_client_unsubscribe}),
     ok = emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
     ok = emqx_hooks:del('client.ping', {?MODULE, on_client_ping}),
-    ok = emqx_hooks:del('message.acked', {?MODULE, on_message_acked}),
     ok = emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}).
 
 %%--------------------------------------------------------------------
@@ -113,7 +111,8 @@ unhook() ->
 
 init_tables() ->
     ok = create_mnesia_tables(),
-    ok = create_ets_tables().
+    ok = create_ets_tables(),
+    ok = ensure_core_copies().
 
 create_mnesia_tables() ->
     case is_core() of
@@ -157,6 +156,37 @@ create_ets_tables() ->
     ]),
     emqx_bcast_subscription:init(),
     ok.
+
+%% Every core node needs a local copy of the storage tables so that
+%% transactions (create, claim, ack) execute locally instead of being
+%% shipped to whichever core created the table first. Each core simply
+%% adds its own copy; the periodic retry in emqx_bcast_pull_server_pool
+%% covers nodes whose plugin started before the cluster fully formed.
+ensure_core_copies() ->
+    case is_core() of
+        false ->
+            ok;
+        true ->
+            Tables = [
+                ?TAB_MSG,
+                ?TAB_MSG_API_ID,
+                ?TAB_MSG_HASH,
+                ?TAB_MSG_REC,
+                ?TAB_MSG_IDX
+            ],
+            lists:foreach(
+                fun(Tab) ->
+                    case lists:member(node(), mnesia:table_info(Tab, disc_copies)) of
+                        true ->
+                            ok;
+                        false ->
+                            catch mnesia:add_table_copy(Tab, node(), disc_copies)
+                    end
+                end,
+                Tables
+            ),
+            ok
+    end.
 
 ensure_ets(Name, Opts) ->
     case ets:info(Name) of
@@ -286,7 +316,7 @@ on_session_resumed(ClientInfo, SessionInfo) ->
     end,
     ok.
 
-on_client_ping(ClientInfo, _ConnInfo) ->
+on_client_ping(ClientInfo, _ConnInfo, Acc) ->
     try
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
@@ -297,22 +327,7 @@ on_client_ping(ClientInfo, _ConnInfo) ->
         _E:_R:_ST ->
             ok
     end,
-    ok.
-
-on_message_acked(ClientInfo, Msg) ->
-    case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
-        undefined ->
-            ok;
-        DeliveryId ->
-            #{clientid := DeviceName} = ClientInfo,
-            ProductKey =
-                case emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined) of
-                    undefined -> get_product_key(ClientInfo);
-                    PK -> PK
-                end,
-            emqx_bcast_ack_pool:ack(DeviceName, DeliveryId, ProductKey),
-            ok
-    end.
+    Acc.
 
 on_delivery_completed(Msg, #{clientid := ClientId}) ->
     case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
