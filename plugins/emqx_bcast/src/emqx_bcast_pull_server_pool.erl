@@ -16,6 +16,8 @@
 
 -include("emqx_bcast.hrl").
 
+-define(ENSURE_COPIES_MS, 30000).
+
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -43,27 +45,31 @@ qos1_trigger(ProductKey, DeviceNames, TopicTemplate) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    _ = ensure_core_copies(),
+    _ = erlang:send_after(?ENSURE_COPIES_MS, self(), ensure_core_copies),
     {ok, #{}}.
 
-handle_call({want_next, _Node, Entries}, _From, State) ->
-    Results = emqx_bcast_storage:claim_want_next_batch(Entries),
-    {reply, Results, State};
+handle_call({want_next, _Node, Entries}, From, State) ->
+    submit_worker(fun() ->
+        Results = emqx_bcast_storage:claim_want_next_batch(Entries),
+        gen_server:reply(From, Results)
+    end),
+    {noreply, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({ack_batch, Acks}, State) ->
-    Results = emqx_bcast_storage:process_ack_batch(Acks),
-    lists:foreach(
-        fun
-            (counted) -> emqx_bcast_metrics:qos1_acked();
-            (_) -> ok
-        end,
-        Results
-    ),
+    submit_worker(fun() ->
+        _ = emqx_bcast_storage:process_ack_batch(Acks)
+    end),
     {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info(ensure_core_copies, State) ->
+    _ = ensure_core_copies(),
+    _ = erlang:send_after(?ENSURE_COPIES_MS, self(), ensure_core_copies),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -98,3 +104,15 @@ broadcast_to_pull_pools({Fun, Args}) ->
 
 local_cast_fun(qos0_deliver_local) -> qos0_deliver_local;
 local_cast_fun(qos1_core_trigger_local) -> qos1_core_trigger_local.
+
+ensure_core_copies() ->
+    try emqx_bcast:ensure_core_copies()
+    catch
+        _:_ -> ok
+    end.
+
+submit_worker(Fun) ->
+    try emqx_pool:async_submit_to_pool(emqx_bcast_pull_server_worker_pool, Fun)
+    catch
+        _:_ -> Fun()
+    end.
