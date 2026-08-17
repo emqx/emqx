@@ -83,9 +83,15 @@ on_start(InstId, Config) ->
     ],
     ?LOG_T(info, #{msg => ots_start, ots_opts => BaseOpts}),
     {ok, ClientRef} = start_ots_ts_client(InstId, BaseOpts ++ SecretOpts),
-    case list_ots_tables(ClientRef) of
-        {ok, _} ->
-            {ok, #{client_ref => ClientRef, channels => #{}, ots_opts => BaseOpts}};
+    ProbeTableName = maps:get(probe_table_name, Config, undefined),
+    case probe_ots(ClientRef, ProbeTableName) of
+        ok ->
+            {ok, #{
+                client_ref => ClientRef,
+                probe_table_name => ProbeTableName,
+                channels => #{},
+                ots_opts => BaseOpts
+            }};
         {error, Reason} ->
             _ = ots_ts_client:stop(ClientRef),
             {error, Reason}
@@ -95,9 +101,9 @@ on_stop(_InstId, #{client_ref := ClientRef} = State) ->
     ots_ts_client:stop(ClientRef),
     State.
 
-on_get_status(_InstId, #{client_ref := ClientRef}) ->
-    case list_ots_tables(ClientRef) of
-        {ok, _} -> ?status_connected;
+on_get_status(_InstId, #{client_ref := ClientRef, probe_table_name := ProbeTableName}) ->
+    case probe_ots(ClientRef, ProbeTableName) of
+        ok -> ?status_connected;
         _ -> ?status_connecting
     end.
 
@@ -157,12 +163,31 @@ send_batch_data(BatchDataList, ClientRef, ChannelId) ->
 start_ots_ts_client(_, OtsOpts) ->
     ots_ts_client:start(OtsOpts).
 
+probe_ots(ClientRef, undefined) ->
+    list_ots_tables(ClientRef);
+probe_ots(ClientRef, ProbeTableName) ->
+    describe_ots_table(ClientRef, ProbeTableName).
+
 list_ots_tables(ClientRef) ->
     try
-        ots_ts_client:list_tables(ClientRef)
+        case ots_ts_client:list_tables(ClientRef) of
+            {ok, _} -> ok;
+            {error, Reason} -> {error, Reason}
+        end
     catch
-        Err:Reason:ST ->
-            {error, #{error => Err, reason => Reason, stacktrace => ST}}
+        Err:CReason:CST ->
+            {error, #{error => Err, reason => CReason, stacktrace => CST}}
+    end.
+
+describe_ots_table(ClientRef, ProbeTableName) ->
+    try
+        case ots_ts_client:describe_table(ClientRef, #{table_name => ProbeTableName}) of
+            {ok, _} -> ok;
+            {error, Reason} -> {error, Reason}
+        end
+    catch
+        Err:CReason:CST ->
+            {error, #{error => Err, reason => CReason, stacktrace => CST}}
     end.
 
 preproc_tags(Tags) ->

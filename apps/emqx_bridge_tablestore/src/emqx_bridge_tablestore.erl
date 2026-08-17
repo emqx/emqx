@@ -122,7 +122,12 @@ fields("connector") ->
                     default => 8,
                     desc => ?DESC("pool_size")
                 }
-            )}
+            )},
+        {probe_table_name,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_probe_table_name")
+            })}
     ] ++ emqx_connector_schema_lib:ssl_fields();
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
