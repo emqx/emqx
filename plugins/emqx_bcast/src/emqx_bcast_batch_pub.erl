@@ -6,6 +6,9 @@
 -export([handle/2]).
 
 -include("emqx_bcast.hrl").
+-include_lib("emqx/include/logger.hrl").
+
+-define(WORKER_POOL, emqx_bcast_pull_server_worker_pool).
 
 handle(Body, RequestId) ->
     ProductKey = maps:get(<<"ProductKey">>, Body, undefined),
@@ -81,49 +84,95 @@ do_qos1(DeviceNames, ProductKey, TopicTemplate, MessageContent, MessageId, Reque
     case prepare_qos1_content(MessageContent, MessageId) of
         {error, Code, Msg} ->
             {ok, 400, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg)};
-        {ok, {content, Payload, Hash, ApiMsgId0, MsgGuid}} ->
+        {ok, {content, Payload, Hash}} ->
+            {ApiMsgId, MsgGuid} = resolve_content_ids(Hash),
             DeliveryId = emqx_bcast_utils:gen_guid(),
-            case
-                emqx_bcast_storage:create_message_and_delivery(
+            emqx_bcast_metrics:qos1_in(),
+            emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
+            ok = submit_qos1_task(fun() ->
+                persist_content_and_trigger(
                     Payload,
                     Hash,
-                    ApiMsgId0,
+                    ApiMsgId,
                     MsgGuid,
                     DeliveryId,
                     ProductKey,
                     TopicTemplate,
                     DeviceNames
                 )
-            of
-                {ok, ApiMsgId, _Delivery} ->
-                    emqx_bcast_metrics:qos1_in(),
-                    emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
-                    emqx_bcast_pull_server_pool:qos1_trigger(
-                        ProductKey, DeviceNames, TopicTemplate
-                    ),
-                    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
-                {error, _} ->
-                    {ok, 500, #{},
-                        emqx_bcast_api:error_response(
-                            RequestId, <<"InternalError">>, <<"Storage error">>
-                        )}
-            end;
+            end),
+            {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
         {ok, {reuse, ApiMsgId, MsgGuid}} ->
             DeliveryId = emqx_bcast_utils:gen_guid(),
-            _Delivery = emqx_bcast_storage:create_delivery(
-                DeliveryId,
-                MsgGuid,
-                ProductKey,
-                TopicTemplate,
-                DeviceNames,
-                length(DeviceNames)
-            ),
-            _ = emqx_bcast_storage:refresh_message_ttl(MsgGuid),
             emqx_bcast_metrics:qos1_in(),
             emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
-            emqx_bcast_pull_server_pool:qos1_trigger(ProductKey, DeviceNames, TopicTemplate),
+            ok = submit_qos1_task(fun() ->
+                persist_reuse_and_trigger(
+                    DeliveryId,
+                    MsgGuid,
+                    ProductKey,
+                    TopicTemplate,
+                    DeviceNames
+                )
+            end),
             {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}
     end.
+
+resolve_content_ids(Hash) ->
+    case emqx_bcast_storage:lookup_message_by_hash(Hash) of
+        {ok, #bcast_message{api_msg_id = ExistingApiMsgId, msg_id = ExistingMsgId}} ->
+            {ExistingApiMsgId, ExistingMsgId};
+        {error, not_found} ->
+            emqx_bcast_id:generate_message_id_from_hash(Hash)
+    end.
+
+submit_qos1_task(Fun) ->
+    try emqx_pool:async_submit_to_pool(?WORKER_POOL, Fun)
+    catch
+        _:_ -> Fun()
+    end.
+
+persist_content_and_trigger(
+    Payload, Hash, ApiMsgId, MsgGuid, DeliveryId, ProductKey, TopicTemplate, DeviceNames
+) ->
+    case
+        emqx_bcast_storage:create_message_and_delivery(
+            Payload,
+            Hash,
+            ApiMsgId,
+            MsgGuid,
+            DeliveryId,
+            ProductKey,
+            TopicTemplate,
+            DeviceNames
+        )
+    of
+        {ok, _ResolvedApiMsgId, _Delivery} ->
+            ok = emqx_bcast_pull_server_pool:qos1_trigger(
+                ProductKey, DeviceNames, TopicTemplate
+            );
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "bcast_qos1_persist_failed",
+                api_msg_id => ApiMsgId,
+                delivery_id => DeliveryId,
+                reason => Reason
+            })
+    end,
+    ok.
+
+persist_reuse_and_trigger(DeliveryId, MsgGuid, ProductKey, TopicTemplate, DeviceNames) ->
+    _Delivery = emqx_bcast_storage:create_delivery(
+        DeliveryId,
+        MsgGuid,
+        ProductKey,
+        TopicTemplate,
+        DeviceNames,
+        length(DeviceNames)
+    ),
+    _ = emqx_bcast_storage:refresh_message_ttl(MsgGuid),
+    ok = emqx_bcast_pull_server_pool:qos1_trigger(ProductKey, DeviceNames, TopicTemplate),
+    ok.
 
 prepare_qos1_content(MessageContent, _MessageId) when MessageContent =/= undefined ->
     case emqx_bcast_utils:decode_base64(MessageContent) of
@@ -132,8 +181,7 @@ prepare_qos1_content(MessageContent, _MessageId) when MessageContent =/= undefin
             case byte_size(Payload) =< MaxSize of
                 true ->
                     Hash = emqx_bcast_utils:sha256(Payload),
-                    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
-                    {ok, {content, Payload, Hash, ApiMsgId, MsgGuid}};
+                    {ok, {content, Payload, Hash}};
                 false ->
                     {error, <<"MessageTooLarge">>, <<"Message too large">>}
             end;
