@@ -42,13 +42,18 @@
     format_user_info/1
 ]).
 
-%% Internal exports (RPC)
+%% Internal exports (Mnesia transactions)
 -export([
-    do_destroy/1,
-    do_add_user/1,
-    do_delete_user/3,
-    do_update_user/4,
-    do_rotate_password/4
+    destroy_tx/1,
+    add_user_tx/1,
+    delete_user_tx/3,
+    update_user_tx/4,
+    rotate_password_tx/4
+]).
+
+%% RPC target
+-export([
+    need_use_ns_table_for_global/0
 ]).
 
 -export([init_tables/0]).
@@ -72,6 +77,7 @@
 }).
 
 -define(TAB, ?MODULE).
+-define(GLOBAL_NS_TABLE_BPAPI_VSN, 3).
 -define(AUTHN_QSCHEMA, [
     {<<"like_user_id">>, binary},
     {<<"user_group">>, binary},
@@ -117,6 +123,9 @@ backup_tables() -> {<<"builtin_authn">>, [?TAB, ?AUTHN_NS_TAB]}.
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
+%% RPC target
+need_use_ns_table_for_global() -> true.
 
 create(_AuthenticatorID, Config) ->
     create(Config).
@@ -187,9 +196,9 @@ authenticate(
 
 %% fixme ns
 destroy(#{user_group := UserGroup}) ->
-    trans(fun ?MODULE:do_destroy/1, [UserGroup]).
+    trans(fun ?MODULE:destroy_tx/1, [UserGroup]).
 
-do_destroy(UserGroup) ->
+destroy_tx(UserGroup) ->
     ok = lists:foreach(
         fun(User) ->
             mnesia:delete_object(?TAB, User, write)
@@ -253,13 +262,17 @@ do_import_users([], _Opts) ->
     {error, empty_users};
 do_import_users(Users, Opts) ->
     FoldFn = fun(User, Acc0) ->
-        Return = insert_user(User, Opts),
+        Return = insert_user_tx(User, Opts),
         case Return of
-            {success, Ns} ->
+            {Result, Ns, CountRecord} when Result =:= success; Result =:= override ->
                 PerNs0 = maps:get(per_ns, Acc0),
-                PerNs = inc_bucket_count(Ns, PerNs0),
+                PerNs =
+                    case CountRecord of
+                        true -> inc_bucket_count(Ns, PerNs0);
+                        false -> PerNs0
+                    end,
                 Acc1 = Acc0#{per_ns := PerNs},
-                inc_bucket_count(success, Acc1);
+                inc_bucket_count(Result, Acc1);
             _ ->
                 inc_bucket_count(Return, Acc0)
         end
@@ -300,9 +313,10 @@ add_user(UserInfo, State) ->
     add_user_record(UserInfoRecord, undefined).
 
 add_user_record(UserInfoRecord, Password) ->
-    Res = trans(fun ?MODULE:do_add_user/1, [UserInfoRecord]),
+    Res = trans(fun ?MODULE:add_user_tx/1, [UserInfoRecord]),
     maybe
         {ok, #{namespace := Namespace}} ?= Res,
+        true ?= is_namespaced_record(UserInfoRecord),
         inc_ns_rule_count(Namespace, 1)
     end,
     case Res of
@@ -311,10 +325,10 @@ add_user_record(UserInfoRecord, Password) ->
         Error -> Error
     end.
 
-do_add_user(UserInfoRecord) ->
-    case do_lookup_by_rec_txn(UserInfoRecord) of
+add_user_tx(UserInfoRecord) ->
+    case lookup_by_record_tx(UserInfoRecord) of
         [] ->
-            ok = insert_user(UserInfoRecord),
+            ok = write_user_tx(UserInfoRecord),
             #{
                 namespace := Namespace,
                 user_id := UserId,
@@ -327,24 +341,28 @@ do_add_user(UserInfoRecord) ->
     end.
 
 delete_user(Namespace, UserId, State) ->
-    Res = trans(fun ?MODULE:do_delete_user/3, [Namespace, UserId, State]),
-    maybe
-        ok ?= Res,
-        dec_ns_rule_count(Namespace, 1)
-    end,
-    Res.
+    Res = trans(fun ?MODULE:delete_user_tx/3, [Namespace, UserId, State]),
+    case Res of
+        {ok, true} ->
+            dec_ns_rule_count(Namespace, 1),
+            ok;
+        {ok, false} ->
+            ok;
+        Error ->
+            Error
+    end.
 
-do_delete_user(Namespace, UserId, #{user_group := UserGroup}) ->
+delete_user_tx(Namespace, UserId, #{user_group := UserGroup}) ->
     NSKey = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId),
     NSRecords = mnesia:read(?AUTHN_NS_TAB, NSKey, write),
-    LegacyRecords = read_legacy_global_txn(Namespace, UserGroup, UserId),
+    LegacyRecords = read_legacy_global_tx(Namespace, UserGroup, UserId),
     case NSRecords ++ LegacyRecords of
         [] ->
             {error, not_found};
         _ ->
             NSRecords =/= [] andalso mnesia:delete(?AUTHN_NS_TAB, NSKey, write),
-            LegacyRecords =/= [] andalso delete_legacy_global_txn(Namespace, UserGroup, UserId),
-            ok
+            LegacyRecords =/= [] andalso delete_legacy_global_tx(Namespace, UserGroup, UserId),
+            {ok, NSRecords =/= []}
     end.
 
 update_user(_Namespace, _UserId, #{password := _}, #{autogenerate_password := true}) ->
@@ -359,39 +377,47 @@ update_user(Namespace, UserId, UserInfo, State) ->
         ],
         State
     ),
-    trans(fun ?MODULE:do_update_user/4, [Namespace, UserId, FieldsToUpdate, State]).
+    finish_user_update(
+        Namespace,
+        trans(fun ?MODULE:update_user_tx/4, [Namespace, UserId, FieldsToUpdate, State])
+    ).
 
-do_update_user(
+update_user_tx(
     Namespace,
     UserId,
     FieldsToUpdate,
     #{user_group := UserGroup, password_hash_algorithm := Algorithm}
 ) ->
-    case read_user_for_update(Namespace, UserGroup, UserId, Algorithm) of
+    case read_user_for_update_tx(Namespace, UserGroup, UserId, Algorithm) of
         error ->
             {error, not_found};
         {ok, UserInfoRecord} ->
             NUserInfoRecord = update_user_record(UserInfoRecord, FieldsToUpdate),
-            ok = insert_user(NUserInfoRecord),
-            delete_legacy_global_txn(Namespace, UserGroup, UserId),
+            CountRecord = is_new_namespaced_record_tx(NUserInfoRecord),
+            ok = write_user_tx(NUserInfoRecord),
+            maybe_delete_legacy_global_tx(NUserInfoRecord, Namespace, UserGroup, UserId),
             #{user_id := UserId, is_superuser := IsSuperuser} = rec_to_map(NUserInfoRecord),
-            {ok, #{namespace => Namespace, user_id => UserId, is_superuser => IsSuperuser}}
+            {ok, #{namespace => Namespace, user_id => UserId, is_superuser => IsSuperuser},
+                CountRecord}
     end.
 
 rotate_password(_Namespace, _UserId, #{autogenerate_password := false}) ->
     {error, password_rotation_disabled};
 rotate_password(Namespace, UserId, State) ->
     Password = emqx_authn_password_hashing:gen_password(),
-    Res = trans(fun ?MODULE:do_rotate_password/4, [Namespace, UserId, Password, State]),
+    Res = finish_user_update(
+        Namespace,
+        trans(fun ?MODULE:rotate_password_tx/4, [Namespace, UserId, Password, State])
+    ),
     case Res of
         {ok, User} -> {ok, User#{password => Password}};
         Error -> Error
     end.
 
-do_rotate_password(Namespace, UserId, Password, #{
+rotate_password_tx(Namespace, UserId, Password, #{
     user_group := UserGroup, password_hash_algorithm := Algorithm
 }) ->
-    case read_user_for_update(Namespace, UserGroup, UserId, Algorithm) of
+    case read_user_for_update_tx(Namespace, UserGroup, UserId, Algorithm) of
         error ->
             {error, not_found};
         {ok, UserInfoRecord} ->
@@ -399,11 +425,21 @@ do_rotate_password(Namespace, UserId, Password, #{
             NUserInfoRecord = update_user_record(UserInfoRecord, [
                 {hash_and_salt, {PasswordHash, Salt}}, {algo, Algorithm}
             ]),
-            ok = insert_user(NUserInfoRecord),
-            delete_legacy_global_txn(Namespace, UserGroup, UserId),
+            CountRecord = is_new_namespaced_record_tx(NUserInfoRecord),
+            ok = write_user_tx(NUserInfoRecord),
+            maybe_delete_legacy_global_tx(NUserInfoRecord, Namespace, UserGroup, UserId),
             #{is_superuser := IsSuperuser} = rec_to_map(NUserInfoRecord),
-            {ok, #{namespace => Namespace, user_id => UserId, is_superuser => IsSuperuser}}
+            {ok, #{namespace => Namespace, user_id => UserId, is_superuser => IsSuperuser},
+                CountRecord}
     end.
+
+finish_user_update(Namespace, {ok, User, true}) ->
+    inc_ns_rule_count(Namespace, 1),
+    {ok, User};
+finish_user_update(_Namespace, {ok, User, false}) ->
+    {ok, User};
+finish_user_update(_Namespace, Error) ->
+    Error.
 
 lookup_user(Namespace, UserId, #{user_group := UserGroup}) ->
     case do_lookup_user(Namespace, UserGroup, UserId) of
@@ -507,29 +543,48 @@ run_fuzzy_filter(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-read_legacy_global_txn(?global_ns, UserGroup, UserId) ->
+read_legacy_global_tx(?global_ns, UserGroup, UserId) ->
     mnesia:read(?TAB, {UserGroup, UserId}, write);
-read_legacy_global_txn(_Namespace, _UserGroup, _UserId) ->
+read_legacy_global_tx(_Namespace, _UserGroup, _UserId) ->
     [].
 
-delete_legacy_global_txn(?global_ns, UserGroup, UserId) ->
+delete_legacy_global_tx(?global_ns, UserGroup, UserId) ->
     mnesia:delete(?TAB, {UserGroup, UserId}, write);
-delete_legacy_global_txn(_Namespace, _UserGroup, _UserId) ->
+delete_legacy_global_tx(_Namespace, _UserGroup, _UserId) ->
     ok.
 
-read_user_for_update(Namespace, UserGroup, UserId, Algorithm) ->
+read_user_for_update_tx(?global_ns = Namespace, UserGroup, UserId, Algorithm) ->
     Key = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId),
-    case read_legacy_global_txn(Namespace, UserGroup, UserId) of
-        [#user_info{} = Rec] ->
-            {ok, legacy_record_to_ns(Rec, Algorithm)};
-        [] ->
-            case mnesia:read(?AUTHN_NS_TAB, Key, write) of
-                [#?AUTHN_NS_TAB{} = Rec] ->
-                    {ok, Rec};
+    case cluster_supports_global_ns_table() of
+        false ->
+            case read_legacy_global_tx(Namespace, UserGroup, UserId) of
+                [#user_info{} = Rec] -> {ok, Rec};
+                [] -> error
+            end;
+        true ->
+            case read_legacy_global_tx(Namespace, UserGroup, UserId) of
+                [#user_info{} = Rec] ->
+                    {ok, legacy_record_to_ns(Rec, Algorithm)};
                 [] ->
-                    error
+                    case mnesia:read(?AUTHN_NS_TAB, Key, write) of
+                        [#?AUTHN_NS_TAB{} = Rec] ->
+                            {ok, Rec};
+                        [] ->
+                            error
+                    end
             end
+    end;
+read_user_for_update_tx(Namespace, UserGroup, UserId, _Algorithm) when is_binary(Namespace) ->
+    Key = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId),
+    case mnesia:read(?AUTHN_NS_TAB, Key, write) of
+        [#?AUTHN_NS_TAB{} = Rec] -> {ok, Rec};
+        [] -> error
     end.
+
+maybe_delete_legacy_global_tx(#?AUTHN_NS_TAB{}, Namespace, UserGroup, UserId) ->
+    delete_legacy_global_tx(Namespace, UserGroup, UserId);
+maybe_delete_legacy_global_tx(#user_info{}, _Namespace, _UserGroup, _UserId) ->
+    ok.
 
 legacy_record_to_ns(
     #user_info{
@@ -548,16 +603,25 @@ legacy_record_to_ns(
         extra = #{algo => emqx_authn_password_hashing:encode(Algorithm)}
     }.
 
-user_exists(Namespace, UserGroup, UserId) ->
-    ets:member(?AUTHN_NS_TAB, ?AUTHN_NS_KEY(Namespace, UserGroup, UserId)) orelse
-        (Namespace =:= ?global_ns andalso ets:member(?TAB, {UserGroup, UserId})).
+user_exists(?global_ns, UserGroup, UserId) ->
+    legacy_global_user_exists(UserGroup, UserId) orelse
+        (cluster_supports_global_ns_table() andalso
+            ns_user_exists(?global_ns, UserGroup, UserId));
+user_exists(Namespace, UserGroup, UserId) when is_binary(Namespace) ->
+    ns_user_exists(Namespace, UserGroup, UserId).
+
+legacy_global_user_exists(UserGroup, UserId) ->
+    ets:member(?TAB, {UserGroup, UserId}).
+
+ns_user_exists(Namespace, UserGroup, UserId) ->
+    ets:member(?AUTHN_NS_TAB, ?AUTHN_NS_KEY(Namespace, UserGroup, UserId)).
 
 public_user_info(#{user_id := UserId, is_superuser := IsSuperuser}) ->
     #{user_id => UserId, is_superuser => IsSuperuser}.
 
--spec insert_user(map(), map()) ->
-    {success, emqx_config:maybe_namespace()} | skipped | override | failed.
-insert_user(User, Opts) ->
+-spec insert_user_tx(map(), map()) ->
+    {success | override, emqx_config:maybe_namespace(), boolean()} | skipped | failed.
+insert_user_tx(User, Opts) ->
     #{
         user_group := UserGroup,
         user_id := UserId,
@@ -578,25 +642,27 @@ insert_user(User, Opts) ->
             }),
             failed;
         true ->
-            UserInfoRecord = #?AUTHN_NS_TAB{
-                user_id = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId),
-                password_hash = PasswordHash,
-                salt = Salt,
-                is_superuser = IsSuperuser,
-                extra = #{algo => StoredAlgorithm}
-            },
-            do_insert_user(UserInfoRecord, Namespace, UserGroup, UserId, Opts)
+            UserInfoRecord = imported_user_info_record(
+                Namespace,
+                UserGroup,
+                UserId,
+                PasswordHash,
+                Salt,
+                IsSuperuser,
+                StoredAlgorithm
+            ),
+            insert_imported_user_tx(UserInfoRecord, Namespace, UserGroup, UserId, Opts)
     end.
 
-do_insert_user(UserInfoRecord, Namespace, UserGroup, UserId, Opts) ->
-    case do_lookup_by_rec_txn(UserInfoRecord) of
+insert_imported_user_tx(UserInfoRecord, Namespace, UserGroup, UserId, Opts) ->
+    CountRecord = is_new_namespaced_record_tx(UserInfoRecord),
+    case lookup_by_record_tx(UserInfoRecord) of
         [] ->
-            ok = insert_user(UserInfoRecord),
-            {success, Namespace};
+            ok = write_user_tx(UserInfoRecord),
+            {success, Namespace, CountRecord};
         [UserInfoRecord] ->
-            delete_legacy_global_txn(Namespace, UserGroup, UserId),
             skipped;
-        [_] ->
+        [_ExistingRecord] ->
             LogF = fun(Msg) ->
                 ?SLOG(warning, #{
                     msg => Msg,
@@ -608,10 +674,12 @@ do_insert_user(UserInfoRecord, Namespace, UserGroup, UserId, Opts) ->
             end,
             case maps:get(override, Opts, false) of
                 true ->
-                    ok = insert_user(UserInfoRecord),
-                    delete_legacy_global_txn(Namespace, UserGroup, UserId),
+                    ok = write_user_tx(UserInfoRecord),
+                    maybe_delete_legacy_global_tx(
+                        UserInfoRecord, Namespace, UserGroup, UserId
+                    ),
                     LogF("override_an_exists_userid_into_authentication_database_ok"),
-                    override;
+                    {override, Namespace, CountRecord};
                 false ->
                     LogF("import_an_exists_userid_into_authentication_database_failed"),
                     failed
@@ -625,8 +693,10 @@ is_superuser_allowed(?global_ns, _IsSuperuser) -> true;
 is_superuser_allowed(_Namespace, false) -> true;
 is_superuser_allowed(_Namespace, _IsSuperuser) -> false.
 
-insert_user(#?AUTHN_NS_TAB{} = UserInfoRecord) ->
-    mnesia:write(?AUTHN_NS_TAB, UserInfoRecord, write).
+write_user_tx(#?AUTHN_NS_TAB{} = UserInfoRecord) ->
+    mnesia:write(?AUTHN_NS_TAB, UserInfoRecord, write);
+write_user_tx(#user_info{} = UserInfoRecord) ->
+    mnesia:write(?TAB, UserInfoRecord, write).
 
 user_info_record(
     #{
@@ -642,12 +712,67 @@ user_info_record(
     Namespace = maps:get(namespace, UserInfo, ?global_ns),
     IsSuperuser = maps:get(is_superuser, UserInfo, false),
     {PasswordHash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
+    user_info_record(Namespace, UserGroup, UserId, PasswordHash, Salt, IsSuperuser, Algorithm).
+
+user_info_record(?global_ns, UserGroup, UserId, PasswordHash, Salt, IsSuperuser, Algorithm) ->
+    case cluster_supports_global_ns_table() of
+        true ->
+            namespaced_user_info_record(
+                ?global_ns, UserGroup, UserId, PasswordHash, Salt, IsSuperuser, Algorithm
+            );
+        false ->
+            #user_info{
+                user_id = {UserGroup, UserId},
+                password_hash = PasswordHash,
+                salt = Salt,
+                is_superuser = IsSuperuser
+            }
+    end;
+user_info_record(Namespace, UserGroup, UserId, PasswordHash, Salt, IsSuperuser, Algorithm) ->
+    namespaced_user_info_record(
+        Namespace, UserGroup, UserId, PasswordHash, Salt, IsSuperuser, Algorithm
+    ).
+
+namespaced_user_info_record(
+    Namespace, UserGroup, UserId, PasswordHash, Salt, IsSuperuser, Algorithm
+) ->
     #?AUTHN_NS_TAB{
         user_id = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId),
         password_hash = PasswordHash,
         salt = Salt,
         is_superuser = IsSuperuser,
         extra = #{algo => emqx_authn_password_hashing:encode(Algorithm)}
+    }.
+
+imported_user_info_record(
+    ?global_ns, UserGroup, UserId, PasswordHash, Salt, IsSuperuser, StoredAlgorithm
+) ->
+    case cluster_supports_global_ns_table() of
+        true ->
+            #?AUTHN_NS_TAB{
+                user_id = ?AUTHN_NS_KEY(?global_ns, UserGroup, UserId),
+                password_hash = PasswordHash,
+                salt = Salt,
+                is_superuser = IsSuperuser,
+                extra = #{algo => StoredAlgorithm}
+            };
+        false ->
+            #user_info{
+                user_id = {UserGroup, UserId},
+                password_hash = PasswordHash,
+                salt = Salt,
+                is_superuser = IsSuperuser
+            }
+    end;
+imported_user_info_record(
+    Namespace, UserGroup, UserId, PasswordHash, Salt, IsSuperuser, StoredAlgorithm
+) ->
+    #?AUTHN_NS_TAB{
+        user_id = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId),
+        password_hash = PasswordHash,
+        salt = Salt,
+        is_superuser = IsSuperuser,
+        extra = #{algo => StoredAlgorithm}
     }.
 
 fields_to_update(
@@ -674,6 +799,14 @@ fields_to_update(_UserInfo, [], _State) ->
 
 update_user_record(UserInfoRecord, []) ->
     UserInfoRecord;
+update_user_record(#user_info{} = UserInfoRecord, [{hash_and_salt, {PasswordHash, Salt}} | Rest]) ->
+    update_user_record(
+        UserInfoRecord#user_info{password_hash = PasswordHash, salt = Salt}, Rest
+    );
+update_user_record(#user_info{} = UserInfoRecord, [{is_superuser, IsSuperuser} | Rest]) ->
+    update_user_record(UserInfoRecord#user_info{is_superuser = IsSuperuser}, Rest);
+update_user_record(#user_info{} = UserInfoRecord, [{algo, _Algorithm} | Rest]) ->
+    update_user_record(UserInfoRecord, Rest);
 update_user_record(#?AUTHN_NS_TAB{} = UserInfoRecord, [{hash_and_salt, {PasswordHash, Salt}} | Rest]) ->
     update_user_record(
         UserInfoRecord#?AUTHN_NS_TAB{password_hash = PasswordHash, salt = Salt}, Rest
@@ -921,9 +1054,6 @@ lookup_user_with_fallback(Namespace, UserGroup, UserId) when is_binary(Namespace
     end.
 
 do_lookup_user(?global_ns, UserGroup, UserId) ->
-    %% During a rolling upgrade, old nodes write the legacy table and new nodes
-    %% move records to the namespaced table. If both records exist, the legacy
-    %% record was written after the move and is therefore authoritative.
     case mnesia:dirty_read(?TAB, {UserGroup, UserId}) of
         [#user_info{} = Rec] ->
             {ok, rec_to_map(Rec)};
@@ -945,11 +1075,24 @@ do_lookup_user(Namespace, UserGroup, UserId) when is_binary(Namespace) ->
             {ok, rec_to_map(Rec)}
     end.
 
-do_lookup_by_rec_txn(#?AUTHN_NS_TAB{user_id = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId) = Key}) ->
-    case read_legacy_global_txn(Namespace, UserGroup, UserId) of
+lookup_by_record_tx(#?AUTHN_NS_TAB{user_id = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId) = Key}) ->
+    case read_legacy_global_tx(Namespace, UserGroup, UserId) of
         [] -> mnesia:read(?AUTHN_NS_TAB, Key, write);
         Records -> Records
-    end.
+    end;
+lookup_by_record_tx(#user_info{user_id = Key}) ->
+    mnesia:read(?TAB, Key, write).
+
+cluster_supports_global_ns_table() ->
+    emqx_bpapi:supported_version(emqx_authn) >= ?GLOBAL_NS_TABLE_BPAPI_VSN.
+
+is_namespaced_record(#?AUTHN_NS_TAB{}) -> true;
+is_namespaced_record(#user_info{}) -> false.
+
+is_new_namespaced_record_tx(#?AUTHN_NS_TAB{user_id = Key}) ->
+    mnesia:read(?AUTHN_NS_TAB, Key, write) =:= [];
+is_new_namespaced_record_tx(#user_info{}) ->
+    false.
 
 is_namespace_empty(Namespace) when is_binary(Namespace) ->
     %% `[]` is `<` than any (binary) user id or group
