@@ -51,6 +51,7 @@
     'session.terminated',
     'session.save_subopts',
     'message.publish',
+    'message.ingress',
     'message.puback',
     'message.dropped',
     'message.transformation_failed',
@@ -137,15 +138,21 @@ when
     callback_result().
 
 -callback 'client.authorize'(
-    emqx_types:clientinfo(),
+    emqx_authz_context:t(),
     emqx_types:pubsub(),
     emqx_types:topic(),
     emqx_access_control:authorize_hook_result()
 ) ->
     fold_callback_result(emqx_access_control:authorize_hook_result()).
 
+-callback 'message.ingress'(
+    emqx_message_ingress:context(),
+    emqx_types:message()
+) ->
+    fold_callback_result(emqx_types:message() | {error, term()}).
+
 -callback 'client.check_authz_complete'(
-    emqx_types:clientinfo(),
+    emqx_authz_context:t(),
     emqx_types:pubsub(),
     emqx_types:topic(),
     emqx_access_control:authz_result(),

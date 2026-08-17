@@ -20,21 +20,34 @@
 -define(ns, ns).
 
 all() ->
-    emqx_common_test_helpers:all_with_matrix(?MODULE).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+    Tests = emqx_common_test_helpers:all_with_matrix(?MODULE),
+    [
+        {legacy, [], Tests},
+        {hardened, [], Tests}
+        | emqx_common_test_helpers:groups_with_matrix(?MODULE)
+    ].
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia], #{
-        work_dir => emqx_cth_suite:work_dir(Config)
-    }),
-    [{apps, Apps} | Config].
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
 
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
-    ok.
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
+    ),
+    [{apps, Apps}, {security_profile, Profile} | Config];
 init_per_group(?global, Config) ->
     [{ns, ?global_ns} | Config];
 init_per_group(?ns, Config) ->
@@ -42,6 +55,9 @@ init_per_group(?ns, Config) ->
 init_per_group(_Group, Config) ->
     Config.
 
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, _Config) ->
     ok.
 

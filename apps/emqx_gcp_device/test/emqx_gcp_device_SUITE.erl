@@ -14,7 +14,20 @@
 -include_lib("emqx/include/emqx.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all(?MODULE) -- ProfileCases).
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -130,7 +143,12 @@ t_deny_expired_jwt(_Config) ->
     ),
     ok.
 
-t_no_keys(_Config) ->
+t_no_keys(Config) ->
+    Expected =
+        case ?config(security_profile, Config) of
+            legacy -> ignore;
+            hardened -> {error, not_authorized}
+        end,
     lists:foreach(
         fun({DeviceId, KeyType, PrivateKeyName, _PublicKey}) ->
             ClientId = gcp_client_id(DeviceId),
@@ -138,8 +156,8 @@ t_no_keys(_Config) ->
             JWT = generate_jws(Payload, KeyType, PrivateKeyName),
             ClientInfo = client_info(ClientId, JWT),
             ?check_trace(
-                ?assertMatch(
-                    ignore,
+                ?assertEqual(
+                    Expected,
                     emqx_gcp_device_authn:authenticate(ClientInfo, #{}),
                     DeviceId
                 ),
@@ -156,15 +174,13 @@ t_no_keys(_Config) ->
     ),
     ok.
 
-t_no_keys_legacy_ignores(_Config) ->
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual({ok, #{is_superuser => false}}, authenticate_with_no_keys())
-    end).
-
-t_no_keys_hardened_denies(_Config) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual({error, not_authorized}, authenticate_with_no_keys())
-    end).
+t_no_keys_profile(Config) ->
+    Expected =
+        case ?config(security_profile, Config) of
+            legacy -> {ok, #{is_superuser => false}};
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(Expected, authenticate_with_no_keys()).
 
 t_expired_keys(_Config) ->
     lists:foreach(
@@ -414,6 +430,9 @@ authenticate_with_no_keys() ->
         [authentication], ?GLOBAL, maps:get(username, Credentials), maps:get(password, Credentials)
     ),
     emqx_access_control:authenticate(Credentials).
+
+profile_cases() ->
+    [t_no_keys, t_no_keys_profile].
 
 clear_data() ->
     emqx_gcp_device_test_helpers:clear_data(),

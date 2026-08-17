@@ -6,8 +6,6 @@
 %% subscriptions that reached end of the stream.
 -module(emqx_ds_beamformer_rt).
 
--feature(maybe_expr, enable).
-
 -behaviour(gen_server).
 
 %% API:

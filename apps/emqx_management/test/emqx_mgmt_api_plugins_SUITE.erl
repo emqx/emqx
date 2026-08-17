@@ -33,9 +33,22 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ClusterCases = cluster_cases(),
+    ClusterCases ++ [{group, legacy}, {group, hardened}].
+
+groups() ->
+    LocalCases = emqx_common_test_helpers:all(?MODULE) -- cluster_cases(),
+    [{legacy, [], LocalCases}, {hardened, [], LocalCases}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -45,12 +58,13 @@ init_per_suite(Config) ->
             }},
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
-    [{apps, Apps} | Config].
+    [{apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)).
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(t_cluster_update_order = TestCase, Config0) ->
     Config = [{api_port, 18085} | Config0],
@@ -142,6 +156,25 @@ t_plugins(_Config) ->
     %% Should forget that we allowed installation after uninstall
     ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
     ok.
+
+-doc """
+`GET /plugins` tolerates unreachable nodes and remote crashes in the
+cluster-wide plugin listing RPC instead of crashing with badmatch.
+""".
+t_list_plugins_rpc_failure(_Config) ->
+    ok = meck:new(emqx_mgmt_api_plugins_proto_v4, [passthrough]),
+    try
+        meck:expect(
+            emqx_mgmt_api_plugins_proto_v4,
+            get_plugins,
+            fun(_Nodes) ->
+                {[{node(), []}, {badrpc, {'EXIT', boom}}], ['badnode@nohost']}
+            end
+        ),
+        ?assertEqual([], list_plugins())
+    after
+        meck:unload(emqx_mgmt_api_plugins_proto_v4)
+    end.
 
 t_install_plugin_sha256_match(_Config) ->
     PackagePath = get_demo_plugin_package(),
@@ -798,7 +831,9 @@ update_plugin_config(Name, Config) ->
     end.
 
 install_plugin(FilePath) ->
-    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
+        <<"admin">>, emqx_dashboard_admin:default_password()
+    ),
     Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
     case
         emqx_mgmt_api_test_util:upload_request(
@@ -1041,6 +1076,13 @@ cluster(TestCase, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ).
+
+cluster_cases() ->
+    [
+        t_cluster_update_order,
+        t_cluster_rejects_invalid_local_config_on_start,
+        t_cluster_rolls_back_partial_start_failure
+    ].
 
 app_specs(_Config) ->
     [

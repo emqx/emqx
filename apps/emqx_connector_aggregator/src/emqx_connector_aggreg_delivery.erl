@@ -6,8 +6,6 @@
 %% backend, wrapped in a configurable general-purpose container.
 -module(emqx_connector_aggreg_delivery).
 
--feature(maybe_expr, enable).
-
 -behaviour(gen_server).
 
 -include_lib("snabbkaffe/include/trace.hrl").
@@ -127,6 +125,7 @@ init(InitOpts) ->
         opts := Opts
     } = InitOpts,
     ?tp(connector_aggreg_delivery_started, #{action => Id, buffer => Buffer}),
+    proc_lib:set_label({aggreg_delivery, Id, Buffer#buffer.seq}),
     Reader = open_buffer(Buffer),
     case init_delivery(Id, Reader, Buffer, Opts#{action => Id}) of
         {ok, Delivery} ->

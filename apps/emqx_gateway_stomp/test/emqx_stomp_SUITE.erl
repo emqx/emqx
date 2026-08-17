@@ -7,6 +7,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include("emqx_stomp.hrl").
 
 -compile(export_all).
@@ -37,11 +39,25 @@
     "  }\n"
     " listeners.tcp.default {\n"
     "    bind = 61613\n"
+    "    enable_authn = false\n"
     "  }\n"
     "}\n"
 >>).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    ProfileTests = hardened_profile_tests(),
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileTests) ++ [{group, hardened}].
+
+groups() ->
+    [{hardened, [], hardened_profile_tests()}].
+
+hardened_profile_tests() ->
+    [
+        t_hardened_rejects_pre_connect_send,
+        t_hardened_rejects_pre_connect_subscribe,
+        t_hardened_rejects_pre_connect_transactional_send,
+        t_hardened_listener_authn_disabled_allows_pub_sub
+    ].
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -67,11 +83,37 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
+init_per_group(hardened, Config) ->
+    ok = emqx_common_test_helpers:set_security_profile("hardened"),
+    [{security_profile, hardened} | Config].
+
+end_per_group(hardened, _Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_auth_expire;
+    TestCase =:= t_auth_failed;
+    TestCase =:= t_authn_superuser;
+    TestCase =:= t_mountpoint_from_authn_client_attrs
+->
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(stomp, true),
+    snabbkaffe:start_trace(),
+    Config;
 init_per_testcase(_TestCase, Config) ->
     snabbkaffe:start_trace(),
     Config.
 
+end_per_testcase(TestCase, _Config) when
+    TestCase =:= t_auth_expire;
+    TestCase =:= t_auth_failed;
+    TestCase =:= t_authn_superuser;
+    TestCase =:= t_mountpoint_from_authn_client_attrs
+->
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(stomp, false),
+    snabbkaffe:stop(),
+    ok;
 end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     snabbkaffe:stop(),
     ok.
 
@@ -90,23 +132,13 @@ update_stomp_with_mountpoint(Mountpoint) ->
 
 with_stomp_tcp_listener_authn(EnableAuthn, Fun) ->
     ListenerPath = [gateway, stomp, listeners, tcp, default],
-    PrevListenerConf = emqx_conf:get(ListenerPath),
+    PrevListenerConf = emqx:get_raw_config(ListenerPath),
     try
-        update_stomp_tcp_listener_authn(EnableAuthn),
+        ok = emqx_gateway_test_utils:set_gateway_listeners_authn(stomp, EnableAuthn),
         Fun()
     after
         ok = update_stomp_tcp_listener(PrevListenerConf)
     end.
-
-update_stomp_tcp_listener_authn(EnableAuthn) ->
-    ListenerConf0 = emqx_conf:get([gateway, stomp, listeners, tcp, default]),
-    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
-    ok = update_stomp_tcp_listener(ListenerConf1),
-    ?assertEqual(
-        EnableAuthn,
-        emqx_conf:get([gateway, stomp, listeners, tcp, default, enable_authn], undefined)
-    ),
-    ok.
 
 update_stomp_tcp_listener(ListenerConf) ->
     case emqx_gateway_conf:update_listener(stomp, {tcp, default}, ListenerConf) of
@@ -224,81 +256,73 @@ t_auth_failed(_) ->
     meck:unload(emqx_access_control).
 
 t_hardened_rejects_pre_connect_send(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        Topic = <<"security/stomp/pre-connect-send">>,
-        Payload = <<"blocked">>,
-        emqx:subscribe(Topic),
-        try
-            with_connection(fun(Sock) ->
-                ok = send_message_frame(Sock, Topic, Payload),
-                assert_error_and_closed(Sock)
-            end),
-            receive
-                {deliver, Topic, _Msg} ->
-                    ct:fail(pre_connect_send_was_published)
-            after 500 ->
-                ok
-            end
-        after
-            emqx:unsubscribe(Topic)
-        end
-    end).
-
-t_hardened_rejects_pre_connect_subscribe(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        Topic = <<"security/stomp/pre-connect-subscribe">>,
+    Topic = <<"security/stomp/pre-connect-send">>,
+    Payload = <<"blocked">>,
+    emqx:subscribe(Topic),
+    try
         with_connection(fun(Sock) ->
-            ok = send_subscribe_frame(Sock, 0, Topic),
+            ok = send_message_frame(Sock, Topic, Payload),
             assert_error_and_closed(Sock)
         end),
-        timer:sleep(100),
-        ?assertEqual([], emqx:subscribers(Topic))
-    end).
+        receive
+            {deliver, Topic, _Msg} ->
+                ct:fail(pre_connect_send_was_published)
+        after 500 ->
+            ok
+        end
+    after
+        emqx:unsubscribe(Topic)
+    end.
+
+t_hardened_rejects_pre_connect_subscribe(_) ->
+    Topic = <<"security/stomp/pre-connect-subscribe">>,
+    with_connection(fun(Sock) ->
+        ok = send_subscribe_frame(Sock, 0, Topic),
+        assert_error_and_closed(Sock)
+    end),
+    timer:sleep(100),
+    ?assertEqual([], emqx:subscribers(Topic)).
 
 t_hardened_rejects_pre_connect_transactional_send(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        Topic = <<"security/stomp/pre-connect-transaction">>,
-        Payload = <<"blocked">>,
-        emqx:subscribe(Topic),
-        try
-            with_connection(fun(Sock) ->
-                ok = send_begin_frame(Sock, <<"tx-pre-connect">>),
-                ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
-                ok = send_message_frame(Sock, Topic, Payload, [
-                    {<<"transaction">>, <<"tx-pre-connect">>}
-                ]),
-                assert_error_and_closed(Sock)
-            end),
-            receive
-                {deliver, Topic, _Msg} ->
-                    ct:fail(pre_connect_transactional_send_was_published)
-            after 500 ->
-                ok
-            end
-        after
-            emqx:unsubscribe(Topic)
+    Topic = <<"security/stomp/pre-connect-transaction">>,
+    Payload = <<"blocked">>,
+    emqx:subscribe(Topic),
+    try
+        with_connection(fun(Sock) ->
+            ok = send_begin_frame(Sock, <<"tx-pre-connect">>),
+            ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+            ok = send_message_frame(Sock, Topic, Payload, [
+                {<<"transaction">>, <<"tx-pre-connect">>}
+            ]),
+            assert_error_and_closed(Sock)
+        end),
+        receive
+            {deliver, Topic, _Msg} ->
+                ct:fail(pre_connect_transactional_send_was_published)
+        after 500 ->
+            ok
         end
-    end).
+    after
+        emqx:unsubscribe(Topic)
+    end.
 
 t_hardened_listener_authn_disabled_allows_pub_sub(_) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        with_stomp_tcp_listener_authn(false, fun() ->
-            with_connection(fun(Sock) ->
-                Topic = <<"security/stomp/authn-disabled">>,
-                Payload = <<"allowed">>,
-                ok = send_connection_frame(Sock, undefined, undefined),
-                ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+    with_stomp_tcp_listener_authn(false, fun() ->
+        with_connection(fun(Sock) ->
+            Topic = <<"security/stomp/authn-disabled">>,
+            Payload = <<"allowed">>,
+            ok = send_connection_frame(Sock, undefined, undefined),
+            ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
 
-                ok = send_subscribe_frame(Sock, 0, Topic),
-                ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+            ok = send_subscribe_frame(Sock, 0, Topic),
+            ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
 
-                ok = send_message_frame(Sock, Topic, Payload),
-                ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
-                ?assertMatch(
-                    {ok, #stomp_frame{command = <<"MESSAGE">>, body = Payload}},
-                    recv_a_frame(Sock)
-                )
-            end)
+            ok = send_message_frame(Sock, Topic, Payload),
+            ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+            ?assertMatch(
+                {ok, #stomp_frame{command = <<"MESSAGE">>, body = Payload}},
+                recv_a_frame(Sock)
+            )
         end)
     end).
 
@@ -695,6 +719,100 @@ t_transaction(_) ->
                 body = _
             },
             _, _} = parse(Data3)
+    end).
+
+t_transaction_message_ingress(_) ->
+    Mountpoint = <<"stomp/">>,
+    Topic = <<"source">>,
+    RewrittenTopic = <<"target">>,
+    MountedTopic = <<Mountpoint/binary, RewrittenTopic/binary>>,
+    TxId = <<"tx-pre-authz">>,
+    Payload = <<"transactional">>,
+    TestPid = self(),
+    update_stomp_with_mountpoint(Mountpoint),
+    emqx_common_test_helpers:on_exit(fun() -> update_stomp_with_mountpoint(<<>>) end),
+    ok = emqx:subscribe(Topic),
+    ok = emqx:subscribe(RewrittenTopic),
+    ok = emqx:subscribe(MountedTopic),
+    ok = emqx:subscribe(<<Mountpoint/binary, MountedTopic/binary>>),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx:unsubscribe(Topic),
+        emqx:unsubscribe(RewrittenTopic),
+        emqx:unsubscribe(MountedTopic),
+        emqx:unsubscribe(<<Mountpoint/binary, MountedTopic/binary>>)
+    end),
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, stomp_message_ingress, [TestPid, RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_hooks:del('message.ingress', {?MODULE, stomp_message_ingress}),
+        ok
+    end),
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        ok = send_begin_frame(Sock, TxId),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+
+        %% Ingress runs on SEND and sees the logical message, authz context, and STOMP metadata.
+        ok = send_message_frame(Sock, Topic, Payload, [
+            {<<"transaction">>, TxId},
+            {<<"x-custom">>, <<"value">>}
+        ]),
+        SendMsg =
+            receive
+                {message_ingress, Ctx, Msg} ->
+                    ?assertMatch(#{authz_ctx := #{clientid := _}}, Ctx),
+                    ?assertEqual(Topic, emqx_message:topic(Msg)),
+                    ?assertEqual(Payload, emqx_message:payload(Msg)),
+                    ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
+                    ?assertMatch(
+                        #{
+                            proto_ver := ?STOMP_VER,
+                            protocol := stomp,
+                            username := <<"guest">>,
+                            peerhost := _,
+                            stomp_headers := [{<<"x-custom">>, <<"value">>}]
+                        },
+                        emqx_message:get_headers(Msg)
+                    ),
+                    Msg
+            after 1000 ->
+                ct:fail(message_ingress_hook_not_called)
+            end,
+        %% The hook may rewrite the message, but the transaction buffers it until COMMIT.
+        ?assertNotReceive({deliver, _, _}, 100),
+
+        BeforeCommit = erlang:system_time(millisecond),
+        ok = gen_tcp:send(
+            Sock,
+            serialize(<<"COMMIT">>, [{<<"transaction">>, TxId}])
+        ),
+        ?assertMatch(
+            {ok, #stomp_frame{
+                command = <<"RECEIPT">>,
+                headers = [{<<"receipt-id">>, <<"rp-source">>}]
+            }},
+            recv_a_frame(Sock)
+        ),
+        %% COMMIT publishes the same message with the rewritten topic mounted exactly once.
+        receive
+            {deliver, MountedTopic, PublishedMsg} ->
+                %% Transaction buffering preserves identity, timestamp, and hook-added headers.
+                ?assertEqual(emqx_message:id(SendMsg), emqx_message:id(PublishedMsg)),
+                ?assertEqual(
+                    emqx_message:timestamp(SendMsg), emqx_message:timestamp(PublishedMsg)
+                ),
+                ?assert(emqx_message:timestamp(PublishedMsg) =< BeforeCommit),
+                ?assertEqual(true, emqx_message:get_header(ingress, PublishedMsg))
+        after 1000 ->
+            ct:fail(transactional_message_not_published)
+        end,
+        %% Catch original, unmounted rewritten, or double-mounted publications.
+        ?assertNotReceive({deliver, _, _}, 100),
+        ok = send_disconnect_frame(Sock)
     end).
 
 t_receipt_in_error(_) ->
@@ -1476,6 +1594,10 @@ send_message_frame(Sock, Topic, Payload, Headers0) ->
             | Headers0
         ],
     ok = gen_tcp:send(Sock, serialize(<<"SEND">>, Headers, Payload)).
+
+stomp_message_ingress(Ctx, Msg, TestPid, RewrittenTopic) ->
+    TestPid ! {message_ingress, Ctx, Msg},
+    {ok, emqx_message:set_header(ingress, true, Msg#message{topic = RewrittenTopic})}.
 
 send_begin_frame(Sock, TxId) ->
     Headers =

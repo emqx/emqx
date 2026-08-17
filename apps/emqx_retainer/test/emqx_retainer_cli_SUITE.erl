@@ -75,3 +75,39 @@ t_reindex(_Config) ->
     ok = emqx_retainer_cli:retainer(["reindex", "start"]),
 
     ?assertEqual(1000, mnesia:table_info(?TAB_INDEX, size)).
+
+-doc """
+Reindex completes even when a node is unreachable during the
+wait-for-dispatch-complete RPC (non-empty bad-nodes multicall result).
+""".
+t_reindex_unreachable_node(_Config) ->
+    {ok, C} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqx_retainer:clean(),
+    ?check_trace(
+        ?wait_async_action(
+            emqtt:publish(
+                C,
+                <<"retained/badnode">>,
+                <<"this is a retained message">>,
+                [{qos, 0}, {retain, true}]
+            ),
+            #{?snk_kind := message_retained, topic := <<"retained/badnode">>},
+            1000
+        ),
+        []
+    ),
+    ok = meck:new(emqx_retainer_proto_v2, [passthrough]),
+    try
+        meck:expect(
+            emqx_retainer_proto_v2,
+            wait_dispatch_complete,
+            fun(_Nodes, _Timeout) -> {[ok], ['badnode@nohost']} end
+        ),
+        emqx_config:put([retainer, backend, index_specs], [[1, 3]]),
+        ok = emqx_retainer_cli:retainer(["reindex", "start"]),
+        ?assertEqual(1, mnesia:table_info(?TAB_INDEX, size))
+    after
+        meck:unload(emqx_retainer_proto_v2)
+    end,
+    ok = emqtt:disconnect(C).

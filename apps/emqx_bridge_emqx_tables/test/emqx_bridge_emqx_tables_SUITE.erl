@@ -649,21 +649,20 @@ t_tls_verify_none_without_certfiles(TCConfig) when is_list(TCConfig) ->
     end).
 
 -doc """
-Ensure TLS connector still rejects empty cert file paths when verify is `verify_peer`.
+Blank cert file paths are treated as unset, so the connector is created even with
+`verify_peer`; this driver then refuses to start without `cacertfile`, `certfile`
+and `keyfile`, leaving the connector disconnected with a clear reason.
 """.
-t_tls_verify_peer_with_empty_certfiles_rejected() ->
+t_tls_verify_peer_with_empty_certfiles_disconnected() ->
     [{matrix, true}].
-t_tls_verify_peer_with_empty_certfiles_rejected(matrix) ->
+t_tls_verify_peer_with_empty_certfiles_disconnected(matrix) ->
     [[?tls, ?sync, ?without_batch]];
-t_tls_verify_peer_with_empty_certfiles_rejected(TCConfig) when is_list(TCConfig) ->
+t_tls_verify_peer_with_empty_certfiles_disconnected(TCConfig) when is_list(TCConfig) ->
     maybe_with_forced_sync_query_mode(TCConfig, fun() ->
-        ?assertMatch(
-            {400, #{
-                <<"code">> := <<"BAD_REQUEST">>,
-                <<"message">> := #{
-                    <<"reason">> := <<"bad_ssl_config">>
-                }
-            }},
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := Reason
+        }} =
             create_connector_api(TCConfig, #{
                 <<"server">> => <<"toxiproxy:4003">>,
                 <<"ssl">> => #{
@@ -673,7 +672,11 @@ t_tls_verify_peer_with_empty_certfiles_rejected(TCConfig) when is_list(TCConfig)
                     <<"certfile">> => <<>>,
                     <<"keyfile">> => <<>>
                 }
-            })
+            }),
+        ?assertMatch(
+            {match, _},
+            re:run(Reason, <<"cacertfile, certfile and keyfile SSL options must be configured">>),
+            #{status_reason => Reason}
         ),
         ok
     end).

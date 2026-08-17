@@ -79,7 +79,7 @@ start(ConnResId, Opts0) ->
     maybe
         {ok, AuthCtx} ?=
             emqx_bridge_gcp_pubsub_client:maybe_initialize_auth_resources(ConnResId, Opts),
-        GRPCOpts = #{pool_size => PoolSize},
+        GRPCOpts = #{pool_size => PoolSize, gun_opts => gun_opts(URL, Opts0)},
         {ok, #{recv_pool := Pool}} ?= ensure_channel_pool(ConnResId, URL, GRPCOpts),
         State = AuthCtx#{recv_pool => Pool},
         {ok, State}
@@ -195,6 +195,20 @@ do_ping_and_warm_impl(Req, Metadata, Opts) ->
         Metadata,
         Opts
     ).
+
+gun_opts(URL, ConnConfig) ->
+    case uri_string:parse(URL) of
+        #{scheme := <<"https">>} ->
+            SSLConfig = maps:get(ssl, ConnConfig, #{}),
+            %% An `https' URL mandates TLS: force it on regardless of `ssl.enable',
+            %% while honouring the rest of the configured `ssl' options.
+            #{
+                transport => ssl,
+                tls_opts => emqx_tls_lib:to_client_opts(SSLConfig#{enable => true})
+            };
+        _ ->
+            #{transport => tcp}
+    end.
 
 ensure_channel_pool(ConnResId, URL, GRPCOpts0) ->
     #{pool_size := PoolSize} = GRPCOpts0,

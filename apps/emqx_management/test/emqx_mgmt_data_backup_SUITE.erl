@@ -352,22 +352,23 @@ t_cluster_hocon_export_import(Config) ->
     ),
     ok.
 
+-doc """
+Rejects an archive whose member path contains `..' and would extract outside the
+backup directory.
+""".
 t_tar_outside_backup_dir(Config) ->
     BackupFileName = filename:join(?config(priv_dir, Config), "tar_outside_backup_dir.tar.gz"),
-    Meta = unicode:characters_to_binary(
-        hocon_pp:do(#{edition => emqx_release:edition(), version => emqx_release:version()}, #{})
-    ),
     ok = erl_tar:create(
         BackupFileName,
         [
             {"tar_outside_backup_dir/../../cluster.hocon", <<>>},
-            {"tar_outside_backup_dir/META.hocon", Meta}
+            {"tar_outside_backup_dir/META.hocon", backup_meta_bin()}
         ],
         [compressed]
     ),
-    {error, Message} = emqx_mgmt_data_backup:import_local(BackupFileName),
-    ?assert(
-        string:str(Message, "The path points above the current working directory") > 0
+    ?assertEqual(
+        {error, bad_archive_dir},
+        emqx_mgmt_data_backup:import_local(BackupFileName)
     ).
 
 t_unsafe_backup_name(Config) ->
@@ -391,6 +392,81 @@ t_unsafe_backup_name(Config) ->
         emqx_mgmt_data_backup:upload(filename:basename(BackupFileName), BackupFileContent)
     ),
     ?assert(filelib:is_regular(Filename)).
+
+-doc """
+A namespaced import of an archive named `ns.tar.gz' whose members point into another
+namespace extracts and cleans up only within the caller's own backup directory.
+""".
+t_namespaced_import_isolation(Config) ->
+    Victim = <<"victim_ns">>,
+    Attacker = <<"attacker_ns">>,
+    Meta = backup_meta_bin(),
+    VictimContent = tar_bin(Config, [{"victim-backup/META.hocon", Meta}]),
+    ok = emqx_mgmt_data_backup:upload(Victim, <<"victim-backup.tar.gz">>, VictimContent),
+    {ok, VictimDir} = emqx_mgmt_data_backup:backup_root_dir(Victim),
+    VictimFile = filename:join(VictimDir, "victim-backup.tar.gz"),
+    ?assert(filelib:is_regular(VictimFile)),
+    AttackerContent = tar_bin(Config, [
+        {"ns/META.hocon", Meta},
+        {"ns/victim_ns/planted.tar.gz", <<"planted">>}
+    ]),
+    ok = emqx_mgmt_data_backup:upload(Attacker, <<"ns.tar.gz">>, AttackerContent),
+    ?assertMatch(
+        {ok, _},
+        emqx_mgmt_data_backup:import(<<"ns.tar.gz">>, #{namespace => Attacker})
+    ),
+    %% the victim's backup survives and nothing is planted into its directory
+    ?assert(filelib:is_regular(VictimFile)),
+    ?assertEqual({ok, ["victim-backup.tar.gz"]}, file:list_dir(VictimDir)),
+    %% the attacker's extract directory is cleaned up, the uploaded file remains
+    {ok, AttackerDir} = emqx_mgmt_data_backup:backup_root_dir(Attacker),
+    ?assertEqual({ok, ["ns.tar.gz"]}, file:list_dir(AttackerDir)).
+
+-doc """
+A global-namespace backup must not be named `ns.tar.gz': its extract and cleanup
+directory would collide with the namespaced backups directory.
+""".
+t_reserved_ns_backup_name(Config) ->
+    Content = tar_bin(Config, [{"ns/META.hocon", backup_meta_bin()}]),
+    ?assertEqual(
+        {error, unsafe_backup_name},
+        emqx_mgmt_data_backup:upload(<<"ns.tar.gz">>, Content)
+    ),
+    BackupFilePath = filename:join(?config(priv_dir, Config), "ns.tar.gz"),
+    ok = file:write_file(BackupFilePath, Content),
+    ?assertEqual(
+        {error, unsafe_backup_name},
+        emqx_mgmt_data_backup:import_local(BackupFilePath)
+    ).
+
+-doc """
+Rejects an archive that contains a symlink member.
+""".
+t_symlink_member_rejected(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    SrcDir = filename:join(PrivDir, "symlink-backup"),
+    ok = filelib:ensure_path(SrcDir),
+    LinkPath = filename:join(SrcDir, "escape"),
+    ok = file:make_symlink("/etc/passwd", LinkPath),
+    BackupFilePath = filename:join(PrivDir, "symlink-backup.tar.gz"),
+    ok = erl_tar:create(
+        BackupFilePath,
+        [
+            {"symlink-backup/META.hocon", backup_meta_bin()},
+            {"symlink-backup/escape", LinkPath}
+        ],
+        [compressed]
+    ),
+    ?assertEqual(
+        {error, bad_archive_member},
+        emqx_mgmt_data_backup:import_local(BackupFilePath)
+    ),
+    ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(bad_archive_member)),
+    {ok, Content} = file:read_file(BackupFilePath),
+    ?assertEqual(
+        {error, bad_archive_member},
+        emqx_mgmt_data_backup:upload(<<"symlink-backup.tar.gz">>, Content)
+    ).
 
 t_no_backup_file(_Config) ->
     ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(not_found)),
@@ -1660,6 +1736,21 @@ do_normalize_checked_config_prometheus(Cfg0) ->
 
 basename(FilePath) ->
     filename:basename(FilePath).
+
+backup_meta_bin() ->
+    unicode:characters_to_binary(
+        hocon_pp:do(#{edition => emqx_release:edition(), version => emqx_release:version()}, #{})
+    ).
+
+tar_bin(Config, Members) ->
+    TmpFile = filename:join(
+        ?config(priv_dir, Config),
+        "tar_bin_" ++ integer_to_list(erlang:unique_integer([positive])) ++ ".tar.gz"
+    ),
+    ok = erl_tar:create(TmpFile, Members, [compressed]),
+    {ok, Bin} = file:read_file(TmpFile),
+    ok = file:delete(TmpFile),
+    Bin.
 
 deep_diff_maps(#{} = ExpectedMap, #{} = ActualMap) ->
     Diff0 = emqx_utils_maps:diff_maps(ExpectedMap, ActualMap),

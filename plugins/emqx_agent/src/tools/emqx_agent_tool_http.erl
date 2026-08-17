@@ -245,13 +245,19 @@ path_schema(Url) ->
             >>
     }.
 
+%% The canonical path is used both for the prefix check and as the
+%% outgoing request path, so the checked path and the requested path
+%% cannot diverge.
 invocation_url(BaseUrl, Args) ->
-    Path0 = maps:get(<<"path">>, Args, undefined),
-    Path = normalize_path(Path0),
+    Path0 = normalize_path(maps:get(<<"path">>, Args, undefined)),
     Prefix = configured_path_prefix(BaseUrl),
-    case is_path_prefix(Prefix, Path) of
-        true -> {ok, <<(origin(BaseUrl))/binary, Path/binary>>};
-        false -> {error, {path_outside_configured_prefix, #{prefix => Prefix, path => Path}}}
+    maybe
+        {ok, Path} ?= emqx_utils_uri:canonicalize_path(Path0),
+        {ok, CanonPrefix} ?= emqx_utils_uri:canonicalize_path(Prefix),
+        true ?= is_path_prefix(CanonPrefix, Path),
+        {ok, <<(origin(BaseUrl))/binary, Path/binary>>}
+    else
+        _ -> {error, {path_outside_configured_prefix, #{prefix => Prefix, path => Path0}}}
     end.
 
 normalize_path(<<"/", _/binary>> = Path) ->
@@ -263,11 +269,14 @@ normalize_path(Path) when is_binary(Path) ->
 normalize_path(_) ->
     <<"/">>.
 
-is_path_prefix(Prefix, Path) ->
-    case binary:match(Path, Prefix) of
-        {0, _} -> true;
-        _ -> false
-    end.
+%% Both arguments must be canonical absolute paths. The path is inside
+%% the prefix only when it equals the prefix or extends it at a segment
+%% boundary, so `/api-internal' does not match prefix `/api'.
+is_path_prefix(Prefix0, Path) ->
+    Prefix = string:trim(Prefix0, trailing, "/"),
+    PrefixSlash = <<Prefix/binary, "/">>,
+    Path =:= Prefix orelse
+        binary:part(Path, 0, min(byte_size(Path), byte_size(PrefixSlash))) =:= PrefixSlash.
 
 configured_path_prefix(Url) ->
     normalize_path(maps:get(path, uri_string:parse(Url), <<"/">>)).

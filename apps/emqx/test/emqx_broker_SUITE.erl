@@ -18,8 +18,8 @@
 
 all() ->
     [
-        {group, all_cases},
-        {group, connected_client_count_group}
+        {group, legacy},
+        {group, hardened}
     ].
 
 groups() ->
@@ -31,7 +31,10 @@ groups() ->
         t_connected_client_stats
     ],
     OtherTCs = TCs -- ConnClientTCs,
+    ProfileGroups = [{group, all_cases}, {group, connected_client_count_group}],
     [
+        {legacy, [], ProfileGroups},
+        {hardened, [], ProfileGroups},
         {all_cases, [], OtherTCs},
         {connected_client_count_group, [
             {group, tcp},
@@ -43,6 +46,9 @@ groups() ->
         {quic, [], ConnClientTCs}
     ].
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
 init_per_group(connected_client_count_group, Config) ->
     Config;
 init_per_group(tcp, Config) ->
@@ -78,9 +84,10 @@ init_per_group(quic, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    Port = listener_port(quic, test),
     [
         {conn_fun, quic_connect},
-        {port, emqx_config:get([listeners, quic, test, bind])},
+        {port, Port},
         {ssl_opts, emqx_common_test_helpers:client_mtls()},
         {ssl, true},
         {group_apps, Apps}
@@ -95,14 +102,23 @@ init_per_group(_Group, Config) ->
 
 end_per_group(connected_client_count_group, _Config) ->
     ok;
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)).
 
+listener_port(Type, Name) ->
+    case emqx_config:get([listeners, Type, Name, bind]) of
+        {_, Port} -> Port;
+        Port -> Port
+    end.
+
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
     Config.
 
 end_per_suite(_Config) ->
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(Case, Config) ->
     ?MODULE:Case({init, Config}).
@@ -657,6 +673,7 @@ t_connect_client_never_negative({'end', _Config}) ->
 
 t_connack_auth_error({init, Config}) ->
     process_flag(trap_exit, true),
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
     emqx_hooks:put(
         'client.authenticate',
         {?MODULE, authenticate_deny, []},

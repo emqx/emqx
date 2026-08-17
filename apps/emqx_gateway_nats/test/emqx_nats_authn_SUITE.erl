@@ -14,22 +14,36 @@
 -define(NKEY_USER_PREFIX, 16#A0).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileTests = [t_build_authn_ctx_and_auth_required],
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileTests) ++
+        [{group, legacy}, {group, hardened}].
+
+groups() ->
+    [
+        {legacy, [], [t_build_authn_ctx_and_auth_required]},
+        {hardened, [], [t_build_authn_ctx_and_auth_required]}
+    ].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
 
-t_build_authn_ctx_and_auth_required(_Config) ->
+t_build_authn_ctx_and_auth_required(Config) ->
+    Profile = proplists:get_value(security_profile, Config),
+    AuthRequiredWithoutConfig = Profile =:= hardened,
     Disabled = mk_authn_ctx(undefined, [], undefined, false),
     ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => false}, Disabled)),
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled))
-    end),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => false}, Disabled)),
-        ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled))
-    end),
+    ?assertEqual(
+        AuthRequiredWithoutConfig,
+        emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled)
+    ),
 
     GatewayOnly = mk_authn_ctx(undefined, [], undefined, true),
     ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, GatewayOnly)),
@@ -40,12 +54,10 @@ t_build_authn_ctx_and_auth_required(_Config) ->
         #{enable => false, trusted_operators => [<<"OP_TEST">>]},
         false
     ),
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled))
-    end),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled))
-    end),
+    ?assertEqual(
+        AuthRequiredWithoutConfig,
+        emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled)
+    ),
 
     Enabled = mk_authn_ctx(
         "token",

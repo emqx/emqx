@@ -4,10 +4,6 @@
 
 -module(emqx_common_test_helpers).
 
--type special_config_handler() :: fun().
-
--type apps() :: list(atom()).
-
 -export([
     all/1,
     all_with_matrix/1,
@@ -23,13 +19,6 @@
     init_per_testcase/3,
     end_per_testcase/3,
     boot_modules/1,
-    start_apps/1,
-    start_apps/2,
-    start_apps/3,
-    start_app/2,
-    stop_apps/1,
-    stop_apps/2,
-    reload/2,
     app_path/2,
     proj_root/0,
     list_umbrella_apps/0,
@@ -37,8 +26,6 @@
     flush/0,
     flush/1,
     load/1,
-    render_and_load_app_config/1,
-    render_and_load_app_config/2,
     copy_acl_conf/0
 ]).
 
@@ -55,12 +42,17 @@
     is_tcp_server_available/3,
     load_config/2,
     not_wait_mqtt_payload/1,
-    read_schema_configs/2,
-    render_config_file/2,
     wait_for/4,
     wait_publishes/2,
     wait_mqtt_payload/1,
-    select_free_port/1
+    select_free_port/1,
+    listener_enable_authn/3,
+    listener_disable_authn/2,
+    listeners_enable_authn/1,
+    listeners_disable_authn/0,
+    listeners_enable_authn_scoped/1,
+    listeners_disable_authn_scoped/0,
+    listeners_enable_authn_scoped/0
 ]).
 
 -export([
@@ -71,10 +63,8 @@
 -export([
     start_ekka/0,
     start_epmd/0,
-    start_peer/2,
-    stop_peer/1,
     ebin_path/0,
-    listener_port/2
+    listener_port/1
 ]).
 
 -export([clear_screen/0]).
@@ -331,171 +321,12 @@ end_per_testcase(Module, TestCase, Config) ->
 boot_modules(Mods) ->
     application:set_env(emqx, boot_modules, Mods).
 
--spec start_apps(Apps :: apps()) -> ok.
-start_apps(Apps) ->
-    DefaultHandler = fun(_) -> ok end,
-    start_apps(Apps, DefaultHandler, #{}).
-
--spec start_apps(Apps :: apps(), Handler :: special_config_handler()) -> ok.
-start_apps(Apps, SpecAppConfig) when is_function(SpecAppConfig) ->
-    start_apps(Apps, SpecAppConfig, #{}).
-
--spec start_apps(Apps :: apps(), Handler :: special_config_handler(), map()) -> ok.
-start_apps(Apps, SpecAppConfig, Opts) when is_function(SpecAppConfig) ->
-    %% Load all application code to beam vm first
-    %% Because, minirest, ekka etc.. application will scan these modules
-    lists:foreach(fun load/1, [emqx | Apps]),
-    ok = start_ekka(),
-    lists:foreach(fun(App) -> start_app(App, SpecAppConfig, Opts) end, [emqx | Apps]).
-
 load(App) ->
     case application:load(App) of
         ok -> ok;
         {error, {already_loaded, _}} -> ok;
         {error, Reason} -> error({failed_to_load_app, App, Reason})
     end.
-
-render_and_load_app_config(App) ->
-    render_and_load_app_config(App, #{}).
-
-render_and_load_app_config(App, Opts) ->
-    load(App),
-    Schema = app_schema(App),
-    ConfFilePath = maps:get(conf_file_path, Opts, filename:join(["etc", app_conf_file(App)])),
-    Conf = app_path(App, ConfFilePath),
-    try
-        do_render_app_config(App, Schema, Conf, Opts)
-    catch
-        throw:skip ->
-            ok;
-        throw:E:St ->
-            %% turn throw into error
-            error({Conf, E, St})
-    end.
-
-do_render_app_config(App, Schema, ConfigFile, Opts) ->
-    %% copy acl_conf must run before read_schema_configs
-    copy_acl_conf(),
-    Vars = mustache_vars(App, Opts),
-    RenderedConfigFile = render_config_file(ConfigFile, Vars),
-    read_schema_configs(Schema, RenderedConfigFile),
-    force_set_config_file_paths(App, [RenderedConfigFile]),
-    copy_certs(App, RenderedConfigFile),
-    ok.
-
-start_app(App, SpecAppConfig) ->
-    start_app(App, SpecAppConfig, #{}).
-
-start_app(App, SpecAppConfig, Opts) ->
-    render_and_load_app_config(App, Opts),
-    SpecAppConfig(App),
-    case application:ensure_all_started(App) of
-        {ok, _} ->
-            ok = wait_for_app_processes(App),
-            ok = perform_sanity_checks(App),
-            ok;
-        {error, Reason} ->
-            error({failed_to_start_app, App, Reason})
-    end.
-
-wait_for_app_processes(emqx_conf) ->
-    %% emqx_conf app has a gen_server which
-    %% initializes its state asynchronously
-    gen_server:call(emqx_cluster_rpc, dummy),
-    ok;
-wait_for_app_processes(_) ->
-    ok.
-
-%% These are checks to detect inter-suite or inter-testcase flakiness
-%% early.  For example, one suite might forget one application running
-%% and stop others, and then the `application:start/2' callback is
-%% never called again for this application.
-perform_sanity_checks(emqx_rule_engine) ->
-    ensure_config_handler(emqx_rule_engine, [rule_engine, rules, '?']),
-    ok;
-perform_sanity_checks(emqx_bridge) ->
-    ensure_config_handler(emqx_bridge, [bridges]),
-    ok;
-perform_sanity_checks(_App) ->
-    ok.
-
-ensure_config_handler(Module, ConfigPath) ->
-    #{handlers := Handlers} = emqx_config_handler:info(),
-    case emqx_utils_maps:deep_get(ConfigPath, Handlers, not_found) of
-        #{'$mod' := Module} -> ok;
-        NotFound -> error({config_handler_missing, ConfigPath, Module, NotFound})
-    end,
-    ok.
-
-app_conf_file(emqx_conf) -> "emqx.conf.all";
-app_conf_file(App) -> atom_to_list(App) ++ ".conf".
-
-app_schema(App) ->
-    Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
-    try
-        true = is_list(Mod:roots()),
-        Mod
-    catch
-        error:undef ->
-            no_schema
-    end.
-
-mustache_vars(App, Opts) ->
-    ExtraMustacheVars = maps:get(extra_mustache_vars, Opts, #{}),
-    Defaults = #{
-        node_cookie => atom_to_list(erlang:get_cookie()),
-        platform_data_dir => app_path(App, "data"),
-        platform_etc_dir => app_path(App, "etc")
-    },
-    maps:merge(Defaults, ExtraMustacheVars).
-
-render_config_file(ConfigFile, Vars0) ->
-    Temp =
-        case file:read_file(ConfigFile) of
-            {ok, T} -> T;
-            {error, enoent} -> throw(skip);
-            {error, Reason} -> error({failed_to_read_config_template, ConfigFile, Reason})
-        end,
-    Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- maps:to_list(Vars0)],
-    Targ = bbmustache:render(Temp, Vars),
-    NewName = ConfigFile ++ ".rendered",
-    ok = file:write_file(NewName, Targ),
-    NewName.
-
-read_schema_configs(no_schema, _ConfigFile) ->
-    ok;
-read_schema_configs(Schema, ConfigFile) ->
-    NewConfig = generate_config(Schema, ConfigFile),
-    application:set_env(NewConfig).
-
-generate_config(SchemaModule, ConfigFile) when is_atom(SchemaModule) ->
-    {ok, Conf0} = hocon:load(ConfigFile, #{format => richmap}),
-    hocon_tconf:generate(SchemaModule, Conf0).
-
--spec stop_apps(list()) -> ok.
-stop_apps(Apps) ->
-    stop_apps(Apps, #{}).
-
-stop_apps(Apps, Opts) ->
-    [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
-    ok = mria_mnesia:delete_schema(),
-    %% to avoid inter-suite flakiness
-    application:unset_env(emqx, config_loader),
-    application:unset_env(emqx, boot_modules),
-    emqx_schema_hooks:erase_injections(),
-    case Opts of
-        #{erase_all_configs := false} ->
-            %% FIXME: this means inter-suite or inter-test dependencies
-            ok;
-        _ ->
-            emqx_config:erase_all()
-    end,
-    ok = emqx_config:delete_override_conf_files(),
-    application:unset_env(emqx, local_override_conf_file),
-    application:unset_env(emqx, cluster_override_conf_file),
-    application:unset_env(emqx, cluster_hocon_file),
-    application:unset_env(gen_rpc, port_discovery),
-    ok.
 
 proj_root() ->
     filename:join(
@@ -547,12 +378,6 @@ do_safe_relative_path(Path) ->
 safe_relative_path_2(Path) ->
     {ok, Cwd} = file:get_cwd(),
     filelib:safe_relative_path(Path, Cwd).
-
--spec reload(App :: atom(), SpecAppConfig :: special_config_handler()) -> ok.
-reload(App, SpecAppConfigHandler) ->
-    application:stop(App),
-    start_app(App, SpecAppConfigHandler, #{}),
-    application:start(App).
 
 ensure_mnesia_stopped() ->
     mria:stop(),
@@ -659,26 +484,6 @@ catch_call(F) ->
         C:E:S ->
             {crashed, {C, E, S}}
     end.
-force_set_config_file_paths(emqx_conf, [Path] = Paths) ->
-    Bin = iolist_to_binary(io_lib:format("node.config_files = [~p]~n", [Path])),
-    ok = file:write_file(Path, Bin, [append]),
-    application:set_env(emqx, config_files, Paths);
-force_set_config_file_paths(emqx, Paths) ->
-    %% we need init cluster conf, so we can save the cluster conf to the file
-    application:set_env(emqx, local_override_conf_file, "local_override.conf"),
-    application:set_env(emqx, cluster_override_conf_file, "cluster_override.conf"),
-    application:set_env(emqx, cluster_hocon_file, "cluster.hocon"),
-    application:set_env(emqx, config_files, Paths);
-force_set_config_file_paths(_, _) ->
-    ok.
-
-copy_certs(emqx_conf, Dest0) ->
-    Dest = filename:dirname(Dest0),
-    From = string:replace(Dest, "emqx_conf", "emqx"),
-    os:cmd(["cp -rf ", From, "/certs ", Dest, "/"]),
-    ok;
-copy_certs(_, _) ->
-    ok.
 
 copy_acl_conf() ->
     Dest = filename:join([code:lib_dir(emqx), "etc/acl.conf"]),
@@ -792,86 +597,53 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
         Other -> throw(Other)
     end.
 
-%%
-%% Clusterisation and multi-node testing
-%%
+listener_disable_authn(Type, Name) ->
+    listener_enable_authn(Type, Name, false).
 
--type shortname() :: atom().
--type nodename() :: atom().
--type node_opts() :: #{
-    %% Need to loaded apps. These apps will be loaded once the node started
-    load_apps => list(),
-    %% Need to started apps. It is the first arg passed to emqx_common_test_helpers:start_apps/2
-    apps => list(),
-    %% Extras app starting handler. It is the second arg passed to emqx_common_test_helpers:start_apps/2
-    env_handler => fun((AppName :: atom()) -> term()),
-    %% Application env preset before calling `emqx_common_test_helpers:start_apps/2`
-    env => [{AppName :: atom(), Key :: atom(), Val :: term()}],
-    %% Whether to execute `emqx_config:init_load(SchemaMod)`
-    %% default: true
-    load_schema => boolean(),
-    %% Which node in the cluster to join to.
-    %% default: first core node
-    join_to => node(),
-    %% If we want to exercise the scenario where a node joins an
-    %% existing cluster where there has already been some
-    %% configuration changes (via cluster rpc), then we need to enable
-    %% autocluster so that the joining node will restart the
-    %% `emqx_conf' app and correctly catch up the config.
-    start_autocluster => boolean(),
-    %% Eval by emqx_config:put/2
-    conf => [{KeyPath :: list(), Val :: term()}],
-    %% Fast option to config listener port
-    %% default rule:
-    %% - tcp: base_port
-    %% - ssl: base_port + 1
-    %% - ws : base_port + 3
-    %% - wss: base_port + 4
-    listener_ports => [{Type :: tcp | ssl | ws | wss, inet:port_number()}]
-}.
+listener_enable_authn(Type, Name, EnableAuthnValue) ->
+    OldEnableAuthnValue = emqx:get_config([listeners, Type, Name, enable_authn]),
+    {ok, _} = emqx:update_config(
+        [listeners, Type, Name], {update, #{<<"enable_authn">> => EnableAuthnValue}}
+    ),
+    OldEnableAuthnValue.
 
-%% Lower level starting API
+listeners_disable_authn() ->
+    listeners_enable_authn(false).
 
--spec start_peer(shortname(), node_opts()) -> nodename().
-start_peer(Name, Opts) when is_list(Opts) ->
-    start_peer(Name, maps:from_list(Opts));
-start_peer(Name, Opts) when is_map(Opts) ->
-    Node = node_name(Name),
-    Cookie = atom_to_list(erlang:get_cookie()),
-    PrivDataDir = maps:get(priv_data_dir, Opts, "/tmp"),
-    NodeDataDir = filename:join([
-        PrivDataDir,
-        Node,
-        integer_to_list(erlang:unique_integer())
-    ]),
-    DoStart =
-        fun() ->
-            ct:pal("~p: node data dir: ~s", [Node, NodeDataDir]),
-            Envs = [
-                {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
-                {"EMQX_NODE__COOKIE", Cookie},
-                {"EMQX_NODE__DATA_DIR", NodeDataDir},
-                {"EMQX_LICENSE__KEY", "evaluation"}
-            ],
-            emqx_cth_peer:start(Node, erl_flags(), Envs)
+listeners_enable_authn(EnableAuthnValues) when is_map(EnableAuthnValues) ->
+    maps:fold(
+        fun({Type, Name}, EnableAuthnValue, OldEnableAuthnValues) ->
+            OldEnableAuthnValue = listener_enable_authn(Type, Name, EnableAuthnValue),
+            OldEnableAuthnValues#{{Type, Name} => OldEnableAuthnValue}
         end,
-    case DoStart() of
-        {ok, _} ->
-            ok;
-        {error, started_not_connected, _} ->
-            ok;
-        Other ->
-            throw(Other)
-    end,
-    pong = net_adm:ping(Node),
-    ok = snabbkaffe:forward_trace(Node),
-    setup_node(Node, Opts),
-    Node.
+        #{},
+        EnableAuthnValues
+    );
+listeners_enable_authn(EnableAuthnValue) ->
+    EnableAuthnValues = maps:fold(
+        fun(Type, Listeners, Acc0) ->
+            maps:fold(
+                fun(Name, _Listener, Acc) ->
+                    Acc#{{Type, Name} => EnableAuthnValue}
+                end,
+                Acc0,
+                Listeners
+            )
+        end,
+        #{},
+        emqx:get_config([listeners])
+    ),
+    listeners_enable_authn(EnableAuthnValues).
 
-%% Node stopping
-stop_peer(Node0) ->
-    Node = node_name(Node0),
-    emqx_cth_peer:stop(Node).
+listeners_enable_authn_scoped(EnableAuthnValue) ->
+    OldEnableAuthnValues = listeners_enable_authn(EnableAuthnValue),
+    on_exit(fun() -> listeners_enable_authn(OldEnableAuthnValues) end).
+
+listeners_disable_authn_scoped() ->
+    listeners_enable_authn_scoped(false).
+
+listeners_enable_authn_scoped() ->
+    listeners_enable_authn_scoped(true).
 
 %% EPMD starting
 start_epmd() ->
@@ -887,191 +659,6 @@ epmd_path() ->
             GlobalEpmd
     end.
 
-%% Node initialization
-
--spec setup_node(nodename(), node_opts()) -> ok.
-setup_node(Node, Opts) when is_list(Opts) ->
-    setup_node(Node, maps:from_list(Opts));
-setup_node(Node, Opts) when is_map(Opts) ->
-    %% Default base port is selected upon Node from 1100 to 65530 with step 10
-    BasePort = maps:get(base_port, Opts, 1100 + erlang:phash2(Node, 6553 - 110) * 10),
-    Apps = maps:get(apps, Opts, []),
-    StartApps = maps:get(start_apps, Opts, true),
-    JoinTo = maps:get(join_to, Opts, undefined),
-    EnvHandler = maps:get(env_handler, Opts, fun(_) -> ok end),
-    ConfigureGenRpc = maps:get(configure_gen_rpc, Opts, true),
-    LoadSchema = maps:get(load_schema, Opts, true),
-    SchemaMod = maps:get(schema_mod, Opts, emqx_schema),
-    LoadApps = maps:get(load_apps, Opts, Apps),
-    Env = maps:get(env, Opts, []),
-    Conf = maps:get(conf, Opts, []),
-    ListenerPorts = maps:get(listener_ports, Opts, [
-        {Type, listener_port(BasePort, Type)}
-     || Type <- [tcp, ssl, ws, wss]
-    ]),
-    %% we need a fresh data dir for each peer node to avoid unintended
-    %% successes due to sharing of data in the cluster.
-    PrivDataDir = maps:get(priv_data_dir, Opts, "/tmp"),
-    %% If we want to exercise the scenario where a node joins an
-    %% existing cluster where there has already been some
-    %% configuration changes (via cluster rpc), then we need to enable
-    %% autocluster so that the joining node will restart the
-    %% `emqx_conf' app and correctly catch up the config.
-    StartAutocluster = maps:get(start_autocluster, Opts, false),
-
-    ct:pal(
-        "setting up node ~p:\n  ~p",
-        [
-            Node,
-            #{
-                start_autocluster => StartAutocluster,
-                load_apps => LoadApps,
-                apps => Apps,
-                env => Env,
-                join_to => JoinTo,
-                start_apps => StartApps
-            }
-        ]
-    ),
-
-    %% Load env before doing anything to avoid overriding
-    [ok = erpc:call(Node, ?MODULE, load, [App]) || App <- [gen_rpc, ekka, mria, emqx | LoadApps]],
-
-    %% Ensure a clean mnesia directory for each run to avoid
-    %% inter-test flakiness.
-    MnesiaDataDir = filename:join([
-        PrivDataDir,
-        Node,
-        integer_to_list(erlang:unique_integer()),
-        "mnesia"
-    ]),
-    case erpc:call(Node, application, get_env, [mnesia, dir, undefined]) of
-        undefined ->
-            ct:pal("~p: setting mnesia dir: ~p", [Node, MnesiaDataDir]),
-            erpc:call(Node, application, set_env, [mnesia, dir, MnesiaDataDir]);
-        PreviousMnesiaDir ->
-            ct:pal("~p: mnesia dir already set: ~p", [Node, PreviousMnesiaDir]),
-            ok
-    end,
-
-    %% Needs to be set explicitly because ekka:start() (which calls `gen`) is called without Handler
-    %% in emqx_common_test_helpers:start_apps(...)
-    ConfigureGenRpc andalso
-        begin
-            ok = rpc:call(Node, application, set_env, [
-                gen_rpc, tcp_server_port, gen_rpc_port(BasePort)
-            ]),
-            ok = rpc:call(Node, application, set_env, [gen_rpc, port_discovery, manual])
-        end,
-
-    %% Setting env before starting any applications
-    set_envs(Node, Env),
-
-    NodeDataDir = filename:join([
-        PrivDataDir,
-        node(),
-        integer_to_list(erlang:unique_integer())
-    ]),
-
-    %% Here we start the apps
-    EnvHandlerForRpc =
-        fun(App) ->
-            %% We load configuration, and than set the special environment variable
-            %% which says that emqx shouldn't load configuration at startup
-            %% Otherwise, configuration gets loaded and all preset env in EnvHandler is lost
-            LoadSchema andalso
-                begin
-                    %% to avoid sharing data between executions and/or
-                    %% nodes.  these variables might not be in the
-                    %% config file (e.g.: emqx_conf_schema).
-                    Cookie = atom_to_list(erlang:get_cookie()),
-                    set_env_once("EMQX_NODE__DATA_DIR", NodeDataDir),
-                    set_env_once("EMQX_NODE__COOKIE", Cookie),
-                    emqx_config:init_load(SchemaMod),
-                    emqx_app:set_config_loader(emqx_conf)
-                end,
-
-            %% Need to set this otherwise listeners will conflict between each other
-            [
-                ok = emqx_config:put([listeners, Type, default, bind], {
-                    {127, 0, 0, 1}, Port
-                })
-             || {Type, Port} <- ListenerPorts
-            ],
-
-            [ok = emqx_config:put(KeyPath, Value) || {KeyPath, Value} <- Conf],
-            ok = EnvHandler(App),
-            ok
-        end,
-
-    StartApps andalso
-        begin
-            ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [Apps, EnvHandlerForRpc])
-        end,
-
-    %% Join the cluster if JoinTo is specified
-    case JoinTo of
-        undefined ->
-            ok;
-        _ ->
-            StartAutocluster andalso
-                begin
-                    %% Note: we need to re-set the env because
-                    %% starting the apps apparently make some of them
-                    %% to be lost...  This is particularly useful for
-                    %% setting extra apps to be restarted after
-                    %% joining.
-                    set_envs(Node, Env),
-                    ok = erpc:call(Node, emqx_machine_boot, start_autocluster, [])
-                end,
-            case rpc:call(Node, ekka, join, [JoinTo]) of
-                ok ->
-                    ok;
-                ignore ->
-                    ok;
-                Err ->
-                    stop_peer(Node),
-                    error({failed_to_join_cluster, #{node => Node, error => Err}})
-            end
-    end,
-    ok.
-
-%% Helpers
-
-set_env_once(Var, Value) ->
-    case os:getenv(Var) of
-        false ->
-            os:putenv(Var, Value);
-        _OldValue ->
-            ok
-    end,
-    ok.
-
-node_name(Name) ->
-    case string:tokens(atom_to_list(Name), "@") of
-        [_Name, _Host] ->
-            %% the name already has a @
-            Name;
-        _ ->
-            list_to_atom(atom_to_list(Name) ++ "@" ++ host())
-    end.
-
-host() ->
-    [_, Host] = string:tokens(atom_to_list(node()), "@"),
-    Host.
-
-set_envs(Node, Env) ->
-    lists:foreach(
-        fun({Application, Key, Value}) ->
-            ok = rpc:call(Node, application, set_env, [Application, Key, Value])
-        end,
-        Env
-    ).
-
-erl_flags() ->
-    %% One core
-    ["+S", "1:1"] ++ ebin_path().
-
 ebin_path() ->
     ["-pa" | lists:filter(fun is_lib/1, code:get_path())].
 
@@ -1079,25 +666,11 @@ is_lib(Path) ->
     string:prefix(Path, code:lib_dir()) =:= nomatch andalso
         string:str(Path, "_build/default/plugins") =:= 0.
 
-%% Ports
-
-gen_rpc_port(BasePort) ->
-    BasePort - 1.
-
-listener_port(Opts, Type) when is_map(Opts) ->
-    BasePort = maps:get(base_port, Opts),
-    listener_port(BasePort, Type);
-listener_port(BasePort, tcp) ->
-    BasePort;
-listener_port(BasePort, ssl) ->
-    BasePort + 1;
-listener_port(BasePort, quic) ->
-    BasePort + 2;
-listener_port(BasePort, ws) ->
-    BasePort + 3;
-listener_port(BasePort, wss) ->
-    BasePort + 4.
-
+-spec listener_port(non_neg_integer() | {term(), non_neg_integer()}) -> non_neg_integer().
+listener_port(Port) when is_integer(Port) ->
+    Port;
+listener_port({_Host, Port}) ->
+    Port.
 %% Useful when iterating on the tests in a loop, to get rid of all the garbaged printed
 %% before the test itself beings.
 %% Only actually does anything if the environment variable `CLEAR_SCREEN' is set to `true'
@@ -1811,6 +1384,7 @@ capture_io_format(Fn) ->
         end,
     {Result, format_io_requests(Prints)}.
 
+-spec with_security_profile(legacy | hardened | string(), fun(() -> Result)) -> Result.
 with_security_profile(Profile, Fun) ->
     set_security_profile(Profile),
     try
@@ -1819,7 +1393,10 @@ with_security_profile(Profile, Fun) ->
         clear_security_profile()
     end.
 
-set_security_profile(Profile) ->
+-spec set_security_profile(legacy | hardened | string()) -> ok.
+set_security_profile(Profile) when is_atom(Profile) ->
+    set_security_profile(atom_to_list(Profile));
+set_security_profile(Profile) when is_list(Profile) ->
     os:putenv(?SECURITY_PROFILE_ENV_VAR, Profile),
     emqx_security_profile:clear_profile(),
     ok.

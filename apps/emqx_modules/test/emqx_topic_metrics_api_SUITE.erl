@@ -122,6 +122,45 @@ t_mqtt_topic_metrics_collection(_) ->
         )
     ).
 
+-doc """
+Resetting metrics of a topic returns a structured 500 instead of crashing with
+badmatch when a node is unreachable during the reset RPC.
+""".
+t_reset_unreachable_node(_) ->
+    {ok, 200, _} = request(
+        post,
+        uri(["mqtt", "topic_metrics"]),
+        #{<<"topic">> => <<"reset/badnode">>}
+    ),
+    ok = meck:new(emqx_topic_metrics_proto_v1, [passthrough]),
+    try
+        meck:expect(
+            emqx_topic_metrics_proto_v1,
+            reset,
+            fun(_Nodes, _Topic) -> {[], ['badnode@nohost']} end
+        ),
+        ?assertMatch(
+            {ok, 500, _},
+            request(
+                put,
+                uri(["mqtt", "topic_metrics"]),
+                #{
+                    <<"topic">> => <<"reset/badnode">>,
+                    <<"action">> => <<"reset">>
+                }
+            )
+        )
+    after
+        meck:unload(emqx_topic_metrics_proto_v1)
+    end,
+    ?assertMatch(
+        {ok, 204, _},
+        request(
+            delete,
+            uri(["mqtt", "topic_metrics", emqx_http_lib:uri_encode("reset/badnode")])
+        )
+    ).
+
 t_mqtt_topic_metrics(_) ->
     {ok, 200, _} = request(
         post,

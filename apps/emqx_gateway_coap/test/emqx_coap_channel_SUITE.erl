@@ -134,7 +134,8 @@ t_channel_block1_connection(_) ->
     Channel0 =
         emqx_coap_channel:init(ConnInfo, #{
             ctx => coap_ctx(),
-            connection_required => false
+            connection_required => false,
+            enable_authn => false
         }),
     Msg0 = #coap_message{
         type = con,
@@ -205,7 +206,8 @@ t_channel_connection_open_session_error_direct(_) ->
     Channel0 =
         emqx_coap_channel:init(ConnInfo, #{
             ctx => coap_ctx(),
-            connection_required => true
+            connection_required => true,
+            enable_authn => false
         }),
     ClientId = <<"client1">>,
     Locker = list_to_atom("emqx_gateway_coap_locker"),
@@ -887,7 +889,8 @@ new_block2_channel(Opts) ->
     Channel0 =
         emqx_coap_channel:init(ConnInfo, #{
             ctx => coap_ctx(),
-            connection_required => false
+            connection_required => false,
+            enable_authn => false
         }),
     BW = emqx_coap_blockwise:new(
         maps:merge(

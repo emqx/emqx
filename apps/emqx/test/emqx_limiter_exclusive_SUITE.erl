@@ -29,12 +29,7 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, Config) ->
     Groups = emqx_limiter_registry:list_groups(),
-    lists:foreach(
-        fun(Group) ->
-            emqx_limiter:delete_group(Group)
-        end,
-        Groups
-    ),
+    lists:foreach(fun emqx_limiter:delete_group/1, Groups),
     Config.
 
 %%--------------------------------------------------------------------
@@ -104,6 +99,25 @@ t_try_consume_burst(_) ->
         Client5,
         lists:seq(1, 10)
     ).
+
+t_try_consume_zero_burst(_) ->
+    Group = ?FUNCTION_NAME,
+    Conf = #{
+        test_rate => {1, 1000},
+        test_burst => {0, 1000}
+    },
+    ok = emqx_limiter:create_group(exclusive, Group, [
+        {limiter1, emqx_limiter:config(test, Conf)}
+    ]),
+    Client0 = emqx_limiter:connect({Group, limiter1}),
+
+    %% Only regularly refilled tokens are available
+    {true, Client1} = emqx_limiter_client:try_consume(Client0, 1),
+    {false, Client2, _} = emqx_limiter_client:try_consume(Client1, 1),
+
+    ct:sleep(1000),
+    {true, Client3} = emqx_limiter_client:try_consume(Client2, 1),
+    {false, _Client, _} = emqx_limiter_client:try_consume(Client3, 1).
 
 t_try_consume_burst_wide_interval(_) ->
     ok = emqx_limiter:create_group(exclusive, group1, [
@@ -179,3 +193,27 @@ t_change_options(_) ->
     {true, Client3} = emqx_limiter_client:try_consume(Client2, 1),
     {true, Client4} = emqx_limiter_client:try_consume(Client3, 1),
     {false, _Client5, _} = emqx_limiter_client:try_consume(Client4, 1).
+
+t_not_found_mode(_) ->
+    LimiterId = {group1, limiter1},
+    ok = emqx_limiter:create_group(exclusive, group1, [
+        {limiter1, #{capacity => infinity}}
+    ]),
+    DefaultClient = emqx_limiter:connect(LimiterId),
+    OpenClient = emqx_limiter:connect(LimiterId, #{not_found_mode => open}),
+    CloseClient = emqx_limiter:connect(LimiterId, #{not_found_mode => close}),
+
+    ok = emqx_limiter:delete_group(group1),
+    ?assertMatch({true, _}, emqx_limiter_client:try_consume(DefaultClient, 1)),
+    ?assertMatch({true, _}, emqx_limiter_client:try_consume(OpenClient, 1)),
+    ?assertMatch(
+        {false, _, {limiter_not_found, LimiterId}},
+        emqx_limiter_client:try_consume(CloseClient, 1)
+    ),
+
+    UnexpectedErrorClient0 = emqx_limiter_client:new(?MODULE, unexpected_error),
+    UnexpectedErrorClient = UnexpectedErrorClient0#{not_found_mode => close},
+    ?assertMatch({true, _}, emqx_limiter_client:try_consume(UnexpectedErrorClient, 1)).
+
+try_consume(unexpected_error, _Amount) ->
+    error(unexpected_error).

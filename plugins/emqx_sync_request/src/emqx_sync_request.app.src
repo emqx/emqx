@@ -4,12 +4,14 @@
     {vsn, {file, "VERSION"}},
     {modules, []},
     {registered, [emqx_sync_request_sup, emqx_sync_request]},
+    %% Do not declare emqx_plugins or apps started after it (emqx_management):
+    %% plugins start while emqx_plugins itself is starting during node boot,
+    %% and such dependencies make the plugin start time out.
     {applications, [
         kernel,
         stdlib,
         emqx,
-        emqx_ctl,
-        emqx_plugins
+        emqx_ctl
     ]},
     {mod, {emqx_sync_request_app, []}},
     {env, []},

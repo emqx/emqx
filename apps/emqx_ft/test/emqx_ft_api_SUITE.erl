@@ -465,8 +465,8 @@ test_configure(Uri, Config) ->
         } when not is_map_key(<<"password">>, SSL),
         GetConfigJson
     ),
-    ?assertMatch(
-        {ok, 400, _},
+    %% A blank keyfile is treated as unset and dropped from the config.
+    {ok, 200, BlankKeyfileConfigJson} =
         request_json(
             put,
             Uri,
@@ -485,7 +485,25 @@ test_configure(Uri, Config) ->
                 }
             },
             Config
-        )
+        ),
+    ?assertMatch(
+        #{
+            <<"storage">> := #{
+                <<"local">> := #{
+                    <<"exporter">> := #{
+                        <<"s3">> := #{
+                            <<"transport_options">> := #{
+                                <<"ssl">> := BlankKeyfileSSL = #{
+                                    <<"enable">> := true,
+                                    <<"certfile">> := <<"/", _/bytes>>
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } when not is_map_key(<<"keyfile">>, BlankKeyfileSSL),
+        BlankKeyfileConfigJson
     ),
     ?assertMatch(
         {ok, 200, #{}},

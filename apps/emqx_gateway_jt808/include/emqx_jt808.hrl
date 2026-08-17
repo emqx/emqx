@@ -196,8 +196,8 @@
 
 %% Default Configs
 -define(DEFAULT_MOUNTPOINT, <<"jt808/${clientid}/">>).
--define(DEFAULT_UP_TOPIC, <<?DEFAULT_MOUNTPOINT/binary, "${phone}/up">>).
--define(DEFAULT_DN_TOPIC, <<?DEFAULT_MOUNTPOINT/binary, "${phone}/dn">>).
+-define(DEFAULT_UP_TOPIC, <<"${phone}/up">>).
+-define(DEFAULT_DN_TOPIC, <<"${phone}/dn">>).
 
 %% Supported placeholders
 -define(PH_CLIENTID, <<"${clientid}">>).

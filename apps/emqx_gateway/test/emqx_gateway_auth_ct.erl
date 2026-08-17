@@ -132,6 +132,7 @@ on_start_auth(authn_http) ->
             {201, _} -> ok;
             {404, _} -> ok
         end,
+        ok = emqx_gateway_test_utils:set_gateway_listeners_authn(Gateway, true),
         timer:sleep(200)
     end,
     lists:foreach(Setup, ?GATEWAYS),
@@ -164,6 +165,10 @@ on_start_auth(authn_http) ->
 
     timer:sleep(500);
 on_start_auth(authz_http) ->
+    lists:foreach(
+        fun(Gateway) -> emqx_gateway_test_utils:set_gateway_listeners_authn(Gateway, false) end,
+        ?GATEWAYS
+    ),
     ok = emqx_authz_test_lib:reset_authorizers(),
     {ok, _} = emqx_utils_http_test_server:start_link(?AUTHZ_HTTP_PORT, ?AUTHZ_HTTP_PATH),
 
@@ -204,6 +209,10 @@ on_stop_auth(authn_http) ->
         end
     end,
     lists:foreach(Delete, ?GATEWAYS),
+    lists:foreach(
+        fun(Gateway) -> emqx_gateway_test_utils:set_gateway_listeners_authn(Gateway, false) end,
+        ?GATEWAYS
+    ),
     ok = emqx_utils_http_test_server:stop();
 on_stop_auth(authz_http) ->
     ok = emqx_utils_http_test_server:stop().

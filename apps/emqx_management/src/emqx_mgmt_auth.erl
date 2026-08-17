@@ -58,15 +58,14 @@
     do_force_create_app/1
 ]).
 
-%% Helpers for materializing role-default scopes at record-creation time.
-%% Used by the POST handler, the bootstrap-file loader, and the SSO
-%% user-provisioning path so that `<<"unset">>' in a GET response can be
-%% interpreted unambiguously as "record predates the scopes feature".
--export([role_default_scopes/1, effective_scopes_on_create/2]).
+%% Role-default scopes and `scopes' write-intent normalization.
+-export([role_default_scopes/1, write_scope_intent/2]).
 
 -ifdef(TEST).
 -export([trans/2, force_create_app/1]).
 -export([init_bootstrap_file/1]).
+%% Exported for emqx_mgmt_auth_tests.
+-export([parse_bootstrap_scopes_lenient/2, group_rejected_by_reason/1]).
 -endif.
 
 -define(APP, emqx_app).
@@ -403,40 +402,71 @@ get_scopes(_) ->
     %% No scopes key in extra = backward compatible, allow all
     undefined.
 
-%% @doc Set scopes in extra map. undefined means "don't change".
+%% @doc Set scopes in extra map. `undefined' means "don't change";
+%% `unset' clears the field back to role-default behavior.
 maybe_set_scopes(Extra, undefined) ->
     Extra;
+maybe_set_scopes(Extra, unset) ->
+    maps:remove(scopes, Extra);
 maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
     Extra#{scopes => Scopes}.
 
 %% @doc Resolve the role-default scopes that should be materialized into
 %% the persisted record when the caller did not explicitly supply a scope
-%% list (POST without `scopes', 2-/3-segment bootstrap line).
+%% list (POST without `scopes', 2-/3-segment bootstrap line). Accepts a
+%% bare role or a serialized namespaced role (`ns:<ns>::<role>').
 %%
-%% After this PR, `undefined' is never written into mnesia by any creation
-%% path; the `<<"unset">>' state in the GET response is only possible for
-%% records that survived an upgrade from a release where the scopes
-%% feature did not exist.
-%%
-%%   * administrator / viewer -> `?GENERIC_SCOPES' (10 management scopes,
-%%     no login-only scopes — those are reserved for dashboard users).
+%%   * global administrator / viewer -> `?GENERIC_SCOPES' (10 management
+%%     scopes, no login-only scopes — those are reserved for dashboard
+%%     users).
+%%   * namespaced administrator -> `?NS_ADMIN_COMMON_SCOPES': the subset a
+%%     namespaced admin can actually exercise, notably without `publish'
+%%     (the publish APIs are global-only). This mirrors the namespaced
+%%     dashboard-user default (`?NS_ADMIN_ALLOWED_SCOPES') minus the
+%%     login-only scopes, exactly as the global administrator default is
+%%     `?GENERIC_SCOPES' without the login-only scopes.
 %%   * publisher              -> `[<<"publish">>]' (the only scope the
 %%     publisher role is ever permitted to hold; runtime RBAC also
 %%     hard-restricts publisher to `/publish*' regardless of the stored
 %%     scope list).
-role_default_scopes(?ROLE_API_PUBLISHER) ->
+role_default_scopes(Role0) ->
+    case parse_role(Role0) of
+        {ok, #{?role := Role, ?namespace := Namespace}} ->
+            role_default_scopes(Role, Namespace);
+        {error, _} ->
+            ?GENERIC_SCOPES
+    end.
+
+role_default_scopes(?ROLE_API_PUBLISHER, _Namespace) ->
     [?SCOPE_PUBLISH];
-role_default_scopes(_Role) ->
+role_default_scopes(?ROLE_API_SUPERUSER, Namespace) when is_binary(Namespace) ->
+    ?NS_ADMIN_COMMON_SCOPES;
+role_default_scopes(_Role, _Namespace) ->
     ?GENERIC_SCOPES.
 
-%% @doc Convenience wrapper for the request-handling layer: if the
-%% caller supplied no scopes, materialize the role default; otherwise
-%% pass the explicit value through unchanged (including the empty list
-%% which means explicit deny-all).
-effective_scopes_on_create(Role, undefined) ->
-    role_default_scopes(Role);
-effective_scopes_on_create(_Role, Scopes) when is_list(Scopes) ->
-    Scopes.
+%% @doc Normalize a `scopes' request value to a write intent:
+%% `keep' (field omitted), `unset' (the `unset' sentinel or a list
+%% set-equal to the role default: store no explicit scopes so a
+%% read-modify-write never freezes the implicit default), or
+%% `{set, L}' (store `L' verbatim; downstream validation rejects
+%% non-list garbage). Counterpart of
+%% `emqx_dashboard_api:write_scope_intent/2'; keep the two consistent.
+write_scope_intent(_Role, undefined) ->
+    keep;
+write_scope_intent(_Role, unset) ->
+    unset;
+write_scope_intent(_Role, <<"unset">>) ->
+    unset;
+write_scope_intent(Role, Scopes) when is_list(Scopes) ->
+    case is_role_default_scopes(Role, Scopes) of
+        true -> unset;
+        false -> {set, Scopes}
+    end;
+write_scope_intent(_Role, Other) ->
+    {set, Other}.
+
+is_role_default_scopes(Role, Scopes) ->
+    lists:usort(Scopes) =:= lists:usort(role_default_scopes(Role)).
 
 ensure_not_undefined(undefined, Old) -> Old;
 ensure_not_undefined(New, _Old) -> New.
@@ -464,14 +494,9 @@ to_map(#?APP{
 %% @doc Surface raw scope state to the API consumer with a tri-state contract:
 %%   - `[]`            : explicit deny-all (only `security => []` paths reachable)
 %%   - `[binary(), …]` : explicit allow-list
-%%   - `<<"unset">>`   : the persisted record has no `scopes' field at all (legacy
-%%                       upgrade artefact from before #16942 landed). The runtime
-%%                       authorization path falls back to role-default behaviour
-%%                       (allow-all-mapped-paths for administrator/viewer,
-%%                       hard-coded `/publish*' for publisher).  Newly created
-%%                       records never end up in this state: the POST / bootstrap
-%%                       / SSO-provisioning paths all materialize role-default
-%%                       scopes at creation time.
+%%   - `<<"unset">>`   : the persisted record has no `scopes' field at all
+%%                       (legacy record or unset-equivalent write); the runtime
+%%                       falls back to role-default behaviour.
 %% This intentionally exposes the persisted shape rather than an effective list so
 %% that the dashboard read-modify-write cycle cannot silently sediment role-default
 %% into an explicit list.  The `<<"unset">>' binary is a stable string sentinel
@@ -798,8 +823,10 @@ parse_role_and_scopes(ApiKey, ApiSecret, Namespace, RoleAndScopes) ->
         [Role] ->
             with_valid_role(Role, fun(R) ->
                 %% Namespaced `role'-only tail: same rationale as the
-                %% simple `role'-only case above — materialise role default.
-                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, role_default_scopes(R), [])
+                %% simple `role'-only case above — materialise the
+                %% namespace-aware role default.
+                Scopes = role_default_scopes(R, Namespace),
+                bootstrap_entry(ApiKey, ApiSecret, R, Namespace, Scopes, [])
             end);
         [Role, ScopesStr] ->
             with_valid_role(Role, fun(R) ->
@@ -851,7 +878,8 @@ parse_bootstrap_scopes_lenient(Role, ScopesStr) ->
     Candidates = binary:split(ScopesStr, <<",">>, [global, trim_all]),
     Raw = [string:lowercase(string:trim(S)) || S <- Candidates, string:trim(S) =/= <<>>],
     Available = [Name || #{name := Name} <- emqx_scope_catalog:scope_catalog()],
-    {Valid0, Rejected0} = lists:partition(fun(S) -> lists:member(S, Available) end, Raw),
+    {Valid0, Unknown0} = lists:partition(fun(S) -> lists:member(S, Available) end, Raw),
+    Rejected0 = [{S, unknown_scope} || S <- Unknown0],
     {Valid1, Rejected1} = filter_publisher_scopes(Role, Valid0, Rejected0),
     drop_mixed_privilege_scopes(Valid1, Rejected1).
 
@@ -865,7 +893,7 @@ drop_mixed_privilege_scopes(Valid, Rejected) ->
     case emqx_scope_catalog:partition_privilege_scopes(Valid) of
         {[], _} -> {Valid, Rejected};
         {_, []} -> {Valid, Rejected};
-        {Priv, Other} -> {Other, Rejected ++ Priv}
+        {Priv, Other} -> {Other, Rejected ++ [{S, privilege_scope_conflict} || S <- Priv]}
     end.
 
 %% Restrict publisher role to the `publish' scope only. Other roles
@@ -875,21 +903,44 @@ filter_publisher_scopes(?ROLE_API_PUBLISHER, Valid, Rejected) ->
         fun(S) -> S =:= ?SCOPE_PUBLISH end,
         Valid
     ),
-    {Keep, Rejected ++ Drop};
+    {Keep, Rejected ++ [{S, not_allowed_for_publisher_role} || S <- Drop]};
 filter_publisher_scopes(_OtherRole, Valid, Rejected) ->
     {Valid, Rejected}.
 
+%% `Rejected' is a list of `{ScopeName, Reason}' pairs. Emit a single
+%% warning that groups the dropped scopes by reason, so an operator can
+%% see exactly which scopes were dropped and why, instead of a blanket
+%% "unknown scopes" message that is inaccurate for scopes dropped by the
+%% privilege-scope or publisher-role rules.
 maybe_warn_rejected_scopes(_File, _Line, _ApiKey, []) ->
     ok;
 maybe_warn_rejected_scopes(File, Line, ApiKey, Rejected) ->
     ?SLOG(warning, #{
-        msg => "bootstrap_file_unknown_scopes_dropped",
-        info => <<"Unknown scope names in bootstrap file were dropped; valid scopes still apply.">>,
+        msg => "bootstrap_file_scopes_dropped",
+        info => <<
+            "Some scopes in the bootstrap file were dropped; the API key was created/updated "
+            "with the remaining scopes. See `dropped' for each scope name and why it was "
+            "dropped: `unknown_scope' (not a known scope name, likely a typo), "
+            "`not_allowed_for_publisher_role' (publisher keys may only hold `publish'), "
+            "`privilege_scope_conflict' (a privilege/administrator-equivalent scope cannot be "
+            "combined with other scopes; the non-privilege scopes were kept)."
+        >>,
+        dropped => group_rejected_by_reason(Rejected),
         file => File,
         line => Line,
-        api_key => ApiKey,
-        rejected_scopes => Rejected
+        api_key => ApiKey
     }).
+
+%% Group `{ScopeName, Reason}' pairs into `#{Reason => [ScopeName]}',
+%% preserving input order within each reason.
+group_rejected_by_reason(Rejected) ->
+    lists:foldr(
+        fun({Scope, Reason}, Acc) ->
+            maps:update_with(Reason, fun(Scopes) -> [Scope | Scopes] end, [Scope], Acc)
+        end,
+        #{},
+        Rejected
+    ).
 
 get_role(#{?role := Role}) ->
     Role;

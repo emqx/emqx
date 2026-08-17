@@ -198,7 +198,7 @@ init_per_testcase(TestCase, Config) when
             Apps = emqx_cth_suite:start(
                 [
                     {emqx_conf, #{config => #{listeners => #{ssl => #{default => ListenerConf}}}}},
-                    emqx,
+                    {emqx, #{config => false}},
                     emqx_management,
                     emqx_mgmt_api_test_util:emqx_dashboard()
                 ],
@@ -941,7 +941,7 @@ t_not_cached_and_unreachable(Config) ->
     Ref = get_crl_cache_table(),
     ?assertEqual([], ets:tab2list(Ref)),
     unlink(C),
-    ?assertMatch({error, {ssl_error, _Sock, {tls_alert, {bad_certificate, _}}}}, emqtt:connect(C)),
+    ?assertMatch({error, {tls_alert, {bad_certificate, _}}}, emqtt:connect(C)),
     ok.
 
 t_revoked(Config) ->

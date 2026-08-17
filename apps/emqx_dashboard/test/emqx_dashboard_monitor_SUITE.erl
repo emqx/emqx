@@ -7,7 +7,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--import(emqx_dashboard_SUITE, [auth_header_/0]).
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -include("emqx_dashboard.hrl").
@@ -47,8 +46,8 @@
 
 all() ->
     [
-        {group, common},
-        {group, persistent_sessions}
+        {group, legacy},
+        {group, hardened}
     ].
 
 groups() ->
@@ -56,7 +55,9 @@ groups() ->
     PSTCs = persistent_session_testcases(),
     [
         {common, [], AllTCs -- PSTCs},
-        {persistent_sessions, [], PSTCs}
+        {persistent_sessions, [], PSTCs},
+        {legacy, [], [{group, common}, {group, persistent_sessions}]},
+        {hardened, [], [{group, common}, {group, persistent_sessions}]}
     ].
 
 persistent_session_testcases() ->
@@ -71,10 +72,11 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(persistent_sessions, Config) ->
-    Port = 18083,
+    Profile = ?config(security_profile, Config),
+    {Port, Node1, Node2, BasePort} = persistent_cluster_profile(Profile),
     ClusterSpecs = [
-        {dashboard_monitor1, #{apps => cluster_node_appspec(true, Port)}},
-        {dashboard_monitor2, #{apps => cluster_node_appspec(false, Port)}}
+        {Node1, #{apps => cluster_node_appspec(true, Port), base_port => BasePort}},
+        {Node2, #{apps => cluster_node_appspec(false, Port), base_port => BasePort + 100}}
     ],
     EMQXConf = #{
         <<"durable_sessions">> =>
@@ -84,7 +86,12 @@ init_per_group(persistent_sessions, Config) ->
             }
     },
     Opts = #{emqx_conf => EMQXConf},
-    emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts);
+    propagate_security_profile(
+        emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts)
+    );
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
 init_per_group(common = Group, Config0) ->
     DurableSessionsOpts = #{<<"enable">> => false},
     Opts = #{
@@ -106,6 +113,8 @@ init_per_group(common = Group, Config0) ->
     {ok, _} = emqx_common_test_http:create_default_app(),
     Config.
 
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_, Config) ->
     emqx_common_test_helpers:run_cleanups(Config).
 
@@ -392,11 +401,11 @@ write(Time, Data) ->
     ok.
 
 t_monitor_sampler_format(Config) when is_list(Config) ->
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_event(#{?snk_kind := dashboard_monitor_flushed}),
-            infinity
-        ),
+    ?retry(
+        200,
+        20,
+        ?assertMatch([_ | _], emqx_dashboard_monitor:samplers(node(), 1))
+    ),
     Latest = hd(emqx_dashboard_monitor:samplers(node(), 1)),
     SamplerKeys = maps:keys(Latest),
     [?assert(lists:member(SamplerName, SamplerKeys)) || SamplerName <- ?SAMPLER_LIST],
@@ -458,12 +467,7 @@ t_handle_old_monitor_data(Config) when is_list(Config) ->
 
 t_monitor_api(Config) when is_list(Config) ->
     clean_data(),
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity,
-            0
-        ),
+    ok = wait_for_samples(2),
     {ok, Samplers} = request(["monitor"], "latest=20"),
     ?assert(erlang:length(Samplers) >= 2, #{samplers => Samplers}),
     Fun =
@@ -782,8 +786,12 @@ t_monitor_reset(Config) when is_list(Config) ->
         ),
     {ok, Samplers} = request(["monitor"], "latest=1"),
     ?assertEqual(1, erlang:length(Samplers)),
-    ok = delete(["monitor"]),
-    ?assertMatch({ok, []}, request(["monitor"], "latest=1")),
+    %% Re-delete each attempt: a sample the periodic sampler flushed after the
+    %% delete stays until the next delete, so re-GET alone can't reach empty.
+    ?retry(100, 50, begin
+        ok = delete(["monitor"]),
+        ?assertMatch({ok, []}, request(["monitor"], "latest=1"))
+    end),
     ok.
 
 t_monitor_api_error(Config) when is_list(Config) ->
@@ -922,22 +930,29 @@ t_persistent_session_stats(Config) when is_list(Config) ->
         )
     end),
     ?assertNotMatch({ok, []}, ?ON(N1, request(["monitor"]))),
-    ?assertMatch(ok, ?ON(N1, delete(["monitor"]))),
-    ?assertMatch({ok, []}, ?ON(N1, request(["monitor"]))),
+    %% Re-delete each attempt: a sample the periodic sampler flushed after the
+    %% delete stays until the next delete, so re-GET alone can't reach empty.
+    ?retry(100, 50, begin
+        ?assertMatch(ok, ?ON(N1, delete(["monitor"]))),
+        ?assertMatch({ok, []}, ?ON(N1, request(["monitor"])))
+    end),
     ok.
 
 %% Checks that we get consistent data when changing the requested time window for
 %% `/monitor'.
 t_smoke_test_monitor_multiple_windows({init, Config0}) ->
-    Port = 28083,
+    Profile = ?config(security_profile, Config0),
+    {Port, Node1, Node2, BasePort} = smoke_cluster_profile(Profile),
     NodeSpecs = [
-        {smoke_multiple_windows1, #{apps => cluster_node_appspec(true, Port)}},
-        {smoke_multiple_windows2, #{apps => cluster_node_appspec(false, Port)}}
+        {Node1, #{apps => cluster_node_appspec(true, Port), base_port => BasePort}},
+        {Node2, #{apps => cluster_node_appspec(false, Port), base_port => BasePort + 100}}
     ],
-    Config = emqx_common_test_helpers:start_cluster_ds(
-        Config0,
-        NodeSpecs,
-        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config0)}
+    Config = propagate_security_profile(
+        emqx_common_test_helpers:start_cluster_ds(
+            Config0,
+            NodeSpecs,
+            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config0)}
+        )
     ),
     ok = snabbkaffe:start_trace(),
     Config;
@@ -1044,15 +1059,18 @@ t_smoke_test_monitor_multiple_windows(Config) when is_list(Config) ->
 %% re-raised the crash on the API node instead of returning the {badrpc, _} the callers
 %% tolerate, so it escaped `current_rate_cluster/0` and surfaced as 500 INTERNAL_ERROR.
 t_monitor_current_node_restarting_apps({init, Config0}) ->
-    Port = 28085,
+    Profile = ?config(security_profile, Config0),
+    {Port, Node1, Node2, BasePort} = restarting_cluster_profile(Profile),
     NodeSpecs = [
-        {monitor_node_restarting1, #{apps => cluster_node_appspec(true, Port)}},
-        {monitor_node_restarting2, #{apps => cluster_node_appspec(false, Port)}}
+        {Node1, #{apps => cluster_node_appspec(true, Port), base_port => BasePort}},
+        {Node2, #{apps => cluster_node_appspec(false, Port), base_port => BasePort + 100}}
     ],
-    Config = emqx_common_test_helpers:start_cluster_ds(
-        Config0,
-        NodeSpecs,
-        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config0)}
+    Config = propagate_security_profile(
+        emqx_common_test_helpers:start_cluster_ds(
+            Config0,
+            NodeSpecs,
+            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config0)}
+        )
     ),
     ok = snabbkaffe:start_trace(),
     Config;
@@ -1135,7 +1153,7 @@ request(Path) ->
 
 request(Path, QS) ->
     Url = url(Path, QS),
-    do_request_api(get, {Url, [auth_header_()]}).
+    do_request_api(get, {Url, [emqx_common_test_http:default_user_auth_header()]}).
 
 get_latest_from_window(Config, Window) ->
     WindowS = integer_to_list(window_in_seconds(Window)),
@@ -1156,7 +1174,7 @@ get_req_cluster(Config, Path, QS) ->
     Port = get_http_dashboard_port(APINode),
     Host = host(Port),
     Url = url(Host, Path, QS),
-    Auth = ?ON(APINode, auth_header_()),
+    Auth = ?ON(APINode, emqx_common_test_http:default_user_auth_header()),
     do_request_api(get, {Url, [Auth]}).
 
 host(Port) ->
@@ -1164,7 +1182,7 @@ host(Port) ->
 
 delete(Path) ->
     Url = url(Path, ""),
-    do_request_api(delete, {Url, [auth_header_()]}).
+    do_request_api(delete, {Url, [emqx_common_test_http:default_user_auth_header()]}).
 
 url(Parts, QS) ->
     url(?SERVER, Parts, QS).
@@ -1262,5 +1280,36 @@ cluster_node_appspec(Enable, Port0) ->
         )
     ].
 
+propagate_security_profile(Config) ->
+    Profile = ?config(security_profile, Config),
+    Nodes = ?config(cluster_nodes, Config),
+    Replies = erpc:multicall(
+        Nodes,
+        emqx_common_test_helpers,
+        set_security_profile,
+        [Profile]
+    ),
+    ?assertEqual(lists:duplicate(length(Nodes), {ok, ok}), Replies),
+    Config.
+
 clean_data() ->
     {atomic, ok} = emqx_dashboard_monitor:clear_table().
+
+wait_for_samples(Count) ->
+    ?retry(200, 20, ?assert(length(emqx_dashboard_monitor:all_data()) >= Count)),
+    ok.
+
+persistent_cluster_profile(legacy) ->
+    {18083, dashboard_monitor_legacy1, dashboard_monitor_legacy2, 10100};
+persistent_cluster_profile(hardened) ->
+    {18083, dashboard_monitor_hardened1, dashboard_monitor_hardened2, 11100}.
+
+smoke_cluster_profile(legacy) ->
+    {28083, smoke_multiple_windows_legacy1, smoke_multiple_windows_legacy2, 12100};
+smoke_cluster_profile(hardened) ->
+    {28084, smoke_multiple_windows_hardened1, smoke_multiple_windows_hardened2, 13100}.
+
+restarting_cluster_profile(legacy) ->
+    {28085, monitor_node_restarting_legacy1, monitor_node_restarting_legacy2, 14100};
+restarting_cluster_profile(hardened) ->
+    {28086, monitor_node_restarting_hardened1, monitor_node_restarting_hardened2, 15100}.

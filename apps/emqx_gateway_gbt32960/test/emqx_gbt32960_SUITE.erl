@@ -27,14 +27,27 @@
     " retry_interval = \"1s\"\n"
     " listeners.tcp.default {\n"
     "    bind = 7325\n"
+    "    enable_authn = false\n"
     "  }\n"
     "}\n"
 >>).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     application:load(emqx_gateway_gbt32960),
     Apps = emqx_cth_suite:start(
         [
@@ -44,21 +57,36 @@ init_per_suite(Config) ->
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
+end_per_group(_Profile, Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_case01_auth_expire;
+    TestCase =:= t_case01_login_mountpoint_from_authn_client_attrs
+->
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(gbt32960, true),
+    snabbkaffe:start_trace(),
+    Config;
 init_per_testcase(_, Config) ->
     snabbkaffe:start_trace(),
     Config.
 
+end_per_testcase(TestCase, _Config) when
+    TestCase =:= t_case01_auth_expire;
+    TestCase =:= t_case01_login_mountpoint_from_authn_client_attrs
+->
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(gbt32960, false),
+    snabbkaffe:stop(),
+    ok;
 end_per_testcase(_, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     snabbkaffe:stop(),
     ok.
 
@@ -261,10 +289,10 @@ t_case01_login(_Config) ->
     ok = gen_tcp:close(Socket).
 
 t_authz_denies_login_upstream_publish(_Config) ->
-    Topic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
+    AuthzTopic = <<"upstream/vlogin">>,
     ok = emqx:subscribe("gbt32960/+/upstream/#"),
     try
-        with_gateway_authz_result(gbt32960, publish, Topic, deny, fun() ->
+        with_gateway_authz_result(gbt32960, publish, AuthzTopic, deny, fun() ->
             {ok, Socket} = login_first_without_broker_asserts(),
             try
                 ?assertEqual({error, timeout}, receive_published_msg(500))
@@ -278,9 +306,10 @@ t_authz_denies_login_upstream_publish(_Config) ->
 
 t_authz_allows_login_upstream_publish(_Config) ->
     Topic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
+    AuthzTopic = <<"upstream/vlogin">>,
     ok = emqx:subscribe("gbt32960/+/upstream/#"),
     try
-        with_gateway_authz_result(gbt32960, publish, Topic, allow, fun() ->
+        with_gateway_authz_result(gbt32960, publish, AuthzTopic, allow, fun() ->
             {ok, Socket} = login_first_without_broker_asserts(),
             try
                 {Topic, _PubedMsg} = get_published_msg()
@@ -292,9 +321,25 @@ t_authz_allows_login_upstream_publish(_Config) ->
         emqx:unsubscribe("gbt32960/+/upstream/#")
     end.
 
+t_authz_include_mountpoint_login_upstream_publish(_Config) ->
+    Topic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
+    OldIncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
+    ok = emqx_config:put([authorization, include_mountpoint], true),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_config:put([authorization, include_mountpoint], OldIncludeMountpoint)
+    end),
+    ok = emqx:subscribe(Topic),
+    emqx_common_test_helpers:on_exit(fun() -> emqx:unsubscribe(Topic) end),
+    %% Authz sees the mounted topic, and publication applies the mountpoint only once.
+    with_gateway_authz_result(gbt32960, publish, Topic, allow, fun() ->
+        {ok, Socket} = login_first_without_broker_asserts(),
+        {Topic, _PubedMsg} = get_published_msg(),
+        ok = gen_tcp:close(Socket)
+    end).
+
 t_authz_denies_auto_subscribe(_Config) ->
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    with_gateway_authz_result(gbt32960, subscribe, Topic, deny, fun() ->
+    with_gateway_authz_result(gbt32960, subscribe, <<"dnstream">>, deny, fun() ->
         {ok, Socket} = login_first_without_broker_asserts(),
         try
             ?assertEqual(false, lists:member(Topic, get_subscriptions())),
@@ -308,7 +353,7 @@ t_authz_denies_auto_subscribe(_Config) ->
 
 t_authz_allows_auto_subscribe(_Config) ->
     Topic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    with_gateway_authz_result(gbt32960, subscribe, Topic, allow, fun() ->
+    with_gateway_authz_result(gbt32960, subscribe, <<"dnstream">>, allow, fun() ->
         {ok, Socket} = login_first_without_broker_asserts(),
         try
             ?assertEqual(true, lists:member(Topic, get_subscriptions())),

@@ -129,13 +129,10 @@ t_max_conn_rate_update(Config) ->
         Config
     ),
     with_listener(Type, Name, LConf, fun() ->
-        %% Spawn 3 connections:
-        %% NOTE
-        %% All of them should be allowed as burst capacity are currently computed
-        %% as sum of burst _and_ regular rate tokens.
+        %% Spawn connections using the regular capacity plus configured burst capacity.
         Clients1 = emqx_utils:pmap(
             fun(_) -> emqtt_connect("127.0.0.1", Port, Config) end,
-            [1, 2, 3]
+            [1, 2]
         ),
         ?assertEqual([pong], lists:usort([emqtt:ping(C) || C <- Clients1])),
         %% One more client, both rate and burst limits are exhausted:
@@ -185,17 +182,14 @@ t_message_rate(Config) ->
                 fun(_) -> emqtt_connect("127.0.0.1", Port, Config) end,
                 [1, 2, 3]
             ),
-        %% Shoot 6 message per first 2 clients:
-        %% NOTE
-        %% All of them should be allowed as burst capacity are currently computed
-        %% as sum of burst _and_ regular rate tokens.
+        %% Shoot messages using the regular capacity plus configured burst capacity.
         Topic = <<"t/msgrate">>,
         ok = emqx_broker:subscribe(Topic),
         _ = emqx_utils:pmap(
             fun(C) ->
                 [
                     {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C, Topic, Payload, qos1)
-                 || Payload <- [<<"M1">>, <<"M2">>, <<"M3">>, <<"M4">>, <<"M5">>, <<"M6">>]
+                 || Payload <- [<<"M1">>, <<"M2">>, <<"M3">>, <<"M4">>, <<"M5">>]
                 ]
             end,
             [C1, C2]
@@ -224,7 +218,7 @@ assert_connect_refused(Host, Port, Config) ->
     catch
         error:closed when Type == tcp -> ok;
         error:{closed, _} when Type == tcp -> ok;
-        error:{tcp_closed, _} when Type == tcp -> ok;
+        error:tcp_closed when Type == tcp -> ok;
         error:{ws_upgrade_failed, closed} when Type == ws -> ok;
         error:{ws_upgrade_failed, {error, closed}} when Type == ws -> ok;
         error:timeout when Type == wss -> ok

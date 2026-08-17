@@ -50,7 +50,8 @@ For cases where a single connector has both actions and sources, see
 all() ->
     [
         {group, ?cluster},
-        {group, ?local}
+        {group, legacy},
+        {group, hardened}
     ].
 
 groups() ->
@@ -67,7 +68,9 @@ groups() ->
     ClusterTCs = merge_custom_groups(?cluster, cluster_testcases(), CustomMatrix),
     [
         {?cluster, ClusterTCs},
-        {?local, LocalTCs}
+        {?local, LocalTCs},
+        {legacy, [], [{group, ?local}]},
+        {hardened, [], [{group, ?local}]}
     ].
 
 merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
@@ -129,11 +132,13 @@ init_per_group(?cluster = Group, TCConfig) ->
         #{work_dir => emqx_cth_suite:work_dir(Group, TCConfig)}
     ),
     [{nodes, Nodes} | TCConfig];
+init_per_group(Profile, TCConfig) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | TCConfig];
 init_per_group(?local, TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf,
+            {emqx_conf, #{config => emqx_cth_suite:emqx_config_authn(true)}},
             emqx_connector,
             emqx_bridge_mqtt,
             {emqx_bridge, #{
@@ -168,6 +173,8 @@ end_per_group(?cluster, TCConfig) ->
     Nodes = get_config(nodes, TCConfig),
     ok = emqx_cth_cluster:stop(Nodes),
     ok;
+end_per_group(Profile, _TCConfig) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(?local, TCConfig) ->
     Apps = get_config(apps, TCConfig),
     emqx_cth_suite:stop(Apps),
@@ -244,8 +251,14 @@ get_tc_prop(TestCase, Key, Default) ->
     end.
 
 get_tcp_mqtt_port(Node) ->
-    {_Host, Port} = ?ON(Node, emqx_config:get([listeners, tcp, default, bind])),
-    Port.
+    emqx_common_test_helpers:listener_port(
+        ?ON(Node, emqx_config:get([listeners, tcp, default, bind]))
+    ).
+
+get_ssl_mqtt_port() ->
+    emqx_common_test_helpers:listener_port(
+        emqx_config:get([listeners, ssl, default, bind])
+    ).
 
 setup_auth_header(TCConfig) ->
     case get_config(nodes, TCConfig, undefined) of
@@ -1701,5 +1714,99 @@ t_connector_server_scheme(TCConfig) ->
             }
         }},
         create_connector_api(TCConfig, #{<<"server">> => <<"mqtt-tcp://[::1]:1883">>})
+    ),
+    ok.
+
+-doc """
+Checks that a server address with an explicit `mqtts://' (TLS) scheme while SSL is
+disabled fails the connector probe (dashboard Test) with a clear message, and that a
+created connector reports the same clear message as its status reason — instead of a
+raw `function_clause' frame-parse crash (the plain TCP client would otherwise try to
+parse the server's TLS handshake reply as an MQTT frame).
+""".
+t_scheme_ssl_mismatch(TCConfig) ->
+    SslPort = integer_to_binary(get_ssl_mqtt_port()),
+    Overrides = #{
+        <<"server">> => <<"mqtts://127.0.0.1:", SslPort/binary>>,
+        <<"ssl">> => #{<<"enable">> => false}
+    },
+    {400, #{<<"message">> := ProbeMsg0}} = probe_connector_api(TCConfig, Overrides),
+    ProbeMsg = emqx_utils_json:encode(ProbeMsg0),
+    ?assertEqual(
+        match,
+        re:run(ProbeMsg, <<"SSL is disabled">>, [{capture, none}]),
+        #{probe_message => ProbeMsg}
+    ),
+    ?assertEqual(
+        nomatch,
+        re:run(ProbeMsg, <<"function_clause">>, [{capture, none}]),
+        #{probe_message => ProbeMsg}
+    ),
+    {201, _} = create_connector_api(TCConfig, Overrides),
+    ?retry(500, 20, begin
+        {200, #{<<"status">> := Status, <<"status_reason">> := Reason}} =
+            get_connector_api(TCConfig),
+        ?assertEqual(<<"disconnected">>, Status),
+        ?assertEqual(
+            match,
+            re:run(Reason, <<"SSL is disabled">>, [{capture, none}]),
+            #{status_reason => Reason}
+        )
+    end),
+    ok.
+
+-doc """
+Checks that connecting plain TCP to a TLS-speaking port fails with a clear
+explanation about receiving non-MQTT data, instead of a raw emqtt frame-parse crash.
+A scheme-less server address is used, so the upfront scheme/SSL consistency check
+does not apply and the failure happens at connect time.
+""".
+t_connect_to_tls_port(TCConfig) ->
+    SslPort = integer_to_binary(get_ssl_mqtt_port()),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"server">> => <<"127.0.0.1:", SslPort/binary>>
+    }),
+    ?retry(500, 20, begin
+        {200, #{<<"status">> := Status, <<"status_reason">> := Reason}} =
+            get_connector_api(TCConfig),
+        ?assertEqual(<<"disconnected">>, Status),
+        ?assertEqual(
+            match,
+            re:run(Reason, <<"does not look like MQTT">>, [{capture, none}]),
+            #{status_reason => Reason}
+        ),
+        ?assertEqual(
+            nomatch,
+            re:run(Reason, <<"function_clause">>, [{capture, none}]),
+            #{status_reason => Reason}
+        )
+    end),
+    ok.
+
+-doc """
+Checks that consistently configured connectors still connect: an explicit `mqtt://'
+address with SSL disabled, and an explicit `mqtts://' address with SSL enabled — the
+scheme/SSL consistency check must not reject valid configurations.
+""".
+t_scheme_ssl_consistent_connects(TCConfig) ->
+    TcpPort = integer_to_binary(get_tcp_mqtt_port(node())),
+    SslPort = integer_to_binary(get_ssl_mqtt_port()),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"server">> => <<"mqtt://127.0.0.1:", TcpPort/binary>>
+    }),
+    ?retry(
+        500,
+        20,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
+    ),
+    {204, _} = emqx_bridge_v2_testlib:delete_connector_api(TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"server">> => <<"mqtts://127.0.0.1:", SslPort/binary>>,
+        <<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>}
+    }),
+    ?retry(
+        500,
+        20,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
     ),
     ok.

@@ -18,6 +18,7 @@
 ).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% this parses to #{}, will not cause config cleanup
@@ -30,26 +31,39 @@
 %% Setup
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() -> [{group, legacy}, {group, hardened}].
 
-init_per_suite(Conf) ->
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
+
+init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
             emqx_auth,
             emqx_auth_mnesia,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            emqx_mgmt_api_test_util:emqx_dashboard(),
             {emqx_gateway, ?CONF_DEFAULT}
             | emqx_gateway_test_utils:all_gateway_apps()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Conf)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     _ = emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Conf].
+    [{group_apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Conf) ->
-    ok = emqx_cth_suite:stop(proplists:get_value(suite_apps, Conf)).
+end_per_group(_Profile, Config) ->
+    ok = emqx_cth_suite:stop(?config(group_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(t_gateway_fail, Config) ->
     meck:expect(
@@ -165,7 +179,7 @@ t_gateway_mqttsn(_) ->
         predefined => [#{id => 1, topic => <<"t/a">>}],
         enable_qos3 => true,
         listeners => [
-            #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>}
+            #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>, enable_authn => false}
         ]
     },
     {204, _} = request(put, "/gateways/mqttsn", GwConf),
@@ -665,6 +679,7 @@ t_clients(_) ->
         ]
     },
     init_gw("mqttsn", GwConf),
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"mqttsn">>, false),
     Path = "/gateways/mqttsn/clients",
     MyClient = Path ++ "/my_client",
     MyClientSubscriptions = MyClient ++ "/subscriptions",

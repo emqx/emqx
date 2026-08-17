@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_license_app).
--feature(maybe_expr, enable).
-
 -behaviour(application).
 
 -include_lib("emqx/include/logger.hrl").

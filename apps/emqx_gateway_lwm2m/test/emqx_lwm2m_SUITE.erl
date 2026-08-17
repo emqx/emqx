@@ -23,6 +23,7 @@
 -include_lib("emqx_gateway_coap/include/emqx_coap.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -35,6 +36,9 @@
 %%--------------------------------------------------------------------
 
 all() ->
+    [{group, legacy}, {group, hardened}].
+
+profile_groups() ->
     [
         {group, test_grp_0_register},
         {group, test_grp_1_read},
@@ -56,6 +60,8 @@ suite() -> [{timetrap, {seconds, 90}}].
 groups() ->
     RepeatOpt = {repeat_until_all_ok, 1},
     [
+        {legacy, [], profile_groups()},
+        {hardened, [], profile_groups()},
         {test_grp_0_register, [RepeatOpt], [
             case01_register,
             case01_auth_expire,
@@ -185,11 +191,20 @@ groups() ->
             case142_clear_blockwise_downlink,
             case143_blockwise_busy_no_context,
             case144_blockwise_consume_only,
-            case147_cleanup_lwm2m_channels
+            case147_cleanup_lwm2m_channels,
+            case148_subscribe_mountpoint_after_authorization
         ]}
     ].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -200,14 +215,18 @@ init_per_suite(Config) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     {ok, _} = emqx_gateway_auth_ct:start(),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps}, {security_profile, Profile} | Config];
+init_per_group(_Group, Config) ->
+    Config.
 
-end_per_suite(Config) ->
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
     ok = emqx_gateway_auth_ct:stop(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
+end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(TestCase, Config) ->
@@ -228,20 +247,24 @@ init_per_testcase(TestCase, Config) ->
                 default_config_with_auto_observe_raw("[\"/3/0\",\"/1/0\"]");
             case102_mountpoint_peerhost_api ->
                 default_config_with_mountpoint_raw(
-                    "\"lwm2m/${peerhost}/${endpoint_name}/\""
+                    #{
+                        mountpoint =>
+                            ~S'"lwm2m/${peerhost}/${endpoint_name}/"'
+                    }
                 );
             case103_mountpoint_from_authn_client_attrs ->
-                default_config_with_mountpoint_raw(
-                    "\"lwm2m/${client_attrs.group}/${endpoint_name}/\""
-                );
+                default_config_with_mountpoint_raw(#{
+                    mountpoint => ~S'"lwm2m/${client_attrs.group}/${endpoint_name}/"',
+                    enable_authn => true
+                });
             _ ->
                 default_config()
         end,
     ok = emqx_conf_cli:load_config(?global_ns, GatewayConfig, #{mode => replace}),
     ensure_gateway_loaded(),
-
     {ok, ClientUdpSock} = gen_udp:open(0, [binary, {active, false}]),
 
+    emqx_common_test_helpers:listeners_disable_authn_scoped(),
     {ok, C} = emqtt:start_link([
         {host, "localhost"},
         {port, 1883},
@@ -252,7 +275,7 @@ init_per_testcase(TestCase, Config) ->
 
     [{sock, ClientUdpSock}, {emqx_c, C} | Config].
 
-end_per_testcase(_AllTestCase, Config) ->
+end_per_testcase(_TestCase, Config) ->
     timer:sleep(300),
     cleanup_lwm2m_channels(),
     gen_udp:close(?config(sock, Config)),
@@ -283,29 +306,32 @@ default_config(Overrides) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = ~w\n"
-            "  mountpoint = \"lwm2m/${username}\"\n"
-            "  translators {\n"
-            "    command = {topic = \"/dn/#\", qos = 0}\n"
-            "    response = {topic = \"/up/resp\", qos = 0}\n"
-            "    notify = {topic = \"/up/notify\", qos = 0}\n"
-            "    register = {topic = \"/up/resp\", qos = 0}\n"
-            "    update = {topic = \"/up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = ~w
+                mountpoint = "lwm2m/${username}"
+                translators {
+                    command = {topic = "/dn/#", qos = 0}
+                    response = {topic = "/up/resp", qos = 0}
+                    notify = {topic = "/up/notify", qos = 0}
+                    register = {topic = "/up/resp", qos = 0}
+                    update = {topic = "/up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = ~w
+                }
+            }
+            """,
             [
                 XmlDir,
                 maps:get(auto_observe, Overrides, false),
-                maps:get(bind, Overrides, ?PORT)
+                maps:get(bind, Overrides, ?PORT),
+                maps:get(enable_authn, Overrides, false)
             ]
         )
     ).
@@ -321,30 +347,32 @@ default_config_with_auto_observe_raw(AutoObserveRaw) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = ~s\n"
-            "  mountpoint = \"lwm2m/${username}\"\n"
-            "  translators {\n"
-            "    command = {topic = \"/dn/#\", qos = 0}\n"
-            "    response = {topic = \"/up/resp\", qos = 0}\n"
-            "    notify = {topic = \"/up/notify\", qos = 0}\n"
-            "    register = {topic = \"/up/resp\", qos = 0}\n"
-            "    update = {topic = \"/up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = ~s
+                mountpoint = "lwm2m/${username}"
+                translators {
+                    command = {topic = "/dn/#", qos = 0}
+                    response = {topic = "/up/resp", qos = 0}
+                    notify = {topic = "/up/notify", qos = 0}
+                    register = {topic = "/up/resp", qos = 0}
+                    update = {topic = "/up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = false
+                }
+            }
+            """,
             [XmlDir, AutoObserveRaw, ?PORT]
         )
     ).
 
-default_config_with_mountpoint_raw(MountpointRaw) ->
+default_config_with_mountpoint_raw(#{mountpoint := MountpointRaw} = Overrides) ->
     XmlDir = filename:join(
         [
             emqx_common_test_helpers:proj_root(),
@@ -355,26 +383,28 @@ default_config_with_mountpoint_raw(MountpointRaw) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = false\n"
-            "  mountpoint = ~s\n"
-            "  translators {\n"
-            "    command = {topic = \"dn/#\", qos = 0}\n"
-            "    response = {topic = \"up/resp\", qos = 0}\n"
-            "    notify = {topic = \"up/notify\", qos = 0}\n"
-            "    register = {topic = \"up/resp\", qos = 0}\n"
-            "    update = {topic = \"up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
-            [XmlDir, MountpointRaw, ?PORT]
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = false
+                mountpoint = ~s
+                translators {
+                    command = {topic = "dn/#", qos = 0}
+                    response = {topic = "up/resp", qos = 0}
+                    notify = {topic = "up/notify", qos = 0}
+                    register = {topic = "up/resp", qos = 0}
+                    update = {topic = "up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = ~w
+                }
+            }
+            """,
+            [XmlDir, MountpointRaw, ?PORT, maps:get(enable_authn, Overrides, false)]
         )
     ).
 
@@ -389,26 +419,28 @@ default_config_with_update_condition_raw(UpdateConditionRaw) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = false\n"
-            "  mountpoint = \"lwm2m/${username}\"\n"
-            "  update_msg_publish_condition = ~s\n"
-            "  translators {\n"
-            "    command = {topic = \"/dn/#\", qos = 0}\n"
-            "    response = {topic = \"/up/resp\", qos = 0}\n"
-            "    notify = {topic = \"/up/notify\", qos = 0}\n"
-            "    register = {topic = \"/up/resp\", qos = 0}\n"
-            "    update = {topic = \"/up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = false
+                mountpoint = "lwm2m/${username}"
+                update_msg_publish_condition = ~s
+                translators {
+                    command = {topic = "/dn/#", qos = 0}
+                    response = {topic = "/up/resp", qos = 0}
+                    notify = {topic = "/up/notify", qos = 0}
+                    register = {topic = "/up/resp", qos = 0}
+                    update = {topic = "/up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = false
+                }
+            }
+            """,
             [XmlDir, UpdateConditionRaw, ?PORT]
         )
     ).
@@ -424,26 +456,28 @@ default_config_with_blockwise_max_block_size(MaxSize) ->
     ),
     iolist_to_binary(
         io_lib:format(
-            "\n"
-            "gateway.lwm2m {\n"
-            "  xml_dir = \"~s\"\n"
-            "  lifetime_min = 1s\n"
-            "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22s\n"
-            "  auto_observe = false\n"
-            "  mountpoint = \"lwm2m/${username}\"\n"
-            "  blockwise { max_block_size = ~w }\n"
-            "  translators {\n"
-            "    command = {topic = \"/dn/#\", qos = 0}\n"
-            "    response = {topic = \"/up/resp\", qos = 0}\n"
-            "    notify = {topic = \"/up/notify\", qos = 0}\n"
-            "    register = {topic = \"/up/resp\", qos = 0}\n"
-            "    update = {topic = \"/up/resp\", qos = 0}\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = ~w\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.lwm2m {
+                xml_dir = "~s"
+                lifetime_min = 1s
+                lifetime_max = 86400s
+                qmode_time_window = 22s
+                auto_observe = false
+                mountpoint = "lwm2m/${username}"
+                blockwise { max_block_size = ~w }
+                translators {
+                    command = {topic = "/dn/#", qos = 0}
+                    response = {topic = "/up/resp", qos = 0}
+                    notify = {topic = "/up/notify", qos = 0}
+                    register = {topic = "/up/resp", qos = 0}
+                    update = {topic = "/up/resp", qos = 0}
+                }
+                listeners.udp.default {
+                    bind = ~w
+                    enable_authn = false
+                }
+            }
+            """,
             [XmlDir, MaxSize, ?PORT]
         )
     ).
@@ -5273,6 +5307,43 @@ case118_authorize_denied(Config) ->
         {ok, _} = emqx:update_config([authorization], OldAuthz)
     end.
 
+case148_subscribe_mountpoint_after_authorization(Config) ->
+    OldIncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
+    ok = emqx_config:put([authorization, include_mountpoint], true),
+    Hook = {?MODULE, capture_lwm2m_subscribe_authz, [self()]},
+    ok = emqx_hooks:put('client.authorize', Hook, ?HP_HIGHEST),
+    try
+        UdpSock = ?config(sock, Config),
+        Epn = "urn:oma:lwm2m:oma:148",
+        MountedTopic = list_to_binary("lwm2m/" ++ Epn ++ "/dn/#"),
+        test_send_coap_request(
+            UdpSock,
+            post,
+            sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
+            #coap_content{
+                content_format = <<"text/plain">>,
+                payload = <<"</1>, </2>, </3>, </4>, </5>">>
+            },
+            [],
+            12
+        ),
+        #coap_message{method = Method} = test_recv_coap_response(UdpSock),
+        ?assertEqual({ok, created}, Method),
+        receive
+            {lwm2m_subscribe_authz, MountedTopic} -> ok
+        after 1000 ->
+            ct:fail(subscribe_authorization_not_called)
+        end,
+        ?retry(
+            100,
+            10,
+            ?assert(lists:member(MountedTopic, test_mqtt_broker:get_subscrbied_topics()))
+        )
+    after
+        ok = emqx_hooks:del('client.authorize', Hook),
+        ok = emqx_config:put([authorization, include_mountpoint], OldIncludeMountpoint)
+    end.
+
 case119_open_session_error(Config) ->
     UdpSock = ?config(sock, Config),
     Epn = "urn:oma:lwm2m:oma:119",
@@ -6082,16 +6153,23 @@ lwm2m_channels() ->
 
 capture_with_context(Pid) ->
     fun
-        (publish, [_Topic, Msg]) ->
+        (publish, [Msg]) ->
             Pid ! {publish, Msg},
             ok;
-        (subscribe, [_Topic, _Opts]) ->
-            ok;
+        (subscribe, [Topic, _Opts]) ->
+            {ok, Topic};
         (metrics, _Name) ->
             ok;
         (_, _) ->
             ok
     end.
+
+capture_lwm2m_subscribe_authz(_AuthzContext, Action, Topic, _Default, Pid) ->
+    case Action of
+        #{action_type := subscribe} -> Pid ! {lwm2m_subscribe_authz, Topic};
+        _ -> ok
+    end,
+    {stop, #{result => allow, from => test}}.
 
 wait_publish_payload() ->
     receive
@@ -6476,8 +6554,8 @@ request(
 
 with_context_stub() ->
     fun
-        (publish, [_Topic, _Msg]) -> ok;
-        (subscribe, [_Topic, _Opts]) -> ok;
+        (publish, [_Msg]) -> ok;
+        (subscribe, [Topic, _Opts]) -> {ok, Topic};
         (metrics, _Name) -> ok;
         (_, _) -> ok
     end.

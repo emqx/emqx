@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_persistent_session_ds_SUITE).
 
--feature(maybe_expr, enable).
-
 -compile(export_all).
 -compile(nowarn_export_all).
 

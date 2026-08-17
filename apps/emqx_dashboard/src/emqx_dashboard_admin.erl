@@ -6,8 +6,6 @@
 
 -module(emqx_dashboard_admin).
 
--feature(maybe_expr, enable).
-
 -include("emqx_dashboard.hrl").
 -include("emqx_dashboard_rbac.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
@@ -150,7 +148,7 @@ backup_tables() -> {<<"dashboard_users">>, [?ADMIN]}.
 
 -spec add_default_user() -> {ok, map() | empty | default_user_exists} | {error, any()}.
 add_default_user() ->
-    add_default_user(binenv(default_username), default_password()).
+    add_default_user(default_username(), default_password()).
 
 %%--------------------------------------------------------------------
 %% API
@@ -188,9 +186,10 @@ parsed_role_to_extra(_) ->
 %%   * `scopes' (binary list) - if present, the listed scopes are written
 %%     into the record atomically inside the same mria transaction as the
 %%     row insertion.  Used by paths that do NOT have a follow-up
-%%     `set_user_scopes' step (SSO auto-provisioning, default-admin
-%%     bootstrap) so a new row never appears in the legacy "no scopes key"
-%%     state.  If the `scopes' key is omitted, no scopes field is written
+%%     `set_user_scopes' step (SSO auto-provisioning) so a new row never
+%%     appears in the legacy "no scopes key" state.  The default-admin
+%%     bootstrap deliberately omits it: that account stays on implicit
+%%     role-default scopes.  If the `scopes' key is omitted, no scopes field is written
 %%     and the caller is expected to materialise scopes afterwards (e.g.
 %%     the API POST handler does `maybe_set_user_scopes/2' with
 %%     role-default scopes).
@@ -1230,15 +1229,12 @@ binfmt(Fmt, Args) ->
     iolist_to_binary(io_lib:format(Fmt, Args)).
 
 default_username() ->
-    binenv(default_username).
+    emqx:get_config([dashboard, default_username], <<>>).
 
 default_password() ->
     RawWrapped = emqx_conf:get([dashboard, default_password], <<"">>),
     Raw = emqx_secret:unwrap(RawWrapped),
     iolist_to_binary(Raw).
-
-binenv(Key) ->
-    iolist_to_binary(emqx_conf:get([dashboard, Key], "")).
 
 add_default_user(Username, Password) when ?EMPTY_KEY(Username) orelse ?EMPTY_KEY(Password) ->
     {ok, empty};
@@ -1257,20 +1253,32 @@ add_default_user(Username, Password) ->
                     do_add_default_user(Username, Password)
             end;
         _ ->
+            ok = ensure_default_admin_scopes_unset(Username),
             {ok, default_user_exists}
     end.
 
+%% The default administrator must hold no explicit scope list — it always
+%% follows the role default implicitly (GET surfaces "unset"), so it keeps
+%% forward-compatible scopes instead of a frozen list; the user API rejects
+%% explicit lists for it on the same grounds.
 do_add_default_user(Username, Password) ->
-    Extra = #{scopes => role_default_scopes(?ROLE_SUPERUSER)},
     maybe
-        %% Seed the default admin with its role-default scopes so the very
-        %% first node bootstrap of a fresh cluster yields a default admin
-        %% that already carries scopes — never the legacy `<<"unset">>'
-        %% sentinel.
         {error, ?USERNAME_ALREADY_EXISTS_ERROR} ?=
-            do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>, Extra),
+            do_add_user(Username, Password, ?ROLE_SUPERUSER, <<"administrator">>, #{}),
         %% race condition: multiple nodes booting at the same time?
         {ok, default_user_exists}
+    end.
+
+%% Earlier releases seeded the default admin with an explicit role-default
+%% list at bootstrap; clear it on boot so upgraded clusters regain the
+%% implicit (forward-compatible) scope set.
+ensure_default_admin_scopes_unset(Username) ->
+    case scopes_of(Username) of
+        undefined ->
+            ok;
+        _Explicit ->
+            _ = clear_user_scopes(Username),
+            ok
     end.
 
 %% ensure the `role` is correct when it is directly read from the table

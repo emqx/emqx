@@ -387,7 +387,7 @@ ws_opts(Override) when is_map(Override) ->
             sc(
                 string(),
                 #{
-                    default => <<"x-forwarded-for">>,
+                    default => <<"">>,
                     desc => ?DESC(fields_ws_opts_proxy_address_header)
                 }
             )},
@@ -395,7 +395,7 @@ ws_opts(Override) when is_map(Override) ->
             sc(
                 string(),
                 #{
-                    default => <<"x-forwarded-port">>,
+                    default => <<"">>,
                     desc => ?DESC(fields_ws_opts_proxy_port_header)
                 }
             )},

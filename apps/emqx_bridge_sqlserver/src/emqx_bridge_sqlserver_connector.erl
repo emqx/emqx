@@ -4,8 +4,6 @@
 
 -module(emqx_bridge_sqlserver_connector).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_resource).
 
 -include("emqx_bridge_sqlserver.hrl").

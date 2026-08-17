@@ -44,7 +44,7 @@ convert_oauth2_certs(_RltvDir, Config) ->
     {ok, Config}.
 
 new_ssl_config(RltvDir, Config, SSL) ->
-    SanitizedSSL = maybe_drop_blank_certs_for_verify_none(SSL),
+    SanitizedSSL = drop_blank_certs(SSL),
     case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(RltvDir, SanitizedSSL) of
         {ok, NewSSL} ->
             {ok, new_ssl_config(Config, NewSSL)};
@@ -63,44 +63,16 @@ new_ssl_config(#{<<"ssl">> := _} = Config, NewSSL) ->
 new_ssl_config(Config, _NewSSL) ->
     Config.
 
-maybe_drop_blank_certs_for_verify_none(SSL) ->
-    case normalize_verify(get_ssl_verify(SSL)) of
-        verify_none ->
-            maps:filter(
-                fun(K, V) ->
-                    not (is_cert_key(K) andalso is_blank_or_undefined(V))
-                end,
-                SSL
-            );
-        _ ->
-            SSL
-    end.
-
-get_ssl_verify(SSL) ->
-    case maps:find(verify, SSL) of
-        {ok, Verify} ->
-            Verify;
-        error ->
-            case maps:find(<<"verify">>, SSL) of
-                {ok, Verify} -> Verify;
-                error -> undefined
-            end
-    end.
-
-normalize_verify(verify_none) ->
-    verify_none;
-normalize_verify(<<"verify_none">>) ->
-    verify_none;
-normalize_verify("verify_none") ->
-    verify_none;
-normalize_verify(verify_peer) ->
-    verify_peer;
-normalize_verify(<<"verify_peer">>) ->
-    verify_peer;
-normalize_verify("verify_peer") ->
-    verify_peer;
-normalize_verify(_) ->
-    undefined.
+%% Blank cert paths mean "not configured": client certificates are optional
+%% regardless of `verify', and a blank `cacertfile' is allowed even with
+%% `verify_peer' (see `ALLOW_EMPTY_PEM' in `emqx_tls_lib').
+drop_blank_certs(SSL) ->
+    maps:filter(
+        fun(K, V) ->
+            not (is_cert_key(K) andalso is_blank_or_undefined(V))
+        end,
+        SSL
+    ).
 
 is_cert_key(cacertfile) ->
     true;
@@ -175,7 +147,7 @@ convert_certs_verify_none_blank_paths_pass_test() ->
         convert_certs("dummy-connector", Config)
     ).
 
-maybe_drop_blank_certs_for_verify_none_with_atom_keys_test() ->
+drop_blank_certs_with_atom_keys_test() ->
     SSL = #{
         enable => true,
         verify => verify_none,
@@ -188,10 +160,10 @@ maybe_drop_blank_certs_for_verify_none_with_atom_keys_test() ->
             enable => true,
             verify => verify_none
         },
-        maybe_drop_blank_certs_for_verify_none(SSL)
+        drop_blank_certs(SSL)
     ).
 
-maybe_drop_blank_certs_for_verify_none_with_binary_keys_test() ->
+drop_blank_certs_with_binary_keys_test() ->
     SSL = #{
         <<"enable">> => true,
         <<"verify">> => <<"verify_none">>,
@@ -204,10 +176,10 @@ maybe_drop_blank_certs_for_verify_none_with_binary_keys_test() ->
             <<"enable">> => true,
             <<"verify">> => <<"verify_none">>
         },
-        maybe_drop_blank_certs_for_verify_none(SSL)
+        drop_blank_certs(SSL)
     ).
 
-convert_certs_verify_peer_blank_paths_fail_test() ->
+convert_certs_verify_peer_blank_paths_pass_test() ->
     Config = #{
         ssl => #{
             enable => true,
@@ -218,7 +190,12 @@ convert_certs_verify_peer_blank_paths_fail_test() ->
         }
     },
     ?assertMatch(
-        {error, #{reason := <<"bad_ssl_config">>}},
+        {ok, #{
+            ssl := #{verify := verify_peer} = SSL
+        }} when
+            not is_map_key(cacertfile, SSL) andalso
+                not is_map_key(certfile, SSL) andalso
+                not is_map_key(keyfile, SSL),
         convert_certs("dummy-connector", Config)
     ).
 
