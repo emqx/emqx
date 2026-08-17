@@ -181,6 +181,7 @@
 -dialyzer(
     {nowarn_function, [
         init/4,
+        do_init/4,
         init_state/3,
         run_loop/2,
         system_terminate/4,
