@@ -82,6 +82,20 @@ enable_node_cache(Enable) ->
     emqx_auth_cache:reset(?AUTHN_CACHE),
     ok.
 
+with_security_profiles(Case, Fun) ->
+    Profiles =
+        case Case of
+            #{security_profile := Profile} -> [Profile];
+            #{} -> [legacy, hardened]
+        end,
+    lists:foreach(
+        fun(Profile) ->
+            ct:pal("table case security profile: ~p", [Profile]),
+            Fun(Case#{security_profile => Profile})
+        end,
+        Profiles
+    ).
+
 add_permissive_builtin_authenticator(Path, Chain, Username, Password) ->
     Config = #{
         <<"mechanism">> => <<"password_based">>,
@@ -165,3 +179,13 @@ t_zone_override(TCConfig, Opts) when is_list(TCConfig) ->
     ?assertReceive({publish, #{payload := <<"hey">>}}),
     ok = emqtt:stop(C),
     ok.
+
+emqx_appspec() ->
+    emqx_appspec(#{}).
+
+emqx_appspec(AppSpec) ->
+    Config = emqx_utils_maps:deep_merge(
+        emqx_cth_suite:emqx_config_authn(true),
+        emqx_cth_suite:emqx_config_authz(allow)
+    ),
+    emqx_cth_suite:merge_appspec(#{config => Config}, AppSpec).

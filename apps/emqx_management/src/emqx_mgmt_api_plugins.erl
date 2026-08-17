@@ -539,8 +539,10 @@ validate_file_name(_Params, _Meta) ->
 %% API CallBack Begin
 list_plugins(get, _) ->
     Nodes = emqx:running_nodes(),
-    {Plugins, []} = emqx_mgmt_api_plugins_proto_v4:get_plugins(Nodes),
-    {200, format_plugins(Plugins)}.
+    {Plugins, BadNodes} = emqx_mgmt_api_plugins_proto_v4:get_plugins(Nodes),
+    BadNodes =/= [] andalso
+        ?SLOG(warning, #{msg => "get_plugins_rpc_failed", bad_nodes => BadNodes}),
+    {200, format_plugins(drop_bad_plugin_results(Plugins))}.
 
 get_plugins() ->
     Plugins = emqx_plugins:list(?normal, #{health_check => true}),
@@ -671,7 +673,7 @@ is_rpc_error(_) -> false.
 plugin(get, #{bindings := #{name := NameVsn}}) ->
     Nodes = emqx:running_nodes(),
     {Plugins, _} = emqx_mgmt_api_plugins_proto_v4:describe_package(Nodes, NameVsn),
-    case format_plugins(Plugins) of
+    case format_plugins(drop_bad_plugin_results(Plugins)) of
         [Plugin] -> {200, Plugin};
         [] -> {404, #{code => 'NOT_FOUND', message => NameVsn}}
     end;
@@ -834,7 +836,14 @@ install_package(FileName, Bin) ->
     install_package_v4(NameVsn, Bin).
 
 install_package_v4(NameVsn, Bin) ->
-    ok = emqx_plugins:write_package(NameVsn, Bin),
+    case emqx_plugins:write_package(NameVsn, Bin) of
+        ok ->
+            install_written_package_v4(NameVsn);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+install_written_package_v4(NameVsn) ->
     case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := ?plugin_not_found}} = NotFound ->
             NotFound;
@@ -1441,7 +1450,20 @@ api_visible_plugin(_) ->
 api_visible_on_any_node(NameVsn) ->
     Nodes = emqx:running_nodes(),
     {Plugins, _} = emqx_mgmt_api_plugins_proto_v4:describe_package(Nodes, NameVsn),
-    format_plugins(Plugins) =/= [].
+    format_plugins(drop_bad_plugin_results(Plugins)) =/= [].
+
+%% A remote crash surfaces in the rpc:multicall result list as {badrpc, {'EXIT', _}}.
+drop_bad_plugin_results(Results) ->
+    {Good, Bad} = lists:partition(
+        fun
+            ({Node, Plugins}) when is_atom(Node), is_list(Plugins) -> true;
+            (_) -> false
+        end,
+        Results
+    ),
+    Bad =/= [] andalso
+        ?SLOG(warning, #{msg => "get_plugins_rpc_bad_results", results => Bad}),
+    Good.
 
 parse_position(#{<<"position">> := <<"front">>}, _) ->
     front;

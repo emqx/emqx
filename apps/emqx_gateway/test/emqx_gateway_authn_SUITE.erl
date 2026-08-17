@@ -36,11 +36,22 @@
 -define(AUTHNS, [authn_http]).
 
 all() ->
-    emqx_gateway_auth_ct:group_names(?AUTHNS).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    emqx_gateway_auth_ct:init_groups(?MODULE, ?AUTHNS).
+    AuthGroups = emqx_gateway_auth_ct:group_names(?AUTHNS),
+    [
+        {legacy, [], AuthGroups},
+        {hardened, [], AuthGroups}
+        | emqx_gateway_auth_ct:init_groups(?MODULE, ?AUTHNS)
+    ].
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    {ok, Apps1} = application:ensure_all_started(grpc),
+    {ok, Apps2} = application:ensure_all_started(cowboy),
+    {ok, _} = emqx_gateway_auth_ct:start(),
+    [{profile_apps, Apps1 ++ Apps2}, {security_profile, Profile} | Config];
 init_per_group(AuthName, Conf) ->
     Apps = emqx_cth_suite:start(
         [
@@ -57,6 +68,10 @@ init_per_group(AuthName, Conf) ->
     ok = emqx_gateway_auth_ct:start_auth(AuthName),
     [{group_apps, Apps} | Conf].
 
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_gateway_auth_ct:stop(),
+    ok = emqx_cth_suite:stop_apps(?config(profile_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(AuthName, Conf) ->
     ok = emqx_gateway_auth_ct:stop_auth(AuthName),
     _ = emqx_common_test_http:delete_default_app(),
@@ -65,15 +80,11 @@ end_per_group(AuthName, Conf) ->
     Conf.
 
 init_per_suite(Config) ->
-    {ok, Apps1} = application:ensure_all_started(grpc),
-    {ok, Apps2} = application:ensure_all_started(cowboy),
-    {ok, _} = emqx_gateway_auth_ct:start(),
-    [{suite_apps, Apps1 ++ Apps2} | Config].
-
-end_per_suite(Config) ->
-    ok = emqx_gateway_auth_ct:stop(),
-    ok = emqx_cth_suite:stop_apps(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile(),
     Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -99,7 +110,7 @@ t_case_coap(_) ->
             "/connection?clientid=client1&username=bad&password=bad",
     Login(LeftUrl, ?checkMatch({error, bad_request, _Data})),
 
-    disable_authn(coap, udp, default),
+    disable_authn(coap),
     NowRightUrl =
         Prefix ++
             "/connection?clientid=client1&username=bad&password=bad",
@@ -151,7 +162,7 @@ t_case_lwm2m(_) ->
     NoInfoUrl = "coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1",
     Login(NoInfoUrl, MakeCheker(ack, {error, bad_request})),
 
-    disable_authn(lwm2m, udp, default),
+    disable_authn(lwm2m),
     NowRightUrl = "coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1&imei=bad&password=bad",
     Login(NowRightUrl, MakeCheker(ack, {ok, created})),
 
@@ -183,7 +194,7 @@ t_case_mqttsn(_) ->
     Login(<<"badadmin">>, <<"badpassowrd">>, <<3, ?SN_CONNACK, 16#80>>),
     Login(<<"admin">>, <<"public">>, <<3, ?SN_CONNACK, 0>>),
 
-    disable_authn(mqttsn, udp, default),
+    disable_authn(mqttsn),
     Login(<<"badadmin">>, <<"badpassowrd">>, <<3, ?SN_CONNACK, 0>>),
     ok.
 
@@ -223,7 +234,7 @@ t_case_stomp(_) ->
         ?assertEqual(<<"Login Failed: not_authorized">>, Mod:get_field(body, Frame))
     end),
 
-    disable_authn(stomp, tcp, default),
+    disable_authn(stomp),
     Login(
         <<"bad">>,
         <<"bad">>,
@@ -234,11 +245,5 @@ t_case_stomp(_) ->
     ),
     ok.
 
-disable_authn(GwName, Type, Name) ->
-    RawCfg = emqx_conf:get_raw([gateway, GwName], #{}),
-    ListenerCfg = emqx_utils_maps:deep_get(
-        [<<"listeners">>, atom_to_binary(Type), atom_to_binary(Name)], RawCfg
-    ),
-    {ok, _} = emqx_gateway_conf:update_listener(GwName, {Type, Name}, ListenerCfg#{
-        <<"enable_authn">> => false
-    }).
+disable_authn(GwName) ->
+    emqx_gateway_test_utils:set_gateway_listeners_authn(GwName, false).

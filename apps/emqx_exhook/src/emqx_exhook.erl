@@ -76,10 +76,17 @@ deny_action_result('client.authenticate', _) ->
     #{result => false};
 deny_action_result('client.authorize', _) ->
     #{result => false};
-deny_action_result('message.publish', Msg) ->
-    %% TODO: Not support to deny a message
-    %% maybe we can put the 'allow_publish' into message header
-    Msg.
+deny_action_result('message.ingress', _) ->
+    #{result => false};
+deny_action_result('message.publish', Req) ->
+    case emqx_security_profile:policy(exhook_message_publish_failure) of
+        ignore ->
+            Req;
+        deny ->
+            #{message := Message} = Req,
+            Headers = maps:get(headers, Message, #{}),
+            Req#{message := Message#{headers => Headers#{<<"allow_publish">> => <<"false">>}}}
+    end.
 
 %%--------------------------------------------------------------------
 %% APIs for `emqx_telemetry'

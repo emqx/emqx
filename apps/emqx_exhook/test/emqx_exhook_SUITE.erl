@@ -41,7 +41,14 @@
 %% Setups
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    ProfileCases = profile_cases(),
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileCases) ++
+        [{group, legacy}, {group, hardened}].
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
 
 init_per_suite(Config) ->
     {ok, Apps} = application:ensure_all_started(grpc),
@@ -50,20 +57,34 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
+
 init_per_testcase(t_health_check = TC, Config) ->
     common_init(TC, Config);
+init_per_testcase(TC, Config) when TC == t_handler_tcp; TC == t_handler_ws ->
+    _ = emqx_exhook_demo_svr:start(),
+    Config1 = common_init(TC, Config),
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
+    Config1;
 init_per_testcase(TC, Config) ->
     _ = emqx_exhook_demo_svr:start(),
     common_init(TC, Config).
 
-end_per_testcase(t_health_check, Config) ->
-    common_stop(Config);
-end_per_testcase(_, Config) ->
-    common_stop(Config),
+end_per_testcase(t_health_check = TC, Config) ->
+    common_stop(TC, Config);
+end_per_testcase(TC, Config) ->
+    common_stop(TC, Config),
     ok = emqx_exhook_demo_svr:stop().
 
 emqx_conf(t_cluster_name) ->
     io_lib:format("cluster.name = ~p", [?OTHER_CLUSTER_NAME_STRING]);
+emqx_conf(t_access_failed_if_no_server_running) ->
+    "authorization.sources = []";
 emqx_conf(_) ->
     #{}.
 
@@ -71,25 +92,27 @@ common_init(TC, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
-            {emqx_conf, emqx_conf(TC)},
-            {emqx_exhook, ?CONF_DEFAULT}
-        ],
+            {emqx_conf, emqx_conf(TC)}
+        ] ++
+            [emqx_auth || TC =:= t_access_failed_if_no_server_running] ++
+            [
+                {emqx_exhook, ?CONF_DEFAULT}
+            ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
     emqx_common_test_helpers:init_per_testcase(?MODULE, TC, [{tc_apps, Apps} | Config]).
 
-common_stop(Config) ->
+common_stop(TC, Config) ->
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config),
+    emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
+
+profile_cases() ->
+    [t_access_failed_if_no_server_running, t_handler_tcp, t_handler_ws].
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
-
-t_access_failed_if_no_server_running('init', Config) ->
-    ok = emqx_hooks:add('client.authorize', {emqx_authz, authorize, [[]]}, ?HP_AUTHZ),
-    Config;
-t_access_failed_if_no_server_running('end', _Config) ->
-    emqx_hooks:del('client.authorize', {emqx_authz, authorize}).
 
 t_access_failed_if_no_server_running(Config) ->
     ClientInfo = #{
@@ -104,7 +127,7 @@ t_access_failed_if_no_server_running(Config) ->
     ?assertMatch(
         allow,
         emqx_access_control:authorize(
-            ClientInfo#{username => <<"gooduser">>},
+            emqx_authz_context:make(ClientInfo#{username => <<"gooduser">>}),
             ?AUTHZ_PUBLISH,
             <<"acl/1">>
         )
@@ -113,7 +136,7 @@ t_access_failed_if_no_server_running(Config) ->
     ?assertMatch(
         deny,
         emqx_access_control:authorize(
-            ClientInfo#{username => <<"baduser">>},
+            emqx_authz_context:make(ClientInfo#{username => <<"baduser">>}),
             ?AUTHZ_PUBLISH,
             <<"acl/2">>
         )
@@ -133,12 +156,56 @@ t_access_failed_if_no_server_running(Config) ->
     ),
 
     Message = emqx_message:make(<<"t/1">>, <<"abc">>),
-    ?assertMatch(
+    ?assertEqual(
         {stop, Message},
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            emqx_exhook_handler:on_message_publish(Message)
+        end)
+    ),
+    {stop, DeniedMessage} = emqx_common_test_helpers:with_security_profile("hardened", fun() ->
         emqx_exhook_handler:on_message_publish(Message)
+    end),
+    ?assertEqual(false, emqx_message:get_header(allow_publish, DeniedMessage)),
+    ?assertMatch(
+        {stop, {error, not_authorized}},
+        emqx_exhook_handler:on_message_ingress(
+            #{authz_ctx => emqx_authz_context:make(ClientInfo)}, Message
+        )
     ),
     emqx_exhook_mgr:enable(<<"default">>),
     assert_get_basic_usage_info(Config).
+
+t_message_ingress(_) ->
+    _ = emqx_exhook_demo_svr:flush(),
+    AuthzContext = #{
+        clientid => <<"ingress-client">>,
+        username => <<"ingress-user">>,
+        peername => {{127, 0, 0, 1}, 3456},
+        sockport => 1883,
+        protocol => mqtt,
+        mountpoint => undefined
+    },
+    Message = emqx_message:make(<<"ingress-client">>, 0, <<"/ingress">>, <<"payload">>),
+    {ok, IngressedMessage} = emqx_message_ingress:ingress(AuthzContext, Message),
+    ?assertEqual(<<"/ingressed">>, emqx_message:topic(IngressedMessage)),
+    ?assertMatch(
+        {on_message_ingress, #{
+            clientinfo := #{clientid := <<"ingress-client">>, password := <<>>},
+            message := #{topic := <<"/ingress">>}
+        }},
+        emqx_exhook_demo_svr:take()
+    ),
+    MessageMap = emqx_message:to_map(Message),
+    DeniedMessage = emqx_message:from_map(MessageMap#{topic => <<"/denied-ingress">>}),
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_message_ingress:ingress(AuthzContext, DeniedMessage)
+    ),
+    InvalidMessage = emqx_message:from_map(MessageMap#{topic => <<"/invalid-ingress">>}),
+    ?assertMatch(
+        {error, {invalid_exhook_response, _}},
+        emqx_message_ingress:ingress(AuthzContext, InvalidMessage)
+    ).
 
 t_lookup(_) ->
     Result = emqx_exhook_mgr:lookup(<<"default">>),
@@ -380,12 +447,14 @@ t_handler(ConnFun, Port, CId) ->
                 topic := <<"/exhook">>,
                 clientinfo := #{clientid := CId}
             }},
+            {on_message_ingress, #{message := #{topic := <<"/exhook">>, qos := 0}}},
             {on_client_authorize, #{
                 type := 'PUBLISH',
                 topic := <<"/exhook">>,
                 clientinfo := #{clientid := CId}
             }},
             {on_message_publish, #{message := #{topic := <<"/exhook">>, qos := 0}}},
+            {on_message_ingress, #{message := #{topic := <<"/ignore">>, qos := 0}}},
             {on_client_authorize, #{
                 type := 'PUBLISH',
                 topic := <<"/ignore">>,
@@ -423,6 +492,7 @@ t_handler(ConnFun, Port, CId) ->
 
     ?assertMatch(
         [
+            {on_message_ingress, #{message := #{topic := <<"$SYS">>, qos := 0}}},
             {on_client_authorize, #{
                 type := 'PUBLISH',
                 topic := <<"$SYS">>,
@@ -481,6 +551,7 @@ t_handler(ConnFun, Port, CId) ->
                 topic := <<"/exhook1">>,
                 clientinfo := #{clientid := CId}
             }},
+            {on_message_ingress, #{message := #{topic := <<"/exhook1">>, qos := 1}}},
             {on_client_authorize, #{
                 type := 'PUBLISH',
                 topic := <<"/exhook1">>,
@@ -545,12 +616,16 @@ t_stop_timeout('end', _Config) ->
     ok = meck:unload(emqx_exhook_demo_svr).
 
 t_stop_timeout(_) ->
+    TestPid = self(),
+    Ref = make_ref(),
     meck:expect(
         emqx_exhook_demo_svr,
         on_provider_unloaded,
         fun(Req, Md) ->
-            %% ensure sleep time greater than emqx_exhook_mgr shutdown timeout
-            timer:sleep(20000),
+            TestPid ! {Ref, self()},
+            receive
+                Ref -> ok
+            end,
             meck:passthrough([Req, Md])
         end
     ),
@@ -558,6 +633,11 @@ t_stop_timeout(_) ->
     %% stop application
     ok = application:stop(emqx_exhook),
     ?block_until(#{?snk_kind := exhook_mgr_terminated}, 20000),
+    receive
+        {Ref, CallbackPid} -> CallbackPid ! Ref
+    after 1000 ->
+        ct:fail("Provider unload callback was not called")
+    end,
 
     %% all exhook hooked point should be unloaded
     Hooks = lists:flatmap(
@@ -742,6 +822,7 @@ assert_get_basic_usage_info(_Config) ->
             'message.acked',
             'message.delivered',
             'message.dropped',
+            'message.ingress',
             'message.publish',
             'session.created',
             'session.discarded',

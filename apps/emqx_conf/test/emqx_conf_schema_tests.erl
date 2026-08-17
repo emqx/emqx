@@ -409,7 +409,17 @@ authn_validations_test() ->
     "
 ).
 
-listeners_test() ->
+listeners_test_() ->
+    [
+        {atom_to_list(Profile), fun() ->
+            emqx_common_test_helpers:with_security_profile(Profile, fun() ->
+                listeners_test(Profile)
+            end)
+        end}
+     || Profile <- [legacy, hardened]
+    ].
+
+listeners_test(Profile) ->
     ensure_acl_conf(),
     BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
 
@@ -426,16 +436,21 @@ listeners_test() ->
     DefaultCacertFile = <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
     DefaultCertFile = <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
     DefaultKeyFile = <<"${EMQX_ETC_DIR}/certs/key.pem">>,
+    TcpBind = expected_default_listener_bind(Profile, 1883),
+    WsBind = expected_default_listener_bind(Profile, 8083),
+    SslBind = expected_configured_listener_bind(Profile, 9999),
+    DefaultWssBind = expected_configured_listener_bind(Profile, 9998),
+    NewWssBind = expected_configured_listener_bind(Profile, 9997),
     ?assertMatch(
         #{
-            <<"bind">> := {{0, 0, 0, 0}, 1883},
+            <<"bind">> := TcpBind,
             <<"enable">> := true
         },
         Tcp
     ),
     ?assertMatch(
         #{
-            <<"bind">> := {{0, 0, 0, 0}, 8083},
+            <<"bind">> := WsBind,
             <<"enable">> := true,
             <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"}
         },
@@ -443,7 +458,7 @@ listeners_test() ->
     ),
     ?assertMatch(
         #{
-            <<"bind">> := 9999,
+            <<"bind">> := SslBind,
             <<"ssl_options">> := #{
                 <<"cacertfile">> := DefaultCacertFile,
                 <<"certfile">> := DefaultCertFile,
@@ -454,7 +469,7 @@ listeners_test() ->
     ),
     ?assertMatch(
         #{
-            <<"bind">> := 9998,
+            <<"bind">> := DefaultWssBind,
             <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"},
             <<"ssl_options">> :=
                 #{
@@ -467,7 +482,7 @@ listeners_test() ->
     ),
     ?assertMatch(
         #{
-            <<"bind">> := 9997,
+            <<"bind">> := NewWssBind,
             <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"},
             <<"ssl_options">> :=
                 #{
@@ -479,6 +494,12 @@ listeners_test() ->
         NewWss
     ),
     ok.
+
+expected_default_listener_bind(legacy, Port) -> {{0, 0, 0, 0}, Port};
+expected_default_listener_bind(hardened, Port) -> {{127, 0, 0, 1}, Port}.
+
+expected_configured_listener_bind(legacy, Port) -> Port;
+expected_configured_listener_bind(hardened, Port) -> {{127, 0, 0, 1}, Port}.
 
 subscription_message_filter_test() ->
     ensure_acl_conf(),

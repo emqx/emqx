@@ -13,9 +13,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    %% The test harness defaults listeners to enable_authn = false, which skips the
+    %% 'client.authenticate' hook chain the plugin enforces quota from.
     EmqxConfig = #{
         listeners => #{
-            tcp => #{default => #{bind => 18884}},
+            tcp => #{default => #{bind => 18884, enable_authn => true}},
             ssl => #{default => #{bind => 0}},
             ws => #{default => #{bind => 0}},
             wss => #{default => #{bind => 0}}

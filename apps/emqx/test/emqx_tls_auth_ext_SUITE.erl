@@ -20,29 +20,44 @@
 ).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [{emqx, ?BASE_CONF}],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     emqx_listeners:restart(),
-    [{apps, Apps} | Config].
+    [{apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
-    Apps = ?config(apps, Config),
-    ok = emqx_cth_suite:stop(Apps).
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 t_conf_check_default(_Config) ->
-    Opts = esockd:get_options({'ssl:default', {{0, 0, 0, 0}, 8883}}),
+    Opts = esockd:get_options(listener_ref(ssl, default)),
     SSLOpts = proplists:get_value(ssl_options, Opts),
     ?assertEqual(none, proplists:lookup(partial_chain, SSLOpts)),
     ?assertEqual(none, proplists:lookup(verify_fun, SSLOpts)).
 
 t_conf_check_auth_ext(_Config) ->
-    Opts = esockd:get_options({'ssl:auth_ext', 28883}),
+    Opts = esockd:get_options(listener_ref(ssl, auth_ext)),
     SSLOpts = proplists:get_value(ssl_options, Opts),
     %% Even when partial_chain is set to `false`
     ?assertMatch(Fun when is_function(Fun), proplists:get_value(partial_chain, SSLOpts)),
     ?assertMatch({Fun, _} when is_function(Fun), proplists:get_value(verify_fun, SSLOpts)).
+
+listener_ref(Type, Name) ->
+    {emqx_listeners:listener_id(Type, Name), emqx_config:get([listeners, Type, Name, bind])}.

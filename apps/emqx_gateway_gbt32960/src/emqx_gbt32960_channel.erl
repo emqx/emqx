@@ -753,25 +753,33 @@ upstreaming(
         clientinfo =
             ClientInfo =
                 #{
-                    mountpoint := Mountpoint,
                     clientid := ClientId
                 }
     }
 ) ->
-    {Topic, Payload} = transform(Frame, Mountpoint),
-    Action = ?AUTHZ_PUBLISH(?QOS_1, false),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
-        allow ->
+    {Topic, Payload} = transform(Frame),
+    Msg = emqx_message:make(ClientId, ?QOS_1, Topic, Payload),
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
+        {allow, NMsg = #message{topic = NTopic}} ->
             log(
-                debug, #{msg => "upstreaming_to_topic", topic => Topic, payload => Payload}, Channel
+                debug,
+                #{msg => "upstreaming_to_topic", topic => NTopic, payload => Payload},
+                Channel
             ),
-            emqx:publish(emqx_message:make(ClientId, ?QOS_1, Topic, Payload));
+            emqx_message_ingress:finalize_and_publish(ClientInfo, NMsg);
         deny ->
             log(info, #{msg => "upstream_publish_denied", topic => Topic}, Channel),
+            ok;
+        {error, Reason} ->
+            log(
+                warning,
+                #{msg => "upstream_message_ingress_failed", topic => Topic, reason => Reason},
+                Channel
+            ),
             ok
     end.
 
-transform(Frame = ?CMD(Cmd), Mountpoint) ->
+transform(Frame = ?CMD(Cmd)) ->
     Suffix =
         case Cmd of
             ?CMD_VIHECLE_LOGIN -> <<"upstream/vlogin">>;
@@ -786,15 +794,13 @@ transform(Frame = ?CMD(Cmd), Mountpoint) ->
             ?CMD_TERMINAL_CTRL -> <<"upstream/response">>;
             _ -> <<"upstream/transparent">>
         end,
-    Topic = emqx_mountpoint:mount(Mountpoint, Suffix),
     Payload = to_json(Frame),
-    {Topic, Payload};
-transform(Frame = #frame{ack = Ack}, Mountpoint) when
+    {Suffix, Payload};
+transform(Frame = #frame{ack = Ack}) when
     ?IS_ACK_CODE(Ack)
 ->
-    Topic = emqx_mountpoint:mount(Mountpoint, <<"upstream/response">>),
     Payload = to_json(Frame),
-    {Topic, Payload}.
+    {<<"upstream/response">>, Payload}.
 
 to_json(#frame{cmd = Cmd, vin = Vin, encrypt = Encrypt, data = Data}) ->
     emqx_utils_json:encode(#{'Cmd' => Cmd, 'Vin' => Vin, 'Encrypt' => Encrypt, 'Data' => Data}).
@@ -950,14 +956,14 @@ subscribe_downlink(
 ) ->
     {ParsedTopic, SubOpts0} = emqx_topic:parse(Topic),
     SubOpts = maps:merge(emqx_gateway_utils:default_subopts(), SubOpts0),
-    MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
     Action = ?AUTHZ_SUBSCRIBE(maps:get(qos, SubOpts, 0)),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, MountedTopic) of
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, ParsedTopic) of
         allow ->
+            MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
             _ = emqx_broker:subscribe(MountedTopic, ClientId, SubOpts),
             run_hooks(Ctx, 'session.subscribed', [ClientInfo, MountedTopic, SubOpts]),
             Channel#channel{subscriptions = Subscriptions#{MountedTopic => SubOpts}};
         deny ->
-            log(info, #{msg => "subscribe_denied", topic => MountedTopic}, Channel),
+            log(info, #{msg => "subscribe_denied", topic => ParsedTopic}, Channel),
             Channel
     end.

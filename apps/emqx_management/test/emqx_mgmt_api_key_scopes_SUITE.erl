@@ -19,7 +19,8 @@ all() ->
     [
         {group, unit_tests},
         {group, integration_tests},
-        {group, api_tests}
+        {group, legacy},
+        {group, hardened}
     ].
 
 suite() -> [{timetrap, {minutes, 1}}].
@@ -56,7 +57,9 @@ groups() ->
             t_api_update_scopes,
             t_api_post_materialises_default_scopes,
             t_api_legacy_record_shows_unset_sentinel
-        ]}
+        ]},
+        {legacy, [], [{group, api_tests}]},
+        {hardened, [], [{group, api_tests}]}
     ].
 
 init_per_suite(Config) ->
@@ -75,6 +78,9 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     application:stop(hackney).
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
 init_per_group(unit_tests, Config) ->
     emqx_mgmt_api_key_scopes:clear_cache(),
     Config;
@@ -82,6 +88,8 @@ init_per_group(_Group, Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
     Config.
 
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, Config) ->
     Config.
 
@@ -577,7 +585,7 @@ t_check_scopes_unmapped_path(_Config) ->
 %%--------------------------------------------------------------------
 
 t_api_list_scopes(_Config) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key_scopes"]),
     {ok, Res} = emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader),
     Body = emqx_utils_json:decode(Res),
@@ -709,7 +717,7 @@ create_app(Name) ->
     create_app(Name, #{}).
 
 create_app(Name, Extra) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     ExpiredAt = to_rfc3339(erlang:system_time(second) + 1000),
     App = Extra#{
@@ -724,7 +732,7 @@ create_app(Name, Extra) ->
     end.
 
 read_app(Name) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(get, Path, AuthHeader) of
         {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
@@ -732,12 +740,12 @@ read_app(Name) ->
     end.
 
 delete_app(Name) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     DeletePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath, AuthHeader).
 
 update_app(Name, Change) ->
-    AuthHeader = emqx_dashboard_SUITE:auth_header_(),
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
     UpdatePath = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
     case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
         {ok, Update} -> {ok, emqx_utils_json:decode(Update)};

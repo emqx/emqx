@@ -68,6 +68,7 @@ fields(?ACTION_TYPE) ->
     );
 fields(action_parameters) ->
     [
+        {project_id, mk(binary(), #{required => false, desc => ?DESC("project_id")})},
         {dataset, mk(binary(), #{required => true, desc => ?DESC("action_dataset")})},
         {table, mk(binary(), #{required => true, desc => ?DESC("action_table")})}
     ];

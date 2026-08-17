@@ -21,11 +21,14 @@ init_per_suite(Config0) ->
         ExtraApps,
         Opts
     ),
-    Peer = emqx_common_test_helpers:start_peer(node1, []),
+    [Peer] = emqx_cth_cluster:start(
+        [{node1, #{apps => [emqx]}}],
+        #{work_dir => emqx_cth_suite:work_dir(node1, Config)}
+    ),
     [{peer, Peer} | Config].
 
 end_per_suite(Config) ->
-    _ = emqx_common_test_helpers:stop_peer(?config(peer, Config)),
+    ok = emqx_cth_cluster:stop([?config(peer, Config)]),
     emqx_common_test_helpers:run_cleanups(Config).
 
 t_nodes_api(_Config) ->

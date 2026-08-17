@@ -20,7 +20,14 @@
     }
 }).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    ProfileCases = profile_cases(),
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileCases) ++
+        [{group, legacy}, {group, hardened}].
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
 
 suite() ->
     [
@@ -59,6 +66,13 @@ end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     ok = emqx_cth_suite:stop(Apps),
     ok.
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(t_get_telemetry_without_memsup, Config) ->
     ok = application:stop(os_mon),
@@ -136,7 +150,7 @@ init_per_testcase(t_exhook_info, Config) ->
     _ = gen_tcp:close(Sock),
     Config;
 init_per_testcase(t_cluster_uuid, Config) ->
-    Node = start_peer(n1),
+    Node = start_peer(n1, Config),
     [{n1, Node} | Config];
 init_per_testcase(t_uuid_restored_from_file, Config) ->
     Config;
@@ -149,10 +163,14 @@ init_per_testcase(t_uuid_saved_to_file, Config) ->
     Config;
 init_per_testcase(t_num_clients, Config) ->
     ok = snabbkaffe:start_trace(),
+    _ = emqx_common_test_helpers:listener_disable_authn(tcp, default),
     Config;
 init_per_testcase(_Testcase, Config) ->
     mock_httpc(),
     Config.
+
+profile_cases() ->
+    [t_num_clients].
 
 end_per_testcase(t_get_telemetry_without_memsup, Config) ->
     application:start(os_mon),
@@ -185,6 +203,7 @@ end_per_testcase(t_enable, _Config) ->
 end_per_testcase(t_send_after_enable, _Config) ->
     meck:unload([httpc, emqx_telemetry_config]);
 end_per_testcase(t_rule_engine_and_data_bridge_info, _Config) ->
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok;
 end_per_testcase(t_exhook_info, _Config) ->
     emqx_exhook_demo_svr:stop(),
@@ -554,6 +573,7 @@ t_exhook_info(_Config) ->
             'message.acked',
             'message.delivered',
             'message.dropped',
+            'message.ingress',
             'message.publish',
             'session.created',
             'session.discarded',
@@ -618,7 +638,10 @@ mock_advanced_mqtt_features() ->
             Message = emqx_message:make(
                 <<"$delayed/", DelaySec/binary, "/delayed">>, <<"payload">>
             ),
-            {stop, _} = emqx_delayed:on_message_publish(Message)
+            {ok, IngressedMessage} = emqx_delayed:on_message_ingress(
+                #{authz_ctx => #{}}, Message
+            ),
+            {stop, _} = emqx_delayed:on_message_publish(IngressedMessage)
         end,
         lists:seq(1, 4)
     ),
@@ -764,40 +787,36 @@ find_gen_rpc_port() ->
     {ok, {_, Port}} = inet:sockname(EPort),
     Port.
 
-start_peer(Name) ->
-    Port = find_gen_rpc_port(),
+start_peer(Name, Config) ->
+    LocalRPCPort = find_gen_rpc_port(),
     TestNode = node(),
-    Handler =
-        fun
-            (emqx) ->
-                application:set_env(emqx, boot_modules, []),
-                emqx_cluster:join(TestNode),
-                emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
-                ok;
-            (_App) ->
-                emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
-                ok
-        end,
-    Opts = #{
-        env => [
-            {gen_rpc, tcp_server_port, 9002},
-            {gen_rpc, port_discovery, manual},
-            {gen_rpc, client_config_per_node, {internal, #{TestNode => Port}}}
-        ],
-
-        load_schema => false,
-        configure_gen_rpc => false,
-        env_handler => Handler,
-        load_apps => [gen_rpc, emqx],
-        listener_ports => [],
-        apps => [emqx, emqx_conf, emqx_retainer, emqx_modules, emqx_telemetry]
-    },
-
-    emqx_common_test_helpers:start_peer(Name, Opts).
+    PeerNode = emqx_cth_cluster:node_name(Name),
+    PeerRPCPort = 9002,
+    Apps = [
+        {gen_rpc, #{
+            override_env => [
+                {client_config_per_node,
+                    {internal, #{
+                        TestNode => {tcp, LocalRPCPort},
+                        PeerNode => {tcp, PeerRPCPort}
+                    }}}
+            ]
+        }},
+        {emqx, #{override_env => [{boot_modules, []}]}},
+        {emqx_conf, ?MODULES_CONF},
+        emqx_retainer,
+        emqx_modules,
+        emqx_telemetry
+    ],
+    [Node] = emqx_cth_cluster:start(
+        [{Name, #{base_port => PeerRPCPort + 1, join_to => TestNode, apps => Apps}}],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Node.
 
 stop_peer(Node) ->
     rpc:call(Node, ?MODULE, leave_cluster, []),
-    ok = emqx_cth_peer:stop(Node),
+    ok = emqx_cth_cluster:stop([Node]),
     ?assertEqual([node()], mria:running_nodes()),
     ?assertEqual([], nodes()),
     _ = application:stop(mria),

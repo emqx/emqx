@@ -40,9 +40,15 @@ end_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_ldap], #{
-        work_dir => ?config(priv_dir, Config)
-    }),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_auth_ldap
+        ],
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -168,7 +174,7 @@ wait_for_ldap_pid(After) ->
 t_authenticate(_Config) ->
     ok = lists:foreach(
         fun(Sample) ->
-            test_user_auth(Sample)
+            emqx_authn_test_lib:with_security_profiles(Sample, fun test_user_auth/1)
         end,
         cases()
     ).
@@ -209,6 +215,11 @@ test_user_auth(
     ).
 
 t_destroy(_Config) ->
+    emqx_authn_test_lib:with_security_profiles(#{}, fun(Sample) ->
+        run(Sample, #{}, fun() -> test_destroy(Sample) end)
+    end).
+
+test_destroy(#{security_profile := Profile}) ->
     AuthConfig = raw_ldap_auth_config(),
 
     {ok, _} = emqx:update_config(
@@ -233,8 +244,13 @@ t_destroy(_Config) ->
     ),
 
     % Authenticator should not be usable anymore
-    ?assertMatch(
-        ignore,
+    Expected =
+        case Profile of
+            legacy -> ignore;
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(
+        Expected,
         emqx_authn_ldap:authenticate(
             #{
                 username => <<"mqttuser0001">>,
@@ -469,7 +485,7 @@ run([failure | Rest], #{backend_failure := true} = Sample, Credentials, Auth) ->
 run([failure | Rest], Sample, Credentials, Auth) ->
     run(Rest, Sample, Credentials, Auth);
 run([profile | Rest], #{security_profile := Profile} = Sample, Credentials, Auth) ->
-    emqx_common_test_helpers:with_security_profile(atom_to_list(Profile), fun() ->
+    emqx_common_test_helpers:with_security_profile(Profile, fun() ->
         run(Rest, Sample, Credentials, Auth)
     end);
 run([profile | Rest], Sample, Credentials, Auth) ->

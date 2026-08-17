@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_schema_validation).
 
--feature(maybe_expr, enable).
-
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").

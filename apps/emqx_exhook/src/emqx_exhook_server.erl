@@ -61,6 +61,7 @@
     | 'session.discarded'
     | 'session.takenover'
     | 'session.terminated'
+    | 'message.ingress'
     | 'message.publish'
     | 'message.delivered'
     | 'message.acked'
@@ -459,6 +460,7 @@ hk2func('session.resumed') -> 'on_session_resumed';
 hk2func('session.discarded') -> 'on_session_discarded';
 hk2func('session.takenover') -> 'on_session_takenover';
 hk2func('session.terminated') -> 'on_session_terminated';
+hk2func('message.ingress') -> 'on_message_ingress';
 hk2func('message.publish') -> 'on_message_publish';
 hk2func('message.delivered') -> 'on_message_delivered';
 hk2func('message.acked') -> 'on_message_acked';
@@ -467,6 +469,7 @@ hk2func('message.dropped') -> 'on_message_dropped'.
 -compile({inline, [message_hooks/0]}).
 message_hooks() ->
     [
+        'message.ingress',
         'message.publish',
         'message.delivered',
         'message.acked',

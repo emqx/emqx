@@ -4,8 +4,6 @@
 
 -module(emqx_mgmt_api_clients).
 
--feature(maybe_expr, enable).
-
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
@@ -1076,9 +1074,10 @@ format_results(Acc, Cursor) ->
 do_ets_select(Nodes, Limit, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
     maybe
         {ok, {_, QString1}} ?= parse_qstring(QString0),
-        {Rows, #{cont := NewCont, node_idx := NewNodeIdx}} = ets_select(
-            QString1, Limit, Node, NodeIdx, Cont
-        ),
+        {ok, {Rows, #{cont := NewCont, node_idx := NewNodeIdx}}} ?=
+            ets_select(
+                QString1, Limit, Node, NodeIdx, Cont
+            ),
         {ok, {Rows, next_ets_cursor(Nodes, NewNodeIdx, NewCont)}}
     end.
 
@@ -1234,11 +1233,22 @@ ets_select(NQString, Limit, Node, NodeIdx, Cont) ->
     case emqx_bpapi:supported_version(Node, ?BPAPI_NAME) of
         Vsn when is_number(Vsn), Vsn >= MinBPAPIVsn ->
             Params = #{qs => NQString, node_idx => NodeIdx, continuation => Cont, limit => Limit},
-            emqx_mgmt_api_clients_proto_v1:clients_v2_ets_select(Node, Params);
+            try
+                {ok, emqx_mgmt_api_clients_proto_v1:clients_v2_ets_select(Node, Params)}
+            catch
+                error:{erpc, Reason} ->
+                    bad_node_response(Node, Reason);
+                error:{exception, Reason, _Stack} ->
+                    bad_node_response(Node, Reason)
+            end;
         undefined ->
             %% Skip to next node
-            {_Rows = [], #{cont => undefined, node_idx => NodeIdx + 1}}
+            {ok, {_Rows = [], #{cont => undefined, node_idx => NodeIdx + 1}}}
     end.
+
+bad_node_response(Node, Reason) ->
+    Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, Reason])),
+    {500, #{code => <<"NODE_DOWN">>, message => Message}}.
 
 local_ets_select_v1(Params) ->
     do_local_ets_select_v1(Params, _Acc = []).

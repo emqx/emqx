@@ -70,7 +70,8 @@ For cases where a single connector has both actions and sources, see
 all() ->
     [
         {group, ?cluster},
-        {group, ?local}
+        {group, legacy},
+        {group, hardened}
     ].
 
 groups() ->
@@ -88,7 +89,9 @@ groups() ->
     ClusterTCs = merge_custom_groups(?cluster, cluster_testcases(), CustomMatrix),
     [
         {?cluster, ClusterTCs},
-        {?local, LocalTCs}
+        {?local, LocalTCs},
+        {legacy, [], [{group, ?local}]},
+        {hardened, [], [{group, ?local}]}
     ].
 
 merge_custom_groups(RootGroup, GroupTCs, CustomMatrix0) ->
@@ -150,11 +153,13 @@ init_per_group(?cluster = Group, TCConfig) ->
         #{work_dir => emqx_cth_suite:work_dir(Group, TCConfig)}
     ),
     [{nodes, Nodes} | TCConfig];
+init_per_group(Profile, TCConfig) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | TCConfig];
 init_per_group(?local, TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf,
+            {emqx_conf, ~S'listeners.tcp.default.bind = "0.0.0.0:1883"'},
             emqx_connector,
             emqx_bridge_mqtt,
             emqx_bridge,
@@ -172,6 +177,8 @@ end_per_group(?cluster, TCConfig) ->
     Nodes = get_config(nodes, TCConfig),
     ok = emqx_cth_cluster:stop(Nodes),
     ok;
+end_per_group(Profile, _TCConfig) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(?local, TCConfig) ->
     Apps = get_config(apps, TCConfig),
     emqx_cth_suite:stop(Apps),

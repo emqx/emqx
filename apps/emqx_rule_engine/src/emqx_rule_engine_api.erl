@@ -619,7 +619,7 @@ encode_nested_error(RuleError, Reason) ->
 mk_format_fn(Namespace) ->
     SummaryIndex =
         maybe
-            {ok, Summary} = emqx_bridge_v2_api:do_handle_summary(Namespace, actions),
+            {ok, Summary} ?= emqx_bridge_v2_api:do_handle_summary(Namespace, actions),
             lists:foldl(
                 fun(#{name := N, type := T, status := S}, Acc) ->
                     Acc#{{T, N} => S}

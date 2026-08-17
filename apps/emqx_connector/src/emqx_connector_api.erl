@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector_api).
 
--feature(maybe_expr, enable).
-
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
@@ -783,7 +781,9 @@ format_resource_data(K, V, Result) ->
 
 fill_defaults(Type, RawConf) ->
     PackedConf = pack_connector_conf(Type, RawConf),
-    FullConf = emqx_config:fill_defaults(emqx_connector_schema, PackedConf, #{}),
+    FullConf = emqx_config:fill_defaults(emqx_connector_schema, PackedConf, #{
+        obfuscate_sensitive_values => true
+    }),
     unpack_connector_conf(Type, FullConf).
 
 pack_connector_conf(Type, RawConf) ->
@@ -817,8 +817,15 @@ is_ok(ResL) ->
         )
     of
         [] -> {ok, [Res || {ok, Res} <- ResL]};
-        ErrL -> hd(ErrL)
+        ErrL -> to_error(hd(ErrL))
     end.
+
+%% Normalize the remaining erpc:multicall failure shapes into `{error, _}'.
+to_error({error, _} = Error) -> Error;
+to_error(timeout) -> timeout;
+to_error({throw, Reason}) -> {error, Reason};
+to_error({exit, Reason}) -> {error, Reason};
+to_error(Reason) -> {error, Reason}.
 
 filter_out_request_body(Conf) ->
     ExtraConfs = [

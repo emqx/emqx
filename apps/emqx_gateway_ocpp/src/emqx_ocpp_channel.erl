@@ -364,8 +364,7 @@ publish(
                     clientid := ClientId,
                     username := Username,
                     protocol := Protocol,
-                    peerhost := PeerHost,
-                    mountpoint := Mountpoint
+                    peerhost := PeerHost
                 },
         conninfo = #{proto_ver := ProtoVer}
     }
@@ -373,28 +372,28 @@ publish(
     is_map(Frame)
 ->
     Topic0 = upstream_topic(Frame, Channel),
-    Topic = emqx_mountpoint:mount(Mountpoint, Topic0),
     Payload = frame2payload(Frame),
-    Action = ?AUTHZ_PUBLISH(?QOS_2, false),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic0) of
-        allow ->
-            emqx_broker:publish(
-                emqx_message:make(
-                    ClientId,
-                    ?QOS_2,
-                    Topic,
-                    Payload,
-                    #{},
-                    #{
-                        protocol => Protocol,
-                        proto_ver => ProtoVer,
-                        username => Username,
-                        peerhost => PeerHost
-                    }
-                )
-            );
+    Msg = emqx_message:make(
+        ClientId,
+        ?QOS_2,
+        Topic0,
+        Payload,
+        #{},
+        #{
+            protocol => Protocol,
+            proto_ver => ProtoVer,
+            username => Username,
+            peerhost => PeerHost
+        }
+    ),
+    case emqx_gateway_ctx:authorize_publish(Ctx, ClientInfo, Msg) of
+        {allow, NMsg} ->
+            emqx_message_ingress:finalize_and_publish(ClientInfo, NMsg);
         deny ->
             ?SLOG(info, #{msg => "publish_denied", topic => Topic0}),
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{msg => "message_ingress_failed", topic => Topic0, reason => Reason}),
             ok
     end.
 

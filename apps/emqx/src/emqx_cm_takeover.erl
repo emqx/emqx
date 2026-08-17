@@ -176,12 +176,30 @@ finish(#chanref{proto = #{} = ServerProto, connmod = ConnMod, pid = ChanPid}) ->
         target_proto => ServerProto,
         requester_proto => RequesterProto
     }),
-    Ret = emqx_cm_proto_v4:takeover_finish(ConnMod, ChanPid, RequesterProto),
+    Ret = finish_remote(fun() ->
+        emqx_cm_proto_v4:takeover_finish(ConnMod, ChanPid, RequesterProto)
+    end),
     from_finish_ret(ServerProto, Ret);
 finish(#chanref{proto = legacy, connmod = ConnMod, pid = ChanPid}) ->
     ?tp(emqx_cm_takeover_finish_legacy, #{target_node => node(ChanPid)}),
-    Ret = emqx_cm_proto_v3:takeover_finish(ConnMod, ChanPid),
+    Ret = finish_remote(fun() ->
+        emqx_cm_proto_v3:takeover_finish(ConnMod, ChanPid)
+    end),
     from_finish_ret(legacy, Ret).
+
+%% The proto calls are erpc-backed: a node dying between takeover-begin and
+%% takeover-end raises instead of returning, which would propagate through the
+%% new channel's CONNECT rather than hit the session-open branches that degrade
+%% to local-only replay.  Convert the raises to `{error, _}'.
+finish_remote(ProtoCall) ->
+    try
+        ProtoCall()
+    catch
+        error:{erpc, Reason} ->
+            {error, {erpc, Reason}};
+        error:{exception, Reason, _Stack} ->
+            {error, Reason}
+    end.
 
 -doc "Direct RPC target for `emqx_cm_proto_v4:takeover_finish/3`.".
 -spec finish_rpc(module(), emqx_cm:chan_pid(), legacy | protocol()) ->

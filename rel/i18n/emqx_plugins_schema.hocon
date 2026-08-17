@@ -41,6 +41,49 @@ For example: `my_plugin-0.1.0`."""
 name_vsn.label:
 """Name-Version"""
 
+package_limits.desc:
+"""Resource limits applied when writing and extracting plugin packages.<br/>
+These bounds protect the node from oversized, high-compression-ratio or
+deeply-nested plugin tarballs."""
+
+package_limits.label:
+"""Package Limits"""
+
+max_package_size.desc:
+"""Maximum size of a plugin package file (<code>.tar.gz</code>) in bytes.
+Uploads and cluster copies larger than this are rejected."""
+
+max_package_size.label:
+"""Max Package Size"""
+
+max_decompressed_size.desc:
+"""Maximum total size in bytes of all files contained in a plugin package
+after decompression. Packages extracting to more than this are rejected."""
+
+max_decompressed_size.label:
+"""Max Decompressed Size"""
+
+max_file_count.desc:
+"""Maximum number of file entries allowed in a plugin package."""
+
+max_file_count.label:
+"""Max File Count"""
+
+max_path_depth.desc:
+"""Maximum directory depth of file entries in a plugin package."""
+
+max_path_depth.label:
+"""Max Path Depth"""
+
+max_extraction_time_ms.desc:
+"""Maximum time allowed for extracting a plugin package.
+Extraction taking longer than this is aborted.<br/>
+This value is also used as the RPC timeout when copying a plugin package
+from another node in the cluster."""
+
+max_extraction_time_ms.label:
+"""Max Extraction Time"""
+
 plugins.desc:
 """Manage EMQX plugins.<br/>
 Plugins can be pre-built as a part of EMQX package,

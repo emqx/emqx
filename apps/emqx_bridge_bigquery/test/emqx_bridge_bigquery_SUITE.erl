@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_bigquery_SUITE).
 
--feature(maybe_expr, enable).
-
 -compile(nowarn_export_all).
 -compile(export_all).
 
@@ -355,7 +353,12 @@ get_value(Key, TCConfig) ->
     emqx_bridge_v2_testlib:get_value(Key, TCConfig).
 
 start_control_client() ->
+    start_control_client(_Opts = #{}).
+
+start_control_client(Opts) ->
     RawServiceAccount = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
+    PoolName = maps:get(pool_name, Opts, <<"control_connector">>),
+    Host = maps:get(host, Opts, "bigquery"),
     ClientConfig =
         #{
             connect_timeout => 5_000,
@@ -367,10 +370,9 @@ start_control_client() ->
             },
             jwt_opts => #{aud => <<"https://bigquery.googleapis.com/">>},
             transport => tcp,
-            host => "bigquery",
+            host => Host,
             port => ?PORT
         },
-    PoolName = <<"control_connector">>,
     {ok, _ExtraInfo, Client} = emqx_bridge_gcp_pubsub_client:start(PoolName, ClientConfig),
     Client.
 
@@ -556,6 +558,13 @@ create_connector_api(TCConfig, Overrides) ->
 create_action_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
+
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
     ).
 
 update_connector_api(TCConfig, Overrides) ->
@@ -1039,4 +1048,69 @@ t_attached_service_account_auth(TCConfig) ->
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ensure_attached_service_account_token_resources_cleared(),
 
+    ok.
+
+-doc """
+Verifies that using an action-specific project id overrides the project id that comes from
+the service account/connector config.
+""".
+t_action_specific_project_id(TCConfig) ->
+    OldEnv = os:getenv("BIGQUERY_EMULATOR_HOST"),
+    on_exit(fun() -> os:putenv("BIGQUERY_EMULATOR_HOST", OldEnv) end),
+    os:putenv("BIGQUERY_EMULATOR_HOST", "bigquery2:9050"),
+
+    OverriddenProjectId = <<"overridden_project_id">>,
+    DefaultProjectId = get_config(project_id, TCConfig),
+    %% sanity check
+    ?assertNotEqual(DefaultProjectId, OverriddenProjectId),
+    Dataset = get_config(dataset, TCConfig),
+    Table = get_config(table, TCConfig),
+    ControlClient = start_control_client(#{
+        pool_name => <<"pool2">>,
+        host => "bigquery2"
+    }),
+    TCConfigOverridden = [
+        {project_id, OverriddenProjectId},
+        {client, ControlClient}
+        | TCConfig
+    ],
+    on_exit(fun() -> stop_control_client(TCConfigOverridden) end),
+    create_dataset_and_table(Dataset, Table, TCConfigOverridden),
+
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_action_api(TCConfig, #{
+            <<"parameters">> =>
+                #{<<"project_id">> => OverriddenProjectId}
+        }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = <<"payload">>,
+    emqtt:publish(C, Topic, Payload),
+    Payload64 = base64:encode(Payload),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            [[_ClientId, Payload64, Topic, _PublishedAt]],
+            scan_table(TCConfigOverridden)
+        )
+    ),
+    ok.
+
+-doc """
+Verifies that reading the connector with a legacy service account field (in the root of
+the connector config) via the HTTP API returns a redacted service account.
+
+In 6.2.0, this was moved to under an `authentication` key.
+""".
+t_legacy_service_account_json_redact(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"authentication">> := #{<<"service_account_json">> := <<"******">>}}},
+        create_connector_api(TCConfig, #{})
+    ),
+    ?assertMatch(
+        {200, #{<<"authentication">> := #{<<"service_account_json">> := <<"******">>}}},
+        get_connector_api(TCConfig)
+    ),
     ok.

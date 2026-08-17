@@ -24,8 +24,6 @@
 %%
 -module(emqx_persistent_session_ds_state_v2).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_ds_pmap).
 
 %% API:
