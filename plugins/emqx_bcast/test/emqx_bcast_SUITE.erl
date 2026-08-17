@@ -50,11 +50,11 @@ init_per_testcase(_Case, Config) ->
     [
         mnesia:clear_table(T)
      || T <- [
-            bcast_msg, bcast_message, bcast_message_hash, bcast_message_api_id
+            bcast_msg, bcast_message, bcast_message_hash, bcast_message_api_id, bcast_msg_index
         ]
     ],
     catch emqx_bcast:init_tables(),
-    catch ets:delete_all_objects(bcast_msg_index),
+    [catch ets:delete_all_objects(T) || T <- [bcast_buffer_a, bcast_buffer_b, bcast_buffer3, bcast_device_sub, bcast_subscription]],
     emqx_bcast_metrics:init(),
     Config.
 
@@ -71,8 +71,7 @@ init_test_config() ->
         broadcast_topic => <<"/sys/broadcast/${productKey}">>,
         batch_topic => <<"/${productKey}/${deviceName}/user/get">>,
         force_upgrade_qos => true,
-        delivery_pool_size => 2,
-        delivery_queue_max => 10000
+        delivery_pool_size => 2
     },
     persistent_term:put({?APP, config}, Cfg),
     ok.
@@ -315,12 +314,13 @@ t_delivery_completed_hook(_Config) ->
         #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
     ),
     ok = emqx_bcast:on_delivery_completed(Msg, #{clientid => DN}),
-    ?assertEqual(1, metric(<<"batch_pub_qos1_acked">>) - Before),
+    ?assert(wait_metric(<<"batch_pub_qos1_acked">>, Before + 1)),
     %% duplicate completion does not double count
     ok = emqx_bcast:on_delivery_completed(Msg, #{clientid => DN}),
+    timer:sleep(300),
     ?assertEqual(1, metric(<<"batch_pub_qos1_acked">>) - Before),
     %% delivery record removed after all acks
-    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
     %% messages without plugin headers pass through untouched
     Plain = emqx_message:make(DN, 0, <<"/t">>, <<"p">>),
     ok = emqx_bcast:on_delivery_completed(Plain, #{clientid => DN}),
@@ -469,9 +469,7 @@ flush_mailbox() ->
 %% Async delivery pool tests
 %%--------------------------------------------------------------------
 
-t_delivery_queue_overflow(_Config) ->
-    Cfg = persistent_term:get({?APP, config}),
-    persistent_term:put({?APP, config}, Cfg#{delivery_queue_max => 0}),
+t_qos1_batchpub_stores_then_delivers_via_pull(_Config) ->
     emqx_bcast:register_device(<<"P1">>, <<"DQ">>, self()),
     emqx_bcast_subscription:init(),
     emqx_bcast_subscription:add(<<"DQ">>, self(), {<<"/P1/DQ/user/get">>, 0}),
@@ -482,16 +480,14 @@ t_delivery_queue_overflow(_Config) ->
         <<"MessageContent">> => <<"aGVsbG8=">>,
         <<"Qos">> => 1
     },
-    {ok, 429, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
-    ?assertEqual(<<"DeliveryQueueFull">>, maps:get(<<"Code">>, Resp)),
-    %% 429 leaves no QoS=1 delivery record behind
-    ?assertEqual([], mnesia:dirty_select(bcast_msg, [{'_', [], ['$_']}])),
-    %% direct submit over the limit is rejected and counted
-    Before = metric(<<"delivery_submit_rejected">>),
-    {error, overloaded} = emqx_bcast_deliver:submit_task(fun() -> ok end),
-    ?assertEqual(1, metric(<<"delivery_submit_rejected">>) - Before),
+    {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ?assert(maps:get(<<"Success">>, Resp)),
+    %% The delivery record is created on core before the pull path runs.
+    ?assertEqual(1, length(mnesia:dirty_match_object(#bcast_msg{_ = '_'}))),
+    %% Pull pools turn the trigger into a delivery.
+    ?assert(wait_until(fun() -> count_deliver_messages() >= 1 end, 100)),
     flush_mailbox(),
-    persistent_term:put({?APP, config}, Cfg).
+    ok.
 
 t_async_ttl_refresh(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
@@ -523,9 +519,9 @@ t_async_ttl_refresh(_Config) ->
         )
     ).
 
-t_resolve_local_and_chunked_submit(_Config) ->
+t_qos0_broadcast_delivers_locally(_Config) ->
     PK = <<"PR">>,
-    N = 205,
+    N = 50,
     DNs = [<<"R", (integer_to_binary(I))/binary>> || I <- lists:seq(1, N)],
     lists:foreach(
         fun(DN) ->
@@ -535,14 +531,7 @@ t_resolve_local_and_chunked_submit(_Config) ->
         DNs
     ),
     Template = <<"/PR/${deviceName}/user/get">>,
-    Targets = emqx_bcast_batch_pub:resolve_local(DNs, PK, Template),
-    ?assertEqual(N, length(Targets)),
-    ?assertMatch(
-        [{_, _, <<"/PR/", _/binary>>, 0} | _],
-        lists:sort(Targets)
-    ),
-    %% 205 targets -> 2 chunks; all delivered asynchronously to self()
-    ok = emqx_bcast_deliver:submit_targets(Targets, #{qos => 0, payload => <<"p">>}),
+    ok = emqx_bcast_pull_server_pool:qos0_broadcast(PK, Template, <<"p">>),
     ?assert(
         wait_until(
             fun() ->
@@ -572,13 +561,10 @@ t_index_add_remove_idempotent(_Config) ->
     ok = emqx_bcast_storage:remove_index_entries(PK, DNs, Did),
     {ok, []} = emqx_bcast_storage:get_device_deliveries({PK, <<"D1">>}).
 
-t_pool_queue_depth_metric(_Config) ->
-    ok = emqx_bcast_deliver:submit_task(fun() -> ok end),
-    ?assert(wait_until(fun() -> emqx_bcast_deliver:queue_depth() =:= 0 end, 100)),
-    ?assertEqual(
-        0,
-        prometheus_gauge:value(?BCAST_REGISTRY, <<"bcast_delivery_queue_depth">>, [])
-    ).
+t_pull_pool_buffers_initialized(_Config) ->
+    ?assertNotEqual(undefined, ets:info(bcast_buffer_a)),
+    ?assertNotEqual(undefined, ets:info(bcast_buffer_b)),
+    ?assertNotEqual(undefined, ets:info(bcast_buffer3)).
 
 t_api_missing_action(_Config) ->
     Body = #{<<"ProductKey">> => <<"P1">>},

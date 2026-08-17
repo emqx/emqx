@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bcast_pub_broadcast).
 
--export([handle/2, deliver_local/3]).
+-export([handle/2]).
 
 -include("emqx_bcast.hrl").
 
@@ -37,9 +37,9 @@ validate(_ProductKey, MessageContent) ->
             {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
     end.
 
-do_broadcast(ProductKey, _MessageContent, TopicFullName, RequestId) ->
+do_broadcast(ProductKey, MessageContent, TopicFullName, RequestId) ->
     MessageId = emqx_bcast_utils:gen_api_uuid(),
-    {ok, Payload} = emqx_bcast_utils:decode_base64(_MessageContent),
+    {ok, Payload} = emqx_bcast_utils:decode_base64(MessageContent),
     TopicTemplate =
         case TopicFullName of
             undefined ->
@@ -49,36 +49,6 @@ do_broadcast(ProductKey, _MessageContent, TopicFullName, RequestId) ->
                 TopicFullName
         end,
 
-    Nodes = emqx:running_nodes(),
-    lists:foreach(
-        fun(Node) ->
-            case Node =:= node() of
-                true ->
-                    deliver_local(ProductKey, TopicTemplate, Payload);
-                false ->
-                    emqx_rpc:cast(Node, ?MODULE, deliver_local, [ProductKey, TopicTemplate, Payload])
-            end
-        end,
-        Nodes
-    ),
-
+    ok = emqx_bcast_pull_server_pool:qos0_broadcast(ProductKey, TopicTemplate, Payload),
     emqx_bcast_metrics:broadcast_in(),
     {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, MessageId)}.
-
-deliver_local(ProductKey, TopicTemplate, Payload) ->
-    Devices = emqx_bcast:lookup_devices_by_product(ProductKey),
-    emqx_bcast_metrics:broadcast_devices_online(length(Devices)),
-    lists:foreach(
-        fun([DeviceName, Pid]) ->
-            Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),
-            case emqx_bcast_subscription:match(DeviceName, Topic) of
-                {ok, _SubQos} ->
-                    emqx_bcast_metrics:broadcast_delivery_count(1),
-                    Msg = emqx_message:make(DeviceName, ?QOS_0, Topic, Payload),
-                    Pid ! #deliver{topic = Topic, message = Msg};
-                false ->
-                    ok
-            end
-        end,
-        Devices
-    ).

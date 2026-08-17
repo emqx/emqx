@@ -54,8 +54,7 @@ normalize(Config) ->
         max_message_size_batch => maps:get(<<"max_message_size_batch">>, Config, 10240),
         msg_warn_threshold => maps:get(<<"msg_warn_threshold">>, Config, 100000),
         force_upgrade_qos => maps:get(<<"force_upgrade_qos">>, Config, true),
-        delivery_pool_size => pool_size(maps:get(<<"delivery_pool_size">>, Config, 0)),
-        delivery_queue_max => maps:get(<<"delivery_queue_max">>, Config, 10000)
+        delivery_pool_size => pool_size(maps:get(<<"delivery_pool_size">>, Config, 0))
     }.
 
 pool_size(0) -> erlang:system_info(schedulers);
@@ -76,7 +75,7 @@ duration_to_sec(Field, Value) when is_binary(Value) ->
             }),
             Default
     end;
-duration_to_sec(Field, Value) when is_integer(Value), Value > 0 ->
+duration_to_sec(_Field, Value) when is_integer(Value), Value > 0 ->
     Value;
 duration_to_sec(Field, Value) ->
     Default = field_default(Field),
