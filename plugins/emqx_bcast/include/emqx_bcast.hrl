@@ -18,6 +18,7 @@
     api_msg_id :: binary(),
     content_hash :: binary(),
     payload :: binary(),
+    delivery_count :: non_neg_integer(),
     created_at :: non_neg_integer(),
     expires_at :: non_neg_integer()
 }).
