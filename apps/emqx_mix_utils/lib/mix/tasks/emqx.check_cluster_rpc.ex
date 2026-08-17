@@ -42,10 +42,14 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
   Umbrella apps and in-tree plugins are checked. Plugins are separate mix
   projects outside the umbrella build, so this task builds each one with its
   own build tool (as `scripts/build-plugins.sh --compile-only` does) and adds
-  the resulting beams to the xref graph. Plugins must not use
-  `emqx_cluster_rpc` at all: their MFAs are not replayed on a rebooted node,
-  and their code may not even be loaded when catch-up runs — any plugin caller
-  is reported as a violation.
+  the resulting beams to the xref graph. A plugin caller must follow the same
+  target rules as an umbrella caller, but plugins cannot host BPAPI proto
+  modules, so an audited plugin caller is exempted by module name via
+  `@exempted_callers` instead. A plugin caller must additionally accept that
+  a live node where the plugin app is not running fails the apply and retries
+  until the plugin starts — the boot path is unaffected because catch-up
+  fast-forwards past missed entries and plugin boot rebuilds runtime state
+  from replicated tables.
   """
 
   @requirements ["compile", "loadpaths"]
@@ -83,6 +87,20 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
     {:emqx_rule_engine, :reset_metrics_for_rule}
   ]
 
+  # Audited direct callers. Plugins cannot host BPAPI proto modules, so their
+  # multicall targets cannot be resolved via bpapi_meta/0; the whole caller
+  # module is exempted instead. Each entry needs a reason.
+  @exempted_callers [
+    # Audited safe (emqx_unsgov plugin): durable model state goes to a
+    # replicated mria table before the multicall; the target MFAs only
+    # rebuild node-local runtime state, and plugin boot re-derives it from
+    # the table. cluster_rpc is used instead of erpc so a replicant applies
+    # the rebuild after the records it reads have replicated. Residual
+    # hazard (accepted): a live node with the plugin stopped fails the
+    # apply and retries until the plugin starts.
+    :emqx_unsgov_store
+  ]
+
   @impl true
   def run(args) do
     if args != [] do
@@ -93,10 +111,12 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
     :xref.stop(@xref)
     {violations, targets} = Enum.reduce(callers, {[], []}, &collect/2)
     stale = @exemptions -- targets
+    stale_callers = @exempted_callers -- Enum.map(callers, &elem(&1, 0))
     Enum.each(Enum.reverse(violations), &report_violation/1)
     Enum.each(stale, &report_stale/1)
+    Enum.each(stale_callers, &report_stale_caller/1)
 
-    if violations == [] and stale == [] do
+    if violations == [] and stale == [] and stale_callers == [] do
       Mix.shell().info("OK")
     else
       Mix.raise(
@@ -187,7 +207,11 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
         end
 
       _ ->
-        {[{:not_a_proto_module, caller} | violations], targets}
+        if Enum.member?(@exempted_callers, m) do
+          {violations, targets}
+        else
+          {[{:not_a_proto_module, caller} | violations], targets}
+        end
     end
   end
 
@@ -223,6 +247,13 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
 
   defp report_stale({m, f}) do
     Mix.shell().error("stale exemption #{m}:#{f} has no call site; remove it from this task")
+  end
+
+  defp report_stale_caller(m) do
+    Mix.shell().error(
+      "stale exempted caller #{m} no longer calls emqx_cluster_rpc:multicall; " <>
+        "remove it from this task"
+    )
   end
 
   defp ensure_xref() do
