@@ -84,7 +84,15 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
     {:emqx_resource, :remove_local},
     # Metrics resets: a skipped replay loses only a counter reset.
     {:emqx_resource, :reset_metrics_local},
-    {:emqx_rule_engine, :reset_metrics_for_rule}
+    {:emqx_rule_engine, :reset_metrics_for_rule},
+    # The reference pattern cited in the moduledoc: the durable mria
+    # write/delete happens on the initiator BEFORE the multicall; these MFAs
+    # only update the node-local ETS overlay, and a (re)booting node
+    # re-hydrates it from the mria rows via rehydrate/0.
+    {:emqx_topic_metrics_registry, :do_install_local},
+    {:emqx_topic_metrics_registry, :do_uninstall_local},
+    {:emqx_topic_metrics_registry, :do_uninstall_all_local},
+    {:emqx_topic_metrics_registry, :do_reset_local}
   ]
 
   # Audited direct callers. Plugins cannot host BPAPI proto modules, so their
