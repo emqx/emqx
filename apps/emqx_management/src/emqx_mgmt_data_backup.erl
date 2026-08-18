@@ -1730,20 +1730,25 @@ backup_root_dir(Namespace) when is_binary(Namespace) ->
     namespaced_backup_dir(Namespace).
 
 %% The namespace comes from the authenticated caller, but implicitly created
-%% namespaces are not validated, so the name may be any binary. The resolved
-%% directory must therefore land strictly below `<root>/ns/'. Note that
-%% `filelib:safe_relative_path/2' returns `[]' (not `unsafe') when the path
-%% resolves to the base directory itself: a namespace named `..' resolves
-%% `ns/..' to `[]', i.e. the global backup root, and must be rejected.
+%% namespaces are not validated, so the name may be any binary. The name must
+%% map to exactly one directory leaf under `<root>/ns/': the resolved path must
+%% be `ns/<name>' verbatim. Anything else means the name contains path
+%% components that alias another directory and must be rejected. Note that
+%% `filelib:safe_relative_path/2' collapses `..' segments and returns `[]'
+%% (not `unsafe') when the path resolves to the base directory itself: `..'
+%% resolves `ns/..' to `[]' (the global backup root), `.' resolves to the
+%% shared `ns' container, and `a/../b' resolves to `ns/b' (another
+%% namespace's directory).
 namespaced_backup_dir(Namespace) ->
     Root = root_backup_dir(),
-    RelPath = filename:join(?NS_BACKUP_SUBDIR, str(Namespace)),
+    NsStr = str(Namespace),
+    RelPath = filename:join(?NS_BACKUP_SUBDIR, NsStr),
     case filelib:safe_relative_path(RelPath, Root) of
         unsafe ->
             {error, bad_namespace};
         SafeRel ->
             case filename:split(SafeRel) of
-                [?NS_BACKUP_SUBDIR, _ | _] ->
+                [?NS_BACKUP_SUBDIR, NsStr] ->
                     Dir = filename:join(Root, SafeRel),
                     ok = ensure_path(Dir),
                     {ok, Dir};

@@ -447,6 +447,31 @@ t_dot_namespace_cannot_reach_global_backups(_Config) ->
             emqx_mgmt_data_backup:list_files(<<"ns1">>)
         )
     ),
+    %% An interior `..' must not alias another namespace's directory:
+    %% `a/../ns1' resolves to `ns/ns1', i.e. namespace ns1's directory. A
+    %% namespace name must map to exactly one directory leaf, so multi-segment
+    %% names are rejected as a whole.
+    lists:foreach(
+        fun(Alias) ->
+            ?assertEqual([], emqx_mgmt_data_backup:list_files(Alias), #{ns => Alias}),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:read_file(Alias, NsBase),
+                #{ns => Alias}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:delete_file(Alias, NsBase),
+                #{ns => Alias}
+            )
+        end,
+        [<<"a/../ns1">>, <<"a/ns1">>, <<"ns1/.">>]
+    ),
+    %% Namespace ns1's file survived the alias attempts.
+    ?assertMatch(
+        [#{filename := NsBase}],
+        emqx_mgmt_data_backup:list_files(<<"ns1">>)
+    ),
     ok.
 
 t_no_backup_file(_Config) ->
