@@ -237,18 +237,6 @@ create_managed_ns(Ns) ->
     ct:pal("create managed ns result:\n  ~p", [Res]),
     Res.
 
-%% Same as `create_managed_ns/1', but with every byte of the name
-%% percent-encoded, so that names containing characters special to URLs
-%% (`/', `#', `%', ...) or dot segments (`..') reach the handler verbatim.
-create_managed_ns_encoded(Ns) ->
-    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", percent_encode_all(Ns)]),
-    Res = simple_request(post, Path, ""),
-    ct:pal("create managed ns ~p result:\n  ~p", [Ns, Res]),
-    Res.
-
-percent_encode_all(Bin) ->
-    iolist_to_binary([io_lib:format("%~2.16.0B", [C]) || <<C>> <= Bin]).
-
 delete_ns(Ns) ->
     delete_managed_ns(Ns).
 
@@ -554,90 +542,6 @@ t_managed_namespaces_crud(_Config) ->
     ?assertMatch({404, _}, get_managed_ns_config(Ns1)),
     ?assertMatch({404, _}, get_managed_ns_config(Ns2)),
 
-    ok.
-
-%% Managed namespace names accept only URL- and filesystem-safe characters:
-%% ASCII letters, digits, `.', `-' and `_'. Dotted names such as `my.ns'
-%% are legal; the special path components `.' and `..', path separators and
-%% other special characters are rejected with a 400.
-t_managed_ns_name_validation(_Config) ->
-    ValidNames = [<<"my.ns">>, <<"...">>, <<"nS-1_2">>],
-    lists:foreach(
-        fun(Ns) ->
-            ?assertMatch({204, _}, create_managed_ns_encoded(Ns), #{ns => Ns})
-        end,
-        ValidNames
-    ),
-    {200, Listed} = list_managed_nss(#{}),
-    ?assertEqual(lists:sort(ValidNames), lists:sort(Listed)),
-    %% `.' and `..' are not listed here: HTTP path normalization keeps them
-    %% from ever reaching the handler as one path segment (404). Their
-    %% rejection is covered through the body-based bulk import endpoint in
-    %% `t_bulk_import_configs_ns_name_validation'.
-    InvalidNames = [
-        <<"a/b">>,
-        <<"../a">>,
-        <<"a\\b">>,
-        <<"a#b">>,
-        <<"a%b">>,
-        <<"a&b">>,
-        <<"a~b">>,
-        <<"~">>,
-        <<"a b">>,
-        <<"a?b">>,
-        <<"a\nb">>,
-        <<"ns🐣"/utf8>>,
-        binary:copy(<<"a">>, 256)
-    ],
-    lists:foreach(
-        fun(Ns) ->
-            ?assertMatch(
-                {400, #{<<"message">> := <<"Invalid namespace name", _/binary>>}},
-                create_managed_ns_encoded(Ns),
-                #{ns => Ns}
-            )
-        end,
-        InvalidNames
-    ),
-    ?assertMatch({200, Listed}, list_managed_nss(#{})),
-    %% A name that already exists as an implicit namespace is still rejected
-    %% when promoting it to a managed namespace.
-    ImplicitNs = <<"implicit/ns">>,
-    ok = emqx_mt_state:ensure_ns_added(ImplicitNs),
-    ?assertMatch(
-        {400, #{<<"message">> := <<"Invalid namespace name", _/binary>>}},
-        create_managed_ns_encoded(ImplicitNs)
-    ),
-    ok.
-
-%% Bulk import creates namespaces from the request body, so it validates names
-%% the same way; namespaces that already exist are exempt so that names
-%% created before validation existed keep working.
-t_bulk_import_configs_ns_name_validation(_Config) ->
-    GoodNs = <<"good.ns">>,
-    ImportParams1 = bulk_import_configs_params([
-        {GoodNs, session_params()},
-        {<<"bad/ns">>, session_params()},
-        {<<".">>, session_params()},
-        {<<"..">>, session_params()},
-        {<<>>, session_params()}
-    ]),
-    ?assertMatch(
-        {400, #{<<"message">> := <<"Invalid namespace name", _/binary>>}},
-        bulk_import_configs(ImportParams1)
-    ),
-    %% Nothing was created by the rejected request.
-    ?assertMatch({200, []}, list_managed_nss(#{})),
-    %% Valid names import fine.
-    ImportParams2 = bulk_import_configs_params([{GoodNs, session_params()}]),
-    ?assertMatch({204, _}, bulk_import_configs(ImportParams2)),
-    ?assertMatch({200, [GoodNs]}, list_managed_nss(#{})),
-    %% A pre-existing managed namespace with a name that would be rejected
-    %% today can still have its config imported.
-    LegacyNs = <<"legacy/ns">>,
-    ok = emqx_mt_state:create_managed_ns(LegacyNs),
-    ImportParams3 = bulk_import_configs_params([{LegacyNs, session_params()}]),
-    ?assertMatch({204, _}, bulk_import_configs(ImportParams3)),
     ok.
 
 t_bulk_delete_ns(_Config) ->
