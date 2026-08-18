@@ -346,13 +346,25 @@ prepare(#{reldir := RelDir, plt := PLT}) ->
 
 %% erlfmt-ignore
 find_remote_calls(_Opts) ->
+    IgnoredApps = ?IGNORED_APPS ++ plugin_apps(),
     Query =
-        "XC | (A - ["?IGNORED_APPS"]:App - ["?IGNORED_MODULES"]:Mod - ["?EXEMPTIONS"])
+        "XC | (A - [" ++ IgnoredApps ++ "]:App - ["?IGNORED_MODULES"]:Mod - ["?EXEMPTIONS"])
            || ((["?RPC_MODULES"] : Mod + ["?RPC_FUNCTIONS"]) - ["?IGNORED_RPC_CALLS"])",
     {ok, Calls} = xref:q(?XREF, Query),
     logger:info("Calls to RPC modules ~p", [Calls]),
     {Callers, _Callees} = lists:unzip(Calls),
     Callers.
+
+%% In-tree plugins own their static-check policy and may be present in
+%% the analyzed build tree (the static_checks make target compiles them
+%% for the cluster_rpc target check, which covers them separately).
+%% Exclude them from the BPAPI analysis.
+plugin_apps() ->
+    lists:append([
+        ", " ++ filename:basename(Dir)
+     || Dir <- filelib:wildcard("plugins/*"),
+        filelib:is_dir(Dir)
+    ]).
 
 -spec warn_nonbpapi_rpcs([mfa()]) -> ok.
 warn_nonbpapi_rpcs([]) ->
