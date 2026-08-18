@@ -17,7 +17,6 @@
     desc/1
 ]).
 -export([
-    service_account_json_validator/1,
     service_account_json_converter/2,
     decode_service_account_json/1,
     pubsub_topic_validator/1
@@ -88,7 +87,7 @@ fields(connector_config) ->
                 #{
                     required => false,
                     importance => ?IMPORTANCE_HIDDEN,
-                    validator => fun emqx_bridge_gcp_pubsub_schema_lib:service_account_json_validator/1,
+                    validator => fun emqx_bridge_gcp_pubsub_schema_lib:service_account_json_validator/2,
                     converter => fun ?MODULE:service_account_json_converter/2,
                     sensitive => true,
                     desc => ?DESC(emqx_bridge_gcp_pubsub_schema_lib, "service_account_json")
@@ -259,38 +258,6 @@ type_field_consumer() ->
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
-
--spec service_account_json_validator(emqx_secret:t(binary())) ->
-    ok
-    | {error, {wrong_type, term()}}
-    | {error, {missing_keys, [binary()]}}.
-service_account_json_validator(Val) ->
-    case emqx_utils_json:safe_decode(emqx_secret:unwrap(Val)) of
-        {ok, Map} ->
-            ExpectedKeys = [
-                <<"type">>,
-                <<"project_id">>,
-                <<"private_key_id">>,
-                <<"private_key">>,
-                <<"client_email">>
-            ],
-            MissingKeys = lists:sort([
-                K
-             || K <- ExpectedKeys,
-                not maps:is_key(K, Map)
-            ]),
-            Type = maps:get(<<"type">>, Map, null),
-            case {MissingKeys, Type} of
-                {[], <<"service_account">>} ->
-                    ok;
-                {[], _} ->
-                    {error, #{wrong_type => Type}};
-                {_, _} ->
-                    {error, #{missing_keys => MissingKeys}}
-            end;
-        {error, _} ->
-            {error, "not a json"}
-    end.
 
 -doc """
 Accepts either a bare topic name or a fully-qualified

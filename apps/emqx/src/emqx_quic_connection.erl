@@ -100,10 +100,26 @@ closed(_Conn, #{is_peer_acked := _} = Prop, S) ->
 new_conn(
     Conn,
     #{version := _Vsn} = ConnInfo,
-    #{zone := Zone, conn := undefined, ctrl_pid := undefined} = S
+    #{zone := _Zone, conn := undefined, ctrl_pid := undefined} = S
 ) ->
     process_flag(trap_exit, true),
     ?SLOG(debug, ConnInfo#{conn => Conn}),
+    case emqx_node_readiness:is_ready() of
+        true ->
+            do_new_conn(Conn, ConnInfo, S);
+        false ->
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            ?SLOG(warning, #{msg => quic_connection_refused_before_boot_complete}),
+            _ = quicer:async_shutdown_connection(
+                Conn,
+                ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+                ?MQTT_QUIC_CONN_ERROR_NOT_READY
+            ),
+            {stop, normal, S}
+    end.
+
+do_new_conn(Conn, ConnInfo, #{zone := Zone} = S) ->
     case emqx_olp:is_overloaded() andalso is_zone_olp_enabled(Zone) of
         false ->
             %% Start control stream process

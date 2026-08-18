@@ -27,7 +27,9 @@
     filter_check_request/2,
     filter_check_request_and_translate_body_atom_keys/2,
     filter_check_request_and_translate_body/2,
+    filter_check_request_and_translate_body/3,
     filter_check_request_and_translate_body_serializable/2,
+    filter_check_request_and_translate_body_serializable/3,
     gen_api_schema_json_iodata/3
 ]).
 
@@ -326,11 +328,21 @@ compose_filters(Filter1, Filter2) ->
 %%------------------------------------------------------------------------------
 
 filter_check_request_and_translate_body(Request, RequestMeta) ->
-    translate_req(Request, RequestMeta, fun check_and_translate/3).
+    filter_check_request_and_translate_body(Request, RequestMeta, _Opts = #{}).
+
+filter_check_request_and_translate_body(Request, RequestMeta, Opts1) ->
+    CheckFun = fun(Schema, Map, Opts0) ->
+        Opts = maps:merge(Opts0, Opts1),
+        check_and_translate(Schema, Map, Opts)
+    end,
+    translate_req(Request, RequestMeta, CheckFun).
 
 filter_check_request_and_translate_body_serializable(Request, RequestMeta) ->
+    filter_check_request_and_translate_body_serializable(Request, RequestMeta, _Opts = #{}).
+
+filter_check_request_and_translate_body_serializable(Request, RequestMeta, Opts1) ->
     CheckFun = fun(Schema, Map, Opts0) ->
-        Opts = maps:merge(Opts0, #{make_serializable => true}),
+        Opts = maps:merge(Opts0, Opts1#{make_serializable => true}),
         check_and_translate(Schema, Map, Opts)
     end,
     translate_req(Request, RequestMeta, CheckFun).
