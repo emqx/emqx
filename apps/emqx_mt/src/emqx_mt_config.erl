@@ -508,13 +508,16 @@ validate_ns_name(Ns) when is_binary(Ns) ->
 invalid_ns_name_msg() ->
     <<
         "Invalid namespace name: only ASCII letters, digits and the"
-        " characters '.', '-', '_' and '~' are allowed,"
+        " characters '.', '-' and '_' are allowed,"
         " with length from 1 to 255; '.' and '..' are not valid names"
     >>.
 
 %% `\z' rather than `$': `$' also matches just before a trailing newline.
+%% `~' is excluded even though URLs allow it: shells expand it to a home
+%% directory, making a directory named after such a namespace hazardous to
+%% manage by hand.
 has_only_safe_ns_chars(Ns) ->
-    match =:= re:run(Ns, <<"^[A-Za-z0-9._~-]+\\z">>, [{capture, none}]).
+    match =:= re:run(Ns, <<"^[A-Za-z0-9._-]+\\z">>, [{capture, none}]).
 
 %% Bulk import both creates and updates namespace configs. Only names that
 %% would be created are validated: existing namespaces keep working.

@@ -557,11 +557,11 @@ t_managed_namespaces_crud(_Config) ->
     ok.
 
 %% Managed namespace names accept only URL- and filesystem-safe characters:
-%% ASCII letters, digits, `.', `-', `_' and `~'. Dotted names such as `my.ns'
+%% ASCII letters, digits, `.', `-' and `_'. Dotted names such as `my.ns'
 %% are legal; the special path components `.' and `..', path separators and
 %% other special characters are rejected with a 400.
 t_managed_ns_name_validation(_Config) ->
-    ValidNames = [<<"my.ns">>, <<"...">>, <<"nS-1_2~">>],
+    ValidNames = [<<"my.ns">>, <<"...">>, <<"nS-1_2">>],
     lists:foreach(
         fun(Ns) ->
             ?assertMatch({204, _}, create_managed_ns_encoded(Ns), #{ns => Ns})
@@ -581,6 +581,8 @@ t_managed_ns_name_validation(_Config) ->
         <<"a#b">>,
         <<"a%b">>,
         <<"a&b">>,
+        <<"a~b">>,
+        <<"~">>,
         <<"a b">>,
         <<"a?b">>,
         <<"a\nb">>,
