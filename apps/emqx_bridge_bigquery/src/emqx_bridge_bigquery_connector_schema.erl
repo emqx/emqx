@@ -93,7 +93,7 @@ fields(connector_config) ->
                 #{
                     required => false,
                     importance => ?IMPORTANCE_HIDDEN,
-                    validator => fun emqx_bridge_gcp_pubsub_schema_lib:service_account_json_validator/1,
+                    validator => fun emqx_bridge_gcp_pubsub_schema_lib:service_account_json_validator/2,
                     sensitive => true,
                     desc => ?DESC(emqx_bridge_gcp_pubsub_schema_lib, "service_account_json")
                 }

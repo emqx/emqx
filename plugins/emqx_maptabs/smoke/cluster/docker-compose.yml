@@ -1,0 +1,58 @@
+## Cluster smoke for emqx_maptabs:
+##   - 2 emqx/emqx-enterprise:6.1.4 nodes joined as a static cluster.
+##   - The plugin tarball built from this repo is mounted read-only into
+##     both containers; the smoke script installs it via 'emqx ctl plugins'.
+##   - An API key bootstrap file is mounted into both nodes so the smoke
+##     script can call the management HTTP API (rule_test) without the
+##     dashboard login flow.
+##   - No MQTT ports are mapped: the smoke drives everything through
+##     'emqx ctl' and the per-node management API (host ports 18093/18094).
+
+networks:
+  maptabs-cluster:
+    name: maptabs-cluster
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.52.0/24
+
+services:
+  emqx1:
+    image: emqx/emqx-enterprise:6.1.4
+    container_name: maptabs-cluster-emqx1
+    hostname: emqx1.maptabs.test
+    environment:
+      EMQX_NODE__NAME: "emqx@emqx1.maptabs.test"
+      EMQX_NODE__COOKIE: "maptabs-smoke"
+      EMQX_LICENSE__KEY: "evaluation"
+      EMQX_CLUSTER__DISCOVERY_STRATEGY: "static"
+      EMQX_CLUSTER__STATIC__SEEDS: '["emqx@emqx1.maptabs.test","emqx@emqx2.maptabs.test"]'
+      EMQX_API_KEY__BOOTSTRAP_FILE: "/etc/emqx/bootstrap-api-key.txt"
+    networks:
+      maptabs-cluster:
+        ipv4_address: 172.21.52.10
+    ports:
+      - "18093:18083"
+    volumes:
+      - ../../../../_build/plugins:/plugins-tarballs:ro
+      - ./bootstrap-api-key.txt:/etc/emqx/bootstrap-api-key.txt:ro
+
+  emqx2:
+    image: emqx/emqx-enterprise:6.1.4
+    container_name: maptabs-cluster-emqx2
+    hostname: emqx2.maptabs.test
+    environment:
+      EMQX_NODE__NAME: "emqx@emqx2.maptabs.test"
+      EMQX_NODE__COOKIE: "maptabs-smoke"
+      EMQX_LICENSE__KEY: "evaluation"
+      EMQX_CLUSTER__DISCOVERY_STRATEGY: "static"
+      EMQX_CLUSTER__STATIC__SEEDS: '["emqx@emqx1.maptabs.test","emqx@emqx2.maptabs.test"]'
+      EMQX_API_KEY__BOOTSTRAP_FILE: "/etc/emqx/bootstrap-api-key.txt"
+    networks:
+      maptabs-cluster:
+        ipv4_address: 172.21.52.11
+    ports:
+      - "18094:18083"
+    volumes:
+      - ../../../../_build/plugins:/plugins-tarballs:ro
+      - ./bootstrap-api-key.txt:/etc/emqx/bootstrap-api-key.txt:ro

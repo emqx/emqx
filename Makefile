@@ -20,7 +20,9 @@ print-dashboard-version:
 	@echo $(EMQX_DASHBOARD_VERSION)
 
 export EMQX_REL_FORM ?= tgz
-export QUICER_TLS_VER ?= sys
+# 'auto' resolves to 'sys' (link system libcrypto) when the build host has
+# OpenSSL >= 3.0, and to quicer's bundled quictls otherwise.
+export QUICER_TLS_VER ?= auto
 
 -include default-profile.mk
 PROFILE ?= emqx-enterprise
@@ -111,7 +113,8 @@ static_checks: $(ELIXIR_COMMON_DEPS)
 	@env BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
 	    $(MIX) do \
 	    emqx.xref + dialyzer --mode classic + \
-	    emqx.static_checks
+	    emqx.static_checks + \
+	    emqx.check_cluster_rpc
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
 

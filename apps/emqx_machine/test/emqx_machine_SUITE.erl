@@ -111,6 +111,8 @@ t_shutdown_reboot(Config) ->
             ok = emqx_app:set_config_loader(emqx_cth_suite),
             emqx_machine_boot:ensure_apps_started(),
             true = emqx:is_running(node()),
+            %% managed boot marks the node ready once apps and plugins are started
+            true = emqx_node_readiness:is_ready(),
             ok = emqx_machine_boot:stop_apps(),
             false = emqx:is_running(node()),
             ok
