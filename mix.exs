@@ -174,10 +174,10 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.0", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.1", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.2", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.3", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.4", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
@@ -268,7 +268,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:recon, github: "ferd/recon", tag: "2.5.6", override: true}
 
   def common_dep(:ots_erl),
-    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.3", override: true}
+    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.4", override: true}
 
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.18", override: true}
@@ -1119,7 +1119,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict with emqx and emqtt
       do: [
         {:quicer,
-         github: "emqx/quic", tag: "0.4.8", override: true, system_env: quicer_build_env()}
+         github: "emqx/quic", tag: "0.4.9", override: true, system_env: quicer_build_env()}
       ],
       else: []
   end
