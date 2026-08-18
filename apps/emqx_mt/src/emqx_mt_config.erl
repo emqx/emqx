@@ -74,6 +74,10 @@
 
 -define(disabled, disabled).
 
+%% Maximum byte size of a managed namespace name; it must fit in a single
+%% directory name on common filesystems.
+-define(NS_NAME_MAX_LENGTH, 255).
+
 -type limiter_config() :: #{
     ?tenant => disabled | tenant_config(),
     ?client => disabled | client_config()
@@ -160,14 +164,18 @@ update_managed_ns_config(Ns, Configs) ->
         ]
     }}
     | {error, {duplicated_nss, [emqx_mt:tns()]}}
-    | {error, {aborted, term()}}.
+    | {error, {aborted, term()}}
+    | {error, binary()}.
 bulk_import_configs(Entries) ->
     handle_bulk_import_configs(Entries).
 
 -spec create_managed_ns(emqx_mt:tns()) ->
-    ok | {error, {aborted, _}} | {error, table_is_full}.
+    ok | {error, {aborted, _}} | {error, table_is_full | binary()}.
 create_managed_ns(Ns) ->
-    emqx_mt_state:create_managed_ns(Ns).
+    maybe
+        ok ?= validate_ns_name(Ns),
+        emqx_mt_state:create_managed_ns(Ns)
+    end.
 
 -spec delete_managed_ns(emqx_mt:tns()) ->
     ok | {error, {aborted, _}}.
@@ -472,10 +480,75 @@ limiter_update_side_effects(Ns, {?changed, OldConfig, NewConfig}) ->
 handle_bulk_import_configs(Entries) ->
     maybe
         ok ?= validate_unique_nss(Entries),
+        ok ?= validate_new_ns_names(Entries),
         {ok, Changes} ?= emqx_mt_state:bulk_import_configs(Entries),
         SideEffects = compute_bulk_side_effects(Changes),
         Errors = execute_side_effects(SideEffects),
         {ok, #{errors => Errors}}
+    end.
+
+%% A namespace name is used as a URL path segment and, once managed, as a
+%% directory name (e.g. namespaced backups), so only characters safe in both
+%% are accepted, and the special path components `.' and `..' are not valid
+%% names. Enforced when a managed namespace is created; names that already
+%% exist keep working.
+-spec validate_ns_name(emqx_mt:tns()) -> ok | {error, binary()}.
+validate_ns_name(Ns) when is_binary(Ns) ->
+    Valid =
+        Ns =/= <<>> andalso
+            Ns =/= <<".">> andalso
+            Ns =/= <<"..">> andalso
+            byte_size(Ns) =< ?NS_NAME_MAX_LENGTH andalso
+            has_only_safe_ns_chars(Ns),
+    case Valid of
+        true -> ok;
+        false -> {error, invalid_ns_name_msg()}
+    end.
+
+invalid_ns_name_msg() ->
+    <<
+        "Invalid namespace name: only ASCII letters, digits and the"
+        " characters '.', '-', '_' and '~' are allowed,"
+        " with length from 1 to 255; '.' and '..' are not valid names"
+    >>.
+
+has_only_safe_ns_chars(<<C, Rest/binary>>) when
+    (C >= $a andalso C =< $z);
+    (C >= $A andalso C =< $Z);
+    (C >= $0 andalso C =< $9);
+    C =:= $.;
+    C =:= $-;
+    C =:= $_;
+    C =:= $~
+->
+    has_only_safe_ns_chars(Rest);
+has_only_safe_ns_chars(<<>>) ->
+    true;
+has_only_safe_ns_chars(_) ->
+    false.
+
+%% Bulk import both creates and updates namespace configs. Only names that
+%% would be created are validated: existing namespaces keep working.
+validate_new_ns_names(Entries) ->
+    Invalid = lists:filtermap(
+        fun(#{ns := Ns}) ->
+            case is_known_managed_ns(Ns) orelse validate_ns_name(Ns) =:= ok of
+                true -> false;
+                false -> {true, Ns}
+            end
+        end,
+        Entries
+    ),
+    case Invalid of
+        [] ->
+            ok;
+        _ ->
+            Msg = iolist_to_binary([
+                invalid_ns_name_msg(),
+                <<"; offending name(s): ">>,
+                lists:join(<<", ">>, Invalid)
+            ]),
+            {error, Msg}
     end.
 
 validate_unique_nss(Entries) ->
