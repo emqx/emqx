@@ -2443,7 +2443,10 @@ t_legacy_service_account_json_redact(TCConfig) ->
         RedactedParams0
     ),
     ?assertMatch(
-        {200, #{<<"status">> := <<"connected">>, <<"service_account_json">> := <<"******">>}},
+        {200, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{<<"service_account_json">> := <<"******">>}
+        }},
         update_connector_api(TCConfig, RedactedParams)
     ),
     ?assertMatch(<<"{", _/binary>>, persisted_service_account_json(TCConfig)),
