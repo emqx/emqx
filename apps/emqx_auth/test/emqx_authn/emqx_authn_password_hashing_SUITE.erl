@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
 
 -define(SIMPLE_HASHES, [plain, md5, sha, sha256, sha512]).
 
@@ -74,6 +75,23 @@ t_hash(_Config) ->
         fun test_hash/1,
         hash_examples()
     ).
+
+%% Checks that every algorithm map round-trips through its stored record form.
+t_algorithm_storage_encoding(_Config) ->
+    Algorithms = [
+        #{name => sha256, salt_position => disable},
+        #{name => bcrypt, salt_rounds => 10},
+        #{name => pbkdf2, mac_fun => sha256, iterations => 600000},
+        #{name => pbkdf2, mac_fun => sha512, iterations => 220000, dk_length => 64}
+    ],
+    Encoded = [
+        #simple{name = sha256, salt_position = disable},
+        #bcrypt{salt_rounds = 10},
+        #pbkdf2{mac_fun = sha256, iterations = 600000},
+        #pbkdf2{mac_fun = sha512, iterations = 220000, dk_length = 64}
+    ],
+    ?assertEqual(Encoded, lists:map(fun emqx_authn_password_hashing:encode/1, Algorithms)),
+    ?assertEqual(Algorithms, lists:map(fun emqx_authn_password_hashing:decode/1, Encoded)).
 
 test_hash(
     #{

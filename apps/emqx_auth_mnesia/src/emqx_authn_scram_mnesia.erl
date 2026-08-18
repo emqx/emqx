@@ -198,6 +198,8 @@ purge_namespace(Namespace) when is_binary(Namespace) ->
         mnesia:dirty_select(?NS_TAB, all_ns_group_match_spec(Namespace, '_'))
     ).
 
+add_user(UserInfo, _State) when not is_map_key(password, UserInfo) ->
+    {error, password_required};
 add_user(UserInfo, State) ->
     UserInfoRecord = user_info_record(UserInfo, State),
     trans(fun ?MODULE:do_add_user/1, [UserInfoRecord]).

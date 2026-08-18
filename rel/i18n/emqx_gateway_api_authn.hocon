@@ -49,6 +49,11 @@ list_users.desc:
 list_users.label:
 """List Users for Gateway Authenticator"""
 
+rotate_password.desc:
+"""Generate a new password for a gateway authenticator user. The password is returned only in this response."""
+rotate_password.label:
+"""Rotate Gateway User Password"""
+
 update_authn.desc:
 """Update the configuration of the specified gateway authenticator, or disable the authenticator."""
 update_authn.label:

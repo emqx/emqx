@@ -254,6 +254,7 @@ t_authn(_) ->
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
@@ -304,6 +305,7 @@ t_authn_data_mgmt(_) ->
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
@@ -334,7 +336,10 @@ t_authn_data_mgmt(_) ->
             is_superuser => true
         }
     ),
-    assert_confs(UserRespd3, User1#{is_superuser => true}),
+    ?assertMatch(
+        #{user_id := <<"test">>, is_superuser := true, namespace := null}, UserRespd3
+    ),
+    ?assertNot(maps:is_key(password, UserRespd3)),
 
     {200, UserRespd4} = request(
         get,
@@ -380,6 +385,30 @@ t_authn_data_mgmt(_) ->
 
     {204, _} = request(delete, "/gateways/stomp/authentication"),
     {204, _} = request(get, "/gateways/stomp/authentication"),
+    ok.
+
+%% Checks generated-password creation and rotation for gateway and listener authenticators.
+t_authn_generated_passwords(_) ->
+    GwConf = #{
+        listeners => [
+            #{name => <<"def">>, type => <<"tcp">>, bind => <<"127.0.0.1:61613">>}
+        ]
+    },
+    init_gw("stomp", GwConf),
+    AuthConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        user_id_type => <<"clientid">>,
+        autogenerate_password => true
+    },
+    {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
+    ListenerAuthPath = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
+    {201, _} = request(post, ListenerAuthPath, AuthConf),
+
+    assert_generated_password_routes("/gateways/stomp/authentication/users"),
+    assert_generated_password_routes(ListenerAuthPath ++ "/users"),
+    {204, _} = request(delete, ListenerAuthPath),
+    {204, _} = request(delete, "/gateways/stomp/authentication"),
     ok.
 
 t_listeners_tcp(_) ->
@@ -467,6 +496,7 @@ t_listeners_authn(_) ->
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     Path = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
@@ -582,6 +612,7 @@ t_listeners_authn_data_mgmt(_) ->
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     Path = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
@@ -617,7 +648,10 @@ t_listeners_authn_data_mgmt(_) ->
         Path ++ "/users/test",
         #{password => <<"654321">>, is_superuser => true}
     ),
-    assert_confs(UserRespd3, User1#{is_superuser => true}),
+    ?assertMatch(
+        #{user_id := <<"test">>, is_superuser := true, namespace := null}, UserRespd3
+    ),
+    ?assertNot(maps:is_key(password, UserRespd3)),
 
     {200, UserRespd4} = request(
         get,
@@ -714,6 +748,7 @@ t_authn_fuzzy_search(_) ->
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
@@ -802,6 +837,25 @@ assert_gw_unloaded(Gateway) ->
 
 assert_bad_request(BadReq) ->
     ?assertEqual(<<"BAD_REQUEST">>, maps:get(code, BadReq)).
+
+assert_generated_password_routes(UsersPath) ->
+    {400, _} = request(post, UsersPath, #{user_id => <<"explicit">>, password => <<"p">>}),
+    {201, Created} = request(post, UsersPath, #{
+        user_id => <<"generated">>, namespace => <<"not-a-gateway-namespace">>
+    }),
+    ?assertEqual(null, maps:get(namespace, Created)),
+    #{password := Password1} = Created,
+    {200, Fetched} = request(get, UsersPath ++ "/generated"),
+    ?assertNot(maps:is_key(password, Fetched)),
+    RotatePath = UsersPath ++ "/generated/password/rotate",
+    {200, Rotated1} = request(post, RotatePath, #{}),
+    #{password := Password2} = Rotated1,
+    ?assertNotEqual(Password1, Password2),
+    {200, Rotated2} = request(post, RotatePath, #{}),
+    #{password := Password3} = Rotated2,
+    ?assertNotEqual(Password2, Password3),
+    {404, _} = request(post, UsersPath ++ "/missing/password/rotate", #{}),
+    ok.
 
 assert_not_found(NotFoundReq) ->
     ?assertEqual(<<"RESOURCE_NOT_FOUND">>, maps:get(code, NotFoundReq)).

@@ -34,7 +34,8 @@
     listeners_insta/2,
     listeners_insta_authn/2,
     users/2,
-    users_insta/2
+    users_insta/2,
+    user_password_rotate/2
 ]).
 
 %% RPC
@@ -58,7 +59,8 @@ paths() ->
         "/gateways/:name/listeners/:id",
         "/gateways/:name/listeners/:id/authentication",
         "/gateways/:name/listeners/:id/authentication/users",
-        "/gateways/:name/listeners/:id/authentication/users/:uid"
+        "/gateways/:name/listeners/:id/authentication/users/:uid",
+        "/gateways/:name/listeners/:id/authentication/users/:uid/password/rotate"
     ].
 
 %%--------------------------------------------------------------------
@@ -176,8 +178,11 @@ users(get, #{query_string := Qs} = Req) ->
     #{gateway := #{id := AuthId, chain_name := ChainName}} = Req,
     emqx_authn_api:list_users(ChainName, AuthId, page_params(Qs));
 users(post, #{body := Body} = Req) ->
-    #{gateway := #{id := AuthId, chain_name := ChainName}} = Req,
-    emqx_authn_api:add_user(ChainName, AuthId, Body).
+    #{
+        gateway := #{id := AuthId, chain_name := ChainName},
+        resolved_ns := Namespace
+    } = Req,
+    emqx_authn_api:add_user(ChainName, AuthId, Body#{<<"namespace">> => Namespace}).
 
 users_insta(get, #{bindings := #{uid := UserId}} = Req) ->
     #{
@@ -197,6 +202,13 @@ users_insta(delete, #{bindings := #{uid := UserId}} = Req) ->
         resolved_ns := Namespace
     } = Req,
     emqx_authn_api:delete_user(ChainName, Namespace, AuthId, UserId).
+
+user_password_rotate(post, #{bindings := #{uid := UserId}} = Req) ->
+    #{
+        gateway := #{id := AuthId, chain_name := ChainName},
+        resolved_ns := Namespace
+    } = Req,
+    emqx_authn_api:rotate_password(ChainName, Namespace, AuthId, UserId).
 
 %%--------------------------------------------------------------------
 %% Utils
@@ -486,8 +498,8 @@ schema("/gateways/:name/listeners/:id/authentication/users") ->
                     ?STANDARD_RESP(
                         #{
                             200 => emqx_dashboard_swagger:schema_with_example(
-                                ref(emqx_authn_api, response_user),
-                                emqx_authn_api:response_user_examples()
+                                ref(emqx_authn_api, response_users),
+                                emqx_authn_api:response_users_example()
                             )
                         }
                     )
@@ -507,9 +519,9 @@ schema("/gateways/:name/listeners/:id/authentication/users") ->
                 responses =>
                     ?STANDARD_RESP(
                         #{
-                            201 => emqx_dashboard_swagger:schema_with_example(
-                                ref(emqx_authn_api, response_user),
-                                emqx_authn_api:response_user_examples()
+                            201 => emqx_dashboard_swagger:schema_with_examples(
+                                ref(emqx_authn_api, response_user_with_password),
+                                emqx_authn_api:response_user_with_password_examples()
                             )
                         }
                     )
@@ -573,6 +585,29 @@ schema("/gateways/:name/listeners/:id/authentication/users/:uid") ->
                 responses =>
                     ?STANDARD_RESP(#{204 => ?DESC(deleted)})
             }
+    };
+schema("/gateways/:name/listeners/:id/authentication/users/:uid/password/rotate") ->
+    #{
+        'operationId' => user_password_rotate,
+        filter => fun emqx_gateway_http:filter_listener/2,
+        post => #{
+            tags => ?TAGS,
+            description => ?DESC("rotate_password"),
+            parameters => lists:flatten([
+                params_gateway_name_in_path(),
+                params_listener_id_in_path(),
+                params_userid_in_path()
+            ]),
+            responses =>
+                ?STANDARD_RESP(
+                    #{
+                        200 => emqx_dashboard_swagger:schema_with_example(
+                            ref(emqx_authn_api, response_user_with_password),
+                            emqx_authn_api:generated_user_response_example()
+                        )
+                    }
+                )
+        }
     }.
 
 %%--------------------------------------------------------------------

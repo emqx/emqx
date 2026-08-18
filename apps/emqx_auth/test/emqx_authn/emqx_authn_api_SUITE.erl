@@ -696,10 +696,11 @@ ignore_switch_to_global_chain(_) ->
     ),
     ok = emqtt:disconnect(Client4).
 
-t_bcrypt_validation(_Config) ->
+t_bcrypt_validation(Config) ->
     BaseConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"username">>
     },
     BcryptValid = #{
@@ -720,11 +721,12 @@ t_bcrypt_validation(_Config) ->
         ConfInvalid
     ),
 
-    {ok, 200, _} = request(
-        post,
-        uri([?CONF_NS]),
-        ConfValid
-    ).
+    ExpectedStatus =
+        case ?config(security_profile, Config) of
+            legacy -> 200;
+            hardened -> 400
+        end,
+    {ok, ExpectedStatus, _} = request(post, uri([?CONF_NS]), ConfValid).
 
 t_cache(_Config) ->
     {ok, 200, CacheData0} = request(

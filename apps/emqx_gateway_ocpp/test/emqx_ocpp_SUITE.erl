@@ -183,9 +183,10 @@ create_authenticator() ->
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
         <<"user_id_type">> => <<"username">>,
+        <<"autogenerate_password">> => false,
         <<"password_hash_algorithm">> => #{
-            <<"name">> => <<"plain">>,
-            <<"salt_position">> => <<"suffix">>
+            <<"name">> => <<"sha256">>,
+            <<"salt_position">> => <<"prefix">>
         }
     },
     {ok, _} = emqx_gateway_conf:add_authn(<<"ocpp">>, AuthnConfig),
