@@ -361,6 +361,8 @@ handle_list_bundles(Namespace) ->
             ?OK(Res);
         {error, enoent} ->
             ?OK([]);
+        {error, bad_namespace} ->
+            ?BAD_REQUEST(bad_namespace_msg());
         {error, Reason} ->
             ?INTERNAL_ERROR(emqx_utils:explain_posix(Reason))
     end.
@@ -371,6 +373,8 @@ handle_list_files(Namespace, BundleName) ->
             ?OK(Files);
         {error, enoent} ->
             ?NOT_FOUND(<<"Bundle not found">>);
+        {error, bad_namespace} ->
+            ?BAD_REQUEST(bad_namespace_msg());
         {error, Reason} ->
             ?INTERNAL_ERROR(emqx_utils:explain_posix(Reason))
     end.
@@ -387,6 +391,8 @@ do_handle_delete_bundle(Namespace, BundleName) ->
     case emqx_managed_certs:delete_bundle(Namespace, BundleName) of
         ok ->
             ?NO_CONTENT;
+        {error, bad_namespace} ->
+            ?BAD_REQUEST(bad_namespace_msg());
         {error, Errors} ->
             ?INTERNAL_ERROR(Errors)
     end.
@@ -403,6 +409,8 @@ do_handle_delete_file(Namespace, BundleName, Kind) ->
     case emqx_managed_certs:delete_managed_file(Namespace, BundleName, Kind) of
         ok ->
             ?NO_CONTENT;
+        {error, bad_namespace} ->
+            ?BAD_REQUEST(bad_namespace_msg());
         {error, Errors} ->
             ?INTERNAL_ERROR(Errors)
     end.
@@ -442,6 +450,8 @@ handle_upload_files(Namespace, BundleName, Files) ->
             case emqx_managed_certs:add_managed_files(Namespace, BundleName, Files) of
                 ok ->
                     ?NO_CONTENT;
+                {error, bad_namespace} ->
+                    ?BAD_REQUEST(bad_namespace_msg());
                 {error, Errors} ->
                     ?INTERNAL_ERROR(Errors)
             end
@@ -468,6 +478,9 @@ does_acc_key_exist(Namespace, BundleName) ->
         _ ->
             false
     end.
+
+bad_namespace_msg() ->
+    <<"Invalid namespace: cannot resolve a certificate directory for this namespace name">>.
 
 bundles_out(Bundles) ->
     lists:map(fun(Bundle) -> #{<<"name">> => bin(Bundle)} end, Bundles).

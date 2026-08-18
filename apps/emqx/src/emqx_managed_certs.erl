@@ -69,8 +69,9 @@
 -spec list_managed_files(maybe_namespace(), bundle_name()) ->
     {ok, #{file_kind() => managed_file()}} | {error, file:posix()}.
 list_managed_files(Namespace, BundleName) ->
-    Dir = dir(Namespace, BundleName),
     maybe
+        ok ?= check_namespace(Namespace),
+        Dir = dir(Namespace, BundleName),
         {ok, Files0} ?= file:list_dir(Dir),
         Files = lists:foldl(
             fun(Filename, Acc) ->
@@ -92,8 +93,9 @@ list_managed_files(Namespace, BundleName) ->
 -spec list_bundles(maybe_namespace()) ->
     {ok, [bundle_name()]} | {error, file:posix()}.
 list_bundles(Namespace) ->
-    Dir = base_dir(Namespace),
     maybe
+        ok ?= check_namespace(Namespace),
+        Dir = base_dir(Namespace),
         {ok, Contents} ?= file:list_dir(Dir),
         Bundles = lists:sort(
             lists:filter(
@@ -112,83 +114,98 @@ list_bundles(Namespace) ->
     end.
 
 -spec delete_bundle(maybe_namespace(), bundle_name()) ->
-    ok | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
+    ok
+    | {error, bad_namespace}
+    | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
 delete_bundle(Namespace, BundleName) ->
-    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
-    Res = emqx_managed_certs_proto_v1:delete_bundle(Nodes, Namespace, BundleName),
-    NodeRes = lists:zip(Nodes, Res),
-    Errors = lists:filtermap(
-        fun
-            ({_Node, {ok, ok}}) ->
-                false;
-            ({_Node, {ok, {error, enoent}}}) ->
-                false;
-            ({Node, {ok, {error, Reason}}}) ->
-                {true, #{node => Node, kind => file, reason => Reason}};
-            ({Node, {Class, Reason}}) ->
-                {true, #{node => Node, kind => rpc, reason => {Class, Reason}}}
-        end,
-        NodeRes
-    ),
-    case Errors of
-        [] ->
-            ok;
-        [_ | _] ->
-            {error, Errors}
+    maybe
+        ok ?= check_namespace(Namespace),
+        Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
+        Res = emqx_managed_certs_proto_v1:delete_bundle(Nodes, Namespace, BundleName),
+        NodeRes = lists:zip(Nodes, Res),
+        Errors = lists:filtermap(
+            fun
+                ({_Node, {ok, ok}}) ->
+                    false;
+                ({_Node, {ok, {error, enoent}}}) ->
+                    false;
+                ({Node, {ok, {error, Reason}}}) ->
+                    {true, #{node => Node, kind => file, reason => Reason}};
+                ({Node, {Class, Reason}}) ->
+                    {true, #{node => Node, kind => rpc, reason => {Class, Reason}}}
+            end,
+            NodeRes
+        ),
+        case Errors of
+            [] ->
+                ok;
+            [_ | _] ->
+                {error, Errors}
+        end
     end.
 
 -spec delete_managed_file(maybe_namespace(), bundle_name(), file_kind()) ->
-    ok | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
+    ok
+    | {error, bad_namespace}
+    | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
 delete_managed_file(Namespace, BundleName, Kind) ->
-    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
-    Res = emqx_managed_certs_proto_v1:delete_managed_file(
-        Nodes, Namespace, BundleName, Kind
-    ),
-    NodeRes = lists:zip(Nodes, Res),
-    Errors = lists:filtermap(
-        fun
-            ({_Node, {ok, ok}}) ->
-                false;
-            ({_Node, {ok, {error, enoent}}}) ->
-                false;
-            ({Node, {ok, {error, Reason}}}) ->
-                {true, #{node => Node, kind => file, reason => Reason}};
-            ({Node, {Class, Reason}}) ->
-                {true, #{node => Node, kind => rpc, reason => {Class, Reason}}}
-        end,
-        NodeRes
-    ),
-    case Errors of
-        [] ->
-            ok;
-        [_ | _] ->
-            {error, Errors}
+    maybe
+        ok ?= check_namespace(Namespace),
+        Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
+        Res = emqx_managed_certs_proto_v1:delete_managed_file(
+            Nodes, Namespace, BundleName, Kind
+        ),
+        NodeRes = lists:zip(Nodes, Res),
+        Errors = lists:filtermap(
+            fun
+                ({_Node, {ok, ok}}) ->
+                    false;
+                ({_Node, {ok, {error, enoent}}}) ->
+                    false;
+                ({Node, {ok, {error, Reason}}}) ->
+                    {true, #{node => Node, kind => file, reason => Reason}};
+                ({Node, {Class, Reason}}) ->
+                    {true, #{node => Node, kind => rpc, reason => {Class, Reason}}}
+            end,
+            NodeRes
+        ),
+        case Errors of
+            [] ->
+                ok;
+            [_ | _] ->
+                {error, Errors}
+        end
     end.
 
 -spec add_managed_files(maybe_namespace(), bundle_name(), #{file_kind() := iodata()}) ->
-    ok | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
+    ok
+    | {error, bad_namespace}
+    | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
 add_managed_files(Namespace, BundleName, Files) ->
-    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
-    Res = emqx_managed_certs_proto_v1:add_managed_files(
-        Nodes, Namespace, BundleName, Files
-    ),
-    NodeRes = lists:zip(Nodes, Res),
-    Errors = lists:filtermap(
-        fun
-            ({_Node, {ok, ok}}) ->
-                false;
-            ({Node, {ok, {error, Reason}}}) ->
-                {true, #{node => Node, kind => file, reason => Reason}};
-            ({Node, {Class, Reason}}) ->
-                {true, #{node => Node, kind => rpc, reason => {Class, Reason}}}
-        end,
-        NodeRes
-    ),
-    case Errors of
-        [] ->
-            ok;
-        [_ | _] ->
-            {error, Errors}
+    maybe
+        ok ?= check_namespace(Namespace),
+        Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
+        Res = emqx_managed_certs_proto_v1:add_managed_files(
+            Nodes, Namespace, BundleName, Files
+        ),
+        NodeRes = lists:zip(Nodes, Res),
+        Errors = lists:filtermap(
+            fun
+                ({_Node, {ok, ok}}) ->
+                    false;
+                ({Node, {ok, {error, Reason}}}) ->
+                    {true, #{node => Node, kind => file, reason => Reason}};
+                ({Node, {Class, Reason}}) ->
+                    {true, #{node => Node, kind => rpc, reason => {Class, Reason}}}
+            end,
+            NodeRes
+        ),
+        case Errors of
+            [] ->
+                ok;
+            [_ | _] ->
+                {error, Errors}
+        end
     end.
 
 %%------------------------------------------------------------------------------
@@ -196,9 +213,15 @@ add_managed_files(Namespace, BundleName, Files) ->
 %%------------------------------------------------------------------------------
 
 -spec add_managed_files_v1(maybe_namespace(), bundle_name(), #{file_kind() := contents()}) ->
-    ok | {error, #{file_kind() := file:posix()}}.
+    ok | {error, bad_namespace} | {error, #{file_kind() := file:posix()}}.
 -doc #{since => <<"6.1.0">>}.
 add_managed_files_v1(Namespace, BundleName, Files) ->
+    maybe
+        ok ?= check_namespace(Namespace),
+        add_managed_files_local(Namespace, BundleName, Files)
+    end.
+
+add_managed_files_local(Namespace, BundleName, Files) ->
     Errors = maps:fold(
         fun(Kind, Contents, ErrAcc) ->
             Filename = filename(Namespace, BundleName, Kind),
@@ -221,18 +244,24 @@ add_managed_files_v1(Namespace, BundleName, Files) ->
     end.
 
 -spec delete_managed_file_v1(maybe_namespace(), bundle_name(), file_kind()) ->
-    ok | {error, file:posix()}.
+    ok | {error, bad_namespace | file:posix()}.
 -doc #{since => <<"6.1.0">>}.
 delete_managed_file_v1(Namespace, BundleName, Kind) ->
-    Filename = filename(Namespace, BundleName, Kind),
-    file:delete(Filename).
+    maybe
+        ok ?= check_namespace(Namespace),
+        Filename = filename(Namespace, BundleName, Kind),
+        file:delete(Filename)
+    end.
 
 -spec delete_bundle_v1(maybe_namespace(), bundle_name()) ->
-    ok | {error, file:posix()}.
+    ok | {error, bad_namespace | file:posix()}.
 -doc #{since => <<"6.1.0">>}.
 delete_bundle_v1(Namespace, BundleName) ->
-    Dir = dir(Namespace, BundleName),
-    file:del_dir_r(Dir).
+    maybe
+        ok ?= check_namespace(Namespace),
+        Dir = dir(Namespace, BundleName),
+        file:del_dir_r(Dir)
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -277,6 +306,25 @@ filename_to_kind(_) ->
 
 escape_name(Name) ->
     uri_string:quote(Name).
+
+%% The namespace becomes a directory name under `<data>/certs2/ns/'.
+%% `escape_name/1' percent-encodes path separators, but not the special path
+%% components `.' and `..', so a namespace named `..' would resolve `ns/..'
+%% back to the shared `certs2' directory and reach the global (and other
+%% tenants') bundles. Reject any namespace whose escaped form is not a single
+%% path component distinct from `.' and `..'. The namespace comes from the
+%% caller or config and is never recovered from the directory name, so the
+%% check does not need to be reversible.
+check_namespace(?global_ns) ->
+    ok;
+check_namespace(Namespace) when is_binary(Namespace) ->
+    Escaped = escape_name(Namespace),
+    case filename:split(Escaped) of
+        [Escaped] when Escaped =/= <<".">>, Escaped =/= <<"..">> ->
+            ok;
+        _ ->
+            {error, bad_namespace}
+    end.
 
 find_references(TargetNamespace, TargetBundleName) ->
     NsConfigs = maps:merge(

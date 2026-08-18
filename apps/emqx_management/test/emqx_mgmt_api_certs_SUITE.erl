@@ -826,6 +826,59 @@ t_escape_namespace_in_dirs(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
+A namespace whose name is not a single safe path component (`.`, `..`) must
+not reach another namespace's or the global certificate directory. Managed
+namespace creation on 6.3 rejects such names, but implicit and pre-existing
+namespaces are not validated, so `emqx_managed_certs` guards the path itself.
+""".
+t_namespace_path_traversal_rejected() ->
+    [{matrix, true}].
+t_namespace_path_traversal_rejected(matrix) ->
+    [[?local]];
+t_namespace_path_traversal_rejected(TCConfig) when is_list(TCConfig) ->
+    Victim = <<"victim">>,
+    #{cert_pem := CA} = gen_cert(#{key => ec, issuer => root}),
+    %% A global bundle that a traversing namespace must not be able to reach.
+    ?assertMatch({204, _}, upload_file_global(Victim, ?FILE_KIND_CA, CA)),
+    ?assertMatch({200, [#{<<"name">> := Victim}]}, list_bundles_global()),
+    {200, #{<<"ca">> := #{<<"path">> := VictimPath}}} = list_files_global(Victim),
+    VictimMd5 = read_md5(VictimPath),
+    lists:foreach(
+        fun(Ns) ->
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_managed_certs:list_bundles(Ns),
+                #{ns => Ns}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_managed_certs:list_managed_files(Ns, Victim),
+                #{ns => Ns}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_managed_certs:add_managed_files_v1(Ns, Victim, #{?FILE_KIND_CA => CA}),
+                #{ns => Ns}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_managed_certs:delete_managed_file_v1(Ns, Victim, ?FILE_KIND_CA),
+                #{ns => Ns}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_managed_certs:delete_bundle_v1(Ns, Victim),
+                #{ns => Ns}
+            )
+        end,
+        [<<"..">>, <<".">>, <<>>]
+    ),
+    %% The global bundle survived every attempt with its content intact.
+    ?assertMatch({200, [#{<<"name">> := Victim}]}, list_bundles_global()),
+    ?assertEqual(VictimMd5, read_md5(VictimPath)),
+    ok.
+
+-doc """
 Smoke tests for multipart, multi-file uploads.
 """.
 t_smoke_multipart() ->
