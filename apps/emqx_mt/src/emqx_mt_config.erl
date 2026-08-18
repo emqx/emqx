@@ -512,20 +512,9 @@ invalid_ns_name_msg() ->
         " with length from 1 to 255; '.' and '..' are not valid names"
     >>.
 
-has_only_safe_ns_chars(<<C, Rest/binary>>) when
-    (C >= $a andalso C =< $z);
-    (C >= $A andalso C =< $Z);
-    (C >= $0 andalso C =< $9);
-    C =:= $.;
-    C =:= $-;
-    C =:= $_;
-    C =:= $~
-->
-    has_only_safe_ns_chars(Rest);
-has_only_safe_ns_chars(<<>>) ->
-    true;
-has_only_safe_ns_chars(_) ->
-    false.
+%% `\z' rather than `$': `$' also matches just before a trailing newline.
+has_only_safe_ns_chars(Ns) ->
+    match =:= re:run(Ns, <<"^[A-Za-z0-9._~-]+\\z">>, [{capture, none}]).
 
 %% Bulk import both creates and updates namespace configs. Only names that
 %% would be created are validated: existing namespaces keep working.
