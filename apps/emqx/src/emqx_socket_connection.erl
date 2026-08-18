@@ -311,6 +311,8 @@ init(Parent, esockd_socket, RawSocket, Options) ->
 %% Refuse to serve before node boot completes: authn/authz hooks
 %% (e.g. from plugins) may not be installed yet. The exit reason feeds
 %% the listener's shutdown counter. Same gate as `emqx_connection:init/4'.
+%% The socket has not completed wait/1 yet, so the peername lookup must
+%% not crash the refusal path, hence the catch-all.
 assert_node_ready(RawSocket) ->
     case emqx_node_readiness:is_ready() of
         true ->

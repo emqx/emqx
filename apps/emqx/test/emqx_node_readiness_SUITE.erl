@@ -14,6 +14,7 @@
 -define(TCP_PORT, 20831).
 -define(WS_PORT, 20832).
 -define(QUIC_PORT, 20833).
+-define(TCP_SOCKET_PORT, 20834).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -23,6 +24,8 @@ init_per_suite(Config) ->
     _ = emqx_common_test_helpers:gen_host_cert("server", "ca", PrivDir, #{}),
     ListenerConf = io_lib:format(
         "listeners.tcp.default.bind = ~b\n"
+        "listeners.tcp.sock.bind = ~b\n"
+        "listeners.tcp.sock.tcp_backend = socket\n"
         "listeners.ws.default.bind = ~b\n"
         "listeners.quic.default {\n"
         "  enable = true\n"
@@ -35,6 +38,7 @@ init_per_suite(Config) ->
         "}",
         [
             ?TCP_PORT,
+            ?TCP_SOCKET_PORT,
             ?WS_PORT,
             ?QUIC_PORT,
             filename:join(PrivDir, "ca.pem"),
@@ -86,6 +90,28 @@ t_gate_tcp_connection(_Config) ->
     ),
     ok = emqx_node_readiness:mark_ready(),
     ?assertEqual(ok, try_connect(fun emqtt:connect/1, #{port => ?TCP_PORT})).
+
+-doc """
+A TCP MQTT connection on a listener with `tcp_backend = socket` is refused
+while the node is not ready, accepted once ready.  The refusal is recorded
+in the listener's shutdown counter.
+""".
+t_gate_tcp_socket_backend_connection(_Config) ->
+    ok = emqx_node_readiness:mark_not_ready(),
+    ?assertMatch({error, _}, try_connect(fun emqtt:connect/1, #{port => ?TCP_SOCKET_PORT})),
+    Bind = emqx_config:get([listeners, tcp, sock, bind]),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {node_not_ready, _},
+            lists:keyfind(
+                node_not_ready, 1, emqx_listeners:shutdown_count(<<"tcp:sock">>, Bind)
+            )
+        )
+    ),
+    ok = emqx_node_readiness:mark_ready(),
+    ?assertEqual(ok, try_connect(fun emqtt:connect/1, #{port => ?TCP_SOCKET_PORT})).
 
 -doc "A WebSocket MQTT connection is refused while the node is not ready, accepted once ready.".
 t_gate_ws_connection(_Config) ->
