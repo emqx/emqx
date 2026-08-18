@@ -545,6 +545,9 @@ get_action_api(TCConfig) ->
         emqx_bridge_v2_testlib:get_action_api(TCConfig)
     ).
 
+probe_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:probe_connector_api2(TCConfig, Overrides).
+
 delete_connector_api(TCConfig) ->
     emqx_bridge_v2_testlib:delete_connector_api(TCConfig).
 
