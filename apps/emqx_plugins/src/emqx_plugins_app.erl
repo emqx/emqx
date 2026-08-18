@@ -15,10 +15,11 @@
 ]).
 
 start(_Type, _Args) ->
-    %% load all pre-configured
+    %% Load all pre-configured plugins.
+    %% Plugin applications are started by `emqx_machine_boot:ensure_apps_started/0'
+    %% after all EMQX applications are up.
     {ok, Sup} = emqx_plugins_sup:start_link(),
     ok = emqx_plugins:ensure_installed(),
-    ok = emqx_plugins:ensure_started(),
     emqx_plugins:log_unconfigured_plugins(),
     ok = emqx_config_handler:add_handler([?CONF_ROOT], emqx_plugins),
     emqx_plugins_cli_utils:load(),

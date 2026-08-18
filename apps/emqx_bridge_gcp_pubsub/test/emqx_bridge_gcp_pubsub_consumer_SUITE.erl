@@ -505,6 +505,9 @@ update_connector_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:update_connector_api(Name, Type, Cfg)
     ).
 
+probe_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:probe_connector_api2(TCConfig, Overrides).
+
 get_source_api(TCConfig) ->
     #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
     emqx_bridge_v2_testlib:simplify_result(
@@ -917,22 +920,25 @@ get_mqtt_port(Node) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
     Port.
 
-assert_persisted_service_account_json_is_binary(TCConfig) ->
+persisted_service_account_json(TCConfig) ->
     #{connector_name := ConnectorName} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
     %% ensure cluster.hocon has a binary encoded json string as the value
     {ok, Hocon} = hocon:files([application:get_env(emqx, cluster_hocon_file, undefined)]),
+    emqx_utils_maps:deep_get(
+        [
+            <<"connectors">>,
+            <<"gcp_pubsub_consumer">>,
+            ConnectorName,
+            <<"authentication">>,
+            <<"service_account_json">>
+        ],
+        Hocon
+    ).
+
+assert_persisted_service_account_json_is_binary(TCConfig) ->
     ?assertMatch(
         Bin when is_binary(Bin),
-        emqx_utils_maps:deep_get(
-            [
-                <<"connectors">>,
-                <<"gcp_pubsub_consumer">>,
-                ConnectorName,
-                <<"authentication">>,
-                <<"service_account_json">>
-            ],
-            Hocon
-        )
+        persisted_service_account_json(TCConfig)
     ),
     ok.
 
@@ -2737,4 +2743,25 @@ t_legacy_service_account_json_redact(TCConfig) ->
         {200, #{<<"authentication">> := #{<<"service_account_json">> := <<"******">>}}},
         get_connector_api(TCConfig)
     ),
+    {200, RedactedParams0} = get_connector_api(TCConfig),
+    RedactedParams = maps:without(
+        [
+            <<"actions">>,
+            <<"sources">>,
+            <<"name">>,
+            <<"type">>,
+            <<"status">>,
+            <<"node_status">>
+        ],
+        RedactedParams0
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{<<"service_account_json">> := <<"******">>}
+        }},
+        update_connector_api(TCConfig, RedactedParams)
+    ),
+    ?assertMatch(<<"{", _/binary>>, persisted_service_account_json(TCConfig)),
+    ?assertMatch({204, _}, probe_connector_api(TCConfig, RedactedParams)),
     ok.
