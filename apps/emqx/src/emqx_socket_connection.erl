@@ -280,6 +280,7 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 
 init(Parent, esockd_socket, RawSocket, Options) ->
+    ok = assert_node_ready(RawSocket),
     case esockd_socket:wait(RawSocket) of
         {ok, Socket} ->
             ?tp(connection_started, #{
@@ -291,6 +292,32 @@ init(Parent, esockd_socket, RawSocket, Options) ->
         {error, Reason} ->
             ok = fast_close(Reason, RawSocket),
             exit_on_sock_error(Reason)
+    end.
+
+%% Refuse to serve before node boot completes: authn/authz hooks
+%% (e.g. from plugins) may not be installed yet. The exit reason feeds
+%% the listener's shutdown counter. Same gate as `emqx_connection:init/4'.
+%% The socket has not completed wait/1 yet, so the peername lookup must
+%% not crash the refusal path, hence the catch-all.
+assert_node_ready(RawSocket) ->
+    case emqx_node_readiness:is_ready() of
+        true ->
+            ok;
+        false ->
+            Peername =
+                try esockd_socket:peername(RawSocket) of
+                    {ok, Peer} -> esockd:format(Peer);
+                    _ -> unknown
+                catch
+                    _:_ -> unknown
+                end,
+            ?SLOG(info, #{
+                msg => connection_refused_before_boot_complete,
+                transport => esockd_socket,
+                peername => Peername
+            }),
+            _ = esockd_socket:fast_close(RawSocket),
+            erlang:exit({shutdown, node_not_ready})
     end.
 
 init_state(

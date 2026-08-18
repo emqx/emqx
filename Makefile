@@ -110,6 +110,8 @@ ct: $(REBAR) merge-config render-test-env
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
 static_checks: $(ELIXIR_COMMON_DEPS)
+	@# the cluster-rpc check reads plugin beams from the shared build tree
+	@env PROFILE=$(PROFILE:%-test=%) $(SCRIPTS)/build-plugins.sh --compile-only
 	@env BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
 	    $(MIX) do \
 	    emqx.xref + dialyzer --mode classic + \
