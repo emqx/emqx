@@ -506,11 +506,11 @@ validate_ns_name(Ns) when is_binary(Ns) ->
     end.
 
 invalid_ns_name_msg() ->
-    <<
-        "Invalid namespace name: only ASCII letters, digits and the"
-        " characters '.', '-' and '_' are allowed,"
-        " with length from 1 to 255; '.' and '..' are not valid names"
-    >>.
+    ~b"""
+    Invalid namespace name: only ASCII letters, digits and the characters
+    '.', '-' and '_' are allowed, with length from 1 to 255;
+    '.' and '..' are not valid names
+    """.
 
 %% `\z' rather than `$': `$' also matches just before a trailing newline.
 %% `~' is excluded even though URLs allow it: shells expand it to a home
