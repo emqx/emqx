@@ -871,7 +871,7 @@ t_namespace_path_traversal_rejected(TCConfig) when is_list(TCConfig) ->
                 #{ns => Ns}
             )
         end,
-        [<<"..">>, <<".">>, <<>>]
+        [<<"..">>, <<".">>, <<>>, <<"../..">>, <<"./..">>]
     ),
     %% The global bundle survived every attempt with its content intact.
     ?assertMatch({200, [#{<<"name">> := Victim}]}, list_bundles_global()),

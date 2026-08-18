@@ -307,20 +307,19 @@ filename_to_kind(_) ->
 escape_name(Name) ->
     uri_string:quote(Name).
 
-%% The namespace becomes a directory name under `<data>/certs2/ns/'.
-%% `escape_name/1' percent-encodes path separators, but not the special path
-%% components `.' and `..', so a namespace named `..' would resolve `ns/..'
-%% back to the shared `certs2' directory and reach the global (and other
-%% tenants') bundles. Reject any namespace whose escaped form is not a single
-%% path component distinct from `.' and `..'. The namespace comes from the
-%% caller or config and is never recovered from the directory name, so the
-%% check does not need to be reversible.
+%% The namespace becomes a directory name under `<data>/certs2/ns/'. It must be
+%% a single path component that is not a special one, so it cannot escape into
+%% the shared `certs2' directory or another tenant's directory. `escape_name/1'
+%% (applied when building the path) percent-encodes characters such as `:' or
+%% spaces, but path separators and the components `.' and `..' would still let
+%% the name traverse, so reject them here by checking the raw name. The
+%% namespace comes from the caller or config and is never recovered from the
+%% directory name, so the check does not need to be reversible.
 check_namespace(?global_ns) ->
     ok;
 check_namespace(Namespace) when is_binary(Namespace) ->
-    Escaped = escape_name(Namespace),
-    case filename:split(Escaped) of
-        [Escaped] when Escaped =/= <<".">>, Escaped =/= <<"..">> ->
+    case filename:split(Namespace) of
+        [Namespace] when Namespace =/= <<".">>, Namespace =/= <<"..">> ->
             ok;
         _ ->
             {error, bad_namespace}
