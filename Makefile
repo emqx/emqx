@@ -104,6 +104,9 @@ static_checks:
 	@$(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE)
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
+	@# the cluster-rpc check reads plugin beams from the release-profile build
+	$(MAKE) $(PROFILE)-compile
+	./scripts/check-cluster-rpc-mfas.escript
 
 # Allow user-set CASES environment variable
 ifneq ($(CASES),)
