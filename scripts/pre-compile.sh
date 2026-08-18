@@ -26,6 +26,7 @@ if [ "$DOWNLOAD_I18N_TRANSLATIONS" = "true" ]; then
   echo "Downloading i18n translation from emqx/emqx-i18n..."
   start=$(date +%s%N)
   curl -L --fail --silent --show-error \
+       --retry 3 --retry-delay 2 \
        --output "apps/emqx_dashboard/priv/desc.zh.hocon" \
        "https://raw.githubusercontent.com/emqx/emqx-i18n/${I18N_REPO_BRANCH}/desc.zh.hocon"
   end=$(date +%s%N)
