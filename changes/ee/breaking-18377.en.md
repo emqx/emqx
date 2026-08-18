@@ -1,0 +1,1 @@
+Managed namespace names are now validated when created. A name may contain only ASCII letters, digits, and the characters `.`, `-`, and `_`, with a length of 1 to 255 bytes; the names `.` and `..` are not accepted. Namespaces that already exist are not affected.
