@@ -760,18 +760,6 @@ get_action_api(Config) ->
         )
     ).
 
-update_connector_api(TCConfig, Overrides) ->
-    #{
-        connector_type := Type,
-        connector_name := Name,
-        connector_config := Cfg0
-    } =
-        emqx_bridge_v2_testlib:get_common_values_with_configs(TCConfig),
-    Cfg = emqx_utils_maps:deep_merge(Cfg0, Overrides),
-    emqx_bridge_v2_testlib:simplify_result(
-        emqx_bridge_v2_testlib:update_connector_api(Name, Type, Cfg)
-    ).
-
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
