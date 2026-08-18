@@ -390,6 +390,90 @@ t_unsafe_backup_name(Config) ->
     ),
     ?assert(filelib:is_regular(Filename)).
 
+%% A namespace named `..' resolves `ns/..' to the global backup root, and `.'
+%% resolves to the shared `ns' container directory. Managed namespace creation
+%% rejects these names, but implicitly created and pre-existing namespaces are
+%% not validated, so the path construction itself must hold: every backup file
+%% operation for such a namespace must fail without touching global backups.
+%% A regular namespace must keep its own isolated directory.
+t_dot_namespace_cannot_reach_global_backups(_Config) ->
+    {ok, #{filename := GlobalFile}} = emqx_mgmt_data_backup:export(),
+    ?assert(filelib:is_regular(GlobalFile)),
+    GlobalBase = filename:basename(GlobalFile),
+    lists:foreach(
+        fun(Ns) ->
+            ?assertEqual([], emqx_mgmt_data_backup:list_files(Ns), #{ns => Ns}),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:read_file(Ns, GlobalBase),
+                #{ns => Ns}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:delete_file(Ns, GlobalBase),
+                #{ns => Ns}
+            ),
+            ?assert(filelib:is_regular(GlobalFile), #{ns => Ns}),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:export(#{namespace => Ns}),
+                #{ns => Ns}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:upload(Ns, GlobalBase, <<"garbage">>),
+                #{ns => Ns}
+            )
+        end,
+        [<<"..">>, <<".">>]
+    ),
+    %% The global file survived every attempt above with its content intact.
+    ?assertMatch({ok, _}, file:read_file(GlobalFile)),
+    %% A regular namespace still gets its own directory under `<root>/ns/'.
+    {ok, #{filename := NsFile}} = emqx_mgmt_data_backup:export(#{namespace => <<"ns1">>}),
+    ?assertEqual(
+        filename:join([filename:dirname(GlobalFile), <<"ns">>, <<"ns1">>]),
+        filename:dirname(NsFile)
+    ),
+    NsBase = filename:basename(NsFile),
+    ?assertMatch(
+        [#{filename := NsBase}],
+        emqx_mgmt_data_backup:list_files(<<"ns1">>)
+    ),
+    %% And the namespaced listing never contains the global backup.
+    ?assertNot(
+        lists:any(
+            fun(#{filename := F}) -> F =:= GlobalBase end,
+            emqx_mgmt_data_backup:list_files(<<"ns1">>)
+        )
+    ),
+    %% An interior `..' must not alias another namespace's directory:
+    %% `a/../ns1' resolves to `ns/ns1', i.e. namespace ns1's directory. A
+    %% namespace name must map to exactly one directory leaf, so multi-segment
+    %% names are rejected as a whole.
+    lists:foreach(
+        fun(Alias) ->
+            ?assertEqual([], emqx_mgmt_data_backup:list_files(Alias), #{ns => Alias}),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:read_file(Alias, NsBase),
+                #{ns => Alias}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:delete_file(Alias, NsBase),
+                #{ns => Alias}
+            )
+        end,
+        [<<"a/../ns1">>, <<"a/ns1">>, <<"ns1/.">>]
+    ),
+    %% Namespace ns1's file survived the alias attempts.
+    ?assertMatch(
+        [#{filename := NsBase}],
+        emqx_mgmt_data_backup:list_files(<<"ns1">>)
+    ),
+    ok.
+
 t_no_backup_file(_Config) ->
     ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(not_found)),
     ?assertEqual(
