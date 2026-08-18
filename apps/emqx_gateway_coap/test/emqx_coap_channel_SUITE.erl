@@ -357,7 +357,8 @@ t_channel_same_clientid_invalid_token_no_self_cm_call(_) ->
     },
     ok = meck:new(emqx_gateway_cm, [no_link, passthrough]),
     try
-        {ok, {outgoing, Reply}, _} = emqx_coap_channel:handle_in(Req, Channel0),
+        {ok, [{udp_proxy, reject}, {outgoing, Reply}], _} =
+            emqx_coap_channel:handle_in(Req, Channel0),
         ?assertEqual({error, unauthorized}, Reply#coap_message.method),
         ?assertEqual(
             <<"Invalid token or clientid in connection mode">>,
@@ -473,7 +474,8 @@ t_channel_takeover_resume_enriches_clientinfo(_) ->
         end
     ),
     try
-        {ok, [{outgoing, [Reply]}], Channel1} = emqx_coap_channel:handle_in(Req, Channel0),
+        {ok, [{udp_proxy, commit}, {outgoing, [Reply]}], Channel1} =
+            emqx_coap_channel:handle_in(Req, Channel0),
         ?assertEqual({ok, changed}, Reply#coap_message.method),
         ?assertEqual(connected, Channel1#channel.conn_state),
         ?assertEqual(ReqToken, Channel1#channel.token),
@@ -565,7 +567,8 @@ t_channel_takeover_open_session_fallback_cleanup(_) ->
         end
     ),
     try
-        {ok, {outgoing, Reply}, _} = emqx_coap_channel:handle_in(Req, Channel0),
+        {ok, [{udp_proxy, reject}, {outgoing, Reply}], _} =
+            emqx_coap_channel:handle_in(Req, Channel0),
         ?assertEqual({error, unauthorized}, Reply#coap_message.method),
         ?assertEqual(
             <<"Invalid token or clientid in connection mode">>,
@@ -606,7 +609,8 @@ t_channel_connected_invalid_queries(_) ->
             uri_query => #{<<"clientid">> => <<"client2">>}
         }
     },
-    {ok, [{outgoing, [_]} | _], _} = emqx_coap_channel:handle_in(ConnReqDiff, Channel1),
+    {ok, [{udp_proxy, reject}, {outgoing, [_]} | _], _} =
+        emqx_coap_channel:handle_in(ConnReqDiff, Channel1),
     ConnReqMissing = #coap_message{
         type = con,
         method = post,
@@ -616,7 +620,8 @@ t_channel_connected_invalid_queries(_) ->
             uri_query => #{<<"username">> => <<"admin">>}
         }
     },
-    {ok, [{outgoing, [_]} | _], _} = emqx_coap_channel:handle_in(ConnReqMissing, Channel1),
+    {ok, [{udp_proxy, reject}, {outgoing, [_]} | _], _} =
+        emqx_coap_channel:handle_in(ConnReqMissing, Channel1),
     CloseReq = #coap_message{
         type = con,
         method = delete,

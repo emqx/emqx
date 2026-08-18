@@ -612,6 +612,140 @@ t_invalid_token_rejected_across_udp_sessions(_) ->
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
 
+t_invalid_token_does_not_take_over_udp_downlink(_) ->
+    Topic = <<"coap/udp_invalid_token_downlink">>,
+    {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    Token = connection(Channel1),
+    observe_topic(Channel1, Token, Topic, <<"original-peer">>),
+    timer:sleep(100),
+    [ConnPid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+    OriginalProxyId = current_udp_proxy_id(ConnPid),
+
+    BaselinePayload = <<"before-invalid-request">>,
+    publish(Topic, ?QOS_0, BaselinePayload),
+    _ = assert_notify(Channel1, non, BaselinePayload),
+
+    {ok, Sock2} = gen_udp:open(0, [binary, {active, false}]),
+    InvalidURI = compose_uri(
+        pubsub_uri(binary_to_list(Topic)),
+        #{
+            "clientid" => <<"client1">>,
+            "token" => <<"wrong-token">>
+        },
+        false
+    ),
+    InvalidReq = make_req(post, <<"rejected">>),
+    try
+        ?assertMatch({error, unauthorized, _}, raw_udp_request(Sock2, InvalidURI, InvalidReq)),
+        ?assertEqual(OriginalProxyId, current_udp_proxy_id(ConnPid)),
+
+        DownlinkPayload = <<"after-invalid-request">>,
+        publish(Topic, ?QOS_0, DownlinkPayload),
+        ?assertEqual({error, timeout}, gen_udp:recv(Sock2, 0, 300)),
+        _ = assert_notify(Channel1, non, DownlinkPayload),
+
+        MissingTokenURI = compose_uri(
+            pubsub_uri(binary_to_list(Topic)),
+            #{"clientid" => <<"client1">>},
+            false
+        ),
+        ?assertMatch(
+            {error, bad_request, _},
+            raw_udp_request(Sock2, MissingTokenURI, make_req(post, <<"rejected-again">>))
+        ),
+        AfterMissingTokenPayload = <<"after-missing-token">>,
+        publish(Topic, ?QOS_0, AfterMissingTokenPayload),
+        ?assertEqual({error, timeout}, gen_udp:recv(Sock2, 0, 300)),
+        _ = assert_notify(Channel1, non, AfterMissingTokenPayload),
+
+        ValidURI = compose_uri(
+            pubsub_uri("coap/udp_valid_migration"),
+            #{
+                "clientid" => <<"client1">>,
+                "token" => list_to_binary(Token)
+            },
+            false
+        ),
+        {ok, changed, _} = raw_udp_request(Sock2, ValidURI, make_req(post, <<"accepted">>)),
+        ?assertNotEqual(OriginalProxyId, current_udp_proxy_id(ConnPid)),
+        MigratedPayload = <<"after-valid-migration">>,
+        publish(Topic, ?QOS_0, MigratedPayload),
+        ?assertEqual({error, timeout}, with_message_response(Channel1, 300)),
+        {ok, {_Host, _Port, MigratedData}} = gen_udp:recv(Sock2, 0, 2000),
+        #coap_message{payload = MigratedPayload} = parse_udp_message(MigratedData),
+        ok
+    after
+        _ = catch disconnection(Channel1, Token),
+        gen_udp:close(Sock2),
+        er_coap_channel:close(Channel1),
+        er_coap_udp_socket:close(Sock1)
+    end.
+
+t_valid_udp_migration_does_not_wait_for_old_proxy(_) ->
+    {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    Token = connection(Channel1),
+    [ConnPid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+    OriginalProxyId = current_udp_proxy_id(ConnPid),
+    {ok, Sock2} = gen_udp:open(0, [binary, {active, false}]),
+    ValidURI = compose_uri(
+        pubsub_uri("coap/udp_nonblocking_migration"),
+        #{
+            "clientid" => <<"client1">>,
+            "token" => list_to_binary(Token)
+        },
+        false
+    ),
+    try
+        ok = sys:suspend(OriginalProxyId),
+        ?assertMatch(
+            {ok, changed, _},
+            raw_udp_request(Sock2, ValidURI, make_req(post, <<"accepted">>))
+        )
+    after
+        _ = catch sys:resume(OriginalProxyId),
+        _ = catch disconnection(Channel1, Token),
+        gen_udp:close(Sock2),
+        er_coap_channel:close(Channel1),
+        er_coap_udp_socket:close(Sock1)
+    end.
+
+t_queued_valid_source_keeps_a_live_downlink_proxy(_) ->
+    Topic = <<"coap/udp_queued_migration">>,
+    {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    Token = connection(Channel1),
+    observe_topic(Channel1, Token, Topic, <<"queued-migration-peer">>),
+    [ConnPid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+    {ok, Sock2} = gen_udp:open(0, [binary, {active, false}]),
+    ValidURI = compose_uri(
+        pubsub_uri("coap/udp_queued_migration_request"),
+        #{
+            "clientid" => <<"client1">>,
+            "token" => list_to_binary(Token)
+        },
+        false
+    ),
+    try
+        true = erlang:suspend_process(ConnPid),
+        ok = send_raw_udp_request(Sock2, ValidURI, make_req(post, <<"new-source">>)),
+        ok = wait_for_udp_proxy_messages(ConnPid, 1, 20),
+        ok = send_request(Channel1, ValidURI, make_req(post, <<"old-source">>)),
+        ok = wait_for_udp_proxy_messages(ConnPid, 2, 20),
+        true = erlang:resume_process(ConnPid),
+
+        ?assertMatch({ok, changed, _}, recv_raw_udp_response(Sock2)),
+        ?assertMatch({ok, changed, _}, with_response(Channel1)),
+        DownlinkPayload = <<"after-queued-migrations">>,
+        publish(Topic, ?QOS_0, DownlinkPayload),
+        _ = assert_notify(Channel1, non, DownlinkPayload),
+        ?assertEqual({error, timeout}, gen_udp:recv(Sock2, 0, 300))
+    after
+        _ = catch erlang:resume_process(ConnPid),
+        _ = catch disconnection(Channel1, Token),
+        gen_udp:close(Sock2),
+        er_coap_channel:close(Channel1),
+        er_coap_udp_socket:close(Sock1)
+    end.
+
 t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
     {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     Token = connection(Channel1),
@@ -1881,7 +2015,7 @@ t_proxy_conn_reuse_bound_clientid_when_missing(_) ->
         }
     },
     Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
-    {ok, <<"client1">>, _Packets1, State1} =
+    {ok, {coap_udp_proxy, Peer, <<"client1">>}, _Packets1, State1} =
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
     Msg2 = #coap_message{
         type = con,
@@ -1894,7 +2028,7 @@ t_proxy_conn_reuse_bound_clientid_when_missing(_) ->
     },
     Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
     ?assertMatch(
-        {ok, <<"client1">>, _Packets2, _State2},
+        {ok, {coap_udp_proxy, Peer, <<"client1">>}, _Packets2, _State2},
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2)
     ).
 
@@ -1911,7 +2045,7 @@ t_proxy_conn_keep_bound_clientid_on_different_clientid(_) ->
         }
     },
     Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
-    {ok, <<"client1">>, _Packets1, State1} =
+    {ok, {coap_udp_proxy, Peer, <<"client1">>}, _Packets1, State1} =
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
     Msg2 = #coap_message{
         type = con,
@@ -1924,7 +2058,7 @@ t_proxy_conn_keep_bound_clientid_on_different_clientid(_) ->
     },
     Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
     ?assertMatch(
-        {ok, <<"client1">>, _Packets2, _State2},
+        {ok, {coap_udp_proxy, Peer, <<"client1">>}, _Packets2, _State2},
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2)
     ).
 
@@ -2096,6 +2230,10 @@ assert_notify(Channel, Type, Payload) ->
     ?assertEqual(Payload, notify_payload(Notify)),
     Notify.
 
+current_udp_proxy_id(Pid) ->
+    {esockd_udp_proxy, ProxyId, _Sock} = element(2, sys:get_state(Pid)),
+    ProxyId.
+
 assert_notify(Channel, Type) ->
     {ok, content, Notify = #coap_message{type = Type}} = with_message_response(Channel),
     Notify.
@@ -2153,14 +2291,62 @@ reset_if_con(Channel, #coap_message{type = con} = Message) ->
     {ok, _} = er_coap_channel:send(Channel, emqx_coap_message:reset(Message)),
     ok.
 
-do_request(Channel, URI, #coap_message{options = Opts} = Req) ->
+do_request(Channel, URI, Req) ->
+    ok = send_request(Channel, URI, Req),
+    with_response(Channel).
+
+send_request(Channel, URI, #coap_message{options = Opts} = Req) ->
     {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
     Opts2 = [{uri_path, Path}, {uri_query, Query} | Opts],
     Req2 = Req#coap_message{options = Opts2},
     ?LOGT("send request:~ts~nReq:~p~n", [URI, Req2]),
-
     {ok, _} = er_coap_channel:send(Channel, Req2),
-    with_response(Channel).
+    ok.
+
+send_raw_udp_request(Socket, URI, #coap_message{options = Opts} = Req) ->
+    {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
+    MsgId = erlang:unique_integer([positive]) band 16#FFFF,
+    Token = crypto:strong_rand_bytes(4),
+    Req2 = Req#coap_message{
+        id = MsgId,
+        token = Token,
+        options = [{uri_path, Path}, {uri_query, Query} | Opts]
+    },
+    Data = er_coap_message_parser:encode(Req2),
+    gen_udp:send(Socket, {127, 0, 0, 1}, 5683, Data).
+
+raw_udp_request(Socket, URI, Req) ->
+    ok = send_raw_udp_request(Socket, URI, Req),
+    recv_raw_udp_response(Socket).
+
+recv_raw_udp_response(Socket) ->
+    {ok, {_Host, _Port, ResponseData}} = gen_udp:recv(Socket, 0, 2000),
+    #coap_message{method = {Class, Code}, payload = Payload} = parse_udp_message(ResponseData),
+    {Class, Code, Payload}.
+
+wait_for_udp_proxy_messages(Pid, MinCount, 0) ->
+    ?assert(udp_proxy_message_count(Pid) >= MinCount),
+    ok;
+wait_for_udp_proxy_messages(Pid, MinCount, Retries) ->
+    case udp_proxy_message_count(Pid) of
+        Count when Count >= MinCount ->
+            ok;
+        _ ->
+            timer:sleep(10),
+            wait_for_udp_proxy_messages(Pid, MinCount, Retries - 1)
+    end.
+
+udp_proxy_message_count(Pid) ->
+    {messages, Messages} = process_info(Pid, messages),
+    length([
+        Message
+     || Message = {{esockd_udp_proxy, _ProxyId, _Socket}, _Data, _Packets} <- Messages
+    ]).
+
+parse_udp_message(Data) ->
+    {ok, Message, <<>>, _State} =
+        emqx_coap_frame:parse(Data, emqx_coap_frame:initial_parse_state(#{})),
+    Message.
 
 do_message_request(Channel, URI, #coap_message{options = Opts} = Req) ->
     {_, _, Path, Query} = er_coap_client:resolve_uri(URI),
