@@ -232,6 +232,10 @@ delete_managed_certs_bundles(Namespace) ->
             delete_managed_certs_files(Namespace, Bundles);
         {error, enoent} ->
             ok;
+        {error, bad_namespace} ->
+            %% Such a namespace never had a resolvable certificate directory,
+            %% so there is nothing to clean up.
+            ok;
         {error, Reason} ->
             ?tp(error, "mt_failed_to_cleanup_managed_certs", #{
                 namespace => Namespace,
