@@ -137,7 +137,7 @@ check_schema_json() {
     local expected_title="$2"
     local url="$BASE_URL/api/v5/schemas/$name"
     local json
-    json="$(curl -s "$url" | jq .)"
+    json="$(auth_curl "$url" | jq .)"
     title="$(echo "$json" | jq -r '.info.title')"
     if [[ "$title" != "$expected_title" ]]; then
         echo "unexpected value from GET $url"
