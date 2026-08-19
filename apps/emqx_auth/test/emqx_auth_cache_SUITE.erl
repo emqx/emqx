@@ -276,6 +276,26 @@ t_cache_key_template(_Config) ->
         re:run(Key0(), <<"pass1">>)
     ).
 
+-doc """
+Checks that credentials whose field values concatenate to the same bytes
+produce different cache keys, and that identical credentials still produce
+identical cache keys.
+""".
+t_cache_key_boundary_shift(_Config) ->
+    Vars = ["username", "password"],
+    Template = emqx_auth_template:cache_key_template(Vars),
+    %% The same clientid keeps the introspection prefix of the keys identical,
+    %% so the assertions below compare only the hashed part.
+    MakeKey = fun(Username, Password) ->
+        Values = #{clientid => <<"client1">>, username => Username, password => Password},
+        (emqx_auth_template:cache_key(Values, Template))()
+    end,
+    %% "XX" ++ "X" and "X" ++ "XX" concatenate to the same bytes
+    ?assertNotEqual(MakeKey(<<"XX">>, <<"X">>), MakeKey(<<"X">>, <<"XX">>)),
+    ?assertNotEqual(MakeKey(<<"AB">>, <<"C">>), MakeKey(<<"A">>, <<"BC">>)),
+    ?assertNotEqual(MakeKey(<<"A">>, <<"BC">>), MakeKey(<<"ABC">>, <<>>)),
+    ?assertEqual(MakeKey(<<"user1">>, <<"pass1">>), MakeKey(<<"user1">>, <<"pass1">>)).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
