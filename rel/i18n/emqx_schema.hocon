@@ -2001,6 +2001,7 @@ clientid_override {
     Override the Client ID using a Variform expression.
     Example: `concat(client_attrs.tns, '-', clientid)` adds the namespace as a prefix.
     This allows clients in different namespaces to connect using the same Client ID without conflict.
+    When the expression fails to render, or renders an empty string, the connection is rejected.
     See EMQX documentation for expression syntax.~"""
 }
 

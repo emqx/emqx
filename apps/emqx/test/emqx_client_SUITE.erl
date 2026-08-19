@@ -92,6 +92,7 @@ groups() ->
             t_clientid_override,
             t_clientid_override_fail_with_empty_render_result,
             t_clientid_override_fail_with_expression_exception,
+            t_clientid_override_fail_with_unbound_var,
             t_namespace_as_mountpoint_enabled,
             t_namespace_as_mountpoint_disabled,
             t_namespace_as_mountpoint_no_tns
@@ -717,9 +718,10 @@ t_clientid_override(_) ->
     emqtt:disconnect(Client).
 
 t_clientid_override_fail_with_empty_render_result(init, Config) ->
-    {ok, Rule} = emqx_variform:compile(<<"undefined_var">>),
+    {ok, Rule} = emqx_variform:compile(<<"coalesce(undefined_var)">>),
     override_conf([mqtt, clientid_override], Rule, Config).
 
+-doc "Reject the connection when the override expression renders an empty string.".
 t_clientid_override_fail_with_empty_render_result(_) ->
     test_clientid_override_fail(<<"original-clientid-1">>).
 
@@ -727,14 +729,39 @@ t_clientid_override_fail_with_expression_exception(init, Config) ->
     {ok, Rule} = emqx_variform:compile(<<"nth(1,undefined_var)">>),
     override_conf([mqtt, clientid_override], Rule, Config).
 
+-doc "Reject the connection when the override expression raises an exception.".
 t_clientid_override_fail_with_expression_exception(_) ->
     test_clientid_override_fail(<<"original-clientid-2">>).
 
+t_clientid_override_fail_with_unbound_var(init, Config) ->
+    {ok, Rule} = emqx_variform:compile(<<"concat([client_attrs.tns, '-', clientid])">>),
+    override_conf([mqtt, clientid_override], Rule, Config).
+
+-doc """
+Reject the connection when the override expression references an unbound variable,
+for example `client_attrs.tns` which is not bound before authentication.
+""".
+t_clientid_override_fail_with_unbound_var(_) ->
+    test_clientid_override_fail(<<"original-clientid-3">>).
+
 test_clientid_override_fail(ClientId) ->
-    {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}]),
-    {ok, _} = emqtt:connect(Client),
-    ?assertMatch(#{clientid := ClientId}, maps:get(clientinfo, emqx_cm:get_chan_info(ClientId))),
-    emqtt:disconnect(Client).
+    lists:foreach(
+        fun(ProtoVer) -> test_clientid_override_fail(ProtoVer, ClientId) end,
+        [v3, v4, v5]
+    ).
+
+test_clientid_override_fail(ProtoVer, ClientId) ->
+    process_flag(trap_exit, true),
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}, {proto_ver, ProtoVer}]),
+    ?assertMatch({error, {client_identifier_not_valid, _}}, emqtt:connect(Client)),
+    receive
+        {'EXIT', Client, {shutdown, client_identifier_not_valid}} -> ok
+    after 1000 ->
+        ct:fail({expect_client_identifier_not_valid, ProtoVer})
+    end,
+    %% The client-supplied Client ID must not reach the session registry.
+    ?assertEqual(undefined, emqx_cm:get_chan_info(ClientId)),
+    ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
 t_namespace_as_mountpoint_enabled(init, Config) ->
     %% Set tns attribute from user property
