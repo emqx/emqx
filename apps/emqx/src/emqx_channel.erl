@@ -2485,37 +2485,37 @@ initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
 
 maybe_override_clientid(_ConnPkt, #{zone := Zone} = ClientInfo) ->
     Expression = get_mqtt_conf(Zone, clientid_override, disabled),
-    {ok, override_clientid(Expression, ClientInfo)}.
+    override_clientid(Expression, ClientInfo).
 
 override_clientid(disabled, ClientInfo) ->
-    ClientInfo;
+    {ok, ClientInfo};
 override_clientid(Expression, #{clientid := OrigClientId} = ClientInfo) ->
     case emqx_variform:render(Expression, ClientInfo) of
         {ok, <<>>} ->
             ?SLOG(
-                warning,
+                error,
                 #{
                     msg => "clientid_override_expression_returned_empty_string"
                 },
                 #{clientid => OrigClientId}
             ),
-            ClientInfo;
+            {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID, ClientInfo};
         {ok, ClientId} ->
             % Must add 'clientid' log meta for trace log filter
             ?TRACE("MQTT", "clientid_overridden", #{
                 clientid => ClientId, original_clientid => OrigClientId
             }),
-            ClientInfo#{clientid => ClientId};
+            {ok, ClientInfo#{clientid => ClientId}};
         {error, Reason} ->
             ?SLOG(
-                warning,
+                error,
                 #{
                     msg => "clientid_override_expression_failed",
                     reason => Reason
                 },
                 #{clientid => OrigClientId}
             ),
-            ClientInfo
+            {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID, ClientInfo}
     end.
 
 get_user_property_as_map(#mqtt_packet_connect{properties = #{'User-Property' := UserProperty}}) when
