@@ -750,7 +750,7 @@ start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0) ->
     #{http := HTTPClientConfig} = ActionState0,
     Type = ?ACTION_TYPE_AGGREG_BIN,
     AggregId = {Namespace, Type, Name},
-    WorkDir = work_dir(Namespace, Type, Name),
+    WorkDir = emqx_connector_aggregator:work_dir(Namespace, Type, Name),
     AggregOpts = #{
         max_records => MaxRecords,
         time_interval => TimeInterval,
@@ -818,11 +818,6 @@ run_aggregated_action(Batch, ActionResId, #{aggreg_id := AggregId}) ->
         {error, Reason} ->
             {error, {unrecoverable_error, Reason}}
     end.
-
-work_dir(?global_ns, Type, Name) ->
-    filename:join([emqx:data_dir(), bridge, Type, Name]);
-work_dir(Ns, Type, Name) when is_binary(Ns) ->
-    filename:join([emqx:data_dir(), bridge, ns, Ns, Type, Name]).
 
 str(X) -> emqx_utils_conv:str(X).
 

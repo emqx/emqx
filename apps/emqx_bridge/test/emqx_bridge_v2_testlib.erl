@@ -2547,6 +2547,28 @@ t_aggreg_different_namespaces(TCConfig, Opts) ->
          || {Id, Pid, _, _} <- supervisor:which_children(AggregSup)
         ]
     ),
+
+    #{kind := Kind, name := Name, type := Type} = get_common_values(TCConfigNs),
+    {204, _} = delete_kind_api(Kind, Type, Name, #{auth_header => AuthHeaderNs}),
+
+    %% Reject creating actions with bad namespaces
+    lists:foreach(
+        fun(BadNs) ->
+            ct:pal("bad ns: ~p", [BadNs]),
+            AuthHeaderBadNs = ensure_namespaced_api_key(#{namespace => BadNs}),
+            TCConfigBadNs = [{auth_header, AuthHeaderBadNs} | TCConfig],
+            {201, #{<<"status">> := <<"connected">>}} =
+                create_connector_api2(TCConfigBadNs, #{}),
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> := <<"Action cannot be created in this namespace">>
+                }},
+                create_action_api2(TCConfigBadNs, #{})
+            )
+        end,
+        [<<".">>, <<"..">>, <<"a/b">>]
+    ),
     ok.
 
 snk_timetrap() ->

@@ -201,7 +201,7 @@ start_channel(State, #{
     AggregOpts = #{
         time_interval => TimeInterval,
         max_records => MaxRecords,
-        work_dir => work_dir(Namespace, Type, Name)
+        work_dir => emqx_connector_aggregator:work_dir(Namespace, Type, Name)
     },
     Template = emqx_bridge_s3_upload:mk_key_template(Key),
     DeliveryOpts = #{
@@ -232,11 +232,6 @@ start_channel(State, #{
 
 upload_options(Parameters) ->
     #{acl => maps:get(acl, Parameters, undefined)}.
-
-work_dir(?global_ns, Type, Name) ->
-    filename:join([emqx:data_dir(), bridge, Type, Name]);
-work_dir(Ns, Type, Name) when is_binary(Ns) ->
-    filename:join([emqx:data_dir(), bridge, ns, Ns, Type, Name]).
 
 stop_channel(#{on_stop := OnStop}) ->
     OnStop();
