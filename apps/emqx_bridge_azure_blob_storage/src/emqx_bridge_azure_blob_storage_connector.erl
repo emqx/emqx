@@ -16,6 +16,7 @@
 -include_lib("emqx_connector_aggregator/include/emqx_connector_aggregator.hrl").
 -include_lib("emqx/include/emqx_trace.hrl").
 -include("emqx_bridge_azure_blob_storage.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% `emqx_resource' API
 -export([
@@ -502,6 +503,7 @@ install_action(#{parameters := #{mode := direct}} = ActionConfig, _ConnState) ->
 install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState) ->
     #{driver_state := DriverState} = ConnState,
     #{
+        bridge_namespace := Namespace,
         bridge_name := Name,
         parameters := #{
             mode := Mode = aggregated,
@@ -517,12 +519,12 @@ install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState)
         }
     } = ActionConfig,
     Type = ?ACTION_TYPE_BIN,
-    AggregId = {Type, Name},
+    AggregId = {Namespace, Type, Name},
     Blob = mk_blob_name_template(BlobTemplateStr),
     AggregOpts = #{
         max_records => MaxRecords,
         time_interval => TimeInterval,
-        work_dir => work_dir(Type, Name)
+        work_dir => work_dir(Namespace, Type, Name)
     },
     ContentType = content_type(ContainerType),
     TransferOpts = #{
@@ -608,8 +610,10 @@ run_aggregated_transfer(Records, #{aggreg_id := AggregId}) ->
             {error, {unrecoverable_error, Reason}}
     end.
 
-work_dir(Type, Name) ->
-    filename:join([emqx:data_dir(), bridge, Type, Name]).
+work_dir(?global_ns, Type, Name) ->
+    filename:join([emqx:data_dir(), bridge, Type, Name]);
+work_dir(Ns, Type, Name) when is_binary(Ns) ->
+    filename:join([emqx:data_dir(), bridge, ns, Ns, Type, Name]).
 
 -spec mk_blob_name_template(template_str()) -> emqx_template:str().
 mk_blob_name_template(TemplateStr) ->

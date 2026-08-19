@@ -85,9 +85,10 @@ init_per_testcase(TestCase, Config) ->
         {connector_type, ?CONNECTOR_TYPE},
         {connector_name, Name},
         {connector_config, ConnectorConfig},
-        {bridge_type, ?BRIDGE_TYPE},
-        {bridge_name, Name},
-        {bridge_config, ActionConfig},
+        {bridge_kind, action},
+        {action_name, Name},
+        {action_config, ActionConfig},
+        {action_type, ?BRIDGE_TYPE},
         {s3_bucket, Bucket}
         | Config
     ].
@@ -225,7 +226,7 @@ t_update_invalid_config(Config) ->
 
 t_aggreg_upload(Config) ->
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     BridgeNameString = unicode:characters_to_list(BridgeName),
     NodeString = atom_to_list(node()),
@@ -265,11 +266,11 @@ t_aggreg_upload(Config) ->
 %% Smoke test for using JSON Lines container type.
 t_aggreg_upload_json_lines(Config0) ->
     Bucket = ?config(s3_bucket, Config0),
-    BridgeName = ?config(bridge_name, Config0),
+    BridgeName = ?config(action_name, Config0),
     AggregId = aggreg_id(BridgeName),
     BridgeNameString = unicode:characters_to_list(BridgeName),
     NodeString = atom_to_list(node()),
-    Config = emqx_bridge_v2_testlib:proplist_update(Config0, bridge_config, fun(Old) ->
+    Config = emqx_bridge_v2_testlib:proplist_update(Config0, action_config, fun(Old) ->
         Cfg = emqx_utils_maps:deep_put(
             [<<"parameters">>, <<"container">>, <<"type">>],
             Old,
@@ -326,7 +327,7 @@ t_aggreg_upload_json_lines(Config0) ->
 
 t_aggreg_upload_rule(Config) ->
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     ClientID = emqx_utils_conv:bin(?FUNCTION_NAME),
     %% Create a bridge with the sample configuration and a simple SQL rule.
@@ -380,7 +381,7 @@ t_aggreg_upload_restart(Config) ->
     %% This test verifies that the bridge will reuse existing aggregation buffer
     %% after a restart.
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     %% Create a bridge with the sample configuration.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
@@ -421,7 +422,7 @@ t_aggreg_upload_restart(Config) ->
 %% and does so while preserving uncompromised data.
 t_aggreg_upload_restart_corrupted(Config) ->
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     BatchSize = ?CONF_MAX_RECORDS div 2,
     Opts = #{
         aggreg_id => aggreg_id(BridgeName),
@@ -476,7 +477,7 @@ t_aggreg_pending_upload_restart(Config) ->
     %% This test verifies that the bridge will finish uploading a buffer file after
     %% a restart.
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     %% Create a bridge with the sample configuration.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
@@ -513,7 +514,7 @@ t_aggreg_next_rotate(Config) ->
     %% This is essentially a stress test that tries to verify that buffer rotation
     %% and windowing work correctly under high rate, high concurrency conditions.
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     NSenders = 4,
     %% Create a bridge with the sample configuration.
@@ -558,6 +559,12 @@ t_aggreg_next_rotate(Config) ->
         NSent,
         lists:sum([NR || {_, NR} <- NRecords])
     ).
+
+t_aggreg_different_namespaces(TCConfig) ->
+    Opts = #{
+        aggreg_sup => ?AGGREG_SUP
+    },
+    emqx_bridge_v2_testlib:t_aggreg_different_namespaces(TCConfig, Opts).
 
 run_message_sender(BridgeName, N) ->
     ClientID = integer_to_binary(N),
@@ -617,4 +624,4 @@ fetch_parse_csv(Bucket, Key) ->
     CSV.
 
 aggreg_id(BridgeName) ->
-    {?BRIDGE_TYPE, BridgeName}.
+    {?global_ns, ?BRIDGE_TYPE, BridgeName}.

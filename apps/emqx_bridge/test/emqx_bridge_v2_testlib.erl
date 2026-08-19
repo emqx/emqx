@@ -2507,6 +2507,48 @@ t_ecpool_workers_crash(TCConfig) ->
     ),
     ok.
 
+-doc """
+For aggregated upload connectors.
+
+Checks that connectors/actions with the same name and different namespaces don't step over
+each other.
+""".
+t_aggreg_different_namespaces(TCConfig, Opts) ->
+    #{
+        aggreg_sup := AggregSup
+    } = Opts,
+
+    Ns = <<"some_ns">>,
+    {ok, APIKey} = emqx_common_test_http:create_default_app(),
+    AuthHeaderGlobal = emqx_common_test_http:auth_header(APIKey),
+    TCConfigGlobal = [{auth_header, AuthHeaderGlobal} | TCConfig],
+    AuthHeaderNs = ensure_namespaced_api_key(#{namespace => Ns}),
+    TCConfigNs = [{auth_header, AuthHeaderNs} | TCConfig],
+
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api2(TCConfigGlobal, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfigGlobal, #{}),
+
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api2(TCConfigNs, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfigNs, #{}),
+
+    %% Should have 2 children, with different work dirs
+    ?assertMatch(
+        [
+            {_, _, #{work_dir := WD1}},
+            {_, _, #{work_dir := WD2}}
+        ] when WD1 /= WD2,
+        [
+            begin
+                {ok, #{
+                    start := {_, _, [_, #{work_dir := WD}, _]}
+                }} = supervisor:get_childspec(AggregSup, Id),
+                {Id, Pid, #{work_dir => WD}}
+            end
+         || {Id, Pid, _, _} <- supervisor:which_children(AggregSup)
+        ]
+    ),
+    ok.
+
 snk_timetrap() ->
     {CTTimetrap, _} = ct:get_timetrap_info(),
     #{timetrap => max(0, CTTimetrap - 1_000)}.
