@@ -127,7 +127,7 @@ republish(
     );
 republish(
     Selected,
-    #{metadata := #{rule_id := RuleId}} = Env,
+    #{metadata := #{rule_id := RuleId} = Metadata} = Env,
     #{
         preprocessed_tmpl := #{
             qos := QoSTemplate,
@@ -143,7 +143,7 @@ republish(
     % NOTE: rendering missing bindings as string "undefined"
     {TopicString, _Errors1} = render_template(TopicTemplate, Selected),
     {PayloadString, _Errors2} = render_template(PayloadTemplate, Selected),
-    Topic = iolist_to_binary(TopicString),
+    Topic = mount_rule_namespace(Metadata, iolist_to_binary(TopicString)),
     Payload = iolist_to_binary(PayloadString),
     QoS = render_simple_var(QoSTemplate, Selected, 0),
     Retain = render_simple_var(RetainTemplate, Selected, false),
@@ -234,6 +234,29 @@ pre_process_args(Mod, Func, Args) ->
         true -> Mod:pre_process_action_args(Func, Args);
         false -> Args
     end.
+
+-doc """
+Confine a namespaced rule's republish topic to the rule's namespace when
+`rule_engine.limit_selects_in_namespace` is enabled.
+When the rendered topic is already under `<namespace>/` it is published
+as is, so templates that prefix the namespace themselves keep working.
+Otherwise `<namespace>/` is prepended.
+Global rules, and namespaced rules with the limit disabled, keep the
+rendered topic.
+""".
+mount_rule_namespace(#{namespace := Namespace}, Topic) when is_binary(Namespace) ->
+    case emqx_rule_engine_config:get_limit_selects_in_namespace() of
+        true ->
+            MountPoint = <<Namespace/binary, "/">>,
+            case string:prefix(Topic, MountPoint) of
+                nomatch -> emqx_mountpoint:mount(MountPoint, Topic);
+                _ -> Topic
+            end;
+        false ->
+            Topic
+    end;
+mount_rule_namespace(_Metadata, Topic) ->
+    Topic.
 
 safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps, DirectDispatch) ->
     Msg = #message{
