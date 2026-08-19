@@ -449,9 +449,10 @@ load_config(Namespace, Bin, Opts) when is_binary(Bin) ->
         {ok, RawConf} ->
             load_config_from_raw(Namespace, RawConf, Opts);
         %% Type is scan_error, parse_error...
+        %% Reason may be an atom, a binary or a string.
         {error, {Type, Meta = #{reason := Reason}}} ->
             {error, Meta#{
-                reason => unicode:characters_to_binary(Reason),
+                reason => emqx_utils:readable_error_msg(Reason),
                 type => Type
             }};
         {error, Reason} ->
