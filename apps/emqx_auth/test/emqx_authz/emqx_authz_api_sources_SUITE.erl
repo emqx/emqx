@@ -86,12 +86,21 @@
 }).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    [].
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create_local, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, health_check, fun(St) -> {ok, St} end),
@@ -106,22 +115,29 @@ init_per_suite(Config) ->
 
     Apps = emqx_cth_suite:start(
         [
-            emqx,
             {emqx_conf,
-                "authorization { cache { enable = false }, no_match = deny, sources = [] }"},
+                emqx_authz_test_lib:emqx_appspec(#{
+                    config =>
+                        "authorization { cache { enable = false }, no_match = deny, sources = [] }"
+                })},
             emqx_auth,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
         #{
-            work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
+            work_dir => emqx_cth_suite:work_dir(Profile, Config)
         }
     ),
     ok = emqx_authz_test_lib:register_fake_sources([http, mongodb, mysql, postgresql, redis]),
     _ = emqx_common_test_http:create_default_app(),
-    [{acl_conf_backup, ACLConfBackup}, {suite_apps, Apps} | Config].
+    [
+        {acl_conf_backup, ACLConfBackup},
+        {suite_apps, Apps},
+        {security_profile, Profile}
+        | Config
+    ].
 
-end_per_suite(Config) ->
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
     ok = restore_acl_conf(Config),
     {ok, _} = emqx:update_config(
         [authorization],
@@ -135,7 +151,7 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     meck:unload(emqx_resource),
     meck:unload(emqx_authz_file),
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(t_api, Config) ->
     meck:new(emqx_utils, [non_strict, passthrough, no_history, no_link]),

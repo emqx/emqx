@@ -83,7 +83,6 @@ emqx_extsub: all
 emqx_ft: none
 emqx_gateway: all
 emqx_gateway_coap: emqx_gateway_lwm2m
-emqx_gateway_exproto: none
 emqx_gateway_gbt32960: none
 emqx_gateway_jt808: none
 emqx_gateway_lwm2m: none

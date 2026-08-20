@@ -283,7 +283,8 @@ t_no_active_models_deny_all_non_exempt(_Config) ->
             allow
         )
     ),
-    %% on_message_publish won't deny because the pdict key is not set after authz deny
+    %% on_message_publish passes through: the topic resolves to no governing
+    %% model, so there is no payload to validate against.
     Msg = emqx_message:make(<<"client-1">>, <<"default/Plant1/Status">>, <<"payload">>),
     ?assertMatch({ok, _}, emqx_unsgov:on_message_publish(Msg)).
 
@@ -456,23 +457,50 @@ t_hook_non_publish_action_passes_through(_Config) ->
         )
     ).
 
+-doc "A conforming payload on a governed topic is allowed by on_message_publish/1.".
 t_on_message_publish_allow_path(_Config) ->
     {ok, _} = emqx_unsgov_store:put_model(sample_model(), true),
     Topic = <<"default/Plant1/BatchHouse/Furnaces/F1/Lines/Line1/LineControl">>,
     Payload = <<"{\"Status\":\"running\",\"Mode\":\"auto\"}">>,
     Msg = emqx_message:make(<<"client-1">>, Topic, Payload),
-    %% Simulate authz setting the pdict key
-    erlang:put(emqx_unsgov_model_id, <<"model-v1">>),
     ?assertMatch({ok, _}, emqx_unsgov:on_message_publish(Msg)).
 
+-doc "A non-conforming payload on a governed topic is dropped by on_message_publish/1.".
 t_on_message_publish_deny_path(_Config) ->
     {ok, _} = emqx_unsgov_store:put_model(sample_model(), true),
     Topic = <<"default/Plant1/BatchHouse/Furnaces/F1/Lines/Line1/LineControl">>,
     Payload = <<"{\"Status\":\"running\"}">>,
     Msg = emqx_message:make(<<"client-1">>, Topic, Payload),
-    %% Simulate authz setting the pdict key
-    erlang:put(emqx_unsgov_model_id, <<"model-v1">>),
     ?assertMatch({stop, _}, emqx_unsgov:on_message_publish(Msg)).
+
+-doc """
+Payload validation runs on every publish, even when `on_client_authorize/4`
+did not fire beforehand (as on an authorization cache hit). Calls
+`on_message_publish/1` directly, with no prior authorize call, and asserts
+that a non-conforming payload is still dropped and metrics move accordingly.
+""".
+t_on_message_publish_validates_without_authorize(_Config) ->
+    {ok, _} = emqx_unsgov_store:put_model(sample_model(), true),
+    Topic = <<"default/Plant1/BatchHouse/Furnaces/F1/Lines/Line1/LineControl">>,
+    BadMsg = emqx_message:make(
+        <<"client-1">>, Topic, <<"{\"Status\":\"running\"}">>
+    ),
+    ?assertMatch({stop, _}, emqx_unsgov:on_message_publish(BadMsg)),
+    {ok, 200, _, Stats1} = emqx_unsgov_api:handle(get, [<<"stats">>], #{}),
+    ?assertEqual(1, maps:get(messages_dropped, Stats1)),
+    ?assertEqual(1, maps:get(payload_invalid, Stats1)),
+    GoodMsg = emqx_message:make(
+        <<"client-1">>, Topic, <<"{\"Status\":\"running\",\"Mode\":\"auto\"}">>
+    ),
+    ?assertMatch({ok, _}, emqx_unsgov:on_message_publish(GoodMsg)),
+    %% Exempt and non-governed topics pass through without validation.
+    ExemptMsg = emqx_message:make(<<"client-1">>, <<"$SYS/brokers">>, <<"x">>),
+    ?assertEqual({ok, ExemptMsg}, emqx_unsgov:on_message_publish(ExemptMsg)),
+    UngovernedMsg = emqx_message:make(<<"client-1">>, <<"other/topic">>, <<"x">>),
+    ?assertEqual({ok, UngovernedMsg}, emqx_unsgov:on_message_publish(UngovernedMsg)),
+    {ok, 200, _, Stats2} = emqx_unsgov_api:handle(get, [<<"stats">>], #{}),
+    ?assertEqual(1, maps:get(messages_allowed, Stats2)),
+    ?assertEqual(1, maps:get(messages_dropped, Stats2)).
 
 %%--------------------------------------------------------------------
 %% Config robustness

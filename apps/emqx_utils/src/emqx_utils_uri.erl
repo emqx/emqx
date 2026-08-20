@@ -42,6 +42,11 @@ to parse invalid URIs, like URI templates, i.e URIs of the form `http://example.
     join_path/2
 ]).
 
+-export([
+    canonicalize_path/1,
+    remove_dot_segments/1
+]).
+
 -type scheme() :: binary().
 -type userinfo() :: binary().
 -type host() :: binary().
@@ -215,9 +220,63 @@ join_path(Base, Path) ->
             [without_trailing_slash(Base), $/, without_starting_slash(Path)]
     end.
 
+-doc """
+Canonicalize an absolute URI path for comparison against another path
+and for safe reuse as a request path: split into segments, percent-decode
+each segment, resolve `.'/`..' segments, then percent-encode again.
+
+Decoding happens after splitting, so an encoded separator cannot introduce
+a segment boundary; a segment that decodes to text containing a separator
+is rejected, because a receiving server may decode it into extra
+boundaries. Returns `error' for non-absolute paths, invalid percent
+encoding, and percent-encoded bytes that are not valid UTF-8.
+""".
+-spec canonicalize_path(binary()) -> {ok, binary()} | error.
+canonicalize_path(<<"/", Rest/binary>>) ->
+    try
+        Segments = [decode_segment(S) || S <- binary:split(Rest, <<"/">>, [global])],
+        Quoted = [uri_string:quote(S) || S <- remove_dot_segments(Segments)],
+        case Quoted of
+            [] -> {ok, <<"/">>};
+            _ -> {ok, iolist_to_binary([[$/, S] || S <- Quoted])}
+        end
+    catch
+        throw:_ -> error
+    end;
+canonicalize_path(_) ->
+    error.
+
+-doc """
+Resolve `.'/`..' segments against the preceding segments; a `..' at the
+root is dropped, as in RFC 3986 `remove_dot_segments'.
+""".
+-spec remove_dot_segments([binary()]) -> [binary()].
+remove_dot_segments(Segments) ->
+    remove_dot_segments(Segments, []).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+%% `uri_string:percent_decode/1' throws on invalid percent encoding
+%% and on percent-encoded bytes that are not valid UTF-8.
+decode_segment(Segment) ->
+    Decoded = uri_string:percent_decode(Segment),
+    case binary:match(Decoded, [<<"/">>, <<"\\">>]) of
+        nomatch -> Decoded;
+        _ -> throw({encoded_separator, Segment})
+    end.
+
+remove_dot_segments([], Acc) ->
+    lists:reverse(Acc);
+remove_dot_segments([<<".">> | Segments], Acc) ->
+    remove_dot_segments(Segments, Acc);
+remove_dot_segments([<<"..">> | Segments], []) ->
+    remove_dot_segments(Segments, []);
+remove_dot_segments([<<"..">> | Segments], [_ | Acc]) ->
+    remove_dot_segments(Segments, Acc);
+remove_dot_segments([Segment | Segments], Acc) ->
+    remove_dot_segments(Segments, [Segment | Acc]).
 
 parse_scheme(<<>>) -> undefined;
 parse_scheme(Scheme) -> Scheme.

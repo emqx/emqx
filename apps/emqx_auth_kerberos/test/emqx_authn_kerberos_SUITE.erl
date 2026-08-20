@@ -28,20 +28,33 @@
 -define(PORT, 1883).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
     ok = sasl_auth:kinit(?CLI_KEYTAB_FILE, ?CLI_PRINCIPAL),
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_kerberos], #{
-        work_dir => ?config(priv_dir, Config)
-    }),
-    IdleTimeout = emqx_config:get([mqtt, idle_timeout]),
-    [{apps, Apps}, {idle_timeout, IdleTimeout} | Config].
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
 
-end_per_suite(Config) ->
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
+    Apps = emqx_cth_suite:start(
+        [{emqx_conf, emqx_authn_test_lib:emqx_appspec()}, emqx_auth, emqx_auth_kerberos],
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
+    ),
+    IdleTimeout = emqx_config:get([mqtt, idle_timeout]),
+    [{apps, Apps}, {idle_timeout, IdleTimeout}, {security_profile, Profile} | Config].
+
+end_per_group(_Profile, Config) ->
     ok = emqx_config:put([mqtt, idle_timeout], ?config(idle_timeout, Config)),
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
-    ok.
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(_Case, Config) ->
     emqx_authn_test_lib:delete_authenticators(

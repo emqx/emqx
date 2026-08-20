@@ -12,20 +12,22 @@
 
 %% The config with json format for mqtt-sn gateway
 -define(CONF_MQTTSN,
-    "\n"
-    "{\"idle_timeout\": \"30s\",\n"
-    " \"enable_stats\": true,\n"
-    " \"mountpoint\": \"mqttsn/\",\n"
-    " \"gateway_id\": 1,\n"
-    " \"broadcast\": true,\n"
-    " \"enable_qos3\": true,\n"
-    " \"predefined\": [{\"id\": 1001, \"topic\": \"pred/a\"}],\n"
-    " \"listeners\":\n"
-    "    [{\"type\": \"udp\",\n"
-    "      \"name\": \"ct\",\n"
-    "      \"bind\": \"1884\"\n"
-    "    }]\n"
-    "}\n"
+    """
+    {"idle_timeout": "30s",
+     "enable_stats": true,
+     "mountpoint": "mqttsn/",
+     "gateway_id": 1,
+     "broadcast": true,
+     "enable_qos3": true,
+     "predefined": [{"id": 1001, "topic": "pred/a"}],
+     "listeners":
+        [{"type": "udp",
+          "name": "ct",
+          "enable_authn": false,
+          "bind": "1884"
+        }]
+    }
+    """
 ).
 
 -import(emqx_gateway_test_utils, [sn_client_connect/1, sn_client_disconnect/1]).
@@ -34,19 +36,30 @@
 %% Setup
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() -> [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [emqx, emqx_conf, emqx_gateway],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
-    [{apps, Apps} | Config].
+    [{apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
-    Apps = ?config(apps, Config),
-    emqx_cth_suite:stop(Apps),
-    ok.
+end_per_group(_Profile, Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(_, Conf) ->
     Self = self(),

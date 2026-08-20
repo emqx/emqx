@@ -4,8 +4,6 @@
 
 -module(emqx_mgmt_data_backup).
 
--feature(maybe_expr, enable).
-
 -export([
     export/0,
     all_table_set_names/0,
@@ -36,7 +34,9 @@
     format_conf_errors/1,
     format_db_errors/1,
     sensitive_table_set_names/0,
-    peek_sensitive_table_sets/1
+    peek_sensitive_table_sets/1,
+    peek_backup_scope/2,
+    peek_backup_scope_of_content/1
 ]).
 
 -export([default_validate_mnesia_backup/1]).
@@ -135,6 +135,7 @@
 -type raw_config() :: #{binary() => any()}.
 -type mnesia_table_filter() :: fun((atom()) -> boolean()).
 -type maybe_namespace() :: ?global_ns | binary().
+-type backup_scope() :: #{global := boolean(), namespaces := [binary()]}.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -279,6 +280,53 @@ match_sensitive_entry(Path, SensitiveTabMap) ->
         _ ->
             false
     end.
+
+-doc """
+Inspect a previously-uploaded backup file owned by `Namespace` and return the
+configuration scopes its entries contain. See `peek_backup_scope_of_content/1`.
+""".
+-spec peek_backup_scope(maybe_namespace(), file:filename_all()) ->
+    {ok, backup_scope()} | {error, _}.
+peek_backup_scope(Namespace, Filename) ->
+    maybe
+        {ok, FilePath} ?= backup_path(Namespace, Filename),
+        ok ?= validate_file_exists(FilePath),
+        {ok, Entries} ?= tar_table(FilePath),
+        {ok, scope_of_entries(Entries)}
+    end.
+
+-doc """
+Classify the configuration scopes present in an in-memory backup archive:
+`global` is true when the archive holds global content (a top-level
+cluster.hocon or any mnesia table dump); `namespaces` lists every namespace
+with a `ns/<NS>/cluster.hocon` entry. The HTTP handlers use this to confine
+namespaced upload/import operations to archives holding only the resolved
+namespace's data.
+""".
+-spec peek_backup_scope_of_content(binary()) -> {ok, backup_scope()} | {error, _}.
+peek_backup_scope_of_content(BackupFileContent) ->
+    maybe
+        {ok, Entries} ?= tar_table({binary, BackupFileContent}),
+        {ok, scope_of_entries(Entries)}
+    end.
+
+scope_of_entries(Entries) ->
+    lists:foldl(
+        fun(Entry, Acc) ->
+            classify_entry_scope(lists:reverse(filename:split(str(Entry))), Acc)
+        end,
+        #{global => false, namespaces => []},
+        Entries
+    ).
+
+classify_entry_scope(?HOCON_NS_INTERNAL_TAR_PATH_REV_PAT(Namespace), #{namespaces := NSs} = Acc) ->
+    Acc#{namespaces := lists:usort([bin(Namespace) | NSs])};
+classify_entry_scope([?CLUSTER_HOCON_FILENAME | _], Acc) ->
+    Acc#{global := true};
+classify_entry_scope([_TabName, ?BACKUP_MNESIA_DIR | _], Acc) ->
+    Acc#{global := true};
+classify_entry_scope(_Entry, Acc) ->
+    Acc.
 
 validate_export_root_keys(Params) ->
     RootKeys0 = maps:get(<<"root_keys">>, Params, []),
@@ -445,7 +493,7 @@ upload(Namespace, BackupFilename, BackupFileContent) ->
         {ok, FilePath} ?= backup_path(Namespace, BackupFilename),
         case filelib:is_file(FilePath) of
             true -> {error, {already_exists, BackupFilename}};
-            false -> do_upload(FilePath, BackupFileContent)
+            false -> do_upload(Namespace, FilePath, BackupFileContent)
         end
     end.
 
@@ -500,6 +548,8 @@ format_error(invalid_version) ->
     "invalid backup archive content: wrong EMQX version value in " ?META_FILENAME;
 format_error(bad_archive_dir) ->
     "invalid backup archive content: all files in the archive must be under <backup name> directory";
+format_error(bad_archive_member) ->
+    "invalid backup archive content: only regular files and directories are allowed in the archive";
 format_error(not_found) ->
     "backup file not found";
 format_error(bad_backup_name) ->
@@ -579,12 +629,12 @@ maybe_not_found({error, enoent}) ->
 maybe_not_found(Other) ->
     Other.
 
-do_upload(BackupFilePath, BackupFileContent) ->
+do_upload(Namespace, BackupFilePath, BackupFileContent) ->
     try
         maybe
-            {ok, BackupDir} ?= backup_dir(BackupFilePath),
+            {ok, BackupDir} ?= backup_dir(Namespace, BackupFilePath),
             ok ?= file:write_file(BackupFilePath, BackupFileContent),
-            ok ?= extract_backup(BackupFilePath),
+            ok ?= extract_backup(Namespace, BackupFilePath),
             {ok, _} ?= validate_backup(BackupDir),
             HoconFilename = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
             ok ?=
@@ -623,7 +673,7 @@ do_upload(BackupFilePath, BackupFileContent) ->
             }),
             {error, Reason}
     after
-        cleanup_backup_dir(BackupFilePath)
+        cleanup_backup_dir(Namespace, BackupFilePath)
     end.
 
 prepare_new_backup(Opts) ->
@@ -658,7 +708,10 @@ do_export(BackupName, TarDescriptor, Opts) ->
     ok = format_tar_error(erl_tar:add(TarDescriptor, MetaBin, MetaFilename, [])),
     case Namespace of
         ?global_ns ->
+            %% A global export is a full-cluster artifact: global configuration
+            %% and mnesia tables plus every namespace's configuration.
             ok = export_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
+            ok = export_all_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Opts),
             ok = export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts);
         _ when is_binary(Namespace) ->
             ok = export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts)
@@ -690,9 +743,22 @@ export_cluster_hocon(TarDescriptor, BackupBaseName, Opts) ->
     ok = format_tar_error(erl_tar:add(TarDescriptor, RawConfBin, NameInArchive, [])).
 
 export_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, Opts) ->
+    RootConfig = emqx_config:get_all_roots_from_namespace(Namespace),
+    add_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, RootConfig, Opts).
+
+export_all_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Opts) ->
+    maps:foreach(
+        fun(Namespace, RootConfig) ->
+            ok = add_namespaced_cluster_hocon(
+                TarDescriptor, BackupBaseName, Namespace, RootConfig, Opts
+            )
+        end,
+        emqx_config:get_all_raw_namespaced_configs()
+    ).
+
+add_namespaced_cluster_hocon(TarDescriptor, BackupBaseName, Namespace, RootConfig0, Opts) ->
     maybe_print("Exporting cluster configuration for namespace ~s...~n", [Namespace], Opts),
     TransformFn = maps:get(raw_conf_transform, Opts, fun(Raw) -> Raw end),
-    RootConfig0 = emqx_config:get_all_roots_from_namespace(Namespace),
     RootConfig = TransformFn(RootConfig0),
     RawConfBin = bin(hocon_pp:do(RootConfig, #{})),
     NameInArchive = str(
@@ -755,6 +821,18 @@ import_skip_root_keys_test() ->
     ConfRoots = lists:usort([hd(KP) || KP <- ?CONF_KEYS]),
     Overlap = [K || K <- import_skip_root_keys(), lists:member(K, ConfRoots)],
     ?assertEqual([], Overlap).
+
+assert_expected_table_test() ->
+    %% A backup file is chosen for restore by its name, but its schema
+    %% records name the table `mnesia:restore/2' actually writes. Records
+    %% may only ever land in the requested table: a schema record naming
+    %% any other table must be rejected (before the restore, which commits).
+    ok = assert_expected_table({some_record, key, value}, emqx_banned),
+    ok = assert_expected_table({schema, emqx_banned, []}, emqx_banned),
+    ?assertThrow(
+        {error, {unexpected_table, other_table}},
+        assert_expected_table({schema, other_table, []}, emqx_banned)
+    ).
 -else.
 tabs_to_backup() ->
     modules_with_mnesia_tabs_to_backup().
@@ -852,9 +930,9 @@ do_import(BackupFilePath, Opts) ->
     Namespace = maps:get(namespace, Opts, ?global_ns),
     try
         maybe
-            {ok, BackupDir} ?= backup_dir(BackupFilePath),
+            {ok, BackupDir} ?= backup_dir(Namespace, BackupFilePath),
             ok ?= validate_backup_basename(BackupFilePath),
-            ok ?= extract_backup(BackupFilePath),
+            ok ?= extract_backup(Namespace, BackupFilePath),
             {ok, _} ?= validate_backup(BackupDir),
             {ok, #{conf_errors := ConfErrors, mnesia_errors := MnesiaErrors}} ?=
                 do_import_for_namespace(Namespace, BackupDir, Opts),
@@ -881,7 +959,7 @@ do_import(BackupFilePath, Opts) ->
             }),
             {error, Reason}
     after
-        cleanup_backup_dir(BackupFilePath)
+        cleanup_backup_dir(Namespace, BackupFilePath)
     end.
 
 log_import_result(_BackupFilePath, #{db_errors := DbErrors, config_errors := ConfErrors}) when
@@ -900,12 +978,14 @@ log_import_result(BackupFilePath, #{db_errors := DbErrors, config_errors := Conf
 do_import_for_namespace(?global_ns, BackupDir, Opts) ->
     maybe
         {ok, GlobalConfErrors} ?= import_cluster_hocon(BackupDir, Opts),
+        {ok, NSConfErrors} ?= import_all_namespaced_cluster_hocon(BackupDir, Opts),
         MnesiaErrors = import_mnesia_tabs(BackupDir, Opts),
-        ConfErrors =
+        ConfErrors0 =
             case map_size(GlobalConfErrors) of
                 0 -> #{};
                 _ -> #{?global_ns => GlobalConfErrors}
             end,
+        ConfErrors = maps:merge(ConfErrors0, NSConfErrors),
         {ok, #{
             mnesia_errors => MnesiaErrors,
             conf_errors => ConfErrors
@@ -951,7 +1031,7 @@ import_mnesia_tab(BackupDir, Mod, TabName, Opts) ->
     end.
 
 restore_mnesia_tab(BackupDir, MnesiaBackupFilename, Mod, TabName, Opts) ->
-    Validated = validate_mnesia_backup(MnesiaBackupFilename, Mod),
+    Validated = validate_mnesia_backup(MnesiaBackupFilename, Mod, TabName),
     try
         case Validated of
             {ok, #{backup_file := BackupFile}} ->
@@ -1118,7 +1198,7 @@ on_table_imported(Mod, Tab, Opts) ->
 %% NOTE: if backup file is valid, we keep traversing it, though we only need to validate schema.
 %% Looks like there is no clean way to abort traversal without triggering any error reporting,
 %% `mnesia_bup:read_schema/2` is an option but its direct usage should also be avoided...
-validate_mnesia_backup(MnesiaBackupFilename, Mod) ->
+validate_mnesia_backup(MnesiaBackupFilename, Mod, ExpectedTab) ->
     Init = #{backup_file => MnesiaBackupFilename},
     Validated =
         try_traverse_backup(fun() ->
@@ -1127,7 +1207,7 @@ validate_mnesia_backup(MnesiaBackupFilename, Mod) ->
                 mnesia_backup,
                 dummy,
                 read_only,
-                mnesia_backup_validator(Mod),
+                mnesia_backup_validator(Mod, ExpectedTab),
                 Init
             )
         end),
@@ -1143,7 +1223,7 @@ validate_mnesia_backup(MnesiaBackupFilename, Mod) ->
     end.
 
 %% if the module has validator callback, use it else use the default
-mnesia_backup_validator(Mod) ->
+mnesia_backup_validator(Mod, ExpectedTab) ->
     Validator =
         case erlang:function_exported(Mod, validate_mnesia_backup, 1) of
             true ->
@@ -1152,6 +1232,14 @@ mnesia_backup_validator(Mod) ->
                 fun default_validate_mnesia_backup/1
         end,
     fun(Schema, Acc) ->
+        %% The importer picks the table to restore by the archive file
+        %% name, but `mnesia:restore/2' writes to the table named in the
+        %% backup's own schema records. Reject any schema that declares a
+        %% table other than the requested one, so records can only ever
+        %% land in `ExpectedTab'. Enforced here (not only in the per-module
+        %% validator) so a module callback cannot relax it, and before the
+        %% restore, which commits.
+        ok = assert_expected_table(Schema, ExpectedTab),
         case Validator(Schema) of
             ok ->
                 {[Schema], Acc};
@@ -1161,6 +1249,11 @@ mnesia_backup_validator(Mod) ->
                 throw(Error)
         end
     end.
+
+assert_expected_table({schema, Tab, _CreateList}, ExpectedTab) when Tab =/= ExpectedTab ->
+    throw({error, {unexpected_table, Tab}});
+assert_expected_table(_Schema, _ExpectedTab) ->
+    ok.
 
 default_validate_mnesia_backup({schema, Tab, CreateList}) ->
     ImportAttributes = proplists:get_value(attributes, CreateList),
@@ -1211,10 +1304,10 @@ try_traverse_backup(Fun) ->
             {'EXIT', {Reason, Stacktrace}}
     end.
 
-extract_backup(BackupFilePath) ->
+extract_backup(Namespace, BackupFilePath) ->
     ?SLOG(debug, #{msg => "extract_backup", backup_file_path => BackupFilePath}),
-    RootBackupDir = root_backup_dir(),
     maybe
+        {ok, RootBackupDir} ?= backup_root_dir(Namespace),
         ok ?= validate_filenames(BackupFilePath),
         ?SLOG(debug, #{
             msg => "extracting_backup", backup => BackupFilePath, root_backup_dir => RootBackupDir
@@ -1224,24 +1317,65 @@ extract_backup(BackupFilePath) ->
 
 validate_filenames(BackupFilePath) ->
     maybe
-        {ok, Filenames} ?= format_tar_error(erl_tar:table(BackupFilePath, [compressed])),
+        {ok, Members} ?= format_tar_error(erl_tar:table(BackupFilePath, [compressed, verbose])),
         BackupName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
-        IsValid = lists:all(
-            fun(Filename) ->
-                [Root | _] = filename:split(Filename),
-                Root =:= BackupName
-            end,
-            Filenames
-        ),
-        case IsValid of
-            true -> ok;
-            false -> {error, bad_archive_dir}
-        end
+        validate_tar_members(BackupName, Members)
     end.
+
+validate_tar_members(_BackupName, []) ->
+    ok;
+validate_tar_members(BackupName, [Member | Rest]) ->
+    case validate_tar_member(BackupName, Member) of
+        ok -> validate_tar_members(BackupName, Rest);
+        Error -> Error
+    end.
+
+%% Only regular files and directories confined to the `<backup name>/' subtree may be
+%% extracted: link members or path traversal could reach files outside the backup directory.
+validate_tar_member(BackupName, {Filename, Type, _Size, _MTime, _Mode, _Uid, _Gid}) when
+    Type =:= regular; Type =:= directory
+->
+    [Root | _] = Components = filename:split(Filename),
+    IsValid =
+        filename:pathtype(Filename) =:= relative andalso
+            Root =:= BackupName andalso
+            not lists:member("..", Components),
+    case IsValid of
+        true -> ok;
+        false -> {error, bad_archive_dir}
+    end;
+validate_tar_member(_BackupName, {Filename, Type, _Size, _MTime, _Mode, _Uid, _Gid}) ->
+    ?SLOG(warning, #{
+        msg => "bad_backup_archive_member",
+        filename => Filename,
+        type => Type
+    }),
+    {error, bad_archive_member}.
 
 import_cluster_hocon(BackupDir, Opts) ->
     HoconFilename = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
     do_import_cluster_hocon(?global_ns, BackupDir, HoconFilename, Opts).
+
+%% A global (full-cluster) archive may carry any number of `ns/<NS>/' entries;
+%% restore each one into its own namespace.
+import_all_namespaced_cluster_hocon(BackupDir, Opts) ->
+    Pattern = filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupDir, "*")),
+    lists:foldl(
+        fun
+            (NSHoconPath, {ok, Acc}) ->
+                ?HOCON_NS_INTERNAL_TAR_PATH_REV_PAT(Namespace) =
+                    lists:reverse(filename:split(NSHoconPath)),
+                maybe
+                    {ok, Errors} ?=
+                        import_namespaced_cluster_hocon(bin(Namespace), BackupDir, Opts),
+                    {ok, maps:merge(Acc, Errors)}
+                end;
+            (_NSHoconPath, {error, _} = Error) ->
+                Error
+        end,
+        {ok, #{}},
+        filelib:wildcard(Pattern)
+    ).
 
 import_namespaced_cluster_hocon(Namespace, BackupDir, Opts) when is_binary(Namespace) ->
     NSHoconPath = filename:join(?HOCON_NS_INTERNAL_TAR_PATH(BackupDir, Namespace)),
@@ -1573,13 +1707,23 @@ validate_backup_basename(BackupFilePath) ->
         false -> {error, bad_backup_name}
     end.
 
-backup_dir(BackupFilePath) ->
+backup_dir(Namespace, BackupFilePath) ->
     BaseName = filename:basename(BackupFilePath, ?TAR_SUFFIX),
-    RootBackupDir = root_backup_dir(),
-    case filelib:safe_relative_path(BaseName, RootBackupDir) of
-        unsafe -> {error, unsafe_backup_name};
-        _ -> {ok, filename:join(RootBackupDir, BaseName)}
+    maybe
+        ok ?= validate_extract_dir_name(Namespace, BaseName),
+        {ok, RootBackupDir} ?= backup_root_dir(Namespace),
+        case filelib:safe_relative_path(BaseName, RootBackupDir) of
+            unsafe -> {error, unsafe_backup_name};
+            _ -> {ok, filename:join(RootBackupDir, BaseName)}
+        end
     end.
+
+%% In the global root, `ns/' holds the namespaced backups; a backup named `ns' would
+%% extract into it and its cleanup would delete it.
+validate_extract_dir_name(?global_ns, ?NS_BACKUP_SUBDIR) ->
+    {error, unsafe_backup_name};
+validate_extract_dir_name(_Namespace, _BaseName) ->
+    ok.
 
 backup_path(Filename) ->
     backup_path(?global_ns, Filename).
@@ -1620,9 +1764,9 @@ namespaced_backup_dir(Namespace) ->
             {ok, Dir}
     end.
 
-cleanup_backup_dir(BackupFilePath) ->
+cleanup_backup_dir(Namespace, BackupFilePath) ->
     maybe
-        {ok, BackupDir} ?= backup_dir(BackupFilePath),
+        {ok, BackupDir} ?= backup_dir(Namespace, BackupFilePath),
         file:del_dir_r(BackupDir)
     end.
 

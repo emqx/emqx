@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry_external).
 
--feature(maybe_expr, enable).
-
 -behaviour(gen_server).
 
 -include("emqx_schema_registry.hrl").

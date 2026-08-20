@@ -35,6 +35,10 @@
     handle_info/2
 ]).
 
+-ifdef(TEST).
+-export([authorize_publish/2]).
+-endif.
+
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),
@@ -611,19 +615,21 @@ handle_in(
 handle_in(
     Frame = ?PACKET(Op),
     Channel = #channel{
-        ctx = Ctx,
         clientinfo = ClientInfo,
         conn_state = ConnState
     }
 ) when (Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB) andalso ?ALLOW_PUB_SUB(ConnState) ->
     Subject = emqx_nats_frame:subject(Frame),
     Topic = nats_subject_to_pub_topic(Subject),
-    case authorize_with_jwt_first(Ctx, ClientInfo, ?AUTHZ_PUBLISH, Topic, Subject) of
+    Msg = frame2message(Frame, Topic, Channel),
+    case authorize_publish(ClientInfo, Msg) of
         deny ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
-        allow ->
+        {error, _Reason} ->
+            handle_out(error, err_msg_publish_denied(Subject), Channel);
+        {allow, NMsg} ->
             case check_max_payload(Frame, Channel) of
-                ok -> process_pub_frame(Frame, Topic, Channel);
+                ok -> process_pub_message(NMsg, Channel);
                 {error, ErrMsg} -> handle_out(error, ErrMsg, Channel)
             end
     end;
@@ -1181,10 +1187,10 @@ frame2message(
     Frame,
     Topic,
     #channel{
-        clientinfo = #{
-            clientid := ClientId,
-            mountpoint := Mountpoint
-        },
+        clientinfo =
+            #{
+                clientid := ClientId
+            },
         publish_qos = QoS,
         pub_headers_base = BaseHeaders
     }
@@ -1202,12 +1208,11 @@ frame2message(
             _ ->
                 BaseHeaders1#{reply_to => ReplyTo}
         end,
-    Msg = emqx_message:make(ClientId, QoS, Topic, Payload, #{}, Headers1),
-    {emqx_mountpoint:mount(Mountpoint, Msg), ReplyTo}.
+    emqx_message:make(ClientId, QoS, Topic, Payload, #{retain => false}, Headers1).
 
-process_pub_frame(Frame, Topic, Channel) ->
-    {Msg, ReplyToSubject} = frame2message(Frame, Topic, Channel),
-    PubResult = emqx_broker:publish(Msg),
+process_pub_message(Msg, #channel{clientinfo = ClientInfo} = Channel) ->
+    ReplyToSubject = emqx_message:get_header(reply_to, Msg),
+    PubResult = emqx_message_ingress:finalize_and_publish(ClientInfo, Msg),
     Replies = no_responders_fastfails(PubResult, ReplyToSubject, Channel),
     finalize_pub_replies(Replies, Channel).
 
@@ -1285,6 +1290,18 @@ authorize_with_jwt_first(Ctx, ClientInfo, Action, Topic, Subject) ->
             authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic);
         ignore ->
             authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic)
+    end.
+
+authorize_publish(ClientInfo, Msg) ->
+    case emqx_message_ingress:ingress(ClientInfo, Msg) of
+        {ok, NMsg = #message{topic = Topic}} ->
+            Subject = emqx_nats_topic:mqtt_to_nats(Topic),
+            case jwt_permissions_authorize(ClientInfo, ?AUTHZ_PUBLISH, Topic, Subject) of
+                deny -> deny;
+                _ -> emqx_message_ingress:authorize(ClientInfo, NMsg)
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
 authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic) ->

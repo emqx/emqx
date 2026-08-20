@@ -8,8 +8,6 @@
 %% This process must start before we call `emqx_machine_boot:post_boot' because
 %% applications might hang while waiting for tables.
 
--feature(maybe_expr, enable).
-
 %% API
 -export([
     start_link/0

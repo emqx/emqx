@@ -13,13 +13,12 @@
         assert_confs/2,
         assert_fields_exist/2,
         request/2,
-        request/3,
-        ssl_server_opts/0,
-        ssl_client_opts/0
+        request/3
     ]
 ).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% this parses to #{}, will not cause config cleanup
@@ -32,26 +31,39 @@
 %% Setup
 %%--------------------------------------------------------------------
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() -> [{group, legacy}, {group, hardened}].
 
-init_per_suite(Conf) ->
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
+
+init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
             emqx_auth,
             emqx_auth_mnesia,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            emqx_mgmt_api_test_util:emqx_dashboard(),
             {emqx_gateway, ?CONF_DEFAULT}
             | emqx_gateway_test_utils:all_gateway_apps()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Conf)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     _ = emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Conf].
+    [{group_apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Conf) ->
-    ok = emqx_cth_suite:stop(proplists:get_value(suite_apps, Conf)).
+end_per_group(_Profile, Config) ->
+    ok = emqx_cth_suite:stop(?config(group_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(t_gateway_fail, Config) ->
     meck:expect(
@@ -71,7 +83,7 @@ end_per_testcase(TestCase, Config) ->
         t_gateway_fail -> meck:unload(emqx_gateway_conf);
         _ -> ok
     end,
-    [emqx_gateway_conf:unload_gateway(GwName) || GwName <- [stomp, mqttsn, coap, lwm2m, exproto]],
+    [emqx_gateway_conf:unload_gateway(GwName) || GwName <- [stomp, mqttsn, coap, lwm2m]],
     Config.
 
 %%--------------------------------------------------------------------
@@ -167,7 +179,7 @@ t_gateway_mqttsn(_) ->
         predefined => [#{id => 1, topic => <<"t/a">>}],
         enable_qos3 => true,
         listeners => [
-            #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>}
+            #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>, enable_authn => false}
         ]
     },
     {204, _} = request(put, "/gateways/mqttsn", GwConf),
@@ -237,65 +249,12 @@ t_gateway_lwm2m(_) ->
     assert_confs(GwConf2, ConfResp2),
     ok.
 
-t_gateway_exproto(_) ->
-    {200, Gw} = request(get, "/gateways/exproto"),
-    assert_gw_unloaded(Gw),
-    GwConf = #{
-        name => <<"exproto">>,
-        server => #{bind => <<"9100">>},
-        handler => #{address => <<"http://127.0.0.1:9001">>},
-        listeners => [
-            #{name => <<"def">>, type => <<"tcp">>, bind => <<"7993">>}
-        ]
-    },
-    {204, _} = request(put, "/gateways/exproto", GwConf),
-    {200, ConfResp} = request(get, "/gateways/exproto"),
-    assert_confs(GwConf, ConfResp),
-    GwConf2 = emqx_utils_maps:deep_merge(GwConf, #{server => #{bind => <<"9200">>}}),
-    {204, _} = request(put, "/gateways/exproto", maps:without([name, listeners], GwConf2)),
-    {200, ConfResp2} = request(get, "/gateways/exproto"),
-    assert_confs(GwConf2, ConfResp2),
-    ok.
-
-t_gateway_exproto_with_ssl(_) ->
-    {200, Gw} = request(get, "/gateways/exproto"),
-    assert_gw_unloaded(Gw),
-
-    SslSvrOpts = ssl_server_opts(),
-    SslCliOpts = ssl_client_opts(),
-    GwConf = #{
-        name => <<"exproto">>,
-        server => #{
-            bind => <<"9100">>,
-            ssl_options => SslSvrOpts
-        },
-        handler => #{
-            address => <<"http://127.0.0.1:9001">>,
-            ssl_options => SslCliOpts#{enable => true}
-        },
-        listeners => [
-            #{name => <<"def">>, type => <<"tcp">>, bind => <<"7993">>}
-        ]
-    },
-    {204, _} = request(put, "/gateways/exproto", GwConf),
-    {200, ConfResp} = request(get, "/gateways/exproto"),
-    assert_confs(GwConf, ConfResp),
-    GwConf2 = emqx_utils_maps:deep_merge(GwConf, #{
-        server => #{
-            bind => <<"9200">>,
-            ssl_options => SslCliOpts
-        }
-    }),
-    {204, _} = request(put, "/gateways/exproto", maps:without([name, listeners], GwConf2)),
-    {200, ConfResp2} = request(get, "/gateways/exproto"),
-    assert_confs(GwConf2, ConfResp2),
-    ok.
-
 t_authn(_) ->
     init_gw("stomp"),
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
@@ -346,6 +305,7 @@ t_authn_data_mgmt(_) ->
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
@@ -376,7 +336,10 @@ t_authn_data_mgmt(_) ->
             is_superuser => true
         }
     ),
-    assert_confs(UserRespd3, User1#{is_superuser => true}),
+    ?assertMatch(
+        #{user_id := <<"test">>, is_superuser := true, namespace := null}, UserRespd3
+    ),
+    ?assertNot(maps:is_key(password, UserRespd3)),
 
     {200, UserRespd4} = request(
         get,
@@ -422,6 +385,30 @@ t_authn_data_mgmt(_) ->
 
     {204, _} = request(delete, "/gateways/stomp/authentication"),
     {204, _} = request(get, "/gateways/stomp/authentication"),
+    ok.
+
+%% Checks generated-password creation and rotation for gateway and listener authenticators.
+t_authn_generated_passwords(_) ->
+    GwConf = #{
+        listeners => [
+            #{name => <<"def">>, type => <<"tcp">>, bind => <<"127.0.0.1:61613">>}
+        ]
+    },
+    init_gw("stomp", GwConf),
+    AuthConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        user_id_type => <<"clientid">>,
+        autogenerate_password => true
+    },
+    {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
+    ListenerAuthPath = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
+    {201, _} = request(post, ListenerAuthPath, AuthConf),
+
+    assert_generated_password_routes("/gateways/stomp/authentication/users"),
+    assert_generated_password_routes(ListenerAuthPath ++ "/users"),
+    {204, _} = request(delete, ListenerAuthPath),
+    {204, _} = request(delete, "/gateways/stomp/authentication"),
     ok.
 
 t_listeners_tcp(_) ->
@@ -509,6 +496,7 @@ t_listeners_authn(_) ->
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     Path = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
@@ -624,6 +612,7 @@ t_listeners_authn_data_mgmt(_) ->
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     Path = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
@@ -659,7 +648,10 @@ t_listeners_authn_data_mgmt(_) ->
         Path ++ "/users/test",
         #{password => <<"654321">>, is_superuser => true}
     ),
-    assert_confs(UserRespd3, User1#{is_superuser => true}),
+    ?assertMatch(
+        #{user_id := <<"test">>, is_superuser := true, namespace := null}, UserRespd3
+    ),
+    ?assertNot(maps:is_key(password, UserRespd3)),
 
     {200, UserRespd4} = request(
         get,
@@ -721,6 +713,7 @@ t_clients(_) ->
         ]
     },
     init_gw("mqttsn", GwConf),
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"mqttsn">>, false),
     Path = "/gateways/mqttsn/clients",
     MyClient = Path ++ "/my_client",
     MyClientSubscriptions = MyClient ++ "/subscriptions",
@@ -755,6 +748,7 @@ t_authn_fuzzy_search(_) ->
     AuthConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"clientid">>
     },
     {201, _} = request(post, "/gateways/stomp/authentication", AuthConf),
@@ -843,6 +837,25 @@ assert_gw_unloaded(Gateway) ->
 
 assert_bad_request(BadReq) ->
     ?assertEqual(<<"BAD_REQUEST">>, maps:get(code, BadReq)).
+
+assert_generated_password_routes(UsersPath) ->
+    {400, _} = request(post, UsersPath, #{user_id => <<"explicit">>, password => <<"p">>}),
+    {201, Created} = request(post, UsersPath, #{
+        user_id => <<"generated">>, namespace => <<"not-a-gateway-namespace">>
+    }),
+    ?assertEqual(null, maps:get(namespace, Created)),
+    #{password := Password1} = Created,
+    {200, Fetched} = request(get, UsersPath ++ "/generated"),
+    ?assertNot(maps:is_key(password, Fetched)),
+    RotatePath = UsersPath ++ "/generated/password/rotate",
+    {200, Rotated1} = request(post, RotatePath, #{}),
+    #{password := Password2} = Rotated1,
+    ?assertNotEqual(Password1, Password2),
+    {200, Rotated2} = request(post, RotatePath, #{}),
+    #{password := Password3} = Rotated2,
+    ?assertNotEqual(Password2, Password3),
+    {404, _} = request(post, UsersPath ++ "/missing/password/rotate", #{}),
+    ok.
 
 assert_not_found(NotFoundReq) ->
     ?assertEqual(<<"RESOURCE_NOT_FOUND">>, maps:get(code, NotFoundReq)).

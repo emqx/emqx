@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry_config).
 
--feature(maybe_expr, enable).
-
 -include("emqx_schema_registry.hrl").
 
 %% API

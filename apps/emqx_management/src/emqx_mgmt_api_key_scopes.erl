@@ -167,18 +167,7 @@ split_segments(Path) ->
 %% after splitting so an encoded separator stays within its segment
 %% and never introduces an extra boundary.
 normalize_segments(Segments) ->
-    remove_dot_segments([cow_uri:urldecode(S) || S <- Segments], []).
-
-remove_dot_segments([], Acc) ->
-    lists:reverse(Acc);
-remove_dot_segments([<<".">> | Segments], Acc) ->
-    remove_dot_segments(Segments, Acc);
-remove_dot_segments([<<"..">> | Segments], []) ->
-    remove_dot_segments(Segments, []);
-remove_dot_segments([<<"..">> | Segments], [_ | Acc]) ->
-    remove_dot_segments(Segments, Acc);
-remove_dot_segments([Segment | Segments], Acc) ->
-    remove_dot_segments(Segments, [Segment | Acc]).
+    emqx_utils_uri:remove_dot_segments([cow_uri:urldecode(S) || S <- Segments]).
 
 segments_match([], []) ->
     true;

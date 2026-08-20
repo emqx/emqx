@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_doris_connector_schema).
 
--feature(maybe_expr, enable).
-
 -behaviour(hocon_schema).
 -behaviour(emqx_connector_examples).
 

@@ -25,6 +25,7 @@
     {'session.discarded', {emqx_exhook_handler, on_session_discarded, []}},
     {'session.takenover', {emqx_exhook_handler, on_session_takenover, []}},
     {'session.terminated', {emqx_exhook_handler, on_session_terminated, []}},
+    {'message.ingress', {emqx_exhook_handler, on_message_ingress, []}},
     {'message.publish', {emqx_exhook_handler, on_message_publish, []}},
     {'message.delivered', {emqx_exhook_handler, on_message_delivered, []}},
     {'message.acked', {emqx_exhook_handler, on_message_acked, []}},

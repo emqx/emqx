@@ -66,6 +66,22 @@ authenticate(#{username := <<"authn_clientid_override">>}, _State) ->
     {ok, #{clientid_override => <<"overridden_clientid">>}};
 authenticate(#{username := <<"hook_clientid_override">>}, _State) ->
     ignore;
+authenticate(
+    #{username := <<"is_jwt_precondition">>, password := Password},
+    #{config := #{mechanism := Mechanism}}
+) ->
+    case Mechanism of
+        jwt ->
+            %% mock of the JWT authenticator: only the good token verifies,
+            %% anything else is a verification failure
+            case Password =:= good_jwt() of
+                true -> {ok, #{is_superuser => true}};
+                false -> emqx_authn_utils:backend_failure_result()
+            end;
+        password_based ->
+            %% permissive fallback authenticator
+            {ok, #{is_superuser => false}}
+    end;
 authenticate(#{username := _}, _State) ->
     {error, bad_username_or_password}.
 
@@ -90,13 +106,25 @@ destroy(_State) ->
     ok.
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all(?MODULE) -- ProfileCases).
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
             emqx_auth
         ],
         #{work_dir => ?config(priv_dir)}
@@ -269,7 +297,12 @@ t_authenticate(Config) when is_list(Config) ->
         username => <<"good">>,
         password => <<"any">>
     },
-    ?assertEqual({ok, #{is_superuser => false}}, emqx_access_control:authenticate(ClientInfo)),
+    Expected =
+        case ?config(security_profile) of
+            legacy -> {ok, #{is_superuser => false}};
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(Expected, emqx_access_control:authenticate(ClientInfo)),
 
     register_provider(AuthNType, ?MODULE),
 
@@ -298,7 +331,7 @@ t_authenticate({'end', Config}) ->
 t_authenticate_rejection_log({init, Config}) ->
     [
         {listener_id, 'tcp:default'},
-        {authn_type, {password_based, built_in_database}}
+        {authn_type, {password_based, mysql}}
         | Config
     ];
 t_authenticate_rejection_log(Config) when is_list(Config) ->
@@ -307,7 +340,7 @@ t_authenticate_rejection_log(Config) when is_list(Config) ->
     ok = register_provider(AuthNType, ?MODULE),
     AuthenticatorConfig = #{
         mechanism => password_based,
-        backend => built_in_database,
+        backend => mysql,
         enable => true
     },
     {ok, _} = ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig),
@@ -328,7 +361,7 @@ t_authenticate_rejection_log(Config) when is_list(Config) ->
         [
             #{
                 msg := authenticator_rejection,
-                authenticator := <<"password_based:built_in_database">>,
+                authenticator := <<"password_based:mysql">>,
                 provider := _,
                 reason := bad_username_or_password
             }
@@ -550,8 +583,11 @@ t_combine_authn_and_callback(Config) when is_list(Config) ->
         password => <<"any">>
     },
 
-    %% no emqx_authn_chains authenticators, anonymous is allowed
-    ?assertAuthSuccessForUser(bad),
+    %% no emqx_authn_chains authenticators
+    assert_authn_profile_result(
+        Config,
+        emqx_access_control:authenticate(ClientInfo#{username => <<"bad">>})
+    ),
 
     AuthNType = ?config(authn_type),
     register_provider(AuthNType, ?MODULE),
@@ -630,16 +666,10 @@ t_authn_not_configured_missing_chain(Config) when is_list(Config) ->
     ok = cleanup_authn_not_configured_chains(),
     ClientInfo = authn_not_configured_clientinfo(),
 
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo))
-    end),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo))
-    end),
+    assert_authn_profile_result(Config, emqx_access_control:authenticate(ClientInfo)),
     ok;
 t_authn_not_configured_missing_chain({'end', _Config}) ->
-    ok = cleanup_authn_not_configured_chains(),
-    emqx_common_test_helpers:clear_security_profile().
+    cleanup_authn_not_configured_chains().
 
 t_authn_not_configured_empty_chain({'init', Config}) ->
     Config;
@@ -656,40 +686,25 @@ t_authn_not_configured_empty_chain(Config) when is_list(Config) ->
     {ok, _} = ?AUTHN:create_authenticator(ListenerID, AuthenticatorConfig),
     ClientInfo = authn_not_configured_clientinfo(),
 
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo))
-    end),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo))
-    end),
+    assert_authn_profile_result(Config, emqx_access_control:authenticate(ClientInfo)),
     ok;
 t_authn_not_configured_empty_chain({'end', _Config}) ->
     ok = cleanup_authn_not_configured_chains(),
-    ok = ?AUTHN:deregister_provider({password_based, built_in_database}),
-    emqx_common_test_helpers:clear_security_profile().
+    ?AUTHN:deregister_provider({password_based, built_in_database}).
 
-t_authn_backend_failure_legacy_continues_chain({'init', Config}) ->
+t_authn_backend_failure({'init', Config}) ->
     setup_backend_failure_chain(),
     Config;
-t_authn_backend_failure_legacy_continues_chain(Config) when is_list(Config) ->
+t_authn_backend_failure(Config) when is_list(Config) ->
     ClientInfo = backend_failure_clientinfo(),
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual({ok, #{is_superuser => true}}, emqx_access_control:authenticate(ClientInfo))
-    end),
+    Expected =
+        case ?config(security_profile) of
+            legacy -> {ok, #{is_superuser => true}};
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(Expected, emqx_access_control:authenticate(ClientInfo)),
     ok;
-t_authn_backend_failure_legacy_continues_chain({'end', _Config}) ->
-    cleanup_backend_failure_chain().
-
-t_authn_backend_failure_hardened_aborts_chain({'init', Config}) ->
-    setup_backend_failure_chain(),
-    Config;
-t_authn_backend_failure_hardened_aborts_chain(Config) when is_list(Config) ->
-    ClientInfo = backend_failure_clientinfo(),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual({error, not_authorized}, emqx_access_control:authenticate(ClientInfo))
-    end),
-    ok;
-t_authn_backend_failure_hardened_aborts_chain({'end', _Config}) ->
+t_authn_backend_failure({'end', _Config}) ->
     cleanup_backend_failure_chain().
 
 t_authn_backend_failure_policy_override({'init', Config}) ->
@@ -708,6 +723,45 @@ t_authn_backend_failure_policy_override({'end', _Config}) ->
     {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], false),
     emqx_common_test_helpers:clear_security_profile().
 
+-doc """
+Under the hardened profile, a JWT authenticator with precondition
+`is_jwt(password)` is skipped (chain falls through) for credentials that are
+not structurally JWTs — including an absent password — while structurally
+valid JWTs still go through JWT verification and are denied on failure.
+""".
+t_is_jwt_precondition_hardened({'init', Config}) ->
+    setup_is_jwt_precondition_chain(),
+    Config;
+t_is_jwt_precondition_hardened(Config) when is_list(Config) ->
+    ClientInfo = is_jwt_precondition_clientinfo(),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        %% non-JWT password: precondition not met, JWT authenticator skipped,
+        %% the permissive second authenticator authenticates the client
+        ?assertMatch(
+            {ok, #{is_superuser := false}},
+            emqx_access_control:authenticate(ClientInfo#{password => <<"a-plain-password">>})
+        ),
+        %% no password at all: precondition renders false (not an error), skip as well
+        ?assertMatch(
+            {ok, #{is_superuser := false}},
+            emqx_access_control:authenticate(ClientInfo#{password => undefined})
+        ),
+        %% structurally valid JWT that fails verification: precondition met,
+        %% JWT authenticator runs, its backend-failure result aborts the chain
+        ?assertEqual(
+            {error, not_authorized},
+            emqx_access_control:authenticate(ClientInfo#{password => bad_signature_jwt()})
+        ),
+        %% valid JWT: authenticated by the JWT authenticator
+        ?assertMatch(
+            {ok, #{is_superuser := true}},
+            emqx_access_control:authenticate(ClientInfo#{password => good_jwt()})
+        )
+    end),
+    ok;
+t_is_jwt_precondition_hardened({'end', _Config}) ->
+    cleanup_is_jwt_precondition_chain().
+
 %%=================================================================================
 %% Helpers fns
 %%=================================================================================
@@ -725,6 +779,21 @@ cleanup_authn_not_configured_chains() ->
     _ = ?AUTHN:delete_chain('tcp:default'),
     _ = ?AUTHN:delete_chain('mqtt:global'),
     ok.
+
+profile_cases() ->
+    [
+        t_authenticate,
+        t_combine_authn_and_callback,
+        t_authn_not_configured_missing_chain,
+        t_authn_not_configured_empty_chain,
+        t_authn_backend_failure
+    ].
+
+assert_authn_profile_result(Config, Result) ->
+    case ?config(security_profile) of
+        legacy -> ?assertMatch({ok, _}, Result);
+        hardened -> ?assertEqual({error, not_authorized}, Result)
+    end.
 
 backend_failure_clientinfo() ->
     #{
@@ -753,12 +822,51 @@ setup_backend_failure_chain() ->
     }),
     ok.
 
+%% header {"alg":"HS256","typ":"JWT"}, payload {"sub":"good"}
+good_jwt() ->
+    <<"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJnb29kIn0.c2ln">>.
+
+%% header {"alg":"HS256","typ":"JWT"}, payload {"sub":"bad"}
+bad_signature_jwt() ->
+    <<"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiYWQifQ.c2ln">>.
+
+is_jwt_precondition_clientinfo() ->
+    #{
+        zone => default,
+        listener => 'tcp:default',
+        protocol => mqtt,
+        username => <<"is_jwt_precondition">>,
+        password => <<"any">>
+    }.
+
+setup_is_jwt_precondition_chain() ->
+    ListenerID = 'tcp:default',
+    ok = register_provider(jwt, ?MODULE),
+    ok = register_provider({password_based, built_in_database}, ?MODULE),
+    {ok, _} = ?AUTHN:create_authenticator(ListenerID, #{
+        mechanism => jwt,
+        enable => true,
+        precondition => <<"is_jwt(password)">>
+    }),
+    {ok, _} = ?AUTHN:create_authenticator(ListenerID, #{
+        mechanism => password_based,
+        backend => built_in_database,
+        enable => true
+    }),
+    ok.
+
+cleanup_is_jwt_precondition_chain() ->
+    ok = ?AUTHN:delete_chain('tcp:default'),
+    ok = ?AUTHN:deregister_provider(jwt),
+    ok = ?AUTHN:deregister_provider({password_based, built_in_database}),
+    emqx_common_test_helpers:clear_security_profile().
+
 cleanup_backend_failure_chain() ->
     ok = ?AUTHN:delete_chain('tcp:default'),
     ok = ?AUTHN:deregister_provider({password_based, built_in_database}),
     ok = ?AUTHN:deregister_provider({password_based, mysql}),
     {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], false),
-    emqx_common_test_helpers:clear_security_profile().
+    ok.
 
 hook(Priority) ->
     ok = emqx_hooks:put(

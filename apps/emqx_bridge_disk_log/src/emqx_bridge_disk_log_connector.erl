@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_disk_log_connector).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_resource).
 
 -include_lib("kernel/include/file.hrl").

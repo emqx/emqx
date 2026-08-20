@@ -35,6 +35,7 @@ end_per_testcase(_, _Config) ->
     ok = emqx_hooks:del('client.authorize', {?MODULE, crashing_authz}),
     ok = emqx_hooks:del('client.authorize', {?MODULE, permissive_authz_stop}),
     ok = emqx_hooks:del('client.authorize', {?MODULE, permissive_authz_ok}),
+    ok = emqx_hooks:del('client.authorize', {?MODULE, capture_authz_context}),
     ok = emqx_hooks:del('client.authenticate', {?MODULE, quick_deny_anonymous_authn}),
     ok = emqx_hooks:del('client.authenticate', {?MODULE, crashing_authn}),
     ok = emqx_hooks:del('client.authenticate', {?MODULE, permissive_authn_stop}),
@@ -53,35 +54,87 @@ t_authenticate(_) ->
     ?assertMatch({ok, _}, emqx_access_control:authenticate(ClientInfo#{enable_authn => false})).
 
 t_authorize(_) ->
-    ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, <<"t">>)).
-
-t_delayed_authorize(_) ->
-    RawTopic = <<"$delayed/1/foo/2">>,
-    InvalidTopic = <<"$delayed/1/foo/3">>,
-    Topic = <<"foo/2">>,
-
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authz_stub, [Topic]}, ?HP_AUTHZ),
-
-    ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, RawTopic)),
-
     ?assertEqual(
-        deny, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, InvalidTopic)
-    ),
-    ok.
+        allow,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(clientinfo()), ?AUTHZ_PUBLISH, <<"t">>
+        )
+    ).
 
 t_authorize_cache_store(_) ->
     Topic = <<"cache/store">>,
     ok = emqx_authz_cache:empty_authz_cache(),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authz_stub_cache, []}, ?HP_AUTHZ),
-    ?assertEqual(deny, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, Topic)),
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(clientinfo()), ?AUTHZ_PUBLISH, Topic
+        )
+    ),
     ?assertEqual(deny, emqx_authz_cache:get_authz_cache(?AUTHZ_PUBLISH, Topic)).
 
 t_authorize_cache_skip_non_cacheable(_) ->
     Topic = <<"cache/skip">>,
     ok = emqx_authz_cache:empty_authz_cache(),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authz_stub_non_cacheable, []}, ?HP_AUTHZ),
-    ?assertEqual(deny, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, Topic)),
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(clientinfo()), ?AUTHZ_PUBLISH, Topic
+        )
+    ),
     ?assertEqual(not_found, emqx_authz_cache:get_authz_cache(?AUTHZ_PUBLISH, Topic)).
+
+t_authorize_cache_bypass(_) ->
+    Topic = <<"cache/bypass">>,
+    ok = emqx_authz_cache:empty_authz_cache(),
+    ok = emqx_authz_cache:put_authz_cache(?AUTHZ_PUBLISH, Topic, deny),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authz_stub, [Topic]}, ?HP_AUTHZ),
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(clientinfo()), ?AUTHZ_PUBLISH, Topic, #{cache => false}
+        )
+    ),
+    ?assertEqual(deny, emqx_authz_cache:get_authz_cache(?AUTHZ_PUBLISH, Topic)).
+
+t_authz_context_security_profile(_) ->
+    ClientInfo = clientinfo(#{
+        is_superuser => true,
+        peername => {{127, 0, 0, 1}, 1883},
+        cert_pem => <<"certificate">>,
+        client_attrs => #{<<"role">> => <<"reader">>},
+        custom_authz_field => custom_value
+    }),
+    RestrictedContext = maps:remove(custom_authz_field, maps:remove(password, ClientInfo)),
+    Cases = [
+        {"legacy", ClientInfo},
+        {"hardened", RestrictedContext}
+    ],
+    lists:foreach(
+        fun({Profile, ExpectedContext}) ->
+            emqx_common_test_helpers:with_security_profile(Profile, fun() ->
+                ok = emqx_hooks:put(
+                    'client.authorize', {?MODULE, capture_authz_context, []}, ?HP_AUTHZ
+                ),
+                ?assertEqual(
+                    allow,
+                    emqx_access_control:authorize(
+                        emqx_authz_context:make(ClientInfo),
+                        ?AUTHZ_PUBLISH,
+                        <<"context/topic">>,
+                        #{cache => false}
+                    )
+                ),
+                receive
+                    {authz_context, Context} -> ?assertEqual(ExpectedContext, Context)
+                after 1000 ->
+                    ct:fail(authz_context_not_captured)
+                end
+            end)
+        end,
+        Cases
+    ).
 
 t_quick_deny_anonymous(_) ->
     ok = emqx_hooks:put(
@@ -158,7 +211,12 @@ check_authz_hook_crash_case({Profile, Hooks, Expected}) ->
     emqx_common_test_helpers:with_security_profile(Profile, fun() ->
         ok = emqx_authz_cache:empty_authz_cache(),
         ok = add_crash_test_hooks('client.authorize', ?HP_AUTHZ, Hooks),
-        ?assertEqual(Expected, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, <<"t">>))
+        ?assertEqual(
+            Expected,
+            emqx_access_control:authorize(
+                emqx_authz_context:make(clientinfo()), ?AUTHZ_PUBLISH, <<"t">>
+            )
+        )
     end),
     cleanup_crash_test_hooks().
 
@@ -213,6 +271,10 @@ permissive_authz_stop(_ClientInfo, _Action, _Topic, _AuthzResult) ->
 permissive_authz_ok(_ClientInfo, _Action, _Topic, _AuthzResult) ->
     {ok, #{result => allow, from => test}}.
 
+capture_authz_context(ClientInfo, _Action, _Topic, _AuthzResult) ->
+    self() ! {authz_context, ClientInfo},
+    {stop, #{result => allow, from => test}}.
+
 clientinfo() -> clientinfo(#{}).
 clientinfo(InitProps) ->
     maps:merge(
@@ -221,9 +283,11 @@ clientinfo(InitProps) ->
             listener => 'tcp:default',
             protocol => mqtt,
             peerhost => {127, 0, 0, 1},
+            sockport => 1883,
             clientid => <<"clientid">>,
             username => <<"username">>,
             password => <<"passwd">>,
+            is_bridge => false,
             is_superuser => false,
             mountpoint => undefined
         },

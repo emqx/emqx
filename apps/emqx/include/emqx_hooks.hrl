@@ -9,6 +9,7 @@
 
 %% hooks used by the emqx core app
 -define(HP_PSK, 990).
+-define(HP_DELAY_PUB, 985).
 -define(HP_REWRITE, 980).
 -define(HP_AUTHN, 970).
 -define(HP_AUTHZ, 960).
@@ -23,7 +24,6 @@
 %% apps that can work with the republish action
 -define(HP_SLOW_SUB, 880).
 -define(HP_BRIDGE, 870).
--define(HP_DELAY_PUB, 860).
 %% apps that can stop the hooks chain from continuing
 -define(HP_NODE_REBALANCE, 110).
 -define(HP_EXHOOK, 100).

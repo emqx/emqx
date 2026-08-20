@@ -14,7 +14,6 @@ Utility functions for EMQX gateway.
 
 -define(GATEWAY_APP_MODULES, [
     emqx_gateway_coap,
-    emqx_gateway_exproto,
     emqx_gateway_gbt32960,
     emqx_gateway_jt808,
     emqx_gateway_lwm2m,
@@ -422,7 +421,6 @@ protocol(stomp) -> stomp;
 protocol(mqttsn) -> 'mqtt-sn';
 protocol(coap) -> coap;
 protocol(lwm2m) -> lwm2m;
-protocol(exproto) -> exproto;
 protocol(jt808) -> jt808;
 protocol(gbt32960) -> gbt32960;
 protocol(ocpp) -> ocpp;

@@ -63,7 +63,7 @@ t_run_case(Config) ->
     Case = ?config(test_case, Config),
     ok = setup_source_data(Case),
     ok = setup_authz_source(Case),
-    ok = emqx_authz_test_lib:run_checks(Case).
+    ok = emqx_authz_test_lib:run_table_checks(Case).
 
 %% should still succeed to create even if the config will not work,
 %% because it's not a part of the schema check
@@ -105,7 +105,9 @@ t_redis_error(_Config) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"a">>)
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"a">>
+        )
     ).
 
 t_invalid_command(_Config) ->
@@ -175,7 +177,7 @@ t_resource_failure_legacy_ignores(_Config) ->
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )
@@ -194,7 +196,7 @@ t_resource_failure_hardened_denies(_Config) ->
             ?assertEqual(
                 deny,
                 emqx_access_control:authorize(
-                    emqx_authz_test_lib:base_client_info(),
+                    emqx_authz_context:make(emqx_authz_test_lib:base_client_info()),
                     ?AUTHZ_PUBLISH,
                     <<"a">>
                 )
@@ -276,14 +278,23 @@ cases() ->
             ]
         },
         #{
-            name => rule_by_clientid_cn_dn_peerhost,
+            name => rule_by_authz_context_variables,
+            security_profile => hardened,
             setup => [
-                ["HMSET", "acl:clientid:cn:dn:127.0.0.1", "a", "publish"]
+                [
+                    "HMSET",
+                    "acl:username:clientid:cn:dn:127.0.0.1:1883:default:tcp:default:g1",
+                    "a",
+                    "publish"
+                ]
             ],
-            cmd => "HGETALL acl:${clientid}:${cert_common_name}:${cert_subject}:${peerhost}",
+            cmd =>
+                "HGETALL acl:${username}:${clientid}:${cert_common_name}:${cert_subject}:${peerhost}:"
+                "${peerport}:${zone}:${listener}:${client_attrs.group}",
             client_info => #{
                 cn => <<"cn">>,
-                dn => <<"dn">>
+                dn => <<"dn">>,
+                client_attrs => #{<<"group">> => <<"g1">>}
             },
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"a">>}

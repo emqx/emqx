@@ -7,6 +7,7 @@
 -include("emqx_nats.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
 -compile(export_all).
@@ -45,9 +46,21 @@ gateway.nats {
 %%--------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     application:load(emqx_gateway_nats),
     TcpPort = emqx_common_test_helpers:select_free_port(tcp),
     SslPort = emqx_common_test_helpers:select_free_port(ssl),
@@ -58,34 +71,36 @@ init_per_suite(Config) ->
             emqx_gateway,
             emqx_auth,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            emqx_common_test_http:emqx_dashboard()
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
-    emqx_common_test_http:create_default_app(),
     RawConf = emqx:get_raw_config([gateway, nats]),
+    ok = disable_auth(),
     [
         {suite_apps, Apps},
         {tcp_port, TcpPort},
         {ssl_port, SslPort},
-        {raw_conf, RawConf}
+        {raw_conf, RawConf},
+        {security_profile, Profile}
         | Config
     ].
 
-end_per_suite(Config) ->
+end_per_group(_Profile, Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:call_janitor(),
     cleanup_hooks(),
     allow_pubsub_all(),
-    disable_auth(),
     update_nats_with_clientinfo_override(#{}),
     restore_nats_conf(?config(raw_conf, Config)),
+    disable_auth(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -113,6 +128,124 @@ t_subscribe_hook_blocked(Config) ->
     {ok, [Err]} = emqx_nats_client:receive_message(Client),
     ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
     emqx_nats_client:stop(Client).
+
+t_message_ingress(Config) ->
+    Mountpoint = <<"nats/">>,
+    Topic = <<"source">>,
+    RewrittenTopic = <<"target">>,
+    MountedTopic = <<Mountpoint/binary, RewrittenTopic/binary>>,
+    ReplyTo = <<"reply.subject">>,
+    Payload = <<"payload">>,
+    NATSHeaders = #{<<"x-custom">> => <<"value">>},
+    TestPid = self(),
+    update_nats_listeners_authn_and_mountpoint(false, Mountpoint),
+    ok = emqx:subscribe(Topic),
+    ok = emqx:subscribe(RewrittenTopic),
+    ok = emqx:subscribe(MountedTopic),
+    ok = emqx:subscribe(<<Mountpoint/binary, MountedTopic/binary>>),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx:unsubscribe(Topic),
+        emqx:unsubscribe(RewrittenTopic),
+        emqx:unsubscribe(MountedTopic),
+        emqx:unsubscribe(<<Mountpoint/binary, MountedTopic/binary>>)
+    end),
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, hook_message_ingress, [TestPid, RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true, headers => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    %% Ingress sees the logical topic, payload, authz context, and NATS metadata.
+    ok = send_hpub(Client, Topic, ReplyTo, NATSHeaders, Payload),
+    PreAuthzMsg =
+        receive
+            {message_ingress, Ctx, Msg} ->
+                ?assertMatch(#{authz_ctx := #{clientid := _}}, Ctx),
+                ?assertEqual(Topic, emqx_message:topic(Msg)),
+                ?assertEqual(Payload, emqx_message:payload(Msg)),
+                ?assertEqual(false, emqx_message:get_flag(retain, Msg)),
+                ?assertMatch(
+                    #{
+                        proto_ver := <<"1">>,
+                        protocol := nats,
+                        username := <<>>,
+                        peerhost := _,
+                        nats_headers := NATSHeaders,
+                        reply_to := ReplyTo
+                    },
+                    emqx_message:get_headers(Msg)
+                ),
+                Msg
+        after 1000 ->
+            ct:fail(message_ingress_hook_not_called)
+        end,
+    recv_ok_frame(Client),
+    %% The hook rewrite/header survive and the mountpoint is applied exactly once.
+    receive
+        {deliver, MountedTopic, PublishedMsg} ->
+            ?assertEqual(emqx_message:id(PreAuthzMsg), emqx_message:id(PublishedMsg)),
+            ?assertEqual(true, emqx_message:get_header(ingress, PublishedMsg))
+    after 1000 ->
+        ct:fail(message_not_published)
+    end,
+    %% Catch original, unmounted rewritten, or double-mounted publications.
+    receive
+        {deliver, UnexpectedTopic, _} ->
+            ct:fail({unexpected_publish, UnexpectedTopic})
+    after 100 ->
+        ok
+    end,
+    emqx_nats_client:stop(Client).
+
+t_jwt_before_emqx_authz_after_ingress(_) ->
+    SourceTopic = <<"source">>,
+    RewrittenTopic = <<"target">>,
+    TestPid = self(),
+    ok = emqx_hooks:put(
+        'message.ingress',
+        {?MODULE, hook_message_ingress, [TestPid, RewrittenTopic]},
+        ?HP_HIGHEST
+    ),
+    ok = emqx_hooks:put(
+        'client.authorize',
+        {?MODULE, hook_authorize_order, [TestPid]},
+        ?HP_HIGHEST
+    ),
+    Msg = emqx_message:make(<<"client">>, SourceTopic, <<"payload">>),
+    DenyingClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [SourceTopic], deny => [RewrittenTopic]}
+    }),
+    deny = emqx_nats_channel:authorize_publish(DenyingClientInfo, Msg),
+    receive
+        {message_ingress, _, #message{topic = SourceTopic}} -> ok
+    after 1000 ->
+        ct:fail(message_ingress_hook_not_called)
+    end,
+    receive
+        {emqx_authorize, Topic} -> ct:fail({unexpected_emqx_authorize, Topic})
+    after 100 ->
+        ok
+    end,
+
+    AllowingClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [RewrittenTopic], deny => []}
+    }),
+    {allow, #message{topic = RewrittenTopic}} =
+        emqx_nats_channel:authorize_publish(AllowingClientInfo, Msg),
+    receive
+        {message_ingress, _, #message{topic = SourceTopic}} -> ok
+    after 1000 ->
+        ct:fail(message_ingress_hook_not_called)
+    end,
+    receive
+        {emqx_authorize, RewrittenTopic} -> ok
+    after 1000 ->
+        ct:fail(emqx_authorize_hook_not_called)
+    end.
 
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
@@ -190,7 +323,7 @@ t_listener_authn_disabled_keeps_mountpoint_and_authn_hooks(Config) ->
         0
     ),
     Username = <<"listener-auth-disabled-user">>,
-    update_nats_tcp_listener_authn_and_mountpoint(false, <<"${username}/">>),
+    update_nats_listeners_authn_and_mountpoint(false, <<"${username}/">>),
     ClientOpts = maps:merge(
         tcp_client_opts(Config),
         #{
@@ -212,6 +345,7 @@ t_listener_authn_disabled_keeps_mountpoint_and_authn_hooks(Config) ->
 
 t_internal_token_auth_recomputes_mountpoint(Config) ->
     AuthToken = <<"internal-token">>,
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(<<"nats">>, true),
     update_nats_with_internal_authn_and_mountpoint(
         [
             #{
@@ -346,6 +480,14 @@ hook_authn_complete(Credential, Result, Parent) ->
     Parent ! {client_check_authn_complete, maps:get(username, Credential, undefined), Result},
     ok.
 
+hook_message_ingress(Ctx, Msg, TestPid, RewrittenTopic) ->
+    TestPid ! {message_ingress, Ctx, Msg},
+    {ok, emqx_message:set_header(ingress, true, Msg#message{topic = RewrittenTopic})}.
+
+hook_authorize_order(_AuthzContext, _Action, Topic, _Default, TestPid) ->
+    TestPid ! {emqx_authorize, Topic},
+    {stop, #{result => allow, from => test}}.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -381,6 +523,21 @@ recv_ok_frame(Client) ->
 recv_info_frame(Client) ->
     {ok, [Frame]} = emqx_nats_client:receive_message(Client),
     ?assertMatch(#nats_frame{operation = ?OP_INFO}, Frame).
+
+send_hpub(Client, Subject, ReplyTo, Headers, Payload) ->
+    Frame = #nats_frame{
+        operation = ?OP_HPUB,
+        message = #{
+            subject => Subject,
+            reply_to => ReplyTo,
+            headers => Headers,
+            payload => Payload
+        }
+    },
+    Data = iolist_to_binary(
+        emqx_nats_frame:serialize_pkt(Frame, emqx_nats_frame:serialize_opts())
+    ),
+    emqx_nats_client:send_invalid_frame(Client, Data).
 
 find_client_by_username(Username) ->
     ClientInfos = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
@@ -486,16 +643,10 @@ restore_nats_conf(Conf) ->
     restore_nats_listeners(Conf),
     ok.
 
-update_nats_tcp_listener_authn_and_mountpoint(EnableAuthn, Mountpoint) ->
+update_nats_listeners_authn_and_mountpoint(EnableAuthn, Mountpoint) ->
     Conf = emqx:get_raw_config([gateway, nats]),
     _ = emqx_gateway_conf:update_gateway(nats, Conf#{<<"mountpoint">> => Mountpoint}),
-    ListenerConf0 = emqx_conf:get([gateway, nats, listeners, tcp, default]),
-    ListenerConf1 = ListenerConf0#{enable_authn => EnableAuthn},
-    ok =
-        case emqx_gateway_conf:update_listener(nats, {tcp, default}, ListenerConf1) of
-            ok -> ok;
-            {ok, _} -> ok
-        end,
+    ok = emqx_gateway_test_utils:set_gateway_listeners_authn(nats, EnableAuthn),
     ok.
 
 restore_nats_listeners(Conf) ->
@@ -527,9 +678,24 @@ update_nats_with_internal_authn_and_mountpoint(InternalAuthn, Mountpoint) ->
 cleanup_hooks() ->
     _ = emqx_hooks:del('client.connect', {?MODULE, hook_connect_error}),
     _ = emqx_hooks:del('client.subscribe', {?MODULE, hook_subscribe_block}),
+    _ = emqx_hooks:del('message.ingress', {?MODULE, hook_message_ingress}),
+    _ = emqx_hooks:del('client.authorize', {?MODULE, hook_authorize_order}),
     _ = emqx_hooks:del('client.authenticate', {?MODULE, hook_auth_expire}),
     _ = emqx_hooks:del('client.check_authn_complete', {?MODULE, hook_authn_complete}),
     ok.
+
+nats_authz_clientinfo(JWTPermissions) ->
+    #{
+        zone => default,
+        protocol => nats,
+        peerhost => {127, 0, 0, 1},
+        sockport => 1883,
+        clientid => <<"client">>,
+        is_bridge => false,
+        is_superuser => false,
+        mountpoint => undefined,
+        jwt_permissions => JWTPermissions
+    }.
 
 %%--------------------------------------------------------------------
 %% NKEY Unit Tests

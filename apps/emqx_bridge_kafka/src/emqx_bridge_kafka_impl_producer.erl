@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka_impl_producer).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_resource).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").

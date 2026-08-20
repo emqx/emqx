@@ -50,6 +50,7 @@
     listener_authenticator_position/2,
     authenticator_users/2,
     authenticator_user/2,
+    authenticator_user_password_rotate/2,
     listener_authenticator_users/2,
     listener_authenticator_user/2,
     lookup_from_local_node/2,
@@ -65,7 +66,9 @@
     authenticator_examples/0,
     request_user_create_examples/0,
     request_user_update_examples/0,
+    response_user_with_password_examples/0,
     response_user_examples/0,
+    generated_user_response_example/0,
     response_users_example/0,
     authn_settings_example/0,
     authn_cache_status_example/0
@@ -78,6 +81,7 @@
     delete_user/4,
     find_user/4,
     update_user/5,
+    rotate_password/4,
     serialize_error/1,
     aggregate_metrics/1,
 
@@ -109,6 +113,7 @@ paths() ->
         "/authentication/:id/position/:position",
         "/authentication/:id/users",
         "/authentication/:id/users/:user_id",
+        "/authentication/:id/users/:user_id/password/rotate",
         "/authentication/order",
         "/authentication/settings",
         "/authentication/node_cache/status",
@@ -130,6 +135,7 @@ roots() ->
         request_user_update,
         request_user_delete,
         response_user,
+        response_user_with_password,
         response_users,
         request_authn_order
     ].
@@ -146,8 +152,8 @@ fields(request_user_delete) ->
 fields(request_user_update) ->
     [
         {namespace, mk(binary(), #{required => false})},
-        {password, mk(binary(), #{required => true})},
-        {is_superuser, mk(boolean(), #{default => false, required => false})}
+        {password, mk(binary(), #{required => false})},
+        {is_superuser, mk(boolean(), #{required => false})}
     ];
 fields(response_user) ->
     [
@@ -155,6 +161,8 @@ fields(response_user) ->
         {user_id, mk(binary(), #{required => true})},
         {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
+fields(response_user_with_password) ->
+    fields(response_user) ++ [{password, mk(binary(), #{required => false})}];
 fields(response_users) ->
     paginated_list_type(ref(response_user));
 fields(request_authn_order) ->
@@ -395,8 +403,8 @@ schema("/authentication/:id/users") ->
             ),
             responses => #{
                 201 => emqx_dashboard_swagger:schema_with_examples(
-                    ref(response_user),
-                    response_user_examples()
+                    ref(response_user_with_password),
+                    response_user_with_password_examples()
                 ),
                 400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
@@ -446,8 +454,8 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
             ),
             responses => #{
                 201 => emqx_dashboard_swagger:schema_with_examples(
-                    ref(response_user),
-                    response_user_examples()
+                    ref(response_user_with_password),
+                    response_user_with_password_examples()
                 ),
                 400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
@@ -521,6 +529,24 @@ schema("/authentication/:id/users/:user_id") ->
             ),
             responses => #{
                 204 => ?DESC("user_deleted"),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
+            }
+        }
+    };
+schema("/authentication/:id/users/:user_id/password/rotate") ->
+    #{
+        'operationId' => authenticator_user_password_rotate,
+        filter => fun ?MODULE:filter/2,
+        post => #{
+            tags => ?API_TAGS_GLOBAL,
+            description => ?DESC(authentication_id_users_user_id_password_rotate_post),
+            parameters => [param_auth_id(), param_user_id(), ns_qs_param()],
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ref(response_user_with_password),
+                    generated_user_response_example()
+                ),
+                400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
@@ -935,6 +961,13 @@ authenticator_user(delete, #{bindings := #{id := AuthenticatorID, user_id := Use
     Namespace = get_namespace(Req),
     delete_user(?GLOBAL, Namespace, AuthenticatorID, UserID).
 
+authenticator_user_password_rotate(
+    post,
+    #{bindings := #{id := AuthenticatorID, user_id := UserID}} = Req
+) ->
+    Namespace = get_namespace(Req),
+    rotate_password(?GLOBAL, Namespace, AuthenticatorID, UserID).
+
 listener_authenticator_users(post, #{
     bindings := #{
         listener_id := ListenerID,
@@ -1297,27 +1330,25 @@ move_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
             serialize_error(Reason)
     end.
 
-add_user(
-    ChainName,
-    AuthenticatorID,
-    #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo
-) ->
-    Namespace = maps:get(<<"namespace">>, UserInfo, ?global_ns),
-    IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
+add_user(ChainName, AuthenticatorID, #{<<"user_id">> := UserID} = RawUserInfo) ->
+    Namespace = maps:get(<<"namespace">>, RawUserInfo, ?global_ns),
+    IsSuperuser = maps:get(<<"is_superuser">>, RawUserInfo, false),
+    PasswordField =
+        case RawUserInfo of
+            #{<<"password">> := Password} -> #{password => Password};
+            _ -> #{}
+        end,
+    UserInfo = maps:merge(
+        #{
+            namespace => Namespace,
+            user_id => UserID,
+            is_superuser => IsSuperuser
+        },
+        PasswordField
+    ),
     case check_superuser_allowed(Namespace, IsSuperuser) of
         ok ->
-            case
-                emqx_authn_chains:add_user(
-                    ChainName,
-                    AuthenticatorID,
-                    #{
-                        namespace => Namespace,
-                        user_id => UserID,
-                        password => Password,
-                        is_superuser => IsSuperuser
-                    }
-                )
-            of
+            case emqx_authn_chains:add_user(ChainName, AuthenticatorID, UserInfo) of
                 {ok, User} ->
                     {201, user_out(User)};
                 {error, Reason} ->
@@ -1326,8 +1357,6 @@ add_user(
         {error, Reason} ->
             serialize_error(Reason)
     end;
-add_user(_, _, #{<<"user_id">> := _}) ->
-    serialize_error({missing_parameter, password});
 add_user(_, _, _) ->
     serialize_error({missing_parameter, user_id}).
 
@@ -1353,6 +1382,14 @@ update_user(ChainName, Namespace, AuthenticatorID, UserID, UserInfo0) ->
                 {error, Reason} ->
                     serialize_error(Reason)
             end
+    end.
+
+rotate_password(ChainName, Namespace, AuthenticatorID, UserID) ->
+    case emqx_authn_chains:rotate_password(ChainName, AuthenticatorID, Namespace, UserID) of
+        {ok, User} ->
+            {200, user_out(User)};
+        {error, Reason} ->
+            serialize_error({user_error, Reason})
     end.
 
 %% MQTT users in a non-global namespace must never be superusers: explicit ACL
@@ -1468,6 +1505,23 @@ serialize_error({user_error, already_exist}) ->
         code => <<"ALREADY_EXISTS">>,
         message => binfmt("User already exists", [])
     }};
+serialize_error({user_error, password_required}) ->
+    {400, #{
+        code => <<"BAD_REQUEST">>,
+        message => <<"Password is required when automatic password generation is disabled">>
+    }};
+serialize_error({user_error, password_not_allowed}) ->
+    {400, #{
+        code => <<"BAD_REQUEST">>,
+        message => <<"Password must be omitted when automatic password generation is enabled">>
+    }};
+serialize_error({user_error, password_rotation_disabled}) ->
+    {400, #{
+        code => <<"BAD_REQUEST">>,
+        message => <<"Password rotation requires automatic password generation to be enabled">>
+    }};
+serialize_error({user_error, unsupported_operation}) ->
+    serialize_error(unsupported_operation);
 serialize_error({user_error, Reason}) ->
     {400, #{
         code => <<"BAD_REQUEST">>,
@@ -1599,6 +1653,7 @@ authenticator_examples() ->
             value => #{
                 mechanism => <<"password_based">>,
                 backend => <<"built_in_database">>,
+                autogenerate_password => false,
                 user_id_type => <<"username">>,
                 password_hash_algorithm => #{
                     name => <<"sha256">>,
@@ -1754,6 +1809,13 @@ request_user_create_examples() ->
                 password => <<"******">>,
                 is_superuser => true
             }
+        },
+        generated_password => #{
+            summary => ?DESC("example_generated_password_user"),
+            value => #{
+                user_id => <<"generated-user">>,
+                is_superuser => false
+            }
         }
     }.
 
@@ -1789,6 +1851,21 @@ response_user_examples() ->
                 is_superuser => true
             }
         }
+    }.
+
+response_user_with_password_examples() ->
+    maps:merge(response_user_examples(), #{
+        generated_password => #{
+            summary => ?DESC("example_generated_password_user"),
+            value => generated_user_response_example()
+        }
+    }).
+
+generated_user_response_example() ->
+    #{
+        user_id => <<"generated-user">>,
+        is_superuser => false,
+        password => <<"l2TNFUYle1PkJm0kkL4rgSoJq8n1ssJYVcpySosSmnw">>
     }.
 
 response_users_example() ->

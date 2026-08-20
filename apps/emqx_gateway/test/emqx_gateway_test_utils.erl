@@ -101,7 +101,6 @@ all_gateway_apps() ->
         emqx_gateway_mqttsn,
         emqx_gateway_coap,
         emqx_gateway_lwm2m,
-        emqx_gateway_exproto,
         emqx_gateway_jt808,
         emqx_gateway_gbt32960,
         emqx_gateway_ocpp
@@ -240,21 +239,36 @@ collect_emqx_hooks_calls(Acc) ->
 
 enable_gateway_auth(Gateway) ->
     AuthConf = #{
-        mechanism => <<"password_based">>,
-        backend => <<"built_in_database">>,
-        password_hash_algorithm => #{
-            name => <<"sha256">>,
-            salt_position => <<"prefix">>
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"autogenerate_password">> => false,
+        <<"password_hash_algorithm">> => #{
+            <<"name">> => <<"sha256">>,
+            <<"salt_position">> => <<"prefix">>
         }
     },
-    Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),
-    {201, _} = request(post, Path, AuthConf),
+    {ok, _} = emqx_gateway_conf:add_authn(Gateway, AuthConf),
+    ok = set_gateway_listeners_authn(Gateway, true),
     ok.
 
 disable_gateway_auth(Gateway) ->
+    ok = set_gateway_listeners_authn(Gateway, false),
     Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),
     {204, _} = request(delete, Path),
     ok.
+
+set_gateway_listeners_authn(Gateway, Enable) ->
+    lists:foreach(
+        fun(#{type := Type, name := Name}) ->
+            ListenerConf = emqx_config:get_raw([gateway, Gateway, listeners, Type, Name]),
+            {ok, _} = emqx_gateway_conf:update_listener(
+                Gateway,
+                {Type, Name},
+                ListenerConf#{<<"enable_authn">> => Enable}
+            )
+        end,
+        emqx_gateway_conf:listeners(Gateway)
+    ).
 
 get_gateway_auth(Gateway) ->
     Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),

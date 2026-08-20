@@ -42,7 +42,7 @@ destroy(#{resource_id := ResourceId}) ->
     emqx_authz_utils:remove_resource(ResourceId).
 
 authorize(
-    Client,
+    AuthzContext,
     Action,
     Topic,
     #{
@@ -52,12 +52,12 @@ authorize(
         compatibility_mode := ACLCompatibilityMode
     }
 ) ->
-    Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
+    Vars = emqx_authz_utils:vars_for_rule_query(AuthzContext, Action),
     Cmd = emqx_auth_template:render_deep_for_raw(CmdTemplate, Vars),
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case emqx_authz_utils:cached_simple_sync_query(CacheKey, ResourceId, {cmd, Cmd}) of
         {ok, Rows} ->
-            do_authorize(Client, Action, Topic, Rows, ACLCompatibilityMode);
+            do_authorize(AuthzContext, Action, Topic, Rows, ACLCompatibilityMode);
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_redis_error",
@@ -89,9 +89,11 @@ new_state(ResourceId, #{cmd := CmdStr} = Source) ->
         compatibility_mode => ACLCompatibilityMode
     }).
 
-do_authorize(_Client, _Action, _Topic, [], _ACLCompatibilityMode) ->
+do_authorize(_AuthzContext, _Action, _Topic, [], _ACLCompatibilityMode) ->
     nomatch;
-do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail], ACLCompatibilityMode) ->
+do_authorize(
+    AuthzContext, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail], ACLCompatibilityMode
+) ->
     case parse_rule(RuleEncoded, ACLCompatibilityMode) of
         {ok, RuleMap0} ->
             RuleMap =
@@ -106,11 +108,11 @@ do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail], ACLCom
                 ),
             case
                 emqx_authz_utils:authorize_with_row(
-                    redis, Client, Action, Topic, undefined, RuleMap
+                    redis, AuthzContext, Action, Topic, undefined, RuleMap
                 )
             of
                 nomatch ->
-                    do_authorize(Client, Action, Topic, Tail, ACLCompatibilityMode);
+                    do_authorize(AuthzContext, Action, Topic, Tail, ACLCompatibilityMode);
                 ignore ->
                     ignore;
                 {matched, Permission} ->
@@ -121,7 +123,7 @@ do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail], ACLCom
                 msg => "parse_rule_error",
                 rule => RuleEncoded
             }),
-            do_authorize(Client, Action, Topic, Tail, ACLCompatibilityMode)
+            do_authorize(AuthzContext, Action, Topic, Tail, ACLCompatibilityMode)
     end.
 
 parse_cmd(Query) ->

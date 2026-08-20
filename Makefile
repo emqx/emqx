@@ -13,7 +13,7 @@ include env.sh
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= 2.3.0-beta.2
+export EMQX_DASHBOARD_VERSION ?= 2.3.0-beta.3
 
 .PHONY: print-dashboard-version
 print-dashboard-version:
@@ -335,7 +335,6 @@ fmt: $(REBAR)
                     -name 'rebar.config' -o \
                     -name '*.eterm' -o \
                     -name '*.escript' \) \
-                    -not -path '*/apps/emqx_gateway_exproto/src/generated/*' \
                     -not -path '*/apps/emqx_bridge_bigtable/src/generated/*' \
                     -not -path '*/apps/emqx_exhook/src/pb/*' \
                     -not -path '*/_build/*' \

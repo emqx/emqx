@@ -41,7 +41,7 @@ destroy(#{resource_id := ResourceId}) ->
     emqx_authz_utils:remove_resource(ResourceId).
 
 authorize(
-    Client,
+    AuthzContext,
     Action,
     Topic,
     #{
@@ -51,7 +51,7 @@ authorize(
         cache_key_template := CacheKeyTemplate
     }
 ) ->
-    Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
+    Vars = emqx_authz_utils:vars_for_rule_query(AuthzContext, Action),
     RenderedArgs = emqx_auth_template:render_sql_params(ArgsTemplate, Vars),
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
@@ -62,7 +62,7 @@ authorize(
         )
     of
         {ok, ColumnNames, Rows} ->
-            do_authorize(Client, Action, Topic, ColumnNames, Rows);
+            do_authorize(AuthzContext, Action, Topic, ColumnNames, Rows);
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_mysql_error",
@@ -99,12 +99,14 @@ new_state(
         cache_key_template => CacheKeyTemplate
     }).
 
-do_authorize(_Client, _Action, _Topic, _ColumnNames, []) ->
+do_authorize(_AuthzContext, _Action, _Topic, _ColumnNames, []) ->
     nomatch;
-do_authorize(Client, Action, Topic, ColumnNames, [Row | Tail]) ->
-    case emqx_authz_utils:authorize_with_row(mysql, Client, Action, Topic, ColumnNames, Row) of
+do_authorize(AuthzContext, Action, Topic, ColumnNames, [Row | Tail]) ->
+    case
+        emqx_authz_utils:authorize_with_row(mysql, AuthzContext, Action, Topic, ColumnNames, Row)
+    of
         nomatch ->
-            do_authorize(Client, Action, Topic, ColumnNames, Tail);
+            do_authorize(AuthzContext, Action, Topic, ColumnNames, Tail);
         ignore ->
             ignore;
         {matched, Permission} ->

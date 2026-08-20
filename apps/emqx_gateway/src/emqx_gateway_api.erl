@@ -361,7 +361,6 @@ fields(Gw) when
     Gw == mqttsn;
     Gw == coap;
     Gw == lwm2m;
-    Gw == exproto;
     Gw == gbt32960;
     Gw == ocpp;
     Gw == jt808;
@@ -374,7 +373,6 @@ fields(Gw) when
     Gw == update_mqttsn;
     Gw == update_coap;
     Gw == update_lwm2m;
-    Gw == update_exproto;
     Gw == update_gbt32960;
     Gw == update_ocpp;
     Gw == update_jt808;
@@ -630,10 +628,6 @@ examples_gateway_overview() ->
             status => <<"unloaded">>
         },
         #{
-            name => <<"exproto">>,
-            status => <<"unloaded">>
-        },
-        #{
             name => <<"lwm2m">>,
             status => <<"running">>,
             current_connections => 0,
@@ -839,32 +833,6 @@ examples_gateway_confs() ->
                             ]
                     }
             },
-        exproto_gateway =>
-            #{
-                summary => ?DESC(example_exproto_gateway_config),
-                value =>
-                    #{
-                        enable => true,
-                        name => <<"exproto">>,
-                        enable_stats => true,
-                        idle_timeout => <<"30s">>,
-                        mountpoint => <<"exproto/">>,
-                        server =>
-                            #{bind => <<"9100">>},
-                        handler =>
-                            #{address => <<"http://127.0.0.1:9001">>},
-                        listeners =>
-                            [
-                                #{
-                                    type => <<"tcp">>,
-                                    name => <<"default">>,
-                                    bind => <<"7993">>,
-                                    max_connections => 1024000,
-                                    max_conn_rate => 1000
-                                }
-                            ]
-                    }
-            },
         gbt32960_gateway =>
             #{
                 summary => ?DESC(example_gbt32960_gateway_config),
@@ -999,21 +967,6 @@ examples_update_gateway_confs() ->
                                 register => #{topic => <<"up/resp">>},
                                 update => #{topic => <<"up/resp">>}
                             }
-                    }
-            },
-        exproto_gateway =>
-            #{
-                summary => ?DESC(example_update_exproto_gateway_config),
-                value =>
-                    #{
-                        enable => true,
-                        enable_stats => true,
-                        idle_timeout => <<"30s">>,
-                        mountpoint => <<"exproto2/">>,
-                        server =>
-                            #{bind => <<"9100">>},
-                        handler =>
-                            #{address => <<"http://127.0.0.1:9001">>}
                     }
             },
         jt808_gateway =>

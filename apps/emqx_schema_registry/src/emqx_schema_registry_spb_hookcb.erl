@@ -44,7 +44,7 @@ unregister_hooks() ->
 
 -spec on_message_publish(emqx_types:message()) -> ok.
 on_message_publish(#message{} = Message) ->
-    case emqx_schema_registry_config:is_alias_mapping_enabled() of
+    case emqx_schema_registry_config:is_alias_mapping_enabled() andalso is_client_process() of
         true ->
             do_on_message_publish(Message);
         false ->
@@ -54,6 +54,17 @@ on_message_publish(#message{} = Message) ->
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
+
+%% Alias mappings are per-publisher state kept in the process dictionary; only maintain
+%% them when the hook runs in an MQTT client's own channel process, identified by the
+%% `{clientid, _}' proc label set in `emqx_logger:set_metadata_clientid/1'.
+%% Bridge/delayed/system publishes share a process across publishers and must not
+%% populate or read the cache.
+is_client_process() ->
+    case proc_lib:get_label(self()) of
+        {clientid, _} -> true;
+        _ -> false
+    end.
 
 do_on_message_publish(#message{topic = Topic} = Message) ->
     case emqx_schema_registry_spb_state:parse_spb_topic(Topic) of

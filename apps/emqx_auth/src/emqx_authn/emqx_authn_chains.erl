@@ -75,6 +75,7 @@
     add_user/3,
     delete_user/4,
     update_user/5,
+    rotate_password/4,
     lookup_user/4,
     list_users/3
 ]).
@@ -166,6 +167,7 @@ end).
 -record(add_user, {chain_name, authenticator_id, user_info}).
 -record(delete_user, {chain_name, authenticator_id, namespace, user_id}).
 -record(update_user, {chain_name, authenticator_id, namespace, user_id, user_info}).
+-record(rotate_password, {chain_name, authenticator_id, namespace, user_id}).
 -record(lookup_user, {chain_name, authenticator_id, namespace, user_id}).
 -record(list_users, {chain_name, authenticator_id, fuzzy_params}).
 
@@ -416,6 +418,16 @@ update_user(ChainName, AuthenticatorID, Namespace, UserID, NewUserInfo) ->
         user_info = NewUserInfo
     }).
 
+-spec rotate_password(chain_name(), authenticator_id(), maybe_namespace(), binary()) ->
+    {ok, user_info()} | {error, term()}.
+rotate_password(ChainName, AuthenticatorID, Namespace, UserID) ->
+    call(#rotate_password{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        namespace = Namespace,
+        user_id = UserID
+    }).
+
 -spec lookup_user(chain_name(), authenticator_id(), maybe_namespace(), binary()) ->
     {ok, user_info()} | {error, term()}.
 lookup_user(ChainName, AuthenticatorID, Namespace, UserID) ->
@@ -556,6 +568,18 @@ handle_call(
     Reply = call_authenticator(ChainName, AuthenticatorID, update_user, [
         Namespace, UserID, NewUserInfo
     ]),
+    reply(Reply, State);
+handle_call(
+    #rotate_password{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        namespace = Namespace,
+        user_id = UserID
+    },
+    _From,
+    State
+) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, rotate_password, [Namespace, UserID]),
     reply(Reply, State);
 handle_call(
     #lookup_user{
@@ -975,8 +999,6 @@ global_chain(lwm2m) ->
     'lwm2m:global';
 global_chain(stomp) ->
     'stomp:global';
-global_chain(exproto) ->
-    'exproto:global';
 global_chain(ocpp) ->
     'ocpp:global';
 global_chain(gbt32960) ->
@@ -1159,7 +1181,11 @@ call_authenticator(ChainName, AuthenticatorID, Func, Args) ->
                 #authenticator{support_user_operations = false} ->
                     {error, unsupported_operation};
                 #authenticator{provider = Provider, state = State} ->
-                    {ok, erlang:apply(Provider, Func, Args ++ [State])}
+                    Arity = length(Args) + 1,
+                    case erlang:function_exported(Provider, Func, Arity) of
+                        true -> {ok, erlang:apply(Provider, Func, Args ++ [State])};
+                        false -> {error, unsupported_operation}
+                    end
             end
         end,
     with_chain(ChainName, Fun).

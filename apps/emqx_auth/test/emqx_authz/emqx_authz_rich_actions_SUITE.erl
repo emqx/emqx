@@ -12,19 +12,41 @@
 -include_lib("emqx/include/asserts.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    [].
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
+
+init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(TestCase, Config) ->
+    Profile = ?config(security_profile, Config),
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
+            {emqx_conf,
+                emqx_authz_test_lib:emqx_appspec(#{
+                    config => "authorization.no_match = deny, authorization.cache.enable = false"
+                })},
             emqx_auth
         ],
-        #{work_dir => filename:join(?config(priv_dir, Config), TestCase)}
+        #{
+            work_dir => emqx_cth_suite:work_dir(
+                filename:join([Profile, TestCase]), Config
+            )
+        }
     ),
     [{tc_apps, Apps} | Config].
 

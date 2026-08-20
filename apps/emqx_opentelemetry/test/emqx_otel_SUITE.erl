@@ -2383,7 +2383,10 @@ stop_conns(Conns) ->
 
 mqtt_host_port(Config, Node) ->
     ListenerType = ?config(group_client_conn_type, Config),
-    rpc:call(Node, emqx, get_config, [[listeners, ListenerType, default, bind]]).
+    case rpc:call(Node, emqx, get_config, [[listeners, ListenerType, default, bind]]) of
+        Port when is_integer(Port) -> {"127.0.0.1", Port};
+        {_Host, _Port} = HostPort -> HostPort
+    end.
 
 cluster(TC, Config) ->
     _Nodes = emqx_cth_cluster:start(

@@ -1121,7 +1121,7 @@ t_real_sync_reports_partial_database_failure(Config) ->
             Config,
             BackupName,
             BackupBin0,
-            emqx_authn_mnesia,
+            emqx_authn_mnesia_ns,
             fun
                 ({schema, _Tab, _CreateList} = Schema) ->
                     Schema;
@@ -1137,7 +1137,7 @@ t_real_sync_reports_partial_database_failure(Config) ->
                 begin
                     trigger_sync(SelectedNode),
                     wait_partial_default_table_data(SecondaryNodes),
-                    wait_remote_health_error(SelectedNode, <<"emqx_authn_mnesia">>),
+                    wait_remote_health_error(SelectedNode, <<"emqx_authn_mnesia_ns">>),
                     ?block_until(
                         #{?snk_kind := backup_sync_result, result := failed}, 60_000
                     )
@@ -1148,7 +1148,9 @@ t_real_sync_reports_partial_database_failure(Config) ->
                     ),
                     ?assertNotEqual(
                         nomatch,
-                        binary:match(format_term(maps:get(reason, Event)), <<"emqx_authn_mnesia">>)
+                        binary:match(
+                            format_term(maps:get(reason, Event)), <<"emqx_authn_mnesia_ns">>
+                        )
                     )
                 end
             )
@@ -1952,6 +1954,7 @@ delete_authn_user(UserId) ->
 authn_config() ->
     #{
         user_id_type => username,
+        autogenerate_password => false,
         password_hash_algorithm => #{
             name => bcrypt,
             salt_rounds => 8
@@ -2809,12 +2812,16 @@ auth_runtime_status(Node) ->
             end),
             authz_allow => safe_eval(fun() ->
                 emqx_access_control:authorize(
-                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync">>
+                    emqx_authz_context:make(ClientInfo),
+                    ?AUTHZ_PUBLISH,
+                    <<"cluster/config/sync">>
                 )
             end),
             authz_deny => safe_eval(fun() ->
                 emqx_access_control:authorize(
-                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync/denied">>
+                    emqx_authz_context:make(ClientInfo),
+                    ?AUTHZ_PUBLISH,
+                    <<"cluster/config/sync/denied">>
                 )
             end)
         }
@@ -2846,11 +2853,15 @@ auth_runtime_usable(Node) ->
             ClientInfo = authz_client_info(?INTEGRATION_AUTHN_USER),
             AuthzAllow =
                 emqx_access_control:authorize(
-                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync">>
+                    emqx_authz_context:make(ClientInfo),
+                    ?AUTHZ_PUBLISH,
+                    <<"cluster/config/sync">>
                 ) =:= allow,
             AuthzDeny =
                 emqx_access_control:authorize(
-                    ClientInfo, ?AUTHZ_PUBLISH, <<"cluster/config/sync/denied">>
+                    emqx_authz_context:make(ClientInfo),
+                    ?AUTHZ_PUBLISH,
+                    <<"cluster/config/sync/denied">>
                 ) =:= deny,
             AuthnOK andalso AuthnReject andalso AuthzAllow andalso AuthzDeny
         catch

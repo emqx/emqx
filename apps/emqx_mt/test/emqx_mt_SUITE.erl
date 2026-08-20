@@ -11,6 +11,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_mt.hrl").
@@ -55,19 +56,46 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all_with_matrix(?MODULE).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+    ProfileCases = emqx_common_test_helpers:all_with_matrix(?MODULE),
+    [
+        {legacy, [], ProfileCases},
+        {hardened, [], ProfileCases}
+        | emqx_common_test_helpers:groups_with_matrix(?MODULE)
+    ].
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(app_specs(), #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    [{suite_apps, Apps} | Config].
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
 
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    Apps = emqx_cth_suite:start(
+        app_specs(),
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
+    ),
+    [{suite_apps, Apps}, {security_profile, Profile} | Config];
+init_per_group(_Group, Config) ->
+    Config.
+
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_testcase(Case, Config) ->
+    %% Run MT authn hooks while assuming some authenticator accepted the client.
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
+    ok = emqx_hooks:add('client.authenticate', {?MODULE, allow_authentication, []}, ?HP_LOWEST),
+    on_exit(fun() ->
+        emqx_hooks:del('client.authenticate', {?MODULE, allow_authentication})
+    end),
     snabbkaffe:start_trace(),
     ?MODULE:Case({init, Config}).
 
@@ -84,6 +112,20 @@ app_specs() ->
         emqx_mt,
         emqx_management
     ].
+
+cluster_opts(TestCase, Config) ->
+    #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}.
+
+propagate_security_profile(Nodes, Config) ->
+    Profile = ?config(security_profile, Config),
+    Replies = erpc:multicall(
+        Nodes,
+        emqx_common_test_helpers,
+        set_security_profile,
+        [Profile]
+    ),
+    ?assertEqual(lists:duplicate(length(Nodes), {ok, ok}), Replies),
+    Nodes.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
@@ -120,6 +162,9 @@ connect(Opts0) ->
             erlang:error(E)
     end.
 
+allow_authentication(_ClientInfo, _DefaultResult) ->
+    {stop, ok}.
+
 setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
     {ok, Agent} = emqx_utils_agent:start_link(_BarType0 = binary()),
     SetType = fun() ->
@@ -128,6 +173,7 @@ setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
     end,
     AppSpecs = [
         {emqx_conf, #{
+            config => emqx_cth_suite:emqx_config_authn(true),
             before_start =>
                 fun(App, AppCfg) ->
                     SetType(),
@@ -136,7 +182,7 @@ setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
                     emqx_cth_suite:inhibit_config_loader(App, AppCfg)
                 end
         }},
-        emqx,
+        {emqx, #{config => emqx_cth_suite:emqx_config_authn(true)}},
         emqx_management,
         {emqx_mt, #{
             after_start =>
@@ -149,6 +195,11 @@ setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
                                 <<"set_as_attr">> => <<"tns">>
                             }
                         ]
+                    ),
+                    ok = emqx_hooks:add(
+                        'client.authenticate',
+                        {?MODULE, allow_authentication, []},
+                        ?HP_LOWEST
                     )
                 end
         }}
@@ -159,10 +210,10 @@ setup_corrupt_namespace_scenario(TestCase, TCConfig) ->
                 apps => AppSpecs ++ [emqx_mgmt_api_test_util:emqx_dashboard()]
             }}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+        cluster_opts(TestCase, TCConfig)
     ),
     ct:pal("starting cluster"),
-    Nodes = [N1] = emqx_cth_cluster:start(NodeSpecs),
+    Nodes = [N1] = propagate_security_profile(emqx_cth_cluster:start(NodeSpecs), TCConfig),
     on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
     ct:timetrap({seconds, 15}),
     ct:pal("cluster started"),
@@ -203,7 +254,9 @@ connect_opts_of(TCConfig) ->
             Opts = #{connect_fn => fun emqtt:connect/1},
             add_listener_port(TCConfig, Opts);
         ?ws ->
-            {_, Port} = emqx:get_config([listeners, ws, default, bind]),
+            Port = emqx_common_test_helpers:listener_port(
+                emqx:get_config([listeners, ws, default, bind])
+            ),
             #{
                 connect_fn => fun emqtt:ws_connect/1,
                 hosts => [{"127.0.0.1", Port}],
@@ -214,7 +267,9 @@ connect_opts_of(TCConfig) ->
             };
         ?quic ->
             {listener, {LType, LName}} = lists:keyfind(listener, 1, TCConfig),
-            {_, Port} = emqx:get_config([listeners, LType, LName, bind]),
+            Port = emqx_common_test_helpers:listener_port(
+                emqx:get_config([listeners, LType, LName, bind])
+            ),
             #{
                 connect_fn => fun emqtt:quic_connect/1,
                 hosts => [{"127.0.0.1", Port}],
@@ -228,7 +283,9 @@ connect_opts_of(TCConfig) ->
 add_listener_port(TCConfig, Opts) ->
     case lists:keyfind(listener, 1, TCConfig) of
         {listener, {LType, LName}} ->
-            {_, Port} = emqx:get_config([listeners, LType, LName, bind]),
+            Port = emqx_common_test_helpers:listener_port(
+                emqx:get_config([listeners, LType, LName, bind])
+            ),
             Opts#{port => Port};
         _ ->
             Opts
@@ -424,9 +481,16 @@ assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, Client
 
 mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
     AppSpecs = [
-        {emqx_conf,
-            "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]\n"
-            "authentication = [{mechanism = password_based, backend = built_in_database}]"},
+        {emqx_conf, """
+        mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]
+        authentication = [
+            {
+                mechanism = password_based,
+                backend = built_in_database,
+                autogenerate_password = false
+            }
+        ]
+        """},
         emqx_auth_mnesia,
         emqx_auth,
         emqx_mt,
@@ -451,9 +515,12 @@ mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
         end,
         lists:seq(1, NumNodes)
     ),
-    Nodes = emqx_cth_cluster:start(
-        NodeSpecs0,
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+    Nodes = propagate_security_profile(
+        emqx_cth_cluster:start(
+            NodeSpecs0,
+            #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+        ),
+        TCConfig
     ),
     on_exit(fun() -> ok = emqx_cth_cluster:stop(Nodes) end),
     Nodes.
@@ -707,7 +774,7 @@ t_initialize_limiter_groups({init, Config}) ->
         shutdown => 5_000
     },
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
-    Cluster = emqx_cth_cluster:start(NodeSpecs),
+    Cluster = propagate_security_profile(emqx_cth_cluster:start(NodeSpecs), Config),
     [{cluster, Cluster}, {node_specs, NodeSpecs} | Config];
 t_initialize_limiter_groups({'end', Config}) ->
     Cluster = ?config(cluster, Config),
@@ -1086,7 +1153,7 @@ t_namespaced_metrics({init, Config}) ->
         shutdown => 5_000
     },
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
-    Cluster = emqx_cth_cluster:start(NodeSpecs),
+    Cluster = propagate_security_profile(emqx_cth_cluster:start(NodeSpecs), Config),
     [{cluster, Cluster}, {node_specs, NodeSpecs} | Config];
 t_namespaced_metrics({'end', Config}) ->
     Cluster = ?config(cluster, Config),

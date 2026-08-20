@@ -12,7 +12,27 @@
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [t_change_i18n_lang, {group, legacy}, {group, hardened}].
+
+groups() ->
+    [
+        {legacy, [], [t_http_default_bind_security_profile]},
+        {hardened, [], [t_http_default_bind_security_profile]}
+    ].
+
+init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(_Profile, _Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(TestCase, Config) ->
     Apps = emqx_cth_suite:start(
@@ -28,7 +48,6 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
-    emqx_common_test_helpers:clear_security_profile(),
     ok.
 
 t_change_i18n_lang(_Config) ->
@@ -41,18 +60,16 @@ t_change_i18n_lang(_Config) ->
         []
     ).
 
-t_http_default_bind_security_profile(_Config) ->
-    ok = assert_http_default_bind("legacy", false, 18083, inet),
-    ok = assert_http_default_bind("legacy", true, 18083, inet6),
-    ok = assert_http_default_bind("hardened", false, {{127, 0, 0, 1}, 18083}, inet),
-    ok = assert_http_default_bind("hardened", true, {{0, 0, 0, 0, 0, 0, 0, 1}, 18083}, inet6).
+t_http_default_bind_security_profile(Config) ->
+    Profile = ?config(security_profile, Config),
+    ok = assert_http_default_bind(false, expected_http_bind(Profile, false), inet),
+    ok = assert_http_default_bind(true, expected_http_bind(Profile, true), inet6).
 
 change_i18n_lang(Lang) ->
     {ok, _} = emqx_conf:update([dashboard], {change_i18n_lang, Lang}, #{}),
     ok.
 
-assert_http_default_bind(Profile, Inet6, ExpectedBind, ExpectedInetOpt) ->
-    emqx_common_test_helpers:set_security_profile(Profile),
+assert_http_default_bind(Inet6, ExpectedBind, ExpectedInetOpt) ->
     {ok, _} = emqx:update_config([dashboard, listeners], #{
         <<"http">> => #{
             <<"enable">> => true,
@@ -71,3 +88,7 @@ assert_http_default_bind(Profile, Inet6, ExpectedBind, ExpectedInetOpt) ->
     ?assert(lists:member(ExpectedInetOpt, SocketOpts)),
     ?assertEqual(false, lists:keymember(bind, 1, SocketOpts)),
     ok.
+
+expected_http_bind(legacy, _Inet6) -> 18083;
+expected_http_bind(hardened, false) -> {{127, 0, 0, 1}, 18083};
+expected_http_bind(hardened, true) -> {{0, 0, 0, 0, 0, 0, 0, 1}, 18083}.

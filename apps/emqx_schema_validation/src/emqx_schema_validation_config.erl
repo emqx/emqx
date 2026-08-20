@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_schema_validation_config).
 
--feature(maybe_expr, enable).
-
 %% API
 -export([
     add_handler/0,

@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_s3tables_logic_tests).
 
--feature(maybe_expr, enable).
-
 -compile([nowarn_export_all, export_all]).
 
 -include_lib("eunit/include/eunit.hrl").

@@ -147,7 +147,20 @@ ping(ConsumerRef, SubscriberRef) ->
 stop(ConsumerRef) when node(ConsumerRef) =:= node() ->
     stop_v1(ConsumerRef);
 stop(ConsumerRef) ->
-    emqx_mq_consumer_proto_v1:mq_server_stop(node(ConsumerRef), ConsumerRef).
+    try
+        emqx_mq_consumer_proto_v1:mq_server_stop(node(ConsumerRef), ConsumerRef)
+    catch
+        Class:Reason:Stacktrace ->
+            %% The consumer is unreachable or died during the call; treat it as
+            %% stopped (like the local noproc case) so cleanup can proceed.
+            ?tp(warning, mq_consumer_remote_stop_failed, #{
+                consumer => ConsumerRef,
+                class => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            ok
+    end.
 
 -spec inspect(emqx_mq_types:consumer_ref(), timeout()) -> emqx_types:infos().
 inspect(ConsumerRef, Timeout) ->

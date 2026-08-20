@@ -10,8 +10,6 @@
 
 -module(emqx_authn_scram_restapi).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_authn_provider).
 
 -export([

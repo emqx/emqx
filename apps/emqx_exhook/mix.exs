@@ -28,8 +28,7 @@ defmodule EMQXExhook.MixProject do
         generate_client?: true
       },
       xref_ignores: [
-        :emqx_exhook_pb,
-        :emqx_exproto_pb
+        :emqx_exhook_pb
       ],
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),

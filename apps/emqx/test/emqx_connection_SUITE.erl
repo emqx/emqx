@@ -321,7 +321,8 @@ t_parse_incoming(_) ->
     ).
 
 t_packet_data_logging(_) ->
-    Data = <<16#10, 0, "secret">>,
+    Secret = <<"PR17974_SECRET_001">>,
+    Data = <<16#10, (byte_size(Secret)), Secret/binary>>,
     Channel = channel(),
     OldIPMasks = emqx_config:get_listener_conf(
         tcp, default, [allow_log_packet_data_from]
@@ -337,12 +338,22 @@ t_packet_data_logging(_) ->
         %% Frame parse errors are reported via `?TRACE`, which emits at debug level
         %% (so a fuzzer does not spam the default info log).
         DeniedReports = emqx_cth_log_capture:capture(debug, fun() ->
-            emqx_connection:parse_incoming(Data, st())
+            emqx_connection:parse_incoming(Data, st(#{}, #{conn_state => idle}))
         end),
+        [DeniedReport] = [Report || #{msg := "frame_parse_error"} = Report <- DeniedReports],
         ?assertMatch(
-            [#{input_bytes := <<"******">>}],
-            [Report || #{msg := "frame_parse_error"} = Report <- DeniedReports]
+            #{
+                input_bytes := <<"******">>,
+                reason := #{
+                    received_prefix := <<"******">>,
+                    received_prefix_encoding := hidden
+                }
+            },
+            DeniedReport
         ),
+        DeniedLog = iolist_to_binary(io_lib:format("~p", [DeniedReport])),
+        ?assertEqual(nomatch, binary:match(DeniedLog, Secret)),
+        ?assertEqual(nomatch, binary:match(DeniedLog, binary:encode_hex(Secret))),
 
         ok = emqx_config:put_listener_conf(
             tcp, default, [allow_log_packet_data_from], [esockd_cidr:parse("127.0.0.0/24", true)]
@@ -352,10 +363,19 @@ t_packet_data_logging(_) ->
             emqx_packet_data_logger:add_packet_data(#{}, bin, Data, Channel, hex)
         ),
         AllowedReports = emqx_cth_log_capture:capture(debug, fun() ->
-            emqx_connection:parse_incoming(Data, st())
+            emqx_connection:parse_incoming(Data, st(#{}, #{conn_state => idle}))
         end),
+        ExpectedPrefix = binary:encode_hex(Data),
         ?assertMatch(
-            [#{input_bytes := Data}],
+            [
+                #{
+                    input_bytes := Data,
+                    reason := #{
+                        received_prefix := ExpectedPrefix,
+                        received_prefix_encoding := hex
+                    }
+                }
+            ],
             [Report || #{msg := "frame_parse_error"} = Report <- AllowedReports]
         )
     after

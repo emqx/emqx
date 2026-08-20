@@ -17,7 +17,25 @@
 -define(FNU, 0).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
+
+init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(_Profile, _Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
 t_asleep_pingreq_reroutes_across_nodes_and_retires_old_proxy(Config) ->
     QoS = 1,
@@ -109,7 +127,12 @@ start_mqttsn_cluster(Config) ->
             {cluster_node_name(?FUNCTION_NAME, 1), #{apps => Apps1}},
             {cluster_node_name(?FUNCTION_NAME, 2), #{apps => Apps2}}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        #{
+            work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+            env_vars => [
+                {"EMQX_SECURITY_PROFILE", atom_to_list(?config(security_profile, Config))}
+            ]
+        }
     ),
     [Node1, Node2] = Nodes = emqx_cth_cluster:start(NodeSpecs),
     ?retry(
@@ -137,18 +160,21 @@ mqttsn_apps(Port) ->
 mqttsn_conf(Port) ->
     iolist_to_binary(
         io_lib:format(
-            "gateway.mqttsn {\n"
-            "  gateway_id = 1\n"
-            "  broadcast = false\n"
-            "  enable_qos3 = true\n"
-            "  clientinfo_override {\n"
-            "    username = \"user1\"\n"
-            "    password = \"pw123\"\n"
-            "  }\n"
-            "  listeners.udp.default {\n"
-            "    bind = \"127.0.0.1:~B\"\n"
-            "  }\n"
-            "}\n",
+            ~S"""
+            gateway.mqttsn {
+                gateway_id = 1
+                broadcast = false
+                enable_qos3 = true
+                clientinfo_override {
+                    username = "user1"
+                    password = "pw123"
+                }
+                listeners.udp.default {
+                    bind = "127.0.0.1:~B"
+                    enable_authn = false
+                }
+            }
+            """,
             [Port]
         )
     ).

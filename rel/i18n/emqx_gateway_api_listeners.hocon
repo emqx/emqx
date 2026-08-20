@@ -67,6 +67,11 @@ list_users.desc:
 list_users.label:
 """List Users"""
 
+rotate_password.desc:
+"""Generate a new password for a listener authenticator user. The password is returned only in this response."""
+rotate_password.label:
+"""Rotate Listener User Password"""
+
 listener_id.desc:
 """Listener ID"""
 listener_id.label:

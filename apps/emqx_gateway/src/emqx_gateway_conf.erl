@@ -845,20 +845,6 @@ apply_to_listeners(Fun, GwName, Conf) ->
             )
     end.
 
-apply_to_gateway_basic_confs(Fun, <<"exproto">>, Conf) ->
-    SvrDir = filename:join(["exproto", "server"]),
-    HdrDir = filename:join(["exproto", "handler"]),
-    Conf1 =
-        case maps:get(<<"server">>, Conf, undefined) of
-            undefined ->
-                Conf;
-            ServerConf ->
-                maps:put(<<"server">>, erlang:apply(Fun, [SvrDir, ServerConf]), Conf)
-        end,
-    case maps:get(<<"handler">>, Conf1, undefined) of
-        undefined -> Conf1;
-        HandlerConf -> maps:put(<<"handler">>, erlang:apply(Fun, [HdrDir, HandlerConf]), Conf1)
-    end;
 apply_to_gateway_basic_confs(_Fun, _GwName, Conf) ->
     Conf.
 

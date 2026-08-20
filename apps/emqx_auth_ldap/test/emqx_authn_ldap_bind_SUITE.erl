@@ -18,7 +18,11 @@
 -define(ResourceID, <<"password_based:ldap">>).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_testcase(_, Config) ->
     emqx_authn_test_lib:delete_authenticators(
@@ -37,17 +41,31 @@ end_per_testcase(_, Config) ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_ldap], #{
-        work_dir => ?config(priv_dir, Config)
-    }),
-    [{apps, Apps} | Config].
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
 
-end_per_suite(Config) ->
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_ldap
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
+    ),
+    [{apps, Apps}, {security_profile, Profile} | Config].
+
+end_per_group(_Profile, Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    ok = emqx_cth_suite:stop(?config(apps, Config)).
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -124,7 +142,7 @@ test_user_auth(#{
         ?GLOBAL
     ).
 
-t_destroy(_Config) ->
+t_destroy(Config) ->
     AuthConfig = raw_ldap_auth_config(),
 
     {ok, _} = emqx:update_config(
@@ -149,16 +167,17 @@ t_destroy(_Config) ->
     ),
 
     % Authenticator should not be usable anymore
-    ?assertMatch(
-        ignore,
-        emqx_authn_ldap:authenticate(
-            #{
-                username => <<"mqttuser0001">>,
-                password => <<"mqttuser0001">>
-            },
-            State
-        )
-    ).
+    Result = emqx_authn_ldap:authenticate(
+        #{
+            username => <<"mqttuser0001">>,
+            password => <<"mqttuser0001">>
+        },
+        State
+    ),
+    case ?config(security_profile, Config) of
+        legacy -> ?assertEqual(ignore, Result);
+        hardened -> ?assertEqual({error, not_authorized}, Result)
+    end.
 
 t_update(_Config) ->
     CorrectConfig = raw_ldap_auth_config(),

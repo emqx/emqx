@@ -559,8 +559,9 @@ client_connected_context() ->
     }.
 
 get_tcp_mqtt_port(Node) ->
-    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
-    Port.
+    emqx_common_test_helpers:listener_port(
+        erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]])
+    ).
 
 setup_namespaced_actions_sources_scenario(TCConfig0) ->
     Node = proplists:get_value(node, TCConfig0, node()),
