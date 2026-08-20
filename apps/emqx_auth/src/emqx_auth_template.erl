@@ -110,10 +110,13 @@ cache_key(Values, #cache_key_template{id = TemplateId, vars = KeyVars}, ExtraKey
         %% We try to add some identifier to the cache key for better introspection.
         CacheKeyId = cache_template_id(first_present_kv(?POSSIBLE_CACHE_KEY_IDS, Values)),
         Key0 = render_deep_for_raw(KeyVars, Values),
+        %% Length-prefix each rendered value so that distinct value lists
+        %% cannot concatenate to the same byte stream.
+        Key1 = [length_prefix(Value) || Value <- Key0],
         %% We hash the key to avoid storing the passwords or other sensitive data as-is in the cache.
         %% TemplateId is used as some kind of salt.
-        Key1 = crypto:hash(sha256, [TemplateId, Key0]),
-        [CacheKeyId, Key1 | ExtraKeyParts]
+        Key2 = crypto:hash(sha256, [TemplateId, Key1]),
+        [CacheKeyId, Key2 | ExtraKeyParts]
     end.
 
 -spec escape_disallowed_placeholders_str(unicode:chardata(), allowed_vars()) -> term().
@@ -334,6 +337,10 @@ render_strict(Topic, ClientInfo) ->
 
 render_strict(Topic, ClientInfo, Opts) ->
     emqx_template:render_strict(Topic, rename_client_info_vars(ClientInfo), Opts).
+
+length_prefix(Value) ->
+    Bin = iolist_to_binary(Value),
+    <<(byte_size(Bin)):64/unsigned, Bin/binary>>.
 
 first_present_kv([Key | Keys], Map) ->
     case Map of
