@@ -893,18 +893,32 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp copy_escript(release, escript_name) do
-    [shebang, rest] =
+    [shebang | lines] =
       "bin/#{escript_name}"
       |> File.read!()
-      |> String.split("\n", parts: 2)
+      |> String.split("\n")
 
     # the elixir version of escript + start.boot required the boot_var
     # RELEASE_LIB to be defined.
     # enable-feature is not required when 1.6.x
-    boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib -enable-feature maybe_expr"
+    rel_args = "-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib -enable-feature maybe_expr"
+
+    # escript reads emulator flags from the first %%! line only (line 2,
+    # or line 3 when line 2 is a comment), so merge the release arguments
+    # into the script's own %%! line instead of adding a second one.
+    lines =
+      case Enum.find_index(Enum.take(lines, 2), &String.starts_with?(&1, "%%!")) do
+        nil ->
+          ["%%! " <> rel_args | lines]
+
+        idx ->
+          List.update_at(lines, idx, fn "%%!" <> args ->
+            "%%! " <> rel_args <> " " <> String.trim(args)
+          end)
+      end
 
     path = Path.join([release.path, "bin", escript_name])
-    File.write!(path, [shebang, "\n", boot_var, "\n", rest])
+    File.write!(path, Enum.join([shebang | lines], "\n"))
 
     release
   end

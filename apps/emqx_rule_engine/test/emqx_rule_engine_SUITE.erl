@@ -104,7 +104,10 @@ groups() ->
             t_sqlparse_new_map,
             t_sqlparse_invalid_json,
             t_sqlselect_as_put,
-            t_sqlselect_client_attr
+            t_sqlselect_client_attr,
+            t_republish_namespaced_rule,
+            t_republish_namespaced_rule_mountpoint_disabled,
+            t_republish_namespaced_rule_manual_prefix
         ]},
         {events, [], [
             t_events,
@@ -4515,6 +4518,200 @@ t_sqlselect_client_attr(_) ->
 
     emqtt:disconnect(Client),
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []).
+
+-doc """
+Tests that a republish action of a namespaced rule publishes to the topic
+mounted under the rule's namespace when `mqtt.namespace_as_mountpoint` is
+enabled.
+A subscriber on the raw (unprefixed) topic must not receive the message,
+and a direct publish from the tenant client stays confined the same way.
+""".
+t_republish_namespaced_rule(_Config) ->
+    Ns = <<"ns1">>,
+    RuleId = atom_to_binary(?FUNCTION_NAME),
+    ok = setup_namespace_as_mountpoint(true),
+    {ok, _Rule} = create_rule(
+        #{
+            namespace => Ns,
+            id => RuleId,
+            sql => <<"select * from \"ns1/probe/in\"">>,
+            actions => [republish_action(<<"probe/out">>)]
+        }
+    ),
+    on_exit(fun() -> delete_rule(#{namespace => Ns, id => RuleId}) end),
+    %% The tenant client gets the 'tns' attribute from a user property,
+    %% so its publishes are mounted under "ns1/".
+    {ok, Tenant} = emqtt:start_link([
+        {clientid, <<"tenant">>},
+        {proto_ver, v5},
+        {properties, #{'User-Property' => [{<<"namespace">>, Ns}]}}
+    ]),
+    {ok, _} = emqtt:connect(Tenant),
+    {ok, _, _} = emqtt:subscribe(Tenant, <<"probe/out">>, 0),
+    %% A global observer watches both the raw and the mounted topic.
+    {ok, Observer} = emqtt:start_link([{clientid, <<"observer">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Observer),
+    {ok, _, _} = emqtt:subscribe(Observer, <<"probe/out">>, 0),
+    {ok, _, _} = emqtt:subscribe(Observer, <<"ns1/probe/out">>, 0),
+    emqtt:publish(Tenant, <<"probe/in">>, <<"republished">>, 0),
+    %% The tenant receives the republished message on its own (unprefixed) view.
+    receive
+        {publish, #{client_pid := Tenant, topic := TenantTopic, payload := P1}} ->
+            ?assertEqual(<<"probe/out">>, TenantTopic),
+            ?assertEqual(<<"republished">>, P1)
+    after 2000 ->
+        ct:fail(tenant_missed_republish)
+    end,
+    %% The observer receives it only on the mounted topic.
+    receive
+        {publish, #{client_pid := Observer, topic := ObserverTopic, payload := P2}} ->
+            ?assertEqual(<<"ns1/probe/out">>, ObserverTopic),
+            ?assertEqual(<<"republished">>, P2)
+    after 2000 ->
+        ct:fail(observer_missed_mounted_republish)
+    end,
+    %% Negative control: the tenant's own direct publish to the raw topic is
+    %% confined by the mountpoint the same way.
+    emqtt:publish(Tenant, <<"probe/out">>, <<"direct">>, 0),
+    receive
+        {publish, #{client_pid := Tenant, payload := <<"direct">>} = M1} ->
+            ?assertMatch(#{topic := <<"probe/out">>}, M1)
+    after 2000 ->
+        ct:fail(tenant_missed_direct_publish)
+    end,
+    receive
+        {publish, #{client_pid := Observer, payload := <<"direct">>} = M2} ->
+            ?assertMatch(#{topic := <<"ns1/probe/out">>}, M2)
+    after 2000 ->
+        ct:fail(observer_missed_mounted_direct_publish)
+    end,
+    %% Nothing reaches the raw topic.
+    receive
+        {publish, Extra} ->
+            ct:fail({unexpected_publish, Extra})
+    after 500 ->
+        ok
+    end,
+    ?assertMatch(
+        #{'matched' := 1, 'actions.success' := 1},
+        get_counters(emqx_rule_engine:rule_resource_id(Ns, RuleId))
+    ),
+    emqtt:stop(Tenant),
+    emqtt:stop(Observer),
+    ok.
+
+-doc """
+Tests that a namespaced rule's republish stays confined to the rule's
+namespace also when `mqtt.namespace_as_mountpoint` is disabled.
+""".
+t_republish_namespaced_rule_mountpoint_disabled(_Config) ->
+    Ns = <<"ns2">>,
+    RuleId = atom_to_binary(?FUNCTION_NAME),
+    ok = setup_namespace_as_mountpoint(false),
+    {ok, _Rule} = create_rule(
+        #{
+            namespace => Ns,
+            id => RuleId,
+            sql => <<"select * from \"probe2/in\"">>,
+            actions => [republish_action(<<"probe2/out">>)]
+        }
+    ),
+    on_exit(fun() -> delete_rule(#{namespace => Ns, id => RuleId}) end),
+    {ok, Tenant} = emqtt:start_link([
+        {clientid, <<"tenant2">>},
+        {proto_ver, v5},
+        {properties, #{'User-Property' => [{<<"namespace">>, Ns}]}}
+    ]),
+    {ok, _} = emqtt:connect(Tenant),
+    {ok, Observer} = emqtt:start_link([{clientid, <<"observer2">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Observer),
+    {ok, _, _} = emqtt:subscribe(Observer, <<"probe2/out">>, 0),
+    {ok, _, _} = emqtt:subscribe(Observer, <<"ns2/probe2/out">>, 0),
+    emqtt:publish(Tenant, <<"probe2/in">>, <<"republished">>, 0),
+    receive
+        {publish, #{client_pid := Observer, topic := Topic, payload := Payload}} ->
+            ?assertEqual(<<"ns2/probe2/out">>, Topic),
+            ?assertEqual(<<"republished">>, Payload)
+    after 2000 ->
+        ct:fail(observer_missed_republish)
+    end,
+    receive
+        {publish, Extra} ->
+            ct:fail({unexpected_publish, Extra})
+    after 500 ->
+        ok
+    end,
+    emqtt:stop(Tenant),
+    emqtt:stop(Observer),
+    ok.
+
+-doc """
+Tests that a republish template that already prefixes the rule's namespace
+is published as is, without a second prefix.
+""".
+t_republish_namespaced_rule_manual_prefix(_Config) ->
+    Ns = <<"ns3">>,
+    RuleId = atom_to_binary(?FUNCTION_NAME),
+    ok = setup_namespace_as_mountpoint(true),
+    {ok, _Rule} = create_rule(
+        #{
+            namespace => Ns,
+            id => RuleId,
+            sql => <<"select * from \"ns3/probe3/in\"">>,
+            actions => [republish_action(<<"ns3/probe3/out">>)]
+        }
+    ),
+    on_exit(fun() -> delete_rule(#{namespace => Ns, id => RuleId}) end),
+    {ok, Tenant} = emqtt:start_link([
+        {clientid, <<"tenant3">>},
+        {proto_ver, v5},
+        {properties, #{'User-Property' => [{<<"namespace">>, Ns}]}}
+    ]),
+    {ok, _} = emqtt:connect(Tenant),
+    {ok, _, _} = emqtt:subscribe(Tenant, <<"probe3/out">>, 0),
+    {ok, Observer} = emqtt:start_link([{clientid, <<"observer3">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Observer),
+    {ok, _, _} = emqtt:subscribe(Observer, <<"ns3/probe3/out">>, 0),
+    {ok, _, _} = emqtt:subscribe(Observer, <<"ns3/ns3/probe3/out">>, 0),
+    emqtt:publish(Tenant, <<"probe3/in">>, <<"republished">>, 0),
+    receive
+        {publish, #{client_pid := Tenant, topic := TenantTopic, payload := P1}} ->
+            ?assertEqual(<<"probe3/out">>, TenantTopic),
+            ?assertEqual(<<"republished">>, P1)
+    after 2000 ->
+        ct:fail(tenant_missed_republish)
+    end,
+    receive
+        {publish, #{client_pid := Observer, topic := ObserverTopic, payload := P2}} ->
+            ?assertEqual(<<"ns3/probe3/out">>, ObserverTopic),
+            ?assertEqual(<<"republished">>, P2)
+    after 2000 ->
+        ct:fail(observer_missed_republish)
+    end,
+    receive
+        {publish, Extra} ->
+            ct:fail({unexpected_publish, Extra})
+    after 500 ->
+        ok
+    end,
+    emqtt:stop(Tenant),
+    emqtt:stop(Observer),
+    ok.
+
+setup_namespace_as_mountpoint(NsAsMountpoint) ->
+    OldLimit = emqx_config:get([rule_engine, limit_selects_in_namespace], true),
+    emqx_config:put([rule_engine, limit_selects_in_namespace], true),
+    {ok, Compiled} = emqx_variform:compile("user_property.namespace"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{expression => Compiled, set_as_attr => <<"tns">>}
+    ]),
+    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], NsAsMountpoint),
+    on_exit(fun() ->
+        emqx_config:put([rule_engine, limit_selects_in_namespace], OldLimit),
+        emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
+        emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], false)
+    end),
+    ok.
 
 %% Checks that we bump both `failed' and one of its sub-counters when failures occur while
 %% evaluating rule SQL.
