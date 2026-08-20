@@ -410,6 +410,7 @@ remsh() {
             -setcookie "$COOKIE" \
             -hidden \
             -kernel net_ticktime "$TICKTIME" \
+            -kernel standard_io_encoding unicode \
             +P 65536 \
             +Q 65536 \
             +S 2 \
@@ -421,6 +422,7 @@ remsh() {
             --cookie "$COOKIE" \
             --hidden \
             --erl "-kernel net_ticktime $TICKTIME" \
+            --erl "-kernel standard_io_encoding unicode" \
             --erl "$EPMD_ARGS" \
             --erl "$NAME_TYPE $id" \
             --erl "+P 65536" \
@@ -437,7 +439,7 @@ gen_node_id() {
 }
 
 call_nodetool() {
-    ## Emulator flags (+P, +Q, +S) come from the %%! line in bin/nodetool.
+    ## Emulator and -kernel flags come from the %%! line in bin/nodetool.
     "$ERTS_DIR/bin/escript" "$RUNNER_ROOT_DIR/bin/nodetool" "$@"
 }
 
@@ -639,7 +641,8 @@ check_license() {
 # Run an escript in the node's environment
 relx_escript() {
     shift; scriptpath="$1"; shift
-    "$ERTS_DIR/bin/escript" "$RUNNER_ROOT_DIR/$scriptpath" "$@"
+    ERL_FLAGS="${ERL_FLAGS:-} -kernel standard_io_encoding unicode" \
+        "$ERTS_DIR/bin/escript" "$RUNNER_ROOT_DIR/$scriptpath" "$@"
 }
 
 # Output a start command for the last argument of run_erl
@@ -1287,6 +1290,7 @@ case "${COMMAND}" in
             --vm-args "$REL_DIR/remote.vm.args" \
             --erl "-start_epmd false" \
             --erl "-epmd_module ekka_epmd" \
+            --erl "-kernel standard_io_encoding unicode" \
             --erl "+P 65536" \
             --erl "+Q 65536" \
             --erl "+S 2" \

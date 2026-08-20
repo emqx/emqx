@@ -9,3 +9,6 @@
 
 ## Tweak GC to run more often
 ##-env ERL_FULLSWEEP_AFTER 10
+
+## Read and write standard I/O as UTF-8 regardless of the OS locale
+-kernel standard_io_encoding unicode
