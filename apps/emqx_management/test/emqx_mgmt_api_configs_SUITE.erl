@@ -329,9 +329,7 @@ t_config_update_invalid_uescape(_Config) ->
     ],
     lists:foreach(
         fun(BadHocon) ->
-            %% update_configs_with_binary/1 fails the test on any status
-            %% other than 2xx or 400, so this match asserts the 400.
-            {error, Body} = update_configs_with_binary(BadHocon),
+            {400, RespBody} = update_configs_with_binary(BadHocon),
             ?assertMatch(
                 #{
                     <<"errors">> := #{
@@ -339,15 +337,16 @@ t_config_update_invalid_uescape(_Config) ->
                         <<"reason">> := <<"invalid_uescape", _/binary>>
                     }
                 },
-                emqx_utils_json:decode(Body),
+                RespBody,
                 BadHocon
             ),
+            BodyBin = emqx_utils_json:encode(RespBody),
             lists:foreach(
                 fun(InternalDetail) ->
                     ?assertEqual(
                         nomatch,
-                        binary:match(Body, InternalDetail),
-                        {BadHocon, Body}
+                        binary:match(BodyBin, InternalDetail),
+                        {BadHocon, BodyBin}
                     )
                 end,
                 [<<"emqx_conf_cli">>, <<"unicode">>, <<"minirest">>, <<"cowboy">>]
