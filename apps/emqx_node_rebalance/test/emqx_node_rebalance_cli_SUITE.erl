@@ -392,5 +392,6 @@ emqx_node_rebalance_cli(Node, Args) ->
     end.
 
 get_mqtt_port(Node, Type) ->
-    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
-    Port.
+    emqx_common_test_helpers:listener_port(
+        erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]])
+    ).

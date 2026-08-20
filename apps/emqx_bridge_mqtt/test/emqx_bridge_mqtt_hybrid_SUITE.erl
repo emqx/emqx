@@ -264,8 +264,9 @@ start_client(Node, Opts) when is_atom(Node) ->
     C.
 
 get_tcp_mqtt_port(Node) ->
-    {_Host, Port} = ?ON(Node, emqx_config:get([listeners, tcp, default, bind])),
-    Port.
+    emqx_common_test_helpers:listener_port(
+        ?ON(Node, emqx_config:get([listeners, tcp, default, bind]))
+    ).
 
 setup_auth_header(TCConfig) ->
     case get_config(nodes, TCConfig, undefined) of

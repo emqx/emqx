@@ -42,3 +42,22 @@ t_global_chain(_Config) ->
         Names
     ),
     ?assertError({invalid_protocol_name, 'Others'}, emqx_gateway_utils:global_chain('Others')).
+
+-doc """
+Gateway WebSocket options default to empty `proxy_address_header` and
+`proxy_port_header`, so forwarded headers are not consulted by default.
+""".
+t_ws_opts_proxy_header_defaults(_Config) ->
+    Sc = #{
+        roots => [websocket],
+        fields => #{websocket => emqx_gateway_schema:ws_opts(#{})}
+    },
+    ?assertMatch(
+        #{
+            <<"websocket">> := #{
+                <<"proxy_address_header">> := "",
+                <<"proxy_port_header">> := ""
+            }
+        },
+        hocon_tconf:check_plain(Sc, #{<<"websocket">> => #{}}, #{required => false})
+    ).

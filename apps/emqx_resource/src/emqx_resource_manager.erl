@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_resource_manager).
 
--feature(maybe_expr, enable).
-
 -behaviour(gen_statem).
 
 -include("emqx_resource.hrl").

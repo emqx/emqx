@@ -618,6 +618,10 @@ reserved_idx('delivery.dropped.filter') -> 102;
 reserved_idx('actions.messages') -> 103;
 reserved_idx('client.post_authn') -> 104;
 reserved_idx('messages.retained') -> 105;
+reserved_idx('client.banned') -> 106;
+reserved_idx('flapping.detected.clientid') -> 107;
+reserved_idx('flapping.detected.username') -> 108;
+reserved_idx('flapping.detected.peerhost') -> 109;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
@@ -631,6 +635,7 @@ all_metrics() ->
         stats_acl_metrics(),
         stats_authn_metrics(),
         olp_metrics(),
+        flapping_metrics(),
         data_integration_metrics()
     ]).
 
@@ -748,7 +753,8 @@ client_metrics() ->
         {counter, 'client.authorize', ?DESC("client_authorize")},
         {counter, 'client.subscribe', ?DESC("client_subscribe")},
         {counter, 'client.unsubscribe', ?DESC("client_unsubscribe")},
-        {counter, 'client.disconnected', ?DESC("client_disconnected")}
+        {counter, 'client.disconnected', ?DESC("client_disconnected")},
+        {counter, 'client.banned', ?DESC("client_banned")}
     ].
 
 %% Session Lifecycle metrics
@@ -777,6 +783,14 @@ stats_authn_metrics() ->
         {counter, 'authentication.success', ?DESC("authentication_success")},
         {counter, 'authentication.success.anonymous', ?DESC("authentication_success_anonymous")},
         {counter, 'authentication.failure', ?DESC("authentication_failure")}
+    ].
+
+%% Flapping detection metrics
+flapping_metrics() ->
+    [
+        {counter, 'flapping.detected.clientid', ?DESC("flapping_detected_clientid")},
+        {counter, 'flapping.detected.username', ?DESC("flapping_detected_username")},
+        {counter, 'flapping.detected.peerhost', ?DESC("flapping_detected_peerhost")}
     ].
 
 olp_metrics() ->

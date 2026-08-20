@@ -14,7 +14,12 @@
 
 -define(PATH, [authentication]).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_testcase(_, Config) ->
     _ = emqx_authn_test_lib:delete_authenticators(?PATH, ?GLOBAL),
@@ -22,26 +27,35 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, _Config) ->
     _ = emqx_authn_test_lib:delete_authenticators(?PATH, ?GLOBAL),
-    ok.
+    emqx_common_test_helpers:call_janitor().
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
+            {emqx_conf,
+                emqx_authn_test_lib:emqx_appspec(#{
+                    config =>
+                        "authorization.no_match = deny, authorization.cache.enable = false"
+                })},
             emqx_auth,
             emqx_auth_jwt
         ],
-        #{
-            work_dir => ?config(priv_dir, Config)
-        }
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
-    [{apps, Apps} | Config].
+    [{apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
+end_per_group(_Profile, Config) ->
     emqx_authn_test_lib:delete_authenticators(?PATH, ?GLOBAL),
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
-    ok.
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 %%--------------------------------------------------------------------
 %% CT cases
@@ -90,14 +104,21 @@ t_will_message_on_auth_expire(_Config) ->
     WillTopic = <<"t/will">>,
     PayloadSub = #{
         <<"username">> => <<"subuser">>,
-        <<"exp">> => Now + 100
+        <<"exp">> => Now + 100,
+        <<"acl">> => [
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"sub">>,
+                <<"topics">> => [WillTopic]
+            }
+        ]
     },
     JWSSub = emqx_authn_jwt_SUITE:generate_jws('hmac-based', PayloadSub, <<"secret">>),
     {ok, SubClient} = emqtt:start_link([
         {username, <<"subuser">>}, {password, JWSSub}, {proto_ver, v5}
     ]),
     {ok, _} = emqtt:connect(SubClient),
-    {ok, _, _} = emqtt:subscribe(SubClient, WillTopic, 1),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(SubClient, WillTopic, 1),
 
     %% Set up the publisher, it will publish the will message on auth expire
     WillPayload = <<"will">>,

@@ -9,8 +9,10 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include("emqx_auth_mnesia_internal.hrl").
 
 -define(AUTHN_ID, <<"mechanism:backend">>).
 -define(NS, <<"some_ns">>).
@@ -20,21 +22,34 @@
 -define(ns, ns).
 
 all() ->
-    emqx_common_test_helpers:all_with_matrix(?MODULE).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+    Tests = emqx_common_test_helpers:all_with_matrix(?MODULE),
+    [
+        {legacy, [], Tests},
+        {hardened, [], Tests}
+        | emqx_common_test_helpers:groups_with_matrix(?MODULE)
+    ].
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia], #{
-        work_dir => emqx_cth_suite:work_dir(Config)
-    }),
-    [{apps, Apps} | Config].
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
 
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
-    ok.
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
+    ),
+    [{apps, Apps}, {security_profile, Profile} | Config];
 init_per_group(?global, Config) ->
     [{ns, ?global_ns} | Config];
 init_per_group(?ns, Config) ->
@@ -42,6 +57,9 @@ init_per_group(?ns, Config) ->
 init_per_group(_Group, Config) ->
     Config.
 
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, _Config) ->
     ok.
 
@@ -62,7 +80,7 @@ t_create(_) ->
 
     {ok, _} = emqx_authn_mnesia:create(?AUTHN_ID, Config0),
 
-    Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
+    Config1 = Config0#{password_hash_algorithm => #{name => sha256, salt_position => prefix}},
     {ok, _} = emqx_authn_mnesia:create(?AUTHN_ID, Config1),
     ok.
 
@@ -196,10 +214,10 @@ t_bootstrap_file(_) ->
     ok.
 
 t_default_bootstrap_file_missing(_) ->
-    Config = (config())#{
+    Config = config(#{
         bootstrap_file => emqx_authn_mnesia_schema:default_bootstrap_file_path(),
         bootstrap_type => hash
-    },
+    }),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
     ?assertMatch([], ets:tab2list(emqx_authn_mnesia)),
     ok = emqx_authn_mnesia:destroy(State).
@@ -245,7 +263,7 @@ t_update(_) ->
     Config0 = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config0),
 
-    Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
+    Config1 = Config0#{password_hash_algorithm => #{name => sha256, salt_position => prefix}},
     {ok, _} = emqx_authn_mnesia:update(Config1, State).
 
 t_destroy() ->
@@ -386,6 +404,272 @@ t_add_user(TCConfig) ->
 
     ok.
 
+%% Verify password generation and format
+t_generated_password(_) ->
+    Algorithm = #{name => sha256, salt_position => disable},
+    {ok, State} = emqx_authn_mnesia:create(
+        ?AUTHN_ID,
+        config(#{autogenerate_password => true, password_hash_algorithm => Algorithm})
+    ),
+    ?assertEqual(
+        {error, password_not_allowed},
+        emqx_authn_mnesia:add_user(#{user_id => <<"supplied">>, password => <<"p">>}, State)
+    ),
+    {ok, #{password := Password}} = emqx_authn_mnesia:add_user(
+        #{user_id => <<"generated">>}, State
+    ),
+    ?assertEqual(32, byte_size(emqx_base62:decode(Password))),
+    [Record] = ets:lookup(
+        emqx_authn_mnesia_ns, ?AUTHN_NS_KEY(?global_ns, 'global:mqtt', <<"generated">>)
+    ),
+    #{password_hash := PasswordHash, salt := Salt, extra := Extra} =
+        emqx_authn_mnesia:rec_to_map(Record),
+    ?assertEqual(<<>>, Salt),
+    ?assertEqual(#{algo => #simple{name = sha256, salt_position = disable}}, Extra),
+    ?assertEqual(match, re:run(PasswordHash, <<"^[0-9a-f]{64}$">>, [{capture, none}])),
+    ?assertEqual(
+        {PasswordHash, Salt},
+        emqx_authn_password_hashing:hash(Algorithm, Password)
+    ),
+    ?assertEqual(nomatch, binary:match(term_to_binary(Record), Password)),
+    ?assertEqual(
+        {error, password_required},
+        emqx_authn_mnesia:add_user(
+            #{user_id => <<"missing">>}, emqx_authn_mnesia_create(?AUTHN_ID, config())
+        )
+    ).
+
+%% Checks generated password rotation, check rotation availability.
+t_rotate_generated_password(_) ->
+    {ok, State} = emqx_authn_mnesia:create(
+        ?AUTHN_ID,
+        config(#{
+            autogenerate_password => true,
+            password_hash_algorithm => #{name => sha256, salt_position => disable}
+        })
+    ),
+    {ok, #{password := OldPassword}} = emqx_authn_mnesia:add_user(
+        #{user_id => <<"u">>}, State
+    ),
+    {ok, #{password := NewPassword}} = emqx_authn_mnesia:rotate_password(
+        ?global_ns, <<"u">>, State
+    ),
+    ?assertNotEqual(OldPassword, NewPassword),
+    ?assertEqual(
+        {error, bad_username_or_password},
+        emqx_authn_mnesia:authenticate(
+            #{username => <<"u">>, password => OldPassword}, State
+        )
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:authenticate(
+            #{username => <<"u">>, password => NewPassword}, State
+        )
+    ),
+    ?assertEqual(
+        {error, password_rotation_disabled},
+        emqx_authn_mnesia:rotate_password(?global_ns, <<"u">>, State#{
+            autogenerate_password => false
+        })
+    ),
+    ?assertEqual(
+        {error, password_not_allowed},
+        emqx_authn_mnesia:update_user(
+            ?global_ns, <<"u">>, #{password => <<"caller-supplied">>}, State
+        )
+    ).
+
+%% Checks that stored algorithm metadata remains valid after authenticator configuration changes.
+t_stored_algorithm_survives_config_change(_) ->
+    OldAlgorithm = #{name => sha256, salt_position => suffix},
+    {ok, OldState} = emqx_authn_mnesia:create(
+        ?AUTHN_ID,
+        config(#{password_hash_algorithm => OldAlgorithm})
+    ),
+    {ok, _} = emqx_authn_mnesia:add_user(
+        #{user_id => <<"u">>, password => <<"old">>}, OldState
+    ),
+    NewAlgorithm = #{name => plain, salt_position => disable},
+    {ok, NewState} = emqx_authn_mnesia:update(
+        config(#{password_hash_algorithm => NewAlgorithm}), OldState
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:authenticate(#{username => <<"u">>, password => <<"old">>}, NewState)
+    ),
+    {ok, _} = emqx_authn_mnesia:update_user(
+        ?global_ns, <<"u">>, #{is_superuser => true}, NewState
+    ),
+    [MetadataRecord] = ets:lookup(
+        emqx_authn_mnesia_ns, ?AUTHN_NS_KEY(?global_ns, 'global:mqtt', <<"u">>)
+    ),
+    ?assertMatch(
+        #{extra := #{algo := #simple{name = sha256, salt_position = suffix}}},
+        emqx_authn_mnesia:rec_to_map(MetadataRecord)
+    ),
+    {ok, _} = emqx_authn_mnesia:update_user(
+        ?global_ns, <<"u">>, #{password => <<"new">>}, NewState
+    ),
+    [PasswordRecord] = ets:lookup(
+        emqx_authn_mnesia_ns, ?AUTHN_NS_KEY(?global_ns, 'global:mqtt', <<"u">>)
+    ),
+    ?assertMatch(
+        #{extra := #{algo := #simple{name = plain, salt_position = disable}}},
+        emqx_authn_mnesia:rec_to_map(PasswordRecord)
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:authenticate(#{username => <<"u">>, password => <<"new">>}, NewState)
+    ).
+
+%% Checks legacy global lookup and migration into the namespaced table during update
+t_legacy_global_fallback_and_update(_) ->
+    Algorithm = #{name => sha256, salt_position => suffix},
+    {Hash, Salt} = emqx_authn_password_hashing:hash(Algorithm, <<"p">>),
+    Legacy = {user_info, {'global:mqtt', <<"legacy">>}, Hash, Salt, false},
+    ok = mria:dirty_write_sync(emqx_authn_mnesia, Legacy),
+    {ok, State} = emqx_authn_mnesia:create(
+        ?AUTHN_ID,
+        config(#{password_hash_algorithm => Algorithm})
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:authenticate(
+            #{username => <<"legacy">>, password => <<"p">>}, State
+        )
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:authenticate(
+            add_ns_clientinfo(#{username => <<"legacy">>, password => <<"p">>}, ?NS), State
+        )
+    ),
+    {ok, _} = emqx_authn_mnesia:update_user(
+        ?global_ns, <<"legacy">>, #{is_superuser => true}, State
+    ),
+    ?assertEqual([], ets:lookup(emqx_authn_mnesia, {'global:mqtt', <<"legacy">>})),
+    [Record] = ets:lookup(
+        emqx_authn_mnesia_ns, ?AUTHN_NS_KEY(?global_ns, 'global:mqtt', <<"legacy">>)
+    ),
+    ?assertMatch(
+        #{
+            password_hash := Hash,
+            salt := Salt,
+            extra := #{algo := #simple{name = sha256, salt_position = suffix}}
+        },
+        emqx_authn_mnesia:rec_to_map(Record)
+    ).
+
+%% Checks that a newer legacy write takes precedence while a global user exists in both tables.
+t_global_dual_table_precedence_and_operations(_) ->
+    Legacy = {user_info, {'global:mqtt', <<"u">>}, <<"legacy">>, <<>>, false},
+    New = #?AUTHN_NS_TAB{
+        user_id = ?AUTHN_NS_KEY(?global_ns, 'global:mqtt', <<"u">>),
+        password_hash = <<"new">>,
+        salt = <<>>,
+        is_superuser = true,
+        extra = #{algo => #simple{name = plain, salt_position = disable}}
+    },
+    ok = mria:dirty_write_sync(emqx_authn_mnesia, Legacy),
+    ok = mria:dirty_write_sync(emqx_authn_mnesia_ns, New),
+    {ok, State} = emqx_authn_mnesia:create(
+        ?AUTHN_ID,
+        config(#{password_hash_algorithm => #{name => plain, salt_position => disable}})
+    ),
+    ?assertEqual(
+        {error, already_exist},
+        emqx_authn_mnesia:add_user(#{user_id => <<"u">>, password => <<"duplicate">>}, State)
+    ),
+    %% In case of duplicates, legacy wins because it is the later update by an old node.
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:authenticate(#{username => <<"u">>, password => <<"legacy">>}, State)
+    ),
+    ?assertEqual(
+        {error, bad_username_or_password},
+        emqx_authn_mnesia:authenticate(#{username => <<"u">>, password => <<"new">>}, State)
+    ),
+    ?assertEqual(
+        {ok, #{user_id => <<"u">>, is_superuser => false}},
+        emqx_authn_mnesia:lookup_user(?global_ns, <<"u">>, State)
+    ),
+    %% Allow transient duplicates
+    ?assertMatch(
+        #{
+            data := [
+                #{user_id := <<"u">>, is_superuser := false},
+                #{user_id := <<"u">>, is_superuser := true}
+            ],
+            meta := #{count := 2}
+        },
+        emqx_authn_mnesia:list_users(#{<<"page">> => 1, <<"limit">> => 10}, State)
+    ),
+    ok = emqx_auth_mnesia_bookkeeper:tally_authn_now(),
+    ?assertEqual(2, emqx_authn_mnesia:record_count(?global_ns)),
+    {ok, #{override := 1}} = emqx_authn_mnesia:import_users(
+        {hash, prepared_user_list, [
+            #{
+                <<"user_id">> => <<"u">>,
+                <<"password_hash">> => <<"new">>,
+                <<"salt">> => <<>>,
+                <<"is_superuser">> => true
+            }
+        ]},
+        State
+    ),
+    ?assertEqual([], ets:lookup(emqx_authn_mnesia, {'global:mqtt', <<"u">>})),
+    {ok, _} = emqx_authn_mnesia:update_user(
+        ?global_ns, <<"u">>, #{is_superuser => false}, State
+    ),
+    ok = emqx_authn_mnesia:delete_user(?global_ns, <<"u">>, State),
+    ?assertEqual(
+        [], ets:lookup(emqx_authn_mnesia_ns, ?AUTHN_NS_KEY(?global_ns, 'global:mqtt', <<"u">>))
+    ).
+
+%% Checks that imports store the configured generated-password algorithm with each record.
+t_import_records_algorithm_in_generated_mode(_) ->
+    Algorithm = #{name => sha256, salt_position => disable},
+    {ok, State} = emqx_authn_mnesia:create(
+        ?AUTHN_ID,
+        config(#{autogenerate_password => true, password_hash_algorithm => Algorithm})
+    ),
+    Users = [#{<<"user_id">> => <<"plain">>, <<"password">> => <<"p">>}],
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:import_users({plain, prepared_user_list, Users}, State)
+    ),
+    [Record] = ets:lookup(
+        emqx_authn_mnesia_ns, ?AUTHN_NS_KEY(?global_ns, 'global:mqtt', <<"plain">>)
+    ),
+    ?assertMatch(
+        #{extra := #{algo := #simple{name = sha256, salt_position = disable}}},
+        emqx_authn_mnesia:rec_to_map(Record)
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:authenticate(#{username => <<"plain">>, password => <<"p">>}, State)
+    ),
+    {Hash, Salt} = emqx_authn_password_hashing:hash(Algorithm, <<"prehashed-password">>),
+    PrehashedUsers = [
+        #{<<"user_id">> => <<"prehashed">>, <<"password_hash">> => Hash, <<"salt">> => Salt}
+    ],
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:import_users({hash, prepared_user_list, PrehashedUsers}, State)
+    ),
+    [PrehashedRecord] = ets:lookup(
+        emqx_authn_mnesia_ns, ?AUTHN_NS_KEY(?global_ns, 'global:mqtt', <<"prehashed">>)
+    ),
+    ?assertMatch(
+        #{
+            password_hash := Hash,
+            salt := Salt,
+            extra := #{algo := #simple{name = sha256, salt_position = disable}}
+        },
+        emqx_authn_mnesia:rec_to_map(PrehashedRecord)
+    ).
+
 t_delete_user() ->
     [{matrix, true}].
 t_delete_user(matrix) ->
@@ -511,7 +795,7 @@ t_list_users(TCConfig) ->
 
 t_import_users(_) ->
     Config0 = config(),
-    Config = Config0#{password_hash_algorithm => #{name => sha256}},
+    Config = Config0#{password_hash_algorithm => #{name => sha256, salt_position => prefix}},
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     ?assertMatch(
@@ -964,8 +1248,16 @@ config() ->
             name => bcrypt,
             salt_rounds => 8
         },
-        user_group => 'global:mqtt'
+        user_group => 'global:mqtt',
+        autogenerate_password => false
     }.
+
+config(Overrides) ->
+    maps:merge(config(), Overrides).
+
+emqx_authn_mnesia_create(AuthenticatorID, Config) ->
+    {ok, State} = emqx_authn_mnesia:create(AuthenticatorID, Config),
+    State.
 
 lookup_user(Namespace, UserId, State) ->
     emqx_authn_mnesia:lookup_user(Namespace, UserId, State).

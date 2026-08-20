@@ -11,7 +11,7 @@
 
 -record(?AUTHN_NS_TAB, {
     user_id :: ?AUTHN_NS_KEY(
-        emqx_config:namespace(), emqx_authn_mnesia:user_group(), emqx_authn_mnesia:user_id()
+        emqx_config:maybe_namespace(), emqx_authn_mnesia:user_group(), emqx_authn_mnesia:user_id()
     ),
     password_hash :: binary(),
     salt :: binary(),

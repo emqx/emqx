@@ -56,6 +56,7 @@ persistent_session_testcases() ->
         t_persistent_sessions3,
         t_persistent_sessions4,
         t_persistent_sessions5,
+        t_persistent_sessions_exact_clientid_query,
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
         t_list_clients_v2_limit,
@@ -65,6 +66,7 @@ persistent_session_testcases() ->
     ].
 persistence_disabled_cluster_testcases() ->
     [
+        t_list_clients_exact_lookup_node,
         t_bulk_subscribe
     ].
 client_msgs_testcases() ->
@@ -561,6 +563,45 @@ t_persistent_sessions5(Config) ->
     ),
     ok.
 
+-doc """
+Tests that a disconnected durable session is found by an exact-clientid
+query, which resolves it through the direct-lookup fast path's fallback to
+durable session storage — and that the node-scoped variant does not return
+it, since a disconnected durable session is not attached to any node.
+""".
+t_persistent_sessions_exact_clientid_query(Config) ->
+    [N1, _N2] = ?config(cluster_nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    ClientId = ?CLIENTID(<<"1">>),
+    C1 = connect_client(#{port => Port1, clientid => ClientId}),
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"data">> := [#{<<"connected">> := true}]}}},
+        list_request(#{clientid => ClientId}, Config)
+    ),
+    ok = emqtt:disconnect(C1),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok,
+                {?HTTP200, _, #{
+                    <<"data">> := [#{<<"clientid">> := ClientId, <<"connected">> := false}],
+                    <<"meta">> := #{<<"count">> := 1, <<"hasnext">> := false}
+                }}},
+            list_request(#{clientid => ClientId}, Config)
+        )
+    ),
+    %% Node-scoped exact-ID queries only inspect live connections on the given
+    %% node: the disconnected durable session is not attached to any node and
+    %% is not returned.
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"data">> := [], <<"meta">> := #{<<"count">> := 0}}}},
+        list_request(#{clientid => ClientId, node => N1}, Config)
+    ),
+    %% Cleanup: reconnect and destroy the session.
+    C2 = connect_client(#{port => Port1, clientid => ClientId}),
+    disconnect_and_destroy_session(C2).
+
 %% Check that the output of `/clients/:clientid/subscriptions' has the expected keys.
 t_persistent_sessions_subscriptions1(Config) ->
     [N1, _N2] = ?config(cluster_nodes, Config),
@@ -1022,6 +1063,136 @@ t_query_clients_with_fields(Config) ->
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=bad_field_name")),
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,bad_field_name")),
     ?assertMatch({error, _}, get_clients_expect_error(Auth, "fields=all,username,clientid")).
+
+-doc """
+Tests that an exact-clientid query (the direct-lookup fast path) renders
+clients identically to `GET /clients/:clientid`, dedupes repeated IDs,
+skips unknown IDs, returns rows in requested-ID order, computes the
+single-page meta, applies the `fields` projection, and that combining
+exact IDs with another filter still narrows the result (generic path).
+""".
+t_list_clients_exact_lookup(Config) ->
+    ClientId1 = ?CLIENTID(<<"1">>),
+    ClientId2 = ?CLIENTID(<<"2">>),
+    Username1 = <<(atom_to_binary(?FUNCTION_NAME))/binary, "_user1">>,
+    {ok, C1} = emqtt:start_link(#{clientid => ClientId1, username => Username1}),
+    {ok, _} = emqtt:connect(C1),
+    {ok, C2} = emqtt:start_link(#{clientid => ClientId2}),
+    {ok, _} = emqtt:connect(C2),
+    timer:sleep(100),
+
+    %% Same rendering as the single-client endpoint (modulo runtime counters).
+    {ok, {?HTTP200, _, SingleBody}} = get_client_request(ClientId1, Config),
+    {ok, {?HTTP200, _, #{<<"data">> := [ListedBody], <<"meta">> := Meta1}}} =
+        list_request(#{clientid => ClientId1}, Config),
+    Volatile = [
+        <<"heap_size">>,
+        <<"mailbox_len">>,
+        <<"recv_cnt">>,
+        <<"recv_oct">>,
+        <<"recv_pkt">>,
+        <<"send_cnt">>,
+        <<"send_oct">>,
+        <<"send_pkt">>
+    ],
+    ?assertEqual(lists:sort(maps:keys(SingleBody)), lists:sort(maps:keys(ListedBody))),
+    ?assertEqual(maps:without(Volatile, SingleBody), maps:without(Volatile, ListedBody)),
+    ?assertMatch(#{<<"count">> := 1, <<"hasnext">> := false}, Meta1),
+
+    %% Duplicate and unknown IDs: deduped, unknowns skipped.
+    Qs = [
+        {<<"clientid">>, ClientId1},
+        {<<"clientid">>, ClientId1},
+        {<<"clientid">>, ClientId2},
+        {<<"clientid">>, <<"no_such_client">>}
+    ],
+    {ok, {?HTTP200, _, #{<<"data">> := Rows, <<"meta">> := Meta2}}} = list_request(Qs, Config),
+    ?assertEqual(
+        lists:sort([ClientId1, ClientId2]),
+        lists:sort([Id || #{<<"clientid">> := Id} <- Rows])
+    ),
+    ?assertMatch(#{<<"count">> := 2, <<"hasnext">> := false}, Meta2),
+
+    %% Rows are returned in requested-ID order (first occurrence wins).
+    {ok, {?HTTP200, _, #{<<"data">> := OrderedRows}}} =
+        list_request([{<<"clientid">>, ClientId2}, {<<"clientid">>, ClientId1}], Config),
+    ?assertEqual([ClientId2, ClientId1], [Id || #{<<"clientid">> := Id} <- OrderedRows]),
+
+    %% Only unknown IDs: empty page.
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"data">> := [], <<"meta">> := #{<<"count">> := 0}}}},
+        list_request(#{clientid => <<"no_such_client">>}, Config)
+    ),
+
+    %% Exact IDs combined with another filter must keep narrowing (generic path).
+    QsWithUsername = [
+        {<<"clientid">>, ClientId1},
+        {<<"clientid">>, ClientId2},
+        {<<"username">>, Username1}
+    ],
+    {ok, {?HTTP200, _, #{<<"data">> := NarrowedRows}}} = list_request(QsWithUsername, Config),
+    ?assertEqual([ClientId1], [Id || #{<<"clientid">> := Id} <- NarrowedRows]),
+
+    %% `fields` projection applies on the fast path.
+    QsWithFields = [
+        {<<"clientid">>, ClientId1},
+        {<<"fields">>, <<"clientid,username">>}
+    ],
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [#{<<"clientid">> := ClientId1, <<"username">> := Username1}]
+            }}},
+        list_request(QsWithFields, Config)
+    ),
+    {ok, {?HTTP200, _, #{<<"data">> := [ProjectedRow]}}} = list_request(QsWithFields, Config),
+    ?assertEqual(2, map_size(ProjectedRow)),
+
+    ok = emqtt:disconnect(C1),
+    ok = emqtt:disconnect(C2).
+
+-doc """
+Tests page/limit slicing on the exact-clientid direct-lookup fast path:
+more IDs than `limit` produce correct `count`, `hasnext` and disjoint pages
+covering all clients.
+""".
+t_list_clients_exact_lookup_pagination(Config) ->
+    ClientIds = [?CLIENTID(<<"1">>), ?CLIENTID(<<"2">>), ?CLIENTID(<<"3">>)],
+    Clients = lists:map(
+        fun(ClientId) ->
+            {ok, C} = emqtt:start_link(#{clientid => ClientId}),
+            {ok, _} = emqtt:connect(C),
+            C
+        end,
+        ClientIds
+    ),
+    timer:sleep(100),
+    IdParams = [{<<"clientid">>, Id} || Id <- ClientIds],
+    Page1Qs = IdParams ++ [{<<"page">>, <<"1">>}, {<<"limit">>, <<"2">>}],
+    {ok, {?HTTP200, _, #{<<"data">> := Page1, <<"meta">> := Meta1}}} = list_request(
+        Page1Qs, Config
+    ),
+    ?assertMatch(
+        #{<<"count">> := 3, <<"hasnext">> := true, <<"page">> := 1, <<"limit">> := 2}, Meta1
+    ),
+    ?assertEqual(2, length(Page1)),
+    Page2Qs = IdParams ++ [{<<"page">>, <<"2">>}, {<<"limit">>, <<"2">>}],
+    {ok, {?HTTP200, _, #{<<"data">> := Page2, <<"meta">> := Meta2}}} = list_request(
+        Page2Qs, Config
+    ),
+    ?assertMatch(#{<<"count">> := 3, <<"hasnext">> := false}, Meta2),
+    ?assertEqual(1, length(Page2)),
+    ?assertEqual(
+        lists:sort(ClientIds),
+        lists:sort([Id || #{<<"clientid">> := Id} <- Page1 ++ Page2])
+    ),
+    %% Page past the end: empty.
+    Page3Qs = IdParams ++ [{<<"page">>, <<"3">>}, {<<"limit">>, <<"2">>}],
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}}},
+        list_request(Page3Qs, Config)
+    ),
+    lists:foreach(fun emqtt:disconnect/1, Clients).
 
 t_format_old_style_client_stats_defaults_total_payload_bytes(_) ->
     ClientId = <<"old-style-client-stats">>,
@@ -1572,6 +1743,11 @@ t_subscribe_shared_topic(Config) ->
     ?retry(200, 10, ?assertEqual([], ets:tab2list(?SUBSCRIPTION))),
     ?assertEqual([], ets:tab2list(?SUBOPTION)),
     ?assertEqual([], ets:tab2list(emqx_shared_subscription)),
+    %% Routing is torn down asynchronously by the router syncer, after the local
+    %% subscription tables are cleared. Wait until no route matches the topics,
+    %% otherwise a late-routed publish races the assertNotReceive below.
+    ?retry(200, 10, ?assertEqual([], emqx_router:match_routes(<<"t/1">>))),
+    ?retry(200, 10, ?assertEqual([], emqx_router:match_routes(<<"testtopic">>))),
 
     %% assert subscription virtual
     _ = emqtt:publish(PC, <<"testtopic">>, <<"msg3">>, [{qos, 0}]),
@@ -1595,6 +1771,41 @@ t_subscribe_shared_topic_nl(Config) ->
             }}},
         request(post, Path, #{topic => Topic, qos => 1, nl => 1, rh => 1}, Config)
     ).
+
+-doc """
+Tests the node-scoped exact-clientid fast path: `clientid` + `node` finds a
+client connected to that node, misses on another node, and unknown or down
+nodes produce the node-down error.
+""".
+t_list_clients_exact_lookup_node(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    ClientId = ?CLIENTID(<<"1">>),
+    C = connect_client(#{port => Port1, clientid => ClientId, expiry => 0}),
+    N1Bin = atom_to_binary(N1),
+    ?assertMatch(
+        {ok,
+            {?HTTP200, _, #{
+                <<"data">> := [#{<<"clientid">> := ClientId, <<"node">> := N1Bin}],
+                <<"meta">> := #{<<"count">> := 1, <<"hasnext">> := false}
+            }}},
+        list_request(#{clientid => ClientId, node => N1}, Config)
+    ),
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"data">> := [], <<"meta">> := #{<<"count">> := 0}}}},
+        list_request(#{clientid => ClientId, node => N2}, Config)
+    ),
+    %% Down node (existing atom).
+    ?assertMatch(
+        {error, {{_, 500, _}, _, #{<<"code">> := <<"NODE_DOWN">>}}},
+        list_request(#{clientid => ClientId, node => <<"nonode@nohost">>}, Config)
+    ),
+    %% Unknown node name (atom does not exist).
+    ?assertMatch(
+        {error, {{_, 500, _}, _, #{<<"code">> := <<"NODE_DOWN">>}}},
+        list_request(#{clientid => ClientId, node => <<"no_such_node@no.such.host">>}, Config)
+    ),
+    ok = emqtt:disconnect(C).
 
 %% Checks that we can use the bulk subscribe API on a different node than the one a client
 %% is connected to.

@@ -4,8 +4,6 @@
 
 -module(emqx_backup_sync_client).
 
--feature(maybe_expr, enable).
-
 -export([
     default_root_keys/0,
     default_table_sets/0,

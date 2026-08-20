@@ -19,6 +19,21 @@
 
 -type authenticator_id() :: binary().
 
+-record(simple, {
+    name,
+    salt_position
+}).
+
+-record(bcrypt, {
+    salt_rounds
+}).
+
+-record(pbkdf2, {
+    mac_fun,
+    iterations,
+    dk_length = undefined
+}).
+
 -define(AUTHN_RESOURCE_GROUP, <<"authn">>).
 
 %% VAR_NS_CLIENT_ATTRS is added here because it can be initialized before authn.

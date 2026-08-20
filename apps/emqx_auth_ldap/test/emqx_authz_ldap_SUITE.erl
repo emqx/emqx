@@ -58,7 +58,7 @@ end_per_testcase(_TestCase, _Config) ->
 t_run_case(Config) ->
     Case = ?config(test_case, Config),
     ok = setup_authz_source(),
-    ok = emqx_authz_test_lib:run_checks(Case).
+    ok = emqx_authz_test_lib:run_table_checks(Case).
 
 t_create_invalid(_Config) ->
     ok = setup_authz_source(),
@@ -127,7 +127,7 @@ t_invalid_acl_rules_legacy_ignores(_Config) ->
         ?assertEqual(
             allow,
             emqx_access_control:authorize(
-                #{username => <<"mqttuser0011">>},
+                emqx_authz_context:make(#{username => <<"mqttuser0011">>}),
                 ?AUTHZ_PUBLISH,
                 <<"t">>
             )
@@ -141,7 +141,7 @@ t_invalid_acl_rules_hardened_denies(_Config) ->
         ?assertEqual(
             deny,
             emqx_access_control:authorize(
-                #{username => <<"mqttuser0011">>},
+                emqx_authz_context:make(#{username => <<"mqttuser0011">>}),
                 ?AUTHZ_PUBLISH,
                 <<"t">>
             )
@@ -156,7 +156,7 @@ t_conn_error_legacy_ignores(_Config) ->
             ?assertEqual(
                 allow,
                 emqx_access_control:authorize(
-                    #{username => <<"mqttuser0001">>},
+                    emqx_authz_context:make(#{username => <<"mqttuser0001">>}),
                     ?AUTHZ_PUBLISH,
                     <<"mqttuser0001/pub/1">>
                 )
@@ -172,7 +172,7 @@ t_conn_error_hardened_denies(_Config) ->
             ?assertEqual(
                 deny,
                 emqx_access_control:authorize(
-                    #{username => <<"mqttuser0001">>},
+                    emqx_authz_context:make(#{username => <<"mqttuser0001">>}),
                     ?AUTHZ_PUBLISH,
                     <<"mqttuser0001/pub/1">>
                 )
@@ -185,6 +185,37 @@ t_conn_error_hardened_denies(_Config) ->
 %%------------------------------------------------------------------------------
 cases() ->
     [
+        #{
+            name => authz_context_variables,
+            security_profile => hardened,
+            config => #{
+                <<"filter">> =>
+                    <<
+                        "(&"
+                        "(objectClass=mqttUser)"
+                        "(authzContextValue=${clientid})"
+                        "(authzContextValue=${peerhost})"
+                        "(authzContextValue=${cert_common_name})"
+                        "(authzContextValue=${cert_subject})"
+                        "(authzContextValue=${zone})"
+                        "(authzContextValue=${client_attrs.group})"
+                        "(authzContextValue=${listener})"
+                        ")"
+                    >>
+            },
+            client_info => #{
+                username => <<"mqttuser0001">>,
+                clientid => <<"clientid-value">>,
+                cn => <<"cn-value">>,
+                dn => <<"dn-value">>,
+                zone => 'zone-value',
+                client_attrs => #{<<"group">> => <<"attr-value">>},
+                listener => 'listener-value'
+            },
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"mqttuser0001/pub/1">>}
+            ]
+        },
         #{
             name => simple_publish,
             client_info => #{username => <<"mqttuser0001">>},

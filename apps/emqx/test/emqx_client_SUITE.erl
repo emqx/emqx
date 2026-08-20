@@ -23,13 +23,19 @@ all() ->
     %% * t_connect_silent_idle_timeout
     %% * t_connect_idle_timeout
     [
-        {group, gen_tcp_listener},
-        {group, ssl_listener},
-        {group, socket_listener}
+        {group, legacy},
+        {group, hardened}
     ].
 
 groups() ->
+    ListenerGroups = [
+        {group, gen_tcp_listener},
+        {group, ssl_listener},
+        {group, socket_listener}
+    ],
     [
+        {legacy, [], ListenerGroups},
+        {hardened, [], ListenerGroups},
         {gen_tcp_listener, [], [
             {group, mqttv3},
             {group, mqttv4},
@@ -122,11 +128,16 @@ init_per_suite(Config) ->
     %% Logging them for large messages is expensive, and it disrupts stress tests
     %% expectations.
     logger:set_module_level(emqx_session_events, none),
+    emqx_common_test_helpers:clear_security_profile(),
     Config.
 
 end_per_suite(_Config) ->
-    logger:unset_module_level(emqx_session_events).
+    logger:unset_module_level(emqx_session_events),
+    emqx_common_test_helpers:clear_security_profile().
 
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
 init_per_group(gen_tcp_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -195,6 +206,8 @@ end_per_group(GroupName, Config) when
     GroupName == socket_listener
 ->
     emqx_cth_suite:stop(?config(group_apps, Config));
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_GroupName, _Config) ->
     ok.
 
@@ -1094,7 +1107,7 @@ t_sub_non_utf8_topic(Config) ->
     after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
     end,
     timer:sleep(1000),
-    ListenerCounts = emqx_listeners:shutdown_count(listener_id(Config), listener_port(Config)),
+    ListenerCounts = shutdown_counts(Config),
     TopicInvalidCount = proplists:get_value(topic_filter_invalid, ListenerCounts),
     ?assert(is_integer(TopicInvalidCount) andalso TopicInvalidCount > 0),
     ok.
@@ -1674,7 +1687,7 @@ shutdown_count_keys(Config) ->
     lists:sort(proplists:get_keys(shutdown_counts(Config))).
 
 shutdown_counts(Config) ->
-    emqx_listeners:shutdown_count(listener_id(Config), listener_port(Config)).
+    emqx_listeners:shutdown_count(listener_id(Config), listener_bind(Config)).
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -1682,6 +1695,9 @@ shutdown_counts(Config) ->
 
 listener_id(Config) when is_list(Config) ->
     emqx_listeners:listener_id(?config(listener_type, Config), default).
+
+listener_bind(Config) ->
+    emqx_config:get([listeners, ?config(listener_type, Config), default, bind]).
 
 listener_port(Config) when is_list(Config) -> listener_port(?config(listener_type, Config));
 listener_port(tcp) -> 1883;

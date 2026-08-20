@@ -30,6 +30,7 @@
 %% Generic limiter client API
 -export([
     connect/1,
+    connect/2,
     create_group/3,
     update_group/2,
     delete_group/1
@@ -56,6 +57,7 @@
 -type name() :: atom().
 -type id() :: {group(), name()}.
 -type listener_id() :: term().
+-type client_options() :: #{not_found_mode => open | close}.
 
 %% Limiter types
 -type options() :: unlimited() | limited() | limited_with_burst().
@@ -168,6 +170,14 @@ connect({Group, _} = ListenerId) ->
             Module:connect(ListenerId)
     end.
 
+-spec connect(id(), client_options()) -> emqx_limiter_client:t().
+connect(LimiterId, Options) ->
+    Client = connect(LimiterId),
+    case maps:get(not_found_mode, Options, open) of
+        close -> Client#{not_found_mode => close};
+        open -> Client
+    end.
+
 -spec create_group(shared | exclusive | module(), group(), [{name(), options()}]) -> ok.
 %% Shortcuts for built-in types
 create_group(shared, Group, Options) ->
@@ -257,7 +267,7 @@ do_post_zone_config_update(false, _OldZoneConfig, _NewZoneConfig) ->
 %% means that the limiter `x` has a rate of 10 tokens per 1000ms and a burst of 100 each 5 minutes.
 %%
 %% The `config(x, Config)` function will return limiter config
-%%  `#{capacity => 10, burst_capacity => 110, interval => 1000, burst_interval => 30000}`.
+%%  `#{capacity => 10, burst_capacity => 100, interval => 1000, burst_interval => 30000}`.
 %%
 %% If the limiter `x` is not configured, the function will return unlimited limiter config
 %%  `#{capacity => infinity}`.
@@ -272,7 +282,7 @@ config(Name, Config) ->
                     %% limited_with_burst()
                     #{
                         capacity => Capacity,
-                        burst_capacity => BurstCapacity + Capacity,
+                        burst_capacity => BurstCapacity,
                         interval => Interval,
                         burst_interval => BurstInterval
                     };

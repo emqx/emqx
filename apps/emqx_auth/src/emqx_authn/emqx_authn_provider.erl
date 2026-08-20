@@ -74,6 +74,15 @@ when
     State :: state(),
     User :: user_info().
 
+-callback rotate_password(Namespace, UserID, State) ->
+    {ok, User}
+    | {error, term()}
+when
+    Namespace :: emqx_config:maybe_namespace(),
+    UserID :: binary(),
+    State :: state(),
+    User :: user_info().
+
 -callback lookup_user(Namespace, UserID, State) ->
     {ok, User}
     | {error, term()}
@@ -95,6 +104,7 @@ when
     add_user/2,
     delete_user/3,
     update_user/4,
+    rotate_password/3,
     lookup_user/3,
     list_users/2
 ]).

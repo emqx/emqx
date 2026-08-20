@@ -241,7 +241,6 @@ do_run_fold_strict([#callback{action = Action, filter = Filter} | Callbacks], Ar
         %% continue the hook chain, in following cases:
         %%   - the filter validation failed with 'false'
         %%   - the callback returns any term other than 'stop' or {'stop', NewAcc}
-        %%   - the callback crashes
         _ -> do_run_fold_strict(Callbacks, Args, Acc)
     end;
 do_run_fold_strict([], _Args, Acc) ->

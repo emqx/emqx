@@ -54,7 +54,13 @@ Returns policy depending on the current security profile.
     (outbound_tls_verify) -> verify_none | verify_peer;
     (authn_jwt_missing) -> ignore | deny;
     (saml_signature_verification) -> boolean();
-    (internal_subscription_checks) -> boolean().
+    (internal_subscription_checks) -> boolean();
+    (authz_context) -> legacy | restricted;
+    (delayed_publish_reauthorization) -> boolean();
+    (exhook_message_publish_failure) -> ignore | deny;
+    (authn_builtin_default_autogenerate_password) -> boolean();
+    (authn_builtin_default_manual_password_hash) -> sha256 | pbkdf2;
+    (authn_builtin_accept_weak_password_hash) -> boolean().
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -109,6 +115,36 @@ policy(internal_subscription_checks) ->
     case profile() of
         legacy -> false;
         hardened -> true
+    end;
+policy(authz_context) ->
+    case profile() of
+        legacy -> legacy;
+        hardened -> restricted
+    end;
+policy(delayed_publish_reauthorization) ->
+    case profile() of
+        legacy -> false;
+        hardened -> true
+    end;
+policy(exhook_message_publish_failure) ->
+    case profile() of
+        legacy -> ignore;
+        hardened -> deny
+    end;
+policy(authn_builtin_default_autogenerate_password) ->
+    case profile() of
+        legacy -> false;
+        hardened -> true
+    end;
+policy(authn_builtin_default_manual_password_hash) ->
+    case profile() of
+        legacy -> sha256;
+        hardened -> pbkdf2
+    end;
+policy(authn_builtin_accept_weak_password_hash) ->
+    case profile() of
+        legacy -> true;
+        hardened -> false
     end.
 
 -doc """

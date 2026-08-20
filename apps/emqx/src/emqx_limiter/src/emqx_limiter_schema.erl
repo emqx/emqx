@@ -4,8 +4,6 @@
 
 -module(emqx_limiter_schema).
 
--feature(maybe_expr, enable).
-
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 

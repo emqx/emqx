@@ -72,15 +72,40 @@
 -define(CLIENTID(N), iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-", integer_to_binary(N)])).
 
 all() ->
-    emqx_common_test_helpers:all_with_matrix(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all_with_matrix(?MODULE) -- ProfileCases).
 
 groups() ->
-    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+    ProfileCases = profile_cases(),
+    [
+        {legacy, [], ProfileCases},
+        {hardened, [], ProfileCases}
+        | emqx_common_test_helpers:groups_with_matrix(?MODULE)
+    ].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config];
+init_per_group(_Group, Config) ->
+    Config.
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile();
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_suite(TCConfig) ->
     emqx_utils:interactive_load(emqx_variform_bif),
     Apps = emqx_cth_suite:start(
-        [cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_http], #{
+        [
+            cowboy,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_auth_http
+        ],
+        #{
             work_dir => ?config(priv_dir, TCConfig)
         }
     ),
@@ -293,45 +318,22 @@ t_authenticate(TCConfig) ->
         samples()
     ).
 
-t_backend_failure_legacy_ignores(TCConfig) ->
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual(
-            {ok, #{is_superuser => false}},
-            authenticate_with_unexpected_status(TCConfig)
-        )
-    end).
+t_backend_failure(TCConfig) ->
+    ?assertEqual(
+        expected_authn_result(TCConfig),
+        authenticate_with_unexpected_status(TCConfig)
+    ).
 
-t_backend_failure_hardened_denies(TCConfig) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual(
-            {error, not_authorized},
-            authenticate_with_unexpected_status(TCConfig)
-        )
-    end).
-
-t_malformed_response_legacy_ignores(TCConfig) ->
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertEqual(
-            {ok, #{is_superuser => false}},
-            authenticate_with_http_handler(TCConfig, invalid_json_handler())
-        ),
-        ?assertEqual(
-            {ok, #{is_superuser => false}},
-            authenticate_with_http_handler(TCConfig, invalid_result_handler())
-        )
-    end).
-
-t_malformed_response_hardened_denies(TCConfig) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        ?assertEqual(
-            {error, not_authorized},
-            authenticate_with_http_handler(TCConfig, invalid_json_handler())
-        ),
-        ?assertEqual(
-            {error, not_authorized},
-            authenticate_with_http_handler(TCConfig, invalid_result_handler())
-        )
-    end).
+t_malformed_response(TCConfig) ->
+    Expected = expected_authn_result(TCConfig),
+    ?assertEqual(
+        Expected,
+        authenticate_with_http_handler(TCConfig, invalid_json_handler())
+    ),
+    ?assertEqual(
+        Expected,
+        authenticate_with_http_handler(TCConfig, invalid_result_handler())
+    ).
 
 test_user_auth(
     TCConfig,
@@ -569,8 +571,13 @@ t_destroy(TCConfig) ->
     ),
 
     % Authenticator should not be usable anymore
+    Expected =
+        case ?config(security_profile, TCConfig) of
+            legacy -> ?EXCEPTION_IGNORE;
+            hardened -> ?EXCEPTION_DENY
+        end,
     ?assertMatch(
-        ?EXCEPTION_IGNORE,
+        Expected,
         emqx_authn_http:authenticate(
             Credentials,
             State
@@ -1983,6 +1990,15 @@ authenticate_with_http_handler(TCConfig, Handler) ->
         ?GLOBAL
     ),
     Result.
+
+profile_cases() ->
+    [t_backend_failure, t_malformed_response, t_destroy].
+
+expected_authn_result(TCConfig) ->
+    case ?config(security_profile, TCConfig) of
+        legacy -> {ok, #{is_superuser => false}};
+        hardened -> {error, not_authorized}
+    end.
 
 uri_encode(T) ->
     emqx_http_lib:uri_encode(to_list(T)).

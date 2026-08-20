@@ -239,7 +239,7 @@ create_tenant_limiters(Zone, Ns, Name) ->
     case emqx_mt_config:get_tenant_limiter_config(Ns) of
         {ok, #{}} ->
             TenantLimiterId = {tenant_group(Ns), Name},
-            TenantLimiterClient = emqx_limiter:connect(TenantLimiterId),
+            TenantLimiterClient = emqx_limiter:connect(TenantLimiterId, #{not_found_mode => close}),
             [ZoneLimiterClient, TenantLimiterClient];
         _ ->
             [ZoneLimiterClient]
@@ -249,7 +249,7 @@ create_client_limiters(ListenerId, Ns, Name) ->
     case emqx_mt_config:get_client_limiter_config(Ns) of
         {ok, #{}} ->
             ClientLimiterId = {client_group(Ns), Name},
-            ClientLimiterClient = emqx_limiter:connect(ClientLimiterId),
+            ClientLimiterClient = emqx_limiter:connect(ClientLimiterId, #{not_found_mode => close}),
             [ClientLimiterClient];
         _ ->
             %% TODO: Isolate implementation details in `emqx_limiter` API.

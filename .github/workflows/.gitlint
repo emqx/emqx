@@ -97,6 +97,11 @@ regex=^(feat|fix|docs|style|refactor|test|build|ci|revert|chore|perf)(\(.+\))*: 
 # Use 'all' to ignore all rules
 # ignore=T1,body-min-length
 
+# Exempt a commit that was merged bypassing CI (552ea3e914) from the
+# conventional-commit title rule; anchored to its exact title.
+# remove this once it has been synced to the last branch in the chain.
+regex=^Update emqx_schema\.hocon$
+
 [ignore-by-body]
 # Ignore certain rules for commits of which the body has a line that matches a regex
 # E.g. Match bodies that have a line that that contain "release"

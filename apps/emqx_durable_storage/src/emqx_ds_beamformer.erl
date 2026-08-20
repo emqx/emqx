@@ -62,8 +62,6 @@
 %% '''
 -module(emqx_ds_beamformer).
 
--feature(maybe_expr, enable).
-
 -behaviour(gen_statem).
 
 %% API:

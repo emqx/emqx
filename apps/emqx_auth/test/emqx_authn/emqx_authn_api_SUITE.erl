@@ -24,10 +24,11 @@
 ).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    [].
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_testcase(t_authenticator_fail, Config) ->
     meck:expect(emqx_authn_proto_v1, lookup_from_all_nodes, 3, [{error, {exception, badarg}}]),
@@ -51,10 +52,17 @@ end_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
-            emqx_conf,
-            emqx,
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
             {emqx_auth, #{after_start => fun() -> ok end}},
             %% to load schema
             {emqx_auth_mnesia, #{start => false}},
@@ -62,7 +70,7 @@ init_per_suite(Config) ->
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
         #{
-            work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
+            work_dir => emqx_cth_suite:work_dir(Profile, Config)
         }
     ),
     _ = emqx_common_test_http:create_default_app(),
@@ -75,12 +83,12 @@ init_per_suite(Config) ->
     ?AUTHN:delete_chain(?GLOBAL),
     {ok, Chains} = ?AUTHN:list_chains(),
     ?assertEqual(length(Chains), 0),
-    [{apps, Apps} | Config].
+    [{apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
     _ = emqx_common_test_http:delete_default_app(),
     ok = emqx_cth_suite:stop(?config(apps, Config)),
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -688,10 +696,11 @@ ignore_switch_to_global_chain(_) ->
     ),
     ok = emqtt:disconnect(Client4).
 
-t_bcrypt_validation(_Config) ->
+t_bcrypt_validation(Config) ->
     BaseConf = #{
         mechanism => <<"password_based">>,
         backend => <<"built_in_database">>,
+        autogenerate_password => false,
         user_id_type => <<"username">>
     },
     BcryptValid = #{
@@ -712,11 +721,12 @@ t_bcrypt_validation(_Config) ->
         ConfInvalid
     ),
 
-    {ok, 200, _} = request(
-        post,
-        uri([?CONF_NS]),
-        ConfValid
-    ).
+    ExpectedStatus =
+        case ?config(security_profile, Config) of
+            legacy -> 200;
+            hardened -> 400
+        end,
+    {ok, ExpectedStatus, _} = request(post, uri([?CONF_NS]), ConfValid).
 
 t_cache(_Config) ->
     {ok, 200, CacheData0} = request(

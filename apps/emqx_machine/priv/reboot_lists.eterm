@@ -63,7 +63,6 @@
             emqx_gateway_mqttsn,
             emqx_gateway_coap,
             emqx_gateway_lwm2m,
-            emqx_gateway_exproto,
             emqx_exhook,
             emqx_bridge,
             emqx_bridge_mqtt,

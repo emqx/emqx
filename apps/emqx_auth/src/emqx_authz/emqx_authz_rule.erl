@@ -333,23 +333,23 @@ bin(L) when is_list(L) ->
 bin(B) when is_binary(B) ->
     B.
 
--spec matches(emqx_types:clientinfo(), action(), emqx_types:topic(), [rule()]) ->
+-spec matches(emqx_authz_context:t(), action(), emqx_types:topic(), [rule()]) ->
     {matched, allow} | {matched, deny} | nomatch.
-matches(_Client, _Action, _Topic, []) ->
+matches(_AuthzContext, _Action, _Topic, []) ->
     nomatch;
-matches(Client, Action, Topic, [{Permission, Cond, ActionCond, TopicCond} | Tail]) ->
-    case match(Client, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) of
-        nomatch -> matches(Client, Action, Topic, Tail);
+matches(AuthzContext, Action, Topic, [{Permission, Cond, ActionCond, TopicCond} | Tail]) ->
+    case match(AuthzContext, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) of
+        nomatch -> matches(AuthzContext, Action, Topic, Tail);
         Matched -> Matched
     end.
 
--spec match(emqx_types:clientinfo(), action(), emqx_types:topic(), rule()) ->
+-spec match(emqx_authz_context:t(), action(), emqx_types:topic(), rule()) ->
     {matched, allow} | {matched, deny} | nomatch.
-match(Client, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) ->
+match(AuthzContext, Action, Topic, {Permission, Cond, ActionCond, TopicCond}) ->
     try
         match_action(Action, ActionCond) andalso
-            match_condition(Client, Cond) andalso
-            match_topics(Client, Topic, TopicCond)
+            match_condition(AuthzContext, Cond) andalso
+            match_topics(AuthzContext, Topic, TopicCond)
     of
         true -> {matched, Permission};
         _ -> nomatch
@@ -427,7 +427,7 @@ match_condition(#{listener := Listener}, {listener, {eq, Listener1}}) ->
     Listener =:= Listener1 orelse bin(Listener) =:= bin(Listener1);
 match_condition(#{listener := Listener}, {listener, ?RE_PATTERN = MP}) ->
     is_re_match(Listener, MP);
-match_condition(_ClientInfo, {security_profile, Profile}) ->
+match_condition(_AuthzContext, {security_profile, Profile}) ->
     emqx_security_profile:profile() =:= Profile;
 match_condition(#{peerhost := undefined}, {ipaddr, _CIDR}) ->
     false;
@@ -442,18 +442,18 @@ match_condition(#{peerhost := IpAddress}, {ipaddrs, CIDRs}) ->
         end,
         CIDRs
     );
-match_condition(ClientInfo, {'and', Conds}) when is_list(Conds) ->
+match_condition(AuthzContext, {'and', Conds}) when is_list(Conds) ->
     lists:foldl(
         fun(Cond, Matched) ->
-            Matched andalso match_condition(ClientInfo, Cond)
+            Matched andalso match_condition(AuthzContext, Cond)
         end,
         true,
         Conds
     );
-match_condition(ClientInfo, {'or', Conds}) when is_list(Conds) ->
+match_condition(AuthzContext, {'or', Conds}) when is_list(Conds) ->
     lists:foldl(
         fun(Cond, Matched) ->
-            Matched orelse match_condition(ClientInfo, Cond)
+            Matched orelse match_condition(AuthzContext, Cond)
         end,
         false,
         Conds
@@ -467,29 +467,29 @@ is_re_match(Value, Pattern) ->
         _ -> false
     end.
 
-match_topics(_ClientInfo, _Topic, []) ->
+match_topics(_AuthzContext, _Topic, []) ->
     false;
-match_topics(_ClientInfo, _Topic, [?ALL_TOPICS | _Filters]) ->
+match_topics(_AuthzContext, _Topic, [?ALL_TOPICS | _Filters]) ->
     true;
-match_topics(ClientInfo, Topic, [{pattern, PatternFilter} | Filters]) ->
-    TopicFilter = render_topic(PatternFilter, ClientInfo),
+match_topics(AuthzContext, Topic, [{pattern, PatternFilter} | Filters]) ->
+    TopicFilter = render_topic(PatternFilter, AuthzContext),
     (is_binary(TopicFilter) andalso
         match_topic(emqx_topic:words(Topic), emqx_topic:words(TopicFilter))) orelse
-        match_topics(ClientInfo, Topic, Filters);
-match_topics(ClientInfo, Topic, [TopicFilter | Filters]) ->
+        match_topics(AuthzContext, Topic, Filters);
+match_topics(AuthzContext, Topic, [TopicFilter | Filters]) ->
     match_topic(emqx_topic:words(Topic), TopicFilter) orelse
-        match_topics(ClientInfo, Topic, Filters).
+        match_topics(AuthzContext, Topic, Filters).
 
 match_topic(Topic, {'eq', TopicFilter}) ->
     Topic =:= TopicFilter;
 match_topic(Topic, TopicFilter) ->
     emqx_topic:match(Topic, TopicFilter).
 
-render_topic(Topic, ClientInfo) ->
+render_topic(Topic, AuthzContext) ->
     try
         TopicTemplateAllow = topic_template_allow(),
         bin(
-            emqx_auth_template:render_strict(Topic, ClientInfo, #{
+            emqx_auth_template:render_strict(Topic, AuthzContext, #{
                 var_trans => fun(Name, Value) ->
                     validate_topic_template_value(Name, Value, TopicTemplateAllow)
                 end

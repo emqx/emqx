@@ -11,25 +11,39 @@
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
-            {emqx_dashboard, """
+            emqx,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard("""
                 dashboard.listeners.http {
                     enable = true
                     bind = 18083
-                    proxy_header = true          
+                    proxy_header = true
                 }
-            """}
+            """)
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(suite_apps, Config)).
+end_per_group(_Profile, Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile().
 
 t_status(_Config) ->
     ProxyInfo = #{
@@ -48,14 +62,17 @@ t_status(_Config) ->
         [binary, {active, false}, {packet, raw}]
     ),
     ok = gen_tcp:send(Socket, ranch_proxy_header:header(ProxyInfo)),
-    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
+    {_, BearerAuthHeaderValue} = emqx_common_test_http:default_user_auth_header(),
     ok = gen_tcp:send(
         Socket,
-        "GET /status HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "Authorization: Bearer " ++ binary_to_list(Token) ++
+        [
+            "GET /status HTTP/1.1\r\n",
+            "Host: localhost\r\n",
+            "Authorization: ",
+            BearerAuthHeaderValue,
+            "\r\n",
             "\r\n"
-            "\r\n"
+        ]
     ),
     {_, 200, _, Rest0} = cow_http:parse_status_line(raw_recv_head(Socket)),
     {Headers, Body0} = cow_http:parse_headers(Rest0),

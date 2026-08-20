@@ -15,6 +15,7 @@
 ]).
 
 -export([
+    root_type/0,
     validate_sample_ratio/1
 ]).
 
@@ -24,20 +25,23 @@ roots() ->
     [
         {"opentelemetry",
             ?HOCON(
-                emqx_schema:mkunion(
-                    type,
-                    #{
-                        <<"generic">> => ?R_REF("opentelemetry"),
-                        <<"dynatrace">> => ?R_REF("opentelemetry_dynatrace")
-                    },
-                    <<"generic">>
-                ),
+                root_type(),
                 #{
                     required => {false, recursively},
                     converter => fun legacy_metrics_converter/2
                 }
             )}
     ].
+
+root_type() ->
+    emqx_schema:mkunion(
+        type,
+        #{
+            <<"generic">> => ?R_REF("opentelemetry"),
+            <<"dynatrace">> => ?R_REF("opentelemetry_dynatrace")
+        },
+        <<"generic">>
+    ).
 
 fields("opentelemetry") ->
     [

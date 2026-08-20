@@ -9,6 +9,12 @@ user_id_type.desc:
 user_id_type.label:
 """Authentication ID Type"""
 
+autogenerate_password.desc:
+"""Generate a high-entropy password when a built-in database user is created. The password is returned only once. This defaults to disabled in the legacy security profile and enabled in the hardened profile."""
+
+autogenerate_password.label:
+"""Autogenerate Password"""
+
 bootstrap_file.desc:
 """The bootstrap file imports users into the built-in database.
 It will not import a user ID that already exists in the database.

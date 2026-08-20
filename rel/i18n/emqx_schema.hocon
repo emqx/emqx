@@ -245,10 +245,60 @@ fields_mqtt_quic_listener_initial_window_packets.label:
 """Initial window packets"""
 
 flapping_detect_enable.desc:
-"""Enable flapping connection detection feature."""
+"""Deprecated since 6.3.0. Use `by_clientid` instead."""
 
 flapping_detect_enable.label:
-"""Enable flapping detection"""
+"""Deprecated. Enable flapping detection by client ID"""
+
+flapping_detect_by_clientid.desc:
+"""Flapping detection keyed on the client ID of the connecting clients.
+When the threshold is exceeded, the client ID is temporarily banned:
+new connection attempts with this client ID are rejected before authentication,
+while the already-connected client is not affected.
+Set to `none` (the default) to disable."""
+
+flapping_detect_by_clientid.label:
+"""Flapping detection by client ID"""
+
+flapping_detect_by_username.desc:
+"""Flapping detection keyed on the username of the connecting clients.
+Clients sharing a username are counted together, regardless of their client IDs.
+When the threshold is exceeded, the username is temporarily banned:
+new connection attempts with this username are rejected before authentication,
+while already-connected clients are not affected.
+Set to `none` (the default) to disable."""
+
+flapping_detect_by_username.label:
+"""Flapping detection by username"""
+
+flapping_detect_by_peerhost.desc:
+"""Flapping detection keyed on the source IP address of the connecting clients.
+Clients connecting from the same IP address are counted together, regardless of their client IDs.
+When the threshold is exceeded, the IP address is temporarily banned:
+new connection attempts from this IP address are rejected before authentication,
+while already-connected clients are not affected.
+Set to `none` (the default) to disable."""
+
+flapping_detect_by_peerhost.label:
+"""Flapping detection by source IP address"""
+
+flapping_detect_dimension_window_time.desc:
+"""The time window for flapping detection."""
+
+flapping_detect_dimension_window_time.label:
+"""Window time"""
+
+flapping_detect_dimension_max_count.desc:
+"""The maximum number of connect attempts allowed in `window_time` before the offending client ID, username, or source IP address is banned."""
+
+flapping_detect_dimension_max_count.label:
+"""Max count"""
+
+flapping_detect_dimension_ban_time.desc:
+"""How long the offending client ID, username, or source IP address will be banned."""
+
+flapping_detect_dimension_ban_time.label:
+"""Ban time"""
 
 fields_ws_opts_check_origins.desc:
 """List of allowed origins.<br/>See <code>check_origin_enable</code>."""
@@ -385,7 +435,7 @@ sys_heartbeat_interval.desc:
   - `$SYS/brokers/<node>/datetime`"""
 
 flapping_detect_ban_time.desc:
-"""How long the flapping clientid will be banned."""
+"""Deprecated since 6.3.0. Use `by_clientid.ban_time` instead."""
 
 flapping_detect_ban_time.label:
 """Ban time"""
@@ -708,7 +758,9 @@ conn_congestion_enable_alarm.label:
 fields_ws_opts_proxy_port_header.desc:
 """The HTTP request header that carries the original client's source port, EMQX will take the leftmost port in the header as the original client's source port.
 
-This option is typically used when EMQX is deployed behind a WebSocket proxy."""
+This option is typically used when EMQX is deployed behind a WebSocket proxy.
+
+Set to an empty string (<code>""</code>) to disable it, so the source port of the WebSocket connection is always used."""
 
 fields_ws_opts_proxy_port_header.label:
 """Proxy port header"""
@@ -774,7 +826,7 @@ sysmon_os_cpu_high_watermark.label:
 """CPU high watermark"""
 
 flapping_detect_window_time.desc:
-"""The time window for flapping detection."""
+"""Deprecated since 6.3.0. Use `by_clientid.window_time` instead."""
 
 flapping_detect_window_time.label:
 """Window time"""
@@ -816,12 +868,26 @@ fields_mqtt_quic_listener_server_resumption_level.label:
 """Server resumption level"""
 
 fields_ws_opts_proxy_address_header.desc:
-"""The HTTP request header that carries the original client's IP address, EMQX will take the leftmost IP in the header as the original client's IP.
+"""The HTTP request header that carries the original client's IP address.
 
-This option is typically used when EMQX is deployed behind a WebSocket proxy."""
+This option is typically used when EMQX is deployed behind a WebSocket proxy. Which connections' headers are honored, and how the client address is selected from a multi-entry header, is controlled by `proxy_address_allow`.
+
+Set to an empty string (<code>""</code>) to disable it, so the source IP address of the WebSocket connection is always used."""
 
 fields_ws_opts_proxy_address_header.label:
 """Proxy address header"""
+
+fields_ws_opts_proxy_address_allow.desc:
+"""A list of IPv4 or IPv6 CIDR ranges specifying which sources are trusted to carry the original client's address and port in the `proxy_address_header` and `proxy_port_header` headers, typically the load balancers or reverse proxies in front of EMQX. The default (`["0.0.0.0/0", "::/0"]`) trusts all sources; note that the headers themselves are disabled unless their names are configured.
+
+The address taken from the header becomes the client's source address used for IP-based authorization rules, banned-client matching, and logging, so the header is consulted only when the connection's source address is trusted; otherwise the socket source address is used.
+
+When the header lists several addresses, they are scanned from right to left and trusted entries (intermediate proxies) are skipped: the first entry outside the trusted ranges is used as the client address. If all entries are trusted, the leftmost entry is used.
+
+Note that CIDR ranges match by address family: for example, a list containing only `0.0.0.0/0` covers all IPv4 sources but no IPv6 sources."""
+
+fields_ws_opts_proxy_address_allow.label:
+"""Trusted proxy address ranges"""
 
 sysmon_os_sysmem_high_watermark.desc:
 """The threshold, as percentage of system memory,
@@ -865,7 +931,7 @@ server_ssl_opts_schema_dhfile.label:
 """SSL dhfile"""
 
 flapping_detect_max_count.desc:
-"""The maximum number of disconnects allowed for a MQTT Client in `window_time`"""
+"""Deprecated since 6.3.0. Use `by_clientid.max_count` instead."""
 
 flapping_detect_max_count.label:
 """Max count"""
@@ -1139,14 +1205,14 @@ fields_ws_opts_supported_subprotocols.label:
 mqtt_shared_subscription_strategy.desc: """~
   Dispatch strategy for shared subscription.
   EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.
-  If the publishing client disconnects and reconnects, this state is lost and must be re-initialized
+  If the publishing client disconnects and reconnects, this state is lost and must be re-initialized.
 
-  - `random`: Randomly select a subscriber for dispatch;
-  - `round_robin`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each publisher, so two adjacent messages from **different publishers** may be consumed by the same client in the subscription group;
-  - `round_robin_per_group`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each node, so two adjacent messages from **different nodes** may be consumed by the same client in the subscription group;
-  - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster;
-  - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends. The initial selection is made based on `mqtt_shared_subscription_initial_sticky_pick`;
-  - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
+  - `random`: Randomly select a subscriber for dispatch.
+  - `round_robin`: Deliver messages to subscribers in turn within each shared subscription group. The round-robin progress is maintained per publishing client, so messages from different publishers may be delivered to the same subscriber consecutively.
+  - `round_robin_per_group`: Similar to `round_robin`, but the round-robin progress is tracked independently on each node. This means messages published from different nodes in a cluster may be delivered to the same subscriber.
+  - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster.
+  - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends. The initial subscriber is chosen based on `mqtt_shared_subscription_initial_sticky_pick`.
+  - `hash_clientid`: Hash the publisher's client ID to select a subscriber.
   - `hash_topic`: Hash the publishing topic to select a subscriber.~"""
 
 mqtt_shared_subscription_initial_sticky_pick.desc:

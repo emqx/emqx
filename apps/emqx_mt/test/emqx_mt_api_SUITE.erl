@@ -12,6 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include("emqx_mt.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
 
@@ -36,13 +37,26 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    (emqx_common_test_helpers:all(?MODULE) -- ProfileCases) ++
+        [{group, legacy}, {group, hardened}].
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
 
 init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
     ok.
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_testcase(TestCase, Config) when
     TestCase == t_adjust_limiters;
@@ -110,6 +124,7 @@ init_per_testcase(TestCase, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),
     snabbkaffe:start_trace(),
+    maybe_enable_authn(TestCase),
     [{apps, Apps} | Config].
 
 end_per_testcase(TestCase, Config) when
@@ -179,6 +194,24 @@ stop_client(Pid) ->
     after 3000 ->
         exit(Pid, kill)
     end.
+
+maybe_enable_authn(TestCase) when
+    TestCase == t_allow_only_managed_namespaces;
+    TestCase == t_session_limit_exceeded
+->
+    emqx_common_test_helpers:listeners_enable_authn_scoped(),
+    ok = emqx_hooks:add('client.authenticate', {?MODULE, allow_authentication, []}, ?HP_LOWEST),
+    on_exit(fun() ->
+        emqx_hooks:del('client.authenticate', {?MODULE, allow_authentication})
+    end);
+maybe_enable_authn(_TestCase) ->
+    ok.
+
+allow_authentication(_ClientInfo, _DefaultResult) ->
+    {stop, ok}.
+
+profile_cases() ->
+    [t_allow_only_managed_namespaces, t_session_limit_exceeded].
 
 url(Path) ->
     emqx_mgmt_api_test_util:api_path(["mt", Path]).
@@ -1256,6 +1289,47 @@ t_kick_clients_when_deleting(_Config) ->
 
     ok.
 
+t_fail_closed_while_deleting(_Config) ->
+    Ns = <<"ns1">>,
+    {204, _} = create_managed_ns(Ns),
+    Params = emqx_utils_maps:deep_merge(tenant_limiter_params(), client_limiter_params()),
+    {200, _} = update_managed_ns_config(Ns, Params),
+    Client = connect(?NEW_CLIENTID(1), Ns),
+    MRef = monitor(process, Client),
+    LimiterGroups = [{mt_tenant, Ns}, {mt_client, Ns}],
+    ?assert(lists:all(fun limiter_group_exists/1, LimiterGroups)),
+
+    TestPid = self(),
+    ok = meck:new(emqx_mgmt, [passthrough, no_history]),
+    ok = meck:expect(emqx_mgmt, kickout_clients, fun(ClientIds) ->
+        TestPid ! {kicking, self()},
+        receive
+            continue -> meck:passthrough([ClientIds])
+        end
+    end),
+    on_exit(fun() -> meck:unload(emqx_mgmt) end),
+
+    ?assertMatch({204, _}, delete_managed_ns(Ns)),
+    Kicker =
+        receive
+            {kicking, Pid} -> Pid
+        after 1_000 ->
+            ct:fail("client kicker did not start")
+        end,
+    ?assert(lists:all(fun limiter_group_absent/1, LimiterGroups)),
+    ?assertMatch(
+        {ok, #{reason_code := ?RC_QUOTA_EXCEEDED}},
+        emqtt:publish(Client, <<"topic">>, <<"payload">>, qos1)
+    ),
+
+    Kicker ! continue,
+    receive
+        {'DOWN', MRef, process, Client, _} -> ok
+    after 1_000 ->
+        ct:fail("client was not kicked")
+    end,
+    ok.
+
 %% Smoke test for "kick all NS clients" API.
 t_kick_all_ns_clients(_Config) ->
     Ns = <<"ns1">>,
@@ -1372,6 +1446,12 @@ t_backup_export_and_import(_Config) ->
     ?assertEqual(match, re:run(Msg, <<"mocked_error">>, [global, {capture, none}])),
 
     ok.
+
+limiter_group_exists(Group) ->
+    emqx_limiter_registry:find_group(Group) =/= undefined.
+
+limiter_group_absent(Group) ->
+    emqx_limiter_registry:find_group(Group) =:= undefined.
 
 %% Smoke tests for checking that we assign creation times for namespaces.
 t_creation_date(_Config) ->

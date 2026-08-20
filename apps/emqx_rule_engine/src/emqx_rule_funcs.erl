@@ -203,7 +203,9 @@
     md5/1,
     sha/1,
     sha256/1,
-    hash/2
+    hash/2,
+    hash_to_range/3,
+    map_to_range/3
 ]).
 
 %% zip Funcs
@@ -222,6 +224,12 @@
 -export([
     zip_compress/1,
     zip_uncompress/1
+]).
+
+%% LZ4 Funcs
+-export([
+    lz4_compress/1,
+    lz4_uncompress/1
 ]).
 
 %% Data encode and decode
@@ -1108,6 +1116,10 @@ sha256(S) when is_binary(S) ->
 hash(Type, Data) ->
     emqx_variform_bif:hash(Type, Data).
 
+hash_to_range(Val, Min, Max) -> emqx_variform_bif:hash_to_range(Val, Min, Max).
+
+map_to_range(Val, Min, Max) -> emqx_variform_bif:map_to_range(Val, Min, Max).
+
 %%------------------------------------------------------------------------------
 %% gzip Funcs
 %%------------------------------------------------------------------------------
@@ -1137,6 +1149,23 @@ zip_compress(S) when is_binary(S) ->
 
 zip_uncompress(S) when is_binary(S) ->
     zlib:uncompress(S).
+
+%%------------------------------------------------------------------------------
+%% LZ4 Frame Funcs
+%%------------------------------------------------------------------------------
+
+-doc "Compresses a binary using the LZ4 Frame format.".
+lz4_compress(S) when is_binary(S) ->
+    unwrap_lz4_result(lz4b_nif:dirty_compress_frame(S, 0)).
+
+-doc "Decompresses a binary in the LZ4 Frame format.".
+lz4_uncompress(S) when is_binary(S) ->
+    unwrap_lz4_result(lz4b_nif:dirty_decompress_frame(S, 0)).
+
+unwrap_lz4_result({ok, Result}) ->
+    Result;
+unwrap_lz4_result({error, Reason}) ->
+    erlang:error(Reason).
 
 %%------------------------------------------------------------------------------
 %% Data encode and decode Funcs

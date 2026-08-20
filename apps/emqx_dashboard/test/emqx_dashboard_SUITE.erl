@@ -39,7 +39,20 @@
 ]).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    ProfileCases = profile_cases(),
+    [{group, legacy}, {group, hardened}] ++
+        (emqx_common_test_helpers:all(?MODULE) -- ProfileCases).
+
+groups() ->
+    ProfileCases = profile_cases(),
+    [{legacy, [], ProfileCases}, {hardened, [], ProfileCases}].
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
+    [{security_profile, Profile} | Config].
+
+end_per_group(Profile, _Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_suite(Config) ->
     %% Load all applications to ensure swagger.json is fully generated.
@@ -75,7 +88,7 @@ t_overview(_) ->
     emqx_dashboard_admin:add_user(
         <<"admin">>, <<"public_www1">>, ?ROLE_SUPERUSER, <<"simple_description">>
     ),
-    Headers = auth_header_(<<"admin">>, <<"public_www1">>),
+    Headers = auth_header(<<"admin">>, <<"public_www1">>),
     [
         {ok, _} = request_dashboard(get, api_path([Overview]), Headers)
      || Overview <- ?OVERVIEWS
@@ -153,7 +166,7 @@ t_admin_delete_self_failed(_) ->
     _ = emqx_dashboard_admin:add_user(<<"username1">>, <<"password_1">>, ?ROLE_SUPERUSER, Desc),
     Admins = emqx_dashboard_admin:all_users(),
     ?assertEqual(1, length(Admins)),
-    Header = auth_header_(<<"username1">>, <<"password_1">>),
+    Header = auth_header(<<"username1">>, <<"password_1">>),
     {error, {_, 400, _}} = request_dashboard(delete, api_path(["users", "username1"]), Header),
     Token = ["Basic ", base64:encode("username1:password_1")],
     Header2 = {"Authorization", Token},
@@ -173,7 +186,7 @@ t_admin_delete_default_username(_TCConfig) ->
     ?assertNotEqual(<<"">>, DefaultUsername),
     ?assertNotEqual(<<"">>, DefaultPassword),
     {ok, #{}} = emqx_dashboard_admin:add_default_user(),
-    HeaderDefault = auth_header_(DefaultUsername, DefaultPassword),
+    HeaderDefault = auth_header(DefaultUsername, DefaultPassword),
     %% The default admin cannot delete itself (both the default-user
     %% protection and the self-delete guard apply).
     ?assertMatch(
@@ -185,7 +198,7 @@ t_admin_delete_default_username(_TCConfig) ->
     {ok, #{}} = emqx_dashboard_admin:add_user(
         NewAdmin, NewPassword, ?ROLE_SUPERUSER, <<"description">>
     ),
-    NewHeader = auth_header_(NewAdmin, NewPassword),
+    NewHeader = auth_header(NewAdmin, NewPassword),
     %% Even with another admin present, the default admin remains
     %% protected from deletion.
     ?assertMatch(
@@ -201,7 +214,7 @@ t_admin_delete_default_username(_TCConfig) ->
     ?assertMatch([_ | _], emqx_dashboard_admin:lookup_user(DefaultUsername)),
     ok.
 
-t_default_public_password_login_security_profile(_TCConfig) ->
+t_default_public_password_login_security_profile(TCConfig) ->
     mnesia:clear_table(?ADMIN),
     Username = <<"someuser">>,
     PublicPassword = <<"public">>,
@@ -209,27 +222,26 @@ t_default_public_password_login_security_profile(_TCConfig) ->
         Username, PublicPassword, ?ROLE_SUPERUSER, <<"public password test">>, #{}
     ),
 
-    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
-        ?assertMatch(
-            {ok, {{_, 200, _}, _, _}},
-            login_api(Username, PublicPassword)
-        )
-    end),
-
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        {ok, {{_, 401, _}, _, Body}} = login_api(Username, PublicPassword),
-        #{
-            <<"code">> := <<"BAD_USERNAME_OR_PWD">>,
-            <<"message">> := Message
-        } = json(Body),
-        ?assertNotEqual(
-            nomatch,
-            binary:match(
-                Message,
-                <<"Default admin password must be changed before login is allowed.">>
+    case ?config(security_profile, TCConfig) of
+        legacy ->
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, _}},
+                login_api(Username, PublicPassword)
+            );
+        hardened ->
+            {ok, {{_, 401, _}, _, Body}} = login_api(Username, PublicPassword),
+            #{
+                <<"code">> := <<"BAD_USERNAME_OR_PWD">>,
+                <<"message">> := Message
+            } = json(Body),
+            ?assertNotEqual(
+                nomatch,
+                binary:match(
+                    Message,
+                    <<"Default admin password must be changed before login is allowed.">>
+                )
             )
-        )
-    end).
+    end.
 
 t_rest_api(_Config) ->
     mnesia:clear_table(?ADMIN),
@@ -292,7 +304,7 @@ t_swagger_json(_Config) ->
     emqx_dashboard_admin:add_user(
         <<"admin">>, <<"public_www1">>, ?ROLE_SUPERUSER, <<"administrator">>
     ),
-    AuthHeader = auth_header_(<<"admin">>, <<"public_www1">>),
+    AuthHeader = auth_header(<<"admin">>, <<"public_www1">>),
     {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body}} =
         httpc:request(get, {Url, [AuthHeader]}, [], [{body_format, binary}]),
     ?assert(emqx_utils_json:is_json(Body)),
@@ -497,7 +509,7 @@ t_disable_swagger_json(_Config) ->
     emqx_dashboard_admin:add_user(
         <<"admin">>, <<"public_www1">>, ?ROLE_SUPERUSER, <<"administrator">>
     ),
-    AuthHeader = auth_header_(<<"admin">>, <<"public_www1">>),
+    AuthHeader = auth_header(<<"admin">>, <<"public_www1">>),
     AssertStatus =
         fun(Status, Url, Headers) ->
             ?assertMatch(
@@ -793,17 +805,20 @@ bin(X) -> iolist_to_binary(X).
 random_num() ->
     erlang:system_time(nanosecond).
 
+profile_cases() ->
+    [t_default_public_password_login_security_profile].
+
 http_get(Parts) ->
-    request_api(get, api_path(Parts), auth_header_(<<"admin">>, <<"public_www1">>)).
+    request_api(get, api_path(Parts), auth_header(<<"admin">>, <<"public_www1">>)).
 
 http_delete(Parts) ->
-    request_api(delete, api_path(Parts), auth_header_(<<"admin">>, <<"public_www1">>)).
+    request_api(delete, api_path(Parts), auth_header(<<"admin">>, <<"public_www1">>)).
 
 http_post(Parts, Body) ->
-    request_api(post, api_path(Parts), [], auth_header_(<<"admin">>, <<"public_www1">>), Body).
+    request_api(post, api_path(Parts), [], auth_header(<<"admin">>, <<"public_www1">>), Body).
 
 http_put(Parts, Body) ->
-    request_api(put, api_path(Parts), [], auth_header_(<<"admin">>, <<"public_www1">>), Body).
+    request_api(put, api_path(Parts), [], auth_header(<<"admin">>, <<"public_www1">>), Body).
 
 request_dashboard(Method, Url, Auth) ->
     Request = {Url, [Auth]},
@@ -830,12 +845,11 @@ do_request_dashboard(Method, {Url, _} = Request) ->
 maybe_ssl("http://" ++ _) -> [];
 maybe_ssl("https://" ++ _) -> [{ssl, [{verify, verify_none}]}].
 
-auth_header_() ->
-    auth_header_(<<"admin">>, <<"public">>).
+auth_header() ->
+    emqx_common_test_http:default_user_auth_header().
 
-auth_header_(Username, Password) ->
-    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
-    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+auth_header(Username, Password) ->
+    emqx_common_test_http:bearer_auth_header(Username, Password).
 
 login_api(Username, Password) ->
     Body = emqx_utils_json:encode(#{username => Username, password => Password}),

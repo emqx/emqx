@@ -56,8 +56,9 @@ load_config(Config) ->
     emqx_common_test_helpers:load_config(emqx_ft_schema, #{<<"file_transfer">> => Config}).
 
 tcp_port(Node) ->
-    {_, Port} = rpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
-    Port.
+    emqx_common_test_helpers:listener_port(
+        rpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]])
+    ).
 
 root(Config, Node, Tail) ->
     iolist_to_binary(filename:join([ft_root(Config), Node | Tail])).

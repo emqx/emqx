@@ -22,6 +22,7 @@ options:
                      release-61
                      release-62
                      release-63
+                     release-64
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -110,6 +111,9 @@ rel_branch() {
             ;;
         6.3.*)
             echo 'release-63'
+            ;;
+        6.4.*)
+            echo 'release-64'
             ;;
         *)
             logerr "Unsupported version tag $TAG"

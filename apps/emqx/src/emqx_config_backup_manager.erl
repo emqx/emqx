@@ -55,12 +55,29 @@ start_link() ->
 backup_and_write(DestFilename, NewContents) ->
     _ = filelib:ensure_dir(DestFilename),
     TmpFilename = DestFilename ++ ".tmp",
-    case file:write_file(TmpFilename, NewContents) of
+    case write_and_sync(TmpFilename, NewContents) of
         ok ->
             backup_and_replace(DestFilename, TmpFilename);
         {error, Reason} ->
             log_save_error(TmpFilename, Reason),
+            _ = file:delete(TmpFilename),
             {error, #{filename => DestFilename, reason => Reason}}
+    end.
+
+%% Sync the staged file to disk before it is renamed over the destination,
+%% so a power loss right after the rename cannot leave a truncated config file.
+write_and_sync(Filename, Contents) ->
+    case file:open(Filename, [write, binary, raw]) of
+        {ok, Fd} ->
+            Result =
+                maybe
+                    ok ?= file:write(Fd, Contents),
+                    file:sync(Fd)
+                end,
+            _ = file:close(Fd),
+            Result;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 log_save_error(Filename, Reason) ->
@@ -150,12 +167,14 @@ backup_and_replace(DestFilename, TmpFilename) ->
             %% not created yet
             do_rename(TmpFilename, DestFilename);
         {error, Reason} ->
+            %% Backup is best-effort: skip this backup generation,
+            %% but still persist the new config.
             ?SLOG(warning, #{
                 msg => "failed_to_read_current_conf_file",
                 filename => DestFilename,
                 reason => Reason
             }),
-            ok
+            do_rename(TmpFilename, DestFilename)
     end.
 
 do_rename(TmpFilename, DestFilename) ->

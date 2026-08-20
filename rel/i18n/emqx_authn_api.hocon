@@ -55,6 +55,11 @@ authentication_id_users_user_id_put.desc:
 authentication_id_users_user_id_put.label:
 """Update user in authenticator"""
 
+authentication_id_users_user_id_password_rotate_post.desc:
+"""Generate a new password for a user in an authenticator configured for automatic password generation. The password is returned only in this response."""
+authentication_id_users_user_id_password_rotate_post.label:
+"""Rotate generated user password"""
+
 authentication_post.desc:
 """Create authenticator for global authentication."""
 authentication_post.label:
@@ -261,6 +266,11 @@ example_superuser.desc:
 """An example user payload for a superuser authenticator user."""
 example_superuser.label:
 """Example Superuser"""
+
+example_generated_password_user.desc:
+"""An example user creation payload for an authenticator configured to generate passwords."""
+example_generated_password_user.label:
+"""Example Generated Password User"""
 
 example_update_regular_user.desc:
 """An example payload for updating a regular authenticator user."""

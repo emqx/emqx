@@ -23,35 +23,49 @@
     ]
 ).
 
-%% erlfmt-ignore
--define(CONF_DEFAULT, <<"
+-define(CONF_DEFAULT,
+    ~b"""
     gateway.ocpp {
-      mountpoint = \"ocpp/\"
-      default_heartbeat_interval = \"60s\"
-      heartbeat_checking_times_backoff = 1
-      message_format_checking = disable
-      upstream {
-        topic = \"cp/${clientid}\"
-        reply_topic = \"cp/${clientid}/Reply\"
-        error_topic = \"cp/${clientid}/Reply\"
-      }
-      dnstream {
-        topic = \"cs/${clientid}\"
-      }
-      listeners.ws.default {
-          bind = \"0.0.0.0:33033\"
-          websocket.path = \"/ocpp\"
-      }
+        mountpoint = "ocpp/"
+        default_heartbeat_interval = "60s"
+        heartbeat_checking_times_backoff = 1
+        message_format_checking = disable
+        upstream {
+            topic = "cp/${clientid}"
+            reply_topic = "cp/${clientid}/Reply"
+            error_topic = "cp/${clientid}/Reply"
+        }
+        dnstream {
+            topic = "cs/${clientid}"
+        }
+        listeners.ws.default {
+            bind = "0.0.0.0:33033"
+            enable_authn = false
+            websocket.path = "/ocpp"
+        }
     }
-">>).
+    """
+).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() -> [{group, legacy}, {group, hardened}].
+
+groups() ->
+    Tests = emqx_common_test_helpers:all(?MODULE),
+    [{legacy, [], Tests}, {hardened, [], Tests}].
 
 %%--------------------------------------------------------------------
 %% setups
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf, ?CONF_DEFAULT},
@@ -62,17 +76,26 @@ init_per_suite(Config) ->
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps}, {security_profile, Profile} | Config].
 
-end_per_suite(Config) ->
+end_per_group(_Profile, Config) ->
     emqx_common_test_http:delete_default_app(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
-    ok.
+    emqx_common_test_helpers:clear_security_profile().
 
+init_per_testcase(TestCase, Config) when
+    TestCase == t_auth_expire;
+    TestCase == t_listener_enable_authn_false_skips_authentication;
+    TestCase == t_update_listeners
+->
+    ok = set_ocpp_listener_enable_authn(true),
+    snabbkaffe:start_trace(),
+    Config;
 init_per_testcase(_TestCase, Config) ->
+    ok = set_ocpp_listener_enable_authn(false),
     snabbkaffe:start_trace(),
     Config.
 
@@ -160,9 +183,10 @@ create_authenticator() ->
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
         <<"user_id_type">> => <<"username">>,
+        <<"autogenerate_password">> => false,
         <<"password_hash_algorithm">> => #{
-            <<"name">> => <<"plain">>,
-            <<"salt_position">> => <<"suffix">>
+            <<"name">> => <<"sha256">>,
+            <<"salt_position">> => <<"prefix">>
         }
     },
     {ok, _} = emqx_gateway_conf:add_authn(<<"ocpp">>, AuthnConfig),

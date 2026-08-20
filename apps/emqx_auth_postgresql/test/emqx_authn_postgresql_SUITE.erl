@@ -43,7 +43,13 @@ end_per_testcase(_TestCase, _Config) ->
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_auth_postgresql], #{
+        [
+            {emqx_conf, emqx_authn_test_lib:emqx_appspec()},
+            emqx_auth,
+            emqx_auth_mnesia,
+            emqx_auth_postgresql
+        ],
+        #{
             work_dir => ?config(priv_dir, Config)
         }
     ),
@@ -123,8 +129,10 @@ t_update_with_bad_config_value(_Config) ->
 t_authenticate(_Config) ->
     ok = lists:foreach(
         fun(Sample) ->
-            ct:pal("test_user_auth sample: ~p", [Sample]),
-            test_user_auth(Sample)
+            emqx_authn_test_lib:with_security_profiles(Sample, fun(ProfileSample) ->
+                ct:pal("test_user_auth sample: ~p", [ProfileSample]),
+                test_user_auth(ProfileSample)
+            end)
         end,
         cases()
     ).
@@ -164,13 +172,20 @@ t_authenticate_disabled_prepared_statements(_Config) ->
                 fun(Cfg) -> Cfg#{<<"disable_prepared_statements">> => true} end,
                 Sample0
             ),
-            ct:pal("test_user_auth sample: ~p", [Sample]),
-            test_user_auth(Sample)
+            emqx_authn_test_lib:with_security_profiles(Sample, fun(ProfileSample) ->
+                ct:pal("test_user_auth sample: ~p", [ProfileSample]),
+                test_user_auth(ProfileSample)
+            end)
         end,
         cases()
     ).
 
 t_destroy(_Config) ->
+    emqx_authn_test_lib:with_security_profiles(#{}, fun(Sample) ->
+        run(Sample, #{}, fun() -> test_destroy(Sample) end)
+    end).
+
+test_destroy(#{security_profile := Profile}) ->
     AuthConfig = raw_pgsql_auth_config(),
 
     {ok, _} = emqx:update_config(
@@ -195,8 +210,13 @@ t_destroy(_Config) ->
     ),
 
     % Authenticator should not be usable anymore
-    ?assertMatch(
-        ignore,
+    Expected =
+        case Profile of
+            legacy -> ignore;
+            hardened -> {error, not_authorized}
+        end,
+    ?assertEqual(
+        Expected,
         emqx_authn_postgresql:authenticate(
             #{
                 username => <<"plain">>,
@@ -734,7 +754,7 @@ run([failure | Rest], #{backend_failure := true} = Sample, Credentials, Auth) ->
 run([failure | Rest], Sample, Credentials, Auth) ->
     run(Rest, Sample, Credentials, Auth);
 run([profile | Rest], #{security_profile := Profile} = Sample, Credentials, Auth) ->
-    emqx_common_test_helpers:with_security_profile(atom_to_list(Profile), fun() ->
+    emqx_common_test_helpers:with_security_profile(Profile, fun() ->
         run(Rest, Sample, Credentials, Auth)
     end);
 run([profile | Rest], Sample, Credentials, Auth) ->

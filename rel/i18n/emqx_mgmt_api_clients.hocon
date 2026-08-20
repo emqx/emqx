@@ -174,6 +174,11 @@ node_name.desc:
 node_name.label:
 """Node name"""
 
+node_filter.desc:
+"""Filter clients by node. When combined with exact client ID lookups (the `clientid` parameter), only clients whose connection is hosted on the given node are returned; disconnected durable sessions are not attached to any node and are excluded."""
+node_filter.label:
+"""Node name"""
+
 conn_state.desc:
 """The current connection status of the client, the possible values are connected,idle,disconnected"""
 conn_state.label:

@@ -30,26 +30,39 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all_with_matrix(?MODULE).
+    [{group, legacy}, {group, hardened}].
 
 groups() ->
-    emqx_common_test_helpers:groups_with_matrix(?MODULE).
+    Tests = emqx_common_test_helpers:all_with_matrix(?MODULE),
+    [
+        {legacy, [], Tests},
+        {hardened, [], Tests}
+        | emqx_common_test_helpers:groups_with_matrix(?MODULE)
+    ].
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_security_profile(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_common_test_helpers:clear_security_profile().
+
+init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
         [
             emqx_ctl,
-            emqx,
             {emqx_conf,
-                "mqtt.client_attrs_init = [{expression = \"user_property.ns\", set_as_attr = tns}]"},
+                emqx_authn_test_lib:emqx_appspec(#{
+                    config =>
+                        "mqtt.client_attrs_init = [{expression = \"user_property.ns\", set_as_attr = tns}]"
+                })},
             emqx_auth,
             emqx_auth_mnesia,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{
-            work_dir => ?config(priv_dir, Config)
-        }
+        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     ?AUTHN:delete_chain(?GLOBAL),
     {ok, Chains} = ?AUTHN:list_chains(),
@@ -59,12 +72,7 @@ init_per_suite(Config) ->
         {?MODULE, on_namespace_resource_pre_create, []},
         ?HP_HIGHEST
     ),
-    [{apps, Apps} | Config].
-
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
-    ok.
-
+    [{apps, Apps}, {security_profile, Profile} | Config];
 init_per_group(?global, TCConfig) ->
     AuthHeader = create_superuser(),
     [
@@ -100,6 +108,9 @@ init_per_group(?ns, TCConfig) ->
 init_per_group(_Group, TCConfig) ->
     TCConfig.
 
+end_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, _TCConfig) ->
     ok.
 
@@ -230,6 +241,15 @@ add_user(Params, QueryParams) ->
         query_params => QueryParams
     }).
 
+add_authenticator_user(AuthenticatorID, Params) ->
+    URL = uri([?CONF_NS, AuthenticatorID, "users"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
+        method => post,
+        url => URL,
+        body => Params
+    }).
+
 get_user(UserId, QueryParams) ->
     URL = uri([?CONF_NS, "password_based:built_in_database", "users", UserId]),
     emqx_mgmt_api_test_util:simple_request(#{
@@ -266,6 +286,30 @@ delete_user(UserId, QueryParams, Body) ->
         url => URL,
         query_params => QueryParams,
         body => Body
+    }).
+
+rotate_password(UserId, QueryParams) ->
+    URL = uri([
+        ?CONF_NS,
+        "password_based:built_in_database",
+        "users",
+        UserId,
+        "password",
+        "rotate"
+    ]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
+        method => post,
+        url => URL,
+        query_params => QueryParams
+    }).
+
+rotate_authenticator_password(AuthenticatorID, UserId) ->
+    URL = uri([?CONF_NS, AuthenticatorID, "users", UserId, "password", "rotate"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
+        method => post,
+        url => URL
     }).
 
 list_users(QueryParams) ->
@@ -567,6 +611,10 @@ t_authenticator_user(TCConfig) ->
     ?assertMatch(#{<<"user_id">> := <<"u1">>}, FetchedUser),
     ?assertNotMatch(#{<<"password">> := _}, FetchedUser),
 
+    {400, _} = update_user(<<"u1">>, #{}, maybe_add_ns_qs(#{}, TCConfig)),
+    {200, UnchangedUser} = get_user(<<"u1">>, maybe_add_ns_qs(#{}, TCConfig)),
+    ?assertEqual(FetchedUser, UnchangedUser),
+
     %% Namespaced users cannot be marked as superuser; see new invariant.
     ValidUserUpdates =
         case ns_of(TCConfig) of
@@ -643,6 +691,30 @@ t_authenticator_user(TCConfig) ->
         ok
     end,
 
+    ok.
+
+%% Checks SCRAM API errors for missing passwords and unsupported rotation.
+t_scram_user_api_errors(_TCConfig) ->
+    put_auth_header(create_superuser()),
+    ScramConfig = #{
+        mechanism => <<"scram">>,
+        backend => <<"built_in_database">>,
+        algorithm => <<"sha512">>,
+        iteration_count => 4096
+    },
+    {200, _} = create_authenticator(ScramConfig),
+    AuthenticatorID = "scram:built_in_database",
+
+    {400, #{<<"message">> := PasswordRequired}} =
+        add_authenticator_user(AuthenticatorID, #{user_id => <<"scram-user">>}),
+    ?assertNotEqual(nomatch, binary:match(PasswordRequired, <<"Password is required">>)),
+
+    {201, _} = add_authenticator_user(AuthenticatorID, #{
+        user_id => <<"scram-user">>, password => <<"scram-password">>
+    }),
+    {400, #{<<"message">> := Unsupported}} =
+        rotate_authenticator_password(AuthenticatorID, <<"scram-user">>),
+    ?assertEqual(<<"Operation not supported in this authentication type">>, Unsupported),
     ok.
 
 %% A global admin may select the target namespace of a built-in user delete via
@@ -744,6 +816,110 @@ t_create_user_unknown_namespace_rejected(_TCConfig) ->
         add_user(#{<<"user_id">> => <<"u2">>, <<"password">> => <<"p2">>}, #{<<"ns">> => Ns})
     ),
     ok.
+
+%% Checks generated-password user lifecycle behavior through the management API.
+t_generated_password_api() ->
+    [{matrix, true}].
+t_generated_password_api(matrix) ->
+    [[?global], [?ns]];
+t_generated_password_api(TCConfig) ->
+    {200, _} = create_authenticator(emqx_authn_test_lib:built_in_database_generated_example()),
+    put_auth_header(proplists:get_value(auth_header, TCConfig, create_superuser())),
+    Namespace = ns_of(TCConfig),
+    QueryParams = maybe_add_ns_qs(#{}, TCConfig),
+    UserInfo = maybe_add_ns_user_info(#{user_id => <<"generated">>}, TCConfig),
+
+    {400, #{<<"message">> := PasswordNotAllowed}} =
+        add_user(UserInfo#{password => <<"must-not-be-supplied">>}),
+    ?assertNotEqual(nomatch, binary:match(PasswordNotAllowed, <<"must be omitted">>)),
+
+    {201, Created} = add_user(UserInfo),
+    #{<<"password">> := Password1, <<"user_id">> := <<"generated">>} = Created,
+    ?assert(byte_size(Password1) > 32),
+    {409, _} = add_user(UserInfo),
+
+    {200, Fetched} = get_user(<<"generated">>, QueryParams),
+    ?assertNot(maps:is_key(<<"password">>, Fetched)),
+    {200, #{<<"data">> := [Listed]}} = list_users(QueryParams),
+    ?assertNot(maps:is_key(<<"password">>, Listed)),
+
+    IsSuperuser = Namespace =:= ?global_ns,
+    {400, #{<<"message">> := UpdatePasswordNotAllowed}} =
+        update_user(<<"generated">>, #{password => <<"explicit">>}, QueryParams),
+    ?assertNotEqual(nomatch, binary:match(UpdatePasswordNotAllowed, <<"must be omitted">>)),
+    assert_password(<<"generated">>, Password1, Namespace, true),
+    {200, Updated} = update_user(
+        <<"generated">>, #{is_superuser => IsSuperuser}, QueryParams
+    ),
+    ?assertNot(maps:is_key(<<"password">>, Updated)),
+    assert_password(<<"generated">>, Password1, Namespace, true),
+
+    {200, Rotated1} = rotate_password(<<"generated">>, QueryParams),
+    #{<<"password">> := Password2} = Rotated1,
+    ?assertNotEqual(Password1, Password2),
+    assert_password(<<"generated">>, Password1, Namespace, false),
+    assert_password(<<"generated">>, Password2, Namespace, true),
+
+    {200, Rotated2} = rotate_password(<<"generated">>, QueryParams),
+    #{<<"password">> := Password3} = Rotated2,
+    ?assertNotEqual(Password2, Password3),
+    assert_password(<<"generated">>, Password2, Namespace, false),
+    assert_password(<<"generated">>, Password3, Namespace, true),
+    {404, _} = rotate_password(<<"missing">>, QueryParams),
+
+    maybe
+        true ?= Namespace =/= ?global_ns,
+        ?assertMatch({403, _}, rotate_password(<<"generated">>, #{<<"ns">> => ?OTHER_NS})),
+        ok
+    end,
+    ok.
+
+%% Checks manual-password requirements and disabled rotation through the management API.
+t_manual_password_api() ->
+    [{matrix, true}].
+t_manual_password_api(matrix) ->
+    [[?global], [?ns]];
+t_manual_password_api(TCConfig) ->
+    Authenticator =
+        (emqx_authn_test_lib:built_in_database_example())#{autogenerate_password => false},
+    {200, _} = create_authenticator(Authenticator),
+    put_auth_header(proplists:get_value(auth_header, TCConfig, create_superuser())),
+    QueryParams = maybe_add_ns_qs(#{}, TCConfig),
+    UserInfo = maybe_add_ns_user_info(#{user_id => <<"manual">>}, TCConfig),
+
+    {400, #{<<"message">> := PasswordRequired}} = add_user(UserInfo),
+    ?assertNotEqual(nomatch, binary:match(PasswordRequired, <<"Password is required">>)),
+    {201, Created} = add_user(UserInfo#{password => <<"manual-password">>}),
+    ?assertNot(maps:is_key(<<"password">>, Created)),
+    {400, #{<<"message">> := RotationDisabled}} =
+        rotate_password(<<"manual">>, QueryParams),
+    ?assertNotEqual(nomatch, binary:match(RotationDisabled, <<"requires automatic">>)),
+    ok.
+
+assert_password(UserId, Password, Namespace, ShouldSucceed) ->
+    process_flag(trap_exit, true),
+    ClientOpts0 = #{
+        username => UserId,
+        password => Password,
+        clientid => emqx_base62:encode(crypto:strong_rand_bytes(8)),
+        proto_ver => v5
+    },
+    ClientOpts =
+        case Namespace of
+            ?global_ns ->
+                ClientOpts0;
+            _ ->
+                emqx_utils_maps:deep_put(
+                    [properties, 'User-Property'], ClientOpts0, [{<<"ns">>, Namespace}]
+                )
+        end,
+    {ok, Client} = emqtt:start_link(ClientOpts),
+    Result = emqtt:connect(Client),
+    _ = catch emqtt:stop(Client),
+    case ShouldSucceed of
+        true -> ?assertMatch({ok, _}, Result);
+        false -> ?assertMatch({error, _}, Result)
+    end.
 
 t_authenticator_import_users_global() ->
     [{matrix, true}].

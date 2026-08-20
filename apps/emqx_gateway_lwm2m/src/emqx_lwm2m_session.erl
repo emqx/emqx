@@ -466,12 +466,11 @@ register_init(WithContext, #session{reg_info = RegInfo} = Session) ->
     Session2 = send_auto_observe(RegInfo, WithContext, Session),
     %% - subscribe to the downlink_topic and wait for commands
     #{topic := Topic, qos := Qos} = downlink_topic(),
-    MountedTopic = mount(Topic, Session),
     SubOpts = maps:merge(
         emqx_gateway_utils:default_subopts(),
         #{qos => Qos}
     ),
-    Session3 = do_subscribe(MountedTopic, SubOpts, WithContext, Session2),
+    Session3 = do_subscribe(Topic, SubOpts, WithContext, Session2),
     Session4 = send_dl_msg(Session3),
 
     %% - report the registration info
@@ -484,7 +483,6 @@ register_init(WithContext, #session{reg_info = RegInfo} = Session) ->
 
 proto_subscribe(WithContext, #session{wait_ack = WaitAck} = Session) ->
     #{topic := Topic, qos := Qos} = downlink_topic(),
-    MountedTopic = mount(Topic, Session),
     SubOpts = maps:merge(
         emqx_gateway_utils:default_subopts(),
         #{qos => Qos}
@@ -505,7 +503,7 @@ proto_subscribe(WithContext, #session{wait_ack = WaitAck} = Session) ->
                     Session
                 )
         end,
-    do_subscribe(MountedTopic, SubOpts, WithContext, NSession).
+    do_subscribe(Topic, SubOpts, WithContext, NSession).
 
 do_subscribe(
     Topic,
@@ -516,8 +514,8 @@ do_subscribe(
     case WithContext(subscribe, [Topic, SubOpts]) of
         {error, _} ->
             Session;
-        ok ->
-            NSubs = maps:put(Topic, SubOpts, Subs),
+        {ok, MountedTopic} ->
+            NSubs = maps:put(MountedTopic, SubOpts, Subs),
             Session#session{subscriptions = NSubs}
     end.
 
@@ -859,17 +857,16 @@ proto_publish(
     WithContext,
     #session{endpoint_name = Epn} = Session
 ) ->
-    MountedTopic = mount(Topic, Session),
     %% TODO: Append message metadata into headers
     Msg = emqx_message:make(
         Epn,
         Qos,
-        MountedTopic,
+        Topic,
         emqx_utils_json:encode(Payload),
         #{},
         Headers
     ),
-    _ = WithContext(publish, [MountedTopic, Msg]),
+    _ = WithContext(publish, [Msg]),
     Session.
 
 mount(Topic, #session{mountpoint = MountPoint}) when is_binary(Topic) ->

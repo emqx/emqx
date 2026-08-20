@@ -73,7 +73,7 @@ init_per_group(tcp, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [
-        {conn_type, tcp},
+        {listener, {tcp, test}},
         {port, 2883},
         {conn_fun, connect},
         {group_apps, Apps}
@@ -92,7 +92,7 @@ init_per_group(tcp_beam_framing, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [
-        {conn_type, tcp},
+        {listener, {tcp, test}},
         {port, 2884},
         {conn_fun, connect},
         {group_apps, Apps},
@@ -111,7 +111,7 @@ init_per_group(tcp_socket, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [
-        {conn_type, tcp},
+        {listener, {tcp, test}},
         {port, 2885},
         {conn_fun, connect},
         {group_apps, Apps}
@@ -123,7 +123,7 @@ init_per_group(quic, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [
-        {conn_type, quic},
+        {listener, {quic, test}},
         {port, 1884},
         {conn_fun, quic_connect},
         {group_apps, Apps}
@@ -135,7 +135,7 @@ init_per_group(ws, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [
-        {conn_type, ws},
+        {listener, {ws, test}},
         {port, 8888},
         {conn_fun, ws_connect},
         {group_apps, Apps}
@@ -455,6 +455,73 @@ message_expiry_interval_not_exipred(Config, CPublish, CControl, QoS, Tag) ->
         ct:fail(no_publish_received)
     end,
     emqtt:stop(CVerify).
+
+-doc """
+A live subscriber skips an expired message that was held in the mqueue by delivery
+rate limiting.
+""".
+t_delivery_limited_queued_messages_expire(Config) ->
+    {Type, Name} = ?config(listener, Config),
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ~"t/delivery_limited_expired",
+    SubscriberId = ~"delivery_limited_expired_sub",
+    PublisherId = ~"delivery_limited_expired_pub",
+    {ok, CPub} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, PublisherId}
+        | Config
+    ]),
+    {ok, CSub} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, SubscriberId},
+        {auto_ack, false}
+        | Config
+    ]),
+    configure_delivery_limiters(Type, Name, ~"1/5s"),
+    try
+        {ok, _} = emqtt:ConnFun(CPub),
+        {ok, _} = emqtt:ConnFun(CSub),
+        {ok, _, [1]} = emqtt:subscribe(CSub, Topic, 1),
+
+        publish_with_expiry(CPub, Topic, ~"1", ?QOS_1, 60),
+        publish_with_expiry(CPub, Topic, ~"2", ?QOS_1, 2),
+        publish_with_expiry(CPub, Topic, ~"3", ?QOS_1, 60),
+
+        ct:sleep(3000),
+
+        configure_delivery_limiters(Type, Name, ~"infinity"),
+
+        {publish, Pub1} = ?assertReceive({publish, #{client_pid := CSub, topic := Topic}}),
+        ok = emqtt:puback(CSub, maps:get(packet_id, Pub1)),
+        {publish, Pub2} = ?assertReceive({publish, #{client_pid := CSub, topic := Topic}}),
+        ?assertMatch(
+            [
+                #{payload := ~"1"},
+                #{payload := ~"3"}
+            ],
+            [Pub1, Pub2]
+        ),
+        ?assertNotReceive({publish, #{client_pid := CSub}}, 3000)
+    after
+        emqtt:stop(CSub),
+        emqtt:stop(CPub),
+        configure_delivery_limiters(Type, Name, ~"infinity")
+    end.
+
+configure_delivery_limiters(Type, Name, MessagesRate) ->
+    {ok, _} = emqx:update_config(
+        [listeners, Type, Name],
+        {update, #{<<"delivery_messages_rate">> => MessagesRate}}
+    ).
+
+publish_with_expiry(Publisher, Topic, Payload, QoS, ExpiryInterval) ->
+    {ok, _} = emqtt:publish(
+        Publisher,
+        Topic,
+        #{'Message-Expiry-Interval' => ExpiryInterval},
+        Payload,
+        [{qos, QoS}]
+    ).
 
 t_puback_not_lost_on_disconnect(Config) ->
     ConnFun = ?config(conn_fun, Config),

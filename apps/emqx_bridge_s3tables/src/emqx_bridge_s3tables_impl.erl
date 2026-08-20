@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_s3tables_impl).
 
--feature(maybe_expr, enable).
-
 -behaviour(emqx_resource).
 
 -include_lib("emqx/include/logger.hrl").

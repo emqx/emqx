@@ -530,11 +530,40 @@ jwt_value_test_() ->
         end}
     ].
 
+is_jwt_test_() ->
+    Token = create_jwt_token(#{<<"sub">> => <<"user123">>}),
+    [
+        {"valid JWT", fun() ->
+            ?assertEqual(
+                {ok, <<"true">>},
+                render("is_jwt(password)", #{password => Token})
+            )
+        end},
+        {"plain password", fun() ->
+            ?assertEqual(
+                {ok, <<"false">>},
+                render("is_jwt(password)", #{password => <<"a-plain-password">>})
+            )
+        end},
+        {"empty password", fun() ->
+            ?assertEqual(
+                {ok, <<"false">>},
+                render("is_jwt(password)", #{password => <<>>})
+            )
+        end},
+        {"undefined password renders false, not error", fun() ->
+            ?assertEqual(
+                {ok, <<"false">>},
+                render("is_jwt(password)", #{password => undefined})
+            )
+        end}
+    ].
+
 %% Helper function to create a JWT token from payload (same as in emqx_variform_bif_tests.erl)
 create_jwt_token(PayloadMap) ->
     Header = base64url_encode(<<"{\"alg\":\"none\",\"typ\":\"JWT\"}">>),
     Payload = base64url_encode(emqx_utils_json:encode(PayloadMap)),
-    Signature = <<"signature">>,
+    Signature = base64url_encode(<<"signature">>),
     <<Header/binary, ".", Payload/binary, ".", Signature/binary>>.
 
 base64url_encode(Bin) ->

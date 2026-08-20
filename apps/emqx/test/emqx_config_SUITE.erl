@@ -198,6 +198,61 @@ t_cluster_hocon_save_failure(C) when is_list(C) ->
     ok = file:delete(Blocker),
     ok.
 
+-doc "New config is persisted even when reading the current file for backup fails.".
+t_cluster_hocon_save_unreadable_current({init, C}) ->
+    ok = meck:new(file, [passthrough, unstick]),
+    C;
+t_cluster_hocon_save_unreadable_current({'end', _C}) ->
+    ok = meck:unload(file),
+    File = "backup-test-unreadable.hocon",
+    lists:foreach(fun file:delete/1, [File | filelib:wildcard(File ++ ".*")]),
+    ok;
+t_cluster_hocon_save_unreadable_current(C) when is_list(C) ->
+    Dest = "backup-test-unreadable.hocon",
+    ok = file:write_file(Dest, <<"old">>),
+    %% meck instead of chmod: chmod is ineffective when the test runs as root
+    ok = meck:expect(file, read_file, fun
+        (F) when F =:= Dest -> {error, eacces};
+        (F) -> meck:passthrough([F])
+    end),
+    ?assertEqual(ok, emqx_config:backup_and_write(Dest, <<"new">>)),
+    ok = meck:expect(file, read_file, fun(F) -> meck:passthrough([F]) end),
+    %% the new config is persisted and the staged file is gone
+    ?assertEqual({ok, <<"new">>}, file:read_file(Dest)),
+    ?assertEqual({error, enoent}, file:read_file(Dest ++ ".tmp")),
+    %% only this backup generation is skipped
+    ok = emqx_config_backup_manager:flush(),
+    ?assertEqual([], filelib:wildcard(Dest ++ ".*.bak")),
+    ok.
+
+-doc "Failure to sync the staged file returns an error and leaves the previous config intact.".
+t_cluster_hocon_save_sync_failure({init, C}) ->
+    ok = meck:new(file, [passthrough, unstick]),
+    C;
+t_cluster_hocon_save_sync_failure({'end', _C}) ->
+    ok = meck:unload(file),
+    File = "backup-test-sync.hocon",
+    lists:foreach(fun file:delete/1, [File | filelib:wildcard(File ++ ".*")]),
+    ok;
+t_cluster_hocon_save_sync_failure(C) when is_list(C) ->
+    Dest = "backup-test-sync.hocon",
+    ok = file:write_file(Dest, <<"old">>),
+    TestPid = self(),
+    ok = meck:expect(file, sync, fun(Fd) ->
+        case self() of
+            TestPid -> {error, enospc};
+            _ -> meck:passthrough([Fd])
+        end
+    end),
+    ?assertMatch(
+        {error, #{filename := Dest, reason := enospc}},
+        emqx_config:backup_and_write(Dest, <<"new">>)
+    ),
+    ok = meck:expect(file, sync, fun(Fd) -> meck:passthrough([Fd]) end),
+    ?assertEqual({ok, <<"old">>}, file:read_file(Dest)),
+    ?assertEqual({error, enoent}, file:read_file(Dest ++ ".tmp")),
+    ok.
+
 t_init_load_emqx_schema(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given empty config file
@@ -500,7 +555,7 @@ zone_global_defaults() ->
         conn_congestion =>
             #{enable_alarm => false, min_alarm_sustain_duration => 60000},
         flapping_detect =>
-            #{ban_time => 300000, max_count => 15, window_time => 60000, enable => false},
+            #{by_clientid => none, by_username => none, by_peerhost => none},
         force_gc =>
             #{bytes => 16777216, count => 16000, enable => true},
         force_shutdown =>
