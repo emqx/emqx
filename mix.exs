@@ -997,6 +997,19 @@ defmodule EMQXUmbrella.MixProject do
     |> Path.wildcard()
     |> Enum.each(&File.rm_rf!/1)
 
+    ## Windows is not a supported platform, so the launchers mix generates for it
+    ## are dead weight. remote.vm.args goes with them: bin/emqx.bat was its only
+    ## reader, so once that is gone nothing in the release opens it.
+    [
+      [release.path, "bin", "emqx.bat"],
+      [release.version_path, "env.bat"],
+      [release.version_path, "elixir.bat"],
+      [release.version_path, "iex.bat"],
+      [release.version_path, "remote.vm.args"]
+    ]
+    |> Enum.map(&Path.join/1)
+    |> Enum.each(&File.rm_rf!/1)
+
     release
   end
 
