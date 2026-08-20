@@ -150,7 +150,16 @@ t_store_and_clean(_) ->
         <<"this is a retained message">>,
         [{qos, 0}, {retain, true}]
     ),
-    timer:sleep(100),
+    %% The retainer stores the message asynchronously.
+    %% Wait until the store is visible before reading.
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok, [#message{payload = <<"this is a retained message">>}]},
+            emqx_retainer:read_message(<<"retained">>)
+        )
+    ),
 
     {ok, _, List} = emqx_retainer:page_read(<<"retained">>, 1, 10),
     ?assertEqual(1, length(List)),
@@ -167,10 +176,15 @@ t_store_and_clean(_) ->
     ),
 
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
-    timer:sleep(100),
+    %% The broker removes the subscriber entry asynchronously after UNSUBACK.
+    %% Wait until the topic has no subscribers before publishing the clear.
+    %% Otherwise the broker delivers the empty-payload publish to this client
+    %% as a normal message.
+    ?retry(100, 20, ?assertEqual([], emqx_broker:subscribers(<<"retained">>))),
 
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
-    timer:sleep(100),
+    %% Wait until the empty-payload publish has cleared the retained message.
+    ?retry(100, 20, ?assertMatch({ok, []}, emqx_retainer:read_message(<<"retained">>))),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(1))),
@@ -205,6 +219,14 @@ t_retain_handling(Config) ->
     ?assertEqual(0, length(receive_messages(1))),
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained/#">>),
 
+    %% The broker removes the subscriber entries asynchronously after UNSUBACK.
+    %% Wait until both topic filters have no subscribers before the publish.
+    %% Otherwise the broker delivers the publish to this client as a normal
+    %% message, and every later receive_messages/1 call consumes a delivery
+    %% that belongs to an earlier assertion.
+    ?retry(100, 20, ?assertEqual([], emqx_broker:subscribers(<<"retained">>))),
+    ?retry(100, 20, ?assertEqual([], emqx_broker:subscribers(<<"retained/#">>))),
+
     publish(
         C1,
         <<"retained">>,
@@ -236,6 +258,8 @@ t_retain_handling(Config) ->
     ?assertEqual(0, length(receive_messages(1))),
 
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
+    %% Wait until the clear is applied so it cannot leak into the next case.
+    ?retry(100, 20, ?assertMatch({ok, []}, emqx_retainer:read_message(<<"retained">>))),
     ok = emqtt:disconnect(C1).
 
 t_wildcard_subscription(Config) ->
