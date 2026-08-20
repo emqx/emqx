@@ -1287,7 +1287,6 @@ case "${COMMAND}" in
             --cookie "$COOKIE" \
             --boot "$REL_DIR/start_clean" \
             --boot-var RELEASE_LIB "$ERTS_LIB_DIR" \
-            --vm-args "$REL_DIR/remote.vm.args" \
             --erl "-start_epmd false" \
             --erl "-epmd_module ekka_epmd" \
             --erl "-kernel standard_io_encoding unicode" \
