@@ -448,15 +448,10 @@ do_create_table(Dataset, Table, TCConfig) ->
     ct:pal("table ~s created", [Table]),
     ok.
 
-%% The bigquery emulator (goccy/bigquery-emulator) intermittently drops its
-%% internal SQL connection and replies `500 "sql: connection is already
-%% closed"' to the next request. That made dataset/table setup in
-%% init_per_testcase fail (and skip the whole case). Retry such transient
-%% failures; a 409 means a previous retried attempt already succeeded.
 query_sync_with_retry(Request, Client) ->
     ?retry(
-        _Sleep = 300,
-        _Attempts = 10,
+        _Sleep = 1000,
+        _Attempts = 30,
         case emqx_bridge_gcp_pubsub_client:query_sync(Request, Client) of
             {ok, Result} -> {ok, Result};
             {error, #{status_code := 409}} -> {ok, already_exists}
