@@ -176,10 +176,6 @@ known_features() ->
             apps => [emqx_ft, emqx_s3],
             deps => []
         },
-        gcp_device => #{
-            apps => [emqx_gcp_device],
-            deps => []
-        },
         exhook => #{
             apps => [emqx_exhook],
             deps => []
