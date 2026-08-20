@@ -548,6 +548,33 @@ t_cli(_Config) ->
     end,
     ok.
 
+-doc "Tenant-scoped keys composed with nested two-argument concat, as the README documents.".
+t_rule_sql_tenant_key(_Config) ->
+    ok = load_table(?TABLE, [
+        #{key => <<"tenant_a:1">>, signal_name => <<"sig_a">>},
+        #{key => <<"tenant_b:1">>, signal_name => <<"sig_b">>}
+    ]),
+    SQL = <<
+        "SELECT "
+        "maptab_lookup('can_signals', concat(concat(client_attrs.tns, ':'), payload.item_id), "
+        "'signal_name', 'Unknown') AS signal_name "
+        "FROM \"t/can\""
+    >>,
+    Lookup = fun(Tns) ->
+        Context = #{
+            client_attrs => #{<<"tns">> => Tns},
+            payload => emqx_utils_json:encode(#{item_id => 1}),
+            topic => <<"t/can">>
+        },
+        {ok, #{<<"signal_name">> := Name}} =
+            emqx_rule_sqltester:test(#{sql => SQL, context => Context}),
+        Name
+    end,
+    ?assertEqual(<<"sig_a">>, Lookup(<<"tenant_a">>)),
+    ?assertEqual(<<"sig_b">>, Lookup(<<"tenant_b">>)),
+    ?assertEqual(<<"Unknown">>, Lookup(<<"tenant_c">>)),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
