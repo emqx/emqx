@@ -62,7 +62,7 @@ jobs:
         run: |
           set -euxo pipefail
           git fetch origin
-          BASE_BRANCH="release-$(echo ${EMQX_VERSION} | tr -d '.')"
+          BASE_BRANCH="dev-$(echo ${EMQX_VERSION} | tr -d '.')"
           NEW_BRANCH="bump-${EMQX_VERSION}-dashboard-version-$(date +"%Y%m%d-%H%M%S")"
           git checkout -b ${NEW_BRANCH} --track origin/${BASE_BRANCH}
           sed -i "s|EMQX_DASHBOARD_VERSION ?= .*|EMQX_DASHBOARD_VERSION ?= ${DASHBOARD_VERSION}|" Makefile
