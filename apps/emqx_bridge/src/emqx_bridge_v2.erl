@@ -495,6 +495,7 @@ install_bridge_v2_helper(
         ConnectorId,
         BridgeV2Id,
         augment_channel_config(
+            Namespace,
             RootName,
             BridgeV2Type,
             BridgeName,
@@ -504,12 +505,14 @@ install_bridge_v2_helper(
     ok.
 
 augment_channel_config(
+    Namespace,
     ConfigRoot,
     BridgeV2Type,
     BridgeName,
     Config
 ) ->
     AugmentedConf = Config#{
+        bridge_namespace => Namespace,
         config_root => ConfigRoot,
         bridge_type => bin(BridgeV2Type),
         bridge_name => bin(BridgeName)
@@ -841,6 +844,7 @@ create_dry_run_helper(Namespace, ConfRootKey, BridgeV2Type, ConnectorRawConf, Br
             BridgeV2Conf1 = maps:remove(?COMPUTED, BridgeV2Conf0),
             BridgeV2Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2Conf1),
             AugmentedConf = augment_channel_config(
+                Namespace,
                 ConfRootKey,
                 BridgeV2Type,
                 BridgeName,
@@ -928,7 +932,7 @@ get_channels_for_connector(Namespace, SourcesOrActions, ConnectorName, BridgeV2T
             id_with_root_and_connector_names(
                 Namespace, SourcesOrActions, BridgeV2Type, Name, ConnectorName
             ),
-            augment_channel_config(SourcesOrActions, BridgeV2Type, Name, Conf)
+            augment_channel_config(Namespace, SourcesOrActions, BridgeV2Type, Name, Conf)
         }
      || {Name, Conf} <- maps:to_list(BridgeV2s),
         bin(ConnectorName) =:= maps:get(connector, Conf, no_name)
