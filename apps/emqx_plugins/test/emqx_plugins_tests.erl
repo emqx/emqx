@@ -187,7 +187,6 @@ purge_test() ->
 
 meck_emqx() ->
     meck:new(emqx, [passthrough]),
-    meck:new(emqx_plugins_serde),
     meck:expect(
         emqx,
         update_config,
@@ -195,16 +194,10 @@ meck_emqx() ->
             emqx_config:put(Path, Values)
         end
     ),
-    meck:expect(
-        emqx_plugins_serde,
-        delete_schema,
-        fun(_NameVsn) -> ok end
-    ),
     ok.
 
 unmeck_emqx() ->
     meck:unload(emqx),
-    meck:unload(emqx_plugins_serde),
     ok.
 
 %%--------------------------------------------------------------------

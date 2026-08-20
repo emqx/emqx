@@ -7,8 +7,6 @@
 
 -define(CONF_ROOT, plugins).
 
--define(PLUGIN_SERDE_TAB, emqx_plugins_schema_serde_tab).
-
 -define(CONFIG_FORMAT_BIN, config_format_bin).
 -define(CONFIG_FORMAT_MAP, config_format_map).
 

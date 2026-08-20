@@ -665,16 +665,117 @@ t_rejects_invalid_schema_on_reconfigure({init, Config}) ->
     ok = make_plugin_tar(NameVsn),
     ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
     ok = emqx_plugins:ensure_started(NameVsn),
-    ok = file:write_file(
-        filename:join([filename:dirname(plugin_ebin_dir(NameVsn)), "priv", "config_schema.avsc"]),
-        <<"not an avro schema">>
-    ),
+    ok = file:write_file(plugin_avsc_path(NameVsn), <<"not an avro schema">>),
     [{name_vsn, NameVsn} | Config];
 t_rejects_invalid_schema_on_reconfigure({'end', Config}) ->
     _ = emqx_plugins:ensure_stopped(?config(name_vsn, Config)),
     cleanup_invalid_plugin(?config(name_vsn, Config));
 t_rejects_invalid_schema_on_reconfigure(Config) ->
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(?config(name_vsn, Config))).
+
+-doc "A plugin with a config schema: a valid config decodes, an invalid one is rejected.".
+t_decode_config_with_schema({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    [{name_vsn, NameVsn} | Config];
+t_decode_config_with_schema({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_decode_config_with_schema(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertMatch(
+        {ok, _},
+        emqx_plugins:decode_plugin_config_map(NameVsn, #{<<"foo">> => <<"bar">>})
+    ),
+    ?assertMatch(
+        {error, #{
+            reason := invalid_type,
+            path := <<"foo">>,
+            expected := <<"string">>,
+            actual := <<"integer">>
+        }},
+        emqx_plugins:decode_plugin_config_map(NameVsn, #{<<"foo">> => 42})
+    ).
+
+-doc "A plugin that declares no config schema accepts any config without validation.".
+t_decode_config_without_schema({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    Info = <<
+        "{\"name\":\"invalid_plugin\",\"rel_vsn\":\"1.0.0\","
+        "\"rel_apps\":[\"invalid_plugin-0.1.0\"],\"description\":\"test\","
+        "\"with_config_schema\":false}"
+    >>,
+    ok = replace_tar_entry(NameVsn, "release.json", Info),
+    ok = remove_tar_entry(NameVsn, "config_schema.avsc"),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    [{name_vsn, NameVsn} | Config];
+t_decode_config_without_schema({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_decode_config_without_schema(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertEqual(
+        {ok, ?plugin_without_config_schema},
+        emqx_plugins:decode_plugin_config_map(NameVsn, #{<<"foo">> => 42})
+    ).
+
+-doc """
+The schema is read from the plugin's priv dir at validation time: a missing file is a
+read error, a corrupt file is a bad_schema error.
+""".
+t_decode_config_schema_file_missing_or_corrupt({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    [{name_vsn, NameVsn} | Config];
+t_decode_config_schema_file_missing_or_corrupt({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_decode_config_schema_file_missing_or_corrupt(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    AvscPath = plugin_avsc_path(NameVsn),
+    ValidConfig = #{<<"foo">> => <<"bar">>},
+    ?assertMatch({ok, _}, emqx_plugins:decode_plugin_config_map(NameVsn, ValidConfig)),
+    ok = file:delete(AvscPath),
+    ?assertMatch(
+        {error, #{msg := "bad_avsc_file", reason := enoent}},
+        emqx_plugins:decode_plugin_config_map(NameVsn, ValidConfig)
+    ),
+    ok = file:write_file(AvscPath, <<"not an avro schema">>),
+    ?assertMatch(
+        {error, #{reason := bad_schema}},
+        emqx_plugins:decode_plugin_config_map(NameVsn, ValidConfig)
+    ).
+
+-doc """
+A changed schema file takes effect on the next validation without reinstalling the
+plugin: no stale copy of the schema is kept.
+""".
+t_decode_config_uses_current_schema_file({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    [{name_vsn, NameVsn} | Config];
+t_decode_config_uses_current_schema_file({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_decode_config_uses_current_schema_file(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    IntConfig = #{<<"foo">> => 42},
+    StrConfig = #{<<"foo">> => <<"bar">>},
+    ?assertMatch({ok, _}, emqx_plugins:decode_plugin_config_map(NameVsn, StrConfig)),
+    ?assertMatch(
+        {error, #{reason := invalid_type}},
+        emqx_plugins:decode_plugin_config_map(NameVsn, IntConfig)
+    ),
+    IntSchema =
+        <<"{\"type\":\"record\",\"name\":\"invalid_plugin\",\"fields\":[{\"name\":\"foo\",\"type\":\"int\"}]}">>,
+    ok = file:write_file(plugin_avsc_path(NameVsn), IntSchema),
+    ?assertMatch(
+        {ok, _}, emqx_plugins:decode_plugin_config_map(NameVsn, IntConfig)
+    ),
+    ?assertMatch(
+        {error, #{reason := invalid_type, expected := <<"int">>, actual := <<"string">>}},
+        emqx_plugins:decode_plugin_config_map(NameVsn, StrConfig)
+    ).
 
 t_rejects_invalid_local_config_on_start({init, Config}) ->
     NameVsn = "invalid_plugin-1.0.0",
@@ -692,7 +793,6 @@ t_rejects_invalid_local_config_on_start(Config) ->
     NameVsn = ?config(name_vsn, Config),
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
     LoadedApps = lists:sort(application:loaded_applications()),
-    Serdes = lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB)),
     CachedConfig = emqx_plugins:get_config(NameVsn, not_found),
     {ok, ConfigBin} = file:read_file(emqx_plugins_fs:config_file_path(NameVsn)),
     ?assertMatch(
@@ -708,7 +808,6 @@ t_rejects_invalid_local_config_on_start(Config) ->
         emqx_plugins:validate_start(NameVsn)
     ),
     ?assertEqual(LoadedApps, lists:sort(application:loaded_applications())),
-    ?assertEqual(Serdes, lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB))),
     ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn, not_found)),
     ?assertEqual(
         {ok, ConfigBin},
@@ -727,13 +826,11 @@ t_validate_start_does_not_start({'end', Config}) ->
 t_validate_start_does_not_start(Config) ->
     NameVsn = ?config(name_vsn, Config),
     LoadedApps = lists:sort(application:loaded_applications()),
-    Serdes = lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB)),
     CachedConfig = emqx_plugins:get_config(NameVsn, not_found),
     {ok, ConfigBin} = file:read_file(emqx_plugins_fs:config_file_path(NameVsn)),
     ?assertEqual({ok, not_running}, emqx_plugins:validate_start(NameVsn)),
     ?assertNot(is_app_running(invalid_plugin)),
     ?assertEqual(LoadedApps, lists:sort(application:loaded_applications())),
-    ?assertEqual(Serdes, lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB))),
     ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn, not_found)),
     ?assertEqual(
         {ok, ConfigBin},
@@ -749,14 +846,12 @@ t_ensure_start_package_only_materializes_files({'end', Config}) ->
 t_ensure_start_package_only_materializes_files(Config) ->
     NameVsn = ?config(name_vsn, Config),
     LoadedApps = lists:sort(application:loaded_applications()),
-    Serdes = lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB)),
     CachedConfig = emqx_plugins:get_config(NameVsn, not_found),
     ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
     ok = emqx_plugins:ensure_start_package(NameVsn),
     ?assert(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
     ?assertNot(is_app_running(invalid_plugin)),
     ?assertEqual(LoadedApps, lists:sort(application:loaded_applications())),
-    ?assertEqual(Serdes, lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB))),
     ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn, not_found)),
     ?assertEqual({ok, not_running}, emqx_plugins:validate_start(NameVsn)).
 
@@ -960,6 +1055,9 @@ cleanup_invalid_plugin(NameVsn) ->
 
 plugin_ebin_dir(NameVsn) ->
     filename:join([emqx_plugins_fs:lib_dir(NameVsn), "invalid_plugin-0.1.0", "ebin"]).
+
+plugin_avsc_path(NameVsn) ->
+    filename:join([filename:dirname(plugin_ebin_dir(NameVsn)), "priv", "config_schema.avsc"]).
 
 make_plugin_tar(NameVsn) ->
     PluginApp = "invalid_plugin-0.1.0",
