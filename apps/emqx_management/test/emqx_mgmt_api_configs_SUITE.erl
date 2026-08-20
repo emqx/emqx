@@ -314,6 +314,48 @@ t_config_update_parse_error(_Config) ->
         update_configs_with_binary(<<"a=测试"/utf8>>)
     ).
 
+-doc """
+An invalid Unicode escape in the submitted HOCON returns a 400 with a readable
+reason, leaks no internal module names, and leaves the configuration unchanged.
+""".
+t_config_update_invalid_uescape(_Config) ->
+    Before = read_conf(<<"mqtt">>),
+    BadHoconList = [
+        <<"mqtt { response_information = \"\\uD800\" }">>,
+        <<"mqtt { response_information = \"\\uDC00\" }">>,
+        <<"mqtt { response_information = \"\\uD800A\" }">>,
+        <<"mqtt { response_information = \"\\u123x\" }">>,
+        <<"mqtt { response_information = \"\\u123\" }">>
+    ],
+    lists:foreach(
+        fun(BadHocon) ->
+            {400, RespBody} = update_configs_with_binary(BadHocon),
+            ?assertMatch(
+                #{
+                    <<"errors">> := #{
+                        <<"type">> := <<"scan_error">>,
+                        <<"reason">> := <<"invalid_uescape", _/binary>>
+                    }
+                },
+                RespBody,
+                BadHocon
+            ),
+            BodyBin = emqx_utils_json:encode(RespBody),
+            lists:foreach(
+                fun(InternalDetail) ->
+                    ?assertEqual(
+                        nomatch,
+                        binary:match(BodyBin, InternalDetail),
+                        {BadHocon, BodyBin}
+                    )
+                end,
+                [<<"emqx_conf_cli">>, <<"unicode">>, <<"minirest">>, <<"cowboy">>]
+            )
+        end,
+        BadHoconList
+    ),
+    ?assertEqual(Before, read_conf(<<"mqtt">>)).
+
 t_config_update_unknown_root(_Config) ->
     ?assertMatch(
         {400, #{<<"errors">> := #{<<"a">> := <<"{root_key_not_found", _/binary>>}}},

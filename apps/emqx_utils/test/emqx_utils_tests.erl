@@ -64,6 +64,12 @@ to_binary_representation(Bin) when is_binary(Bin) ->
 
 readable_error_msg_test_() ->
     [
+        {"atom reason",
+            ?_assertEqual(<<"invalid_uescape">>, emqx_utils:readable_error_msg(invalid_uescape))},
+        {"binary reason", ?_assertEqual(<<"oops">>, emqx_utils:readable_error_msg(<<"oops">>))},
+        {"string reason", ?_assertEqual(<<"oops">>, emqx_utils:readable_error_msg("oops"))},
+        {"other term reason",
+            ?_assertEqual(<<"{failed,42}">>, emqx_utils:readable_error_msg({failed, 42}))},
         {"binary in nested structure with non-latin1 characters",
             ?_assert(begin
                 %% An unexpected error that could occur and be returned via HTTP API.

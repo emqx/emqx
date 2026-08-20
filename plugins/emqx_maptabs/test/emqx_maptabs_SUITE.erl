@@ -453,6 +453,79 @@ t_limits_config(Config) ->
     end,
     ok.
 
+-doc "Non-positive limit values are rejected and the previous config stays in effect.".
+t_config_validation(Config) ->
+    NameVsn = ?config(plugin_name_vsn, Config),
+    Defaults = #{
+        <<"max_tables">> => 100,
+        <<"max_rows_per_table">> => 10000,
+        <<"max_table_file_bytes">> => 10000000
+    },
+    try
+        %% establish a known-good non-default value to prove rejections keep it
+        ok = emqx_plugins:update_config(NameVsn, Defaults#{<<"max_tables">> := 42}),
+        ?assertEqual(42, emqx_maptabs:max_tables()),
+        %% each field rejects 0, -1 and a non-integer
+        lists:foreach(
+            fun({Field, Bad}) ->
+                ?assertMatch(
+                    {error, #{reason := invalid_config_value, field := Field, value := Bad}},
+                    emqx_plugins:update_config(NameVsn, Defaults#{Field := Bad}),
+                    {Field, Bad}
+                )
+            end,
+            [{F, V} || F <- maps:keys(Defaults), V <- [0, -1, <<"10">>]]
+        ),
+        %% the rejected updates left the previous config in place
+        ?assertEqual(42, emqx_maptabs:max_tables()),
+        ?assertEqual(10000, emqx_maptabs:max_rows_per_table()),
+        ?assertEqual(10000000, emqx_maptabs:max_table_file_bytes()),
+        %% a valid update is accepted and takes effect
+        ok = emqx_plugins:update_config(NameVsn, Defaults#{<<"max_tables">> := 7}),
+        ?assertEqual(7, emqx_maptabs:max_tables()),
+        %% missing fields are valid and fall back to their defaults
+        ok = emqx_plugins:update_config(NameVsn, #{<<"max_rows_per_table">> => 5000}),
+        ?assertEqual(100, emqx_maptabs:max_tables()),
+        ?assertEqual(5000, emqx_maptabs:max_rows_per_table()),
+        ?assertEqual(10000000, emqx_maptabs:max_table_file_bytes())
+    after
+        %% the plugin config persists in the data dir across
+        %% reinstalls: restore defaults for the other test cases
+        ok = emqx_plugins:update_config(NameVsn, Defaults)
+    end,
+    ok.
+
+-doc "A persisted invalid limit does not block plugin start; reads fall back to the defaults.".
+t_persisted_invalid_config(Config) ->
+    NameVsn = ?config(plugin_name_vsn, Config),
+    Defaults = #{
+        <<"max_tables">> => 100,
+        <<"max_rows_per_table">> => 10000,
+        <<"max_table_file_bytes">> => 10000000
+    },
+    try
+        %% write the config file directly, bypassing validation, as a
+        %% deployment from before the validation existed would have
+        ok = emqx_plugins_local_config:update(NameVsn, Defaults#{<<"max_tables">> := 0}),
+        %% reinstall: the config file persists and seeds the config cache
+        ok = cleanup_plugin(Config),
+        ok = install_and_start_plugin(Config),
+        ?assertMatch(
+            {ok, #{health_status := #{status := ok}}},
+            emqx_plugins:describe(NameVsn, #{fill_readme => false, health_check => true})
+        ),
+        %% the invalid value did reach the cache...
+        ?assertEqual(0, maps:get(<<"max_tables">>, emqx_plugins:get_config(NameVsn, #{}))),
+        %% ...and reads fall back to the default
+        ?assertEqual(100, emqx_maptabs:max_tables()),
+        %% a valid update replaces the stored invalid value
+        ok = emqx_plugins:update_config(NameVsn, Defaults#{<<"max_tables">> := 5}),
+        ?assertEqual(5, emqx_maptabs:max_tables())
+    after
+        ok = emqx_plugins_local_config:update(NameVsn, Defaults)
+    end,
+    ok.
+
 -doc "Every CLI command against the installed plugin package.".
 t_cli(_Config) ->
     mock_ctl_print(),
@@ -473,6 +546,33 @@ t_cli(_Config) ->
     after
         unmock_ctl_print()
     end,
+    ok.
+
+-doc "Tenant-scoped keys composed with nested two-argument concat, as the README documents.".
+t_rule_sql_tenant_key(_Config) ->
+    ok = load_table(?TABLE, [
+        #{key => <<"tenant_a:1">>, signal_name => <<"sig_a">>},
+        #{key => <<"tenant_b:1">>, signal_name => <<"sig_b">>}
+    ]),
+    SQL = <<
+        "SELECT "
+        "maptab_lookup('can_signals', concat(concat(client_attrs.tns, ':'), payload.item_id), "
+        "'signal_name', 'Unknown') AS signal_name "
+        "FROM \"t/can\""
+    >>,
+    Lookup = fun(Tns) ->
+        Context = #{
+            client_attrs => #{<<"tns">> => Tns},
+            payload => emqx_utils_json:encode(#{item_id => 1}),
+            topic => <<"t/can">>
+        },
+        {ok, #{<<"signal_name">> := Name}} =
+            emqx_rule_sqltester:test(#{sql => SQL, context => Context}),
+        Name
+    end,
+    ?assertEqual(<<"sig_a">>, Lookup(<<"tenant_a">>)),
+    ?assertEqual(<<"sig_b">>, Lookup(<<"tenant_b">>)),
+    ?assertEqual(<<"Unknown">>, Lookup(<<"tenant_c">>)),
     ok.
 
 %%--------------------------------------------------------------------

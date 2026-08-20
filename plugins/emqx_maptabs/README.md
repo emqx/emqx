@@ -62,11 +62,11 @@ or lookups by tenant namespace.
 
 When rows must differ per tenant, encode the tenant in the data: compose the
 lookup key from the `tns` client attribute (for example
-`maptab_lookup('signals', concat(client_attrs.tns, ':', item_id))`), or use
-one table per tenant and compose the table name the same way. Apply the
-convention to every key in the table and to every lookup site: a lookup that
-omits the tenant part is a plain miss only when no bare key exists in the
-table.
+`maptab_lookup('signals', concat(concat(client_attrs.tns, ':'), item_id))`;
+`concat` takes two arguments, so nest the calls), or use one table per tenant
+and compose the table name the same way. Apply the convention to every key in
+the table and to every lookup site: a lookup that omits the tenant part is a
+plain miss only when no bare key exists in the table.
 
 ## Table files
 
