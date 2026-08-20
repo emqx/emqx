@@ -275,7 +275,6 @@ test_individual_feature_specific_assertions(Feature) when
     Feature == mqtt_extensions;
     Feature == ai;
     Feature == file_transfer;
-    Feature == gcp_device;
     Feature == exhook;
     Feature == opentelemetry
 ->

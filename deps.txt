@@ -90,7 +90,6 @@ emqx_gateway_mqttsn: none
 emqx_gateway_nats: none
 emqx_gateway_ocpp: none
 emqx_gateway_stomp: none
-emqx_gcp_device: none
 emqx_gen_bridge: all
 emqx_ldap: all
 emqx_license: all
