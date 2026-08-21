@@ -461,7 +461,6 @@ purge_other_versions(NameVsn) ->
 %% @doc Delete the package file.
 -spec delete_package(name_vsn()) -> ok.
 delete_package(NameVsn) ->
-    _ = emqx_plugins_serde:delete_schema(NameVsn),
     emqx_plugins_fs:delete_tar(NameVsn).
 
 %% @doc Safely delete a plugin package.
@@ -738,16 +737,15 @@ normalize_headers(_) ->
 decode_plugin_config_map(NameVsn, AvroJson) ->
     case has_avsc(NameVsn) of
         true ->
-            case emqx_plugins_serde:decode(NameVsn, ensure_config_bin(AvroJson)) of
-                {ok, Config} ->
-                    {ok, Config};
-                {error, #{reason := plugin_serde_not_found}} ->
-                    Reason = "plugin_config_schema_serde_not_found",
+            case emqx_plugins_fs:read_avsc_bin(NameVsn) of
+                {ok, AvscBin} ->
+                    emqx_plugins_serde:decode(NameVsn, AvscBin, ensure_config_bin(AvroJson));
+                {error, Reason} = Error ->
                     ?SLOG(error, #{
-                        msg => Reason, name_vsn => NameVsn, plugin_with_avro_schema => true
+                        msg => "failed_to_read_plugin_config_schema",
+                        name_vsn => NameVsn,
+                        reason => Reason
                     }),
-                    {error, Reason};
-                {error, _} = Error ->
                     Error
             end;
         false ->
@@ -863,7 +861,6 @@ do_ensure_started(NameVsn) ->
     maybe
         ok ?= ensure_no_other_version_active(NameVsn),
         ok ?= install(NameVsn, ?normal),
-        ok ?= load_config_schema(NameVsn),
         ok ?= maybe_initialize_cached_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         {ok, Schema} ?= read_start_schema(NameVsn, Plugin),
@@ -1074,12 +1071,8 @@ validate_installation(NameVsn) ->
     maybe
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         ok ?= emqx_plugins_apps:validate(Plugin, emqx_plugins_fs:lib_dir(NameVsn)),
-        ok ?= load_config_schema(NameVsn),
+        ok ?= check_config_schema(NameVsn),
         ok ?= validate_default_config(NameVsn)
-    else
-        {error, _} = Error ->
-            _ = emqx_plugins_serde:delete_schema(NameVsn),
-            Error
     end.
 
 validate_default_config(NameVsn) ->
@@ -1103,7 +1096,7 @@ install_and_configure(NameVsn, Mode, RunningSt) ->
 
 configure(NameVsn, Mode, RunningSt) ->
     maybe
-        ok ?= load_config_schema(NameVsn),
+        ok ?= check_config_schema(NameVsn),
         ok ?= ensure_local_config(NameVsn, Mode),
         ok ?= configure_from_local_config(NameVsn, RunningSt),
         ensure_state(NameVsn)
@@ -1541,10 +1534,12 @@ request_config_change(NameVsn, #{running_status := RunningSt}, Config) when
 ->
     emqx_plugins_apps:on_config_changed(NameVsn, get_cached_config(NameVsn), Config).
 
-load_config_schema(NameVsn) ->
+%% Check that the plugin's config schema file, when the plugin declares one, is a valid
+%% Avro schema. The schema itself is read again from disk each time a config is validated.
+check_config_schema(NameVsn) ->
     case emqx_plugins_fs:read_avsc_bin(NameVsn) of
         {ok, AvscBin} ->
-            emqx_plugins_serde:add_schema(bin(NameVsn), AvscBin);
+            emqx_plugins_serde:check_schema(NameVsn, AvscBin);
         {error, #{reason := enoent}} = Error ->
             case has_avsc(NameVsn) of
                 true -> Error;

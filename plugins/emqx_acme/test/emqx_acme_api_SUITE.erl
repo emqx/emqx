@@ -14,7 +14,7 @@ all() ->
 "response when a body passes the avsc schema but the plugin's own parser "
 "rejects it. The HTTP layer's two validation hops (see "
 "emqx_mgmt_api_plugins:put_plugin_config/2) are exercised independently: "
-"emqx_plugins_serde:decode/2 runs the avsc validation, and "
+"emqx_plugins_serde:decode/3 runs the avsc validation, and "
 "emqx_acme_config:parse/1 runs the plugin-specific parse. A bad domain "
 "(\"admin@example\") is the canonical case -- the avsc accepts any "
 "string for `domains` but the parser refuses entries that idna would "
@@ -37,7 +37,7 @@ t_put_config_returns_400_when_parser_rejects_avro_valid_input(_Config) ->
     },
     BadJson = emqx_utils_json:encode(BadBody),
 
-    %% Layer 1 (avsc validation): emqx_plugins_serde:decode/2 mirrors the
+    %% Layer 1 (avsc validation): emqx_plugins_serde:decode/3 mirrors the
     %% server-side avsc check that runs before the BPAPI fan-out. It must
     %% accept the body -- only then is the parse-fail case distinguishable
     %% from the avsc-fail case (which would already return 400 with a
