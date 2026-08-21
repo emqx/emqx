@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
@@ -231,9 +232,140 @@ t_init_load_with_changed_max_packet_size_before_listeners_start(Config) ->
         stop_cluster([Node])
     end.
 
+t_base_hocon_change_after_rolling_restart(Config) ->
+    ct:timetrap({seconds, 120}),
+    ConfigPath = [mqtt, max_topic_levels],
+    MkConfig = fun(V) -> #{mqtt => #{max_topic_levels => V}} end,
+    OldValue = 100,
+    NewValue = 200,
+    Apps = [
+        %% Start `emqx_conf` first.
+        %% Set up few `emqx` application environment variables that are usually set up
+        %% through schema-generated app file.
+        {emqx_conf, #{
+            config => false,
+            before_start => fun(_App, _Opts) ->
+                {ok, WorkDir} = file:get_cwd(),
+                ClusterHoconFile = filename:join([WorkDir, "configs", "cluster.hocon"]),
+                ok = application:set_env(emqx, data_dir, WorkDir),
+                ok = application:set_env(emqx, config_files, ["etc/emqx.conf"]),
+                ok = application:set_env(emqx, cluster_hocon_file, ClusterHoconFile)
+            end
+        }},
+        %% Start `emqx` explicitly.
+        %% It owns `emqx_config_handler` needed for cluster config sync.
+        {emqx, #{
+            config => false,
+            before_start => false
+        }}
+    ],
+    Cluster =
+        [SeedSpec, NodeSpec] = emqx_cth_cluster:mk_nodespecs(
+            [
+                {base_hocon_change_after_rolling_restart1, #{apps => Apps, work_dir_dirty => true}},
+                {base_hocon_change_after_rolling_restart2, #{apps => Apps, work_dir_dirty => true}}
+            ],
+            #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+        ),
+    %% Put node-specific configuration in `emqx.conf`, similar to what `emqx_cth_cluster` sets up:
+    lists:foreach(fun write_node_config/1, Cluster),
+    %% Put initial value for `mqtt.max_topic_levels` in `base.hocon`:
+    lists:foreach(fun(Spec) -> write_base_hocon(Spec, MkConfig(OldValue)) end, Cluster),
+    ok = emqx_common_test_helpers:copy_acl_conf(),
+    try
+        %% 1. Start the first node.
+        [SeedNode] = start_cluster([SeedSpec]),
+        %% 2. Change unrelated configuration through cluster RPC mechanism:
+        ?assertMatch(
+            {ok, #{}},
+            ?ON(SeedNode, emqx_conf:update([alarm, size_limit], 2000, #{override_to => cluster}))
+        ),
+        %% 3. Start the second node.
+        %% Performs an initial configuration sync from an already running cluster member.
+        [Node] = start_cluster([NodeSpec]),
+        %% 4. Verify the second node intantiated its `cluster.hocon` configuration file.
+        assert_config_load_done([Node]),
+        NodeClusterHocon = filename:join([maps:get(work_dir, NodeSpec), "configs", "cluster.hocon"]),
+        ?assertEqual(NodeClusterHocon, ?ON(Node, emqx_config:cluster_hocon_file())),
+        ?assert(filelib:is_regular(NodeClusterHocon)),
+        ?assertEqual(OldValue, ?ON(SeedNode, emqx:get_config(ConfigPath))),
+        ?assertEqual(OldValue, ?ON(Node, emqx:get_config(ConfigPath))),
+        %% 5. Initiate the rolling restart.
+        %% Similarly, the first node performs configuration sync from the second node.
+        [SeedNode] = emqx_cth_cluster:restart(SeedSpec),
+        [Node] = emqx_cth_cluster:restart(NodeSpec),
+        %% 6. Change `base.hocon` on each node after initial rolling restart.
+        ok = write_base_hocon(SeedSpec, MkConfig(NewValue)),
+        ok = write_base_hocon(NodeSpec, MkConfig(NewValue)),
+        ?assertEqual(NewValue, read_base_hocon(SeedNode, ConfigPath)),
+        ?assertEqual(NewValue, read_base_hocon(Node, ConfigPath)),
+        %% 7. Restart the second node.
+        [Node] = emqx_cth_cluster:restart(NodeSpec),
+        %% 8. Configuration on `base.hocon` level should still take effect.
+        ?assertEqual(NewValue, read_base_hocon(Node, ConfigPath)),
+        ?assertEqual(
+            NewValue,
+            ?ON(Node, emqx:get_config(ConfigPath)),
+            #{reason => base_hocon_change_should_survive_rolling_restart}
+        )
+    after
+        stop_cluster(Cluster)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Helper functions
 %%------------------------------------------------------------------------------
+
+write_node_config(
+    #{
+        name := Node,
+        role := Role,
+        base_port := BasePort,
+        work_dir := WorkDir,
+        core_nodes := CoreNodes
+    }
+) ->
+    NodeConfig = #{
+        node => #{
+            name => Node,
+            role => Role,
+            cookie => erlang:get_cookie(),
+            data_dir => unicode:characters_to_binary(WorkDir)
+        },
+        cluster => #{
+            discovery_strategy => static,
+            static => #{seeds => CoreNodes}
+        },
+        rpc => #{
+            protocol => tcp,
+            tcp_server_port => BasePort - 1,
+            port_discovery => manual
+        },
+        log => #{file => #{enable => true, level => debug}},
+        listeners => #{
+            tcp => #{default => #{enable => false}},
+            ssl => #{default => #{enable => false}},
+            ws => #{default => #{enable => false}},
+            wss => #{default => #{enable => false}}
+        }
+    },
+    NodeHocon = hocon_pp:do(NodeConfig, #{}),
+    FilePath = filename:join([WorkDir, "etc", "emqx.conf"]),
+    ok = filelib:ensure_dir(FilePath),
+    ok = file:write_file(FilePath, unicode:characters_to_binary(NodeHocon)).
+
+write_base_hocon(#{work_dir := WorkDir}, Config) ->
+    FilePath = filename:join([WorkDir, "etc", "base.hocon"]),
+    ok = filelib:ensure_dir(FilePath),
+    BaseHocon = hocon_pp:do(Config, #{}),
+    file:write_file(FilePath, unicode:characters_to_binary(BaseHocon)).
+
+read_base_hocon(Node, ConfigPath) ->
+    ?ON(Node, begin
+        File = emqx_config:base_hocon_file(),
+        {ok, RawConfig} = hocon:files([File]),
+        emqx_utils_maps:deep_get([emqx_utils_conv:bin(X) || X <- ConfigPath], RawConfig)
+    end).
 
 create_data_dir(File) ->
     NodeDataDir = emqx:data_dir(),
