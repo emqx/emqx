@@ -597,6 +597,18 @@ log_unconfigured_plugin(#{
         msg => plugin_package_not_configured,
         name_vsn => NameVsn,
         running_status => RunningStatus,
+        description => iolist_to_binary([
+            "A plugin package was found unpacked under the plugins directory, but `",
+            NameVsn,
+            "` has no entry in `plugins.states`, so EMQX does not know whether to start it. ",
+            "The match is on the exact name and version, so this is most often a version "
+            "mismatch: `plugins.states` still lists an older version of the same plugin while "
+            "a newer package was unpacked, and the old entry does not carry over. ",
+            "It also happens when a package is copied into the plugins directory by hand or "
+            "restored from a backup, instead of being installed through the API or "
+            "`emqx ctl plugins install`. ",
+            "The plugin is left untouched: it is not started, and no configuration is applied."
+        ]),
         hint => iolist_to_binary([
             "Plugin package is unpacked but is neither enabled nor disabled in plugins.states. ",
             "Run `emqx ctl plugins enable ",
