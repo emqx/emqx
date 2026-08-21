@@ -907,7 +907,7 @@ read_override_conf(#{} = Opts) ->
     Files =
         case has_deprecated_file() of
             true -> [deprecated_conf_file(Opts)];
-            false -> [base_hocon_file(), cluster_hocon_file()]
+            false -> [cluster_hocon_file()]
         end,
     load_hocon_files(Files, map).
 
