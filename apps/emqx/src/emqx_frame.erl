@@ -1368,9 +1368,12 @@ serialize_variable_byte_integer(Acc, N) when N < (1 bsl 28) ->
     >>.
 
 %% Is the frame too large?
+%% A packet whose size equals the limit is allowed: MQTT-3.1.2-24 forbids only
+%% packets *exceeding* Maximum Packet Size. This matches the parser, which also
+%% rejects on `FrameLen > MaxSize'.
 -spec is_too_large(iodata(), pos_integer()) -> boolean().
 is_too_large(IoData, MaxSize) ->
-    iolist_size(IoData) >= MaxSize.
+    iolist_size(IoData) > MaxSize.
 
 get_property(_Key, undefined, Default) ->
     Default;
