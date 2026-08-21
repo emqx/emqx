@@ -211,7 +211,20 @@ fields_deflate_opts_server_context_takeover.label:
 """Server context takeover"""
 
 mqtt_session_expiry_interval.desc:
-"""Specifies how long the session will expire after the connection is disconnected, only for non-MQTT 5.0 connections."""
+"""Specifies how long EMQX keeps a session after the client disconnects.
+It applies to MQTT 3.1 and 3.1.1 clients connecting with `Clean Session = false`.
+MQTT 5.0 clients set their own value with the `Session-Expiry-Interval` CONNECT property.
+
+Note the memory cost: with the default in-memory session store, a session whose expiry interval is
+greater than zero is not removed when the client disconnects. EMQX keeps the session, its
+subscriptions and its message queue in memory until the client reconnects or the interval elapses.
+The number of such sessions on a node is roughly the client disconnect rate multiplied by the expiry
+interval, so a large fleet on unstable links combined with a long interval can leave a node holding
+many disconnected sessions. This is the intended behavior of persistent sessions; size the deployment
+for it, keep this value to the shortest interval that covers the reconnect window of your clients,
+use `max_mqueue_len` to bound the messages queued for each disconnected session, or use durable
+sessions, which store session state on disk and release the session process when the client
+disconnects."""
 
 mqtt_session_expiry_interval.label:
 """Session Expiry Interval"""
