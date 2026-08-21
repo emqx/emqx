@@ -21,7 +21,7 @@
 
 %% Worker tasks.
 -export([
-    do_want_next/3,
+    do_want_next/2,
     do_deliver_pending/1,
     do_deliver_qos0/1,
     do_deliver_qos0_and_ack/6,
@@ -44,11 +44,9 @@
 -define(TAB_B, bcast_buffer_b).
 -define(TAB_BUF3, bcast_buffer3).
 -define(WORKER_POOL, emqx_bcast_pull_worker_pool).
--define(FLUSH_MS, 50).
--define(FLUSH_COUNT, 100).
 
 -record(state, {
-    active = a,
+    active = ?TAB_A,
     flush_timer = undefined,
     mons = #{}
 }).
@@ -91,12 +89,12 @@ deliver_results(Results) ->
 %% Worker tasks
 %%--------------------------------------------------------------------
 
-do_want_next(Core, Node, Entries) ->
+do_want_next(Core, Entries) ->
     Results =
         case Core =:= node() of
             true ->
                 try
-                    emqx_bcast_pull_server_pool:want_next(Node, Entries)
+                    emqx_bcast_pull_server_pool:want_next(Entries)
                 catch
                     _:_ -> []
                 end;
@@ -107,7 +105,7 @@ do_want_next(Core, Node, Entries) ->
                         Core,
                         emqx_bcast_pull_server_pool,
                         want_next,
-                        [Node, Entries],
+                        [Entries],
                         15000
                     )
                 of
@@ -272,7 +270,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(flush_buffer3, State) ->
-    ok = cancel_flush_timer(State#state.flush_timer),
+    ok = emqx_bcast_utils:cancel_timer(State#state.flush_timer),
     Entries = ets:tab2list(?TAB_BUF3),
     ets:delete_all_objects(?TAB_BUF3),
     case Entries of
@@ -281,7 +279,7 @@ handle_info(flush_buffer3, State) ->
         _ ->
             Core = emqx_bcast:random_core(),
             Maps = [buffer3_to_map(E) || E <- Entries],
-            submit_to_worker(fun() -> do_want_next(Core, node(), Maps) end),
+            submit_to_worker(fun() -> do_want_next(Core, Maps) end),
             {noreply, State#state{flush_timer = undefined}}
     end;
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
@@ -322,16 +320,13 @@ ensure_buffer_table(Name, KeyPos) ->
             ok
     end.
 
-active_tab(#state{active = a}) -> ?TAB_A;
-active_tab(#state{active = b}) -> ?TAB_B.
-
-inactive_tab(#state{active = a}) -> ?TAB_B;
-inactive_tab(#state{active = b}) -> ?TAB_A.
+flip(?TAB_A) -> ?TAB_B;
+flip(?TAB_B) -> ?TAB_A.
 
 trigger_want_next(_ClientId, _Pid, _ProductKey, [], State) ->
     State;
 trigger_want_next(ClientId, Pid, ProductKey, Topics, State) ->
-    Active = active_tab(State),
+    Active = State#state.active,
     case ets:lookup(Active, ClientId) of
         [_ | _] ->
             %% Window = 1: an unacked QoS1 delivery is already pending.
@@ -353,26 +348,10 @@ trigger_want_next(ClientId, Pid, ProductKey, Topics, State) ->
     end.
 
 maybe_flush_buffer3(State) ->
-    case ets:info(?TAB_BUF3, size) >= ?FLUSH_COUNT of
-        true ->
-            ok = cancel_flush_timer(State#state.flush_timer),
-            self() ! flush_buffer3,
-            State#state{flush_timer = undefined};
-        false ->
-            ensure_flush_timer(State)
-    end.
-
-ensure_flush_timer(State = #state{flush_timer = undefined}) ->
-    TRef = erlang:send_after(?FLUSH_MS, self(), flush_buffer3),
-    State#state{flush_timer = TRef};
-ensure_flush_timer(State) ->
-    State.
-
-cancel_flush_timer(undefined) ->
-    ok;
-cancel_flush_timer(TRef) ->
-    _ = erlang:cancel_timer(TRef),
-    ok.
+    Timer = emqx_bcast_utils:maybe_batch_flush(
+        ets:info(?TAB_BUF3, size), State#state.flush_timer, flush_buffer3
+    ),
+    State#state{flush_timer = Timer}.
 
 buffer3_to_map(#bcast_buffer3{
     clientid = ClientId,
@@ -401,7 +380,7 @@ cleanup_buffer3(ClientId, Pid) ->
     end.
 
 take_pending(ClientId, DeliveryId, State) ->
-    Active = active_tab(State),
+    Active = State#state.active,
     case ets:lookup(Active, ClientId) of
         [#bcast_buffer_entry{delivery_id = DeliveryId, pid = Pid}] ->
             ets:delete(Active, ClientId),
@@ -479,8 +458,8 @@ prepare_delivery(ClientId, #{
     end.
 
 fill_and_deliver(NewEntries, State) ->
-    Inactive = inactive_tab(State),
-    Active = active_tab(State),
+    Active = State#state.active,
+    Inactive = flip(Active),
     ets:delete_all_objects(Inactive),
     %% Fill bufferB with freshly pulled deliveries.
     lists:foreach(
@@ -498,7 +477,7 @@ fill_and_deliver(NewEntries, State) ->
         ets:tab2list(Active)
     ),
     ets:delete_all_objects(Active),
-    NewState = State#state{active = inactive_side(State)},
+    NewState = State#state{active = flip(State#state.active)},
     case NewEntries of
         [] ->
             ok;
@@ -507,12 +486,5 @@ fill_and_deliver(NewEntries, State) ->
     end,
     NewState.
 
-inactive_side(#state{active = a}) -> b;
-inactive_side(#state{active = b}) -> a.
-
 submit_to_worker(Fun) ->
-    try
-        emqx_pool:async_submit_to_pool(?WORKER_POOL, Fun)
-    catch
-        _:_ -> Fun()
-    end.
+    emqx_bcast_utils:submit_pool(?WORKER_POOL, Fun).

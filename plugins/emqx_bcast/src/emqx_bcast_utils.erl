@@ -13,10 +13,16 @@
     sha256/1,
     expand_topic/3,
     now_sec/0,
-    ttl/0
+    ttl/0,
+    submit_pool/2,
+    maybe_batch_flush/3,
+    cancel_timer/1
 ]).
 
 -include("emqx_bcast.hrl").
+
+-define(FLUSH_MS, 50).
+-define(FLUSH_COUNT, 100).
 
 gen_guid() ->
     emqx_guid:gen().
@@ -67,3 +73,34 @@ ttl() ->
     catch
         _:_ -> 15 * 86400
     end.
+
+%% Submit a task to an emqx_pool worker pool, falling back to running it
+%% inline when the pool is unavailable (e.g. before it is started).
+submit_pool(Pool, Fun) ->
+    try
+        emqx_pool:async_submit_to_pool(Pool, Fun)
+    catch
+        _:_ -> Fun()
+    end.
+
+%% Batch-flush timer helper shared by the ack and pull pools: flush when
+%% Count reaches the threshold, otherwise arm a timer that flushes after
+%% FLUSH_MS. Returns the timer ref (undefined after an immediate flush).
+maybe_batch_flush(Count, TimerRef, FlushMsg) ->
+    case Count >= ?FLUSH_COUNT of
+        true ->
+            _ = cancel_timer(TimerRef),
+            self() ! FlushMsg,
+            undefined;
+        false ->
+            case TimerRef of
+                undefined -> erlang:send_after(?FLUSH_MS, self(), FlushMsg);
+                _ -> TimerRef
+            end
+    end.
+
+cancel_timer(undefined) ->
+    ok;
+cancel_timer(TimerRef) ->
+    _ = erlang:cancel_timer(TimerRef),
+    ok.

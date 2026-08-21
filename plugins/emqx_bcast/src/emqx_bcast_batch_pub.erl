@@ -127,11 +127,7 @@ resolve_content_ids(Hash) ->
     end.
 
 submit_qos1_task(Fun) ->
-    try
-        emqx_pool:async_submit_to_pool(?WORKER_POOL, Fun)
-    catch
-        _:_ -> Fun()
-    end.
+    emqx_bcast_utils:submit_pool(?WORKER_POOL, Fun).
 
 persist_content_and_trigger(
     Payload, Hash, ApiMsgId, MsgGuid, DeliveryId, ProductKey, TopicTemplate, DeviceNames
