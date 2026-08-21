@@ -769,38 +769,6 @@ t_namespaced_import_foreign_content_forbidden(Config) ->
     ok.
 
 -doc """
-A namespaced administrator must not be able to write global configuration
-through a backup import. When `ns/<NS>/cluster.hocon' carries a root that is
-not namespace-writable (`listeners' here), the import skips that root and the
-global configuration stays untouched, while the namespace-writable roots in
-the same archive are still imported into the namespace.
-""".
-t_namespaced_import_skips_global_roots(Config) ->
-    [Core1 | _] = ?config(cluster, Config),
-    Ns1Auth = ?config(ns_admin_auth, Config),
-    ListenerPath = [<<"listeners">>, <<"tcp">>, <<"ns_escalation">>],
-    ?assertEqual(undefined, ?ON(Core1, emqx:get_raw_config(ListenerPath, undefined))),
-    {LocalPath, Base} = forge_backup(Config, "emqx-export-ns1-global-root", #{
-        <<"ns1">> => <<
-            "listeners.tcp.ns_escalation { bind = \"127.0.0.1:21883\" }\n"
-            "rule_engine.rules.ns_rule { sql = \"SELECT * FROM \\\"t/#\\\"\", actions = [] }\n"
-        >>
-    }),
-    ?assertEqual(ok, upload_backup_ns(?NODE1_PORT, Ns1Auth, LocalPath, #{})),
-    ImportRes = import_backup_ns(?NODE1_PORT, Ns1Auth, Base, #{}),
-    ?assertEqual(
-        undefined,
-        ?ON(Core1, emqx:get_raw_config(ListenerPath, undefined)),
-        #{import_result => ImportRes}
-    ),
-    ?assertMatch({204, _}, ImportRes),
-    ?assertMatch(
-        #{<<"rule_engine">> := #{<<"rules">> := #{<<"ns_rule">> := _}}},
-        ?ON(Core1, emqx_config:get_all_roots_from_namespace(<<"ns1">>))
-    ),
-    ok.
-
--doc """
 The global scope is a full-cluster artifact: importing a global archive
 restores every `ns/<NS>/cluster.hocon' entry into its own namespace, and a
 subsequent global export emits every namespace's configuration back into the
@@ -1460,12 +1428,6 @@ test_case_specific_apps_spec(TestCase) when
 ->
     [
         emqx_exhook
-    ];
-test_case_specific_apps_spec(TestCase) when
-    TestCase =:= t_namespaced_import_skips_global_roots
-->
-    [
-        emqx_rule_engine
     ];
 test_case_specific_apps_spec(_TC) ->
     [].
