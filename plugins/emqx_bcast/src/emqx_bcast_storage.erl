@@ -372,42 +372,47 @@ dec_delivery_count_tx(MsgId) ->
 %% Entries :: [#{clientid := binary(), product_key := binary(),
 %%               topics := [{binary(), non_neg_integer()}]}]
 %% Returns :: [{ClientId, {ok, DeliverMap} | no_more}]
-%% The claim runs on dirty ops instead of a transaction: a concurrent
-%% claim/ack race on the same device can produce one duplicate delivery
-%% (at-least-once, already accepted per arch doc F1). Skipping the
-%% transaction manager keeps claim batches at dirty-read/write cost.
+%% The whole batch claims in one transaction (F5): each claimed entry is
+%% marked pending, and the transaction serializes claims against concurrent
+%% ack batches so the index state stays consistent.
 claim_want_next_batch(Entries) ->
-    lists:map(
-        fun(#{clientid := ClientId, product_key := ProductKey} = Entry) ->
-            Topics = maps:get(topics, Entry, []),
-            {ClientId, claim_one_dirty(ProductKey, ClientId, Topics)}
-        end,
-        Entries
-    ).
-
-claim_one_dirty(ProductKey, DeviceName, Topics) ->
-    Key = {ProductKey, DeviceName},
-    case mnesia:dirty_read(?TAB_MSG_IDX, Key) of
-        [] ->
-            no_more;
-        [#bcast_msg_index{deliveries = Entries0}] ->
-            claim_from_entries_dirty(Key, Entries0, Topics, ProductKey, DeviceName, [])
+    case transaction(fun() -> claim_want_next_batch_tx(Entries, []) end) of
+        {atomic, Results} ->
+            Results;
+        {aborted, _Reason} ->
+            [{ClientId, no_more} || #{clientid := ClientId} <- Entries]
     end.
 
-claim_from_entries_dirty(_Key, [], _Topics, _PK, _DN, _Kept) ->
+claim_want_next_batch_tx([], Acc) ->
+    lists:reverse(Acc);
+claim_want_next_batch_tx([#{clientid := ClientId, product_key := ProductKey} = Entry | Rest], Acc) ->
+    Topics = maps:get(topics, Entry, []),
+    Result = claim_one_tx(ProductKey, ClientId, Topics),
+    claim_want_next_batch_tx(Rest, [{ClientId, Result} | Acc]).
+
+claim_one_tx(ProductKey, DeviceName, Topics) ->
+    Key = {ProductKey, DeviceName},
+    case mnesia:wread({?TAB_MSG_IDX, Key}) of
+        [] ->
+            no_more;
+        [#bcast_msg_index{deliveries = Entries}] ->
+            claim_from_entries(Key, Entries, Topics, ProductKey, DeviceName, [])
+    end.
+
+claim_from_entries(_Key, [], _Topics, _PK, _DN, _Kept) ->
     %% Nothing matched. Do not rewrite the index record: a later subscription
     %% change may make one of the stored entries deliverable.
     no_more;
-claim_from_entries_dirty(Key, [{DeliveryId, State} | Rest], Topics, PK, DN, Kept) ->
-    case mnesia:dirty_read(?TAB_MSG_REC, DeliveryId) of
+claim_from_entries(Key, [{DeliveryId, State} | Rest], Topics, PK, DN, Kept) ->
+    case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
         [#bcast_msg{msg_id = MsgId, topic_template = Template}] ->
             Topic = emqx_bcast_utils:expand_topic(Template, PK, DN),
             case topics_match(Topic, Topics) of
                 true ->
-                    case mnesia:dirty_read(?TAB_MSG, MsgId) of
+                    case mnesia:read(?TAB_MSG, MsgId, read) of
                         [#bcast_message{payload = Payload}] ->
                             NewEntries = lists:reverse(Kept) ++ [{DeliveryId, pending} | Rest],
-                            mnesia:dirty_write(#bcast_msg_index{key = Key, deliveries = NewEntries}),
+                            mnesia:write(#bcast_msg_index{key = Key, deliveries = NewEntries}),
                             {ok, #{
                                 delivery_id => DeliveryId,
                                 product_key => PK,
@@ -417,14 +422,14 @@ claim_from_entries_dirty(Key, [{DeliveryId, State} | Rest], Topics, PK, DN, Kept
                             }};
                         [] ->
                             %% Stale index: remove the entry and keep looking.
-                            claim_from_entries_dirty(Key, Rest, Topics, PK, DN, Kept)
+                            claim_from_entries(Key, Rest, Topics, PK, DN, Kept)
                     end;
                 false ->
-                    claim_from_entries_dirty(Key, Rest, Topics, PK, DN, [{DeliveryId, State} | Kept])
+                    claim_from_entries(Key, Rest, Topics, PK, DN, [{DeliveryId, State} | Kept])
             end;
         [] ->
             %% Stale index entry: drop it and keep looking.
-            claim_from_entries_dirty(Key, Rest, Topics, PK, DN, Kept)
+            claim_from_entries(Key, Rest, Topics, PK, DN, Kept)
     end.
 
 topics_match(_Topic, []) ->

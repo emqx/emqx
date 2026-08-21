@@ -23,7 +23,7 @@
     on_client_unsubscribe/3,
     on_session_resumed/2,
     on_client_ping/3,
-    on_delivery_completed/2
+    on_message_acked/2
 ]).
 
 -include("emqx_bcast.hrl").
@@ -94,7 +94,7 @@ hook() ->
     ok = emqx_hooks:put('client.unsubscribe', {?MODULE, on_client_unsubscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.ping', {?MODULE, on_client_ping, []}, ?HP_HIGHEST),
-    ok = emqx_hooks:put('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_HIGHEST).
+    ok = emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}, ?HP_HIGHEST).
 
 unhook() ->
     ok = emqx_hooks:del('client.connected', {?MODULE, on_client_connected}),
@@ -103,7 +103,7 @@ unhook() ->
     ok = emqx_hooks:del('client.unsubscribe', {?MODULE, on_client_unsubscribe}),
     ok = emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
     ok = emqx_hooks:del('client.ping', {?MODULE, on_client_ping}),
-    ok = emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}).
+    ok = emqx_hooks:del('message.acked', {?MODULE, on_message_acked}).
 
 %%--------------------------------------------------------------------
 %% Tables
@@ -339,18 +339,19 @@ on_client_ping(ClientInfo, _ConnInfo, Acc) ->
     end,
     Acc.
 
-on_delivery_completed(Msg, #{clientid := ClientId}) ->
+on_message_acked(ClientInfo, Msg) ->
     case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
         undefined ->
             ok;
         DeliveryId ->
-            case emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined) of
-                undefined ->
-                    ok;
-                ProductKey ->
-                    emqx_bcast_ack_pool:ack(ClientId, DeliveryId, ProductKey),
-                    ok
-            end
+            #{clientid := DeviceName} = ClientInfo,
+            ProductKey =
+                case emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined) of
+                    undefined -> get_product_key(ClientInfo);
+                    PK -> PK
+                end,
+            emqx_bcast_ack_pool:ack(DeviceName, DeliveryId, ProductKey),
+            ok
     end.
 
 %%--------------------------------------------------------------------

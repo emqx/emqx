@@ -7,7 +7,7 @@
 
 -export([
     start_link/0,
-    want_next/2,
+    want_next/1,
     ack_batch/1,
     qos0_broadcast/3,
     qos1_trigger/3
@@ -23,8 +23,8 @@ start_link() ->
 
 %% Local call used both by local pull_pool workers and by remote pull_pool
 %% workers through emqx_rpc:call (F7: pull batches pick a random core).
-want_next(Node, Entries) ->
-    gen_server:call(?MODULE, {want_next, Node, Entries}, 15000).
+want_next(Entries) ->
+    gen_server:call(?MODULE, {want_next, Entries}, 15000).
 
 ack_batch(Acks) ->
     gen_server:cast(?MODULE, {ack_batch, Acks}).
@@ -49,19 +49,17 @@ init([]) ->
     _ = erlang:send_after(?ENSURE_COPIES_MS, self(), ensure_core_copies),
     {ok, #{}}.
 
-handle_call({want_next, _Node, Entries}, From, State) ->
-    submit_worker(fun() ->
-        Results = emqx_bcast_storage:claim_want_next_batch(Entries),
-        gen_server:reply(From, Results)
-    end),
-    {noreply, State};
+handle_call({want_next, Entries}, _From, State) ->
+    %% Claim runs inline so the gen_server serializes it against ack batches
+    %% (spec 4.5: claim is one serialized tx); concurrent claim/ack txs on the
+    %% same index records would deadlock under mnesia write locks.
+    Results = emqx_bcast_storage:claim_want_next_batch(Entries),
+    {reply, Results, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({ack_batch, Acks}, State) ->
-    submit_worker(fun() ->
-        _ = emqx_bcast_storage:process_ack_batch(Acks)
-    end),
+    _ = emqx_bcast_storage:process_ack_batch(Acks),
     {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -110,11 +108,4 @@ ensure_core_copies() ->
         emqx_bcast:ensure_core_copies()
     catch
         _:_ -> ok
-    end.
-
-submit_worker(Fun) ->
-    try
-        emqx_pool:async_submit_to_pool(emqx_bcast_pull_server_worker_pool, Fun)
-    catch
-        _:_ -> Fun()
     end.
