@@ -95,12 +95,13 @@ flush policy.
 Prometheus text format at `GET /api/v5/plugin_api/emqx_bcast/metrics`
 (registry prefix `bcast_`):
 
-- Per-action API counters (`*_in`, `*_error`).
-- BatchPub QoS=0: `targeted`, `delivered`, `skipped`.
-- BatchPub QoS=1: `delivered_inline`, `stored_offline`, `wanted`,
-  `acked`, `replayed`.
-
+- Per-action API counters (`batch_pub_*_in`, `broadcast_pub_in`,
+  `register_message_*`).
+- BatchPub QoS=0: `targeted`, `qos0_delivery_count`.
+- BatchPub QoS=1: `wanted`, `delivered`, `acked`.
 
 Delivery counters are updated by asynchronous workers and lag the API
-response. See [API.md](API.md) for the full metric list and
+response. `delivered` and `acked` are node-local (they count on the node
+that delivers or receives the PUBACK), so aggregate them across all nodes.
+See [API.md](API.md) for the full metric list and
 [USAGE.md](USAGE.md) for end-to-end workflows.

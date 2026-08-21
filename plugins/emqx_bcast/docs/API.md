@@ -295,27 +295,22 @@ This endpoint is separate from the built-in EMQX Prometheus endpoints.
 | Metric | Description |
 |--------|-------------|
 | `bcast_batch_pub_qos0_in` | BatchPub QoS=0 API requests |
-| `bcast_batch_pub_qos0_error` | BatchPub QoS=0 API errors |
 | `bcast_batch_pub_qos0_targeted` | QoS=0 devices targeted |
-| `bcast_batch_pub_qos0_delivered` | QoS=0 devices delivered |
-| `bcast_batch_pub_qos0_skipped` | QoS=0 devices skipped (offline) |
+| `bcast_qos0_delivery_count` | QoS=0 one-shot deliveries to online clients |
 | `bcast_batch_pub_qos1_in` | BatchPub QoS=1 API requests |
-| `bcast_batch_pub_qos1_delivered_inline` | QoS=1 inline deliveries |
-| `bcast_batch_pub_qos1_stored_offline` | QoS=1 stored for offline delivery |
 | `bcast_batch_pub_qos1_wanted` | QoS=1 total wanted acks |
+| `bcast_batch_pub_qos1_delivered` | QoS=1 deliveries to clients |
 | `bcast_batch_pub_qos1_acked` | QoS=1 acks received |
-| `bcast_batch_pub_qos1_replayed` | QoS=1 replayed on reconnect |
 | `bcast_broadcast_pub_in` | PubBroadcast API requests |
 | `bcast_broadcast_pub_error` | PubBroadcast errors |
-| `bcast_broadcast_pub_devices_online` | PubBroadcast devices online |
-| `bcast_broadcast_pub_delivery_count` | PubBroadcast deliveries |
 | `bcast_register_message_in` | RegisterMessage API requests |
 | `bcast_register_message_refresh` | RegisterMessage TTL refresh |
 | `bcast_register_message_error` | RegisterMessage errors |
 
-Delivery counters (`delivered`, `delivered_inline`, `acked`) are incremented
-by asynchronous delivery workers, so they lag the API response by the time the
-queued tasks take to execute.
+`delivered` and `acked` are node-local counters: they increment on the node
+that delivers or receives the PUBACK, so aggregate across all nodes for the
+cluster total. They are also updated by asynchronous workers, so they lag the
+API response by the time the queued tasks take to execute.
 
 QoS=1 delivery completion is tracked by comparing `wanted` against `acked`
 (a delivery is fully acknowledged when `acked` reaches `wanted` per DeliveryId).
