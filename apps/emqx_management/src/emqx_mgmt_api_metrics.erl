@@ -137,9 +137,10 @@ schema("/metrics") ->
                                 #{
                                     in => query,
                                     required => false,
+                                    default => false,
                                     desc => <<
                                         "Whether to aggregate all nodes Metrics. "
-                                        "Default value is 'true'."
+                                        "Default value is 'false'."
                                     >>
                                 }
                             )},
