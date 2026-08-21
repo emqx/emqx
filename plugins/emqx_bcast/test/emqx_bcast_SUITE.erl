@@ -297,11 +297,11 @@ t_sub_takeover_pid_guard(_Config) ->
     Old ! stop,
     New ! stop.
 
-t_delivery_completed_hook(_Config) ->
+t_message_acked_hook(_Config) ->
     PK = <<"PC">>,
     DN = <<"DC1">>,
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
-    Payload = <<"delivery completed test">>,
+    Payload = <<"message acked test">>,
     Hash = crypto:hash(sha256, Payload),
     emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
     DeliveryId = emqx_bcast_utils:gen_guid(),
@@ -315,16 +315,16 @@ t_delivery_completed_hook(_Config) ->
         #{},
         #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
     ),
-    ok = emqx_bcast:on_delivery_completed(Msg, #{clientid => DN}),
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
     %% delivery record removed after the target ack count is reached
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
-    %% duplicate completion is idempotent and does not crash
-    ok = emqx_bcast:on_delivery_completed(Msg, #{clientid => DN}),
+    %% duplicate ack is idempotent and does not crash
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
     timer:sleep(300),
     ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
     %% messages without plugin headers pass through untouched
     Plain = emqx_message:make(DN, 0, <<"/t">>, <<"p">>),
-    ok = emqx_bcast:on_delivery_completed(Plain, #{clientid => DN}).
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Plain).
 
 t_register_message_concurrent_dedup(_Config) ->
     Content = base64:encode(crypto:strong_rand_bytes(16)),
