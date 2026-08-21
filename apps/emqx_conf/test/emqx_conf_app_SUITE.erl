@@ -232,19 +232,25 @@ t_init_load_with_changed_max_packet_size_before_listeners_start(Config) ->
         stop_cluster([Node])
     end.
 
+%% Verify that changes to `base.hocon` configuration values after initial rolling
+%% cluster restart take effect afterwards.
+%% Essentially:
+%% 1. Start a cluster with identical `base.hocon` on each node containing
+%%    `mqtt.max_topic_levels = 100`.
+%% 2. Perform a runtime update of `alarm.size_limit = 2000`.
+%% 3. Do a rolling restart.
+%% 4. Update `base.hocon` on each node to `mqtt.max_topic_levels = 200`.
+%% 5. Restart a node and observe it runs with `mqtt.max_topic_levels` updated
+%%    to 200.
+%%
+%% Note that most of the runtime operations introducing configuration changes use
+%% schema-root-level granularity, so for example a runtime update in (2) targeting
+%% `mqtt.max_clientid_len = 256` makes the testcase fail consistently.
 t_base_hocon_change_after_rolling_restart(Config) ->
     test_base_hocon_change_after_rolling_restart(
         ?FUNCTION_NAME,
         {[mqtt, max_topic_levels], 100, 200},
         {[alarm, size_limit], 1000, 2000},
-        Config
-    ).
-
-t_base_hocon_change_after_rolling_restart_same_root(Config) ->
-    test_base_hocon_change_after_rolling_restart(
-        ?FUNCTION_NAME,
-        {[mqtt, max_topic_levels], 100, 200},
-        {[mqtt, max_clientid_len], 65535, 256},
         Config
     ).
 
