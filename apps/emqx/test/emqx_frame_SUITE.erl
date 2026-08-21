@@ -51,6 +51,7 @@ groups() ->
         {parse, [parallel], [
             t_parse_cont,
             t_parse_frame_too_large,
+            t_serialize_frame_at_max_size,
             t_parse_frame_malformed_variable_byte_integer,
             t_parse_malformed_utf8_string,
             t_parse_non_connect_before_connect,
@@ -199,6 +200,25 @@ t_parse_frame_too_large(_) ->
     ?ASSERT_FRAME_THROW(#{cause := frame_too_large}, parse_serialize(Packet, #{max_size => 256})),
     ?ASSERT_FRAME_THROW(#{cause := frame_too_large}, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
+
+%% MQTT-3.1.2-24 forbids only packets *exceeding* Maximum Packet Size, so a
+%% packet whose serialized size is exactly the limit must still be sent.
+t_serialize_frame_at_max_size(_) ->
+    %% Given a packet and limits equal to its serialized size and one byte less.
+    Ver = ?MQTT_PROTO_V5,
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, payload(100)),
+    Bin = iolist_to_binary(emqx_frame:serialize(Packet, Ver)),
+    Size = byte_size(Bin),
+    AtLimit = emqx_frame:initial_serialize_opts(#{version => Ver, max_size => Size}),
+    OverLimit = emqx_frame:initial_serialize_opts(#{version => Ver, max_size => Size - 1}),
+    SerializeAtLimit = emqx_frame:serialize_fun(AtLimit),
+    SerializeOverLimit = emqx_frame:serialize_fun(OverLimit),
+    %% When serialized exactly at the limit, then both entry points send the packet.
+    ?assertEqual(Bin, iolist_to_binary(emqx_frame:serialize_pkt(Packet, AtLimit))),
+    ?assertEqual(Bin, iolist_to_binary(SerializeAtLimit(Packet))),
+    %% When serialized one byte over the limit, then both entry points drop it.
+    ?assertEqual(<<>>, emqx_frame:serialize_pkt(Packet, OverLimit)),
+    ?assertEqual(<<>>, SerializeOverLimit(Packet)).
 
 t_parse_frame_malformed_variable_byte_integer(_) ->
     MalformedPayload = <<<<16#80>> || _ <- lists:seq(1, 6)>>,
