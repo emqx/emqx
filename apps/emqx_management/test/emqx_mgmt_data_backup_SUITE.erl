@@ -721,6 +721,57 @@ t_import_cluster_hocon_partial_node(Config) ->
         emqx_mgmt_data_backup:import_local(BackupFileName)
     ).
 
+-doc """
+A namespaced import never applies a root that is not namespace-writable: the
+root is skipped with a warning while the namespace-writable roots in the same
+archive are still imported.
+""".
+t_namespaced_import_skips_global_roots(Config) ->
+    Namespace = <<"ns1">>,
+    BaseName = "export-ns-global-root-backup",
+    BackupFileName = filename:join(?config(priv_dir, Config), BaseName ++ ".tar.gz"),
+    Meta = unicode:characters_to_binary(
+        hocon_pp:do(#{edition => emqx_release:edition(), version => emqx_release:version()}, #{})
+    ),
+    NsConf = <<
+        "listeners.tcp.ns_escalation { bind = \"127.0.0.1:21884\" }\n"
+        "rule_engine.rules.ns_rule { sql = \"SELECT * FROM \\\"t/#\\\"\", actions = [] }\n"
+    >>,
+    ok = erl_tar:create(
+        BackupFileName,
+        [
+            {BaseName ++ "/ns/ns1/cluster.hocon", NsConf},
+            {BaseName ++ "/META.hocon", Meta}
+        ],
+        [compressed]
+    ),
+    ListenerPath = [<<"listeners">>, <<"tcp">>, <<"ns_escalation">>],
+    ?assertEqual(undefined, emqx:get_raw_config(ListenerPath, undefined)),
+    ?check_trace(
+        begin
+            ImportRes = emqx_mgmt_data_backup:import_local(
+                BackupFileName, #{namespace => Namespace}
+            ),
+            ?assertEqual(
+                undefined,
+                emqx:get_raw_config(ListenerPath, undefined),
+                #{import => ImportRes}
+            ),
+            ?assertEqual({ok, #{db_errors => #{}, config_errors => #{}}}, ImportRes),
+            ?assertMatch(
+                #{<<"rule_engine">> := #{<<"rules">> := #{<<"ns_rule">> := _}}},
+                emqx_config:get_all_roots_from_namespace(Namespace)
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{namespace := Namespace, root_keys := [<<"listeners">>]}],
+                ?of_kind("data_import_skipped_global_roots", Trace)
+            )
+        end
+    ),
+    ok.
+
 t_cluster_links(_Config) ->
     Link = #{
         <<"name">> => <<"emqxcl_backup_test">>,
