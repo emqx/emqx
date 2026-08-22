@@ -158,6 +158,8 @@ node_info() ->
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
         edition => emqx_release:edition_longstr(),
         role => mria_rlog:role(),
+        security_profile => emqx_security_profile:profile(),
+        feature_preset => maps:get(preset, emqx_machine_features:info()),
         log_path => log_path(),
         sys_path => iolist_to_binary(code:root_dir())
     }.
@@ -194,6 +196,8 @@ os_type() ->
 node_info(Nodes) ->
     emqx_rpc:unwrap_erpc(emqx_management_proto_v5:node_info(Nodes)).
 
+%% Only keys that are known without reaching the node.
+%% The schema marks every other `node_info` field as optional.
 stopped_node_info(Node) ->
     {Node, #{node => Node, node_status => 'stopped', role => core}}.
 

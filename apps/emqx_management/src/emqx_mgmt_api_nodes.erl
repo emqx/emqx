@@ -245,6 +245,16 @@ fields(node_info) ->
             mk(
                 enum([core, replicant]),
                 #{desc => ?DESC("node_role"), example => "core"}
+            )},
+        {security_profile,
+            mk(
+                enum([legacy, hardened]),
+                #{desc => ?DESC("security_profile"), example => "legacy"}
+            )},
+        {feature_preset,
+            mk(
+                enum([full, essential, custom]),
+                #{desc => ?DESC("feature_preset"), example => "full"}
             )}
     ].
 
