@@ -13,6 +13,11 @@ Environment=HOME=/var/lib/emqx
 # log to file by default (if no log handler config)
 Environment=EMQX_DEFAULT_LOG_HANDLER=file
 
+# Boot-time environment variables (EMQX_FEATURES, EMQX_SECURITY_PROFILE, ...).
+# Values in this file override the Environment= lines above.
+# The leading '-' makes the file optional.
+EnvironmentFile=-/etc/emqx/emqx.env
+
 # Start 'foreground' but not 'start' (daemon) mode.
 # Because systemd monitor/restarts 'simple' services
 ExecStart=/bin/bash /usr/bin/emqx foreground

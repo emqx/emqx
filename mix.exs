@@ -730,6 +730,13 @@ defmodule EMQXUmbrella.MixProject do
       force: overwrite?
     )
 
+    # boot-time environment variables, read by the systemd service
+    Mix.Generator.copy_file(
+      "apps/emqx_conf/etc/emqx.env",
+      Path.join(etc, "emqx.env"),
+      force: overwrite?
+    )
+
     # required by emqx_auth
     File.cp_r!(
       "apps/emqx/etc/certs",
