@@ -338,6 +338,9 @@ body_to_auth_data(Body) ->
             extract_auth_data(http, Body);
         <<"deny">> ->
             {error, not_authorized};
+        <<"deny_bad_credentials">> ->
+            %% CONNACK reason code 0x86 (MQTT 5.0), return code 4 (MQTT 3.1.1)
+            {error, bad_username_or_password};
         <<"ignore">> ->
             ignore;
         _ ->
