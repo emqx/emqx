@@ -16,13 +16,18 @@ Two families of URLs are printed:
     /downloads/emqx-plugins/<version>/. Each plugin under plugins/
     ships a VERSION file that gives its package version.
 
+With --s3, the URLs point at the public S3 bucket the release workflow uploads
+to (see .github/workflows/build_packages.yaml) rather than the CDN. These serve
+the same objects, and are useful when a download must bypass the CDN, for
+example to check what was actually published before a cache invalidation lands.
+
 Note: snap packages are published to the Snap Store, not to emqx.com, so they
 are intentionally omitted here.
 
 Usage:
   print-download-links.py [version]
   print-download-links.py [--version <version>] [--format text|markdown]
-                          [--profile emqx-enterprise]
+                          [--profile emqx-enterprise] [--s3]
 
 The version defaults to ./pkg-vsn.sh --release when omitted.
 
@@ -30,6 +35,7 @@ Examples:
   print-download-links.py
   print-download-links.py 6.0.3
   print-download-links.py --format markdown
+  print-download-links.py 6.0.3 --s3
 """
 
 import argparse
@@ -45,6 +51,14 @@ EDITIONS = {"emqx-enterprise": "enterprise"}
 
 # Plugin packages are served from the emqx.com CDN.
 PLUGINS_BASE_URL = "https://www.emqx.com/downloads/emqx-plugins"
+
+# The public S3 bucket the release workflow uploads to, and the top-level
+# prefix each profile lands under. The prefixes mirror the `aws s3 cp` targets
+# in .github/workflows/build_packages.yaml and the `s3dir` output in
+# .github/workflows/release.yaml.
+S3_BASE_URL = "https://packages.emqx.io"
+S3_DIRS = {"emqx-enterprise": "emqx-ee"}
+S3_PLUGINS_DIR = "emqx-plugins"
 
 
 def linux_pkg_ext(os_token):
@@ -70,7 +84,10 @@ def release_version():
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         add_help=True,
-        usage="%(prog)s [version] [--format text|markdown] [--profile <profile>]",
+        usage=(
+            "%(prog)s [version] [--format text|markdown] [--profile <profile>] "
+            "[--s3 [--s3-bucket <bucket>]]"
+        ),
     )
     parser.add_argument(
         "version_pos",
@@ -82,6 +99,11 @@ def parse_args(argv):
     parser.add_argument("--format", default="text", choices=["text", "markdown"])
     parser.add_argument(
         "--profile", default="emqx-enterprise", choices=list(EDITIONS)
+    )
+    parser.add_argument(
+        "--s3",
+        action="store_true",
+        help="link to the public S3 bucket instead of the CDN",
     )
     args = parser.parse_args(argv)
 
@@ -104,8 +126,9 @@ def plugin_rows(repo_root):
 
 
 class UrlBuilder:
-    def __init__(self, base_url, profile, version):
+    def __init__(self, base_url, plugins_base_url, profile, version):
         self.base_url = base_url
+        self.plugins_base_url = plugins_base_url
         self.profile = profile
         self.version = version
 
@@ -119,7 +142,8 @@ class UrlBuilder:
     def plugin_url(self, name, plugin_version):
         # <name>-<plugin_version>.tar.gz under the release-version directory.
         return (
-            f"{PLUGINS_BASE_URL}/{self.version}/{name}-{plugin_version}.tar.gz"
+            f"{self.plugins_base_url}/{self.version}/"
+            f"{name}-{plugin_version}.tar.gz"
         )
 
 
@@ -179,9 +203,15 @@ def emit_markdown(matrix, plugins, urls):
 
 def main(argv):
     args = parse_args(argv)
-    edition = EDITIONS[args.profile]
-    base_url = f"https://www.emqx.com/downloads/{edition}/{args.version}"
-    urls = UrlBuilder(base_url, args.profile, args.version)
+    if args.s3:
+        s3_dir = S3_DIRS[args.profile]
+        base_url = f"{S3_BASE_URL}/{s3_dir}/{args.version}"
+        plugins_base_url = f"{S3_BASE_URL}/{S3_PLUGINS_DIR}"
+    else:
+        edition = EDITIONS[args.profile]
+        base_url = f"https://www.emqx.com/downloads/{edition}/{args.version}"
+        plugins_base_url = PLUGINS_BASE_URL
+    urls = UrlBuilder(base_url, plugins_base_url, args.profile, args.version)
     matrix = build_matrix.matrix()
     plugins = plugin_rows(REPO_ROOT)
 
