@@ -146,6 +146,15 @@ class UrlBuilder:
             f"{name}-{plugin_version}.tar.gz"
         )
 
+    def plugin_sha256_url(self, name, plugin_version):
+        # Note the naming differs from EMQX packages: the `emqx.plugin' mix
+        # task writes <name>-<vsn>.sha256, replacing the extension, whereas
+        # `build' writes <package>.sha256, appending to it.
+        return (
+            f"{self.plugins_base_url}/{self.version}/"
+            f"{name}-{plugin_version}.sha256"
+        )
+
 
 def emit_text(matrix, plugins, urls):
     lines = []
@@ -167,10 +176,19 @@ def md_link(label, url):
 def emit_markdown(matrix, plugins, urls):
     lines = ["## Download", ""]
 
+    def pkg_links(os_token, arch, ext):
+        """Link to a package, followed by its .sha256 sidecar.
+
+        `build' writes <package>.sha256 next to every package it produces, and
+        both are published together.
+        """
+        url = urls.pkg_url(os_token, arch, ext)
+        return f"{md_link(f'.{ext}', url)} ({md_link('sha256', url + '.sha256')})"
+
     def linux_bullet(row):
         ext = linux_pkg_ext(row["os"])
-        pkg = md_link(f".{ext}", urls.pkg_url(row["os"], row["arch"], ext))
-        tar = md_link(".tar.gz", urls.pkg_url(row["os"], row["arch"], "tar.gz"))
+        pkg = pkg_links(row["os"], row["arch"], ext)
+        tar = pkg_links(row["os"], row["arch"], "tar.gz")
         return f"- `{row['os']}` ({row['arch']}): {pkg} — {tar}"
 
     lines.append("### Ubuntu / Debian")
@@ -187,7 +205,7 @@ def emit_markdown(matrix, plugins, urls):
 
     lines.append("### macOS")
     for row in matrix["mac"]:
-        link = md_link(".zip", urls.pkg_url(row["os"], row["arch"], "zip"))
+        link = pkg_links(row["os"], row["arch"], "zip")
         lines.append(f"- `{row['os']}` ({row['arch']}): {link}")
 
     if plugins:
@@ -196,7 +214,8 @@ def emit_markdown(matrix, plugins, urls):
         # Plugin packages are always .tar.gz, so label the link by name-version.
         for name, version in plugins:
             link = md_link(f"{name}-{version}", urls.plugin_url(name, version))
-            lines.append(f"- {link}")
+            sha = md_link("sha256", urls.plugin_sha256_url(name, version))
+            lines.append(f"- {link} ({sha})")
 
     return "\n".join(lines)
 
