@@ -49,8 +49,10 @@ import build_matrix  # noqa: E402 (sibling module, path set above)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EDITIONS = {"emqx-enterprise": "enterprise"}
 
-# Plugin packages are served from the emqx.com CDN.
-PLUGINS_BASE_URL = "https://www.emqx.com/downloads/emqx-plugins"
+# The emqx.com download CDN. Packages live under the edition name, plugins
+# under emqx-plugins/.
+CDN_BASE_URL = "https://www.emqx.com/downloads"
+CDN_PLUGINS_DIR = "emqx-plugins"
 
 # The public S3 bucket the release workflow uploads to, and the top-level
 # prefix each profile lands under. The prefixes mirror the `aws s3 cp` targets
@@ -252,13 +254,11 @@ def emit_markdown(matrix, plugins, urls):
 def main(argv):
     args = parse_args(argv)
     if args.s3:
-        s3_dir = S3_DIRS[args.profile]
-        base_url = f"{S3_BASE_URL}/{s3_dir}/{args.version}"
+        base_url = f"{S3_BASE_URL}/{S3_DIRS[args.profile]}/{args.version}"
         plugins_base_url = f"{S3_BASE_URL}/{S3_PLUGINS_DIR}"
     else:
-        edition = EDITIONS[args.profile]
-        base_url = f"https://www.emqx.com/downloads/{edition}/{args.version}"
-        plugins_base_url = PLUGINS_BASE_URL
+        base_url = f"{CDN_BASE_URL}/{EDITIONS[args.profile]}/{args.version}"
+        plugins_base_url = f"{CDN_BASE_URL}/{CDN_PLUGINS_DIR}"
     urls = UrlBuilder(base_url, plugins_base_url, args.profile, args.version)
     matrix = build_matrix.matrix()
     plugins = plugin_rows(REPO_ROOT)
