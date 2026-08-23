@@ -24,9 +24,11 @@ example to check what was actually published before a cache invalidation lands.
 Note: snap packages are published to the Snap Store, not to emqx.com, so they
 are intentionally omitted here.
 
+Output is a plain list of URLs; --md prints markdown tables instead.
+
 Usage:
   print-download-links.py [version]
-  print-download-links.py [--version <version>] [--format text|markdown]
+  print-download-links.py [--version <version>] [--md]
                           [--profile emqx-enterprise] [--s3]
 
 The version defaults to ./pkg-vsn.sh --release when omitted.
@@ -34,8 +36,8 @@ The version defaults to ./pkg-vsn.sh --release when omitted.
 Examples:
   print-download-links.py
   print-download-links.py 6.0.3
-  print-download-links.py --format markdown
-  print-download-links.py 6.0.3 --s3
+  print-download-links.py --md
+  print-download-links.py 6.0.3 --s3 --md
 """
 
 import argparse
@@ -86,10 +88,7 @@ def release_version():
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         add_help=True,
-        usage=(
-            "%(prog)s [version] [--format text|markdown] [--profile <profile>] "
-            "[--s3 [--s3-bucket <bucket>]]"
-        ),
+        usage="%(prog)s [version] [--md] [--profile <profile>] [--s3]",
     )
     parser.add_argument(
         "version_pos",
@@ -98,7 +97,11 @@ def parse_args(argv):
         help="release version; defaults to ./pkg-vsn.sh --release",
     )
     parser.add_argument("--version", dest="version_opt")
-    parser.add_argument("--format", default="text", choices=["text", "markdown"])
+    parser.add_argument(
+        "--md",
+        action="store_true",
+        help="print markdown tables instead of a plain URL list",
+    )
     parser.add_argument(
         "--profile", default="emqx-enterprise", choices=list(EDITIONS)
     )
@@ -263,10 +266,10 @@ def main(argv):
     matrix = build_matrix.matrix()
     plugins = plugin_rows(REPO_ROOT)
 
-    if args.format == "text":
-        print(emit_text(matrix, plugins, urls))
-    else:
+    if args.md:
         print(emit_markdown(matrix, plugins, urls))
+    else:
+        print(emit_text(matrix, plugins, urls))
     return 0
 
 
