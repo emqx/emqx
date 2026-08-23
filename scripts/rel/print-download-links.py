@@ -173,6 +173,16 @@ def md_link(label, url):
     return f"[{label}]({url})"
 
 
+def md_table(headers, rows):
+    """A GitHub-flavoured markdown table. Returns [] when there are no rows."""
+    if not rows:
+        return []
+    sep = ["---"] * len(headers)
+    out = ["| " + " | ".join(headers) + " |", "| " + " | ".join(sep) + " |"]
+    out += ["| " + " | ".join(cells) + " |" for cells in rows]
+    return out
+
+
 def emit_markdown(matrix, plugins, urls):
     lines = ["## Download", ""]
 
@@ -185,39 +195,58 @@ def emit_markdown(matrix, plugins, urls):
         url = urls.pkg_url(os_token, arch, ext)
         return f"{md_link(f'.{ext}', url)} ({md_link('sha256', url + '.sha256')})"
 
-    def linux_bullet(row):
+    def linux_row(row):
         ext = linux_pkg_ext(row["os"])
-        pkg = pkg_links(row["os"], row["arch"], ext)
-        tar = pkg_links(row["os"], row["arch"], "tar.gz")
-        return f"- `{row['os']}` ({row['arch']}): {pkg} — {tar}"
+        return [
+            f"`{row['os']}`",
+            row["arch"],
+            pkg_links(row["os"], row["arch"], ext),
+            pkg_links(row["os"], row["arch"], "tar.gz"),
+        ]
 
-    lines.append("### Ubuntu / Debian")
-    for row in matrix["linux"]:
-        if row["os"].startswith(("ubuntu", "debian")):
-            lines.append(linux_bullet(row))
-    lines.append("")
+    def linux_section(title, prefixes):
+        rows = [
+            linux_row(row)
+            for row in matrix["linux"]
+            if row["os"].startswith(prefixes)
+        ]
+        if not rows:
+            return
+        lines.append(f"### {title}")
+        lines.append("")
+        lines.extend(md_table(["OS", "Arch", "Package", "Tarball"], rows))
+        lines.append("")
 
-    lines.append("### RHEL / Rocky / Amazon Linux")
-    for row in matrix["linux"]:
-        if row["os"].startswith(("el", "amzn")):
-            lines.append(linux_bullet(row))
-    lines.append("")
+    linux_section("Ubuntu / Debian", ("ubuntu", "debian"))
+    linux_section("RHEL / Rocky / Amazon Linux", ("el", "amzn"))
 
-    lines.append("### macOS")
-    for row in matrix["mac"]:
-        link = pkg_links(row["os"], row["arch"], "zip")
-        lines.append(f"- `{row['os']}` ({row['arch']}): {link}")
+    mac_rows = [
+        [f"`{row['os']}`", row["arch"], pkg_links(row["os"], row["arch"], "zip")]
+        for row in matrix["mac"]
+    ]
+    if mac_rows:
+        lines.append("### macOS")
+        lines.append("")
+        lines.extend(md_table(["OS", "Arch", "Package"], mac_rows))
+        lines.append("")
 
     if plugins:
-        lines.append("")
         lines.append("### Plugins")
-        # Plugin packages are always .tar.gz, so label the link by name-version.
-        for name, version in plugins:
-            link = md_link(f"{name}-{version}", urls.plugin_url(name, version))
-            sha = md_link("sha256", urls.plugin_sha256_url(name, version))
-            lines.append(f"- {link} ({sha})")
+        lines.append("")
+        # Plugin packages are always .tar.gz, so the ext is implied.
+        plugin_rows_md = [
+            [
+                f"`{name}`",
+                version,
+                f"{md_link('.tar.gz', urls.plugin_url(name, version))} "
+                f"({md_link('sha256', urls.plugin_sha256_url(name, version))})",
+            ]
+            for name, version in plugins
+        ]
+        lines.extend(md_table(["Plugin", "Version", "Package"], plugin_rows_md))
+        lines.append("")
 
-    return "\n".join(lines)
+    return "\n".join(lines).rstrip("\n")
 
 
 def main(argv):
