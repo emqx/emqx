@@ -57,7 +57,8 @@ Returns policy depending on the current security profile.
     (internal_subscription_checks) -> boolean();
     (authz_context) -> legacy | restricted;
     (delayed_publish_reauthorization) -> boolean();
-    (exhook_message_publish_failure) -> ignore | deny.
+    (exhook_message_publish_failure) -> ignore | deny;
+    (plugin_install_sha256_binding) -> optional | required.
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -127,6 +128,11 @@ policy(exhook_message_publish_failure) ->
     case profile() of
         legacy -> ignore;
         hardened -> deny
+    end;
+policy(plugin_install_sha256_binding) ->
+    case profile() of
+        legacy -> optional;
+        hardened -> required
     end.
 
 -doc """

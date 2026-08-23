@@ -605,6 +605,15 @@ install_package_on_nodes(NameVsn, Bin) ->
                 NameVsn,
                 <<" sha256:...`">>
             ]),
+            {403, #{code => 'FORBIDDEN', message => Msg}};
+        {error, sha256_required} ->
+            Msg = iolist_to_binary([
+                <<"The hardened security profile requires a sha256-bound grant;">>,
+                <<" allow it to be installed by running:">>,
+                <<" `emqx ctl plugins allow ">>,
+                NameVsn,
+                <<" sha256:<hex>`">>
+            ]),
             {403, #{code => 'FORBIDDEN', message => Msg}}
     end.
 

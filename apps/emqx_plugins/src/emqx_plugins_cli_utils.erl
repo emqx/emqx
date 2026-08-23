@@ -87,7 +87,8 @@ plugins(_) ->
                 "Allows installation of a plugin in the cluster from Dashboard or API.\n"
                 "The grant expires 5 minutes after issue.\n"
                 "If sha256:HEX (64 lowercase hex chars) is given, the upload bytes\n"
-                "must hash to that value or the install is rejected."},
+                "must hash to that value or the install is rejected.\n"
+                "The hardened security profile requires sha256:HEX."},
             {"plugins disallow  Name-Vsn",
                 "Disallows installation of a plugin in the cluster from Dashboard or API"},
             {"plugins install   Name-Vsn",
@@ -152,11 +153,18 @@ allow_installation(NameVsn, Sha256, LogFun) ->
     end.
 
 do_allow_installation(NameVsn, undefined, LogFun) ->
-    %% No sha256 binding — use proto v3 to remain compatible with older nodes
-    %% in a rolling upgrade.
-    Nodes = nodes_supporting_bpapi_version(3),
-    Results = emqx_plugins_proto_v3:allow_installation(Nodes, NameVsn),
-    print_allow_result(Nodes, Results, NameVsn, LogFun);
+    case emqx_security_profile:policy(plugin_install_sha256_binding) of
+        optional ->
+            %% No sha256 binding — use proto v3 to remain compatible with older nodes
+            %% in a rolling upgrade.
+            Nodes = nodes_supporting_bpapi_version(3),
+            Results = emqx_plugins_proto_v3:allow_installation(Nodes, NameVsn),
+            print_allow_result(Nodes, Results, NameVsn, LogFun);
+        required ->
+            %% Refuse locally before issuing any grant, so no peer is left
+            %% holding an unbound grant that this node would not honour.
+            ?PRINT({error, sha256_required_error(NameVsn)}, LogFun)
+    end;
 do_allow_installation(NameVsn, Sha256, LogFun) when is_binary(Sha256) ->
     %% sha256 binding — needs every running node on proto v4 so the binding is
     %% enforced everywhere. Refuse rather than silently allow on old nodes.
@@ -186,9 +194,32 @@ print_allow_result(Nodes, Results, NameVsn, LogFun) ->
     Result =
         case Errors of
             [] -> {ok, #{expires_in_ms => emqx_plugins:allow_ttl_ms()}};
-            _ -> {error, maps:from_list(Errors)}
+            _ -> {error, allow_errors(NameVsn, Errors)}
         end,
     print(NameVsn, Result, LogFun, allow_installation).
+
+%% Per-node errors; when a peer refused an unbound grant, add the same hint
+%% the local refusal prints.
+allow_errors(NameVsn, Errors) ->
+    ErrorMap = maps:from_list(Errors),
+    case lists:any(fun({_Node, R}) -> R =:= {ok, {error, sha256_required}} end, Errors) of
+        true -> maps:merge(ErrorMap, sha256_required_error(NameVsn));
+        false -> ErrorMap
+    end.
+
+sha256_required_error(NameVsn) ->
+    #{
+        reason => sha256_required,
+        hint => iolist_to_binary([
+            <<"The hardened security profile requires a sha256 binding. Run: ">>,
+            <<"emqx ctl plugins allow ">>,
+            NameVsn,
+            <<" sha256:<hex>">>,
+            <<" (the published ">>,
+            NameVsn,
+            <<".sha256 file contains the hex)">>
+        ])
+    }.
 
 print_cluster_result(Nodes, Results, NameVsn, LogFun) ->
     Errors =
