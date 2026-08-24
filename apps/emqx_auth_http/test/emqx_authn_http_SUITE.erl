@@ -332,7 +332,13 @@ t_malformed_response(TCConfig) ->
     ),
     ?assertEqual(
         Expected,
-        authenticate_with_http_handler(TCConfig, invalid_result_handler())
+        authenticate_with_http_handler(TCConfig, invalid_result_handler(<<"unexpected">>))
+    ),
+    %% A near-miss of "deny_bad_credentials" is an unrecognized result,
+    %% handled as a backend failure.
+    ?assertEqual(
+        Expected,
+        authenticate_with_http_handler(TCConfig, invalid_result_handler(<<"deny_bad_credential">>))
     ).
 
 test_user_auth(
@@ -903,7 +909,9 @@ t_ignore_allow_deny(TCConfig) ->
 
         {deny, ?SERVER_RESPONSE_JSON(deny)},
         {deny, ?SERVER_RESPONSE_JSON(deny, true)},
-        {deny, ?SERVER_RESPONSE_JSON(deny, false)}
+        {deny, ?SERVER_RESPONSE_JSON(deny, false)},
+
+        {bad_credentials, ?SERVER_RESPONSE_JSON(deny_bad_credentials)}
     ],
 
     lists:foreach(fun test_ignore_allow_deny/1, Checks).
@@ -931,7 +939,65 @@ test_ignore_allow_deny({ExpectedValue, ServerResponse}) ->
             ?assertMatch(
                 ?EXCEPTION_DENY,
                 emqx_access_control:authenticate(?CREDENTIALS)
+            );
+        bad_credentials ->
+            ?assertMatch(
+                {error, bad_username_or_password},
+                emqx_access_control:authenticate(?CREDENTIALS)
             )
+    end.
+
+-doc """
+Checks the CONNACK reason code a real MQTT client observes for each deny result.
+'deny' yields not_authorized (0x87 for MQTT 5.0, return code 5 for MQTT 3.1.1).
+'deny_bad_credentials' yields bad_username_or_password (0x86 for MQTT 5.0,
+return code 4 for MQTT 3.1.1).
+emqtt maps each MQTT 3.1.1 return code to a distinct atom
+(4 -> malformed_username_or_password, 5 -> unauthorized_client),
+so the asserted atom proves the wire value.
+""".
+t_deny_connack_reason_code(TCConfig) ->
+    AuthConfig = raw_http_auth_config(TCConfig),
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, AuthConfig}
+    ),
+
+    Checks = [
+        {deny, v5, not_authorized},
+        {deny, v4, unauthorized_client},
+        {deny_bad_credentials, v5, bad_username_or_password},
+        {deny_bad_credentials, v4, malformed_username_or_password}
+    ],
+
+    lists:foreach(fun test_deny_connack_reason_code/1, Checks).
+
+test_deny_connack_reason_code({Result, ProtoVer, ExpectedError}) ->
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_JSON(Result),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+    {ok, C} = emqtt:start_link(
+        [
+            {clean_start, true},
+            {proto_ver, ProtoVer},
+            {clientid, <<"clientid">>},
+            {username, <<"plain">>},
+            {password, <<"plain">>}
+        ]
+    ),
+    unlink(C),
+    try
+        ?assertMatch({error, {ExpectedError, _}}, emqtt:connect(C))
+    after
+        catch emqtt:stop(C)
     end.
 
 t_acl(TCConfig) ->
@@ -1960,12 +2026,12 @@ invalid_json_handler() ->
         {ok, Req, State}
     end.
 
-invalid_result_handler() ->
+invalid_result_handler(Result) ->
     fun(Req0, State) ->
         Req = cowboy_req:reply(
             200,
             #{<<"content-type">> => <<"application/json">>},
-            emqx_utils_json:encode(#{result => unexpected}),
+            emqx_utils_json:encode(#{result => Result}),
             Req0
         ),
         {ok, Req, State}
