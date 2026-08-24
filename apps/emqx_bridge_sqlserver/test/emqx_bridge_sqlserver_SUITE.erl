@@ -223,6 +223,33 @@ t_undefined_vars_as_null(Config) ->
     ),
     ok.
 
+t_null_value(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config, #{})
+    ),
+    SentData = maps:put(payload, null, sent_data("tmp")),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertEqual(ok, send_message(Config, SentData)),
+                #{?snk_kind := sqlserver_connector_query_return},
+                10_000
+            ),
+            ?assertMatch(
+                [{null}],
+                connect_and_get_payload(Config)
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(sqlserver_connector_query_return, Trace0),
+            ?assertMatch([#{result := ok}], Trace),
+            ok
+        end
+    ),
+    ok.
+
 t_setup_via_http_api_and_publish(Config) ->
     BridgeType = ?config(sqlserver_bridge_type, Config),
     Name = ?config(sqlserver_name, Config),
@@ -424,6 +451,25 @@ t_simple_query(Config) ->
         end
     ),
     ok.
+
+t_sql_value_escaping(Config) ->
+    BatchSize = batch_size(Config),
+    ?assertMatch({ok, _}, create_bridge(Config)),
+    Payload = <<"x\\'); DROP TABLE mqtt.dbo.t_mqtt_msg; --">>,
+    Fillers = [integer_to_binary(N) || N <- lists:seq(2, BatchSize)],
+    Payloads = [Payload | Fillers],
+    BridgeType = ?config(sqlserver_bridge_type, Config),
+    Name = ?config(sqlserver_name, Config),
+    ActionId = emqx_bridge_v2:id(BridgeType, Name),
+    Requests = [{ActionId, sent_data(Value)} || Value <- Payloads],
+
+    ?wait_async_action(
+        [?assertEqual(ok, query_resource(Config, Request)) || Request <- Requests],
+        #{?snk_kind := sqlserver_connector_query_return},
+        10_000
+    ),
+    ?assertEqual(BatchSize, connect_and_get_count(Config)),
+    ?assert(lists:member({str(Payload)}, connect_and_get_payload(Config))).
 
 -define(MISSING_TINYINT_ERROR,
     "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"

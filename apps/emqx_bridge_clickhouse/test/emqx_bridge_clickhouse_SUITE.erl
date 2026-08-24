@@ -117,6 +117,9 @@ sql_create_table() ->
 sql_find_key(Key) ->
     io_lib:format("SELECT key FROM mqtt.mqtt_test WHERE key = ~p", [Key]).
 
+sql_find_data(Key) ->
+    io_lib:format("SELECT hex(data) FROM mqtt.mqtt_test WHERE key = ~p", [Key]).
+
 sql_find_all_keys() ->
     "SELECT key FROM mqtt.mqtt_test".
 
@@ -135,9 +138,6 @@ clickhouse_url() ->
     Host = clickhouse_host(),
     Port = clickhouse_port(),
     erlang:iolist_to_binary(["http://", Host, ":", Port]).
-
-parse_insert(SQL) ->
-    emqx_bridge_clickhouse_connector:split_clickhouse_insert_sql(SQL).
 
 clickhouse_config(Config) ->
     SQL = maps:get(sql, Config, sql_insert_template_for_bridge()),
@@ -248,139 +248,6 @@ t_make_delete_bridge(_Config) ->
     false = lists:any(IsRightName, BridgesAfterDelete),
     ok.
 
-t_parse_insert_sql_template(_Config) ->
-    ?assertEqual(
-        <<"(${tagvalues},${date})"/utf8>>,
-        parse_insert(
-            <<"insert into tag_VALUES(tag_values,Timestamp) values (${tagvalues},${date})"/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(${id}, 'Иван', 25)"/utf8>>,
-        parse_insert(
-            <<"INSERT INTO Values_таблица (идентификатор, имя, возраст)   VALUES \t (${id}, 'Иван', 25)  "/utf8>>
-        )
-    ),
-    %% with `;` suffix, bug-to-bug compatibility
-    ?assertEqual(
-        <<"(${id}, 'Иван', 25)"/utf8>>,
-        parse_insert(
-            <<"INSERT INTO Values_таблица (идентификатор, имя, возраст)   VALUES \t (${id}, 'Иван', 25);  "/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(${id},'李四', 35)"/utf8>>,
-        parse_insert(
-            <<"  inSErt into 表格(标识,名字,年龄)values(${id},'李四', 35) ; "/utf8>>
-        )
-    ),
-
-    %% `values` in column name
-    ?assertEqual(
-        <<"(${tagvalues},${date}  )"/utf8>>,
-        parse_insert(
-            <<"insert into PI.dbo.tags(tag_values,Timestamp) values (${tagvalues},${date}  )"/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(${payload}, FROM_UNIXTIME((${timestamp}/1000)))">>,
-        parse_insert(
-            <<"INSERT INTO mqtt_test(payload, arrived) VALUES (${payload}, FROM_UNIXTIME((${timestamp}/1000)))"/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(${id},'Алексей',30)"/utf8>>,
-        parse_insert(
-            <<"insert into таблица (идентификатор,имя,возраст) VALUES(${id},'Алексей',30)"/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(${id}, '张三', 22)"/utf8>>,
-        parse_insert(
-            <<"INSERT into 表格 (标识, 名字, 年龄) VALUES (${id}, '张三', 22)"/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(${id},'李四', 35)"/utf8>>,
-        parse_insert(
-            <<"  inSErt into 表格(标识,名字,年龄)values(${id},'李四', 35)"/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(   ${tagvalues},   ${date} )"/utf8>>,
-        parse_insert(
-            <<"insert into PI.dbo.tags( tag_value,Timestamp)  VALUES\t\t(   ${tagvalues},   ${date} )"/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(${tagvalues},${date})"/utf8>>,
-        parse_insert(
-            <<"insert into PI.dbo.tags(tag_value , Timestamp )vALues(${tagvalues},${date})"/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(${one}, ${two},${three})"/utf8>>,
-        parse_insert(
-            <<"inSErt  INTO  table75 (column1, column2, column3) values (${one}, ${two},${three})"/utf8>>
-        )
-    ),
-    ?assertEqual(
-        <<"(${tag1},   ${tag2}  )">>,
-        parse_insert(
-            <<"INSERT Into some_table      values\t(${tag1},   ${tag2}  )">>
-        )
-    ),
-    ?assertEqual(
-        <<"(2, 2)">>,
-        parse_insert(
-            <<"INSERT INTO insert_select_testtable (* EXCEPT(b)) Values (2, 2)">>
-        )
-    ),
-    ?assertEqual(
-        <<"(2, 2), (3, ${five})">>,
-        parse_insert(
-            <<"INSERT INTO insert_select_testtable (* EXCEPT(b))Values(2, 2), (3, ${five})">>
-        )
-    ),
-
-    %% `format`
-    ?assertEqual(
-        <<"[(${key}, \"${data}\", ${timestamp})]">>,
-        parse_insert(
-            <<"INSERT INTO mqtt_test(key, data, arrived)",
-                " FORMAT JSONCompactEachRow [(${key}, \"${data}\", ${timestamp})]">>
-        )
-    ),
-    ?assertEqual(
-        <<"(v11, v12, v13), (v21, v22, v23)">>,
-        parse_insert(
-            <<"INSERT INTO   mqtt_test(key, data, arrived) FORMAT Values (v11, v12, v13), (v21, v22, v23)">>
-        )
-    ),
-
-    ?assertEqual(
-        <<"👋    .."/utf8>>,
-        %% Only check if FORMAT_DATA existed after `FORMAT FORMAT_NAME`
-        parse_insert(
-            <<"INSERT INTO   mqtt_test(key, data, arrived) FORMAT AnyFORMAT  👋    .."/utf8>>
-        )
-    ),
-
-    ErrMsg = <<"The SQL template should be an SQL INSERT statement but it is something else.">>,
-    %% No `FORMAT_DATA`
-    ?assertError(
-        ErrMsg,
-        parse_insert(
-            <<"INSERT INTO   mqtt_test(key, data, arrived) FORMAT Values">>
-        )
-    ),
-    ?assertError(
-        ErrMsg,
-        parse_insert(
-            <<"INSERT INTO   mqtt_test(key, data, arrived) FORMAT Values  ">>
-        )
-    ).
-
 t_send_message_query(Config) ->
     BridgeID = make_bridge(#{enable_batch => false}),
     Key = 42,
@@ -391,6 +258,46 @@ t_send_message_query(Config) ->
     check_key_in_clickhouse(Key, Config),
     delete_bridge(),
     ok.
+
+t_sql_value_escaping(Config) ->
+    Payload = <<"x\\'); DROP TABLE mqtt.mqtt_test; --">>,
+    lists:foreach(
+        fun({EnableBatch, Key}) ->
+            BridgeID = make_bridge(#{
+                enable_batch => EnableBatch,
+                batch_size => 1
+            }),
+            Message = #{key => Key, data => Payload, timestamp => 10000},
+            emqx_bridge:send_message(BridgeID, Message),
+            check_key_in_clickhouse(Key, Config),
+            ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),
+            {ok, 200, Result} = clickhouse:query(
+                ClickhouseConnection,
+                sql_find_data(Key),
+                []
+            ),
+            ?assertEqual(
+                binary:encode_hex(Payload),
+                iolist_to_binary(string:trim(Result))
+            ),
+            delete_bridge()
+        end,
+        [{false, 4201}, {true, 4202}]
+    ),
+    JSONPayload = <<"x\"], [999, \"injected\", 0]">>,
+    BridgeID = make_bridge(#{
+        enable_batch => true,
+        batch_size => 1,
+        sql => sql_insert_template_for_bridge_json(),
+        batch_value_separator => <<>>
+    }),
+    Message = #{key => 4203, data => JSONPayload, timestamp => 10000},
+    emqx_bridge:send_message(BridgeID, Message),
+    check_key_in_clickhouse(4203, Config),
+    ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),
+    {ok, 200, Result} = clickhouse:query(ClickhouseConnection, sql_find_data(4203), []),
+    ?assertEqual(binary:encode_hex(JSONPayload), iolist_to_binary(string:trim(Result))),
+    delete_bridge().
 
 t_undefined_vars_as_null(Config) ->
     BridgeID = make_bridge(#{enable_batch => false}, #{<<"undefined_vars_as_null">> => true}),

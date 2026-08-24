@@ -1,7 +1,7 @@
 emqx_bridge_clickhouse {
 
 batch_value_separator.desc:
-"""The default value ',' works for the VALUES format. You can also use other separator if other format is specified. See [INSERT INTO Statement](https://clickhouse.com/docs/en/sql-reference/statements/insert-into)."""
+"""This argument is ignored and retained for compatibility. The action derives the batch separator from the SQL format."""
 
 batch_value_separator.label:
 """Batch Value Separator"""
@@ -51,7 +51,7 @@ local_topic.label:
 """Local Topic"""
 
 sql_template.desc:
-"""The template string can contain ${field} placeholders for message metadata and payload field. Make sure that the inserted values are formatted and escaped correctly. [Prepared Statement](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridges.html#Prepared-Statement) is not supported."""
+"""A restricted ClickHouse INSERT template. It supports VALUES, FORMAT Values, and FORMAT JSONCompactEachRow. Placeholders are allowed only in value positions and string values. Comments, extra statements, and dynamic identifiers are not allowed."""
 
 sql_template.label:
 """SQL Template"""
