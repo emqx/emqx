@@ -434,28 +434,31 @@ handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
         {?continue, State}
     else
         {error, {exit, noproc, _} = _Reason} ->
+            set_health(ActionResId, Idx, {?status_connecting, ~"reopening stream"}),
             emqx_resource:apply_reply_fun(
                 ReplyFnAndArgs, {error, {recoverable_error, stream_closed}}
             ),
-            set_health(ActionResId, Idx, {?status_connecting, ~"reopening stream"}),
             State2 = State1#{?stream := ?undefined},
             {?reopen, State2};
         {error, Reason} when
+            %% from grpc_client actually trying to handle the call
             Reason == closed;
             Reason == not_found;
             Reason == bad_stream
         ->
             ?tp("zerobus_writer_send_error", #{reason => Reason}),
+            set_health(ActionResId, Idx, {?status_connecting, ~"reopening stream"}),
             emqx_resource:apply_reply_fun(
                 ReplyFnAndArgs, {error, {recoverable_error, stream_closed}}
             ),
-            set_health(ActionResId, Idx, {?status_connecting, ~"reopening stream"}),
             State2 = State1#{?stream := ?undefined},
             {?reopen, State2};
         {error, Reason} ->
             ?tp("zerobus_writer_send_error", #{reason => Reason}),
-            emqx_resource:apply_reply_fun(ReplyFnAndArgs, {error, {unrecoverable_error, Reason}}),
             set_health(ActionResId, Idx, {?status_connecting, ~"reopening stream"}),
+            emqx_resource:apply_reply_fun(
+                ReplyFnAndArgs, {error, {recoverable_error, {stream_closed, Reason}}}
+            ),
             State2 = State1#{?stream := ?undefined},
             {?reopen, State2}
     end.

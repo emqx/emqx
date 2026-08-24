@@ -1837,7 +1837,8 @@ t_ingest_grpc_send_errors(TCConfig) when is_list(TCConfig) ->
                     #{?snk_kind := "zerobus_writer_send_error"},
                     5_000
                 ),
-            %% unrecoverable error
+            %% recoverable error (don't know all possible errors...  they come from gun,
+            %% if the gun client is down at the time the `send` call arrives)
             emqx_utils_agent:set(Agent, unexpected_mocked_error),
             {_, {ok, _}} =
                 ?wait_async_action(
@@ -1853,8 +1854,8 @@ t_ingest_grpc_send_errors(TCConfig) when is_list(TCConfig) ->
                     {200, #{
                         ~"metrics" := #{
                             ~"matched" := 4,
-                            ~"success" := 3,
-                            ~"failed" := 1
+                            ~"success" := 4,
+                            ~"failed" := 0
                         }
                     }},
                     get_action_metrics_api(TCConfig)
