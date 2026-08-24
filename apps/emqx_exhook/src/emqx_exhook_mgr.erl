@@ -596,18 +596,25 @@ restart_server(Name, ConfL, State) ->
             end
     end.
 
-sort_name_by_order(Names, Orders) ->
-    lists:sort(
-        fun
-            (A, B) when is_binary(A) ->
-                emqx_utils_maps:deep_get([A, order], Orders) <
-                    emqx_utils_maps:deep_get([B, order], Orders);
-            (#{name := A}, #{name := B}) ->
-                emqx_utils_maps:deep_get([A, order], Orders) <
-                    emqx_utils_maps:deep_get([B, order], Orders)
-        end,
-        Names
-    ).
+sort_name_by_order(Names, Servers) ->
+    NamesWithKeys = [
+        {order_key(name_of(Item), Position, Servers), Item}
+     || {Position, Item} <- lists:zip(lists:seq(1, length(Names)), Names)
+    ],
+    [Item || {_Key, Item} <- lists:keysort(1, NamesWithKeys)].
+
+name_of(Name) when is_binary(Name) ->
+    Name;
+name_of(#{name := Name}) ->
+    Name.
+
+order_key(Name, Position, Servers) ->
+    case emqx_utils_maps:deep_get([Name, order], Servers, undefined) of
+        Order when is_integer(Order) ->
+            {0, Order, Position};
+        _ ->
+            {1, Position, Position}
+    end.
 
 refresh_tick() ->
     erlang:send_after(?REFRESH_INTERVAL, erlang:whereis(?MODULE), ?FUNCTION_NAME).
@@ -673,16 +680,7 @@ service(Name) ->
 
 update_order(Servers) ->
     Running = running(),
-    Orders = maps:filter(
-        fun
-            (Name, #{status := connected}) ->
-                lists:member(Name, Running);
-            (_, _) ->
-                false
-        end,
-        Servers
-    ),
-    Running2 = sort_name_by_order(Running, Orders),
+    Running2 = sort_name_by_order(Running, Servers),
     persistent_term:put(?APP, Running2).
 
 hooks(Name) ->
