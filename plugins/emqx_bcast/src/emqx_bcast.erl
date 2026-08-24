@@ -11,6 +11,7 @@
     is_core/0,
     core_nodes/0,
     random_core/0,
+    core_for/1,
     rpc_core/3,
     rpc_core/4,
     register_device/3,
@@ -67,6 +68,13 @@ fallback_core_nodes() ->
 random_core() ->
     Nodes = core_nodes(),
     lists:nth(erlang:phash2(erlang:unique_integer(), length(Nodes)) + 1, Nodes).
+
+%% Deterministic core for a client: all want_next claims for the same client
+%% land on the same core, which keeps the per-client claim load stable. The
+%% node list is sorted so the mapping is stable regardless of discovery order.
+core_for(ClientId) ->
+    Nodes = lists:sort(core_nodes()),
+    lists:nth(erlang:phash2(ClientId, length(Nodes)) + 1, Nodes).
 
 rpc_core(Mod, Fun, Args) ->
     rpc_core(Mod, Fun, Args, 15000).
