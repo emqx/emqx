@@ -82,10 +82,12 @@ done
 } > "${CONF_DUMP}"
 
 
-# Collect the boot-time environment file, with secret values obfuscated:
+# Collect the boot-time settings from the environment file.
+# Only these known non-secret variables; the file can carry arbitrary
+# EMQX_* overrides, including secrets.
 if [ -f "$EMQX_ETC_DIR/emqx.env" ]; then
-    sed -E 's/^([^#=]*(COOKIE|PASSWORD|PASSWD|SECRET|TOKEN|KEY)[^=]*)=.*/\1=********/' \
-        "$EMQX_ETC_DIR/emqx.env" > "${ENV_FILE_DUMP}"
+    grep -E '^(EMQX_FEATURES|EMQX_SECURITY_PROFILE)=' \
+        "$EMQX_ETC_DIR/emqx.env" > "${ENV_FILE_DUMP}" || true
 fi
 
 # Collect license info:
