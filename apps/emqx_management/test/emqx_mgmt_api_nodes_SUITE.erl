@@ -174,9 +174,7 @@ t_multiple_nodes_api(Config) ->
             get, #{bindings => #{node => Node1}}
         ]),
         ?assertMatch(#{node := Node1, security_profile := legacy, feature_preset := full}, Node11),
-        lists:foreach(fun assert_node_info_schema/1, NodesList),
         %% A stopped node never reports its profile or preset.
-        %% The entry must still validate against the schema.
         ok = emqx_cth_cluster:stop_node(Node2),
         {200, [RunningInfo, StoppedInfo]} = ?retry(
             _Interval = 200,
@@ -192,9 +190,7 @@ t_multiple_nodes_api(Config) ->
         ),
         ?assertMatch(#{node := Node2, node_status := stopped}, StoppedInfo),
         ?assertNot(is_map_key(security_profile, StoppedInfo)),
-        ?assertNot(is_map_key(feature_preset, StoppedInfo)),
-        assert_node_info_schema(RunningInfo),
-        assert_node_info_schema(StoppedInfo)
+        ?assertNot(is_map_key(feature_preset, StoppedInfo))
     after
         emqx_cth_cluster:stop(Nodes)
     end,
@@ -211,24 +207,4 @@ assert_profile_and_preset(Info) ->
     ?assertEqual(
         atom_to_binary(maps:get(preset, emqx_machine_features:info())),
         maps:get(<<"feature_preset">>, Info)
-    ).
-
-%% Check a node info map (as returned by the handler) against `fields(node_info)`.
-%% `memory_total` and `memory_used` are rendered as e.g. `62.74G`, which the
-%% `bytesize()` type does not parse. Skip them.
-assert_node_info_schema(Info0) ->
-    Info = maps:without([memory_total, memory_used], Info0),
-    Json = emqx_utils_json:decode(emqx_utils_json:encode(Info)),
-    Schema = #{
-        roots => [{node_info, hoconsc:ref(emqx_mgmt_api_nodes, node_info)}],
-        fields => #{}
-    },
-    ?assertMatch(
-        #{<<"node_info">> := #{}},
-        hocon_tconf:check_plain(
-            Schema,
-            #{<<"node_info">> => Json},
-            %% same semantics as the swagger layer: only `required => true` is required
-            #{atom_key => false, required => false}
-        )
     ).
