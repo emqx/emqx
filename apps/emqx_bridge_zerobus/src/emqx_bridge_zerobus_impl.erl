@@ -937,22 +937,14 @@ do_insert_batch(
         ?request_ttl := RequestTTL,
         ?transport :=
             {?rest, #{
-                ?max_retries := MaxRetries,
-                ?path := Path
+                ?max_retries := MaxRetries
             }}
     } = ChanState,
     maybe
         {ok, Token} ?= emqx_connector_oauth2:get_token(ChanResId),
         Body = emqx_utils_json:encode(Records0),
         emqx_trace:rendered_action_template(ChanResId, #{body => Body}),
-        Request = {
-            Path,
-            [
-                {~"Authorization", <<"Bearer ", Token/binary>>},
-                {~"Content-Type", ~"application/json"}
-            ],
-            Body
-        },
+        Request = mk_ehttpc_request(Body, Token, ChanState),
         {ok, Worker} ?= pick_ehttpc_worker(ConnResId, self()),
         Res = ehttpc:request(Worker, post, Request, RequestTTL, MaxRetries),
         emqx_bridge_http_connector:transform_result(Res)
@@ -966,22 +958,14 @@ do_insert_batch(
     ChanResId
 ) ->
     #{
-        ?request_ttl := RequestTTL,
-        ?transport := {?rest, #{?path := Path}}
+        ?request_ttl := RequestTTL
     } = ChanState,
     maybe
         {ok, Worker} ?= pick_ehttpc_worker(ConnResId, self()),
         {ok, Token} ?= emqx_connector_oauth2:get_token(ChanResId),
         Body = emqx_utils_json:encode(Records0),
         emqx_trace:rendered_action_template(ChanResId, #{body => Body}),
-        Request = {
-            Path,
-            [
-                {~"Authorization", <<"Bearer ", Token/binary>>},
-                {~"Content-Type", ~"application/json"}
-            ],
-            Body
-        },
+        Request = mk_ehttpc_request(Body, Token, ChanState),
         Context = #{
             conn_res_id => ConnResId,
             chan_res_id => ChanResId,
@@ -1039,6 +1023,19 @@ do_insert_batch(
             Pool, Records, RequestTTL
         )
     end.
+
+mk_ehttpc_request(Body, Token, ChanState) ->
+    #{
+        ?transport := {?rest, #{?path := Path}}
+    } = ChanState,
+    {
+        Path,
+        [
+            {~"Authorization", <<"Bearer ", Token/binary>>},
+            {~"Content-Type", ~"application/json"}
+        ],
+        Body
+    }.
 
 %% adapted from emqx_bridge_http_connector, since we can't reuse it directly.
 maybe_retry(Result, _Context = #{attempt := N, max_attempts := Max}, ReplyFunAndArgs) when
