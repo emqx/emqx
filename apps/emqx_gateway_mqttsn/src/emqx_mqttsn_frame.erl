@@ -52,8 +52,27 @@ parse(<<Len:?byte, Type:?byte, Var/binary>>, State) ->
 
 parse(Type, Len, Var) when Len =:= size(Var) ->
     #mqtt_sn_message{type = Type, variable = parse_var(Type, Var)};
-parse(_Type, _Len, _Var) ->
-    error(malformed_message_len).
+parse(_Type, Len, Var) ->
+    error({malformed_message_len, len_mismatch_info(Len, size(Var))}).
+
+len_mismatch_info(Expected, Received) ->
+    Info = #{
+        expected_variable_byte_size => Expected,
+        received_variable_byte_size => Received
+    },
+    case Received < Expected of
+        true ->
+            Info#{
+                hint =>
+                    <<
+                        "fewer bytes than the declared message length; "
+                        "the UDP datagram may be truncated by the OS receive buffer; "
+                        "increase the listener's udp_options.recbuf and udp_options.buffer"
+                    >>
+            };
+        false ->
+            Info
+    end.
 
 parse_var(?SN_ADVERTISE, <<GwId:?byte, Duration:?short>>) ->
     {GwId, Duration};
