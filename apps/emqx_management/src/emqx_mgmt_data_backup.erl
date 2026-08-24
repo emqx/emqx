@@ -533,9 +533,22 @@ list_files(Namespace) ->
 -spec backup_files(maybe_namespace()) -> [file:filename()].
 backup_files(Namespace) ->
     %% A namespace without a resolvable backup directory owns no backups.
-    case backup_path(Namespace, "*" ++ ?TAR_SUFFIX) of
-        {ok, Pattern} -> filelib:wildcard(Pattern);
+    %% List the directory instead of globbing: the namespace name is caller
+    %% controlled and must never be interpreted as wildcard syntax.
+    case backup_root_dir(Namespace) of
+        {ok, Dir} -> list_tar_files(Dir);
         {error, _} -> []
+    end.
+
+list_tar_files(Dir) ->
+    case file:list_dir(Dir) of
+        {ok, Filenames} ->
+            lists:sort([
+                filename:join(Dir, Filename)
+             || Filename <- Filenames, lists:suffix(?TAR_SUFFIX, Filename)
+            ]);
+        {error, _} ->
+            []
     end.
 
 -spec format_error(atom()) -> string() | term().

@@ -474,6 +474,74 @@ t_dot_namespace_cannot_reach_global_backups(_Config) ->
     ),
     ok.
 
+-doc """
+A namespace name may contain characters that are meaningful to
+`filelib:wildcard/1`. The listing must treat the name literally: a namespace
+whose name contains glob metacharacters sees its own backups.
+""".
+t_ns_with_glob_metachars_lists_own_backups(_Config) ->
+    lists:foreach(
+        fun(Ns) ->
+            {ok, #{filename := File}} = emqx_mgmt_data_backup:export(#{namespace => Ns}),
+            Base = unicode:characters_to_binary(basename(File)),
+            ?assertMatch(
+                [#{filename := Base}],
+                emqx_mgmt_data_backup:list_files(Ns),
+                #{ns => Ns}
+            )
+        end,
+        [
+            %% The namespace name from the original report (EMQX issue #18370).
+            <<"ns~%^&*-={}<>@#1">>,
+            <<"a{b,c}">>,
+            <<"a[b]">>,
+            <<"a?b">>,
+            <<"plain-ns">>
+        ]
+    ),
+    %% A namespace that never exported owns no backups.
+    ?assertEqual([], emqx_mgmt_data_backup:list_files(<<"never-exported">>)),
+    %% The global namespace lists its own backups as before.
+    {ok, #{filename := GlobalFile}} = emqx_mgmt_data_backup:export(),
+    GlobalBase = unicode:characters_to_binary(basename(GlobalFile)),
+    ?assert(
+        lists:any(
+            fun(#{filename := F}) -> F =:= GlobalBase end,
+            emqx_mgmt_data_backup:list_files()
+        )
+    ),
+    ok.
+
+-doc """
+A namespace named `*` maps to the literal directory `ns/*`. Its listing must
+contain only its own backups: the name must not act as a wildcard that matches
+every other namespace's directory. Reading another namespace's file through
+the `*` namespace must fail as well.
+""".
+t_wildcard_ns_sees_only_own_backups(_Config) ->
+    {ok, #{filename := VictimFile}} = emqx_mgmt_data_backup:export(#{namespace => <<"victim">>}),
+    %% Plant a distinctively named backup file in the victim's directory.
+    SecretBase = <<"victim-secret.tar.gz">>,
+    SecretFile = filename:join(filename:dirname(VictimFile), SecretBase),
+    ok = file:write_file(SecretFile, <<"victim-secret-content">>),
+    {ok, #{filename := OwnFile}} = emqx_mgmt_data_backup:export(#{namespace => <<"*">>}),
+    OwnBase = unicode:characters_to_binary(basename(OwnFile)),
+    ?assertMatch(
+        [#{filename := OwnBase}],
+        emqx_mgmt_data_backup:list_files(<<"*">>)
+    ),
+    ?assertEqual(
+        {error, not_found},
+        emqx_mgmt_data_backup:read_file(<<"*">>, SecretBase)
+    ),
+    %% The victim still sees both of its files.
+    VictimBase = unicode:characters_to_binary(basename(VictimFile)),
+    ?assertEqual(
+        lists:sort([VictimBase, SecretBase]),
+        lists:sort([F || #{filename := F} <- emqx_mgmt_data_backup:list_files(<<"victim">>)])
+    ),
+    ok.
+
 t_no_backup_file(_Config) ->
     ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(not_found)),
     ?assertEqual(
