@@ -363,6 +363,21 @@ clear_health(ChanResId, PoolSize) ->
         lists:seq(1, PoolSize)
     ).
 
+gun_opts(ConnConfig) ->
+    #{
+        ssl := SSL,
+        zerobus_endpoint := ZerobusEndpoint
+    } = ConnConfig,
+    case uri_string:parse(ZerobusEndpoint) of
+        #{scheme := "https"} ->
+            #{
+                transport => ssl,
+                tls_opts => emqx_tls_lib:to_client_opts(SSL#{enable => true})
+            };
+        _ ->
+            #{transport => tcp}
+    end.
+
 map_token_errors({token_endpoint_error, 401, Details}) ->
     Msg = append_error_detail(~"Invalid credentials", Details),
     {?status_disconnected, {unhealthy_target, Msg}};
@@ -611,7 +626,7 @@ start_connector(ConnResId, #{transport := #{type := rest}} = ConnConfig) ->
 start_connector(ConnResId, #{transport := #{type := grpc}} = ConnConfig) ->
     #{
         authentication := Authn,
-        ssl := SSL,
+        ssl := _SSL,
         zerobus_endpoint := ZerobusEndpoint,
         resource_opts := #{health_check_timeout := HCTimeout},
         transport := #{
@@ -623,7 +638,7 @@ start_connector(ConnResId, #{transport := #{type := grpc}} = ConnConfig) ->
         url => ZerobusEndpoint,
         grpc_opts => #{
             pool_size => PoolSize,
-            gun_opts => #{tls_opts => emqx_tls_lib:to_client_opts(SSL)}
+            gun_opts => gun_opts(ConnConfig)
         }
     },
     maybe
