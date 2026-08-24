@@ -335,7 +335,14 @@ handle_response(Headers, Body) ->
 body_to_auth_data(Body) ->
     case maps:get(<<"result">>, Body, <<"ignore">>) of
         <<"allow">> ->
-            extract_auth_data(http, Body);
+            case extract_auth_data(http, Body) of
+                {error, _Reason} ->
+                    %% The response is malformed: handle it as a backend failure,
+                    %% like an unparseable body or an unexpected status code.
+                    emqx_authn_utils:backend_failure_result();
+                Result ->
+                    Result
+            end;
         <<"deny">> ->
             {error, not_authorized};
         <<"deny_bad_credentials">> ->
@@ -363,10 +370,10 @@ extract_auth_data(Source, Body) ->
         throw:{bad_acl_rule, Reason} ->
             %% it's a invalid token, so ok to log
             ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{http_body => emqx_utils:redact(Body)}),
-            {error, bad_username_or_password};
+            {error, invalid_body};
         throw:Reason ->
             ?TRACE_AUTHN_PROVIDER("bad_response_body", Reason#{http_body => emqx_utils:redact(Body)}),
-            {error, bad_username_or_password}
+            {error, invalid_body}
     end.
 
 merge_maps([]) -> #{};
