@@ -192,7 +192,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:grpc),
     do:
       {:grpc,
-       github: "emqx/grpc-erl", tag: "0.7.9", override: true, system_env: emqx_app_system_env()}
+       github: "emqx/grpc-erl", tag: "0.7.10", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
     do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-3", override: true}

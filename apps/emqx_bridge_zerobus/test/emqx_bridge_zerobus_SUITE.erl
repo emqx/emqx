@@ -2435,6 +2435,37 @@ t_grpc_sync_ingest_writer_dies(TCConfig) when is_list(TCConfig) ->
         ok
     end).
 
+t_close_stream() ->
+    [{matrix, true}, {mock_only, true}].
+t_close_stream(matrix) ->
+    [[?grpc, ?json, ?async, ?batching]];
+t_close_stream(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    TestPid = self(),
+    mocked_grpc_server_agent_update(fun(St) ->
+        St#{
+            batch_done => [
+                {run, fun(GRPCReq, _Meta) ->
+                    TestPid ! {grpc_req, GRPCReq},
+                    process_flag(trap_exit, true),
+                    receive
+                        {'EXIT', _, Reason} ->
+                            TestPid ! {grpc_server_handler_exit, Reason},
+                            exit(Reason)
+                    end,
+                    {shutdonw, ?GRPC_STATUS_INTERNAL, ~"shouldn't reach here"}
+                end},
+                continue
+            ]
+        }
+    end),
+    {201, _} = create_action_api(TCConfig, #{}),
+    %% `terminate` handler from writers should cancel the stream with grpc_client.
+    {204, _} = delete_action_api(TCConfig),
+    %% reason from cowboy_http2:rst_stream_frame is shutdown
+    ?assertReceive({grpc_server_handler_exit, _}),
+    ok.
+
 %% -doc """
 %% When the schema used by an already-running channel changes, it needs to get the new
 %% descriptor proto and re-open the stream.

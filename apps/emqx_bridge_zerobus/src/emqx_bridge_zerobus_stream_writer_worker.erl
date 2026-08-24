@@ -181,10 +181,12 @@ terminate(_Reason, State) ->
     #{?action_res_id := ActionResId, ?pool := Pool, ?idx := Idx} = State,
     gproc_pool:disconnect_worker(Pool, {Pool, Idx}),
     unregister_stream(ActionResId, Idx),
+    _ = ensure_stream_closed(State),
     ok.
 
 handle_continue(#open_stream{}, State0) ->
-    State = handle_open_stream(State0),
+    State1 = ensure_stream_closed(State0),
+    State = handle_open_stream(State1),
     {noreply, State}.
 
 handle_call(Call, _From, State) ->
@@ -204,8 +206,7 @@ handle_cast(#ingest_record_batch_async{records = Records, reply_fn = ReplyFnAndA
     case handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) of
         {?continue, State} ->
             {noreply, State};
-        {?reopen, State1} ->
-            State = State1#{?stream := ?undefined},
+        {?reopen, State} ->
             {noreply, State, {continue, #open_stream{}}}
     end;
 handle_cast(_Cast, State) ->
@@ -216,7 +217,8 @@ handle_info({'EXIT', Helper, Res}, #{?helper := Helper} = State0) ->
     State = handle_helper_down(Res, State1),
     {noreply, State};
 handle_info(#open_stream{}, State0) ->
-    State = handle_open_stream(State0),
+    State1 = ensure_stream_closed(State0),
+    State = handle_open_stream(State1),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -405,7 +407,7 @@ handle_errored(_NRestarts, Error0, State0) ->
     ?tp(debug, "zerobus_writer_insert_error", #{error => Error0}),
     Error = handle_insert_result(Error0),
     State1 = reply_callers_up_to(Error, Seq, State0),
-    State = State1#{?stream := ?undefined},
+    State = ensure_stream_closed(State1),
     set_health(ActionResId, Idx, {?status_connecting, ~"reopening stream"}),
     {?reopen, State}.
 
@@ -440,7 +442,7 @@ handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
             emqx_resource:apply_reply_fun(
                 ReplyFnAndArgs, {error, {recoverable_error, stream_closed}}
             ),
-            State2 = State1#{?stream := ?undefined},
+            State2 = ensure_stream_closed(State1),
             {?reopen, State2};
         {error, Reason} when
             %% from grpc_client actually trying to handle the call
@@ -453,7 +455,7 @@ handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
             emqx_resource:apply_reply_fun(
                 ReplyFnAndArgs, {error, {recoverable_error, stream_closed}}
             ),
-            State2 = State1#{?stream := ?undefined},
+            State2 = ensure_stream_closed(State1),
             {?reopen, State2};
         {error, Reason} ->
             ?tp("zerobus_writer_send_error", #{reason => Reason}),
@@ -461,7 +463,7 @@ handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
             emqx_resource:apply_reply_fun(
                 ReplyFnAndArgs, {error, {recoverable_error, {stream_closed, Reason}}}
             ),
-            State2 = State1#{?stream := ?undefined},
+            State2 = ensure_stream_closed(State1),
             {?reopen, State2}
     end.
 
@@ -623,6 +625,12 @@ do_create_stream_impl(Metadata, Opts) ->
         Metadata,
         Opts
     ).
+
+ensure_stream_closed(#{?stream := ?undefined} = State0) ->
+    State0;
+ensure_stream_closed(#{?stream := Stream} = State0) ->
+    grpc_client:close_async(Stream),
+    State0#{?stream := ?undefined}.
 
 maybe_format_grpc_reason({Code, Reason}) when is_binary(Reason) ->
     {Code, uri_string:unquote(Reason)};

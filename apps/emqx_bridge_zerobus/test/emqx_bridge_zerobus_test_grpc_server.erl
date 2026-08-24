@@ -73,26 +73,8 @@ loop_msgs([], eos, _Meta, Req0) ->
     {ok, Req0};
 loop_msgs([], more, Meta, Req0) ->
     ct:pal("grpc server ~p reached end of batch", [self()]),
-    case get_agent_action(batch_done, continue) of
-        continue ->
-            ct:pal("grpc server ~p waiting for more", [self()]),
-            {More, Msgs, Req} = grpc_stream:recv(Req0),
-            ct:pal("grpc server ~p looping", [self()]),
-            loop_msgs(Msgs, More, Meta, Req);
-        {send, Replies} ->
-            grpc_stream:reply(Req0, Replies),
-            loop_msgs([], more, Meta, Req0);
-        {ask, Pid} ->
-            ct:pal("grpc server ~p asking ~p what to do", [self(), Pid]),
-            Alias = alias([reply]),
-            Pid ! {batch_done, Alias},
-            receive
-                {Alias, {exit, Reason}} ->
-                    exit(Reason);
-                {Alias, {shutdown, Code, Message}} ->
-                    {Code, Message, Req0}
-            end
-    end;
+    Action = get_agent_action(batch_done, continue),
+    handle_batch_done_action(Action, Meta, Req0);
 loop_msgs([Msg | Rest], More, Meta, Req) ->
     ct:pal("grpc server ~p got:\n  ~p", [self(), Msg]),
     #{payload := {Type, _}} = Msg,
@@ -125,6 +107,33 @@ handle_msg_action(Action, Type, Msg, Rest, More, Meta, Req) ->
                 end,
             ct:pal("grpc server ~p got answer from ~p: ~p", [self(), Pid, NextAction]),
             handle_msg_action(NextAction, Type, Msg, Rest, More, Meta, Req)
+    end.
+
+handle_batch_done_action(Action, Meta, Req0) ->
+    case Action of
+        continue ->
+            ct:pal("grpc server ~p waiting for more", [self()]),
+            {More, Msgs, Req} = grpc_stream:recv(Req0),
+            ct:pal("grpc server ~p looping", [self()]),
+            loop_msgs(Msgs, More, Meta, Req);
+        {send, Replies} ->
+            grpc_stream:reply(Req0, Replies),
+            loop_msgs([], more, Meta, Req0);
+        {exit, Reason} ->
+            exit(Reason);
+        {shutdown, Code, Message} ->
+            {Code, Message, Req0};
+        {run, Fn} ->
+            NextAction = Fn(Req0, Meta),
+            handle_batch_done_action(NextAction, Meta, Req0);
+        {ask, Pid} ->
+            ct:pal("grpc server ~p asking ~p what to do", [self(), Pid]),
+            Alias = alias([reply]),
+            Pid ! {batch_done, Alias},
+            receive
+                {Alias, NextAction} ->
+                    handle_batch_done_action(NextAction, Meta, Req0)
+            end
     end.
 
 default_action(create_stream) ->
