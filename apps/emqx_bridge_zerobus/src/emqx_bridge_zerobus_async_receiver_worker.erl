@@ -26,6 +26,13 @@
 %% Internal exports
 -export([do_recv_stream_once_async1/2]).
 
+-moduledoc """
+This worker receives gRPC client streams opened and managed by the stream writer, and
+continually receives replies from it, since grpc_client does not have an "active" receive
+option.  It sends replies to the stream writer, so the latter may reply to callers and
+track the last acked sequence number.
+""".
+
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
