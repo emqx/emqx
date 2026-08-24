@@ -16,6 +16,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -2515,6 +2516,9 @@ t_ecpool_workers_crash(TCConfig) ->
     ),
     ok.
 
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.
+
 -doc """
 For aggregated upload connectors.
 
@@ -2525,6 +2529,20 @@ t_aggreg_different_namespaces(TCConfig, Opts) ->
     #{
         aggreg_sup := AggregSup
     } = Opts,
+
+    %% Creating a namespaced resource requires the managed namespace to
+    %% exist (`validate_managed_namespace'); stub the lookup hook the same
+    %% way `emqx_bridge_mqtt_action_SUITE' does.
+    ok = emqx_hooks:add(
+        'namespace.resource_pre_create',
+        {?MODULE, on_namespace_resource_pre_create, []},
+        ?HP_HIGHEST
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del(
+            'namespace.resource_pre_create', {?MODULE, on_namespace_resource_pre_create}
+        )
+    end),
 
     Ns = <<"some_ns">>,
     {ok, APIKey} = emqx_common_test_http:create_default_app(),
