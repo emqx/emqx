@@ -467,12 +467,14 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data, State) ->
                     TranslatedError
                 )
             ),
-            case Reason of
-                sync_required ->
+            case TranslatedError of
+                #{reason := sync_required} ->
                     {error, {recoverable_error, Reason}};
-                ecpool_empty ->
+                #{reason := ecpool_empty} ->
                     {error, {recoverable_error, Reason}};
-                {error, error, _, undefined_table, _, _} ->
+                #{reason := sock_closed} ->
+                    {error, {recoverable_error, Reason}};
+                #{driver_error_codename := undefined_table} ->
                     {error, {unrecoverable_error, export_error(TranslatedError)}};
                 _ ->
                     {error, export_error(TranslatedError)}

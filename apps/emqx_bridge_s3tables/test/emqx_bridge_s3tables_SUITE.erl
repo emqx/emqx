@@ -39,6 +39,8 @@
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
 
+-define(AGGREG_SUP, emqx_bridge_s3tables_sup).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -103,7 +105,7 @@ end_per_suite(Config) ->
 init_per_testcase(TestCase, TCConfig0) ->
     reset_proxy(),
     Path = group_path(TCConfig0, no_groups),
-    ct:print(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
     TCConfig =
         case erlang:function_exported(?MODULE, TestCase, 2) of
             true ->
@@ -711,6 +713,7 @@ create_rule_for_schema1(TCConfig, RuleTopic) ->
     emqx_bridge_v2_testlib:create_rule_and_action_http(?ACTION_TYPE, RuleTopic, TCConfig, Opts).
 
 get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
 
 group_path(Config, Default) ->
     case emqx_common_test_helpers:group_path(Config) of
@@ -734,8 +737,9 @@ with_failure(FailureType, Fn) ->
     emqx_common_test_helpers:with_failure(FailureType, ?PROXY_NAME, ?PROXY_HOST, ?PROXY_PORT, Fn).
 
 aggreg_id(Config) ->
+    Namespace = get_config(resource_namespace, Config, ?global_ns),
     ActionName = ?config(action_name, Config),
-    {?ACTION_TYPE_BIN, ActionName}.
+    {Namespace, ?ACTION_TYPE_BIN, ActionName}.
 
 now_s() ->
     erlang:system_time(second).
@@ -2187,6 +2191,12 @@ t_smoke_parquet_timestamps(TCConfig) when is_list(TCConfig) ->
         )
     end),
     ok.
+
+t_aggreg_different_namespaces(TCConfig) ->
+    Opts = #{
+        aggreg_sup => ?AGGREG_SUP
+    },
+    emqx_bridge_v2_testlib:t_aggreg_different_namespaces(TCConfig, Opts).
 
 %% More test ideas:
 %%   * Concurrent schema change during upload.
