@@ -16,6 +16,7 @@
 -include_lib("erlazure/include/erlazure.hrl").
 -include("../src/emqx_bridge_azure_blob_storage.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %%------------------------------------------------------------------------------
 %% Type defs
@@ -307,7 +308,7 @@ aggregation_container_config_parquet_ref(Overrides) ->
     ).
 
 aggreg_id(BridgeName) ->
-    {?ACTION_TYPE_BIN, BridgeName}.
+    {?global_ns, ?ACTION_TYPE_BIN, BridgeName}.
 
 mk_message_event(ClientId, Topic, Payload) ->
     Message = emqx_message:make(bin(ClientId), bin(Topic), Payload),
@@ -1086,3 +1087,9 @@ t_parquet_bad_reference_health_check(TCConfig0) ->
         end
     ),
     ok.
+
+t_aggreg_different_namespaces(TCConfig) ->
+    Opts = #{
+        aggreg_sup => ?AGGREG_SUP
+    },
+    emqx_bridge_v2_testlib:t_aggreg_different_namespaces(TCConfig, Opts).

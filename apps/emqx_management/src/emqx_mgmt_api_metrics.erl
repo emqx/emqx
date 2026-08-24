@@ -136,6 +136,7 @@ schema("/metrics") ->
                                 #{
                                     in => query,
                                     required => false,
+                                    default => false,
                                     desc => ?DESC("aggregate_parameter")
                                 }
                             )},

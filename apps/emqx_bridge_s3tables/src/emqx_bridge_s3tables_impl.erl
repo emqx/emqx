@@ -307,6 +307,7 @@ create_channel(ChanResId, ActionConfig, ConnState) ->
         ?location_client := LocClient
     } = ConnState,
     #{
+        bridge_namespace := ResNamespace,
         bridge_name := Name,
         parameters := #{
             aggregation := #{
@@ -319,8 +320,8 @@ create_channel(ChanResId, ActionConfig, ConnState) ->
         }
     } = ActionConfig,
     Type = ?ACTION_TYPE_BIN,
-    AggregId = {Type, Name},
-    WorkDir = work_dir(Type, Name),
+    AggregId = {ResNamespace, Type, Name},
+    WorkDir = emqx_connector_aggregator:work_dir(ResNamespace, Type, Name),
     AggregOpts = #{
         max_records => MaxRecords,
         time_interval => TimeInterval,
@@ -403,9 +404,6 @@ channel_status(_ConnResId, _ChanResId, ChanState) ->
         ok ?= check_aggreg_upload_errors(AggregId),
         ?status_connected
     end.
-
-work_dir(Type, Name) ->
-    filename:join([emqx:data_dir(), bridge, Type, Name]).
 
 check_aggreg_upload_errors(AggregId) ->
     case emqx_connector_aggregator:take_error(AggregId) of

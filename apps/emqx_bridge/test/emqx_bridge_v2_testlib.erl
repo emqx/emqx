@@ -16,6 +16,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -2512,6 +2513,87 @@ t_ecpool_workers_crash(TCConfig) ->
             %% Force immediate health check.
             ?assertMatch({ok, ?status_disconnected}, health_check_connector(TCConfig))
         end
+    ),
+    ok.
+
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.
+
+-doc """
+For aggregated upload connectors.
+
+Checks that connectors/actions with the same name and different namespaces don't step over
+each other.
+""".
+t_aggreg_different_namespaces(TCConfig, Opts) ->
+    #{
+        aggreg_sup := AggregSup
+    } = Opts,
+
+    %% Creating a namespaced resource requires the managed namespace to
+    %% exist (`validate_managed_namespace'); stub the lookup hook the same
+    %% way `emqx_bridge_mqtt_action_SUITE' does.
+    ok = emqx_hooks:add(
+        'namespace.resource_pre_create',
+        {?MODULE, on_namespace_resource_pre_create, []},
+        ?HP_HIGHEST
+    ),
+    on_exit(fun() ->
+        emqx_hooks:del(
+            'namespace.resource_pre_create', {?MODULE, on_namespace_resource_pre_create}
+        )
+    end),
+
+    Ns = <<"some_ns">>,
+    {ok, APIKey} = emqx_common_test_http:create_default_app(),
+    AuthHeaderGlobal = emqx_common_test_http:auth_header(APIKey),
+    TCConfigGlobal = [{auth_header, AuthHeaderGlobal} | TCConfig],
+    AuthHeaderNs = ensure_namespaced_api_key(#{namespace => Ns}),
+    TCConfigNs = [{auth_header, AuthHeaderNs} | TCConfig],
+
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api2(TCConfigGlobal, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfigGlobal, #{}),
+
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api2(TCConfigNs, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api2(TCConfigNs, #{}),
+
+    %% Should have 2 children, with different work dirs
+    ?assertMatch(
+        [
+            {_, _, #{work_dir := WD1}},
+            {_, _, #{work_dir := WD2}}
+        ] when WD1 /= WD2,
+        [
+            begin
+                {ok, #{
+                    start := {_, _, [_, #{work_dir := WD}, _]}
+                }} = supervisor:get_childspec(AggregSup, Id),
+                {Id, Pid, #{work_dir => WD}}
+            end
+         || {Id, Pid, _, _} <- supervisor:which_children(AggregSup)
+        ]
+    ),
+
+    #{kind := Kind, name := Name, type := Type} = get_common_values(TCConfigNs),
+    {204, _} = delete_kind_api(Kind, Type, Name, #{auth_header => AuthHeaderNs}),
+
+    %% Reject creating actions with bad namespaces
+    lists:foreach(
+        fun(BadNs) ->
+            ct:pal("bad ns: ~p", [BadNs]),
+            AuthHeaderBadNs = ensure_namespaced_api_key(#{namespace => BadNs}),
+            TCConfigBadNs = [{auth_header, AuthHeaderBadNs} | TCConfig],
+            {201, #{<<"status">> := <<"connected">>}} =
+                create_connector_api2(TCConfigBadNs, #{}),
+            ?assertMatch(
+                {201, #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"status_reason">> := <<"Action cannot be created in this namespace">>
+                }},
+                create_action_api2(TCConfigBadNs, #{})
+            )
+        end,
+        [<<".">>, <<"..">>, <<"a/b">>]
     ),
     ok.
 
