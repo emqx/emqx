@@ -417,10 +417,14 @@ t_unsubscribe_no_delivery(_Config) ->
     sub_default(C1, <<"e2e_unsub_1">>),
     ct:sleep(10),
     unsub(C1, topic(<<"e2e_unsub_1">>)),
-    ?assert(wait_until(
-        fun() -> emqx_bcast_subscription:match(<<"e2e_unsub_1">>, topic(<<"e2e_unsub_1">>)) =:= false end,
-        100
-    )),
+    ?assert(
+        wait_until(
+            fun() ->
+                emqx_bcast_subscription:match(<<"e2e_unsub_1">>, topic(<<"e2e_unsub_1">>)) =:= false
+            end,
+            100
+        )
+    ),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -437,10 +441,14 @@ t_unsubscribe_then_resubscribe_replay(_Config) ->
     sub_default(C1, <<"e2e_usr_1">>),
     ct:sleep(10),
     unsub(C1, topic(<<"e2e_usr_1">>)),
-    ?assert(wait_until(
-        fun() -> emqx_bcast_subscription:match(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)) =:= false end,
-        100
-    )),
+    ?assert(
+        wait_until(
+            fun() ->
+                emqx_bcast_subscription:match(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)) =:= false
+            end,
+            100
+        )
+    ),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -451,10 +459,14 @@ t_unsubscribe_then_resubscribe_replay(_Config) ->
     Msgs1 = recv(1),
     ?assertEqual(0, length(Msgs1)),
     sub_default(C1, <<"e2e_usr_1">>),
-    ?assert(wait_until(
-        fun() -> emqx_bcast_subscription:match(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)) =/= false end,
-        100
-    )),
+    ?assert(
+        wait_until(
+            fun() ->
+                emqx_bcast_subscription:match(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)) =/= false
+            end,
+            100
+        )
+    ),
     Msgs2 = recv(1),
     ?assertEqual(1, length(Msgs2)),
     disconnect(C1).

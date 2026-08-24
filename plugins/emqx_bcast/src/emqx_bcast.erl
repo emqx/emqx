@@ -11,6 +11,7 @@
     is_core/0,
     core_nodes/0,
     random_core/0,
+    core_for/1,
     rpc_core/3,
     rpc_core/4,
     register_device/3,
@@ -23,7 +24,7 @@
     on_client_unsubscribe/3,
     on_session_resumed/2,
     on_client_ping/3,
-    on_delivery_completed/2
+    on_message_acked/2
 ]).
 
 -include("emqx_bcast.hrl").
@@ -42,7 +43,8 @@
 %%--------------------------------------------------------------------
 
 is_core() ->
-    try mria_config:whoami() =/= replicant
+    try
+        mria_config:whoami() =/= replicant
     catch
         _:_ -> true
     end.
@@ -67,6 +69,13 @@ random_core() ->
     Nodes = core_nodes(),
     lists:nth(erlang:phash2(erlang:unique_integer(), length(Nodes)) + 1, Nodes).
 
+%% Deterministic core for a client: all want_next claims for the same client
+%% land on the same core, which keeps the per-client claim load stable. The
+%% node list is sorted so the mapping is stable regardless of discovery order.
+core_for(ClientId) ->
+    Nodes = lists:sort(core_nodes()),
+    lists:nth(erlang:phash2(ClientId, length(Nodes)) + 1, Nodes).
+
 rpc_core(Mod, Fun, Args) ->
     rpc_core(Mod, Fun, Args, 15000).
 
@@ -82,7 +91,6 @@ rpc_core(Mod, Fun, Args, Timeout) ->
             end
     end.
 
-
 %%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------
@@ -94,7 +102,7 @@ hook() ->
     ok = emqx_hooks:put('client.unsubscribe', {?MODULE, on_client_unsubscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.ping', {?MODULE, on_client_ping, []}, ?HP_HIGHEST),
-    ok = emqx_hooks:put('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_HIGHEST).
+    ok = emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}, ?HP_HIGHEST).
 
 unhook() ->
     ok = emqx_hooks:del('client.connected', {?MODULE, on_client_connected}),
@@ -103,7 +111,7 @@ unhook() ->
     ok = emqx_hooks:del('client.unsubscribe', {?MODULE, on_client_unsubscribe}),
     ok = emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
     ok = emqx_hooks:del('client.ping', {?MODULE, on_client_ping}),
-    ok = emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}).
+    ok = emqx_hooks:del('message.acked', {?MODULE, on_message_acked}).
 
 %%--------------------------------------------------------------------
 %% Tables
@@ -136,12 +144,14 @@ create_mnesia_tables() ->
     end.
 
 create_mnesia_table(Tab, RecordName, Attributes) ->
-    try mnesia:create_table(Tab, [
-        {disc_copies, [node()]},
-        {type, set},
-        {record_name, RecordName},
-        {attributes, Attributes}
-    ]) of
+    try
+        mnesia:create_table(Tab, [
+            {disc_copies, [node()]},
+            {type, set},
+            {record_name, RecordName},
+            {attributes, Attributes}
+        ])
+    of
         {atomic, ok} -> ok;
         {aborted, {already_exists, Tab}} -> ok;
         {aborted, Reason} -> erlang:error({create_table_failed, Tab, Reason})
@@ -211,10 +221,13 @@ unregister_device(ClientId, Pid) ->
         undefined ->
             ok;
         _ ->
-            case ets:match_object(?TAB_DEV_SUB, #bcast_device_sub{
-                clientid = ClientId, pid = Pid, _ = '_'
-            }) of
-                [] -> ok;
+            case
+                ets:match_object(?TAB_DEV_SUB, #bcast_device_sub{
+                    clientid = ClientId, pid = Pid, _ = '_'
+                })
+            of
+                [] ->
+                    ok;
                 Entries ->
                     lists:foreach(
                         fun(#bcast_device_sub{key = Key}) -> ets:delete(?TAB_DEV_SUB, Key) end,
@@ -239,10 +252,15 @@ lookup_devices_by_product(ProductKey) ->
         undefined ->
             [];
         _ ->
-            [{DeviceName, Pid} || [DeviceName, _ClientId, Pid] <- ets:match(
-                ?TAB_DEV_SUB,
-                #bcast_device_sub{key = {ProductKey, '$1'}, clientid = '$2', pid = '$3', _ = '_'}
-            )]
+            [
+                {DeviceName, Pid}
+             || [DeviceName, _ClientId, Pid] <- ets:match(
+                    ?TAB_DEV_SUB,
+                    #bcast_device_sub{
+                        key = {ProductKey, '$1'}, clientid = '$2', pid = '$3', _ = '_'
+                    }
+                )
+            ]
     end.
 
 %%--------------------------------------------------------------------
@@ -329,18 +347,19 @@ on_client_ping(ClientInfo, _ConnInfo, Acc) ->
     end,
     Acc.
 
-on_delivery_completed(Msg, #{clientid := ClientId}) ->
+on_message_acked(ClientInfo, Msg) ->
     case emqx_message:get_header(?BCAST_DELIVERY_ID, Msg, undefined) of
         undefined ->
             ok;
         DeliveryId ->
-            case emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined) of
-                undefined ->
-                    ok;
-                ProductKey ->
-                    emqx_bcast_ack_pool:ack(ClientId, DeliveryId, ProductKey),
-                    ok
-            end
+            #{clientid := DeviceName} = ClientInfo,
+            ProductKey =
+                case emqx_message:get_header(?BCAST_PRODUCT_KEY, Msg, undefined) of
+                    undefined -> get_product_key(ClientInfo);
+                    PK -> PK
+                end,
+            emqx_bcast_ack_pool:ack(DeviceName, DeliveryId, ProductKey),
+            ok
     end.
 
 %%--------------------------------------------------------------------

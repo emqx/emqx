@@ -47,7 +47,7 @@
 
 -record(bcast_msg_index, {
     key :: {binary(), binary()},
-    deliveries :: [{binary(), stored | pending}]
+    deliveries :: [{binary(), stored | {pending, non_neg_integer()}}]
 }).
 
 -record(bcast_device_sub, {

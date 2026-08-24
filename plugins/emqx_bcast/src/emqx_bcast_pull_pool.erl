@@ -21,7 +21,7 @@
 
 %% Worker tasks.
 -export([
-    do_want_next/3,
+    do_want_next/2,
     do_deliver_pending/1,
     do_deliver_qos0/1,
     do_deliver_qos0_and_ack/6,
@@ -43,12 +43,11 @@
 -define(TAB_A, bcast_buffer_a).
 -define(TAB_B, bcast_buffer_b).
 -define(TAB_BUF3, bcast_buffer3).
+-define(TAB_INFLIGHT, bcast_pull_inflight).
 -define(WORKER_POOL, emqx_bcast_pull_worker_pool).
--define(FLUSH_MS, 50).
--define(FLUSH_COUNT, 100).
 
 -record(state, {
-    active = a,
+    active = ?TAB_A,
     flush_timer = undefined,
     mons = #{}
 }).
@@ -91,49 +90,74 @@ deliver_results(Results) ->
 %% Worker tasks
 %%--------------------------------------------------------------------
 
-do_want_next(Core, Node, Entries) ->
+do_want_next(Core, Entries) ->
     Results =
         case Core =:= node() of
             true ->
-                try emqx_bcast_pull_server_pool:want_next(Node, Entries)
+                try
+                    emqx_bcast_pull_server_pool:want_next(Entries)
                 catch
                     _:_ -> []
                 end;
             false ->
-                try emqx_rpc:call(?MODULE, Core, emqx_bcast_pull_server_pool, want_next, [Node, Entries], 15000) of
+                try
+                    emqx_rpc:call(
+                        ?MODULE,
+                        Core,
+                        emqx_bcast_pull_server_pool,
+                        want_next,
+                        [Entries],
+                        15000
+                    )
+                of
                     R when is_list(R) -> R;
                     _ -> []
                 catch
                     _:_ -> []
                 end
         end,
-    gen_server:cast(?MODULE, {deliver_results, Results}).
+    %% ClientIds always travel along so the in-flight marks can be cleared
+    %% even when the claim RPC failed and Results is empty.
+    ClientIds = [maps:get(clientid, M) || M <- Entries],
+    gen_server:cast(?MODULE, {deliver_results, Results, ClientIds}).
 
 do_deliver_pending(Entries) ->
     lists:foreach(
-        fun(#bcast_buffer_entry{
-            clientid = ClientId,
-            delivery_id = DeliveryId,
-            product_key = ProductKey,
-            topic_template = TopicTemplate,
-            payload = Payload,
-            pid = Pid
-        }) ->
-            Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, ClientId),
-            Msg = emqx_message:make(
-                DeliveryId,
-                ClientId,
-                ?QOS_1,
-                Topic,
-                Payload,
-                #{},
-                #{
-                    ?BCAST_DELIVERY_ID => DeliveryId,
-                    ?BCAST_PRODUCT_KEY => ProductKey
-                }
-            ),
-            Pid ! #deliver{topic = Topic, message = Msg},
-            emqx_bcast_metrics:qos1_delivered_inline()
+        fun(
+            #bcast_buffer_entry{
+                clientid = ClientId,
+                delivery_id = DeliveryId,
+                product_key = ProductKey,
+                topic_template = TopicTemplate,
+                payload = Payload,
+                pid = Pid
+            }
+        ) ->
+            case is_process_alive(Pid) of
+                true ->
+                    Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, ClientId),
+                    Msg = emqx_message:make(
+                        DeliveryId,
+                        ClientId,
+                        ?QOS_1,
+                        Topic,
+                        Payload,
+                        #{},
+                        #{
+                            ?BCAST_DELIVERY_ID => DeliveryId,
+                            ?BCAST_PRODUCT_KEY => ProductKey
+                        }
+                    ),
+                    Pid ! #deliver{topic = Topic, message = Msg},
+                    emqx_bcast_metrics:qos1_delivered();
+                false ->
+                    %% Client already gone: do not count a delivery that cannot
+                    %% reach anyone. Remove the buffer entry (it would sit
+                    %% unacked forever, blocking window=1) and release the
+                    %% claim so the delivery becomes claimable again.
+                    gen_server:cast(?MODULE, {deliver_failed, ClientId, DeliveryId}),
+                    do_release_claim(ProductKey, ClientId, DeliveryId)
+            end
         end,
         Entries
     ).
@@ -164,6 +188,7 @@ init([]) ->
     ok = ensure_buffer_table(?TAB_A, #bcast_buffer_entry.clientid),
     ok = ensure_buffer_table(?TAB_B, #bcast_buffer_entry.clientid),
     ok = ensure_buffer_table(?TAB_BUF3, #bcast_buffer3.clientid),
+    ok = ensure_buffer_table(?TAB_INFLIGHT, 1),
     emqx_bcast_subscription:init(),
     {ok, #state{}}.
 
@@ -175,26 +200,21 @@ handle_cast({client_connected, ClientId, Pid, ProductKey}, State) ->
     Ref = monitor(process, Pid),
     Mons = maps:put(Ref, {Pid, ClientId}, State#state.mons),
     {noreply, State#state{mons = Mons}};
-
 handle_cast({client_disconnected, ClientId, Pid}, State) ->
     cleanup_client(ClientId, Pid),
     {noreply, State};
-
 handle_cast({subscribe, ClientId, Pid, ProductKey, Topics}, State) ->
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
     emqx_bcast_subscription:replace(ClientId, Pid, Topics),
     {noreply, trigger_want_next(ClientId, Pid, ProductKey, Topics, State)};
-
 handle_cast({unsubscribe, ClientId, Pid, ProductKey, Topics}, State) ->
     _ = ProductKey,
     emqx_bcast_subscription:replace(ClientId, Pid, Topics),
     {noreply, State};
-
 handle_cast({ping, ClientId, Pid, ProductKey, Topics}, State) ->
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
     emqx_bcast_subscription:replace(ClientId, Pid, Topics),
     {noreply, trigger_want_next(ClientId, Pid, ProductKey, Topics, State)};
-
 handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
     {Pid, State0} =
         case take_pending(ClientId, DeliveryId, State) of
@@ -215,7 +235,6 @@ handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
                 trigger_want_next(ClientId, Pid, ProductKey, Topics, State0)
         end,
     {noreply, State2};
-
 handle_cast({qos0_deliver, ProductKey, TopicTemplate, Payload}, State) ->
     Devices = emqx_bcast:lookup_devices_by_product(ProductKey),
     Targets = lists:filtermap(
@@ -234,11 +253,10 @@ handle_cast({qos0_deliver, ProductKey, TopicTemplate, Payload}, State) ->
         [] ->
             ok;
         _ ->
-            emqx_bcast_metrics:broadcast_delivery_count(length(Targets)),
+            emqx_bcast_metrics:qos0_delivery_count(length(Targets)),
             submit_to_worker(fun() -> do_deliver_qos0(Targets) end)
     end,
     {noreply, State};
-
 handle_cast({qos1_core_trigger, ProductKey, DeviceNames, TopicTemplate}, State) ->
     State1 = lists:foldl(
         fun(DeviceName, AccState) ->
@@ -260,28 +278,56 @@ handle_cast({qos1_core_trigger, ProductKey, DeviceNames, TopicTemplate}, State) 
         DeviceNames
     ),
     {noreply, State1};
-
-handle_cast({deliver_results, Results}, State) ->
+handle_cast({deliver_results, Results, ClientIds}, State) ->
+    [ets:delete(?TAB_INFLIGHT, C) || C <- ClientIds],
     {NewEntries, State1} = process_deliver_results(Results, State),
     {noreply, fill_and_deliver(NewEntries, State1)};
-
+handle_cast({deliver_failed, ClientId, DeliveryId}, State) ->
+    %% The deliver worker found the channel pid dead: drop the buffer entry
+    %% (if it is still the same delivery) so it does not sit in the active
+    %% buffer as an unacked tombstone blocking window=1 forever.
+    Active = State#state.active,
+    case ets:lookup(Active, ClientId) of
+        [#bcast_buffer_entry{delivery_id = DeliveryId}] ->
+            ets:delete(Active, ClientId);
+        _ ->
+            ok
+    end,
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(flush_buffer3, State) ->
-    ok = cancel_flush_timer(State#state.flush_timer),
+    ok = emqx_bcast_utils:cancel_timer(State#state.flush_timer),
     Entries = ets:tab2list(?TAB_BUF3),
     ets:delete_all_objects(?TAB_BUF3),
     case Entries of
         [] ->
             {noreply, State#state{flush_timer = undefined}};
         _ ->
-            Core = emqx_bcast:random_core(),
             Maps = [buffer3_to_map(E) || E <- Entries],
-            submit_to_worker(fun() -> do_want_next(Core, node(), Maps) end),
+            %% Mark every flushed client as claim-in-flight. Cleared when the
+            %% deliver_results (or an RPC failure) comes back.
+            [ets:insert(?TAB_INFLIGHT, {maps:get(clientid, M)}) || M <- Maps],
+            Groups = lists:foldr(
+                fun(M, Acc) ->
+                    Core = emqx_bcast:core_for(maps:get(clientid, M)),
+                    case lists:keyfind(Core, 1, Acc) of
+                        {Core, List} ->
+                            lists:keyreplace(Core, 1, Acc, {Core, [M | List]});
+                        false ->
+                            [{Core, [M]} | Acc]
+                    end
+                end,
+                [],
+                Maps
+            ),
+            [
+                submit_to_worker(fun() -> do_want_next(Core, Group) end)
+             || {Core, Group} <- Groups
+            ],
             {noreply, State#state{flush_timer = undefined}}
     end;
-
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
     case maps:take(Ref, State#state.mons) of
         {{Pid, ClientId}, Mons} ->
@@ -291,7 +337,6 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
         error ->
             {noreply, State}
     end;
-
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -321,57 +366,50 @@ ensure_buffer_table(Name, KeyPos) ->
             ok
     end.
 
-active_tab(#state{active = a}) -> ?TAB_A;
-active_tab(#state{active = b}) -> ?TAB_B.
-
-inactive_tab(#state{active = a}) -> ?TAB_B;
-inactive_tab(#state{active = b}) -> ?TAB_A.
+flip(?TAB_A) -> ?TAB_B;
+flip(?TAB_B) -> ?TAB_A.
 
 trigger_want_next(_ClientId, _Pid, _ProductKey, [], State) ->
     State;
 trigger_want_next(ClientId, Pid, ProductKey, Topics, State) ->
-    Active = active_tab(State),
+    Active = State#state.active,
     case ets:lookup(Active, ClientId) of
         [_ | _] ->
             %% Window = 1: an unacked QoS1 delivery is already pending.
             State;
         [] ->
-            case ets:lookup(?TAB_BUF3, ClientId) of
-                [_ | _] ->
-                    %% buffer3 dedup: one want_next per client per batch.
+            case ets:member(?TAB_INFLIGHT, ClientId) of
+                true ->
+                    %% Window = 1: a want_next claim for this client is still
+                    %% in flight (buffer3 flushed, deliver_results pending).
+                    %% Without this guard a second claim would take the NEXT
+                    %% delivery (the first is pending on core), and the two
+                    %% results racing through fill_and_deliver drop one of
+                    %% them (fill_drop), breaking the ack/take_pending
+                    %% association.
                     State;
-                [] ->
-                    ets:insert(?TAB_BUF3, #bcast_buffer3{
-                        clientid = ClientId,
-                        product_key = ProductKey,
-                        topics = Topics,
-                        pid = Pid
-                    }),
-                    maybe_flush_buffer3(State)
+                false ->
+                    case ets:lookup(?TAB_BUF3, ClientId) of
+                        [_ | _] ->
+                            %% buffer3 dedup: one want_next per client per batch.
+                            State;
+                        [] ->
+                            ets:insert(?TAB_BUF3, #bcast_buffer3{
+                                clientid = ClientId,
+                                product_key = ProductKey,
+                                topics = Topics,
+                                pid = Pid
+                            }),
+                            maybe_flush_buffer3(State)
+                    end
             end
     end.
 
 maybe_flush_buffer3(State) ->
-    case ets:info(?TAB_BUF3, size) >= ?FLUSH_COUNT of
-        true ->
-            ok = cancel_flush_timer(State#state.flush_timer),
-            self() ! flush_buffer3,
-            State#state{flush_timer = undefined};
-        false ->
-            ensure_flush_timer(State)
-    end.
-
-ensure_flush_timer(State = #state{flush_timer = undefined}) ->
-    TRef = erlang:send_after(?FLUSH_MS, self(), flush_buffer3),
-    State#state{flush_timer = TRef};
-ensure_flush_timer(State) ->
-    State.
-
-cancel_flush_timer(undefined) ->
-    ok;
-cancel_flush_timer(TRef) ->
-    _ = erlang:cancel_timer(TRef),
-    ok.
+    Timer = emqx_bcast_utils:maybe_batch_flush(
+        ets:info(?TAB_BUF3, size), State#state.flush_timer, flush_buffer3
+    ),
+    State#state{flush_timer = Timer}.
 
 buffer3_to_map(#bcast_buffer3{
     clientid = ClientId,
@@ -381,16 +419,27 @@ buffer3_to_map(#bcast_buffer3{
     #{clientid => ClientId, product_key => ProductKey, topics => Topics}.
 
 cleanup_client(ClientId, Pid) ->
-    cleanup_buffer(?TAB_A, ClientId, Pid),
-    cleanup_buffer(?TAB_B, ClientId, Pid),
+    release_pending(?TAB_A, ClientId, Pid),
+    release_pending(?TAB_B, ClientId, Pid),
     cleanup_buffer3(ClientId, Pid),
+    ets:delete(?TAB_INFLIGHT, ClientId),
     emqx_bcast_subscription:clear(ClientId, Pid),
     emqx_bcast:unregister_device(ClientId, Pid).
 
-cleanup_buffer(Tab, ClientId, Pid) ->
+%% The client went away with an unacked delivery in flight: drop the buffer
+%% entry and release its claim so the delivery becomes claimable again
+%% (e.g. after a reconnect) without waiting for the pending lease.
+release_pending(Tab, ClientId, Pid) ->
     case ets:lookup(Tab, ClientId) of
-        [#bcast_buffer_entry{pid = Pid}] -> ets:delete(Tab, ClientId);
-        _ -> ok
+        [
+            #bcast_buffer_entry{
+                pid = Pid, product_key = ProductKey, delivery_id = DeliveryId
+            }
+        ] ->
+            ets:delete(Tab, ClientId),
+            submit_to_worker(fun() -> do_release_claim(ProductKey, ClientId, DeliveryId) end);
+        _ ->
+            ok
     end.
 
 cleanup_buffer3(ClientId, Pid) ->
@@ -400,7 +449,7 @@ cleanup_buffer3(ClientId, Pid) ->
     end.
 
 take_pending(ClientId, DeliveryId, State) ->
-    Active = active_tab(State),
+    Active = State#state.active,
     case ets:lookup(Active, ClientId) of
         [#bcast_buffer_entry{delivery_id = DeliveryId, pid = Pid}] ->
             ets:delete(Active, ClientId),
@@ -408,7 +457,6 @@ take_pending(ClientId, DeliveryId, State) ->
         _ ->
             none
     end.
-
 
 %%--------------------------------------------------------------------
 %% Internal: deliver-results processing and AB filling
@@ -436,7 +484,13 @@ process_deliver_results(Results, State) ->
                                 do_release_claim(ProductKey, ClientId0, DeliveryId)
                             end),
                             {Entries, AccState};
-                        offline ->
+                        {offline, ProductKey, ClientId0, DeliveryId} ->
+                            %% Claimed on core but the device is not connected
+                            %% here: release so the entry does not stay
+                            %% pending until its lease expires.
+                            submit_to_worker(fun() ->
+                                do_release_claim(ProductKey, ClientId0, DeliveryId)
+                            end),
                             {Entries, AccState}
                     end
             end
@@ -453,34 +507,39 @@ prepare_delivery(ClientId, #{
 }) ->
     case emqx_bcast:lookup_device({ProductKey, ClientId}) of
         {error, not_found} ->
-            offline;
-        {ok, Pid} ->
-            Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, ClientId),
-            case emqx_bcast_subscription:match(ClientId, Topic) of
+            {offline, ProductKey, ClientId, DeliveryId};
+        {ok, Pid} when is_pid(Pid) ->
+            case is_process_alive(Pid) of
                 false ->
-                    {no_match, ProductKey, ClientId, DeliveryId};
-                {ok, SubQos} ->
-                    Config = persistent_term:get({?APP, config}, #{}),
-                    ForceUpgrade = maps:get(force_upgrade_qos, Config, true),
-                    case ForceUpgrade orelse SubQos >= 1 of
-                        true ->
-                            {pending, #bcast_buffer_entry{
-                                clientid = ClientId,
-                                delivery_id = DeliveryId,
-                                product_key = ProductKey,
-                                topic_template = TopicTemplate,
-                                payload = Payload,
-                                pid = Pid
-                            }};
+                    {offline, ProductKey, ClientId, DeliveryId};
+                true ->
+                    Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, ClientId),
+                    case emqx_bcast_subscription:match(ClientId, Topic) of
                         false ->
-                            {qos0, ClientId, Pid, Topic, Payload, DeliveryId, ProductKey}
+                            {no_match, ProductKey, ClientId, DeliveryId};
+                        {ok, SubQos} ->
+                            Config = persistent_term:get({?APP, config}, #{}),
+                            ForceUpgrade = maps:get(force_upgrade_qos, Config, true),
+                            case ForceUpgrade orelse SubQos >= 1 of
+                                true ->
+                                    {pending, #bcast_buffer_entry{
+                                        clientid = ClientId,
+                                        delivery_id = DeliveryId,
+                                        product_key = ProductKey,
+                                        topic_template = TopicTemplate,
+                                        payload = Payload,
+                                        pid = Pid
+                                    }};
+                                false ->
+                                    {qos0, ClientId, Pid, Topic, Payload, DeliveryId, ProductKey}
+                            end
                     end
             end
     end.
 
 fill_and_deliver(NewEntries, State) ->
-    Inactive = inactive_tab(State),
-    Active = active_tab(State),
+    Active = State#state.active,
+    Inactive = flip(Active),
     ets:delete_all_objects(Inactive),
     %% Fill bufferB with freshly pulled deliveries.
     lists:foreach(
@@ -498,7 +557,7 @@ fill_and_deliver(NewEntries, State) ->
         ets:tab2list(Active)
     ),
     ets:delete_all_objects(Active),
-    NewState = State#state{active = inactive_side(State)},
+    NewState = State#state{active = flip(State#state.active)},
     case NewEntries of
         [] ->
             ok;
@@ -507,11 +566,5 @@ fill_and_deliver(NewEntries, State) ->
     end,
     NewState.
 
-inactive_side(#state{active = a}) -> b;
-inactive_side(#state{active = b}) -> a.
-
 submit_to_worker(Fun) ->
-    try emqx_pool:async_submit_to_pool(?WORKER_POOL, Fun)
-    catch
-        _:_ -> Fun()
-    end.
+    emqx_bcast_utils:submit_pool(?WORKER_POOL, Fun).
