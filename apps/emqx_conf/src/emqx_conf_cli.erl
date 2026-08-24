@@ -663,7 +663,9 @@ check_res(_Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
         "The effective configurations:~n"
         "```~n"
         "~ts```~n~n",
-    ActiveMsg = io_lib:format(ActiveMsg0, [hocon_pp:do(#{Key => emqx_conf:get_raw([Key])}, #{})]),
+    %% `Key` may be a dotted path such as `cluster.links`.
+    KeyPath = binary:split(Key, <<".">>, [global]),
+    ActiveMsg = io_lib:format(ActiveMsg0, [hocon_pp:do(#{Key => emqx_conf:get_raw(KeyPath)}, #{})]),
     FailedMsg0 =
         "Try to ~ts with:~n"
         "```~n"

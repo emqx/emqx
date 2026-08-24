@@ -478,6 +478,173 @@ t_misconfigured_links(Config) ->
         10_000
     ).
 
+t_multi_server('init', Config) ->
+    NameA = fmt("~s_~s", [?FUNCTION_NAME, "a"]),
+    NameB = fmt("~s_~s", [?FUNCTION_NAME, "b"]),
+    ClusterA = emqx_cth_cluster:start(mk_cluster(1, NameA, 1, Config)),
+    ClusterB = emqx_cth_cluster:start(mk_cluster(2, NameB, 2, Config)),
+    ok = snabbkaffe:start_trace(),
+    [{cluster_a, ClusterA}, {cluster_b, ClusterB} | Config];
+t_multi_server('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_common_test_helpers:call_janitor(),
+    ok = emqx_cth_cluster:stop(?config(cluster_a, Config)),
+    ok = emqx_cth_cluster:stop(?config(cluster_b, Config)).
+
+-doc """
+A link whose `server` lists several addresses uses all of them: a dead address
+is skipped in favour of a live one (the route replication client and the first
+forwarding client both start with the dead address), and the forwarding clients
+spread over the live addresses (the third forwarding client prefers the second
+node of the remote cluster).
+""".
+t_multi_server(Config) ->
+    ClusterA = [NodeA] = ?config(cluster_a, Config),
+    ClusterB = [NodeB1, NodeB2] = ?config(cluster_b, Config),
+    DeadPort = emqx_common_test_helpers:select_free_port(tcp),
+    PortB1 = emqx_cluster_link_cth:tcp_port(NodeB1, clink),
+    PortB2 = emqx_cluster_link_cth:tcp_port(NodeB2),
+    Server = fmt("localhost:~b,localhost:~b,localhost:~b", [DeadPort, PortB1, PortB2]),
+    LinkConfA = mk_link_conf_to(ClusterB, #{
+        <<"server">> => Server,
+        <<"topics">> => [<<"t/#">>],
+        <<"pool_size">> => 3
+    }),
+    LinkConfB = mk_link_conf_to(ClusterA, #{<<"topics">> => [<<"t/#">>]}),
+    ?assertMatch({ok, _}, update(api, NodeB1, [LinkConfB], Config)),
+    {{ok, _}, {ok, _}} = ?wait_async_action(
+        update(api, NodeA, [LinkConfA], Config),
+        #{?snk_kind := "cluster_link_routerepl_bootstrap_complete", ?snk_meta := #{node := NodeA}},
+        30_000
+    ),
+    #{<<"name">> := NameB} = LinkConfA,
+    ResId = emqx_cluster_link_mqtt:resource_id(NameB),
+    ?retry(
+        500,
+        40,
+        ?assertMatch({ok, _, #{status := connected}}, ?ON(NodeA, emqx_resource:get_instance(ResId)))
+    ),
+    %% Assert both cluster B nodes have at least one connection.
+    ?assertMatch([_ | _], ?ON(NodeB1, emqx_cm:all_client_ids())),
+    ?assertMatch([_ | _], ?ON(NodeB2, emqx_cm:all_client_ids())),
+    %% Cluster B's actors connect back once cluster A knows cluster B.
+    lists:foreach(
+        fun(NodeB) ->
+            ?assertMatch(
+                {ok, _},
+                ?block_until(
+                    #{
+                        ?snk_kind := "cluster_link_routerepl_bootstrap_complete",
+                        ?snk_meta := #{node := NodeB}
+                    },
+                    30_000
+                )
+            )
+        end,
+        ClusterB
+    ),
+    ClientA = start_client("t_multi_server_a", NodeA),
+    ClientB = start_client("t_multi_server_b", NodeB1),
+    on_exit(fun() -> catch emqtt:stop(ClientA) end),
+    on_exit(fun() -> catch emqtt:stop(ClientB) end),
+    {{ok, _, _}, {ok, _}} = ?wait_async_action(
+        emqtt:subscribe(ClientB, <<"t/multi">>, qos1),
+        #{?snk_kind := "cluster_link_route_sync_complete", ?snk_meta := #{node := NodeB1}},
+        10_000
+    ),
+    ok = emqx_cth_cluster:sync_routes(ClusterB),
+    {ok, _} = emqtt:publish(ClientA, <<"t/multi">>, <<"hello-1">>, qos1),
+    ?assertReceive(
+        {publish, #{topic := <<"t/multi">>, payload := <<"hello-1">>, client_pid := ClientB}},
+        5_000
+    ),
+    %% The link keeps working when the addresses are reordered.
+    Server1 = fmt("localhost:~b,localhost:~b", [PortB2, DeadPort]),
+    {{ok, _}, {ok, _}} = ?wait_async_action(
+        update(api, NodeA, [LinkConfA#{<<"server">> => Server1}], Config),
+        #{?snk_kind := "cluster_link_routerepl_bootstrap_complete", ?snk_meta := #{node := NodeA}},
+        30_000
+    ),
+    ?retry(
+        500,
+        40,
+        ?assertMatch({ok, _, #{status := connected}}, ?ON(NodeA, emqx_resource:get_instance(ResId)))
+    ),
+    ClientB2 = start_client("t_multi_server_b2", NodeB2),
+    on_exit(fun() -> catch emqtt:stop(ClientB2) end),
+    {ok, _, _} = emqtt:subscribe(ClientB2, <<"t/multi">>, qos1),
+    %% Wait until the route tables inside cluster B converge, so that one
+    %% publish reaches the subscribers on both nodes.
+    ok = emqx_cth_cluster:sync_routes(ClusterB),
+    {ok, _} = emqtt:publish(ClientA, <<"t/multi">>, <<"hello-2">>, qos1),
+    ?assertReceive(
+        {publish, #{topic := <<"t/multi">>, payload := <<"hello-2">>, client_pid := ClientB}},
+        5_000
+    ),
+    ?assertReceive(
+        {publish, #{topic := <<"t/multi">>, payload := <<"hello-2">>, client_pid := ClientB2}},
+        5_000
+    ).
+
+t_broken_link_crud('init', Config) ->
+    NameA = fmt("~s_~s", [?FUNCTION_NAME, "a"]),
+    %% All addresses are dead: the link can never connect.
+    Server = fmt("localhost:~b,localhost:~b", [
+        emqx_common_test_helpers:select_free_port(tcp),
+        emqx_common_test_helpers:select_free_port(tcp)
+    ]),
+    BrokenLink = #{
+        <<"name">> => <<"broken">>,
+        <<"server">> => Server,
+        <<"topics">> => [<<"t/#">>]
+    },
+    Spec = #{apps => [{emqx_conf, #{config => #{cluster => #{links => [BrokenLink]}}}}]},
+    ok = snabbkaffe:start_trace(),
+    ClusterA = emqx_cth_cluster:start(mk_cluster(1, NameA, [Spec], Config)),
+    [{cluster_a, ClusterA}, {broken_link, BrokenLink} | Config];
+t_broken_link_crud('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(cluster_a, Config)).
+
+-doc """
+A node starts with a stored link that cannot connect to any of its addresses.
+The application starts, the config handler stays registered, and the broken
+link can coexist with a new link, be updated, and be deleted.
+""".
+t_broken_link_crud(Config) ->
+    [NodeA] = ?config(cluster_a, Config),
+    BrokenLink = #{<<"name">> := Name} = ?config(broken_link, Config),
+    ?assertMatch(
+        {emqx_cluster_link, _, _},
+        lists:keyfind(emqx_cluster_link, 1, ?ON(NodeA, application:which_applications()))
+    ),
+    ?assertMatch(
+        #{handlers := #{cluster := #{links := #{'$mod' := emqx_cluster_link_config}}}},
+        ?ON(NodeA, emqx_config_handler:info())
+    ),
+    %% The route replication actor keeps retrying instead of crashing.
+    ?assertMatch(
+        {ok, _},
+        ?block_until(
+            #{
+                ?snk_kind := "cluster_link_routerepl_connection_failed",
+                ?snk_meta := #{node := NodeA}
+            },
+            10_000
+        )
+    ),
+    %% A new link can be created while the broken one is present.
+    Other = BrokenLink#{<<"name">> => <<"other">>},
+    ?assertMatch({ok, _}, ?ON(NodeA, emqx_cluster_link_config:create_link(Other))),
+    %% The broken link can be updated and deleted.
+    ?assertMatch(
+        {ok, _},
+        ?ON(NodeA, emqx_cluster_link_config:update_link(BrokenLink#{<<"pool_size">> => 2}))
+    ),
+    ?assertEqual(ok, ?ON(NodeA, emqx_cluster_link_config:delete_link(Name))),
+    ?assertEqual(ok, ?ON(NodeA, emqx_cluster_link_config:delete_link(<<"other">>))),
+    ?assertEqual([], ?ON(NodeA, emqx_cluster_link_config:get_links())).
+
 start_client(ClientId, Node) ->
     start_client(ClientId, Node, true).
 

@@ -29,12 +29,27 @@ start_configured_links() ->
             ok;
         false ->
             lists:foreach(
-                fun(LinkConf) ->
-                    {ok, _} = emqx_cluster_link_sup:ensure_actor(LinkConf),
-                    {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf)
-                end,
+                fun start_configured_link/1,
                 emqx_cluster_link_config:get_enabled_links()
             )
+    end.
+
+%% One link that fails to start must not stop the application. The config
+%% handler stays registered, so the link can still be fixed or deleted.
+start_configured_link(#{name := Name} = LinkConf) ->
+    try
+        {ok, _} = emqx_cluster_link_sup:ensure_actor(LinkConf),
+        {ok, _} = emqx_cluster_link_mqtt:ensure_msg_fwd_resource(LinkConf),
+        ok
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "cluster_link_start_failed",
+                link => Name,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            })
     end.
 
 warn_if_links_configured() ->
