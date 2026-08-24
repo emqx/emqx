@@ -153,6 +153,7 @@ jenkins
 jq
 json
 JSON
+JSONCompactEachRow
 JWK
 JWKs
 JWT

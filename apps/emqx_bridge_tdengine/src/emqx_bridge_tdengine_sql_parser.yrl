@@ -102,9 +102,10 @@ opt_semicolon -> ';' : true.
 
 Erlang code.
 
+-ignore_xref({return_error, 2}).
+
 value({_Token, _Line, Value}) -> Value.
 
-apply_duration_ops(Base, []) -> Base;
 apply_duration_ops(Base, Ops) -> {time_arithmetic, Base, Ops}.
 
 add_row([{table_clause, #{rows := Rows} = Clause} | Rest], Row) ->

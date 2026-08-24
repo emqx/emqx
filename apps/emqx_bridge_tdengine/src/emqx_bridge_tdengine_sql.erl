@@ -153,7 +153,6 @@ render_template_op(Parts, Encoder, Rest, Data, Opts, Cache0, Acc) ->
 
 encode_result(Encoder) ->
     try Encoder() of
-        {ok, _} = Ok -> Ok;
         {error, _} = Error -> Error;
         Encoded -> {ok, Encoded}
     catch

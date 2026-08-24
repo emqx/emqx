@@ -111,4 +111,6 @@ opt_semicolon -> ';' : true.
 
 Erlang code.
 
+-ignore_xref({return_error, 2}).
+
 value({_Token, _Line, Value}) -> Value.
