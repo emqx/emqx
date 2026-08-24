@@ -273,6 +273,8 @@ handle_helper_down({ok, Res}, State0) ->
                     {?nudge, State0}
             end
     end;
+handle_helper_down(worker_aborted, State0) ->
+    {?nudge, State0};
 handle_helper_down(Reason, State0) ->
     #{?action_res_id := ActionResId} = State0,
     ?tp(warning, "zerobus_receiver_helper_died", #{
@@ -294,8 +296,10 @@ do_recv_stream_once_async1(Stream, Opts) ->
 abort_helper(#{?helper := Helper} = State0) when is_pid(Helper) ->
     exit(Helper, kill),
     receive
-        {'EXIT', Helper, Res} ->
-            ok
+        {'EXIT', Helper, killed} ->
+            Res = worker_aborted;
+        {'EXIT', Helper, Res0} ->
+            Res = Res0
     end,
     State1 = State0#{?helper := ?undefined},
     {_Action, State} = handle_helper_down(Res, State1),
