@@ -92,7 +92,8 @@ assert_policies(legacy) ->
     ?assertEqual(false, emqx_security_profile:policy(internal_subscription_checks)),
     ?assertEqual(legacy, emqx_security_profile:policy(authz_context)),
     ?assertEqual(false, emqx_security_profile:policy(delayed_publish_reauthorization)),
-    ?assertEqual(ignore, emqx_security_profile:policy(exhook_message_publish_failure));
+    ?assertEqual(ignore, emqx_security_profile:policy(exhook_message_publish_failure)),
+    ?assertEqual(optional, emqx_security_profile:policy(plugin_install_sha256_binding));
 assert_policies(hardened) ->
     ?assertEqual(deny, emqx_security_profile:policy(authn_backend_failure)),
     ?assertEqual(deny, emqx_security_profile:policy(authz_backend_failure)),
@@ -102,7 +103,8 @@ assert_policies(hardened) ->
     ?assertEqual(true, emqx_security_profile:policy(internal_subscription_checks)),
     ?assertEqual(restricted, emqx_security_profile:policy(authz_context)),
     ?assertEqual(true, emqx_security_profile:policy(delayed_publish_reauthorization)),
-    ?assertEqual(deny, emqx_security_profile:policy(exhook_message_publish_failure)).
+    ?assertEqual(deny, emqx_security_profile:policy(exhook_message_publish_failure)),
+    ?assertEqual(required, emqx_security_profile:policy(plugin_install_sha256_binding)).
 
 assert_default_binds(Profile, Source) ->
     ?assertEqual(

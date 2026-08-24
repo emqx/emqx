@@ -227,25 +227,40 @@ handle_api_call(Plugin0, Request, Timeout) ->
 %% Note: this is only used for the HTTP API.
 %% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
 %% seems a non-atom key...
--spec allow_installation(binary() | string()) -> ok.
+-spec allow_installation(binary() | string()) -> ok | {error, sha256_required}.
 allow_installation(NameVsn) ->
     allow_installation(NameVsn, undefined).
 
 %% @doc Allow installation of `NameVsn'. The entry expires after `allow_ttl_ms/0'
 %% milliseconds. When `Sha256' is a 64-char lowercase hex binary, the upload
 %% bytes must hash to the same value to be accepted; when `undefined', any
-%% bytes named `NameVsn.tar.gz' are accepted (legacy behavior).
--spec allow_installation(binary() | string(), binary() | undefined) -> ok.
+%% bytes named `NameVsn.tar.gz' are accepted.
+%% An unbound (`undefined') grant is refused when the security profile
+%% requires a sha256 binding. This is the single entry point for all grant
+%% paths (CLI, RPC), so the refusal also applies to grants pushed by peers.
+-spec allow_installation(binary() | string(), binary() | undefined) ->
+    ok | {error, sha256_required}.
 allow_installation(NameVsn0, Sha256) when Sha256 =:= undefined; is_binary(Sha256) ->
-    NameVsn = bin(NameVsn0),
-    Entry = #{
-        expires_at => erlang:monotonic_time(millisecond) + allow_ttl_ms(),
-        sha256 => Sha256
-    },
-    Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
-    Allowed = (prune_expired(Allowed0))#{NameVsn => Entry},
-    application:set_env(?APP, ?allowed_installations, Allowed),
-    ok.
+    case sha256_binding_ok(Sha256) of
+        true ->
+            NameVsn = bin(NameVsn0),
+            Entry = #{
+                expires_at => erlang:monotonic_time(millisecond) + allow_ttl_ms(),
+                sha256 => Sha256
+            },
+            Allowed0 = application:get_env(?APP, ?allowed_installations, #{}),
+            Allowed = (prune_expired(Allowed0))#{NameVsn => Entry},
+            application:set_env(?APP, ?allowed_installations, Allowed),
+            ok;
+        false ->
+            {error, sha256_required}
+    end.
+
+%% `undefined' is only acceptable when the security profile makes the binding optional.
+sha256_binding_ok(undefined) ->
+    emqx_security_profile:policy(plugin_install_sha256_binding) =:= optional;
+sha256_binding_ok(Sha256) when is_binary(Sha256) ->
+    true.
 
 %% Note: this is only used for the HTTP API.
 %% Returns true iff a non-expired allow entry exists for `NameVsn'.
@@ -262,8 +277,10 @@ is_allowed_installation(NameVsn0) ->
 %%   ok                          - allowed and (hash matches or no hash bound)
 %%   {error, not_allowed}        - no non-expired entry exists
 %%   {error, sha256_mismatch}    - entry has a sha256 that doesn't match `Bin'
+%%   {error, sha256_required}    - entry has no sha256 but the security
+%%                                 profile requires one
 -spec is_allowed_installation(binary() | string(), binary()) ->
-    ok | {error, not_allowed | sha256_mismatch}.
+    ok | {error, not_allowed | sha256_mismatch | sha256_required}.
 is_allowed_installation(NameVsn0, Bin) when is_binary(Bin) ->
     NameVsn = bin(NameVsn0),
     Allowed = prune_and_store(application:get_env(?APP, ?allowed_installations, #{})),
@@ -271,7 +288,13 @@ is_allowed_installation(NameVsn0, Bin) when is_binary(Bin) ->
         error ->
             {error, not_allowed};
         {ok, #{sha256 := undefined}} ->
-            ok;
+            %% Re-check at verification time so an unbound grant is never
+            %% honoured under a profile that requires the binding, regardless
+            %% of how the grant entered the store.
+            case sha256_binding_ok(undefined) of
+                true -> ok;
+                false -> {error, sha256_required}
+            end;
         {ok, #{sha256 := Expected}} when is_binary(Expected) ->
             Got = binary:encode_hex(crypto:hash(sha256, Bin), lowercase),
             case Got =:= Expected of

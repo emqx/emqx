@@ -1895,6 +1895,122 @@ t_allow_sha256_undefined_accepts_any(_Config) ->
     ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"other bytes">>)),
     ok.
 
+%% Under the hardened profile an unbound grant is refused at grant time and a
+%% bound grant behaves as in legacy: matching bytes pass, mismatching bytes fail.
+t_allow_hardened_requires_sha256({init, Config}) ->
+    Config;
+t_allow_hardened_requires_sha256({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_hardened_requires_sha256(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    Bin = <<"hello world">>,
+    Sha = binary:encode_hex(crypto:hash(sha256, Bin), lowercase),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        ?assertEqual({error, sha256_required}, emqx_plugins:allow_installation(NameVsn)),
+        ?assertEqual(
+            {error, sha256_required}, emqx_plugins:allow_installation(NameVsn, undefined)
+        ),
+        ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+        ?assertEqual({error, not_allowed}, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+        ok = emqx_plugins:allow_installation(NameVsn, Sha),
+        ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+        ?assertEqual(
+            {error, sha256_mismatch},
+            emqx_plugins:is_allowed_installation(NameVsn, <<"tampered">>)
+        )
+    end),
+    ok.
+
+%% A grant pushed over RPC is applied through the same entry point, so a
+%% hardened node refuses an unbound grant no matter which peer issued it.
+%% Proto v3 is what a legacy peer calls when no hash is given.
+t_allow_hardened_rpc_refuses_unbound({init, Config}) ->
+    Config;
+t_allow_hardened_rpc_refuses_unbound({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_hardened_rpc_refuses_unbound(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    Sha = binary:encode_hex(crypto:hash(sha256, <<"hello world">>), lowercase),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        ?assertEqual(
+            [{ok, {error, sha256_required}}],
+            emqx_plugins_proto_v3:allow_installation([node()], NameVsn)
+        ),
+        ?assertEqual(
+            [{ok, {error, sha256_required}}],
+            emqx_plugins_proto_v4:allow_installation([node()], NameVsn, undefined)
+        ),
+        ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+        ?assertEqual(
+            [{ok, ok}],
+            emqx_plugins_proto_v4:allow_installation([node()], NameVsn, Sha)
+        ),
+        ?assert(emqx_plugins:is_allowed_installation(NameVsn))
+    end),
+    %% Legacy peers still accept the unbound grant.
+    ?assertEqual(
+        [{ok, ok}],
+        emqx_plugins_proto_v3:allow_installation([node()], NameVsn)
+    ),
+    ok.
+
+%% Verification rejects an unbound grant while the profile requires a binding,
+%% even when the grant was issued under legacy.
+t_allow_hardened_rejects_preexisting_unbound_grant({init, Config}) ->
+    Config;
+t_allow_hardened_rejects_preexisting_unbound_grant({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_hardened_rejects_preexisting_unbound_grant(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    Bin = <<"hello world">>,
+    ok = emqx_plugins:allow_installation(NameVsn),
+    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        %% The entry still exists; only the byte check refuses it.
+        ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
+        ?assertEqual(
+            {error, sha256_required}, emqx_plugins:is_allowed_installation(NameVsn, Bin)
+        )
+    end),
+    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+    ok.
+
+%% The CLI refuses an unbound `plugins allow' under hardened with an actionable
+%% hint, without issuing any grant; a bound allow still works.
+t_cli_allow_hardened_requires_sha256({init, Config}) ->
+    Config;
+t_cli_allow_hardened_requires_sha256({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_cli_allow_hardened_requires_sha256(_Config) ->
+    NameVsn = "foo-1.0.0",
+    Sha = binary:encode_hex(crypto:hash(sha256, <<"hello world">>), lowercase),
+    LogFun = fun(_F, A) -> A end,
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        [DeniedJson] = emqx_plugins_cli_utils:allow_installation(NameVsn, LogFun),
+        Denied = emqx_utils_json:decode(DeniedJson, [return_maps]),
+        ?assertMatch(
+            #{
+                <<"result">> := <<"not_ok">>,
+                <<"cause">> := #{<<"reason">> := <<"sha256_required">>, <<"hint">> := _}
+            },
+            Denied
+        ),
+        #{<<"cause">> := #{<<"hint">> := Hint}} = Denied,
+        ?assertNotEqual(nomatch, binary:match(Hint, <<"sha256:<hex>">>)),
+        ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+        [OkJson] = emqx_plugins_cli_utils:allow_installation(NameVsn, Sha, LogFun),
+        ?assertMatch(
+            #{<<"result">> := <<"ok">>},
+            emqx_utils_json:decode(OkJson, [return_maps])
+        ),
+        ?assert(emqx_plugins:is_allowed_installation(NameVsn))
+    end),
+    ok.
+
 %% The CLI install path must enforce the same allow gate as the HTTP upload path:
 %% without an `allow_installation' grant the CLI must refuse to install, with a
 %% grant it must install and consume the grant (forget on success, retain on
