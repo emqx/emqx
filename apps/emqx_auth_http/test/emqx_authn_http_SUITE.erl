@@ -339,6 +339,21 @@ t_malformed_response(TCConfig) ->
     ?assertEqual(
         Expected,
         authenticate_with_http_handler(TCConfig, invalid_result_handler(<<"deny_bad_credential">>))
+    ),
+    %% An "allow" response with a malformed field is handled as a backend failure.
+    ?assertEqual(
+        Expected,
+        authenticate_with_http_handler(
+            TCConfig,
+            json_response_handler(#{result => allow, acl => [#{<<"bad">> => <<"rule">>}]})
+        )
+    ),
+    ?assertEqual(
+        Expected,
+        authenticate_with_http_handler(
+            TCConfig,
+            json_response_handler(#{result => allow, expire_at => <<"not-an-epoch">>})
+        )
     ).
 
 test_user_auth(
@@ -1064,17 +1079,17 @@ t_auth_expire(TCConfig) ->
             end
         end},
         {<<"past">>, erlang:system_time(second) - 1, fun(C) ->
-            ?assertMatch({error, {bad_username_or_password, _}}, emqtt:connect(C)),
+            ?assertMatch({error, {not_authorized, _}}, emqtt:connect(C)),
             receive
                 {'DOWN', _Ref, process, C, Reason} ->
-                    ?assertMatch({shutdown, bad_username_or_password}, Reason)
+                    ?assertMatch({shutdown, not_authorized}, Reason)
             end
         end},
         {<<"invalid">>, erlang:system_time(millisecond), fun(C) ->
-            ?assertMatch({error, {bad_username_or_password, _}}, emqtt:connect(C)),
+            ?assertMatch({error, {not_authorized, _}}, emqtt:connect(C)),
             receive
                 {'DOWN', _Ref, process, C, Reason} ->
-                    ?assertMatch({shutdown, bad_username_or_password}, Reason)
+                    ?assertMatch({shutdown, not_authorized}, Reason)
             end
         end}
     ],
@@ -2027,11 +2042,14 @@ invalid_json_handler() ->
     end.
 
 invalid_result_handler(Result) ->
+    json_response_handler(#{result => Result}).
+
+json_response_handler(Response) ->
     fun(Req0, State) ->
         Req = cowboy_req:reply(
             200,
             #{<<"content-type">> => <<"application/json">>},
-            emqx_utils_json:encode(#{result => Result}),
+            emqx_utils_json:encode(Response),
             Req0
         ),
         {ok, Req, State}
