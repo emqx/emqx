@@ -113,6 +113,7 @@ ingest_record_batch_sync(Pool, Records, Timeout) ->
     end.
 
 sync_reply_delegator(ReplyAlias, Response0) ->
+    ?tp(debug, "zerobus_writer_insert_result", #{result => Response0}),
     Response = handle_insert_result(Response0),
     _ = erlang:send(ReplyAlias, {ReplyAlias, Response}),
     ok.
@@ -401,6 +402,7 @@ handle_errored(OldNRestarts, _Error, #{?n_restarts := NRestarts} = State0) when
     {?continue, State0};
 handle_errored(_NRestarts, Error0, State0) ->
     #{?action_res_id := ActionResId, ?idx := Idx, ?seq := Seq} = State0,
+    ?tp(debug, "zerobus_writer_insert_error", #{error => Error0}),
     Error = handle_insert_result(Error0),
     State1 = reply_callers_up_to(Error, Seq, State0),
     State = State1#{?stream := ?undefined},
@@ -627,11 +629,30 @@ maybe_format_grpc_reason({Code, Reason}) when is_binary(Reason) ->
 maybe_format_grpc_reason(Reason) ->
     Reason.
 
-handle_insert_result({error, {unavailable, <<"Stream timeout reached.", _/binary>>} = Reason}) ->
+handle_insert_result({error, {Code, _Msg} = Reason}) when
+    Code == unavailable;
+    Code == resource_exhausted;
+    Code == internal;
+    Code == cancelled;
+    Code == aborted
+->
     %% "Stream timeout reached. Closing the stream (ID: ...). Error Code: 6002, Error State: 0."
     %% Zerobus server seems to close the stream after some minutes on its own.
     %% May be foreshadowed by a `CloseStreamSignal` message.
     {error, {recoverable_error, Reason}};
+handle_insert_result({error, {Code, _Msg} = Reason}) when
+    Code == unauthenticated;
+    Code == permission_denied;
+    Code == invalid_argument;
+    Code == failed_precondition;
+    Code == not_found;
+    Code == data_loss;
+    Code == unknown;
+    Code == out_of_range;
+    Code == unimplemented
+->
+    %% https://docs.databricks.com/aws/en/ingestion/zerobus-errors
+    {error, {unrecoverable_error, Reason}};
 handle_insert_result({error, stream_closed = Reason}) ->
     {error, {recoverable_error, Reason}};
 handle_insert_result({error, {Kind, Reason}}) when
