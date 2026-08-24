@@ -177,11 +177,16 @@ do_init_per_testcase(TestCase, TCConfig) ->
                 rest_transport_config()
         end,
     ConnectorName = atom_to_binary(TestCase),
-    ConnectorConfig = connector_config(#{
-        ~"authentication" => authn_config(TCConfig),
-        ~"transport" => Transport,
-        ~"zerobus_endpoint" => zerobus_endpoint_config(TCConfig)
-    }),
+    ConnectorConfig = connector_config(
+        merge_maps([
+            #{
+                ~"authentication" => authn_config(TCConfig),
+                ~"transport" => Transport,
+                ~"zerobus_endpoint" => zerobus_endpoint_config(TCConfig)
+            },
+            ssl_config_overrides(TCConfig)
+        ])
+    ),
     Record =
         case record_of(TCConfig) of
             ?json ->
@@ -335,6 +340,14 @@ action_config(Overrides) ->
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
 
+ssl_config_overrides(TCConfig) when is_list(TCConfig) ->
+    ssl_config_overrides(maps:from_list(TCConfig));
+ssl_config_overrides(#{mock := true}) ->
+    #{};
+ssl_config_overrides(#{mock := false} = TCConfig) ->
+    #{real_connector_config := #{~"ssl" := SSL}} = TCConfig,
+    #{~"ssl" => SSL}.
+
 real_action_overrides(TCConfig) when is_list(TCConfig) ->
     real_action_overrides(maps:from_list(TCConfig));
 real_action_overrides(#{mock := true}) ->
@@ -364,7 +377,7 @@ proto_record_config() ->
     }.
 
 merge_maps(Maps) ->
-    lists:foldl(fun(M, Acc) -> maps:merge(Acc, M) end, #{}, Maps).
+    lists:foldl(fun(M, Acc) -> emqx_utils_maps:deep_merge(Acc, M) end, #{}, Maps).
 
 fmt(Fmt, Ctx) -> emqx_bridge_v2_testlib:fmt(Fmt, Ctx).
 get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
@@ -664,7 +677,10 @@ read_table(#{mock := true} = TCConfig) ->
                 []
         end,
         ets:tab2list(Tab)
-    ).
+    );
+read_table(#{mock := false}) ->
+    %% todo: will require a test container that can read the table.
+    ct:fail(unimplemented).
 
 simple_create_rule_api(TCConfig) ->
     simple_create_rule_api(default_sql(), TCConfig).
@@ -908,7 +924,7 @@ t_on_get_status(TCConfig) when is_list(TCConfig) ->
     end.
 
 t_rule_action() ->
-    [{mock_only, true}, {matrix, true}].
+    [{matrix, true}].
 t_rule_action(matrix) ->
     full_matrix();
 t_rule_action(TCConfig) when is_list(TCConfig) ->
@@ -1178,7 +1194,7 @@ Verifies handling of `grpc_client:send` failing as we send a batch.
 If the grpc client dies for unknown reasons, we should eventually retry and succeed.
 """.
 t_stream_gone_before_ingest() ->
-    [{matrix, true}].
+    [{matrix, true}, {mock_only, true}].
 t_stream_gone_before_ingest(matrix) ->
     [[?grpc, ?json, ?async, ?not_batching]];
 t_stream_gone_before_ingest(TCConfig) when is_list(TCConfig) ->
@@ -1527,7 +1543,7 @@ corresponding writer and start pulling again as it restarts.
   4) Another message is published via the same stream.  The receiver should get the ack.
 """.
 t_async_receiver_recover() ->
-    [{matrix, true}].
+    [{matrix, true}, {mock_only, true}].
 t_async_receiver_recover(matrix) ->
     [[?grpc, ?proto, ?sync, ?not_batching]];
 t_async_receiver_recover(TCConfig) when is_list(TCConfig) ->
@@ -1566,7 +1582,7 @@ Verifies retries when using REST transport.
 This functionality is identical to the one in the HTTP connector.
 """.
 t_rest_retries() ->
-    [{matrix, true}].
+    [{matrix, true}, {mock_only, true}].
 t_rest_retries(matrix) ->
     [[?rest, ?json, ?async, ?not_batching]];
 t_rest_retries(TCConfig) when is_list(TCConfig) ->
