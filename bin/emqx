@@ -191,12 +191,6 @@ if [ "${2:-}" = 'help' ]; then
     fi
 fi
 
-## starts only the slim apps list, and we flip code loading to interactive so
-## the skipped apps' .beam files don't sit resident in memory.
-if [ "${EMQX_FEATURES:-}" = 'ESSENTIAL' ]; then
-    export CODE_LOADING_MODE="${CODE_LOADING_MODE:-interactive}"
-fi
-
 ## IS_BOOT_COMMAND is set for later to inspect node name and cookie from hocon config (or env variable)
 case "${COMMAND}" in
     start|console|console_clean|foreground|check_config)
@@ -214,16 +208,6 @@ case "${COMMAND}" in
         IS_BOOT_COMMAND='no'
         ;;
 esac
-
-# Will be set to hardened since v7
-export EMQX_SECURITY_PROFILE="${EMQX_SECURITY_PROFILE:-legacy}"
-
-if [[ "$IS_BOOT_COMMAND" = 'yes' ]]; then
-    if [ "$EMQX_SECURITY_PROFILE" != 'legacy' ] && [ "$EMQX_SECURITY_PROFILE" != 'hardened' ]; then
-        logerr "Invalid security profile: $EMQX_SECURITY_PROFILE. Valid values are: legacy, hardened."
-        exit 1
-    fi
-fi
 
 RELUP_DIR="relup"
 BASE_RUNNER_ROOT_DIR="${BASE_RUNNER_ROOT_DIR:-$RUNNER_ROOT_DIR}"
@@ -248,6 +232,32 @@ export EMQX_ETC_DIR
 export REL_VSN
 export SCHEMA_MOD
 export IS_ENTERPRISE
+
+## Boot-time environment variables (EMQX_FEATURES, EMQX_SECURITY_PROFILE, ...).
+## The file is optional. Values in the file override the inherited environment.
+if [ -f "$EMQX_ETC_DIR/emqx.env" ]; then
+    set -a
+    # shellcheck disable=SC1090,SC1091
+    . "$EMQX_ETC_DIR/emqx.env"
+    set +a
+fi
+
+## starts only the slim apps list, and we flip code loading to interactive so
+## the skipped apps' .beam files don't sit resident in memory.
+if [ "${EMQX_FEATURES:-}" = 'ESSENTIAL' ]; then
+    export CODE_LOADING_MODE="${CODE_LOADING_MODE:-interactive}"
+fi
+
+# Will be set to hardened since v7
+export EMQX_SECURITY_PROFILE="${EMQX_SECURITY_PROFILE:-legacy}"
+
+if [[ "$IS_BOOT_COMMAND" = 'yes' ]]; then
+    if [ "$EMQX_SECURITY_PROFILE" != 'legacy' ] && [ "$EMQX_SECURITY_PROFILE" != 'hardened' ]; then
+        logerr "Invalid security profile: $EMQX_SECURITY_PROFILE. Valid values are: legacy, hardened."
+        exit 1
+    fi
+fi
+
 
 RUNNER_SCRIPT="$RUNNER_BIN_DIR/$REL_NAME"
 CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
