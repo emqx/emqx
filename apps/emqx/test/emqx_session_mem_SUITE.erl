@@ -86,7 +86,7 @@ t_session_init(_) ->
     ?assertEqual(infinity, emqx_session_mem:info(retry_interval, Session)),
     ?assertEqual(0, emqx_mqueue:len(emqx_session_mem:info(mqueue, Session))),
     ?assertEqual(0, emqx_session_mem:info(awaiting_rel_cnt, Session)),
-    ?assertEqual(100, emqx_session_mem:info(awaiting_rel_max, Session)),
+    ?assertEqual(32, emqx_session_mem:info(awaiting_rel_max, Session)),
     ?assertEqual(0, emqx_session_mem:info(await_rel_timeout, Session)),
     ?assert(is_integer(emqx_session_mem:info(created_at, Session))).
 
@@ -117,7 +117,7 @@ t_session_stats(_) ->
             mqueue_dropped := 0,
             next_pkt_id := 1,
             awaiting_rel_cnt := 0,
-            awaiting_rel_max := 100
+            awaiting_rel_max := 32
         },
         maps:from_list(Stats)
     ).

@@ -4463,7 +4463,7 @@ mqtt_session() ->
             sc(
                 hoconsc:union([non_neg_integer(), infinity]),
                 #{
-                    default => 100,
+                    default => 32,
                     desc => ?DESC(mqtt_max_awaiting_rel),
                     importance => ?IMPORTANCE_LOW
                 }
