@@ -16,6 +16,10 @@
 -define(EXHOOK_ROOT, exhook).
 -define(EXHOOK, [?EXHOOK_ROOT]).
 
+%% Servers with a configured order are positioned before servers without one.
+-define(WITH_ORDER, 0).
+-define(WITHOUT_ORDER, 1).
+
 %% APIs
 -export([start_link/0]).
 
@@ -611,9 +615,9 @@ name_of(#{name := Name}) ->
 order_key(Name, Position, Servers) ->
     case emqx_utils_maps:deep_get([Name, order], Servers, undefined) of
         Order when is_integer(Order) ->
-            {0, Order, Position};
+            {?WITH_ORDER, Order, Position};
         _ ->
-            {1, Position, Position}
+            {?WITHOUT_ORDER, Position, Position}
     end.
 
 refresh_tick() ->
