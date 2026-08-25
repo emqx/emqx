@@ -587,7 +587,11 @@ mqtt_max_mqueue_len.label:
 """Max Message Queue Length"""
 
 mqtt_max_inflight.desc:
-"""Maximum number of QoS 1 and QoS 2 messages that are allowed to be delivered simultaneously before completing the acknowledgment."""
+"""Maximum number of QoS 1 and QoS 2 `PUBLISH` packets EMQX sends concurrently to a client.
+
+A message occupies inflight window until corresponding `PUBACK` or `PUBCOMP` is received from the client. EMQX does not start further QoS 1 or QoS 2 deliveries while the inflight window is full.
+
+For MQTT 5.0 clients, the `Receive Maximum` property in the `CONNECT` packet specifies the maximum number of incoming QoS 1 and QoS 2 messages the client is willing to process concurrently. EMQX uses that value as the broker-to-client inflight limit if it's lower than `mqtt.max_inflight`. Otherwise, this configured limit applies directly."""
 
 mqtt_max_inflight.label:
 """Max Inflight"""
