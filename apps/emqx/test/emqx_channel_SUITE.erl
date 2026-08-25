@@ -497,14 +497,8 @@ t_handle_in_pubrel_not_found_error(_) ->
 t_handle_in_pubrel_not_found_bounded_log(_) ->
     %% A flood of PUBREL packets with an unknown Packet Identifier must not
     %% produce warning-level log output: the event is recorded by the
-    %% packets.pubrel.missed counter and logged at info instead.
-    ok = meck:expect(
-        emqx_session,
-        pubrel,
-        fun(_, _PacketId, _Session) ->
-            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
-        end
-    ),
+    %% packets.pubrel.missed counter and logged at info instead. A fresh
+    %% channel has an empty session, so every PUBREL is not_found.
     N = 100,
     Flood = fun() ->
         lists:foreach(
