@@ -42,9 +42,32 @@ t_actions(_) ->
 t_connectors(_) ->
     assert_schema_response("connectors").
 
+t_dashboard_user_access(_) ->
+    AuthHeader = emqx_common_test_http:default_user_auth_header(),
+    lists:foreach(
+        fun(Name) ->
+            Url = ?SERVER ++ "/schemas/" ++ Name,
+            {ok, {{_, 200, _}, _Headers, Body}} =
+                request_with_headers(get, Url, AuthHeader),
+            _ = emqx_utils_json:decode(Body)
+        end,
+        ["hotconf", "actions", "connectors"]
+    ).
+
+t_schema_requires_auth(_) ->
+    lists:foreach(
+        fun(Name) ->
+            Url = ?SERVER ++ "/schemas/" ++ Name,
+            {ok, {{_, 401, _}, _Headers, _Body}} =
+                httpc:request(get, {Url, []}, [], [{body_format, binary}])
+        end,
+        ["hotconf", "actions", "connectors"]
+    ).
+
 assert_schema_response(Name) ->
     Url = ?SERVER ++ "/schemas/" ++ Name,
-    {ok, {{_, 200, _}, Headers, Body}} = request_with_headers(get, Url),
+    {ok, {{_, 200, _}, Headers, Body}} =
+        request_with_headers(get, Url, emqx_mgmt_api_test_util:auth_header_()),
     %% assert it's a valid json
     _ = emqx_utils_json:decode(Body),
     %% assert minirest reports JSON content-type, not the text/plain fallback
@@ -53,6 +76,8 @@ assert_schema_response(Name) ->
     ok.
 
 request_with_headers(Method, Url) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    request_with_headers(Method, Url, emqx_mgmt_api_test_util:auth_header_()).
+
+request_with_headers(Method, Url, AuthHeader) ->
     Opts = #{return_all => true, httpc_req_opts => [{body_format, binary}]},
     emqx_mgmt_api_test_util:request_api(Method, Url, [], AuthHeader, [], Opts).

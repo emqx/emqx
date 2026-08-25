@@ -40,7 +40,11 @@
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
-scopes() -> ?SCOPE_DENIED.
+%% The schema is an internal Dashboard resource, but it must be available to
+%% any authenticated Dashboard user so the UI can render its forms.  Keep it
+%% outside the user-visible business scopes; route authentication is inherited
+%% from the Dashboard listener's global Minirest security configuration.
+scopes() -> ?SCOPE_PUBLIC.
 
 paths() ->
     ["/schemas/:name"].
@@ -56,7 +60,6 @@ schema("/schemas/:name") ->
             ],
             desc => ?DESC(get_schema),
             tags => ?TAGS,
-            security => [],
             responses => #{
                 200 => hoconsc:mk(binary(), #{desc => ?DESC("schema_json_response")})
             }
