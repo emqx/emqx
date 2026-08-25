@@ -37,8 +37,6 @@
 -define(TAB_QUOTA, bcast_quota).
 -define(TAB_DEV_SUB, bcast_device_sub).
 
--define(SUBS_PD, {?MODULE, subscriptions}).
-
 %%--------------------------------------------------------------------
 %% Role helpers
 %%--------------------------------------------------------------------
@@ -166,7 +164,6 @@ create_ets_tables() ->
     ensure_ets(?TAB_DEV_SUB, [
         named_table, public, set, {keypos, #bcast_device_sub.key}, {read_concurrency, true}
     ]),
-    emqx_bcast_subscription:init(),
     ok.
 
 %% Every core node needs a local copy of the storage tables so that
@@ -289,8 +286,7 @@ on_client_disconnected(ClientInfo, _Reason, _ConnInfo) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         gen_server:cast(emqx_bcast_pull_pool, {client_disconnected, ClientId, Pid}),
-        gen_server:cast(emqx_bcast_ack_pool, {client_down, ClientId}),
-        erase_subs()
+        gen_server:cast(emqx_bcast_ack_pool, {client_down, ClientId})
     catch
         _E:_R:_ST ->
             ok
@@ -301,9 +297,8 @@ on_client_subscribe(ClientInfo, _Properties, TopicFilters) ->
     try
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
-        Full = store_subs(TopicFilters, add),
         ProductKey = get_product_key(ClientInfo),
-        gen_server:cast(emqx_bcast_pull_pool, {subscribe, ClientId, Pid, ProductKey, Full})
+        gen_server:cast(emqx_bcast_pull_pool, {subscribe, ClientId, Pid, ProductKey})
     catch
         _E:_R:_ST ->
             ok
@@ -314,23 +309,20 @@ on_client_unsubscribe(ClientInfo, _Properties, TopicFilters) ->
     try
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
-        Full = store_subs(TopicFilters, remove),
         ProductKey = get_product_key(ClientInfo),
-        gen_server:cast(emqx_bcast_pull_pool, {unsubscribe, ClientId, Pid, ProductKey, Full})
+        gen_server:cast(emqx_bcast_pull_pool, {unsubscribe, ClientId, Pid, ProductKey})
     catch
         _E:_R:_ST ->
             ok
     end,
     TopicFilters.
 
-on_session_resumed(ClientInfo, SessionInfo) ->
+on_session_resumed(ClientInfo, _SessionInfo) ->
     try
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
-        Full = subscriptions_from_session(SessionInfo),
-        put_subs(Full),
         ProductKey = get_product_key(ClientInfo),
-        gen_server:cast(emqx_bcast_pull_pool, {subscribe, ClientId, Pid, ProductKey, Full})
+        gen_server:cast(emqx_bcast_pull_pool, {subscribe, ClientId, Pid, ProductKey})
     catch
         _E:_R:_ST ->
             ok
@@ -342,8 +334,7 @@ on_client_ping(ClientInfo, _ConnInfo, Acc) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        Full = get_subs(),
-        gen_server:cast(emqx_bcast_pull_pool, {ping, ClientId, Pid, ProductKey, Full})
+        gen_server:cast(emqx_bcast_pull_pool, {ping, ClientId, Pid, ProductKey})
     catch
         _E:_R:_ST ->
             ok
@@ -364,48 +355,6 @@ on_message_acked(ClientInfo, Msg) ->
             emqx_bcast_ack_pool:ack(DeviceName, DeliveryId, ProductKey),
             ok
     end.
-
-%%--------------------------------------------------------------------
-%% Process dictionary subscription cache
-%%--------------------------------------------------------------------
-
-store_subs(TopicFilters, add) ->
-    Current = get_subs(),
-    Updated = lists:foldl(fun add_sub/2, Current, TopicFilters),
-    put_subs(Updated),
-    Updated;
-store_subs(TopicFilters, remove) ->
-    Current = get_subs(),
-    Updated = lists:foldl(fun remove_sub/2, Current, TopicFilters),
-    put_subs(Updated),
-    Updated.
-
-add_sub({TopicFilter, Opts}, Acc) ->
-    Qos = maps:get(qos, Opts, 0),
-    [{TopicFilter, Qos} | lists:keydelete(TopicFilter, 1, Acc)].
-
-remove_sub({TopicFilter, _Opts}, Acc) ->
-    lists:keydelete(TopicFilter, 1, Acc).
-
-put_subs(Subs) ->
-    erlang:put(?SUBS_PD, Subs).
-
-get_subs() ->
-    case erlang:get(?SUBS_PD) of
-        undefined -> [];
-        Subs -> Subs
-    end.
-
-erase_subs() ->
-    erlang:erase(?SUBS_PD),
-    ok.
-
-subscriptions_from_session(SessionInfo) ->
-    maps:fold(
-        fun(Filter, Opts, Acc) -> [{Filter, maps:get(qos, Opts, 0)} | Acc] end,
-        [],
-        maps:get(subscriptions, SessionInfo, #{})
-    ).
 
 %%--------------------------------------------------------------------
 %% Misc

@@ -21,10 +21,12 @@
 %%   bcast_msg_index      -- per-device pending delivery queue
 %% Node-local ETS tables (not in Mnesia):
 %%   bcast_device_sub     -- online device -> {ProductKey, DeviceName}
-%%   bcast_subscription   -- per-client topic filters, maintained by hooks
 %%   bcast_buffer_a/b     -- active/inactive delivery buffers in pull_pool
 %%   bcast_buffer3        -- want_next dedup staging in pull_pool
 %%   bcast_pull_inflight  -- claim-in-flight guard (window=1)
+%%
+%% Subscription state is NOT mirrored: delivery decisions read
+%% emqx_broker:subscriptions(ChannelPid) directly from EMQX
 
 -record(bcast_message, {
     msg_id :: binary(),
@@ -81,12 +83,6 @@
     pid :: pid()
 }).
 
--record(bcast_subscription, {
-    clientid :: binary(),
-    pid :: pid(),
-    topics :: [{binary(), non_neg_integer()}]
-}).
-
 -record(bcast_buffer_entry, {
     clientid :: binary(),
     delivery_id :: binary(),
@@ -99,7 +95,6 @@
 -record(bcast_buffer3, {
     clientid :: binary(),
     product_key :: binary(),
-    topics :: [{binary(), non_neg_integer()}],
     pid :: pid()
 }).
 

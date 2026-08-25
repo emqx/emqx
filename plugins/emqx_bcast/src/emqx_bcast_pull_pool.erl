@@ -22,6 +22,8 @@
 %% Worker tasks.
 -export([
     do_want_next/2,
+    do_find_qos0_targets/4,
+    do_find_trigger_devices/3,
     do_deliver_pending/1,
     do_deliver_qos0/1,
     do_deliver_qos0_and_ack/6,
@@ -91,11 +93,20 @@ deliver_results(Results) ->
 %%--------------------------------------------------------------------
 
 do_want_next(Core, Entries) ->
+    %% Subscription filters are resolved here, in the worker, by reading
+    %% EMQX's own subscription tables for each channel pid. The topics
+    %% travel with the claim request so the core claim tx can skip entries
+    %% the device is not subscribed to. An empty subscription (or a dead
+    %% pid) yields no topics and the claim will return no_more.
+    Entries1 = [
+        M#{topics => subscription_topics(maps:get(pid, M))}
+     || M <- Entries
+    ],
     Results =
         case Core =:= node() of
             true ->
                 try
-                    emqx_bcast_pull_server_pool:want_next(Entries)
+                    emqx_bcast_pull_server_pool:want_next(Entries1)
                 catch
                     _:_ -> []
                 end;
@@ -106,7 +117,7 @@ do_want_next(Core, Entries) ->
                         Core,
                         emqx_bcast_pull_server_pool,
                         want_next,
-                        [Entries],
+                        [Entries1],
                         15000
                     )
                 of
@@ -120,6 +131,19 @@ do_want_next(Core, Entries) ->
     %% even when the claim RPC failed and Results is empty.
     ClientIds = [maps:get(clientid, M) || M <- Entries],
     gen_server:cast(?MODULE, {deliver_results, Results, ClientIds}).
+
+%% [{TopicFilter, Qos}] from EMQX's own subscription tables for a channel
+%% pid. This is the single source of truth; no plugin-side mirror exists.
+subscription_topics(Pid) ->
+    case is_process_alive(Pid) of
+        false ->
+            [];
+        true ->
+            [
+                {Filter, maps:get(qos, SubOpts, 0)}
+             || {Filter, SubOpts} <- emqx_broker:subscriptions(Pid)
+            ]
+    end.
 
 do_deliver_pending(Entries) ->
     lists:foreach(
@@ -171,6 +195,84 @@ do_deliver_qos0(Targets) ->
         Targets
     ).
 
+%% Resolve QoS0 fanout targets in a worker: for each target device, look up
+%% its channel pid and check the subscription by reading EMQX's own
+%% subscription tables (emqx_broker:subscriptions/1) instead of a plugin
+%% mirror. DeviceNames = undefined means product-wide (PubBroadcast).
+do_find_qos0_targets(ProductKey, DeviceNames, TopicTemplate, Payload) ->
+    Devices =
+        case DeviceNames of
+            undefined ->
+                emqx_bcast:lookup_devices_by_product(ProductKey);
+            _ ->
+                lists:filtermap(
+                    fun(DeviceName) ->
+                        case emqx_bcast:lookup_device({ProductKey, DeviceName}) of
+                            {ok, Pid} -> {true, {DeviceName, Pid}};
+                            {error, not_found} -> false
+                        end
+                    end,
+                    DeviceNames
+                )
+        end,
+    lists:filtermap(
+        fun({DeviceName, Pid}) ->
+            Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),
+            case sub_match(Pid, Topic) of
+                {ok, _SubQos} ->
+                    {true, {Pid, DeviceName, Topic, Payload}};
+                false ->
+                    false
+            end
+        end,
+        Devices
+    ).
+
+%% Resolve which devices a QoS1 trigger applies to, in a worker. Returns
+%% [{DeviceName, Pid}] for devices that are online and subscribed.
+do_find_trigger_devices(ProductKey, DeviceNames, TopicTemplate) ->
+    lists:filtermap(
+        fun(DeviceName) ->
+            case emqx_bcast:lookup_device({ProductKey, DeviceName}) of
+                {ok, Pid} ->
+                    Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),
+                    case sub_match(Pid, Topic) of
+                        {ok, _} -> {true, {DeviceName, Pid}};
+                        false -> false
+                    end;
+                {error, not_found} ->
+                    false
+            end
+        end,
+        DeviceNames
+    ).
+
+%% Subscription check against EMQX's own subscription state. Returns
+%% {ok, Qos} with the highest matching subscription QoS, or false.
+sub_match(Pid, Topic) ->
+    case is_process_alive(Pid) of
+        false ->
+            false;
+        true ->
+            Subs = emqx_broker:subscriptions(Pid),
+            case
+                lists:foldl(
+                    fun({Filter, SubOpts}, Acc) ->
+                        Qos = maps:get(qos, SubOpts, 0),
+                        case emqx_topic:match(Topic, Filter) of
+                            true -> max(Acc, Qos);
+                            false -> Acc
+                        end
+                    end,
+                    -1,
+                    Subs
+                )
+            of
+                -1 -> false;
+                Qos -> {ok, Qos}
+            end
+    end.
+
 do_deliver_qos0_and_ack(ClientId, Pid, Topic, Payload, DeliveryId, ProductKey) ->
     Msg = emqx_message:make(ClientId, ?QOS_0, Topic, Payload),
     Pid ! #deliver{topic = Topic, message = Msg},
@@ -189,7 +291,6 @@ init([]) ->
     ok = ensure_buffer_table(?TAB_B, #bcast_buffer_entry.clientid),
     ok = ensure_buffer_table(?TAB_BUF3, #bcast_buffer3.clientid),
     ok = ensure_buffer_table(?TAB_INFLIGHT, 1),
-    emqx_bcast_subscription:init(),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -203,18 +304,15 @@ handle_cast({client_connected, ClientId, Pid, ProductKey}, State) ->
 handle_cast({client_disconnected, ClientId, Pid}, State) ->
     cleanup_client(ClientId, Pid),
     {noreply, State};
-handle_cast({subscribe, ClientId, Pid, ProductKey, Topics}, State) ->
+handle_cast({subscribe, ClientId, Pid, ProductKey}, State) ->
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
-    emqx_bcast_subscription:replace(ClientId, Pid, Topics),
-    {noreply, trigger_want_next(ClientId, Pid, ProductKey, Topics, State)};
-handle_cast({unsubscribe, ClientId, Pid, ProductKey, Topics}, State) ->
-    _ = ProductKey,
-    emqx_bcast_subscription:replace(ClientId, Pid, Topics),
+    {noreply, trigger_want_next(ClientId, Pid, ProductKey, State)};
+handle_cast({unsubscribe, ClientId, Pid, ProductKey}, State) ->
+    _ = {ClientId, Pid, ProductKey},
     {noreply, State};
-handle_cast({ping, ClientId, Pid, ProductKey, Topics}, State) ->
+handle_cast({ping, ClientId, Pid, ProductKey}, State) ->
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
-    emqx_bcast_subscription:replace(ClientId, Pid, Topics),
-    {noreply, trigger_want_next(ClientId, Pid, ProductKey, Topics, State)};
+    {noreply, trigger_want_next(ClientId, Pid, ProductKey, State)};
 handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
     {Pid, State0} =
         case take_pending(ClientId, DeliveryId, State) of
@@ -231,65 +329,39 @@ handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
             undefined ->
                 State0;
             _ ->
-                Topics = emqx_bcast_subscription:topics(ClientId),
-                trigger_want_next(ClientId, Pid, ProductKey, Topics, State0)
+                trigger_want_next(ClientId, Pid, ProductKey, State0)
         end,
     {noreply, State2};
 handle_cast({qos0_deliver, ProductKey, DeviceNames, TopicTemplate, Payload}, State) ->
-    Devices =
-        case DeviceNames of
-            undefined ->
-                emqx_bcast:lookup_devices_by_product(ProductKey);
+    %% The per-device online + subscription check runs in a worker: it reads
+    %% emqx_broker:subscriptions(Pid) per device and must not block the
+    %% gen_server on a large fanout.
+    submit_to_worker(fun() ->
+        Targets = do_find_qos0_targets(ProductKey, DeviceNames, TopicTemplate, Payload),
+        case Targets of
+            [] ->
+                ok;
             _ ->
-                lists:filtermap(
-                    fun(DeviceName) ->
-                        case emqx_bcast:lookup_device({ProductKey, DeviceName}) of
-                            {ok, Pid} -> {true, {DeviceName, Pid}};
-                            {error, not_found} -> false
-                        end
-                    end,
-                    DeviceNames
-                )
-        end,
-    Targets = lists:filtermap(
-        fun({DeviceName, Pid}) ->
-            Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),
-            case emqx_bcast_subscription:match(DeviceName, Topic) of
-                {ok, _SubQos} ->
-                    {true, {Pid, DeviceName, Topic, Payload}};
-                false ->
-                    false
-            end
-        end,
-        Devices
-    ),
-    case Targets of
-        [] ->
-            ok;
-        _ ->
-            emqx_bcast_metrics:qos0_delivery_count(length(Targets)),
-            submit_to_worker(fun() -> do_deliver_qos0(Targets) end)
-    end,
+                emqx_bcast_metrics:qos0_delivery_count(length(Targets)),
+                do_deliver_qos0(Targets)
+        end
+    end),
     {noreply, State};
 handle_cast({qos1_core_trigger, ProductKey, DeviceNames, TopicTemplate}, State) ->
+    %% Same: resolve which devices are online and subscribed in a worker,
+    %% then funnel only the resulting want_next updates through this process.
+    submit_to_worker(fun() ->
+        Triggers = do_find_trigger_devices(ProductKey, DeviceNames, TopicTemplate),
+        gen_server:cast(?MODULE, {qos1_triggers, ProductKey, Triggers})
+    end),
+    {noreply, State};
+handle_cast({qos1_triggers, ProductKey, Triggers}, State) ->
     State1 = lists:foldl(
-        fun(DeviceName, AccState) ->
-            case emqx_bcast:lookup_device({ProductKey, DeviceName}) of
-                {ok, Pid} ->
-                    Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),
-                    case emqx_bcast_subscription:match(DeviceName, Topic) of
-                        {ok, _} ->
-                            Topics = emqx_bcast_subscription:topics(DeviceName),
-                            trigger_want_next(DeviceName, Pid, ProductKey, Topics, AccState);
-                        false ->
-                            AccState
-                    end;
-                {error, not_found} ->
-                    AccState
-            end
+        fun({DeviceName, Pid}, AccState) ->
+            trigger_want_next(DeviceName, Pid, ProductKey, AccState)
         end,
         State,
-        DeviceNames
+        Triggers
     ),
     {noreply, State1};
 handle_cast({deliver_results, Results, ClientIds}, State) ->
@@ -383,9 +455,7 @@ ensure_buffer_table(Name, KeyPos) ->
 flip(?TAB_A) -> ?TAB_B;
 flip(?TAB_B) -> ?TAB_A.
 
-trigger_want_next(_ClientId, _Pid, _ProductKey, [], State) ->
-    State;
-trigger_want_next(ClientId, Pid, ProductKey, Topics, State) ->
+trigger_want_next(ClientId, Pid, ProductKey, State) ->
     Active = State#state.active,
     case ets:lookup(Active, ClientId) of
         [_ | _] ->
@@ -411,7 +481,6 @@ trigger_want_next(ClientId, Pid, ProductKey, Topics, State) ->
                             ets:insert(?TAB_BUF3, #bcast_buffer3{
                                 clientid = ClientId,
                                 product_key = ProductKey,
-                                topics = Topics,
                                 pid = Pid
                             }),
                             maybe_flush_buffer3(State)
@@ -428,16 +497,15 @@ maybe_flush_buffer3(State) ->
 buffer3_to_map(#bcast_buffer3{
     clientid = ClientId,
     product_key = ProductKey,
-    topics = Topics
+    pid = Pid
 }) ->
-    #{clientid => ClientId, product_key => ProductKey, topics => Topics}.
+    #{clientid => ClientId, product_key => ProductKey, pid => Pid}.
 
 cleanup_client(ClientId, Pid) ->
     release_pending(?TAB_A, ClientId, Pid),
     release_pending(?TAB_B, ClientId, Pid),
     cleanup_buffer3(ClientId, Pid),
     ets:delete(?TAB_INFLIGHT, ClientId),
-    emqx_bcast_subscription:clear(ClientId, Pid),
     emqx_bcast:unregister_device(ClientId, Pid).
 
 %% The client went away with an unacked delivery in flight: drop the buffer
@@ -528,7 +596,7 @@ prepare_delivery(ClientId, #{
                     {offline, ProductKey, ClientId, DeliveryId};
                 true ->
                     Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, ClientId),
-                    case emqx_bcast_subscription:match(ClientId, Topic) of
+                    case sub_match(Pid, Topic) of
                         false ->
                             {no_match, ProductKey, ClientId, DeliveryId};
                         {ok, SubQos} ->

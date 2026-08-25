@@ -272,57 +272,8 @@ t_topic_match_hash(_Config) ->
 t_topic_match_no_match(_Config) ->
     ?assertNot(emqx_topic:match(<<"/P1/D1/user/get">>, <<"/P2/+/user/get">>)).
 
-%%--------------------------------------------------------------------
-%% Subscription QoS match tests
-%%--------------------------------------------------------------------
-
--doc "subscription match returns the stored subscription QoS.".
-t_sub_match_returns_qos(_Config) ->
-    emqx_bcast_subscription:init(),
-    emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D1/user/get">>, 0}),
-    ?assertEqual({ok, 0}, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
-
--doc "overlapping filters resolve to the highest QoS.".
-t_sub_match_max_qos_overlapping(_Config) ->
-    emqx_bcast_subscription:init(),
-    emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/+/user/get">>, 0}),
-    emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D1/user/get">>, 1}),
-    ?assertEqual({ok, 1}, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
-
--doc "subscription match is false without a matching filter.".
-t_sub_match_no_match(_Config) ->
-    emqx_bcast_subscription:init(),
-    emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D2/user/get">>, 1}),
-    ?assertEqual(false, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
-
--doc "stale unsubscribe/disconnect from an old connection is ignored.".
-t_sub_takeover_pid_guard(_Config) ->
-    emqx_bcast_subscription:init(),
-    Old = spawn(fun() ->
-        receive
-            stop -> ok
-        end
-    end),
-    New = spawn(fun() ->
-        receive
-            stop -> ok
-        end
-    end),
-    Topic = <<"/P1/DT/user/get">>,
-    emqx_bcast_subscription:add(<<"devT">>, Old, {Topic, 1}),
-    %% takeover: new connection re-registers under the same ClientId
-    emqx_bcast_subscription:add(<<"devT">>, New, {Topic, 1}),
-    %% stale unsubscribe from the old connection must not remove the entry
-    emqx_bcast_subscription:remove(<<"devT">>, Old, {Topic, 1}),
-    ?assertEqual({ok, 1}, emqx_bcast_subscription:match(<<"devT">>, Topic)),
-    %% stale disconnect from the old connection must not clear the entry
-    emqx_bcast_subscription:clear(<<"devT">>, Old),
-    ?assertEqual({ok, 1}, emqx_bcast_subscription:match(<<"devT">>, Topic)),
-    %% the current owner's disconnect clears the entry
-    emqx_bcast_subscription:clear(<<"devT">>, New),
-    ?assertEqual(false, emqx_bcast_subscription:match(<<"devT">>, Topic)),
-    Old ! stop,
-    New ! stop.
+%% Subscription matching is covered by the e2e suite against real EMQX
+%% subscription state; the plugin no longer maintains a subscription mirror.
 
 -doc "message.acked removes the delivery; duplicate acks are idempotent.".
 t_message_acked_hook(_Config) ->
@@ -405,50 +356,9 @@ t_register_message_ttl_refresh(_Config) ->
     [#bcast_message{expires_at = NewExpiry}] = mnesia:dirty_read(bcast_message, MsgGuid),
     ?assert(NewExpiry >= Now + TTL - 5).
 
-%%--------------------------------------------------------------------
-%% Subscription QoS tests
-%%--------------------------------------------------------------------
-
--doc "QoS=1 BatchPub to a QoS=0 subscriber delivers and self-acks as QoS=0.".
-t_qos1_to_qos0_subscriber(_Config) ->
-    emqx_bcast:register_device(<<"P1">>, <<"DA">>, self()),
-    emqx_bcast_subscription:init(),
-    emqx_bcast_subscription:add(<<"DA">>, self(), {<<"/P1/DA/user/get">>, 0}),
-    BeforeAcked = metric(<<"batch_pub_qos1_acked">>),
-    BeforeInline = metric(<<"batch_pub_qos1_delivered">>),
-    Body = #{
-        <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => <<"P1">>,
-        <<"DeviceName">> => [<<"DA">>],
-        <<"MessageContent">> => <<"aGVsbG8=">>,
-        <<"Qos">> => 1
-    },
-    {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
-    ?assert(wait_metric(<<"batch_pub_qos1_acked">>, BeforeAcked + 1)),
-    ?assertEqual(0, metric(<<"batch_pub_qos1_delivered">>) - BeforeInline),
-    flush_mailbox().
-
--doc "QoS=1 BatchPub to a QoS=1 subscriber delivers at QoS=1 and waits for ack.".
-t_qos1_to_qos1_subscriber(_Config) ->
-    emqx_bcast:register_device(<<"P1">>, <<"DB">>, self()),
-    emqx_bcast_subscription:init(),
-    emqx_bcast_subscription:add(<<"DB">>, self(), {<<"/P1/DB/user/get">>, 1}),
-    BeforeInline = metric(<<"batch_pub_qos1_delivered">>),
-    BeforeAcked = metric(<<"batch_pub_qos1_acked">>),
-    Body = #{
-        <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => <<"P1">>,
-        <<"DeviceName">> => [<<"DB">>],
-        <<"MessageContent">> => <<"aGVsbG8=">>,
-        <<"Qos">> => 1
-    },
-    {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
-    ?assert(wait_metric(<<"batch_pub_qos1_delivered">>, BeforeInline + 1)),
-    %% The ack path is a cast into emqx_bcast_ack_pool; sys:get_state makes
-    %% the "nothing was acked" assertion deterministic instead of a bare sleep.
-    _ = sys:get_state(emqx_bcast_ack_pool),
-    ?assertEqual(0, metric(<<"batch_pub_qos1_acked">>) - BeforeAcked),
-    flush_mailbox().
+%% Subscription-gated delivery behaviour is covered by the e2e suite with
+%% real EMQX subscriptions; the plugin no longer maintains a mirror table
+%% that unit tests could seed.
 
 %% Poll until a prometheus counter reaches the expected value (async delivery
 %% happens on pool workers, so metrics lag the API response).
@@ -475,32 +385,6 @@ flush_mailbox() ->
 %%--------------------------------------------------------------------
 %% Async delivery pool tests
 %%--------------------------------------------------------------------
-
--doc "QoS=1 BatchPub stores the delivery and the pull pool delivers it.".
-t_qos1_batchpub_stores_then_delivers_via_pull(_Config) ->
-    emqx_bcast:register_device(<<"P1">>, <<"DQ">>, self()),
-    emqx_bcast_subscription:init(),
-    emqx_bcast_subscription:add(<<"DQ">>, self(), {<<"/P1/DQ/user/get">>, 0}),
-    Body = #{
-        <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => <<"P1">>,
-        <<"DeviceName">> => [<<"DQ">>],
-        <<"MessageContent">> => <<"aGVsbG8=">>,
-        <<"Qos">> => 1
-    },
-    {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
-    ?assert(maps:get(<<"Success">>, Resp)),
-    %% Delivery record is created asynchronously by the API worker pool.
-    ?assert(
-        wait_until(
-            fun() -> length(mnesia:dirty_match_object(#bcast_msg{_ = '_'})) =:= 1 end,
-            100
-        )
-    ),
-    %% Pull pools turn the trigger into a delivery.
-    ?assert(wait_until(fun() -> count_deliver_messages() >= 1 end, 100)),
-    flush_mailbox(),
-    ok.
 
 -doc "BatchPub by MessageId refreshes the message TTL asynchronously.".
 t_async_ttl_refresh(_Config) ->
@@ -533,36 +417,8 @@ t_async_ttl_refresh(_Config) ->
         )
     ).
 
--doc "QoS=0 broadcast delivers to all locally subscribed devices.".
-t_qos0_broadcast_delivers_locally(_Config) ->
-    PK = <<"PR">>,
-    N = 50,
-    DNs = [<<"R", (integer_to_binary(I))/binary>> || I <- lists:seq(1, N)],
-    lists:foreach(
-        fun(DN) ->
-            emqx_bcast:register_device(PK, DN, self()),
-            emqx_bcast_subscription:add(DN, self(), {<<"/PR/#">>, 0})
-        end,
-        DNs
-    ),
-    Template = <<"/PR/${deviceName}/user/get">>,
-    ok = emqx_bcast_pull_server_pool:qos0_broadcast(PK, undefined, Template, <<"p">>),
-    ?assert(
-        wait_until(
-            fun() ->
-                {message_queue_len, Len} = process_info(self(), message_queue_len),
-                Len >= N
-            end,
-            100
-        )
-    ),
-    ?assertEqual(N, count_deliver_messages()).
-
-count_deliver_messages() ->
-    receive
-        #deliver{} -> 1 + count_deliver_messages()
-    after 0 -> 0
-    end.
+%% QoS0 product-wide broadcast delivery is covered by the e2e suite with
+%% real subscribed clients.
 
 -doc "index add/remove are idempotent for repeated calls.".
 t_index_add_remove_idempotent(_Config) ->

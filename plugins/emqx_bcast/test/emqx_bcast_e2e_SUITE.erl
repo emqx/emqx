@@ -59,7 +59,6 @@ init_per_testcase(_Case, Config) ->
      || T <- [bcast_msg, bcast_message, bcast_message_hash, bcast_message_api_id, bcast_msg_index]
     ],
     emqx_bcast_metrics:init(),
-    emqx_bcast_subscription:init(),
     Config.
 end_per_testcase(_Case, _Config) -> ok.
 
@@ -140,15 +139,30 @@ recv(Count, Msgs) ->
 
 topic(DN) -> <<"/default/", DN/binary, "/user/get">>.
 
-%% The subscribe hook casts into emqx_bcast_pull_pool asynchronously; poll the
-%% subscription table until the cast has been processed instead of sleeping.
+%% The subscribe hook casts into emqx_bcast_pull_pool asynchronously. The
+%% plugin reads EMQX's own subscription tables, so poll those: resolve the
+%% channel pid from the clientid, then look for a filter matching Topic.
 wait_subscribed(ClientId, Topic) ->
     ?assert(
         wait_until(
-            fun() -> emqx_bcast_subscription:match(ClientId, Topic) =/= false end,
+            fun() -> client_subscribed(ClientId, Topic) end,
             100
         )
     ).
+
+client_subscribed(ClientId, Topic) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [Pid | _] ->
+            lists:any(
+                fun({Filter, _}) -> emqx_topic:match(Topic, Filter) end,
+                emqx_broker:subscriptions(Pid)
+            );
+        _ ->
+            false
+    end.
+
+client_unsubscribed(ClientId, Topic) ->
+    not client_subscribed(ClientId, Topic).
 
 %% The connected hook casts into emqx_bcast_pull_pool asynchronously; poll the
 %% device table until the registration has landed instead of sleeping.
@@ -470,10 +484,7 @@ t_unsubscribe_no_delivery(_Config) ->
     unsub(C1, topic(<<"e2e_unsub_1">>)),
     ?assert(
         wait_until(
-            fun() ->
-                emqx_bcast_subscription:match(<<"e2e_unsub_1">>, topic(<<"e2e_unsub_1">>)) =:= false
-            end,
-            100
+            fun() -> client_unsubscribed(<<"e2e_unsub_1">>, topic(<<"e2e_unsub_1">>)) end, 100
         )
     ),
     {ok, 200, _, _} = api_call(#{
@@ -494,12 +505,7 @@ t_unsubscribe_then_resubscribe_replay(_Config) ->
     wait_subscribed(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)),
     unsub(C1, topic(<<"e2e_usr_1">>)),
     ?assert(
-        wait_until(
-            fun() ->
-                emqx_bcast_subscription:match(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)) =:= false
-            end,
-            100
-        )
+        wait_until(fun() -> client_unsubscribed(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)) end, 100)
     ),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
@@ -512,12 +518,7 @@ t_unsubscribe_then_resubscribe_replay(_Config) ->
     ?assertEqual(0, length(Msgs1)),
     sub_default(C1, <<"e2e_usr_1">>),
     ?assert(
-        wait_until(
-            fun() ->
-                emqx_bcast_subscription:match(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)) =/= false
-            end,
-            100
-        )
+        wait_until(fun() -> client_subscribed(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)) end, 100)
     ),
     Msgs2 = recv(1),
     ?assertEqual(1, length(Msgs2)),

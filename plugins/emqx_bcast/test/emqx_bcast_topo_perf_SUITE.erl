@@ -321,7 +321,20 @@ recv(Count, Msgs) ->
 wait_sub(Node, ClientId, Topic) ->
     wait_until(
         fun() ->
-            erpc:call(Node, emqx_bcast_subscription, match, [ClientId, Topic]) =/= false
+            erpc:call(
+                Node,
+                fun() ->
+                    case emqx_cm:lookup_channels(ClientId) of
+                        [Pid | _] ->
+                            lists:any(
+                                fun({Filter, _}) -> emqx_topic:match(Topic, Filter) end,
+                                emqx_broker:subscriptions(Pid)
+                            );
+                        _ ->
+                            false
+                    end
+                end
+            )
         end,
         100
     ).

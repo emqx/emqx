@@ -2,10 +2,19 @@
 
 The plugin provides product-level device message delivery on top of EMQX:
 an HTTP API accepts a message and a target set of devices, and the plugin
-delivers it directly to the connected client processes, bypassing
-subscription state and ACL checks. Devices are addressed by
-`ProductKey` + `DeviceName`, derived from the MQTT username
-(`ProductKey-DeviceName`) via EMQX namespace attributes.
+delivers it directly to the connected client processes via internal
+channels, bypassing ACL checks. Delivery is gated by the device's MQTT
+subscription: only devices subscribed to the delivery topic receive the
+message. Subscription state is read live from EMQX's own subscription
+tables (`emqx_broker:subscriptions/1`) at delivery time; the plugin keeps
+no mirror. Devices are addressed by `ProductKey` + `DeviceName`, derived
+from the MQTT username (`ProductKey-DeviceName`) via EMQX namespace
+attributes.
+
+Listener mountpoints and `namespace_as_mountpoint` are not supported:
+with either configured, the topic filters in EMQX's subscription tables
+are prefixed by the mountpoint, which does not match the plugin's
+unmounted delivery topics.
 
 ## Actions
 
