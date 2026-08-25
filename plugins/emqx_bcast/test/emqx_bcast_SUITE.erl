@@ -139,8 +139,13 @@ t_refresh_message_ttl(_Config) ->
     Payload = <<"ttl test">>,
     Hash = crypto:hash(sha256, Payload),
     emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+    Now = emqx_bcast_utils:now_sec(),
+    %% backdate expiry so a refresh is observable
+    {atomic, ok} = mnesia:transaction(fun() ->
+        [M] = mnesia:wread({bcast_message, MsgGuid}),
+        mnesia:write(M#bcast_message{expires_at = Now - 100})
+    end),
     {ok, Msg1} = emqx_bcast_storage:lookup_message(MsgGuid),
-    timer:sleep(1100),
     emqx_bcast_storage:refresh_message_ttl(MsgGuid),
     {ok, Msg2} = emqx_bcast_storage:lookup_message(MsgGuid),
     ?assert(Msg2#bcast_message.expires_at > Msg1#bcast_message.expires_at).
@@ -318,9 +323,10 @@ t_message_acked_hook(_Config) ->
     ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
     %% delivery record removed after the target ack count is reached
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
-    %% duplicate ack is idempotent and does not crash
+    %% duplicate ack is idempotent and does not crash: the ack path is a cast
+    %% into emqx_bcast_ack_pool, so sys:get_state guarantees it was processed
     ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
-    timer:sleep(300),
+    _ = sys:get_state(emqx_bcast_ack_pool),
     ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
     %% messages without plugin headers pass through untouched
     Plain = emqx_message:make(DN, 0, <<"/t">>, <<"p">>),
@@ -416,7 +422,9 @@ t_force_upgrade_false_qos1_sub(_Config) ->
     },
     {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
     ?assert(wait_metric(<<"batch_pub_qos1_delivered">>, BeforeInline + 1)),
-    timer:sleep(200),
+    %% The ack path is a cast into emqx_bcast_ack_pool; sys:get_state makes
+    %% the "nothing was acked" assertion deterministic instead of a bare sleep.
+    _ = sys:get_state(emqx_bcast_ack_pool),
     ?assertEqual(0, metric(<<"batch_pub_qos1_acked">>) - BeforeAcked),
     flush_mailbox(),
     persistent_term:put({?APP, config}, Cfg).
@@ -438,7 +446,9 @@ t_force_upgrade_true_qos0_sub(_Config) ->
     },
     {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
     ?assert(wait_metric(<<"batch_pub_qos1_delivered">>, BeforeInline + 1)),
-    timer:sleep(200),
+    %% The ack path is a cast into emqx_bcast_ack_pool; sys:get_state makes
+    %% the "nothing was acked" assertion deterministic instead of a bare sleep.
+    _ = sys:get_state(emqx_bcast_ack_pool),
     ?assertEqual(0, metric(<<"batch_pub_qos1_acked">>) - BeforeAcked),
     flush_mailbox(),
     persistent_term:put({?APP, config}, Cfg).
