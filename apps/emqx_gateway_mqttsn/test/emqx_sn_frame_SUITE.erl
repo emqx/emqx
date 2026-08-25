@@ -141,6 +141,39 @@ t_willmsgresp(_) ->
     UpdResp = #mqtt_sn_message{type = ?SN_WILLMSGRESP, variable = 0},
     ?assertEqual(UpdResp, parse(serialize_pkt(UpdResp))).
 
+-doc """
+Checks that a length mismatch raises `{malformed_message_len, Info}` where `Info`
+carries the expected and received variable-part byte sizes, and that a truncated
+datagram (fewer bytes than declared) also carries a hint naming the udp_options
+config keys.
+""".
+t_malformed_message_len_report(_) ->
+    %% A PUBLISH declaring 32777 bytes but delivered as 8192 bytes
+    %% (the OS default UDP receive buffer size).
+    Truncated = <<16#01, 32777:16, 16#0C, 0:8, 1:16, 0:16, (binary:copy(<<$A>>, 8183))/binary>>,
+    ?assertError(
+        {malformed_message_len, #{
+            expected_variable_byte_size := 32773,
+            received_variable_byte_size := 8188,
+            hint := <<"fewer bytes", _/binary>>
+        }},
+        emqx_mqttsn_frame:parse(Truncated, #{})
+    ),
+    %% More bytes than declared: sizes are reported, no truncation hint.
+    Excess = <<7:8, 16#0C, 0:8, 1:16, 0:16, "junk">>,
+    try emqx_mqttsn_frame:parse(Excess, #{}) of
+        Parsed -> ct:fail({expected_error, Parsed})
+    catch
+        error:{malformed_message_len, Info} ->
+            ?assertEqual(
+                #{
+                    expected_variable_byte_size => 5,
+                    received_variable_byte_size => 9
+                },
+                Info
+            )
+    end.
+
 t_random_test(_) ->
     random_test_body(),
     random_test_body(),
@@ -152,10 +185,12 @@ t_random_test(_) ->
 random_test_body() ->
     Data = generate_random_binary(),
     case catch parse(Data) of
-        Msg when is_record(Msg, mqtt_sn_message) -> ok;
+        Msg when is_record(Msg, mqtt_sn_message) ->
+            ok;
+        {'EXIT', {{malformed_message_len, _Info}, _Stack}} ->
+            ok;
         {'EXIT', {Err, _Stack}} when
             Err =:= unkown_message_type;
-            Err =:= malformed_message_len;
             Err =:= malformed_message_flags
         ->
             ok
