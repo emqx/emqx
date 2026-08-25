@@ -13,6 +13,19 @@
 -define(BCAST_PRODUCT_KEY, bcast_product_key).
 -define(BCAST_REGISTRY, bcast).
 
+%% Core-local Mnesia tables:
+%%   bcast_message        -- one row per registered message payload
+%%   bcast_message_api_id -- maps the API-facing MessageId (UUID string) to msg_id
+%%   bcast_message_hash   -- maps SHA-256 content hash to msg_id (dedup)
+%%   bcast_msg            -- one row per BatchPub QoS=1 delivery call
+%%   bcast_msg_index      -- per-device pending delivery queue
+%% Node-local ETS tables (not in Mnesia):
+%%   bcast_device_sub     -- online device -> {ProductKey, DeviceName}
+%%   bcast_subscription   -- per-client topic filters, maintained by hooks
+%%   bcast_buffer_a/b     -- active/inactive delivery buffers in pull_pool
+%%   bcast_buffer3        -- want_next dedup staging in pull_pool
+%%   bcast_pull_inflight  -- claim-in-flight guard (window=1)
+
 -record(bcast_message, {
     msg_id :: binary(),
     api_msg_id :: binary(),
@@ -46,9 +59,12 @@
 }).
 
 -record(bcast_msg_index, {
-    key :: {binary(), binary()},
-    deliveries :: [{binary(), stored | {pending, non_neg_integer()}}]
+    key :: {ProductKey :: binary(), DeviceName :: binary()},
+    deliveries :: [bcast_index_entry()]
 }).
+
+-type bcast_delivery_state() :: stored | {pending, PendingTs :: non_neg_integer()}.
+-type bcast_index_entry() :: {DeliveryId :: binary(), bcast_delivery_state()}.
 
 -record(bcast_device_sub, {
     key :: {binary(), binary()},
