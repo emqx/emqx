@@ -57,6 +57,7 @@ Returns policy depending on the current security profile.
     (internal_subscription_checks) -> boolean();
     (authz_context) -> legacy | restricted;
     (delayed_publish_reauthorization) -> boolean();
+    (exhook_server_unavailable) -> honor_failed_action | deny;
     (exhook_message_publish_failure) -> ignore | deny;
     (plugin_install_sha256_binding) -> optional | required.
 policy(mqtt_default_bind) ->
@@ -123,6 +124,11 @@ policy(delayed_publish_reauthorization) ->
     case profile() of
         legacy -> false;
         hardened -> true
+    end;
+policy(exhook_server_unavailable) ->
+    case profile() of
+        legacy -> honor_failed_action;
+        hardened -> deny
     end;
 policy(exhook_message_publish_failure) ->
     case profile() of
