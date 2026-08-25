@@ -13,23 +13,35 @@
 -include("emqx_bcast.hrl").
 
 handle(Method, Path, Request) ->
-    case emqx_bcast:is_core() of
-        true ->
-            handle_local(Method, Path, Request);
-        false ->
-            Core = emqx_bcast:random_core(),
-            case
-                emqx_rpc:call(?MODULE, Core, ?MODULE, handle_local, [Method, Path, Request], 30000)
-            of
-                {badrpc, Reason} ->
-                    {error, 500, #{},
-                        error_response(
-                            emqx_bcast_utils:gen_api_uuid(),
-                            <<"InternalError">>,
-                            iolist_to_binary(io_lib:format("~p", [Reason]))
-                        )};
-                Result ->
-                    Result
+    case {Method, Path} of
+        {get, [<<"metrics">>]} ->
+            %% Metrics are node-local counters (delivered/acked live on the
+            %% node that served the device). Serve them locally instead of
+            %% forwarding to a random core: a forwarded scrape would report a
+            %% random core's counters and make replicant-local counters
+            %% invisible. Scrapers must aggregate all nodes.
+            handle_local(get, [<<"metrics">>], Request);
+        _ ->
+            case emqx_bcast:is_core() of
+                true ->
+                    handle_local(Method, Path, Request);
+                false ->
+                    Core = emqx_bcast:random_core(),
+                    case
+                        emqx_rpc:call(
+                            ?MODULE, Core, ?MODULE, handle_local, [Method, Path, Request], 30000
+                        )
+                    of
+                        {badrpc, Reason} ->
+                            {error, 500, #{},
+                                error_response(
+                                    emqx_bcast_utils:gen_api_uuid(),
+                                    <<"InternalError">>,
+                                    iolist_to_binary(io_lib:format("~p", [Reason]))
+                                )};
+                        Result ->
+                            Result
+                    end
             end
     end.
 

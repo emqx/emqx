@@ -320,9 +320,11 @@ This endpoint is separate from the built-in EMQX Prometheus endpoints.
 | `bcast_register_message_error` | RegisterMessage errors |
 
 `delivered` and `acked` are node-local counters: they increment on the node
-that delivers or receives the PUBACK, so aggregate across all nodes for the
-cluster total. They are also updated by asynchronous workers, so they lag the
-API response by the time the queued tasks take to execute.
+that delivers or receives the PUBACK. Every node exposes only its own
+counters at this endpoint (including replicants; the request is not
+forwarded to a core), so to get the cluster total you must scrape **every
+node** and sum the values. They are also updated by asynchronous workers, so
+they lag the API response by the time the queued tasks take to execute.
 
 QoS=1 delivery completion is tracked by comparing `wanted` against `acked`
 (a delivery is fully acknowledged when `acked` reaches `wanted` per DeliveryId).
@@ -334,7 +336,11 @@ scrape_configs:
   - job_name: emqx_bcast
     metrics_path: /api/v5/plugin_api/emqx_bcast/metrics
     static_configs:
-      - targets: ['emqx:18083']
+      - targets:
+          - 'emqx-core-1:18083'
+          - 'emqx-core-2:18083'
+          - 'emqx-replicant-1:18083'
+          - 'emqx-replicant-2:18083'
     basic_auth:
       username: <api_key>
       password: <api_secret>

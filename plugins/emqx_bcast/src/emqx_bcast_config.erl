@@ -33,7 +33,12 @@ load() ->
     update(Config).
 
 update(Config) ->
-    persistent_term:put({?APP, config}, normalize(Config)).
+    persistent_term:put({?APP, config}, normalize(Config)),
+    %% Re-schedule the cleanup timer so a changed cleanup_interval takes
+    %% effect without a node restart. The gen_server only runs on core
+    %% nodes, so catch the cast on replicants.
+    catch gen_server:cast(emqx_bcast_cleanup, reschedule),
+    ok.
 
 %% The plugin config map from emqx_plugins uses binary keys (JSON-decoded),
 %% while the normalized config in persistent_term uses atoms.
