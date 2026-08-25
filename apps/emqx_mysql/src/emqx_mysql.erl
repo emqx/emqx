@@ -55,7 +55,7 @@
     default_port => ?MYSQL_DEFAULT_PORT
 }).
 
--type template() :: {unicode:chardata(), emqx_template:str()}.
+-type template() :: {unicode:chardata(), emqx_template:str()} | emqx_mysql_sql:plan().
 -type state() ::
     #{
         pool_name := binary(),
@@ -461,10 +461,9 @@ parse_prepare_sql(Key, Query, Acc) ->
 parse_batch_sql(Key, Query, Acc) ->
     case emqx_utils_sql:get_statement_type(Query) of
         insert ->
-            case emqx_utils_sql:parse_insert(Query) of
-                {ok, {Insert, Params}} ->
-                    RowTemplate = emqx_template_sql:parse(Params),
-                    Acc#{{Key, batch} => {Insert, RowTemplate}};
+            case emqx_mysql_sql:compile(Query) of
+                {ok, Plan} ->
+                    Acc#{{Key, batch} => Plan};
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "parse insert sql statement failed",
@@ -504,22 +503,17 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) -
 proc_sql_params(_TypeOrKey, SQLOrData, Params, _State) ->
     {SQLOrData, Params}.
 
-on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate}, State, ChannelConfig) ->
-    Rows = [render_row(RowTemplate, Msg, ChannelConfig) || {_, Msg} <- BatchReqs],
-    Query = [InsertPart, <<" values ">> | lists:join($,, Rows)],
-    on_sql_query(InstId, query, Query, no_params, default_timeout, State).
-
-render_row(RowTemplate, Data, ChannelConfig) ->
-    RenderOpts =
-        case maps:get(undefined_vars_as_null, ChannelConfig, false) of
-            % NOTE:
-            %  Ignoring errors here, missing variables are set to "'undefined'" due to backward
-            %  compatibility requirements.
-            false -> #{escaping => mysql, undefined => <<"undefined">>};
-            true -> #{escaping => mysql}
-        end,
-    {Row, _Errors} = emqx_template_sql:render(RowTemplate, {emqx_jsonish, Data}, RenderOpts),
-    Row.
+on_batch_insert(InstId, BatchReqs, Plan, State, ChannelConfig) ->
+    DataList = [Msg || {_, Msg} <- BatchReqs],
+    RenderOpts = #{
+        undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConfig, false)
+    },
+    case emqx_mysql_sql:render_batch(Plan, DataList, RenderOpts) of
+        {ok, Query} ->
+            on_sql_query(InstId, query, Query, no_params, default_timeout, State);
+        {error, Reason} ->
+            {error, {unrecoverable_error, Reason}}
+    end.
 
 on_sql_query(
     InstId,
