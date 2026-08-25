@@ -55,6 +55,22 @@
   "en": "Maximum message size (bytes) for BatchPub. Binary size, not Base64 encoded.",
   "zh": "BatchPub 单条消息的最大字节数（纯二进制大小，非 Base64 编码后的大小）。"
  },
+ "$max_pending_deliveries_label": {
+  "en": "Max Pending Deliveries",
+  "zh": "最大待投递数"
+ },
+ "$max_pending_deliveries_desc": {
+  "en": "Global cap on pending QoS=1 deliveries stored in core. BatchPub requests that would exceed this cap are rejected with 429 QuotaExceeded.",
+  "zh": "core 中存储的 QoS=1 待投递总数上限。超过此上限的 BatchPub 请求返回 429 QuotaExceeded。"
+ },
+ "$max_pending_deliveries_per_device_label": {
+  "en": "Max Pending Deliveries Per Device",
+  "zh": "单设备最大待投递数"
+ },
+ "$max_pending_deliveries_per_device_desc": {
+  "en": "Per-device cap on pending QoS=1 deliveries (clamped to 10-200). BatchPub requests targeting a device over this cap are rejected with 429 QuotaExceeded and the over-limit device list.",
+  "zh": "单个设备的 QoS=1 待投递上限（限制在 10-200 之间）。目标设备超过此上限的 BatchPub 请求返回 429 QuotaExceeded 并携带超限设备列表。"
+ },
  "$msg_warn_threshold_label": {
   "en": "Message Warn Threshold",
   "zh": "消息告警阈值"

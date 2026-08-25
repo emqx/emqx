@@ -939,6 +939,91 @@ t_register_message_id_wrong_type(_Config) ->
     ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, Resp)).
 
 %%--------------------------------------------------------------------
+%% Pending delivery quota tests
+%%--------------------------------------------------------------------
+
+-doc "BatchPub QoS=1 rejects devices that would exceed the per-device pending quota.".
+t_quota_per_device_exceeded(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    persistent_term:put(
+        {?APP, config}, Cfg#{max_pending_deliveries_per_device => 10}
+    ),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, <<"h">>, <<"p">>),
+    %% Pre-fill 10 pending deliveries for D1 so a new one would exceed 10.
+    lists:foreach(
+        fun(_) ->
+            emqx_bcast_storage:create_delivery(
+                emqx_bcast_utils:gen_guid(), MsgGuid, <<"PQ">>, <<"tpl">>, [<<"D1">>], 1
+            )
+        end,
+        lists:seq(1, 10)
+    ),
+    Body = #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"PQ">>,
+        <<"DeviceName">> => [<<"D1">>, <<"D2">>],
+        <<"MessageContent">> => <<"aGVsbG8=">>,
+        <<"Qos">> => 1
+    },
+    {ok, 429, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ?assertEqual(<<"QuotaExceeded">>, maps:get(<<"Code">>, Resp)),
+    ?assertEqual([<<"D1">>], maps:get(<<"Devices">>, Resp)),
+    persistent_term:put({?APP, config}, Cfg).
+
+-doc "BatchPub QoS=1 passes when the per-device pending count is within quota.".
+t_quota_per_device_within(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    persistent_term:put(
+        {?APP, config}, Cfg#{max_pending_deliveries_per_device => 10}
+    ),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, <<"h">>, <<"p">>),
+    lists:foreach(
+        fun(_) ->
+            emqx_bcast_storage:create_delivery(
+                emqx_bcast_utils:gen_guid(), MsgGuid, <<"PQ">>, <<"tpl">>, [<<"D1">>], 1
+            )
+        end,
+        lists:seq(1, 9)
+    ),
+    Body = #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"PQ">>,
+        <<"DeviceName">> => [<<"D1">>],
+        <<"MessageContent">> => <<"aGVsbG8=">>,
+        <<"Qos">> => 1
+    },
+    {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ?assert(maps:get(<<"Success">>, Resp)),
+    persistent_term:put({?APP, config}, Cfg).
+
+-doc "BatchPub QoS=1 rejects when the global pending delivery quota would be exceeded.".
+t_quota_global_exceeded(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    persistent_term:put({?APP, config}, Cfg#{max_pending_deliveries => 2}),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, <<"h">>, <<"p">>),
+    lists:foreach(
+        fun(DN) ->
+            emqx_bcast_storage:create_delivery(
+                emqx_bcast_utils:gen_guid(), MsgGuid, <<"PQ">>, <<"tpl">>, [DN], 1
+            )
+        end,
+        [<<"D1">>, <<"D2">>]
+    ),
+    Body = #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"PQ">>,
+        <<"DeviceName">> => [<<"D3">>],
+        <<"MessageContent">> => <<"aGVsbG8=">>,
+        <<"Qos">> => 1
+    },
+    {ok, 429, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ?assertEqual(<<"QuotaExceeded">>, maps:get(<<"Code">>, Resp)),
+    persistent_term:put({?APP, config}, Cfg).
+
+%%--------------------------------------------------------------------
 %% PubBroadcast API tests
 %%--------------------------------------------------------------------
 

@@ -146,7 +146,8 @@ Key metrics to watch:
 | `max_device_count` | `10000` | Max DeviceName list size per BatchPub call |
 | `max_message_size_broadcast` | `65536` | Max PubBroadcast payload (bytes, 64 KiB) |
 | `max_message_size_batch` | `10240` | Max BatchPub payload binary (bytes, 10 KiB) |
-| `msg_warn_threshold` | `100000` | Log warning when pending messages exceed this |
+| `max_pending_deliveries` | `10000000` | Global cap on pending QoS=1 deliveries; requests exceeding it are rejected with 429 QuotaExceeded |
+| `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); requests targeting a device over the cap are rejected with 429 QuotaExceeded and the over-limit device list |
 | `delivery_pool_size` | `0` | Number of async workers for each of the three pools (pull, ack and pull-server). 0 means one worker per scheduler. Changing it restarts the pools |
 
 ---

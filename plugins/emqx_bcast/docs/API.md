@@ -287,6 +287,7 @@ unknown.
 | `UnknownAction` | 400 | Action value is not recognized |
 | `InvalidParams` | 400 | Missing required query parameters on management endpoints |
 | `DeliveryNotFound` | 404 | DeliveryId does not exist (management endpoints) |
+| `QuotaExceeded` | 429 | Pending delivery quota exceeded. For per-device over-limit the body includes a `Devices` array listing the devices over their cap |
 | `InternalError` | 500 | Internal server error |
 
 ---

@@ -98,39 +98,74 @@ do_qos1(DeviceNames, ProductKey, TopicTemplate, MessageContent, MessageId, Reque
     case prepare_qos1_content(MessageContent, MessageId) of
         {error, Code, Msg} ->
             {ok, 400, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg)};
-        {ok, {content, Payload, Hash}} ->
-            {ApiMsgId, MsgGuid} = resolve_content_ids(Hash),
-            DeliveryId = emqx_bcast_utils:gen_guid(),
-            emqx_bcast_metrics:qos1_in(),
-            emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
-            ok = submit_qos1_task(fun() ->
-                persist_content_and_trigger(
-                    Payload,
-                    Hash,
-                    ApiMsgId,
-                    MsgGuid,
-                    DeliveryId,
-                    ProductKey,
-                    TopicTemplate,
-                    DeviceNames
-                )
-            end),
-            {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
-        {ok, {reuse, ApiMsgId, MsgGuid}} ->
-            DeliveryId = emqx_bcast_utils:gen_guid(),
-            emqx_bcast_metrics:qos1_in(),
-            emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
-            ok = submit_qos1_task(fun() ->
-                persist_reuse_and_trigger(
-                    DeliveryId,
-                    MsgGuid,
-                    ProductKey,
-                    TopicTemplate,
-                    DeviceNames
-                )
-            end),
-            {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}
+        {ok, Content} ->
+            case check_delivery_quota(ProductKey, DeviceNames) of
+                ok ->
+                    do_qos1_persist(Content, DeviceNames, ProductKey, TopicTemplate, RequestId);
+                {error, Code, Msg, Extra} ->
+                    {ok, 429, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg, Extra)}
+            end
     end.
+
+%% Reject QoS=1 requests that would push the pending delivery counts over
+%% the configured quotas. Both checks run synchronously before the async
+%% persist task is submitted, so the 429 arrives before any storage write.
+check_delivery_quota(ProductKey, DeviceNames) ->
+    Config = persistent_term:get({?APP, config}, #{}),
+    GlobalMax = maps:get(max_pending_deliveries, Config, 10000000),
+    PerDeviceMax = maps:get(max_pending_deliveries_per_device, Config, 100),
+    case emqx_bcast_storage:pending_delivery_count() + length(DeviceNames) > GlobalMax of
+        true ->
+            {error, <<"QuotaExceeded">>, <<"Pending delivery quota exceeded">>, #{}};
+        false ->
+            OverLimit = [
+                DN
+             || DN <- DeviceNames,
+                emqx_bcast_storage:pending_delivery_count_for({ProductKey, DN}) + 1 >
+                    PerDeviceMax
+            ],
+            case OverLimit of
+                [] ->
+                    ok;
+                _ ->
+                    {error, <<"QuotaExceeded">>, <<"Device pending delivery quota exceeded">>, #{
+                        <<"Devices">> => OverLimit
+                    }}
+            end
+    end.
+
+do_qos1_persist({content, Payload, Hash}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
+    {ApiMsgId, MsgGuid} = resolve_content_ids(Hash),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    emqx_bcast_metrics:qos1_in(),
+    emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
+    ok = submit_qos1_task(fun() ->
+        persist_content_and_trigger(
+            Payload,
+            Hash,
+            ApiMsgId,
+            MsgGuid,
+            DeliveryId,
+            ProductKey,
+            TopicTemplate,
+            DeviceNames
+        )
+    end),
+    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
+do_qos1_persist({reuse, ApiMsgId, MsgGuid}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    emqx_bcast_metrics:qos1_in(),
+    emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
+    ok = submit_qos1_task(fun() ->
+        persist_reuse_and_trigger(
+            DeliveryId,
+            MsgGuid,
+            ProductKey,
+            TopicTemplate,
+            DeviceNames
+        )
+    end),
+    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
 
 resolve_content_ids(Hash) ->
     case emqx_bcast_storage:lookup_message_by_hash(Hash) of

@@ -57,9 +57,22 @@ normalize(Config) ->
         max_device_count => maps:get(<<"max_device_count">>, Config, 10000),
         max_message_size_broadcast => maps:get(<<"max_message_size_broadcast">>, Config, 65536),
         max_message_size_batch => maps:get(<<"max_message_size_batch">>, Config, 10240),
+        max_pending_deliveries => maps:get(<<"max_pending_deliveries">>, Config, 10000000),
+        max_pending_deliveries_per_device => clamp_per_device(
+            maps:get(<<"max_pending_deliveries_per_device">>, Config, 100)
+        ),
         msg_warn_threshold => maps:get(<<"msg_warn_threshold">>, Config, 100000),
         delivery_pool_size => pool_size(maps:get(<<"delivery_pool_size">>, Config, 0))
     }.
+
+%% Per-device quota is bounded to [10, 200] so an operator cannot
+%% accidentally disable the protection or configure an unbounded value.
+clamp_per_device(N) when is_integer(N), N >= 10, N =< 200 ->
+    N;
+clamp_per_device(N) when is_integer(N), N < 10 ->
+    10;
+clamp_per_device(_) ->
+    200.
 
 pool_size(0) -> erlang:system_info(schedulers);
 pool_size(N) when is_integer(N), N > 0 -> N;

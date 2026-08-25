@@ -19,7 +19,8 @@ emqx_bcast {
     max_device_count = 10000
     max_message_size_broadcast = 65536    # 64 KiB
     max_message_size_batch = 10240        # 10 KiB (binary)
-    msg_warn_threshold = 100000
+    max_pending_deliveries = 10000000     # global cap on pending QoS=1 deliveries
+    max_pending_deliveries_per_device = 100  # per-device cap (clamped 10-200)
 }
 ```
 

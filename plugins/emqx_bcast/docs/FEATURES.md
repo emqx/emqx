@@ -87,7 +87,8 @@ flush policy.
 | `max_device_count` | `10000` | Max devices per BatchPub call |
 | `max_message_size_broadcast` | `65536` | Max PubBroadcast payload bytes |
 | `max_message_size_batch` | `10240` | Max BatchPub payload bytes (binary) |
-| `msg_warn_threshold` | `100000` | Warn when pending messages exceed this |
+| `max_pending_deliveries` | `10000000` | Global cap on pending QoS=1 deliveries; QoS=1 BatchPub requests that would exceed it are rejected with 429 QuotaExceeded |
+| `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); requests targeting a device over the cap are rejected with 429 QuotaExceeded and the over-limit device list |
 | `delivery_pool_size` | `0` | Async workers for each of the three pools; 0 = one per scheduler |
 
 ## Metrics

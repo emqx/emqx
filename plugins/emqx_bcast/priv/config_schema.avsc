@@ -80,6 +80,28 @@
       }
     },
     {
+      "name": "max_pending_deliveries",
+      "type": "int",
+      "default": 10000000,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "label": "$max_pending_deliveries_label",
+        "description": "$max_pending_deliveries_desc"
+      }
+    },
+    {
+      "name": "max_pending_deliveries_per_device",
+      "type": "int",
+      "default": 100,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "label": "$max_pending_deliveries_per_device_label",
+        "description": "$max_pending_deliveries_per_device_desc"
+      }
+    },
+    {
       "name": "msg_warn_threshold",
       "type": "int",
       "default": 100000,

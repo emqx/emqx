@@ -60,7 +60,16 @@
 
 -record(bcast_msg_index, {
     key :: {ProductKey :: binary(), DeviceName :: binary()},
-    deliveries :: [bcast_index_entry()]
+    deliveries :: [bcast_index_entry()],
+    count :: non_neg_integer()
+}).
+
+%% Cluster-wide counter of pending index entries (one row, key = global).
+%% Kept in mnesia so quota checks read a single record instead of scanning
+%% the whole bcast_msg_index / bcast_msg tables.
+-record(bcast_quota, {
+    key :: global,
+    count :: non_neg_integer()
 }).
 
 -type bcast_delivery_state() :: stored | {pending, PendingTs :: non_neg_integer()}.

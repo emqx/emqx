@@ -34,6 +34,7 @@
 -define(TAB_MSG_HASH, bcast_message_hash).
 -define(TAB_MSG_REC, bcast_msg).
 -define(TAB_MSG_IDX, bcast_msg_index).
+-define(TAB_QUOTA, bcast_quota).
 -define(TAB_DEV_SUB, bcast_device_sub).
 
 -define(SUBS_PD, {?MODULE, subscriptions}).
@@ -132,7 +133,8 @@ create_mnesia_tables() ->
                 {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id)},
                 {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash)},
                 {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg)},
-                {?TAB_MSG_IDX, bcast_msg_index, record_info(fields, bcast_msg_index)}
+                {?TAB_MSG_IDX, bcast_msg_index, record_info(fields, bcast_msg_index)},
+                {?TAB_QUOTA, bcast_quota, record_info(fields, bcast_quota)}
             ],
             lists:foreach(
                 fun({Tab, RecordName, Attributes}) ->
@@ -182,7 +184,8 @@ ensure_core_copies() ->
                 ?TAB_MSG_API_ID,
                 ?TAB_MSG_HASH,
                 ?TAB_MSG_REC,
-                ?TAB_MSG_IDX
+                ?TAB_MSG_IDX,
+                ?TAB_QUOTA
             ],
             lists:foreach(
                 fun(Tab) ->

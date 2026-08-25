@@ -19,7 +19,9 @@
     add_index_entries/3,
     remove_index_entries/3,
     get_device_deliveries/1,
-    get_device_delivery_entries/1
+    get_device_delivery_entries/1,
+    pending_delivery_count/0,
+    pending_delivery_count_for/1
 ]).
 
 %% Acking and claim (core authoritative paths).
@@ -48,6 +50,7 @@
 -define(TAB_MSG_HASH, bcast_message_hash).
 -define(TAB_MSG_REC, bcast_msg).
 -define(TAB_MSG_IDX, bcast_msg_index).
+-define(TAB_QUOTA, bcast_quota).
 
 %%--------------------------------------------------------------------
 %% Message create / lookup
@@ -245,19 +248,22 @@ add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, State) ->
     lists:foreach(
         fun(DN) ->
             Key = {ProductKey, DN},
-            Entries =
+            Index =
                 case mnesia:wread({?TAB_MSG_IDX, Key}) of
-                    [#bcast_msg_index{deliveries = Es}] -> Es;
-                    [] -> []
+                    [#bcast_msg_index{deliveries = Es, count = C}] -> {Es, C};
+                    [] -> {[], 0}
                 end,
+            {Entries, Count} = Index,
             case lists:keymember(DeliveryId, 1, Entries) of
                 true ->
                     ok;
                 false ->
                     mnesia:write(#bcast_msg_index{
                         key = Key,
-                        deliveries = [{DeliveryId, State} | Entries]
-                    })
+                        deliveries = [{DeliveryId, State} | Entries],
+                        count = Count + 1
+                    }),
+                    inc_quota_tx(1)
             end
         end,
         DeviceNames
@@ -265,13 +271,23 @@ add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, State) ->
 
 remove_index_entry_tx(Key, DeliveryId) ->
     case mnesia:wread({?TAB_MSG_IDX, Key}) of
-        [#bcast_msg_index{deliveries = Entries}] ->
+        [#bcast_msg_index{deliveries = Entries, count = Count}] ->
             NewEntries = lists:keydelete(DeliveryId, 1, Entries),
-            case NewEntries of
-                [] ->
-                    mnesia:delete({?TAB_MSG_IDX, Key});
-                _ ->
-                    mnesia:write(#bcast_msg_index{key = Key, deliveries = NewEntries})
+            case length(NewEntries) =:= length(Entries) of
+                true ->
+                    ok;
+                false ->
+                    inc_quota_tx(-1),
+                    case NewEntries of
+                        [] ->
+                            mnesia:delete({?TAB_MSG_IDX, Key});
+                        _ ->
+                            mnesia:write(#bcast_msg_index{
+                                key = Key,
+                                deliveries = NewEntries,
+                                count = Count - 1
+                            })
+                    end
             end;
         [] ->
             ok
@@ -291,6 +307,40 @@ get_device_delivery_entries({ProductKey, DeviceName}) ->
             {ok, Entries};
         [] ->
             {ok, []}
+    end.
+
+%% Total pending deliveries across all devices, maintained as a single
+%% counter record: every index entry insert/remove adjusts it inside the
+%% same transaction, so quota checks read one record instead of scanning
+%% the whole index. The bcast_quota table only lives on core nodes.
+pending_delivery_count() ->
+    case mnesia:dirty_read(?TAB_QUOTA, global) of
+        [#bcast_quota{count = N}] -> N;
+        [] -> 0
+    end.
+
+inc_quota_tx(Delta) ->
+    Count =
+        case mnesia:wread({?TAB_QUOTA, global}) of
+            [#bcast_quota{count = N}] -> N;
+            [] -> 0
+        end,
+    case Count + Delta of
+        0 ->
+            mnesia:delete({?TAB_QUOTA, global});
+        NewCount when NewCount > 0 ->
+            mnesia:write(#bcast_quota{key = global, count = NewCount});
+        _ ->
+            %% Defensive: never let the counter go negative.
+            mnesia:delete({?TAB_QUOTA, global})
+    end,
+    ok.
+
+%% Pending deliveries for one device: the count field of its index record.
+pending_delivery_count_for({ProductKey, DeviceName}) ->
+    case mnesia:dirty_read(?TAB_MSG_IDX, {ProductKey, DeviceName}) of
+        [#bcast_msg_index{count = Count}] -> Count;
+        [] -> 0
     end.
 
 %%--------------------------------------------------------------------
@@ -324,6 +374,7 @@ process_ack_one_tx(ProductKey, DeviceName, DeliveryId) ->
         [#bcast_msg_index{deliveries = Entries}] ->
             case lists:keytake(DeliveryId, 1, Entries) of
                 {value, {DeliveryId, _State}, NewEntries} ->
+                    inc_quota_tx(-1),
                     write_index_entries(Key, NewEntries),
                     case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
                         [#bcast_msg{counter = C, target_ack_count = T} = D] ->
@@ -362,7 +413,11 @@ process_ack_one_tx(ProductKey, DeviceName, DeliveryId) ->
 write_index_entries(Key, []) ->
     mnesia:delete({?TAB_MSG_IDX, Key});
 write_index_entries(Key, NewEntries) ->
-    mnesia:write(#bcast_msg_index{key = Key, deliveries = NewEntries}).
+    mnesia:write(#bcast_msg_index{
+        key = Key,
+        deliveries = NewEntries,
+        count = length(NewEntries)
+    }).
 
 %% Track how many deliveries reference a message. When the last delivery
 %% completes, delete the message records (payload, hash, api id). This is a
@@ -438,14 +493,14 @@ claim_one_tx(ProductKey, DeviceName, Topics) ->
         [] ->
             no_more;
         [#bcast_msg_index{deliveries = Entries}] ->
-            claim_from_entries(Key, Entries, Topics, ProductKey, DeviceName, [])
+            claim_from_entries(Key, Entries, length(Entries), Topics, ProductKey, DeviceName, [])
     end.
 
-claim_from_entries(_Key, [], _Topics, _PK, _DN, _Kept) ->
+claim_from_entries(_Key, [], _OrigLen, _Topics, _PK, _DN, _Kept) ->
     %% Nothing matched. Do not rewrite the index record: a later subscription
     %% change may make one of the stored entries deliverable.
     no_more;
-claim_from_entries(Key, [{DeliveryId, State} | Rest], Topics, PK, DN, Kept) ->
+claim_from_entries(Key, [{DeliveryId, State} | Rest], OrigLen, Topics, PK, DN, Kept) ->
     case mnesia:read(?TAB_MSG_REC, DeliveryId, read) of
         [#bcast_msg{msg_id = MsgId, topic_template = Template}] ->
             Topic = emqx_bcast_utils:expand_topic(Template, PK, DN),
@@ -459,6 +514,14 @@ claim_from_entries(Key, [{DeliveryId, State} | Rest], Topics, PK, DN, Kept) ->
                             Ts = erlang:system_time(millisecond),
                             NewEntries =
                                 lists:reverse(Kept) ++ [{DeliveryId, {pending, Ts}} | Rest],
+                            %% Dropped stale entries no longer count toward
+                            %% the quota; the count field is derived from the
+                            %% new list length by write_index_entries.
+                            Dropped = OrigLen - length(NewEntries),
+                            case Dropped > 0 of
+                                true -> inc_quota_tx(-Dropped);
+                                false -> ok
+                            end,
                             write_index_entries(Key, NewEntries),
                             {ok, #{
                                 delivery_id => DeliveryId,
@@ -468,17 +531,17 @@ claim_from_entries(Key, [{DeliveryId, State} | Rest], Topics, PK, DN, Kept) ->
                             }};
                         [] ->
                             %% Stale index: remove the entry and keep looking.
-                            claim_from_entries(Key, Rest, Topics, PK, DN, Kept)
+                            claim_from_entries(Key, Rest, OrigLen, Topics, PK, DN, Kept)
                     end;
                 false ->
-                    claim_from_entries(Key, Rest, Topics, PK, DN, [
+                    claim_from_entries(Key, Rest, OrigLen, Topics, PK, DN, [
                         {DeliveryId, State}
                         | Kept
                     ])
             end;
         [] ->
             %% Stale index entry: drop it and keep looking.
-            claim_from_entries(Key, Rest, Topics, PK, DN, Kept)
+            claim_from_entries(Key, Rest, OrigLen, Topics, PK, DN, Kept)
     end.
 
 topics_match(_Topic, []) ->
@@ -496,7 +559,7 @@ release_claim(ProductKey, DeviceName, Did) ->
     Key = {ProductKey, DeviceName},
     {atomic, ok} = transaction(fun() ->
         case mnesia:wread({?TAB_MSG_IDX, Key}) of
-            [#bcast_msg_index{deliveries = Entries}] ->
+            [#bcast_msg_index{deliveries = Entries, count = Count}] ->
                 NewEntries = lists:map(
                     fun
                         ({EntryId, {pending, _}}) when EntryId =:= Did -> {EntryId, stored};
@@ -504,7 +567,9 @@ release_claim(ProductKey, DeviceName, Did) ->
                     end,
                     Entries
                 ),
-                mnesia:write(#bcast_msg_index{key = Key, deliveries = NewEntries});
+                mnesia:write(#bcast_msg_index{
+                    key = Key, deliveries = NewEntries, count = Count
+                });
             [] ->
                 ok
         end

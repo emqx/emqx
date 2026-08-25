@@ -7,7 +7,8 @@
     handle/3,
     handle_local/3,
     success_response/2,
-    error_response/3
+    error_response/3,
+    error_response/4
 ]).
 
 -include("emqx_bcast.hrl").
@@ -73,12 +74,18 @@ handle_local(_Method, _Path, _Request) ->
     {error, not_found}.
 
 error_response(RequestId, Code, Message) ->
-    #{
-        <<"Success">> => false,
-        <<"RequestId">> => RequestId,
-        <<"Code">> => Code,
-        <<"ErrorMessage">> => Message
-    }.
+    error_response(RequestId, Code, Message, #{}).
+
+error_response(RequestId, Code, Message, Extra) ->
+    maps:merge(
+        #{
+            <<"Success">> => false,
+            <<"RequestId">> => RequestId,
+            <<"Code">> => Code,
+            <<"ErrorMessage">> => Message
+        },
+        Extra
+    ).
 
 success_response(RequestId, MessageId) ->
     #{
