@@ -39,6 +39,10 @@
 -export([rest_reply_delegator/3]).
 -export([set_health/3]).
 
+-export_type([
+    proto_record/0
+]).
+
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
@@ -550,7 +554,9 @@ do_fold_grpc_optvar_results(Keys) ->
         end,
         Results
     ),
+    %% {disconnected, unhealthy_target} > disconnected > connecting > connected
     ToStatus = fun
+        ({S, {unhealhy_target, _}}) -> {S, unhealthy_target};
         ({S, _Reason}) -> S;
         (S) -> S
     end,
@@ -737,8 +743,16 @@ create_channel(ConnResId, ChanResId, ChanConfig, #{?transport := {?grpc, _}} = C
             #{type := json} ->
                 ?json;
             #{type := proto} ->
-                Proto = get_serde(Record0),
-                {?proto, Proto}
+                case emqx_bridge_zerobus_utils:get_serde(Record0) of
+                    {ok, Proto} ->
+                        {?proto, Proto};
+                    {error, schema_not_found} ->
+                        throw(~"Schema not found");
+                    {error, bad_type} ->
+                        throw(~"Invalid schema type; must be protobuf");
+                    {error, message_type_not_found} ->
+                        throw(~"Message type not found in protobuf schema/bundle")
+                end
         end,
     Opts = #{
         action_res_id => ChanResId,
@@ -876,59 +890,6 @@ unregister_oauth2(ConnResId, ChanResId) ->
     emqx_connector_oauth2:unregister(ChanResId),
     deallocate(ConnResId, ?oauth2(ChanResId)),
     ok.
-
--spec get_serde(record_config()) -> proto_record().
-get_serde(Record) ->
-    #{
-        schema_name := SerdeName,
-        message_type := MessageType
-    } = Record,
-    case emqx_schema_registry:get_serde(SerdeName) of
-        {error, not_found} ->
-            throw(~"Schema not found");
-        {ok, #serde{type = Type}} when Type /= ?protobuf ->
-            throw(~"Invalid schema type; must be protobuf");
-        {ok, #serde{type = ?protobuf, eval_context = SerdeMod}} ->
-            FileDescriptorSetBin = apply(SerdeMod, descriptor, []),
-            FileDescriptorSet = emqx_bridge_zerobus_gen_descriptor_pb:decode_msg(
-                FileDescriptorSetBin, 'FileDescriptorSet'
-            ),
-            DescriptorProtoBin = find_descriptor_proto(FileDescriptorSet, MessageType),
-            MessageTypeAtom = binary_to_existing_atom(MessageType, utf8),
-            #{
-                ?serde_name => SerdeName,
-                ?message_type => MessageTypeAtom,
-                ?descriptor => DescriptorProtoBin
-            }
-    end.
-
-find_descriptor_proto(FileDescriptorSet, MessageType) ->
-    #{file := Files} = FileDescriptorSet,
-    case do_find_descriptor_proto_file(Files, MessageType) of
-        error ->
-            throw(~"Message type not found in protobuf schema/bundle");
-        {ok, DescriptorProto} ->
-            emqx_bridge_zerobus_gen_descriptor_pb:encode_msg(
-                DescriptorProto, 'DescriptorProto'
-            )
-    end.
-
-do_find_descriptor_proto_file([], _MessageType) ->
-    error;
-do_find_descriptor_proto_file([#{message_type := Types} | Rest], MessageType) ->
-    case do_find_descriptor_proto_message_type(Types, MessageType) of
-        error ->
-            do_find_descriptor_proto_file(Rest, MessageType);
-        {ok, DescriptorProto} ->
-            {ok, DescriptorProto}
-    end.
-
-do_find_descriptor_proto_message_type([], _MessageType) ->
-    error;
-do_find_descriptor_proto_message_type([#{name := MessageType} = DescriptorProto | _], MessageType) ->
-    {ok, DescriptorProto};
-do_find_descriptor_proto_message_type([_ | Rest], MessageType) ->
-    do_find_descriptor_proto_message_type(Rest, MessageType).
 
 do_insert_batch(
     Records0, ?sync, ChanState, #{?transport := {?rest, _}} = _ConnState, ConnResId, ChanResId

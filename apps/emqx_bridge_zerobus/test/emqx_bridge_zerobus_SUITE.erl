@@ -598,6 +598,17 @@ simple_protobuf_schema1() ->
         }
     """.
 
+simple_protobuf_schema2() ->
+    ~"""
+        syntax = "proto2";
+
+        package air_quality;
+
+        message table_air_quality {
+        	optional string new_field = 1;
+        }
+    """.
+
 create_serde(TCConfig) ->
     create_serde(TCConfig, _Opts = #{}).
 
@@ -767,6 +778,22 @@ run_real_sql(#{mock := false} = TCConfig, Opts) ->
             ),
         emqx_utils_json:decode(RespBody)
     end.
+
+list_create_stream_reqs(TCConfig) when is_list(TCConfig) ->
+    list_create_stream_reqs(maps:from_list(TCConfig));
+list_create_stream_reqs(#{mock := false}) ->
+    error(not_mocked);
+list_create_stream_reqs(#{mock := true} = TCConfig) ->
+    #{mocked_call_tab := Tab} = TCConfig,
+    lists:filtermap(
+        fun
+            ({_, #{type := create_stream} = Call}) ->
+                {true, Call};
+            (_) ->
+                false
+        end,
+        ets:tab2list(Tab)
+    ).
 
 simple_create_rule_api(TCConfig) ->
     simple_create_rule_api(default_sql(), TCConfig).
@@ -2571,17 +2598,161 @@ t_close_stream(TCConfig) ->
     ?assertReceive({grpc_server_handler_exit, _}),
     ok.
 
-%% -doc """
-%% When the schema used by an already-running channel changes, it needs to get the new
-%% descriptor proto and re-open the stream.
-%% """.
-%% t_proto_schema_changed_while_running() ->
-%%     [{matrix, true}, {mock_only, true}].
-%% t_proto_schema_changed_while_running(matrix) ->
-%%     [[?grpc, ?proto, ?async, ?batching]];
-%% t_proto_schema_changed_while_running(TCConfig) when is_list(TCConfig) ->
-%%     ct:fail(todo),
-%%     ok.
+-doc """
+When the schema used by an already-running channel changes, it needs to get the new
+descriptor proto and re-open the stream.
+
+This covers the happy path.
+""".
+t_proto_schema_changed_while_running() ->
+    [{matrix, true}, {mock_only, true}].
+t_proto_schema_changed_while_running(matrix) ->
+    [[?grpc, ?proto, ?async, ?batching]];
+t_proto_schema_changed_while_running(TCConfig) when is_list(TCConfig) ->
+    PoolSize = 2,
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"transport" => #{~"pool_size" => PoolSize}
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+    SQL = ~"""
+      select
+        payload.new_field as new_field
+      from '${t}'
+    """,
+    #{topic := RuleTopic} = simple_create_rule_api(SQL, TCConfig),
+    C = start_client(),
+    %% new schema
+    ct:pal("updating schema"),
+    {ok, SRef0} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := "zerobus_opening_stream"}),
+        PoolSize,
+        5_000
+    ),
+    update_serde(TCConfig, #{
+        ~"type" => ~"protobuf",
+        ~"source" => simple_protobuf_schema2()
+    }),
+    {ok, _} = snabbkaffe:receive_events(SRef0),
+    Payload = emqx_utils_json:encode(#{~"new_field" => ~"hello"}),
+    emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            [
+                #{req := #{descriptor_proto := OldDescriptor}},
+                #{req := #{descriptor_proto := OldDescriptor}},
+                #{req := #{descriptor_proto := NewDescriptor}},
+                #{req := #{descriptor_proto := NewDescriptor}}
+            ] when OldDescriptor /= NewDescriptor,
+            list_create_stream_reqs(TCConfig)
+        )
+    ),
+    ?retry(
+        700,
+        10,
+        ?assertMatch(
+            {200, #{
+                ~"metrics" := #{
+                    ~"matched" := 1,
+                    ~"success" := 1,
+                    ~"failed" := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                ~"status" := ~"connected"
+            }},
+            get_action_api(TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+When the schema used by an already-running channel changes, it needs to get the new
+descriptor proto and re-open the stream.
+
+This covers errors such as message type not found, bad serde type, ...
+""".
+t_proto_schema_changed_while_running_errors() ->
+    [{matrix, true}, {mock_only, true}].
+t_proto_schema_changed_while_running_errors(matrix) ->
+    [[?grpc, ?proto, ?async, ?batching]];
+t_proto_schema_changed_while_running_errors(TCConfig) when is_list(TCConfig) ->
+    PoolSize = 2,
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"transport" => #{~"pool_size" => PoolSize}
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+
+    ct:pal("updating schema: message type is gone"),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            update_serde(TCConfig, #{
+                ~"type" => ~"protobuf",
+                ~"source" =>
+                    ~"""
+                        syntax = "proto2";
+
+                        package air_quality;
+
+                        message new_message_type {
+                                optional string new_field = 1;
+                        }
+                    """
+            }),
+            #{?snk_kind := "zerobus_get_serde_error"},
+            5_000
+        ),
+    ExpectedReason1 = iolist_to_binary(
+        io_lib:format("~p", [
+            {unhealthy_target, ~"Message type not found in protobuf schema/bundle"}
+        ])
+    ),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                ~"status" := ~"disconnected",
+                ~"status_reason" := ExpectedReason1
+            }},
+            get_action_api(TCConfig)
+        )
+    ),
+
+    ct:pal("updating schema: serde type is wrong"),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            update_serde(TCConfig, #{
+                ~"type" => ~"json",
+                ~"source" => ~"{}"
+            }),
+            #{?snk_kind := "zerobus_get_serde_error"},
+            5_000
+        ),
+    ExpectedReason2 = iolist_to_binary(
+        io_lib:format("~p", [{unhealthy_target, ~"Invalid schema type; must be protobuf"}])
+    ),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                ~"status" := ~"disconnected",
+                ~"status_reason" := ExpectedReason2
+            }},
+            get_action_api(TCConfig)
+        )
+    ),
+
+    ok.
 
 %% todo
 %%  - stale responses

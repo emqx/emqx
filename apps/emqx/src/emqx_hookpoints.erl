@@ -73,7 +73,8 @@
     'config.zones_updated',
     'api_actor.pre_create',
     'namespace.delete',
-    'namespace.resource_pre_create'
+    'namespace.resource_pre_create',
+    'schema_registry.serde_updated'
 ]).
 
 -define(HOOKPOINTS, (?MQTT_CLIENT_LIFECYCLE_HOOKPOINTS ++ ?MANAGEMENT_HOOKPOINTS)).

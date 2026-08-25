@@ -11,6 +11,7 @@
 
     acked/3,
     errored/3,
+    serde_updated/2,
     ingest_record_batch_sync/3,
     ingest_record_batch_async/3
 ]).
@@ -19,6 +20,7 @@
 -export([sync_reply_delegator/2]).
 -export([unregister_stream/2]).
 -export([where/2]).
+-export([gproc_name/2]).
 -export([grpc_recv_single_resp1/2]).
 
 %% `gen_server' API
@@ -50,6 +52,7 @@
 -record(ingest_record_batch_async, {records :: [binary()], reply_fn}).
 -record(acked, {n_restarts, last_acked_seq}).
 -record(errored, {n_restarts, error}).
+-record(serde_updated, {serde_name}).
 
 -define(SERVICE, 'databricks.zerobus.Zerobus').
 -define(PROTO_MODULE, 'emqx_bridge_zerobus_gen_zerobus_service_pb').
@@ -126,6 +129,10 @@ ingest_record_batch_async(Pool, Records, ReplyFnAndArgs) ->
         }),
         {ok, Pid}
     end.
+
+serde_updated(Pid, SerdeName0) ->
+    SerdeName = emqx_utils_conv:bin(SerdeName0),
+    gen_server:cast(Pid, #serde_updated{serde_name = SerdeName}).
 
 %%------------------------------------------------------------------------------
 %% `gen_server' API
@@ -209,6 +216,13 @@ handle_cast(#ingest_record_batch_async{records = Records, reply_fn = ReplyFnAndA
         {?reopen, State} ->
             {noreply, State, {continue, #open_stream{}}}
     end;
+handle_cast(#serde_updated{serde_name = SerdeName}, State0) ->
+    case handle_serde_updated(SerdeName, State0) of
+        {?continue, State} ->
+            {noreply, State};
+        {?reopen, State} ->
+            {noreply, State, {continue, #open_stream{}}}
+    end;
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -230,6 +244,9 @@ handle_info(_Info, State) ->
 unregister_stream(ActionResId, Idx) ->
     true = ets:delete(?META_TAB, ?META_STREAM_KEY(ActionResId, Idx)),
     ok.
+
+gproc_name(ActionResId, Idx) ->
+    ?name(ActionResId, Idx).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -467,6 +484,31 @@ handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
             {?reopen, State2}
     end.
 
+handle_serde_updated(SerdeName, State0) ->
+    case State0 of
+        #{?record := {?proto, #{?serde_name := SerdeName} = OldProto}} ->
+            #{?message_type := MessageTypeAtom, ?descriptor := OldDescriptor} = OldProto,
+            MessageTypeBin = atom_to_binary(MessageTypeAtom, utf8),
+            Opts = #{schema_name => SerdeName, message_type => MessageTypeBin},
+            case emqx_bridge_zerobus_utils:get_serde(Opts) of
+                {ok, #{?descriptor := OldDescriptor}} ->
+                    {?continue, State0};
+                {ok, NewProto} ->
+                    State = State0#{?record := {?proto, NewProto}},
+                    {?reopen, State};
+                {error, Reason} ->
+                    Msg = map_get_serde_error(Reason),
+                    #{?action_res_id := ActionResId, ?idx := Idx} = State0,
+                    set_health(ActionResId, Idx, {?status_disconnected, {unhealthy_target, Msg}}),
+                    ?tp("zerobus_get_serde_error", #{}),
+                    %% no point in reopening the stream, since this needs manual
+                    %% intervention that'll restart the action.
+                    {?continue, State0}
+            end;
+        _ ->
+            {?continue, State0}
+    end.
+
 grpc_meta(State) ->
     #{
         ?action_res_id := ActionResId,
@@ -672,3 +714,12 @@ handle_insert_result({error, Reason}) ->
     {error, {unrecoverable_error, Reason}};
 handle_insert_result(Res) ->
     Res.
+
+map_get_serde_error(schema_not_found) ->
+    %% should be a rare race condition, since we've just been notified of this serde
+    %% changing (not being deleted).
+    ~"Schema not found";
+map_get_serde_error(bad_type) ->
+    ~"Invalid schema type; must be protobuf";
+map_get_serde_error(message_type_not_found) ->
+    ~"Message type not found in protobuf schema/bundle".
