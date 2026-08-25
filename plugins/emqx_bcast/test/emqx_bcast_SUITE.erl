@@ -83,6 +83,7 @@ init_test_config() ->
 %% Config tests
 %%--------------------------------------------------------------------
 
+-doc "Plugin config defaults are populated with the documented values.".
 t_config_defaults(_Config) ->
     Cfg = persistent_term:get({?APP, config}),
     ?assertEqual(10000, maps:get(max_device_count, Cfg)),
@@ -96,6 +97,7 @@ t_config_defaults(_Config) ->
 %% ID Mapping tests
 %%--------------------------------------------------------------------
 
+-doc "generate_message_id returns distinct API UUID and internal GUID.".
 t_generate_message_id(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     ?assert(is_binary(ApiMsgId)),
@@ -103,9 +105,11 @@ t_generate_message_id(_Config) ->
     ?assertEqual(16, byte_size(MsgGuid)),
     ?assert(ApiMsgId =/= MsgGuid).
 
+-doc "resolve_message_id returns not_found for an unknown API id.".
 t_resolve_message_id_not_found(_Config) ->
     ?assertEqual({error, not_found}, emqx_bcast_id:resolve_message_id(<<"nonexistent">>)).
 
+-doc "resolve_message_id maps a stored API id back to the GUID.".
 t_resolve_message_id_found(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Hash = crypto:hash(sha256, <<"test payload">>),
@@ -116,6 +120,7 @@ t_resolve_message_id_found(_Config) ->
 %% Storage / Mnesia tests
 %%--------------------------------------------------------------------
 
+-doc "create_message stores payload, hash and api id; lookup returns them.".
 t_create_and_lookup_message(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = <<"hello world">>,
@@ -126,6 +131,7 @@ t_create_and_lookup_message(_Config) ->
     ?assertEqual(Hash, Msg#bcast_message.content_hash),
     ?assertEqual(ApiMsgId, Msg#bcast_message.api_msg_id).
 
+-doc "lookup_message_by_hash finds a message by its content hash.".
 t_lookup_by_hash(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = <<"dedup test">>,
@@ -134,6 +140,7 @@ t_lookup_by_hash(_Config) ->
     {ok, Msg} = emqx_bcast_storage:lookup_message_by_hash(Hash),
     ?assertEqual(MsgGuid, Msg#bcast_message.msg_id).
 
+-doc "refresh_message_ttl extends expires_at past the backdated expiry.".
 t_refresh_message_ttl(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = <<"ttl test">>,
@@ -150,6 +157,7 @@ t_refresh_message_ttl(_Config) ->
     {ok, Msg2} = emqx_bcast_storage:lookup_message(MsgGuid),
     ?assert(Msg2#bcast_message.expires_at > Msg1#bcast_message.expires_at).
 
+-doc "create_delivery indexes the delivery for every target device.".
 t_create_delivery(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = <<"delivery test">>,
@@ -164,6 +172,7 @@ t_create_delivery(_Config) ->
     {ok, Ids} = emqx_bcast_storage:get_device_deliveries({PK, <<"D1">>}),
     ?assertEqual([DeliveryId], Ids).
 
+-doc "process_ack removes the delivery index entry for the acking device.".
 t_process_ack(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = <<"ack test">>,
@@ -179,6 +188,7 @@ t_process_ack(_Config) ->
     {ok, IdsB} = emqx_bcast_storage:get_device_deliveries({PK, <<"DB">>}),
     ?assertEqual([DeliveryId], IdsB).
 
+-doc "the delivery record is deleted once all devices have acked.".
 t_process_ack_all_devices(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = <<"ack all">>,
@@ -191,6 +201,7 @@ t_process_ack_all_devices(_Config) ->
     emqx_bcast_storage:process_ack(PK, <<"DX">>, DeliveryId),
     ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
 
+-doc "duplicate acks are idempotent and do not corrupt the index.".
 t_process_ack_duplicate(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = <<"dup ack">>,
@@ -205,6 +216,7 @@ t_process_ack_duplicate(_Config) ->
     {ok, Ids} = emqx_bcast_storage:get_device_deliveries({PK, <<"DE">>}),
     ?assertEqual([DeliveryId], Ids).
 
+-doc "cleanup_expired removes deliveries past their expiry.".
 t_cleanup_expired_delivery(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = <<"expire test">>,
@@ -222,6 +234,7 @@ t_cleanup_expired_delivery(_Config) ->
 %% Utils tests
 %%--------------------------------------------------------------------
 
+-doc "expand_topic substitutes productKey and deviceName placeholders.".
 t_topic_expansion(_Config) ->
     Result = emqx_bcast_utils:expand_topic(
         <<"/${productKey}/${deviceName}/user/get">>,
@@ -230,10 +243,12 @@ t_topic_expansion(_Config) ->
     ),
     ?assertEqual(<<"/P1/D1/user/get">>, Result).
 
+-doc "sha256 returns a 32-byte digest.".
 t_sha256(_Config) ->
     Hash = emqx_bcast_utils:sha256(<<"test">>),
     ?assertEqual(32, byte_size(Hash)).
 
+-doc "decode_base64 handles valid input and rejects invalid encoding.".
 t_base64_decode(_Config) ->
     ?assertEqual({ok, <<"hello">>}, emqx_bcast_utils:decode_base64(<<"aGVsbG8=">>)),
     ?assertEqual({error, invalid_base64}, emqx_bcast_utils:decode_base64(<<"!!!">>)).
@@ -242,15 +257,19 @@ t_base64_decode(_Config) ->
 %% Topic matching tests
 %%--------------------------------------------------------------------
 
+-doc "exact topic filters match the concrete topic.".
 t_topic_match_exact(_Config) ->
     ?assert(emqx_topic:match(<<"/P1/D1/user/get">>, <<"/P1/D1/user/get">>)).
 
+-doc "plus wildcards match a single topic level.".
 t_topic_match_plus(_Config) ->
     ?assert(emqx_topic:match(<<"/P1/D1/user/get">>, <<"/P1/+/user/get">>)).
 
+-doc "hash wildcards match any number of trailing levels.".
 t_topic_match_hash(_Config) ->
     ?assert(emqx_topic:match(<<"/P1/D1/user/get">>, <<"/P1/#">>)).
 
+-doc "unrelated filters do not match the topic.".
 t_topic_match_no_match(_Config) ->
     ?assertNot(emqx_topic:match(<<"/P1/D1/user/get">>, <<"/P2/+/user/get">>)).
 
@@ -258,22 +277,26 @@ t_topic_match_no_match(_Config) ->
 %% Subscription QoS match tests
 %%--------------------------------------------------------------------
 
+-doc "subscription match returns the stored subscription QoS.".
 t_sub_match_returns_qos(_Config) ->
     emqx_bcast_subscription:init(),
     emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D1/user/get">>, 0}),
     ?assertEqual({ok, 0}, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
 
+-doc "overlapping filters resolve to the highest QoS.".
 t_sub_match_max_qos_overlapping(_Config) ->
     emqx_bcast_subscription:init(),
     emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/+/user/get">>, 0}),
     emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D1/user/get">>, 1}),
     ?assertEqual({ok, 1}, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
 
+-doc "subscription match is false without a matching filter.".
 t_sub_match_no_match(_Config) ->
     emqx_bcast_subscription:init(),
     emqx_bcast_subscription:add(<<"dev1">>, self(), {<<"/P1/D2/user/get">>, 1}),
     ?assertEqual(false, emqx_bcast_subscription:match(<<"dev1">>, <<"/P1/D1/user/get">>)).
 
+-doc "stale unsubscribe/disconnect from an old connection is ignored.".
 t_sub_takeover_pid_guard(_Config) ->
     emqx_bcast_subscription:init(),
     Old = spawn(fun() ->
@@ -302,6 +325,7 @@ t_sub_takeover_pid_guard(_Config) ->
     Old ! stop,
     New ! stop.
 
+-doc "message.acked removes the delivery; duplicate acks are idempotent.".
 t_message_acked_hook(_Config) ->
     PK = <<"PC">>,
     DN = <<"DC1">>,
@@ -332,6 +356,7 @@ t_message_acked_hook(_Config) ->
     Plain = emqx_message:make(DN, 0, <<"/t">>, <<"p">>),
     ok = emqx_bcast:on_message_acked(#{clientid => DN}, Plain).
 
+-doc "concurrent identical RegisterMessage calls yield one MessageId.".
 t_register_message_concurrent_dedup(_Config) ->
     Content = base64:encode(crypto:strong_rand_bytes(16)),
     Body = #{
@@ -358,6 +383,7 @@ t_register_message_concurrent_dedup(_Config) ->
     Ids = lists:usort([maps:get(<<"MessageId">>, Resp) || {ok, 200, _, Resp} <- Results]),
     ?assertEqual(1, length(Ids)).
 
+-doc "re-registering content refreshes the message TTL.".
 t_register_message_ttl_refresh(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = crypto:strong_rand_bytes(16),
@@ -384,6 +410,7 @@ t_register_message_ttl_refresh(_Config) ->
 %% Force upgrade QoS tests
 %%--------------------------------------------------------------------
 
+-doc "force_upgrade_qos=false with a QoS=0 sub delivers and self-acks as QoS=0.".
 t_force_upgrade_false_qos0_sub(_Config) ->
     Cfg = persistent_term:get({?APP, config}),
     persistent_term:put({?APP, config}, Cfg#{force_upgrade_qos => false}),
@@ -405,6 +432,7 @@ t_force_upgrade_false_qos0_sub(_Config) ->
     flush_mailbox(),
     persistent_term:put({?APP, config}, Cfg).
 
+-doc "force_upgrade_qos=false with a QoS=1 sub delivers at QoS=1 and waits for ack.".
 t_force_upgrade_false_qos1_sub(_Config) ->
     Cfg = persistent_term:get({?APP, config}),
     persistent_term:put({?APP, config}, Cfg#{force_upgrade_qos => false}),
@@ -429,6 +457,7 @@ t_force_upgrade_false_qos1_sub(_Config) ->
     flush_mailbox(),
     persistent_term:put({?APP, config}, Cfg).
 
+-doc "force_upgrade_qos=true keeps QoS=1 even for a QoS=0 subscription.".
 t_force_upgrade_true_qos0_sub(_Config) ->
     Cfg = persistent_term:get({?APP, config}),
     persistent_term:put({?APP, config}, Cfg#{force_upgrade_qos => true}),
@@ -479,6 +508,7 @@ flush_mailbox() ->
 %% Async delivery pool tests
 %%--------------------------------------------------------------------
 
+-doc "QoS=1 BatchPub stores the delivery and the pull pool delivers it.".
 t_qos1_batchpub_stores_then_delivers_via_pull(_Config) ->
     emqx_bcast:register_device(<<"P1">>, <<"DQ">>, self()),
     emqx_bcast_subscription:init(),
@@ -504,6 +534,7 @@ t_qos1_batchpub_stores_then_delivers_via_pull(_Config) ->
     flush_mailbox(),
     ok.
 
+-doc "BatchPub by MessageId refreshes the message TTL asynchronously.".
 t_async_ttl_refresh(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Payload = crypto:strong_rand_bytes(16),
@@ -534,6 +565,7 @@ t_async_ttl_refresh(_Config) ->
         )
     ).
 
+-doc "QoS=0 broadcast delivers to all locally subscribed devices.".
 t_qos0_broadcast_delivers_locally(_Config) ->
     PK = <<"PR">>,
     N = 50,
@@ -564,6 +596,7 @@ count_deliver_messages() ->
     after 0 -> 0
     end.
 
+-doc "index add/remove are idempotent for repeated calls.".
 t_index_add_remove_idempotent(_Config) ->
     PK = <<"PI">>,
     DNs = [<<"D1">>, <<"D2">>],
@@ -576,11 +609,13 @@ t_index_add_remove_idempotent(_Config) ->
     ok = emqx_bcast_storage:remove_index_entries(PK, DNs, Did),
     {ok, []} = emqx_bcast_storage:get_device_deliveries({PK, <<"D1">>}).
 
+-doc "pull pool buffer tables exist after pool start.".
 t_pull_pool_buffers_initialized(_Config) ->
     ?assertNotEqual(undefined, ets:info(bcast_buffer_a)),
     ?assertNotEqual(undefined, ets:info(bcast_buffer_b)),
     ?assertNotEqual(undefined, ets:info(bcast_buffer3)).
 
+-doc "missing Action returns 400 MissingAction.".
 t_api_missing_action(_Config) ->
     Body = #{<<"ProductKey">> => <<"P1">>},
     Request = #{body => Body},
@@ -588,12 +623,14 @@ t_api_missing_action(_Config) ->
     ?assertEqual(false, maps:get(<<"Success">>, Resp)),
     ?assertEqual(<<"MissingAction">>, maps:get(<<"Code">>, Resp)).
 
+-doc "unknown Action returns 400 UnknownAction.".
 t_api_unknown_action(_Config) ->
     Body = #{<<"Action">> => <<"BadAction">>},
     Request = #{body => Body},
     {error, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"UnknownAction">>, maps:get(<<"Code">>, Resp)).
 
+-doc "unknown API path returns not_found.".
 t_api_not_found(_Config) ->
     {error, not_found} = emqx_bcast_api:handle(get, [<<"pub">>], #{}).
 
@@ -601,6 +638,7 @@ t_api_not_found(_Config) ->
 %% RegisterMessage API tests
 %%--------------------------------------------------------------------
 
+-doc "RegisterMessage creates a message and returns its MessageId.".
 t_register_message_create(_Config) ->
     Body = #{
         <<"Action">> => <<"RegisterMessage">>,
@@ -612,6 +650,7 @@ t_register_message_create(_Config) ->
     ?assert(is_binary(maps:get(<<"MessageId">>, Resp))),
     ?assert(is_binary(maps:get(<<"RequestId">>, Resp))).
 
+-doc "identical content returns the same MessageId.".
 t_register_message_dedup(_Config) ->
     Body = #{
         <<"Action">> => <<"RegisterMessage">>,
@@ -622,6 +661,7 @@ t_register_message_dedup(_Config) ->
     {ok, _, _, Resp2} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(maps:get(<<"MessageId">>, Resp1), maps:get(<<"MessageId">>, Resp2)).
 
+-doc "refreshing an unknown MessageId returns 400 MessageNotFound.".
 t_register_message_refresh_not_found(_Config) ->
     Body = #{
         <<"Action">> => <<"RegisterMessage">>,
@@ -631,6 +671,7 @@ t_register_message_refresh_not_found(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, Resp)).
 
+-doc "MessageContent and MessageId together return 400.".
 t_register_message_mutual_exclusion(_Config) ->
     Body = #{
         <<"Action">> => <<"RegisterMessage">>,
@@ -641,6 +682,7 @@ t_register_message_mutual_exclusion(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"MessageIdContentConflict">>, maps:get(<<"Code">>, Resp)).
 
+-doc "invalid Base64 returns 400 InvalidBase64.".
 t_register_message_invalid_base64(_Config) ->
     Body = #{
         <<"Action">> => <<"RegisterMessage">>,
@@ -650,6 +692,7 @@ t_register_message_invalid_base64(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"InvalidBase64">>, maps:get(<<"Code">>, Resp)).
 
+-doc "payloads over max_message_size_batch return 400 MessageTooLarge.".
 t_register_message_too_large(_Config) ->
     Cfg = persistent_term:get({?APP, config}),
     MaxSize = maps:get(max_message_size_batch, Cfg, 10240),
@@ -662,6 +705,7 @@ t_register_message_too_large(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"MessageTooLarge">>, maps:get(<<"Code">>, Resp)).
 
+-doc "RegisterMessage with no content or id returns 400.".
 t_register_message_empty(_Config) ->
     Body = #{<<"Action">> => <<"RegisterMessage">>},
     Request = #{body => Body},
@@ -672,6 +716,7 @@ t_register_message_empty(_Config) ->
 %% BatchPub API tests
 %%--------------------------------------------------------------------
 
+-doc "QoS=0 inline BatchPub is accepted.".
 t_batch_pub_qos0_inline(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -685,6 +730,7 @@ t_batch_pub_qos0_inline(_Config) ->
     ?assert(maps:get(<<"Success">>, Resp)),
     ?assert(is_binary(maps:get(<<"MessageId">>, Resp))).
 
+-doc "QoS=1 inline BatchPub is accepted.".
 t_batch_pub_qos1_inline(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -697,6 +743,7 @@ t_batch_pub_qos1_inline(_Config) ->
     {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assert(maps:get(<<"Success">>, Resp)).
 
+-doc "BatchPub by MessageId reuses the stored payload and returns the id.".
 t_batch_pub_messageid_reuse(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     Hash = crypto:hash(sha256, <<"reuse">>),
@@ -713,6 +760,7 @@ t_batch_pub_messageid_reuse(_Config) ->
     ?assert(maps:get(<<"Success">>, Resp)),
     ?assertEqual(ApiMsgId, maps:get(<<"MessageId">>, Resp)).
 
+-doc "BatchPub with an unknown MessageId returns 400 MessageNotFound.".
 t_batch_pub_messageid_not_found(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -725,6 +773,7 @@ t_batch_pub_messageid_not_found(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, Resp)).
 
+-doc "TopicTemplateName overrides the delivery topic.".
 t_batch_pub_topic_template_name(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -738,6 +787,7 @@ t_batch_pub_topic_template_name(_Config) ->
     {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assert(maps:get(<<"Success">>, Resp)).
 
+-doc "TopicShortName builds the delivery topic suffix.".
 t_batch_pub_topic_short_name(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -751,6 +801,7 @@ t_batch_pub_topic_short_name(_Config) ->
     {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assert(maps:get(<<"Success">>, Resp)).
 
+-doc "BatchPub without topic params uses the configured default topic.".
 t_batch_pub_default_topic(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -763,6 +814,7 @@ t_batch_pub_default_topic(_Config) ->
     {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assert(maps:get(<<"Success">>, Resp)).
 
+-doc "duplicate DeviceName entries return 400 DuplicateDeviceName.".
 t_batch_pub_duplicate_devices(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -775,6 +827,7 @@ t_batch_pub_duplicate_devices(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"DuplicateDeviceName">>, maps:get(<<"Code">>, Resp)).
 
+-doc "missing DeviceName returns 400 InvalidDeviceName.".
 t_batch_pub_missing_devices(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -786,6 +839,7 @@ t_batch_pub_missing_devices(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"InvalidDeviceName">>, maps:get(<<"Code">>, Resp)).
 
+-doc "MessageContent and MessageId together return 400.".
 t_batch_pub_content_id_conflict(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -799,6 +853,7 @@ t_batch_pub_content_id_conflict(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"MessageIdContentConflict">>, maps:get(<<"Code">>, Resp)).
 
+-doc "BatchPub with neither content nor id returns 400.".
 t_batch_pub_neither_content_nor_id(_Config) ->
     Body = #{
         <<"Action">> => <<"BatchPub">>,
@@ -814,6 +869,7 @@ t_batch_pub_neither_content_nor_id(_Config) ->
 %% PubBroadcast API tests
 %%--------------------------------------------------------------------
 
+-doc "PubBroadcast accepts a custom TopicFullName.".
 t_broadcast_with_topic_full_name(_Config) ->
     Body = #{
         <<"Action">> => <<"PubBroadcast">>,
@@ -825,6 +881,7 @@ t_broadcast_with_topic_full_name(_Config) ->
     {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assert(maps:get(<<"Success">>, Resp)).
 
+-doc "PubBroadcast without ProductKey returns 400 InvalidProductKey.".
 t_broadcast_missing_product_key(_Config) ->
     Body = #{
         <<"Action">> => <<"PubBroadcast">>,
@@ -834,6 +891,7 @@ t_broadcast_missing_product_key(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"InvalidProductKey">>, maps:get(<<"Code">>, Resp)).
 
+-doc "PubBroadcast without content returns 400.".
 t_broadcast_missing_content(_Config) ->
     Body = #{
         <<"Action">> => <<"PubBroadcast">>,
@@ -843,6 +901,7 @@ t_broadcast_missing_content(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"InvalidBase64">>, maps:get(<<"Code">>, Resp)).
 
+-doc "PubBroadcast with invalid Base64 returns 400 InvalidBase64.".
 t_broadcast_invalid_base64(_Config) ->
     Body = #{
         <<"Action">> => <<"PubBroadcast">>,
@@ -866,6 +925,7 @@ metric(Name) ->
 
 mname(Suffix) -> <<"bcast_", Suffix/binary>>.
 
+-doc "QoS=0 BatchPub increments the targeted counter by device count.".
 t_metrics_qos0_targeted(_Config) ->
     Before = metric(<<"batch_pub_qos0_targeted">>),
     Body = #{
@@ -879,6 +939,7 @@ t_metrics_qos0_targeted(_Config) ->
     After = metric(<<"batch_pub_qos0_targeted">>),
     ?assertEqual(3, After - Before).
 
+-doc "PubBroadcast increments the broadcast_pub_in counter.".
 t_metrics_broadcast_in(_Config) ->
     Before = metric(<<"broadcast_pub_in">>),
     Body = #{
@@ -890,6 +951,7 @@ t_metrics_broadcast_in(_Config) ->
     After = metric(<<"broadcast_pub_in">>),
     ?assertEqual(1, After - Before).
 
+-doc "failed PubBroadcast increments the broadcast error counter.".
 t_metrics_broadcast_error(_Config) ->
     Before = metric(<<"broadcast_pub_error">>),
     Body = #{<<"Action">> => <<"PubBroadcast">>, <<"MessageContent">> => <<"!!!">>},
@@ -897,6 +959,7 @@ t_metrics_broadcast_error(_Config) ->
     After = metric(<<"broadcast_pub_error">>),
     ?assertEqual(1, After - Before).
 
+-doc "QoS=1 BatchPub increments the wanted counter by device count.".
 t_metrics_qos1_wanted(_Config) ->
     Before = metric(<<"batch_pub_qos1_wanted">>),
     Body = #{
@@ -910,6 +973,7 @@ t_metrics_qos1_wanted(_Config) ->
     After = metric(<<"batch_pub_qos1_wanted">>),
     ?assertEqual(2, After - Before).
 
+-doc "RegisterMessage increments the register_message_in counter.".
 t_metrics_register_message_in(_Config) ->
     Before = metric(<<"register_message_in">>),
     Body = #{<<"Action">> => <<"RegisterMessage">>, <<"MessageContent">> => <<"dGVzdA==">>},
@@ -921,6 +985,7 @@ t_metrics_register_message_in(_Config) ->
 %% Management API tests
 %%--------------------------------------------------------------------
 
+-doc "list messages paginates with limit/offset and no payload leak.".
 t_mgmt_list_messages_pagination(_Config) ->
     [create_test_msg(<<"mgmt-list-", (integer_to_binary(N))/binary>>) || N <- [1, 2, 3]],
     {ok, 200, _, All} = emqx_bcast_api:handle(get, [<<"messages">>], #{}),
@@ -951,6 +1016,7 @@ t_mgmt_list_messages_pagination(_Config) ->
     Ids2 = [maps:get(<<"MessageId">>, I) || I <- Items2],
     ?assertEqual([], [I || I <- Ids1, lists:member(I, Ids2)]).
 
+-doc "an offset past the end returns an empty page, not a crash.".
 t_mgmt_list_messages_offset_overflow(_Config) ->
     [create_test_msg(<<"mgmt-off-", (integer_to_binary(N))/binary>>) || N <- [1, 2, 3]],
     %% An offset past the last record must return an empty page, not crash.
@@ -959,6 +1025,7 @@ t_mgmt_list_messages_offset_overflow(_Config) ->
     }),
     ?assertEqual([], maps:get(<<"Messages">>, Resp)).
 
+-doc "get message returns metadata and delivery count; unknown id 404s.".
 t_mgmt_get_message(_Config) ->
     {ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt-get">>),
     DeliveryId = emqx_bcast_utils:gen_guid(),
@@ -975,6 +1042,7 @@ t_mgmt_get_message(_Config) ->
     ),
     ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, NotFound)).
 
+-doc "deleting a message cascades to its deliveries and index entries.".
 t_mgmt_delete_message_cascade(_Config) ->
     {ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt-del">>),
     DeliveryId = emqx_bcast_utils:gen_guid(),
@@ -993,6 +1061,7 @@ t_mgmt_delete_message_cascade(_Config) ->
     {error, 404, _, Again} = emqx_bcast_api:handle(delete, [<<"messages">>, ApiMsgId], #{}),
     ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, Again)).
 
+-doc "deliveries for a device list UUIDs and metadata; missing params 400.".
 t_mgmt_deliveries_for_device(_Config) ->
     {ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt-dev">>),
     D1 = emqx_bcast_utils:gen_guid(),
@@ -1029,6 +1098,7 @@ t_mgmt_deliveries_for_device(_Config) ->
     }),
     ?assertEqual(<<"InvalidParams">>, maps:get(<<"Code">>, BadReq)).
 
+-doc "deleting a delivery removes it; unknown or malformed ids 404.".
 t_mgmt_delete_delivery(_Config) ->
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt-ddel">>),
     DeliveryId = emqx_bcast_utils:gen_guid(),
