@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
 
 -define(HOST, "127.0.0.1").
 -define(PORT, 1883).
@@ -76,6 +77,9 @@ connack_props(?CONNACK_PACKET(?RC_SUCCESS, _SP, Props)) ->
 
 set_max(Value) ->
     ok = emqx_config:put_zone_conf(default, [mqtt, max_session_expiry_interval], Value).
+
+send_disconnect(Client, Props) ->
+    ok = emqx_mqtt_test_client:send(Client, ?DISCONNECT_PACKET(?RC_SUCCESS, Props)).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -185,3 +189,77 @@ t_max_zero_clamps_all_v5(_Config) ->
     ?assertEqual(0, maps:get('Session-Expiry-Interval', Props)),
     ?assertEqual(0, stored_expiry_ms(ClientId)),
     ok = emqx_mqtt_test_client:stop(Client).
+
+-doc """
+A Session-Expiry-Interval above the cap in a DISCONNECT packet is clamped
+to the cap, same as at CONNECT.
+""".
+t_disconnect_above_cap_is_clamped(_Config) ->
+    MaxMs = timer:seconds(30),
+    set_max(MaxMs),
+    ClientId = <<"v5-disc-above-cap">>,
+    {Client, _Connack} = connect_v5(
+        ClientId, true, #{'Session-Expiry-Interval' => 10}
+    ),
+    send_disconnect(Client, #{'Session-Expiry-Interval' => 3600}),
+    ?retry(100, 50, ?assertEqual(MaxMs, stored_expiry_ms(ClientId))).
+
+-doc """
+A Session-Expiry-Interval below the cap in a DISCONNECT packet is honored
+unchanged.
+""".
+t_disconnect_below_cap_unchanged(_Config) ->
+    set_max(timer:hours(1)),
+    ClientId = <<"v5-disc-below-cap">>,
+    {Client, _Connack} = connect_v5(
+        ClientId, true, #{'Session-Expiry-Interval' => 10}
+    ),
+    send_disconnect(Client, #{'Session-Expiry-Interval' => 60}),
+    ?retry(100, 50, ?assertEqual(timer:seconds(60), stored_expiry_ms(ClientId))).
+
+-doc """
+With the default `infinity` cap, the Session-Expiry-Interval in a DISCONNECT
+packet is honored verbatim.
+""".
+t_disconnect_infinity_unchanged(_Config) ->
+    %% init_per_testcase already set infinity.
+    ClientId = <<"v5-disc-infinity">>,
+    {Client, _Connack} = connect_v5(
+        ClientId, true, #{'Session-Expiry-Interval' => 10}
+    ),
+    send_disconnect(Client, #{'Session-Expiry-Interval' => 86400}),
+    ?retry(100, 50, ?assertEqual(timer:seconds(86400), stored_expiry_ms(ClientId))).
+
+-doc """
+DISCONNECT with Session-Expiry-Interval = 0 still ends the session when a cap
+is configured; clamping must not turn 0 into a non-zero value.
+""".
+t_disconnect_zero_destroys_session(_Config) ->
+    set_max(timer:seconds(30)),
+    ClientId = <<"v5-disc-zero">>,
+    {Client, _Connack} = connect_v5(
+        ClientId, false, #{'Session-Expiry-Interval' => 10}
+    ),
+    send_disconnect(Client, #{'Session-Expiry-Interval' => 0}),
+    ?retry(100, 50, ?assertEqual(undefined, emqx_cm:get_chan_info(ClientId))),
+    %% The session is gone: a clean_start=false reconnect finds no session.
+    {Client2, Connack2} = connect_v5(ClientId, false, #{}),
+    ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, 0, _), Connack2),
+    ok = emqx_mqtt_test_client:stop(Client2).
+
+-doc """
+CONNECT with Session-Expiry-Interval = 0 followed by DISCONNECT with a
+non-zero value is still a protocol error [MQTT-5.0 3.14.2.2.2]; clamping
+does not shadow that check.
+""".
+t_disconnect_nonzero_after_zero_protocol_error(_Config) ->
+    set_max(timer:seconds(1)),
+    ClientId = <<"v5-disc-proto-err">>,
+    {Client, _Connack} = connect_v5(
+        ClientId, true, #{'Session-Expiry-Interval' => 0}
+    ),
+    send_disconnect(Client, #{'Session-Expiry-Interval' => 5}),
+    ?assertMatch(
+        {ok, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR)},
+        emqx_mqtt_test_client:receive_packet()
+    ).
