@@ -22,7 +22,7 @@ options:
                      release-61
                      release-62
                      release-63
-                     release-64
+                     release-70
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -97,7 +97,7 @@ done
 rel_branch() {
     local tag="$1"
     case "$tag" in
-        6.*-patch.*)
+        6.*-patch.* | 7.*-patch.*)
             echo "patch-${tag%-patch.*}"
             ;;
         6.0.*)
@@ -112,8 +112,8 @@ rel_branch() {
         6.3.*)
             echo 'release-63'
             ;;
-        6.4.*)
-            echo 'release-64'
+        7.0.*)
+            echo 'release-70'
             ;;
         *)
             logerr "Unsupported version tag $TAG"

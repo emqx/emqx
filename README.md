@@ -170,7 +170,7 @@ _build/emqx/rel/emqx/bin/emqx console
 Below are the matrices of supported rolling upgrade paths since 5.0.
 Tables are split for readability; the late-v5 versions (5.8 – 5.10) appear in both.
 
-- Version numbers end with `?` e.g. `6.3?` are future releases.
+- Version numbers end with `?` e.g. `7.0?` are future releases.
 - ✅: Supported, or planed to support.
 - ⚠️:  Supported, but with limitations.
 - ❌: Not supported.
@@ -201,19 +201,22 @@ See release notes for detailed information.
       Alternatively, remove the header configuration for OpenTelemetry integration during the upgrade.
 - [4] Durable session states will be lost after upgraded from v5 to v6. After clients reconnect, the sessions created in the new nodes will appear to be clean.
 
-### Into v6 (5.8 – 6.3?)
+### Into v6 and v7 (5.8 – 7.0?)
 
-| From\To | 5.8  | 5.9   | 5.10  | 6.0   | 6.1   | 6.2  | 6.3?  |
-|---------|------|-------|-------|-------|-------|------|-------|
-| 5.8     | ✅   | ⚠️[3]  | ⚠️[3]  | ⚠️[4]  | ⚠️[4]  | ⚠️[4] | ⚠️[4]  |
-| 5.9     |      | ✅    | ✅    | ⚠️[4]  | ⚠️[4]  | ⚠️[4] | ⚠️[4]  |
-| 5.10    |      |       | ✅    | ⚠️[4]  | ⚠️[4]  | ⚠️[4] | ⚠️[4]  |
-| 6.0     |      |       |       | ✅    | ✅    | ✅   | ✅    |
-| 6.1     |      |       |       |       | ✅    | ✅   | ✅    |
-| 6.2     |      |       |       |       |       | ✅   | ✅    |
-| 6.3?    |      |       |       |       |       |      | ✅    |
+There is no 6.4 release. The 6.x line ends at 6.3, and 7.0 follows it.
 
-- [4] Durable session states will be lost after upgraded from v5 to v6. After clients reconnect, the sessions created in the new nodes will appear to be clean.
+| From\To | 5.8  | 5.9   | 5.10  | 6.0   | 6.1   | 6.2  | 6.3   | 7.0?  |
+|---------|------|-------|-------|-------|-------|------|-------|-------|
+| 5.8     | ✅   | ⚠️[3]  | ⚠️[3]  | ⚠️[4]  | ⚠️[4]  | ⚠️[4] | ⚠️[4]  | 🔄    |
+| 5.9     |      | ✅    | ✅    | ⚠️[4]  | ⚠️[4]  | ⚠️[4] | ⚠️[4]  | 🔄    |
+| 5.10    |      |       | ✅    | ⚠️[4]  | ⚠️[4]  | ⚠️[4] | ⚠️[4]  | 🔄    |
+| 6.0     |      |       |       | ✅    | ✅    | ✅   | ✅    | 🔄    |
+| 6.1     |      |       |       |       | ✅    | ✅   | ✅    | 🔄    |
+| 6.2     |      |       |       |       |       | ✅   | ✅    | 🔄    |
+| 6.3     |      |       |       |       |       |      | ✅    | 🔄    |
+| 7.0?    |      |       |       |       |       |      |       | ✅    |
+
+- [4] Durable session states will be lost after upgraded from v5 to v6 or later. After clients reconnect, the sessions created in the new nodes will appear to be clean.
 
 ## License
 

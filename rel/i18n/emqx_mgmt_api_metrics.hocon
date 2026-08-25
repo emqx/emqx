@@ -6,7 +6,7 @@ emqx_metrics.label:
 """EMQX metrics"""
 
 aggregate_parameter.desc:
-"""Whether to aggregate all nodes Metrics. Default value is 'true'."""
+"""Whether to aggregate all nodes Metrics. Default value is 'false'."""
 aggregate_parameter.label:
 """Aggregate Parameter"""
 

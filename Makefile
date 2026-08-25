@@ -164,7 +164,7 @@ ifneq ($(RESOLVED_SUITES),)
 	    TEST=1 \
 	    MIX_ENV=$(CT_MIX_ENV) \
 	    PROFILE=$(PROFILE)-test \
-	        $(MIX) do deps.get, compile --force, emqx.ct \
+	        $(MIX) do deps.get + compile --force + emqx.ct \
 		$(call cover_args,$1) \
 		--suites $(RESOLVED_SUITES) \
 		$(GROUPS_ARG) \
@@ -201,10 +201,10 @@ ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
 	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE) --cases $(TESTCASE) --group-paths $(GROUP)
 else
-	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE)  --cases $(TESTCASE)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE) --cases $(TESTCASE)
 endif
 else ifneq ($(GROUP),)
-	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE)  --group-paths $(GROUP)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE) --group-paths $(GROUP)
 else
 	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE)
 endif
