@@ -58,7 +58,6 @@ normalize(Config) ->
         max_message_size_broadcast => maps:get(<<"max_message_size_broadcast">>, Config, 65536),
         max_message_size_batch => maps:get(<<"max_message_size_batch">>, Config, 10240),
         msg_warn_threshold => maps:get(<<"msg_warn_threshold">>, Config, 100000),
-        force_upgrade_qos => maps:get(<<"force_upgrade_qos">>, Config, true),
         delivery_pool_size => pool_size(maps:get(<<"delivery_pool_size">>, Config, 0))
     }.
 

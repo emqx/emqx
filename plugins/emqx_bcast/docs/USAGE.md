@@ -147,7 +147,6 @@ Key metrics to watch:
 | `max_message_size_broadcast` | `65536` | Max PubBroadcast payload (bytes, 64 KiB) |
 | `max_message_size_batch` | `10240` | Max BatchPub payload binary (bytes, 10 KiB) |
 | `msg_warn_threshold` | `100000` | Log warning when pending messages exceed this |
-| `force_upgrade_qos` | `true` | When true, QoS 1 messages are always delivered at QoS 1 regardless of subscription QoS; when false, effective QoS is min(publish, subscription) and downgraded QoS 0 deliveries complete immediately |
 | `delivery_pool_size` | `0` | Number of async workers for each of the three pools (pull, ack and pull-server). 0 means one worker per scheduler. Changing it restarts the pools |
 
 ---

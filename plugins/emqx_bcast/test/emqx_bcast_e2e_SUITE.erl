@@ -47,11 +47,17 @@ init_test_config() ->
         max_message_size_batch => 10240,
         max_message_size_broadcast => 65536,
         broadcast_topic => <<"/sys/broadcast/${productKey}">>,
-        batch_topic => <<"/${productKey}/${deviceName}/user/get">>,
-        force_upgrade_qos => true
+        batch_topic => <<"/${productKey}/${deviceName}/user/get">>
     }).
 
 init_per_testcase(_Case, Config) ->
+    %% Start each test case from a clean storage state: async deliveries
+    %% from the previous case (unacked QoS1 records, pending index entries,
+    %% registered messages) must not leak into the assertions of this one.
+    [
+        mnesia:clear_table(T)
+     || T <- [bcast_msg, bcast_message, bcast_message_hash, bcast_message_api_id, bcast_msg_index]
+    ],
     emqx_bcast_metrics:init(),
     emqx_bcast_subscription:init(),
     Config.
@@ -518,13 +524,11 @@ t_unsubscribe_then_resubscribe_replay(_Config) ->
     disconnect(C1).
 
 %%--------------------------------------------------------------------
-%% Force upgrade QoS E2E tests
+%% Subscription QoS E2E tests
 %%--------------------------------------------------------------------
 
--doc "force_upgrade_qos=false delivers a QoS=0 downgraded message to a QoS=0 subscriber.".
-t_qos_downgrade_force_false(_Config) ->
-    Cfg = persistent_term:get({emqx_bcast, config}),
-    persistent_term:put({emqx_bcast, config}, Cfg#{force_upgrade_qos => false}),
+-doc "QoS=1 BatchPub to a QoS=0 subscriber is delivered and self-acked as QoS=0.".
+t_qos1_to_qos0_subscriber_e2e(_Config) ->
     C1 = connect(<<"e2e_fuq_1">>),
     sub_qos(C1, topic(<<"e2e_fuq_1">>), 0),
     wait_subscribed(<<"e2e_fuq_1">>, topic(<<"e2e_fuq_1">>)),
@@ -537,13 +541,11 @@ t_qos_downgrade_force_false(_Config) ->
     }),
     [Msg] = recv(1),
     ?assertEqual(0, maps:get(qos, Msg)),
-    disconnect(C1),
-    persistent_term:put({emqx_bcast, config}, Cfg).
+    ?assertEqual(?PAYLOAD, maps:get(payload, Msg)),
+    disconnect(C1).
 
--doc "force_upgrade_qos=false keeps QoS=1 for a QoS=1 subscriber.".
-t_qos_no_downgrade_force_false(_Config) ->
-    Cfg = persistent_term:get({emqx_bcast, config}),
-    persistent_term:put({emqx_bcast, config}, Cfg#{force_upgrade_qos => false}),
+-doc "QoS=1 BatchPub to a QoS=1 subscriber is delivered at QoS=1 and acked.".
+t_qos1_to_qos1_subscriber_e2e(_Config) ->
     C1 = connect(<<"e2e_fuq_2">>),
     sub_qos(C1, topic(<<"e2e_fuq_2">>), 1),
     wait_subscribed(<<"e2e_fuq_2">>, topic(<<"e2e_fuq_2">>)),
@@ -556,14 +558,15 @@ t_qos_no_downgrade_force_false(_Config) ->
     }),
     [Msg] = recv(1),
     ?assertEqual(1, maps:get(qos, Msg)),
-    disconnect(C1),
-    persistent_term:put({emqx_bcast, config}, Cfg).
+    ?assertEqual(?PAYLOAD, maps:get(payload, Msg)),
+    disconnect(C1).
 
--doc "force_upgrade_qos=true delivers at QoS=1 to a QoS=0 subscriber.".
-t_qos_force_upgrade_true(_Config) ->
+-doc "QoS=1 delivery to a QoS=0 subscriber is removed after the self-ack.".
+t_qos0_subscriber_delivery_removed(_Config) ->
     C1 = connect(<<"e2e_fuq_3">>),
     sub_qos(C1, topic(<<"e2e_fuq_3">>), 0),
     wait_subscribed(<<"e2e_fuq_3">>, topic(<<"e2e_fuq_3">>)),
+    BeforeAcked = metric(<<"batch_pub_qos1_acked">>),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -572,7 +575,18 @@ t_qos_force_upgrade_true(_Config) ->
         <<"Qos">> => 1
     }),
     [Msg] = recv(1),
+    ?assertEqual(0, maps:get(qos, Msg)),
     ?assertEqual(?PAYLOAD, maps:get(payload, Msg)),
+    %% The self-ack must arrive (acked counter increases) and the delivery
+    %% record must be gone once the QoS=0 self-ack completes, otherwise the
+    %% pending entry lingers and blocks the window=1 slot.
+    ?assert(wait_until(fun() -> metric(<<"batch_pub_qos1_acked">>) > BeforeAcked end, 100)),
+    ?assert(
+        wait_until(
+            fun() -> mnesia:dirty_match_object(#bcast_msg{_ = '_'}) =:= [] end,
+            100
+        )
+    ),
     disconnect(C1).
 
 %%--------------------------------------------------------------------
@@ -667,6 +681,13 @@ collect_deliveries(Expected, Acc, Attempts) ->
         false ->
             ct:sleep(100),
             collect_deliveries(Expected, Total, Attempts - 1)
+    end.
+
+metric(Name) ->
+    try
+        prometheus_counter:value(bcast, <<"bcast_", Name/binary>>, [])
+    catch
+        _:_ -> 0
     end.
 
 wait_until(Fun, Attempts) when Attempts > 0 ->

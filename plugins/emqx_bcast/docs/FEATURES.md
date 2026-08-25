@@ -47,10 +47,11 @@ subscription state and ACL checks. Devices are addressed by
 - QoS=1 stores one shared message record plus one delivery record per
   call. The delivery is deleted once all target devices acknowledge, or
   when it expires.
-- `force_upgrade_qos = true` (default): QoS=1 is always delivered at
-  QoS=1 regardless of the device subscription QoS. When false, the
-  effective QoS is `min(publish, subscription)`; deliveries downgraded to
-  QoS=0 are completed immediately because no PUBACK will arrive.
+- Delivery QoS follows the device subscription: the effective QoS is
+  `min(publish, subscription)`. Devices subscribed at QoS=0 receive the
+  message at QoS=0 and the delivery completes immediately (no PUBACK
+  exists for QoS=0), devices subscribed at QoS=1 receive it at QoS=1 and
+  the delivery is removed once the PUBACK arrives.
 
 ## Offline Replay
 
@@ -87,7 +88,6 @@ flush policy.
 | `max_message_size_broadcast` | `65536` | Max PubBroadcast payload bytes |
 | `max_message_size_batch` | `10240` | Max BatchPub payload bytes (binary) |
 | `msg_warn_threshold` | `100000` | Warn when pending messages exceed this |
-| `force_upgrade_qos` | `true` | See QoS Semantics above |
 | `delivery_pool_size` | `0` | Async workers for each of the three pools; 0 = one per scheduler |
 
 ## Metrics

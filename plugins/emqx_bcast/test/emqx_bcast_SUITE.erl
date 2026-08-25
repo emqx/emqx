@@ -73,7 +73,6 @@ init_test_config() ->
         max_message_size_broadcast => 65536,
         broadcast_topic => <<"/sys/broadcast/${productKey}">>,
         batch_topic => <<"/${productKey}/${deviceName}/user/get">>,
-        force_upgrade_qos => true,
         delivery_pool_size => 2
     },
     persistent_term:put({?APP, config}, Cfg),
@@ -407,13 +406,11 @@ t_register_message_ttl_refresh(_Config) ->
     ?assert(NewExpiry >= Now + TTL - 5).
 
 %%--------------------------------------------------------------------
-%% Force upgrade QoS tests
+%% Subscription QoS tests
 %%--------------------------------------------------------------------
 
--doc "force_upgrade_qos=false with a QoS=0 sub delivers and self-acks as QoS=0.".
-t_force_upgrade_false_qos0_sub(_Config) ->
-    Cfg = persistent_term:get({?APP, config}),
-    persistent_term:put({?APP, config}, Cfg#{force_upgrade_qos => false}),
+-doc "QoS=1 BatchPub to a QoS=0 subscriber delivers and self-acks as QoS=0.".
+t_qos1_to_qos0_subscriber(_Config) ->
     emqx_bcast:register_device(<<"P1">>, <<"DA">>, self()),
     emqx_bcast_subscription:init(),
     emqx_bcast_subscription:add(<<"DA">>, self(), {<<"/P1/DA/user/get">>, 0}),
@@ -429,13 +426,10 @@ t_force_upgrade_false_qos0_sub(_Config) ->
     {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
     ?assert(wait_metric(<<"batch_pub_qos1_acked">>, BeforeAcked + 1)),
     ?assertEqual(0, metric(<<"batch_pub_qos1_delivered">>) - BeforeInline),
-    flush_mailbox(),
-    persistent_term:put({?APP, config}, Cfg).
+    flush_mailbox().
 
--doc "force_upgrade_qos=false with a QoS=1 sub delivers at QoS=1 and waits for ack.".
-t_force_upgrade_false_qos1_sub(_Config) ->
-    Cfg = persistent_term:get({?APP, config}),
-    persistent_term:put({?APP, config}, Cfg#{force_upgrade_qos => false}),
+-doc "QoS=1 BatchPub to a QoS=1 subscriber delivers at QoS=1 and waits for ack.".
+t_qos1_to_qos1_subscriber(_Config) ->
     emqx_bcast:register_device(<<"P1">>, <<"DB">>, self()),
     emqx_bcast_subscription:init(),
     emqx_bcast_subscription:add(<<"DB">>, self(), {<<"/P1/DB/user/get">>, 1}),
@@ -454,33 +448,7 @@ t_force_upgrade_false_qos1_sub(_Config) ->
     %% the "nothing was acked" assertion deterministic instead of a bare sleep.
     _ = sys:get_state(emqx_bcast_ack_pool),
     ?assertEqual(0, metric(<<"batch_pub_qos1_acked">>) - BeforeAcked),
-    flush_mailbox(),
-    persistent_term:put({?APP, config}, Cfg).
-
--doc "force_upgrade_qos=true keeps QoS=1 even for a QoS=0 subscription.".
-t_force_upgrade_true_qos0_sub(_Config) ->
-    Cfg = persistent_term:get({?APP, config}),
-    persistent_term:put({?APP, config}, Cfg#{force_upgrade_qos => true}),
-    emqx_bcast:register_device(<<"P1">>, <<"DC">>, self()),
-    emqx_bcast_subscription:init(),
-    emqx_bcast_subscription:add(<<"DC">>, self(), {<<"/P1/DC/user/get">>, 0}),
-    BeforeInline = metric(<<"batch_pub_qos1_delivered">>),
-    BeforeAcked = metric(<<"batch_pub_qos1_acked">>),
-    Body = #{
-        <<"Action">> => <<"BatchPub">>,
-        <<"ProductKey">> => <<"P1">>,
-        <<"DeviceName">> => [<<"DC">>],
-        <<"MessageContent">> => <<"aGVsbG8=">>,
-        <<"Qos">> => 1
-    },
-    {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
-    ?assert(wait_metric(<<"batch_pub_qos1_delivered">>, BeforeInline + 1)),
-    %% The ack path is a cast into emqx_bcast_ack_pool; sys:get_state makes
-    %% the "nothing was acked" assertion deterministic instead of a bare sleep.
-    _ = sys:get_state(emqx_bcast_ack_pool),
-    ?assertEqual(0, metric(<<"batch_pub_qos1_acked">>) - BeforeAcked),
-    flush_mailbox(),
-    persistent_term:put({?APP, config}, Cfg).
+    flush_mailbox().
 
 %% Poll until a prometheus counter reaches the expected value (async delivery
 %% happens on pool workers, so metrics lag the API response).

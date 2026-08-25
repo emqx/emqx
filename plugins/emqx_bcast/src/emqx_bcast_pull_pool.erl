@@ -532,9 +532,7 @@ prepare_delivery(ClientId, #{
                         false ->
                             {no_match, ProductKey, ClientId, DeliveryId};
                         {ok, SubQos} ->
-                            Config = persistent_term:get({?APP, config}, #{}),
-                            ForceUpgrade = maps:get(force_upgrade_qos, Config, true),
-                            case ForceUpgrade orelse SubQos >= 1 of
+                            case SubQos >= 1 of
                                 true ->
                                     {pending, #bcast_buffer_entry{
                                         clientid = ClientId,

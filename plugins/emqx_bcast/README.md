@@ -20,7 +20,6 @@ emqx_bcast {
     max_message_size_broadcast = 65536    # 64 KiB
     max_message_size_batch = 10240        # 10 KiB (binary)
     msg_warn_threshold = 100000
-    force_upgrade_qos = true
 }
 ```
 
