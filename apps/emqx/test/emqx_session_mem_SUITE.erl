@@ -904,9 +904,15 @@ t_expire_awaiting_rel(_) ->
     ?assert(Timeout =< AwaitRelTimeout).
 
 t_expire_awaiting_rel_all(_) ->
-    Session = session(#{awaiting_rel => #{1 => 1, 2 => 2}}),
+    Session = session(#{await_rel_timeout => 1, awaiting_rel => #{1 => 1, 2 => 2}}),
     {ok, [], Session1} = emqx_session_mem:expire(clientinfo(), Session),
     ?assertEqual(#{}, emqx_session_mem:info(awaiting_rel, Session1)).
+
+t_expire_awaiting_rel_disabled(_) ->
+    AwaitingRel = #{1 => 1, 2 => 2},
+    Session = session(#{await_rel_timeout => 0, awaiting_rel => AwaitingRel}),
+    {ok, [], Session1} = emqx_session_mem:expire(clientinfo(), Session),
+    ?assertEqual(AwaitingRel, emqx_session_mem:info(awaiting_rel, Session1)).
 
 %%--------------------------------------------------------------------
 %% CT for utility functions

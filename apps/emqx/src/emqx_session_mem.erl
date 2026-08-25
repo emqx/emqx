@@ -968,6 +968,8 @@ do_retry_delivery(_ClientInfo, PacketId, Data, Now, Acc, Inflight) ->
 
 -spec expire(clientinfo(), session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
+expire(_ClientInfo, Session = #session{await_rel_timeout = 0}) ->
+    {ok, [], Session};
 expire(ClientInfo, Session = #session{awaiting_rel = AwaitingRel}) ->
     case maps:size(AwaitingRel) of
         0 ->
