@@ -445,15 +445,21 @@ t_write_failure() ->
 t_write_failure(matrix) ->
     full_matrix();
 t_write_failure(TCConfig) when is_list(TCConfig) ->
-    %% Use a short health-check interval so that, once the proxy is switched
-    %% off, the connector is promptly marked `disconnected'.  With the default
-    %% 15s interval the detection races the 15s `buffer_worker_flush_nack' wait
-    %% below: the message would otherwise stay queued against a still-`connecting'
-    %% resource until `request_ttl', making this test flaky.
+    %% Use a short health-check interval on both the connector and the action.
+    %% The connector interval makes the health check mark the resource
+    %% `disconnected' promptly once the proxy is down; with the 15s default the
+    %% message would stay queued against a still-`connecting' resource until
+    %% `request_ttl'. The action interval also sets the buffer-worker
+    %% `resume_interval': when the health check wins the race against the first
+    %% flush, the worker enters `blocked' and only retries every
+    %% `resume_interval', so with the 15s default the nack event lands after
+    %% the 15s wait below.
     {201, _} = create_connector_api(TCConfig, #{
         <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
     }),
-    {201, _} = create_action_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
+    }),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
     C = start_client(),
     Payload = unique_payload(),
@@ -462,12 +468,16 @@ t_write_failure(TCConfig) when is_list(TCConfig) ->
             {_, {ok, _}} =
                 ?wait_async_action(
                     emqtt:publish(C, Topic, Payload, [{qos, 0}]),
-                    #{?snk_kind := buffer_worker_flush_nack},
+                    #{?snk_kind := Evt} when
+                        Evt =:= buffer_worker_flush_nack orelse
+                            Evt =:= buffer_worker_retry_inflight_failed,
                     15_000
                 )
         end),
         fun(Trace0) ->
-            Trace = ?of_kind(buffer_worker_flush_nack, Trace0),
+            Trace = ?of_kind(
+                [buffer_worker_flush_nack, buffer_worker_retry_inflight_failed], Trace0
+            ),
             ?assertMatch([#{result := {error, _}} | _], Trace),
             [#{result := {error, Error}} | _] = Trace,
             case Error of

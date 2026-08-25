@@ -16,6 +16,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("../src/emqx_bridge_snowflake.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %%------------------------------------------------------------------------------
 %% Definitions
@@ -178,6 +179,9 @@ timetrap(Config) ->
         false ->
             {seconds, 150}
     end.
+
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
 
 group_path(Config, Default) ->
     case emqx_common_test_helpers:group_path(Config) of
@@ -445,8 +449,9 @@ private_key_password() ->
     end.
 
 aggreg_id(Config) ->
+    Namespace = get_config(namespace, Config, ?global_ns),
     ActionName = ?config(action_name, Config),
-    {?ACTION_TYPE_AGGREG_BIN, ActionName}.
+    {Namespace, ?ACTION_TYPE_AGGREG_BIN, ActionName}.
 
 new_odbc_client(Config) when is_list(Config) ->
     new_odbc_client(maps:from_list(Config));
@@ -1415,6 +1420,18 @@ t_optional_username(Config) ->
         create_connector_api(Config, #{})
     ),
     ok.
+
+t_aggreg_different_namespaces(init, TCConfig) when is_list(TCConfig) ->
+    t_aggreg_different_namespaces(init, maps:from_list(TCConfig));
+t_aggreg_different_namespaces(init, #{mock := _} = TCConfig) ->
+    maps:to_list(TCConfig);
+t_aggreg_different_namespaces('end', _TCConfig) ->
+    ok.
+t_aggreg_different_namespaces(TCConfig) ->
+    Opts = #{
+        aggreg_sup => ?AGGREG_SUP
+    },
+    emqx_bridge_v2_testlib:t_aggreg_different_namespaces(TCConfig, Opts).
 
 %% Todo: test scenarios
 %% * User error in rule definition; e.g.:

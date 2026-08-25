@@ -9,6 +9,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -include("emqx_connector_aggregator.hrl").
 
@@ -20,6 +21,7 @@
     buffer_to_map/1,
     delivery_exit/3
 ]).
+-export([work_dir/3]).
 
 -behaviour(gen_server).
 -export([
@@ -100,6 +102,16 @@ is_empty(Name) ->
             end;
         _ ->
             true
+    end.
+
+work_dir(?global_ns, Type, Name) ->
+    filename:join([emqx:data_dir(), bridge, Type, Name]);
+work_dir(Ns, Type, Name) when is_binary(Ns) ->
+    case filename:split(Ns) of
+        [Ns] when Ns /= <<".">>, Ns /= <<"..">> ->
+            filename:join([emqx:data_dir(), bridge, ns, Ns, Type, Name]);
+        _ ->
+            throw(<<"Action cannot be created in this namespace">>)
     end.
 
 %% testing/debug only

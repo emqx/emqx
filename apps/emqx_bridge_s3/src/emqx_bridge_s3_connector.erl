@@ -90,6 +90,7 @@
 }.
 
 -define(AGGREG_SUP, emqx_bridge_s3_sup).
+-define(AGGREG_ID(NS, TYPE, NAME), {NS, TYPE, NAME}).
 
 %%
 -spec resource_type() -> resource_type().
@@ -185,6 +186,7 @@ start_channel(_State, _ActionResId, #{
     },
     {ok, ChannelState};
 start_channel(State, ActionResId, #{
+    bridge_namespace := Namespace,
     bridge_type := Type = ?BRIDGE_TYPE_UPLOAD,
     bridge_name := Name,
     parameters := Parameters = #{
@@ -198,11 +200,11 @@ start_channel(State, ActionResId, #{
         key := Key
     }
 }) ->
-    AggregId = {Type, Name},
+    AggregId = ?AGGREG_ID(Namespace, Type, Name),
     AggregOpts = #{
         time_interval => TimeInterval,
         max_records => MaxRecords,
-        work_dir => work_dir(Type, Name),
+        work_dir => emqx_connector_aggregator:work_dir(Namespace, Type, Name),
         delivery_finished_callback =>
             emqx_resource_metrics:mk_delivery_finished_callback_for_action(ActionResId)
     },
@@ -240,9 +242,6 @@ start_channel(State, ActionResId, #{
 
 upload_options(Parameters) ->
     #{acl => maps:get(acl, Parameters, undefined)}.
-
-work_dir(Type, Name) ->
-    filename:join([emqx:data_dir(), bridge, Type, Name]).
 
 stop_channel(#{on_stop := OnStop}) ->
     OnStop();
@@ -463,9 +462,9 @@ process_terminate(Upload) ->
 
 %% `emqx_template` APIs
 
--spec lookup(emqx_template:accessor(), {_Name, buffer()}) ->
+-spec lookup(emqx_template:accessor(), {?AGGREG_ID(_, _, _), buffer()}) ->
     {ok, integer() | string()} | {error, undefined}.
-lookup([<<"action">>], {_AggregId = {_Type, Name}, _Buffer}) ->
+lookup([<<"action">>], {?AGGREG_ID(_Ns, _Type, Name), _Buffer}) ->
     {ok, mk_fs_safe_string(Name)};
 lookup([<<"node">>], {_AggregId, _Buffer}) ->
     {ok, mk_fs_safe_string(atom_to_binary(erlang:node()))};

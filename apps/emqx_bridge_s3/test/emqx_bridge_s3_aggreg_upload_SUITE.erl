@@ -312,7 +312,7 @@ fetch_parse_csv(Bucket, Key) ->
     CSV.
 
 aggreg_id(BridgeName) ->
-    {?BRIDGE_TYPE, BridgeName}.
+    {?global_ns, ?BRIDGE_TYPE, BridgeName}.
 
 create_connector_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
@@ -908,3 +908,9 @@ t_aggreg_next_rotate(Config) ->
         NSent,
         lists:sum([NR || {_, NR} <- NRecords])
     ).
+
+t_aggreg_different_namespaces(TCConfig) ->
+    Opts = #{
+        aggreg_sup => ?AGGREG_SUP
+    },
+    emqx_bridge_v2_testlib:t_aggreg_different_namespaces(TCConfig, Opts).
