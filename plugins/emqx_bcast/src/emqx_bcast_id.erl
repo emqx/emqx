@@ -27,4 +27,6 @@ resolve_message_id(ApiMsgId) when is_binary(ApiMsgId) ->
             {ok, MsgId};
         [] ->
             {error, not_found}
-    end.
+    end;
+resolve_message_id(_) ->
+    {error, not_found}.

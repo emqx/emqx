@@ -14,7 +14,7 @@
     unsubscribe/4,
     ping/4,
     ack/3,
-    qos0_deliver_local/3,
+    qos0_deliver_local/4,
     qos1_core_trigger_local/3,
     deliver_results/1
 ]).
@@ -77,8 +77,8 @@ ping(ClientId, Pid, ProductKey, Topics) ->
 ack(ClientId, DeliveryId, ProductKey) ->
     gen_server:cast(?MODULE, {ack, ClientId, DeliveryId, ProductKey}).
 
-qos0_deliver_local(ProductKey, TopicTemplate, Payload) ->
-    gen_server:cast(?MODULE, {qos0_deliver, ProductKey, TopicTemplate, Payload}).
+qos0_deliver_local(ProductKey, DeviceNames, TopicTemplate, Payload) ->
+    gen_server:cast(?MODULE, {qos0_deliver, ProductKey, DeviceNames, TopicTemplate, Payload}).
 
 qos1_core_trigger_local(ProductKey, DeviceNames, TopicTemplate) ->
     gen_server:cast(?MODULE, {qos1_core_trigger, ProductKey, DeviceNames, TopicTemplate}).
@@ -235,8 +235,22 @@ handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
                 trigger_want_next(ClientId, Pid, ProductKey, Topics, State0)
         end,
     {noreply, State2};
-handle_cast({qos0_deliver, ProductKey, TopicTemplate, Payload}, State) ->
-    Devices = emqx_bcast:lookup_devices_by_product(ProductKey),
+handle_cast({qos0_deliver, ProductKey, DeviceNames, TopicTemplate, Payload}, State) ->
+    Devices =
+        case DeviceNames of
+            undefined ->
+                emqx_bcast:lookup_devices_by_product(ProductKey);
+            _ ->
+                lists:filtermap(
+                    fun(DeviceName) ->
+                        case emqx_bcast:lookup_device({ProductKey, DeviceName}) of
+                            {ok, Pid} -> {true, {DeviceName, Pid}};
+                            {error, not_found} -> false
+                        end
+                    end,
+                    DeviceNames
+                )
+        end,
     Targets = lists:filtermap(
         fun({DeviceName, Pid}) ->
             Topic = emqx_bcast_utils:expand_topic(TopicTemplate, ProductKey, DeviceName),

@@ -578,7 +578,7 @@ t_qos0_broadcast_delivers_locally(_Config) ->
         DNs
     ),
     Template = <<"/PR/${deviceName}/user/get">>,
-    ok = emqx_bcast_pull_server_pool:qos0_broadcast(PK, Template, <<"p">>),
+    ok = emqx_bcast_pull_server_pool:qos0_broadcast(PK, undefined, Template, <<"p">>),
     ?assert(
         wait_until(
             fun() ->
@@ -865,6 +865,111 @@ t_batch_pub_neither_content_nor_id(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"MessageIdContentConflict">>, maps:get(<<"Code">>, Resp)).
 
+-doc "BatchPub with an empty DeviceName list returns 400.".
+t_batch_pub_empty_device_names(_Config) ->
+    Body = #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"P1">>,
+        <<"DeviceName">> => [],
+        <<"MessageContent">> => <<"aGVsbG8=">>,
+        <<"Qos">> => 1
+    },
+    Request = #{body => Body},
+    {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+    ?assertEqual(<<"InvalidDeviceName">>, maps:get(<<"Code">>, Resp)).
+
+-doc "BatchPub rejects DeviceName entries with wildcard or separator characters.".
+t_batch_pub_device_name_special_chars(_Config) ->
+    lists:foreach(
+        fun(DN) ->
+            Body = #{
+                <<"Action">> => <<"BatchPub">>,
+                <<"ProductKey">> => <<"P1">>,
+                <<"DeviceName">> => [DN],
+                <<"MessageContent">> => <<"aGVsbG8=">>,
+                <<"Qos">> => 0
+            },
+            Request = #{body => Body},
+            {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+            ?assertEqual(<<"InvalidDeviceName">>, maps:get(<<"Code">>, Resp))
+        end,
+        [<<"D+1">>, <<"D#1">>, <<"D/1">>, <<"D$1">>]
+    ).
+
+-doc "BatchPub rejects a ProductKey with wildcard or separator characters.".
+t_batch_pub_product_key_special_chars(_Config) ->
+    Body = #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"P+1">>,
+        <<"DeviceName">> => [<<"D1">>],
+        <<"MessageContent">> => <<"aGVsbG8=">>,
+        <<"Qos">> => 0
+    },
+    Request = #{body => Body},
+    {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+    ?assertEqual(<<"InvalidProductKey">>, maps:get(<<"Code">>, Resp)).
+
+-doc "BatchPub rejects an invalid TopicShortName with 400 InvalidTopicTemplate.".
+t_batch_pub_invalid_short_name(_Config) ->
+    lists:foreach(
+        fun(ShortName) ->
+            Body = #{
+                <<"Action">> => <<"BatchPub">>,
+                <<"ProductKey">> => <<"P1">>,
+                <<"DeviceName">> => [<<"D1">>],
+                <<"MessageContent">> => <<"aGVsbG8=">>,
+                <<"Qos">> => 0,
+                <<"TopicShortName">> => ShortName
+            },
+            Request = #{body => Body},
+            {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+            ?assertEqual(<<"InvalidTopicTemplate">>, maps:get(<<"Code">>, Resp))
+        end,
+        [<<"a/b">>, <<"a+b">>, <<"a#b">>, <<"a$b">>, <<"a${b}">>, 123]
+    ).
+
+-doc "BatchPub rejects a TopicTemplateName with wildcards or unknown placeholders.".
+t_batch_pub_invalid_template_name(_Config) ->
+    lists:foreach(
+        fun(TemplateName) ->
+            Body = #{
+                <<"Action">> => <<"BatchPub">>,
+                <<"ProductKey">> => <<"P1">>,
+                <<"DeviceName">> => [<<"D1">>],
+                <<"MessageContent">> => <<"aGVsbG8=">>,
+                <<"Qos">> => 0,
+                <<"TopicTemplateName">> => TemplateName
+            },
+            Request = #{body => Body},
+            {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+            ?assertEqual(<<"InvalidTopicTemplate">>, maps:get(<<"Code">>, Resp))
+        end,
+        [<<"/a/+/b">>, <<"/a/#/b">>, <<"/a/${productKey}/b">>, <<"/a/${unknown}/b">>, 123]
+    ).
+
+-doc "BatchPub with a non-binary MessageId returns 400 MessageNotFound.".
+t_batch_pub_message_id_wrong_type(_Config) ->
+    Body = #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"P1">>,
+        <<"DeviceName">> => [<<"D1">>],
+        <<"MessageId">> => 123,
+        <<"Qos">> => 0
+    },
+    Request = #{body => Body},
+    {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+    ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, Resp)).
+
+-doc "RegisterMessage with a non-binary MessageId returns 400 MessageNotFound.".
+t_register_message_id_wrong_type(_Config) ->
+    Body = #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageId">> => 123
+    },
+    Request = #{body => Body},
+    {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+    ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, Resp)).
+
 %%--------------------------------------------------------------------
 %% PubBroadcast API tests
 %%--------------------------------------------------------------------
@@ -880,6 +985,34 @@ t_broadcast_with_topic_full_name(_Config) ->
     Request = #{body => Body},
     {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assert(maps:get(<<"Success">>, Resp)).
+
+-doc "PubBroadcast rejects an invalid TopicFullName with 400 InvalidTopicTemplate.".
+t_broadcast_invalid_topic_full_name(_Config) ->
+    lists:foreach(
+        fun(TopicFullName) ->
+            Body = #{
+                <<"Action">> => <<"PubBroadcast">>,
+                <<"ProductKey">> => <<"P1">>,
+                <<"MessageContent">> => <<"aGVsbG8=">>,
+                <<"TopicFullName">> => TopicFullName
+            },
+            Request = #{body => Body},
+            {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+            ?assertEqual(<<"InvalidTopicTemplate">>, maps:get(<<"Code">>, Resp))
+        end,
+        [<<"/a/+/b">>, <<"/a/#/b">>, <<"/a/${b}">>, 123]
+    ).
+
+-doc "PubBroadcast rejects a ProductKey with wildcard or separator characters.".
+t_broadcast_product_key_special_chars(_Config) ->
+    Body = #{
+        <<"Action">> => <<"PubBroadcast">>,
+        <<"ProductKey">> => <<"P/1">>,
+        <<"MessageContent">> => <<"aGVsbG8=">>
+    },
+    Request = #{body => Body},
+    {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+    ?assertEqual(<<"InvalidProductKey">>, maps:get(<<"Code">>, Resp)).
 
 -doc "PubBroadcast without ProductKey returns 400 InvalidProductKey.".
 t_broadcast_missing_product_key(_Config) ->

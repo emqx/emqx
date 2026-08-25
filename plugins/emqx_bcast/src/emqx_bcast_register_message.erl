@@ -61,9 +61,23 @@ do_create(Payload, RequestId) ->
 do_refresh(ApiMsgId, RequestId) ->
     case emqx_bcast_id:resolve_message_id(ApiMsgId) of
         {ok, MsgGuid} ->
-            _ = emqx_bcast_storage:refresh_message_ttl(MsgGuid),
-            emqx_bcast_metrics:register_refresh(),
-            {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
+            case emqx_bcast_storage:refresh_message_ttl(MsgGuid) of
+                {atomic, ok} ->
+                    emqx_bcast_metrics:register_refresh(),
+                    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
+                {atomic, {error, not_found}} ->
+                    emqx_bcast_metrics:register_error(),
+                    {ok, 400, #{},
+                        emqx_bcast_api:error_response(
+                            RequestId, <<"MessageNotFound">>, <<"MessageId not found">>
+                        )};
+                {aborted, _Reason} ->
+                    emqx_bcast_metrics:register_error(),
+                    {ok, 500, #{},
+                        emqx_bcast_api:error_response(
+                            RequestId, <<"InternalError">>, <<"Storage error">>
+                        )}
+            end;
         {error, not_found} ->
             emqx_bcast_metrics:register_error(),
             {ok, 400, #{},
