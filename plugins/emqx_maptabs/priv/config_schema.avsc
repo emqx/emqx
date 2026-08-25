@@ -1,0 +1,39 @@
+{
+  "type": "record",
+  "name": "MaptabsConfig",
+  "fields": [
+    {
+      "name": "max_tables",
+      "type": "int",
+      "default": 100,
+      "$ui": {
+        "component": "input-number",
+        "required": true,
+        "label": "$max_tables_label",
+        "description": "$max_tables_desc"
+      }
+    },
+    {
+      "name": "max_rows_per_table",
+      "type": "int",
+      "default": 10000,
+      "$ui": {
+        "component": "input-number",
+        "required": true,
+        "label": "$max_rows_per_table_label",
+        "description": "$max_rows_per_table_desc"
+      }
+    },
+    {
+      "name": "max_table_file_bytes",
+      "type": "int",
+      "default": 10000000,
+      "$ui": {
+        "component": "input-number",
+        "required": true,
+        "label": "$max_table_file_bytes_label",
+        "description": "$max_table_file_bytes_desc"
+      }
+    }
+  ]
+}

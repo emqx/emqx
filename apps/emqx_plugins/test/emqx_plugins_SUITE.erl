@@ -213,6 +213,45 @@ t_demo_install_start_stop_uninstall(Config) ->
     ?assertMatch([<<"[]">>], emqx_plugins_cli_utils:list(fun(_, L) -> L end)),
     ok.
 
+-doc """
+`ensure_started/0' runs on the boot path
+(tail of `emqx_machine_boot:ensure_apps_started/0').
+A broken configured plugin must be collected and logged, not raised,
+so it cannot fail the node boot, and the plugins configured after it
+must still start.  The call must also survive the cluster-join cycle:
+a join runs `stop_apps/0' (`emqx_plugins:ensure_stopped/0') and then
+re-runs `ensure_apps_started/0'.
+""".
+t_boot_start_tolerates_broken_plugin({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_boot_start_tolerates_broken_plugin({'end', Config}) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    ok;
+t_boot_start_tolerates_broken_plugin(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    Broken = #{name_vsn => <<"missing_plugin-1.0.0">>, enable => true},
+    Good = #{name_vsn => bin(NameVsn), enable => true},
+    ok = emqx_plugins:put_configured([Broken, Good]),
+    ?assertEqual(ok, emqx_plugins:ensure_started()),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    %% Re-running with plugins already up must be a no-op.
+    ?assertEqual(ok, emqx_plugins:ensure_started()),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    %% A cluster join runs `stop_apps/0' (which calls
+    %% `emqx_plugins:ensure_stopped/0') and then re-runs
+    %% `ensure_apps_started/0'.  Simulate the plugin-relevant part of that
+    %% cycle; calling `stop_apps/0' itself would stop this CT node's apps.
+    %% The real join path is covered by `t_start_node_with_plugin_enabled'.
+    ok = emqx_plugins:ensure_stopped(),
+    ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    ?assertEqual(ok, emqx_plugins:ensure_started()),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    ok.
+
 %% help function to create a info file.
 %% The file is in JSON format when built
 %% but since we are using hocon:load to load it
@@ -626,16 +665,117 @@ t_rejects_invalid_schema_on_reconfigure({init, Config}) ->
     ok = make_plugin_tar(NameVsn),
     ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
     ok = emqx_plugins:ensure_started(NameVsn),
-    ok = file:write_file(
-        filename:join([filename:dirname(plugin_ebin_dir(NameVsn)), "priv", "config_schema.avsc"]),
-        <<"not an avro schema">>
-    ),
+    ok = file:write_file(plugin_avsc_path(NameVsn), <<"not an avro schema">>),
     [{name_vsn, NameVsn} | Config];
 t_rejects_invalid_schema_on_reconfigure({'end', Config}) ->
     _ = emqx_plugins:ensure_stopped(?config(name_vsn, Config)),
     cleanup_invalid_plugin(?config(name_vsn, Config));
 t_rejects_invalid_schema_on_reconfigure(Config) ->
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(?config(name_vsn, Config))).
+
+-doc "A plugin with a config schema: a valid config decodes, an invalid one is rejected.".
+t_decode_config_with_schema({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    [{name_vsn, NameVsn} | Config];
+t_decode_config_with_schema({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_decode_config_with_schema(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertMatch(
+        {ok, _},
+        emqx_plugins:decode_plugin_config_map(NameVsn, #{<<"foo">> => <<"bar">>})
+    ),
+    ?assertMatch(
+        {error, #{
+            reason := invalid_type,
+            path := <<"foo">>,
+            expected := <<"string">>,
+            actual := <<"integer">>
+        }},
+        emqx_plugins:decode_plugin_config_map(NameVsn, #{<<"foo">> => 42})
+    ).
+
+-doc "A plugin that declares no config schema accepts any config without validation.".
+t_decode_config_without_schema({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    Info = <<
+        "{\"name\":\"invalid_plugin\",\"rel_vsn\":\"1.0.0\","
+        "\"rel_apps\":[\"invalid_plugin-0.1.0\"],\"description\":\"test\","
+        "\"with_config_schema\":false}"
+    >>,
+    ok = replace_tar_entry(NameVsn, "release.json", Info),
+    ok = remove_tar_entry(NameVsn, "config_schema.avsc"),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    [{name_vsn, NameVsn} | Config];
+t_decode_config_without_schema({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_decode_config_without_schema(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertEqual(
+        {ok, ?plugin_without_config_schema},
+        emqx_plugins:decode_plugin_config_map(NameVsn, #{<<"foo">> => 42})
+    ).
+
+-doc """
+The schema is read from the plugin's priv dir at validation time: a missing file is a
+read error, a corrupt file is a bad_schema error.
+""".
+t_decode_config_schema_file_missing_or_corrupt({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    [{name_vsn, NameVsn} | Config];
+t_decode_config_schema_file_missing_or_corrupt({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_decode_config_schema_file_missing_or_corrupt(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    AvscPath = plugin_avsc_path(NameVsn),
+    ValidConfig = #{<<"foo">> => <<"bar">>},
+    ?assertMatch({ok, _}, emqx_plugins:decode_plugin_config_map(NameVsn, ValidConfig)),
+    ok = file:delete(AvscPath),
+    ?assertMatch(
+        {error, #{msg := "bad_avsc_file", reason := enoent}},
+        emqx_plugins:decode_plugin_config_map(NameVsn, ValidConfig)
+    ),
+    ok = file:write_file(AvscPath, <<"not an avro schema">>),
+    ?assertMatch(
+        {error, #{reason := bad_schema}},
+        emqx_plugins:decode_plugin_config_map(NameVsn, ValidConfig)
+    ).
+
+-doc """
+A changed schema file takes effect on the next validation without reinstalling the
+plugin: no stale copy of the schema is kept.
+""".
+t_decode_config_uses_current_schema_file({init, Config}) ->
+    NameVsn = "invalid_plugin-1.0.0",
+    ok = make_plugin_tar(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    [{name_vsn, NameVsn} | Config];
+t_decode_config_uses_current_schema_file({'end', Config}) ->
+    cleanup_invalid_plugin(?config(name_vsn, Config));
+t_decode_config_uses_current_schema_file(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    IntConfig = #{<<"foo">> => 42},
+    StrConfig = #{<<"foo">> => <<"bar">>},
+    ?assertMatch({ok, _}, emqx_plugins:decode_plugin_config_map(NameVsn, StrConfig)),
+    ?assertMatch(
+        {error, #{reason := invalid_type}},
+        emqx_plugins:decode_plugin_config_map(NameVsn, IntConfig)
+    ),
+    IntSchema =
+        <<"{\"type\":\"record\",\"name\":\"invalid_plugin\",\"fields\":[{\"name\":\"foo\",\"type\":\"int\"}]}">>,
+    ok = file:write_file(plugin_avsc_path(NameVsn), IntSchema),
+    ?assertMatch(
+        {ok, _}, emqx_plugins:decode_plugin_config_map(NameVsn, IntConfig)
+    ),
+    ?assertMatch(
+        {error, #{reason := invalid_type, expected := <<"int">>, actual := <<"string">>}},
+        emqx_plugins:decode_plugin_config_map(NameVsn, StrConfig)
+    ).
 
 t_rejects_invalid_local_config_on_start({init, Config}) ->
     NameVsn = "invalid_plugin-1.0.0",
@@ -653,7 +793,6 @@ t_rejects_invalid_local_config_on_start(Config) ->
     NameVsn = ?config(name_vsn, Config),
     ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
     LoadedApps = lists:sort(application:loaded_applications()),
-    Serdes = lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB)),
     CachedConfig = emqx_plugins:get_config(NameVsn, not_found),
     {ok, ConfigBin} = file:read_file(emqx_plugins_fs:config_file_path(NameVsn)),
     ?assertMatch(
@@ -669,7 +808,6 @@ t_rejects_invalid_local_config_on_start(Config) ->
         emqx_plugins:validate_start(NameVsn)
     ),
     ?assertEqual(LoadedApps, lists:sort(application:loaded_applications())),
-    ?assertEqual(Serdes, lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB))),
     ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn, not_found)),
     ?assertEqual(
         {ok, ConfigBin},
@@ -688,13 +826,11 @@ t_validate_start_does_not_start({'end', Config}) ->
 t_validate_start_does_not_start(Config) ->
     NameVsn = ?config(name_vsn, Config),
     LoadedApps = lists:sort(application:loaded_applications()),
-    Serdes = lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB)),
     CachedConfig = emqx_plugins:get_config(NameVsn, not_found),
     {ok, ConfigBin} = file:read_file(emqx_plugins_fs:config_file_path(NameVsn)),
     ?assertEqual({ok, not_running}, emqx_plugins:validate_start(NameVsn)),
     ?assertNot(is_app_running(invalid_plugin)),
     ?assertEqual(LoadedApps, lists:sort(application:loaded_applications())),
-    ?assertEqual(Serdes, lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB))),
     ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn, not_found)),
     ?assertEqual(
         {ok, ConfigBin},
@@ -710,14 +846,12 @@ t_ensure_start_package_only_materializes_files({'end', Config}) ->
 t_ensure_start_package_only_materializes_files(Config) ->
     NameVsn = ?config(name_vsn, Config),
     LoadedApps = lists:sort(application:loaded_applications()),
-    Serdes = lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB)),
     CachedConfig = emqx_plugins:get_config(NameVsn, not_found),
     ?assertNot(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
     ok = emqx_plugins:ensure_start_package(NameVsn),
     ?assert(filelib:is_dir(emqx_plugins_fs:plugin_dir(NameVsn))),
     ?assertNot(is_app_running(invalid_plugin)),
     ?assertEqual(LoadedApps, lists:sort(application:loaded_applications())),
-    ?assertEqual(Serdes, lists:sort(ets:tab2list(?PLUGIN_SERDE_TAB))),
     ?assertEqual(CachedConfig, emqx_plugins:get_config(NameVsn, not_found)),
     ?assertEqual({ok, not_running}, emqx_plugins:validate_start(NameVsn)).
 
@@ -921,6 +1055,9 @@ cleanup_invalid_plugin(NameVsn) ->
 
 plugin_ebin_dir(NameVsn) ->
     filename:join([emqx_plugins_fs:lib_dir(NameVsn), "invalid_plugin-0.1.0", "ebin"]).
+
+plugin_avsc_path(NameVsn) ->
+    filename:join([filename:dirname(plugin_ebin_dir(NameVsn)), "priv", "config_schema.avsc"]).
 
 make_plugin_tar(NameVsn) ->
     PluginApp = "invalid_plugin-0.1.0",
@@ -1619,6 +1756,11 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
             %% Hack: we use `restart' here to disable the clean state verification, as we
             %% just created and populated the `plugins' directory...
             [N1, N2 | _] = lists:flatmap(fun emqx_cth_cluster:restart/1, NodeSpecs),
+            %% `emqx_cth_cluster' starts applications individually and never runs
+            %% `emqx_machine_boot:ensure_apps_started/0', which starts plugin apps at
+            %% the end of the real node boot.  Emulate that boot tail here.
+            ok = ?ON(N1, emqx_plugins:ensure_started()),
+            ok = ?ON(N2, emqx_plugins:ensure_started()),
             ct:pal("checking N1 state"),
             ?ON(N1, assert_started_and_hooks_loaded()),
             ct:pal("checking N2 state"),
@@ -1641,10 +1783,13 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
                 end,
                 ekka:callback(start, StartCallback)
             end),
+            %% `emqx_machine_boot_apps_started' fires after the boot tail has
+            %% started the plugin apps, so the assertions below cannot race
+            %% with the plugin start.
             {ok, {ok, _}} =
                 ?wait_async_action(
                     ?ON(N2, emqx_cluster:join(N1)),
-                    #{?snk_kind := "emqx_plugins_app_started"}
+                    #{?snk_kind := emqx_machine_boot_apps_started}
                 ),
             ct:pal("checking N1 state after join"),
             ?ON(N1, assert_started_and_hooks_loaded()),
@@ -1748,6 +1893,122 @@ t_allow_sha256_undefined_accepts_any(_Config) ->
     ok = emqx_plugins:allow_installation(NameVsn),
     ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"any bytes">>)),
     ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"other bytes">>)),
+    ok.
+
+%% Under the hardened profile an unbound grant is refused at grant time and a
+%% bound grant behaves as in legacy: matching bytes pass, mismatching bytes fail.
+t_allow_hardened_requires_sha256({init, Config}) ->
+    Config;
+t_allow_hardened_requires_sha256({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_hardened_requires_sha256(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    Bin = <<"hello world">>,
+    Sha = binary:encode_hex(crypto:hash(sha256, Bin), lowercase),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        ?assertEqual({error, sha256_required}, emqx_plugins:allow_installation(NameVsn)),
+        ?assertEqual(
+            {error, sha256_required}, emqx_plugins:allow_installation(NameVsn, undefined)
+        ),
+        ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+        ?assertEqual({error, not_allowed}, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+        ok = emqx_plugins:allow_installation(NameVsn, Sha),
+        ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+        ?assertEqual(
+            {error, sha256_mismatch},
+            emqx_plugins:is_allowed_installation(NameVsn, <<"tampered">>)
+        )
+    end),
+    ok.
+
+%% A grant pushed over RPC is applied through the same entry point, so a
+%% hardened node refuses an unbound grant no matter which peer issued it.
+%% Proto v3 is what a legacy peer calls when no hash is given.
+t_allow_hardened_rpc_refuses_unbound({init, Config}) ->
+    Config;
+t_allow_hardened_rpc_refuses_unbound({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_hardened_rpc_refuses_unbound(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    Sha = binary:encode_hex(crypto:hash(sha256, <<"hello world">>), lowercase),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        ?assertEqual(
+            [{ok, {error, sha256_required}}],
+            emqx_plugins_proto_v3:allow_installation([node()], NameVsn)
+        ),
+        ?assertEqual(
+            [{ok, {error, sha256_required}}],
+            emqx_plugins_proto_v4:allow_installation([node()], NameVsn, undefined)
+        ),
+        ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+        ?assertEqual(
+            [{ok, ok}],
+            emqx_plugins_proto_v4:allow_installation([node()], NameVsn, Sha)
+        ),
+        ?assert(emqx_plugins:is_allowed_installation(NameVsn))
+    end),
+    %% Legacy peers still accept the unbound grant.
+    ?assertEqual(
+        [{ok, ok}],
+        emqx_plugins_proto_v3:allow_installation([node()], NameVsn)
+    ),
+    ok.
+
+%% Verification rejects an unbound grant while the profile requires a binding,
+%% even when the grant was issued under legacy.
+t_allow_hardened_rejects_preexisting_unbound_grant({init, Config}) ->
+    Config;
+t_allow_hardened_rejects_preexisting_unbound_grant({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_allow_hardened_rejects_preexisting_unbound_grant(_Config) ->
+    NameVsn = <<"foo-1.0.0">>,
+    Bin = <<"hello world">>,
+    ok = emqx_plugins:allow_installation(NameVsn),
+    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        %% The entry still exists; only the byte check refuses it.
+        ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
+        ?assertEqual(
+            {error, sha256_required}, emqx_plugins:is_allowed_installation(NameVsn, Bin)
+        )
+    end),
+    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+    ok.
+
+%% The CLI refuses an unbound `plugins allow' under hardened with an actionable
+%% hint, without issuing any grant; a bound allow still works.
+t_cli_allow_hardened_requires_sha256({init, Config}) ->
+    Config;
+t_cli_allow_hardened_requires_sha256({'end', _Config}) ->
+    application:unset_env(emqx_plugins, allowed_installations),
+    ok;
+t_cli_allow_hardened_requires_sha256(_Config) ->
+    NameVsn = "foo-1.0.0",
+    Sha = binary:encode_hex(crypto:hash(sha256, <<"hello world">>), lowercase),
+    LogFun = fun(_F, A) -> A end,
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        [DeniedJson] = emqx_plugins_cli_utils:allow_installation(NameVsn, LogFun),
+        Denied = emqx_utils_json:decode(DeniedJson, [return_maps]),
+        ?assertMatch(
+            #{
+                <<"result">> := <<"not_ok">>,
+                <<"cause">> := #{<<"reason">> := <<"sha256_required">>, <<"hint">> := _}
+            },
+            Denied
+        ),
+        #{<<"cause">> := #{<<"hint">> := Hint}} = Denied,
+        ?assertNotEqual(nomatch, binary:match(Hint, <<"sha256:<hex>">>)),
+        ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+        [OkJson] = emqx_plugins_cli_utils:allow_installation(NameVsn, Sha, LogFun),
+        ?assertMatch(
+            #{<<"result">> := <<"ok">>},
+            emqx_utils_json:decode(OkJson, [return_maps])
+        ),
+        ?assert(emqx_plugins:is_allowed_installation(NameVsn))
+    end),
     ok.
 
 %% The CLI install path must enforce the same allow gate as the HTTP upload path:

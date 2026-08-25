@@ -15,6 +15,7 @@ DUMP="$EMQX_LOG_DIR/node_dump_$(date +"%Y%m%d_%H%M%S").tar.gz"
 APP_ENV_DUMP="$EMQX_LOG_DIR/app_env.dump"
 CONF_DUMP="$EMQX_LOG_DIR/conf.hocon"
 LICENSE_INFO="$EMQX_LOG_DIR/license_info.txt"
+ENV_FILE_DUMP="$EMQX_LOG_DIR/emqx.env.dump"
 SYSINFO="$EMQX_LOG_DIR/sysinfo.txt"
 
 LOG_MAX_AGE_DAYS=3
@@ -81,6 +82,14 @@ done
 } > "${CONF_DUMP}"
 
 
+# Collect the boot-time settings from the environment file.
+# Only these known non-secret variables; the file can carry arbitrary
+# EMQX_* overrides, including secrets.
+if [ -f "$EMQX_ETC_DIR/emqx.env" ]; then
+    grep -E '^(EMQX_FEATURES|EMQX_SECURITY_PROFILE)=' \
+        "$EMQX_ETC_DIR/emqx.env" > "${ENV_FILE_DUMP}" || true
+fi
+
 # Collect license info:
 {
     collect "$RUNNER_BIN_DIR"/emqx ctl license info
@@ -93,6 +102,7 @@ done
     echo "${APP_ENV_DUMP}"
     echo "${CONF_DUMP}"
     echo "${LICENSE_INFO}"
+    if [ -f "${ENV_FILE_DUMP}" ]; then echo "${ENV_FILE_DUMP}"; fi
 } | tar czf "${DUMP}" -T -
 
 ## Cleanup:
@@ -102,5 +112,5 @@ rm "${SYSINFO}" "${LICENSE_INFO}"
 echo "Created a node dump ${DUMP}"
 echo
 echo "WARNING: this script tries to obfuscate secrets, but make sure to
-inspect log/app_env.dump and log/conf.hocon files manually before uploading the node dump
+inspect log/app_env.dump, log/conf.hocon and log/emqx.env.dump files manually before uploading the node dump
 to a public location."

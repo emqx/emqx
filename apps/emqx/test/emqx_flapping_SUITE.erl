@@ -129,14 +129,14 @@ t_expired_detecting(_) ->
     false = emqx_flapping:detect(ClientInfo),
     ?assertMatch(
         [_],
-        [X || X = {flapping, {clientid, <<"client008">>}, _, _} <- ets:tab2list(emqx_flapping)]
+        [X || X = {flapping, {_, clientid, <<"client008">>}, _, _} <- ets:tab2list(emqx_flapping)]
     ),
     %% Wait for at least two GC sweeps (window_time = 100ms): the first
     %% sweep may find the record still inside the window.
     timer:sleep(350),
     ?assertMatch(
         [],
-        [X || X = {flapping, {clientid, <<"client008">>}, _, _} <- ets:tab2list(emqx_flapping)]
+        [X || X = {flapping, {_, clientid, <<"client008">>}, _, _} <- ets:tab2list(emqx_flapping)]
     ).
 
 -doc """
@@ -264,6 +264,102 @@ t_independent_dimension_policies(_) ->
     ok = emqx_banned:delete({username, Username}).
 
 -doc """
+Counters for the same dimension value in different zones are independent.
+""".
+t_independent_zone_counters(_) ->
+    ZoneA = ?FUNCTION_NAME,
+    ZoneB = list_to_atom(atom_to_list(ZoneA) ++ "_b"),
+    ClientId = <<"same_client_in_two_zones">>,
+    with_flapping_cleanup([{clientid, ClientId}], fun(_OriginalZones) ->
+        Policy = #{
+            by_clientid => #{max_count => 3, window_time => 10000, ban_time => 2000},
+            by_username => none,
+            by_peerhost => none
+        },
+        ok = emqx_config:put_zone_conf(ZoneA, [flapping_detect], Policy),
+        ok = emqx_config:put_zone_conf(ZoneB, [flapping_detect], Policy),
+        ClientInfo = fun(Zone) ->
+            #{
+                zone => Zone,
+                listener => 'tcp:default',
+                clientid => ClientId,
+                peerhost => {10, 10, 0, 1}
+            }
+        end,
+        false = emqx_flapping:detect(ClientInfo(ZoneA)),
+        false = emqx_flapping:detect(ClientInfo(ZoneA)),
+        false = emqx_flapping:detect(ClientInfo(ZoneB)),
+        false = emqx_flapping:detect(ClientInfo(ZoneB)),
+        true = emqx_flapping:detect(ClientInfo(ZoneB)),
+        timer:sleep(50),
+        ?assertMatch([_], emqx_banned:look_up({clientid, ClientId}))
+    end).
+
+-doc """
+A short-window zone does not collect counters belonging to a long-window zone.
+""".
+t_zone_gc_isolated(_) ->
+    ShortZone = ?FUNCTION_NAME,
+    LongZone = list_to_atom(atom_to_list(ShortZone) ++ "_long"),
+    ClientId = <<"long_window_client">>,
+    with_flapping_cleanup([{clientid, ClientId}], fun(_OriginalZones) ->
+        Policy = fun(WindowTime) ->
+            #{
+                by_clientid => #{max_count => 3, window_time => WindowTime, ban_time => 2000},
+                by_username => none,
+                by_peerhost => none
+            }
+        end,
+        ok = emqx_config:put_zone_conf(ShortZone, [flapping_detect], Policy(100)),
+        ok = emqx_config:put_zone_conf(LongZone, [flapping_detect], Policy(1000)),
+        ok = emqx_cm_sup:restart_flapping(),
+        ClientInfo = fun(Zone) ->
+            #{
+                zone => Zone,
+                listener => 'tcp:default',
+                clientid => ClientId,
+                peerhost => {10, 11, 0, 1}
+            }
+        end,
+        false = emqx_flapping:detect(ClientInfo(LongZone)),
+        timer:sleep(250),
+        false = emqx_flapping:detect(ClientInfo(LongZone)),
+        true = emqx_flapping:detect(ClientInfo(LongZone)),
+        timer:sleep(50),
+        ?assertMatch([_], emqx_banned:look_up({clientid, ClientId}))
+    end).
+
+-doc """
+GC applies each dimension's own window within a zone.
+""".
+t_dimension_gc_isolated(_) ->
+    Zone = ?FUNCTION_NAME,
+    ClientId = <<"short_clientid_long_username">>,
+    Username = <<"long_window_username">>,
+    with_flapping_cleanup([{clientid, ClientId}, {username, Username}], fun(_OriginalZones) ->
+        ok = emqx_config:put_zone_conf(Zone, [flapping_detect], #{
+            by_clientid => #{max_count => 3, window_time => 100, ban_time => 2000},
+            by_username => #{max_count => 3, window_time => 1000, ban_time => 2000},
+            by_peerhost => none
+        }),
+        ok = emqx_cm_sup:restart_flapping(),
+        ClientInfo = #{
+            zone => Zone,
+            listener => 'tcp:default',
+            clientid => ClientId,
+            username => Username,
+            peerhost => {10, 12, 0, 1}
+        },
+        false = emqx_flapping:detect(ClientInfo),
+        timer:sleep(250),
+        false = emqx_flapping:detect(ClientInfo),
+        true = emqx_flapping:detect(ClientInfo),
+        timer:sleep(50),
+        ?assertEqual([], emqx_banned:look_up({clientid, ClientId})),
+        ?assertMatch([_], emqx_banned:look_up({username, Username}))
+    end).
+
+-doc """
 Connections without a username are not counted towards the username
 dimension, so they never produce a username ban entry.
 """.
@@ -286,7 +382,7 @@ t_no_username_no_detect(_) ->
     false = emqx_flapping:detect(ClientInfo),
     ?assertEqual(
         [],
-        [X || X = {flapping, {username, _}, _, _} <- ets:tab2list(emqx_flapping)]
+        [X || X = {flapping, {_, username, _}, _, _} <- ets:tab2list(emqx_flapping)]
     ).
 
 -doc """
@@ -412,6 +508,68 @@ t_conf_update_timer(_Config) ->
     validate_timer([{timer_1, true}, {timer_2, true}, {timer_3, false}, {default, true}]),
     ok.
 
+t_timer_reconfigured_on_window_change(_) ->
+    Zone = ?FUNCTION_NAME,
+    Policy = fun(WindowTime) ->
+        #{
+            by_clientid => #{max_count => 3, window_time => WindowTime, ban_time => 2000},
+            by_username => #{max_count => 3, window_time => 30000, ban_time => 2000},
+            by_peerhost => none
+        }
+    end,
+    with_flapping_cleanup([], fun(_OriginalZones) ->
+        ?assertEqual(30000, emqx_flapping:gc_interval(Policy(60000))),
+        ?assertEqual(20000, emqx_flapping:gc_interval(Policy(20000))),
+        ok = emqx_config:put_zone_conf(Zone, [flapping_detect], Policy(60000)),
+        ok = emqx_cm_sup:restart_flapping(),
+        TRef0 = maps:get(Zone, sys:get_state(emqx_flapping)),
+        ?assert(is_reference(TRef0)),
+        ok = emqx_config:put_zone_conf(Zone, [flapping_detect], Policy(20000)),
+        ok = emqx_flapping:update_config(),
+        _ = sys:get_state(emqx_flapping),
+        TRef1 = maps:get(Zone, sys:get_state(emqx_flapping)),
+        ?assert(is_reference(TRef1)),
+        ?assertNotEqual(TRef0, TRef1),
+        ?assertEqual(false, erlang:read_timer(TRef0)),
+        ?assert(is_integer(erlang:read_timer(TRef1)))
+    end).
+
+t_config_update_cleans_counters(_) ->
+    Zone = ?FUNCTION_NAME,
+    ClientId = <<"config_update_client">>,
+    Username = <<"config_update_username">>,
+    ClientInfo = #{
+        zone => Zone,
+        listener => 'tcp:default',
+        clientid => ClientId,
+        username => Username,
+        peerhost => {10, 13, 0, 1}
+    },
+    with_flapping_cleanup([], fun(OriginalZones) ->
+        EnabledPolicy = #{
+            by_clientid => #{max_count => 3, window_time => 10000, ban_time => 2000},
+            by_username => #{max_count => 3, window_time => 10000, ban_time => 2000},
+            by_peerhost => none
+        },
+        ok = emqx_config:put_zone_conf(Zone, [flapping_detect], EnabledPolicy),
+        ok = emqx_cm_sup:restart_flapping(),
+        false = emqx_flapping:detect(ClientInfo),
+        ?assertMatch([_], flapping_rows(Zone, clientid, ClientId)),
+        ?assertMatch([_], flapping_rows(Zone, username, Username)),
+        ok = emqx_config:put_zone_conf(
+            Zone,
+            [flapping_detect],
+            EnabledPolicy#{by_username := none}
+        ),
+        ok = emqx_flapping:update_config(),
+        _ = sys:get_state(emqx_flapping),
+        ?assertMatch([_], flapping_rows(Zone, clientid, ClientId)),
+        ?assertMatch([], flapping_rows(Zone, username, Username)),
+        {ok, _} = emqx:update_config([zones], OriginalZones),
+        _ = sys:get_state(emqx_flapping),
+        ?assertMatch([], zone_flapping_rows(Zone))
+    end).
+
 validate_timer(Lists) ->
     {Names, _} = lists:unzip(Lists),
     Zones = emqx:get_config([zones]),
@@ -520,3 +678,30 @@ t_dimension_defaults_match_schema(_Conf) ->
 
 get_policy(Zone) ->
     emqx_config:get_zone_conf(Zone, [flapping_detect]).
+
+with_flapping_cleanup(Bans, Fun) ->
+    OriginalZones = emqx:get_raw_config([zones]),
+    try
+        Fun(OriginalZones)
+    after
+        lists:foreach(fun(Who) -> _ = emqx_banned:delete(Who) end, Bans),
+        {ok, _} = emqx:update_config([zones], OriginalZones),
+        ok = emqx_cm_sup:restart_flapping()
+    end.
+
+flapping_rows(Zone, Dimension, Value) ->
+    [
+        X
+     || X = {flapping, {EntryZone, EntryDimension, EntryValue}, _, _} <-
+            ets:tab2list(emqx_flapping),
+        EntryZone =:= Zone,
+        EntryDimension =:= Dimension,
+        EntryValue =:= Value
+    ].
+
+zone_flapping_rows(Zone) ->
+    [
+        X
+     || X = {flapping, {EntryZone, _, _}, _, _} <- ets:tab2list(emqx_flapping),
+        EntryZone =:= Zone
+    ].

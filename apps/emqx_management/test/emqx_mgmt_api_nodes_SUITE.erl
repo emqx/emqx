@@ -8,6 +8,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -55,6 +56,7 @@ t_nodes_api(_) ->
     ?assertEqual(Node, node()),
     Edition = maps:get(<<"edition">>, LocalNodeInfo),
     ?assertEqual(emqx_release:edition_longstr(), Edition),
+    assert_profile_and_preset(LocalNodeInfo),
 
     Conns = maps:get(<<"connections">>, LocalNodeInfo),
     ?assertEqual(0, Conns),
@@ -63,9 +65,10 @@ t_nodes_api(_) ->
 
     NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
     {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
-    NodeNameResponse =
-        binary_to_atom(maps:get(<<"node">>, emqx_utils_json:decode(NodeInfo)), utf8),
+    NodeInfoMap = emqx_utils_json:decode(NodeInfo),
+    NodeNameResponse = binary_to_atom(maps:get(<<"node">>, NodeInfoMap), utf8),
     ?assertEqual(node(), NodeNameResponse),
+    assert_profile_and_preset(NodeInfoMap),
 
     BadNodePath = emqx_mgmt_api_test_util:api_path(["nodes", "badnode"]),
     ?assertMatch(
@@ -80,6 +83,34 @@ t_log_path(_) ->
     ?assertEqual(
         <<"log">>,
         filename:basename(Path)
+    ).
+
+-doc """
+`security_profile` and `feature_preset` reflect non-default settings.
+""".
+t_node_info_non_default_profile_and_preset(_) ->
+    NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
+    os:putenv("EMQX_FEATURES", "ESSENTIAL"),
+    emqx_machine_features:clear_features(),
+    try
+        emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+            {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
+            ?assertMatch(
+                #{
+                    <<"security_profile">> := <<"hardened">>,
+                    <<"feature_preset">> := <<"essential">>
+                },
+                emqx_utils_json:decode(NodeInfo)
+            )
+        end)
+    after
+        os:unsetenv("EMQX_FEATURES"),
+        emqx_machine_features:clear_features()
+    end,
+    {ok, NodeInfo1} = emqx_mgmt_api_test_util:request_api(get, NodePath),
+    ?assertMatch(
+        #{<<"security_profile">> := <<"legacy">>, <<"feature_preset">> := <<"full">>},
+        emqx_utils_json:decode(NodeInfo1)
     ).
 
 t_node_stats_api(_) ->
@@ -142,8 +173,38 @@ t_multiple_nodes_api(Config) ->
         {200, Node11} = rpc:call(Node1, emqx_mgmt_api_nodes, node, [
             get, #{bindings => #{node => Node1}}
         ]),
-        ?assertMatch(#{node := Node1}, Node11)
+        ?assertMatch(#{node := Node1, security_profile := legacy, feature_preset := full}, Node11),
+        %% A stopped node never reports its profile or preset.
+        ok = emqx_cth_cluster:stop_node(Node2),
+        {200, [RunningInfo, StoppedInfo]} = ?retry(
+            _Interval = 200,
+            _Attempts = 50,
+            begin
+                {200, [_, #{node_status := stopped}]} =
+                    rpc:call(Node1, emqx_mgmt_api_nodes, nodes, [get, #{}])
+            end
+        ),
+        ?assertMatch(
+            #{node := Node1, security_profile := legacy, feature_preset := full},
+            RunningInfo
+        ),
+        ?assertMatch(#{node := Node2, node_status := stopped}, StoppedInfo),
+        ?assertNot(is_map_key(security_profile, StoppedInfo)),
+        ?assertNot(is_map_key(feature_preset, StoppedInfo))
     after
         emqx_cth_cluster:stop(Nodes)
     end,
     ok.
+
+%%--------------------------------------------------------------------
+%% Helpers
+
+assert_profile_and_preset(Info) ->
+    ?assertEqual(
+        atom_to_binary(emqx_security_profile:profile()),
+        maps:get(<<"security_profile">>, Info)
+    ),
+    ?assertEqual(
+        atom_to_binary(maps:get(preset, emqx_machine_features:info())),
+        maps:get(<<"feature_preset">>, Info)
+    ).

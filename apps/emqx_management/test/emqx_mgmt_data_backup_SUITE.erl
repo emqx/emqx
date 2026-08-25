@@ -468,6 +468,158 @@ t_symlink_member_rejected(Config) ->
         emqx_mgmt_data_backup:upload(<<"symlink-backup.tar.gz">>, Content)
     ).
 
+%% A namespace named `..' resolves `ns/..' to the global backup root, and `.'
+%% resolves to the shared `ns' container directory. Managed namespace creation
+%% rejects these names, but implicitly created and pre-existing namespaces are
+%% not validated, so the path construction itself must hold: every backup file
+%% operation for such a namespace must fail without touching global backups.
+%% A regular namespace must keep its own isolated directory.
+t_dot_namespace_cannot_reach_global_backups(_Config) ->
+    {ok, #{filename := GlobalFile}} = emqx_mgmt_data_backup:export(),
+    ?assert(filelib:is_regular(GlobalFile)),
+    GlobalBase = filename:basename(GlobalFile),
+    lists:foreach(
+        fun(Ns) ->
+            ?assertEqual([], emqx_mgmt_data_backup:list_files(Ns), #{ns => Ns}),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:read_file(Ns, GlobalBase),
+                #{ns => Ns}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:delete_file(Ns, GlobalBase),
+                #{ns => Ns}
+            ),
+            ?assert(filelib:is_regular(GlobalFile), #{ns => Ns}),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:export(#{namespace => Ns}),
+                #{ns => Ns}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:upload(Ns, GlobalBase, <<"garbage">>),
+                #{ns => Ns}
+            )
+        end,
+        [<<"..">>, <<".">>]
+    ),
+    %% The global file survived every attempt above with its content intact.
+    ?assertMatch({ok, _}, file:read_file(GlobalFile)),
+    %% A regular namespace still gets its own directory under `<root>/ns/'.
+    {ok, #{filename := NsFile}} = emqx_mgmt_data_backup:export(#{namespace => <<"ns1">>}),
+    ?assertEqual(
+        filename:join([filename:dirname(GlobalFile), <<"ns">>, <<"ns1">>]),
+        filename:dirname(NsFile)
+    ),
+    NsBase = filename:basename(NsFile),
+    ?assertMatch(
+        [#{filename := NsBase}],
+        emqx_mgmt_data_backup:list_files(<<"ns1">>)
+    ),
+    %% And the namespaced listing never contains the global backup.
+    ?assertNot(
+        lists:any(
+            fun(#{filename := F}) -> F =:= GlobalBase end,
+            emqx_mgmt_data_backup:list_files(<<"ns1">>)
+        )
+    ),
+    %% An interior `..' must not alias another namespace's directory:
+    %% `a/../ns1' resolves to `ns/ns1', i.e. namespace ns1's directory. A
+    %% namespace name must map to exactly one directory leaf, so multi-segment
+    %% names are rejected as a whole.
+    lists:foreach(
+        fun(Alias) ->
+            ?assertEqual([], emqx_mgmt_data_backup:list_files(Alias), #{ns => Alias}),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:read_file(Alias, NsBase),
+                #{ns => Alias}
+            ),
+            ?assertEqual(
+                {error, bad_namespace},
+                emqx_mgmt_data_backup:delete_file(Alias, NsBase),
+                #{ns => Alias}
+            )
+        end,
+        [<<"a/../ns1">>, <<"a/ns1">>, <<"ns1/.">>]
+    ),
+    %% Namespace ns1's file survived the alias attempts.
+    ?assertMatch(
+        [#{filename := NsBase}],
+        emqx_mgmt_data_backup:list_files(<<"ns1">>)
+    ),
+    ok.
+
+-doc """
+A namespace name may contain characters that are meaningful to
+`filelib:wildcard/1`. The listing must treat the name literally: a namespace
+whose name contains glob metacharacters sees its own backups.
+""".
+t_ns_with_glob_metachars_lists_own_backups(_Config) ->
+    lists:foreach(
+        fun(Ns) ->
+            {ok, #{filename := File}} = emqx_mgmt_data_backup:export(#{namespace => Ns}),
+            Base = unicode:characters_to_binary(basename(File)),
+            ?assertMatch(
+                [#{filename := Base}],
+                emqx_mgmt_data_backup:list_files(Ns),
+                #{ns => Ns}
+            )
+        end,
+        [
+            %% The namespace name from the original report (EMQX issue #18370).
+            <<"ns~%^&*-={}<>@#1">>,
+            <<"a{b,c}">>,
+            <<"a[b]">>,
+            <<"a?b">>,
+            <<"plain-ns">>
+        ]
+    ),
+    %% A namespace that never exported owns no backups.
+    ?assertEqual([], emqx_mgmt_data_backup:list_files(<<"never-exported">>)),
+    %% The global namespace lists its own backups as before.
+    {ok, #{filename := GlobalFile}} = emqx_mgmt_data_backup:export(),
+    GlobalBase = unicode:characters_to_binary(basename(GlobalFile)),
+    ?assert(
+        lists:any(
+            fun(#{filename := F}) -> F =:= GlobalBase end,
+            emqx_mgmt_data_backup:list_files()
+        )
+    ),
+    ok.
+
+-doc """
+A namespace named `*` maps to the literal directory `ns/*`. Its listing must
+contain only its own backups: the name must not act as a wildcard that matches
+every other namespace's directory. Reading another namespace's file through
+the `*` namespace must fail as well.
+""".
+t_wildcard_ns_sees_only_own_backups(_Config) ->
+    {ok, #{filename := VictimFile}} = emqx_mgmt_data_backup:export(#{namespace => <<"victim">>}),
+    %% Plant a distinctively named backup file in the victim's directory.
+    SecretBase = <<"victim-secret.tar.gz">>,
+    SecretFile = filename:join(filename:dirname(VictimFile), SecretBase),
+    ok = file:write_file(SecretFile, <<"victim-secret-content">>),
+    {ok, #{filename := OwnFile}} = emqx_mgmt_data_backup:export(#{namespace => <<"*">>}),
+    OwnBase = unicode:characters_to_binary(basename(OwnFile)),
+    ?assertMatch(
+        [#{filename := OwnBase}],
+        emqx_mgmt_data_backup:list_files(<<"*">>)
+    ),
+    ?assertEqual(
+        {error, not_found},
+        emqx_mgmt_data_backup:read_file(<<"*">>, SecretBase)
+    ),
+    %% The victim still sees both of its files.
+    VictimBase = unicode:characters_to_binary(basename(VictimFile)),
+    ?assertEqual(
+        lists:sort([VictimBase, SecretBase]),
+        lists:sort([F || #{filename := F} <- emqx_mgmt_data_backup:list_files(<<"victim">>)])
+    ),
+    ok.
+
 t_no_backup_file(_Config) ->
     ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(not_found)),
     ?assertEqual(
@@ -637,6 +789,57 @@ t_import_cluster_hocon_partial_node(Config) ->
         {ok, #{db_errors => #{}, config_errors => #{}}},
         emqx_mgmt_data_backup:import_local(BackupFileName)
     ).
+
+-doc """
+A namespaced import never applies a root that is not namespace-writable: the
+root is skipped with a warning while the namespace-writable roots in the same
+archive are still imported.
+""".
+t_namespaced_import_skips_global_roots(Config) ->
+    Namespace = <<"ns1">>,
+    BaseName = "export-ns-global-root-backup",
+    BackupFileName = filename:join(?config(priv_dir, Config), BaseName ++ ".tar.gz"),
+    Meta = unicode:characters_to_binary(
+        hocon_pp:do(#{edition => emqx_release:edition(), version => emqx_release:version()}, #{})
+    ),
+    NsConf = <<
+        "listeners.tcp.ns_escalation { bind = \"127.0.0.1:21884\" }\n"
+        "rule_engine.rules.ns_rule { sql = \"SELECT * FROM \\\"t/#\\\"\", actions = [] }\n"
+    >>,
+    ok = erl_tar:create(
+        BackupFileName,
+        [
+            {BaseName ++ "/ns/ns1/cluster.hocon", NsConf},
+            {BaseName ++ "/META.hocon", Meta}
+        ],
+        [compressed]
+    ),
+    ListenerPath = [<<"listeners">>, <<"tcp">>, <<"ns_escalation">>],
+    ?assertEqual(undefined, emqx:get_raw_config(ListenerPath, undefined)),
+    ?check_trace(
+        begin
+            ImportRes = emqx_mgmt_data_backup:import_local(
+                BackupFileName, #{namespace => Namespace}
+            ),
+            ?assertEqual(
+                undefined,
+                emqx:get_raw_config(ListenerPath, undefined),
+                #{import => ImportRes}
+            ),
+            ?assertEqual({ok, #{db_errors => #{}, config_errors => #{}}}, ImportRes),
+            ?assertMatch(
+                #{<<"rule_engine">> := #{<<"rules">> := #{<<"ns_rule">> := _}}},
+                emqx_config:get_all_roots_from_namespace(Namespace)
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{namespace := Namespace, root_keys := [<<"listeners">>]}],
+                ?of_kind("data_import_skipped_global_roots", Trace)
+            )
+        end
+    ),
+    ok.
 
 t_cluster_links(_Config) ->
     Link = #{

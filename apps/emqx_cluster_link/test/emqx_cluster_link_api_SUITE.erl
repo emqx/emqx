@@ -284,6 +284,22 @@ t_put_invalid(Config) ->
         update_link(Name, maps:remove(<<"server">>, link_params()), Config)
     ).
 
+-doc """
+A `server` value with more than one address is accepted on create and update
+and is returned as configured.
+""".
+t_multi_server(Config) ->
+    Name = <<"l1">>,
+    Servers = <<"emqxcl_2.nohost:31883,emqxcl_3.nohost:31883">>,
+    Params = link_params(#{<<"server">> => Servers}),
+    ?assertMatch({201, #{<<"server">> := Servers}}, create_link(Name, Params, Config)),
+    ?assertMatch({200, #{<<"server">> := Servers}}, get_link(Name, Config)),
+    Servers1 = <<"emqxcl_3.nohost:31883, emqxcl_2.nohost:31883">>,
+    ?assertMatch(
+        {200, #{<<"server">> := <<"emqxcl_3.nohost:31883,emqxcl_2.nohost:31883">>}},
+        update_link(Name, Params#{<<"server">> => Servers1}, Config)
+    ).
+
 %% Tests a sequence of CRUD operations and their expected responses, for common use cases
 %% and configuration states.
 t_crud(Config) ->

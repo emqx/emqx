@@ -65,6 +65,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(ROOT_BACKUP_DIR, "backup").
 %% Namespaced backups are isolated under `<root>/ns/<Namespace>/'.
@@ -171,22 +172,24 @@ compile_mnesia_table_filter(TableSets) ->
 
 -spec export(export_opts()) -> {ok, backup_file_info()} | {error, _}.
 export(Opts) ->
-    {BackupName, TarDescriptor} = prepare_new_backup(Opts),
-    try
-        do_export(BackupName, TarDescriptor, Opts)
-    catch
-        Class:Reason:Stack ->
-            ?SLOG(error, #{
-                msg => "emqx_data_export_failed",
-                exception => Class,
-                reason => Reason,
-                stacktrace => Stack
-            }),
-            {error, Reason}
-    after
-        %% erl_tar:close/1 raises error if called on an already closed tar
-        catch erl_tar:close(TarDescriptor),
-        file:del_dir_r(BackupName)
+    maybe
+        {ok, {BackupName, TarDescriptor}} ?= prepare_new_backup(Opts),
+        try
+            do_export(BackupName, TarDescriptor, Opts)
+        catch
+            Class:Reason:Stack ->
+                ?SLOG(error, #{
+                    msg => "emqx_data_export_failed",
+                    exception => Class,
+                    reason => Reason,
+                    stacktrace => Stack
+                }),
+                {error, Reason}
+        after
+            %% erl_tar:close/1 raises error if called on an already closed tar
+            catch erl_tar:close(TarDescriptor),
+            file:del_dir_r(BackupName)
+        end
     end.
 
 -spec all_table_set_names() -> [binary()].
@@ -527,8 +530,24 @@ list_files(Namespace) ->
 
 -spec backup_files(maybe_namespace()) -> [file:filename()].
 backup_files(Namespace) ->
-    {ok, Pattern} = backup_path(Namespace, "*" ++ ?TAR_SUFFIX),
-    filelib:wildcard(Pattern).
+    %% A namespace without a resolvable backup directory owns no backups.
+    %% List the directory instead of globbing: the namespace name is caller
+    %% controlled and must never be interpreted as wildcard syntax.
+    case backup_root_dir(Namespace) of
+        {ok, Dir} -> list_tar_files(Dir);
+        {error, _} -> []
+    end.
+
+list_tar_files(Dir) ->
+    case file:list_dir(Dir) of
+        {ok, Filenames} ->
+            lists:sort([
+                filename:join(Dir, Filename)
+             || Filename <- Filenames, lists:suffix(?TAR_SUFFIX, Filename)
+            ]);
+        {error, _} ->
+            []
+    end.
 
 -spec format_error(atom()) -> string() | term().
 format_error(not_core_node) ->
@@ -556,6 +575,8 @@ format_error(bad_backup_name) ->
     "invalid backup name: file name must have " ?TAR_SUFFIX " extension";
 format_error(unsafe_backup_name) ->
     "unsafe backup name";
+format_error(bad_namespace) ->
+    "invalid namespace: cannot resolve a backup directory for this namespace name";
 format_error({unsupported_version, ImportVersion}) ->
     str(
         io_lib:format(
@@ -686,13 +707,15 @@ prepare_new_backup(Opts) ->
         )
     ),
     Namespace = maps:get(namespace, Opts, ?global_ns),
-    {ok, DefaultDir} = backup_root_dir(Namespace),
-    BackupDir = maps:get(out_dir, Opts, DefaultDir),
-    BackupName = filename:join(BackupDir, BackupBaseName),
-    BackupTarName = tar(BackupName),
-    maybe_print("Exporting data to ~p...~n", [BackupTarName], Opts),
-    {ok, TarDescriptor} = format_tar_error(erl_tar:open(BackupTarName, [write, compressed])),
-    {BackupName, TarDescriptor}.
+    maybe
+        {ok, DefaultDir} ?= backup_root_dir(Namespace),
+        BackupDir = maps:get(out_dir, Opts, DefaultDir),
+        BackupName = filename:join(BackupDir, BackupBaseName),
+        BackupTarName = tar(BackupName),
+        maybe_print("Exporting data to ~p...~n", [BackupTarName], Opts),
+        {ok, TarDescriptor} ?= format_tar_error(erl_tar:open(BackupTarName, [write, compressed])),
+        {ok, {BackupName, TarDescriptor}}
+    end.
 
 do_export(BackupName, TarDescriptor, Opts) ->
     BackupBaseName = filename:basename(BackupName),
@@ -1394,7 +1417,8 @@ do_import_cluster_hocon(Namespace, BackupDir, Filename, Opts) ->
             maybe
                 {ok, RawConf0} ?= hocon:files([Filename]),
                 RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf0),
-                {ok, RawConf} ?= validate_cluster_hocon(RawConf1),
+                RawConf2 = drop_global_only_roots(Namespace, RawConf1, Opts),
+                {ok, RawConf} ?= validate_cluster_hocon(RawConf2),
                 maybe_print(
                     "Importing cluster configuration for namespace ~s...~n", [Namespace], Opts
                 ),
@@ -1410,6 +1434,30 @@ do_import_cluster_hocon(Namespace, BackupDir, Filename, Opts) ->
                 backup => BackupDir
             }),
             {ok, #{}}
+    end.
+
+%% A namespaced import applies only the roots in the namespaced-config
+%% allow-list. Most `emqx_config_backup' importers write the global
+%% configuration regardless of the namespace they are given, so every other
+%% root is dropped before the schema check and the importer dispatch.
+drop_global_only_roots(?global_ns, RawConf, _Opts) ->
+    RawConf;
+drop_global_only_roots(Namespace, RawConf, Opts) when is_binary(Namespace) ->
+    Allowed = emqx_config:namespaced_config_allowed_roots(),
+    case lists:sort([Root || Root <- maps:keys(RawConf), not is_map_key(Root, Allowed)]) of
+        [] ->
+            RawConf;
+        Roots ->
+            maybe_print(
+                "Skipping config roots ~s: not namespace-writable.~n",
+                [lists:join(", ", Roots)],
+                Opts
+            ),
+            ?tp(warning, "data_import_skipped_global_roots", #{
+                namespace => Namespace,
+                root_keys => Roots
+            }),
+            maps:without(Roots, RawConf)
     end.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->
@@ -1750,18 +1798,32 @@ backup_root_dir(?global_ns) ->
 backup_root_dir(Namespace) when is_binary(Namespace) ->
     namespaced_backup_dir(Namespace).
 
-%% The namespace comes from the authenticated caller, but we still resolve it as
-%% a safe relative path so a crafted namespace cannot escape the backup root.
+%% The namespace comes from the authenticated caller, but implicitly created
+%% namespaces are not validated, so the name may be any binary. The name must
+%% map to exactly one directory leaf under `<root>/ns/': the resolved path must
+%% be `ns/<name>' verbatim. Anything else means the name contains path
+%% components that alias another directory and must be rejected. Note that
+%% `filelib:safe_relative_path/2' collapses `..' segments and returns `[]'
+%% (not `unsafe') when the path resolves to the base directory itself: `..'
+%% resolves `ns/..' to `[]' (the global backup root), `.' resolves to the
+%% shared `ns' container, and `a/../b' resolves to `ns/b' (another
+%% namespace's directory).
 namespaced_backup_dir(Namespace) ->
     Root = root_backup_dir(),
-    RelPath = filename:join(?NS_BACKUP_SUBDIR, str(Namespace)),
+    NsStr = str(Namespace),
+    RelPath = filename:join(?NS_BACKUP_SUBDIR, NsStr),
     case filelib:safe_relative_path(RelPath, Root) of
         unsafe ->
-            {error, bad_backup_name};
+            {error, bad_namespace};
         SafeRel ->
-            Dir = filename:join(Root, SafeRel),
-            ok = ensure_path(Dir),
-            {ok, Dir}
+            case filename:split(SafeRel) of
+                [?NS_BACKUP_SUBDIR, NsStr] ->
+                    Dir = filename:join(Root, SafeRel),
+                    ok = ensure_path(Dir),
+                    {ok, Dir};
+                _ ->
+                    {error, bad_namespace}
+            end
     end.
 
 cleanup_backup_dir(Namespace, BackupFilePath) ->

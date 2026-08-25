@@ -75,7 +75,7 @@ t_proxy_conn_reuse_bound_clientid_when_missing(_) ->
         }
     },
     Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
-    {ok, <<"client1">>, [_], State1} =
+    {ok, {coap_udp_proxy, Peer, <<"client1">>}, [_], State1} =
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
 
     Msg2 = #coap_message{
@@ -88,7 +88,7 @@ t_proxy_conn_reuse_bound_clientid_when_missing(_) ->
         }
     },
     Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
-    {ok, <<"client1">>, [_], _State2} =
+    {ok, {coap_udp_proxy, Peer, <<"client1">>}, [_], _State2} =
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2),
     ok.
 
@@ -105,7 +105,7 @@ t_proxy_conn_keep_bound_clientid_on_different_clientid(_) ->
         }
     },
     Bin1 = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
-    {ok, <<"client1">>, [_], State1} =
+    {ok, {coap_udp_proxy, Peer, <<"client1">>}, [_], State1} =
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State0, Bin1),
 
     Msg2 = #coap_message{
@@ -118,6 +118,29 @@ t_proxy_conn_keep_bound_clientid_on_different_clientid(_) ->
         }
     },
     Bin2 = emqx_coap_frame:serialize_pkt(Msg2, emqx_coap_frame:serialize_opts()),
-    {ok, <<"client1">>, [_], _State2} =
+    {ok, {coap_udp_proxy, Peer, <<"client1">>}, [_], _State2} =
         emqx_coap_proxy_conn:get_connection_id(dummy, Peer, State1, Bin2),
     ok.
+
+t_proxy_conn_scopes_clientid_by_peer(_) ->
+    Peer1 = {{127, 0, 0, 1}, 10001},
+    Peer2 = {{127, 0, 0, 1}, 10002},
+    Msg = #coap_message{
+        type = con,
+        method = post,
+        id = 1,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client1">>}
+        }
+    },
+    Bin = emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts()),
+    State1 = emqx_coap_proxy_conn:initialize([]),
+    State2 = emqx_coap_proxy_conn:initialize([]),
+    {ok, ProxyCId1, [_], _} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer1, State1, Bin),
+    {ok, ProxyCId2, [_], _} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, Peer2, State2, Bin),
+    ?assertEqual({coap_udp_proxy, Peer1, <<"client1">>}, ProxyCId1),
+    ?assertEqual({coap_udp_proxy, Peer2, <<"client1">>}, ProxyCId2),
+    ?assertNotEqual(ProxyCId1, ProxyCId2).

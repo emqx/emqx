@@ -17,7 +17,7 @@
 -export([detect/1]).
 
 -ifdef(TEST).
--export([get_policy/1, dimension_defaults/0]).
+-export([get_policy/1, dimension_defaults/0, gc_interval/1]).
 -endif.
 
 %% gen_server callbacks
@@ -34,9 +34,9 @@
 -define(FLAPPING_TAB, ?MODULE).
 
 -type key() ::
-    {clientid, emqx_types:clientid()}
-    | {username, emqx_types:username()}
-    | {peerhost, emqx_types:peerhost()}.
+    {emqx_types:zone(), clientid, emqx_types:clientid()}
+    | {emqx_types:zone(), username, emqx_types:username()}
+    | {emqx_types:zone(), peerhost, emqx_types:peerhost()}.
 
 %% Must match the field defaults of the `flapping_detect_dimension`
 %% struct in `emqx_schema`: zone overrides may hold partial dimension
@@ -80,13 +80,13 @@ detect(#{clientid := ClientId, peerhost := PeerHost, zone := Zone} = ClientInfo)
     Policy = get_policy(Zone),
     Username = maps:get(username, ClientInfo, undefined),
     Detected = [
-        detect({clientid, ClientId}, PeerHost, dimension_policy(by_clientid, Policy)),
-        detect({username, Username}, PeerHost, dimension_policy(by_username, Policy)),
-        detect({peerhost, PeerHost}, PeerHost, dimension_policy(by_peerhost, Policy))
+        detect({Zone, clientid, ClientId}, PeerHost, dimension_policy(by_clientid, Policy)),
+        detect({Zone, username, Username}, PeerHost, dimension_policy(by_username, Policy)),
+        detect({Zone, peerhost, PeerHost}, PeerHost, dimension_policy(by_peerhost, Policy))
     ],
     lists:member(true, Detected).
 
-detect({username, undefined}, _PeerHost, _Policy) ->
+detect({_Zone, username, undefined}, _PeerHost, _Policy) ->
     false;
 detect(_Key, _PeerHost, none) ->
     false;
@@ -140,27 +140,19 @@ dimension_defaults() -> ?DIMENSION_DEFAULTS.
 
 all_dimensions(Policy) ->
     [
-        dimension_policy(by_clientid, Policy),
-        dimension_policy(by_username, Policy),
-        dimension_policy(by_peerhost, Policy)
+        {clientid, dimension_policy(by_clientid, Policy)},
+        {username, dimension_policy(by_username, Policy)},
+        {peerhost, dimension_policy(by_peerhost, Policy)}
     ].
 
 enabled_window_times(Policy) ->
     lists:filtermap(
         fun
-            (#{window_time := WindowTime}) -> {true, WindowTime};
-            (none) -> false
+            ({_Dimension, #{window_time := WindowTime}}) -> {true, WindowTime};
+            ({_Dimension, none}) -> false
         end,
         all_dimensions(Policy)
     ).
-
-%% Disabled dimensions produce no table entries, so only the enabled
-%% ones are considered when deciding which entries are stale.
-max_window_time(Policy) ->
-    case enabled_window_times(Policy) of
-        [] -> maps:get(window_time, ?DIMENSION_DEFAULTS);
-        WindowTimes -> lists:max(WindowTimes)
-    end.
 
 now_diff(TS) -> erlang:system_time(millisecond) - TS.
 
@@ -186,7 +178,7 @@ handle_call(Req, _From, State) ->
 handle_cast(
     {detected,
         #flapping{
-            key = {Dimension, Value},
+            key = {_Zone, Dimension, Value},
             started_at = StartedAt,
             detect_cnt = DetectCnt
         },
@@ -230,15 +222,16 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info({timeout, _TRef, {garbage_collect, Zone}}, State) ->
-    Policy = get_policy(Zone),
-    Timestamp = erlang:system_time(millisecond) - max_window_time(Policy),
-    MatchSpec = ets:fun2ms(fun(#flapping{started_at = StartedAt}) when StartedAt < Timestamp ->
-        true
-    end),
-    ets:select_delete(?FLAPPING_TAB, MatchSpec),
-    Timer = start_timer(Policy, Zone),
-    {noreply, State#{Zone => Timer}, hibernate};
+handle_info({timeout, TRef, {garbage_collect, Zone}}, State) ->
+    case maps:get(Zone, State, undefined) of
+        TRef ->
+            Policy = get_policy(Zone),
+            garbage_collect_zone(Zone, Policy),
+            Timer = start_timer(Policy, Zone),
+            {noreply, State#{Zone => Timer}, hibernate};
+        _ ->
+            {noreply, State}
+    end;
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -261,37 +254,97 @@ log_info(peerhost, _PeerHost) ->
     %% peer_host is always part of the log data.
     {#{}, #{}}.
 
+garbage_collect_zone(Zone, Policy) ->
+    Now = erlang:system_time(millisecond),
+    MatchSpec = lists:append([
+        expired_dimension_match_spec(Zone, Dimension, DimensionPolicy, Now)
+     || {Dimension, DimensionPolicy} <- all_dimensions(Policy),
+        is_map(DimensionPolicy)
+    ]),
+    select_delete(MatchSpec).
+
+garbage_collect_after_config_update(Zones) ->
+    Now = erlang:system_time(millisecond),
+    maps:foreach(
+        fun(Zone, #{flapping_detect := Policy}) ->
+            MatchSpec = lists:append([
+                config_update_dimension_match_spec(Zone, Dimension, DimensionPolicy, Now)
+             || {Dimension, DimensionPolicy} <- all_dimensions(Policy)
+            ]),
+            select_delete(MatchSpec)
+        end,
+        Zones
+    ).
+
+config_update_dimension_match_spec(Zone, Dimension, none, _Now) ->
+    ets:fun2ms(
+        fun(#flapping{key = {EntryZone, EntryDimension, _}}) when
+            EntryZone =:= Zone, EntryDimension =:= Dimension
+        ->
+            true
+        end
+    );
+config_update_dimension_match_spec(Zone, Dimension, DimensionPolicy, Now) ->
+    expired_dimension_match_spec(Zone, Dimension, DimensionPolicy, Now).
+
+expired_dimension_match_spec(Zone, Dimension, #{window_time := WindowTime}, Now) ->
+    Cutoff = Now - WindowTime,
+    ets:fun2ms(
+        fun(#flapping{key = {EntryZone, EntryDimension, _}, started_at = StartedAt}) when
+            EntryZone =:= Zone,
+            EntryDimension =:= Dimension,
+            StartedAt =< Cutoff
+        ->
+            true
+        end
+    ).
+
+select_delete([]) ->
+    0;
+select_delete(MatchSpec) ->
+    ets:select_delete(?FLAPPING_TAB, MatchSpec).
+
+delete_zone(Zone) ->
+    MatchSpec = ets:fun2ms(
+        fun(#flapping{key = {EntryZone, _, _}}) when EntryZone =:= Zone ->
+            true
+        end
+    ),
+    ets:select_delete(?FLAPPING_TAB, MatchSpec).
+
 start_timer(Policy, Zone) ->
-    case enabled_window_times(Policy) of
-        [] ->
+    case gc_interval(Policy) of
+        undefined ->
             undefined;
-        WindowTimes ->
-            emqx_utils:start_timer(lists:max(WindowTimes), {garbage_collect, Zone})
+        Interval ->
+            emqx_utils:start_timer(Interval, {garbage_collect, Zone})
+    end.
+
+gc_interval(Policy) ->
+    case enabled_window_times(Policy) of
+        [] -> undefined;
+        WindowTimes -> lists:min(WindowTimes)
     end.
 
 start_timers() ->
+    start_timers(emqx:get_config([zones], #{})).
+
+start_timers(Zones) ->
     maps:map(
         fun(ZoneName, #{flapping_detect := FlappingDetect}) ->
             start_timer(FlappingDetect, ZoneName)
         end,
-        emqx:get_config([zones], #{})
+        Zones
     ).
 
 update_timer(Timers) ->
-    maps:map(
-        fun(ZoneName, #{flapping_detect := FlappingDetect}) ->
-            Enable = enabled_window_times(FlappingDetect) =/= [],
-            case maps:get(ZoneName, Timers, undefined) of
-                undefined ->
-                    start_timer(FlappingDetect, ZoneName);
-                TRef when Enable -> TRef;
-                TRef ->
-                    _ = erlang:cancel_timer(TRef),
-                    undefined
-            end
-        end,
-        emqx:get_config([zones], #{})
-    ).
+    Zones = emqx:get_config([zones], #{}),
+    OldZones = maps:keys(Timers),
+    NewZones = maps:keys(Zones),
+    lists:foreach(fun delete_zone/1, OldZones -- NewZones),
+    garbage_collect_after_config_update(Zones),
+    maps:foreach(fun(_ZoneName, TRef) -> emqx_utils:cancel_timer(TRef) end, Timers),
+    start_timers(Zones).
 
 fmt_host(PeerHost) ->
     try

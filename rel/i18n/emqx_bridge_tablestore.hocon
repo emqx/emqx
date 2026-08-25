@@ -30,6 +30,11 @@ pool_size.label:
 pool_size.desc:
 """The pool size."""
 
+desc_probe_table_name.label:
+"""Probe Table Name"""
+desc_probe_table_name.desc:
+"""Name of an existing timeseries table used to probe connectivity for health checks. When unset, the health check falls back to listing all timeseries tables."""
+
 desc_table_name.label:
 """Table Name"""
 desc_table_name.desc:

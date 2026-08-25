@@ -57,7 +57,9 @@ Returns policy depending on the current security profile.
     (internal_subscription_checks) -> boolean();
     (authz_context) -> legacy | restricted;
     (delayed_publish_reauthorization) -> boolean();
+    (exhook_server_unavailable) -> honor_failed_action | deny;
     (exhook_message_publish_failure) -> ignore | deny;
+    (plugin_install_sha256_binding) -> optional | required;
     (authn_builtin_default_autogenerate_password) -> boolean();
     (authn_builtin_default_manual_password_hash) -> sha256 | pbkdf2;
     (authn_builtin_accept_weak_password_hash) -> boolean().
@@ -126,10 +128,20 @@ policy(delayed_publish_reauthorization) ->
         legacy -> false;
         hardened -> true
     end;
+policy(exhook_server_unavailable) ->
+    case profile() of
+        legacy -> honor_failed_action;
+        hardened -> deny
+    end;
 policy(exhook_message_publish_failure) ->
     case profile() of
         legacy -> ignore;
         hardened -> deny
+    end;
+policy(plugin_install_sha256_binding) ->
+    case profile() of
+        legacy -> optional;
+        hardened -> required
     end;
 policy(authn_builtin_default_autogenerate_password) ->
     case profile() of

@@ -79,7 +79,9 @@
     %% Channel Module
     chann_mod :: atom(),
     %% Listener Tag
-    listener :: listener() | undefined
+    listener :: listener() | undefined,
+    %% Defer UDP proxy ownership changes until the channel validates the packet.
+    defer_udp_proxy_takeover = false :: boolean()
 }).
 
 -type listener() :: {GwName :: atom(), LisType :: atom(), LisName :: atom()}.
@@ -267,6 +269,32 @@ is_datadram_socket({esockd_udp_proxy, _ProxyId, Sock}) -> erlang:is_port(Sock).
 %%--------------------------------------------------------------------
 
 init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
+    case emqx_node_readiness:is_ready() of
+        true ->
+            do_init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod);
+        false ->
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            ?SLOG(warning, #{
+                msg => connection_refused_before_boot_complete,
+                peername => gate_peername(WrappedSock, Peername0),
+                channel_module => ChannMod
+            }),
+            ok = esockd_close(WrappedSock),
+            erlang:exit({shutdown, node_not_ready})
+    end.
+
+gate_peername({esockd_transport, Sock}, undefined) ->
+    case esockd_transport:peername(Sock) of
+        {ok, Peername} -> esockd:format(Peername);
+        {error, _} -> unknown
+    end;
+gate_peername(_WrappedSock, Peername) when Peername =/= undefined ->
+    esockd:format(Peername);
+gate_peername(_WrappedSock, undefined) ->
+    unknown.
+
+do_init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
     case esockd_wait(WrappedSock) of
         {ok, NWrappedSock} ->
             Peername = esockd_peername(NWrappedSock, Peername0),
@@ -327,7 +355,8 @@ init_state(WrappedSock, Peername, Options, FrameMod, ChannMod) ->
         oom_policy = OomPolicy,
         frame_mod = FrameMod,
         chann_mod = ChannMod,
-        listener = maps:get(listener, Options, undefined)
+        listener = maps:get(listener, Options, undefined),
+        defer_udp_proxy_takeover = maps:get(defer_udp_proxy_takeover, Options, false)
     }.
 
 run_loop(
@@ -482,7 +511,7 @@ handle_msg({'$gen_cast', Req}, State) ->
 handle_msg({datagram, _SockPid, Data}, State) ->
     parse_incoming(Data, State);
 handle_msg(
-    {{esockd_udp_proxy, _ProxyId, _Socket} = NSock, Data, Packets},
+    {{esockd_udp_proxy, ProxyId, _Socket} = NSock, Data, Packets},
     State = #state{
         chann_mod = ChannMod,
         channel = Channel
@@ -494,9 +523,14 @@ handle_msg(
     Ctx = ChannMod:info(ctx, Channel),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.received', Oct),
 
-    maybe_takeover_udp_proxy(NSock, State),
-    NState = State#state{socket = NSock, sockstate = running},
-    {ok, next_incoming_msgs(Packets), NState};
+    case should_defer_udp_proxy_takeover(ProxyId, State) of
+        true ->
+            {ok, next_udp_proxy_incoming_msgs(NSock, Packets), State};
+        false ->
+            maybe_takeover_udp_proxy(NSock, State),
+            NState = State#state{socket = NSock, sockstate = running},
+            {ok, next_incoming_msgs(Packets), NState}
+    end;
 handle_msg({Inet, _Sock, Data}, State) when
     Inet == tcp;
     Inet == ssl
@@ -510,6 +544,16 @@ handle_msg(
         emqx_utils:cancel_timer(IdleTimer),
     NState = State#state{idle_timer = undefined},
     handle_incoming(Packet, NState);
+handle_msg(
+    {udp_proxy_incoming, NSock, Packet},
+    State = #state{idle_timer = IdleTimer}
+) ->
+    IdleTimer /= undefined andalso
+        emqx_utils:cancel_timer(IdleTimer),
+    NState = State#state{idle_timer = undefined},
+    handle_udp_proxy_incoming(Packet, NSock, NState);
+handle_msg({outgoing, NSock = {esockd_udp_proxy, _, _}, Data}, State) ->
+    handle_outgoing_via_socket(Data, NSock, State);
 handle_msg({outgoing, Data}, State) ->
     handle_outgoing(Data, State);
 handle_msg({Error, _Sock, Reason}, State) when
@@ -634,6 +678,17 @@ maybe_takeover_udp_proxy(
     end;
 maybe_takeover_udp_proxy(_Socket, _State) ->
     ok.
+
+should_defer_udp_proxy_takeover(
+    ProxyId,
+    #state{
+        socket = {esockd_udp_proxy, CurrentProxyId, _Socket},
+        defer_udp_proxy_takeover = true
+    }
+) ->
+    ProxyId =/= CurrentProxyId;
+should_defer_udp_proxy_takeover(_ProxyId, _State) ->
+    false.
 
 is_current_udp_proxy(ProxyId, #state{socket = {esockd_udp_proxy, ProxyId, _Socket}}) ->
     true;
@@ -860,6 +915,9 @@ next_incoming_msgs([Packet]) ->
 next_incoming_msgs(Packets) ->
     [{incoming, Packet} || Packet <- lists:reverse(Packets)].
 
+next_udp_proxy_incoming_msgs(NSock, Packets) ->
+    [{udp_proxy_incoming, NSock, Packet} || Packet <- lists:reverse(Packets)].
+
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 
@@ -875,24 +933,101 @@ do_handle_incoming(Packet, FrameMod, State) ->
     ?SLOG(debug, #{msg => "packet_received", packet => FrameMod:format(Packet)}),
     with_channel(handle_in, [Packet], State).
 
+handle_udp_proxy_incoming(Packet, NSock, State) ->
+    #state{channel = Channel, frame_mod = FrameMod, chann_mod = ChannMod} = State,
+    Ctx = ChannMod:info(ctx, Channel),
+    ok = inc_incoming_stats(Ctx, FrameMod, Packet),
+    ?SLOG(debug, #{msg => "packet_received", packet => FrameMod:format(Packet)}),
+    with_udp_proxy_channel(handle_in, [Packet], NSock, State).
+
 %%--------------------------------------------------------------------
 %% With Channel
 
-with_channel(Fun, Args, State = #state{chann_mod = ChannMod, channel = Channel}) ->
+with_channel(Fun, Args, State) ->
+    with_channel(
+        Fun,
+        Args,
+        fun handle_channel_replies/2,
+        fun handle_outgoing/2,
+        State
+    ).
+
+with_channel(
+    Fun,
+    Args,
+    ReplyHandler,
+    OutgoingHandler,
+    State = #state{chann_mod = ChannMod, channel = Channel}
+) ->
     case call_channel(ChannMod, Fun, Args, Channel) of
         ok ->
             {ok, State};
         {ok, NChannel} ->
             {ok, State#state{channel = NChannel}};
         {ok, Replies, NChannel} ->
-            {ok, next_msgs(Replies), State#state{channel = NChannel}};
+            ReplyHandler(Replies, State#state{channel = NChannel});
         {shutdown, Reason, NChannel} ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
             NState = State#state{channel = NChannel},
-            {ok, NState1} = handle_outgoing(Packet, NState),
+            {ok, NState1} = OutgoingHandler(Packet, NState),
             shutdown(Reason, NState1)
     end.
+
+with_udp_proxy_channel(
+    Fun,
+    Args,
+    NSock,
+    State
+) ->
+    ReplyHandler = fun(Replies, NState) ->
+        handle_udp_proxy_replies(NSock, Replies, NState)
+    end,
+    OutgoingHandler = fun(Packet, NState) ->
+        handle_outgoing_via_socket(Packet, NSock, NState)
+    end,
+    with_channel(Fun, Args, ReplyHandler, OutgoingHandler, State).
+
+handle_channel_replies({udp_proxy, _Decision}, State) ->
+    {ok, State};
+handle_channel_replies(Reply, State) when is_tuple(Reply) ->
+    {ok, Reply, State};
+handle_channel_replies(Replies, State) when is_list(Replies) ->
+    {_Decision, Replies1} = take_udp_proxy_decision(Replies, reject, []),
+    {ok, Replies1, State}.
+
+handle_udp_proxy_replies(NSock, Replies0, State) ->
+    Replies = ensure_reply_list(Replies0),
+    {Decision, Replies1} = take_udp_proxy_decision(Replies, reject, []),
+    NState =
+        case Decision of
+            commit ->
+                switch_udp_proxy_downlink(NSock, State);
+            reject ->
+                State
+        end,
+    RoutedReplies = [route_udp_proxy_reply(NSock, Reply) || Reply <- Replies1],
+    {ok, next_msgs(RoutedReplies), NState}.
+
+ensure_reply_list(Reply) when is_tuple(Reply) ->
+    [Reply];
+ensure_reply_list(Replies) when is_list(Replies) ->
+    Replies.
+
+take_udp_proxy_decision([], Decision, Replies) ->
+    {Decision, lists:reverse(Replies)};
+take_udp_proxy_decision([{udp_proxy, Decision} | More], _OldDecision, Replies) ->
+    take_udp_proxy_decision(More, Decision, Replies);
+take_udp_proxy_decision([Reply | More], Decision, Replies) ->
+    take_udp_proxy_decision(More, Decision, [Reply | Replies]).
+
+route_udp_proxy_reply(NSock, {outgoing, Data}) ->
+    {outgoing, NSock, Data};
+route_udp_proxy_reply(_NSock, Reply) ->
+    Reply.
+
+switch_udp_proxy_downlink(NSock, State) ->
+    State#state{socket = NSock, sockstate = running}.
 
 call_channel(ChannMod, Fun, [Arg1], Channel) ->
     ChannMod:Fun(Arg1, Channel);
@@ -929,6 +1064,10 @@ handle_outgoing(
     end;
 handle_outgoing(Packet, State) ->
     send((serialize_and_inc_stats_fun(State))(Packet), State).
+
+handle_outgoing_via_socket(Data, NSock, State = #state{socket = Socket}) ->
+    {ok, NState} = handle_outgoing(Data, State#state{socket = NSock}),
+    {ok, NState#state{socket = Socket}}.
 
 serialize_and_inc_stats_fun(#state{
     frame_mod = FrameMod,

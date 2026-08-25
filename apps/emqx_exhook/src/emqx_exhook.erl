@@ -41,9 +41,39 @@ cast(Hookpoint, Req, [ServerName | More]) ->
 call_fold(Hookpoint, Req, AccFun) ->
     case emqx_exhook_mgr:running() of
         [] ->
-            {stop, deny_action_result(Hookpoint, Req)};
+            no_running_server_result(Hookpoint, Req);
         ServerNames ->
             call_fold(true, Hookpoint, Req, AccFun, ServerNames)
+    end.
+
+no_running_server_result(Hookpoint, Req) ->
+    case no_running_server_action() of
+        ignore ->
+            ignore;
+        deny ->
+            {stop, deny_action_result(Hookpoint, Req)}
+    end.
+
+no_running_server_action() ->
+    case emqx_security_profile:policy(exhook_server_unavailable) of
+        deny ->
+            deny;
+        honor_failed_action ->
+            configured_failed_action()
+    end.
+
+configured_failed_action() ->
+    Servers = emqx:get_config([exhook, servers], []),
+    case
+        lists:any(
+            fun(#{enable := Enable, failed_action := FailedAction}) ->
+                Enable andalso FailedAction =:= deny
+            end,
+            Servers
+        )
+    of
+        true -> deny;
+        false -> ignore
     end.
 
 call_fold(true, _, _Req, _, []) ->

@@ -139,7 +139,7 @@ consumer_mqtt_opts.label:
 """MQTT Publish"""
 
 auth_kerberos_principal.desc:
-"""SASL GSSAPI authentication Kerberos principal. For example <code>kafka/node1.example.com@EXAMPLE.COM</code>, NOTE: The realm in use has to be configured in /etc/krb5.conf in EMQX nodes."""
+"""SASL GSSAPI authentication Kerberos principal. For example <code>kafka/node1.example.com@EXAMPLE.COM</code>, NOTE: The realm in use has to be configured in the default config file krb5.conf, usually located in `/etc`, on EMQX nodes."""
 
 auth_kerberos_principal.label:
 """Kerberos Principal"""

@@ -151,3 +151,6 @@
 
 ## Sets unicode as the printable character range when formatting binaries
 +pc unicode
+
+## Read and write standard I/O as UTF-8 regardless of the OS locale
+-kernel standard_io_encoding unicode
