@@ -494,6 +494,27 @@ t_handle_in_pubrel_not_found_error(_) ->
     {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND)}, _Channel} =
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel()).
 
+t_handle_in_pubrel_not_found_bounded_log(_) ->
+    %% A flood of PUBREL packets with an unknown Packet Identifier must not
+    %% produce warning-level log output: the event is recorded by the
+    %% packets.pubrel.missed counter and logged at info instead. A fresh
+    %% channel has an empty session, so every PUBREL is not_found.
+    N = 100,
+    Flood = fun() ->
+        lists:foreach(
+            fun(_) ->
+                {ok, {outgoing, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND)}, _} =
+                    emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel())
+            end,
+            lists:seq(1, N)
+        )
+    end,
+    IsPubrelMissed = fun(#{msg := Msg}) -> Msg =:= "pubrel_packetId_not_found" end,
+    WarningReports = emqx_cth_log_capture:capture(warning, Flood),
+    ?assertEqual([], lists:filter(IsPubrelMissed, WarningReports)),
+    InfoReports = emqx_cth_log_capture:capture(info, Flood),
+    ?assertEqual(N, length(lists:filter(IsPubrelMissed, InfoReports))).
+
 t_handle_in_pubcomp_ok(_) ->
     ok = meck:expect(emqx_session, pubcomp, fun(_, _, _ReasonCode, Session) -> {ok, [], Session} end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), channel()).
