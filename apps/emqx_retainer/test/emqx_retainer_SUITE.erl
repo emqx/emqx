@@ -195,7 +195,8 @@ t_store_and_clean(_) ->
             emqx_retainer:read_message(<<"retained">>)
         )
     ),
-    ?assertEqual(Retained0 + 1, emqx_metrics:val_global('messages.retained')),
+    %% The counter increments asynchronously relative to store visibility.
+    ?retry(100, 20, ?assertEqual(Retained0 + 1, emqx_metrics:val_global('messages.retained'))),
 
     {ok, _, List} = emqx_retainer:page_read(<<"retained">>, 1, 10),
     ?assertEqual(1, length(List)),
@@ -221,7 +222,8 @@ t_store_and_clean(_) ->
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
     %% Wait until the empty-payload publish has cleared the retained message.
     ?retry(100, 20, ?assertMatch({ok, []}, emqx_retainer:read_message(<<"retained">>))),
-    ?assertEqual(Retained0 + 1, emqx_metrics:val_global('messages.retained')),
+    %% The counter increments asynchronously relative to store visibility.
+    ?retry(100, 20, ?assertEqual(Retained0 + 1, emqx_metrics:val_global('messages.retained'))),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(1))),
