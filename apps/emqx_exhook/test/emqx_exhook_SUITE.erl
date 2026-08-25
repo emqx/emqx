@@ -108,7 +108,12 @@ common_stop(TC, Config) ->
     ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
 
 profile_cases() ->
-    [t_access_failed_if_no_server_running, t_handler_tcp, t_handler_ws].
+    [
+        t_access_failed_if_no_server_running,
+        t_no_running_server_honors_failed_action,
+        t_handler_tcp,
+        t_handler_ws
+    ].
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -174,6 +179,97 @@ t_access_failed_if_no_server_running(Config) ->
     ),
     emqx_exhook_mgr:enable(<<"default">>),
     assert_get_basic_usage_info(Config).
+
+t_no_running_server_honors_failed_action(_) ->
+    ClientInfo = #{
+        clientid => <<"user-id-1">>,
+        username => <<"usera">>,
+        peername => {{127, 0, 0, 1}, 3456},
+        peerhost => {127, 0, 0, 1},
+        sockport => 1883,
+        protocol => mqtt,
+        mountpoint => undefined
+    },
+    ok = disable_server(<<"default">>),
+    ok = disable_server(<<"not_reconnect">>),
+    ok = disable_server(<<"error">>),
+    ?assertEqual([], emqx_exhook_mgr:running()),
+    ?assertEqual(
+        ignore,
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            emqx_exhook_handler:on_client_authenticate(ClientInfo, #{auth_result => success})
+        end)
+    ),
+    ?assertEqual(
+        {stop, {error, not_authorized}},
+        emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+            emqx_exhook_handler:on_client_authenticate(ClientInfo, #{auth_result => success})
+        end)
+    ),
+    ok = update_failed_action(<<"error">>, <<"ignore">>),
+    ?assertEqual([], emqx_exhook_mgr:running()),
+    ?assertEqual(
+        ignore,
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            emqx_exhook_handler:on_client_authenticate(ClientInfo, #{auth_result => success})
+        end)
+    ),
+    ?assertEqual(
+        {stop, {error, not_authorized}},
+        emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+            emqx_exhook_handler:on_client_authenticate(ClientInfo, #{auth_result => success})
+        end)
+    ),
+    ?assertEqual(
+        ignore,
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            emqx_exhook_handler:on_client_authorize(
+                ClientInfo,
+                ?AUTHZ_PUBLISH,
+                <<"t/1">>,
+                #{result => allow, from => exhook}
+            )
+        end)
+    ),
+    Message = emqx_message:make(<<"t/1">>, <<"abc">>),
+    ?assertEqual(
+        ignore,
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            emqx_exhook_handler:on_message_ingress(
+                #{authz_ctx => emqx_authz_context:make(ClientInfo)},
+                Message
+            )
+        end)
+    ),
+    ?assertEqual(
+        ignore,
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            emqx_exhook_handler:on_message_publish(Message)
+        end)
+    ),
+    ok = update_failed_action(<<"not_reconnect">>, <<"deny">>),
+    ?assertEqual([], emqx_exhook_mgr:running()),
+    ?assertEqual(
+        {stop, {error, not_authorized}},
+        emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+            emqx_exhook_handler:on_client_authenticate(ClientInfo, #{auth_result => success})
+        end)
+    ).
+
+disable_server(Name) ->
+    {ok, _} = emqx_exhook_mgr:disable(Name),
+    ok.
+
+update_failed_action(Name, FailedAction) ->
+    {ok, _} = emqx_exhook_mgr:update_config(
+        [exhook, servers],
+        {update, Name, #{
+            <<"name">> => Name,
+            <<"url">> => <<"http://127.0.0.1:9001">>,
+            <<"failed_action">> => FailedAction
+        }}
+    ),
+    ok.
 
 t_message_ingress(_) ->
     _ = emqx_exhook_demo_svr:flush(),
