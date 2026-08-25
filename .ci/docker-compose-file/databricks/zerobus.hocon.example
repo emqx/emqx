@@ -1,0 +1,34 @@
+zerobus_sql_warehouse_hostname = "<HOSTNAME>.cloud.databricks.com"
+zerobus_sql_warehouse_http_path = "/sql/1.0/warehouses/<PATH>"
+zerobus_sql_warehouse_access_token = "<ACCESS TOKEN>"
+
+actions {
+  zerobus {
+    test {
+      connector = test
+      parameters {
+        catalog = "<CATALOG>"
+        schema = "<SCHEMA>"
+        table = "<TABLE>"
+      }
+    }
+  }
+}
+connectors {
+  zerobus {
+    test {
+      connect_timeout = "10s"
+      zerobus_endpoint = "https://<WORKSPACE ID>.zerobus.<REGION>.cloud.databricks.com:443"
+      authentication {
+        workspace_id = "<WORKSPACE ID>"
+        client_id = "<CLIENT ID>"
+        client_secret = "<CLIENT SECRET>"
+        workspace_url = "https://<WORKSPACE HOSTNAME>.cloud.databricks.com"
+      }
+      pool_size = 3
+      ssl {
+        enable = true
+      }
+    }
+  }
+}

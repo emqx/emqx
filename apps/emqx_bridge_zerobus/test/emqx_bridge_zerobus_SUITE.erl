@@ -14,6 +14,22 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("grpc/include/grpc.hrl").
 
+-moduledoc """
+To run against a real databricks zerobus instance:
+
+  1) Copy `.ci/docker-compose-file/databricks/zerobus.hocon.example` elsewhere and fill in
+     the values.
+  2) Run the sql container with:
+     ```
+     docker compose -f .ci/docker-compose-file/docker-compose-databricks.yaml up
+     ```
+  3) Set the hocon path and run this test suite.
+     ```
+     export REAL_ZEROBUS_HOCON=/emqx/zerobus.hocon
+     mix ct --suites ...
+     ```
+""".
+
 %%------------------------------------------------------------------------------
 %% Defs
 %%------------------------------------------------------------------------------
@@ -55,26 +71,36 @@ groups() ->
     emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(TCConfig) ->
-    {Mock, ConnConfig, ActionConfig} =
+    {Mock, ConnConfig, ActionConfig, ExtraRealConfig} =
         case os:getenv("REAL_ZEROBUS_HOCON", "") of
             "" ->
                 {
                     _Mock = true,
-                    _ConnConfig = undefined,
-                    _ActionConfig = undefined
+                    _ConnConfig = not_mocked,
+                    _ActionConfig = not_mocked,
+                    _ExtraRealConfig = not_mocked
                 };
             HoconPath ->
                 case hocon:files([HoconPath]) of
                     {error, Reason} ->
                         error({failed_to_load_real_zerobus_hocon, HoconPath, Reason});
                     {ok, #{
+                        ~"zerobus_sql_warehouse_hostname" := Hostname,
+                        ~"zerobus_sql_warehouse_http_path" := HTTPPath,
+                        ~"zerobus_sql_warehouse_access_token" := Token,
                         ~"connectors" := #{?CONNECTOR_TYPE_BIN := #{~"test" := ConnConfig0}},
                         ~"actions" := #{?ACTION_TYPE_BIN := #{~"test" := ActionConfig0}}
                     }} ->
+                        ExtraRealConfig0 = #{
+                            hostname => Hostname,
+                            http_path => HTTPPath,
+                            token => Token
+                        },
                         {
                             _Mock = false,
                             ConnConfig0,
-                            ActionConfig0
+                            ActionConfig0,
+                            ExtraRealConfig0
                         };
                     {ok, Conf} ->
                         error({invalid_real_zerobus_hocon, HoconPath, Conf})
@@ -102,7 +128,8 @@ init_per_suite(TCConfig) ->
         {apps, Apps},
         {?mock, Mock},
         {real_connector_config, ConnConfig},
-        {real_action_config, ActionConfig}
+        {real_action_config, ActionConfig},
+        {extra_real_config, ExtraRealConfig}
         | TCConfig
     ].
 
@@ -157,6 +184,7 @@ pre_init_per_testcase(TestCase, TCConfig0) when is_list(TCConfig0) ->
                     ]
             end;
         false ->
+            truncate_real_table(TCConfig0),
             TCConfig0
     end.
 
@@ -223,8 +251,9 @@ do_init_per_testcase(TestCase, TCConfig) ->
     ok = create_serde(TCConfig1),
     TCConfig1.
 
-end_per_testcase(_TestCase, _TCConfig) ->
+end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
+    truncate_real_table(TCConfig),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
@@ -240,7 +269,7 @@ now_ns() ->
 skip_invalid(TestCase, TCConfig) ->
     IsMockOnly = get_tc_prop(TestCase, ?mock_only, false),
     IsRealOnly = get_tc_prop(TestCase, ?real_only, false),
-    IsMock = get_config(?mock, TCConfig),
+    IsMock = is_mock(TCConfig),
     case 1 of
         _ when IsMock andalso IsRealOnly ->
             {skip, "test only run with real zerobus"};
@@ -249,6 +278,9 @@ skip_invalid(TestCase, TCConfig) ->
         _ ->
             ok
     end.
+
+is_mock(TCConfig) ->
+    get_config(?mock, TCConfig).
 
 maybe_with_forced_sync_query_mode(TCConfig, Fn) ->
     case query_mode(TCConfig) of
@@ -678,9 +710,63 @@ read_table(#{mock := true} = TCConfig) ->
         end,
         ets:tab2list(Tab)
     );
-read_table(#{mock := false}) ->
-    %% todo: will require a test container that can read the table.
-    ct:fail(unimplemented).
+read_table(#{mock := false} = TCConfig) ->
+    SQL = fmt(~"select * from ${fqn}", #{fqn => real_table_fqn(TCConfig)}),
+    run_real_sql(TCConfig, #{sql => SQL}).
+
+truncate_real_table(TCConfig) when is_list(TCConfig) ->
+    truncate_real_table(maps:from_list(TCConfig));
+truncate_real_table(#{mock := true}) ->
+    ok;
+truncate_real_table(#{mock := false} = TCConfig) ->
+    SQL = fmt(~"truncate table ${fqn}", #{fqn => real_table_fqn(TCConfig)}),
+    run_real_sql(TCConfig, #{sql => SQL}).
+
+real_table_fqn(TCConfig) when is_list(TCConfig) ->
+    real_table_fqn(maps:from_list(TCConfig));
+real_table_fqn(#{mock := true}) ->
+    error(mocked);
+real_table_fqn(#{mock := false} = TCConfig) ->
+    #{
+        real_action_config := #{
+            ~"parameters" := #{
+                ~"catalog" := Catalog,
+                ~"schema" := Schema,
+                ~"table" := Table
+            }
+        }
+    } = TCConfig,
+    fmt(~"${c}.${s}.${t}", #{c => Catalog, s => Schema, t => Table}).
+
+run_real_sql(TCConfig, Opts) when is_list(TCConfig) ->
+    run_real_sql(maps:from_list(TCConfig), Opts);
+run_real_sql(#{mock := true}, _Opts) ->
+    error(mocked);
+run_real_sql(#{mock := false} = TCConfig, Opts) ->
+    #{sql := SQL} = Opts,
+    #{
+        extra_real_config := #{
+            hostname := Hostname,
+            http_path := HTTPPath,
+            token := Token
+        }
+    } = TCConfig,
+    Body = emqx_utils_json:encode(#{
+        hostname => Hostname,
+        path => HTTPPath,
+        token => Token,
+        sql => SQL
+    }),
+    maybe
+        {ok, {{_, 200, _}, _, RespBody}} ?=
+            httpc:request(
+                post,
+                {"http://databricks_sql:8000/sql", [], "application/json", Body},
+                [],
+                []
+            ),
+        emqx_utils_json:decode(RespBody)
+    end.
 
 simple_create_rule_api(TCConfig) ->
     simple_create_rule_api(default_sql(), TCConfig).
@@ -1414,7 +1500,8 @@ t_bad_json_data(TCConfig) when is_list(TCConfig) ->
         "Record decoder/encoder error: invalid digit found in string at"
         " line 1 column 19. Error Code: 4044, Error State: 3."
     >>,
-    case transport_of(TCConfig) of
+    IsMock = is_mock(TCConfig),
+    case IsMock andalso transport_of(TCConfig) of
         ?rest ->
             set_mocked_rest_response(
                 400,
@@ -1428,7 +1515,9 @@ t_bad_json_data(TCConfig) when is_list(TCConfig) ->
                 St#{
                     ingest_record_batch => [{shutdown, ?GRPC_STATUS_INVALID_ARGUMENT, ErrorMsg}]
                 }
-            end)
+            end);
+        _ ->
+            ok
     end,
     %% missing all fields, unknown field
     emqtt:publish(C, RuleTopic, ~|{"a": 1}|, [{qos, 1}]),
@@ -1488,7 +1577,7 @@ Makes a sync call that will timeout.  Even though it's recoverable, the timeout 
 request TTL, so in practice the request will expire.
 """.
 t_grpc_sync_ingest_timeout() ->
-    [{matrix, true}].
+    [{matrix, true}, {mock_only, true}].
 t_grpc_sync_ingest_timeout(matrix) ->
     [[?grpc, ?proto, ?sync, ?not_batching]];
 t_grpc_sync_ingest_timeout(TCConfig) when is_list(TCConfig) ->
