@@ -1027,16 +1027,12 @@ t_metrics_register_message_in(_Config) ->
 %% Management API tests
 %%--------------------------------------------------------------------
 
--doc "list messages paginates with limit/offset and no payload leak.".
+-doc "list messages paginates with a cursor and no payload leak.".
 t_mgmt_list_messages_pagination(_Config) ->
     [create_test_msg(<<"mgmt-list-", (integer_to_binary(N))/binary>>) || N <- [1, 2, 3]],
-    {ok, 200, _, All} = emqx_bcast_api:handle(get, [<<"messages">>], #{}),
-    Total = maps:get(<<"TotalCount">>, All),
-    ?assert(Total >= 3),
     {ok, 200, _, Page1} = emqx_bcast_api:handle(get, [<<"messages">>], #{
-        query_string => #{<<"limit">> => <<"2">>, <<"offset">> => <<"0">>}
+        query_string => #{<<"limit">> => <<"2">>}
     }),
-    ?assertEqual(Total, maps:get(<<"TotalCount">>, Page1)),
     Items1 = maps:get(<<"Messages">>, Page1),
     ?assertEqual(2, length(Items1)),
     [
@@ -1049,8 +1045,11 @@ t_mgmt_list_messages_pagination(_Config) ->
         end
      || Item <- Items1
     ],
+    %% A cursor is returned when there are more pages.
+    Cursor = maps:get(<<"Cursor">>, Page1),
+    ?assert(is_binary(Cursor)),
     {ok, 200, _, Page2} = emqx_bcast_api:handle(get, [<<"messages">>], #{
-        query_string => #{<<"limit">> => <<"2">>, <<"offset">> => <<"2">>}
+        query_string => #{<<"limit">> => <<"2">>, <<"cursor">> => Cursor}
     }),
     Items2 = maps:get(<<"Messages">>, Page2),
     ?assert(length(Items2) >= 1),
@@ -1058,14 +1057,26 @@ t_mgmt_list_messages_pagination(_Config) ->
     Ids2 = [maps:get(<<"MessageId">>, I) || I <- Items2],
     ?assertEqual([], [I || I <- Ids1, lists:member(I, Ids2)]).
 
--doc "an offset past the end returns an empty page, not a crash.".
-t_mgmt_list_messages_offset_overflow(_Config) ->
+-doc "the last page carries no cursor; an invalid cursor starts from the beginning.".
+t_mgmt_list_messages_cursor_end(_Config) ->
     [create_test_msg(<<"mgmt-off-", (integer_to_binary(N))/binary>>) || N <- [1, 2, 3]],
-    %% An offset past the last record must return an empty page, not crash.
-    {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"messages">>], #{
-        query_string => #{<<"limit">> => <<"10">>, <<"offset">> => <<"1000000">>}
+    {ok, 200, _, Page1} = emqx_bcast_api:handle(get, [<<"messages">>], #{
+        query_string => #{<<"limit">> => <<"10">>}
     }),
-    ?assertEqual([], maps:get(<<"Messages">>, Resp)).
+    %% All messages fit on one page: no cursor.
+    ?assertNot(maps:is_key(<<"Cursor">>, Page1)),
+    %% An invalid cursor must not crash; treat it as start.
+    {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"messages">>], #{
+        query_string => #{<<"limit">> => <<"10">>, <<"cursor">> => <<"garbage">>}
+    }),
+    ?assertEqual(3, length(maps:get(<<"Messages">>, Resp))).
+
+-doc "a limit above the maximum returns 400 InvalidParams.".
+t_mgmt_list_messages_limit_too_high(_Config) ->
+    {error, 400, _, Resp} = emqx_bcast_api:handle(get, [<<"messages">>], #{
+        query_string => #{<<"limit">> => <<"1001">>}
+    }),
+    ?assertEqual(<<"InvalidParams">>, maps:get(<<"Code">>, Resp)).
 
 -doc "get message returns metadata and delivery count; unknown id 404s.".
 t_mgmt_get_message(_Config) ->

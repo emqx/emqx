@@ -186,17 +186,22 @@ No endpoint returns payload content.
 ### List Messages
 
 ```
-GET /api/v5/plugin_api/emqx_bcast/messages?limit=100&offset=0
+GET /api/v5/plugin_api/emqx_bcast/messages?limit=100
+GET /api/v5/plugin_api/emqx_bcast/messages?limit=100&cursor=<cursor>
 ```
 
-`limit` defaults to 100 and is capped at 1000; `offset` defaults to 0.
-Messages are returned newest first.
+`limit` defaults to 100 and must be between 1 and 1000 (a larger value
+returns 400 `InvalidParams`). Messages are returned newest first. When
+more pages remain, the response includes a `Cursor` field; pass it back
+as the `cursor` query parameter to fetch the next page. The last page
+carries no `Cursor`. An invalid or missing cursor starts from the first
+page.
 
 ```json
 {
   "Success": true,
   "RequestId": "...",
-  "TotalCount": 42,
+  "Cursor": "1753200000_1a2b3c4d",
   "Messages": [
     { "MessageId": "...", "CreatedAt": 1753200000, "ExpiresAt": 1754496000, "PayloadSize": 128 }
   ]

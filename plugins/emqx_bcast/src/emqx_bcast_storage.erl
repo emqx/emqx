@@ -580,15 +580,48 @@ release_claim(ProductKey, DeviceName, Did) ->
 %% Management queries
 %%--------------------------------------------------------------------
 
-list_messages(Limit, Offset) ->
+%% Keyset pagination over messages ordered by (created_at, msg_id)
+%% descending. The cursor is an opaque token encoding the last seen
+%% (created_at, msg_id); messages are immutable so the order is stable
+%% between pages.
+list_messages(Limit, Cursor) ->
     All = mnesia:dirty_match_object(#bcast_message{_ = '_'}),
-    Sorted = lists:reverse(lists:keysort(#bcast_message.created_at, All)),
-    Page =
-        case Offset >= length(Sorted) of
-            true -> [];
-            false -> lists:sublist(lists:nthtail(Offset, Sorted), Limit)
-        end,
-    {length(All), Page}.
+    %% Sort by {created_at, msg_id} so messages created in the same second
+    %% have a deterministic order (msg_id is unique).
+    Sorted = lists:reverse(
+        lists:sort(
+            [
+                {M#bcast_message.created_at, M#bcast_message.msg_id, M}
+             || M <- All
+            ]
+        )
+    ),
+    case Cursor of
+        undefined ->
+            Page = lists:sublist(Sorted, Limit),
+            {page_messages(Page), maybe_cursor(Page, Limit)};
+        {LastCreated, LastMsgId} ->
+            After = [
+                Entry
+             || Entry = {Created, MsgId, _M} <- Sorted,
+                {Created, MsgId} < {LastCreated, LastMsgId}
+            ],
+            Page = lists:sublist(After, Limit),
+            {page_messages(Page), maybe_cursor(Page, Limit)}
+    end.
+
+page_messages(Page) ->
+    [M || {_Created, _MsgId, M} <- Page].
+
+%% A cursor is only meaningful when the page is full: a short page means
+%% there is nothing after it.
+maybe_cursor(Page, Limit) when length(Page) < Limit ->
+    undefined;
+maybe_cursor([], _Limit) ->
+    undefined;
+maybe_cursor(Page, _Limit) ->
+    {Created, MsgId, _M} = lists:last(Page),
+    {Created, MsgId}.
 
 get_message_by_api_id(ApiMsgId) ->
     case mnesia:dirty_read(?TAB_MSG_API_ID, ApiMsgId) of

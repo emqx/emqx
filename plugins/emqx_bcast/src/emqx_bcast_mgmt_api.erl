@@ -12,13 +12,26 @@
 
 handle(get, [<<"messages">>], Request) ->
     QS = maps:get(query_string, Request, #{}),
-    Limit = parse_qs_int(maps:get(<<"limit">>, QS, undefined), ?DEFAULT_LIMIT, ?MAX_LIMIT),
-    Offset = parse_qs_int(maps:get(<<"offset">>, QS, undefined), 0, infinity),
-    {Total, Messages} = emqx_bcast_storage:list_messages(Limit, Offset),
-    ok_response(#{
-        <<"TotalCount">> => Total,
-        <<"Messages">> => [message_json(M) || M <- Messages]
-    });
+    case parse_limit(maps:get(<<"limit">>, QS, undefined)) of
+        {error, _} ->
+            RequestId = emqx_bcast_utils:gen_api_uuid(),
+            {error, 400, #{},
+                emqx_bcast_api:error_response(
+                    RequestId,
+                    <<"InvalidParams">>,
+                    <<"limit must be between 1 and 1000">>
+                )};
+        {ok, Limit} ->
+            Cursor = parse_cursor(maps:get(<<"cursor">>, QS, undefined)),
+            {Messages, NextCursor} = emqx_bcast_storage:list_messages(Limit, Cursor),
+            Resp0 = #{<<"Messages">> => [message_json(M) || M <- Messages]},
+            Resp =
+                case NextCursor of
+                    undefined -> Resp0;
+                    {Created, MsgId} -> Resp0#{<<"Cursor">> => cursor_str(Created, MsgId)}
+                end,
+            ok_response(Resp)
+    end;
 handle(get, [<<"messages">>, ApiMsgId], _Request) ->
     case emqx_bcast_storage:get_message_by_api_id(ApiMsgId) of
         {ok, Msg, DeliveryCount} ->
@@ -128,16 +141,36 @@ not_found(Code, Message) ->
     RequestId = emqx_bcast_utils:gen_api_uuid(),
     {error, 404, #{}, emqx_bcast_api:error_response(RequestId, Code, Message)}.
 
-parse_qs_int(undefined, Default, _Max) ->
-    Default;
-parse_qs_int(Bin, Default, Max) when is_binary(Bin) ->
+%% limit: optional, default 100, max 1000. Values outside 1..1000 -> 400.
+parse_limit(undefined) ->
+    {ok, ?DEFAULT_LIMIT};
+parse_limit(Bin) when is_binary(Bin) ->
     case string:to_integer(Bin) of
-        {N, <<>>} when N >= 0 -> cap(N, Max);
-        _ -> Default
+        {N, <<>>} when N >= 1, N =< ?MAX_LIMIT -> {ok, N};
+        _ -> {error, invalid_limit}
     end;
-parse_qs_int(_, Default, _Max) ->
-    Default.
+parse_limit(_) ->
+    {error, invalid_limit}.
 
-cap(N, infinity) -> N;
-cap(N, Max) when N > Max -> Max;
-cap(N, _Max) -> N.
+%% cursor: opaque "<created_at>_<msg_id_hex>". Unknown/empty -> start.
+parse_cursor(undefined) ->
+    undefined;
+parse_cursor(<<>>) ->
+    undefined;
+parse_cursor(Bin) when is_binary(Bin) ->
+    case binary:split(Bin, <<"_">>) of
+        [CreatedBin, MsgIdHex] ->
+            case catch {binary_to_integer(CreatedBin), binary:decode_hex(MsgIdHex)} of
+                {Created, MsgId} when is_integer(Created), is_binary(MsgId) ->
+                    {Created, MsgId};
+                _ ->
+                    undefined
+            end;
+        _ ->
+            undefined
+    end;
+parse_cursor(_) ->
+    undefined.
+
+cursor_str(Created, MsgId) ->
+    <<(integer_to_binary(Created))/binary, "_", (binary:encode_hex(MsgId))/binary>>.
