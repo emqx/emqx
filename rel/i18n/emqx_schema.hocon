@@ -791,7 +791,9 @@ sys_msg_interval.desc:
   - `$SYS/brokers/<node>/metrics/<name>`"""
 
 mqtt_await_rel_timeout.desc:
-"""For client to broker QoS 2 message, the time limit for the broker to wait before the `PUBREL` message is received. The wait is aborted after timed out, meaning the packet ID is freed for new `PUBLISH` requests. Receiving a stale `PUBREL` causes a warning level log. Note, the message is delivered to subscribers before entering the wait for PUBREL."""
+"""Maximum time EMQX waits for `PUBREL` after sending `PUBREC`.
+
+MQTT does not define a timeout for this stage of a QoS 2 exchange. Until it receives the corresponding `PUBREL`, the receiver must retain enough state to recognize a retransmitted `PUBLISH` and prevent duplicate delivery. This timeout is disabled by default (`0`), so EMQX retains pending entries until their `PUBREL` packets are received or the session ends. Set a positive duration to enable the timeout. When it expires, EMQX removes the pending entry and frees its packet identifier. Disabling the timeout can let incomplete QoS 2 exchanges accumulate until `mqtt.max_awaiting_rel` is reached."""
 
 mqtt_await_rel_timeout.label:
 """Max Awaiting PUBREL TIMEOUT"""
