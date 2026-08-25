@@ -87,7 +87,7 @@ t_session_init(_) ->
     ?assertEqual(0, emqx_mqueue:len(emqx_session_mem:info(mqueue, Session))),
     ?assertEqual(0, emqx_session_mem:info(awaiting_rel_cnt, Session)),
     ?assertEqual(100, emqx_session_mem:info(awaiting_rel_max, Session)),
-    ?assertEqual(300000, emqx_session_mem:info(await_rel_timeout, Session)),
+    ?assertEqual(0, emqx_session_mem:info(await_rel_timeout, Session)),
     ?assert(is_integer(emqx_session_mem:info(created_at, Session))).
 
 %%--------------------------------------------------------------------
@@ -101,7 +101,7 @@ t_session_info(_) ->
             subscriptions := #{},
             upgrade_qos := false,
             retry_interval := infinity,
-            await_rel_timeout := 300000
+            await_rel_timeout := 0
         },
         maps:from_list(emqx_session_mem:info(Keys, session()))
     ).

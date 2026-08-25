@@ -4553,7 +4553,7 @@ mqtt_session() ->
             sc(
                 duration(),
                 #{
-                    default => <<"300s">>,
+                    default => 0,
                     desc => ?DESC(mqtt_await_rel_timeout),
                     importance => ?IMPORTANCE_LOW
                 }

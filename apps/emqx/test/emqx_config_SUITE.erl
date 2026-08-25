@@ -566,7 +566,7 @@ zone_global_defaults() ->
             },
         mqtt =>
             #{
-                await_rel_timeout => 300000,
+                await_rel_timeout => 0,
                 exclusive_subscription => false,
                 idle_timeout => 15000,
                 ignore_loop_deliver => false,
