@@ -62,8 +62,10 @@ schema("/opentelemetry") ->
 
 config(get, _Params) ->
     {200, get_raw()};
-config(put, #{body := Body}) ->
-    case emqx_otel_config:update(Body) of
+config(put, #{body := NewConfig0}) ->
+    OldConfig = get_raw_unsafe(),
+    NewConfig1 = emqx_utils:deobfuscate(NewConfig0, OldConfig),
+    case emqx_otel_config:update(NewConfig1) of
         {ok, NewConfig} ->
             {200, NewConfig};
         {error, Reason} ->
@@ -81,6 +83,15 @@ get_raw() ->
         emqx_config:fill_defaults(
             #{Path => emqx_conf:get_raw([Path])},
             #{obfuscate_sensitive_values => true}
+        ),
+    Conf.
+
+get_raw_unsafe() ->
+    Path = <<"opentelemetry">>,
+    #{Path := Conf} =
+        emqx_config:fill_defaults(
+            #{Path => emqx_conf:get_raw([Path])},
+            #{obfuscate_sensitive_values => false}
         ),
     Conf.
 
