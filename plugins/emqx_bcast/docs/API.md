@@ -161,6 +161,18 @@ curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_a
   -d '{"Action":"RegisterMessage","MessageId":"550e8400-e29b-41d4-a716-446655440000"}'
 ```
 
+**Response body** (both create and refresh, HTTP 200):
+
+```json
+{ "Success": true, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "MessageId": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+On error (HTTP 400), the body matches the general error shape:
+
+```json
+{ "Success": false, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "Code": "InvalidBase64", "ErrorMessage": "Invalid Base64 encoding" }
+```
+
 ---
 
 ## Management API
