@@ -65,6 +65,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(ROOT_BACKUP_DIR, "backup").
 %% Namespaced backups are isolated under `<root>/ns/<Namespace>/'.
@@ -530,9 +531,22 @@ list_files(Namespace) ->
 -spec backup_files(maybe_namespace()) -> [file:filename()].
 backup_files(Namespace) ->
     %% A namespace without a resolvable backup directory owns no backups.
-    case backup_path(Namespace, "*" ++ ?TAR_SUFFIX) of
-        {ok, Pattern} -> filelib:wildcard(Pattern);
+    %% List the directory instead of globbing: the namespace name is caller
+    %% controlled and must never be interpreted as wildcard syntax.
+    case backup_root_dir(Namespace) of
+        {ok, Dir} -> list_tar_files(Dir);
         {error, _} -> []
+    end.
+
+list_tar_files(Dir) ->
+    case file:list_dir(Dir) of
+        {ok, Filenames} ->
+            lists:sort([
+                filename:join(Dir, Filename)
+             || Filename <- Filenames, lists:suffix(?TAR_SUFFIX, Filename)
+            ]);
+        {error, _} ->
+            []
     end.
 
 -spec format_error(atom()) -> string() | term().
@@ -1403,7 +1417,8 @@ do_import_cluster_hocon(Namespace, BackupDir, Filename, Opts) ->
             maybe
                 {ok, RawConf0} ?= hocon:files([Filename]),
                 RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf0),
-                {ok, RawConf} ?= validate_cluster_hocon(RawConf1),
+                RawConf2 = drop_global_only_roots(Namespace, RawConf1, Opts),
+                {ok, RawConf} ?= validate_cluster_hocon(RawConf2),
                 maybe_print(
                     "Importing cluster configuration for namespace ~s...~n", [Namespace], Opts
                 ),
@@ -1419,6 +1434,30 @@ do_import_cluster_hocon(Namespace, BackupDir, Filename, Opts) ->
                 backup => BackupDir
             }),
             {ok, #{}}
+    end.
+
+%% A namespaced import applies only the roots in the namespaced-config
+%% allow-list. Most `emqx_config_backup' importers write the global
+%% configuration regardless of the namespace they are given, so every other
+%% root is dropped before the schema check and the importer dispatch.
+drop_global_only_roots(?global_ns, RawConf, _Opts) ->
+    RawConf;
+drop_global_only_roots(Namespace, RawConf, Opts) when is_binary(Namespace) ->
+    Allowed = emqx_config:namespaced_config_allowed_roots(),
+    case lists:sort([Root || Root <- maps:keys(RawConf), not is_map_key(Root, Allowed)]) of
+        [] ->
+            RawConf;
+        Roots ->
+            maybe_print(
+                "Skipping config roots ~s: not namespace-writable.~n",
+                [lists:join(", ", Roots)],
+                Opts
+            ),
+            ?tp(warning, "data_import_skipped_global_roots", #{
+                namespace => Namespace,
+                root_keys => Roots
+            }),
+            maps:without(Roots, RawConf)
     end.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->
