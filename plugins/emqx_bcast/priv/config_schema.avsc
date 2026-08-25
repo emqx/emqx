@@ -29,7 +29,7 @@
       "type": "string",
       "default": "15d",
       "$ui": {
-        "component": "duration",
+        "component": "input",
         "flex": 12,
         "label": "$msg_ttl_label",
         "description": "$msg_ttl_desc"
@@ -40,7 +40,7 @@
       "type": "string",
       "default": "60s",
       "$ui": {
-        "component": "duration",
+        "component": "input",
         "flex": 12,
         "label": "$cleanup_interval_label",
         "description": "$cleanup_interval_desc"
@@ -104,24 +104,12 @@
     {
       "name": "msg_warn_threshold",
       "type": "int",
-      "default": 100000,
-      "$ui": {
-        "component": "input-number",
-        "flex": 12,
-        "label": "$msg_warn_threshold_label",
-        "description": "$msg_warn_threshold_desc"
-      }
+      "default": 100000
     },
     {
       "name": "force_upgrade_qos",
       "type": "boolean",
-      "default": true,
-      "$ui": {
-        "component": "switch",
-        "flex": 12,
-        "label": "$force_upgrade_qos_label",
-        "description": "$force_upgrade_qos_desc"
-      }
+      "default": true
     },
     {
       "name": "delivery_pool_size",
@@ -133,6 +121,11 @@
         "label": "$delivery_pool_size_label",
         "description": "$delivery_pool_size_desc"
       }
+    },
+    {
+      "name": "delivery_queue_max",
+      "type": "int",
+      "default": 10000
     }
   ]
 }
