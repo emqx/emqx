@@ -1199,9 +1199,20 @@ post_process_disconnect(ReasonCode, Properties, Channel) ->
 
 maybe_update_expiry_interval(
     #{'Session-Expiry-Interval' := Interval},
-    Channel = #channel{conninfo = ConnInfo}
+    Channel = #channel{conninfo = ConnInfo, clientinfo = #{zone := Zone}}
 ) ->
-    EI = timer:seconds(Interval),
+    MaxMs = get_mqtt_conf(Zone, max_session_expiry_interval),
+    ClampedSec = clamp_session_expiry(Interval, MaxMs),
+    case ClampedSec < Interval of
+        true ->
+            ?TRACE("MQTT", "session_expiry_interval_clamped", #{
+                requested_seconds => Interval,
+                clamped_seconds => ClampedSec
+            });
+        false ->
+            ok
+    end,
+    EI = timer:seconds(ClampedSec),
     OldEI = maps:get(expiry_interval, ConnInfo, 0),
     case OldEI =:= EI of
         true ->
