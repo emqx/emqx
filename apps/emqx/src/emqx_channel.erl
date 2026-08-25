@@ -925,7 +925,7 @@ process_pubrec(
             ok = inc_metrics('packets.pubrec.inuse', Channel),
             handle_out(pubrel, {PacketId, RC}, Channel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
+            ?SLOG(info, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
             ok = inc_metrics('packets.pubrec.missed', Channel),
             handle_out(pubrel, {PacketId, RC}, Channel)
     end.
@@ -946,7 +946,7 @@ process_pubrel(
             NChannel = Channel#channel{session = NSession},
             handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "pubrel_packetId_not_found", packetId => PacketId}),
+            ?SLOG(info, #{msg => "pubrel_packetId_not_found", packetId => PacketId}),
             ok = inc_metrics('packets.pubrel.missed', Channel),
             handle_out(pubcomp, {PacketId, RC}, Channel)
     end.
@@ -974,7 +974,7 @@ process_pubcomp(
             ok = inc_metrics('packets.pubcomp.inuse', Channel),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
+            ?SLOG(info, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
             ok = inc_metrics('packets.pubcomp.missed', Channel),
             {ok, Channel}
     end.
