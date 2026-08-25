@@ -511,7 +511,9 @@ base_listener_mountpoint.desc: """~
 base_listener_mountpoint.label: "Mountpoint"
 
 mqtt_max_awaiting_rel.desc:
-"""For each publisher session, the maximum number of QoS 2 messages for which EMQX is waiting to receive `PUBREL`. Once this limit is reached, EMQX rejects a further QoS 2 `PUBLISH` by disconnecting the client. For MQTT 5.0 clients, the `DISCONNECT` packet has reason code `0x93` (Receive Maximum exceeded). An entry is removed when its `PUBREL` is received or when `mqtt.await_rel_timeout` expires."""
+"""For each publisher session, the maximum number of QoS 2 messages for which EMQX is waiting to receive `PUBREL`. Once this limit is reached, EMQX rejects a further QoS 2 `PUBLISH` by disconnecting the client with reason code `0x93` (Receive Maximum exceeded). An entry is removed when its `PUBREL` is received or when `mqtt.await_rel_timeout` expires.
+
+Values below 1 are treated as 1. For MQTT 5.0 clients, the effective limit is advertised as Receive Maximum in `CONNACK`, capped at `65535`."""
 
 mqtt_max_awaiting_rel.label:
 """Max Awaiting PUBREL"""

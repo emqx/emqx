@@ -75,7 +75,9 @@ groups() ->
         ]},
         {mqttv5, [], [
             t_basic_with_props_v5,
-            t_v5_receive_maximim_in_connack,
+            t_v5_receive_maximum_in_connack,
+            t_v5_receive_maximum_clamped_min,
+            t_v5_receive_maximum_clamped_max,
             t_sock_closed_reason_normal,
             t_sock_closed_force_closed_by_client
         ]},
@@ -422,13 +424,28 @@ v5_conn_props(ReceiveMaximum, Config) ->
 t_basic_with_props_v5(Config) ->
     t_basic(v5_conn_props(4, Config)).
 
-t_v5_receive_maximim_in_connack(Config) ->
-    ReceiveMaximum = 7,
-    {ok, C} = emqtt:start_link(v5_conn_props(ReceiveMaximum, Config)),
+t_v5_receive_maximum_in_connack(init, Config) ->
+    save_conf([mqtt, max_awaiting_rel], Config).
+t_v5_receive_maximum_in_connack(Config) ->
+    assert_receive_maximum(17, 17, Config).
+
+t_v5_receive_maximum_clamped_min(init, Config) ->
+    save_conf([mqtt, max_awaiting_rel], Config).
+t_v5_receive_maximum_clamped_min(Config) ->
+    assert_receive_maximum(0, 1, Config).
+
+t_v5_receive_maximum_clamped_max(init, Config) ->
+    save_conf([mqtt, max_awaiting_rel], Config).
+t_v5_receive_maximum_clamped_max(Config) ->
+    assert_receive_maximum(infinity, ?RECEIVE_MAXIMUM_LIMIT, Config).
+
+assert_receive_maximum(MaxAwaitingRel, ServerReceiveMaximum, Config) ->
+    ok = emqx_config:put([mqtt, max_awaiting_rel], MaxAwaitingRel),
+    ClientReceiveMaximum = 7,
+    {ok, C} = emqtt:start_link(v5_conn_props(ClientReceiveMaximum, Config)),
     {ok, Props} = emqtt:connect(C),
-    ?assertMatch(#{'Receive-Maximum' := ReceiveMaximum}, Props),
-    ok = emqtt:disconnect(C),
-    ok.
+    ?assertMatch(#{'Receive-Maximum' := ServerReceiveMaximum}, Props),
+    ok = emqtt:disconnect(C).
 
 %%--------------------------------------------------------------------
 %% General test cases.

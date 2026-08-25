@@ -1455,7 +1455,8 @@ t_enrich_connack_caps(_) ->
             'Topic-Alias-Maximum' := 10,
             'Wildcard-Subscription-Available' := 1,
             'Subscription-Identifier-Available' := 1,
-            'Shared-Subscription-Available' := 1
+            'Shared-Subscription-Available' := 1,
+            'Receive-Maximum' := 100
         },
         AckProps
     ),

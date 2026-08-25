@@ -308,11 +308,17 @@ try_open([], _ClientInfo, _ConnInfo, _MaybeWillMsg, _Conf) ->
 get_session_conf(_ClientInfo = #{zone := Zone}) ->
     #{
         max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
-        max_awaiting_rel => get_mqtt_conf(Zone, max_awaiting_rel),
+        max_awaiting_rel => max_awaiting_rel(Zone),
         upgrade_qos => get_mqtt_conf(Zone, upgrade_qos),
         retry_interval => get_mqtt_conf(Zone, retry_interval),
         await_rel_timeout => get_mqtt_conf(Zone, await_rel_timeout)
     }.
+
+max_awaiting_rel(Zone) ->
+    case get_mqtt_conf(Zone, max_awaiting_rel) of
+        infinity -> infinity;
+        Limit -> max(1, Limit)
+    end.
 
 get_mqtt_conf(Zone, Key) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key]).

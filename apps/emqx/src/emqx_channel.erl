@@ -2257,7 +2257,7 @@ enrich_conninfo(
         username => Username,
         conn_props => ConnProps,
         expiry_interval => ExpiryInterval,
-        receive_maximum => receive_maximum(Zone, ConnProps)
+        receive_maximum => client_receive_maximum(Zone, ConnProps)
     },
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
@@ -2279,7 +2279,7 @@ clamp_session_expiry(RequestedSec, infinity) ->
 clamp_session_expiry(RequestedSec, MaxMs) when is_integer(MaxMs) ->
     min(RequestedSec, MaxMs div 1000).
 
-receive_maximum(Zone, ConnProps) ->
+client_receive_maximum(Zone, ConnProps) ->
     MaxInflightConfig =
         case get_mqtt_conf(Zone, max_inflight) of
             0 -> ?RECEIVE_MAXIMUM_LIMIT;
@@ -3251,9 +3251,7 @@ enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
         clientinfo = #{
             zone := Zone
         },
-        conninfo = #{
-            receive_maximum := ReceiveMaximum
-        }
+        session = Session
     } = Channel,
     #{
         max_packet_size := MaxPktSize,
@@ -3263,6 +3261,7 @@ enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
         shared_subscription := Shared,
         wildcard_subscription := Wildcard
     } = emqx_mqtt_caps:get_caps(Zone),
+    ReceiveMaximum = server_receive_maximum(emqx_session:info(awaiting_rel_max, Session)),
     NAckProps = AckProps#{
         'Retain-Available' => flag(Retain),
         'Maximum-Packet-Size' => MaxPktSize,
@@ -3282,6 +3281,11 @@ enrich_connack_caps(AckProps, ?IS_MQTT_V5 = Channel) ->
     end;
 enrich_connack_caps(AckProps, _Channel) ->
     AckProps.
+
+server_receive_maximum(infinity) ->
+    ?RECEIVE_MAXIMUM_LIMIT;
+server_receive_maximum(MaxAwaitingRel) ->
+    min(MaxAwaitingRel, ?RECEIVE_MAXIMUM_LIMIT).
 
 %%--------------------------------------------------------------------
 %% Enrich server keepalive
