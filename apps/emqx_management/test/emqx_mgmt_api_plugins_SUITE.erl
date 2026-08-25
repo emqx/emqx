@@ -117,12 +117,12 @@ t_plugins(_Config) ->
     ok = emqx_plugins:delete_package(NameVsn),
     %% Must allow via CLI first.
     ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     %% Test disallow
     ok = disallow_installation(NameVsn),
     ?assertMatch({ok, {{_, 403, _}, _, _}}, install_plugin(PackagePath)),
     %% Now really allow it.
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     Node = atom_to_binary(node()),
     ?assertMatch(
@@ -202,6 +202,51 @@ t_install_plugin_sha256_mismatch(_Config) ->
     ok = disallow_installation(NameVsn),
     ok.
 
+%% Unbound `plugins allow' is refused under hardened and the upload stays
+%% forbidden; under legacy the unbound grant keeps working.
+t_install_plugin_unbound_grant_by_profile(Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() -> _ = disallow_installation(NameVsn) end),
+    ok = allow_installation(NameVsn),
+    case ?config(security_profile, Config) of
+        legacy ->
+            ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
+            ok = install_plugin(PackagePath),
+            {ok, []} = uninstall_plugin(NameVsn);
+        hardened ->
+            ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
+            {ok, {{_, 403, _}, _, Body}} = install_plugin(PackagePath),
+            #{<<"message">> := Msg} = emqx_utils_json:decode(Body),
+            ?assertNotEqual(nomatch, binary:match(Msg, <<"plugins allow">>))
+    end,
+    ok.
+
+%% An unbound grant issued under legacy is not honoured by the upload path
+%% once the profile requires the binding.
+t_install_plugin_preexisting_unbound_grant_hardened(Config) ->
+    case ?config(security_profile, Config) of
+        legacy ->
+            ok;
+        hardened ->
+            PackagePath = get_demo_plugin_package(),
+            NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+            ok = emqx_plugins:ensure_uninstalled(NameVsn),
+            ok = emqx_plugins:delete_package(NameVsn),
+            on_exit(fun() -> _ = disallow_installation(NameVsn) end),
+            ok = emqx_common_test_helpers:set_security_profile(legacy),
+            ok = allow_installation(NameVsn),
+            ok = emqx_common_test_helpers:set_security_profile(hardened),
+            ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
+            {ok, {{_, 403, _}, _, Body}} = install_plugin(PackagePath),
+            #{<<"message">> := Msg} = emqx_utils_json:decode(Body),
+            ?assertNotEqual(nomatch, binary:match(Msg, <<"sha256">>)),
+            ?assertMatch({error, _}, emqx_plugins:describe(NameVsn))
+    end,
+    ok.
+
 t_install_plugin_with_invalid_schema_returns_bad_plugin_info(Config) ->
     PackagePath = make_test_plugin_package(
         Config,
@@ -213,7 +258,7 @@ t_install_plugin_with_invalid_schema_returns_bad_plugin_info(Config) ->
         _ = disallow_installation(NameVsn),
         _ = emqx_plugins:delete_package(NameVsn)
     end),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, Body}} = install_plugin(PackagePath),
     #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Message} =
         emqx_utils_json:decode(Body),
@@ -232,7 +277,7 @@ t_install_plugin_with_bad_app_file_returns_consistent_error(Config) ->
         _ = disallow_installation(NameVsn),
         _ = emqx_plugins:delete_package(NameVsn)
     end),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, Body}} = install_plugin(PackagePath),
     ?assertEqual(
         #{
@@ -296,8 +341,8 @@ t_uninstall_conflicting_version_keeps_old_running(Config) ->
             [OldNameVsn, NewNameVsn]
         )
     end),
-    ok = allow_installation(OldNameVsn),
-    ok = allow_installation(NewNameVsn),
+    ok = allow_package(OldPackagePath),
+    ok = allow_package(NewPackagePath),
     ok = install_plugin(OldPackagePath),
     ok = install_plugin(NewPackagePath),
     {ok, []} = update_plugin(OldNameVsn, "start"),
@@ -333,7 +378,7 @@ t_update_config(_Config) ->
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:delete_package(NameVsn),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     OldConfig = emqx_plugins:get_config(NameVsn),
     %% Check config update when plugin is not started
@@ -381,7 +426,7 @@ t_update_config_with_invalid_type_returns_readable_error(Config0) ->
         _ = emqx_plugins:ensure_uninstalled(NameVsn),
         _ = emqx_plugins:delete_package(NameVsn)
     end),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     PluginConfig = emqx_plugins:get_config(NameVsn),
     {ok, 400, Body} = update_plugin_config(NameVsn, PluginConfig#{<<"foo">> => 42}),
@@ -411,7 +456,7 @@ t_upload_download_config(_Config) ->
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:delete_package(NameVsn),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     DownloadPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config", "download"]),
     ?assertMatch(
@@ -435,7 +480,7 @@ t_health_status(_Config) ->
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:delete_package(NameVsn),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     OldConfig = emqx_plugins:get_config(NameVsn),
     Node = atom_to_binary(node()),
@@ -509,8 +554,8 @@ t_install_plugin_matching_exisiting_name(_Config) ->
     %% First, install plugin "emqx_plugin_template_a", then:
     %% "emqx_plugin_template" which matches the beginning
     %% of the previously installed plugin name
-    ok = allow_installation(NameVsn),
-    ok = allow_installation(NameVsn1),
+    ok = allow_package(PackagePath),
+    ok = allow_package(PackagePath1),
     ok = install_plugin(PackagePath1),
     ok = install_plugin(PackagePath),
     _ = describe_plugin(NameVsn),
@@ -541,8 +586,7 @@ t_bad_plugin(_Config) ->
     %% rename plugin tarball
     file:copy(PackagePathOrig, PackagePath),
     file:delete(PackagePathOrig),
-    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     {ok, {{"HTTP/1.1", 400, "Bad Request"}, _, _}} = install_plugin(PackagePath),
     ?assertEqual(
         {error, enoent},
@@ -598,7 +642,7 @@ t_preinstall_step1_without_plugins_states_is_ignored_by_http_api(_Config) ->
         )
     ),
 
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     ?assert(
         lists:any(fun(Plugin) -> plugin_json_name_vsn(Plugin) =:= NameVsnBin end, list_plugins())
@@ -928,7 +972,7 @@ install_test_plugin(Config) ->
         _ = emqx_plugins:ensure_uninstalled(NameVsn),
         _ = emqx_plugins:delete_package(NameVsn)
     end),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     NameVsn.
 
@@ -1121,6 +1165,21 @@ get_host_and_auth(Config) when is_list(Config) ->
 
 allow_installation(NameVsn) ->
     emqx_ctl:run_command(["plugins", "allow", NameVsn]).
+
+%% Grant installation of the package at `PackagePath'. The hardened profile
+%% requires the grant to bind the package sha256; legacy keeps the unbound grant.
+allow_package(PackagePath) ->
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    case emqx_security_profile:policy(plugin_install_sha256_binding) of
+        optional ->
+            allow_installation(NameVsn);
+        required ->
+            allow_installation(NameVsn, sha256_hex(PackagePath))
+    end.
+
+sha256_hex(PackagePath) ->
+    {ok, Bin} = file:read_file(PackagePath),
+    binary_to_list(binary:encode_hex(crypto:hash(sha256, Bin), lowercase)).
 
 allow_installation(NameVsn, Sha256Hex) ->
     emqx_ctl:run_command(["plugins", "allow", NameVsn, "sha256:" ++ Sha256Hex]).

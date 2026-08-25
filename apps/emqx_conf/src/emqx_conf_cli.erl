@@ -448,9 +448,10 @@ load_config(Namespace, Bin, Opts) when is_binary(Bin) ->
         {ok, RawConf} ->
             load_config_from_raw(Namespace, RawConf, Opts);
         %% Type is scan_error, parse_error...
+        %% Reason may be an atom, a binary or a string.
         {error, {Type, Meta = #{reason := Reason}}} ->
             {error, Meta#{
-                reason => unicode:characters_to_binary(Reason),
+                reason => emqx_utils:readable_error_msg(Reason),
                 type => Type
             }};
         {error, Reason} ->
@@ -662,7 +663,9 @@ check_res(_Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
         "The effective configurations:~n"
         "```~n"
         "~ts```~n~n",
-    ActiveMsg = io_lib:format(ActiveMsg0, [hocon_pp:do(#{Key => emqx_conf:get_raw([Key])}, #{})]),
+    %% `Key` may be a dotted path such as `cluster.links`.
+    KeyPath = binary:split(Key, <<".">>, [global]),
+    ActiveMsg = io_lib:format(ActiveMsg0, [hocon_pp:do(#{Key => emqx_conf:get_raw(KeyPath)}, #{})]),
     FailedMsg0 =
         "Try to ~ts with:~n"
         "```~n"

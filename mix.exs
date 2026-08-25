@@ -174,10 +174,10 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.0", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.1", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.2", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.3", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.5", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
@@ -236,7 +236,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:emqtt),
     do:
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.15.4", override: true, system_env: maybe_no_quic_env()}
+       github: "emqx/emqtt", tag: "1.16.0", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
@@ -268,7 +268,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:recon, github: "ferd/recon", tag: "2.5.6", override: true}
 
   def common_dep(:ots_erl),
-    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.3", override: true}
+    do: {:ots_erl, github: "emqx/ots_erl", tag: "0.2.4", override: true}
 
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.18", override: true}
@@ -730,6 +730,13 @@ defmodule EMQXUmbrella.MixProject do
       force: overwrite?
     )
 
+    # boot-time environment variables, read by the systemd service
+    Mix.Generator.copy_file(
+      "apps/emqx_conf/etc/emqx.env",
+      Path.join(etc, "emqx.env"),
+      force: overwrite?
+    )
+
     # required by emqx_auth
     File.cp_r!(
       "apps/emqx/etc/certs",
@@ -888,17 +895,31 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp copy_escript(release, escript_name) do
-    [shebang, rest] =
+    [shebang | lines] =
       "bin/#{escript_name}"
       |> File.read!()
-      |> String.split("\n", parts: 2)
+      |> String.split("\n")
 
     # the elixir version of escript + start.boot required the boot_var
     # RELEASE_LIB to be defined.
-    boot_var = "%%!-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
+    rel_args = "-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
+
+    # escript reads emulator flags from the first %%! line only (line 2,
+    # or line 3 when line 2 is a comment), so merge the release arguments
+    # into the script's own %%! line instead of adding a second one.
+    lines =
+      case Enum.find_index(Enum.take(lines, 2), &String.starts_with?(&1, "%%!")) do
+        nil ->
+          ["%%! " <> rel_args | lines]
+
+        idx ->
+          List.update_at(lines, idx, fn "%%!" <> args ->
+            "%%! " <> rel_args <> " " <> String.trim(args)
+          end)
+      end
 
     path = Path.join([release.path, "bin", escript_name])
-    File.write!(path, [shebang, "\n", boot_var, "\n", rest])
+    File.write!(path, Enum.join([shebang | lines], "\n"))
 
     release
   end
@@ -981,6 +1002,19 @@ defmodule EMQXUmbrella.MixProject do
     [release.path, "lib", "*", "include"]
     |> Path.join()
     |> Path.wildcard()
+    |> Enum.each(&File.rm_rf!/1)
+
+    ## Windows is not a supported platform, so the launchers mix generates for it
+    ## are dead weight. remote.vm.args goes with them: bin/emqx.bat was its only
+    ## reader, so once that is gone nothing in the release opens it.
+    [
+      [release.path, "bin", "emqx.bat"],
+      [release.version_path, "env.bat"],
+      [release.version_path, "elixir.bat"],
+      [release.version_path, "iex.bat"],
+      [release.version_path, "remote.vm.args"]
+    ]
+    |> Enum.map(&Path.join/1)
     |> Enum.each(&File.rm_rf!/1)
 
     release
@@ -1119,7 +1153,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict with emqx and emqtt
       do: [
         {:quicer,
-         github: "emqx/quic", tag: "0.4.8", override: true, system_env: quicer_build_env()}
+         github: "emqx/quic", tag: "0.4.9", override: true, system_env: quicer_build_env()}
       ],
       else: []
   end

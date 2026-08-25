@@ -43,6 +43,10 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_coap_test_helpers:stop_gateway(Config).
 
+end_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:call_janitor(),
+    Config.
+
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
@@ -443,16 +447,33 @@ t_send_request_api_exception(_) ->
 %%% Internal Functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 start_client() ->
-    spawn(fun coap_client/0).
+    start_client(fun coap_client/0).
 
 start_silent_client() ->
-    spawn(fun coap_silent_client/0).
+    start_client(fun coap_silent_client/0).
 
 start_block2_client() ->
     start_block2_client(block2_payload()).
 
 start_block2_client(Payload) ->
-    spawn(fun() -> coap_block2_client(Payload) end).
+    start_client(fun() -> coap_block2_client(Payload) end).
+
+start_client(ClientFun) ->
+    ClientPid = spawn(ClientFun),
+    ok = emqx_common_test_helpers:on_exit(fun() -> cleanup_client(ClientPid) end),
+    ClientPid.
+
+cleanup_client(ClientPid) ->
+    exit(ClientPid, kill),
+    _ = catch emqx_gateway_cm:kick_session(coap, <<"client1">>),
+    ok = emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() ->
+            [] =:= emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        end,
+        5000
+    ).
 
 start_fake_channel(ClientId, Responses) ->
     Pid = spawn(fun() -> fake_channel_loop(Responses) end),

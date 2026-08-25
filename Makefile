@@ -20,7 +20,9 @@ print-dashboard-version:
 	@echo $(EMQX_DASHBOARD_VERSION)
 
 export EMQX_REL_FORM ?= tgz
-export QUICER_TLS_VER ?= sys
+# 'auto' resolves to 'sys' (link system libcrypto) when the build host has
+# OpenSSL >= 3.0, and to quicer's bundled quictls otherwise.
+export QUICER_TLS_VER ?= auto
 
 -include default-profile.mk
 PROFILE ?= emqx-enterprise
@@ -108,10 +110,13 @@ ct: $(REBAR) merge-config render-test-env
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
 static_checks: $(ELIXIR_COMMON_DEPS)
+	@# the cluster-rpc check reads plugin beams from the shared build tree
+	@env PROFILE=$(PROFILE:%-test=%) $(SCRIPTS)/build-plugins.sh --compile-only
 	@env BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
 	    $(MIX) do \
 	    emqx.xref + dialyzer --mode classic + \
-	    emqx.static_checks
+	    emqx.static_checks + \
+	    emqx.check_cluster_rpc
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
 
@@ -196,10 +201,10 @@ ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
 	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE) --cases $(TESTCASE) --group-paths $(GROUP)
 else
-	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE)  --cases $(TESTCASE)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE) --cases $(TESTCASE)
 endif
 else ifneq ($(GROUP),)
-	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE)  --group-paths $(GROUP)
+	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE) --group-paths $(GROUP)
 else
 	env PROFILE=$(PROFILE)-test $(MIX) do deps.get + ct --suites $(SUITE)
 endif

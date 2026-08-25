@@ -648,8 +648,9 @@ handle_health_check_res(Server, skip) ->
 -spec save(server_name(), emqx_exhook_server:service()) -> ok.
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),
+    persistent_term:put({?APP, Name}, ServerState),
     persistent_term:put(?APP, delete_server_name(Name, Saved) ++ [Name]),
-    persistent_term:put({?APP, Name}, ServerState).
+    ok.
 
 unsave(Name) ->
     case persistent_term:get(?APP, []) of

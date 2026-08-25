@@ -262,6 +262,9 @@ data_export(post, #{body := Params0} = Req) ->
                 lists:join(<<", ">>, InvalidSetNames)
             ]),
             {400, #{code => ?BAD_REQUEST, message => Msg}};
+        {error, bad_namespace} ->
+            Msg = emqx_utils_conv:bin(emqx_mgmt_data_backup:format_error(bad_namespace)),
+            {400, #{code => ?BAD_REQUEST, message => Msg}};
         {error, Reason} ->
             Msg = iolist_to_binary([
                 <<"Error processing export: ">>,

@@ -1199,9 +1199,20 @@ post_process_disconnect(ReasonCode, Properties, Channel) ->
 
 maybe_update_expiry_interval(
     #{'Session-Expiry-Interval' := Interval},
-    Channel = #channel{conninfo = ConnInfo}
+    Channel = #channel{conninfo = ConnInfo, clientinfo = #{zone := Zone}}
 ) ->
-    EI = timer:seconds(Interval),
+    MaxMs = get_mqtt_conf(Zone, max_session_expiry_interval),
+    ClampedSec = clamp_session_expiry(Interval, MaxMs),
+    case ClampedSec < Interval of
+        true ->
+            ?TRACE("MQTT", "session_expiry_interval_clamped", #{
+                requested_seconds => Interval,
+                clamped_seconds => ClampedSec
+            });
+        false ->
+            ok
+    end,
+    EI = timer:seconds(ClampedSec),
     OldEI = maps:get(expiry_interval, ConnInfo, 0),
     case OldEI =:= EI of
         true ->
@@ -2485,37 +2496,37 @@ initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
 
 maybe_override_clientid(_ConnPkt, #{zone := Zone} = ClientInfo) ->
     Expression = get_mqtt_conf(Zone, clientid_override, disabled),
-    {ok, override_clientid(Expression, ClientInfo)}.
+    override_clientid(Expression, ClientInfo).
 
 override_clientid(disabled, ClientInfo) ->
-    ClientInfo;
+    {ok, ClientInfo};
 override_clientid(Expression, #{clientid := OrigClientId} = ClientInfo) ->
     case emqx_variform:render(Expression, ClientInfo) of
         {ok, <<>>} ->
             ?SLOG(
-                warning,
+                error,
                 #{
                     msg => "clientid_override_expression_returned_empty_string"
                 },
                 #{clientid => OrigClientId}
             ),
-            ClientInfo;
+            {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID, ClientInfo};
         {ok, ClientId} ->
             % Must add 'clientid' log meta for trace log filter
             ?TRACE("MQTT", "clientid_overridden", #{
                 clientid => ClientId, original_clientid => OrigClientId
             }),
-            ClientInfo#{clientid => ClientId};
+            {ok, ClientInfo#{clientid => ClientId}};
         {error, Reason} ->
             ?SLOG(
-                warning,
+                error,
                 #{
                     msg => "clientid_override_expression_failed",
                     reason => Reason
                 },
                 #{clientid => OrigClientId}
             ),
-            ClientInfo
+            {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID, ClientInfo}
     end.
 
 get_user_property_as_map(#mqtt_packet_connect{properties = #{'User-Property' := UserProperty}}) when

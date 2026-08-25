@@ -36,7 +36,6 @@
     read_md5sum/1,
     read_avsc_map/1,
     read_avsc_bin/1,
-    read_avsc_bin_all/0,
     read_i18n/1,
     read_hocon/1,
     read_default_hocon/1
@@ -103,18 +102,6 @@ read_avsc_map(NameVsn) ->
 read_avsc_bin(NameVsn) ->
     AvscFilePath = avsc_file_path(NameVsn),
     read_file_bin(AvscFilePath, "bad_avsc_file").
-
--spec read_avsc_bin_all() -> [{name_vsn(), binary()}].
-read_avsc_bin_all() ->
-    lists:filtermap(
-        fun(NameVsn) ->
-            case read_avsc_bin(NameVsn) of
-                {ok, AvscBin} -> {true, {NameVsn, AvscBin}};
-                {error, _} -> false
-            end
-        end,
-        list_name_vsn()
-    ).
 
 -spec read_i18n(name_vsn()) -> {ok, map()} | {error, term()}.
 read_i18n(NameVsn) ->

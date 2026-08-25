@@ -37,6 +37,7 @@
     get_link_raw/1,
     %% Connections
     mk_emqtt_options/1,
+    prefer_host/2,
     %% Actor Lifecycle
     actor_ttl/0,
     actor_gc_interval/0,
@@ -144,14 +145,22 @@ actor_heartbeat_interval() ->
 
 %%
 
+-doc """
+Build `emqtt` client options for a link.
+`server` may list several `host[:port]` addresses. They are passed as the
+`hosts` option in the configured order. The client tries them in that order
+until one accepts the connection.
+""".
 mk_emqtt_options(#{server := Server, ssl := #{enable := EnableSsl} = Ssl} = LinkConf) ->
     ClientId = maps:get(clientid, LinkConf, cluster()),
-    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?MQTT_HOST_OPTS),
+    Hosts = [
+        {Host, Port}
+     || #{hostname := Host, port := Port} <- emqx_schema:parse_servers(Server, ?MQTT_HOST_OPTS)
+    ],
     Opts = maps:with([username, retry_interval, max_inflight], LinkConf),
     TcpOpts = emqx_schema:client_tcp_opts_to_proplist(maps:get(tcp_opts, LinkConf, #{})),
     Opts1 = Opts#{
-        host => Host,
-        port => Port,
+        hosts => Hosts,
         clientid => ClientId,
         proto_ver => v5,
         tcp_opts => TcpOpts,
@@ -164,6 +173,16 @@ with_password(Opts, #{password := P} = _LinkConf) ->
     Opts#{password => emqx_secret:unwrap(P)};
 with_password(Opts, _LinkConf) ->
     Opts.
+
+-doc """
+Make the `N`th client of a link prefer the `N`th configured address.
+The clients of one link thereby spread over the addresses, and each of them
+still fails over to the other addresses when its preferred one is down.
+""".
+-spec prefer_host(pos_integer(), map()) -> map().
+prefer_host(N, #{hosts := Hosts} = Opts) ->
+    {Front, Rear} = lists:split((N - 1) rem length(Hosts), Hosts),
+    Opts#{hosts => Rear ++ Front}.
 
 %%
 

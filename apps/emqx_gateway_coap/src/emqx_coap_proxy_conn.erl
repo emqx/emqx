@@ -16,7 +16,8 @@
 initialize(_Opts) ->
     emqx_coap_frame:initial_parse_state(#{}).
 
-find_or_create(CId, Transport, Peer, Opts) ->
+find_or_create(ProxyCId, Transport, Peer, Opts) ->
+    CId = logical_connection_id(ProxyCId),
     case emqx_gateway_cm_registry:lookup_channels(coap, CId) of
         [Pid] ->
             {ok, Pid};
@@ -31,20 +32,23 @@ get_connection_id(_Transport, Peer, State, Data) ->
             case Msg of
                 #coap_message{} ->
                     {CId, NBoundCId} = choose_cid(Msg, BoundCId, Peer),
-                    {ok, CId, Packets, merge_state(NState, NBoundCId)};
+                    {ok, proxy_connection_id(CId, Peer), Packets, merge_state(NState, NBoundCId)};
                 {coap_ignore, _} ->
                     %% RFC 7252 Section 3: unknown versions must be silently ignored.
-                    {ok, route_cid(BoundCId, Peer), Packets, merge_state(NState, BoundCId)};
+                    CId = route_cid(BoundCId, Peer),
+                    {ok, proxy_connection_id(CId, Peer), Packets, merge_state(NState, BoundCId)};
                 {coap_format_error, Type, MsgId, _} ->
                     %% RFC 7252 Section 4.2: reject CON format errors with Reset.
                     _ = {Type, MsgId},
                     %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
-                    {ok, route_cid(BoundCId, Peer), Packets, merge_state(NState, BoundCId)};
+                    CId = route_cid(BoundCId, Peer),
+                    {ok, proxy_connection_id(CId, Peer), Packets, merge_state(NState, BoundCId)};
                 {coap_request_error, Req, Error} ->
                     %% RFC 7252 Section 5.4.1/5.8: reply with a 4.xx error for bad requests.
                     _ = {Req, Error},
                     %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
-                    {ok, route_cid(BoundCId, Peer), Packets, merge_state(NState, BoundCId)}
+                    CId = route_cid(BoundCId, Peer),
+                    {ok, proxy_connection_id(CId, Peer), Packets, merge_state(NState, BoundCId)}
             end;
         _Error ->
             invalid
@@ -52,6 +56,19 @@ get_connection_id(_Transport, Peer, State, Data) ->
 
 peer_id(Peer) ->
     {peer, Peer}.
+
+proxy_connection_id({peer, _} = CId, _Peer) ->
+    CId;
+proxy_connection_id(CId, Peer) ->
+    %% esockd_udp_proxy_db:attach/2 stops the proxy already registered with the
+    %% same ID.  Scope candidates by peer until the gateway connection validates
+    %% the token and switches its persistent downlink socket.
+    {coap_udp_proxy, Peer, CId}.
+
+logical_connection_id({coap_udp_proxy, _Peer, CId}) ->
+    CId;
+logical_connection_id(CId) ->
+    CId.
 
 split_state(#{parse_state := ParseState, cid := BoundCId}) ->
     {ParseState, BoundCId};

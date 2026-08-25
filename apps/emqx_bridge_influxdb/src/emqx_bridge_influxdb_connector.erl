@@ -545,6 +545,10 @@ ping_with_auth(_) ->
 redact_auth(Term) ->
     emqx_utils:redact(Term, fun is_auth_key/1).
 
+is_auth_key(path) ->
+    true;
+is_auth_key(auth_path) ->
+    true;
 is_auth_key(Key) when is_binary(Key) ->
     string:equal("authorization", Key, true);
 is_auth_key(_) ->
@@ -1004,8 +1008,23 @@ is_unrecoverable_error(_) ->
 is_auth_key_test_() ->
     [
         ?_assert(is_auth_key(<<"Authorization">>)),
+        ?_assert(is_auth_key(path)),
+        ?_assert(is_auth_key(auth_path)),
         ?_assertNot(is_auth_key(<<"Something">>)),
         ?_assertNot(is_auth_key(89))
+    ].
+
+redact_auth_test_() ->
+    Secret = "public123",
+    Client = #{
+        path => "/write?p=" ++ Secret ++ "&u=admin&db=Datalayers",
+        auth_path => "/query?p=" ++ Secret ++ "&u=admin&db=Datalayers"
+    },
+    Redacted = redact_auth(Client),
+    Rendered = iolist_to_binary(io_lib:format("~p", [Redacted])),
+    [
+        ?_assertEqual(#{path => "******", auth_path => "******"}, Redacted),
+        ?_assertEqual(nomatch, binary:match(Rendered, <<"public123">>))
     ].
 
 %% for coverage

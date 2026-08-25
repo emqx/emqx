@@ -262,7 +262,6 @@ schema_injections() ->
             emqx_authn_jwt_schema,
             emqx_authn_scram_mnesia_schema,
             emqx_authn_ldap_schema,
-            emqx_gcp_device_authn_schema,
             emqx_authn_scram_restapi_schema,
             emqx_authn_kerberos_schema,
             emqx_authn_cinfo_schema

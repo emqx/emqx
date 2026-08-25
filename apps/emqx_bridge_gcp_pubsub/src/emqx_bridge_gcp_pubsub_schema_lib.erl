@@ -9,7 +9,7 @@
 ]).
 -export([
     legacy_service_account_json_root_converter/2,
-    service_account_json_validator/1
+    service_account_json_validator/2
 ]).
 
 %% `hocon_schema` API
@@ -43,11 +43,22 @@ authentication_field() ->
             }
         )}.
 
--spec service_account_json_validator(binary()) ->
+-spec service_account_json_validator(emqx_secret:t(binary()), hocon_tconf:opts()) ->
     ok
     | {error, {wrong_type, term()}}
     | {error, {missing_keys, [binary()]}}.
-service_account_json_validator(Val) ->
+service_account_json_validator(Val0, Opts) ->
+    MaybeObfuscated = maps:get(maybe_obfuscated, Opts, false),
+    Redacted = emqx_utils_redact:redacted_value(),
+    case emqx_secret:unwrap(Val0) of
+        Redacted when MaybeObfuscated ->
+            %% we'll deobfuscate in the http api handler
+            ok;
+        Val ->
+            do_service_account_json_validator(Val)
+    end.
+
+do_service_account_json_validator(Val) ->
     %% `Val' may be a secret reference (e.g. `file://...'); unwrap it before
     %% decoding so file-based service account credentials validate correctly.
     case emqx_utils_json:safe_decode(emqx_secret:unwrap(Val)) of
@@ -125,7 +136,7 @@ fields(auth_service_account_json) ->
             emqx_schema_secret:mk(
                 #{
                     required => false,
-                    validator => fun ?MODULE:service_account_json_validator/1,
+                    validator => fun ?MODULE:service_account_json_validator/2,
                     sensitive => true,
                     desc => ?DESC("service_account_json")
                 }

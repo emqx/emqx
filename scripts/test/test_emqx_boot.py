@@ -259,6 +259,66 @@ def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
     assert "hardened" in output
 
 
+@pytest.fixture
+def env_file(emqx_rel_path):
+    """Yield the etc/emqx.env path and restore the shipped file afterwards."""
+    path = emqx_rel_path / "etc" / "emqx.env"
+    backup = path.read_bytes() if path.exists() else None
+    yield path
+    if backup is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.write_bytes(backup)
+
+
+def test_shipped_env_file_sets_nothing(env_file):
+    """The shipped etc/emqx.env must keep every assignment commented out."""
+    assert env_file.exists()
+    active = [
+        line
+        for line in env_file.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert active == []
+
+
+def test_env_file_sets_security_profile(emqx_bin_path, env_file):
+    """bin/emqx sources etc/emqx.env; a profile set there is enforced."""
+    env_file.write_text("# comment\n\nEMQX_SECURITY_PROFILE=hardened\n")
+    result = run_emqx_console(
+        emqx_bin_path,
+        {"EMQX_NODE__COOKIE": "emqxsecretcookie"},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "Cannot continue with default cookie" in output
+    assert "hardened" in output
+
+
+def test_env_file_overrides_environment(emqx_bin_path, env_file):
+    """A value in etc/emqx.env wins over the inherited environment."""
+    env_file.write_text("EMQX_SECURITY_PROFILE=hardened\n")
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_SECURITY_PROFILE": "legacy",
+            "EMQX_NODE__COOKIE": "emqxsecretcookie",
+        },
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "Cannot continue with default cookie" in output
+
+
+def test_env_file_invalid_security_profile_fails_fast(emqx_bin_path, env_file):
+    """An invalid profile in etc/emqx.env fails before boot."""
+    env_file.write_text("EMQX_SECURITY_PROFILE=bogus\n")
+    result = run_emqx_console(emqx_bin_path, {})
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "Invalid security profile: bogus" in output
+
+
 def test_corrupted_cluster_override_conf(emqx_bin_path, emqx_rel_path):
     """Test that emqx boot fails with corrupted cluster-override.conf."""
     conffile = emqx_rel_path / "data" / "configs" / "cluster-override.conf"

@@ -134,6 +134,16 @@ emqx_mgmt_api_nodes {
         label = "Node Role"
     }
 
+    security_profile {
+        desc = "Security profile the node booted with. Set by the <code>EMQX_SECURITY_PROFILE</code> environment variable."
+        label = "Security Profile"
+    }
+
+    feature_preset {
+        desc = "Feature preset the node booted with. Set by the <code>EMQX_FEATURES</code> environment variable. <code>custom</code> means an explicit feature list."
+        label = "Feature Preset"
+    }
+
     node_not_found {
         desc = "Node not found."
         label = "Node Not Found"

@@ -1,10 +1,14 @@
 #!/usr/bin/env escript
 %% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
-%%! +P 65536 +Q 65536 +S 1
+%%! +P 65536 +Q 65536 +S 1 -kernel standard_io_encoding unicode
 %% ex: ft=erlang ts=4 sw=4 et
 %% -------------------------------------------------------------------
 %%
 %% nodetool: Helper Script for interacting with live nodes
+%%
+%% The %%! line above sets the emulator flags for every nodetool run.
+%% copy_escript/2 in mix.exs merges the release arguments into that
+%% line when packaging; escript honours only the first %%! line.
 %%
 %% -------------------------------------------------------------------
 -mode(compile).

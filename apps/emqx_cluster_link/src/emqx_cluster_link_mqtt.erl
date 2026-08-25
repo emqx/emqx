@@ -340,12 +340,13 @@ connect(Options) ->
     ClientOpts0 = #{clientid := ClientId0} = proplists:get_value(client_opts, Options),
     ClientIdBase = emqx_bridge_mqtt_lib:clientid_base([ClientId0, ?MSG_CLIENTID_SUFFIX]),
     ClientId = iolist_to_binary([ClientIdBase, $:, integer_to_binary(WorkerId)]),
-    ClientOpts = ClientOpts0#{
+    ClientOpts1 = ClientOpts0#{
         clientid => ClientId,
         msg_handler => #{
             disconnected => mk_disconnect_handler(ResourceId, WorkerId, ClientId, TargetCluster)
         }
     },
+    ClientOpts = emqx_cluster_link_config:prefer_host(WorkerId, ClientOpts1),
     case emqtt:start_link(ClientOpts) of
         {ok, Pid} ->
             case emqtt:connect(Pid) of

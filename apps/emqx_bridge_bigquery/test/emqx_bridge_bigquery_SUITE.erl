@@ -448,15 +448,10 @@ do_create_table(Dataset, Table, TCConfig) ->
     ct:pal("table ~s created", [Table]),
     ok.
 
-%% The bigquery emulator (goccy/bigquery-emulator) intermittently drops its
-%% internal SQL connection and replies `500 "sql: connection is already
-%% closed"' to the next request. That made dataset/table setup in
-%% init_per_testcase fail (and skip the whole case). Retry such transient
-%% failures; a 409 means a previous retried attempt already succeeded.
 query_sync_with_retry(Request, Client) ->
     ?retry(
-        _Sleep = 300,
-        _Attempts = 10,
+        _Sleep = 1000,
+        _Attempts = 30,
         case emqx_bridge_gcp_pubsub_client:query_sync(Request, Client) of
             {ok, Result} -> {ok, Result};
             {error, #{status_code := 409}} -> {ok, already_exists}
@@ -584,6 +579,9 @@ get_action_api(TCConfig) ->
         emqx_bridge_v2_testlib:get_action_api(TCConfig)
     ).
 
+probe_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:probe_connector_api2(TCConfig, Overrides).
+
 delete_connector_api(TCConfig) ->
     emqx_bridge_v2_testlib:delete_connector_api(TCConfig).
 
@@ -633,6 +631,21 @@ mk_service_account_file(TCConfig, Content) ->
     ),
     ok = file:write_file(Filename, Content),
     Filename.
+
+persisted_service_account_json(TCConfig) ->
+    #{connector_name := ConnectorName} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    %% ensure cluster.hocon has a binary encoded json string as the value
+    {ok, Hocon} = hocon:files([application:get_env(emqx, cluster_hocon_file, undefined)]),
+    emqx_utils_maps:deep_get(
+        [
+            <<"connectors">>,
+            <<"bigquery">>,
+            ConnectorName,
+            <<"authentication">>,
+            <<"service_account_json">>
+        ],
+        Hocon
+    ).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1113,4 +1126,25 @@ t_legacy_service_account_json_redact(TCConfig) ->
         {200, #{<<"authentication">> := #{<<"service_account_json">> := <<"******">>}}},
         get_connector_api(TCConfig)
     ),
+    {200, RedactedParams0} = get_connector_api(TCConfig),
+    RedactedParams = maps:without(
+        [
+            <<"actions">>,
+            <<"sources">>,
+            <<"name">>,
+            <<"type">>,
+            <<"status">>,
+            <<"node_status">>
+        ],
+        RedactedParams0
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{<<"service_account_json">> := <<"******">>}
+        }},
+        update_connector_api(TCConfig, RedactedParams)
+    ),
+    ?assertMatch(<<"{", _/binary>>, persisted_service_account_json(TCConfig)),
+    ?assertMatch({204, _}, probe_connector_api(TCConfig, RedactedParams)),
     ok.

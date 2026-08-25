@@ -17,7 +17,9 @@ link_name.desc:
 link_name.label: "Linked Cluster Name"
 
 server.desc:
-"""MQTT host and port of the remote EMQX broker."""
+"""MQTT host and port of the remote EMQX broker.
+A comma-separated list of `host[:port]` addresses may be given.
+Each connection of the link prefers one of the addresses in turn and fails over to the other addresses when it cannot connect."""
 server.label: "MQTT Server"
 
 username.desc:
