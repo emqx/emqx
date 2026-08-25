@@ -341,7 +341,7 @@ read_rel_vsn(UnpackDir) ->
 %% subdir); accept only a plain version string like "6.0.1" or
 %% "6.0.1-beta.1", never a path.
 validate_rel_vsn(Vsn, File) ->
-    case re:run(Vsn, "^[0-9]+\\.[0-9]+\\.[0-9]+([.+-][0-9A-Za-z.+-]+)?$", [{capture, none}]) of
+    case re:run(Vsn, "^[0-9]+\\.[0-9]+\\.[0-9]+([.-][0-9A-Za-z.-]+)?$", [{capture, none}]) of
         match -> Vsn;
         nomatch -> throw(make_error(bad_target_vsn, #{vsn => bin(Vsn), file => File}))
     end.
