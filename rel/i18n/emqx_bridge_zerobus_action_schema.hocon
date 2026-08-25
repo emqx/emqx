@@ -1,0 +1,43 @@
+emqx_bridge_zerobus_action_schema {
+  zerobus {
+    label: """Upload to Databricks Zerobus"""
+    desc:
+    """Action that takes incoming events and ingests them into Databricks Zerobus."""
+  }
+
+  action_parameters {
+    label: """Zerobus Action Parameters"""
+    desc:
+    """Set of parameters for the action."""
+  }
+
+  catalog {
+    label: "Catalog"
+    desc: """Zerobus catalog name."""
+  }
+
+  schema {
+    label: "Schema"
+    desc: """Zerobus schema name."""
+  }
+
+  table {
+    label: "Table"
+    desc: """Zerobus table name."""
+  }
+
+  record_type {
+    label: "Record Type"
+    desc: """Record type to use when sending data to Zerobus.  When the connector transport type is REST, the only supported record type is JSON."""
+  }
+
+  record_proto_schema_name {
+    label: "Schema Name"
+    desc: """Protobuf schema name that lives in Schema Registry."""
+  }
+
+  record_proto_message_type {
+    label: "Message Type"
+    desc: """Message type to use when encoding payloads."""
+  }
+}

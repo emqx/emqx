@@ -110,7 +110,8 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_syskeeper_connector_info,
         emqx_bridge_syskeeper_proxy_connector_info,
         emqx_bridge_tdengine_connector_info,
-        emqx_bridge_timescale_connector_info
+        emqx_bridge_timescale_connector_info,
+        emqx_bridge_zerobus_connector_info
     ].
 
 hard_coded_connector_info_modules_common() ->

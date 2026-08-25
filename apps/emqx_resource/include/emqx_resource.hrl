@@ -193,4 +193,10 @@
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
 -define(RESOURCE_CACHE, emqx_resource_cache).
 
+-define(IS_HEALTH_CHECK_STATUS(STATUS),
+    ((STATUS) =:= ?status_connected orelse
+        (STATUS) =:= ?status_disconnected orelse
+        (STATUS) =:= ?status_connecting)
+).
+
 -endif.

@@ -32,7 +32,7 @@
     rsf_spb_zip_kvs/1
 ]).
 
-%% Tests
+%% emqx_bridge_zerobus/Tests
 -export([
     decode/2,
     decode/3,
@@ -630,6 +630,7 @@ base_protobuf_opts() ->
     [
         binary,
         strings_as_binaries,
+        descriptor,
         {maps, true},
         {maps_key_type, binary},
         {maps_oneof, flat},
