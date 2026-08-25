@@ -79,6 +79,11 @@
     %% Options that may affect `emqx_cth_peer:start{,_link}', such as `shutdown'.
     start_opts => #{},
 
+    %% Environment variables for this node only.
+    %% Merged over the cluster-wide `env_vars`; an entry with the same name wins.
+    %% Default: `[]`.
+    env_vars => [{string(), string()}],
+
     %% Working directory
     %% If this directory is not empty, starting up the node applications will fail
     %% Default: "${ClusterOpts.work_dir}/${nodename}"
@@ -381,12 +386,13 @@ start_nodes_init(Specs, Timeout, StartOpts) ->
 
 start_bare_nodes(Specs, Timeout, StartOpts) ->
     Args = erl_flags(),
-    Envs = maps:get(env_vars, StartOpts, []),
+    ClusterEnvs = maps:get(env_vars, StartOpts, []),
     Waits = lists:map(
         fun(#{name := Name} = Spec) ->
             WaitTag = {boot_complete, Name},
             WaitBoot = {self(), WaitTag},
             Opts = peer_start_opts(Spec),
+            Envs = merge_env_vars(ClusterEnvs, maps:get(env_vars, Spec, [])),
             {ok, _} = emqx_cth_peer:start(Name, Args, Envs, WaitBoot, Opts),
             WaitTag
         end,
@@ -396,6 +402,13 @@ start_bare_nodes(Specs, Timeout, StartOpts) ->
     Nodes = wait_boot_complete(Waits, Deadline),
     lists:foreach(fun(Node) -> pong = net_adm:ping(Node) end, Nodes),
     Nodes.
+
+merge_env_vars(ClusterEnvs, NodeEnvs) ->
+    lists:foldl(
+        fun({Name, _} = Env, Acc) -> lists:keystore(Name, 1, Acc, Env) end,
+        ClusterEnvs,
+        NodeEnvs
+    ).
 
 peer_start_opts(Spec) ->
     maps:get(start_opts, Spec, #{}).

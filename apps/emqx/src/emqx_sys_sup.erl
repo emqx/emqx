@@ -29,6 +29,7 @@ init([]) ->
         [
             child_spec(emqx_alarm),
             LoadAlarmHandler,
+            child_spec(emqx_security_profile_monitor),
             child_spec(emqx_sys),
             child_spec(emqx_sys_mon),
             child_spec(emqx_vm_mon),
