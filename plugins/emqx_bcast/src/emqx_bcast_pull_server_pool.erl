@@ -9,7 +9,7 @@
     start_link/0,
     want_next/1,
     ack_batch/1,
-    qos0_broadcast/3,
+    qos0_broadcast/4,
     qos1_trigger/3
 ]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -31,9 +31,12 @@ ack_batch(Acks) ->
 
 %% QoS0 / PubBroadcast: one-shot delivery. Core broadcasts full deliver data
 %% to all nodes; each local pull_pool checks online + subscription and drops
-%% silently when either check fails.
-qos0_broadcast(ProductKey, TopicTemplate, Payload) ->
-    broadcast_to_pull_pools({qos0_deliver_local, [ProductKey, TopicTemplate, Payload]}).
+%% silently when either check fails. DeviceNames narrows the fanout to the
+%% BatchPub target list; undefined means product-wide (PubBroadcast).
+qos0_broadcast(ProductKey, DeviceNames, TopicTemplate, Payload) ->
+    broadcast_to_pull_pools(
+        {qos0_deliver_local, [ProductKey, DeviceNames, TopicTemplate, Payload]}
+    ).
 
 %% QoS1 BatchPub: pure trigger signal (no payload). Each pull_pool checks
 %% online + subscription and turns the trigger into a want_next batch entry.

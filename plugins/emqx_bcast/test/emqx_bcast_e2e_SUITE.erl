@@ -134,24 +134,51 @@ recv(Count, Msgs) ->
 
 topic(DN) -> <<"/default/", DN/binary, "/user/get">>.
 
+%% The subscribe hook casts into emqx_bcast_pull_pool asynchronously; poll the
+%% subscription table until the cast has been processed instead of sleeping.
+wait_subscribed(ClientId, Topic) ->
+    ?assert(
+        wait_until(
+            fun() -> emqx_bcast_subscription:match(ClientId, Topic) =/= false end,
+            100
+        )
+    ).
+
+%% The connected hook casts into emqx_bcast_pull_pool asynchronously; poll the
+%% device table until the registration has landed instead of sleeping.
+wait_registered(ClientId) ->
+    ?assert(
+        wait_until(
+            fun() ->
+                case emqx_bcast:lookup_device({<<"default">>, ClientId}) of
+                    {ok, _} -> true;
+                    {error, not_found} -> false
+                end
+            end,
+            100
+        )
+    ).
+
 %% tests
 
+-doc "Plain MQTT pubsub works as a baseline sanity check.".
 t_pubsub_works(_Config) ->
     C = connect(<<"test_sub">>),
     sub(C, <<"t1">>),
-    ct:sleep(10),
     ok = emqtt:publish(C, <<"t1">>, <<"hi">>, 0),
     Msgs = recv(1),
     ?assertEqual(1, length(Msgs)),
     ?assertMatch(#{payload := <<"hi">>}, hd(Msgs)),
     disconnect(C).
 
+-doc "QoS=0 BatchPub delivers to two subscribed online devices.".
 t_batch_pub_qos0_e2e(_Config) ->
     C1 = connect(<<"e2e_q0_1">>),
     C2 = connect(<<"e2e_q0_2">>),
     sub_default(C1, <<"e2e_q0_1">>),
     sub_default(C2, <<"e2e_q0_2">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_q0_1">>, topic(<<"e2e_q0_1">>)),
+    wait_subscribed(<<"e2e_q0_2">>, topic(<<"e2e_q0_2">>)),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -165,12 +192,14 @@ t_batch_pub_qos0_e2e(_Config) ->
     disconnect(C1),
     disconnect(C2).
 
+-doc "QoS=1 BatchPub delivers to two subscribed online devices and waits for PUBACK.".
 t_batch_pub_qos1_e2e(_Config) ->
     C1 = connect(<<"e2e_q1_1">>),
     C2 = connect(<<"e2e_q1_2">>),
     sub_default(C1, <<"e2e_q1_1">>),
     sub_default(C2, <<"e2e_q1_2">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_q1_1">>, topic(<<"e2e_q1_1">>)),
+    wait_subscribed(<<"e2e_q1_2">>, topic(<<"e2e_q1_2">>)),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -184,6 +213,7 @@ t_batch_pub_qos1_e2e(_Config) ->
     disconnect(C1),
     disconnect(C2).
 
+-doc "BatchPub by MessageId reuses a pre-registered message payload.".
 t_batch_pub_messageid_reuse_e2e(_Config) ->
     B64 = b64(<<"reuse_payload">>),
     {ok, 200, _, RegResp} = api_call(#{
@@ -192,7 +222,7 @@ t_batch_pub_messageid_reuse_e2e(_Config) ->
     MsgId = maps:get(<<"MessageId">>, RegResp),
     C1 = connect(<<"e2e_reuse_1">>),
     sub_default(C1, <<"e2e_reuse_1">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_reuse_1">>, topic(<<"e2e_reuse_1">>)),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -207,6 +237,7 @@ t_batch_pub_messageid_reuse_e2e(_Config) ->
     ?assertMatch(#{payload := <<"reuse_payload">>}, hd(Msgs)),
     disconnect(C1).
 
+-doc "PubBroadcast reaches all online devices subscribed to the broadcast topic.".
 t_pub_broadcast_e2e(_Config) ->
     C1 = connect(<<"e2e_bc_1">>),
     C2 = connect(<<"e2e_bc_2">>),
@@ -214,7 +245,9 @@ t_pub_broadcast_e2e(_Config) ->
     sub(C1, <<"/sys/broadcast/default">>),
     sub(C2, <<"/sys/broadcast/default">>),
     sub(C3, <<"/sys/broadcast/default">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_bc_1">>, <<"/sys/broadcast/default">>),
+    wait_subscribed(<<"e2e_bc_2">>, <<"/sys/broadcast/default">>),
+    wait_subscribed(<<"e2e_bc_3">>, <<"/sys/broadcast/default">>),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"PubBroadcast">>,
         <<"ProductKey">> => <<"default">>,
@@ -227,10 +260,11 @@ t_pub_broadcast_e2e(_Config) ->
     disconnect(C2),
     disconnect(C3).
 
+-doc "QoS=1 BatchPub delivers online now and replays to the offline device when it connects.".
 t_batch_pub_partial_online_e2e(_Config) ->
     C1 = connect(<<"e2e_part_1">>),
     sub_default(C1, <<"e2e_part_1">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_part_1">>, topic(<<"e2e_part_1">>)),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -242,17 +276,18 @@ t_batch_pub_partial_online_e2e(_Config) ->
     ?assertEqual(1, length(Msgs1)),
     C2 = connect(<<"e2e_part_2">>),
     sub_default(C2, <<"e2e_part_2">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_part_2">>, topic(<<"e2e_part_2">>)),
     Msgs2 = recv(1),
     ?assertEqual(1, length(Msgs2)),
     disconnect(C1),
     disconnect(C2).
 
+-doc "BatchPub honors a custom TopicTemplateName for the delivery topic.".
 t_batch_pub_topic_template_e2e(_Config) ->
     CustomTopic = <<"/custom/${deviceName}/topic">>,
     C1 = connect(<<"e2e_tpl_1">>),
     sub(C1, <<"/custom/e2e_tpl_1/topic">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_tpl_1">>, <<"/custom/e2e_tpl_1/topic">>),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -265,6 +300,7 @@ t_batch_pub_topic_template_e2e(_Config) ->
     ?assertEqual(1, length(Msgs)),
     disconnect(C1).
 
+-doc "RegisterMessage deduplicates identical content to the same MessageId.".
 t_register_message_e2e(_Config) ->
     B64 = b64(<<"reg_message">>),
     {ok, 200, _, R1} = api_call(#{
@@ -276,9 +312,10 @@ t_register_message_e2e(_Config) ->
     }),
     ?assertEqual(Mid1, maps:get(<<"MessageId">>, R2)).
 
+-doc "QoS=0 BatchPub is not delivered to a device without a matching subscription.".
 t_batch_pub_qos0_no_sub(_Config) ->
     C1 = connect(<<"e2e_nosub_1">>),
-    ct:sleep(10),
+    wait_registered(<<"e2e_nosub_1">>),
     {ok, 200, _, Resp} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -291,9 +328,10 @@ t_batch_pub_qos0_no_sub(_Config) ->
     ?assertEqual(0, length(Msgs)),
     disconnect(C1).
 
+-doc "QoS=1 BatchPub stores for an unsubscribed device and replays after it subscribes.".
 t_batch_pub_qos1_store_pending_no_sub(_Config) ->
     C1 = connect(<<"e2e_pend_1">>),
-    ct:sleep(10),
+    wait_registered(<<"e2e_pend_1">>),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -304,14 +342,15 @@ t_batch_pub_qos1_store_pending_no_sub(_Config) ->
     Msgs1 = recv(1),
     ?assertEqual(0, length(Msgs1)),
     sub_default(C1, <<"e2e_pend_1">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_pend_1">>, topic(<<"e2e_pend_1">>)),
     Msgs2 = recv(1),
     ?assertEqual(1, length(Msgs2)),
     disconnect(C1).
 
+-doc "QoS=1 delivery is not replayed to a device subscribed to a different topic.".
 t_batch_pub_wrong_topic_no_replay(_Config) ->
     C1 = connect(<<"e2e_wrong_1">>),
-    ct:sleep(10),
+    wait_registered(<<"e2e_wrong_1">>),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -322,15 +361,16 @@ t_batch_pub_wrong_topic_no_replay(_Config) ->
     Msgs1 = recv(1),
     ?assertEqual(0, length(Msgs1)),
     sub(C1, <<"/other/topic">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_wrong_1">>, <<"/other/topic">>),
     Msgs2 = recv(1),
     ?assertEqual(0, length(Msgs2)),
     disconnect(C1).
 
+-doc "A pending QoS=1 delivery replays only after the device subscribes again following a reconnect.".
 t_replay_on_subscribe_after_reconnect(_Config) ->
     C1 = connect(<<"e2e_rply_a">>),
     sub_default(C1, <<"e2e_rply_a">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_rply_a">>, topic(<<"e2e_rply_a">>)),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -342,18 +382,19 @@ t_replay_on_subscribe_after_reconnect(_Config) ->
     ?assertEqual(1, length(Msgs1)),
     disconnect(C1),
     C2 = connect(<<"e2e_rply_b">>),
-    ct:sleep(10),
+    wait_registered(<<"e2e_rply_b">>),
     Msgs2 = recv(1),
     ?assertEqual(0, length(Msgs2)),
     sub_default(C2, <<"e2e_rply_b">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_rply_b">>, topic(<<"e2e_rply_b">>)),
     Msgs3 = recv(1),
     ?assertEqual(1, length(Msgs3)),
     disconnect(C2).
 
+-doc "PubBroadcast is skipped for online devices without a broadcast subscription.".
 t_pub_broadcast_skip_no_sub(_Config) ->
     C1 = connect(<<"e2e_bc_ns_1">>),
-    ct:sleep(10),
+    wait_registered(<<"e2e_bc_ns_1">>),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"PubBroadcast">>,
         <<"ProductKey">> => <<"default">>,
@@ -363,10 +404,11 @@ t_pub_broadcast_skip_no_sub(_Config) ->
     ?assertEqual(0, length(Msgs)),
     disconnect(C1).
 
+-doc "PubBroadcast matches wildcard subscriptions on the broadcast topic.".
 t_pub_broadcast_wildcard_sub(_Config) ->
     C1 = connect(<<"e2e_bc_wc_1">>),
     sub(C1, <<"/sys/broadcast/#">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_bc_wc_1">>, <<"/sys/broadcast/#">>),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"PubBroadcast">>,
         <<"ProductKey">> => <<"default">>,
@@ -376,9 +418,10 @@ t_pub_broadcast_wildcard_sub(_Config) ->
     ?assertEqual(1, length(Msgs)),
     disconnect(C1).
 
+-doc "A connected but unsubscribed device receives no BatchPub delivery.".
 t_connect_only_no_sub_no_delivery(_Config) ->
     C1 = connect(<<"e2e_cnore_1">>),
-    ct:sleep(10),
+    wait_registered(<<"e2e_cnore_1">>),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -390,10 +433,11 @@ t_connect_only_no_sub_no_delivery(_Config) ->
     ?assertEqual(0, length(Msgs)),
     disconnect(C1).
 
+-doc "QoS=1 delivery created while offline replays on reconnect only after subscribing.".
 t_reconnect_subscribe_replay(_Config) ->
     C1 = connect(<<"e2e_rcsr_1">>),
     sub_default(C1, <<"e2e_rcsr_1">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_rcsr_1">>, topic(<<"e2e_rcsr_1">>)),
     disconnect(C1),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
@@ -403,19 +447,20 @@ t_reconnect_subscribe_replay(_Config) ->
         <<"Qos">> => 1
     }),
     C2 = connect(<<"e2e_rcsr_1">>),
-    ct:sleep(10),
+    wait_registered(<<"e2e_rcsr_1">>),
     Msgs1 = recv(1),
     ?assertEqual(0, length(Msgs1)),
     sub_default(C2, <<"e2e_rcsr_1">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_rcsr_1">>, topic(<<"e2e_rcsr_1">>)),
     Msgs2 = recv(1),
     ?assertEqual(1, length(Msgs2)),
     disconnect(C2).
 
+-doc "Unsubscribing stops further deliveries to the device.".
 t_unsubscribe_no_delivery(_Config) ->
     C1 = connect(<<"e2e_unsub_1">>),
     sub_default(C1, <<"e2e_unsub_1">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_unsub_1">>, topic(<<"e2e_unsub_1">>)),
     unsub(C1, topic(<<"e2e_unsub_1">>)),
     ?assert(
         wait_until(
@@ -436,10 +481,11 @@ t_unsubscribe_no_delivery(_Config) ->
     ?assertEqual(0, length(Msgs)),
     disconnect(C1).
 
+-doc "Pending QoS=1 delivery replays after unsubscribe + resubscribe.".
 t_unsubscribe_then_resubscribe_replay(_Config) ->
     C1 = connect(<<"e2e_usr_1">>),
     sub_default(C1, <<"e2e_usr_1">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_usr_1">>, topic(<<"e2e_usr_1">>)),
     unsub(C1, topic(<<"e2e_usr_1">>)),
     ?assert(
         wait_until(
@@ -475,12 +521,13 @@ t_unsubscribe_then_resubscribe_replay(_Config) ->
 %% Force upgrade QoS E2E tests
 %%--------------------------------------------------------------------
 
+-doc "force_upgrade_qos=false delivers a QoS=0 downgraded message to a QoS=0 subscriber.".
 t_qos_downgrade_force_false(_Config) ->
     Cfg = persistent_term:get({emqx_bcast, config}),
     persistent_term:put({emqx_bcast, config}, Cfg#{force_upgrade_qos => false}),
     C1 = connect(<<"e2e_fuq_1">>),
     sub_qos(C1, topic(<<"e2e_fuq_1">>), 0),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_fuq_1">>, topic(<<"e2e_fuq_1">>)),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -493,12 +540,13 @@ t_qos_downgrade_force_false(_Config) ->
     disconnect(C1),
     persistent_term:put({emqx_bcast, config}, Cfg).
 
+-doc "force_upgrade_qos=false keeps QoS=1 for a QoS=1 subscriber.".
 t_qos_no_downgrade_force_false(_Config) ->
     Cfg = persistent_term:get({emqx_bcast, config}),
     persistent_term:put({emqx_bcast, config}, Cfg#{force_upgrade_qos => false}),
     C1 = connect(<<"e2e_fuq_2">>),
     sub_qos(C1, topic(<<"e2e_fuq_2">>), 1),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_fuq_2">>, topic(<<"e2e_fuq_2">>)),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -511,10 +559,11 @@ t_qos_no_downgrade_force_false(_Config) ->
     disconnect(C1),
     persistent_term:put({emqx_bcast, config}, Cfg).
 
+-doc "force_upgrade_qos=true delivers at QoS=1 to a QoS=0 subscriber.".
 t_qos_force_upgrade_true(_Config) ->
     C1 = connect(<<"e2e_fuq_3">>),
     sub_qos(C1, topic(<<"e2e_fuq_3">>), 0),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_fuq_3">>, topic(<<"e2e_fuq_3">>)),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -533,6 +582,7 @@ t_qos_force_upgrade_true(_Config) ->
 %% 32 identical inline QoS=1 BatchPub calls run concurrently per round must
 %% all resolve to a single MessageId: the hash lookup-or-create must be
 %% atomic, otherwise concurrent callers blind-write different records.
+-doc "32 concurrent inline QoS=1 BatchPub calls with identical content resolve to one MessageId.".
 t_batch_pub_concurrent_inline_dedup(_Config) ->
     Parent = self(),
     RoundIds =
@@ -571,11 +621,12 @@ t_batch_pub_concurrent_inline_dedup(_Config) ->
 %% With one subscribed client, pool size 1 and queue limit 1, 128 concurrent
 %% QoS=1 calls must not lose submissions: every 200 response has its message
 %% delivered. Admission (capacity check + reservation) must be atomic.
+-doc "Concurrent QoS=1 BatchPub calls under admission pressure all get delivered.".
 t_batch_pub_concurrent_qos1_e2e(_Config) ->
     N = 20,
     C1 = connect(<<"e2e_adm_1">>),
     sub_default(C1, <<"e2e_adm_1">>),
-    ct:sleep(10),
+    wait_subscribed(<<"e2e_adm_1">>, topic(<<"e2e_adm_1">>)),
     Parent = self(),
     Pids = [
         spawn(fun() ->

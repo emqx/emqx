@@ -19,7 +19,17 @@ handle(Body, RequestId) ->
     TopicShortName = maps:get(<<"TopicShortName">>, Body, undefined),
     TopicTemplateName = maps:get(<<"TopicTemplateName">>, Body, undefined),
 
-    case validate_input(ProductKey, DeviceNames, MessageContent, MessageId, Qos) of
+    case
+        validate_input(
+            ProductKey,
+            DeviceNames,
+            MessageContent,
+            MessageId,
+            Qos,
+            TopicShortName,
+            TopicTemplateName
+        )
+    of
         {error, Code, Msg} ->
             {ok, 400, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg)};
         ok ->
@@ -48,7 +58,7 @@ do_qos0(DeviceNames, ProductKey, TopicTemplate, MessageContent, MessageId, Reque
             emqx_bcast_metrics:qos0_in(),
             emqx_bcast_metrics:qos0_targeted(length(DeviceNames)),
             ok = emqx_bcast_pull_server_pool:qos0_broadcast(
-                ProductKey, TopicTemplate, Payload
+                ProductKey, DeviceNames, TopicTemplate, Payload
             ),
             {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
         {error, Code, Msg} ->
@@ -69,8 +79,12 @@ resolve_qos0_payload(MessageContent, _MessageId) when MessageContent =/= undefin
 resolve_qos0_payload(undefined, MessageId) ->
     case emqx_bcast_id:resolve_message_id(MessageId) of
         {ok, MsgGuid} ->
-            {ok, Msg} = emqx_bcast_storage:lookup_message(MsgGuid),
-            {ok, Msg#bcast_message.payload, MessageId};
+            case emqx_bcast_storage:lookup_message(MsgGuid) of
+                {ok, Msg} ->
+                    {ok, Msg#bcast_message.payload, MessageId};
+                {error, not_found} ->
+                    {error, <<"MessageNotFound">>, <<"MessageId not found">>}
+            end;
         {error, not_found} ->
             {error, <<"MessageNotFound">>, <<"MessageId not found">>}
     end.
@@ -197,36 +211,122 @@ prepare_qos1_content(undefined, MessageId) ->
 %% Validation
 %%--------------------------------------------------------------------
 
-validate_input(PK, _, _, _, _) when not is_binary(PK) orelse PK =:= <<>> ->
+validate_input(PK, DNs, MC, MI, Qos, ShortName, TemplateName) ->
+    case validate_product_key(PK) of
+        ok -> validate_input2(DNs, MC, MI, Qos, ShortName, TemplateName);
+        Error -> Error
+    end.
+
+validate_product_key(PK) when not is_binary(PK) orelse PK =:= <<>> ->
     {error, <<"InvalidProductKey">>, <<"ProductKey is required">>};
-validate_input(_PK, undefined, _, _, _) ->
+validate_product_key(PK) ->
+    case re:run(PK, <<"[/+#$]">>) of
+        nomatch -> ok;
+        _ -> {error, <<"InvalidProductKey">>, <<"ProductKey contains invalid characters">>}
+    end.
+
+validate_input2(undefined, _, _, _, _, _) ->
     {error, <<"InvalidDeviceName">>, <<"DeviceName is required">>};
-validate_input(_PK, _DeviceNames, undefined, undefined, _Qos) ->
+validate_input2(_DeviceNames, undefined, undefined, _Qos, _, _) ->
     {error, <<"MessageIdContentConflict">>, <<"MessageContent or MessageId required">>};
-validate_input(_PK, _DeviceNames, _MC, _MI, _Qos) when _MC =/= undefined, _MI =/= undefined ->
+validate_input2(_DeviceNames, _MC, _MI, _Qos, _, _) when _MC =/= undefined, _MI =/= undefined ->
     {error, <<"MessageIdContentConflict">>, <<"Only one of MessageContent or MessageId allowed">>};
-validate_input(_PK, _DeviceNames, _MC, _MI, Qos) when Qos =/= 0, Qos =/= 1 ->
+validate_input2(_DeviceNames, _MC, _MI, Qos, _, _) when Qos =/= 0, Qos =/= 1 ->
     {error, <<"InvalidQos">>, <<"QoS must be 0 or 1">>};
-validate_input(_PK, DeviceNames, _MC, _MI, _Qos) when is_list(DeviceNames) ->
+validate_input2(DeviceNames, _MC, _MI, _Qos, ShortName, TemplateName) when is_list(DeviceNames) ->
+    case validate_topic_fields(ShortName, TemplateName) of
+        ok ->
+            case validate_device_names(DeviceNames) of
+                ok ->
+                    Max = get_max_device_count(),
+                    case length(DeviceNames) > Max of
+                        true ->
+                            {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
+                        false ->
+                            case has_duplicates(DeviceNames) of
+                                true ->
+                                    {error, <<"DuplicateDeviceName">>,
+                                        <<"Duplicate DeviceName entries">>};
+                                false ->
+                                    ok
+                            end
+                    end;
+                Error ->
+                    Error
+            end;
+        {error, Code, Msg} ->
+            {error, Code, Msg}
+    end;
+validate_input2(_, _, _, _, _, _) ->
+    {error, <<"InvalidDeviceName">>, <<"DeviceName must be a list">>}.
+
+%% DeviceName becomes a topic level, so reject wildcards and separators in
+%% addition to the non-binary check. An empty list would create a delivery
+%% with target_ack_count = 0 that never completes, so reject it too.
+validate_device_names([]) ->
+    {error, <<"InvalidDeviceName">>, <<"DeviceName must not be empty">>};
+validate_device_names(DeviceNames) ->
     case lists:all(fun erlang:is_binary/1, DeviceNames) of
         false ->
             {error, <<"InvalidDeviceName">>, <<"DeviceName entries must be strings">>};
         true ->
-            Max = get_max_device_count(),
-            case length(DeviceNames) > Max of
+            case
+                lists:all(
+                    fun(DN) ->
+                        case re:run(DN, <<"[/+#$]">>) of
+                            nomatch -> true;
+                            _ -> false
+                        end
+                    end,
+                    DeviceNames
+                )
+            of
                 true ->
-                    {error, <<"DeviceCountExceeded">>, <<"Too many devices">>};
+                    ok;
                 false ->
-                    case has_duplicates(DeviceNames) of
-                        true ->
-                            {error, <<"DuplicateDeviceName">>, <<"Duplicate DeviceName entries">>};
-                        false ->
-                            ok
-                    end
+                    {error, <<"InvalidDeviceName">>, <<"DeviceName contains invalid characters">>}
             end
+    end.
+
+%% TopicShortName is a suffix appended to the delivery topic, so it must not
+%% carry topic separators, wildcards or placeholder syntax. TopicTemplateName
+%% is a full template: reject wildcards (they would turn the delivery topic
+%% into a subscription filter) and any placeholder other than ${deviceName},
+%% which expand_topic/3 resolves before delivery.
+validate_topic_fields(ShortName, TemplateName) ->
+    case validate_short_name(ShortName) of
+        ok -> validate_template_name(TemplateName);
+        Error -> Error
+    end.
+
+validate_short_name(undefined) ->
+    ok;
+validate_short_name(ShortName) when is_binary(ShortName) ->
+    case re:run(ShortName, <<"[/+#${}]">>) of
+        nomatch -> ok;
+        _ -> {error, <<"InvalidTopicTemplate">>, <<"TopicShortName contains invalid characters">>}
     end;
-validate_input(_, _, _, _, _) ->
-    {error, <<"InvalidDeviceName">>, <<"DeviceName must be a list">>}.
+validate_short_name(_) ->
+    {error, <<"InvalidTopicTemplate">>, <<"TopicShortName must be a string">>}.
+
+validate_template_name(undefined) ->
+    ok;
+validate_template_name(TemplateName) when is_binary(TemplateName) ->
+    case re:run(TemplateName, <<"[+#]">>) of
+        nomatch -> validate_placeholders(TemplateName);
+        _ -> {error, <<"InvalidTopicTemplate">>, <<"TopicTemplateName contains wildcards">>}
+    end;
+validate_template_name(_) ->
+    {error, <<"InvalidTopicTemplate">>, <<"TopicTemplateName must be a string">>}.
+
+validate_placeholders(TemplateName) ->
+    %% Remove the supported ${deviceName} placeholder, then reject any
+    %% remaining ${...} syntax (e.g. ${productKey} is taken from ProductKey).
+    Rest = binary:replace(TemplateName, <<"${deviceName}">>, <<>>, [global]),
+    case binary:match(Rest, <<"${">>) of
+        nomatch -> ok;
+        _ -> {error, <<"InvalidTopicTemplate">>, <<"TopicTemplateName has invalid placeholders">>}
+    end.
 
 resolve_topic(TemplateName, _, _Pk) when TemplateName =/= undefined ->
     TemplateName;

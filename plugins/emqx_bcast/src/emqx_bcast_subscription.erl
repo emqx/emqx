@@ -25,15 +25,15 @@ init() ->
             ok
     end.
 
-add(_ClientId, _Pid, Filter) ->
-    case ets:lookup(?TAB, _ClientId) of
+add(ClientId, Pid, Filter) ->
+    case ets:lookup(?TAB, ClientId) of
         [#bcast_subscription{topics = Topics}] ->
             ets:insert(?TAB, #bcast_subscription{
-                clientid = _ClientId, pid = _Pid, topics = [Filter | Topics]
+                clientid = ClientId, pid = Pid, topics = [Filter | Topics]
             });
         [] ->
             ets:insert(?TAB, #bcast_subscription{
-                clientid = _ClientId, pid = _Pid, topics = [Filter]
+                clientid = ClientId, pid = Pid, topics = [Filter]
             })
     end.
 

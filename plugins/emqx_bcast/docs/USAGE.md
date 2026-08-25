@@ -1,4 +1,4 @@
-# EMQX IoT Plugin -- Usage Guide
+# EMQX Bcast Plugin -- Usage Guide
 
 ## Prerequisites
 
@@ -132,14 +132,6 @@ curl -su "$API_KEY" "$HOST/api/v5/plugin_api/emqx_bcast/metrics"
 Key metrics to watch:
 - **`bcast_batch_pub_qos1_wanted - bcast_batch_pub_qos1_acked`** -- backlog of unacknowledged deliveries
 - **`rate(bcast_batch_pub_qos1_acked[5m]) / rate(bcast_batch_pub_qos1_wanted[5m])`** -- delivery success rate
-
-### Dedicated Watch Script
-
-```bash
-python3 scripts/watch.py --interval 2
-```
-
-Real-time display of connected clients, wanted/acked/replayed counts.
 
 ---
 

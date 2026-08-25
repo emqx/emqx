@@ -80,6 +80,7 @@ wait_until(_Fun, 0) ->
 %% Devices connected to different nodes must all receive the message when the
 %% API request lands on only one of them. Resolve happens on every node, and
 %% pool workers hand the message to remote channel pids via Erlang `!`.
+-doc "QoS=0 BatchPub reaches devices connected to different cluster nodes.".
 t_cluster_cross_node_delivery(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
     DN1 = <<"cl_dn1">>,
@@ -88,7 +89,17 @@ t_cluster_cross_node_delivery(Config) ->
     C2 = connect(N2, DN2),
     sub(C1, topic(DN1)),
     sub(C2, topic(DN2)),
-    ct:sleep(500),
+    %% The subscribe hook casts into pull_pool asynchronously; poll the
+    %% subscription table on both nodes until the subscriptions landed.
+    Subscribed =
+        wait_until(
+            fun() ->
+                erpc:call(N1, emqx_bcast_subscription, match, [DN1, topic(DN1)]) =/= false andalso
+                    erpc:call(N2, emqx_bcast_subscription, match, [DN2, topic(DN2)]) =/= false
+            end,
+            50
+        ),
+    ?assert(Subscribed),
     {ok, 200, _, _Resp} = api_call(N1, #{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -108,6 +119,7 @@ t_cluster_cross_node_delivery(Config) ->
 %% A QoS=1 delivery created via node1 must be replayable on node2: the
 %% delivery record replicates through the mria shard, and the replay index
 %% entry propagates to every node's local ETS via rpc cast.
+-doc "QoS=1 delivery created on one node is replayed after reconnect on another node.".
 t_cluster_offline_replay_on_other_node(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
     DN = <<"cl_offline_dn">>,
@@ -144,6 +156,7 @@ t_cluster_offline_replay_on_other_node(Config) ->
 %% A QoS=1 delivery for D1 and D2 created while both are offline, replayed and
 %% acked by D1 on node1, must not be replayed again when D1 reconnects on
 %% node2: ack state must be cluster-wide, not node-local.
+-doc "Ack state is cluster-wide: a delivery acked on one node is not replayed on another.".
 t_cluster_ack_idempotent_across_nodes(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
     DN1 = <<"cl_ack_dn1">>,

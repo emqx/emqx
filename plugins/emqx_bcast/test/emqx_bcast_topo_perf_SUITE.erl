@@ -69,6 +69,7 @@ apps() ->
 %% e2e tests
 %%--------------------------------------------------------------------
 
+-doc "QoS=0, QoS=1 and cross-node replay work in a 1-core 2-replicant cluster.".
 t_1c2r_e2e(Config) ->
     [Core, Rep1, Rep2] = emqx_cth_cluster:start(?config(cluster, Config)),
     DN1 = <<"topo_1c2r_dn1">>,
@@ -128,6 +129,7 @@ t_1c2r_e2e(Config) ->
         catch emqtt:stop(C2)
     end.
 
+-doc "QoS=0, QoS=1 and cross-node replay work in a 3-core cluster.".
 t_3c_e2e(Config) ->
     [C1, C2, C3] = emqx_cth_cluster:start(?config(cluster, Config)),
     DN1 = <<"topo_3c_dn1">>,
@@ -190,6 +192,7 @@ t_3c_e2e(Config) ->
 %% Performance evaluation
 %%--------------------------------------------------------------------
 
+-doc "Latency probe: QoS=0 and QoS=1 round trips in a 1-core 2-replicant cluster.".
 t_perf_1c2r(Config) ->
     [Core, Rep1, _Rep2] = emqx_cth_cluster:start(?config(cluster, Config)),
     DN = <<"perf_1c2r_dn">>,
@@ -202,6 +205,7 @@ t_perf_1c2r(Config) ->
         catch emqtt:stop(C)
     end.
 
+-doc "Latency probe: QoS=0 and QoS=1 round trips in a 3-core cluster.".
 t_perf_3c(Config) ->
     [C1, _C2, C3] = emqx_cth_cluster:start(?config(cluster, Config)),
     DN = <<"perf_3c_dn">>,
