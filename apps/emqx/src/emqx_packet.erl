@@ -329,8 +329,6 @@ check_subscribe(_Properties, TopicFilters, Opts) ->
             {error, ?RC_TOPIC_FILTER_INVALID}
     end.
 
-check_pub_props(#{'Payload-Format-Indicator' := PFI}) when PFI =/= 0, PFI =/= 1 ->
-    {error, ?RC_PROTOCOL_ERROR};
 check_pub_props(#{'Topic-Alias' := 0}) ->
     {error, ?RC_TOPIC_ALIAS_INVALID};
 check_pub_props(#{'Subscription-Identifier' := _}) ->

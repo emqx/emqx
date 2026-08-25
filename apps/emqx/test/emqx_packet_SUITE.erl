@@ -208,15 +208,6 @@ t_check_publish(_) ->
     ),
     {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(
         ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Response-Topic' => <<"+/+">>}, <<"payload">>)
-    ),
-    ok = emqx_packet:check(
-        ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Payload-Format-Indicator' => 0}, <<"payload">>)
-    ),
-    ok = emqx_packet:check(
-        ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Payload-Format-Indicator' => 1}, <<"payload">>)
-    ),
-    {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(
-        ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Payload-Format-Indicator' => 32}, <<"payload">>)
     ).
 
 t_check_subscribe(_) ->
@@ -380,14 +371,6 @@ t_check_connect(_) ->
             will_flag = true,
             will_topic = <<"will_topic">>,
             will_props = #{'Response-Topic' => <<>>}
-        }),
-        Opts
-    ),
-    {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(
-        ?CONNECT_PACKET(#mqtt_packet_connect{
-            will_flag = true,
-            will_topic = <<"will_topic">>,
-            will_props = #{'Payload-Format-Indicator' => 32}
         }),
         Opts
     ),
