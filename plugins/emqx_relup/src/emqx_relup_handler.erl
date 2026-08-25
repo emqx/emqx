@@ -42,8 +42,10 @@ check_and_unpack(CurrVsn, RootDir, #{tarball := TarFile} = Opts) ->
         ok = check_otp_comaptibility(CurrVsn, RootDir, UnpackDir, TargetVsn),
         {ok, OldRel} = consult_rel_file(RootDir, CurrVsn),
         {ok, NewRel} = consult_rel_file(UnpackDir, TargetVsn),
-        ok = deploy_files(TargetVsn, RootDir, UnpackDir, OldRel, NewRel, Opts),
+        %% All acceptance checks must run before deploy_files/6: a
+        %% package that ends up rejected must not mutate the node tree.
         Relup = get_relup_entry(CurrVsn, TargetVsn),
+        ok = deploy_files(TargetVsn, RootDir, UnpackDir, OldRel, NewRel, Opts),
         {ok, Opts#{
             target_vsn => TargetVsn,
             unpack_dir => UnpackDir,
@@ -330,9 +332,18 @@ read_rel_vsn(UnpackDir) ->
             case
                 re:run(Bin, <<"^REL_VSN=\"([^\"]+)\"">>, [multiline, {capture, all_but_first, list}])
             of
-                {match, [Vsn]} -> Vsn;
+                {match, [Vsn]} -> validate_rel_vsn(Vsn, File);
                 nomatch -> throw(make_error(rel_vsn_not_found, #{file => File}))
             end
+    end.
+
+%% REL_VSN is later used as a path component (deploy dir, releases
+%% subdir); accept only a plain version string like "6.0.1" or
+%% "6.0.1-beta.1", never a path.
+validate_rel_vsn(Vsn, File) ->
+    case re:run(Vsn, "^[0-9]+\\.[0-9]+\\.[0-9]+([.-][0-9A-Za-z.-]+)?$", [{capture, none}]) of
+        match -> Vsn;
+        nomatch -> throw(make_error(bad_target_vsn, #{vsn => bin(Vsn), file => File}))
     end.
 
 %% Lowercase hex sha256 of `TarFile`'s contents.
@@ -847,8 +858,18 @@ get_upgrade_mod(TargetVsn) ->
 independent_deploy_root(RootDir) ->
     filename:join([RootDir, "relup"]).
 
+%% TargetVsn is validated at read_rel_vsn/1; keep a last-resort check
+%% here so the deploy dir can never resolve outside <RootDir>/relup.
 get_deploy_dir(RootDir, TargetVsn) ->
-    filename:join([independent_deploy_root(RootDir), TargetVsn]).
+    DeployRoot = independent_deploy_root(RootDir),
+    Dir = filename:join([DeployRoot, TargetVsn]),
+    IsContained =
+        filename:dirname(Dir) =:= DeployRoot andalso
+            not lists:member(filename:basename(Dir), [".", ".."]),
+    case IsContained of
+        true -> Dir;
+        false -> throw(make_error(bad_target_vsn, #{vsn => bin(TargetVsn)}))
+    end.
 
 read_build_info(RootDir, Vsn) ->
     BuildInfoFile = filename:join([RootDir, "releases", Vsn, "BUILD_INFO"]),

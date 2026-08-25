@@ -230,16 +230,44 @@ t_missing_emqx_vars_rejects(Config) ->
     ),
     ?assertMatch({error, #{err_type := cannot_read_emqx_vars}}, Result).
 
--doc "No catalog entry for {From, Target} → `no_relup_entry`.".
+-doc """
+No catalog entry for {From, Target} → `no_relup_entry`, and the
+rejected package must not mutate the node tree: no deploy dir is
+created and existing files stay intact.
+""".
 t_no_matching_catalog_entry(Config) ->
     RootDir = ?config(root_dir, Config),
+    Canary = write_canary(RootDir),
     Tarball = forge_target_tarball(RootDir, ?TARGET_VSN, default_arch()),
     ok = write_sha256_sidecar(Tarball),
     %% no .relup file — list_supported_paths is empty
     Result = emqx_relup_handler:check_and_unpack(
         ?CURR_VSN, RootDir, #{tarball => Tarball}
     ),
-    ?assertMatch({error, #{err_type := no_relup_entry}}, Result).
+    ?assertMatch({error, #{err_type := no_relup_entry}}, Result),
+    DeployDir = filename:join([RootDir, "relup", ?TARGET_VSN]),
+    ?assertNot(filelib:is_dir(DeployDir), "rejected package must not be deployed"),
+    ?assert(filelib:is_regular(Canary), "rejected package must not touch existing files").
+
+-doc """
+A crafted package whose `releases/emqx_vars` declares `REL_VSN=".."`
+makes the deploy dir resolve to RootDir itself. It must be rejected
+as a bad target version before any file is deleted or overwritten.
+""".
+t_rel_vsn_path_traversal_rejected(Config) ->
+    RootDir = ?config(root_dir, Config),
+    Canary = write_canary(RootDir),
+    Tarball = forge_traversal_tarball(RootDir, default_arch()),
+    ok = write_sha256_sidecar(Tarball),
+    Result = emqx_relup_handler:check_and_unpack(
+        ?CURR_VSN, RootDir, #{tarball => Tarball}
+    ),
+    ?assertMatch({error, #{err_type := bad_target_vsn}}, Result),
+    ?assert(filelib:is_regular(Canary), "RootDir contents must not be deleted"),
+    ?assert(
+        filelib:is_regular(filename:join([RootDir, "releases", ?CURR_VSN, "emqx.rel"])),
+        "the running release tree must not be deleted"
+    ).
 
 -doc "Tarball contains non-runtime dirs (data/, etc/, log/, plugins/) — "
 "deploy_files must copy only bin/, erts-*/, lib/, releases/. The "
@@ -526,6 +554,35 @@ fake_app_desc(Description) ->
             [?FAKE_APP, Description, ?FAKE_APP_VSN]
         )
     ).
+
+%% A crafted package declaring `REL_VSN=".."`. The pre-deploy reads
+%% resolve `releases/../BUILD_INFO` and `releases/../emqx.rel` to the
+%% unpack-dir root, so place those members there.
+forge_traversal_tarball(RootDir, Arch) ->
+    StageDir = filename:join([RootDir, "_stage", "traversal"]),
+    MneDir = filename:join([StageDir, "lib", "mnesia-9.9", "ebin"]),
+    ok = filelib:ensure_path(filename:join(StageDir, "releases")),
+    ok = filelib:ensure_path(MneDir),
+    EmqxVarsFile = filename:join([StageDir, "releases", "emqx_vars"]),
+    RelFile = filename:join(StageDir, "emqx.rel"),
+    BuildFile = filename:join(StageDir, "BUILD_INFO"),
+    BeamFile = filename:join(MneDir, "mnesia_hook.beam"),
+    ok = file:write_file(EmqxVarsFile, emqx_vars_content("..")),
+    ok = file:write_file(RelFile, rel_file_content("..")),
+    ok = file:write_file(BuildFile, build_info_content(Arch)),
+    ok = file:write_file(BeamFile, <<>>),
+    Members = [
+        {archive_name(F, StageDir), F}
+     || F <- [EmqxVarsFile, RelFile, BuildFile, BeamFile]
+    ],
+    TarPath = filename:join(tarball_dir(RootDir), "emqx-test-traversal.tar.gz"),
+    ok = erl_tar:create(TarPath, Members, [compressed]),
+    TarPath.
+
+write_canary(RootDir) ->
+    Canary = filename:join(RootDir, "canary.txt"),
+    ok = file:write_file(Canary, <<"untouched">>),
+    Canary.
 
 tarball_dir(RootDir) ->
     %% Models "operator scp'd to some path readable by emqx" — the
