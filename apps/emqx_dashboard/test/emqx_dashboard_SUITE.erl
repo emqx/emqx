@@ -94,6 +94,19 @@ t_overview(_) ->
      || Overview <- ?OVERVIEWS
     ].
 
+t_security_response_headers(_Config) ->
+    {ok, {{_, 200, _}, DashboardHeaders, _}} =
+        httpc:request(get, {?HOST ++ "/", []}, [], [{body_format, binary}]),
+    assert_security_response_headers(DashboardHeaders),
+
+    {ok, {{_, 200, _}, ApiHeaders, _}} =
+        httpc:request(get, {?HOST ++ "/api/v5/status", []}, [], [{body_format, binary}]),
+    assert_security_response_headers(ApiHeaders),
+
+    {ok, {{_, 404, _}, NotFoundHeaders, _}} =
+        httpc:request(get, {?HOST ++ "/api/v5/does-not-exist", []}, [], [{body_format, binary}]),
+    assert_security_response_headers(NotFoundHeaders).
+
 t_dashboard_restart(Config) ->
     emqx_config:put([dashboard], #{
         i18n_lang => en,
@@ -823,6 +836,16 @@ http_put(Parts, Body) ->
 request_dashboard(Method, Url, Auth) ->
     Request = {Url, [Auth]},
     do_request_dashboard(Method, Request).
+
+assert_security_response_headers(Headers) ->
+    ?assertEqual("nosniff", proplists:get_value("x-content-type-options", Headers)),
+    ?assertEqual("SAMEORIGIN", proplists:get_value("x-frame-options", Headers)),
+    ?assertEqual("no-referrer", proplists:get_value("referrer-policy", Headers)),
+    ?assertEqual(
+        "none", proplists:get_value("x-permitted-cross-domain-policies", Headers)
+    ),
+    ?assertEqual("noopen", proplists:get_value("x-download-options", Headers)).
+
 request_dashboard(Method, Url, QueryParams, Auth) ->
     Request = {Url ++ "?" ++ QueryParams, [Auth]},
     do_request_dashboard(Method, Request).

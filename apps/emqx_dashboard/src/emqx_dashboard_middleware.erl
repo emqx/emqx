@@ -8,8 +8,17 @@
 
 -export([execute/2]).
 
+-define(SECURITY_HEADERS, #{
+    <<"x-content-type-options">> => <<"nosniff">>,
+    <<"x-frame-options">> => <<"SAMEORIGIN">>,
+    <<"referrer-policy">> => <<"no-referrer">>,
+    <<"x-permitted-cross-domain-policies">> => <<"none">>,
+    <<"x-download-options">> => <<"noopen">>
+}).
+
 execute(Req, Env) ->
-    add_cors_flag(Req, Env).
+    Req2 = cowboy_req:set_resp_headers(?SECURITY_HEADERS, Req),
+    add_cors_flag(Req2, Env).
 
 add_cors_flag(Req, Env) ->
     CORS = emqx_conf:get([dashboard, cors], false),
