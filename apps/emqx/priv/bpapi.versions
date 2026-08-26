@@ -101,6 +101,7 @@
 {emqx_router,1}.
 {emqx_rule_engine,1}.
 {emqx_schema_registry_http_api,1}.
+{emqx_security_profile,1}.
 {emqx_session_tool,1}.
 {emqx_session_top,1}.
 {emqx_setopts,1}.

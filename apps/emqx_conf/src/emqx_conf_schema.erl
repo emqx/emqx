@@ -1134,9 +1134,8 @@ fields("rpc") ->
             sc(
                 boolean(),
                 #{
-                    mapping => "gen_rpc.insecure_auth_fallback_allowed",
-                    default => true,
-                    desc => ?DESC(rpc_insecure_fallback)
+                    deprecated => {since, "6.3.0"},
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"ciphers", emqx_schema:ciphers_schema(tls_all_available)},

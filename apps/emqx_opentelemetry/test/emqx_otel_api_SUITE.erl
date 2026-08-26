@@ -318,10 +318,7 @@ t_dynatrace(_TCConfig) ->
         ~"logs" => #{~"enable" => true},
         ~"traces" => #{~"enable" => true}
     },
-    ?assertMatch(
-        {200, _},
-        update_config(Conf)
-    ),
+    ?assertMatch({200, _}, update_config(Conf)),
     ?assertMatch(
         {200, #{
             ~"type" := ~"dynatrace",
@@ -341,4 +338,9 @@ t_dynatrace(_TCConfig) ->
         }},
         get_config()
     ),
+    %% should deobfuscate correctly
+    {200, ObfuscatedConf} = get_config(),
+    ?assertMatch({200, _}, update_config(ObfuscatedConf)),
+    WrappedSecret = emqx_config:get([opentelemetry, exporter, auth, client_secret]),
+    ?assertNotEqual(emqx_utils_redact:redacted_value(), WrappedSecret()),
     ok.

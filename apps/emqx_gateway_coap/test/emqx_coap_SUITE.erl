@@ -242,6 +242,9 @@ t_heartbeat(Config) ->
     Action = fun(Channel) ->
         Token = connection(Channel),
 
+        {200, Client} = request(get, "/gateways/coap/clients/client1"),
+        ?assertEqual(1, maps:get(keepalive, Client)),
+
         timer:sleep(100),
         ?assertNotEqual(
             [],
@@ -1790,7 +1793,7 @@ t_clients_api(_) ->
         %% assert
         Client1 = Client2 = Client3 = Client4,
         %% assert keepalive
-        ?assertEqual(15, maps:get(keepalive, Client4)),
+        ?assertEqual(30, maps:get(keepalive, Client4)),
         %% kickout
         {204, _} =
             request(delete, "/gateways/coap/clients/client1"),

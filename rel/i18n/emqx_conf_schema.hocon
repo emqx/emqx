@@ -216,12 +216,6 @@ cluster_etcd_ssl.desc:
 cluster_etcd_ssl.label:
 """Cluster Etcd SSL Option"""
 
-rpc_insecure_fallback.desc:
-"""Enable compatibility with old RPC authentication."""
-
-rpc_insecure_fallback.label:
-"""RPC insecure fallback"""
-
 rpc_listen_address.desc:
 """Indicates the IP address for the RPC server to listen on. For example, use <code>"0.0.0.0"</code> for IPv4 or <code>"::"</code> for IPv6."""
 
