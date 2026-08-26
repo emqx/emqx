@@ -2906,3 +2906,23 @@ t_follow_stream_before_processing_ack(TCConfig) when is_list(TCConfig) ->
             1_000
         ),
     ok.
+
+t_connection_down_when_creating() ->
+    [{matrix, true}, {mock_only, true}].
+t_connection_down_when_creating(matrix) ->
+    [
+        [Transport, ?json, ?async, ?not_batching]
+     || Transport <- [?grpc, ?rest]
+    ];
+t_connection_down_when_creating(TCConfig) when is_list(TCConfig) ->
+    WrongZerobusEndpoint = ~"https://127.0.0.2:888",
+    ?assertMatch(
+        {201, #{
+            ~"status" := ~"disconnected",
+            ~"status_reason" := ~"Connection refused"
+        }},
+        create_connector_api(TCConfig, #{
+            ~"zerobus_endpoint" => WrongZerobusEndpoint
+        })
+    ),
+    ok.

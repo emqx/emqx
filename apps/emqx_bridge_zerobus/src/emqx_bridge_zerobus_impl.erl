@@ -376,10 +376,11 @@ gun_opts(ConnConfig) ->
         #{scheme := "https"} ->
             #{
                 transport => ssl,
-                tls_opts => emqx_tls_lib:to_client_opts(SSL#{enable => true})
+                tls_opts => emqx_tls_lib:to_client_opts(SSL#{enable => true}),
+                retry => 0
             };
         _ ->
-            #{transport => tcp}
+            #{transport => tcp, retry => 0}
     end.
 
 map_token_errors({token_endpoint_error, 401, Details}) ->
@@ -458,9 +459,9 @@ grpc_connector_health_check(ConnState) ->
                 [] ->
                     ?status_connected;
                 [{error, Reason} | _] ->
-                    {?status_disconnected, Reason};
+                    {?status_disconnected, map_grpc_health_check_error(Reason)};
                 [Error | _] ->
-                    {?status_disconnected, Error}
+                    {?status_disconnected, map_grpc_health_check_error(Error)}
             end
     catch
         exit:timeout ->
@@ -468,6 +469,13 @@ grpc_connector_health_check(ConnState) ->
         Kind:Reason:Stacktrace ->
             {?status_disconnected, {Kind, Reason, Stacktrace}}
     end.
+
+map_grpc_health_check_error({shutdown, Reason}) ->
+    map_grpc_health_check_error(Reason);
+map_grpc_health_check_error({error, Reason}) ->
+    map_grpc_health_check_error(Reason);
+map_grpc_health_check_error(Reason) ->
+    Reason.
 
 ehttpc_connector_health_check(ConnResId) ->
     case ehttpc:check_pool_integrity(ConnResId) of
