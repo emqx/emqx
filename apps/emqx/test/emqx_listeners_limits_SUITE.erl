@@ -221,6 +221,10 @@ assert_connect_refused(Host, Port, Config) ->
         error:tcp_closed when Type == tcp -> ok;
         error:{ws_upgrade_failed, closed} when Type == ws -> ok;
         error:{ws_upgrade_failed, {error, closed}} when Type == ws -> ok;
+        %% The throttled listener can close the pending connection while the
+        %% client writes the upgrade request. The client then reports a
+        %% socket-level einval instead of closed.
+        error:{ws_upgrade_failed, {error, einval}} when Type == ws -> ok;
         error:timeout when Type == wss -> ok
     end.
 

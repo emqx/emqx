@@ -72,7 +72,6 @@ t_channel_direct(_) ->
     {shutdown, timeout, _} = emqx_coap_channel:handle_timeout(
         foo, {keepalive, KeepAlive#keepalive.statval}, Channel0#channel{keepalive = KeepAlive}
     ),
-    {ok, _} = emqx_coap_channel:handle_cast(inc_recv_pkt, Channel0),
     {ok, _} = emqx_coap_channel:handle_cast(unexpected_cast, Channel0),
     {shutdown, normal, _} = emqx_coap_channel:handle_cast(close, Channel0),
     {ok, _} = emqx_coap_channel:handle_info({subscribe, []}, Channel0),

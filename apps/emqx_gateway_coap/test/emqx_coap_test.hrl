@@ -8,6 +8,7 @@
     clientinfo,
     session,
     keepalive,
+    heartbeat,
     timers,
     connection_required,
     conn_state,

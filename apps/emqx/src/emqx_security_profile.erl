@@ -20,6 +20,10 @@ e.g. in schema validation code.
 
 -export([profile/0, policy/1, clear_profile/0]).
 
+-export_type([profile/0]).
+
+-type profile() :: legacy | hardened.
+
 %---------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -31,7 +35,7 @@ Use this function only for introspection/logging purposes.
 Do not rely on security profile values directly in the code logic,
 use `emqx_security_profile:policy/1` instead.
 """.
--spec profile() -> legacy | hardened.
+-spec profile() -> profile().
 profile() ->
     case persistent_term:get(?PT_KEY, undefined) of
         undefined ->
