@@ -1284,10 +1284,35 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     {ok, LimitedMsgsResp} = emqx_mgmt_api_test_util:request_api(
         get, Path, QsPayloadLimit, AuthHeader
     ),
-    #{<<"meta">> := _, <<"data">> := FirstMsgOnly} = emqx_utils_json:decode(LimitedMsgsResp),
+    #{<<"meta">> := #{<<"position">> := TruncatedPos}, <<"data">> := FirstMsgOnly} =
+        emqx_utils_json:decode(LimitedMsgsResp),
     ?assertEqual(1, length(FirstMsgOnly)),
     ?assertEqual(
         <<"1">>, decode_payload(maps:get(<<"payload">>, hd(FirstMsgOnly)), PayloadEncoding)
+    ),
+    %% When `max_payload_bytes` cuts the page short, the position must point at the last
+    %% returned message, not at the last message walked before the cut, so that paging
+    %% skips no message.
+    ?assertEqual(TruncatedPos, msg_pos(hd(FirstMsgOnly), IsMqueue)),
+    %% Page through the remaining messages one message per page.
+    lists:foldl(
+        fun(Seq, PosIn) ->
+            PageQs = io_lib:format(
+                "payload=~s&max_payload_bytes=1&position=~s", [PayloadEncoding, PosIn]
+            ),
+            {ok, PageResp} = emqx_mgmt_api_test_util:request_api(get, Path, PageQs, AuthHeader),
+            #{<<"meta">> := #{<<"position">> := PosOut}, <<"data">> := PageMsgs} =
+                emqx_utils_json:decode(PageResp),
+            ?assertEqual(1, length(PageMsgs)),
+            ?assertEqual(
+                integer_to_binary(Seq),
+                decode_payload(maps:get(<<"payload">>, hd(PageMsgs)), PayloadEncoding)
+            ),
+            ?assertEqual(PosOut, msg_pos(hd(PageMsgs), IsMqueue)),
+            PosOut
+        end,
+        TruncatedPos,
+        lists:seq(2, Count)
     ),
 
     Limit = 19,
