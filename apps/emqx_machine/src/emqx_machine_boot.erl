@@ -66,10 +66,30 @@ start_autocluster() ->
 
 stop_apps() ->
     ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
+    %% Stop listeners first, so no client traffic reaches hook callbacks
+    %% while the apps behind them (plugins, rule engine, ...) are stopped.
+    ok = stop_listeners(),
     _ = emqx_alarm_handler:unload(),
     ok = emqx_conf_app:unset_config_loaded(),
     ok = emqx_plugins:ensure_stopped(),
     lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())).
+
+%% Listeners are stopped again from `emqx_app:prep_stop/1' when the `emqx'
+%% app stops; `emqx_listeners:stop/0' is idempotent.
+stop_listeners() ->
+    try
+        _ = emqx_boot:is_enabled(listeners) andalso emqx_listeners:stop(),
+        ok
+    catch
+        C:E:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "failed_to_stop_listeners",
+                exception => C,
+                reason => E,
+                stacktrace => Stacktrace
+            }),
+            ok
+    end.
 
 %% Those port apps are terminated after the main apps
 %% Don't need to stop when reboot.
@@ -87,6 +107,7 @@ stop_port_apps() ->
 
 stop_one_app(App) ->
     ?SLOG(debug, #{msg => "stopping_app", app => App}),
+    ?tp(machine_stopping_app, #{app => App}),
     try
         _ = application:stop(App)
     catch
