@@ -50,7 +50,9 @@ end_per_testcase(_TestCase, _TCConfig) ->
 mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
     AppSpecs = [
         emqx,
-        {emqx_conf, "authentication = [{mechanism = password_based, backend = built_in_database}]"},
+        {emqx_conf,
+            "authentication = [{mechanism = password_based, backend = built_in_database, "
+            "autogenerate_password = false}]"},
         emqx_auth,
         emqx_auth_mnesia
     ],
