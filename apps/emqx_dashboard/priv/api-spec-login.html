@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex,nofollow">
+  <title>EMQX API - Sign in</title>
+  <style>
+    body{font:14px system-ui,sans-serif;background:#0e1116;color:#e6e6e6;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+    form{background:#161b22;border:1px solid #2a313a;border-radius:8px;padding:24px;width:min(380px,calc(100vw - 32px))}
+    h1{margin:0 0 6px;font-size:16px}
+    p{margin:0 0 16px;color:#9aa4ae;font-size:12px;line-height:1.5}
+    label{display:block;font-size:12px;color:#9aa4ae;margin-bottom:4px}
+    input{width:100%;padding:8px 10px;margin-bottom:12px;border:1px solid #2a313a;border-radius:6px;background:#0e1116;color:#e6e6e6;font-size:13px;box-sizing:border-box}
+    button{width:100%;padding:9px 12px;border:0;border-radius:6px;background:#3b82f6;color:#fff;font-size:13px;cursor:pointer}
+    button:disabled{opacity:.6;cursor:wait}
+    .err{color:#ffb4b4;font-size:12px;margin-bottom:10px;min-height:14px;white-space:pre-wrap}
+    .warning{color:#ffd580}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <form id="login-form" autocomplete="off">
+    <h1>Sign in to view the API specification</h1>
+    <p id="login-hint">The browser login uses SCRAM-SHA-256. Use HTTPS or another secure browser context.</p>
+    <div class="err" id="login-error"></div>
+    <label for="username">Username</label>
+    <input id="username" name="username" autocomplete="username" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <div id="mfa-field" class="hidden">
+      <label for="mfa-token">MFA token</label>
+      <input id="mfa-token" name="mfa_token" inputmode="numeric" autocomplete="one-time-code">
+    </div>
+    <button id="submit" type="submit">Sign in</button>
+  </form>
+  <script>
+    const legacyFallbackAllowed = __EMQX_LEGACY_FALLBACK_ALLOWED__;
+    const form = document.getElementById('login-form');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const mfaField = document.getElementById('mfa-field');
+    const mfaInput = document.getElementById('mfa-token');
+    const errorElement = document.getElementById('login-error');
+    const submitButton = document.getElementById('submit');
+
+    function updateSecureContextHint() {
+      if (!window.isSecureContext || !window.crypto || !window.crypto.subtle) {
+        const message = legacyFallbackAllowed
+          ? 'SCRAM login requires HTTPS or another secure browser context. An older-node compatibility fallback may be available.'
+          : 'SCRAM login requires HTTPS or another secure browser context. Legacy password login is disabled.';
+        document.getElementById('login-hint').textContent = message;
+        document.getElementById('login-hint').classList.add('warning');
+      }
+    }
+
+    updateSecureContextHint();
+
+    function utf8(value) {
+      return new TextEncoder().encode(value);
+    }
+
+    function base64ToBytes(value) {
+      const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+      const decoded = atob(padded);
+      return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+    }
+
+    function bytesToBase64(value) {
+      let binary = '';
+      for (const byte of value) binary += String.fromCharCode(byte);
+      return btoa(binary);
+    }
+
+    function bytesToBase64Url(value) {
+      return bytesToBase64(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    }
+
+    function randomNonce() {
+      return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(24)));
+    }
+
+    function escapeScramUsername(username) {
+      return username.replace(/=/g, '=3D').replace(/,/g, '=2C');
+    }
+
+    async function sha256(value) {
+      return new Uint8Array(await crypto.subtle.digest('SHA-256', value));
+    }
+
+    async function hmac(key, value) {
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+      );
+      return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, value));
+    }
+
+    async function saltedPassword(password, salt, iterations) {
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw', utf8(password), 'PBKDF2', false, ['deriveBits']
+      );
+      const bits = await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, cryptoKey, 256
+      );
+      return new Uint8Array(bits);
+    }
+
+    function xor(left, right) {
+      if (left.length !== right.length) throw new Error('Invalid SCRAM proof length.');
+      return Uint8Array.from(left, (byte, index) => byte ^ right[index]);
+    }
+
+    function equalBytes(left, right) {
+      if (left.length !== right.length) return false;
+      let difference = 0;
+      for (let index = 0; index < left.length; index++) difference |= left[index] ^ right[index];
+      return difference === 0;
+    }
+
+    async function scramProof(username, password, clientNonce, challenge) {
+      if (challenge.mechanism !== 'SCRAM-SHA-256') throw new Error('Unsupported SCRAM mechanism.');
+      const salt = base64ToBytes(challenge.salt);
+      const serverNonce = challenge.server_nonce;
+      const combinedNonce = clientNonce + serverNonce;
+      const iterations = challenge.iterations;
+      const escapedUsername = escapeScramUsername(username);
+      const authMessage = utf8(
+        'n=' + escapedUsername + ',r=' + clientNonce +
+        ',r=' + combinedNonce + ',s=' + challenge.salt + ',i=' + iterations +
+        ',c=biws,r=' + combinedNonce
+      );
+      const passwordBytes = await saltedPassword(password, salt, iterations);
+      const clientKey = await hmac(passwordBytes, utf8('Client Key'));
+      const storedKey = await sha256(clientKey);
+      const clientSignature = await hmac(storedKey, authMessage);
+      const serverKey = await hmac(passwordBytes, utf8('Server Key'));
+      const serverSignature = await hmac(serverKey, authMessage);
+      return {
+        combinedNonce,
+        clientProof: bytesToBase64(xor(clientKey, clientSignature)),
+        serverSignature,
+      };
+    }
+
+    async function responseBody(response) {
+      try { return await response.json(); } catch (_) { return null; }
+    }
+
+    function responseError(response, body) {
+      const error = new Error((body && body.message) || ('Sign-in failed (HTTP ' + response.status + ').'));
+      error.code = body && body.code;
+      error.status = response.status;
+      return error;
+    }
+
+    async function legacyLogin(username, password, mfaToken) {
+      const body = { username, password };
+      if (mfaToken) body.mfa_token = mfaToken;
+      const response = await fetch('/api/v5/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result = await responseBody(response);
+      if (!response.ok) throw responseError(response, result);
+      return result;
+    }
+
+    async function scramLogin(username, password, mfaToken) {
+      if (!window.crypto || !window.crypto.getRandomValues) {
+        throw new Error('This browser does not provide a secure random source.');
+      }
+      const clientNonce = randomNonce();
+      const challengeResponse = await fetch('/api/v5/login/challenge', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ username, client_nonce: clientNonce }),
+      });
+      const challenge = await responseBody(challengeResponse);
+      if (
+        legacyFallbackAllowed &&
+        challengeResponse.status === 404 &&
+        challenge &&
+        challenge.code === 'NOT_FOUND'
+      ) {
+        return legacyLogin(username, password, mfaToken);
+      }
+      if (!challengeResponse.ok) throw responseError(challengeResponse, challenge);
+      if (!window.isSecureContext || !window.crypto.subtle) {
+        throw new Error('SCRAM login requires HTTPS or another secure browser context.');
+      }
+      const proof = await scramProof(username, password, clientNonce, challenge);
+      const verifyBody = {
+        challenge_id: challenge.challenge_id,
+        combined_nonce: proof.combinedNonce,
+        client_proof: proof.clientProof,
+      };
+      if (mfaToken) verifyBody.mfa_token = mfaToken;
+      const verifyResponse = await fetch('/api/v5/login/verify', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(verifyBody),
+      });
+      const result = await responseBody(verifyResponse);
+      if (!verifyResponse.ok) throw responseError(verifyResponse, result);
+      if (!result || !result.token || !result.server_signature) {
+        throw new Error('SCRAM login succeeded but returned an incomplete response.');
+      }
+      if (!equalBytes(base64ToBytes(result.server_signature), proof.serverSignature)) {
+        throw new Error('SCRAM server verification failed.');
+      }
+      return result;
+    }
+
+    function setSessionCookie(token) {
+      const secure = location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = 'emqx_auth=' + encodeURIComponent(token) + '; Path=/; SameSite=Strict' + secure;
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      errorElement.textContent = '';
+      submitButton.disabled = true;
+      try {
+        const username = usernameInput.value.trim();
+        const password = passwordInput.value;
+        const mfaToken = mfaInput.value.trim();
+        const result = await scramLogin(username, password, mfaToken);
+        if (!result || !result.token) throw new Error('Sign-in succeeded but no token was returned.');
+        setSessionCookie(result.token);
+        passwordInput.value = '';
+        mfaInput.value = '';
+        location.reload();
+      } catch (error) {
+        if (error.code === 'BAD_MFA_TOKEN') {
+          mfaField.classList.remove('hidden');
+          mfaInput.required = true;
+          mfaInput.focus();
+          errorElement.textContent = 'Enter the MFA token and submit again.';
+        } else {
+          errorElement.textContent = String(error.message || error);
+        }
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -42,6 +42,12 @@ login_failed_response400.desc:
 login_success.desc:
 """Dashboard Auth Success"""
 
+client_nonce.desc:
+"""SCRAM client nonce. Use 20 to 128 unpadded Base64URL characters: letters, digits, `_`, or `-`."""
+
+combined_nonce.desc:
+"""The client nonce followed by the server nonce returned by the challenge endpoint."""
+
 logout_api.desc:
 """Dashboard user logout.
 This endpoint is only for the Dashboard, not the `API Key`.
