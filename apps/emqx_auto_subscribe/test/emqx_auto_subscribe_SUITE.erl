@@ -10,6 +10,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -import(emqx_config_SUITE, [prepare_conf_file/3]).
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -239,6 +240,118 @@ t_update(_) ->
     GETResponseMap = emqx_utils_json:decode(GETResponse),
     ?assertEqual(1, erlang:length(GETResponseMap)),
     ok.
+
+-doc """
+Regression: `${clientid}`, `${username}`, `${host}` and `${port}` render exactly the same
+topics as before the move to `emqx_template`. `${host}`/`${port}` are the legacy
+auto-subscribe names and come from the connection peername.
+""".
+t_placeholder_compat(_) ->
+    Topics = [?TOPIC_C, ?TOPIC_U, ?TOPIC_H, ?TOPIC_P, ?TOPIC_A],
+    {ok, _} = emqx_auto_subscribe:update([#{<<"topic">> => Topic} || Topic <- Topics]),
+    on_exit(fun() -> {ok, _} = emqx_auto_subscribe:update([]) end),
+    {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
+    {ok, _} = emqtt:connect(Client),
+    #{conninfo := #{peername := {Host, Port}}} = emqx_cm:get_chan_info(?CLIENT_ID),
+    HostBin = list_to_binary(inet:ntoa(Host)),
+    PortBin = integer_to_binary(Port),
+    Expected = lists:sort([
+        <<"/c/", (?CLIENT_ID)/binary>>,
+        <<"/u/", (?CLIENT_USERNAME)/binary>>,
+        <<"/h/", HostBin/binary>>,
+        <<"/p/", PortBin/binary>>,
+        <<"/client/", (?CLIENT_ID)/binary, "/username/", (?CLIENT_USERNAME)/binary, "/host/",
+            HostBin/binary, "/port/", PortBin/binary>>
+    ]),
+    ?retry(
+        100,
+        20,
+        snabbkaffe_diff:assert_lists_eq(Expected, lists:sort(client_subscriptions(?CLIENT_ID)))
+    ),
+    emqtt:disconnect(Client).
+
+-doc """
+`${client_attrs.<key>}` renders to the client attribute value set by
+`mqtt.client_attrs_init`.
+""".
+t_client_attrs_placeholder(_) ->
+    {ok, Compiled} = emqx_variform:compile("substr(clientid,0,4)"),
+    OldInit = emqx_config:get_zone_conf(default, [mqtt, client_attrs_init]),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{expression => Compiled, set_as_attr => <<"tenant">>}
+    ]),
+    on_exit(fun() ->
+        emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], OldInit)
+    end),
+    {ok, _} = emqx_auto_subscribe:update([
+        #{<<"topic">> => <<"/t/${client_attrs.tenant}/c/${clientid}">>}
+    ]),
+    on_exit(fun() -> {ok, _} = emqx_auto_subscribe:update([]) end),
+    {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
+    {ok, _} = emqtt:connect(Client),
+    Expected = [<<"/t/auto/c/", (?CLIENT_ID)/binary>>],
+    ?retry(
+        100,
+        20,
+        snabbkaffe_diff:assert_lists_eq(Expected, client_subscriptions(?CLIENT_ID))
+    ),
+    emqtt:disconnect(Client).
+
+-doc """
+A `${client_attrs.<key>}` placeholder referencing an attribute the client does not have
+skips that subscription. The topic filter must not contain the literal placeholder text.
+""".
+t_client_attrs_missing_key(_) ->
+    {ok, _} = emqx_auto_subscribe:update([
+        #{<<"topic">> => <<"/t/${client_attrs.tenant}">>},
+        #{<<"topic">> => ?TOPIC_C}
+    ]),
+    on_exit(fun() -> {ok, _} = emqx_auto_subscribe:update([]) end),
+    {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
+    {ok, _} = emqtt:connect(Client),
+    Expected = [<<"/c/", (?CLIENT_ID)/binary>>],
+    ?retry(
+        100,
+        20,
+        snabbkaffe_diff:assert_lists_eq(Expected, client_subscriptions(?CLIENT_ID))
+    ),
+    emqtt:disconnect(Client).
+
+-doc """
+An unknown placeholder such as `${nope}` is kept as literal topic text.
+A warning is logged when the config is loaded.
+""".
+t_unknown_placeholder(_) ->
+    {ok, _} = emqx_auto_subscribe:update([#{<<"topic">> => <<"/n/${nope}">>}]),
+    on_exit(fun() -> {ok, _} = emqx_auto_subscribe:update([]) end),
+    {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
+    {ok, _} = emqtt:connect(Client),
+    ?retry(
+        100,
+        20,
+        snabbkaffe_diff:assert_lists_eq([<<"/n/${nope}">>], client_subscriptions(?CLIENT_ID))
+    ),
+    emqtt:disconnect(Client).
+
+-doc """
+A client with no username skips `${username}` topics and still gets the other
+auto-subscriptions.
+""".
+t_username_undefined_skips(_) ->
+    {ok, _} = emqx_auto_subscribe:update([
+        #{<<"topic">> => ?TOPIC_U},
+        #{<<"topic">> => ?TOPIC_C}
+    ]),
+    on_exit(fun() -> {ok, _} = emqx_auto_subscribe:update([]) end),
+    {ok, Client} = emqtt:start_link(#{clientid => ?CLIENT_ID}),
+    {ok, _} = emqtt:connect(Client),
+    Expected = [<<"/c/", (?CLIENT_ID)/binary>>],
+    ?retry(
+        100,
+        20,
+        snabbkaffe_diff:assert_lists_eq(Expected, client_subscriptions(?CLIENT_ID))
+    ),
+    emqtt:disconnect(Client).
 
 t_get_basic_usage_info(_Config) ->
     ?assertEqual(#{auto_subscribe_count => 0}, emqx_auto_subscribe:get_basic_usage_info()),

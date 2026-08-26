@@ -39,7 +39,16 @@ rh.label:
 """Retain Handling"""
 
 topic.desc:
-"""Topic name, placeholders are supported. For example: client/${clientid}/username/${username}/host/${host}/port/${port}
+"""Topic template, placeholders are supported. For example: client/${clientid}/username/${username}/host/${host}/port/${port}
+
+Supported placeholders:
+- ${clientid}: Client ID.
+- ${username}: Username. The subscription is skipped when the client has no username.
+- ${host}: Client's source IP address.
+- ${port}: Client's source port.
+- ${client_attrs.<key>}: Client attribute <key>, see mqtt.client_attrs_init. The subscription is skipped when the attribute is not set.
+
+Unknown placeholders are kept as literal topic text.
 Required field, and cannot be empty string"""
 
 topic.label:
