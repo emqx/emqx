@@ -73,6 +73,7 @@ spec:
     nodePort: null
     {{- end }}
   {{- end }}
+  {{- if .Values.service.dashboardEnabled }}
   - name: dashboard
     port: {{ .Values.service.dashboard | default 18083 }}
     protocol: TCP
@@ -92,6 +93,7 @@ spec:
     {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
     {{- end }}
+  {{- end }}
   {{- end }}
   {{- if not (empty .Values.service.customPorts) }}
   {{- range $cPort := .Values.service.customPorts }}
