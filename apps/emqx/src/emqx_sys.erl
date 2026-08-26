@@ -375,7 +375,7 @@ maybe_set_retained_expiry(Msg) ->
     end.
 
 common_infos(
-    _ClientInfo = #{
+    ClientInfo = #{
         clientid := ClientId,
         username := Username,
         peerhost := PeerHost,
@@ -392,6 +392,7 @@ common_infos(
         clientid => ClientId,
         username => Username,
         ipaddress => ntoa(PeerHost),
+        peername => ntoa(maps:get(peername, ClientInfo, undefined)),
         sockport => SockPort,
         protocol => Protocol,
         proto_name => ProtoName,
