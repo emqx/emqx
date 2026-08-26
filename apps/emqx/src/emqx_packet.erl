@@ -407,6 +407,10 @@ check_conn_props(
     ReqProInfo =/= 0, ReqProInfo =/= 1
 ->
     {error, ?RC_PROTOCOL_ERROR};
+check_conn_props(
+    #mqtt_packet_connect{properties = #{'Authentication-Data' := _} = Props}, _Opts
+) when not is_map_key('Authentication-Method', Props) ->
+    {error, ?RC_PROTOCOL_ERROR};
 check_conn_props(_ConnPkt, _Opts) ->
     ok.
 
@@ -422,9 +426,9 @@ check_will_msg(
     _Opts = #{max_qos_allowed := MaxQoS}
 ) when WillQoS > MaxQoS ->
     {error, ?RC_QOS_NOT_SUPPORTED};
-check_will_msg(#mqtt_packet_connect{will_topic = WillTopic}, _Opts) ->
+check_will_msg(#mqtt_packet_connect{will_topic = WillTopic, will_props = WillProps}, _Opts) ->
     try emqx_topic:validate(name, WillTopic) of
-        true -> ok
+        true -> check_pub_props(WillProps)
     catch
         error:_Error ->
             {error, ?RC_TOPIC_NAME_INVALID}

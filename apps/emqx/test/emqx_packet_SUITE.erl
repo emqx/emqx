@@ -349,7 +349,42 @@ t_check_connect(_) ->
         Opts
     ),
     ConnPkt7 = #mqtt_packet_connect{clientid = <<>>, clean_start = false},
-    {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID} = emqx_packet:check(ConnPkt7, Opts).
+    {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID} = emqx_packet:check(ConnPkt7, Opts),
+
+    {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(
+        ?CONNECT_PACKET(#mqtt_packet_connect{
+            properties = #{'Authentication-Data' => <<"data">>}
+        }),
+        Opts
+    ),
+    ok = emqx_packet:check(
+        ?CONNECT_PACKET(#mqtt_packet_connect{
+            properties = #{
+                'Authentication-Method' => <<"method">>,
+                'Authentication-Data' => <<"data">>
+            }
+        }),
+        Opts
+    ),
+    {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(
+        ?CONNECT_PACKET(#mqtt_packet_connect{
+            will_flag = true,
+            will_topic = <<"will_topic">>,
+            will_props = #{'Response-Topic' => <<>>}
+        }),
+        Opts
+    ),
+    ok = emqx_packet:check(
+        ?CONNECT_PACKET(#mqtt_packet_connect{
+            will_flag = true,
+            will_topic = <<"will_topic">>,
+            will_props = #{
+                'Payload-Format-Indicator' => 1,
+                'Response-Topic' => <<"reply/to">>
+            }
+        }),
+        Opts
+    ).
 
 t_from_to_message(_) ->
     ExpectedMsg = emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>),
