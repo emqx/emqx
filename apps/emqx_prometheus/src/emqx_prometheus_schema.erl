@@ -16,6 +16,7 @@
     translation/1,
     convert_headers/2,
     validate_url/1,
+    validate_enabled_push_gateway/1,
     is_recommend_type/1
 ]).
 
@@ -28,7 +29,11 @@ roots() ->
         {prometheus,
             ?HOCON(
                 ?UNION(setting_union_schema()),
-                #{translate_to => ["prometheus"], default => #{}}
+                #{
+                    translate_to => ["prometheus"],
+                    default => #{},
+                    validator => fun ?MODULE:validate_enabled_push_gateway/1
+                }
             )}
     ].
 
@@ -378,35 +383,45 @@ convert_headers(Headers, _Opts) when is_list(Headers) ->
     Headers.
 
 validate_url(Url) ->
-    case uri_string:parse(Url) of
-        #{scheme := S} when
-            S =:= "https";
-            S =:= "http";
-            S =:= <<"https">>;
-            S =:= <<"http">>
+    case emqx_utils_uri:parse(iolist_to_binary(Url)) of
+        #{
+            scheme := Scheme,
+            authority := #{host := Host, userinfo := undefined},
+            fragment := undefined
+        } when
+            Scheme =:= <<"http">> orelse Scheme =:= <<"https">>,
+            is_binary(Host),
+            Host =/= <<>>
         ->
-            maybe_check_ssrf(Url);
+            ok;
         _ ->
-            {error, "Invalid url"}
+            {error, "Invalid url, expected http(s)://host[:port][/path]"}
     end.
 
-%% The default push_gateway URL is a documented localhost target which is
-%% not an operator chosen destination, so the SSRF policy does not apply to
-%% it. Any other URL is checked against the policy at config time.
-maybe_check_ssrf(Url) ->
-    UrlBin = iolist_to_binary(Url),
-    case UrlBin =:= ?DEFAULT_PUSH_GATEWAY_URL of
-        true ->
-            ok;
-        false ->
-            case emqx_utils_uri:host(emqx_utils_uri:parse(UrlBin)) of
-                undefined ->
-                    ok;
-                Host ->
-                    case emqx_utils_ssrf:check_host(Host) of
-                        ok -> ok;
-                        {error, Error} -> {error, emqx_utils_ssrf:format_error(Error)}
-                    end
+%% The SSRF policy is enforced only when the push gateway is actually
+%% enabled. A disabled gateway makes no outbound requests, so its (possibly
+%% default) URL must not fail validation: otherwise enabling the global SSRF
+%% policy would reject an untouched stock config whose default URL is a
+%% loopback target.
+validate_enabled_push_gateway(#{push_gateway := #{enable := true, url := Url}}) ->
+    check_ssrf(Url);
+validate_enabled_push_gateway(#{<<"push_gateway">> := #{<<"enable">> := true, <<"url">> := Url}}) ->
+    check_ssrf(Url);
+validate_enabled_push_gateway(#{enable := true, push_gateway_server := Url}) ->
+    check_ssrf(Url);
+validate_enabled_push_gateway(#{<<"enable">> := true, <<"push_gateway_server">> := Url}) ->
+    check_ssrf(Url);
+validate_enabled_push_gateway(_) ->
+    ok.
+
+check_ssrf(Url) ->
+    case emqx_utils_uri:host(emqx_utils_uri:parse(iolist_to_binary(Url))) of
+        undefined ->
+            {error, "Invalid url, expected http(s)://host[:port][/path]"};
+        Host ->
+            case emqx_utils_ssrf:check_host(Host) of
+                ok -> ok;
+                {error, Error} -> {error, emqx_utils_ssrf:format_error(Error)}
             end
     end.
 

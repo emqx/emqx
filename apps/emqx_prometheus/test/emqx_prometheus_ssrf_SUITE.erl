@@ -53,20 +53,38 @@ t_push_gateway_denied_url_rejected(_Config) ->
     Conf = push_gateway_conf(<<"http://169.254.169.254:9091/metrics">>),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, put_prometheus_conf(Conf)).
 
-t_push_gateway_default_url_still_accepted(_Config) ->
-    %% SSRF policy is enabled with default deny CIDRs (loopback included).
-    %% The default push_gateway URL is a documented localhost target and must
-    %% not be rejected when the operator did not configure it explicitly.
+t_push_gateway_disabled_default_url_accepted(_Config) ->
+    %% SSRF policy is enabled and denies loopback, but the push gateway stays
+    %% disabled with its untouched default URL: no outbound request can be
+    %% made, so the config must be accepted.
+    set_ssrf_deny([<<"127.0.0.0/8">>]),
+    {ok, Response} = get_prometheus_conf(),
+    #{<<"push_gateway">> := PushGateway} = Conf = emqx_utils_json:decode(Response),
+    DisableConf = Conf#{<<"push_gateway">> => PushGateway#{<<"enable">> => false}},
+    {ok, _} = put_prometheus_conf(DisableConf).
+
+t_push_gateway_enabled_default_url_rejected(_Config) ->
+    %% Once the push gateway is enabled its URL becomes a live outbound
+    %% target; the default loopback URL must not bypass the SSRF policy.
     set_ssrf_deny([<<"127.0.0.0/8">>]),
     {ok, Response} = get_prometheus_conf(),
     #{<<"push_gateway">> := PushGateway} = Conf = emqx_utils_json:decode(Response),
     EnableConf = Conf#{<<"push_gateway">> => PushGateway#{<<"enable">> => true}},
-    {ok, _} = put_prometheus_conf(EnableConf),
-    ?assert(is_pid(erlang:whereis(emqx_prometheus))).
+    ?assertMatch({error, {"HTTP/1.1", 400, _}}, put_prometheus_conf(EnableConf)).
 
 t_legacy_push_gateway_server_denied_rejected(_Config) ->
-    Conf = legacy_conf(<<"http://169.254.169.254:9091">>),
+    Conf = legacy_conf(true, <<"http://169.254.169.254:9091">>),
     ?assertMatch({error, {"HTTP/1.1", 400, _}}, put_prometheus_conf(Conf)).
+
+t_legacy_enabled_default_url_rejected(_Config) ->
+    set_ssrf_deny([<<"127.0.0.0/8">>]),
+    Conf = legacy_conf(true, <<"http://127.0.0.1:9091">>),
+    ?assertMatch({error, {"HTTP/1.1", 400, _}}, put_prometheus_conf(Conf)).
+
+t_legacy_disabled_default_url_accepted(_Config) ->
+    set_ssrf_deny([<<"127.0.0.0/8">>]),
+    Conf = legacy_conf(false, <<"http://127.0.0.1:9091">>),
+    {ok, _} = put_prometheus_conf(Conf).
 
 t_allowed_url_accepted(_Config) ->
     Conf = push_gateway_conf(<<"http://8.8.8.8:9091/metrics">>),
@@ -115,11 +133,12 @@ push_gateway_conf(Url) ->
     #{<<"push_gateway">> := PushGateway} = Conf = emqx_utils_json:decode(Response),
     Conf#{<<"push_gateway">> => PushGateway#{<<"enable">> => true, <<"url">> => Url}}.
 
-legacy_conf(Url) ->
-    {ok, Response} = get_prometheus_conf(),
-    #{<<"push_gateway">> := PushGateway} = Conf = emqx_utils_json:decode(Response),
-    Conf#{
-        <<"push_gateway">> => maps:without([<<"url">>], PushGateway),
+%% A minimal legacy-shaped config: at least one legacy-only key so the union
+%% schema picks the legacy struct; all other legacy fields fall back to their
+%% defaults.
+legacy_conf(Enable, Url) ->
+    #{
+        <<"enable">> => Enable,
         <<"push_gateway_server">> => Url
     }.
 
