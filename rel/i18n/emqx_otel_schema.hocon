@@ -39,7 +39,9 @@ exporter_headers.desc:
 The headers are a map with header names as keys."""
 exporter_headers.label: "Exporter Headers"
 
-exporter_protocol.desc: "The transport protocol of Open Telemetry Exporter"
+exporter_protocol.desc:
+"""The transport protocol of the OpenTelemetry exporter.
+Only `grpc` is supported. The exporter cannot send to an OTLP/HTTP endpoint."""
 exporter_protocol.label: "Exporter Protocol"
 
 exporter_ssl.desc: "SSL configuration for the Open Telemetry exporter"

@@ -207,7 +207,7 @@ fields("otel_exporter") ->
                 #{
                     default => grpc,
                     desc => ?DESC(exporter_protocol),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {ssl_options,
