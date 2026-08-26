@@ -407,6 +407,7 @@ handle_acked(OldNRestarts, _LastAckedSeq, #{?n_restarts := NRestarts} = State0) 
     OldNRestarts < NRestarts
 ->
     %% stale response
+    ?tp("zerobus_writer_stale_ack", #{}),
     State0;
 handle_acked(NRestarts, LastAckedSeq, State0) ->
     #{?acked := Acked0} = State0,
@@ -418,6 +419,7 @@ handle_errored(OldNRestarts, _Error, #{?n_restarts := NRestarts} = State0) when
     OldNRestarts < NRestarts
 ->
     %% stale response
+    ?tp("zerobus_writer_stale_error", #{}),
     {?continue, State0};
 handle_errored(_NRestarts, Error0, State0) ->
     #{?action_res_id := ActionResId, ?idx := Idx, ?seq := Seq} = State0,

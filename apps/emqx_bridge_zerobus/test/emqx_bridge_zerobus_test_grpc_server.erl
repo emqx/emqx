@@ -138,6 +138,7 @@ handle_batch_done_action(Action, Meta, Req0) ->
 
 default_action(create_stream) ->
     Fn = fun(_Msg, Req, _Meta) ->
+        ct:pal("grpc server ~p acking create stream", [self()]),
         grpc_stream:reply(Req, [#{payload => {create_stream_response, #{}}}]),
         continue
     end,
@@ -145,6 +146,7 @@ default_action(create_stream) ->
 default_action(ingest_record_batch) ->
     Fn = fun(Msg, Req, _Meta) ->
         #{payload := {ingest_record_batch, #{offset_id := Id}}} = Msg,
+        ct:pal("grpc server ~p acking seq ~p", [self(), Id]),
         grpc_stream:reply(Req, [
             #{
                 payload =>

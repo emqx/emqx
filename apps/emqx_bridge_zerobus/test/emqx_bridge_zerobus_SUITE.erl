@@ -559,6 +559,7 @@ spy_create_stream(TCConfig) ->
         ct:pal("msg: ~p;\n  req: ~p", [Msg, Req]),
         #{payload := {create_stream = Type, Req1}} = Msg,
         ets:insert(Tab, {now_ns(), #{type => Type, req => Req1, meta => Meta}}),
+        ct:pal("grpc server ~p acking create stream", [self()]),
         grpc_stream:reply(Req, [#{payload => {create_stream_response, #{}}}]),
         continue
     end.
@@ -568,6 +569,7 @@ spy_ingest_record_batch(TCConfig) ->
     fun(Msg, Req, Meta) ->
         #{payload := {ingest_record_batch = Type, #{offset_id := Id} = Req1}} = Msg,
         ets:insert(Tab, {now_ns(), #{type => Type, req => Req1, meta => Meta}}),
+        ct:pal("grpc server ~p acking seq ~p", [self(), Id]),
         grpc_stream:reply(Req, [
             #{
                 payload =>
@@ -958,6 +960,12 @@ server_shutdown_action() ->
     {shutdown, ?GRPC_STATUS_UNAVAILABLE, <<
         "Stream timeout reached. Closing the stream (ID: ...)."
         " Error Code: 6002, Error State: 0."
+    >>}.
+
+invalid_argument_action() ->
+    {shutdown, ?GRPC_STATUS_INVALID_ARGUMENT, <<
+        "Record decoder/encoder error: invalid digit found in string at"
+        " line 1 column 19. Error Code: 4044, Error State: 3."
     >>}.
 
 %%------------------------------------------------------------------------------
@@ -2754,6 +2762,147 @@ t_proto_schema_changed_while_running_errors(TCConfig) when is_list(TCConfig) ->
 
     ok.
 
-%% todo
-%%  - stale responses
-%%  - connection refused when creating
+-doc """
+Covers the following race:
+
+  1) A message is published.
+  2) Concurrently:
+     i) Receiver receives an ack from the server and casts it to the writer.
+     ii) Writer decides to open a new stream, before handling the above ack.
+
+Since the writer syncs its state with the receiver when opening a new stream, it should
+get the ack from the receiver as the response of the call (not the cast), and then ignore
+the stale cast.
+""".
+t_follow_stream_before_processing_ack() ->
+    [{matrix, true}, {mock_only, true}].
+t_follow_stream_before_processing_ack(matrix) ->
+    [[?grpc, ?proto, ?async, ?not_batching]];
+t_follow_stream_before_processing_ack(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"transport" => #{~"pool_size" => 1}
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+
+    TestPid = self(),
+    mocked_grpc_server_agent_update(fun(St) ->
+        St#{
+            ingest_record_batch => [
+                {ask, TestPid},
+                %% fail the 2nd message
+                invalid_argument_action()
+            ]
+        }
+    end),
+    ct:pal("sending 1st message"),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:publish(C, RuleTopic, seq_payload(1), [{qos, 1}]),
+            #{?snk_kind := "zerobus_sent_batch"},
+            5_000
+        ),
+    %% will hold onto this to reply later
+    {ingest_record_batch, AliasServer0, Ctx0} = ?assertReceive({ingest_record_batch, _, _}),
+    {ok, Agent} = emqx_utils_agent:start_link(ask_then_error),
+    emqx_common_test_helpers:with_mock(
+        grpc_client,
+        send,
+        fun
+            (Stream, #{payload := {ingest_record_batch, _}} = Req, Fin, Opts) ->
+                case emqx_utils_agent:get(Agent) of
+                    ask_then_error ->
+                        Alias = alias([reply]),
+                        TestPid ! {will_ingest, Alias, Req},
+                        receive
+                            {Alias, Reason} ->
+                                {error, Reason}
+                        end;
+                    continue ->
+                        meck:passthrough([Stream, Req, Fin, Opts])
+                end;
+            (Stream, Req, Fin, Opts) ->
+                meck:passthrough([Stream, Req, Fin, Opts])
+        end,
+        fun() ->
+            %% second message triggers the reopen; writer will be processing
+            %% `grpc_client:send` when the ack(1) arrives; but it will then proceed
+            %% with `continue` to reopen the stream.
+            ct:pal("sending 2nd message"),
+            emqtt:publish(C, RuleTopic, seq_payload(2), [{qos, 1}]),
+            {will_ingest, AliasWriter0, _} = ?assertReceive({will_ingest, _, _}),
+            %% now the writer is stuck; let's make the server reply an ack to get
+            %% enqueued.
+            #{
+                msg := #{payload := {ingest_record_batch, #{offset_id := 0 = Seq0}}},
+                grpc_req := GRPCReq0
+            } = Ctx0,
+            ct:pal("replying ack"),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    grpc_stream:reply(GRPCReq0, [
+                        #{
+                            payload =>
+                                {ingest_record_response, #{
+                                    durability_ack_up_to_offset => Seq0
+                                }}
+                        }
+                    ]),
+                    #{?snk_kind := "zerobus_last_seq_notified"},
+                    5_000
+                ),
+            AliasServer0 ! {AliasServer0, continue},
+            %% unblock the writer and make it reopen the stream
+            ct:pal("unblocking writer with error"),
+            emqx_utils_agent:set(Agent, continue),
+            AliasWriter0 ! {AliasWriter0, econnrefused},
+            %% first message should succeed, since we got the ack before opening the
+            %% new stream.
+            ?retry(
+                700,
+                10,
+                ?assertMatch(
+                    {200, #{
+                        ~"metrics" := #{
+                            ~"matched" := 2,
+                            ~"success" := 1,
+                            ~"failed" := 1
+                        }
+                    }},
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+
+            ok
+        end
+    ),
+    %% for coverage: writer ignores stale acks and errors.
+    %% is there a natural way to cause this?  seems impossible so far...
+    {_, {ok, _}} =
+        ?wait_async_action(
+            lists:foreach(
+                fun(Writer) ->
+                    emqx_bridge_zerobus_stream_writer_worker:acked(
+                        Writer, _NRestarts = 0, _LastAckedSeq = 100
+                    )
+                end,
+                find_stream_writers(TCConfig)
+            ),
+            #{?snk_kind := "zerobus_writer_stale_ack"},
+            1_000
+        ),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            lists:foreach(
+                fun(Writer) ->
+                    emqx_bridge_zerobus_stream_writer_worker:errored(
+                        Writer, _NRestarts = 0, some_error
+                    )
+                end,
+                find_stream_writers(TCConfig)
+            ),
+            #{?snk_kind := "zerobus_writer_stale_error"},
+            1_000
+        ),
+    ok.
