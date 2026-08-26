@@ -248,8 +248,8 @@ if [ "${EMQX_FEATURES:-}" = 'ESSENTIAL' ]; then
     export CODE_LOADING_MODE="${CODE_LOADING_MODE:-interactive}"
 fi
 
-# Will be set to hardened since v7
-export EMQX_SECURITY_PROFILE="${EMQX_SECURITY_PROFILE:-legacy}"
+# Since 7.0 the default security profile is hardened
+export EMQX_SECURITY_PROFILE="${EMQX_SECURITY_PROFILE:-hardened}"
 
 if [[ "$IS_BOOT_COMMAND" = 'yes' ]]; then
     if [ "$EMQX_SECURITY_PROFILE" != 'legacy' ] && [ "$EMQX_SECURITY_PROFILE" != 'hardened' ]; then
