@@ -1880,24 +1880,25 @@ format_msgs_resp(MsgType, Msgs, Meta, QString) ->
 format_msgs(MsgType, [FirstMsg | Msgs], PayloadFmt, MaxBytes) ->
     %% Always include at least one message payload, even if it exceeds the limit
     {FirstMsg1, PayloadSize0} = format_msg(MsgType, FirstMsg, PayloadFmt),
-    {Msgs1, {LastMsg, _}} =
+    Result =
         emqx_utils:foldl_while(
-            fun(Msg, {MsgsAcc, {_LastMsg, SizeAcc}} = Acc) ->
+            fun(Msg, {MsgsAcc, LastMsg, SizeAcc}) ->
                 {Msg1, PayloadSize} = format_msg(MsgType, Msg, PayloadFmt),
                 case SizeAcc + PayloadSize of
                     SizeAcc1 when SizeAcc1 =< MaxBytes ->
-                        {cont, {[Msg1 | MsgsAcc], {Msg, SizeAcc1}}};
+                        {cont, {[Msg1 | MsgsAcc], Msg, SizeAcc1}};
                     _ ->
-                        {halt, Acc}
+                        {halt, {truncated, MsgsAcc, LastMsg}}
                 end
             end,
-            {[FirstMsg1], {FirstMsg, PayloadSize0}},
+            {[FirstMsg1], FirstMsg, PayloadSize0},
             Msgs
         ),
-    Data = lists:reverse(Msgs1),
-    case length(Data) =< length(Msgs) of
-        true -> {Data, {truncated, LastMsg}};
-        false -> {Data, all}
+    case Result of
+        {truncated, Msgs1, LastMsg} ->
+            {lists:reverse(Msgs1), {truncated, LastMsg}};
+        {Msgs1, _LastMsg, _SizeAcc} ->
+            {lists:reverse(Msgs1), all}
     end;
 format_msgs(_MsgType, [], _PayloadFmt, _MaxBytes) ->
     {[], all}.
