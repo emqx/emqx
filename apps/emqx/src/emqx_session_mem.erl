@@ -388,11 +388,6 @@ publish(
             case is_awaiting_full(Session) of
                 true ->
                     {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED};
-                false when Dup ->
-                    %% The original awaiting_rel state may have been expired already.
-                    %% Keep awaiting PUBREL state and acknowledge without re-delivery.
-                    AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
-                    {ok, dup_publish_result(Msg), Session#session{awaiting_rel = AwaitingRel1}};
                 false ->
                     Results = emqx_broker:publish(Msg),
                     AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
@@ -410,6 +405,9 @@ is_awaiting_full(#session{
     max_awaiting_rel = MaxLimit
 }) ->
     maps:size(AwaitingRel) >= MaxLimit.
+
+dup_publish_result(#message{topic = Topic}) ->
+    [{node(), Topic, ok}].
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBACK
@@ -649,9 +647,6 @@ maybe_nack(Msg) ->
 
 mark_begin_deliver(Msg) ->
     emqx_message:set_header(deliver_begin_at, erlang:system_time(millisecond), Msg).
-
-dup_publish_result(#message{topic = Topic}) ->
-    [{node(), Topic, ok}].
 
 %%--------------------------------------------------------------------
 %% Timeouts
