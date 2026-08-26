@@ -328,14 +328,21 @@ add_user_record(UserInfoRecord, Password) ->
 add_user_tx(UserInfoRecord) ->
     case lookup_by_record_tx(UserInfoRecord) of
         [] ->
-            ok = write_user_tx(UserInfoRecord),
-            #{
-                namespace := Namespace,
-                user_id := UserId,
-                is_superuser := IsSuperuser
-            } =
-                rec_to_map(UserInfoRecord),
-            {ok, #{namespace => Namespace, user_id => UserId, is_superuser => IsSuperuser}};
+            case do_lookup_conflicting_global_txn(UserInfoRecord) of
+                [] ->
+                    ok = write_user_tx(UserInfoRecord),
+                    #{
+                        namespace := Namespace,
+                        user_id := UserId,
+                        is_superuser := IsSuperuser
+                    } =
+                        rec_to_map(UserInfoRecord),
+                    {ok, #{
+                        namespace => Namespace, user_id => UserId, is_superuser => IsSuperuser
+                    }};
+                [_] ->
+                    {error, already_exist}
+            end;
         [_] ->
             {error, already_exist}
     end.
@@ -656,22 +663,28 @@ insert_user_tx(User, Opts) ->
 
 insert_imported_user_tx(UserInfoRecord, Namespace, UserGroup, UserId, Opts) ->
     CountRecord = is_new_namespaced_record_tx(UserInfoRecord),
+    LogF = fun(Msg) ->
+        ?SLOG(warning, #{
+            msg => Msg,
+            namespace => Namespace,
+            user_id => UserId,
+            group_id => UserGroup,
+            bootstrap_file => maps:get(filename, Opts)
+        })
+    end,
     case lookup_by_record_tx(UserInfoRecord) of
         [] ->
-            ok = write_user_tx(UserInfoRecord),
-            {success, Namespace, CountRecord};
+            case do_lookup_conflicting_global_txn(UserInfoRecord) of
+                [] ->
+                    ok = write_user_tx(UserInfoRecord),
+                    {success, Namespace, CountRecord};
+                [_] ->
+                    LogF("import_namespaced_userid_conflicts_with_global_user"),
+                    failed
+            end;
         [UserInfoRecord] ->
             skipped;
         [_ExistingRecord] ->
-            LogF = fun(Msg) ->
-                ?SLOG(warning, #{
-                    msg => Msg,
-                    namespace => Namespace,
-                    user_id => UserId,
-                    group_id => UserGroup,
-                    bootstrap_file => maps:get(filename, Opts)
-                })
-            end,
             case maps:get(override, Opts, false) of
                 true ->
                     ok = write_user_tx(UserInfoRecord),
@@ -1046,11 +1059,32 @@ bootstrap_user_from_file(Config, State) ->
 lookup_user_with_fallback(?global_ns, UserGroup, UserId) ->
     do_lookup_user(?global_ns, UserGroup, UserId);
 lookup_user_with_fallback(Namespace, UserGroup, UserId) when is_binary(Namespace) ->
+    lookup_namespaced_user_with_fallback(
+        emqx_security_profile:policy(authn_mnesia_mt_user_conflict_protection),
+        Namespace,
+        UserGroup,
+        UserId
+    ).
+
+lookup_namespaced_user_with_fallback(false, Namespace, UserGroup, UserId) ->
     maybe
         error ?= do_lookup_user(Namespace, UserGroup, UserId),
-        %% We only fall back to global if there are no records for the whole namespace.
         true ?= is_namespace_empty(Namespace) orelse error,
         do_lookup_user(?global_ns, UserGroup, UserId)
+    end;
+lookup_namespaced_user_with_fallback(true, Namespace, UserGroup, UserId) ->
+    case do_lookup_user(Namespace, UserGroup, UserId) of
+        {ok, _} = NamespacedUser ->
+            case do_lookup_user(?global_ns, UserGroup, UserId) of
+                error -> NamespacedUser;
+                {ok, _} -> error
+            end;
+        error ->
+            case is_namespace_empty(Namespace) of
+                %% We only fall back to global if there are no records for the whole namespace.
+                true -> do_lookup_user(?global_ns, UserGroup, UserId);
+                false -> error
+            end
     end.
 
 do_lookup_user(?global_ns, UserGroup, UserId) ->
@@ -1093,6 +1127,27 @@ is_new_namespaced_record_tx(#?AUTHN_NS_TAB{user_id = Key}) ->
     mnesia:read(?AUTHN_NS_TAB, Key, write) =:= [];
 is_new_namespaced_record_tx(#user_info{}) ->
     false.
+
+do_lookup_conflicting_global_txn(#user_info{}) ->
+    [];
+do_lookup_conflicting_global_txn(#?AUTHN_NS_TAB{
+    user_id = ?AUTHN_NS_KEY(_, UserGroup, UserId)
+}) ->
+    case emqx_security_profile:policy(authn_mnesia_mt_user_conflict_protection) of
+        false ->
+            [];
+        true ->
+            case mnesia:read(?TAB, {UserGroup, UserId}, write) of
+                [] ->
+                    mnesia:read(
+                        ?AUTHN_NS_TAB,
+                        ?AUTHN_NS_KEY(?global_ns, UserGroup, UserId),
+                        write
+                    );
+                Records ->
+                    Records
+            end
+    end.
 
 is_namespace_empty(Namespace) when is_binary(Namespace) ->
     %% `[]` is `<` than any (binary) user id or group

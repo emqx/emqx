@@ -569,9 +569,9 @@ t_authenticator_users(TCConfig) ->
 
     %% Global admin can manage other namespaces.
 
-    %% N.B.: same username as existing user in different namespace
+    %% Global admin can create a distinct user in another namespace.
     OtherNsUser = #{
-        <<"user_id">> => <<"u1">>, <<"password">> => <<"p1">>, <<"namespace">> => ?OTHER_NS
+        <<"user_id">> => <<"u4">>, <<"password">> => <<"p1">>, <<"namespace">> => ?OTHER_NS
     },
     maybe
         true ?= ns_of(TCConfig) == ?global_ns,
