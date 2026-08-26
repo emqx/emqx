@@ -148,6 +148,12 @@ token_expired_time.label:
 password_expired_time.desc:
 """The expiration time for the password of users. The default value `0` means the password will never expire."""
 
+password_login.label:
+"""Dashboard password login mode"""
+
+password_login.desc:
+"""Select whether Dashboard local-user login accepts the legacy password request or SCRAM challenge-response."""
+
 ssl_options.desc:
 """SSL/TLS options for the dashboard listener."""
 

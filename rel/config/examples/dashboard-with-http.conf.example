@@ -3,6 +3,9 @@
 ## Configure HTTP for EMQX dashboard
 
 dashboard {
+    ## Keep `both` for compatibility. SCRAM browser login requires HTTPS.
+    password_login = both
+
     ## JWT token expiration time
     token_expired_time = 60m
 

@@ -67,6 +67,15 @@ fields("dashboard") ->
                     desc => ?DESC(password_expired_time)
                 }
             )},
+        {password_login,
+            ?HOCON(
+                hoconsc:enum([both, scram_only]),
+                #{
+                    default => both,
+                    desc => ?DESC(password_login),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )},
         {cors, fun cors/1},
         {swagger_support, fun swagger_support/1},
         {i18n_lang, fun i18n_lang/1},

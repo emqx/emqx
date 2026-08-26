@@ -3,6 +3,9 @@
 ## Configure HTTPS for EMQX dashboard
 
 dashboard {
+    ## Set to `scram_only` after all nodes and Dashboard clients are upgraded.
+    password_login = both
+
     ## JWT token expiration time
     token_expired_time = 60m
 

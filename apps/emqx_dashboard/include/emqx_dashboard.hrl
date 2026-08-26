@@ -67,6 +67,23 @@
     extra = #{} :: map()
 }).
 
+-record(emqx_dashboard_scram_challenge, {
+    id :: binary(),
+    username :: dashboard_username(),
+    client_nonce :: binary(),
+    server_nonce :: binary(),
+    salt :: binary(),
+    iterations :: pos_integer(),
+    credential_fingerprint :: binary() | undefined,
+    expires_at :: integer(),
+    extra = #{} :: map()
+}).
+
+-record(emqx_dashboard_scram_meta, {
+    key :: atom(),
+    value :: binary()
+}).
+
 -define(TAB_COLLECT, emqx_collect).
 
 -define(EMPTY_KEY(Key), ((Key == undefined) orelse (Key == <<>>))).

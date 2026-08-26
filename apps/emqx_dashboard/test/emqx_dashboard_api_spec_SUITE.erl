@@ -165,6 +165,8 @@ t_api_spec_html(_Config) ->
     ?assert(string:find(list_to_binary(ContentType), <<"text/html">>) =/= nomatch),
     BodyBin = list_to_binary(Body),
     ?assert(string:find(BodyBin, <<"EMQX API Spec Explorer">>) =/= nomatch),
+    ?assertEqual(nomatch, string:find(BodyBin, <<"fetch('/api/v5/login'">>)),
+    ?assert(string:find(BodyBin, <<"location.reload()">>) =/= nomatch),
     {401, StubHeaders, StubBody} = do_get_raw("/api-spec.html", []),
     StubContentType = proplists:get_value("content-type", StubHeaders, ""),
     ?assert(string:find(list_to_binary(StubContentType), <<"text/html">>) =/= nomatch),
@@ -182,8 +184,44 @@ t_api_spec_html(_Config) ->
     ),
     StubBin = list_to_binary(StubBody),
     ?assert(string:find(StubBin, <<"Sign in">>) =/= nomatch),
+    ?assert(string:find(StubBin, <<"const legacyFallbackAllowed = true;">>) =/= nomatch),
+    ?assert(string:find(StubBin, <<"/api/v5/login/challenge">>) =/= nomatch),
+    ?assert(string:find(StubBin, <<"/api/v5/login/verify">>) =/= nomatch),
+    ?assert(string:find(StubBin, <<"function escapeScramUsername(username)">>) =/= nomatch),
+    ?assert(
+        string:find(
+            StubBin,
+            <<"return username.replace(/=/g, '=3D').replace(/,/g, '=2C');">>
+        ) =/= nomatch
+    ),
+    ?assert(
+        string:find(StubBin, <<"const escapedUsername = escapeScramUsername(username);">>) =/=
+            nomatch
+    ),
+    ?assert(string:find(StubBin, <<"'n=' + escapedUsername + ',r='">>) =/= nomatch),
+    ?assert(string:find(StubBin, <<"crypto.subtle">>) =/= nomatch),
+    ?assertEqual(
+        nomatch,
+        string:find(
+            StubBin,
+            <<"JSON.stringify({username:f.username.value.trim(),password:f.password.value})">>
+        )
+    ),
     %% Stub must not include the full explorer markup.
     ?assertEqual(nomatch, string:find(StubBin, <<"EMQX API Spec Explorer">>)).
+
+-doc "Verify scram_only disables the embedded page's legacy fallback.".
+t_api_spec_html_scram_only_no_legacy_fallback(_Config) ->
+    ok = emqx_config:put([dashboard, password_login], scram_only),
+    try
+        {401, _Headers, RawBody} = do_get_raw("/api-spec.html", []),
+        Body = list_to_binary(RawBody),
+        ?assert(string:find(Body, <<"const legacyFallbackAllowed = false;">>) =/= nomatch),
+        ?assert(string:find(Body, <<"legacyFallbackAllowed &&">>) =/= nomatch),
+        ?assert(string:find(Body, <<"challengeResponse.status === 404">>) =/= nomatch)
+    after
+        ok = emqx_config:put([dashboard, password_login], both)
+    end.
 
 -doc "Verify /api-spec/:tag returns a valid OpenAPI 3.0.0 doc with correctly tagged paths.".
 t_tag_spec(_Config) ->

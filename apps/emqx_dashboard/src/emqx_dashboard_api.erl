@@ -24,6 +24,8 @@
 
 -export([
     login/2,
+    scram_challenge/2,
+    scram_verify/2,
     logout/2,
     users/2,
     user_scopes/2,
@@ -43,6 +45,9 @@
 -define(NOT_ALLOWED, 'NOT_ALLOWED').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(LOGIN_LOCKED, 'LOGIN_LOCKED').
+-define(PASSWORD_LOGIN_DISABLED, 'PASSWORD_LOGIN_DISABLED').
+-define(SCRAM_CHALLENGE_INVALID, 'SCRAM_CHALLENGE_INVALID').
+-define(SERVICE_UNAVAILABLE, 'SERVICE_UNAVAILABLE').
 
 namespace() -> "dashboard".
 
@@ -61,6 +66,8 @@ api_spec() ->
 scopes() ->
     #{
         <<"/login">> => ?SCOPE_PUBLIC,
+        <<"/login/challenge">> => ?SCOPE_PUBLIC,
+        <<"/login/verify">> => ?SCOPE_PUBLIC,
         <<"/logout">> => ?SCOPE_PUBLIC,
         <<"/user_scopes">> => ?SCOPE_PUBLIC,
         <<"/users">> => ?SCOPE_USER_MGMT,
@@ -72,6 +79,8 @@ scopes() ->
 paths() ->
     [
         "/login",
+        "/login/challenge",
+        "/login/verify",
         "/logout",
         "/users",
         "/users/:username",
@@ -92,7 +101,51 @@ schema("/login") ->
                 200 => fields([
                     role, token, version, license, password_expire_in_seconds
                 ]),
-                401 => emqx_dashboard_swagger:error_codes(ErrorCodes, ?DESC(login_failed401))
+                401 => emqx_dashboard_swagger:error_codes(ErrorCodes, ?DESC(login_failed401)),
+                403 => emqx_dashboard_swagger:error_codes(
+                    [?PASSWORD_LOGIN_DISABLED], ?DESC(login_failed_response400)
+                )
+            },
+            security => []
+        }
+    };
+schema("/login/challenge") ->
+    #{
+        'operationId' => scram_challenge,
+        post => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(login_api),
+            'requestBody' => fields([username, client_nonce]),
+            responses => #{
+                200 => fields([mechanism, challenge_id, salt, iterations, server_nonce]),
+                400 => response_schema(400),
+                503 => response_schema(503)
+            },
+            security => []
+        }
+    };
+schema("/login/verify") ->
+    #{
+        'operationId' => scram_verify,
+        post => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(login_api),
+            'requestBody' => fields([challenge_id, combined_nonce, client_proof, mfa_token]),
+            responses => #{
+                200 => fields([
+                    role,
+                    token,
+                    version,
+                    license,
+                    password_expire_in_seconds,
+                    server_signature
+                ]),
+                400 => response_schema(400),
+                401 => emqx_dashboard_swagger:error_codes(
+                    [?BAD_USERNAME_OR_PWD, ?BAD_MFA_TOKEN, ?LOGIN_LOCKED, ?SCRAM_CHALLENGE_INVALID],
+                    ?DESC(login_failed401)
+                ),
+                503 => response_schema(503)
             },
             security => []
         }
@@ -228,6 +281,10 @@ schema("/users/:username/mfa") ->
 
 response_schema(401) ->
     emqx_dashboard_swagger:error_codes([?BAD_USERNAME_OR_PWD], ?DESC(login_failed401));
+response_schema(400) ->
+    emqx_dashboard_swagger:error_codes([?BAD_REQUEST], ?DESC(login_failed_response400));
+response_schema(503) ->
+    emqx_dashboard_swagger:error_codes([?SERVICE_UNAVAILABLE], ?DESC(login_failed_response400));
 response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?USER_NOT_FOUND], ?DESC(users_api404)).
 
@@ -321,12 +378,70 @@ field(backend) ->
     {backend, mk(binary(), #{desc => ?DESC(backend), example => <<"local">>})};
 field(password_expire_in_seconds) ->
     {password_expire_in_seconds,
-        mk(integer(), #{desc => ?DESC(password_expire_in_seconds), example => 3600})}.
+        mk(integer(), #{desc => ?DESC(password_expire_in_seconds), example => 3600})};
+field(mechanism) ->
+    {mechanism, mk(binary(), #{example => <<"SCRAM-SHA-256">>})};
+field(challenge_id) ->
+    {challenge_id,
+        mk(binary(), #{
+            required => true,
+            'maxLength' => 128,
+            example => <<"0123456789abcdefghijklmnopqrstuv">>
+        })};
+field(client_nonce) ->
+    {client_nonce,
+        mk(binary(), #{
+            desc => ?DESC(client_nonce),
+            required => true,
+            'maxLength' => 128,
+            example => <<"clientNonce1234567890">>
+        })};
+field(server_nonce) ->
+    {server_nonce, mk(binary(), #{example => <<"server-nonce">>})};
+field(combined_nonce) ->
+    {combined_nonce,
+        mk(binary(), #{
+            desc => ?DESC(combined_nonce),
+            required => true,
+            'maxLength' => 160,
+            example => <<"clientNonce1234567890serverNonce1234567890">>
+        })};
+field(client_proof) ->
+    {client_proof, mk(binary(), #{required => true, example => <<"base64-proof">>})};
+field(salt) ->
+    {salt, mk(binary(), #{example => <<"base64-salt">>})};
+field(iterations) ->
+    {iterations, mk(pos_integer(), #{example => 600000})};
+field(server_signature) ->
+    {server_signature, mk(binary(), #{example => <<"base64-signature">>})}.
+
+decode_base64(Bin) when is_binary(Bin) ->
+    try
+        {ok, base64:decode(Bin)}
+    catch
+        _:_ -> error
+    end;
+decode_base64(_) ->
+    error.
 
 %% -------------------------------------------------------------------------------------------------
 %% API
 
 login(post, #{body := Params}) ->
+    case emqx_dashboard_login:password_login_enabled() of
+        false ->
+            ?SLOG(error, #{
+                msg => "dashboard_plaintext_password_login_disabled",
+                endpoint => <<"/api/v5/login">>,
+                password_login_mode => scram_only,
+                username => maps:get(<<"username">>, Params, undefined)
+            }),
+            {403, ?PASSWORD_LOGIN_DISABLED, <<"Plaintext password login is disabled.">>};
+        true ->
+            login_enabled(post, Params)
+    end.
+
+login_enabled(post, Params) ->
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
     MfaToken = maps:get(<<"mfa_token">>, Params, ?NO_MFA_TOKEN),
@@ -354,6 +469,89 @@ login(post, #{body := Params}) ->
             }),
             format_login_failed_error(R)
     end.
+
+scram_challenge(post, #{body := Params}) ->
+    Username = maps:get(<<"username">>, Params),
+    ClientNonce = maps:get(<<"client_nonce">>, Params),
+    minirest_handler:update_log_meta(#{log_from => dashboard, log_source => Username}),
+    case emqx_dashboard_login:scram_challenge(Username, ClientNonce) of
+        {ok, Result} ->
+            {200, to_json_out(Result)};
+        {error, bad_request} ->
+            ?SLOG(info, #{msg => "dashboard_scram_challenge_failed", username => Username}),
+            {400, ?BAD_REQUEST, <<"Invalid SCRAM challenge request">>};
+        {error, capacity} ->
+            {503, ?SERVICE_UNAVAILABLE, <<"SCRAM challenge capacity exhausted">>};
+        {error, _Reason} ->
+            {503, ?SERVICE_UNAVAILABLE, <<"SCRAM challenge is unavailable">>}
+    end.
+
+scram_verify(post, #{body := Params}) ->
+    ChallengeId = maps:get(<<"challenge_id">>, Params),
+    CombinedNonce = maps:get(<<"combined_nonce">>, Params),
+    Proof0 = maps:get(<<"client_proof">>, Params),
+    MfaToken = maps:get(<<"mfa_token">>, Params, ?NO_MFA_TOKEN),
+    ScramUsername = scram_username(ChallengeId),
+    maybe_update_scram_log_meta(ScramUsername),
+    case decode_base64(Proof0) of
+        {ok, ClientProof} ->
+            case
+                emqx_dashboard_login:scram_verify(
+                    ChallengeId, CombinedNonce, ClientProof, MfaToken
+                )
+            of
+                {ok, Result0} ->
+                    ?SLOG(info, #{
+                        msg => "dashboard_login_successful",
+                        username => ScramUsername
+                    }),
+                    Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
+                    {200,
+                        to_json_out(Result0#{
+                            version => Version,
+                            license => #{edition => emqx_release:edition()}
+                        })};
+                {error, bad_request} ->
+                    log_scram_failure(ScramUsername, bad_request),
+                    {400, ?BAD_REQUEST, <<"Invalid SCRAM verification request">>};
+                {error, invalid_challenge} ->
+                    log_scram_failure(ScramUsername, invalid_challenge),
+                    {401, ?SCRAM_CHALLENGE_INVALID, <<"SCRAM challenge is invalid or expired">>};
+                {error, {storage_unavailable, _Reason}} ->
+                    log_scram_failure(ScramUsername, storage_unavailable),
+                    {503, ?SERVICE_UNAVAILABLE, <<"SCRAM challenge storage is unavailable">>};
+                {error, password_error} ->
+                    log_scram_failure(ScramUsername, password_error),
+                    {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>};
+                {error, Reason} ->
+                    log_scram_failure(ScramUsername, Reason),
+                    format_login_failed_error(Reason)
+            end;
+        error ->
+            log_scram_failure(ScramUsername, bad_proof_encoding),
+            {400, ?BAD_REQUEST, <<"Invalid SCRAM proof encoding">>}
+    end.
+
+maybe_update_scram_log_meta(Username) ->
+    case Username of
+        Username0 when is_binary(Username0) ->
+            minirest_handler:update_log_meta(#{log_from => dashboard, log_source => Username0});
+        _ ->
+            ok
+    end.
+
+scram_username(ChallengeId) ->
+    case emqx_dashboard_login:owner(ChallengeId) of
+        {ok, Username} -> Username;
+        _ -> undefined
+    end.
+
+log_scram_failure(Username, Reason) ->
+    ?SLOG(info, #{
+        msg => "dashboard_login_failed",
+        username => Username,
+        reason => emqx_utils:redact(Reason)
+    }).
 
 format_login_failed_error(<<"default_credentials_not_changed">>) ->
     {401, ?BAD_USERNAME_OR_PWD,

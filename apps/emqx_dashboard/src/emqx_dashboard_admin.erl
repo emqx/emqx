@@ -52,7 +52,8 @@
     all_users/0,
     admin_users/0,
     check/2,
-    check/3
+    check/3,
+    complete_scram_login/2
 ]).
 
 -export([
@@ -1121,6 +1122,39 @@ check_unchanged_default_credentials(Password) ->
             ok
     end.
 
+%% @doc Apply the same default-password policy after SCRAM has proved
+%% knowledge of the password.  The password itself is intentionally not
+%% available at this seam, so compare the stored verifier with the verifier
+%% for the known insecure default instead.
+check_unchanged_default_credentials_hash(PwdHash) ->
+    case emqx_security_profile:policy(dashboard_unchanged_default_credentials) of
+        allow ->
+            ok;
+        deny ->
+            case is_default_password_hash(PwdHash) of
+                true -> {error, <<"default_credentials_not_changed">>};
+                false -> ok
+            end
+    end.
+
+is_default_password_hash(<<"$1$", _/binary>> = PwdHash) ->
+    case emqx_dashboard_scram:from_pwdhash(PwdHash) of
+        {ok, #{salt := Salt, iterations := Iterations, salted_password := Expected}} ->
+            Actual = crypto:pbkdf2_hmac(
+                sha256, ?INSECURE_DEFAULT_PASSWORD, Salt, Iterations, 32
+            ),
+            crypto:hash_equals(Expected, Actual);
+        _ ->
+            false
+    end;
+is_default_password_hash(<<Salt:4/binary, Expected:32/binary>>) ->
+    crypto:hash_equals(
+        Expected,
+        legacy_sha256(Salt, ?INSECURE_DEFAULT_PASSWORD)
+    );
+is_default_password_hash(_) ->
+    false.
+
 verify_mfa_token(_Username, ?TRUSTED_MFA_TOKEN, _IsPwdOk) ->
     %% e.g. when handing change_pwd request which is authenticated
     %% by bearer token
@@ -1203,6 +1237,20 @@ sign_token(Username, Password, MfaToken) ->
     maybe
         ok ?= emqx_dashboard_login_lock:verify(Username),
         {ok, User} ?= check(Username, Password, MfaToken),
+        {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
+        {ok, Role, Token, Namespace} ?= emqx_dashboard_token:sign(User),
+        {ok, Result#{?role => Role, token => Token, namespace => Namespace}}
+    end.
+
+-spec complete_scram_login(#?ADMIN{}, term()) ->
+    {ok, map()} | {error, term()}.
+complete_scram_login(#?ADMIN{username = Username, pwdhash = PwdHash} = User, MfaToken) ->
+    ExpiredTime = emqx:get_config([dashboard, password_expired_time], 0),
+    maybe
+        ok ?= emqx_dashboard_login_lock:verify(Username),
+        MfaVerifyResult = verify_mfa_token(Username, MfaToken, true),
+        ok ?= check_mfa_pwd(MfaVerifyResult, true),
+        ok ?= check_unchanged_default_credentials_hash(PwdHash),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
         {ok, Role, Token, Namespace} ?= emqx_dashboard_token:sign(User),
         {ok, Result#{?role => Role, token => Token, namespace => Namespace}}
