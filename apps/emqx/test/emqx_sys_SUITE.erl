@@ -35,43 +35,72 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
--doc "The connected system message carries `peername` with the client's source IP and port.".
-t_connected_message_peername(_Config) ->
+-doc """
+The connected system message payload has the expected shape:
+`peername` carries the client's source IP and port, `ipaddress` stays a bare IP.
+""".
+t_connected_message(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     ok = emqx_broker:subscribe(?CONNECTED_TOPIC),
-    {ok, Client} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}, {username, <<"u1">>}]),
     {ok, _} = emqtt:connect(Client),
-    Peername = channel_peername(ClientId),
+    Peername = peername_bin(channel_peername(ClientId)),
     Payload = receive_sys_payload(<<"connected">>),
-    ?assertEqual(peername_bin(Peername), maps:get(<<"peername">>, Payload)),
+    ?assertMatch(
+        #{
+            <<"clientid">> := ClientId,
+            <<"username">> := <<"u1">>,
+            <<"ipaddress">> := <<"127.0.0.1">>,
+            <<"peername">> := Peername,
+            <<"sockport">> := 1883,
+            <<"protocol">> := <<"mqtt">>,
+            <<"proto_name">> := <<"MQTT">>,
+            <<"proto_ver">> := 4,
+            <<"connected_at">> := ConnectedAt,
+            <<"ts">> := Ts,
+            <<"conn_props">> := #{},
+            <<"receive_maximum">> := _,
+            <<"keepalive">> := 60,
+            <<"clean_start">> := true,
+            <<"expiry_interval">> := 0,
+            <<"client_attrs">> := #{}
+        } when is_integer(ConnectedAt) andalso is_integer(Ts),
+        Payload
+    ),
     ok = emqtt:disconnect(Client).
 
--doc "The disconnected system message carries `peername` with the client's source IP and port.".
-t_disconnected_message_peername(_Config) ->
+-doc """
+The disconnected system message payload has the expected shape:
+`peername` carries the client's source IP and port, `ipaddress` stays a bare IP.
+""".
+t_disconnected_message(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     ok = emqx_broker:subscribe(?DISCONNECTED_TOPIC),
-    {ok, Client} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}, {username, <<"u1">>}]),
     {ok, _} = emqtt:connect(Client),
-    Peername = channel_peername(ClientId),
+    Peername = peername_bin(channel_peername(ClientId)),
     ok = emqtt:disconnect(Client),
     Payload = receive_sys_payload(<<"disconnected">>),
-    ?assertEqual(peername_bin(Peername), maps:get(<<"peername">>, Payload)).
-
--doc """
-The `ipaddress` field stays a bare IP address without a port
-in both the connected and the disconnected system messages.
-""".
-t_ipaddress_has_no_port(_Config) ->
-    ClientId = atom_to_binary(?FUNCTION_NAME),
-    ok = emqx_broker:subscribe(?CONNECTED_TOPIC),
-    ok = emqx_broker:subscribe(?DISCONNECTED_TOPIC),
-    {ok, Client} = emqtt:start_link([{clientid, ClientId}]),
-    {ok, _} = emqtt:connect(Client),
-    ok = emqtt:disconnect(Client),
-    ConnectedPayload = receive_sys_payload(<<"connected">>),
-    DisconnectedPayload = receive_sys_payload(<<"disconnected">>),
-    ?assertEqual(<<"127.0.0.1">>, maps:get(<<"ipaddress">>, ConnectedPayload)),
-    ?assertEqual(<<"127.0.0.1">>, maps:get(<<"ipaddress">>, DisconnectedPayload)).
+    ?assertMatch(
+        #{
+            <<"clientid">> := ClientId,
+            <<"username">> := <<"u1">>,
+            <<"ipaddress">> := <<"127.0.0.1">>,
+            <<"peername">> := Peername,
+            <<"sockport">> := 1883,
+            <<"protocol">> := <<"mqtt">>,
+            <<"proto_name">> := <<"MQTT">>,
+            <<"proto_ver">> := 4,
+            <<"connected_at">> := ConnectedAt,
+            <<"disconnected_at">> := DisconnectedAt,
+            <<"ts">> := Ts,
+            <<"disconn_props">> := #{},
+            <<"client_attrs">> := #{},
+            <<"reason">> := <<"normal">>
+        } when
+            is_integer(ConnectedAt) andalso is_integer(DisconnectedAt) andalso is_integer(Ts),
+        Payload
+    ).
 
 -doc """
 A client info without the `peername` key does not crash the hook;
