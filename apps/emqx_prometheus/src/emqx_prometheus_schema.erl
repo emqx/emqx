@@ -21,6 +21,8 @@
 
 namespace() -> prometheus.
 
+-define(DEFAULT_PUSH_GATEWAY_URL, <<"http://127.0.0.1:9091">>).
+
 roots() ->
     [
         {prometheus,
@@ -99,7 +101,7 @@ fields(push_gateway) ->
                 string(),
                 #{
                     required => false,
-                    default => <<"http://127.0.0.1:9091">>,
+                    default => ?DEFAULT_PUSH_GATEWAY_URL,
                     validator => fun ?MODULE:validate_url/1,
                     desc => ?DESC(push_gateway_url)
                 }
@@ -210,7 +212,7 @@ fields(legacy_deprecated_setting) ->
             ?HOCON(
                 string(),
                 #{
-                    default => <<"http://127.0.0.1:9091">>,
+                    default => ?DEFAULT_PUSH_GATEWAY_URL,
                     required => true,
                     validator => fun ?MODULE:validate_url/1,
                     desc => ?DESC(legacy_push_gateway_server)
@@ -383,9 +385,29 @@ validate_url(Url) ->
             S =:= <<"https">>;
             S =:= <<"http">>
         ->
-            ok;
+            maybe_check_ssrf(Url);
         _ ->
             {error, "Invalid url"}
+    end.
+
+%% The default push_gateway URL is a documented localhost target which is
+%% not an operator chosen destination, so the SSRF policy does not apply to
+%% it. Any other URL is checked against the policy at config time.
+maybe_check_ssrf(Url) ->
+    UrlBin = iolist_to_binary(Url),
+    case UrlBin =:= ?DEFAULT_PUSH_GATEWAY_URL of
+        true ->
+            ok;
+        false ->
+            case emqx_utils_uri:host(emqx_utils_uri:parse(UrlBin)) of
+                undefined ->
+                    ok;
+                Host ->
+                    case emqx_utils_ssrf:check_host(Host) of
+                        ok -> ok;
+                        {error, Error} -> {error, emqx_utils_ssrf:format_error(Error)}
+                    end
+            end
     end.
 
 %% for CI test, CI don't load the whole emqx_conf_schema.
