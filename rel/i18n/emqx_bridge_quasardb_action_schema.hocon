@@ -16,7 +16,8 @@ emqx_bridge_quasardb_action_schema {
     desc: """~
       SQL for inserting data.  Supports placeholder variables like `${clientid}`.
 
-      Note: QuasarDB ODBC driver does not support prepared statements.  Therefore, any values that are known to resolve to `STRING` or `BLOB` types must be manually quoted (`'`) in your SQL query.~"""
+      Note: QuasarDB ODBC driver does not support prepared statements.
+      Note: Timestamp values must not be quoted.  When using a variable placeholder that refers to such values, use the `#nowrap` modifier in the variable definition (e.g.: `${.payload.ts#nowrap}`).~"""
   }
 
   health_check_table {

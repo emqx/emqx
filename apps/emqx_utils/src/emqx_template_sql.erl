@@ -45,7 +45,8 @@
 -type parse_opts() :: #{
     parameters => sql_parameters(),
     % Inherited from `emqx_template:parse_opts()`
-    strip_double_quote => boolean()
+    strip_double_quote => boolean(),
+    enable_modifiers => boolean()
 }.
 
 -type render_opts() :: #{
@@ -77,7 +78,7 @@ parse(String, Opts) ->
 has_placeholder(String) ->
     lists:any(
         fun
-            ({var, _, _}) -> true;
+            ({var, _, _, _}) -> true;
             (_) -> false
         end,
         parse(String)
@@ -90,7 +91,9 @@ has_placeholder(String) ->
     {statement(), [_Error]}.
 render(Template, Context, Opts) ->
     emqx_template:render(Template, Context, #{
-        var_trans => fun(Value) -> emqx_utils_sql:to_sql_string(Value, Opts) end
+        var_trans => fun(_Name, Value, Ctx) ->
+            emqx_utils_sql:to_sql_string(Value, Opts, Ctx)
+        end
     }).
 
 %% @doc Render an SQL statement template given a set of bindings.
@@ -99,7 +102,9 @@ render(Template, Context, Opts) ->
     statement().
 render_strict(Template, Context, Opts) ->
     emqx_template:render_strict(Template, Context, #{
-        var_trans => fun(Value) -> emqx_utils_sql:to_sql_string(Value, Opts) end
+        var_trans => fun(_Name, Value, Ctx) ->
+            emqx_utils_sql:to_sql_string(Value, Opts, Ctx)
+        end
     }).
 
 %% @doc Parse an SQL statement string into a prepared statement and a row template.
@@ -112,7 +117,7 @@ render_strict(Template, Context, Opts) ->
 %%     #{parameters => '$n'}
 %% ),
 %% Statement = <<"INSERT INTO table (id, name, age) VALUES ($1, $2, 42)">>,
-%% RowTemplate = [{var, "...", [...]}, ...]
+%% RowTemplate = [{var, [...], "...", [...]}, ...]
 %% ```
 -spec parse_prepstmt(raw_statement_template(), parse_opts()) ->
     {statement(), row_template()}.

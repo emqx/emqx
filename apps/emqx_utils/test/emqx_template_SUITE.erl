@@ -256,6 +256,59 @@ t_render_sql(_) ->
         bin(emqx_template_sql:render_strict(Template, Context, #{undefined => "undefined"}))
     ).
 
+t_render_sql_with_modifiers(_) ->
+    Context = #{
+        a => <<"1">>,
+        b => 1,
+        c => 1.0,
+        d => #{d1 => <<"hi">>},
+        n => undefined,
+        u => "utf8's cool 🐸"
+    },
+    TemplateNoRaw = emqx_template:parse(<<"a:${a},b:${b},c:${c},d:${d},n:${n},u:${u}">>),
+    %% placeholders with no modifier behave as usual.
+    ?assertMatch(
+        {_String, _Errors = []},
+        emqx_template_sql:render(TemplateNoRaw, Context, #{})
+    ),
+    ?assertEqual(
+        <<"a:'1',b:1,c:1.0,d:'{\"d1\":\"hi\"}',n:NULL,u:'utf8\\'s cool 🐸'"/utf8>>,
+        bin(emqx_template_sql:render_strict(TemplateNoRaw, Context, #{}))
+    ),
+    ?assertEqual(
+        <<"a:'1',b:1,c:1.0,d:'{\"d1\":\"hi\"}',n:'undefined',u:'utf8\\'s cool 🐸'"/utf8>>,
+        bin(emqx_template_sql:render_strict(TemplateNoRaw, Context, #{undefined => "undefined"}))
+    ),
+    %% with `#nowrap` modifier, it does not wrap the output value in single quotes.
+    TemplateRaw = emqx_template:parse(
+        <<"a:${a#nowrap},b:${b#nowrap},c:${c#nowrap},d:${d#nowrap},n:${n#nowrap},u:${u#nowrap}">>,
+        #{enable_modifiers => true}
+    ),
+    ?assertMatch(
+        {_String, _Errors = []},
+        emqx_template_sql:render(TemplateRaw, Context, #{})
+    ),
+    ?assertEqual(
+        <<"a:1,b:1,c:1.0,d:{\"d1\":\"hi\"},n:NULL,u:utf8\\'s cool 🐸"/utf8>>,
+        bin(emqx_template_sql:render_strict(TemplateRaw, Context, #{}))
+    ),
+    ?assertEqual(
+        <<"a:1,b:1,c:1.0,d:{\"d1\":\"hi\"},n:undefined,u:utf8\\'s cool 🐸"/utf8>>,
+        bin(emqx_template_sql:render_strict(TemplateRaw, Context, #{undefined => "undefined"}))
+    ),
+    %% unknown modifiers
+    ?assertThrow(
+        {unknown_modifier, {~"a", ~"unknown"}},
+        emqx_template:parse(~"${a#unknown}", #{enable_modifiers => true})
+    ),
+    %% without modifiers, it's parsed as a literal
+    TemplateWeirdMod = emqx_template:parse(~"${a#unknown}"),
+    ?assertEqual(
+        ~"${a#unknown}",
+        bin(emqx_template_sql:render_strict(TemplateWeirdMod, #{a => ~"hey"}, #{}))
+    ),
+    ok.
+
 t_render_mysql(_) ->
     %% with apostrophes
     %% https://github.com/emqx/emqx/issues/4135

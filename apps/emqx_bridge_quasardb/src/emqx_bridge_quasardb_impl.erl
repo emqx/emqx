@@ -297,7 +297,10 @@ create_action(ActionConfig) ->
         insert ->
             case emqx_utils_sql:split_insert(SQL) of
                 {ok, {Insert, Values}} ->
-                    ValuesTemplate = emqx_template:parse(Values),
+                    ValuesTemplate = emqx_template_sql:parse(Values, #{
+                        %% quasardb wants timestamp values to NOT be quoted....
+                        enable_modifiers => true
+                    }),
                     ChanState = #{
                         ?health_check_table => HCTable,
                         ?insert => Insert,
@@ -370,13 +373,8 @@ maybe_check_table_existence(ConnResId, #{?health_check_table := Table} = _ChanSt
     end.
 
 render_value(X, ValuesTemplate) ->
-    %% Unknown/undefined values are rendered as null
-    VarTrans = fun
-        (undefined) -> <<"null">>;
-        (B) when is_binary(B) -> B;
-        (Y) -> emqx_utils_conv:bin(Y)
-    end,
-    {Rendered, _} = emqx_template:render(ValuesTemplate, {emqx_jsonish, X}, #{var_trans => VarTrans}),
+    %% quasardb wants timestamp values to NOT be quoted....
+    {Rendered, _} = emqx_template_sql:render(ValuesTemplate, {emqx_jsonish, X}, #{}),
     Rendered.
 
 handle_insert_result({error, Msg}) when is_list(Msg) ->

@@ -153,7 +153,7 @@ action_config(Overrides) ->
             <<"sql">> =>
                 ~b"""
              insert into dummy_table($timestamp, qos, payload)
-             values (now(), ${.qos}, '${.payload}')
+             values (now(), ${.qos}, ${.payload})
            """
         },
         <<"resource_opts">> =>
@@ -388,9 +388,9 @@ t_value_types(TCConfig) ->
                 int_val, blob_val, str_val, double_val, ts_val, sym_val
               ) values (
                 now(),
-                ${.payload.int}, '${.payload.blob}',
-                '${.payload.str}', ${.payload.double},
-                ${.payload.ts}, '${.payload.sym}'
+                ${.payload.int}, ${.payload.blob},
+                ${.payload.str}, ${.payload.double},
+                ${.payload.ts#nowrap}, ${.payload.sym}
               )
             """,
             <<"health_check_table">> => <<"dummy_table2">>
@@ -436,7 +436,7 @@ t_undefined_value(TCConfig) ->
             <<"sql">> =>
                 ~b"""
                   insert into dummy_table($timestamp, qos, payload)
-                  values (now(), ${.payload.int}, '${.payload.blob}')
+                  values (now(), ${.payload.int}, ${.payload.blob})
                 """
         }
     }),
@@ -457,9 +457,10 @@ t_undefined_value(TCConfig) ->
     ),
     %% Obviously, since we have to manually quote strings, this null gets stored as a
     %% string...
+    %% Also suffers from the "unknown column type" problem...
     ?assertMatch(
-        {ok, [#{<<"payload">> := "null"}]},
-        execute_select(<<"select payload from dummy_table">>, TCConfig)
+        {ok, [#{<<"1">> := "1"}]},
+        execute_select(<<"select 1 from dummy_table where payload = 'null'">>, TCConfig)
     ),
     ok.
 

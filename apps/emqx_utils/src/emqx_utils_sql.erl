@@ -20,7 +20,7 @@
 -export([split_insert/1]).
 
 -export([to_sql_value/1]).
--export([to_sql_string/2]).
+-export([to_sql_string/2, to_sql_string/3]).
 
 -export([escape_sql/1]).
 -export([escape_cql/1]).
@@ -158,25 +158,43 @@ to_sql_value(Map) when is_map(Map) -> emqx_utils_json:encode(Map).
         escaping => mysql | sql | cql | sqlserver,
         undefined => null | unicode:chardata()
     }.
-to_sql_string(undefined, #{undefined := Str} = Opts) when Str =/= null ->
-    to_sql_string(Str, Opts);
-to_sql_string(undefined, #{}) ->
+to_sql_string(Value, Opts) ->
+    to_sql_string(Value, Opts, _Ctx = #{}).
+
+%% @doc Convert an Erlang term to a string that can be interpolated in literal
+%% SQL statements. The value is escaped if necessary.
+-spec to_sql_string(term(), Options, Ctx) -> unicode:chardata() when
+    Options :: #{
+        escaping => mysql | sql | cql | sqlserver,
+        undefined => null | unicode:chardata()
+    },
+    Ctx :: #{
+        modifiers => #{emqx_template:modifier() => true}
+    }.
+to_sql_string(undefined, #{undefined := Str} = Opts, Ctx) when Str =/= null ->
+    to_sql_string(Str, Opts, Ctx);
+to_sql_string(undefined, #{}, _Ctx) ->
     <<"NULL">>;
-to_sql_string(String, #{escaping := mysql}) when is_binary(String) ->
+to_sql_string(String, #{escaping := mysql}, _Ctx) when is_binary(String) ->
     try
         escape_mysql(String)
     catch
         throw:invalid_utf8 ->
             [<<"0x">>, binary:encode_hex(String)]
     end;
-to_sql_string(Term, #{escaping := mysql}) ->
+to_sql_string(Term, #{escaping := mysql}, _Ctx) ->
     maybe_escape(Term, fun escape_mysql/1);
-to_sql_string(Term, #{escaping := cql}) ->
+to_sql_string(Term, #{escaping := cql}, _Ctx) ->
     maybe_escape(Term, fun escape_cql/1);
-to_sql_string(Term, #{escaping := sqlserver}) ->
+to_sql_string(Term, #{escaping := sqlserver}, _Ctx) ->
     maybe_escape(Term, fun escape_sqlserver/1);
-to_sql_string(Term, #{}) ->
-    maybe_escape(Term, fun escape_sql/1).
+to_sql_string(Term, #{}, Ctx) ->
+    case Ctx of
+        #{modifiers := #{nowrap := true}} ->
+            maybe_escape(Term, fun escape_sql_nowrap/1);
+        #{} ->
+            maybe_escape(Term, fun escape_sql/1)
+    end.
 
 -spec maybe_escape(_Value, fun((binary()) -> iodata())) -> unicode:chardata().
 maybe_escape(Str, EscapeFun) when is_binary(Str) ->
@@ -199,8 +217,16 @@ escape_sql(S) ->
     % This is a bit misleading: currently, escaping logic in `escape_sql/1` likely
     % won't work with pgsql since it does not support C-style escapes by default.
     % https://www.postgresql.org/docs/14/sql-syntax-lexical.html#SQL-SYNTAX-CONSTANTS
-    ES = binary:replace(S, [<<"\\">>, <<"'">>], <<"\\">>, [global, {insert_replaced, 1}]),
+    ES = escape_sql_nowrap(S),
     [$', ES, $'].
+
+-spec escape_sql_nowrap(binary()) -> iodata().
+escape_sql_nowrap(S) ->
+    % NOTE
+    % This is a bit misleading: currently, escaping logic in `escape_sql/1` likely
+    % won't work with pgsql since it does not support C-style escapes by default.
+    % https://www.postgresql.org/docs/14/sql-syntax-lexical.html#SQL-SYNTAX-CONSTANTS
+    binary:replace(S, [<<"\\">>, <<"'">>], <<"\\">>, [global, {insert_replaced, 1}]).
 
 -spec escape_cql(binary()) -> iodata().
 escape_cql(S) ->

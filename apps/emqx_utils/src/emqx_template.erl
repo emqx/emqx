@@ -43,6 +43,7 @@
 -export_type([varname/0]).
 -export_type([bindings/0]).
 -export_type([accessor/0]).
+-export_type([modifier/0]).
 
 -export_type([context/0]).
 -export_type([render_opts/0]).
@@ -63,9 +64,10 @@
     | port()
     | reference().
 
--type placeholder() :: {var, varname(), accessor()}.
+-type placeholder() :: {var, [modifier()], varname(), accessor()}.
 -type accessor() :: [binary()].
 -type varname() :: string().
+-type modifier() :: nowrap.
 
 -type scalar() :: atom() | unicode:chardata() | binary() | number().
 -type binding() :: scalar() | list(scalar()) | bindings().
@@ -76,10 +78,18 @@
 
 -type var_trans() ::
     fun((Value :: term()) -> unicode:chardata())
-    | fun((varname(), Value :: term()) -> unicode:chardata()).
+    | fun((varname(), Value :: term()) -> unicode:chardata())
+    | fun((varname(), Value :: term(), var_ctx()) -> unicode:chardata()).
+
+-type var_ctx() :: #{modifiers => #{modifier() => true}}.
 
 -type parse_opts() :: #{
-    strip_double_quote => boolean()
+    %% default: false
+    strip_double_quote => boolean(),
+    %% Whether to allow variable modifiers like `${.a.b.c}#nowrap`, which do not wrap in
+    %% quotes when rendering.  Not to be used together with `strip_double_quotes`.
+    %% default: false
+    enable_modifiers => boolean()
 }.
 
 -type render_opts() :: #{
@@ -96,6 +106,7 @@
 -callback lookup(accessor(), _Bindings) -> {ok, _Value} | {error, reason()}.
 
 -define(RE_PLACEHOLDER, "\\$\\{[.]?([a-zA-Z0-9._]*)\\}").
+-define(RE_PLACEHOLDER_MOD, "\\$\\{[.]?([a-zA-Z0-9._]*)(?:#([a-z_]+))?\\}").
 -define(RE_ESCAPE, "\\$\\{(\\$)\\}").
 
 %% @doc Parse a unicode string into a template.
@@ -114,22 +125,46 @@ parse(String) ->
 parse(String, Opts) ->
     RE =
         case Opts of
+            #{strip_double_quote := true, enable_modifiers := true} ->
+                error({badarg, {strip_double_quote, enable_modifiers}});
             #{strip_double_quote := true} ->
                 <<"((?|" ?RE_PLACEHOLDER "|\"" ?RE_PLACEHOLDER "\")|" ?RE_ESCAPE ")">>;
+            #{enable_modifiers := true} ->
+                <<"(" ?RE_PLACEHOLDER_MOD "|" ?RE_ESCAPE ")">>;
             #{} ->
                 <<"(" ?RE_PLACEHOLDER "|" ?RE_ESCAPE ")">>
         end,
     Splits = re:split(String, RE, [{return, binary}, group, trim, unicode]),
-    lists:flatmap(fun parse_split/1, Splits).
+    case Opts of
+        #{enable_modifiers := true} ->
+            lists:flatmap(fun parse_split_with_modifier/1, Splits);
+        #{} ->
+            lists:flatmap(fun parse_split/1, Splits)
+    end.
 
 parse_split([Part, _PH, Var, <<>>]) ->
     % Regular placeholder
-    prepend(Part, [{var, unicode:characters_to_list(Var), parse_accessor(Var)}]);
+    prepend(Part, [{var, [], unicode:characters_to_list(Var), parse_accessor(Var)}]);
 parse_split([Part, _Escape, <<>>, <<"$">>]) ->
     % Escaped literal `$`.
     % Use single char as token so the `unparse/1` function can distinguish escaped `$`.
     prepend(Part, [$$]);
 parse_split([Tail]) ->
+    [Tail].
+
+parse_split_with_modifier([Part, _PH, Var, <<>>, <<>>]) ->
+    % Regular placeholder, no modifier
+    prepend(Part, [{var, [], unicode:characters_to_list(Var), parse_accessor(Var)}]);
+parse_split_with_modifier([Part, _PH, Var, <<"nowrap">>, <<>>]) ->
+    % Regular placeholder, "no wrap" modifier
+    prepend(Part, [{var, [nowrap], unicode:characters_to_list(Var), parse_accessor(Var)}]);
+parse_split_with_modifier([_Part, _PH, Var, UnknownMod, _]) ->
+    throw({unknown_modifier, {Var, UnknownMod}});
+parse_split_with_modifier([Part, _Escape, <<>>, <<>>, <<"$">>]) ->
+    % Escaped literal `$`.
+    % Use single char as token so the `unparse/1` function can distinguish escaped `$`.
+    prepend(Part, [$$]);
+parse_split_with_modifier([Tail]) ->
     [Tail].
 
 prepend(<<>>, To) ->
@@ -148,7 +183,7 @@ parse_accessor(Var) ->
 %% @doc Extract all used placeholders from a template.
 -spec placeholders(t()) -> [varname()].
 placeholders(Template) when is_list(Template) ->
-    [Name || {var, Name, _} <- Template];
+    [Name || {var, _, Name, _} <- Template];
 placeholders({'$tpl', Template}) ->
     placeholders_deep(Template).
 
@@ -233,7 +268,7 @@ unparse({'$tpl', Template}) ->
 unparse(Template) ->
     unicode:characters_to_list(lists:map(fun unparse_part/1, Template)).
 
-unparse_part({var, Name, _Accessor}) ->
+unparse_part({var, _Mods, Name, _Accessor}) ->
     render_placeholder(Name);
 unparse_part($$) ->
     <<"${$}">>;
@@ -258,8 +293,8 @@ render(Template, Context) ->
 render(Template, Context, Opts) when is_list(Template) ->
     lists:mapfoldl(
         fun
-            ({var, Name, Accessor}, EAcc) ->
-                {String, Errors} = render_binding(Name, Accessor, Context, Opts),
+            ({var, Mods, Name, Accessor}, EAcc) ->
+                {String, Errors} = render_binding(Name, Mods, Accessor, Context, Opts),
                 {String, Errors ++ EAcc};
             (String, EAcc) ->
                 {String, EAcc}
@@ -270,15 +305,15 @@ render(Template, Context, Opts) when is_list(Template) ->
 render({'$tpl', Template}, Context, Opts) ->
     render_deep(Template, Context, Opts).
 
-render_binding(Name, Accessor, Context, Opts) ->
+render_binding(Name, Mods, Accessor, Context, Opts) ->
     case lookup_value(Accessor, Context) of
         {ok, Value} ->
-            {render_value(Name, Value, Opts), []};
+            {render_value(Name, Mods, Value, Opts), []};
         {error, Reason} ->
             % TODO
             % Currently, it's not possible to distinguish between a missing value
             % and an atom `undefined` in `TransFun`.
-            {render_value(Name, undefined, Opts), [{Name, Reason}]}
+            {render_value(Name, Mods, undefined, Opts), [{Name, Reason}]}
     end.
 
 lookup_value(Accessor, {AccessMod, Bindings}) ->
@@ -286,11 +321,18 @@ lookup_value(Accessor, {AccessMod, Bindings}) ->
 lookup_value(Accessor, Bindings) ->
     lookup_var(Accessor, Bindings).
 
-render_value(_Name, Value, #{var_trans := TransFun}) when is_function(TransFun, 1) ->
+render_value(_Name, _Mods, Value, #{var_trans := TransFun}) when is_function(TransFun, 1) ->
     TransFun(Value);
-render_value(Name, Value, #{var_trans := TransFun}) when is_function(TransFun, 2) ->
+render_value(Name, _Mods, Value, #{var_trans := TransFun}) when is_function(TransFun, 2) ->
     TransFun(Name, Value);
-render_value(_Name, Value, #{}) ->
+render_value(Name, [] = _Mods, Value, #{var_trans := TransFun}) when is_function(TransFun, 3) ->
+    %% nano optimization
+    Ctx = #{},
+    TransFun(Name, Value, Ctx);
+render_value(Name, Mods, Value, #{var_trans := TransFun}) when is_function(TransFun, 3) ->
+    Ctx = #{modifiers => maps:from_keys(Mods, true)},
+    TransFun(Name, Value, Ctx);
+render_value(_Name, _Mods, Value, #{}) ->
     to_string(Value).
 
 %% @doc Render a template with given bindings.

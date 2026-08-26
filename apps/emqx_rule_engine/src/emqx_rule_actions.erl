@@ -329,7 +329,7 @@ render_simple_var([], _Data, Default) ->
     %% Empty template (e.g., from empty binary) should return default value.
     %% In OTP 28, re:split(<<>>, Pattern) returns [] instead of [<<>>] (OTP 27 behavior).
     Default;
-render_simple_var([{var, _Name, Accessor}], Data, Default) ->
+render_simple_var([{var, _Mods, _Name, Accessor}], Data, Default) ->
     case emqx_jsonish:lookup(Accessor, Data) of
         {ok, Var} -> Var;
         %% cannot find the variable from Data
