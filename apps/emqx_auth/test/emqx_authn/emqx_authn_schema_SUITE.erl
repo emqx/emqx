@@ -36,7 +36,7 @@ end_per_testcase(_Case, Config) ->
 
 t_check_schema(_Config) ->
     Check = fun(C) -> emqx_config:check_config(emqx_schema, ?CONF(C)) end,
-    ConfigOk = #{
+    ConfigBcrypt = #{
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
         <<"user_id_type">> => <<"username">>,
@@ -45,8 +45,6 @@ t_check_schema(_Config) ->
             <<"salt_rounds">> => <<"6">>
         }
     },
-    _ = Check(ConfigOk),
-
     ConfigNotOk = #{
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
@@ -55,15 +53,6 @@ t_check_schema(_Config) ->
             <<"name">> => <<"md6">>
         }
     },
-    ?assertThrow(
-        #{
-            path := "authentication.1.password_hash_algorithm.name",
-            matched_type := "authn:builtin_db_manual/authn_hash:simple",
-            reason := unable_to_convert_to_enum_symbol
-        },
-        Check(ConfigNotOk)
-    ),
-
     ConfigMissingAlgoName = #{
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
@@ -72,15 +61,52 @@ t_check_schema(_Config) ->
             <<"foo">> => <<"bar">>
         }
     },
-
-    ?assertThrow(
-        #{
-            path := "authentication.1.password_hash_algorithm",
-            reason := "algorithm_name_missing",
-            matched_type := "authn:builtin_db_manual"
-        },
-        Check(ConfigMissingAlgoName)
-    ).
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        _ = Check(ConfigBcrypt),
+        ?assertThrow(
+            #{
+                path := "authentication.1.password_hash_algorithm.name",
+                matched_type := "authn:builtin_db_manual/authn_hash:simple",
+                reason := unable_to_convert_to_enum_symbol
+            },
+            Check(ConfigNotOk)
+        ),
+        ?assertThrow(
+            #{
+                path := "authentication.1.password_hash_algorithm",
+                reason := "algorithm_name_missing",
+                matched_type := "authn:builtin_db_manual"
+            },
+            Check(ConfigMissingAlgoName)
+        )
+    end),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        %% The hardened profile limits manual password hashing to the
+        %% stronger algorithms; bcrypt is rejected.
+        ?assertThrow(
+            #{
+                path := "authentication.1.password_hash_algorithm",
+                reason := unknown_fields,
+                unknown := "salt_rounds"
+            },
+            Check(ConfigBcrypt)
+        ),
+        %% A pre-7.0 manual sha256 config stays valid.
+        _ = Check(ConfigBcrypt#{
+            <<"password_hash_algorithm">> => #{
+                <<"name">> => <<"sha256">>,
+                <<"salt_position">> => <<"suffix">>
+            }
+        }),
+        ?assertThrow(
+            #{
+                path := "authentication.1.password_hash_algorithm",
+                reason := "algorithm_name_missing",
+                matched_type := "authn:builtin_db_manual"
+            },
+            Check(ConfigMissingAlgoName)
+        )
+    end).
 
 t_union_member_selector(_) ->
     %% default value for authentication
