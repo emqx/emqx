@@ -122,10 +122,11 @@ t_shutdown_reboot(Config) ->
     end.
 
 -doc """
-Verify `emqx_machine_boot:stop_apps/0' stops the MQTT listeners before it stops
-the applications, so no client traffic reaches hook callbacks (e.g. the rule
-engine) while their state is torn down.  Also verify `stop_apps/0' does not
-raise when called twice, and that `ensure_apps_started/0' brings listeners back.
+Verify `emqx_machine_boot:stop_apps/0' shuts the readiness gate and stops the
+MQTT listeners before it stops the applications, so no client traffic reaches
+hook callbacks (e.g. the rule engine) while their state is torn down.  Also
+verify `stop_apps/0' does not raise when called twice, and that
+`ensure_apps_started/0' restores listeners and readiness.
 """.
 t_stop_apps_stops_listeners_first(Config) ->
     [Node] = emqx_cth_cluster:start(
@@ -151,13 +152,15 @@ t_stop_apps_stops_listeners_first(Config) ->
                 ?assertMatch([#{?snk_kind := emqx_listeners_stopped} | _], Events)
             end
         ),
-        %% The listener no longer accepts connections.
+        %% The readiness gate is shut and the listener no longer accepts.
+        ?assertNot(erpc:call(Node, emqx_node_readiness, is_ready, [])),
         ?assertEqual({error, econnrefused}, gen_tcp:connect("127.0.0.1", Port, [], 5000)),
         %% A second stop does not raise.
         ok = erpc:call(Node, emqx_machine_boot, stop_apps, []),
-        %% The reboot path (cluster join/leave) restores the listeners.
+        %% The reboot path (cluster join/leave) restores listeners and readiness.
         ok = erpc:call(Node, emqx_app, set_config_loader, [emqx_cth_suite]),
         ok = erpc:call(Node, emqx_machine_boot, ensure_apps_started, []),
+        ?assert(erpc:call(Node, emqx_node_readiness, is_ready, [])),
         {ok, Sock1} = gen_tcp:connect("127.0.0.1", Port, [], 5000),
         ok = gen_tcp:close(Sock1)
     after

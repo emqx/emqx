@@ -66,7 +66,12 @@ start_autocluster() ->
 
 stop_apps() ->
     ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
-    %% Stop listeners first, so no client traffic reaches hook callbacks
+    %% Shut the readiness gate first: `GET /status' reports not_running
+    %% (HTTP 503) so load balancers stop routing to this node, and
+    %% connections accepted before the listen sockets close are refused.
+    %% `ensure_apps_started/0' marks the node ready again after a reboot.
+    ok = emqx_node_readiness:mark_not_ready(),
+    %% Stop listeners next, so no client traffic reaches hook callbacks
     %% while the apps behind them (plugins, rule engine, ...) are stopped.
     ok = stop_listeners(),
     _ = emqx_alarm_handler:unload(),
