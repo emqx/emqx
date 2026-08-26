@@ -3504,12 +3504,13 @@ servers_sc(Meta0, ParseOpts) ->
     %% NOTE: maps:is_key is not the solution because #{default => undefined} is legit
     HasDefault = (maps:get(default, Meta0, undefined) =/= undefined),
     Required = maps:get(required, Meta0, not HasDefault),
+    Type = maps:get(type, Meta0, string()),
     Meta = #{
         required => Required,
         converter => fun convert_servers/2,
         validator => servers_validator(ParseOpts, Required)
     },
-    sc(string(), maps:merge(Meta, Meta0)).
+    sc(Type, maps:merge(Meta, Meta0)).
 
 %% @hidden Convert a deep map to host:port pairs.
 %% This is due to the fact that a host:port string
@@ -3553,6 +3554,7 @@ normalize_host_port_str(Str) ->
 %% @doc Shared validation function for both 'server' and 'servers' string.
 %% NOTE: Validator is called after converter.
 servers_validator(Opts, Required) ->
+    SingleServer = maps:get(single_server, Opts, false),
     fun(Str0) ->
         case str(Str0) of
             "" ->
@@ -3564,6 +3566,10 @@ servers_validator(Opts, Required) ->
                 %% NOTE: assuming nobody is going to name their server "undefined"
                 throw("cannot_be_empty");
             "undefined" ->
+                ok;
+            Str when SingleServer ->
+                %% it's valid as long as it can be parsed
+                _ = parse_server(Str, Opts),
                 ok;
             Str ->
                 %% it's valid as long as it can be parsed
