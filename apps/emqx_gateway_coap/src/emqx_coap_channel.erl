@@ -48,6 +48,8 @@
     session :: emqx_coap_session:session() | undefined,
     %% Keepalive
     keepalive :: emqx_keepalive:keepalive() | undefined,
+    %% Configured heartbeat interval in seconds
+    heartbeat :: non_neg_integer(),
     %% Timer
     timers :: #{atom() => disable | undefined | reference()},
     %% Connection mode
@@ -151,6 +153,7 @@ init(
         timers = #{},
         session = emqx_coap_session:new(),
         keepalive = emqx_keepalive:init(Heartbeat),
+        heartbeat = Heartbeat,
         connection_required = maps:get(connection_required, Config, false),
         conn_state = idle,
         blockwise = emqx_coap_blockwise:new(emqx_coap_blockwise:default_opts(coap))
@@ -360,9 +363,6 @@ handle_call(Req, _From, Channel) ->
 handle_cast(close, Channel) ->
     ?SLOG(info, #{msg => "close_connection"}),
     shutdown(normal, Channel);
-handle_cast(inc_recv_pkt, Channel) ->
-    _ = emqx_pd:inc_counter(recv_pkt, 1),
-    {ok, Channel};
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
     {ok, Channel}.
@@ -523,7 +523,7 @@ enrich_connectionless_auth_info(Msg, Channel) ->
 enrich_connectionless_conninfo(
     URIQuery,
     Channel = #channel{
-        keepalive = KeepAlive,
+        heartbeat = Heartbeat,
         conninfo = ConnInfo0,
         clientinfo = ClientInfo
     }
@@ -533,14 +533,12 @@ enrich_connectionless_conninfo(
             undefined -> maps:get(clientid, ClientInfo);
             ReqClientId -> ReqClientId
         end,
-    IntervalMs = emqx_keepalive:info(check_interval, KeepAlive),
-    InternalS = floor(IntervalMs / 1000),
     NConnInfo = ConnInfo0#{
         clientid => ClientId,
         proto_name => <<"CoAP">>,
         proto_ver => <<"1">>,
         clean_start => true,
-        keepalive => InternalS,
+        keepalive => Heartbeat,
         expiry_interval => 0
     },
     Channel#channel{conninfo = NConnInfo}.
@@ -670,17 +668,15 @@ run_conn_hooks(Input, Channel) ->
         _NConnProps -> {ok, Input, Channel}
     end.
 enrich_conninfo({Queries, _Msg}, Channel) ->
-    #channel{keepalive = KeepAlive, conninfo = ConnInfo} = Channel,
+    #channel{heartbeat = Heartbeat, conninfo = ConnInfo} = Channel,
     case Queries of
         #{<<"clientid">> := ClientId} ->
-            IntervalMs = emqx_keepalive:info(check_interval, KeepAlive),
-            InternalS = floor(IntervalMs / 1000),
             NConnInfo = ConnInfo#{
                 clientid => ClientId,
                 proto_name => <<"CoAP">>,
                 proto_ver => <<"1">>,
                 clean_start => true,
-                keepalive => InternalS,
+                keepalive => Heartbeat,
                 expiry_interval => 0
             },
             {ok, Channel#channel{conninfo = NConnInfo}};
