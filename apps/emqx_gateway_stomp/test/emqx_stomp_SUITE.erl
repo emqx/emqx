@@ -197,6 +197,41 @@ t_auth_failed(_) ->
     end),
     meck:unload(emqx_access_control).
 
+-doc """
+A CONNECT whose passcode contains a colon, sent escaped as `\c` per STOMP 1.2,
+authenticates with the original password (#12917).
+""".
+t_auth_passcode_with_colon(_) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{password := <<"pa:ss">>}) -> {ok, #{is_superuser => false}};
+            (_) -> {error, bad_username_or_password}
+        end
+    ),
+    try
+        with_connection(fun(Sock) ->
+            Wire = iolist_to_binary(
+                serialize(<<"CONNECT">>, [
+                    {<<"accept-version">>, ?STOMP_VER},
+                    {<<"host">>, <<"127.0.0.1:61613">>},
+                    {<<"login">>, <<"admin">>},
+                    {<<"passcode">>, <<"pa:ss">>}
+                ])
+            ),
+            %% the serializer escapes the colon on the wire
+            ?assertNotEqual(nomatch, binary:match(Wire, <<"pa\\css">>)),
+            ok = gen_tcp:send(Sock, Wire),
+            ?assertMatch(
+                {ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)
+            )
+        end)
+    after
+        meck:unload(emqx_access_control)
+    end.
+
 t_heartbeat(_) ->
     %% Test heartbeat
     with_connection(fun(Sock) ->
