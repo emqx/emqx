@@ -100,6 +100,16 @@ delete(Validation, Pos) ->
 %% @doc Returns a list of matching validation names, sorted by their configuration order.
 -spec matching_validations(emqx_types:topic()) -> [validation()].
 matching_validations(Topic) ->
+    %% The index table is absent while the registry owner process is down; return no
+    %% matches instead of crashing the `message.publish' hook.
+    case ets:whereis(?VALIDATION_TOPIC_INDEX) of
+        undefined ->
+            [];
+        _ ->
+            do_matching_validations(Topic)
+    end.
+
+do_matching_validations(Topic) ->
     Validations0 =
         lists:flatmap(
             fun(M) ->

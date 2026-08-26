@@ -264,15 +264,24 @@ when
     TopicFilter :: binary(),
     Rule :: rule().
 get_rules_for_topic(Topic) ->
-    [
-        #{
-            rule => Rule,
-            trigger => Topic,
-            matched => join(MBinaryOrWords)
-        }
-     || {MBinaryOrWords, _} = M <- emqx_topic_index:matches(Topic, ?RULE_TOPIC_INDEX, [unique]),
-        Rule <- lookup_rule(emqx_topic_index:get_id(M))
-    ].
+    %% The index table is absent while the rule engine application is down; return no
+    %% matches instead of crashing the `message.publish' hook.
+    case ets:whereis(?RULE_TOPIC_INDEX) of
+        undefined ->
+            [];
+        _ ->
+            [
+                #{
+                    rule => Rule,
+                    trigger => Topic,
+                    matched => join(MBinaryOrWords)
+                }
+             || {MBinaryOrWords, _} = M <- emqx_topic_index:matches(
+                    Topic, ?RULE_TOPIC_INDEX, [unique]
+                ),
+                Rule <- lookup_rule(emqx_topic_index:get_id(M))
+            ]
+    end.
 
 -spec get_enriched_rules_with_matching_event_all_namespaces(EventName :: atom()) ->
     [

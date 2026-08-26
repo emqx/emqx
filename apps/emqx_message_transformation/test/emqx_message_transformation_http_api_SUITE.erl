@@ -2177,3 +2177,33 @@ t_delete_then_disable(_TCConfig) ->
     ok = publish(C, Topic, #{t => <<"t">>}),
     ?assertNotReceive({publish, _}),
     ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that `matching_transformations/1` finds matches while the topic index table
+exists, and returns no matches instead of raising when the table is absent.  The
+table is absent while the registry owner process is down, e.g. during a restart.
+""".
+t_matching_transformations_missing_index_table(_Config) ->
+    Name1 = <<"foo">>,
+    {201, _} = insert(transformation(Name1, [dummy_operation()])),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_message_transformation_registry:matching_transformations(<<"t/1">>)
+    ),
+    IndexTab = emqx_message_transformation_index,
+    Owner = ets:info(IndexTab, owner),
+    true = ets:delete(IndexTab),
+    try
+        ?assertEqual(
+            [], emqx_message_transformation_registry:matching_transformations(<<"t/1">>)
+        )
+    after
+        restore_index_table(IndexTab, Owner)
+    end,
+    ok.
+
+restore_index_table(Tab, Owner) ->
+    _ = ets:new(Tab, [named_table, public, ordered_set, {read_concurrency, true}]),
+    true = ets:give_away(Tab, Owner, undefined),
+    ok.

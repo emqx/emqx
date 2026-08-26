@@ -104,6 +104,16 @@ delete(Transformation, Pos) ->
 %% @doc Returns a list of matching transformation names, sorted by their configuration order.
 -spec matching_transformations(emqx_types:topic()) -> [transformation()].
 matching_transformations(Topic) ->
+    %% The index table is absent while the registry owner process is down; return no
+    %% matches instead of crashing the `message.publish' hook.
+    case ets:whereis(?TRANSFORMATION_TOPIC_INDEX) of
+        undefined ->
+            [];
+        _ ->
+            do_matching_transformations(Topic)
+    end.
+
+do_matching_transformations(Topic) ->
     Transformations0 =
         lists:flatmap(
             fun(M) ->

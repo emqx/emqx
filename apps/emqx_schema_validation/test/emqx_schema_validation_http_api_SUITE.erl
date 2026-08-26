@@ -1616,3 +1616,40 @@ t_delete_then_disable(_TCConfig) ->
     ok = publish(C, Topic, #{t => <<"t">>}),
     ?assertReceive({publish, _}),
     ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that `matching_validations/1` finds matches while the topic index table exists,
+and returns no matches instead of raising when the table is absent.  The table is
+absent while the registry owner process is down, e.g. during a restart.  Also checks
+that a broker-internal `$SYS` publish does not crash the `message.publish` hook while
+the table is absent.
+""".
+t_matching_validations_missing_index_table(_Config) ->
+    Name1 = <<"foo">>,
+    {201, _} = insert(validation(Name1, [sql_check()])),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_schema_validation_registry:matching_validations(<<"t/1">>)
+    ),
+    IndexTab = emqx_schema_validation_index,
+    Owner = ets:info(IndexTab, owner),
+    true = ets:delete(IndexTab),
+    try
+        ?assertEqual([], emqx_schema_validation_registry:matching_validations(<<"t/1">>)),
+        Msg = emqx_message:make(<<"$SYS/brokers/test">>, <<"{}">>),
+        ?check_trace(
+            emqx_broker:publish(Msg),
+            fun(Trace) ->
+                ?assertEqual([], ?of_kind("hook_callback_exception", Trace))
+            end
+        )
+    after
+        restore_index_table(IndexTab, Owner)
+    end,
+    ok.
+
+restore_index_table(Tab, Owner) ->
+    _ = ets:new(Tab, [named_table, public, ordered_set, {read_concurrency, true}]),
+    true = ets:give_away(Tab, Owner, undefined),
+    ok.
