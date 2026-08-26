@@ -511,9 +511,12 @@ base_listener_mountpoint.desc: """~
 base_listener_mountpoint.label: "Mountpoint"
 
 mqtt_max_awaiting_rel.desc:
-"""For each publisher session, the maximum number of QoS 2 messages for which EMQX is waiting to receive `PUBREL`. Once this limit is reached, EMQX rejects a further QoS 2 `PUBLISH` by disconnecting the client with "Receive Maximum Exceeded" error code (0x93). An entry is removed when its `PUBREL` is received or when `mqtt.await_rel_timeout` expires.
+"""For each publisher session, the maximum number of QoS1 and QoS 2 messages that EMQX is willing process concurrently.
 
-Values below 1 are treated as 1. For MQTT 5.0 clients, the effective limit is advertised as Receive Maximum in `CONNACK`, capped at `65535`."""
+* For QoS 1, EMQX does not reject a `PUBLISH` because of this setting. It accepts the packet and sends `PUBACK` as soon as the packet is processed.
+* For QoS 2, this setting limits the number of exchanges EMQX retains while waiting for `PUBREL`. Once that limit is reached, EMQX rejects a further QoS 2 `PUBLISH` by disconnecting the client with the "Receive Maximum Exceeded" error code (0x93). `mqtt.await_rel_timeout` controls when the retained entries expire, disabled by default.
+
+EMQX advertises the effective value as `Receive Maximum` in `CONNACK`. This is the maximum number of QoS 1 and QoS 2 `PUBLISH` packets that the client may have awaiting acknowledgment at one time. The client is responsible for flow control and must not exceed the advertised quota. Values below 1 are treated as 1; values above 65535, including `infinity`, are advertised as 65535."""
 
 mqtt_max_awaiting_rel.label:
 """Max Awaiting PUBREL"""
