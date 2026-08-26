@@ -135,12 +135,22 @@ def test_log(driver, dashboard_url):
     WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.XPATH, "//div[@id='app']//form"))
     )
+    # The form element is an empty shell until the schema and the config
+    # fetches resolve, so wait until it contains at least one field label
+    # before looking for specific labels.
+    WebDriverWait(driver, 30).until(
+        EC.presence_of_element_located((By.XPATH, "//div[@id='app']//form//label"))
+    )
 
     labels_to_find = ["Enable Log Handler", "Log Level", "Log Formatter", "Time Offset"]
     for label_text in labels_to_find:
-        label = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, f"//div[@id='app']//form//label[contains(., '{label_text}')]"))
-        )
+        try:
+            label = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, f"//div[@id='app']//form//label[contains(., '{label_text}')]"))
+            )
+        except TimeoutException:
+            form_text = driver.find_element(By.XPATH, "//div[@id='app']//form").text
+            raise AssertionError(f"label '{label_text}' not found on /#/log; form renders: {form_text!r}")
         label_for = label.get_attribute("for")
         if label_for:
             assert driver.find_elements(By.ID, label_for), f"Label '{label_text}' found but associated element with id '{label_for}' not found"
