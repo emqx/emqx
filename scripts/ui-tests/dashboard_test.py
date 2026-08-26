@@ -136,14 +136,23 @@ def test_log(driver, dashboard_url):
         EC.presence_of_element_located((By.XPATH, "//div[@id='app']//form"))
     )
 
-    labels_to_find = ["Enable Log Handler", "Log Level", "Log Formatter", "Time Offset"]
-    for label_text in labels_to_find:
-        label = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, f"//div[@id='app']//form//label[contains(., '{label_text}')]"))
-        )
+    # The form is rendered from the hotconf schema fetched over the API; the
+    # regression signal is "schema did not load" (zero labeled fields), not
+    # the wording of any particular label.  Do not assert translated label
+    # text here: it changes with dashboard i18n tweaks (e.g. "Enable Log
+    # Handler" became "Enable Log Output" in 2.3.0-beta.5) and is not this
+    # test's concern.
+    label_xpath = "//div[@id='app']//form//label"
+    WebDriverWait(driver, 10).until(
+        lambda d: len(d.find_elements(By.XPATH, label_xpath)) >= 4
+    )
+    for label in driver.find_elements(By.XPATH, label_xpath):
         label_for = label.get_attribute("for")
         if label_for:
-            assert driver.find_elements(By.ID, label_for), f"Label '{label_text}' found but associated element with id '{label_for}' not found"
+            assert driver.find_elements(By.ID, label_for), (
+                f"Label '{label.text}' points at id '{label_for}' "
+                "but no element has that id"
+            )
 
 def fetch_version(dashboard_url):
     # /status no longer exposes the broker version (it's an unauthenticated

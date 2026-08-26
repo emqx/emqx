@@ -37,6 +37,19 @@
     }
 """>>).
 
+-define(CONF_TWO_SERVERS, <<"""
+    exhook {
+      servers = [
+        { name = default,
+          url = "http://127.0.0.1:9000"
+        },
+        { name = test1,
+          url = "http://127.0.0.1:9001"
+        }
+      ]
+    }
+""">>).
+
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
@@ -71,12 +84,20 @@ init_per_testcase(TC, Config) when TC == t_handler_tcp; TC == t_handler_ws ->
     Config1 = common_init(TC, Config),
     emqx_common_test_helpers:listeners_enable_authn_scoped(),
     Config1;
+init_per_testcase(t_update_order_with_unhealthy_server = TC, Config) ->
+    _ = emqx_exhook_demo_svr:start(),
+    _ = emqx_exhook_demo_svr:start(<<"test1">>, 9001),
+    common_init(TC, Config);
 init_per_testcase(TC, Config) ->
     _ = emqx_exhook_demo_svr:start(),
     common_init(TC, Config).
 
 end_per_testcase(t_health_check = TC, Config) ->
     common_stop(TC, Config);
+end_per_testcase(t_update_order_with_unhealthy_server = TC, Config) ->
+    common_stop(TC, Config),
+    ok = emqx_exhook_demo_svr:stop(<<"test1">>),
+    ok = emqx_exhook_demo_svr:stop();
 end_per_testcase(TC, Config) ->
     common_stop(TC, Config),
     ok = emqx_exhook_demo_svr:stop().
@@ -89,6 +110,11 @@ emqx_conf(_) ->
     #{}.
 
 common_init(TC, Config) ->
+    ExHookConf =
+        case TC of
+            t_update_order_with_unhealthy_server -> ?CONF_TWO_SERVERS;
+            _ -> ?CONF_DEFAULT
+        end,
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -96,7 +122,7 @@ common_init(TC, Config) ->
         ] ++
             [emqx_auth || TC =:= t_access_failed_if_no_server_running] ++
             [
-                {emqx_exhook, ?CONF_DEFAULT}
+                {emqx_exhook, ExHookConf}
             ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
@@ -351,6 +377,30 @@ t_running_deduplicated_after_successful_reload(_) ->
 
     ?assertMatch(#{status := connected}, emqx_exhook_mgr:lookup(Name)),
     ?assertEqual([Name], emqx_exhook_mgr:running()).
+
+t_update_order_with_unhealthy_server(_) ->
+    Name = <<"test1">>,
+    MgrPid = erlang:whereis(emqx_exhook_mgr),
+
+    ?assertEqual([<<"default">>, Name], emqx_exhook_mgr:running()),
+
+    ok = emqx_exhook_demo_svr:stop(Name),
+    refresh_tick = erlang:send(MgrPid, refresh_tick),
+    ?retry(
+        100,
+        20,
+        begin
+            #{status := Status} = emqx_exhook_mgr:lookup(Name),
+            ?assert(lists:member(Status, [connecting, disconnected]))
+        end
+    ),
+
+    ?assertEqual(
+        {ok, ok},
+        emqx_exhook_mgr:update_config([exhook, servers], {move, Name, front})
+    ),
+    ?assertEqual(MgrPid, erlang:whereis(emqx_exhook_mgr)),
+    ?assertEqual([Name, <<"default">>], emqx_exhook_mgr:running()).
 
 t_health_check('init', Config) ->
     %% health_check and auto_reconnect logic:
