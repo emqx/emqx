@@ -56,6 +56,7 @@ persistent_session_testcases() ->
         t_persistent_sessions3,
         t_persistent_sessions4,
         t_persistent_sessions5,
+        t_persistent_sessions_filters,
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
         t_list_clients_v2_limit,
@@ -556,6 +557,77 @@ t_persistent_sessions5(Config) ->
     ),
     ok.
 
+-doc """
+Tests that `GET /clients` filters also apply to disconnected durable sessions,
+which are appended to the result after the ETS scan (#15682).
+""".
+t_persistent_sessions_filters(Config) ->
+    [N1, _N2] = ?config(cluster_nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    Auth = ?config(api_auth_header, Config),
+
+    ?assertMatch({ok, {?HTTP200, _, #{<<"data">> := []}}}, list_request(Config)),
+
+    ?check_trace(
+        begin
+            ConnectedId = ?CLIENTID(<<"connected">>),
+            DisconnectedId = ?CLIENTID(<<"disconnected">>),
+            C1 = connect_client(#{
+                port => Port1, clientid => ConnectedId, username => <<"u-connected">>
+            }),
+            C2 = connect_client(#{
+                port => Port1, clientid => DisconnectedId, username => <<"u-disconnected">>
+            }),
+            ok = stop_and_commit(C2),
+            %% Wait until the disconnected durable session is listed.
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {ok, {?HTTP200, _, #{<<"data">> := [_, _]}}},
+                    list_request(Config)
+                )
+            ),
+            %% The reported bug: `conn_state=connected` returned disconnected
+            %% durable sessions too.
+            ?assertEqual([ConnectedId], get_clients(Auth, "conn_state=connected")),
+            ?assertEqual([DisconnectedId], get_clients(Auth, "conn_state=disconnected")),
+            %% The other filters share the same code path: disconnected durable
+            %% sessions were appended to the result regardless of any filter.
+            ?assertEqual([ConnectedId], get_clients(Auth, "clientid=" ++ b2l(ConnectedId))),
+            ?assertEqual(
+                [DisconnectedId], get_clients(Auth, "clientid=" ++ b2l(DisconnectedId))
+            ),
+            ?assertEqual([ConnectedId], get_clients(Auth, "username=u-connected")),
+            ?assertEqual([DisconnectedId], get_clients(Auth, "username=u-disconnected")),
+            ?assertEqual([ConnectedId], get_clients(Auth, "like_username=u-conn")),
+            ?assertEqual([DisconnectedId], get_clients(Auth, "like_username=u-disconn")),
+            ?assertEqual([], get_clients(Auth, "username=no-such-user")),
+            ?assertEqual([], get_clients(Auth, "ip_address=1.2.3.4")),
+            %% A `gte_' + `lte_' pair produces one query clause with both bounds.
+            FutureMs = integer_to_list(erlang:system_time(millisecond) + 60_000),
+            ?assertEqual(
+                lists:sort([ConnectedId, DisconnectedId]),
+                lists:sort(
+                    get_clients(Auth, "gte_created_at=0&lte_created_at=" ++ FutureMs)
+                )
+            ),
+            ?assertEqual([], get_clients(Auth, "gte_created_at=1&lte_created_at=2")),
+            %% `conn_state=connected` skips the durable-session tail query, so the
+            %% count stays exact.
+            ?assertMatch(
+                {ok, {?HTTP200, _, #{<<"meta">> := #{<<"count">> := 1}}}},
+                list_request("conn_state=connected", Config)
+            ),
+            ok = disconnect_and_destroy_session(C1),
+            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [DisconnectedId])
+        end,
+        []
+    ),
+    ok.
+
+b2l(B) -> binary_to_list(B).
+
 %% Check that the output of `/clients/:clientid/subscriptions' has the expected keys.
 t_persistent_sessions_subscriptions1(Config) ->
     [N1, _N2] = ?config(cluster_nodes, Config),
@@ -968,6 +1040,76 @@ t_query_multiple_clients_urlencode(Config) ->
     ExpectedClients = lists:sort([C || {C, _} <- ClientIdsUsers]),
     ?assertEqual(ExpectedClients, lists:sort(get_clients(Auth, ClientsQs))),
     ?assertEqual(ExpectedClients, lists:sort(get_clients(Auth, UsersQs))).
+
+-doc """
+Tests that `GET /clients?conn_state=...` filters clients by connection state (#15682).
+""".
+t_query_clients_conn_state(Config) ->
+    ConnectedId = ?CLIENTID(<<"connected">>),
+    DisconnectedId = ?CLIENTID(<<"disconnected">>),
+    C1 = connect_client(#{port => 1883, clientid => ConnectedId, expiry => 120}),
+    C2 = connect_client(#{port => 1883, clientid => DisconnectedId, expiry => 120}),
+    ok = emqtt:disconnect(C2),
+    Auth = ?config(api_auth_header, Config),
+    %% Wait until the disconnected client is listed as disconnected.
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok,
+                {?HTTP200, _, #{
+                    <<"data">> := [_, _],
+                    <<"meta">> := #{<<"count">> := 2}
+                }}},
+            list_request(Config)
+        )
+    ),
+    ?assertEqual([ConnectedId], get_clients(Auth, "conn_state=connected")),
+    ?assertEqual([DisconnectedId], get_clients(Auth, "conn_state=disconnected")),
+    %% The count metadata must reflect the filter.
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"meta">> := #{<<"count">> := 1}}}},
+        list_request("conn_state=connected", Config)
+    ),
+    ok = disconnect_and_destroy_session(C1),
+    DisconnectedPath = emqx_mgmt_api_test_util:api_path(["clients", DisconnectedId]),
+    {ok, {?HTTP204, _, _}} = request(delete, DisconnectedPath, [], Config),
+    ok.
+
+-doc """
+Tests that `GET /clients` filters clients by `clean_start`, `proto_ver` and
+`ip_address`.  Regression coverage for the query-string parsing path shared
+with `conn_state` (#15682).
+""".
+t_query_clients_more_filters(Config) ->
+    V5Id = ?CLIENTID(<<"v5">>),
+    V4Id = ?CLIENTID(<<"v4">>),
+    C1 = connect_client(#{port => 1883, clientid => V5Id, clean_start => true}),
+    {ok, C2} = emqtt:start_link(#{clientid => V4Id, proto_ver => v4, clean_start => false}),
+    {ok, _} = emqtt:connect(C2),
+    Auth = ?config(api_auth_header, Config),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok, {?HTTP200, _, #{<<"meta">> := #{<<"count">> := 2}}}},
+            list_request(Config)
+        )
+    ),
+    ?assertEqual([V5Id], get_clients(Auth, "clean_start=true")),
+    ?assertEqual([V4Id], get_clients(Auth, "clean_start=false")),
+    ?assertEqual([V5Id], get_clients(Auth, "proto_ver=5")),
+    ?assertEqual([V4Id], get_clients(Auth, "proto_ver=4")),
+    ?assertEqual(
+        lists:sort([V5Id, V4Id]),
+        lists:sort(get_clients(Auth, "ip_address=127.0.0.1"))
+    ),
+    ?assertEqual([], get_clients(Auth, "ip_address=1.2.3.4")),
+    ok = disconnect_and_destroy_session(C1),
+    ok = emqtt:disconnect(C2),
+    V4Path = emqx_mgmt_api_test_util:api_path(["clients", V4Id]),
+    {ok, {?HTTP204, _, _}} = request(delete, V4Path, [], Config),
+    ok.
 
 t_query_clients_with_fields(Config) ->
     TCBin = atom_to_binary(?FUNCTION_NAME),
