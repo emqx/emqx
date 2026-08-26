@@ -86,8 +86,8 @@ t_session_init(_) ->
     ?assertEqual(infinity, emqx_session_mem:info(retry_interval, Session)),
     ?assertEqual(0, emqx_mqueue:len(emqx_session_mem:info(mqueue, Session))),
     ?assertEqual(0, emqx_session_mem:info(awaiting_rel_cnt, Session)),
-    ?assertEqual(100, emqx_session_mem:info(awaiting_rel_max, Session)),
-    ?assertEqual(300000, emqx_session_mem:info(await_rel_timeout, Session)),
+    ?assertEqual(32, emqx_session_mem:info(awaiting_rel_max, Session)),
+    ?assertEqual(0, emqx_session_mem:info(await_rel_timeout, Session)),
     ?assert(is_integer(emqx_session_mem:info(created_at, Session))).
 
 %%--------------------------------------------------------------------
@@ -101,7 +101,7 @@ t_session_info(_) ->
             subscriptions := #{},
             upgrade_qos := false,
             retry_interval := infinity,
-            await_rel_timeout := 300000
+            await_rel_timeout := 0
         },
         maps:from_list(emqx_session_mem:info(Keys, session()))
     ).
@@ -117,7 +117,7 @@ t_session_stats(_) ->
             mqueue_dropped := 0,
             next_pkt_id := 1,
             awaiting_rel_cnt := 0,
-            awaiting_rel_max := 100
+            awaiting_rel_max := 32
         },
         maps:from_list(Stats)
     ).
@@ -904,9 +904,15 @@ t_expire_awaiting_rel(_) ->
     ?assert(Timeout =< AwaitRelTimeout).
 
 t_expire_awaiting_rel_all(_) ->
-    Session = session(#{awaiting_rel => #{1 => 1, 2 => 2}}),
+    Session = session(#{await_rel_timeout => 1, awaiting_rel => #{1 => 1, 2 => 2}}),
     {ok, [], Session1} = emqx_session_mem:expire(clientinfo(), Session),
     ?assertEqual(#{}, emqx_session_mem:info(awaiting_rel, Session1)).
+
+t_expire_awaiting_rel_disabled(_) ->
+    AwaitingRel = #{1 => 1, 2 => 2},
+    Session = session(#{await_rel_timeout => 0, awaiting_rel => AwaitingRel}),
+    {ok, [], Session1} = emqx_session_mem:expire(clientinfo(), Session),
+    ?assertEqual(AwaitingRel, emqx_session_mem:info(awaiting_rel, Session1)).
 
 %%--------------------------------------------------------------------
 %% CT for utility functions
