@@ -1895,7 +1895,7 @@ format_msgs(MsgType, [FirstMsg | Msgs], PayloadFmt, MaxBytes) ->
             Msgs
         ),
     Data = lists:reverse(Msgs1),
-    case length(Data) < 1 + length(Msgs) of
+    case length(Data) =< length(Msgs) of
         true -> {Data, {truncated, LastMsg}};
         false -> {Data, all}
     end;
