@@ -147,6 +147,9 @@ jobs:
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --set emqxConfig.EMQX_LICENSE__KEY="$EMQX_ENTERPRISE_LICENSE" \
+            --set emqxConfig.EMQX_NODE__COOKIE="ci-smoke-test-cookie" \
+            --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND="0.0.0.0:1883" \
+            --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
@@ -170,6 +173,9 @@ jobs:
             --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --set emqxConfig.EMQX_LICENSE__KEY="$EMQX_ENTERPRISE_LICENSE" \
+            --set emqxConfig.EMQX_NODE__COOKIE="ci-smoke-test-cookie" \
+            --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND="0.0.0.0:1883" \
+            --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --wait \

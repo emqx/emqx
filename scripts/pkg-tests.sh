@@ -39,6 +39,16 @@ export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
 export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
 export PAHO_MQTT_TESTING_PATH="${PAHO_MQTT_TESTING_PATH:-/paho-mqtt-testing}"
 
+## The hardened security profile (the default since 7.0) refuses to boot with
+## the default Erlang cookie and rejects dashboard login with the unchanged
+## default password. Configure both, as a real deployment must.
+export EMQX_NODE__COOKIE='ci-smoke-test-cookie'
+export EMQX_DASHBOARD__DEFAULT_PASSWORD='CiSm0kePass1'
+export EMQX_SMOKE_PASSWORD="$EMQX_DASHBOARD__DEFAULT_PASSWORD"
+## The interoperability test connects anonymously; hardened denies clients
+## when no authenticator is configured.
+export EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN='false'
+
 SYSTEM="$("$SCRIPTS"/get-distro.sh)"
 
 if [ "$PACKAGE_TYPE" = 'tgz' ]; then
@@ -198,6 +208,9 @@ export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
 export EMQX_MQTT__MAX_TOPIC_ALIAS=10
 export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
 export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
+export EMQX_NODE__COOKIE=ci-smoke-test-cookie
+export EMQX_DASHBOARD__DEFAULT_PASSWORD=CiSm0kePass1
+export EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false
 EOF
         ## for ARM, due to CI env issue, skip start of quic listener for the moment
         # [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee -a "$emqx_env_vars" <<EOF

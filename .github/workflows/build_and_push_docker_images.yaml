@@ -103,9 +103,17 @@ jobs:
       - name: smoke test
         timeout-minutes: 5
         run: |
-          CID=$(docker run -d -p 18083:18083 $_EMQX_DOCKER_IMAGE_TAG)
+          # The hardened profile (default since 7.0) refuses the default
+          # cookie, binds the dashboard to loopback, and rejects login with
+          # the unchanged default password. Configure all three, as a real
+          # docker deployment must.
+          CID=$(docker run -d -p 18083:18083 \
+            -e EMQX_NODE__COOKIE='ci-smoke-test-cookie' \
+            -e EMQX_DASHBOARD__LISTENERS__HTTP__BIND='0.0.0.0:18083' \
+            -e EMQX_DASHBOARD__DEFAULT_PASSWORD='CiSm0kePass1' \
+            $_EMQX_DOCKER_IMAGE_TAG)
           HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
-          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+          EMQX_SMOKE_PASSWORD='CiSm0kePass1' ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
           docker rm -f $CID
           ./scripts/test/cluster-smoke-test.sh $_EMQX_DOCKER_IMAGE_TAG
 

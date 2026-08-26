@@ -4,6 +4,11 @@ services:
     hostname: emqx
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: admin
+      # The hardened profile (default since 7.0) refuses the default cookie
+      # and binds the dashboard to loopback; selenium reaches it over the
+      # compose network.
+      EMQX_NODE__COOKIE: ci-smoke-test-cookie
+      EMQX_DASHBOARD__LISTENERS__HTTP__BIND: "0.0.0.0:18083"
 
   selenium:
     shm_size: '2gb'
