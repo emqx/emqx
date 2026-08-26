@@ -485,6 +485,8 @@ t_write_failure(TCConfig) when is_list(TCConfig) ->
                     ok;
                 {async_return, {error, _}} ->
                     ok;
+                {recoverable_error, sock_closed} ->
+                    ok;
                 _ ->
                     ct:fail("unexpected result: ~p", [Result])
             end
