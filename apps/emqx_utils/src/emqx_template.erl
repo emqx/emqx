@@ -36,6 +36,7 @@
 
 -export([to_string/1]).
 -export([escape_disallowed/2]).
+-export([is_allowed/2]).
 
 -export_type([t/0]).
 -export_type([str/0]).
@@ -96,7 +97,7 @@
 %% Access module API
 -callback lookup(accessor(), _Bindings) -> {ok, _Value} | {error, reason()}.
 
--define(RE_PLACEHOLDER, "\\$\\{[.]?([a-zA-Z0-9._]*)\\}").
+-define(RE_PLACEHOLDER, "\\$\\{[.]?([a-zA-Z0-9._-]*)\\}").
 -define(RE_ESCAPE, "\\$\\{(\\$)\\}").
 
 %% @doc Parse a unicode string into a template.
@@ -197,11 +198,13 @@ escape_disallowed(Template, Allowed) ->
 find_disallowed(Vars, Allowed) ->
     lists:filter(fun(Var) -> not is_allowed(Var, Allowed) end, Vars).
 
-%% @private Return 'true' if a variable reference matches
+%% @doc Return 'true' if a variable reference matches
 %% at least one allowed variables.
 %% For `"${var_name}"' kind of reference, its a `=:=' compare
 %% for `{var_namespace, "namespace"}' kind of reference
 %% it matches the `"namespace."' prefix.
+-spec is_allowed(varname(), [varname() | {var_namespace, varname()}]) ->
+    boolean().
 is_allowed(_Var, []) ->
     false;
 is_allowed(Var, [{var_namespace, VarPrefix} | Allowed]) ->
