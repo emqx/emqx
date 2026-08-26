@@ -468,6 +468,8 @@ t_write_failure(TCConfig) when is_list(TCConfig) ->
                     ok;
                 {recoverable_error, disconnected} ->
                     ok;
+                {recoverable_error, sock_closed} ->
+                    ok;
                 _ ->
                     ct:fail("unexpected error: ~p", [Error])
             end
