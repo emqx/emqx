@@ -88,7 +88,10 @@ stop_one_app(App) ->
 
 ensure_apps_started() ->
     ?SLOG(notice, #{msg => "(re)starting_emqx_apps"}),
+    %% Refuse client connections until all apps (including plugins) are started.
+    ok = emqx_node_readiness:mark_not_ready(),
     lists:foreach(fun start_one_app/1, sorted_reboot_apps()),
+    ok = emqx_node_readiness:mark_ready(),
     ?tp(emqx_machine_boot_apps_started, #{}).
 
 start_one_app(App) ->

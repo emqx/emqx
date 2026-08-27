@@ -408,7 +408,14 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
                 undefined ->
                     {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
                 PrevConf ->
-                    MergeConf = emqx_utils_maps:deep_merge(PrevConf, Conf),
+                    %% GET returns sensitive values as `******`; restore them
+                    %% from the current config so a round-tripped body does not
+                    %% overwrite stored secrets.
+                    %% Note: dev-58's ensure_override_limiter_conf/2 call is
+                    %% dropped here — the limiter refactor (1f7db1d8fa)
+                    %% removed that helper on this branch.
+                    Conf1 = emqx_utils:deobfuscate(Conf, PrevConf),
+                    MergeConf = emqx_utils_maps:deep_merge(PrevConf, Conf1),
                     case update(Type, Name, MergeConf) of
                         {ok, #{raw_config := _RawConf}} ->
                             crud_listeners_by_id(get, #{bindings => #{id => Id}});

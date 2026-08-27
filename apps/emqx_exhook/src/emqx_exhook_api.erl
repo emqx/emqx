@@ -250,7 +250,8 @@ exhooks(post, #{body := #{<<"name">> := Name} = Body}) ->
 
 action_with_name(get, #{bindings := #{name := Name}}) ->
     get_nodes_server_info(Name);
-action_with_name(put, #{bindings := #{name := Name}, body := Body}) ->
+action_with_name(put, #{bindings := #{name := Name}, body := Body0}) ->
+    Body = deobfuscate(Name, Body0),
     case
         emqx_exhook_mgr:update_config(
             [exhook, servers],
@@ -472,8 +473,21 @@ get_raw_config() ->
     RawConfig = emqx:get_raw_config([exhook, servers], []),
     Schema = #{roots => emqx_exhook_schema:fields(exhook), fields => #{}},
     Conf = #{<<"servers">> => RawConfig},
-    #{<<"servers">> := Servers} = hocon_tconf:make_serializable(Schema, Conf, #{}),
+    #{<<"servers">> := Servers} = hocon_tconf:make_serializable(Schema, Conf, #{
+        obfuscate_sensitive_values => true
+    }),
     Servers.
+
+%% GET returns sensitive values as `******`; restore them from the current
+%% config so a round-tripped body does not overwrite stored secrets.
+deobfuscate(Name, Body) ->
+    Servers = emqx:get_raw_config([exhook, servers], []),
+    case lists:search(fun(#{<<"name">> := N}) -> N =:= Name end, Servers) of
+        {value, OldConf} ->
+            emqx_utils:deobfuscate(Body, OldConf);
+        false ->
+            Body
+    end.
 
 position_example() ->
     #{

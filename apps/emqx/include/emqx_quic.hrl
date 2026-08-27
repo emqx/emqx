@@ -9,6 +9,7 @@
 -define(MQTT_QUIC_CONN_NOERROR, 0).
 -define(MQTT_QUIC_CONN_ERROR_CTRL_STREAM_DOWN, 1).
 -define(MQTT_QUIC_CONN_ERROR_OVERLOADED, 2).
+-define(MQTT_QUIC_CONN_ERROR_NOT_READY, 3).
 
 %% Prod SAFE timeout, better than `infinity` or
 %% 5000 (gen_server default timeout)
