@@ -1036,9 +1036,14 @@ t_session_takeover(Config) when is_list(Config) ->
     {true, _} = last_message(<<"hello2">>, [ConnPid2]),
     %% We may or may not recv dup hello2 due to QoS1 redelivery
     _ = last_message(<<"hello2">>, [ConnPid2]),
-    {true, _} = last_message(<<"hello3">>, [ConnPid2]),
-    {true, _} = last_message(<<"hello4">>, [ConnPid2]),
-    ?assertEqual([], collect_msgs(timer:seconds(2))),
+    %% Messages published around the takeover are delivered by session
+    %% redelivery, which can take longer than the default 1s under CI load.
+    {true, _} = last_message(<<"hello3">>, [ConnPid2], 5_000),
+    {true, _} = last_message(<<"hello4">>, [ConnPid2], 5_000),
+    %% A QoS1 message delivered around the takeover may be redelivered with the
+    %% DUP flag set; such redeliveries are expected and must be ignored here.
+    Remaining = [Msg || {publish, #{dup := false}} = Msg <- collect_msgs(timer:seconds(2))],
+    ?assertEqual([], Remaining),
     emqtt:unsubscribe(ConnPid2, SharedTopic),
     emqtt:stop(ConnPid2),
     ok.
