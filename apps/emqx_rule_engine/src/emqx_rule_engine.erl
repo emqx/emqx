@@ -264,10 +264,12 @@ when
     TopicFilter :: binary(),
     Rule :: rule().
 get_rules_for_topic(Topic) ->
-    %% The index table is absent while the rule engine application is down; return no
-    %% matches instead of crashing the `message.publish' hook.
+    %% The supervisor owns the index table, so it exists for the whole application
+    %% lifecycle; finding it missing is an abnormal state.  Return no matches instead
+    %% of crashing the `message.publish' hook, and log so the fault stays visible.
     case ets:whereis(?RULE_TOPIC_INDEX) of
         undefined ->
+            log_missing_index_table(?RULE_TOPIC_INDEX),
             [];
         _ ->
             [
@@ -564,6 +566,19 @@ code_change(_OldVsn, State, _Extra) ->
 %%----------------------------------------------------------------------------------------
 %% Internal Functions
 %%----------------------------------------------------------------------------------------
+
+log_missing_index_table(Tab) ->
+    Level =
+        case emqx_node_readiness:is_ready() of
+            true -> error;
+            false -> warning
+        end,
+    ?SLOG_THROTTLE(
+        Level,
+        atom_to_binary(Tab),
+        #{msg => topic_index_table_missing, table => Tab},
+        #{}
+    ).
 
 with_parsed_rule(
     Params = #{id := RuleId, namespace := Namespace, sql := Sql, actions := Actions},

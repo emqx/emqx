@@ -1653,3 +1653,33 @@ restore_index_table(Tab, Owner) ->
     _ = ets:new(Tab, [named_table, public, ordered_set, {read_concurrency, true}]),
     true = ets:give_away(Tab, Owner, undefined),
     ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that the topic index and validation tables survive a restart of the registry
+worker process.  The supervisor owns the tables, so a worker restart neither loses
+configured validations nor opens a window where lookups find no table.
+""".
+t_registry_restart_keeps_index(_Config) ->
+    Name1 = <<"foo">>,
+    {201, _} = insert(validation(Name1, [sql_check()])),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_schema_validation_registry:matching_validations(<<"t/1">>)
+    ),
+    Pid = whereis(emqx_schema_validation_registry),
+    Ref = monitor(process, Pid),
+    exit(Pid, kill),
+    receive
+        {'DOWN', Ref, process, Pid, killed} -> ok
+    after 1_000 -> ct:fail(registry_not_killed)
+    end,
+    ?retry(100, 50, begin
+        NewPid = whereis(emqx_schema_validation_registry),
+        ?assert(is_pid(NewPid) andalso NewPid =/= Pid)
+    end),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_schema_validation_registry:matching_validations(<<"t/1">>)
+    ),
+    ok.

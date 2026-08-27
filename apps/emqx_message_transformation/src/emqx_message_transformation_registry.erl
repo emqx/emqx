@@ -5,8 +5,11 @@
 
 -behaviour(gen_server).
 
+-include_lib("emqx/include/logger.hrl").
+
 %% API
 -export([
+    create_tables/0,
     lookup/1,
     insert/2,
     update/3,
@@ -68,6 +71,18 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+-doc """
+Creates the registry tables.  The supervisor calls this from its `init/1` so it owns
+the tables: they exist before any child starts and outlive worker restarts.
+""".
+-spec create_tables() -> ok.
+create_tables() ->
+    _ = emqx_utils_ets:new(?TRANSFORMATION_TOPIC_INDEX, [
+        public, ordered_set, {read_concurrency, true}
+    ]),
+    _ = emqx_utils_ets:new(?TRANSFORMATION_TAB, [public, ordered_set, {read_concurrency, true}]),
+    ok.
+
 -spec lookup(transformation_name()) ->
     {ok, transformation()} | {error, not_found}.
 lookup(Name) ->
@@ -104,10 +119,12 @@ delete(Transformation, Pos) ->
 %% @doc Returns a list of matching transformation names, sorted by their configuration order.
 -spec matching_transformations(emqx_types:topic()) -> [transformation()].
 matching_transformations(Topic) ->
-    %% The index table is absent while the registry owner process is down; return no
-    %% matches instead of crashing the `message.publish' hook.
+    %% The supervisor owns the index table, so it exists for the whole application
+    %% lifecycle; finding it missing is an abnormal state.  Return no matches instead
+    %% of crashing the `message.publish' hook, and log so the fault stays visible.
     case ets:whereis(?TRANSFORMATION_TOPIC_INDEX) of
         undefined ->
+            log_missing_index_table(?TRANSFORMATION_TOPIC_INDEX),
             [];
         _ ->
             do_matching_transformations(Topic)
@@ -165,7 +182,6 @@ inc_failed(Name) ->
 %%------------------------------------------------------------------------------
 
 init(_) ->
-    create_tables(),
     State = #{},
     {ok, State}.
 
@@ -198,12 +214,18 @@ handle_cast(_Cast, State) ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-create_tables() ->
-    _ = emqx_utils_ets:new(?TRANSFORMATION_TOPIC_INDEX, [
-        public, ordered_set, {read_concurrency, true}
-    ]),
-    _ = emqx_utils_ets:new(?TRANSFORMATION_TAB, [public, ordered_set, {read_concurrency, true}]),
-    ok.
+log_missing_index_table(Tab) ->
+    Level =
+        case emqx_node_readiness:is_ready() of
+            true -> error;
+            false -> warning
+        end,
+    ?SLOG_THROTTLE(
+        Level,
+        atom_to_binary(Tab),
+        #{msg => topic_index_table_missing, table => Tab},
+        #{}
+    ).
 
 do_reindex_positions(NewTransformations, OldTransformations) ->
     lists:foreach(
