@@ -69,6 +69,12 @@ if [[ -z "${EMQX_NODE_NAME:-}" ]] && [[ -z "${EMQX_NODE__NAME:-}" ]]; then
     export EMQX_NODE_NAME="$EMQX_NAME@$EMQX_HOST"
 fi
 
+# A container's loopback is private to its network namespace, so
+# loopback-bound listeners are unreachable through published ports.
+# Bind defaulted listeners to all interfaces; `docker run -p` remains
+# the exposure decision.
+export EMQX_DEFAULT_ADDRESS="${EMQX_DEFAULT_ADDRESS:-all}"
+
 # The default rpc port discovery 'stateless' is mostly for clusters
 # having static node names. So it's troulbe-free for multiple emqx nodes
 # running on the same host.
