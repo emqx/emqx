@@ -78,6 +78,9 @@ bom.json
 ct_run*/
 apps/emqx_conf/etc/emqx.conf.all.rendered*
 rebar-git-cache.tar
+# test-generated plugin packages; root-anchored to keep tracked
+# test fixtures under apps/*/test/*_SUITE_data/ addable
+/*.tar.gz
 # build docker image locally
 .dockerignore
 .docker_image_tag
