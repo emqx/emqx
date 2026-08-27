@@ -14,20 +14,25 @@ address. When the variable is not set, the security profile policy decides
 the default address.
 
 NOTE: this module may be called without the EMQX application started,
-e.g. in schema validation code.
+e.g. in schema validation code. Schema validation also runs in the hocon
+CLI, where the Erlang node is not alive and the node name is not known:
+there the variable is only validated, never resolved, and defaulted binds
+are left untouched. The running node checks the config again at boot,
+before the listeners start, and applies the address then.
 """.
 
 -include("logger.hrl").
 
--define(PT_KEY, {?MODULE, address}).
+-define(PT_KEY, {?MODULE, value}).
+-define(PT_NODENAME_KEY, {?MODULE, nodename}).
 -define(ADDRESS_ENV_VAR, "EMQX_DEFAULT_ADDRESS").
--define(NODE_NAME_ENV_VAR, "EMQX_NODE__NAME").
 
 -export([resolve/1, clear/0]).
 
 -export_type([address/0]).
 
 -type address() :: any | loopback | inet:ip_address().
+-type value() :: default | loopback | all | nodename | inet:ip_address().
 
 %%--------------------------------------------------------------------
 %% API
@@ -40,19 +45,29 @@ Returns the address resolved from the `EMQX_DEFAULT_ADDRESS` environment
 variable when it is set, otherwise the security profile policy for the
 scope. `any` means bind all interfaces without an explicit address;
 `loopback` means the caller binds its own loopback address.
+
+When the variable is set but the Erlang node is not alive (the hocon CLI),
+returns `any` so defaulted binds stay untouched; see the module doc.
 """.
 -spec resolve(mqtt | dashboard) -> address().
 resolve(Scope) ->
-    case address() of
-        default -> profile_policy(Scope);
-        Address -> Address
+    case value() of
+        default ->
+            profile_policy(Scope);
+        Value ->
+            case is_alive() of
+                true -> address(Value);
+                false -> any
+            end
     end.
 
 -doc """
-Clears the cached address. This function is intended for testing purposes only.
+Clears the cached value. This function is intended for testing purposes only.
 """.
 clear() ->
-    persistent_term:erase(?PT_KEY).
+    _ = persistent_term:erase(?PT_KEY),
+    _ = persistent_term:erase(?PT_NODENAME_KEY),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -63,26 +78,32 @@ profile_policy(mqtt) ->
 profile_policy(dashboard) ->
     emqx_security_profile:policy(dashboard_http_default_bind).
 
-address() ->
+address(loopback) -> loopback;
+address(all) -> {0, 0, 0, 0};
+address(nodename) -> nodename_address();
+address(IP) -> IP.
+
+-spec value() -> value().
+value() ->
     case persistent_term:get(?PT_KEY, undefined) of
         undefined ->
-            cache_address();
-        Address ->
-            Address
+            cache_value();
+        Value ->
+            Value
     end.
 
-cache_address() ->
-    Address =
+cache_value() ->
+    Value =
         case os:getenv(?ADDRESS_ENV_VAR) of
             false -> default;
             "" -> default;
             "loopback" -> loopback;
-            "all" -> {0, 0, 0, 0};
-            "nodename" -> resolve_nodename();
+            "all" -> all;
+            "nodename" -> nodename;
             Literal -> parse_literal(Literal)
         end,
-    _ = persistent_term:put(?PT_KEY, Address),
-    Address.
+    _ = persistent_term:put(?PT_KEY, Value),
+    Value.
 
 parse_literal(Str) ->
     case inet:parse_address(Str) of
@@ -98,8 +119,16 @@ parse_literal(Str) ->
             exit({invalid_default_address, iolist_to_binary(Message)})
     end.
 
-resolve_nodename() ->
-    Host = nodename_host(),
+nodename_address() ->
+    case persistent_term:get(?PT_NODENAME_KEY, undefined) of
+        undefined ->
+            cache_nodename_address();
+        IP ->
+            IP
+    end.
+
+cache_nodename_address() ->
+    Host = host_part(atom_to_list(node())),
     IP =
         case inet:parse_address(Host) of
             {ok, Literal} -> Literal;
@@ -110,45 +139,12 @@ resolve_nodename() ->
         host => list_to_binary(Host),
         address => list_to_binary(inet:ntoa(IP))
     }),
+    _ = persistent_term:put(?PT_NODENAME_KEY, IP),
     IP.
 
-%% During boot, the config-generating escript calls run before the node is
-%% started, so `node()' is not usable there; bin/emqx exports the resolved
-%% node name as EMQX_NODE__NAME for those calls.
-nodename_host() ->
-    case is_alive() of
-        true -> host_part(atom_to_list(node()));
-        false -> nodename_host_from_env()
-    end.
-
-nodename_host_from_env() ->
-    case os:getenv(?NODE_NAME_ENV_VAR) of
-        false ->
-            no_node_name_error();
-        "" ->
-            no_node_name_error();
-        NodeStr ->
-            host_part(NodeStr)
-    end.
-
 host_part(NodeStr) ->
-    case string:split(NodeStr, "@") of
-        [_Name, Host] ->
-            Host;
-        _ ->
-            %% A short node name gets the short hostname as its host part.
-            {ok, Host} = inet:gethostname(),
-            Host
-    end.
-
-no_node_name_error() ->
-    Message = io_lib:format(
-        "~p is set to `nodename', but the Erlang node is not alive "
-        "and ~p is not set, so there is no node name to take the "
-        "address from.",
-        [?ADDRESS_ENV_VAR, ?NODE_NAME_ENV_VAR]
-    ),
-    exit({invalid_default_address, iolist_to_binary(Message)}).
+    [_Name, Host] = string:split(NodeStr, "@"),
+    Host.
 
 resolve_host(Host) ->
     case inet:getaddrs(Host, inet) of

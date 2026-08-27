@@ -902,14 +902,6 @@ fi
 # e.g. the 'ps' command output
 export ESCRIPT_NAME="$SHORT_NAME"
 
-## Make the resolved node name visible to the config-generating escript
-## calls, which run before the node is started: EMQX_DEFAULT_ADDRESS set
-## to 'nodename' takes the address from it. The exported value equals what
-## the config resolves to, so the added env override changes nothing else.
-if [[ "$NAME" == *@* ]]; then
-    export EMQX_NODE__NAME="$NAME"
-fi
-
 PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
 # Resolve a 'file://<path>' cookie source to the secret stored in the file.
