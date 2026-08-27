@@ -70,6 +70,12 @@ ARG EXTRA_DEPS=''
 ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 
+# A container's loopback is private to its network namespace, so
+# loopback-bound listeners are unreachable through published ports.
+# Bind defaulted listeners to all interfaces; `docker run -p` remains
+# the exposure decision.
+ENV EMQX_DEFAULT_ADDRESS=all
+
 COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=curl_static /usr/local/bin/curl /usr/bin/curl
 
