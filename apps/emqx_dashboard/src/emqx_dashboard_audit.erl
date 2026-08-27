@@ -114,9 +114,19 @@ http_request(Meta) ->
     case maps:with([method, headers, bindings, body], Meta) of
         #{body := Body} = Request when is_binary(Body) ->
             Request#{body => <<"******">>};
+        #{body := _} = Request ->
+            case is_sensitive_body_operation(Meta) of
+                true -> Request#{body => <<"******">>};
+                false -> Request
+            end;
         Request ->
             Request
     end.
+
+%% Endpoints whose request body carries a secret under a key name that
+%% the generic key-name based redaction does not cover.
+is_sensitive_body_operation(#{operation_id := <<"/license">>}) -> true;
+is_sensitive_body_operation(_) -> false.
 
 operation_result(302, _) -> success;
 operation_result(Code, _) when Code >= 300 -> failure;
