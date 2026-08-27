@@ -87,12 +87,10 @@ t_connect_disconnect(_Config) ->
     ok.
 
 connect(ClientId, Username) ->
-    Opts = [
-        {clientid, ClientId},
-        {username, Username},
-        {proto_ver, v5}
-    ],
-    {ok, Pid} = emqtt:start_link(Opts),
+    connect(#{clientid => ClientId, username => Username}).
+
+connect(Opts) when is_map(Opts) ->
+    {ok, Pid} = emqtt:start_link(maps:merge(#{proto_ver => v5}, Opts)),
     monitor(process, Pid),
     unlink(Pid),
     case emqtt:connect(Pid) of
@@ -171,4 +169,166 @@ t_session_reconnect(_Config) ->
     ),
     ok = emqx_mt_state:evict_ccache(Ns),
     ?assertEqual({ok, 0}, emqx_mt:count_clients(Ns)),
+    ok.
+
+%% A persistent session that disconnects and then reconnects with
+%% clean_start=false under a different namespace moves to the new namespace in
+%% the client index.  Regression test for emqx/emqx#18533: the resume path
+%% fires 'session.resumed' instead of 'session.created', which used to leave
+%% the client listed under the old namespace.
+t_session_resume_namespace_change({init, _Config}) ->
+    ok;
+t_session_resume_namespace_change({'end', _Config}) ->
+    ok;
+t_session_resume_namespace_change(_Config) ->
+    Ns1 = iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-ns1"]),
+    Ns2 = iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-ns2"]),
+    C = ?NEW_CLIENTID(),
+    Pid1 = connect(#{
+        clientid => C,
+        username => Ns1,
+        clean_start => false,
+        properties => #{'Session-Expiry-Interval' => 300}
+    }),
+    {ok, #{proc := CPid1}} =
+        ?block_until(#{?snk_kind := multi_tenant_client_added, tns := Ns1}, 3000),
+    ?assertEqual({ok, [C]}, emqx_mt:list_clients(Ns1)),
+    ok = emqtt:disconnect(Pid1),
+    _ = ?WAIT_FOR_DOWN(Pid1, 3000),
+    {Pid2, {ok, _}} =
+        ?wait_async_action(
+            connect(#{
+                clientid => C,
+                username => Ns2,
+                clean_start => false,
+                properties => #{'Session-Expiry-Interval' => 300}
+            }),
+            #{?snk_kind := multi_tenant_client_added, tns := Ns2},
+            3000
+        ),
+    %% The resumed session took over the old channel process; its 'DOWN'
+    %% removes the stale entry from the old namespace.
+    {ok, _} =
+        ?block_until(#{?snk_kind := multi_tenant_client_proc_deleted, proc := CPid1}, 3000),
+    ?assertEqual({ok, [C]}, emqx_mt:list_clients(Ns2)),
+    ?assertEqual({ok, []}, emqx_mt:list_clients(Ns1)),
+    ?assertEqual({ok, 1}, emqx_mt:count_clients(Ns2)),
+    ?assertEqual({ok, 0}, emqx_mt:count_clients(Ns1)),
+    ok = emqtt:stop(Pid2),
+    ok.
+
+%% A persistent session taken over while the previous connection is still
+%% live, under a different namespace, moves to the new namespace in the
+%% client index.
+t_session_takeover_namespace_change({init, _Config}) ->
+    ok;
+t_session_takeover_namespace_change({'end', _Config}) ->
+    ok;
+t_session_takeover_namespace_change(_Config) ->
+    Ns1 = iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-ns1"]),
+    Ns2 = iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-ns2"]),
+    C = ?NEW_CLIENTID(),
+    Pid1 = connect(#{
+        clientid => C,
+        username => Ns1,
+        clean_start => false,
+        properties => #{'Session-Expiry-Interval' => 300}
+    }),
+    {ok, #{proc := CPid1}} =
+        ?block_until(#{?snk_kind := multi_tenant_client_added, tns := Ns1}, 3000),
+    {Pid2, {ok, _}} =
+        ?wait_async_action(
+            connect(#{
+                clientid => C,
+                username => Ns2,
+                clean_start => false,
+                properties => #{'Session-Expiry-Interval' => 300}
+            }),
+            #{?snk_kind := multi_tenant_client_added, tns := Ns2},
+            3000
+        ),
+    ?assertMatch(
+        {shutdown, {disconnected, ?RC_SESSION_TAKEN_OVER, _}},
+        ?WAIT_FOR_DOWN(Pid1, 3000)
+    ),
+    {ok, _} =
+        ?block_until(#{?snk_kind := multi_tenant_client_proc_deleted, proc := CPid1}, 3000),
+    ?assertEqual({ok, [C]}, emqx_mt:list_clients(Ns2)),
+    ?assertEqual({ok, []}, emqx_mt:list_clients(Ns1)),
+    ok = emqtt:stop(Pid2),
+    ok.
+
+%% A persistent session that reconnects with clean_start=false under the same
+%% namespace stays listed once, with no duplicate entry.
+t_session_resume_same_namespace({init, _Config}) ->
+    ok;
+t_session_resume_same_namespace({'end', _Config}) ->
+    ok;
+t_session_resume_same_namespace(_Config) ->
+    Ns = ?NEW_USERNAME(),
+    C = ?NEW_CLIENTID(),
+    Pid1 = connect(#{
+        clientid => C,
+        username => Ns,
+        clean_start => false,
+        properties => #{'Session-Expiry-Interval' => 300}
+    }),
+    {ok, #{proc := CPid1}} =
+        ?block_until(#{?snk_kind := multi_tenant_client_added, tns := Ns}, 3000),
+    ok = emqtt:disconnect(Pid1),
+    _ = ?WAIT_FOR_DOWN(Pid1, 3000),
+    {Pid2, {ok, _}} =
+        ?wait_async_action(
+            connect(#{
+                clientid => C,
+                username => Ns,
+                clean_start => false,
+                properties => #{'Session-Expiry-Interval' => 300}
+            }),
+            #{?snk_kind := multi_tenant_client_added, tns := Ns},
+            3000
+        ),
+    {ok, _} =
+        ?block_until(#{?snk_kind := multi_tenant_client_proc_deleted, proc := CPid1}, 3000),
+    ?assertEqual({ok, [C]}, emqx_mt:list_clients(Ns)),
+    ?assertEqual({ok, 1}, emqx_mt:count_clients(Ns)),
+    ok = emqtt:stop(Pid2),
+    ok.
+
+%% A client that reconnects with clean_start=true under a different namespace
+%% moves to the new namespace in the client index (the 'session.created' path;
+%% guards against regressing the already-working behavior).
+t_session_clean_start_namespace_change({init, _Config}) ->
+    ok;
+t_session_clean_start_namespace_change({'end', _Config}) ->
+    ok;
+t_session_clean_start_namespace_change(_Config) ->
+    Ns1 = iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-ns1"]),
+    Ns2 = iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-ns2"]),
+    C = ?NEW_CLIENTID(),
+    Pid1 = connect(#{
+        clientid => C,
+        username => Ns1,
+        clean_start => false,
+        properties => #{'Session-Expiry-Interval' => 300}
+    }),
+    {ok, #{proc := CPid1}} =
+        ?block_until(#{?snk_kind := multi_tenant_client_added, tns := Ns1}, 3000),
+    ok = emqtt:disconnect(Pid1),
+    _ = ?WAIT_FOR_DOWN(Pid1, 3000),
+    {Pid2, {ok, _}} =
+        ?wait_async_action(
+            connect(#{
+                clientid => C,
+                username => Ns2,
+                clean_start => true
+            }),
+            #{?snk_kind := multi_tenant_client_added, tns := Ns2},
+            3000
+        ),
+    {ok, _} =
+        ?block_until(#{?snk_kind := multi_tenant_client_proc_deleted, proc := CPid1}, 3000),
+    ?assertEqual({ok, [C]}, emqx_mt:list_clients(Ns2)),
+    ?assertEqual({ok, []}, emqx_mt:list_clients(Ns1)),
+    ok = emqtt:stop(Pid2),
     ok.
