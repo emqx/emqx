@@ -1,0 +1,3 @@
+## Intentionally empty. The plugin manager copies this file to
+## data/plugins/emqx_relup/config.hocon on install; without it,
+## installation logs failed_to_copy_plugin_default_hocon_config.
