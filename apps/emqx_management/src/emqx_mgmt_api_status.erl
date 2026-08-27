@@ -136,8 +136,15 @@ broker_status() ->
 
 application_status() ->
     case lists:keysearch(emqx, 1, application:which_applications()) of
-        false -> not_running;
-        {value, _Val} -> running
+        false ->
+            not_running;
+        {value, _Val} ->
+            %% Report 503 while the node boot is still in progress
+            %% and MQTT connections are refused.
+            case emqx_node_readiness:is_ready() of
+                true -> running;
+                false -> not_running
+            end
     end.
 
 cluster() ->

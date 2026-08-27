@@ -43,6 +43,10 @@ for fn in /var/log/kerberos/* ; do
   cat "$fn"
 done
 
+# The test containers read these keytabs as a non-root user; keep them
+# readable no matter who owns them by the time consumers open them.
+chmod a+r /var/lib/secret/*.keytab
+
 if [ -n "${DOCKER_USER}" ] && [ "${DOCKER_USER}" != "root" ] ; then
 echo "===== Changing keytabs ownership"
 chown "${DOCKER_USER}" /var/lib/secret/erlang.keytab
