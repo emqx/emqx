@@ -244,13 +244,14 @@ on_namespace_resource_pre_create(#{?namespace := Namespace}, ResCtx) when is_bin
 %%   * Reason `no_subscribers' is the only one that has a dedicated
 %%     fine-grained global counter ticked at the call site
 %%     (`emqx_broker:inc_dropped_cnt/1'); we mirror it per-namespace.
-%%   * QoS2 PUBREL await-timeout drops bump the global
-%%     `messages.dropped.await_pubrel_timeout' counter via
-%%     `emqx_session_events:inc_await_pubrel_timeout/1' but do not fire the
-%%     `message.dropped' hook (the event carries only a count, not the
-%%     `#message{}'s). So the per-namespace counter for that reason stays at
-%%     zero until the upstream gap is closed. Tracked in
-%%     https://github.com/emqx/emqx/issues/17663.
+%%   * QoS2 PUBREL await-timeout is not a message drop and must not fire the
+%%     `message.dropped' hook. EMQX publishes a QoS2 message to subscribers when
+%%     the PUBLISH arrives, not when the PUBREL does (see
+%%     `emqx_session_mem:publish/3'). What expires afterwards is the packet-ID
+%%     de-duplication state, so the message was delivered. The global
+%%     `messages.dropped.await_pubrel_timeout' counter is kept for backwards
+%%     compatibility but counts expired receive-flow state, not undelivered
+%%     messages. There is therefore no per-namespace counter for that reason.
 on_message_dropped(Msg, _Info, Reason) ->
     inc_ns(ns_from_msg(Msg), drop_metric_names('messages.dropped', Reason)).
 
