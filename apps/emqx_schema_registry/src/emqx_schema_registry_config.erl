@@ -23,6 +23,9 @@
 %% Internal exports for application
 -export([protobuf_bundle_data_dir/1]).
 
+%% Hooks
+-export([serde_updated_hook/1]).
+
 %% `emqx_config_handler' API
 -export([pre_config_update/3, post_config_update/5]).
 
@@ -173,6 +176,9 @@ post_config_update(
     end,
     case emqx_schema_registry:build_serdes([{NewName, NewSchema}]) of
         ok ->
+            %% run hook in worker pool to avoid blocking config update for long.
+            Ctx = #{name => NewName},
+            emqx_pool:async_submit(fun ?MODULE:serde_updated_hook/1, [Ctx]),
             {ok, #{NewName => NewSchema}};
         {error, Reason, SerdesToRollback} ->
             lists:foreach(fun emqx_schema_registry:ensure_serde_absent/1, SerdesToRollback),
@@ -240,6 +246,13 @@ prepare_protobuf_files_for_export(
     RawConf0#{<<"schema_registry">> := SR0#{<<"schemas">> := Schemas}};
 prepare_protobuf_files_for_export(RawConf) ->
     RawConf.
+
+%%------------------------------------------------------------------------------
+%% Hooks
+%%------------------------------------------------------------------------------
+
+serde_updated_hook(Ctx) ->
+    emqx_hooks:run('schema_registry.serde_updated', [Ctx]).
 
 %%------------------------------------------------------------------------------
 %% Internal fns

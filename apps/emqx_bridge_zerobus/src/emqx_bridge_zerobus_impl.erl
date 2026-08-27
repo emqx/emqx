@@ -39,6 +39,10 @@
 -export([rest_reply_delegator/3]).
 -export([set_health/3]).
 
+-export_type([
+    proto_record/0
+]).
+
 %%------------------------------------------------------------------------------
 %% Type declarations
 %%------------------------------------------------------------------------------
@@ -372,10 +376,11 @@ gun_opts(ConnConfig) ->
         #{scheme := "https"} ->
             #{
                 transport => ssl,
-                tls_opts => emqx_tls_lib:to_client_opts(SSL#{enable => true})
+                tls_opts => emqx_tls_lib:to_client_opts(SSL#{enable => true}),
+                retry => 0
             };
         _ ->
-            #{transport => tcp}
+            #{transport => tcp, retry => 0}
     end.
 
 map_token_errors({token_endpoint_error, 401, Details}) ->
@@ -454,9 +459,9 @@ grpc_connector_health_check(ConnState) ->
                 [] ->
                     ?status_connected;
                 [{error, Reason} | _] ->
-                    {?status_disconnected, Reason};
+                    {?status_disconnected, map_grpc_health_check_error(Reason)};
                 [Error | _] ->
-                    {?status_disconnected, Error}
+                    {?status_disconnected, map_grpc_health_check_error(Error)}
             end
     catch
         exit:timeout ->
@@ -464,6 +469,13 @@ grpc_connector_health_check(ConnState) ->
         Kind:Reason:Stacktrace ->
             {?status_disconnected, {Kind, Reason, Stacktrace}}
     end.
+
+map_grpc_health_check_error({shutdown, Reason}) ->
+    map_grpc_health_check_error(Reason);
+map_grpc_health_check_error({error, Reason}) ->
+    map_grpc_health_check_error(Reason);
+map_grpc_health_check_error(Reason) ->
+    Reason.
 
 ehttpc_connector_health_check(ConnResId) ->
     case ehttpc:check_pool_integrity(ConnResId) of
@@ -550,7 +562,19 @@ do_fold_grpc_optvar_results(Keys) ->
         end,
         Results
     ),
+    case sort_status(Errors0) of
+        [{Status, Reason} | _] ->
+            {Status, Reason};
+        [Status | _] ->
+            Status;
+        [] ->
+            ?status_connected
+    end.
+
+%% {disconnected, unhealthy_target} > disconnected > connecting > connected
+sort_status(Errors0) ->
     ToStatus = fun
+        ({S, {unhealthy_target, _}}) -> {S, unhealthy_target};
         ({S, _Reason}) -> S;
         (S) -> S
     end,
@@ -559,14 +583,7 @@ do_fold_grpc_optvar_results(Keys) ->
         S2 = ToStatus(S2A),
         S1 > S2
     end,
-    case lists:sort(CompareFn, Errors0) of
-        [{Status, Reason} | _] ->
-            {Status, Reason};
-        [Status | _] ->
-            Status;
-        [] ->
-            ?status_connected
-    end.
+    lists:sort(CompareFn, Errors0).
 
 -spec start_connector(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, any()}.
@@ -737,8 +754,16 @@ create_channel(ConnResId, ChanResId, ChanConfig, #{?transport := {?grpc, _}} = C
             #{type := json} ->
                 ?json;
             #{type := proto} ->
-                Proto = get_serde(Record0),
-                {?proto, Proto}
+                case emqx_bridge_zerobus_utils:get_serde(Record0) of
+                    {ok, Proto} ->
+                        {?proto, Proto};
+                    {error, schema_not_found} ->
+                        throw(~"Schema not found");
+                    {error, bad_type} ->
+                        throw(~"Invalid schema type; must be protobuf");
+                    {error, message_type_not_found} ->
+                        throw(~"Message type not found in protobuf schema/bundle")
+                end
         end,
     Opts = #{
         action_res_id => ChanResId,
@@ -876,59 +901,6 @@ unregister_oauth2(ConnResId, ChanResId) ->
     emqx_connector_oauth2:unregister(ChanResId),
     deallocate(ConnResId, ?oauth2(ChanResId)),
     ok.
-
--spec get_serde(record_config()) -> proto_record().
-get_serde(Record) ->
-    #{
-        schema_name := SerdeName,
-        message_type := MessageType
-    } = Record,
-    case emqx_schema_registry:get_serde(SerdeName) of
-        {error, not_found} ->
-            throw(~"Schema not found");
-        {ok, #serde{type = Type}} when Type /= ?protobuf ->
-            throw(~"Invalid schema type; must be protobuf");
-        {ok, #serde{type = ?protobuf, eval_context = SerdeMod}} ->
-            FileDescriptorSetBin = apply(SerdeMod, descriptor, []),
-            FileDescriptorSet = emqx_bridge_zerobus_gen_descriptor_pb:decode_msg(
-                FileDescriptorSetBin, 'FileDescriptorSet'
-            ),
-            DescriptorProtoBin = find_descriptor_proto(FileDescriptorSet, MessageType),
-            MessageTypeAtom = binary_to_existing_atom(MessageType, utf8),
-            #{
-                ?serde_name => SerdeName,
-                ?message_type => MessageTypeAtom,
-                ?descriptor => DescriptorProtoBin
-            }
-    end.
-
-find_descriptor_proto(FileDescriptorSet, MessageType) ->
-    #{file := Files} = FileDescriptorSet,
-    case do_find_descriptor_proto_file(Files, MessageType) of
-        error ->
-            throw(~"Message type not found in protobuf schema/bundle");
-        {ok, DescriptorProto} ->
-            emqx_bridge_zerobus_gen_descriptor_pb:encode_msg(
-                DescriptorProto, 'DescriptorProto'
-            )
-    end.
-
-do_find_descriptor_proto_file([], _MessageType) ->
-    error;
-do_find_descriptor_proto_file([#{message_type := Types} | Rest], MessageType) ->
-    case do_find_descriptor_proto_message_type(Types, MessageType) of
-        error ->
-            do_find_descriptor_proto_file(Rest, MessageType);
-        {ok, DescriptorProto} ->
-            {ok, DescriptorProto}
-    end.
-
-do_find_descriptor_proto_message_type([], _MessageType) ->
-    error;
-do_find_descriptor_proto_message_type([#{name := MessageType} = DescriptorProto | _], MessageType) ->
-    {ok, DescriptorProto};
-do_find_descriptor_proto_message_type([_ | Rest], MessageType) ->
-    do_find_descriptor_proto_message_type(Rest, MessageType).
 
 do_insert_batch(
     Records0, ?sync, ChanState, #{?transport := {?rest, _}} = _ConnState, ConnResId, ChanResId
@@ -1099,3 +1071,34 @@ reinject_token({Path, Headers0, Body} = Request0, ChanResId) ->
             %% if we can't get the token right now... tough luck.  let it expire.
             Request0
     end.
+
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+status_ordering_test() ->
+    Status0 = [
+        ?status_connecting,
+        ?status_connected,
+        {?status_connecting, ~"stream closed"},
+        {?status_connected, ~"shouldn't happen, but..."},
+        {?status_disconnected, ~"boom"},
+        {?status_disconnected, {unhealthy_target, ~"needs manual intervention"}},
+        ?status_disconnected
+    ],
+    ?assertEqual(
+        [
+            {?status_disconnected, {unhealthy_target, ~"needs manual intervention"}},
+            ?status_disconnected,
+            {?status_disconnected, ~"boom"},
+            {?status_connecting, ~"stream closed"},
+            ?status_connecting,
+            {?status_connected, ~"shouldn't happen, but..."},
+            ?status_connected
+        ],
+        sort_status(Status0)
+    ),
+    ok.
+-endif.

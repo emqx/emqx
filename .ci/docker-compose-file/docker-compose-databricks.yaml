@@ -1,0 +1,16 @@
+# docker compose -f .ci/docker-compose-file/docker-compose-databricks.yaml up --build
+services:
+  databricks_sql:
+    container_name: databricks_sql
+    image: python:3-slim
+    build: ./databricks/
+    working_dir: /work
+    networks:
+        emqx_bridge:
+    volumes:
+      - ./databricks:/work
+    stop_grace_period: 0s
+
+networks:
+  emqx_bridge:
+    external: true

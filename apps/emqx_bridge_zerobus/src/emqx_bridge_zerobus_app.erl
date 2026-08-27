@@ -17,9 +17,11 @@
 %%------------------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
+    emqx_bridge_zerobus_hookcb:register_hooks(),
     emqx_bridge_zerobus_sup:start_link().
 
 stop(_State) ->
+    emqx_bridge_zerobus_hookcb:unregister_hooks(),
     ok.
 
 %%------------------------------------------------------------------------------

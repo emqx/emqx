@@ -14,6 +14,22 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("grpc/include/grpc.hrl").
 
+-moduledoc """
+To run against a real databricks zerobus instance:
+
+  1) Copy `.ci/docker-compose-file/databricks/zerobus.hocon.example` elsewhere and fill in
+     the values.
+  2) Run the sql container with:
+     ```
+     docker compose -f .ci/docker-compose-file/docker-compose-databricks.yaml up
+     ```
+  3) Set the hocon path and run this test suite.
+     ```
+     export REAL_ZEROBUS_HOCON=/emqx/zerobus.hocon
+     mix ct --suites ...
+     ```
+""".
+
 %%------------------------------------------------------------------------------
 %% Defs
 %%------------------------------------------------------------------------------
@@ -55,26 +71,36 @@ groups() ->
     emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(TCConfig) ->
-    {Mock, ConnConfig, ActionConfig} =
+    {Mock, ConnConfig, ActionConfig, ExtraRealConfig} =
         case os:getenv("REAL_ZEROBUS_HOCON", "") of
             "" ->
                 {
                     _Mock = true,
-                    _ConnConfig = undefined,
-                    _ActionConfig = undefined
+                    _ConnConfig = not_mocked,
+                    _ActionConfig = not_mocked,
+                    _ExtraRealConfig = not_mocked
                 };
             HoconPath ->
                 case hocon:files([HoconPath]) of
                     {error, Reason} ->
                         error({failed_to_load_real_zerobus_hocon, HoconPath, Reason});
                     {ok, #{
+                        ~"zerobus_sql_warehouse_hostname" := Hostname,
+                        ~"zerobus_sql_warehouse_http_path" := HTTPPath,
+                        ~"zerobus_sql_warehouse_access_token" := Token,
                         ~"connectors" := #{?CONNECTOR_TYPE_BIN := #{~"test" := ConnConfig0}},
                         ~"actions" := #{?ACTION_TYPE_BIN := #{~"test" := ActionConfig0}}
                     }} ->
+                        ExtraRealConfig0 = #{
+                            hostname => Hostname,
+                            http_path => HTTPPath,
+                            token => Token
+                        },
                         {
                             _Mock = false,
                             ConnConfig0,
-                            ActionConfig0
+                            ActionConfig0,
+                            ExtraRealConfig0
                         };
                     {ok, Conf} ->
                         error({invalid_real_zerobus_hocon, HoconPath, Conf})
@@ -102,7 +128,8 @@ init_per_suite(TCConfig) ->
         {apps, Apps},
         {?mock, Mock},
         {real_connector_config, ConnConfig},
-        {real_action_config, ActionConfig}
+        {real_action_config, ActionConfig},
+        {extra_real_config, ExtraRealConfig}
         | TCConfig
     ].
 
@@ -157,6 +184,7 @@ pre_init_per_testcase(TestCase, TCConfig0) when is_list(TCConfig0) ->
                     ]
             end;
         false ->
+            truncate_real_table(TCConfig0),
             TCConfig0
     end.
 
@@ -223,8 +251,9 @@ do_init_per_testcase(TestCase, TCConfig) ->
     ok = create_serde(TCConfig1),
     TCConfig1.
 
-end_per_testcase(_TestCase, _TCConfig) ->
+end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
+    truncate_real_table(TCConfig),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
@@ -240,7 +269,7 @@ now_ns() ->
 skip_invalid(TestCase, TCConfig) ->
     IsMockOnly = get_tc_prop(TestCase, ?mock_only, false),
     IsRealOnly = get_tc_prop(TestCase, ?real_only, false),
-    IsMock = get_config(?mock, TCConfig),
+    IsMock = is_mock(TCConfig),
     case 1 of
         _ when IsMock andalso IsRealOnly ->
             {skip, "test only run with real zerobus"};
@@ -249,6 +278,9 @@ skip_invalid(TestCase, TCConfig) ->
         _ ->
             ok
     end.
+
+is_mock(TCConfig) ->
+    get_config(?mock, TCConfig).
 
 maybe_with_forced_sync_query_mode(TCConfig, Fn) ->
     case query_mode(TCConfig) of
@@ -527,6 +559,7 @@ spy_create_stream(TCConfig) ->
         ct:pal("msg: ~p;\n  req: ~p", [Msg, Req]),
         #{payload := {create_stream = Type, Req1}} = Msg,
         ets:insert(Tab, {now_ns(), #{type => Type, req => Req1, meta => Meta}}),
+        ct:pal("grpc server ~p acking create stream", [self()]),
         grpc_stream:reply(Req, [#{payload => {create_stream_response, #{}}}]),
         continue
     end.
@@ -536,6 +569,7 @@ spy_ingest_record_batch(TCConfig) ->
     fun(Msg, Req, Meta) ->
         #{payload := {ingest_record_batch = Type, #{offset_id := Id} = Req1}} = Msg,
         ets:insert(Tab, {now_ns(), #{type => Type, req => Req1, meta => Meta}}),
+        ct:pal("grpc server ~p acking seq ~p", [self(), Id]),
         grpc_stream:reply(Req, [
             #{
                 payload =>
@@ -563,6 +597,17 @@ simple_protobuf_schema1() ->
         	optional string device_name = 1;
         	optional int32 temp = 2;
         	optional int64 humidity = 3;
+        }
+    """.
+
+simple_protobuf_schema2() ->
+    ~"""
+        syntax = "proto2";
+
+        package air_quality;
+
+        message table_air_quality {
+        	optional string new_field = 1;
         }
     """.
 
@@ -678,9 +723,79 @@ read_table(#{mock := true} = TCConfig) ->
         end,
         ets:tab2list(Tab)
     );
-read_table(#{mock := false}) ->
-    %% todo: will require a test container that can read the table.
-    ct:fail(unimplemented).
+read_table(#{mock := false} = TCConfig) ->
+    SQL = fmt(~"select * from ${fqn}", #{fqn => real_table_fqn(TCConfig)}),
+    run_real_sql(TCConfig, #{sql => SQL}).
+
+truncate_real_table(TCConfig) when is_list(TCConfig) ->
+    truncate_real_table(maps:from_list(TCConfig));
+truncate_real_table(#{mock := true}) ->
+    ok;
+truncate_real_table(#{mock := false} = TCConfig) ->
+    SQL = fmt(~"truncate table ${fqn}", #{fqn => real_table_fqn(TCConfig)}),
+    run_real_sql(TCConfig, #{sql => SQL}).
+
+real_table_fqn(TCConfig) when is_list(TCConfig) ->
+    real_table_fqn(maps:from_list(TCConfig));
+real_table_fqn(#{mock := true}) ->
+    error(mocked);
+real_table_fqn(#{mock := false} = TCConfig) ->
+    #{
+        real_action_config := #{
+            ~"parameters" := #{
+                ~"catalog" := Catalog,
+                ~"schema" := Schema,
+                ~"table" := Table
+            }
+        }
+    } = TCConfig,
+    fmt(~"${c}.${s}.${t}", #{c => Catalog, s => Schema, t => Table}).
+
+run_real_sql(TCConfig, Opts) when is_list(TCConfig) ->
+    run_real_sql(maps:from_list(TCConfig), Opts);
+run_real_sql(#{mock := true}, _Opts) ->
+    error(mocked);
+run_real_sql(#{mock := false} = TCConfig, Opts) ->
+    #{sql := SQL} = Opts,
+    #{
+        extra_real_config := #{
+            hostname := Hostname,
+            http_path := HTTPPath,
+            token := Token
+        }
+    } = TCConfig,
+    Body = emqx_utils_json:encode(#{
+        hostname => Hostname,
+        path => HTTPPath,
+        token => Token,
+        sql => SQL
+    }),
+    maybe
+        {ok, {{_, 200, _}, _, RespBody}} ?=
+            httpc:request(
+                post,
+                {"http://databricks_sql:8000/sql", [], "application/json", Body},
+                [],
+                []
+            ),
+        emqx_utils_json:decode(RespBody)
+    end.
+
+list_create_stream_reqs(TCConfig) when is_list(TCConfig) ->
+    list_create_stream_reqs(maps:from_list(TCConfig));
+list_create_stream_reqs(#{mock := false}) ->
+    error(not_mocked);
+list_create_stream_reqs(#{mock := true} = TCConfig) ->
+    #{mocked_call_tab := Tab} = TCConfig,
+    lists:filtermap(
+        fun
+            ({_, #{type := create_stream} = Call}) ->
+                {true, Call};
+            (_) ->
+                false
+        end,
+        ets:tab2list(Tab)
+    ).
 
 simple_create_rule_api(TCConfig) ->
     simple_create_rule_api(default_sql(), TCConfig).
@@ -845,6 +960,12 @@ server_shutdown_action() ->
     {shutdown, ?GRPC_STATUS_UNAVAILABLE, <<
         "Stream timeout reached. Closing the stream (ID: ...)."
         " Error Code: 6002, Error State: 0."
+    >>}.
+
+invalid_argument_action() ->
+    {shutdown, ?GRPC_STATUS_INVALID_ARGUMENT, <<
+        "Record decoder/encoder error: invalid digit found in string at"
+        " line 1 column 19. Error Code: 4044, Error State: 3."
     >>}.
 
 %%------------------------------------------------------------------------------
@@ -1414,7 +1535,8 @@ t_bad_json_data(TCConfig) when is_list(TCConfig) ->
         "Record decoder/encoder error: invalid digit found in string at"
         " line 1 column 19. Error Code: 4044, Error State: 3."
     >>,
-    case transport_of(TCConfig) of
+    IsMock = is_mock(TCConfig),
+    case IsMock andalso transport_of(TCConfig) of
         ?rest ->
             set_mocked_rest_response(
                 400,
@@ -1428,7 +1550,9 @@ t_bad_json_data(TCConfig) when is_list(TCConfig) ->
                 St#{
                     ingest_record_batch => [{shutdown, ?GRPC_STATUS_INVALID_ARGUMENT, ErrorMsg}]
                 }
-            end)
+            end);
+        _ ->
+            ok
     end,
     %% missing all fields, unknown field
     emqtt:publish(C, RuleTopic, ~|{"a": 1}|, [{qos, 1}]),
@@ -1488,7 +1612,7 @@ Makes a sync call that will timeout.  Even though it's recoverable, the timeout 
 request TTL, so in practice the request will expire.
 """.
 t_grpc_sync_ingest_timeout() ->
-    [{matrix, true}].
+    [{matrix, true}, {mock_only, true}].
 t_grpc_sync_ingest_timeout(matrix) ->
     [[?grpc, ?proto, ?sync, ?not_batching]];
 t_grpc_sync_ingest_timeout(TCConfig) when is_list(TCConfig) ->
@@ -2482,18 +2606,323 @@ t_close_stream(TCConfig) ->
     ?assertReceive({grpc_server_handler_exit, _}),
     ok.
 
-%% -doc """
-%% When the schema used by an already-running channel changes, it needs to get the new
-%% descriptor proto and re-open the stream.
-%% """.
-%% t_proto_schema_changed_while_running() ->
-%%     [{matrix, true}, {mock_only, true}].
-%% t_proto_schema_changed_while_running(matrix) ->
-%%     [[?grpc, ?proto, ?async, ?batching]];
-%% t_proto_schema_changed_while_running(TCConfig) when is_list(TCConfig) ->
-%%     ct:fail(todo),
-%%     ok.
+-doc """
+When the schema used by an already-running channel changes, it needs to get the new
+descriptor proto and re-open the stream.
 
-%% todo
-%%  - stale responses
-%%  - connection refused when creating
+This covers the happy path.
+""".
+t_proto_schema_changed_while_running() ->
+    [{matrix, true}, {mock_only, true}].
+t_proto_schema_changed_while_running(matrix) ->
+    [[?grpc, ?proto, ?async, ?batching]];
+t_proto_schema_changed_while_running(TCConfig) when is_list(TCConfig) ->
+    PoolSize = 2,
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"transport" => #{~"pool_size" => PoolSize}
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+    SQL = ~"""
+      select
+        payload.new_field as new_field
+      from '${t}'
+    """,
+    #{topic := RuleTopic} = simple_create_rule_api(SQL, TCConfig),
+    C = start_client(),
+    %% new schema
+    ct:pal("updating schema"),
+    {ok, SRef0} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := "zerobus_opening_stream"}),
+        PoolSize,
+        5_000
+    ),
+    update_serde(TCConfig, #{
+        ~"type" => ~"protobuf",
+        ~"source" => simple_protobuf_schema2()
+    }),
+    {ok, _} = snabbkaffe:receive_events(SRef0),
+    Payload = emqx_utils_json:encode(#{~"new_field" => ~"hello"}),
+    emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            [
+                #{req := #{descriptor_proto := OldDescriptor}},
+                #{req := #{descriptor_proto := OldDescriptor}},
+                #{req := #{descriptor_proto := NewDescriptor}},
+                #{req := #{descriptor_proto := NewDescriptor}}
+            ] when OldDescriptor /= NewDescriptor,
+            list_create_stream_reqs(TCConfig)
+        )
+    ),
+    ?retry(
+        700,
+        10,
+        ?assertMatch(
+            {200, #{
+                ~"metrics" := #{
+                    ~"matched" := 1,
+                    ~"success" := 1,
+                    ~"failed" := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
+    ),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                ~"status" := ~"connected"
+            }},
+            get_action_api(TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+When the schema used by an already-running channel changes, it needs to get the new
+descriptor proto and re-open the stream.
+
+This covers errors such as message type not found, bad serde type, ...
+""".
+t_proto_schema_changed_while_running_errors() ->
+    [{matrix, true}, {mock_only, true}].
+t_proto_schema_changed_while_running_errors(matrix) ->
+    [[?grpc, ?proto, ?async, ?batching]];
+t_proto_schema_changed_while_running_errors(TCConfig) when is_list(TCConfig) ->
+    PoolSize = 2,
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"transport" => #{~"pool_size" => PoolSize}
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+
+    ct:pal("updating schema: message type is gone"),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            update_serde(TCConfig, #{
+                ~"type" => ~"protobuf",
+                ~"source" =>
+                    ~"""
+                        syntax = "proto2";
+
+                        package air_quality;
+
+                        message new_message_type {
+                                optional string new_field = 1;
+                        }
+                    """
+            }),
+            #{?snk_kind := "zerobus_get_serde_error"},
+            5_000
+        ),
+    ExpectedReason1 = iolist_to_binary(
+        io_lib:format("~p", [
+            {unhealthy_target, ~"Message type not found in protobuf schema/bundle"}
+        ])
+    ),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                ~"status" := ~"disconnected",
+                ~"status_reason" := ExpectedReason1
+            }},
+            get_action_api(TCConfig)
+        )
+    ),
+
+    ct:pal("updating schema: serde type is wrong"),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            update_serde(TCConfig, #{
+                ~"type" => ~"json",
+                ~"source" => ~"{}"
+            }),
+            #{?snk_kind := "zerobus_get_serde_error"},
+            5_000
+        ),
+    ExpectedReason2 = iolist_to_binary(
+        io_lib:format("~p", [{unhealthy_target, ~"Invalid schema type; must be protobuf"}])
+    ),
+    ?retry(
+        500,
+        10,
+        ?assertMatch(
+            {200, #{
+                ~"status" := ~"disconnected",
+                ~"status_reason" := ExpectedReason2
+            }},
+            get_action_api(TCConfig)
+        )
+    ),
+
+    ok.
+
+-doc """
+Covers the following race:
+
+  1) A message is published.
+  2) Concurrently:
+     i) Receiver receives an ack from the server and casts it to the writer.
+     ii) Writer decides to open a new stream, before handling the above ack.
+
+Since the writer syncs its state with the receiver when opening a new stream, it should
+get the ack from the receiver as the response of the call (not the cast), and then ignore
+the stale cast.
+""".
+t_follow_stream_before_processing_ack() ->
+    [{matrix, true}, {mock_only, true}].
+t_follow_stream_before_processing_ack(matrix) ->
+    [[?grpc, ?proto, ?async, ?not_batching]];
+t_follow_stream_before_processing_ack(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"transport" => #{~"pool_size" => 1}
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+
+    TestPid = self(),
+    mocked_grpc_server_agent_update(fun(St) ->
+        St#{
+            ingest_record_batch => [
+                {ask, TestPid},
+                %% fail the 2nd message
+                invalid_argument_action()
+            ]
+        }
+    end),
+    ct:pal("sending 1st message"),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:publish(C, RuleTopic, seq_payload(1), [{qos, 1}]),
+            #{?snk_kind := "zerobus_sent_batch"},
+            5_000
+        ),
+    %% will hold onto this to reply later
+    {ingest_record_batch, AliasServer0, Ctx0} = ?assertReceive({ingest_record_batch, _, _}),
+    {ok, Agent} = emqx_utils_agent:start_link(ask_then_error),
+    emqx_common_test_helpers:with_mock(
+        grpc_client,
+        send,
+        fun
+            (Stream, #{payload := {ingest_record_batch, _}} = Req, Fin, Opts) ->
+                case emqx_utils_agent:get(Agent) of
+                    ask_then_error ->
+                        Alias = alias([reply]),
+                        TestPid ! {will_ingest, Alias, Req},
+                        receive
+                            {Alias, Reason} ->
+                                {error, Reason}
+                        end;
+                    continue ->
+                        meck:passthrough([Stream, Req, Fin, Opts])
+                end;
+            (Stream, Req, Fin, Opts) ->
+                meck:passthrough([Stream, Req, Fin, Opts])
+        end,
+        fun() ->
+            %% second message triggers the reopen; writer will be processing
+            %% `grpc_client:send` when the ack(1) arrives; but it will then proceed
+            %% with `continue` to reopen the stream.
+            ct:pal("sending 2nd message"),
+            emqtt:publish(C, RuleTopic, seq_payload(2), [{qos, 1}]),
+            {will_ingest, AliasWriter0, _} = ?assertReceive({will_ingest, _, _}),
+            %% now the writer is stuck; let's make the server reply an ack to get
+            %% enqueued.
+            #{
+                msg := #{payload := {ingest_record_batch, #{offset_id := 0 = Seq0}}},
+                grpc_req := GRPCReq0
+            } = Ctx0,
+            ct:pal("replying ack"),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    grpc_stream:reply(GRPCReq0, [
+                        #{
+                            payload =>
+                                {ingest_record_response, #{
+                                    durability_ack_up_to_offset => Seq0
+                                }}
+                        }
+                    ]),
+                    #{?snk_kind := "zerobus_last_seq_notified"},
+                    5_000
+                ),
+            AliasServer0 ! {AliasServer0, continue},
+            %% unblock the writer and make it reopen the stream
+            ct:pal("unblocking writer with error"),
+            emqx_utils_agent:set(Agent, continue),
+            AliasWriter0 ! {AliasWriter0, econnrefused},
+            %% first message should succeed, since we got the ack before opening the
+            %% new stream.
+            ?retry(
+                700,
+                10,
+                ?assertMatch(
+                    {200, #{
+                        ~"metrics" := #{
+                            ~"matched" := 2,
+                            ~"success" := 1,
+                            ~"failed" := 1
+                        }
+                    }},
+                    get_action_metrics_api(TCConfig)
+                )
+            ),
+
+            ok
+        end
+    ),
+    %% for coverage: writer ignores stale acks and errors.
+    %% is there a natural way to cause this?  seems impossible so far...
+    {_, {ok, _}} =
+        ?wait_async_action(
+            lists:foreach(
+                fun(Writer) ->
+                    emqx_bridge_zerobus_stream_writer_worker:acked(
+                        Writer, _NRestarts = 0, _LastAckedSeq = 100
+                    )
+                end,
+                find_stream_writers(TCConfig)
+            ),
+            #{?snk_kind := "zerobus_writer_stale_ack"},
+            1_000
+        ),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            lists:foreach(
+                fun(Writer) ->
+                    emqx_bridge_zerobus_stream_writer_worker:errored(
+                        Writer, _NRestarts = 0, some_error
+                    )
+                end,
+                find_stream_writers(TCConfig)
+            ),
+            #{?snk_kind := "zerobus_writer_stale_error"},
+            1_000
+        ),
+    ok.
+
+t_connection_down_when_creating() ->
+    [{matrix, true}, {mock_only, true}].
+t_connection_down_when_creating(matrix) ->
+    [
+        [Transport, ?json, ?async, ?not_batching]
+     || Transport <- [?grpc, ?rest]
+    ];
+t_connection_down_when_creating(TCConfig) when is_list(TCConfig) ->
+    WrongZerobusEndpoint = ~"https://127.0.0.2:888",
+    ?assertMatch(
+        {201, #{
+            ~"status" := ~"disconnected",
+            ~"status_reason" := ~"Connection refused"
+        }},
+        create_connector_api(TCConfig, #{
+            ~"zerobus_endpoint" => WrongZerobusEndpoint
+        })
+    ),
+    ok.

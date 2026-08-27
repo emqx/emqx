@@ -11,6 +11,7 @@
 
     acked/3,
     errored/3,
+    serde_updated/2,
     ingest_record_batch_sync/3,
     ingest_record_batch_async/3
 ]).
@@ -19,6 +20,7 @@
 -export([sync_reply_delegator/2]).
 -export([unregister_stream/2]).
 -export([where/2]).
+-export([gproc_name/2]).
 -export([grpc_recv_single_resp1/2]).
 
 %% `gen_server' API
@@ -50,6 +52,7 @@
 -record(ingest_record_batch_async, {records :: [binary()], reply_fn}).
 -record(acked, {n_restarts, last_acked_seq}).
 -record(errored, {n_restarts, error}).
+-record(serde_updated, {serde_name}).
 
 -define(SERVICE, 'databricks.zerobus.Zerobus').
 -define(PROTO_MODULE, 'emqx_bridge_zerobus_gen_zerobus_service_pb').
@@ -126,6 +129,10 @@ ingest_record_batch_async(Pool, Records, ReplyFnAndArgs) ->
         }),
         {ok, Pid}
     end.
+
+serde_updated(Pid, SerdeName0) ->
+    SerdeName = emqx_utils_conv:bin(SerdeName0),
+    gen_server:cast(Pid, #serde_updated{serde_name = SerdeName}).
 
 %%------------------------------------------------------------------------------
 %% `gen_server' API
@@ -209,6 +216,13 @@ handle_cast(#ingest_record_batch_async{records = Records, reply_fn = ReplyFnAndA
         {?reopen, State} ->
             {noreply, State, {continue, #open_stream{}}}
     end;
+handle_cast(#serde_updated{serde_name = SerdeName}, State0) ->
+    case handle_serde_updated(SerdeName, State0) of
+        {?continue, State} ->
+            {noreply, State};
+        {?reopen, State} ->
+            {noreply, State, {continue, #open_stream{}}}
+    end;
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
@@ -230,6 +244,9 @@ handle_info(_Info, State) ->
 unregister_stream(ActionResId, Idx) ->
     true = ets:delete(?META_TAB, ?META_STREAM_KEY(ActionResId, Idx)),
     ok.
+
+gproc_name(ActionResId, Idx) ->
+    ?name(ActionResId, Idx).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -390,6 +407,7 @@ handle_acked(OldNRestarts, _LastAckedSeq, #{?n_restarts := NRestarts} = State0) 
     OldNRestarts < NRestarts
 ->
     %% stale response
+    ?tp("zerobus_writer_stale_ack", #{}),
     State0;
 handle_acked(NRestarts, LastAckedSeq, State0) ->
     #{?acked := Acked0} = State0,
@@ -401,6 +419,7 @@ handle_errored(OldNRestarts, _Error, #{?n_restarts := NRestarts} = State0) when
     OldNRestarts < NRestarts
 ->
     %% stale response
+    ?tp("zerobus_writer_stale_error", #{}),
     {?continue, State0};
 handle_errored(_NRestarts, Error0, State0) ->
     #{?action_res_id := ActionResId, ?idx := Idx, ?seq := Seq} = State0,
@@ -465,6 +484,31 @@ handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
             ),
             State2 = ensure_stream_closed(State1),
             {?reopen, State2}
+    end.
+
+handle_serde_updated(SerdeName, State0) ->
+    case State0 of
+        #{?record := {?proto, #{?serde_name := SerdeName} = OldProto}} ->
+            #{?message_type := MessageTypeAtom, ?descriptor := OldDescriptor} = OldProto,
+            MessageTypeBin = atom_to_binary(MessageTypeAtom, utf8),
+            Opts = #{schema_name => SerdeName, message_type => MessageTypeBin},
+            case emqx_bridge_zerobus_utils:get_serde(Opts) of
+                {ok, #{?descriptor := OldDescriptor}} ->
+                    {?continue, State0};
+                {ok, NewProto} ->
+                    State = State0#{?record := {?proto, NewProto}},
+                    {?reopen, State};
+                {error, Reason} ->
+                    Msg = map_get_serde_error(Reason),
+                    #{?action_res_id := ActionResId, ?idx := Idx} = State0,
+                    set_health(ActionResId, Idx, {?status_disconnected, {unhealthy_target, Msg}}),
+                    ?tp("zerobus_get_serde_error", #{}),
+                    %% no point in reopening the stream, since this needs manual
+                    %% intervention that'll restart the action.
+                    {?continue, State0}
+            end;
+        _ ->
+            {?continue, State0}
     end.
 
 grpc_meta(State) ->
@@ -615,16 +659,24 @@ is_end_of_stream(Resp) ->
     end.
 
 do_create_stream_impl(Metadata, Opts) ->
-    grpc_client:open(
-        ?DEF(
-            <<"/databricks.zerobus.Zerobus/EphemeralStream">>,
-            'databricks.zerobus.ephemeral_stream_request',
-            'databricks.zerobus.ephemeral_stream_response',
-            <<"databricks.zerobus.EphemeralStreamRequest">>
-        ),
-        Metadata,
-        Opts
-    ).
+    try
+        grpc_client:open(
+            ?DEF(
+                <<"/databricks.zerobus.Zerobus/EphemeralStream">>,
+                'databricks.zerobus.ephemeral_stream_request',
+                'databricks.zerobus.ephemeral_stream_response',
+                <<"databricks.zerobus.EphemeralStreamRequest">>
+            ),
+            Metadata,
+            Opts
+        )
+    catch
+        exit:{noproc, _} ->
+            %% race: client died just as we called it
+            {error, grpc_client_restarting};
+        Class:Reason:Stacktrace ->
+            {error, {Class, Reason, Stacktrace}}
+    end.
 
 ensure_stream_closed(#{?stream := ?undefined} = State0) ->
     State0;
@@ -672,3 +724,12 @@ handle_insert_result({error, Reason}) ->
     {error, {unrecoverable_error, Reason}};
 handle_insert_result(Res) ->
     Res.
+
+map_get_serde_error(schema_not_found) ->
+    %% should be a rare race condition, since we've just been notified of this serde
+    %% changing (not being deleted).
+    ~"Schema not found";
+map_get_serde_error(bad_type) ->
+    ~"Invalid schema type; must be protobuf";
+map_get_serde_error(message_type_not_found) ->
+    ~"Message type not found in protobuf schema/bundle".
