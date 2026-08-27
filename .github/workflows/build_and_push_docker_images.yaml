@@ -127,7 +127,8 @@ jobs:
 
       - name: test node_dump
         run: |
-          CID=$(docker run -d -P $_EMQX_DOCKER_IMAGE_TAG)
+          # The hardened profile (default since 7.0) refuses the default cookie.
+          CID=$(docker run -d -P -e EMQX_NODE__COOKIE='ci-smoke-test-cookie' $_EMQX_DOCKER_IMAGE_TAG)
           docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
           docker exec -t -u root $CID node_dump
           docker rm -f $CID

@@ -46,8 +46,10 @@ export EMQX_NODE__COOKIE='ci-smoke-test-cookie'
 export EMQX_DASHBOARD__DEFAULT_PASSWORD='CiSm0kePass1'
 export EMQX_SMOKE_PASSWORD="$EMQX_DASHBOARD__DEFAULT_PASSWORD"
 ## The interoperability test connects anonymously; hardened denies clients
-## when no authenticator is configured.
+## when no authenticator is configured, and the shipped acl.conf allows
+## anonymous pub/sub only under the legacy profile.
 export EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN='false'
+export EMQX_AUTHORIZATION__NO_MATCH='allow'
 
 SYSTEM="$("$SCRIPTS"/get-distro.sh)"
 
@@ -211,6 +213,7 @@ export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
 export EMQX_NODE__COOKIE=ci-smoke-test-cookie
 export EMQX_DASHBOARD__DEFAULT_PASSWORD=CiSm0kePass1
 export EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false
+export EMQX_AUTHORIZATION__NO_MATCH=allow
 EOF
         ## for ARM, due to CI env issue, skip start of quic listener for the moment
         # [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee -a "$emqx_env_vars" <<EOF
