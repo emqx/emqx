@@ -164,7 +164,18 @@ service:
   ## Port for WSS/HTTPS (used only when wsEnabled is true)
   ##
   wss: 8084
-  ## Port for dashboard and API
+  ## Whether to publish the dashboard (HTTP/HTTPS) ports on the
+  ## externally exposed Service.
+  ## Set to false to omit the dashboard and dashboardtls port entries
+  ## from that Service (for example, to keep the dashboard off a
+  ## LoadBalancer that exposes the MQTT ports).
+  ## The headless Service keeps the dashboard port for in-cluster
+  ## access and Prometheus metrics scraping.
+  ## Note: if this is false, also disable ingress.dashboard.enabled,
+  ## as it references service.dashboard.
+  ##
+  dashboardEnabled: true
+  ## Port for dashboard and API (published only when dashboardEnabled is true)
   ##
   dashboard: 18083
   ## Port for dashboard and API over HTTPS
