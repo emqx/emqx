@@ -101,7 +101,7 @@ t_leader_otx_supervion(Config) ->
             ?wait_async_action(
                 ?ON(
                     Leader0,
-                    exit(emqx_ds_optimistic_tx:where(DB, Shard), shutdown)
+                    kill_leader(DB, Shard, shutdown)
                 ),
                 #{?snk_kind := ds_otx_up, db := DB, shard := Shard}
             ),
@@ -109,7 +109,7 @@ t_leader_otx_supervion(Config) ->
             ?wait_async_action(
                 ?ON(
                     Leader0,
-                    exit(emqx_ds_optimistic_tx:where(DB, Shard), shutdown)
+                    kill_leader(DB, Shard, shutdown)
                 ),
                 #{?snk_kind := ds_otx_up, db := DB, shard := Shard}
             ),
@@ -158,7 +158,7 @@ t_leader_otx_supervion(Config) ->
                             exit(mocked)
                         end
                     ),
-                    exit(emqx_ds_optimistic_tx:where(DB, Shard), shutdown)
+                    kill_leader(DB, Shard, shutdown)
                 end
             ),
             %% Wait for at least two attempts:
@@ -1457,4 +1457,18 @@ open_db(DB, Opts) ->
     maybe
         ok ?= emqx_ds:open_db(DB, Opts),
         ok ?= emqx_ds:wait_db(DB, all, infinity)
+    end.
+
+kill_leader(DB, Shard, Reason) ->
+    do_kill_leader(DB, Shard, Reason, 5).
+
+do_kill_leader(DB, Shard, Reason, RetriesLeft) ->
+    case emqx_ds_optimistic_tx:where(DB, Shard) of
+        undefined when RetriesLeft =< 0 ->
+            error(could_not_find_leader_to_kill);
+        undefined ->
+            ct:sleep(10),
+            do_kill_leader(DB, Shard, Reason, RetriesLeft - 1);
+        Pid when is_pid(Pid) ->
+            exit(Pid, Reason)
     end.

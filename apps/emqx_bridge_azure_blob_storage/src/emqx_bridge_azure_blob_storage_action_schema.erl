@@ -118,7 +118,8 @@ fields(aggreg_parameters) ->
                 emqx_schema:template_str(),
                 #{
                     desc => ?DESC("aggregated_blob_template"),
-                    required => true
+                    required => true,
+                    validator => fun emqx_connector_aggregator_utils:validate_key_template/1
                 }
             )},
         {min_block_size,
