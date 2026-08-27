@@ -275,10 +275,11 @@ check_oom(Pid, #{
         undefined ->
             ok;
         [{message_queue_len, QLen}, {total_heap_size, HeapSize}] ->
-            do_check_oom([
+            Result = do_check_oom([
                 {QLen, MaxQLen, mailbox_overflow},
                 {HeapSize, MaxHeapSize, proc_heap_too_large}
-            ])
+            ]),
+            add_proc_label(Pid, Result)
     end.
 
 do_check_oom([]) ->
@@ -287,6 +288,16 @@ do_check_oom([{Val, Max, Reason} | Rest]) ->
     case is_integer(Max) andalso (0 < Max) andalso (Max < Val) of
         true -> {shutdown, #{reason => Reason, value => Val, max => Max}};
         false -> do_check_oom(Rest)
+    end.
+
+%% Add the process label (e.g. `{clientid, ClientId}') to the shutdown
+%% reason so the supervisor report identifies the offending process.
+add_proc_label(_Pid, ok) ->
+    ok;
+add_proc_label(Pid, {shutdown, Reason}) ->
+    case proc_lib:get_label(Pid) of
+        undefined -> {shutdown, Reason};
+        Label -> {shutdown, Reason#{label => Label}}
     end.
 
 tune_heap_size(#{enable := false}) ->
