@@ -16,16 +16,18 @@ all() ->
 
 groups() ->
     [
-        {legacy, [], [t_http_default_bind_security_profile]},
-        {hardened, [], [t_http_default_bind_security_profile]}
+        {legacy, [], [t_http_default_bind_security_profile, t_http_default_bind_default_address]},
+        {hardened, [], [t_http_default_bind_security_profile, t_http_default_bind_default_address]}
     ].
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:clear_security_profile(),
+    emqx_common_test_helpers:clear_default_address(),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:clear_security_profile().
+    emqx_common_test_helpers:clear_security_profile(),
+    emqx_common_test_helpers:clear_default_address().
 
 init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
     emqx_common_test_helpers:set_security_profile(Profile),
@@ -64,6 +66,30 @@ t_http_default_bind_security_profile(Config) ->
     Profile = ?config(security_profile, Config),
     ok = assert_http_default_bind(false, expected_http_bind(Profile, false), inet),
     ok = assert_http_default_bind(true, expected_http_bind(Profile, true), inet6).
+
+-doc """
+Asserts that EMQX_DEFAULT_ADDRESS overrides the security profile for the
+bare-port dashboard bind, that the loopback keyword keeps the inet6-aware
+loopback resolution, and that an IPv6 address implies inet6 in the socket
+options.
+""".
+t_http_default_bind_default_address(_Config) ->
+    with_address("loopback", fun() ->
+        ok = assert_http_default_bind(false, {{127, 0, 0, 1}, 18083}, inet),
+        ok = assert_http_default_bind(true, {{0, 0, 0, 0, 0, 0, 0, 1}, 18083}, inet6)
+    end),
+    with_address("all", fun() ->
+        ok = assert_http_default_bind(false, {{0, 0, 0, 0}, 18083}, inet)
+    end),
+    with_address("127.0.0.2", fun() ->
+        ok = assert_http_default_bind(false, {{127, 0, 0, 2}, 18083}, inet)
+    end),
+    with_address("::1", fun() ->
+        ok = assert_http_default_bind(false, {{0, 0, 0, 0, 0, 0, 0, 1}, 18083}, inet6)
+    end).
+
+with_address(Address, Fun) ->
+    emqx_common_test_helpers:with_default_address(Address, Fun).
 
 change_i18n_lang(Lang) ->
     {ok, _} = emqx_conf:update([dashboard], {change_i18n_lang, Lang}, #{}),

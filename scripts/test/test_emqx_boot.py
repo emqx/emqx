@@ -259,6 +259,52 @@ def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
     assert "hardened" in output
 
 
+@pytest.mark.parametrize("default_address", ["not-an-address", "LOOPBACK"])
+def test_invalid_default_address_fails_fast(emqx_bin_path, default_address):
+    """Test that malformed EMQX_DEFAULT_ADDRESS fails before boot."""
+    result = run_emqx_console(
+        emqx_bin_path,
+        {"EMQX_DEFAULT_ADDRESS": default_address},
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "Invalid default address" in output
+    assert "loopback" in output
+    assert "hostname_i" in output
+    assert "all" in output
+
+
+def test_default_address_erlang_rejects_bad_literal(emqx_bin_path):
+    """An IP-looking but invalid literal passes the bin/emqx check and is
+    rejected by the Erlang resolver."""
+    result = run_emqx_console(
+        emqx_bin_path,
+        {"EMQX_DEFAULT_ADDRESS": "999.1.1.1"},
+        timeout=120,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "invalid_default_address" in output
+
+
+@pytest.mark.parametrize("default_address", ["loopback", "hostname_i", "all", "::1"])
+def test_valid_default_address_accepted(emqx_bin_path, default_address):
+    """A valid EMQX_DEFAULT_ADDRESS passes validation; boot proceeds until
+    the hardened-profile default-cookie check aborts it."""
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_DEFAULT_ADDRESS": default_address,
+            "EMQX_SECURITY_PROFILE": "hardened",
+            "EMQX_NODE__COOKIE": "emqxsecretcookie",
+        },
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "Invalid default address" not in output
+    assert "Cannot continue with default cookie" in output
+
+
 @pytest.fixture
 def env_file(emqx_rel_path):
     """Yield the etc/emqx.env path and restore the shipped file afterwards."""

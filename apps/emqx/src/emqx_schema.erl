@@ -4660,39 +4660,45 @@ listeners() ->
     ].
 
 mqtt_default_bind_schema(Port) ->
-    case emqx_security_profile:policy(mqtt_default_bind) of
+    case emqx_default_address:resolve(mqtt) of
         any -> Port;
-        loopback -> <<"127.0.0.1:", (integer_to_binary(Port))/binary>>
+        Address -> render_default_bind(Address, Port)
     end.
 
 mqtt_default_bind_config(Port) ->
-    PortBin = integer_to_binary(Port),
-    case emqx_security_profile:policy(mqtt_default_bind) of
-        any -> <<"0.0.0.0:", PortBin/binary>>;
-        loopback -> <<"127.0.0.1:", PortBin/binary>>
+    case emqx_default_address:resolve(mqtt) of
+        any -> render_default_bind({0, 0, 0, 0}, Port);
+        Address -> render_default_bind(Address, Port)
     end.
 
 listener_ip_port_converter(Value, Opts) ->
-    case emqx_security_profile:policy(mqtt_default_bind) of
+    case emqx_default_address:resolve(mqtt) of
         any -> Value;
-        loopback -> maybe_add_loopback_converter(Value, Opts)
+        Address -> maybe_add_default_address_converter(Value, Address, Opts)
     end.
 
-maybe_add_loopback_converter(undefined, _) ->
+maybe_add_default_address_converter(undefined, _Address, _Opts) ->
     undefined;
-maybe_add_loopback_converter(Port, _) when is_integer(Port) ->
-    PortBin = integer_to_binary(Port),
-    <<"127.0.0.1:", PortBin/binary>>;
-maybe_add_loopback_converter(BindStr, _) when is_binary(BindStr) ->
+maybe_add_default_address_converter(Port, Address, _Opts) when is_integer(Port) ->
+    render_default_bind(Address, Port);
+maybe_add_default_address_converter(BindStr, Address, _Opts) when is_binary(BindStr) ->
     case split_ip_port(BindStr) of
         {"", Port} ->
-            PortBin = integer_to_binary(Port),
-            <<"127.0.0.1:", PortBin/binary>>;
-        {_MaybeIp, _Port} ->
+            render_default_bind(Address, Port);
+        _ ->
             BindStr
     end;
-maybe_add_loopback_converter(Other, _) ->
+maybe_add_default_address_converter(Other, _Address, _Opts) ->
     Other.
+
+render_default_bind(Address, Port) when is_integer(Port) ->
+    render_default_bind(Address, integer_to_list(Port));
+render_default_bind(loopback, Port) ->
+    render_default_bind({127, 0, 0, 1}, Port);
+render_default_bind(IP, Port) when tuple_size(IP) =:= 4 ->
+    iolist_to_binary([inet:ntoa(IP), ":", Port]);
+render_default_bind(IP, Port) when tuple_size(IP) =:= 8 ->
+    iolist_to_binary(["[", inet:ntoa(IP), "]:", Port]).
 
 mkunion(Field, Schemas) ->
     mkunion(Field, Schemas, none).

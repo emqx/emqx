@@ -69,6 +69,7 @@
 
 -export([clear_screen/0]).
 -export([set_security_profile/1, with_security_profile/2, clear_security_profile/0]).
+-export([set_default_address/1, with_default_address/2, clear_default_address/0]).
 -export([with_mock/4, with_mock/5, with_mocks/2, with_mocks/3]).
 -export([
     on_exit/1,
@@ -113,6 +114,7 @@
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 -define(SECURITY_PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
+-define(DEFAULT_ADDRESS_ENV_VAR, "EMQX_DEFAULT_ADDRESS").
 
 -define(MQTT_SSL_CLIENT_CERTS, [
     {keyfile, ?CERTS_PATH("client-key.pem")},
@@ -1404,6 +1406,26 @@ set_security_profile(Profile) when is_list(Profile) ->
 clear_security_profile() ->
     os:unsetenv(?SECURITY_PROFILE_ENV_VAR),
     emqx_security_profile:clear_profile(),
+    ok.
+
+-spec with_default_address(string(), fun(() -> Result)) -> Result.
+with_default_address(Address, Fun) ->
+    set_default_address(Address),
+    try
+        Fun()
+    after
+        clear_default_address()
+    end.
+
+-spec set_default_address(string()) -> ok.
+set_default_address(Address) when is_list(Address) ->
+    os:putenv(?DEFAULT_ADDRESS_ENV_VAR, Address),
+    emqx_default_address:clear(),
+    ok.
+
+clear_default_address() ->
+    os:unsetenv(?DEFAULT_ADDRESS_ENV_VAR),
+    emqx_default_address:clear(),
     ok.
 
 gl_sink(Owner, Acc) ->
