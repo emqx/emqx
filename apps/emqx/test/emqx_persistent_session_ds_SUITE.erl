@@ -1290,12 +1290,14 @@ t_session_replay_retry(_Config) ->
              || I <- lists:seq(1, NClients)
             ],
             lists:foreach(
-                fun(Client) ->
-                    Index = integer_to_binary(rand:uniform(NClients)),
+                fun({I, Client}) ->
+                    %% use deterministic values to avoid flakiness due to 2 messages being
+                    %% assinged the same shard and the subscriber not acking.
+                    Index = integer_to_binary(I),
                     Topic = <<"t/", Index/binary>>,
                     ?assertMatch({ok, #{}}, emqtt:publish(Client, Topic, Index, 1))
                 end,
-                ClientsPub
+                lists:enumerate(ClientsPub)
             ),
             %% 3. The subscriber receives them, but doesn't ack. This
             %% sets the stage for message replay. Delivery through the
