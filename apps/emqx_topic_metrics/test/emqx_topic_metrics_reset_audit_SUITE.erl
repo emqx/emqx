@@ -3,10 +3,10 @@
 %%--------------------------------------------------------------------
 
 %% Cluster regression tests for #18534: a topic-metrics reset is
-%% fanned out via emqx_cluster_rpc, and each node emits an audit log
-%% entry from inside the transaction. A malformed or crashing audit
-%% emission must not break the transaction, otherwise counters end up
-%% reset on some nodes only.
+%% fanned out via emqx_cluster_rpc. The cluster_rpc callback must
+%% stay side-effect-only — a crash inside it (as the removed
+%% per-node audit emission demonstrated) leaves counters reset on
+%% some nodes only while the REST API reports success.
 
 -module(emqx_topic_metrics_reset_audit_SUITE).
 
@@ -17,7 +17,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
--include_lib("emqx_audit/include/emqx_audit.hrl").
 
 -define(BIN_NAME, <<"a">>).
 
@@ -60,8 +59,7 @@ apps(_Case) ->
 
 -doc """
 Regression test for #18534: with audit logging enabled, a reset must
-zero counters on EVERY node — the audit emission must not abort the
-cluster_rpc transaction — and each node writes its own audit record.
+zero counters on EVERY node and commit the cluster_rpc transaction.
 """.
 t_reset_with_audit_enabled(Config) ->
     [N1, N2] = ?config(nodes, Config),
@@ -69,16 +67,7 @@ t_reset_with_audit_enabled(Config) ->
     ok = erpc:call(N1, emqx_topic_metrics2, reset, [?BIN_NAME, ?global_ns]),
     ?assertEqual(0, msg_in_count(N1)),
     ?retry(200, 50, ?assertEqual(0, msg_in_count(N2))),
-    ok = assert_caught_up(N1, [N1, N2]),
-    %% Each node emitted its own audit record into the shared audit DB.
-    ?retry(
-        200,
-        50,
-        ?assertEqual(
-            lists:sort([N1, N2]),
-            lists:sort([N || #?AUDIT{node = N} <- reset_audit_records(N1)])
-        )
-    ).
+    ok = assert_caught_up(N1, [N1, N2]).
 
 -doc "Reset still zeroes counters on every node when audit logging is disabled.".
 t_reset_with_audit_disabled(Config) ->
@@ -88,27 +77,6 @@ t_reset_with_audit_disabled(Config) ->
     ?assertEqual(0, msg_in_count(N1)),
     ?retry(200, 50, ?assertEqual(0, msg_in_count(N2))),
     ok = assert_caught_up(N1, [N1, N2]).
-
--doc """
-An audit-logging crash must not break the reset transaction: with
-`emqx_audit:log/3' crashing on one node, reset still zeroes counters
-on every node and the crashing node still commits the transaction.
-""".
-t_reset_completes_when_audit_log_crashes(Config) ->
-    [N1, N2] = ?config(nodes, Config),
-    ok = register_and_bump(N1, N2),
-    ok = erpc:call(N2, meck, new, [emqx_audit, [passthrough, no_link, no_history]]),
-    ok = erpc:call(N2, meck, expect, [
-        emqx_audit, log, fun(_Level, _Meta, _Handler) -> error(injected_audit_crash) end
-    ]),
-    try
-        ok = erpc:call(N1, emqx_topic_metrics2, reset, [?BIN_NAME, ?global_ns]),
-        ?assertEqual(0, msg_in_count(N1)),
-        ?retry(200, 50, ?assertEqual(0, msg_in_count(N2))),
-        ok = assert_caught_up(N1, [N1, N2])
-    after
-        ok = erpc:call(N2, meck, unload, [emqx_audit])
-    end.
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -148,11 +116,3 @@ assert_caught_up(Node, Nodes) ->
         ?assertMatch([_], lists:usort(TnxIds))
     end),
     ok.
-
-reset_audit_records(Node) ->
-    Pattern = #?AUDIT{
-        from = cluster_rpc,
-        operation_type = <<"topic_metrics_reset">>,
-        _ = '_'
-    },
-    erpc:call(Node, mnesia, dirty_match_object, [?AUDIT, Pattern]).
