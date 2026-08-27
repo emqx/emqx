@@ -659,16 +659,24 @@ is_end_of_stream(Resp) ->
     end.
 
 do_create_stream_impl(Metadata, Opts) ->
-    grpc_client:open(
-        ?DEF(
-            <<"/databricks.zerobus.Zerobus/EphemeralStream">>,
-            'databricks.zerobus.ephemeral_stream_request',
-            'databricks.zerobus.ephemeral_stream_response',
-            <<"databricks.zerobus.EphemeralStreamRequest">>
-        ),
-        Metadata,
-        Opts
-    ).
+    try
+        grpc_client:open(
+            ?DEF(
+                <<"/databricks.zerobus.Zerobus/EphemeralStream">>,
+                'databricks.zerobus.ephemeral_stream_request',
+                'databricks.zerobus.ephemeral_stream_response',
+                <<"databricks.zerobus.EphemeralStreamRequest">>
+            ),
+            Metadata,
+            Opts
+        )
+    catch
+        exit:{noproc, _} ->
+            %% race: client died just as we called it
+            {error, grpc_client_restarting};
+        Class:Reason:Stacktrace ->
+            {error, {Class, Reason, Stacktrace}}
+    end.
 
 ensure_stream_closed(#{?stream := ?undefined} = State0) ->
     State0;
