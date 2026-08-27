@@ -21,6 +21,10 @@
     ]
 ).
 
+%% The listener port 32337 must stay below the ephemeral port range
+%% (net.ipv4.ip_local_port_range, 32768-60999). A port inside that range can
+%% be handed out as the source port of an outbound connection made by the
+%% tests themselves, and the listener then fails to bind with eaddrinuse.
 %% erlfmt-ignore
 -define(CONF_DEFAULT, <<"
     gateway.ocpp {
@@ -37,7 +41,7 @@
         topic = \"cs/${clientid}\"
       }
       listeners.ws.default {
-          bind = \"0.0.0.0:33033\"
+          bind = \"0.0.0.0:32337\"
           websocket.path = \"/ocpp\"
       }
     }
@@ -120,7 +124,7 @@ t_update_listeners(_Config) ->
             name := <<"default">>,
             enable := true,
             enable_authn := true,
-            bind := <<"0.0.0.0:33033">>,
+            bind := <<"0.0.0.0:32337">>,
             websocket := #{path := <<"/ocpp">>}
         },
         DefaultListener
@@ -162,7 +166,7 @@ t_enable_disable_gw_ocpp(_Config) ->
     AssertEnabled(true).
 
 t_adjust_keepalive_timer(_Config) ->
-    {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
+    {ok, Client} = connect("127.0.0.1", 32337, <<"client1">>),
     UniqueId = <<"3335862321">>,
     BootNotification = #{
         id => UniqueId,
@@ -213,7 +217,7 @@ t_auth_expire(_Config) ->
     ),
 
     ?assertWaitEvent(
-        {ok, _Client} = connect("127.0.0.1", 33033, <<"client1">>),
+        {ok, _Client} = connect("127.0.0.1", 32337, <<"client1">>),
         #{
             ?snk_kind := conn_process_terminated,
             clientid := <<"client1">>,
@@ -225,7 +229,7 @@ t_auth_expire(_Config) ->
     meck:unload(emqx_access_control).
 
 t_update_not_restart_listener(_Config) ->
-    {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
+    {ok, Client} = connect("127.0.0.1", 32337, <<"client1">>),
     %% update ocpp gateway config
     update_ocpp_with_idle_timeout(<<"20s">>),
     %% send BootNotification
@@ -266,7 +270,7 @@ t_listeners_status(_Config) ->
         Listener
     ),
     %% add a connection
-    {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
+    {ok, Client} = connect("127.0.0.1", 32337, <<"client1">>),
     UniqueId = <<"3335862321">>,
     BootNotification = #{
         id => UniqueId,
@@ -300,7 +304,7 @@ t_listeners_status(_Config) ->
     ).
 
 t_active_n(_Config) ->
-    {ok, Client} = connect("127.0.0.1", 33033, <<"client1">>),
+    {ok, Client} = connect("127.0.0.1", 32337, <<"client1">>),
     UniqueId = <<"3335862321">>,
     BootNotification = #{
         id => UniqueId,
