@@ -22,3 +22,21 @@ services:
       # so that we hit potential resource exhaustion earlier in tests.
       - --max-prepared-stmt-count=64
       - --skip-symbolic-links
+  mysql_server_nbe:
+    container_name: mysql-nbe
+    image: public.ecr.aws/docker/library/mysql:${MYSQL_TAG}
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: public
+      MYSQL_DATABASE: mqtt
+    networks:
+      - emqx_bridge
+    command:
+      - --bind-address=0.0.0.0
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --lower-case-table-names=1
+      - --max-allowed-packet=128M
+      - --max-prepared-stmt-count=64
+      - --skip-symbolic-links
+      - --sql-mode=NO_BACKSLASH_ESCAPES,ANSI_QUOTES

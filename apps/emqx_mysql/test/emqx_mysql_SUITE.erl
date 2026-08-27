@@ -60,50 +60,66 @@ t_lifecycle_passwordless(_Config) ->
         mysql_config(passwordless)
     ).
 
-t_sql_renderer_modes(_Config) ->
+t_sql_renderer(_Config) ->
     Conn = connect_mysql(),
     Table = <<"mqtt.emqx_mysql_sql_modes">>,
     ok = mysql:query(Conn, [<<"DROP TABLE IF EXISTS ">>, Table]),
     ok = mysql:query(Conn, [
         <<"CREATE TABLE ">>,
         Table,
-        <<" (txt TEXT CHARACTER SET utf8mb4, json_value JSON, binary_value BLOB)">>
+        <<
+            " (txt TEXT CHARACTER SET utf8mb4, encoded_text TEXT CHARACTER SET utf8mb4, "
+            "json_value JSON, binary_value BLOB)"
+        >>
     ]),
     SQL = <<
         "INSERT INTO mqtt.emqx_mysql_sql_modes",
-        "(txt, json_value, binary_value) ",
-        "VALUES (${txt}, ${json}, ${binary})"
+        "(txt, encoded_text, json_value, binary_value) ",
+        "VALUES (${txt}, ${encoded_text}, ${json}, ${binary})"
     >>,
     {ok, Plan} = emqx_mysql_sql:compile(SQL),
     Attack = <<"'); DROP TABLE mqtt.emqx_mysql_sql_modes; -- ">>,
+    EncodedText = <<"你好", 0, "😀"/utf8>>,
     Data = #{
         txt => Attack,
+        encoded_text => EncodedText,
         json => #{<<"key">> => <<"a\\b">>},
         binary => <<16#FF>>
     },
-    lists:foreach(
-        fun(Mode) ->
-            ok = set_sql_mode(Conn, Mode),
-            {ok, Query} = emqx_mysql_sql:render(Plan, Data, #{undefined_vars_as_null => true}),
-            ok = mysql:query(Conn, Query),
-            ?assertEqual(
-                {ok, [<<"txt">>, <<"json_text">>, <<"binary_hex">>], [
-                    [Attack, <<"a\\b">>, <<"FF">>]
-                ]},
-                mysql:query(
-                    Conn,
-                    <<"SELECT txt, JSON_UNQUOTE(JSON_EXTRACT(json_value, '$.key')) AS json_text, ",
-                        "HEX(binary_value) AS binary_hex ", "FROM mqtt.emqx_mysql_sql_modes">>
-                )
-            ),
-            ok = mysql:query(Conn, [<<"TRUNCATE TABLE ">>, Table])
-        end,
-        sql_modes()
+    {ok, Query} = emqx_mysql_sql:render(Plan, Data, #{undefined_vars_as_null => true}),
+    ok = mysql:query(Conn, Query),
+    {ok, Columns, [[Attack, EncodedTextHex, <<"a\\b">>, <<"FF">>]]} = mysql:query(
+        Conn,
+        <<"SELECT txt, HEX(encoded_text) AS encoded_text_hex, ",
+            "JSON_UNQUOTE(JSON_EXTRACT(json_value, '$.key')) AS json_text, ",
+            "HEX(binary_value) AS binary_hex ", "FROM mqtt.emqx_mysql_sql_modes">>
+    ),
+    ?assertEqual(
+        [<<"txt">>, <<"encoded_text_hex">>, <<"json_text">>, <<"binary_hex">>],
+        Columns
+    ),
+    ?assertEqual(binary:encode_hex(EncodedText), EncodedTextHex),
+    CaseSQL = <<
+        "INSERT INTO mqtt.emqx_mysql_sql_modes"
+        "(txt, encoded_text, json_value, binary_value) "
+        "VALUES (CASE WHEN ${txt} = 'null' THEN NULL ELSE ${txt} END, "
+        "${encoded_text}, ${json}, ${binary})"
+    >>,
+    {ok, CasePlan} = emqx_mysql_sql:compile(CaseSQL),
+    {ok, CaseQuery} = emqx_mysql_sql:render(
+        CasePlan,
+        #{txt => <<"null">>, encoded_text => <<"case">>, json => #{}, binary => <<>>},
+        #{undefined_vars_as_null => true}
+    ),
+    ok = mysql:query(Conn, CaseQuery),
+    ?assertEqual(
+        {ok, [<<"COUNT(*)">>], [[1]]},
+        mysql:query(Conn, [<<"SELECT COUNT(*) FROM ">>, Table, <<" WHERE txt IS NULL">>])
     ),
     ok = mysql:query(Conn, [<<"DROP TABLE ">>, Table]),
     ok = mysql:stop(Conn).
 
-t_segmented_batch_template_modes(_Config) ->
+t_segmented_batch_template(_Config) ->
     Conn = connect_mysql(),
     Table = <<"mqtt.emqx_mysql_segmented">>,
     ok = mysql:query(Conn, [<<"DROP TABLE IF EXISTS ">>, Table]),
@@ -119,25 +135,18 @@ t_segmented_batch_template_modes(_Config) ->
     #{query_templates := #{{send_message, batch} := Plan}} =
         emqx_mysql:parse_prepare_sql(#{sql => SQL}),
     BatchValue = <<"batch\\value">>,
-    lists:foreach(
-        fun(Mode) ->
-            ok = set_sql_mode(Conn, Mode),
-            {ok, BatchSQL} = emqx_mysql_sql:render_batch(
-                Plan,
-                [#{value => BatchValue}],
-                #{undefined_vars_as_null => true}
-            ),
-            ok = mysql:query(Conn, BatchSQL),
-            ?assertEqual(
-                {ok, [<<"txt">>], [[expected_segmented_value(Mode, BatchValue)]]},
-                mysql:query(
-                    Conn,
-                    <<"SELECT txt FROM mqtt.emqx_mysql_segmented ORDER BY id">>
-                )
-            ),
-            ok = mysql:query(Conn, [<<"TRUNCATE TABLE ">>, Table])
-        end,
-        sql_modes()
+    {ok, BatchSQL} = emqx_mysql_sql:render_batch(
+        Plan,
+        [#{value => BatchValue}],
+        #{undefined_vars_as_null => true}
+    ),
+    ok = mysql:query(Conn, BatchSQL),
+    ?assertEqual(
+        {ok, [<<"txt">>], [[<<"prefix\n ", BatchValue/binary, " suffix">>]]},
+        mysql:query(
+            Conn,
+            <<"SELECT txt FROM mqtt.emqx_mysql_segmented ORDER BY id">>
+        )
     ),
     ok = mysql:query(Conn, [<<"DROP TABLE ">>, Table]),
     ok = mysql:stop(Conn).
@@ -262,25 +271,6 @@ connect_mysql() ->
     ],
     {ok, Pid} = mysql:start_link(Opts),
     Pid.
-
-sql_modes() ->
-    [
-        <<>>,
-        <<"NO_BACKSLASH_ESCAPES">>,
-        <<"ANSI_QUOTES">>,
-        <<"ANSI_QUOTES,NO_BACKSLASH_ESCAPES">>
-    ].
-
-set_sql_mode(Conn, Mode) ->
-    mysql:query(Conn, [<<"SET SESSION sql_mode = '">>, Mode, <<"'">>]).
-
-expected_segmented_value(Mode, Value) ->
-    Prefix =
-        case binary:match(Mode, <<"NO_BACKSLASH_ESCAPES">>) of
-            nomatch -> <<"prefix\n ">>;
-            _ -> <<"prefix\\n ">>
-        end,
-    <<Prefix/binary, Value/binary, " suffix">>.
 
 test_query_no_params() ->
     {sql, <<"SELECT 1">>}.

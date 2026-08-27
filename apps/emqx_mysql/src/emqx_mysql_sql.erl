@@ -196,8 +196,6 @@ serialize_identifier({identifier, bare, Name}) ->
     quote_identifier(Name);
 serialize_identifier({identifier, backtick, Source}) ->
     ok = assert_no_placeholder(Source),
-    Source;
-serialize_identifier({identifier, double_opaque, Source}) ->
     Source.
 
 serialize_reference_path(Identifiers) ->
@@ -207,8 +205,6 @@ serialize_reference_part({identifier, bare, Name}) ->
     Name;
 serialize_reference_part({identifier, backtick, Source}) ->
     ok = assert_no_placeholder(Source),
-    Source;
-serialize_reference_part({identifier, double_opaque, Source}) ->
     Source.
 
 quote_identifier(Name) ->
@@ -288,41 +284,77 @@ compile_expression({group, Expression}) ->
 compile_expression({unary, Operator, Expression}) ->
     [#raw{sql = <<(atom_to_binary(Operator))/binary, "(">>} | compile_expression(Expression)] ++
         [#raw{sql = <<")">>}];
+compile_expression({is_null, Expression, Negated}) ->
+    Suffix =
+        case Negated of
+            true -> <<" IS NOT NULL">>;
+            false -> <<" IS NULL">>
+        end,
+    compile_expression(Expression) ++ [#raw{sql = Suffix}];
+compile_expression({case_expression, Operand, Whens, Else}) ->
+    [#raw{sql = <<"CASE">>}] ++
+        compile_case_operand(Operand) ++
+        lists:append([compile_when_clause(Clause) || Clause <- Whens]) ++
+        compile_case_else(Else) ++
+        [#raw{sql = <<" END">>}];
 compile_expression({binary, Operator, Left, Right}) ->
     compile_expression(Left) ++
         [#raw{sql = <<" ", (atom_to_binary(Operator))/binary, " ">>}] ++
         compile_expression(Right).
 
-parse_sql_string(Source) ->
-    Body = binary:part(Source, 1, byte_size(Source) - 2),
-    parse_sql_string_body(Body, [], [], false).
+compile_case_operand(undefined) ->
+    [];
+compile_case_operand(Expression) ->
+    [#raw{sql = <<" ">>} | compile_expression(Expression)].
 
-parse_sql_string_body(<<>>, Text, _Parts, false) ->
-    {static, quote_static_string(iolist_to_binary(lists:reverse(Text)))};
-parse_sql_string_body(<<>>, Text, Parts, true) ->
+compile_when_clause({'when', Condition, Result}) ->
+    [#raw{sql = <<" WHEN ">>} | compile_expression(Condition)] ++
+        [#raw{sql = <<" THEN ">>} | compile_expression(Result)].
+
+compile_case_else(undefined) ->
+    [];
+compile_case_else(Expression) ->
+    [#raw{sql = <<" ELSE ">>} | compile_expression(Expression)].
+
+parse_sql_string(Source) ->
+    Delimiter = binary:first(Source),
+    Body = binary:part(Source, 1, byte_size(Source) - 2),
+    parse_sql_string_body(Body, Delimiter, Source, [], [], false).
+
+%% Arguments are
+%% * the remaining body
+%% * quote delimiter
+%% * original token
+%% * reversed text acc
+%% * reversed compiled parts
+%% * IsDynamic flag
+%% IsDynamic starts as false. When no placeholder is found, return the original token.
+%% The first placeholder switches IsDynamic to true and starts accumulating compiled parts.
+parse_sql_string_body(_Body = <<>>, _Delimiter, Source, _Text, _Parts, _IsDynamic = false) ->
+    {static, Source};
+parse_sql_string_body(<<>>, Delimiter, _Source, Text, Parts, _IsDynamic = true) ->
     ok = assert_safe_string_split(Text),
-    {dynamic, lists:reverse(flush_string_text(Text, Parts))};
-parse_sql_string_body(<<"${$}", Rest/binary>>, Text, Parts, Dynamic) ->
-    parse_sql_string_body(Rest, [$$ | Text], Parts, Dynamic);
-parse_sql_string_body(<<"${", _/binary>> = Bin, Text, Parts, _Dynamic) ->
+    {dynamic, lists:reverse(flush_string_text(Text, Delimiter, Parts))};
+parse_sql_string_body(<<"${$}", Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic) ->
+    parse_sql_string_body(Rest, Delimiter, Source, [$$ | Text], Parts, IsDynamic);
+parse_sql_string_body(
+    <<"${", _/binary>> = Bin, Delimiter, Source, Text, Parts, _IsDynamic
+) ->
     ok = assert_safe_string_split(Text),
     {Placeholder, Rest} = take_placeholder(Bin),
     PartsNext = [
         #string_placeholder{placeholder = Placeholder}
-        | flush_string_text(Text, Parts)
+        | flush_string_text(Text, Delimiter, Parts)
     ],
-    parse_sql_string_body(Rest, [], PartsNext, true);
-parse_sql_string_body(<<Char, Rest/binary>>, Text, Parts, Dynamic) ->
-    parse_sql_string_body(Rest, [Char | Text], Parts, Dynamic).
+    parse_sql_string_body(Rest, Delimiter, Source, [], PartsNext, true);
+parse_sql_string_body(<<Char, Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic) ->
+    parse_sql_string_body(Rest, Delimiter, Source, [Char | Text], Parts, IsDynamic).
 
-flush_string_text([], Parts) ->
+flush_string_text([], _Delimiter, Parts) ->
     Parts;
-flush_string_text(Text, Parts) ->
+flush_string_text(Text, Delimiter, Parts) ->
     Body = iolist_to_binary(lists:reverse(Text)),
-    [#string_raw{sql = quote_static_string(Body)} | Parts].
-
-quote_static_string(Body) ->
-    <<"'", Body/binary, "'">>.
+    [#string_raw{sql = <<Delimiter, Body/binary, Delimiter>>} | Parts].
 
 assert_safe_string_split(ReversedText) ->
     case count_leading_backslashes(ReversedText, 0) rem 2 of
@@ -357,6 +389,9 @@ merge_render_ops(Ops) ->
         )
     ).
 
+%% Restrict emqx_template's envelope to nonempty dotted paths.
+%% Retain `${}` and `${.}`.
+%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
 valid_placeholder_source(<<"${}">>) ->
     true;
 valid_placeholder_source(<<"${.}">>) ->
@@ -415,12 +450,9 @@ to_text(Value) ->
 encode_string(Text) ->
     case unicode:characters_to_list(Text) of
         Chars when is_list(Chars) ->
-            case lists:all(fun safe_single_quoted_character/1, Chars) of
-                true ->
-                    Escaped = binary:replace(Text, <<"'">>, <<"''">>, [global]),
-                    <<"'", Escaped/binary, "'">>;
-                false ->
-                    encode_hex_string(<<"_utf8mb4 ">>, Text)
+            case binary:match(Text, <<0>>) of
+                nomatch -> [<<"'">>, escape_string(Text), <<"'">>];
+                _ -> encode_hex_string(<<"_utf8mb4 ">>, Text)
             end;
         _ ->
             encode_hex_string(<<>>, Text)
@@ -430,10 +462,32 @@ encode_hex_string(Prefix, Text) ->
     Hex = binary:encode_hex(Text),
     <<Prefix/binary, "X'", Hex/binary, "'">>.
 
-safe_single_quoted_character($\\) -> false;
-safe_single_quoted_character(Char) when Char < 16#20 -> false;
-safe_single_quoted_character(Char) when Char >= 16#7F, Char =< 16#9F -> false;
-safe_single_quoted_character(_Char) -> true.
+escape_string(Text) ->
+    escape_string(Text, []).
+
+%% MySQL defines these backslash escape sequences for string literals:
+%% https://dev.mysql.com/doc/refman/8.0/en/string-literals.html
+%% https://dev.mysql.com/doc/refman/8.4/en/string-literals.html
+escape_string(<<>>, Acc) ->
+    lists:reverse(Acc);
+escape_string(<<$\b, Rest/binary>>, Acc) ->
+    escape_string(Rest, [<<"\\b">> | Acc]);
+escape_string(<<$\t, Rest/binary>>, Acc) ->
+    escape_string(Rest, [<<"\\t">> | Acc]);
+escape_string(<<$\n, Rest/binary>>, Acc) ->
+    escape_string(Rest, [<<"\\n">> | Acc]);
+escape_string(<<$\r, Rest/binary>>, Acc) ->
+    escape_string(Rest, [<<"\\r">> | Acc]);
+escape_string(<<16#1A, Rest/binary>>, Acc) ->
+    escape_string(Rest, [<<"\\Z">> | Acc]);
+escape_string(<<$", Rest/binary>>, Acc) ->
+    escape_string(Rest, [<<"\\\"">> | Acc]);
+escape_string(<<$', Rest/binary>>, Acc) ->
+    escape_string(Rest, [<<"\\'">> | Acc]);
+escape_string(<<$\\, Rest/binary>>, Acc) ->
+    escape_string(Rest, [<<"\\\\">> | Acc]);
+escape_string(<<Char, Rest/binary>>, Acc) ->
+    escape_string(Rest, [Char | Acc]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -450,31 +504,68 @@ basic_compile_and_render_test() ->
         rendered_binary(render(Plan, #{payload => <<"hello">>, timestamp => 2}, null_opts()))
     ).
 
+client_case_expression_test() ->
+    SQL = <<
+        "INSERT INTO tab1 (field1, field2)\r\n"
+        "VALUES (\r\n"
+        "    CASE WHEN ${field1} = 'null' THEN NULL ELSE ${field1} END,\r\n"
+        "    CASE WHEN ${field2} = 'null' THEN NULL ELSE ${field2} END\r\n"
+        ");"
+    >>,
+    {ok, Plan} = compile(SQL),
+    Data = #{field1 => <<"null">>, field2 => <<"null">>},
+    {ok, Rendered} = rendered_binary(render(Plan, Data, null_opts())),
+    ?assertMatch({ok, _}, compile(Rendered)).
+
+conditional_expression_test() ->
+    SQL = <<
+        "INSERT INTO t(a, b) VALUES ("
+        "CASE ${v} WHEN 'x' THEN 1 ELSE 0 END, "
+        "IF(${v} IS NULL OR NOT ${v} <=> 'x', 1, 0))"
+    >>,
+    {ok, Plan} = compile(SQL),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO `t` (`a`, `b`) VALUES ("
+            "CASE 'x' WHEN 'x' THEN 1 ELSE 0 END, "
+            "IF('x' IS NULL OR NOT('x' <=> 'x'), 1, 0))"
+        >>},
+        rendered_binary(render(Plan, #{v => <<"x">>}, null_opts()))
+    ).
+
 single_quote_doubling_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     ?assertEqual(
-        {ok, <<"INSERT INTO `t` (`v`) VALUES ('a''b')">>},
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ('a\\'b')">>},
         rendered_binary(render(Plan, #{v => <<"a'b">>}, null_opts()))
     ).
 
-mode_sensitive_value_uses_hex_test() ->
+backslash_escape_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     Attack = <<"\\'); DROP TABLE t; --">>,
-    Hex = binary:encode_hex(Attack),
-    Expected = <<"INSERT INTO `t` (`v`) VALUES (_utf8mb4 X'", Hex/binary, "')">>,
     ?assertEqual(
-        {ok, Expected},
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ('\\\\\\'); DROP TABLE t; --')">>},
         rendered_binary(render(Plan, #{v => Attack}, null_opts()))
     ).
 
 batch_shape_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     Unsafe = <<"a\\b">>,
-    Hex = binary:encode_hex(Unsafe),
-    Expected = <<"INSERT INTO `t` (`v`) VALUES (_utf8mb4 X'", Hex/binary, "'), ('ok')">>,
     ?assertEqual(
-        {ok, Expected},
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ('a\\\\b'), ('ok')">>},
         rendered_binary(render_batch(Plan, [#{v => Unsafe}, #{v => <<"ok">>}], null_opts()))
+    ),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ">>},
+        rendered_binary(render_batch(Plan, [], null_opts()))
+    ).
+
+string_escape_bytes_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
+    Value = <<$\b, $\t, $\n, $\r, 16#1A, $", $', $\\>>,
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ('\\b\\t\\n\\r\\Z\\\"\\'\\\\')">>},
+        rendered_binary(render(Plan, #{v => Value}, null_opts()))
     ).
 
 single_quoted_template_segments_test() ->
@@ -482,30 +573,36 @@ single_quoted_template_segments_test() ->
         <<"INSERT INTO t(v) VALUES ('prefix\\n ${v} suffix')">>
     ),
     ?assertEqual(
-        {ok, <<"INSERT INTO `t` (`v`) VALUES ", "(CONCAT('prefix\\n ', 'a''b', ' suffix'))">>},
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ", "(CONCAT('prefix\\n ', 'a\\'b', ' suffix'))">>},
         rendered_binary(render(Plan, #{v => <<"a'b">>}, null_opts()))
     ).
 
-opaque_double_quoted_token_test() ->
-    SQL = <<"INSERT INTO \"t${ignored}\"(\"v\") VALUES (\"${ignored}\")">>,
+double_quoted_string_test() ->
+    SQL = <<"INSERT INTO t(v) VALUES (\"prefix ${value}\")">>,
     {ok, Plan} = compile(SQL),
     ?assertEqual(
-        {ok, <<"INSERT INTO \"t${ignored}\" (\"v\") VALUES (\"${ignored}\")">>},
-        rendered_binary(render(Plan, #{ignored => <<"changed">>}, null_opts()))
+        {ok, <<"INSERT INTO `t` (`v`) VALUES (CONCAT(\"prefix \", 'changed'))">>},
+        rendered_binary(render(Plan, #{value => <<"changed">>}, null_opts()))
     ),
+    {ok, StaticPlan} = compile(<<"INSERT INTO t(v) VALUES (\"xsdf\")">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) VALUES (\"xsdf\")">>},
+        rendered_binary(render(StaticPlan, #{}, null_opts()))
+    ),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO \"t\"(v) VALUES (1)">>)),
     {ok, BacktickPlan} = compile(<<"INSERT INTO `a``b` (`c``d`) VALUES (${value})">>),
     ?assertEqual(
         {ok, <<"INSERT INTO `a``b` (`c``d`) VALUES ('changed')">>},
         rendered_binary(render(BacktickPlan, #{value => <<"changed">>}, null_opts()))
     ).
 
-reject_ambiguous_quoted_tokens_test() ->
+quoted_template_boundary_test() ->
     ?assertMatch(
-        {error, _},
+        {ok, _},
         compile(<<"INSERT INTO t(v) VALUES ('prefix\\'${v} suffix')">>)
     ),
     ?assertMatch(
-        {error, _},
+        {ok, _},
         compile(<<"INSERT INTO t(v) VALUES (\"prefix\\\"${v} suffix\")">>)
     ),
     ?assertMatch(
@@ -532,6 +629,10 @@ charset_and_unicode_value_test() ->
     ?assertEqual(
         {ok, <<"INSERT INTO `t` (`v`) VALUES (X'FF')">>},
         rendered_binary(render(Plan, #{v => InvalidUTF8}, null_opts()))
+    ),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) VALUES (_utf8mb4 X'610062')">>},
+        rendered_binary(render(Plan, #{v => <<"a", 0, "b">>}, null_opts()))
     ).
 
 on_duplicate_key_update_test() ->
@@ -576,6 +677,26 @@ reject_unsupported_syntax_test() ->
         <<"INSERT INTO t SELECT ${a}">>
     ],
     lists:foreach(fun(SQL) -> ?assertMatch({error, _}, compile(SQL)) end, Rejected).
+
+lexical_boundary_test() ->
+    ?assertMatch({ok, _}, compile(<<"INSERT", 11, "INTO t VALUES (1)">>)),
+    ?assertMatch({ok, _}, compile(<<"INSERT INTO таблица VALUES (0x12)"/utf8>>)),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (0X12)">>)),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO $table VALUES (1)">>)),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO $tag$text$tag$ VALUES (1)">>)),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO $tag$unterminated VALUES (1)">>)),
+    ?assertMatch(
+        {error, _},
+        compile(iolist_to_binary([<<"INSERT INTO t VALUES ('a">>, 0, <<"b')">>]))
+    ),
+    ?assertMatch(
+        {error, _},
+        compile(iolist_to_binary([<<"INSERT INTO t VALUES (\"a">>, 0, <<"b\")">>]))
+    ),
+    ?assertMatch(
+        {error, _},
+        compile(iolist_to_binary([<<"INSERT INTO `a">>, 0, <<"b` VALUES (1)">>]))
+    ).
 
 rendered_binary({ok, SQL}) ->
     ?assert(is_list(SQL)),

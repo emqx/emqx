@@ -260,29 +260,41 @@ t_send_message_query(Config) ->
     ok.
 
 t_sql_value_escaping(Config) ->
-    Payload = <<"x\\'); DROP TABLE mqtt.mqtt_test; --">>,
+    Attack = <<"x\\'); DROP TABLE mqtt.mqtt_test; --">>,
+    Cases = [
+        {0, Attack},
+        {1, <<16#FF>>},
+        {2, <<"a", 0, "b">>},
+        {3, <<"你好😀"/utf8>>}
+    ],
     lists:foreach(
-        fun({EnableBatch, Key}) ->
+        fun({EnableBatch, BaseKey}) ->
             BridgeID = make_bridge(#{
                 enable_batch => EnableBatch,
                 batch_size => 1
             }),
-            Message = #{key => Key, data => Payload, timestamp => 10000},
-            emqx_bridge:send_message(BridgeID, Message),
-            check_key_in_clickhouse(Key, Config),
-            ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),
-            {ok, 200, Result} = clickhouse:query(
-                ClickhouseConnection,
-                sql_find_data(Key),
-                []
-            ),
-            ?assertEqual(
-                binary:encode_hex(Payload),
-                iolist_to_binary(string:trim(Result))
+            lists:foreach(
+                fun({Offset, Payload}) ->
+                    Key = BaseKey + Offset,
+                    Message = #{key => Key, data => Payload, timestamp => 10000},
+                    emqx_bridge:send_message(BridgeID, Message),
+                    check_key_in_clickhouse(Key, Config),
+                    ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),
+                    {ok, 200, Result} = clickhouse:query(
+                        ClickhouseConnection,
+                        sql_find_data(Key),
+                        []
+                    ),
+                    ?assertEqual(
+                        binary:encode_hex(Payload),
+                        iolist_to_binary(string:trim(Result))
+                    )
+                end,
+                Cases
             ),
             delete_bridge()
         end,
-        [{false, 4201}, {true, 4202}]
+        [{false, 4210}, {true, 4220}]
     ),
     JSONPayload = <<"x\"], [999, \"injected\", 0]">>,
     BridgeID = make_bridge(#{
@@ -297,6 +309,21 @@ t_sql_value_escaping(Config) ->
     ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),
     {ok, 200, Result} = clickhouse:query(ClickhouseConnection, sql_find_data(4203), []),
     ?assertEqual(binary:encode_hex(JSONPayload), iolist_to_binary(string:trim(Result))),
+    delete_bridge(),
+    CasePayload = <<"case-null">>,
+    CaseBridgeID = make_bridge(#{
+        enable_batch => false,
+        sql =>
+            "INSERT INTO mqtt_test(key, data, arrived) VALUES "
+            "(${key}, CASE WHEN ${data} = 'null' THEN 'case-null' ELSE ${data} END, ${timestamp})"
+    }),
+    emqx_bridge:send_message(
+        CaseBridgeID,
+        #{key => 4204, data => <<"null">>, timestamp => 10000}
+    ),
+    check_key_in_clickhouse(4204, Config),
+    {ok, 200, CaseResult} = clickhouse:query(ClickhouseConnection, sql_find_data(4204), []),
+    ?assertEqual(binary:encode_hex(CasePayload), iolist_to_binary(string:trim(CaseResult))),
     delete_bridge().
 
 t_undefined_vars_as_null(Config) ->

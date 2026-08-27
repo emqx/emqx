@@ -454,7 +454,11 @@ t_simple_query(Config) ->
 
 t_sql_value_escaping(Config) ->
     BatchSize = batch_size(Config),
-    ?assertMatch({ok, _}, create_bridge(Config)),
+    SQL =
+        "insert into t_mqtt_msg(msgid, topic, qos, payload) "
+        "values (${id}, ${topic}, ${qos}, "
+        "CASE WHEN ${payload} = N'null' THEN NULL ELSE N'${payload}' END)",
+    ?assertMatch({ok, _}, create_bridge(Config, #{<<"sql">> => SQL})),
     Payload = <<"x\\'); DROP TABLE mqtt.dbo.t_mqtt_msg; --">>,
     Fillers = [integer_to_binary(N) || N <- lists:seq(2, BatchSize)],
     Payloads = [Payload | Fillers],
@@ -469,7 +473,8 @@ t_sql_value_escaping(Config) ->
         10_000
     ),
     ?assertEqual(BatchSize, connect_and_get_count(Config)),
-    ?assert(lists:member({str(Payload)}, connect_and_get_payload(Config))).
+    Rows = connect_and_get_payload(Config),
+    ?assert(lists:member({str(Payload)}, Rows)).
 
 -define(MISSING_TINYINT_ERROR,
     "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"

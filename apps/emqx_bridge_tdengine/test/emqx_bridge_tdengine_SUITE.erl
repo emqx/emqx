@@ -429,19 +429,15 @@ t_simple_insert(Config) ->
 
 t_sql_value_escaping(Config) ->
     connect_and_clear_table(Config),
-    Payload = <<"x\\'); DROP TABLE t_mqtt_msg; --">>,
+    Payload = <<"你好😀 x\\'); DROP TABLE t_mqtt_msg; --"/utf8, 16#FF>>,
     MakeMessageFun = fun() ->
         #{payload => Payload, timestamp => 1668602148000, second_ts => 1668602148010}
     end,
-
     ok = emqx_bridge_v2_testlib:t_sync_query(
         Config, MakeMessageFun, fun is_success_check/1, tdengine_connector_query_return
     ),
-
-    ?assertEqual(
-        [[Payload], [Payload]],
-        connect_and_get_payload(Config)
-    ).
+    StoredPayload = <<"你好😀 x\\'); DROP TABLE t_mqtt_msg; --"/utf8, 16#FFFD/utf8>>,
+    ?assertEqual([[StoredPayload], [StoredPayload]], connect_and_get_payload(Config)).
 
 t_double_quoted_sql_value(Config0) ->
     SQL =

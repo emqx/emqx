@@ -169,6 +169,10 @@ resolve_placeholder({var, _Name, Accessor} = Placeholder, Data, Cache) ->
 render_error({var, Name, _Accessor}, Reason) ->
     {invalid_sql_template_value, #{placeholder => Name, reason => Reason}}.
 
+%% Encoding fails after all string parts are combined, so no single part owns the error.
+%% Report one placeholder with the regular error shape.
+%% Report every unique placeholder when the template contains several,
+%% and return the reason directly when it contains none.
 render_template_error(Parts, Reason) ->
     Placeholders = lists:usort([Placeholder || #tpl_placeholder{placeholder = Placeholder} <- Parts]),
     case Placeholders of
@@ -203,11 +207,15 @@ serialize_identifier({identifier, bare, Name}) ->
     quote_identifier(Name);
 serialize_identifier({identifier, double, Source}) ->
     ok = assert_no_identifier_placeholder(Source),
-    quote_identifier(decode_doubled(strip_quotes(Source), $", []));
+    Name = decode_doubled(strip_quotes(Source), $", []),
+    ok = assert_no_nul(Name),
+    quote_identifier(Name);
 serialize_identifier({identifier, bracket, Source}) ->
     ok = assert_no_identifier_placeholder(Source),
     Body = binary:part(Source, 1, byte_size(Source) - 2),
-    quote_identifier(decode_bracket(Body, [])).
+    Name = decode_bracket(Body, []),
+    ok = assert_no_nul(Name),
+    quote_identifier(Name).
 
 assert_no_identifier_placeholder(Source) ->
     case binary:match(Source, <<"${">>) of
@@ -246,7 +254,7 @@ compile_expression({string, Style, Source}) ->
             [compile_string_op(Style, Parts)];
         false ->
             [#tpl_text{text = Text}] = Parts,
-            [#raw{sql = encode_string(Text, Style)}]
+            [#raw{sql = iolist_to_binary(encode_string(Text, Style))}]
     end;
 compile_expression({number, Number}) ->
     [#raw{sql = Number}];
@@ -272,10 +280,37 @@ compile_expression({group, Expression}) ->
 compile_expression({unary, Operator, Expression}) ->
     [#raw{sql = <<(atom_to_binary(Operator))/binary, "(">>} | compile_expression(Expression)] ++
         [#raw{sql = <<")">>}];
+compile_expression({is_null, Expression, Negated}) ->
+    Suffix =
+        case Negated of
+            true -> <<" IS NOT NULL">>;
+            false -> <<" IS NULL">>
+        end,
+    compile_expression(Expression) ++ [#raw{sql = Suffix}];
+compile_expression({case_expression, Operand, Whens, Else}) ->
+    [#raw{sql = <<"CASE">>}] ++
+        compile_case_operand(Operand) ++
+        lists:append([compile_when_clause(Clause) || Clause <- Whens]) ++
+        compile_case_else(Else) ++
+        [#raw{sql = <<" END">>}];
 compile_expression({binary, Operator, Left, Right}) ->
     compile_expression(Left) ++
         [#raw{sql = <<" ", (atom_to_binary(Operator))/binary, " ">>}] ++
         compile_expression(Right).
+
+compile_case_operand(undefined) ->
+    [];
+compile_case_operand(Expression) ->
+    [#raw{sql = <<" ">>} | compile_expression(Expression)].
+
+compile_when_clause({'when', Condition, Result}) ->
+    [#raw{sql = <<" WHEN ">>} | compile_expression(Condition)] ++
+        [#raw{sql = <<" THEN ">>} | compile_expression(Result)].
+
+compile_case_else(undefined) ->
+    [];
+compile_case_else(Expression) ->
+    [#raw{sql = <<" ELSE ">>} | compile_expression(Expression)].
 
 compile_string_op(varchar, Parts) ->
     #varchar_string{parts = Parts};
@@ -288,6 +323,10 @@ serialize_function_part(Identifier) ->
     serialize_identifier(Identifier).
 
 parse_string(Source, nvarchar) ->
+    %% SQL Server keeps doubled apostrophes inside one string token:
+    %% https://github.com/microsoft/SqlScriptDOM/commit/01aa17bfa32f25f1b1084b72c2e6a1a92b44633a
+    %% SqlScriptDom/Parser/TSql/TSql160.g lines 34233-34259.
+    %% Skip the two-byte N' prefix and exclude the closing apostrophe.
     Body = binary:part(Source, 2, byte_size(Source) - 3),
     parse_string_body(Body, [], []);
 parse_string(Source, varchar) ->
@@ -309,6 +348,9 @@ parse_string_body(<<"${", _/binary>> = Bin, Text, Parts) ->
 parse_string_body(<<Char, Rest/binary>>, Text, Parts) ->
     parse_string_body(Rest, [Char | Text], Parts).
 
+%% Restrict emqx_template's envelope to nonempty dotted paths.
+%% Retain `${}` and `${.}`.
+%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
 valid_placeholder_source(<<"${}">>) ->
     true;
 valid_placeholder_source(<<"${.}">>) ->
@@ -416,13 +458,23 @@ to_text(Value) when is_binary(Value) -> Value;
 to_text(Value) -> iolist_to_binary(emqx_template:to_string(Value)).
 
 encode_string(Text, Style) ->
+    %% OTP ODBC uses SQL_NTS. An embedded NUL would truncate the statement:
+    %% https://github.com/erlang/otp/blob/OTP-26.2.5.14/lib/odbc/c_src/odbcserver.c#L620-L642
+    %% https://learn.microsoft.com/en-us/sql/odbc/reference/develop-app/using-length-and-indicator-values
+    ok = assert_no_nul(Text),
     Escaped = binary:replace(Text, <<"'">>, <<"''">>, [global]),
     Prefix =
         case Style of
             nvarchar -> <<"N">>;
             varchar -> <<>>
         end,
-    <<Prefix/binary, "'", Escaped/binary, "'">>.
+    [Prefix, $', Escaped, $'].
+
+assert_no_nul(Text) ->
+    case binary:match(Text, <<0>>) of
+        nomatch -> ok;
+        _ -> error(nul_character_not_allowed)
+    end.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -453,6 +505,24 @@ function_expression_test() ->
         render(Plan, #{id => <<"m1">>, ms_shift => 1, s_shift => 2}, null_opts())
     ).
 
+conditional_expression_test() ->
+    SQL = <<
+        "INSERT INTO t(a, b, c) VALUES ("
+        "CASE WHEN ${v} >= 10 AND ${v} IS NOT NULL THEN N'large' ELSE N'small' END, "
+        "CASE ${v} WHEN 10 THEN 1 ELSE 0 END, "
+        "IIF(NOT ${v} = 10 OR ${v} < 0, 1, 0))"
+    >>,
+    {ok, Plan} = compile(SQL),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO [t] ([a], [b], [c]) VALUES ("
+            "CASE WHEN 10 >= 10 AND 10 IS NOT NULL THEN N'large' ELSE N'small' END, "
+            "CASE 10 WHEN 10 THEN 1 ELSE 0 END, "
+            "IIF(NOT(10 = 10) OR 10 < 0, 1, 0))"
+        >>},
+        rendered_binary(render(Plan, #{v => 10}, null_opts()))
+    ).
+
 leading_dot_placeholder_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${.payload})">>),
     ?assertEqual(
@@ -477,6 +547,40 @@ batch_shape_test() ->
     ?assertEqual(
         <<"INSERT INTO [t] ([v]) VALUES ('a'');--'), ('b')">>,
         iolist_to_binary(Rendered)
+    ),
+    ?assertEqual(
+        {error,
+            {sqlserver_template_render_failed, #{
+                batch_index => 2,
+                reason =>
+                    {invalid_sql_template_value, #{
+                        placeholder => "payload", reason => {error, nul_character_not_allowed}
+                    }}
+            }}},
+        render_batch(
+            Plan,
+            [#{payload => <<"ok">>}, #{payload => <<"a", 0, "b">>}],
+            null_opts()
+        )
+    ),
+    Rows = lists:duplicate(1000, #{payload => <<"ok">>}),
+    ?assertMatch({ok, _}, render_batch(Plan, Rows, null_opts())),
+    ?assertEqual(
+        {error, sqlserver_values_row_limit_exceeded},
+        render_batch(Plan, [#{payload => <<"extra">>} | Rows], null_opts())
+    ).
+
+binary_and_unicode_value_test() ->
+    {ok, ValuePlan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO [t] ([v]) VALUES ('", 16#FF, "')">>},
+        rendered_binary(render(ValuePlan, #{payload => <<16#FF>>}, null_opts()))
+    ),
+    Unicode = <<"你好😀"/utf8>>,
+    {ok, UnicodePlan} = compile(<<"INSERT INTO t(v) VALUES (N'pre${payload}post')">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO [t] ([v]) VALUES (N'pre", Unicode/binary, "post')">>},
+        rendered_binary(render(UnicodePlan, #{payload => Unicode}, null_opts()))
     ).
 
 binary_literal_test() ->
@@ -519,6 +623,31 @@ reject_unsupported_syntax_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO [${table}](v) VALUES (1)">>)),
     ?assertMatch({error, _}, compile(<<"INSERT INTO t(v) VALUES (${value}0)">>)),
     ?assertMatch({error, _}, compile(<<"INSERT INTO t(v) VALUES (1), (2)">>)).
+
+lexical_boundary_test() ->
+    Accepted = [
+        <<"INSERT INTO @t(v) VALUES (1)">>,
+        <<"INSERT INTO #t(v) VALUES (1)">>,
+        <<"INSERT INTO \"t\"(v) VALUES (1)">>,
+        <<"INSERT", 11, "INTO t(v) VALUES (1)">>,
+        <<"INSERT INTO t(v) VALUES (DEFAULT + 1)">>,
+        iolist_to_binary([<<"INSERT INTO [">>, binary:copy(<<"a">>, 129), <<"](v) VALUES (1)">>])
+    ],
+    lists:foreach(fun(SQL) -> ?assertMatch({ok, _}, compile(SQL)) end, Accepted),
+    Rejected = [
+        <<"INSERT INTO [](v) VALUES (1)">>,
+        <<"INSERT INTO t(v) VALUES (0x)">>,
+        <<"INSERT INTO t(v) VALUES (1e)">>,
+        <<"INSERT INTO t(v) VALUES (1e+)">>,
+        <<"INSERT INTO таблица(v) VALUES (1)"/utf8>>,
+        <<"INSERT INTO foo", 16#C2, 16#A0, "bar(v) VALUES (1)">>,
+        iolist_to_binary([<<"INSERT INTO [a">>, 0, <<"b](v) VALUES (1)">>]),
+        iolist_to_binary([<<"INSERT INTO \"a">>, 0, <<"b\"(v) VALUES (1)">>]),
+        iolist_to_binary([<<"INSERT INTO t(v) VALUES ('a">>, 0, <<"b')">>])
+    ],
+    lists:foreach(fun(SQL) -> ?assertMatch({error, _}, compile(SQL)) end, Rejected),
+    {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
+    ?assertMatch({error, _}, render(Plan, #{payload => <<"a", 0, "b">>}, null_opts())).
 
 rendered_binary({ok, SQL}) ->
     ?assert(is_list(SQL)),

@@ -7,21 +7,31 @@
 Nonterminals
     template insert_stmt opt_table target static_identifier opt_columns columns column_items column_item
     identifier_list source format_name sql_rows row expression_list expression expression_args opt_expression_args
+    case_expression opt_case_operand when_clauses when_clause opt_case_else
     json_array json_values opt_json_values json_value json_object json_members opt_json_members json_member
     opt_semicolon.
 
 Terminals
     insert into table values format except null true false
+    case_kw when_kw then_kw else_kw end_kw is_kw and_kw or_kw not_kw
     identifier placeholder number sq_string dq_string bt_identifier
-    '(' ')' '[' ']' '{' '}' ',' ':' '.' ';' '+' '-' '*' '/' '%'.
+    '(' ')' '[' ']' '{' '}' ',' ':' '.' ';' '=' '==' '!=' '<>' '<=' '>=' '<' '>'
+    '+' '-' '*' '/' '%'.
 
+%% Trailing unconsumed tokens do not match and cause a parse error.
 Rootsymbol template.
 
+Left 10 or_kw.
+Left 20 and_kw.
+Right 30 not_kw.
+Nonassoc 40 '=' '==' '!=' '<>' '<=' '>=' '<' '>' is_kw.
 Left 100 '+' '-'.
 Left 200 '*' '/' '%'.
 
 template -> insert_stmt : '$1'.
 
+%% This grammar is a restricted subset of ClickHouse INSERT:
+%% https://github.com/ClickHouse/ClickHouse/blob/8dfb1700858195fa704221e360fa0798ac6ee9ed/src/Parsers/ParserInsertQuery.cpp#L26-L115
 insert_stmt -> insert into opt_table target opt_columns source opt_semicolon :
     {insert, #{target => '$4', columns => '$5', source => '$6'}}.
 
@@ -48,6 +58,9 @@ column_item -> '*' except '(' identifier_list ')' : {except, '$4'}.
 identifier_list -> static_identifier : ['$1'].
 identifier_list -> identifier_list ',' static_identifier : '$1' ++ ['$3'].
 
+%% ClickHouse hands inline INSERT data to the selected format reader:
+%% https://github.com/ClickHouse/ClickHouse/blob/8dfb1700858195fa704221e360fa0798ac6ee9ed/src/Parsers/ParserInsertQuery.cpp#L143-L163
+%% https://github.com/ClickHouse/ClickHouse/blob/8dfb1700858195fa704221e360fa0798ac6ee9ed/src/Processors/Transforms/getSourceFromASTInsertQuery.cpp#L29-L64
 source -> values sql_rows : {values, '$2'}.
 source -> format format_name sql_rows : {format_rows, '$2', '$3'}.
 source -> format format_name json_array : {format_json, '$2', '$3'}.
@@ -72,17 +85,43 @@ expression -> number : {number, value('$1')}.
 expression -> null : null.
 expression -> true : true.
 expression -> false : false.
+expression -> case_expression : '$1'.
 expression -> identifier : {identifier_value, value('$1')}.
 expression -> identifier '(' opt_expression_args ')' : {call, value('$1'), '$3'}.
+expression -> and_kw '(' opt_expression_args ')' : {call, <<"and">>, '$3'}.
+expression -> or_kw '(' opt_expression_args ')' : {call, <<"or">>, '$3'}.
 expression -> '(' expression ')' : {group, '$2'}.
 expression -> '[' opt_expression_args ']' : {array, '$2'}.
 expression -> '+' expression : {unary, '+', '$2'}.
 expression -> '-' expression : {unary, '-', '$2'}.
+expression -> not_kw expression : {unary, 'NOT', '$2'}.
+expression -> expression '=' expression : {binary, '=', '$1', '$3'}.
+expression -> expression '==' expression : {binary, '==', '$1', '$3'}.
+expression -> expression '!=' expression : {binary, '!=', '$1', '$3'}.
+expression -> expression '<>' expression : {binary, '<>', '$1', '$3'}.
+expression -> expression '<=' expression : {binary, '<=', '$1', '$3'}.
+expression -> expression '>=' expression : {binary, '>=', '$1', '$3'}.
+expression -> expression '<' expression : {binary, '<', '$1', '$3'}.
+expression -> expression '>' expression : {binary, '>', '$1', '$3'}.
+expression -> expression is_kw null : {is_null, '$1', false}.
+expression -> expression is_kw not_kw null : {is_null, '$1', true}.
+expression -> expression and_kw expression : {binary, 'AND', '$1', '$3'}.
+expression -> expression or_kw expression : {binary, 'OR', '$1', '$3'}.
 expression -> expression '+' expression : {binary, '+', '$1', '$3'}.
 expression -> expression '-' expression : {binary, '-', '$1', '$3'}.
 expression -> expression '*' expression : {binary, '*', '$1', '$3'}.
 expression -> expression '/' expression : {binary, '/', '$1', '$3'}.
 expression -> expression '%' expression : {binary, '%', '$1', '$3'}.
+
+case_expression -> case_kw opt_case_operand when_clauses opt_case_else end_kw :
+    {case_expression, '$2', '$3', '$4'}.
+opt_case_operand -> '$empty' : undefined.
+opt_case_operand -> expression : '$1'.
+when_clauses -> when_clause : ['$1'].
+when_clauses -> when_clauses when_clause : '$1' ++ ['$2'].
+when_clause -> when_kw expression then_kw expression : {'when', '$2', '$4'}.
+opt_case_else -> '$empty' : undefined.
+opt_case_else -> else_kw expression : '$2'.
 
 json_array -> '[' opt_json_values ']' : {json_array, '$2'}.
 opt_json_values -> '$empty' : [].

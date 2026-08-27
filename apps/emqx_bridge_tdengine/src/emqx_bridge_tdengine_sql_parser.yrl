@@ -15,10 +15,15 @@ Terminals
     identifier identifier_template bt_identifier placeholder number duration sq_string dq_string
     '(' ')' ',' '.' ';' '+' '-'.
 
+%% Trailing unconsumed tokens do not match and cause a parse error.
 Rootsymbol template.
 
 template -> insert_stmt : '$1'.
 
+%% This grammar is a restricted subset of TDengine multi-table INSERT:
+%% https://github.com/taosdata/TDengine/blob/4bde7ac8fbebc3aa9143124bfcbd08645c46a037/source/libs/parser/src/parInsertSql.c#L1866-L1877
+%% https://github.com/taosdata/TDengine/blob/4bde7ac8fbebc3aa9143124bfcbd08645c46a037/source/libs/parser/src/parInsertSql.c#L929-L1049
+%% https://github.com/taosdata/TDengine/blob/4bde7ac8fbebc3aa9143124bfcbd08645c46a037/source/libs/parser/src/parInsertSql.c#L1508-L1651
 insert_stmt -> insert into table_clauses opt_semicolon :
     {insert, #{clauses => lists:reverse('$3')}}.
 
@@ -77,6 +82,8 @@ values_list -> value : ['$1'].
 values_list -> values_list ',' value : '$1' ++ ['$3'].
 
 value -> time_base : '$1'.
+%% TDengine's INSERT parser reads one signed duration after a time base:
+%% https://github.com/taosdata/TDengine/blob/4bde7ac8fbebc3aa9143124bfcbd08645c46a037/source/libs/parser/src/parInsertSql.c#L300-L329
 value -> time_base duration_ops : apply_duration_ops('$1', '$2').
 time_base -> placeholder : {var, value('$1')}.
 time_base -> sq_string : {string, single, value('$1')}.

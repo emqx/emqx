@@ -301,6 +301,9 @@ serialize_identifier({identifier, Style, Source}) when Style =:= double; Style =
     quote_identifier(decode_identifier(Source, Style)).
 
 quote_identifier(Name) ->
+    %% ClickHouse's backquoted writer uses generic backslash escaping:
+    %% https://github.com/ClickHouse/ClickHouse/commit/8dfb1700858195fa704221e360fa0798ac6ee9ed
+    %% src/IO/WriteHelpers.h lines 294-362 and 428-477.
     Escaped = binary:replace(
         Name,
         [<<"\\">>, <<"`">>],
@@ -365,10 +368,37 @@ compile_expression({array, Expressions}) ->
 compile_expression({unary, Operator, Expression}) ->
     [#raw{sql = <<(atom_to_binary(Operator))/binary, "(">>} | compile_expression(Expression)] ++
         [#raw{sql = <<")">>}];
+compile_expression({is_null, Expression, Negated}) ->
+    Suffix =
+        case Negated of
+            true -> <<" IS NOT NULL">>;
+            false -> <<" IS NULL">>
+        end,
+    compile_expression(Expression) ++ [#raw{sql = Suffix}];
+compile_expression({case_expression, Operand, Whens, Else}) ->
+    [#raw{sql = <<"CASE">>}] ++
+        compile_case_operand(Operand) ++
+        lists:append([compile_when_clause(Clause) || Clause <- Whens]) ++
+        compile_case_else(Else) ++
+        [#raw{sql = <<" END">>}];
 compile_expression({binary, Operator, Left, Right}) ->
     compile_expression(Left) ++
         [#raw{sql = <<" ", (atom_to_binary(Operator))/binary, " ">>}] ++
         compile_expression(Right).
+
+compile_case_operand(undefined) ->
+    [];
+compile_case_operand(Expression) ->
+    [#raw{sql = <<" ">>} | compile_expression(Expression)].
+
+compile_when_clause({'when', Condition, Result}) ->
+    [#raw{sql = <<" WHEN ">>} | compile_expression(Condition)] ++
+        [#raw{sql = <<" THEN ">>} | compile_expression(Result)].
+
+compile_case_else(undefined) ->
+    [];
+compile_case_else(Expression) ->
+    [#raw{sql = <<" ELSE ">>} | compile_expression(Expression)].
 
 compile_json({json_array, Values}) ->
     [#raw{sql = <<"[">>} | join_ops(<<",">>, [compile_json(V) || V <- Values])] ++
@@ -472,6 +502,9 @@ parse_sql_string_body(<<"${", _/binary>> = Bin, Text, Parts) ->
 parse_sql_string_body(<<Char, Rest/binary>>, Text, Parts) ->
     parse_sql_string_body(Rest, [Char | Text], Parts).
 
+%% Decode ClickHouse SQL escapes before quoted content is re-encoded.
+%% https://github.com/ClickHouse/ClickHouse/commit/8dfb1700858195fa704221e360fa0798ac6ee9ed
+%% src/IO/ReadHelpers.h lines 68-92 and src/IO/ReadHelpers.cpp lines 319-373.
 decode_sql_escape($a) ->
     7;
 decode_sql_escape($n) ->
@@ -493,6 +526,8 @@ decode_sql_escape($0) ->
 decode_sql_escape(Char) when
     Char =:= $\\; Char =:= $'; Char =:= $"; Char =:= $`; Char =:= $/; Char =:= $=
 ->
+    Char;
+decode_sql_escape(Char) when Char =< 16#1F ->
     Char;
 decode_sql_escape(Char) ->
     <<$\\, Char>>.
@@ -547,6 +582,10 @@ parse_json_string_body(<<Char, _/binary>>, _Text, _Parts) when Char < 16#20; Cha
 parse_json_string_body(<<Char, Rest/binary>>, Text, Parts) ->
     parse_json_string_body(Rest, [Char | Text], Parts).
 
+%% Decode JSON escapes before template segments are JSON-encoded again.
+%% https://github.com/ClickHouse/ClickHouse/commit/8dfb1700858195fa704221e360fa0798ac6ee9ed
+%% src/IO/ReadHelpers.cpp lines 376-490.
+%% https://www.rfc-editor.org/rfc/rfc8259.html#section-7
 decode_json_escape($") -> $";
 decode_json_escape($\\) -> $\\;
 decode_json_escape($/) -> $/;
@@ -571,6 +610,9 @@ hex_digit(Char) when Char >= $A, Char =< $F -> Char - $A + 10;
 hex_digit(Char) when Char >= $a, Char =< $f -> Char - $a + 10;
 hex_digit(Char) -> error({invalid_hex_digit, Char}).
 
+%% Restrict emqx_template's envelope to nonempty dotted paths.
+%% Retain `${}` and `${.}`.
+%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
 valid_placeholder_source(<<"${}">>) ->
     true;
 valid_placeholder_source(<<"${.}">>) ->
@@ -658,6 +700,9 @@ to_text(Value) when is_binary(Value) -> Value;
 to_text(Value) -> iolist_to_binary(emqx_template:to_string(Value)).
 
 encode_sql_string(Text) ->
+    %% ClickHouse quoted strings escape backslashes and apostrophes:
+    %% https://github.com/ClickHouse/ClickHouse/commit/8dfb1700858195fa704221e360fa0798ac6ee9ed
+    %% src/IO/WriteHelpers.h lines 294-362.
     Escaped = binary:replace(Text, [<<"\\">>, <<"'">>], <<"\\">>, [global, {insert_replaced, 1}]),
     <<"'", Escaped/binary, "'">>.
 
@@ -674,19 +719,19 @@ parse_insert_sql_template_test() ->
                 #sql_value{placeholder = test_placeholder(<<"date">>)},
                 #raw{sql = <<")">>}
             ]},
-        {<<"INSERT INTO Values_таблица (идентификатор, имя, возраст)   VALUES \t (${id}, 'Иван', 25)  "/utf8>>,
+        {<<"INSERT INTO `Values_таблица` (`идентификатор`, `имя`, `возраст`)   VALUES \t (${id}, 'Иван', 25)  "/utf8>>,
             <<", ">>, [
                 #raw{sql = <<"(">>},
                 #sql_value{placeholder = test_placeholder(<<"id">>)},
                 #raw{sql = <<", 'Иван', 25)"/utf8>>}
             ]},
-        {<<"INSERT INTO Values_таблица (идентификатор, имя, возраст)   VALUES \t (${id}, 'Иван', 25);  "/utf8>>,
+        {<<"INSERT INTO `Values_таблица` (`идентификатор`, `имя`, `возраст`)   VALUES \t (${id}, 'Иван', 25);  "/utf8>>,
             <<", ">>, [
                 #raw{sql = <<"(">>},
                 #sql_value{placeholder = test_placeholder(<<"id">>)},
                 #raw{sql = <<", 'Иван', 25)"/utf8>>}
             ]},
-        {<<"  inSErt into 表格(标识,名字,年龄)values(${id},'李四', 35) ; "/utf8>>, <<", ">>, [
+        {<<"  inSErt into `表格`(`标识`,`名字`,`年龄`)values(${id},'李四', 35) ; "/utf8>>, <<", ">>, [
             #raw{sql = <<"(">>},
             #sql_value{placeholder = test_placeholder(<<"id">>)},
             #raw{sql = <<", '李四', 35)"/utf8>>}
@@ -699,18 +744,18 @@ parse_insert_sql_template_test() ->
                 #sql_value{placeholder = test_placeholder(<<"timestamp">>)},
                 #raw{sql = <<" / 1000)))">>}
             ]},
-        {<<"insert into таблица (идентификатор,имя,возраст) VALUES(${id},'Алексей',30)"/utf8>>,
+        {<<"insert into `таблица` (`идентификатор`,`имя`,`возраст`) VALUES(${id},'Алексей',30)"/utf8>>,
             <<", ">>, [
                 #raw{sql = <<"(">>},
                 #sql_value{placeholder = test_placeholder(<<"id">>)},
                 #raw{sql = <<", 'Алексей', 30)"/utf8>>}
             ]},
-        {<<"INSERT into 表格 (标识, 名字, 年龄) VALUES (${id}, '张三', 22)"/utf8>>, <<", ">>, [
+        {<<"INSERT into `表格` (`标识`, `名字`, `年龄`) VALUES (${id}, '张三', 22)"/utf8>>, <<", ">>, [
             #raw{sql = <<"(">>},
             #sql_value{placeholder = test_placeholder(<<"id">>)},
             #raw{sql = <<", '张三', 22)"/utf8>>}
         ]},
-        {<<"  inSErt into 表格(标识,名字,年龄)values(${id},'李四', 35)"/utf8>>, <<", ">>, [
+        {<<"  inSErt into `表格`(`标识`,`名字`,`年龄`)values(${id},'李四', 35)"/utf8>>, <<", ">>, [
             #raw{sql = <<"(">>},
             #sql_value{placeholder = test_placeholder(<<"id">>)},
             #raw{sql = <<", '李四', 35)"/utf8>>}
@@ -818,7 +863,9 @@ parse_insert_sql_template_test() ->
         %% AnyFORMAT is not a supported format.
         <<"INSERT INTO mqtt_test FORMAT AnyFORMAT payload">>,
         %% FORMAT Values requires at least one row.
-        <<"INSERT INTO mqtt_test FORMAT Values">>
+        <<"INSERT INTO mqtt_test FORMAT Values">>,
+        %% ClickHouse BareWord does not include non-ASCII bytes.
+        <<"INSERT INTO таблица VALUES (1)"/utf8>>
     ],
     lists:foreach(
         fun(SQL) ->
@@ -873,6 +920,26 @@ values_compile_and_render_test() ->
         rendered_binary(render(Plan, #{key => 1, data => <<"hello">>, timestamp => 2}, null_opts()))
     ).
 
+conditional_expression_test() ->
+    SQL = <<
+        "INSERT INTO t(a, b, c, d) VALUES ("
+        "CASE WHEN ${v} >= 10 AND ${v} IS NOT NULL THEN 'large' ELSE 'small' END, "
+        "CASE ${v} WHEN 10 THEN 1 ELSE 0 END, "
+        "if(NOT ${v} == 10 OR ${v} < 0, 1, 0), "
+        "and(equals(${v}, 10), not(isNull(${v}))))"
+    >>,
+    {ok, Plan} = compile(SQL),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO `t` (`a`, `b`, `c`, `d`) VALUES ("
+            "CASE WHEN 10 >= 10 AND 10 IS NOT NULL THEN 'large' ELSE 'small' END, "
+            "CASE 10 WHEN 10 THEN 1 ELSE 0 END, "
+            "if(NOT(10 == 10) OR 10 < 0, 1, 0), "
+            "and(equals(10, 10), NOT((isNull(10)))))"
+        >>},
+        rendered_binary(render(Plan, #{v => 10}, null_opts()))
+    ).
+
 leading_dot_placeholder_test() ->
     {ok, Plan} = compile(<<"INSERT INTO mqtt_test(payload) VALUES (${.payload})">>),
     ?assertEqual(
@@ -896,11 +963,78 @@ static_escape_boundary_test() ->
     {ok, Rendered} = render(Plan, #{v => Attack}, null_opts()),
     ?assertMatch({ok, _}, compile(Rendered)).
 
+sql_escape_decode_test() ->
+    {ok, Plan} = compile(
+        <<"INSERT INTO t(v) VALUES ('\\a\\n\\r\\t\\b\\f\\e\\v\\0\\'\\q${v}')">>
+    ),
+    ?assertEqual(
+        {ok,
+            <<"INSERT INTO `t` (`v`) VALUES ('", 7, $\n, $\r, $\t, $\b, $\f, 27, 11, 0,
+                "\\'\\\\qx')">>},
+        rendered_binary(render(Plan, #{v => <<"x">>}, null_opts()))
+    ).
+
+json_escape_decode_test() ->
+    {ok, Plan} = compile(
+        <<
+            "INSERT INTO t(v) FORMAT JSONCompactEachRow "
+            "[\"\\\"\\\\\\/\\b\\f\\n\\r\\t\\u0041\\uD83D\\uDE00${v}\"]"
+        >>
+    ),
+    Decoded = <<$", $\\, $/, $\b, $\f, $\n, $\r, $\t, "A😀x"/utf8>>,
+    Encoded = emqx_utils_json:encode(Decoded),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) FORMAT JSONCompactEachRow [", Encoded/binary, "]">>},
+        rendered_binary(render(Plan, #{v => <<"x">>}, null_opts()))
+    ),
+    ?assertMatch(
+        {error, _},
+        compile(<<"INSERT INTO t(v) FORMAT JSONCompactEachRow [\"\\q${v}\"]">>)
+    ).
+
+lexical_boundary_test() ->
+    SQL = iolist_to_binary([
+        <<"INSERT">>,
+        11,
+        <<"INTO $t VALUES ('a">>,
+        $\\,
+        $\n,
+        <<"b')">>
+    ]),
+    ?assertMatch({ok, _}, compile(SQL)).
+
 batch_shape_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     {ok, Rendered} = render_batch(Plan, [#{v => <<"a');--">>}, #{v => <<"b">>}], null_opts()),
     ?assert(is_list(Rendered)),
-    ?assertMatch({ok, _}, compile(Rendered)).
+    ?assertMatch({ok, _}, compile(Rendered)),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ">>},
+        rendered_binary(render_batch(Plan, [], null_opts()))
+    ).
+
+binary_value_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ('", 16#FF, "')">>},
+        rendered_binary(render(Plan, #{v => <<16#FF>>}, null_opts()))
+    ),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ('a", 0, "b')">>},
+        rendered_binary(render(Plan, #{v => <<"a", 0, "b">>}, null_opts()))
+    ),
+    Unicode = <<"你好😀"/utf8>>,
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) VALUES ('", Unicode/binary, "')">>},
+        rendered_binary(render(Plan, #{v => Unicode}, null_opts()))
+    ).
+
+json_invalid_binary_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO t(v) FORMAT JSONCompactEachRow [${v}]">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` (`v`) FORMAT JSONCompactEachRow [\"�\"]"/utf8>>},
+        rendered_binary(render(Plan, #{v => <<16#FF>>}, null_opts()))
+    ).
 
 reject_unsupported_syntax_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (1) -- comment">>)),

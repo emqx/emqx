@@ -6,20 +6,30 @@
 
 Nonterminals
     template insert_stmt target static_identifier opt_static_identifier opt_columns columns identifier_list row
-    expression_list expression expression_args opt_expression_args function_name opt_semicolon.
+    expression_list expression expression_args opt_expression_args function_name opt_semicolon
+    case_expression opt_case_operand when_clauses when_clause opt_case_else.
 
 Terminals
     insert into values null default current_timestamp
+    case_kw when_kw then_kw else_kw end_kw is_kw and_kw or_kw not_kw
     identifier placeholder number hex sq_string nq_string dq_identifier br_identifier
-    '(' ')' ',' '.' ';' '+' '-' '*' '/' '%'.
+    '(' ')' ',' '.' ';' '=' '>=' '<=' '<>' '!=' '>' '<' '+' '-' '*' '/' '%'.
 
+%% Trailing unconsumed tokens do not match and cause a parse error.
 Rootsymbol template.
 
+Left 10 or_kw.
+Left 20 and_kw.
+Right 30 not_kw.
+Nonassoc 40 '=' '>=' '<=' '<>' '!=' '>' '<' is_kw.
 Left 100 '+' '-'.
 Left 200 '*' '/' '%'.
 
 template -> insert_stmt : '$1'.
 
+%% This grammar is a restricted subset of SQL Server INSERT:
+%% https://github.com/microsoft/SqlScriptDOM/blob/01aa17bfa32f25f1b1084b72c2e6a1a92b44633a/SqlScriptDom/Parser/TSql/TSql160.g#L19710-L19781
+%% https://github.com/microsoft/SqlScriptDOM/blob/01aa17bfa32f25f1b1084b72c2e6a1a92b44633a/SqlScriptDom/Parser/TSql/TSql160.g#L19976-L20029
 insert_stmt -> insert into target opt_columns values row opt_semicolon :
     {insert, #{target => '$3', columns => '$4', row => '$6'}}.
 
@@ -59,16 +69,39 @@ expression -> hex : {hex, value('$1')}.
 expression -> null : null.
 expression -> default : default.
 expression -> current_timestamp : current_timestamp.
+expression -> case_expression : '$1'.
 expression -> identifier : {identifier_value, value('$1')}.
 expression -> function_name '(' opt_expression_args ')' : {call, '$1', '$3'}.
 expression -> '(' expression ')' : {group, '$2'}.
 expression -> '+' expression : {unary, '+', '$2'}.
 expression -> '-' expression : {unary, '-', '$2'}.
+expression -> not_kw expression : {unary, 'NOT', '$2'}.
+expression -> expression '=' expression : {binary, '=', '$1', '$3'}.
+expression -> expression '>=' expression : {binary, '>=', '$1', '$3'}.
+expression -> expression '<=' expression : {binary, '<=', '$1', '$3'}.
+expression -> expression '<>' expression : {binary, '<>', '$1', '$3'}.
+expression -> expression '!=' expression : {binary, '!=', '$1', '$3'}.
+expression -> expression '>' expression : {binary, '>', '$1', '$3'}.
+expression -> expression '<' expression : {binary, '<', '$1', '$3'}.
+expression -> expression is_kw null : {is_null, '$1', false}.
+expression -> expression is_kw not_kw null : {is_null, '$1', true}.
+expression -> expression and_kw expression : {binary, 'AND', '$1', '$3'}.
+expression -> expression or_kw expression : {binary, 'OR', '$1', '$3'}.
 expression -> expression '+' expression : {binary, '+', '$1', '$3'}.
 expression -> expression '-' expression : {binary, '-', '$1', '$3'}.
 expression -> expression '*' expression : {binary, '*', '$1', '$3'}.
 expression -> expression '/' expression : {binary, '/', '$1', '$3'}.
 expression -> expression '%' expression : {binary, '%', '$1', '$3'}.
+
+case_expression -> case_kw opt_case_operand when_clauses opt_case_else end_kw :
+    {case_expression, '$2', '$3', '$4'}.
+opt_case_operand -> '$empty' : undefined.
+opt_case_operand -> expression : '$1'.
+when_clauses -> when_clause : ['$1'].
+when_clauses -> when_clauses when_clause : '$1' ++ ['$2'].
+when_clause -> when_kw expression then_kw expression : {'when', '$2', '$4'}.
+opt_case_else -> '$empty' : undefined.
+opt_case_else -> else_kw expression : '$2'.
 
 function_name -> static_identifier : ['$1'].
 function_name -> function_name '.' static_identifier : '$1' ++ ['$3'].

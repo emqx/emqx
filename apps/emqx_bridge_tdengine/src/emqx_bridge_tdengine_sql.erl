@@ -40,6 +40,10 @@
 compile(SQL0) ->
     SQL = unicode:characters_to_binary(SQL0),
     try
+        %% TDengine consumes null-terminated SQL. NUL cannot belong to any token:
+        %% https://github.com/taosdata/TDengine/commit/4bde7ac8fbebc3aa9143124bfcbd08645c46a037
+        %% source/libs/parser/src/parTokenizer.c lines 623-630.
+        ok = assert_no_nul(SQL),
         case emqx_bridge_tdengine_sql_lexer:string(binary_to_list(SQL)) of
             {ok, Tokens, _EndLine} ->
                 case emqx_bridge_tdengine_sql_parser:parse(Tokens) of
@@ -328,7 +332,13 @@ parse_string(Source, single) ->
 parse_string(Source, double) ->
     parse_string_body(strip_quotes(Source), $", [], []).
 
-parse_string_body(<<>>, _Quote, Text, Parts) ->
+%% Source contains the remaining string bytes.
+%% Quote identifies the active delimiter.
+%% Text collects the current decoded literal bytes in reverse order.
+%% Parts collects completed template parts in reverse order.
+%% Escapes and doubled quotes append literal text.
+%% A placeholder flushes Text into Parts, and the final clause restores the source order.
+parse_string_body(_Source = <<>>, _Quote, Text, Parts) ->
     finish_parts(Text, Parts);
 parse_string_body(<<$\\, Escaped, Rest/binary>>, Quote, Text, Parts) ->
     parse_string_body(Rest, Quote, [decode_escape(Escaped) | Text], Parts);
@@ -347,7 +357,12 @@ parse_string_body(<<"${", _/binary>> = Bin, Quote, Text, Parts) ->
 parse_string_body(<<Char, Rest/binary>>, Quote, Text, Parts) ->
     parse_string_body(Rest, Quote, [Char | Text], Parts).
 
-parse_identifier_parts(<<>>, _Style, Text, Parts) ->
+%% Source contains the remaining identifier bytes.
+%% Style controls doubled-backtick decoding.
+%% Text collects the current literal bytes in reverse order.
+%% Parts collects completed template parts in reverse order.
+%% A placeholder flushes Text into Parts, and the final clause restores the source order.
+parse_identifier_parts(_Source = <<>>, _Style, Text, Parts) ->
     lists:reverse(flush_text(Text, Parts));
 parse_identifier_parts(<<$`, $`, Rest/binary>>, backtick, Text, Parts) ->
     parse_identifier_parts(Rest, backtick, [$` | Text], Parts);
@@ -362,6 +377,9 @@ parse_identifier_parts(<<"${", _/binary>> = Bin, Style, Text, Parts) ->
 parse_identifier_parts(<<Char, Rest/binary>>, Style, Text, Parts) ->
     parse_identifier_parts(Rest, Style, [Char | Text], Parts).
 
+%% Decode TDengine string escapes before template segments are re-encoded.
+%% https://github.com/taosdata/TDengine/commit/4bde7ac8fbebc3aa9143124bfcbd08645c46a037
+%% source/libs/parser/src/parUtil.c lines 262-307.
 decode_escape($n) -> $\n;
 decode_escape($r) -> $\r;
 decode_escape($t) -> $\t;
@@ -369,6 +387,9 @@ decode_escape($%) -> <<"\\%">>;
 decode_escape($_) -> <<"\\_">>;
 decode_escape(Char) -> Char.
 
+%% Restrict emqx_template's envelope to nonempty dotted paths.
+%% Retain `${}` and `${.}`.
+%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
 valid_placeholder_source(<<"${}">>) ->
     true;
 valid_placeholder_source(<<"${.}">>) ->
@@ -432,9 +453,15 @@ merge_render_ops(Ops) ->
     ).
 
 encode_identifier(Parts) ->
+    %% A doubled backtick keeps dynamic data inside one identifier token:
+    %% https://github.com/taosdata/TDengine/commit/4bde7ac8fbebc3aa9143124bfcbd08645c46a037
+    %% source/libs/parser/src/parTokenizer.c lines 457-485.
     case render_identifier_parts(Parts) of
-        {ok, Identifier} -> quote_identifier(Identifier);
-        {error, _} = Error -> Error
+        {ok, Identifier} ->
+            ok = assert_no_nul(Identifier),
+            quote_identifier(Identifier);
+        {error, _} = Error ->
+            Error
     end.
 
 encode_value(undefined, #{undefined_vars_as_null := false}) ->
@@ -522,8 +549,18 @@ identifier_text(Value) ->
     end.
 
 encode_string(Text) ->
+    %% TDengine strings use backslash escaping at these token boundaries:
+    %% https://github.com/taosdata/TDengine/commit/4bde7ac8fbebc3aa9143124bfcbd08645c46a037
+    %% docs/en/12-taos-sql/18-escape.md lines 5-25.
+    ok = assert_no_nul(Text),
     Escaped = binary:replace(Text, [<<"\\">>, <<"'">>], <<"\\">>, [global, {insert_replaced, 1}]),
     <<"'", Escaped/binary, "'">>.
+
+assert_no_nul(Text) ->
+    case binary:match(Text, <<0>>) of
+        nomatch -> ok;
+        _ -> error(nul_character_not_allowed)
+    end.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -627,7 +664,50 @@ batch_shape_test() ->
         null_opts()
     ),
     ?assert(is_list(Rendered)),
-    ?assertMatch({ok, _}, compile(Rendered)).
+    ?assertMatch({ok, _}, compile(Rendered)),
+    ?assertEqual(
+        {ok, <<"INSERT INTO ">>},
+        rendered_binary(render_batch(Plan, [], null_opts()))
+    ),
+    ?assertMatch(
+        {error, {tdengine_template_render_failed, #{batch_index := 2, reason := _}}},
+        render_batch(
+            Plan,
+            [
+                #{clientid => <<"a">>, timestamp => 1, payload => <<"ok">>},
+                #{clientid => <<"b">>, timestamp => 2, payload => <<"a", 0, "b">>}
+            ],
+            null_opts()
+        )
+    ).
+
+binary_and_unicode_value_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO t VALUES (${value})">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO t VALUES ('", 16#FF, "')">>},
+        rendered_binary(render(Plan, #{value => <<16#FF>>}, null_opts()))
+    ),
+    Unicode = <<"你好😀"/utf8>>,
+    ?assertEqual(
+        {ok, <<"INSERT INTO t VALUES ('", Unicode/binary, "')">>},
+        rendered_binary(render(Plan, #{value => Unicode}, null_opts()))
+    ).
+
+escape_decode_test() ->
+    {ok, Plan} = compile(
+        <<"INSERT INTO t VALUES ('\\n\\r\\t\\%\\_\\q${value}')">>
+    ),
+    Expected = iolist_to_binary([
+        <<"INSERT INTO t VALUES ('">>,
+        $\n,
+        $\r,
+        $\t,
+        <<"\\\\%\\\\_qx')">>
+    ]),
+    ?assertEqual(
+        {ok, Expected},
+        rendered_binary(render(Plan, #{value => <<"x">>}, null_opts()))
+    ).
 
 reject_unsupported_syntax_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (1) -- comment">>)),
@@ -660,11 +740,36 @@ row_and_table_clause_commas_test() ->
     ).
 
 decimal_forms_test() ->
-    {ok, Plan} = compile(<<"INSERT INTO t VALUES (.5, 1., -.5, -1.)">>),
+    {ok, Plan} = compile(<<"INSERT INTO t VALUES (.5, 1.5, -.5, -1.5)">>),
     ?assertEqual(
-        {ok, <<"INSERT INTO t VALUES (.5, 1., -.5, -1.)">>},
+        {ok, <<"INSERT INTO t VALUES (.5, 1.5, -.5, -1.5)">>},
         rendered_binary(render(Plan, #{}, null_opts()))
-    ).
+    ),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (1.)">>)),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (1.e2)">>)).
+
+literal_boundary_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO t VALUES (NOW+1s+1n-1y)">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO t VALUES (NOW+1s+1n-1y)">>},
+        rendered_binary(render(Plan, #{}, null_opts()))
+    ),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (NOW+1second)">>)),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (NOW+1s_)">>)),
+    ?assertMatch({error, _}, compile(<<"INSERT INTO таблица VALUES (1)"/utf8>>)),
+    EscapedLF = iolist_to_binary([<<"INSERT INTO t VALUES ('a">>, $\\, $\n, <<"b')">>]),
+    ?assertMatch({ok, _}, compile(EscapedLF)).
+
+nul_boundary_test() ->
+    Rejected = [
+        iolist_to_binary([<<"INSERT INTO t VALUES ('a">>, 0, <<"b')">>]),
+        iolist_to_binary([<<"INSERT INTO `a">>, 0, <<"b` VALUES (1)">>])
+    ],
+    lists:foreach(fun(SQL) -> ?assertMatch({error, _}, compile(SQL)) end, Rejected),
+    {ok, ValuePlan} = compile(<<"INSERT INTO t VALUES (${value})">>),
+    ?assertMatch({error, _}, render(ValuePlan, #{value => <<"a", 0, "b">>}, null_opts())),
+    {ok, IdentifierPlan} = compile(<<"INSERT INTO ${table} VALUES (1)">>),
+    ?assertMatch({error, _}, render(IdentifierPlan, #{table => <<"a", 0, "b">>}, null_opts())).
 
 identifier_error_placeholder_test() ->
     {ok, Plan} = compile(<<"INSERT INTO ${clientid} VALUES (1)">>),

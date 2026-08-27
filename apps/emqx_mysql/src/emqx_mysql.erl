@@ -55,6 +55,13 @@
     default_port => ?MYSQL_DEFAULT_PORT
 }).
 
+%% Remove ANSI_QUOTES and NO_BACKSLASH_ESCAPES from session's sql_mode
+-define(SQL_MODE_QUERY, <<
+    "SET SESSION sql_mode = TRIM(BOTH ',' FROM "
+    "REPLACE(REPLACE(CONCAT(',', @@SESSION.sql_mode, ','), "
+    "',ANSI_QUOTES,', ','), ',NO_BACKSLASH_ESCAPES,', ','))"
+>>).
+
 -type template() :: {unicode:chardata(), emqx_template:str()} | emqx_mysql_sql:plan().
 -type state() ::
     #{
@@ -389,16 +396,22 @@ get_reconnect_callback_signature([Templates]) ->
     ),
     ChannelID.
 
-prepare_sql_to_conn(_Conn, []) ->
+prepare_sql_to_conn(Conn, Templates) ->
+    case mysql:query(Conn, ?SQL_MODE_QUERY) of
+        ok -> do_prepare_sql_to_conn(Conn, Templates);
+        {error, _} = Error -> Error
+    end.
+
+do_prepare_sql_to_conn(_Conn, []) ->
     ok;
-prepare_sql_to_conn(Conn, [{{Key, prepstmt}, {SQL, _RowTemplate}} | Rest]) ->
+do_prepare_sql_to_conn(Conn, [{{Key, prepstmt}, {SQL, _RowTemplate}} | Rest]) ->
     LogMeta = #{msg => "MySQL Prepare Statement", name => Key, prepare_sql => SQL},
     ?SLOG(info, LogMeta),
     _ = unprepare_sql_to_conn(Conn, Key),
     case mysql:prepare(Conn, Key, SQL) of
         {ok, _Key} ->
             ?SLOG(info, LogMeta#{result => success}),
-            prepare_sql_to_conn(Conn, Rest);
+            do_prepare_sql_to_conn(Conn, Rest);
         {error, {1146, _, _} = Reason} ->
             %% Target table is not created
             ?tp(mysql_undefined_table, #{}),
@@ -410,8 +423,8 @@ prepare_sql_to_conn(Conn, [{{Key, prepstmt}, {SQL, _RowTemplate}} | Rest]) ->
             ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
             {error, Reason}
     end;
-prepare_sql_to_conn(Conn, [{_Key, _Template} | Rest]) ->
-    prepare_sql_to_conn(Conn, Rest).
+do_prepare_sql_to_conn(Conn, [{_Key, _Template} | Rest]) ->
+    do_prepare_sql_to_conn(Conn, Rest).
 
 unprepare_sql(ChannelID, #{query_templates := Templates, pool_name := PoolName}) ->
     lists:foreach(
