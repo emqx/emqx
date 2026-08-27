@@ -198,17 +198,12 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
                 undefined ->
                     Acc;
                 Name0 ->
-                    Name =
-                        try
-                            binary_to_existing_atom(Name0, utf8)
-                        catch
-                            T:R:_ -> {T, R}
-                        end,
+                    {Name, Opts} = resolve_hook_name(Name0),
                     case {lists:member(Name, AvailableHooks), lists:member(Name, MessageHooks)} of
                         {false, _} ->
                             error({unknown_hookpoint, Name0});
                         {true, false} ->
-                            Acc#{Name => #{}};
+                            Acc#{Name => Opts};
                         {true, true} ->
                             Acc#{
                                 Name => #{
@@ -221,6 +216,22 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
         #{},
         HookSpecs
     ).
+
+%% @private
+%% `client.subscribe.rewrite' is the `client.subscribe' hookpoint served by the
+%% `OnClientSubscribeRewrite' RPC, which -- unlike `OnClientSubscribe' -- may rewrite
+%% the topic filters. It is registered under a distinct name so that a server
+%% generated from an older .proto keeps answering the RPC it was built with.
+resolve_hook_name(<<"client.subscribe.rewrite">>) ->
+    {'client.subscribe', #{valued => true}};
+resolve_hook_name(Name0) ->
+    Name =
+        try
+            binary_to_existing_atom(Name0, utf8)
+        catch
+            T:R:_ -> {T, R}
+        end,
+    {Name, #{}}.
 
 %% @private
 ensure_hooks(HookSpecs) ->
@@ -355,7 +366,7 @@ call(
                 false ->
                     ignore;
                 _ ->
-                    GrpcFun = hk2func(Hookpoint),
+                    GrpcFun = hk2func(Hookpoint, Opts),
                     do_call(ChannName, Hookpoint, GrpcFun, Req, ReqOpts)
             end
     end.
@@ -443,6 +454,10 @@ failed_action(#{options := Opts}) ->
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
+-compile({inline, [hk2func/2]}).
+hk2func('client.subscribe', #{valued := true}) -> 'on_client_subscribe_rewrite';
+hk2func(Hookpoint, _Opts) -> hk2func(Hookpoint).
 
 -compile({inline, [hk2func/1]}).
 hk2func('client.connect') -> 'on_client_connect';
