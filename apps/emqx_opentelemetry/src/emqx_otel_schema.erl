@@ -182,12 +182,16 @@ fields("otel_traces") ->
 fields("otel_exporter") ->
     [
         {endpoint,
-            ?HOCON(
-                emqx_schema:url(),
+            emqx_schema:servers_sc(
                 #{
+                    type => binary(),
                     default => <<"http://localhost:4317">>,
                     desc => ?DESC(exporter_endpoint),
                     importance => ?IMPORTANCE_HIGH
+                },
+                #{
+                    single_server => true,
+                    supported_schemes => ["http", "https"]
                 }
             )},
         {headers,
