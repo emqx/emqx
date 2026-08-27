@@ -3570,6 +3570,12 @@ servers_validator(Opts, Required) ->
             Str when SingleServer ->
                 %% it's valid as long as it can be parsed
                 _ = parse_server(Str, Opts),
+                case string:find(Str, ",") of
+                    nomatch ->
+                        ok;
+                    _ ->
+                        throw("expecting_single_server_but_found_comma")
+                end,
                 ok;
             Str ->
                 %% it's valid as long as it can be parsed
