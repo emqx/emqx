@@ -471,6 +471,56 @@ t_handle_in_subscribe(_) ->
     Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])}, {event, updated}],
     {ok, Replies, _Chan} = emqx_channel:handle_in(Subscribe, Channel).
 
+t_handle_in_subscribe_hook_adds_topic_filter(_) ->
+    %% SUBACK carries one reason code per topic filter of the SUBSCRIBE packet,
+    %% ordered as they were received (MQTT-3.9.3-1), so a filter the hook adds on
+    %% top of the requested ones gets no reason code of its own.
+    ok = meck:expect(
+        emqx_session,
+        subscribe,
+        fun(_, _, _, Session) -> {ok, Session} end
+    ),
+    ok = add_subscribe_hook(fun(TopicFilters) ->
+        TopicFilters ++ [{<<"added">>, ?DEFAULT_SUBOPTS}]
+    end),
+    try
+        Channel = channel(#{conn_state => connected}),
+        Subscribe = ?SUBSCRIBE_PACKET(1, #{}, [{<<"requested">>, ?DEFAULT_SUBOPTS}]),
+        ?assertMatch(
+            {ok, [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])} | _], _Chan},
+            emqx_channel:handle_in(Subscribe, Channel)
+        )
+    after
+        ok = emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe})
+    end.
+
+t_handle_in_subscribe_hook_drops_topic_filter(_) ->
+    %% The hook dropped the only filter, so nothing was subscribed. Reporting the
+    %% initial `?RC_SUCCESS' would tell the client it was granted QoS 0 -- the two
+    %% are both 16#00 -- for a subscription that does not exist.
+    ok = meck:expect(
+        emqx_session,
+        subscribe,
+        fun(_, _, _, Session) -> {ok, Session} end
+    ),
+    ok = add_subscribe_hook(fun(_TopicFilters) -> [] end),
+    try
+        Channel = channel(#{conn_state => connected}),
+        Subscribe = ?SUBSCRIBE_PACKET(1, #{}, [{<<"requested">>, ?DEFAULT_SUBOPTS}]),
+        ?assertMatch(
+            {ok, [{outgoing, ?SUBACK_PACKET(1, [?RC_UNSPECIFIED_ERROR])} | _], _Chan},
+            emqx_channel:handle_in(Subscribe, Channel)
+        )
+    after
+        ok = emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe})
+    end.
+
+add_subscribe_hook(Fun) ->
+    emqx_hooks:add('client.subscribe', {?MODULE, on_client_subscribe, [Fun]}, ?HP_HIGHEST).
+
+on_client_subscribe(_ClientInfo, _Properties, TopicFilters, Fun) ->
+    {ok, Fun(TopicFilters)}.
+
 t_handle_in_unsubscribe(_) ->
     ok = meck:expect(
         emqx_session,
