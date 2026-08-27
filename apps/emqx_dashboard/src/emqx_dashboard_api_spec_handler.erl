@@ -8,8 +8,9 @@
 Cowboy REST handler that serves focused, AI-consumable API specs.
 
 All endpoints require authentication (basic with API key/secret, bearer
-JWT from `POST /api/v5/login`, or the dashboard's `emqx_auth` session
-cookie). Unauthenticated requests get a 401 with a minimal but valid
+JWT from the SCRAM challenge/verify flow or legacy `POST /api/v5/login`,
+or the dashboard's `emqx_auth` session cookie). Unauthenticated requests get
+a 401 with a minimal but valid
 OpenAPI document (or its markdown equivalent for `/api-spec.md`) that
 points the caller at how to authenticate. The `WWW-Authenticate` header
 lists the supported schemes per RFC 7235 §4.1.
@@ -69,6 +70,7 @@ Endpoints:
 %% logged-out users see a generic stub. The authenticated spec keeps the
 %% real title and version.
 -define(GENERIC_API_TITLE, <<"EMQX API">>).
+-define(LEGACY_FALLBACK_MARKER, <<"__EMQX_LEGACY_FALLBACK_ALLOWED__">>).
 
 %%--------------------------------------------------------------------
 %% Cowboy REST callbacks
@@ -273,7 +275,11 @@ unauthorized_openapi_doc() ->
                     <<"type">> => <<"http">>,
                     <<"scheme">> => <<"bearer">>,
                     <<"description">> =>
-                        <<"JWT obtained from POST /api/v5/login.">>
+                        <<
+                            "JWT obtained from the SCRAM challenge/verify flow. "
+                            "The legacy POST /api/v5/login endpoint remains available "
+                            "in both mode."
+                        >>
                 }
             }
         },
@@ -282,15 +288,39 @@ unauthorized_openapi_doc() ->
             #{<<"bearerAuth">> => []}
         ],
         <<"paths">> => #{
-            <<"/login">> => #{
+            <<"/login/challenge">> => #{
                 <<"post">> => #{
-                    <<"summary">> => <<"Obtain a bearer token.">>,
+                    <<"summary">> => <<"Start a SCRAM-SHA-256 login.">>,
                     <<"tags">> => [<<"Authentication">>],
                     <<"security">> => [],
                     <<"responses">> => #{
                         <<"200">> => #{
                             <<"description">> =>
-                                <<"Bearer token returned in the response body.">>
+                                <<"SCRAM challenge returned.">>
+                        }
+                    }
+                }
+            },
+            <<"/login/verify">> => #{
+                <<"post">> => #{
+                    <<"summary">> => <<"Complete a SCRAM-SHA-256 login.">>,
+                    <<"tags">> => [<<"Authentication">>],
+                    <<"security">> => [],
+                    <<"responses">> => #{
+                        <<"200">> => #{
+                            <<"description">> => <<"Bearer token returned in the response body.">>
+                        }
+                    }
+                }
+            },
+            <<"/login">> => #{
+                <<"post">> => #{
+                    <<"summary">> => <<"Legacy password login for compatibility.">>,
+                    <<"tags">> => [<<"Authentication">>],
+                    <<"security">> => [],
+                    <<"responses">> => #{
+                        <<"200">> => #{
+                            <<"description">> => <<"Bearer token returned in the response body.">>
                         }
                     }
                 }
@@ -312,52 +342,20 @@ unauthorized_openapi_doc() ->
     }.
 
 unauthorized_html() ->
-    <<
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-        "<title>",
-        ?GENERIC_API_TITLE/binary,
-        " - Sign in</title>"
-        "<meta name=\"robots\" content=\"noindex,nofollow\">"
-        "<style>"
-        "body{font:14px system-ui,sans-serif;background:#0e1116;color:#e6e6e6;"
-        "display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}"
-        "form{background:#161b22;border:1px solid #2a313a;border-radius:8px;"
-        "padding:24px;width:min(360px,calc(100vw - 32px))}"
-        "h1{margin:0 0 6px;font-size:16px}"
-        "p{margin:0 0 16px;color:#9aa4ae;font-size:12px}"
-        "label{display:block;font-size:12px;color:#9aa4ae;margin-bottom:4px}"
-        "input{width:100%;padding:8px 10px;margin-bottom:12px;border:1px solid #2a313a;"
-        "border-radius:6px;background:#0e1116;color:#e6e6e6;font-size:13px;box-sizing:border-box}"
-        "button{width:100%;padding:9px 12px;border:0;border-radius:6px;"
-        "background:#3b82f6;color:#fff;font-size:13px;cursor:pointer}"
-        "button:disabled{opacity:.6;cursor:not-allowed}"
-        ".err{color:#ffb4b4;font-size:12px;margin-bottom:10px;min-height:14px}"
-        "</style></head><body>"
-        "<form id=\"f\" autocomplete=\"off\">"
-        "<h1>Sign in to view the API specification</h1>"
-        "<p>Authenticate to access the in-tree API spec explorer.</p>"
-        "<div class=\"err\" id=\"e\"></div>"
-        "<label for=\"u\">Username</label>"
-        "<input id=\"u\" name=\"username\" autocomplete=\"username\" required>"
-        "<label for=\"p\">Password</label>"
-        "<input id=\"p\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required>"
-        "<button id=\"b\" type=\"submit\">Sign in</button>"
-        "</form>"
-        "<script>"
-        "var f=document.getElementById('f'),e=document.getElementById('e'),b=document.getElementById('b');"
-        "f.addEventListener('submit',async function(ev){ev.preventDefault();e.textContent='';b.disabled=true;"
-        "try{var r=await fetch('/api/v5/login',{method:'POST',credentials:'same-origin',"
-        "headers:{'Content-Type':'application/json',Accept:'application/json'},"
-        "body:JSON.stringify({username:f.username.value.trim(),password:f.password.value})});"
-        "var body=null;try{body=await r.json()}catch(_){body=null}"
-        "if(!r.ok){e.textContent=(body&&body.message)||('Sign-in failed (HTTP '+r.status+').');return}"
-        "if(!body||!body.token){e.textContent='Sign-in succeeded but no token was returned.';return}"
-        "var sec=location.protocol==='https:'?'; Secure':'';"
-        "document.cookie='emqx_auth='+encodeURIComponent(body.token)+'; Path=/; SameSite=Strict'+sec;"
-        "location.reload()}catch(err){e.textContent=String(err.message||err)}finally{b.disabled=false}});"
-        "</script>"
-        "</body></html>"
-    >>.
+    HtmlPath = filename:join(code:priv_dir(emqx_dashboard), "api-spec-login.html"),
+    case file:read_file(HtmlPath) of
+        {ok, Body} ->
+            render_login_html(Body);
+        {error, _Reason} ->
+            <<"<!doctype html><title>EMQX API - Sign in</title>",
+                "<p>API Spec login page unavailable.</p>">>
+    end.
+
+render_login_html(Body) ->
+    LegacyFallbackAllowed = atom_to_binary(
+        emqx_dashboard_login:password_login_enabled(), utf8
+    ),
+    binary:replace(Body, ?LEGACY_FALLBACK_MARKER, LegacyFallbackAllowed, [global]).
 
 unauthorized_markdown() ->
     Lines = [
@@ -368,9 +366,11 @@ unauthorized_markdown() ->
         >>,
         <<"## Authentication\n\n">>,
         <<"- API key: `Authorization: Basic base64(api_key:api_secret)`\n">>,
-        <<"- Bearer token: `POST /api/v5/login`, then `Authorization: Bearer <token>`\n\n">>,
+        <<"- Browser login: use SCRAM `POST /api/v5/login/challenge` followed by `POST /api/v5/login/verify`.\n">>,
+        <<"- Legacy clients: `POST /api/v5/login` remains available when `dashboard.password_login = both`.\n\n">>,
         <<"## Public endpoints\n\n">>,
-        <<"- `POST /api/v5/login` - interactive login (returns a bearer token).\n">>,
+        <<"- `POST /api/v5/login/challenge` and `/api/v5/login/verify` - SCRAM browser login.\n">>,
+        <<"- `POST /api/v5/login` - legacy password login when enabled.\n">>,
         <<"- `GET  /api/v5/status` - broker health check.\n">>
     ],
     unicode:characters_to_binary(Lines).
@@ -460,8 +460,12 @@ auth_help_lines() ->
             "  * Or bootstrap API keys from file by setting, API_KEY__BOOTSTRAP_FILE=/path/to/my-api-keys, "
             "with file lines in '{api_key}:{api_secret}' format."
         >>,
-        <<"- Bearer token: `POST /api/v5/login`, then `Authorization: Bearer <token>`.">>,
-        <<"  * Request body: `{ \"username\": \"admin\", \"password\": \"...\" }`">>,
+        <<
+            "- Browser bearer token: use `POST /api/v5/login/challenge` and "
+            "`POST /api/v5/login/verify` with SCRAM-SHA-256."
+        >>,
+        <<"  * Browser login requires HTTPS or another secure browser context for Web Crypto.">>,
+        <<"- Legacy clients: `POST /api/v5/login` remains available when `dashboard.password_login = both`.">>,
         <<"  * Command to add new user: `emqx ctl admins add <Username> <Password> <Description> <Role>`">>,
         <<
             "The `/api-spec.md`, `/api-spec.json`, `/api-spec/...` and `/api-docs/swagger.json` "

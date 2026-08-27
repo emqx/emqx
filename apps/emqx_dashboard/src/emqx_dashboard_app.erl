@@ -17,10 +17,14 @@ start(_StartType, _StartArgs) ->
     Tables = lists:append([
         emqx_dashboard_admin:create_tables(),
         emqx_dashboard_token:create_tables(),
+        emqx_dashboard_login:create_tables(),
         emqx_dashboard_monitor:create_tables(),
         emqx_dashboard_login_lock:create_tables()
     ]),
     ok = mria:wait_for_tables(Tables),
+    start_dashboard().
+
+start_dashboard() ->
     {ok, Sup} = emqx_dashboard_sup:start_link(),
     ok = emqx_dashboard_hookcb:register_hooks(),
     case emqx_dashboard:start_listeners() of
