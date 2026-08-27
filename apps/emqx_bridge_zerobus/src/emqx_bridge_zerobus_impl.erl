@@ -562,9 +562,19 @@ do_fold_grpc_optvar_results(Keys) ->
         end,
         Results
     ),
-    %% {disconnected, unhealthy_target} > disconnected > connecting > connected
+    case sort_status(Errors0) of
+        [{Status, Reason} | _] ->
+            {Status, Reason};
+        [Status | _] ->
+            Status;
+        [] ->
+            ?status_connected
+    end.
+
+%% {disconnected, unhealthy_target} > disconnected > connecting > connected
+sort_status(Errors0) ->
     ToStatus = fun
-        ({S, {unhealhy_target, _}}) -> {S, unhealthy_target};
+        ({S, {unhealthy_target, _}}) -> {S, unhealthy_target};
         ({S, _Reason}) -> S;
         (S) -> S
     end,
@@ -573,14 +583,7 @@ do_fold_grpc_optvar_results(Keys) ->
         S2 = ToStatus(S2A),
         S1 > S2
     end,
-    case lists:sort(CompareFn, Errors0) of
-        [{Status, Reason} | _] ->
-            {Status, Reason};
-        [Status | _] ->
-            Status;
-        [] ->
-            ?status_connected
-    end.
+    lists:sort(CompareFn, Errors0).
 
 -spec start_connector(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, any()}.
@@ -1068,3 +1071,34 @@ reinject_token({Path, Headers0, Body} = Request0, ChanResId) ->
             %% if we can't get the token right now... tough luck.  let it expire.
             Request0
     end.
+
+%%------------------------------------------------------------------------------
+%% Tests
+%%------------------------------------------------------------------------------
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+status_ordering_test() ->
+    Status0 = [
+        ?status_connecting,
+        ?status_connected,
+        {?status_connecting, ~"stream closed"},
+        {?status_connected, ~"shouldn't happen, but..."},
+        {?status_disconnected, ~"boom"},
+        {?status_disconnected, {unhealthy_target, ~"needs manual intervention"}},
+        ?status_disconnected
+    ],
+    ?assertEqual(
+        [
+            {?status_disconnected, {unhealthy_target, ~"needs manual intervention"}},
+            ?status_disconnected,
+            {?status_disconnected, ~"boom"},
+            {?status_connecting, ~"stream closed"},
+            ?status_connecting,
+            {?status_connected, ~"shouldn't happen, but..."},
+            ?status_connected
+        ],
+        sort_status(Status0)
+    ),
+    ok.
+-endif.
