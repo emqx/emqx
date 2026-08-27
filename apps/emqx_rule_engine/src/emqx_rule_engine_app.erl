@@ -10,7 +10,7 @@
 
 -export([start/2]).
 
--export([stop/1]).
+-export([prep_stop/1, stop/1]).
 
 start(_Type, _Args) ->
     SupRet = emqx_rule_engine_sup:start_link(),
@@ -30,6 +30,13 @@ start(_Type, _Args) ->
     emqx_rule_engine_cli:load(),
     SupRet.
 
+prep_stop(State) ->
+    %% Runs before the supervision tree is terminated.  `stop/1' runs after it, when
+    %% the rule tables are already gone: the hooks must be unregistered while the
+    %% tables still exist.
+    ok = emqx_rule_events:unload(),
+    State.
+
 stop(_State) ->
     emqx_rule_engine_cli:unload(),
     RulePath = [RuleEngine | _] = ?KEY_PATH,
@@ -37,5 +44,4 @@ stop(_State) ->
     ok = emqx_conf:remove_handler([RuleEngine]),
     ok = emqx_conf:remove_handler([rule_engine, jq_implementation_module]),
     ok = emqx_conf:remove_handler([rule_engine, ssrf]),
-    ok = emqx_rule_events:unload(),
     ok.

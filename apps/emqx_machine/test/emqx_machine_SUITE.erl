@@ -121,6 +121,52 @@ t_shutdown_reboot(Config) ->
         catch emqx_cth_cluster:stop([Node])
     end.
 
+-doc """
+Verify `emqx_machine_boot:stop_apps/0' shuts the readiness gate and stops the
+MQTT listeners before it stops the applications, so no client traffic reaches
+hook callbacks (e.g. the rule engine) while their state is torn down.  Also
+verify `stop_apps/0' does not raise when called twice, and that
+`ensure_apps_started/0' restores listeners and readiness.
+""".
+t_stop_apps_stops_listeners_first(Config) ->
+    [Node] = emqx_cth_cluster:start(
+        [{machine_listeners_SUITE1, #{role => core, apps => app_specs()}}],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    try
+        Port = emqx_cth_cluster:get_tcp_mqtt_port(Node),
+        %% The listener accepts connections before shutdown.
+        {ok, Sock0} = gen_tcp:connect("127.0.0.1", Port, [], 5000),
+        ok = gen_tcp:close(Sock0),
+        ?check_trace(
+            ok = erpc:call(Node, emqx_machine_boot, stop_apps, []),
+            fun(Trace) ->
+                %% Listeners must be stopped before the rule engine app.
+                Events = [
+                    Event
+                 || #{?snk_kind := Kind} = Event <- Trace,
+                    Kind =:= emqx_listeners_stopped orelse
+                        (Kind =:= machine_stopping_app andalso
+                            maps:get(app, Event) =:= emqx_rule_engine)
+                ],
+                ?assertMatch([#{?snk_kind := emqx_listeners_stopped} | _], Events)
+            end
+        ),
+        %% The readiness gate is shut and the listener no longer accepts.
+        ?assertNot(erpc:call(Node, emqx_node_readiness, is_ready, [])),
+        ?assertEqual({error, econnrefused}, gen_tcp:connect("127.0.0.1", Port, [], 5000)),
+        %% A second stop does not raise.
+        ok = erpc:call(Node, emqx_machine_boot, stop_apps, []),
+        %% The reboot path (cluster join/leave) restores listeners and readiness.
+        ok = erpc:call(Node, emqx_app, set_config_loader, [emqx_cth_suite]),
+        ok = erpc:call(Node, emqx_machine_boot, ensure_apps_started, []),
+        ?assert(erpc:call(Node, emqx_node_readiness, is_ready, [])),
+        {ok, Sock1} = gen_tcp:connect("127.0.0.1", Port, [], 5000),
+        ok = gen_tcp:close(Sock1)
+    after
+        catch emqx_cth_cluster:stop([Node])
+    end.
+
 t_sorted_reboot_apps(_Config) ->
     Apps = emqx_machine_boot:sorted_reboot_apps(),
     SortApps = [App || App <- Apps, (App =:= emqx_dashboard orelse App =:= emqx_license)],

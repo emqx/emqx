@@ -50,6 +50,7 @@ groups() ->
             t_create_existing_rule,
             t_get_rules_for_topic,
             t_get_rules_for_topic_2,
+            t_get_rules_for_topic_missing_index_table,
             t_get_rules_with_same_event,
             t_get_rule_ids_by_action,
             t_ensure_action_removed
@@ -620,6 +621,32 @@ t_get_rules_for_topic_2(_Config) ->
         <<"rule-debug-5">>,
         <<"rule-debug-6">>
     ]),
+    ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that `get_rules_for_topic/1` finds matches while the topic index table exists,
+and returns no matches instead of raising when the table is absent.  The table is
+absent while the rule engine application is down, e.g. during boot or shutdown.
+""".
+t_get_rules_for_topic_missing_index_table(_Config) ->
+    Len0 = length(emqx_rule_engine:get_rules_for_topic(<<"simple/topic">>)),
+    ok = create_rules([make_simple_rule(<<"rule-missing-index">>)]),
+    ?assertEqual(Len0 + 1, length(emqx_rule_engine:get_rules_for_topic(<<"simple/topic">>))),
+    IndexTab = emqx_rule_engine_topic_index,
+    Owner = ets:info(IndexTab, owner),
+    true = ets:delete(IndexTab),
+    try
+        ?assertEqual([], emqx_rule_engine:get_rules_for_topic(<<"simple/topic">>))
+    after
+        restore_index_table(IndexTab, Owner)
+    end,
+    ok = delete_rules_by_ids([<<"rule-missing-index">>]),
+    ok.
+
+restore_index_table(Tab, Owner) ->
+    _ = ets:new(Tab, [named_table, public, ordered_set, {read_concurrency, true}]),
+    true = ets:give_away(Tab, Owner, undefined),
     ok.
 
 t_get_rules_with_same_event(_Config) ->

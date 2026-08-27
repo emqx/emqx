@@ -932,7 +932,8 @@ do_list_clients_v2(Nodes, Cursor, QString, Acc0) ->
     case do_list_clients_v2_once(Nodes, Cursor, QString, Acc0) of
         {done, _NRows, Acc, NewCursor0} ->
             NewCursor = peek_for_more(Nodes, NewCursor0, QString, Acc),
-            format_results(Acc, NewCursor);
+            Opts = format_results_opts(QString),
+            format_results(Acc, NewCursor, Opts);
         {more, _NRows, Acc, NewCursor} ->
             do_list_clients_v2(Nodes, NewCursor, QString, Acc);
         {ErrorCode, Resp} ->
@@ -988,7 +989,7 @@ peek_for_more(Nodes, Cursor, QString0, Acc0) ->
             Cursor
     end.
 
-format_results(Acc, Cursor) ->
+format_results(Acc, Cursor, Opts) ->
     #{
         rows := NodeRows,
         n := N
@@ -1006,12 +1007,16 @@ format_results(Acc, Cursor) ->
     Resp = #{
         meta => Meta,
         data => [
-            format_channel_info(Node, Row)
+            format_channel_info(Node, Row, Opts)
          || {Node, Rows} <- NodeRows,
             Row <- Rows
         ]
     },
     ?OK(Resp).
+
+format_results_opts(QString) ->
+    OutputFields = maps:get(<<"fields">>, QString, all),
+    #{fields => OutputFields}.
 
 do_ets_select(Nodes, Limit, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
     maybe
@@ -1897,8 +1902,9 @@ format_msgs_resp(MsgType, Msgs, Meta, QString) ->
         <<"payload">> := PayloadFmt,
         <<"max_payload_bytes">> := MaxBytes
     } = QString,
-    Meta1 = encode_msgs_meta(MsgType, Meta),
-    Resp = #{meta => Meta1, data => format_msgs(MsgType, Msgs, PayloadFmt, MaxBytes)},
+    {Data, Truncation} = format_msgs(MsgType, Msgs, PayloadFmt, MaxBytes),
+    Meta1 = encode_msgs_meta(MsgType, adjust_pager_position(MsgType, Truncation, Meta)),
+    Resp = #{meta => Meta1, data => Data},
     %% Make sure minirest won't set another content-type for self-encoded JSON response body
     Headers = #{<<"content-type">> => <<"application/json">>},
     case emqx_utils_json:safe_encode(Resp) of
@@ -1917,23 +1923,41 @@ format_msgs_resp(MsgType, Msgs, Meta, QString) ->
 format_msgs(MsgType, [FirstMsg | Msgs], PayloadFmt, MaxBytes) ->
     %% Always include at least one message payload, even if it exceeds the limit
     {FirstMsg1, PayloadSize0} = format_msg(MsgType, FirstMsg, PayloadFmt),
-    {Msgs1, _} =
+    Result =
         emqx_utils:foldl_while(
-            fun(Msg, {MsgsAcc, SizeAcc} = Acc) ->
+            fun(Msg, {MsgsAcc, LastMsg, SizeAcc}) ->
                 {Msg1, PayloadSize} = format_msg(MsgType, Msg, PayloadFmt),
                 case SizeAcc + PayloadSize of
                     SizeAcc1 when SizeAcc1 =< MaxBytes ->
-                        {cont, {[Msg1 | MsgsAcc], SizeAcc1}};
+                        {cont, {[Msg1 | MsgsAcc], Msg, SizeAcc1}};
                     _ ->
-                        {halt, Acc}
+                        {halt, {truncated, MsgsAcc, LastMsg}}
                 end
             end,
-            {[FirstMsg1], PayloadSize0},
+            {[FirstMsg1], FirstMsg, PayloadSize0},
             Msgs
         ),
-    lists:reverse(Msgs1);
+    case Result of
+        {truncated, Msgs1, LastMsg} ->
+            {lists:reverse(Msgs1), {truncated, LastMsg}};
+        {Msgs1, _LastMsg, _SizeAcc} ->
+            {lists:reverse(Msgs1), all}
+    end;
 format_msgs(_MsgType, [], _PayloadFmt, _MaxBytes) ->
-    [].
+    {[], all}.
+
+%% When `max_payload_bytes` cuts the page short, move the continuation position back to
+%% the last returned message, so that the next page starts at the first message that was
+%% cut off. Otherwise paging from the reported position skips the cut messages.
+adjust_pager_position(_MsgType, all, Meta) ->
+    Meta;
+adjust_pager_position(MsgType, {truncated, LastMsg}, Meta) ->
+    Meta#{position := msg_position(MsgType, LastMsg)}.
+
+msg_position(mqueue_msgs, #message{extra = #{mqueue_insert_ts := Ts, mqueue_priority := Prio}}) ->
+    {Ts, Prio};
+msg_position(inflight_msgs, #message{extra = #{inflight_insert_ts := Ts}}) ->
+    Ts.
 
 format_msg(
     MsgType,

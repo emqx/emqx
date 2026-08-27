@@ -110,6 +110,7 @@
     retained_delete_failed_for_rate_exceeded_limit,
     socket_receive_paused_by_rate_limit,
     streams_message_db_key_expression_error,
+    topic_index_table_missing,
     %% ==== message transformation/validation ====
     transformation_failed,
     transformation_eval_operation_failure,
