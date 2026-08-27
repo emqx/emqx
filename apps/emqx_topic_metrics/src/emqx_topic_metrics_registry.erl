@@ -33,17 +33,14 @@ rows automatically and re-hydrate their local ETS at boot via
 
 Reset is intentionally not persisted: counters live in per-node
 atomics that are zeroed at every boot anyway, so a stored "reset
-time" would be misleading. Each node emits its own audit log entry
-from `do_reset_local/2` so the cluster history of resets is visible
-without making mria responsible for state that already disappears on
-restart.
+time" would be misleading. The reset request itself is audited at
+the REST API entrypoint like any other mutating request.
 """.
 
 -behaviour(gen_server).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
--include_lib("emqx/include/logger.hrl").
 -include("emqx_topic_metrics.hrl").
 
 -export([start_link/0]).
@@ -306,18 +303,15 @@ do_uninstall_local({OwnerNs, BinName} = Name, _Ctx) when
     uninstall_local(Name),
     ok.
 
-%% Zero this node's counters for the collection. Each node emits its
-%% own audit log entry so the cluster-wide history of resets is
-%% visible even though the operation isn't persisted in mria. The
-%% cluster_rpc `kind` (initiate | replicate) is included so an
-%% operator can distinguish the node that originally received the
-%% request from the followers that applied the side-effect.
+%% Zero this node's counters for the collection. The reset is
+%% audited at the REST API entrypoint; this callback must stay
+%% side-effect-only, since a crash here breaks the cluster_rpc
+%% transaction after the counters were already cleared (#18534).
 -spec do_reset_local(name(), map()) -> ok.
-do_reset_local({OwnerNs, BinName} = Name, Ctx) when
+do_reset_local({OwnerNs, BinName} = Name, _Ctx) when
     is_binary(BinName), ?IS_NAMESPACE(OwnerNs)
 ->
     ok = clear_local_counters(Name),
-    ok = emit_reset_audit(Name, Ctx),
     ok.
 
 -spec do_uninstall_all_local([name()], map()) -> ok.
@@ -507,21 +501,6 @@ clear_local_counters(Name) ->
 %% derived `owner_ns'.
 expand({OwnerNs, BinName} = Name, Rec) ->
     Rec#{name => Name, bin_name => BinName, owner_ns => OwnerNs}.
-
-%% Audit log emitted by every node when its counters are zeroed by a
-%% cluster_rpc reset. The `kind' field comes from the cluster_rpc Ctx
-%% and is either `initiate' (the node that handled the REST request)
-%% or `replicate' (followers).
-emit_reset_audit({OwnerNs, BinName}, Ctx) ->
-    Kind = maps:get(kind, Ctx, undefined),
-    ?AUDIT(info, #{
-        cmd => topic_metrics_reset,
-        args => [BinName, OwnerNs],
-        from => cluster_rpc,
-        kind => Kind,
-        duration_ms => 0
-    }),
-    ok.
 
 %%--------------------------------------------------------------------
 %% Internal — mria scan helpers
