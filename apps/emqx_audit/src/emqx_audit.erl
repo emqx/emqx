@@ -67,26 +67,6 @@ to_audit(#{from := erlang_console, function := F, args := Args}) ->
         duration_ms = 0,
         args = iolist_to_binary(io_lib:format("~p: ~ts", [F, Args]))
     };
-%% Events emitted from `emqx_cluster_rpc' entrypoints. They are
-%% cli-shaped (`cmd' / `args') and carry no HTTP request context, so
-%% they must not reach the HTTP-shaped clause below.
-to_audit(#{from := cluster_rpc, cmd := Cmd, args := Args, duration_ms := DurationMs}) ->
-    #?AUDIT{
-        from = cluster_rpc,
-        source = <<"">>,
-        source_ip = <<"">>,
-        %% operation info
-        operation_id = <<"">>,
-        operation_type = atom_to_binary(Cmd),
-        args = Args,
-        operation_result = <<"">>,
-        failure = <<"">>,
-        %% request detail
-        http_status_code = <<"">>,
-        http_method = <<"">>,
-        http_request = <<"">>,
-        duration_ms = DurationMs
-    };
 to_audit(#{from := From} = Log) when is_atom(From) ->
     #{
         source := Source,
