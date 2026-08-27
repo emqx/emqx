@@ -2238,3 +2238,34 @@ t_registry_restart_keeps_index(_Config) ->
         emqx_message_transformation_registry:matching_transformations(<<"t/1">>)
     ),
     ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that stopping the application removes the `message.publish` hook, also when
+transformations are configured.  The teardown runs in `prep_stop/1`, while the
+registry is still alive: `stop/1` runs only after the supervision tree is down, so a
+registry call from there crashes and OTP silently discards the rest of the callback.
+""".
+t_app_stop_unregisters_hooks(_Config) ->
+    {201, _} = insert(transformation(<<"foo">>, [dummy_operation()])),
+    ?assert(is_publish_hook_registered(emqx_message_transformation)),
+    ok = application:stop(emqx_message_transformation),
+    try
+        ?assertNot(is_publish_hook_registered(emqx_message_transformation))
+    after
+        {ok, _} = application:ensure_all_started(emqx_message_transformation)
+    end,
+    ?assert(is_publish_hook_registered(emqx_message_transformation)),
+    ok.
+
+is_publish_hook_registered(Mod) ->
+    lists:any(
+        fun(Callback) ->
+            %% `#callback.action' (opaque to us): 2nd element of the record tuple.
+            case element(2, Callback) of
+                {Mod, _F, _A} -> true;
+                _ -> false
+            end
+        end,
+        emqx_hooks:lookup('message.publish')
+    ).

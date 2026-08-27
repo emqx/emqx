@@ -1654,6 +1654,18 @@ restore_index_table(Tab, Owner) ->
     true = ets:give_away(Tab, Owner, undefined),
     ok.
 
+is_publish_hook_registered(Mod) ->
+    lists:any(
+        fun(Callback) ->
+            %% `#callback.action' (opaque to us): 2nd element of the record tuple.
+            case element(2, Callback) of
+                {Mod, _F, _A} -> true;
+                _ -> false
+            end
+        end,
+        emqx_hooks:lookup('message.publish')
+    ).
+
 %% https://github.com/emqx/emqx/issues/17776
 -doc """
 Tests that the topic index and validation tables survive a restart of the registry
@@ -1682,4 +1694,24 @@ t_registry_restart_keeps_index(_Config) ->
         [#{name := Name1}],
         emqx_schema_validation_registry:matching_validations(<<"t/1">>)
     ),
+    ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that stopping the application removes the `message.publish` hook, also when
+validations are configured.  The teardown runs in `prep_stop/1`, while the registry
+is still alive: `stop/1` runs only after the supervision tree is down, so a
+registry call from there crashes and OTP silently discards the rest of the
+callback, leaving the hook registered.
+""".
+t_app_stop_unregisters_hooks(_Config) ->
+    {201, _} = insert(validation(<<"foo">>, [sql_check()])),
+    ?assert(is_publish_hook_registered(emqx_schema_validation)),
+    ok = application:stop(emqx_schema_validation),
+    try
+        ?assertNot(is_publish_hook_registered(emqx_schema_validation))
+    after
+        {ok, _} = application:ensure_all_started(emqx_schema_validation)
+    end,
+    ?assert(is_publish_hook_registered(emqx_schema_validation)),
     ok.
