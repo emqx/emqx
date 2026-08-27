@@ -482,6 +482,20 @@ get_connector_api(TCConfig) ->
 get_action_api(TCConfig) ->
     emqx_bridge_v2_testlib:get_action_api2(TCConfig).
 
+%% Pulsar producers connect asynchronously, so the create API can return while
+%% the action is still `connecting'. Create, then wait until it is connected.
+create_action_connected(TCConfig) ->
+    {201, _} = create_action_api(TCConfig, #{}),
+    ?retry(
+        _Sleep = 500,
+        _Attempts = 20,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"connected">>}},
+            get_action_api(TCConfig)
+        )
+    ),
+    ok.
+
 delete_action_api(TCConfig) ->
     #{kind := Kind, type := Type, name := Name} =
         emqx_bridge_v2_testlib:get_common_values(TCConfig),
@@ -627,7 +641,7 @@ t_send_when_timeout(TCConfig) ->
 
 do_t_send_with_failure(TCConfig, FailureType) ->
     {201, _} = create_connector_api(TCConfig, #{}),
-    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    ok = create_action_connected(TCConfig),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
     C = start_client(),
     Payload = unique_payload(),
@@ -910,7 +924,7 @@ t_cluster(TCConfig) ->
             Fun = fun() -> ?ON(N2, emqx_mgmt_api_test_util:auth_header_()) end,
             emqx_bridge_v2_testlib:set_auth_header_getter(Fun),
             {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
-            {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+            ok = create_action_connected(TCConfig),
             {ok, _} = snabbkaffe:receive_events(SRef1),
             erpc:multicall(Nodes, fun wait_until_producer_connected/0),
             ?tp(publishing_message, #{}),
@@ -945,7 +959,7 @@ t_resilience(TCConfig) ->
     ?check_trace(
         begin
             {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
-            {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+            ok = create_action_connected(TCConfig),
             #{topic := Topic} = simple_create_rule_api(TCConfig),
             C = start_client(),
             ProduceInterval = 100,
