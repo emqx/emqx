@@ -92,6 +92,10 @@ wait({ConnOwner, Conn, ConnInfo}) ->
 type(_) ->
     quic.
 
+%% The first clause matches the not-yet-accepted socket passed to
+%% emqx_connection:init/4 (used by the node readiness gate).
+peername({ConnOwner, Conn, _ConnInfo}) when is_pid(ConnOwner) ->
+    quicer:peername(Conn);
 peername({quic, Conn, _Stream, _Info}) ->
     quicer:peername(Conn).
 

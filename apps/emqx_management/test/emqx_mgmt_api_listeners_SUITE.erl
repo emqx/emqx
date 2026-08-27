@@ -505,6 +505,35 @@ t_update_validation_error_message({'end', Config}) ->
     ?assertEqual([], delete(NewPath)),
     ok.
 
+%% GET /listeners/:id renders `ssl_options.password` as `******`,
+%% and a round-tripped `******` value does not overwrite the stored secret.
+t_ssl_password_obfuscated(Config) when is_list(Config) ->
+    ListenerId = <<"ssl:default">>,
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
+    Listener = request(get, Path, [], []),
+    Password = <<"file-passwd">>,
+    Body = emqx_utils_maps:deep_put([<<"ssl_options">>, <<"password">>], Listener, Password),
+    Updated = request(put, Path, [], Body),
+    ?assertMatch(#{<<"ssl_options">> := #{<<"password">> := <<"******">>}}, Updated),
+    ?assertMatch(
+        #{<<"ssl_options">> := #{<<"password">> := <<"******">>}},
+        request(get, Path, [], [])
+    ),
+    %% the stored config keeps the real password
+    ?assertEqual(
+        Password,
+        emqx:get_raw_config([listeners, ssl, default, ssl_options, password])
+    ),
+    %% a round-tripped body with the obfuscated value keeps the stored secret
+    Roundtrip = request(get, Path, [], []),
+    ?assertMatch(#{<<"ssl_options">> := #{<<"password">> := <<"******">>}}, Roundtrip),
+    _ = request(put, Path, [], Roundtrip),
+    ?assertEqual(
+        Password,
+        emqx:get_raw_config([listeners, ssl, default, ssl_options, password])
+    ),
+    ok.
+
 action_listener(ID, Action, Running) ->
     Path = emqx_mgmt_api_test_util:api_path(["listeners", ID, Action]),
     {ok, _} = emqx_mgmt_api_test_util:request_api(post, Path),

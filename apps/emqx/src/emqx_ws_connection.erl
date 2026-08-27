@@ -264,7 +264,15 @@ check_origin_header(_Req, #{check_origin_enable := false}) ->
     ok.
 
 websocket_init([ConnInfo, Opts]) ->
-    init_connection(ConnInfo, Opts).
+    case emqx_node_readiness:is_ready() of
+        true ->
+            init_connection(ConnInfo, Opts);
+        false ->
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            ?SLOG(info, #{msg => ws_connection_refused_before_boot_complete}),
+            {stop, node_not_ready}
+    end.
 
 get_current_connections(Req) ->
     %% NOTE: Involves a gen:call to the connections supervisor.
