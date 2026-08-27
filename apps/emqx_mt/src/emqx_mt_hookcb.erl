@@ -9,6 +9,7 @@
     register_hooks/0,
     unregister_hooks/0,
     on_session_created/2,
+    on_session_resumed/2,
     on_authenticate/2,
     on_post_authn/1,
     on_api_actor_will_be_created/2,
@@ -25,6 +26,7 @@
 
 -define(TRACE(MSG, META), ?TRACE("MULTI_TENANCY", MSG, META)).
 -define(SESSION_HOOK, {?MODULE, on_session_created, []}).
+-define(SESSION_RESUMED_HOOK, {?MODULE, on_session_resumed, []}).
 -define(AUTHN_HOOK, {?MODULE, on_authenticate, []}).
 -define(POST_AUTHN_HOOK, {?MODULE, on_post_authn, []}).
 -define(LIMITER_HOOK(LEVEL), {emqx_mt_limiter, adjust_limiter, [LEVEL]}).
@@ -34,6 +36,7 @@
 
 register_hooks() ->
     ok = emqx_hooks:add('session.created', ?SESSION_HOOK, ?HP_HIGHEST),
+    ok = emqx_hooks:add('session.resumed', ?SESSION_RESUMED_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.authenticate', ?AUTHN_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.post_authn', ?POST_AUTHN_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('channel.limiter_adjustment', ?LIMITER_HOOK(channel), ?HP_HIGHEST),
@@ -52,6 +55,7 @@ register_hooks() ->
 
 unregister_hooks() ->
     ok = emqx_hooks:del('session.created', ?SESSION_HOOK),
+    ok = emqx_hooks:del('session.resumed', ?SESSION_RESUMED_HOOK),
     ok = emqx_hooks:del('client.authenticate', ?AUTHN_HOOK),
     ok = emqx_hooks:del('client.post_authn', ?POST_AUTHN_HOOK),
     ok = emqx_hooks:del('channel.limiter_adjustment', ?LIMITER_HOOK(channel)),
@@ -64,16 +68,25 @@ unregister_hooks() ->
     ok = emqx_hooks:del('delivery.dropped', ?DELIVERY_DROPPED_HOOK),
     ok.
 
-on_session_created(
+on_session_created(ClientInfo, _SessionInfo) ->
+    register_in_namespace(ClientInfo).
+
+%% A session resumed with clean_start=false fires 'session.resumed' instead of
+%% 'session.created'; register it too so the client index follows the client's
+%% current (possibly changed) namespace.  The entry for the previous channel
+%% process is removed by its 'DOWN' monitor in emqx_mt_pool.
+on_session_resumed(ClientInfo, _SessionInfo) ->
+    register_in_namespace(ClientInfo).
+
+register_in_namespace(
     #{
         clientid := ClientId,
         client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}
-    },
-    _SessionInfo
+    }
 ) ->
     ?TRACE("session_registered_in_namespace", #{}),
     ok = emqx_mt_pool:add(Tns, ClientId, self());
-on_session_created(_ClientInfo, _SessionInfo) ->
+register_in_namespace(_ClientInfo) ->
     %% not a multi-tenant client
     ok.
 
