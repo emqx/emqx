@@ -317,6 +317,39 @@ upload_files_multipart_ns(Ns, BundleName, Files) ->
     }),
     emqx_mgmt_api_test_util:simplify_decode_result(Res).
 
+clean_pem_cache_api() ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "pem_cache_clean"]),
+    simple_request(#{
+        method => post,
+        url => URL
+    }).
+
+ssl_listener_port() ->
+    case emqx_config:get([listeners, ssl, default, bind]) of
+        Port when is_integer(Port) -> Port;
+        {_Addr, Port} -> Port
+    end.
+
+populate_pem_cache() ->
+    %% A TLS handshake against the local default SSL listener makes `ssl` read the
+    %% listener certificate files through `ssl_pem_cache`.
+    Port = ssl_listener_port(),
+    {ok, Sock} = ssl:connect(
+        "127.0.0.1", Port, [{verify, verify_none}, {active, false}], 5_000
+    ),
+    ok = ssl:close(Sock),
+    %% `ssl_pem_cache` inserts entries with async casts; a synchronous call flushes
+    %% its queue so all entries from the handshake are in the table before the test
+    %% proceeds.
+    _ = sys:get_state(ssl_pem_cache),
+    ok.
+
+ssl_listener_certfile() ->
+    %% `ssl_pem_cache` keys entries by the resolved path the listener passes to
+    %% `ssl`; the checked config may still hold `${EMQX_ETC_DIR}`.
+    Raw = emqx_config:get([listeners, ssl, default, ssl_options, certfile]),
+    emqx_utils_conv:bin(emqx_schema:naive_env_interpolation(Raw)).
+
 gen_cert(Opts) ->
     #{
         cert := Cert,
@@ -1454,4 +1487,81 @@ t_prometheus_stats_dangling_managed_certs(_TCConfig) ->
         Expiry
     ),
 
+    ok.
+
+-doc """
+Verifies that `POST /certs/pem_cache_clean` returns 204 and evicts cached PEM
+files from the OTP `ssl_pem_cache` table on every node in the cluster, after the
+cache has been populated by real TLS handshakes.
+
+The assertion targets the listener certificate file entry rather than an empty
+table: clearing also refreshes the trusted CA database, which re-inserts CA
+files still referenced by live TLS connections.
+""".
+t_pem_cache_clean() ->
+    [{matrix, true}].
+t_pem_cache_clean(matrix) ->
+    [[?local], [?cluster]];
+t_pem_cache_clean(TCConfig) when is_list(TCConfig) ->
+    Nodes = get_config(nodes, TCConfig),
+    CertFiles = lists:map(
+        fun(Node) ->
+            CertFile = ?ON(Node, begin
+                populate_pem_cache(),
+                CF = ssl_listener_certfile(),
+                ?assertMatch([{CF, _}], ets:lookup(ssl_pem_cache, CF)),
+                CF
+            end),
+            {Node, CertFile}
+        end,
+        Nodes
+    ),
+    ?assertMatch({204, _}, clean_pem_cache_api()),
+    lists:foreach(
+        fun({Node, CertFile}) ->
+            ?assertEqual([], ?ON(Node, ets:lookup(ssl_pem_cache, CertFile)), #{node => Node})
+        end,
+        CertFiles
+    ),
+    ok.
+
+-doc """
+Verifies that an unauthenticated `POST /certs/pem_cache_clean` call is rejected.
+""".
+t_pem_cache_clean_unauthenticated() ->
+    [{matrix, true}].
+t_pem_cache_clean_unauthenticated(matrix) ->
+    [[?local]];
+t_pem_cache_clean_unauthenticated(_TCConfig) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "pem_cache_clean"]),
+    ?assertMatch(
+        {401, _},
+        emqx_mgmt_api_test_util:simple_request(#{
+            method => post,
+            url => URL,
+            auth_header => {"no", "auth"}
+        })
+    ),
+    ok.
+
+-doc """
+Verifies the response shape when cleaning the PEM cache fails on some node: the
+endpoint returns 500 with a per-node failure list.
+""".
+t_pem_cache_clean_bad_node() ->
+    [{matrix, true}].
+t_pem_cache_clean_bad_node(matrix) ->
+    [[?local]];
+t_pem_cache_clean_bad_node(_TCConfig) ->
+    on_exit(fun meck:unload/0),
+    meck:new(emqx, [non_strict, passthrough, no_link]),
+    meck:expect(emqx, running_nodes, 0, [node(), 'fake@nohost']),
+    ?assertMatch(
+        {500, #{
+            <<"code">> := <<"INTERNAL_ERROR">>,
+            <<"message">> := _,
+            <<"node_errors">> := [#{<<"node">> := <<"fake@nohost">>, <<"reason">> := _}]
+        }},
+        clean_pem_cache_api()
+    ),
     ok.

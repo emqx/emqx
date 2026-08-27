@@ -29,7 +29,8 @@
     '/certs/global/list'/2,
     '/certs/global/name/:name'/2,
     '/certs/ns/:namespace/list'/2,
-    '/certs/ns/:namespace/name/:name'/2
+    '/certs/ns/:namespace/name/:name'/2,
+    '/certs/pem_cache_clean'/2
 ]).
 -export([ns_bundle_filter/2]).
 
@@ -57,7 +58,8 @@ paths() ->
         "/certs/global/list",
         "/certs/global/name/:name",
         "/certs/ns/:namespace/list",
-        "/certs/ns/:namespace/name/:name"
+        "/certs/ns/:namespace/name/:name",
+        "/certs/pem_cache_clean"
     ].
 
 schema("/certs/global/list") ->
@@ -180,6 +182,19 @@ schema("/certs/ns/:namespace/name/:name") ->
                 #{
                     204 => <<"">>,
                     400 => bad_request(?DESC("bad_request")),
+                    500 => internal_error(?DESC("internal_error"))
+                }
+        }
+    };
+schema("/certs/pem_cache_clean") ->
+    #{
+        'operationId' => '/certs/pem_cache_clean',
+        post => #{
+            tags => ?TAGS,
+            description => ?DESC("pem_cache_clean"),
+            responses =>
+                #{
+                    204 => <<"">>,
                     500 => internal_error(?DESC("internal_error"))
                 }
         }
@@ -320,6 +335,19 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
             handle_delete_file(Namespace, BundleName, Kind);
         _ ->
             handle_delete_bundle(Namespace, BundleName)
+    end.
+
+'/certs/pem_cache_clean'(post, _Req) ->
+    case emqx_mgmt:clean_pem_cache_all() of
+        ok ->
+            ?NO_CONTENT;
+        {error, BadNodes} ->
+            Msg = ?ERROR_MSG(?INTERNAL_ERROR, <<"Failed to clean PEM cache on some nodes">>),
+            NodeErrors = [
+                #{node => Node, reason => emqx_utils:readable_error_msg(Reason)}
+             || {Node, Reason} <- BadNodes
+            ],
+            {500, Msg#{node_errors => NodeErrors}}
     end.
 
 %%-------------------------------------------------------------------------------------------------
