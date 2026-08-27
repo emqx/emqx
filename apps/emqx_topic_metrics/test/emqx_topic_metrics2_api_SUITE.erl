@@ -14,7 +14,9 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx_audit/include/emqx_audit.hrl").
 -include("../include/emqx_topic_metrics.hrl").
 
 -define(NS_ACME, <<"acme">>).
@@ -31,7 +33,8 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
-            emqx_conf,
+            {emqx_conf, #{config => #{log => #{audit => #{enable => true, level => info}}}}},
+            emqx_audit,
             emqx_topic_metrics,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
@@ -190,6 +193,33 @@ t_reset_counter(Config) ->
     {204, _} = reset_one(Config, ?global_ns, <<"r">>),
     {200, After} = get_one(Config, ?global_ns, <<"r">>),
     ?assertMatch(#{<<"metrics">> := #{<<"messages.in.count">> := 0}}, After).
+
+-doc """
+Regression test for #18534: with audit logging enabled (as it is for
+this whole suite), resetting over REST must commit the cluster_rpc
+transaction instead of aborting inside `emqx_audit:to_audit/1', and
+must write a well-formed `from = cluster_rpc' audit record.
+""".
+t_reset_with_audit_enabled(Config) ->
+    {201, _} = create(Config, ?global_ns, <<"au">>, <<"au/#">>),
+    TnxId0 = emqx_cluster_rpc:latest_tnx_id(),
+    {204, _} = reset_one(Config, ?global_ns, <<"au">>),
+    %% The reset transaction committed.
+    ?assert(emqx_cluster_rpc:latest_tnx_id() > TnxId0),
+    %% The audit record reached the audit DB.
+    ?retry(
+        200,
+        20,
+        ?assertMatch(
+            [_ | _],
+            mnesia:dirty_match_object(?AUDIT, #?AUDIT{
+                from = cluster_rpc,
+                operation_type = <<"topic_metrics_reset">>,
+                args = [<<"au">>, ?global_ns],
+                _ = '_'
+            })
+        )
+    ).
 
 t_cap(Config) ->
     %% Drive the public facade so the cap is enforced against the

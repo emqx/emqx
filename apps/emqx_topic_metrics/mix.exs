@@ -27,6 +27,7 @@ defmodule EMQXTopicMetrics.MixProject do
       {:emqx_utils, in_umbrella: true},
       {:emqx_ctl, in_umbrella: true},
       {:emqx_conf, in_umbrella: true},
+      {:emqx_audit, in_umbrella: true, runtime: false},
       :minirest
     ])
   end

@@ -512,15 +512,31 @@ expand({OwnerNs, BinName} = Name, Rec) ->
 %% cluster_rpc reset. The `kind' field comes from the cluster_rpc Ctx
 %% and is either `initiate' (the node that handled the REST request)
 %% or `replicate' (followers).
+%%
+%% Runs after clear_local_counters/1 so the audit describes a reset
+%% that actually happened. A crash here must not abort the cluster_rpc
+%% transaction (the counters are already cleared), so failures are
+%% logged and swallowed.
 emit_reset_audit({OwnerNs, BinName}, Ctx) ->
     Kind = maps:get(kind, Ctx, undefined),
-    ?AUDIT(info, #{
-        cmd => topic_metrics_reset,
-        args => [BinName, OwnerNs],
-        from => cluster_rpc,
-        kind => Kind,
-        duration_ms => 0
-    }),
+    try
+        ?AUDIT(info, #{
+            cmd => topic_metrics_reset,
+            args => [BinName, OwnerNs],
+            from => cluster_rpc,
+            kind => Kind,
+            duration_ms => 0
+        })
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "topic_metrics_reset_audit_failed",
+                name => {OwnerNs, BinName},
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            })
+    end,
     ok.
 
 %%--------------------------------------------------------------------
