@@ -64,7 +64,7 @@ schema("/audit") ->
                         desc => ?DESC(filter_node)
                     })},
                 {from,
-                    ?HOCON(?ENUM([dashboard, rest_api, cli, erlang_console, cluster_rpc]), #{
+                    ?HOCON(?ENUM([dashboard, rest_api, cli, erlang_console]), #{
                         in => query,
                         required => false,
                         example => <<"dashboard">>,
@@ -183,7 +183,7 @@ fields(audit) ->
                 desc => ?DESC("audit_node")
             })},
         {from,
-            ?HOCON(?ENUM([dashboard, rest_api, cli, erlang_console, cluster_rpc]), #{
+            ?HOCON(?ENUM([dashboard, rest_api, cli, erlang_console]), #{
                 desc => ?DESC("audit_from")
             })},
         {source,
