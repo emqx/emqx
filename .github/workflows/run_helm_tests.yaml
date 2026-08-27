@@ -150,6 +150,7 @@ jobs:
             --set emqxConfig.EMQX_NODE__COOKIE="ci-smoke-test-cookie" \
             --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND="0.0.0.0:1883" \
             --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
+            --set emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND="0.0.0.0:18083" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
@@ -176,6 +177,7 @@ jobs:
             --set emqxConfig.EMQX_NODE__COOKIE="ci-smoke-test-cookie" \
             --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND="0.0.0.0:1883" \
             --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
+            --set emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND="0.0.0.0:18083" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --wait \
