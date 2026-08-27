@@ -68,4 +68,4 @@ desc(_) -> undefined.
 
 topic_example() ->
     <<"/clientid/", ?PH_S_CLIENTID, "/username/", ?PH_S_USERNAME, "/host/", ?PH_S_HOST, "/port/",
-        ?PH_S_PORT>>.
+        ?PH_S_PORT, "/attrs/${client_attrs.role}">>.
