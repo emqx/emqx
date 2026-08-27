@@ -13,7 +13,10 @@
     stop/0,
     stop/1,
     take/0,
-    flush/0
+    flush/0,
+    enable_rewrite_hook/0,
+    set_rewrite_fun/1,
+    reset_rewrite_hook/0
 ]).
 
 -behaviour(gen_server).
@@ -35,6 +38,7 @@
     on_client_authenticate/2,
     on_client_authorize/2,
     on_client_subscribe/2,
+    on_client_subscribe_rewrite/2,
     on_client_unsubscribe/2,
     on_session_created/2,
     on_session_subscribed/2,
@@ -51,6 +55,13 @@
 ]).
 
 -define(PORT, 9000).
+%% Registering `client.subscribe.rewrite' swaps `OnClientSubscribe' for
+%% `OnClientSubscribeRewrite'; off by default, since every other case here expects the
+%% fire-and-forget hook.
+-define(REWRITE_HOOK_KEY, {?MODULE, rewrite_hook}).
+%% What `OnClientSubscribeRewrite' answers with: a fun over the requested topic
+%% filters, or `undefined' to respond `IGNORE'.
+-define(REWRITE_FUN_KEY, {?MODULE, subscribe_rewrite}).
 -define(NAME, ?MODULE).
 -define(DEFAULT_CLUSTER_NAME, <<"emqxcl">>).
 -define(OTHER_CLUSTER_NAME_BIN, <<"test_emqx_cluster">>).
@@ -68,6 +79,20 @@ start(Name, Port) ->
 
 stop() ->
     stop(?NAME).
+
+enable_rewrite_hook() ->
+    persistent_term:put(?REWRITE_HOOK_KEY, true).
+
+%% `Fun' takes the requested topic filters and returns the ones to respond with,
+%% so a case can hand back a list of a different length, an out-of-range qos, or
+%% the filters unchanged.
+set_rewrite_fun(Fun) when is_function(Fun, 1) ->
+    persistent_term:put(?REWRITE_FUN_KEY, Fun).
+
+reset_rewrite_hook() ->
+    _ = persistent_term:erase(?REWRITE_HOOK_KEY),
+    _ = persistent_term:erase(?REWRITE_FUN_KEY),
+    ok.
 
 stop(Name) ->
     case whereis(to_atom_name(Name)) of
@@ -159,7 +184,7 @@ on_provider_loaded(#{meta := #{cluster_name := Name}} = Req, Md) ->
             #{name => <<"client.disconnected">>},
             #{name => <<"client.authenticate">>},
             #{name => <<"client.authorize">>},
-            #{name => <<"client.subscribe">>},
+            #{name => subscribe_hook_name()},
             #{name => <<"client.unsubscribe">>}
         ],
     HooksSession =
@@ -299,6 +324,29 @@ on_client_subscribe(Req, Md) ->
     in(?FUNCTION_NAME, Req),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
+
+-spec on_client_subscribe_rewrite(emqx_exhook_pb:client_subscribe_request(), grpc:metadata()) ->
+    {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
+on_client_subscribe_rewrite(#{topic_filters := TopicFilters} = Req, Md) ->
+    in(?FUNCTION_NAME, Req),
+    case persistent_term:get(?REWRITE_FUN_KEY, undefined) of
+        undefined ->
+            {ok, #{type => 'IGNORE'}, Md};
+        Fun ->
+            {ok,
+                #{
+                    type => 'STOP_AND_RETURN',
+                    value => {topic_filters, #{filters => Fun(TopicFilters)}}
+                },
+                Md}
+    end.
+
+subscribe_hook_name() ->
+    case persistent_term:get(?REWRITE_HOOK_KEY, false) of
+        true -> <<"client.subscribe.rewrite">>;
+        false -> <<"client.subscribe">>
+    end.
 
 -spec on_client_unsubscribe(emqx_exhook_pb:client_unsubscribe_request(), grpc:metadata()) ->
     {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
