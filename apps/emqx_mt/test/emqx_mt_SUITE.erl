@@ -232,8 +232,8 @@ t_initialize_limiter_groups(Config) when is_list(Config) ->
 %% the client index.  Regression test for emqx/emqx#18533: the resume path
 %% fires 'session.resumed' instead of 'session.created', which used to leave
 %% the client listed under the old namespace.
-t_session_resume_namespace_change({init, _Config}) ->
-    ok;
+t_session_resume_namespace_change({init, Config}) ->
+    Config;
 t_session_resume_namespace_change({'end', _Config}) ->
     ok;
 t_session_resume_namespace_change(_Config) ->
@@ -276,8 +276,8 @@ t_session_resume_namespace_change(_Config) ->
 %% A persistent session taken over while the previous connection is still
 %% live, under a different namespace, moves to the new namespace in the
 %% client index.
-t_session_takeover_namespace_change({init, _Config}) ->
-    ok;
+t_session_takeover_namespace_change({init, Config}) ->
+    Config;
 t_session_takeover_namespace_change({'end', _Config}) ->
     ok;
 t_session_takeover_namespace_change(_Config) ->
@@ -316,8 +316,8 @@ t_session_takeover_namespace_change(_Config) ->
 
 %% A persistent session that reconnects with clean_start=false under the same
 %% namespace stays listed once, with no duplicate entry.
-t_session_resume_same_namespace({init, _Config}) ->
-    ok;
+t_session_resume_same_namespace({init, Config}) ->
+    Config;
 t_session_resume_same_namespace({'end', _Config}) ->
     ok;
 t_session_resume_same_namespace(_Config) ->
@@ -354,8 +354,8 @@ t_session_resume_same_namespace(_Config) ->
 %% A client that reconnects with clean_start=true under a different namespace
 %% moves to the new namespace in the client index (the 'session.created' path;
 %% guards against regressing the already-working behavior).
-t_session_clean_start_namespace_change({init, _Config}) ->
-    ok;
+t_session_clean_start_namespace_change({init, Config}) ->
+    Config;
 t_session_clean_start_namespace_change({'end', _Config}) ->
     ok;
 t_session_clean_start_namespace_change(_Config) ->
