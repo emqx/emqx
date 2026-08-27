@@ -362,6 +362,105 @@ t_allow_this(_) ->
         emqx_template:validate(["d"], emqx_template:parse(<<"this:${.}">>))
     ).
 
+-doc "A hyphenated variable name parses as a placeholder and renders its bound value.".
+t_render_hyphen_name(_) ->
+    Context = #{
+        <<"a-b">> => <<"1">>,
+        client_attrs => #{<<"user-token">> => <<"tok">>}
+    },
+    Template = emqx_template:parse(<<"a-b:${a-b},tok:${client_attrs.user-token}">>),
+    ?assertEqual(
+        ["a-b", "client_attrs.user-token"],
+        emqx_template:placeholders(Template)
+    ),
+    ?assertEqual(
+        <<"a-b:1,tok:tok">>,
+        render_strict_string(Template, Context)
+    ).
+
+-doc "`${a}-${b}` parses as two placeholders separated by a literal hyphen, not one match.".
+t_render_hyphen_between_placeholders(_) ->
+    Context = #{a => <<"1">>, b => <<"2">>},
+    Template = emqx_template:parse(<<"${a}-${b}">>),
+    ?assertEqual(
+        ["a", "b"],
+        emqx_template:placeholders(Template)
+    ),
+    ?assertEqual(
+        <<"1-2">>,
+        render_strict_string(Template, Context)
+    ).
+
+-doc "The accessor of a hyphenated name splits on dots only: `${a.b-c}` -> [`a`, `b-c`].".
+t_parse_accessor_hyphen(_) ->
+    ?assertMatch(
+        [{var, "a.b-c", [<<"a">>, <<"b-c">>]}],
+        emqx_template:parse(<<"${a.b-c}">>)
+    ).
+
+-doc """
+Leading or trailing hyphens and a bare `${-}` parse as placeholders with those
+names, rendering `undefined` when no such binding exists.
+""".
+t_render_hyphen_edge_names(_) ->
+    Template = emqx_template:parse(<<"${-a},${a-},${-}">>),
+    ?assertEqual(
+        ["-a", "a-", "-"],
+        emqx_template:placeholders(Template)
+    ),
+    ?assertEqual(
+        <<"x,y,z">>,
+        render_strict_string(Template, #{<<"-a">> => "x", <<"a-">> => "y", <<"-">> => "z"})
+    ),
+    ?assertMatch(
+        {<<"undefined,undefined,undefined">>, [{"-", undefined} | _]},
+        render_string(Template, #{})
+    ).
+
+-doc "A hyphenated disallowed name round-trips through `escape_disallowed/2` and re-parse.".
+t_escape_disallowed_hyphen(_) ->
+    Template = emqx_template:parse(<<"a:${a-b},c:${c-d}">>),
+    Escaped = bin(emqx_template:escape_disallowed(Template, ["a-b"])),
+    ?assertEqual(<<"a:${a-b},c:${$}{c-d}">>, Escaped),
+    Reparsed = emqx_template:parse(Escaped),
+    ?assertEqual(["a-b"], emqx_template:placeholders(Reparsed)),
+    ?assertEqual(
+        <<"a:1,c:${c-d}">>,
+        render_strict_string(Reparsed, #{<<"a-b">> => <<"1">>})
+    ).
+
+-doc "`validate/2` accepts a hyphenated leaf under an allowed namespace and still rejects others.".
+t_validate_hyphen_namespace(_) ->
+    Template = emqx_template:parse(<<"${client_attrs.user-token}">>),
+    ?assertEqual(
+        ok,
+        emqx_template:validate([{var_namespace, "client_attrs"}], Template)
+    ),
+    ?assertEqual(
+        {error, [{"client_attrs.user-token", disallowed}]},
+        emqx_template:validate([{var_namespace, "other_ns"}, "clientid"], Template)
+    ).
+
+-doc "A hyphenated name in an SQL template becomes a parameter; the name never enters the statement.".
+t_parse_sql_prepstmt_hyphen(_) ->
+    Context = #{<<"a-b">> => <<"v1">>, c => #{<<"d-e">> => 42}},
+    {PrepareStatement, RowTemplate} =
+        emqx_template_sql:parse_prepstmt(<<"a:${a-b},b:${c.d-e}">>, #{parameters => '$n'}),
+    ?assertEqual(<<"a:$1,b:$2">>, bin(PrepareStatement)),
+    ?assertEqual(
+        [<<"v1">>, 42],
+        emqx_template_sql:render_prepstmt_strict(RowTemplate, Context)
+    ).
+
+-doc "A hyphenated name in a rendered SQL statement substitutes the escaped value.".
+t_render_sql_hyphen(_) ->
+    Context = #{<<"a-b">> => <<"it's">>},
+    Template = emqx_template:parse(<<"SELECT ${a-b}, '${a-b}'">>),
+    ?assertEqual(
+        <<"SELECT 'it\\'s', ''it\\'s''">>,
+        bin(emqx_template_sql:render_strict(Template, Context, #{}))
+    ).
+
 t_allow_var_by_namespace(_) ->
     Context = #{d => #{d1 => <<"hi">>}},
     Template = emqx_template:parse(<<"d.d1:${d.d1}">>),

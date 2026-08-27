@@ -1507,6 +1507,39 @@ t_templated_host_missing_var(TCConfig) ->
     ).
 
 -doc """
+A header template referencing a hyphenated client attribute key renders the
+attribute value into the request.
+""".
+t_hyphenated_client_attr(TCConfig) ->
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            #{
+                username := <<"plain">>,
+                password := <<"plain">>
+            } = cowboy_req:match_qs([username, password], Req0),
+            ?assertEqual(<<"tok-1">>, maps:get(<<"x-user-token">>, cowboy_req:headers(Req0))),
+            Req = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                ?SERVER_RESPONSE_JSON(allow),
+                Req0
+            ),
+            {ok, Req, State}
+        end
+    ),
+    AuthConfig = (raw_http_auth_config(TCConfig))#{
+        <<"headers">> => #{<<"X-User-Token">> => <<"${client_attrs.user-token}">>}
+    },
+    {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+    Credentials = maps:merge(?CREDENTIALS, #{
+        client_attrs => #{<<"user-token">> => <<"tok-1">>}
+    }),
+    ?assertMatch(
+        {ok, #{is_superuser := false}},
+        emqx_access_control:authenticate(Credentials)
+    ).
+
+-doc """
 A templated host URL cannot be configured without a non-empty 'allowed_hosts'
 list.
 """.

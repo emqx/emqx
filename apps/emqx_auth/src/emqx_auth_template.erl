@@ -174,8 +174,10 @@ prerender_disallowed_placeholders(Template, AllowedVars) ->
         var_trans => fun(Name, _) ->
             % NOTE
             % Rendering disallowed placeholders in escaped form, which will then
-            % parse as a literal string.
-            case lists:member(Name, AllowedVars) of
+            % parse as a literal string.  Allowed-var matching is namespace-aware,
+            % so `${client_attrs.x}` stays a placeholder when the allowed set
+            % contains `{var_namespace, "client_attrs"}`.
+            case emqx_template:is_allowed(Name, AllowedVars) of
                 true -> list_to_binary("${" ++ Name ++ "}");
                 false -> list_to_binary("${$}{" ++ Name ++ "}")
             end

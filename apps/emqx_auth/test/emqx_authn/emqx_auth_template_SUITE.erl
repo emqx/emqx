@@ -35,6 +35,22 @@ end_per_suite(Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
+-doc """
+A template that mixes a disallowed variable with a namespace-allowed one keeps
+the namespace-allowed placeholder working after the disallowed one is escaped.
+""".
+t_escape_namespace_aware(_Config) ->
+    {UsedVars, Template} = emqx_auth_template:parse_str(
+        <<"a:${disallowed},b:${client_attrs.user-token}">>,
+        [{var_namespace, "client_attrs"}]
+    ),
+    ?assertEqual(["client_attrs.user-token"], UsedVars),
+    Rendered = emqx_auth_template:render_str(
+        Template,
+        #{client_attrs => #{<<"user-token">> => <<"tok">>}}
+    ),
+    ?assertEqual(<<"a:${disallowed},b:tok">>, Rendered).
+
 t_parse_sql(_Config) ->
     {UsedVars, Statement, RowTemplate} = emqx_auth_template:parse_sql(
         """
