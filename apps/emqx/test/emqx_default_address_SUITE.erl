@@ -47,51 +47,57 @@ end_per_group(_Profile, Config) ->
     emqx_common_test_helpers:clear_security_profile().
 
 -doc """
-Asserts the resolved default MQTT listener binds for every address value,
-on both the schema-default path and the bare-port converter path, under
-the group's security profile.
+Asserts that the checked config keeps the static schema-default binds and
+that the started listeners bind the resolved default address, for every
+address value, under the group's security profile.
 """.
 t_default_binds(Config) ->
     Profile = ?config(security_profile, Config),
     lists:foreach(
         fun({Address, Expected}) ->
             ct:pal("address ~p, expected ~p", [Address, Expected]),
-            with_address(Address, fun() -> assert_all_paths(Expected) end)
+            restart_with_address(Address),
+            assert_static_config_binds(),
+            assert_effective_binds(Expected)
         end,
         address_cases(Profile)
-    ).
+    ),
+    restart_with_address(unset).
 
 -doc """
-Asserts that an explicit "IP:port" bind is never rewritten by the default
-address, while sibling bare-port binds in the same update are.
+Asserts that an explicit "IP:port" bind is bound as configured while
+sibling bare-port binds get the default address.
 """.
 t_explicit_bind_not_rewritten(_Config) ->
-    with_address("loopback", fun() ->
-        {ok, _} = emqx:update_config([listeners], #{
-            <<"tcp">> => #{<<"default">> => #{<<"bind">> => <<"127.0.0.3:1883">>}},
-            <<"ssl">> => #{<<"default">> => #{<<"bind">> => 8883}},
-            <<"ws">> => #{<<"default">> => #{<<"bind">> => 8083}},
-            <<"wss">> => #{<<"default">> => #{<<"bind">> => 8084}}
-        }),
-        ?assertEqual(
-            {{127, 0, 0, 3}, 1883}, emqx:get_config([listeners, tcp, default, bind])
-        ),
-        ?assertEqual(
-            {{127, 0, 0, 1}, 8883}, emqx:get_config([listeners, ssl, default, bind])
-        ),
-        ?assertEqual(
-            {{127, 0, 0, 1}, 8083}, emqx:get_config([listeners, ws, default, bind])
-        ),
-        ?assertEqual(
-            {{127, 0, 0, 1}, 8084}, emqx:get_config([listeners, wss, default, bind])
-        )
-    end).
+    restart_with_address("loopback"),
+    {ok, _} = emqx:update_config([listeners], #{
+        <<"tcp">> => #{<<"default">> => #{<<"bind">> => <<"127.0.0.3:1883">>}},
+        <<"ssl">> => #{<<"default">> => #{<<"bind">> => 8883}},
+        <<"ws">> => #{<<"default">> => #{<<"bind">> => 8083}},
+        <<"wss">> => #{<<"default">> => #{<<"bind">> => 8084}}
+    }),
+    ?assertEqual(
+        {{127, 0, 0, 3}, 1883}, emqx:get_config([listeners, tcp, default, bind])
+    ),
+    ?assertEqual(8883, emqx:get_config([listeners, ssl, default, bind])),
+    ?assertEqual({{127, 0, 0, 3}, 1883}, esockd_listen_on('tcp:default')),
+    ?assertEqual({{127, 0, 0, 1}, 8883}, esockd_listen_on('ssl:default')),
+    ?assertEqual({{127, 0, 0, 1}, 8083}, ranch:get_addr('ws:default')),
+    ?assertEqual({{127, 0, 0, 1}, 8084}, ranch:get_addr('wss:default')),
+    {ok, _} = emqx:update_config([listeners], #{
+        <<"tcp">> => #{<<"default">> => #{<<"bind">> => 1883}},
+        <<"ssl">> => #{<<"default">> => #{<<"bind">> => 8883}},
+        <<"ws">> => #{<<"default">> => #{<<"bind">> => 8083}},
+        <<"wss">> => #{<<"default">> => #{<<"bind">> => 8084}}
+    }),
+    restart_with_address(unset).
 
 -doc """
-Asserts that each keyword and literal value resolves to the expected
-address, for both the mqtt and the dashboard scope.
+Asserts that each keyword, literal and hostname value resolves to the
+expected address, for both the mqtt and the dashboard scope.
 """.
 t_resolver_values(_Config) ->
+    {ok, LocalHost} = inet:gethostname(),
     lists:foreach(
         fun({Address, Expected}) ->
             with_address(Address, fun() ->
@@ -105,28 +111,58 @@ t_resolver_values(_Config) ->
             {"192.0.2.7", {192, 0, 2, 7}},
             {"::1", {0, 0, 0, 0, 0, 0, 0, 1}},
             {"::", {0, 0, 0, 0, 0, 0, 0, 0}},
-            {"nodename", nodename_address()}
+            {"nodename", nodename_address()},
+            {LocalHost, resolve_host(LocalHost)}
         ]
     ).
 
 -doc """
 Asserts that with the variable unset the resolver falls back to the
-security profile policy.
+security profile policy, and that the profile does not cover the gateway
+scope.
 """.
 t_resolver_profile_fallback(_Config) ->
     emqx_common_test_helpers:clear_default_address(),
     ?assertEqual(any, emqx_default_address:resolve(mqtt)),
     ?assertEqual(any, emqx_default_address:resolve(dashboard)),
+    ?assertEqual(any, emqx_default_address:resolve(gateway)),
     emqx_common_test_helpers:with_security_profile(hardened, fun() ->
         emqx_default_address:clear(),
         ?assertEqual(loopback, emqx_default_address:resolve(mqtt)),
-        ?assertEqual(loopback, emqx_default_address:resolve(dashboard))
+        ?assertEqual(loopback, emqx_default_address:resolve(dashboard)),
+        ?assertEqual(any, emqx_default_address:resolve(gateway))
     end),
     emqx_default_address:clear().
 
 -doc """
-Asserts that a value that is neither a keyword nor a literal address makes
-the resolver exit.
+Asserts that listen_on/2 applies the address to bare-port binds only and
+returns explicit binds unchanged.
+""".
+t_listen_on(_Config) ->
+    emqx_common_test_helpers:clear_default_address(),
+    ?assertEqual(1883, emqx_default_address:listen_on(mqtt, 1883)),
+    ?assertEqual(1883, emqx_default_address:listen_on(gateway, 1883)),
+    with_address("loopback", fun() ->
+        ?assertEqual({{127, 0, 0, 1}, 1883}, emqx_default_address:listen_on(mqtt, 1883)),
+        ?assertEqual({{127, 0, 0, 1}, 1883}, emqx_default_address:listen_on(gateway, 1883)),
+        ?assertEqual(
+            {{1, 2, 3, 4}, 1883}, emqx_default_address:listen_on(mqtt, {{1, 2, 3, 4}, 1883})
+        )
+    end),
+    with_address("192.0.2.7", fun() ->
+        ?assertEqual({{192, 0, 2, 7}, 1883}, emqx_default_address:listen_on(mqtt, 1883))
+    end),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        emqx_default_address:clear(),
+        ?assertEqual({{127, 0, 0, 1}, 1883}, emqx_default_address:listen_on(mqtt, 1883)),
+        %% The security profile does not cover gateway binds.
+        ?assertEqual(1883, emqx_default_address:listen_on(gateway, 1883))
+    end),
+    emqx_default_address:clear().
+
+-doc """
+Asserts that a value that is neither a keyword, a literal address, nor a
+syntactically valid hostname makes the resolver exit.
 """.
 t_resolver_invalid(_Config) ->
     lists:foreach(
@@ -137,16 +173,24 @@ t_resolver_invalid(_Config) ->
                 )
             end)
         end,
-        ["bogus", "999.1.1.1", "LOOPBACK", "0.0.0.0:1883"]
+        ["0.0.0.0:1883", "-bad", "bad-", "under_score"]
     ).
+
+-doc """
+Asserts that a syntactically valid hostname that does not resolve makes
+the resolver exit. The .invalid TLD is reserved and never resolves.
+""".
+t_resolver_unresolvable_hostname(_Config) ->
+    with_address("host.invalid", fun() ->
+        ?assertExit(
+            {invalid_default_address, _}, emqx_default_address:resolve(mqtt)
+        )
+    end).
 
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
-with_address(unset, Fun) ->
-    emqx_common_test_helpers:clear_default_address(),
-    Fun();
 with_address(Address, Fun) ->
     emqx_common_test_helpers:with_default_address(Address, Fun).
 
@@ -181,41 +225,41 @@ resolve_host(Host) ->
             IP
     end.
 
-assert_all_paths(Expected) ->
-    %% Schema-eval path: absent listeners get the full default config.
-    {ok, _} = emqx:update_config([listeners], #{}),
-    assert_default_binds(Expected, full),
-    %% Schema-eval path: present but empty listeners get the field default.
-    {ok, _} = emqx:update_config([listeners], #{
-        <<"tcp">> => #{<<"default">> => #{}},
-        <<"ssl">> => #{<<"default">> => #{}},
-        <<"ws">> => #{<<"default">> => #{}},
-        <<"wss">> => #{<<"default">> => #{}}
-    }),
-    assert_default_binds(Expected, schema),
-    %% Bare-port converter path.
-    {ok, _} = emqx:update_config([listeners], #{
-        <<"tcp">> => #{<<"default">> => #{<<"bind">> => 1883}},
-        <<"ssl">> => #{<<"default">> => #{<<"bind">> => 8883}},
-        <<"ws">> => #{<<"default">> => #{<<"bind">> => 8083}},
-        <<"wss">> => #{<<"default">> => #{<<"bind">> => 8084}}
-    }),
-    assert_default_binds(Expected, schema).
+listener_ids() ->
+    ['tcp:default', 'ssl:default', 'ws:default', 'wss:default'].
 
-assert_default_binds(Expected, Source) ->
-    ?assertEqual(
-        expected_bind(Expected, Source, 1883), emqx:get_config([listeners, tcp, default, bind])
+restart_with_address(Address) ->
+    %% The resolved address is fixed for a node's lifetime; simulate a
+    %% reboot by stopping the listeners under the current resolution first.
+    lists:foreach(
+        fun(Id) -> ok = emqx_listeners:stop_listener(Id) end, listener_ids()
     ),
-    ?assertEqual(
-        expected_bind(Expected, Source, 8883), emqx:get_config([listeners, ssl, default, bind])
-    ),
-    ?assertEqual(
-        expected_bind(Expected, Source, 8083), emqx:get_config([listeners, ws, default, bind])
-    ),
-    ?assertEqual(
-        expected_bind(Expected, Source, 8084), emqx:get_config([listeners, wss, default, bind])
+    case Address of
+        unset -> emqx_common_test_helpers:clear_default_address();
+        _ -> emqx_common_test_helpers:set_default_address(Address)
+    end,
+    lists:foreach(
+        fun(Id) -> ok = emqx_listeners:start_listener(Id) end, listener_ids()
     ).
 
-expected_bind(any, full, Port) -> {{0, 0, 0, 0}, Port};
-expected_bind(any, schema, Port) -> Port;
-expected_bind(IP, _Source, Port) -> {IP, Port}.
+assert_static_config_binds() ->
+    ?assertEqual(1883, emqx:get_config([listeners, tcp, default, bind])),
+    ?assertEqual(8883, emqx:get_config([listeners, ssl, default, bind])),
+    ?assertEqual(8083, emqx:get_config([listeners, ws, default, bind])),
+    ?assertEqual(8084, emqx:get_config([listeners, wss, default, bind])).
+
+assert_effective_binds(Expected) ->
+    ?assertEqual(expected_listen_on(Expected, 1883), esockd_listen_on('tcp:default')),
+    ?assertEqual(expected_listen_on(Expected, 8883), esockd_listen_on('ssl:default')),
+    ?assertEqual(expected_ranch_addr(Expected, 8083), ranch:get_addr('ws:default')),
+    ?assertEqual(expected_ranch_addr(Expected, 8084), ranch:get_addr('wss:default')).
+
+expected_listen_on(any, Port) -> Port;
+expected_listen_on(IP, Port) -> {IP, Port}.
+
+expected_ranch_addr(any, Port) -> {{0, 0, 0, 0}, Port};
+expected_ranch_addr(IP, Port) -> {IP, Port}.
+
+esockd_listen_on(Id) ->
+    [ListenOn] = [L || {{I, L}, _Pid} <- esockd:listeners(), I =:= Id],
+    ListenOn.

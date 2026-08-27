@@ -56,7 +56,7 @@ t_profile(Config) ->
     ?assertEqual(Profile, emqx_security_profile:profile()),
     assert_policies(Profile),
 
-    assert_default_binds(Profile, full),
+    assert_default_binds(Profile),
 
     {ok, _} = emqx:update_config([listeners], #{
         <<"tcp">> => #{<<"default">> => #{}},
@@ -64,7 +64,7 @@ t_profile(Config) ->
         <<"ws">> => #{<<"default">> => #{}},
         <<"wss">> => #{<<"default">> => #{}}
     }),
-    assert_default_binds(Profile, schema),
+    assert_default_binds(Profile),
 
     {ok, _} = emqx:update_config([listeners], #{
         <<"tcp">> => #{<<"default">> => #{<<"bind">> => 1883}},
@@ -72,7 +72,7 @@ t_profile(Config) ->
         <<"ws">> => #{<<"default">> => #{<<"bind">> => 8083}},
         <<"wss">> => #{<<"default">> => #{<<"bind">> => 8084}}
     }),
-    assert_default_binds(Profile, schema).
+    assert_default_binds(Profile).
 
 t_uppercase_profile_rejected(_) ->
     os:putenv(?PROFILE_ENV_VAR, "HARDENED"),
@@ -111,20 +111,24 @@ assert_policies(hardened) ->
     ?assertEqual(deny, emqx_security_profile:policy(exhook_message_publish_failure)),
     ?assertEqual(required, emqx_security_profile:policy(plugin_install_sha256_binding)).
 
-assert_default_binds(Profile, Source) ->
-    ?assertEqual(
-        expected_bind(Profile, Source, 1883), emqx:get_config([listeners, tcp, default, bind])
-    ),
-    ?assertEqual(
-        expected_bind(Profile, Source, 8883), emqx:get_config([listeners, ssl, default, bind])
-    ),
-    ?assertEqual(
-        expected_bind(Profile, Source, 8083), emqx:get_config([listeners, ws, default, bind])
-    ),
-    ?assertEqual(
-        expected_bind(Profile, Source, 8084), emqx:get_config([listeners, wss, default, bind])
-    ).
+assert_default_binds(Profile) ->
+    %% Schema defaults are static bare ports; the profile is applied at
+    %% listener start.
+    ?assertEqual(1883, emqx:get_config([listeners, tcp, default, bind])),
+    ?assertEqual(8883, emqx:get_config([listeners, ssl, default, bind])),
+    ?assertEqual(8083, emqx:get_config([listeners, ws, default, bind])),
+    ?assertEqual(8084, emqx:get_config([listeners, wss, default, bind])),
+    ?assertEqual(expected_listen_on(Profile, 1883), esockd_listen_on('tcp:default')),
+    ?assertEqual(expected_listen_on(Profile, 8883), esockd_listen_on('ssl:default')),
+    ?assertEqual(expected_ranch_addr(Profile, 8083), ranch:get_addr('ws:default')),
+    ?assertEqual(expected_ranch_addr(Profile, 8084), ranch:get_addr('wss:default')).
 
-expected_bind(legacy, full, Port) -> {{0, 0, 0, 0}, Port};
-expected_bind(legacy, schema, Port) -> Port;
-expected_bind(hardened, _Source, Port) -> {{127, 0, 0, 1}, Port}.
+expected_listen_on(legacy, Port) -> Port;
+expected_listen_on(hardened, Port) -> {{127, 0, 0, 1}, Port}.
+
+expected_ranch_addr(legacy, Port) -> {{0, 0, 0, 0}, Port};
+expected_ranch_addr(hardened, Port) -> {{127, 0, 0, 1}, Port}.
+
+esockd_listen_on(Id) ->
+    [ListenOn] = [L || {{I, L}, _Pid} <- esockd:listeners(), I =:= Id],
+    ListenOn.

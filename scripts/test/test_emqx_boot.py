@@ -259,7 +259,7 @@ def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
     assert "hardened" in output
 
 
-@pytest.mark.parametrize("default_address", ["not-an-address", "LOOPBACK"])
+@pytest.mark.parametrize("default_address", ["bad_value", "bad!addr"])
 def test_invalid_default_address_fails_fast(emqx_bin_path, default_address):
     """Test that malformed EMQX_DEFAULT_ADDRESS fails before boot."""
     result = run_emqx_console(
@@ -274,12 +274,14 @@ def test_invalid_default_address_fails_fast(emqx_bin_path, default_address):
     assert "all" in output
 
 
-def test_default_address_erlang_rejects_bad_literal(emqx_bin_path):
-    """An IP-looking but invalid literal passes the bin/emqx check and is
-    rejected by the Erlang resolver."""
+@pytest.mark.parametrize("default_address", ["0.0.0.0:1883", "host.invalid"])
+def test_default_address_erlang_rejects_bad_value(emqx_bin_path, default_address):
+    """A value that passes the bin/emqx character check is rejected by the
+    Erlang resolver: at parse time for bad syntax, at resolve time for a
+    hostname that does not resolve (.invalid never resolves)."""
     result = run_emqx_console(
         emqx_bin_path,
-        {"EMQX_DEFAULT_ADDRESS": "999.1.1.1"},
+        {"EMQX_DEFAULT_ADDRESS": default_address},
         timeout=120,
     )
     output = result.stdout + result.stderr

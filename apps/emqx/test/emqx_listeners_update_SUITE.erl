@@ -475,8 +475,9 @@ emqtt_connect(Opts) ->
 format_bind(Bind) ->
     iolist_to_binary(emqx_listeners:format_bind(Bind)).
 
-expected_default_bind(legacy, Port) -> Port;
-expected_default_bind(hardened, Port) -> {{127, 0, 0, 1}, Port}.
+%% Schema defaults are static bare ports; the profile is applied at
+%% listener start, and the keyed accessors translate binds the same way.
+expected_default_bind(_Profile, Port) -> Port.
 
 format_raw_bind(Port) when is_integer(Port) -> Port;
 format_raw_bind({{127, 0, 0, 1}, Port}) -> <<"127.0.0.1:", (integer_to_binary(Port))/binary>>.

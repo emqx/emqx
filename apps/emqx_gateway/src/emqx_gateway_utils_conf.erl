@@ -202,7 +202,7 @@ to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx) ->
 
             %% Some common configuration entries
             ListenerId = listener_id(GwName, Type, Name),
-            ListenOn = maps:get(bind, ListenerConfig),
+            ListenOn = emqx_default_address:listen_on(gateway, maps:get(bind, ListenerConfig)),
 
             ListenerOpts =
                 case Type of
@@ -299,7 +299,7 @@ to_rt_listener_ids(GwName, GwConfig0) ->
     lists:map(
         fun({Type, Name, ListenerConfig}) ->
             ListenerId = listener_id(GwName, Type, Name),
-            ListenOn = maps:get(bind, ListenerConfig),
+            ListenOn = emqx_default_address:listen_on(gateway, maps:get(bind, ListenerConfig)),
             ListenerType =
                 case Type of
                     T when ?IS_ESOCKD_LISTENER(T) ->
@@ -323,7 +323,7 @@ Convert a listener id and raw configuration to a runtime id.
     listener_runtime_id().
 rt_listener_id(ListenerId, ListenerRawConfig) ->
     {_GwName, TypeBin, _NameBin} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    ListenOn = maps:get(<<"bind">>, ListenerRawConfig),
+    ListenOn = emqx_default_address:listen_on(gateway, maps:get(<<"bind">>, ListenerRawConfig)),
     ListenerType =
         case binary_to_existing_atom(TypeBin) of
             T when ?IS_ESOCKD_LISTENER(T) ->

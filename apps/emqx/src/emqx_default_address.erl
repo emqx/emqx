@@ -6,67 +6,75 @@
 
 -moduledoc """
 This module resolves the `EMQX_DEFAULT_ADDRESS` boot environment variable,
-which sets the address of defaulted listener binds independently of the
-security profile.
+which sets the address of listener binds that have no explicit address,
+independently of the security profile.
 
-Valid values are `loopback`, `nodename`, `all`, or a literal IPv4/IPv6
-address. When the variable is not set, the security profile policy decides
-the default address.
+Valid values are `loopback`, `nodename`, `all`, a literal IPv4/IPv6
+address, or a hostname to resolve at boot. When the variable is not set,
+the security profile policy decides the default address.
 
-NOTE: this module may be called without the EMQX application started,
-e.g. in schema validation code. Schema validation also runs in the hocon
-CLI, where the Erlang node is not alive and the node name is not known:
-there the variable is only validated, never resolved, and defaulted binds
-are left untouched. The running node checks the config again at boot,
-before the listeners start, and applies the address then.
+Schema defaults stay static bare ports; this module is called from
+runtime code only, on the running node, when a listener is started.
 """.
 
 -include("logger.hrl").
 
 -define(PT_KEY, {?MODULE, value}).
--define(PT_NODENAME_KEY, {?MODULE, nodename}).
+-define(PT_RESOLVED_KEY, {?MODULE, resolved_host}).
 -define(ADDRESS_ENV_VAR, "EMQX_DEFAULT_ADDRESS").
 
--export([resolve/1, clear/0]).
+-export([resolve/1, listen_on/2, clear/0]).
 
--export_type([address/0]).
+-export_type([address/0, scope/0]).
 
 -type address() :: any | loopback | inet:ip_address().
--type value() :: default | loopback | all | nodename | inet:ip_address().
+-type scope() :: mqtt | dashboard | gateway.
+-type value() ::
+    default | loopback | all | nodename | {hostname, string()} | inet:ip_address().
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 -doc """
-Returns the address for a defaulted listener bind in the given scope.
+Returns the address for a bare-port listener bind in the given scope.
 
 Returns the address resolved from the `EMQX_DEFAULT_ADDRESS` environment
 variable when it is set, otherwise the security profile policy for the
 scope. `any` means bind all interfaces without an explicit address;
 `loopback` means the caller binds its own loopback address.
-
-When the variable is set but the Erlang node is not alive (the hocon CLI),
-returns `any` so defaulted binds stay untouched; see the module doc.
 """.
--spec resolve(mqtt | dashboard) -> address().
+-spec resolve(scope()) -> address().
 resolve(Scope) ->
     case value() of
-        default ->
-            profile_policy(Scope);
-        Value ->
-            case is_alive() of
-                true -> address(Value);
-                false -> any
-            end
+        default -> profile_policy(Scope);
+        Value -> address(Value)
     end.
+
+-doc """
+Applies the default address to a listener bind. A bare-port bind gets the
+resolved address; a bind with an explicit address is returned unchanged.
+
+Call this everywhere a bind from the configuration is turned into a
+listen-on address, so all uses of one listener agree on the same value.
+""".
+-spec listen_on(scope(), Bind) -> Bind | {inet:ip_address(), inet:port_number()} when
+    Bind :: term().
+listen_on(Scope, Port) when is_integer(Port) ->
+    case resolve(Scope) of
+        any -> Port;
+        loopback -> {{127, 0, 0, 1}, Port};
+        IP -> {IP, Port}
+    end;
+listen_on(_Scope, Bind) ->
+    Bind.
 
 -doc """
 Clears the cached value. This function is intended for testing purposes only.
 """.
 clear() ->
     _ = persistent_term:erase(?PT_KEY),
-    _ = persistent_term:erase(?PT_NODENAME_KEY),
+    _ = persistent_term:erase(?PT_RESOLVED_KEY),
     ok.
 
 %%--------------------------------------------------------------------
@@ -76,11 +84,15 @@ clear() ->
 profile_policy(mqtt) ->
     emqx_security_profile:policy(mqtt_default_bind);
 profile_policy(dashboard) ->
-    emqx_security_profile:policy(dashboard_http_default_bind).
+    emqx_security_profile:policy(dashboard_http_default_bind);
+profile_policy(gateway) ->
+    %% The security profile does not cover gateway binds.
+    any.
 
 address(loopback) -> loopback;
 address(all) -> {0, 0, 0, 0};
-address(nodename) -> nodename_address();
+address(nodename) -> host_address(host_part(atom_to_list(node())));
+address({hostname, Host}) -> host_address(Host);
 address(IP) -> IP.
 
 -spec value() -> value().
@@ -100,51 +112,64 @@ cache_value() ->
             "loopback" -> loopback;
             "all" -> all;
             "nodename" -> nodename;
-            Literal -> parse_literal(Literal)
+            Str -> parse_address_or_hostname(Str)
         end,
     _ = persistent_term:put(?PT_KEY, Value),
     Value.
 
-parse_literal(Str) ->
+parse_address_or_hostname(Str) ->
     case inet:parse_address(Str) of
         {ok, IP} ->
             IP;
         {error, _} ->
+            validate_hostname(Str)
+    end.
+
+validate_hostname(Str) ->
+    case is_valid_hostname(Str) of
+        true ->
+            {hostname, Str};
+        false ->
             Message = io_lib:format(
                 "Invalid default address(~p) value: ~p. "
                 "Valid values are: `loopback', `nodename', `all', "
-                "or a literal IPv4/IPv6 address.",
+                "a literal IPv4/IPv6 address, or a hostname.",
                 [?ADDRESS_ENV_VAR, Str]
             ),
             exit({invalid_default_address, iolist_to_binary(Message)})
     end.
 
-nodename_address() ->
-    case persistent_term:get(?PT_NODENAME_KEY, undefined) of
+is_valid_hostname(Str) ->
+    Label = "[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?",
+    RE = "^" ++ Label ++ "(\\." ++ Label ++ ")*$",
+    length(Str) =< 253 andalso re:run(Str, RE, [{capture, none}]) =:= match.
+
+host_part(NodeStr) ->
+    [_Name, Host] = string:split(NodeStr, "@"),
+    Host.
+
+host_address(Host) ->
+    case persistent_term:get(?PT_RESOLVED_KEY, undefined) of
         undefined ->
-            cache_nodename_address();
+            cache_host_address(Host);
         IP ->
             IP
     end.
 
-cache_nodename_address() ->
-    Host = host_part(atom_to_list(node())),
+cache_host_address(Host) ->
+    %% The nodename host part may itself be an IP address.
     IP =
         case inet:parse_address(Host) of
             {ok, Literal} -> Literal;
             {error, _} -> resolve_host(Host)
         end,
     ?SLOG(info, #{
-        msg => "default_address_nodename_resolved",
+        msg => "default_address_host_resolved",
         host => list_to_binary(Host),
         address => list_to_binary(inet:ntoa(IP))
     }),
-    _ = persistent_term:put(?PT_NODENAME_KEY, IP),
+    _ = persistent_term:put(?PT_RESOLVED_KEY, IP),
     IP.
-
-host_part(NodeStr) ->
-    [_Name, Host] = string:split(NodeStr, "@"),
-    Host.
 
 resolve_host(Host) ->
     case inet:getaddrs(Host, inet) of
@@ -158,8 +183,7 @@ resolve_host_inet6(Host) ->
             V6;
         {error, Reason} ->
             Message = io_lib:format(
-                "~p is set to `nodename', but the node name host part ~p "
-                "does not resolve to any address: ~p.",
+                "~p: the host ~p does not resolve to any address: ~p.",
                 [?ADDRESS_ENV_VAR, Host, Reason]
             ),
             exit({invalid_default_address, iolist_to_binary(Message)})

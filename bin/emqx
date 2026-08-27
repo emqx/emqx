@@ -257,13 +257,13 @@ if [[ "$IS_BOOT_COMMAND" = 'yes' ]]; then
         exit 1
     fi
     ## Unset means: fall back to the security profile policy. Keep it unset,
-    ## do not export a default. The Erlang side parses a literal address
-    ## strictly; this check only rejects obvious garbage early.
+    ## do not export a default. The Erlang side parses an address or
+    ## hostname strictly; this check only rejects obvious garbage early.
     case "${EMQX_DEFAULT_ADDRESS:-}" in
         ''|loopback|nodename|all)
             ;;
-        *[!0-9a-fA-F:.]*)
-            logerr "Invalid default address: $EMQX_DEFAULT_ADDRESS. Valid values are: loopback, nodename, all, or a literal IPv4/IPv6 address."
+        *[!0-9A-Za-z:.-]*)
+            logerr "Invalid default address: $EMQX_DEFAULT_ADDRESS. Valid values are: loopback, nodename, all, a literal IPv4/IPv6 address, or a hostname."
             exit 1
             ;;
         *)
