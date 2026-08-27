@@ -67,6 +67,26 @@ to_audit(#{from := erlang_console, function := F, args := Args}) ->
         duration_ms = 0,
         args = iolist_to_binary(io_lib:format("~p: ~ts", [F, Args]))
     };
+%% Events emitted from `emqx_cluster_rpc' entrypoints. They are
+%% cli-shaped (`cmd' / `args') and carry no HTTP request context, so
+%% they must not reach the HTTP-shaped clause below.
+to_audit(#{from := cluster_rpc, cmd := Cmd, args := Args, duration_ms := DurationMs}) ->
+    #?AUDIT{
+        from = cluster_rpc,
+        source = <<"">>,
+        source_ip = <<"">>,
+        %% operation info
+        operation_id = <<"">>,
+        operation_type = atom_to_binary(Cmd),
+        args = Args,
+        operation_result = <<"">>,
+        failure = <<"">>,
+        %% request detail
+        http_status_code = <<"">>,
+        http_method = <<"">>,
+        http_request = <<"">>,
+        duration_ms = DurationMs
+    };
 to_audit(#{from := From} = Log) when is_atom(From) ->
     #{
         source := Source,
@@ -103,8 +123,30 @@ log(_Level, undefined, _Handler) ->
 log(Level, Meta1, Handler) ->
     Meta2 = Meta1#{time => logger:timestamp(), level => Level},
     log_to_file(Level, Meta2, Handler),
-    log_to_db(Meta2),
+    try_log_to_db(Meta2),
     remove_handler_when_disabled().
+
+%% A crash must not propagate to the ?AUDIT call site: audit events are
+%% emitted from cluster_rpc transactions and CLI commands, and a raise
+%% breaks the audited operation itself. It would also skip
+%% remove_handler_when_disabled/0, leaving the handler installed
+%% forever after audit is disabled.
+try_log_to_db(Log) ->
+    try
+        log_to_db(Log)
+    catch
+        _:{aborted, {no_exists, _}} ->
+            %% The audit table is already gone when this node is
+            %% leaving the cluster.
+            ok;
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "failed_to_write_audit_log_to_db",
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            })
+    end.
 
 remove_handler_when_disabled() ->
     case emqx_config:get([log, audit, enable], false) of
