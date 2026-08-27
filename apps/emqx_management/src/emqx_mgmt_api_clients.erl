@@ -928,41 +928,68 @@ do_list_clients_v2(Nodes, Cursor, QString0) ->
     },
     do_list_clients_v2(Nodes, Cursor, QString0, Acc).
 
-do_list_clients_v2(_Nodes, Cursor = done, _QString, Acc) ->
-    format_results(Acc, Cursor);
-do_list_clients_v2(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QString0, Acc0) ->
+do_list_clients_v2(Nodes, Cursor, QString, Acc0) ->
+    case do_list_clients_v2_once(Nodes, Cursor, QString, Acc0) of
+        {done, _NRows, Acc, NewCursor0} ->
+            NewCursor = peek_for_more(Nodes, NewCursor0, QString, Acc),
+            Opts = format_results_opts(QString),
+            format_results(Acc, NewCursor, Opts);
+        {more, _NRows, Acc, NewCursor} ->
+            do_list_clients_v2(Nodes, NewCursor, QString, Acc);
+        {ErrorCode, Resp} ->
+            {ErrorCode, Resp}
+    end.
+
+do_list_clients_v2_once(_Nodes, Cursor = done, _QString, Acc) ->
+    NRows = 0,
+    {done, NRows, Acc, Cursor};
+do_list_clients_v2_once(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QString0, Acc0) ->
     #{remaining := Remaining0, limit := Limit0} = Acc0,
     maybe
         {ok, {Rows, NewCursor}} ?= do_ets_select(Nodes, Remaining0, QString0, Cursor),
         NRows = length(Rows),
         Acc1 = maps:update_with(rows, fun(Rs) -> [{Node, Rows} | Rs] end, Acc0),
-        Acc = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+        Acc2 = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+        Acc = Acc2#{remaining := Remaining0 - NRows},
         case N >= Limit0 of
             true ->
-                format_results(Acc, NewCursor);
+                {done, NRows, Acc, NewCursor};
             false ->
-                do_list_clients_v2(Nodes, NewCursor, QString0, Acc#{remaining := Remaining0 - NRows})
+                {more, NRows, Acc, NewCursor}
         end
     end;
-do_list_clients_v2(Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0) ->
+do_list_clients_v2_once(
+    _Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0
+) ->
     #{limit := Limit, remaining := Remaining0} = Acc0,
     {Rows0, Iter} = emqx_persistent_session_ds_state:session_iterator_next(Iter0, Limit),
     NewCursor = next_ds_cursor(Iter),
     Rows1 = check_for_live_and_expired(Rows0),
     Rows2 = run_filters(Rows1, QString0),
     Rows = lists:sublist(Rows2, Remaining0),
+    NRows = length(Rows),
     Acc1 = maps:update_with(rows, fun(Rs) -> [{undefined, Rows} | Rs] end, Acc0),
-    Acc = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+    Acc2 = #{n := N} = maps:update_with(n, fun(N) -> N + NRows end, Acc1),
+    Acc = Acc2#{remaining := Remaining0 - NRows},
     case N >= Limit of
         true ->
-            format_results(Acc, NewCursor);
+            {done, NRows, Acc, NewCursor};
         false ->
-            do_list_clients_v2(Nodes, NewCursor, QString0, Acc#{
-                remaining := Remaining0 - length(Rows)
-            })
+            {more, NRows, Acc, NewCursor}
     end.
 
-format_results(Acc, Cursor) ->
+peek_for_more(Nodes, Cursor, QString0, Acc0) ->
+    FakeAcc = Acc0#{limit := 1, remaining := 1},
+    case do_list_clients_v2_once(Nodes, Cursor, QString0, FakeAcc) of
+        {done, 0, _Acc, done = DoneCursor} ->
+            DoneCursor;
+        {_, 0, Acc, NewCursor} when NewCursor /= done ->
+            peek_for_more(Nodes, NewCursor, QString0, Acc);
+        _ ->
+            Cursor
+    end.
+
+format_results(Acc, Cursor, Opts) ->
     #{
         rows := NodeRows,
         n := N
@@ -980,12 +1007,16 @@ format_results(Acc, Cursor) ->
     Resp = #{
         meta => Meta,
         data => [
-            format_channel_info(Node, Row)
+            format_channel_info(Node, Row, Opts)
          || {Node, Rows} <- NodeRows,
             Row <- Rows
         ]
     },
     ?OK(Resp).
+
+format_results_opts(QString) ->
+    OutputFields = maps:get(<<"fields">>, QString, all),
+    #{fields => OutputFields}.
 
 do_ets_select(Nodes, Limit, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
     maybe
@@ -1871,8 +1902,9 @@ format_msgs_resp(MsgType, Msgs, Meta, QString) ->
         <<"payload">> := PayloadFmt,
         <<"max_payload_bytes">> := MaxBytes
     } = QString,
-    Meta1 = encode_msgs_meta(MsgType, Meta),
-    Resp = #{meta => Meta1, data => format_msgs(MsgType, Msgs, PayloadFmt, MaxBytes)},
+    {Data, Truncation} = format_msgs(MsgType, Msgs, PayloadFmt, MaxBytes),
+    Meta1 = encode_msgs_meta(MsgType, adjust_pager_position(MsgType, Truncation, Meta)),
+    Resp = #{meta => Meta1, data => Data},
     %% Make sure minirest won't set another content-type for self-encoded JSON response body
     Headers = #{<<"content-type">> => <<"application/json">>},
     case emqx_utils_json:safe_encode(Resp) of
@@ -1891,23 +1923,41 @@ format_msgs_resp(MsgType, Msgs, Meta, QString) ->
 format_msgs(MsgType, [FirstMsg | Msgs], PayloadFmt, MaxBytes) ->
     %% Always include at least one message payload, even if it exceeds the limit
     {FirstMsg1, PayloadSize0} = format_msg(MsgType, FirstMsg, PayloadFmt),
-    {Msgs1, _} =
+    Result =
         emqx_utils:foldl_while(
-            fun(Msg, {MsgsAcc, SizeAcc} = Acc) ->
+            fun(Msg, {MsgsAcc, LastMsg, SizeAcc}) ->
                 {Msg1, PayloadSize} = format_msg(MsgType, Msg, PayloadFmt),
                 case SizeAcc + PayloadSize of
                     SizeAcc1 when SizeAcc1 =< MaxBytes ->
-                        {cont, {[Msg1 | MsgsAcc], SizeAcc1}};
+                        {cont, {[Msg1 | MsgsAcc], Msg, SizeAcc1}};
                     _ ->
-                        {halt, Acc}
+                        {halt, {truncated, MsgsAcc, LastMsg}}
                 end
             end,
-            {[FirstMsg1], PayloadSize0},
+            {[FirstMsg1], FirstMsg, PayloadSize0},
             Msgs
         ),
-    lists:reverse(Msgs1);
+    case Result of
+        {truncated, Msgs1, LastMsg} ->
+            {lists:reverse(Msgs1), {truncated, LastMsg}};
+        {Msgs1, _LastMsg, _SizeAcc} ->
+            {lists:reverse(Msgs1), all}
+    end;
 format_msgs(_MsgType, [], _PayloadFmt, _MaxBytes) ->
-    [].
+    {[], all}.
+
+%% When `max_payload_bytes` cuts the page short, move the continuation position back to
+%% the last returned message, so that the next page starts at the first message that was
+%% cut off. Otherwise paging from the reported position skips the cut messages.
+adjust_pager_position(_MsgType, all, Meta) ->
+    Meta;
+adjust_pager_position(MsgType, {truncated, LastMsg}, Meta) ->
+    Meta#{position := msg_position(MsgType, LastMsg)}.
+
+msg_position(mqueue_msgs, #message{extra = #{mqueue_insert_ts := Ts, mqueue_priority := Prio}}) ->
+    {Ts, Prio};
+msg_position(inflight_msgs, #message{extra = #{inflight_insert_ts := Ts}}) ->
+    Ts.
 
 format_msg(
     MsgType,
