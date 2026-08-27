@@ -925,7 +925,8 @@ do_list_clients_v2(Nodes, Cursor, QString, Acc0) ->
     case do_list_clients_v2_once(Nodes, Cursor, QString, Acc0) of
         {done, _NRows, Acc, NewCursor0} ->
             NewCursor = peek_for_more(Nodes, NewCursor0, QString, Acc),
-            format_results(Acc, NewCursor);
+            Opts = format_results_opts(QString),
+            format_results(Acc, NewCursor, Opts);
         {more, _NRows, Acc, NewCursor} ->
             do_list_clients_v2(Nodes, NewCursor, QString, Acc);
         {ErrorCode, Resp} ->
@@ -981,7 +982,7 @@ peek_for_more(Nodes, Cursor, QString0, Acc0) ->
             Cursor
     end.
 
-format_results(Acc, Cursor) ->
+format_results(Acc, Cursor, Opts) ->
     #{
         rows := NodeRows,
         n := N
@@ -999,12 +1000,16 @@ format_results(Acc, Cursor) ->
     Resp = #{
         meta => Meta,
         data => [
-            format_channel_info(Node, Row)
+            format_channel_info(Node, Row, Opts)
          || {Node, Rows} <- NodeRows,
             Row <- Rows
         ]
     },
     ?OK(Resp).
+
+format_results_opts(QString) ->
+    OutputFields = maps:get(<<"fields">>, QString, all),
+    #{fields => OutputFields}.
 
 do_ets_select(Nodes, Limit, QString0, #{node := Node, node_idx := NodeIdx, cont := Cont} = _Cursor) ->
     maybe

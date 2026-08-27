@@ -1808,6 +1808,27 @@ t_list_clients_v2(Config) ->
             end),
             ?assert(is_atom(binary_to_term(EvilAtomBin0))),
 
+            %% select only a few output fields
+            {ok,
+                {{_, 200, _}, _, #{
+                    <<"data">> := [ResFields1]
+                }}} = list_v2_request(
+                #{limit => "1", fields => "clientid"},
+                Config
+            ),
+            ?assertEqual([<<"clientid">>], lists:sort(maps:keys(ResFields1))),
+            {ok,
+                {{_, 200, _}, _, #{
+                    <<"data">> := [ResFields2]
+                }}} = list_v2_request(
+                #{limit => "1", fields => "connected_at,clientid,clean_start"},
+                Config
+            ),
+            ?assertEqual(
+                [<<"clean_start">>, <<"clientid">>, <<"connected_at">>],
+                lists:sort(maps:keys(ResFields2))
+            ),
+
             lists:foreach(
                 fun(ClientId) ->
                     ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId])
