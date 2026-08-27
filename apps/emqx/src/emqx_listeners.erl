@@ -352,7 +352,9 @@ stop() ->
     %% so we uninstall the config handler here.
     ok = emqx_config_handler:remove_handler(?CONF_KEY_PATH),
     ok = emqx_config_handler:remove_handler([?ROOT_KEY]),
-    foreach_listeners(fun stop_listener/3).
+    ok = foreach_listeners(fun stop_listener/3),
+    ?tp(emqx_listeners_stopped, #{}),
+    ok.
 
 -spec stop_listener(listener_id()) -> ok | {error, term()}.
 stop_listener(ListenerId) ->
