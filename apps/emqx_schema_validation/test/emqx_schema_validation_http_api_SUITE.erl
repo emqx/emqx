@@ -1616,3 +1616,102 @@ t_delete_then_disable(_TCConfig) ->
     ok = publish(C, Topic, #{t => <<"t">>}),
     ?assertReceive({publish, _}),
     ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that `matching_validations/1` finds matches while the topic index table exists,
+and returns no matches instead of raising when the table is absent.  The table is
+absent while the registry owner process is down, e.g. during a restart.  Also checks
+that a broker-internal `$SYS` publish does not crash the `message.publish` hook while
+the table is absent.
+""".
+t_matching_validations_missing_index_table(_Config) ->
+    Name1 = <<"foo">>,
+    {201, _} = insert(validation(Name1, [sql_check()])),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_schema_validation_registry:matching_validations(<<"t/1">>)
+    ),
+    IndexTab = emqx_schema_validation_index,
+    Owner = ets:info(IndexTab, owner),
+    true = ets:delete(IndexTab),
+    try
+        ?assertEqual([], emqx_schema_validation_registry:matching_validations(<<"t/1">>)),
+        Msg = emqx_message:make(<<"$SYS/brokers/test">>, <<"{}">>),
+        ?check_trace(
+            emqx_broker:publish(Msg),
+            fun(Trace) ->
+                ?assertEqual([], ?of_kind("hook_callback_exception", Trace))
+            end
+        )
+    after
+        restore_index_table(IndexTab, Owner)
+    end,
+    ok.
+
+restore_index_table(Tab, Owner) ->
+    _ = ets:new(Tab, [named_table, public, ordered_set, {read_concurrency, true}]),
+    true = ets:give_away(Tab, Owner, undefined),
+    ok.
+
+is_publish_hook_registered(Mod) ->
+    lists:any(
+        fun(Callback) ->
+            %% `#callback.action' (opaque to us): 2nd element of the record tuple.
+            case element(2, Callback) of
+                {Mod, _F, _A} -> true;
+                _ -> false
+            end
+        end,
+        emqx_hooks:lookup('message.publish')
+    ).
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that the topic index and validation tables survive a restart of the registry
+worker process.  The supervisor owns the tables, so a worker restart neither loses
+configured validations nor opens a window where lookups find no table.
+""".
+t_registry_restart_keeps_index(_Config) ->
+    Name1 = <<"foo">>,
+    {201, _} = insert(validation(Name1, [sql_check()])),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_schema_validation_registry:matching_validations(<<"t/1">>)
+    ),
+    Pid = whereis(emqx_schema_validation_registry),
+    Ref = monitor(process, Pid),
+    exit(Pid, kill),
+    receive
+        {'DOWN', Ref, process, Pid, killed} -> ok
+    after 1_000 -> ct:fail(registry_not_killed)
+    end,
+    ?retry(100, 50, begin
+        NewPid = whereis(emqx_schema_validation_registry),
+        ?assert(is_pid(NewPid) andalso NewPid =/= Pid)
+    end),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_schema_validation_registry:matching_validations(<<"t/1">>)
+    ),
+    ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that stopping the application removes the `message.publish` hook, also when
+validations are configured.  The teardown runs in `prep_stop/1`, while the registry
+is still alive: `stop/1` runs only after the supervision tree is down, so a
+registry call from there crashes and OTP silently discards the rest of the
+callback, leaving the hook registered.
+""".
+t_app_stop_unregisters_hooks(_Config) ->
+    {201, _} = insert(validation(<<"foo">>, [sql_check()])),
+    ?assert(is_publish_hook_registered(emqx_schema_validation)),
+    ok = application:stop(emqx_schema_validation),
+    try
+        ?assertNot(is_publish_hook_registered(emqx_schema_validation))
+    after
+        {ok, _} = application:ensure_all_started(emqx_schema_validation)
+    end,
+    ?assert(is_publish_hook_registered(emqx_schema_validation)),
+    ok.

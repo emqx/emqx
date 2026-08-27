@@ -183,6 +183,7 @@ new_throttler(Msg) when
     Msg =:= gcp_client_ehttpc_health_check_failed;
     Msg =:= gcp_client_request_failed;
     Msg =:= gcp_pubsub_consumer_worker_pull_error;
+    Msg =:= topic_index_table_missing;
     Msg =:= transformation_failed;
     Msg =:= transformation_eval_operation_failure;
     Msg =:= transformation_eval_operation_exception;

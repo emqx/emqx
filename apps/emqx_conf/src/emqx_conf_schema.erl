@@ -107,6 +107,7 @@
     retained_dispatch_failed_for_rate_exceeded_limit,
     retained_delete_failed_for_rate_exceeded_limit,
     socket_receive_paused_by_rate_limit,
+    topic_index_table_missing,
     %% ==== message transformation/validation ====
     transformation_failed,
     transformation_eval_operation_failure,
