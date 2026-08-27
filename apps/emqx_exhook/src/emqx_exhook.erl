@@ -106,6 +106,10 @@ deny_action_result('client.authenticate', _) ->
     #{result => false};
 deny_action_result('client.authorize', _) ->
     #{result => false};
+%% The hook may only rewrite topic filters, so denying it means: do not rewrite.
+%% What the client asked for has already been authorized by the channel.
+deny_action_result('client.subscribe', Req) ->
+    Req;
 deny_action_result('message.ingress', _) ->
     #{result => false};
 deny_action_result('message.publish', Req) ->
