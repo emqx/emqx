@@ -207,6 +207,15 @@ handle_follow_stream(FollowReq, State0) ->
     },
     {Reply, State}.
 
+clear_state(State0) ->
+    %% do not clear n_restarts nor last_acked_seq; otherwise, writer will not get the
+    %% latest info when syncing.
+    State0#{
+        ?writer := ?undefined,
+        ?stream := ?undefined,
+        ?opts := #{}
+    }.
+
 handle_recv(#{?stream := ?undefined} = State0) ->
     ?tp(~"zerobus_receiver_recv_no_stream", #{}),
     State0;
@@ -236,7 +245,8 @@ handle_helper_down({ok, Res}, State0) ->
             Reason = maybe_format_grpc_reason(grpc_client:trailers_to_error(Trailers)),
             Error = {error, Reason},
             notify_errored(Error, State1),
-            {?continue, State1};
+            State = clear_state(State1),
+            {?continue, State};
         {more, Results} ->
             LastAckedSeq = find_last_acked_seq(Results, LastAckedSeq0, State0),
             ?tp("zerobus_last_seq_scanned", #{}),
@@ -250,7 +260,8 @@ handle_helper_down({ok, Res}, State0) ->
             %% stream is gone
             Error = {error, stream_closed},
             notify_errored(Error, State0),
-            {?continue, State0};
+            State = clear_state(State0),
+            {?continue, State};
         {error, Reason} ->
             ?tp(info, "zerobus_receiver_unexpected_error_response", #{
                 action_res_id => ActionResId,
@@ -261,7 +272,8 @@ handle_helper_down({ok, Res}, State0) ->
                 false ?= is_process_alive(Pid),
                 Error = {error, stream_closed},
                 notify_errored(Error, State0),
-                {?continue, State0}
+                State = clear_state(State0),
+                {?continue, State}
             else
                 _ ->
                     {?nudge, State0}
