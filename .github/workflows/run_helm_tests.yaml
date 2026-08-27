@@ -151,6 +151,7 @@ jobs:
             --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND="0.0.0.0:1883" \
             --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
             --set emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND="0.0.0.0:18083" \
+            --set emqxConfig.EMQX_DASHBOARD__DEFAULT_PASSWORD="CiSm0kePass1" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
@@ -178,6 +179,7 @@ jobs:
             --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND="0.0.0.0:1883" \
             --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
             --set emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND="0.0.0.0:18083" \
+            --set emqxConfig.EMQX_DASHBOARD__DEFAULT_PASSWORD="CiSm0kePass1" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --wait \
@@ -204,7 +206,7 @@ jobs:
             kubectl logs -l "app.kubernetes.io/instance=${EMQX_NAME}" -c emqx --tail=1000
             exit 1
           }
-        echo "TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")" >> $GITHUB_ENV
+        echo "TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "CiSm0kePass1"}' | jq -r ".token")" >> $GITHUB_ENV
     - name: Check cluster
       timeout-minutes: 1
       run: |
@@ -214,7 +216,7 @@ jobs:
         do
           if [ $nodes_length -eq 0 ]; then
             echo "node len must >= 1, refresh Token... "
-            TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")
+            TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "CiSm0kePass1"}' | jq -r ".token")
           else
             echo "waiting ${EMQX_NAME} cluster scale. Current live nodes: $nodes_length."
           fi
