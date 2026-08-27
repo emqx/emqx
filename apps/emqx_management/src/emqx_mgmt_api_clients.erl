@@ -921,38 +921,64 @@ do_list_clients_v2(Nodes, Cursor, QString0) ->
     },
     do_list_clients_v2(Nodes, Cursor, QString0, Acc).
 
-do_list_clients_v2(_Nodes, Cursor = done, _QString, Acc) ->
-    format_results(Acc, Cursor);
-do_list_clients_v2(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QString0, Acc0) ->
+do_list_clients_v2(Nodes, Cursor, QString, Acc0) ->
+    case do_list_clients_v2_once(Nodes, Cursor, QString, Acc0) of
+        {done, _NRows, Acc, NewCursor0} ->
+            NewCursor = peek_for_more(Nodes, NewCursor0, QString, Acc),
+            format_results(Acc, NewCursor);
+        {more, _NRows, Acc, NewCursor} ->
+            do_list_clients_v2(Nodes, NewCursor, QString, Acc);
+        {ErrorCode, Resp} ->
+            {ErrorCode, Resp}
+    end.
+
+do_list_clients_v2_once(_Nodes, Cursor = done, _QString, Acc) ->
+    NRows = 0,
+    {done, NRows, Acc, Cursor};
+do_list_clients_v2_once(Nodes, Cursor = #{type := ?CURSOR_TYPE_ETS, node := Node}, QString0, Acc0) ->
     #{remaining := Remaining0, limit := Limit0} = Acc0,
     maybe
         {ok, {Rows, NewCursor}} ?= do_ets_select(Nodes, Remaining0, QString0, Cursor),
         NRows = length(Rows),
         Acc1 = maps:update_with(rows, fun(Rs) -> [{Node, Rows} | Rs] end, Acc0),
-        Acc = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+        Acc2 = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+        Acc = Acc2#{remaining := Remaining0 - NRows},
         case N >= Limit0 of
             true ->
-                format_results(Acc, NewCursor);
+                {done, NRows, Acc, NewCursor};
             false ->
-                do_list_clients_v2(Nodes, NewCursor, QString0, Acc#{remaining := Remaining0 - NRows})
+                {more, NRows, Acc, NewCursor}
         end
     end;
-do_list_clients_v2(Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0) ->
+do_list_clients_v2_once(
+    _Nodes, _Cursor = #{type := ?CURSOR_TYPE_DS, iterator := Iter0}, QString0, Acc0
+) ->
     #{limit := Limit, remaining := Remaining0} = Acc0,
     {Rows0, Iter} = emqx_persistent_session_ds_state:session_iterator_next(Iter0, Limit),
     NewCursor = next_ds_cursor(Iter),
     Rows1 = check_for_live_and_expired(Rows0),
     Rows2 = run_filters(Rows1, QString0),
     Rows = lists:sublist(Rows2, Remaining0),
+    NRows = length(Rows),
     Acc1 = maps:update_with(rows, fun(Rs) -> [{undefined, Rows} | Rs] end, Acc0),
-    Acc = #{n := N} = maps:update_with(n, fun(N) -> N + length(Rows) end, Acc1),
+    Acc2 = #{n := N} = maps:update_with(n, fun(N) -> N + NRows end, Acc1),
+    Acc = Acc2#{remaining := Remaining0 - NRows},
     case N >= Limit of
         true ->
-            format_results(Acc, NewCursor);
+            {done, NRows, Acc, NewCursor};
         false ->
-            do_list_clients_v2(Nodes, NewCursor, QString0, Acc#{
-                remaining := Remaining0 - length(Rows)
-            })
+            {more, NRows, Acc, NewCursor}
+    end.
+
+peek_for_more(Nodes, Cursor, QString0, Acc0) ->
+    FakeAcc = Acc0#{limit := 1, remaining := 1},
+    case do_list_clients_v2_once(Nodes, Cursor, QString0, FakeAcc) of
+        {done, 0, _Acc, done = DoneCursor} ->
+            DoneCursor;
+        {_, 0, Acc, NewCursor} when NewCursor /= done ->
+            peek_for_more(Nodes, NewCursor, QString0, Acc);
+        _ ->
+            Cursor
     end.
 
 format_results(Acc, Cursor) ->
