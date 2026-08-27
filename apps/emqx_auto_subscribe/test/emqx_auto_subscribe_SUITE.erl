@@ -353,6 +353,54 @@ t_username_undefined_skips(_) ->
     ),
     emqtt:disconnect(Client).
 
+-doc """
+`${zone}` and `${listener}` render to the zone name and listener ID of the connection.
+""".
+t_zone_listener_placeholders(_) ->
+    {ok, _} = emqx_auto_subscribe:update([#{<<"topic">> => <<"/z/${zone}/l/${listener}">>}]),
+    on_exit(fun() -> {ok, _} = emqx_auto_subscribe:update([]) end),
+    {ok, Client} = emqtt:start_link(#{username => ?CLIENT_USERNAME, clientid => ?CLIENT_ID}),
+    {ok, _} = emqtt:connect(Client),
+    ?retry(
+        100,
+        20,
+        snabbkaffe_diff:assert_lists_eq(
+            [<<"/z/default/l/tcp:default">>], client_subscriptions(?CLIENT_ID)
+        )
+    ),
+    emqtt:disconnect(Client).
+
+-doc """
+`${cert_common_name}` and `${cert_subject}` render the peer certificate CN and DN from
+the client info. A client without a certificate skips such topics.
+""".
+t_cert_placeholders(_) ->
+    PHs = emqx_auto_subscribe_placeholder:generate([
+        topic_config(<<"/cn/${cert_common_name}/dn/${cert_subject}">>)
+    ]),
+    WithCert = #{cn => <<"cn-val">>, dn => <<"dn-val">>},
+    ?assertMatch(
+        [{<<"/cn/cn-val/dn/dn-val">>, _}],
+        emqx_auto_subscribe_placeholder:to_topic_table(PHs, WithCert, #{})
+    ),
+    ?assertEqual([], emqx_auto_subscribe_placeholder:to_topic_table(PHs, #{}, #{})).
+
+-doc """
+A rendered value carrying control characters (such as CRLF) skips the subscription
+instead of producing a topic with the bytes embedded.
+""".
+t_control_chars_skip(_) ->
+    PHs = emqx_auto_subscribe_placeholder:generate([
+        topic_config(<<"/t/${client_attrs.tenant}">>)
+    ]),
+    Unsafe = #{client_attrs => #{<<"tenant">> => <<"evil\r\ninjected">>}},
+    ?assertEqual([], emqx_auto_subscribe_placeholder:to_topic_table(PHs, Unsafe, #{})),
+    Safe = #{client_attrs => #{<<"tenant">> => <<"acme">>}},
+    ?assertMatch(
+        [{<<"/t/acme">>, _}],
+        emqx_auto_subscribe_placeholder:to_topic_table(PHs, Safe, #{})
+    ).
+
 t_get_basic_usage_info(_Config) ->
     ?assertEqual(#{auto_subscribe_count => 0}, emqx_auto_subscribe:get_basic_usage_info()),
     AutoSubscribeTopics =

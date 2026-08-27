@@ -46,9 +46,14 @@ Supported placeholders:
 - `${username}`: Username. The subscription is skipped when the client has no username.
 - `${host}`: Client's source IP address.
 - `${port}`: Client's source port.
+- `${cert_common_name}`: Common name of the client TLS certificate. The subscription is skipped when the client has no certificate.
+- `${cert_subject}`: Subject of the client TLS certificate. The subscription is skipped when the client has no certificate.
+- `${zone}`: Zone name of the listener the client connected to.
+- `${listener}`: Listener ID the client connected to, for example `tcp:default`.
 - `${client_attrs.<key>}`: Client attribute `<key>`, see `mqtt.client_attrs_init`. The subscription is skipped when the attribute is not set.
 
 Unknown placeholders are kept as literal topic text.
+The subscription is skipped when a rendered value contains control characters.
 Required field, and cannot be empty string"""
 
 topic.label:

@@ -23,6 +23,10 @@
     ?VAR_USERNAME,
     ?VAR_HOST,
     ?VAR_PORT,
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_ZONE,
+    ?VAR_LISTENER,
     ?VAR_NS_CLIENT_ATTRS
 ]).
 
@@ -39,7 +43,8 @@ generate(T = #{topic := Topic}) ->
 -doc """
 Render the parsed topic templates for one client connection.
 A topic with an unresolved placeholder (undefined username, missing client
-attribute) is skipped with an `auto_subscribe_ignored' warning.
+attribute) or with control characters in a rendered value is skipped with an
+`auto_subscribe_ignored' warning.
 """.
 -spec to_topic_table(list(), map(), map()) -> list().
 to_topic_table(PHs, ClientInfo, ConnInfo) ->
@@ -84,9 +89,19 @@ lookup([<<?VAR_HOST>>], {_ClientInfo, #{peername := {Host, _Port}}}) ->
     {ok, list_to_binary(inet:ntoa(Host))};
 lookup([<<?VAR_PORT>>], {_ClientInfo, #{peername := {_Host, Port}}}) ->
     {ok, integer_to_binary(Port)};
+lookup([<<?VAR_CERT_CN_NAME>>], {#{cn := CN}, _ConnInfo}) when is_binary(CN) ->
+    {ok, CN};
+lookup([<<?VAR_CERT_SUBJECT>>], {#{dn := DN}, _ConnInfo}) when is_binary(DN) ->
+    {ok, DN};
+lookup([<<?VAR_ZONE>>], {#{zone := Zone}, _ConnInfo}) when is_atom(Zone), Zone =/= undefined ->
+    {ok, atom_to_binary(Zone)};
+lookup([<<?VAR_LISTENER>>], {#{listener := Listener}, _ConnInfo}) when
+    is_atom(Listener), Listener =/= undefined
+->
+    {ok, atom_to_binary(Listener)};
 lookup([<<"client_attrs">>, Name], {ClientInfo, _ConnInfo}) ->
-    case maps:get(client_attrs, ClientInfo, #{}) of
-        #{Name := Value} ->
+    case ClientInfo of
+        #{client_attrs := #{Name := Value}} ->
             {ok, Value};
         _ ->
             {error, undefined}
@@ -116,10 +131,23 @@ parse(Topic) ->
 to_topic(Template, ClientInfo, ConnInfo) ->
     case emqx_template:render(Template, {?MODULE, {ClientInfo, ConnInfo}}) of
         {String, []} ->
-            unicode:characters_to_binary(String);
+            check_safe(unicode:characters_to_binary(String));
         {_String, Errors} ->
             {error, unresolved_reason(Errors)}
     end.
+
+%% Rendered values can come from sources the MQTT frame layer does not
+%% byte-check (client attributes extracted from user properties or passwords,
+%% for example). Skip topics carrying control characters such as CRLF.
+check_safe(Topic) when is_binary(Topic) ->
+    case emqx_utils:is_mqtt_safe_utf8(Topic) of
+        true ->
+            Topic;
+        false ->
+            {error, unsafe_characters_in_topic}
+    end;
+check_safe(_NotUtf8) ->
+    {error, unsafe_characters_in_topic}.
 
 unresolved_reason(Errors) ->
     case lists:usort([Name || {Name, _Reason} <- Errors]) of
