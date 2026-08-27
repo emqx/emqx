@@ -30,8 +30,7 @@
 
 %% Internal exports
 -export([
-    convert_actions/2,
-    validate_key_template/1
+    convert_actions/2
 ]).
 
 -define(DEFAULT_AGGREG_BATCH_SIZE, 100).
@@ -134,7 +133,7 @@ fields(s3_aggregated_upload_parameters) ->
         emqx_resource_schema:override(emqx_s3_schema:fields(s3_upload), [
             {key, #{
                 desc => ?DESC(s3_aggregated_upload_key),
-                validator => fun ?MODULE:validate_key_template/1
+                validator => fun emqx_connector_aggregator_utils:validate_key_template/1
             }}
         ]),
         emqx_s3_schema:fields(s3_uploader)
@@ -220,33 +219,6 @@ convert_action(Conf = #{<<"parameters">> := Params, <<"resource_opts">> := Resou
             NResourceOpts = ResourceOpts#{<<"batch_size">> => 1, <<"batch_time">> => 0},
             Conf#{<<"resource_opts">> := NResourceOpts}
     end.
-
-validate_key_template(Conf) ->
-    Template = emqx_template:parse(Conf),
-    case validate_bindings(emqx_template:placeholders(Template)) of
-        Bindings when is_list(Bindings) ->
-            ok;
-        {error, {disallowed_placeholders, Disallowed}} ->
-            {error, emqx_utils:format("Template placeholders are disallowed: ~p", [Disallowed])}
-    end.
-
-validate_bindings(Bindings) ->
-    case [B || B <- Bindings, not is_allowed_binding(B)] of
-        [] ->
-            Bindings;
-        Disallowed ->
-            {error, {disallowed_placeholders, Disallowed}}
-    end.
-
-is_allowed_binding("action") -> true;
-is_allowed_binding("node") -> true;
-is_allowed_binding("sequence") -> true;
-is_allowed_binding("datetime." ++ Format) -> is_valid_datetime_format(Format);
-is_allowed_binding("datetime_until." ++ Format) -> is_valid_datetime_format(Format);
-is_allowed_binding(_) -> false.
-
-is_valid_datetime_format(Format) ->
-    emqx_connector_aggreg_buffer_ctx:is_valid_datetime_format(iolist_to_binary(Format)).
 
 %% Interpreting options
 

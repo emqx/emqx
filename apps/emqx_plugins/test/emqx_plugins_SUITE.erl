@@ -1706,12 +1706,16 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
 make_tar(Cwd, NameWithVsn) ->
     make_tar(Cwd, NameWithVsn, NameWithVsn).
 
-make_tar(Cwd, NameWithVsn, TarfileVsn) ->
+make_tar(Cwd0, NameWithVsn, TarfileVsn) ->
+    %% absolute output path: a bare relative name would land wherever
+    %% the cwd happens to point if set_cwd is skipped or misdirected
+    Cwd = filename:absname(Cwd0),
+    TarFile = filename:join(Cwd, TarfileVsn ++ ".tar.gz"),
     {ok, OriginalCwd} = file:get_cwd(),
+    %% archive entries must stay relative to Cwd
     ok = file:set_cwd(Cwd),
     try
         Files = filelib:wildcard(NameWithVsn ++ "/**"),
-        TarFile = TarfileVsn ++ ".tar.gz",
         ok = erl_tar:create(TarFile, Files, [compressed])
     after
         file:set_cwd(OriginalCwd)
