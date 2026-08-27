@@ -270,7 +270,7 @@ def test_invalid_default_address_fails_fast(emqx_bin_path, default_address):
     assert result.returncode != 0
     assert "Invalid default address" in output
     assert "loopback" in output
-    assert "hostname_i" in output
+    assert "nodename" in output
     assert "all" in output
 
 
@@ -287,7 +287,7 @@ def test_default_address_erlang_rejects_bad_literal(emqx_bin_path):
     assert "invalid_default_address" in output
 
 
-@pytest.mark.parametrize("default_address", ["loopback", "hostname_i", "all", "::1"])
+@pytest.mark.parametrize("default_address", ["loopback", "nodename", "all", "::1"])
 def test_valid_default_address_accepted(emqx_bin_path, default_address):
     """A valid EMQX_DEFAULT_ADDRESS passes validation; boot proceeds until
     the hardened-profile default-cookie check aborts it."""

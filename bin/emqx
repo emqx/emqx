@@ -260,10 +260,10 @@ if [[ "$IS_BOOT_COMMAND" = 'yes' ]]; then
     ## do not export a default. The Erlang side parses a literal address
     ## strictly; this check only rejects obvious garbage early.
     case "${EMQX_DEFAULT_ADDRESS:-}" in
-        ''|loopback|hostname_i|all)
+        ''|loopback|nodename|all)
             ;;
         *[!0-9a-fA-F:.]*)
-            logerr "Invalid default address: $EMQX_DEFAULT_ADDRESS. Valid values are: loopback, hostname_i, all, or a literal IPv4/IPv6 address."
+            logerr "Invalid default address: $EMQX_DEFAULT_ADDRESS. Valid values are: loopback, nodename, all, or a literal IPv4/IPv6 address."
             exit 1
             ;;
         *)
@@ -901,6 +901,14 @@ fi
 # This also changes the program name from 'beam.smp' to node name
 # e.g. the 'ps' command output
 export ESCRIPT_NAME="$SHORT_NAME"
+
+## Make the resolved node name visible to the config-generating escript
+## calls, which run before the node is started: EMQX_DEFAULT_ADDRESS set
+## to 'nodename' takes the address from it. The exported value equals what
+## the config resolves to, so the added env override changes nothing else.
+if [[ "$NAME" == *@* ]]; then
+    export EMQX_NODE__NAME="$NAME"
+fi
 
 PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 

@@ -105,7 +105,7 @@ t_resolver_values(_Config) ->
             {"192.0.2.7", {192, 0, 2, 7}},
             {"::1", {0, 0, 0, 0, 0, 0, 0, 1}},
             {"::", {0, 0, 0, 0, 0, 0, 0, 0}},
-            {"hostname_i", hostname_address()}
+            {"nodename", nodename_address()}
         ]
     ).
 
@@ -157,19 +157,27 @@ address_cases(Profile) ->
         {"all", {0, 0, 0, 0}},
         {"127.0.0.2", {127, 0, 0, 2}},
         {"::", {0, 0, 0, 0, 0, 0, 0, 0}},
-        {"hostname_i", hostname_address()}
+        {"nodename", nodename_address()}
     ].
 
 profile_address(legacy) -> any;
 profile_address(hardened) -> {127, 0, 0, 1}.
 
-hostname_address() ->
-    {ok, Hostname} = inet:gethostname(),
-    case inet:getaddrs(Hostname, inet) of
+nodename_address() ->
+    [_Name, Host] = string:split(atom_to_list(node()), "@"),
+    case inet:parse_address(Host) of
+        {ok, IP} ->
+            IP;
+        {error, _} ->
+            resolve_host(Host)
+    end.
+
+resolve_host(Host) ->
+    case inet:getaddrs(Host, inet) of
         {ok, [IP | _]} ->
             IP;
         {error, _} ->
-            {ok, [IP | _]} = inet:getaddrs(Hostname, inet6),
+            {ok, [IP | _]} = inet:getaddrs(Host, inet6),
             IP
     end.
 
