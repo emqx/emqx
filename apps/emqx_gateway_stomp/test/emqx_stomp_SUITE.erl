@@ -256,8 +256,9 @@ t_auth_failed(_) ->
     meck:unload(emqx_access_control).
 
 -doc """
-A CONNECT whose passcode contains a colon, sent escaped as `\c` per STOMP 1.2,
-authenticates with the original password (#12917).
+A CONNECT whose passcode contains a colon authenticates with the original
+password (#12917).  CONNECT headers carry the colon raw: STOMP 1.2 exempts
+CONNECT and CONNECTED frames from header escaping.
 """.
 t_auth_passcode_with_colon(_) ->
     ok = meck:new(emqx_access_control, [passthrough, no_history]),
@@ -272,16 +273,15 @@ t_auth_passcode_with_colon(_) ->
     try
         with_stomp_tcp_listener_authn(true, fun() ->
             with_connection(fun(Sock) ->
-                Wire = iolist_to_binary(
-                    serialize(<<"CONNECT">>, [
-                        {<<"accept-version">>, ?STOMP_VER},
-                        {<<"host">>, <<"127.0.0.1:61613">>},
-                        {<<"login">>, <<"admin">>},
-                        {<<"passcode">>, <<"pa:ss">>}
-                    ])
-                ),
-                %% the serializer escapes the colon on the wire
-                ?assertNotEqual(nomatch, binary:match(Wire, <<"pa\\css">>)),
+                Wire = <<
+                    "CONNECT\n"
+                    "accept-version:1.2\n"
+                    "host:127.0.0.1:61613\n"
+                    "login:admin\n"
+                    "passcode:pa:ss\n"
+                    "\n",
+                    0
+                >>,
                 ok = gen_tcp:send(Sock, Wire),
                 ?assertMatch(
                     {ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)
@@ -291,6 +291,28 @@ t_auth_passcode_with_colon(_) ->
     after
         meck:unload(emqx_access_control)
     end.
+
+-doc """
+A destination containing a colon works end to end: SUBSCRIBE and SEND carry it
+escaped as `\c` per STOMP 1.2, the broker decodes it, and the MESSAGE frame
+returns it escaped on the wire and decoded after parsing.
+""".
+t_escaped_destination_roundtrip(_) ->
+    Topic = <<"t/a:b">>,
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        %% the serializer escapes the colon in these frames
+        ok = send_subscribe_frame(Sock, 0, Topic),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+        ok = send_message_frame(Sock, Topic, <<"hello">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+        {ok, Frame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"MESSAGE">>, body = <<"hello">>}, Frame),
+        ?assertEqual(
+            Topic, proplists:get_value(<<"destination">>, Frame#stomp_frame.headers)
+        )
+    end).
 
 t_hardened_rejects_pre_connect_send(_) ->
     Topic = <<"security/stomp/pre-connect-send">>,

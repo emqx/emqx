@@ -85,6 +85,10 @@
 -define(BSL, $\\).
 -define(COLON, $:).
 
+%% CONNECT and CONNECTED frames do not use header escaping, for backward
+%% compatibility with STOMP 1.0 (STOMP 1.2, "Value Encoding").
+-define(NO_HEADER_ESCAPE(Cmd), (Cmd =:= ?CMD_CONNECT orelse Cmd =:= ?CMD_CONNECTED)).
+
 -record(parser_state, {
     cmd,
     headers = [],
@@ -174,6 +178,10 @@ parse(hdname, <<?CR, _Rest/binary>>, _State) ->
     error(unexpected_linefeed);
 parse(hdname, <<?COLON, Rest/binary>>, State = #parser_state{acc = Acc}) ->
     parse(hdvalue, Rest, State#parser_state{hdname = Acc, acc = <<>>});
+parse(hdname, <<?BSL, Rest/binary>>, State = #parser_state{cmd = Cmd}) when
+    ?NO_HEADER_ESCAPE(Cmd)
+->
+    parse(hdname, Rest, acc(?BSL, State));
 parse(hdname, <<?BSL>>, State) ->
     {more, #{phase => hdname, pre => <<?BSL>>, state => State}};
 parse(hdname, <<?BSL, Ch:8, Rest/binary>>, State) ->
@@ -199,6 +207,10 @@ parse(hdvalue, <<?CR, ?LF, Rest/binary>>, State) ->
     parse(hdvalue, <<?LF, Rest/binary>>, State);
 parse(hdvalue, <<?CR, _Rest/binary>>, _State) ->
     error(linefeed_expected);
+parse(hdvalue, <<?BSL, Rest/binary>>, State = #parser_state{cmd = Cmd}) when
+    ?NO_HEADER_ESCAPE(Cmd)
+->
+    parse(hdvalue, Rest, acc(?BSL, State));
 parse(hdvalue, <<?BSL>>, State) ->
     {more, #{phase => hdvalue, pre => <<?BSL>>, state => State}};
 parse(hdvalue, <<?BSL, Ch:8, Rest/binary>>, State) ->

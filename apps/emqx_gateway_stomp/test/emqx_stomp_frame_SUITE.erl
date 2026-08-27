@@ -31,8 +31,14 @@ parse_chunks([Chunk | Rest], Parser) ->
             Result
     end.
 
+send_frame(Destination) ->
+    <<"SEND\ndestination:", Destination/binary, "\n\nhi", 0>>.
+
 connect_frame(Passcode) ->
     <<"CONNECT\nlogin:admin\npasscode:", Passcode/binary, "\n\n", 0>>.
+
+destination(#stomp_frame{headers = Headers}) ->
+    proplists:get_value(<<"destination">>, Headers).
 
 passcode(#stomp_frame{headers = Headers}) ->
     proplists:get_value(<<"passcode">>, Headers).
@@ -49,38 +55,65 @@ split_after(Byte, Bin) ->
 
 -doc "Escaped colon in a header value decodes to a literal colon (#12917).".
 t_unescape_colon(_) ->
-    {ok, Frame, <<>>, _} = parse_frame(connect_frame(<<"pa\\css">>)),
-    ?assertEqual(<<"pa:ss">>, passcode(Frame)).
+    {ok, Frame, <<>>, _} = parse_frame(send_frame(<<"a\\cb">>)),
+    ?assertEqual(<<"a:b">>, destination(Frame)).
 
 -doc "Escaped backslash in a header value decodes to a literal backslash.".
 t_unescape_backslash(_) ->
-    {ok, Frame, <<>>, _} = parse_frame(connect_frame(<<"pa\\\\ss">>)),
-    ?assertEqual(<<"pa\\ss">>, passcode(Frame)).
+    {ok, Frame, <<>>, _} = parse_frame(send_frame(<<"a\\\\b">>)),
+    ?assertEqual(<<"a\\b">>, destination(Frame)).
 
 -doc "Escaped newline in a header value decodes to a literal line feed.".
 t_unescape_newline(_) ->
-    {ok, Frame, <<>>, _} = parse_frame(connect_frame(<<"pa\\nss">>)),
-    ?assertEqual(<<"pa\nss">>, passcode(Frame)).
+    {ok, Frame, <<>>, _} = parse_frame(send_frame(<<"a\\nb">>)),
+    ?assertEqual(<<"a\nb">>, destination(Frame)).
 
 -doc "Escaped carriage return in a header value decodes to a literal CR.".
 t_unescape_cr(_) ->
-    {ok, Frame, <<>>, _} = parse_frame(connect_frame(<<"pa\\rss">>)),
-    ?assertEqual(<<"pa\rss">>, passcode(Frame)).
+    {ok, Frame, <<>>, _} = parse_frame(send_frame(<<"a\\rb">>)),
+    ?assertEqual(<<"a\rb">>, destination(Frame)).
 
 -doc "A raw colon in a header value still passes through unchanged.".
 t_raw_colon_in_value(_) ->
-    {ok, Frame, <<>>, _} = parse_frame(connect_frame(<<"pa:ss">>)),
-    ?assertEqual(<<"pa:ss">>, passcode(Frame)).
+    {ok, Frame, <<>>, _} = parse_frame(send_frame(<<"a:b">>)),
+    ?assertEqual(<<"a:b">>, destination(Frame)).
 
 -doc "Escape sequences decode in header names as well as values.".
 t_unescape_header_name(_) ->
     {ok, #stomp_frame{headers = Headers}, <<>>, _} =
-        parse_frame(<<"CONNECT\na\\cb:v\n\n", 0>>),
+        parse_frame(<<"SEND\na\\cb:v\n\nhi", 0>>),
     ?assertEqual([{<<"a:b">>, <<"v">>}], Headers).
 
 -doc "An undefined escape sequence such as \\t is a fatal frame error (STOMP 1.2).".
 t_invalid_escape_is_fatal(_) ->
-    ?assertError({cannot_unescape, <<"\\t">>}, parse_frame(connect_frame(<<"pa\\tss">>))).
+    ?assertError({cannot_unescape, <<"\\t">>}, parse_frame(send_frame(<<"a\\tb">>))).
+
+-doc """
+Headers of a STOMP-command frame decode escape sequences: the command was added
+in STOMP 1.1, so the CONNECT/CONNECTED escaping exemption does not apply to it.
+""".
+t_stomp_command_unescapes(_) ->
+    {ok, #stomp_frame{headers = Headers}, <<>>, _} =
+        parse_frame(<<"STOMP\naccept-version:1.2\nlogin:pa\\css\n\n", 0>>),
+    ?assertEqual(<<"pa:ss">>, proplists:get_value(<<"login">>, Headers)).
+
+-doc """
+CONNECT headers are not unescaped: STOMP 1.2 exempts CONNECT and CONNECTED
+frames from header escaping for backward compatibility with STOMP 1.0.
+A backslash in a CONNECT passcode is a literal octet, and sequences that are
+undefined escapes elsewhere are not an error here.
+""".
+t_connect_headers_not_unescaped(_) ->
+    {ok, Frame1, <<>>, _} = parse_frame(connect_frame(<<"pa\\css">>)),
+    ?assertEqual(<<"pa\\css">>, passcode(Frame1)),
+    {ok, Frame2, <<>>, _} = parse_frame(connect_frame(<<"pa\\tss">>)),
+    ?assertEqual(<<"pa\\tss">>, passcode(Frame2)).
+
+-doc "CONNECTED headers are not unescaped, same as CONNECT (STOMP 1.0 compatibility).".
+t_connected_headers_not_unescaped(_) ->
+    {ok, #stomp_frame{headers = Headers}, <<>>, _} =
+        parse_frame(<<"CONNECTED\nsession:s\\cid\n\n", 0>>),
+    ?assertEqual(<<"s\\cid">>, proplists:get_value(<<"session">>, Headers)).
 
 -doc "CRLF line endings are accepted everywhere LF is (STOMP 1.2 EOL = [CR] LF).".
 t_crlf_line_endings(_) ->
@@ -103,12 +136,18 @@ t_crlf_heartbeat(_) ->
 t_bare_cr_is_fatal(_) ->
     ?assertError(linefeed_expected, parse_frame(<<"CONNECT\rX">>)).
 
--doc "A chunk ending in a bare backslash continues correctly into the next chunk.".
+-doc "A chunk ending in a bare backslash continues the escape into the next chunk.".
 t_split_at_bare_backslash(_) ->
-    Chunks = split_after($\\, connect_frame(<<"pa\\css">>)),
-    ?assertMatch([<<"CONNECT\nlogin:admin\npasscode:pa\\">>, <<"css\n\n", 0>>], Chunks),
+    Chunks = split_after($\\, send_frame(<<"a\\cb">>)),
+    ?assertMatch([<<"SEND\ndestination:a\\">>, <<"cb\n\nhi", 0>>], Chunks),
     {ok, Frame, <<>>, _} = parse_chunks(Chunks),
-    ?assertEqual(<<"pa:ss">>, passcode(Frame)).
+    ?assertEqual(<<"a:b">>, destination(Frame)).
+
+-doc "A CONNECT chunk ending in a bare backslash continues as a literal octet.".
+t_connect_split_at_bare_backslash(_) ->
+    Chunks = split_after($\\, connect_frame(<<"pa\\css">>)),
+    {ok, Frame, <<>>, _} = parse_chunks(Chunks),
+    ?assertEqual(<<"pa\\css">>, passcode(Frame)).
 
 -doc "A chunk ending in a bare CR continues correctly into the next chunk.".
 t_split_at_bare_cr(_) ->
@@ -119,10 +158,10 @@ t_split_at_bare_cr(_) ->
 
 -doc "A frame with CRLF line endings and escapes parses when fed one byte at a time.".
 t_parse_byte_by_byte(_) ->
-    Frame = <<"CONNECT\r\nlogin:admin\r\npasscode:pa\\css\r\n\r\n", 0>>,
+    Frame = <<"SEND\r\ndestination:a\\cb\r\n\r\nhi", 0>>,
     Chunks = [<<B>> || <<B>> <= Frame],
     {ok, Parsed, <<>>, _} = parse_chunks(Chunks),
-    ?assertEqual(<<"pa:ss">>, passcode(Parsed)).
+    ?assertEqual(<<"a:b">>, destination(Parsed)).
 
 -doc "serialize_pkt then parse returns the original headers and body unchanged.".
 t_roundtrip(_) ->
