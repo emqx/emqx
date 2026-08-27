@@ -304,6 +304,154 @@ t_message_forwarding_ordering(Config) ->
         []
     ).
 
+%% Allow enough time for a sustained network outage and for the buffered
+%% messages to drain afterwards.
+t_message_forwarding_adverse_network_conditions() ->
+    [{timetrap, {minutes, 2}}].
+
+t_message_forwarding_adverse_network_conditions('init', Config) ->
+    ok = snabbkaffe:start_trace(),
+    LinkConf = #{
+        <<"pool_size">> => 1,
+        <<"resource_opts">> => #{
+            <<"worker_pool_size">> => 1,
+            <<"inflight_window">> => 10,
+            <<"max_buffer_bytes">> => <<"10MB">>,
+            <<"request_ttl">> => <<"2m">>,
+            <<"resume_interval">> => <<"1s">>,
+            <<"health_check_interval">> => <<"1s">>
+        }
+    },
+    {SourceClusterSpec, TargetClusterSpec} =
+        mk_interlinked_clusters(?FUNCTION_NAME, 1, 1, LinkConf, Config),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes),
+    [
+        {source_nodes, SourceNodes},
+        {target_nodes, TargetNodes}
+        | Config
+    ];
+t_message_forwarding_adverse_network_conditions('end', Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(source_nodes, Config)),
+    ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
+
+%% Verifies that the message forwarding resource buffers messages during a
+%% network outage and delivers every buffered message after recovery.
+t_message_forwarding_adverse_network_conditions(Config) ->
+    [SourceNode] = nodes_source(Config),
+    [TargetNode] = nodes_target(Config),
+    TargetName = atom_to_binary(emqx_cluster_link_cth:cluster_name(TargetNode)),
+    ResourceId = emqx_cluster_link_mqtt:resource_id(TargetName),
+    Topic = <<"t/adverse-network">>,
+    TargetClient = emqx_cluster_link_cth:connect_client(
+        "t_message_forwarding_adverse_network_conditions_target",
+        TargetNode
+    ),
+    ?check_trace(
+        #{timetrap => 90_000},
+        try
+            %% 1. Subscribe to the topic on the target cluser, wait for route replication.
+            {ok, _, _} = emqtt:subscribe(TargetClient, Topic, qos1),
+            {ok, _} = ?block_until(#{
+                ?snk_kind := "cluster_link_route_sync_complete",
+                ?snk_meta := #{node := TargetNode}
+            }),
+            %% 2. Start async publisher to the source cluster.
+            Publisher = start_async_publisher(SourceNode, Topic, 10),
+            %% 3. Keep the link running smoothly for 2.5 seconds.
+            ct:sleep(2_500),
+            %% 4. Sever the link connection, wait the source cluster notices.
+            ok = ?ON(TargetNode, emqx_listeners:stop_listener('tcp:clink')),
+            wait_forwarding_resource_disconnected(SourceNode, ResourceId),
+            %% 5. Keep the link down for 10 seconds:
+            ct:sleep(10_000),
+            %% 6. Restore the connectivity, wait the source cluster notices.
+            ok = ?ON(TargetNode, emqx_listeners:start_listener('tcp:clink')),
+            wait_forwarding_resource_connected(SourceNode, ResourceId),
+            %% 7. Keep the link running smoothly for 2.5 seconds more.
+            ct:sleep(2_500),
+            %% 8. Stop async publisher, verify each published message was delivered to the
+            %%    target cluster.
+            NPublished = stop_async_publisher(Publisher),
+            Publishes = [
+                M
+             || {publish, M} <- ?drainMailbox(5_000),
+                maps:get(client_pid, M) =:= TargetClient,
+                maps:get(topic, M) =:= Topic
+            ],
+            Received = [binary_to_integer(Payload) || #{payload := Payload} <- Publishes],
+            Expected = lists:seq(1, NPublished),
+            ?assertEqual([], Expected -- Received, #{received => Received}),
+            ?assertEqual([], Received -- Expected, #{received => Received}),
+            %% 9. Verify metrics reflect full recovery:
+            ?assertMatch(
+                #{
+                    counters := #{
+                        dropped := 0,
+                        failed := 0,
+                        retried := Retried,
+                        success := NPublished
+                    },
+                    gauges := #{
+                        inflight := 0,
+                        queuing := 0
+                    }
+                } when Retried > 0,
+                ?ON(SourceNode, emqx_resource:get_metrics(ResourceId))
+            )
+        after
+            ok = emqtt:stop(TargetClient)
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_appended_to_queue, Trace)),
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_retry_inflight_succeeded, Trace))
+        end
+    ).
+
+wait_forwarding_resource_disconnected(SourceNode, ResourceId) ->
+    ?retry(
+        500,
+        20,
+        ?assertMatch(
+            {ok, _, #{status := Status}} when Status =/= connected,
+            ?ON(SourceNode, emqx_resource:get_instance(ResourceId))
+        )
+    ).
+
+wait_forwarding_resource_connected(SourceNode, ResourceId) ->
+    ?retry(
+        500,
+        20,
+        ?assertMatch(
+            {ok, _, #{status := connected}},
+            ?ON(SourceNode, emqx_resource:get_instance(ResourceId))
+        )
+    ).
+
+start_async_publisher(SourceNode, Topic, Interval) ->
+    spawn_link(SourceNode, ?MODULE, async_publisher_loop, [Topic, 1, Interval, self()]).
+
+stop_async_publisher(Publisher) ->
+    Publisher ! {self(), stop},
+    receive
+        {Publisher, NPublished} ->
+            NPublished
+    after 5_000 ->
+        ct:fail("publisher ~p did not stop", [Publisher])
+    end.
+
+async_publisher_loop(Topic, N, Interval, Controller) ->
+    Message = emqx_message:make(?MODULE, ?QOS_1, Topic, integer_to_binary(N)),
+    _ = emqx:publish(Message),
+    receive
+        {Controller, stop} ->
+            Controller ! {self(), N}
+    after Interval ->
+        async_publisher_loop(Topic, N + 1, Interval, Controller)
+    end.
+
 t_message_forwarding_disconnect_reason_reported('init', Config) ->
     ok = snabbkaffe:start_trace(),
     SourceName = fmt("~p_s", [?FUNCTION_NAME]),

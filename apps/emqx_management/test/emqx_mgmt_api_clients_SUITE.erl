@@ -59,6 +59,7 @@ persistent_session_testcases() ->
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
         t_list_clients_v2_limit,
+        t_list_clients_v2_limit2,
         t_list_clients_v2_exact_filters,
         t_list_clients_v2_regular_filters,
         t_list_clients_v2_bad_query_string_parameters
@@ -1882,6 +1883,60 @@ t_list_clients_v2_limit(Config) ->
         end)()
     after
         %% 3. Cleanup:
+        _ = [
+            begin
+                try
+                    emqtt:stop(Pid)
+                catch
+                    _:_ -> ok
+                end,
+                erpc:call(Node, emqx_persistent_session_ds, kick_offline_session, [ClientId])
+            end
+         || {ClientId, Node, Pid} <- Clients
+        ],
+        ok
+    end.
+
+-doc """
+Regression case for https://github.com/emqx/emqx/issues/18531
+
+If we have all clients on a single node, all memory sessions, and ask for the total number
+of clients, we don't get a cursor in the response, since there's no more data to fetch.
+""".
+t_list_clients_v2_limit2(Config) ->
+    [Node1 | _] = ?config(cluster_nodes, Config),
+    NClients = 20,
+    %% Create clients:
+    Clients = [
+        begin
+            ClientId = ?CLIENTID((integer_to_binary(I))),
+            Pid = connect_client(#{
+                port => get_mqtt_port(Node1, tcp),
+                clientid => ClientId,
+                expiry => 0,
+                clean_start => true
+            }),
+            {ClientId, Node1, Pid}
+        end
+     || I <- lists:seq(1, NClients)
+    ],
+    QP = #{<<"limit">> => integer_to_binary(NClients)},
+    {ok, {{_, 200, _}, _, Res1}} = list_v2_request(
+        QP,
+        Config
+    ),
+    %% shouldn't contain a cursor, so the client doesn't have the terrible burden of
+    %% fetching an empty page...  oh, the horror!
+    try
+        #{
+            <<"meta">> := Meta1,
+            <<"data">> := Data1
+        } = Res1,
+        ?assertMatch(#{<<"count">> := 20}, Meta1),
+        ?assertNotMatch(#{<<"cursor">> := _}, Meta1),
+        ?assertEqual(NClients, length(Data1)),
+        ok
+    after
         _ = [
             begin
                 try

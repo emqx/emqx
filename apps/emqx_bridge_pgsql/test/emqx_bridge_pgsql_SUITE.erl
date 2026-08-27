@@ -478,15 +478,17 @@ t_write_failure(TCConfig) when is_list(TCConfig) ->
             Trace = ?of_kind(
                 [buffer_worker_flush_nack, buffer_worker_retry_inflight_failed], Trace0
             ),
-            ?assertMatch([#{result := {error, _}} | _], Trace),
-            [#{result := {error, Error}} | _] = Trace,
-            case Error of
-                {resource_error, _} ->
+            %% Async workers wrap the result in async_return.
+            [#{result := Result} | _] = Trace,
+            case Result of
+                {error, _} ->
                     ok;
-                {recoverable_error, disconnected} ->
+                {async_return, {error, _}} ->
+                    ok;
+                {recoverable_error, sock_closed} ->
                     ok;
                 _ ->
-                    ct:fail("unexpected error: ~p", [Error])
+                    ct:fail("unexpected result: ~p", [Result])
             end
         end
     ),

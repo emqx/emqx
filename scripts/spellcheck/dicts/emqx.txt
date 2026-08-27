@@ -212,6 +212,7 @@ opentelemetry
 OpenTelemetry
 OpenTSDB
 os
+OTLP
 OTP
 params
 peerhost
