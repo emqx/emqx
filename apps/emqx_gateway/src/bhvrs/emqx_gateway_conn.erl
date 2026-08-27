@@ -1190,9 +1190,10 @@ run_gc(Pubs, Bytes, State = #state{gc_state = GcSt}) ->
 
 check_oom(State = #state{oom_policy = OomPolicy}) ->
     case ?ENABLED(OomPolicy) andalso emqx_utils:check_oom(OomPolicy) of
-        {shutdown, Reason} ->
+        {shutdown, #{reason := OomReason} = Detail} ->
+            ?SLOG(error, Detail#{msg => connection_shutdown_due_to_oom}),
             %% triggers terminate/2 callback immediately
-            erlang:exit({shutdown, Reason});
+            erlang:exit({shutdown, OomReason});
         _Other ->
             ok
     end,

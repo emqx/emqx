@@ -600,12 +600,12 @@ run_gc(Cnt, Oct, State = #state{gc_state = GcSt}) ->
 
 check_oom(State = #state{oom_policy = OomPolicy}) ->
     case ?ENABLED(OomPolicy) andalso emqx_utils:check_oom(OomPolicy) of
-        Shutdown = {shutdown, _Reason} ->
-            postpone(Shutdown, State);
+        {shutdown, #{reason := OomReason} = Detail} ->
+            ?SLOG(error, Detail#{msg => connection_shutdown_due_to_oom}),
+            postpone({shutdown, OomReason}, State);
         _Other ->
-            ok
-    end,
-    State.
+            State
+    end.
 
 %%--------------------------------------------------------------------
 %% Parse incoming data
