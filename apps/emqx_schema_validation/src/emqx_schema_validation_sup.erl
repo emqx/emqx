@@ -23,6 +23,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
+    ok = emqx_schema_validation_registry:create_tables(),
     Registry = worker_spec(emqx_schema_validation_registry),
     Metrics = emqx_schema_validation_registry:metrics_worker_spec(),
     SupFlags = #{

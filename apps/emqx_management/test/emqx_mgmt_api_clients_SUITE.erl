@@ -1300,10 +1300,35 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     {ok, LimitedMsgsResp} = emqx_mgmt_api_test_util:request_api(
         get, Path, QsPayloadLimit, AuthHeader
     ),
-    #{<<"meta">> := _, <<"data">> := FirstMsgOnly} = emqx_utils_json:decode(LimitedMsgsResp),
+    #{<<"meta">> := #{<<"position">> := TruncatedPos}, <<"data">> := FirstMsgOnly} =
+        emqx_utils_json:decode(LimitedMsgsResp),
     ?assertEqual(1, length(FirstMsgOnly)),
     ?assertEqual(
         <<"1">>, decode_payload(maps:get(<<"payload">>, hd(FirstMsgOnly)), PayloadEncoding)
+    ),
+    %% When `max_payload_bytes` cuts the page short, the position must point at the last
+    %% returned message, not at the last message walked before the cut, so that paging
+    %% skips no message.
+    ?assertEqual(TruncatedPos, msg_pos(hd(FirstMsgOnly), IsMqueue)),
+    %% Page through the remaining messages one message per page.
+    lists:foldl(
+        fun(Seq, PosIn) ->
+            PageQs = io_lib:format(
+                "payload=~s&max_payload_bytes=1&position=~s", [PayloadEncoding, PosIn]
+            ),
+            {ok, PageResp} = emqx_mgmt_api_test_util:request_api(get, Path, PageQs, AuthHeader),
+            #{<<"meta">> := #{<<"position">> := PosOut}, <<"data">> := PageMsgs} =
+                emqx_utils_json:decode(PageResp),
+            ?assertEqual(1, length(PageMsgs)),
+            ?assertEqual(
+                integer_to_binary(Seq),
+                decode_payload(maps:get(<<"payload">>, hd(PageMsgs)), PayloadEncoding)
+            ),
+            ?assertEqual(PosOut, msg_pos(hd(PageMsgs), IsMqueue)),
+            PosOut
+        end,
+        TruncatedPos,
+        lists:seq(2, Count)
     ),
 
     Limit = 19,
@@ -1797,6 +1822,27 @@ t_list_clients_v2(Config) ->
                 ?assertError(badarg, binary_to_term(EvilAtomBin0, [safe]))
             end),
             ?assert(is_atom(binary_to_term(EvilAtomBin0))),
+
+            %% select only a few output fields
+            {ok,
+                {{_, 200, _}, _, #{
+                    <<"data">> := [ResFields1]
+                }}} = list_v2_request(
+                #{limit => "1", fields => "clientid"},
+                Config
+            ),
+            ?assertEqual([<<"clientid">>], lists:sort(maps:keys(ResFields1))),
+            {ok,
+                {{_, 200, _}, _, #{
+                    <<"data">> := [ResFields2]
+                }}} = list_v2_request(
+                #{limit => "1", fields => "connected_at,clientid,clean_start"},
+                Config
+            ),
+            ?assertEqual(
+                [<<"clean_start">>, <<"clientid">>, <<"connected_at">>],
+                lists:sort(maps:keys(ResFields2))
+            ),
 
             lists:foreach(
                 fun(ClientId) ->
