@@ -163,17 +163,22 @@ t_divisible(_) ->
     Case = fun(BucketCfg) ->
         Client = connect(BucketCfg),
         Result = emqx_htb_limiter:check(1000, Client),
+        %% Token bookkeeping is time-based: every millisecond that elapses
+        %% between connect and check refills one token, so the shortfall
+        %% shrinks below 400 under scheduling delay. Budget 5 tokens.
         ?assertMatch(
-            {partial, 400,
+            {partial, _,
                 #{
                     continuation := _,
-                    diff := 400,
+                    diff := _,
                     start := _,
                     need := 1000
                 },
                 _},
             Result
-        )
+        ),
+        {partial, Diff, #{diff := Diff}, _} = Result,
+        ?assert(Diff =< 400 andalso Diff >= 395, #{diff => Diff})
     end,
     with_per_client(Cfg, Case).
 
