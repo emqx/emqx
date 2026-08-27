@@ -101,13 +101,17 @@ case "${emqx_db_backend}" in
     ;;
 esac
 
-## The interoperability tests connect anonymously; the hardened profile
-## (default since 7.0) denies clients when no authenticator is configured,
-## so disable listener authentication explicitly.
+## The interoperability tests connect anonymously and reach the default
+## listeners over the docker network; the hardened profile (default since
+## 7.0) denies clients when no authenticator is configured and binds the
+## default listeners to loopback, so disable listener authentication and
+## bind to all interfaces explicitly.
 append_conf all "EMQX_MQTT__RETRY_INTERVAL=2s"     \
                 "EMQX_MQTT__MAX_TOPIC_ALIAS=10"    \
                 "EMQX_AUTHORIZATION__SOURCES=[]"   \
                 "EMQX_AUTHORIZATION__NO_MATCH=allow" \
+                "EMQX_LISTENERS__TCP__DEFAULT__BIND=0.0.0.0:1883" \
+                "EMQX_LISTENERS__WS__DEFAULT__BIND=0.0.0.0:8083" \
                 "EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false" \
                 "EMQX_LISTENERS__WS__DEFAULT__ENABLE_AUTHN=false" \
                 "EMQX_LISTENERS__TCP__HAPROXY__ENABLE_AUTHN=false" \

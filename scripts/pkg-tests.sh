@@ -141,6 +141,10 @@ emqx_test(){
                 echo "package install error"
                 exit 1
             fi
+            ## The reinstall ships a fresh emqx_vars without the appends made
+            ## in run_test; the hardened profile refuses the default cookie.
+            echo 'export EMQX_NODE__COOKIE=ci-smoke-test-cookie' \
+                | tee -a "$(dpkg -L ${EMQX_NAME} | grep emqx_vars)"
             if ! /usr/bin/emqx start
             then
                 echo "ERROR: failed_to_start_emqx"
