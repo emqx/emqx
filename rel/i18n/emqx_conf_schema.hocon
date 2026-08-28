@@ -166,7 +166,7 @@ resolves.<br/>
 <code>::1</code>. The address <code>::</code> accepts IPv4 and IPv6
 connections on most systems; the OS bindv6only setting decides.<br/>
 - A hostname, for example <code>broker1.example.com</code>, resolved at boot
-like the nodename host.<br/>
+like the node name host.<br/>
 When not set, the security profile decides the default address: legacy binds
 all interfaces, hardened binds loopback. EMQX reads the value once at boot;
 change it and restart the node."""
