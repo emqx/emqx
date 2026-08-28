@@ -18,6 +18,7 @@
     parse_sql/2,
     is_superuser/1,
     client_attrs/1,
+    maybe_client_attrs/1,
     clientid_override/1,
     bin/1,
     ensure_apps_started/1,
@@ -176,11 +177,54 @@ is_superuser(#{<<"is_superuser">> := Value}) ->
 is_superuser(#{}) ->
     #{is_superuser => false}.
 
+%% @doc Collect client attributes from a backend result.
+%%
+%% Two shapes are accepted, so that a backend which returns a whole map (an
+%% HTTP JSON body, a Mongo subdocument) and one which can only return flat
+%% columns (SQL, a Redis hash) both have a way to express them:
+%%
+%%   * `client_attrs'          - a map of attributes;
+%%   * `client_attrs.<name>'   - one attribute per key, which is what a SQL
+%%                               query aliases a column to.
+%%
+%% A per-attribute key wins over the same name inside the map, so a query can
+%% override one attribute without rebuilding the whole thing.
 -spec client_attrs(#{binary() => term()}) -> #{client_attrs => map()}.
-client_attrs(#{<<"client_attrs">> := Attrs}) ->
+client_attrs(Selected) when is_map(Selected) ->
+    Attrs = maps:merge(
+        attr_map(maps:get(<<"client_attrs">>, Selected, #{})),
+        prefixed_attrs(Selected)
+    ),
     #{client_attrs => drop_invalid_attr(Attrs)};
 client_attrs(_) ->
     #{client_attrs => #{}}.
+
+%% @doc Like `client_attrs/1', but leaves the key out when the backend returned
+%% no attributes, so a result keeps exactly the shape it had before a backend
+%% learned to report them. `clientid_override/1' omits its key the same way.
+-spec maybe_client_attrs(#{binary() => term()}) -> #{client_attrs => map()}.
+maybe_client_attrs(Selected) ->
+    case client_attrs(Selected) of
+        #{client_attrs := Attrs} = Result when map_size(Attrs) > 0 ->
+            Result;
+        _ ->
+            #{}
+    end.
+
+attr_map(Attrs) when is_map(Attrs) -> Attrs;
+attr_map(_NotAMap) -> #{}.
+
+prefixed_attrs(Selected) ->
+    maps:fold(
+        fun
+            (<<"client_attrs.", Name/binary>>, Value, Acc) ->
+                Acc#{Name => Value};
+            (_Key, _Value, Acc) ->
+                Acc
+        end,
+        #{},
+        Selected
+    ).
 
 -spec clientid_override(#{binary() => term()}) -> #{clientid_override => term()}.
 clientid_override(#{<<"clientid_override">> := Value}) when
@@ -309,10 +353,40 @@ do_drop_invalid_attr([]) ->
 do_drop_invalid_attr([{K, V} | More]) ->
     case emqx_utils:is_restricted_str(K) of
         true ->
-            [{iolist_to_binary(K), iolist_to_binary(V)} | do_drop_invalid_attr(More)];
+            case attr_value(V) of
+                {ok, Value} ->
+                    [{iolist_to_binary(K), Value} | do_drop_invalid_attr(More)];
+                error ->
+                    ?SLOG(debug, #{msg => "invalid_client_attr_value_dropped", attr_name => K}, #{
+                        tag => "AUTHN"
+                    }),
+                    do_drop_invalid_attr(More)
+            end;
         false ->
             ?SLOG(debug, #{msg => "invalid_client_attr_dropped", attr_name => K}, #{
                 tag => "AUTHN"
             }),
             do_drop_invalid_attr(More)
     end.
+
+%% A client attribute value is a binary. Database columns are typed, so one can
+%% arrive as a number or a boolean, and a nullable column arrives as `null' or
+%% `undefined'. Convert what has an obvious representation and drop the rest:
+%% `iolist_to_binary/1' on, say, an integer raises badarg, which
+%% `emqx_authn_chains' turns into an `authenticator_error' and the client is
+%% refused - a whole failed login over one unusable attribute.
+attr_value(V) when is_binary(V) -> {ok, V};
+attr_value(V) when is_integer(V) -> {ok, integer_to_binary(V)};
+attr_value(V) when is_float(V) -> {ok, float_to_binary(V, [short])};
+attr_value(true) ->
+    {ok, <<"true">>};
+attr_value(false) ->
+    {ok, <<"false">>};
+attr_value(V) when is_list(V) ->
+    try
+        {ok, iolist_to_binary(V)}
+    catch
+        _:_ -> error
+    end;
+attr_value(_Other) ->
+    error.

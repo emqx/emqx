@@ -115,7 +115,8 @@ authenticate(
 authn_result(Selected) ->
     Res0 = emqx_authn_utils:is_superuser(Selected),
     Res1 = emqx_authn_utils:clientid_override(Selected),
-    maps:merge(Res0, Res1).
+    Res2 = emqx_authn_utils:maybe_client_attrs(Selected),
+    lists:foldl(fun maps:merge/2, #{}, [Res0, Res1, Res2]).
 
 redis_log_meta(ResourceId, CommandName, KeyTemplate, Credential, Fields) ->
     LogKey = emqx_auth_template:render_str_redacted(KeyTemplate, Credential),
@@ -175,7 +176,8 @@ validate_cmd(Cmd) ->
                 <<"password">>,
                 <<"salt">>,
                 <<"is_superuser">>,
-                <<"clientid_override">>
+                <<"clientid_override">>,
+                {prefix, <<"client_attrs.">>}
             ]},
             {required_field_one_of, [<<"password_hash">>, <<"password">>]}
         ],

@@ -204,4 +204,5 @@ clientid_override(_Doc, _State) ->
 authn_result(Doc, State) ->
     Res0 = is_superuser(Doc, State),
     Res1 = clientid_override(Doc, State),
-    maps:merge(Res0, Res1).
+    Res2 = emqx_authn_utils:maybe_client_attrs(Doc),
+    lists:foldl(fun maps:merge/2, #{}, [Res0, Res1, Res2]).
