@@ -7,6 +7,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_stomp.hrl").
 
 -compile(export_all).
@@ -324,16 +325,15 @@ t_subscribe(_) ->
         ),
 
         %% assert subscription stats
-        [ClientInfo1] = clients(),
-        ?assertMatch(#{subscriptions_cnt := 1}, ClientInfo1),
+        %% The stats update is asynchronous to the RECEIPT, so retry.
+        ?retry(100, 20, ?assertMatch([#{subscriptions_cnt := 1}], clients())),
 
         %% Unsubscribe
         ok = send_unsubscribe_frame(Sock, 0),
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
 
         %% assert subscription stats
-        [ClientInfo2] = clients(),
-        ?assertMatch(#{subscriptions_cnt := 0}, ClientInfo2),
+        ?retry(100, 20, ?assertMatch([#{subscriptions_cnt := 0}], clients())),
 
         ok = send_message_frame(Sock, <<"/queue/foo">>, <<"You will not receive this msg">>),
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
@@ -452,16 +452,15 @@ t_receive_from_mqtt_publish(_) ->
         ),
 
         %% assert subscription stats
-        [ClientInfo1] = clients(),
-        ?assertMatch(#{subscriptions_cnt := 1}, ClientInfo1),
+        %% The stats update is asynchronous to the RECEIPT, so retry.
+        ?retry(100, 20, ?assertMatch([#{subscriptions_cnt := 1}], clients())),
 
         %% Unsubscribe
         ok = send_unsubscribe_frame(Sock, 0),
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
 
         %% assert subscription stats
-        [ClientInfo2] = clients(),
-        ?assertMatch(#{subscriptions_cnt := 0}, ClientInfo2),
+        ?retry(100, 20, ?assertMatch([#{subscriptions_cnt := 0}], clients())),
 
         ok = send_message_frame(Sock, <<"/queue/foo">>, <<"You will not receive this msg">>),
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
