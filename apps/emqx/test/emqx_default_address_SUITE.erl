@@ -36,11 +36,19 @@ end_per_suite(_Config) ->
 
 init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
     emqx_common_test_helpers:set_security_profile(Profile),
-    Apps = emqx_cth_suite:start(
-        [emqx],
-        #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
-    ),
-    [{apps, Apps}, {security_profile, Profile} | Config].
+    try
+        Apps = emqx_cth_suite:start(
+            [emqx],
+            #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
+        ),
+        [{apps, Apps}, {security_profile, Profile} | Config]
+    catch
+        Class:Reason:Stacktrace ->
+            %% end_per_group does not run when init fails; do not leak the
+            %% profile into later test cases.
+            emqx_common_test_helpers:clear_security_profile(),
+            erlang:raise(Class, Reason, Stacktrace)
+    end.
 
 end_per_group(_Profile, Config) ->
     emqx_cth_suite:stop(?config(apps, Config)),

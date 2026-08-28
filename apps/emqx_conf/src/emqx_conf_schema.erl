@@ -566,7 +566,7 @@ fields("node") ->
             )},
         {"default_listener_address",
             sc(
-                string(),
+                binary(),
                 #{
                     required => false,
                     'readOnly' => true,
