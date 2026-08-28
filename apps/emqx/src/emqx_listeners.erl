@@ -742,11 +742,12 @@ log_bind_portability(Id, Ip, Bind) ->
     do_log_bind_portability(Id, Bind, IsLocal, IsSingleNode).
 
 do_log_bind_portability(Id, Bind, true = _IsLocal, true = _IsSingleNode) ->
-    ?tp(listener_bind_portability_log, #{listener => Id, level => warning}),
+    BindStr = format_bind_str(Bind),
+    ?tp(listener_bind_portability_log, #{listener => Id, level => warning, bind => BindStr}),
     ?SLOG(warning, #{
         msg => "listener_bind_address_not_portable",
         listener => Id,
-        bind => format_bind_str(Bind),
+        bind => BindStr,
         hint =>
             "The bind address is specific to this host. "
             "The config will not work when copied or migrated to another host."
@@ -761,11 +762,12 @@ do_log_bind_portability(Id, Bind, IsLocal, _IsSingleNode) ->
                 "The bind address is not found on this node's network interfaces. "
                 "The listener cannot bind it on this node."
         end,
-    ?tp(listener_bind_portability_log, #{listener => Id, level => error}),
+    BindStr = format_bind_str(Bind),
+    ?tp(listener_bind_portability_log, #{listener => Id, level => error, bind => BindStr}),
     ?SLOG(error, #{
         msg => "listener_bind_address_not_local",
         listener => Id,
-        bind => format_bind_str(Bind),
+        bind => BindStr,
         reason => Reason
     }).
 

@@ -460,16 +460,18 @@ t_delete_default_conf(Config) ->
     ok.
 
 -doc """
-Binding a listener to a real local non-loopback IP on a single-node cluster
-logs a portability warning; the config change succeeds and the listener runs.
+Binding a listener to a real local non-loopback IPv4 address on a single-node
+cluster logs a portability warning; the config change succeeds and the
+listener runs.
 """.
 t_bind_portability_warning(_Config) ->
-    case local_non_loopback_addr() of
+    case local_non_loopback_addr(inet) of
         undefined ->
-            {skip, no_non_loopback_interface};
+            ct:pal("host has no non-loopback IPv4 address, nothing to check"),
+            ok;
         IP ->
             #{<<"tcp">> := #{<<"default">> := Tcp}} = emqx:get_raw_config(?LISTENERS),
-            Bind = iolist_to_binary([inet:ntoa(IP), ":21883"]),
+            Bind = format_bind({IP, 21883}),
             ConfPath = [listeners, tcp, portability],
             ?check_trace(
                 begin
@@ -482,7 +484,7 @@ t_bind_portability_warning(_Config) ->
                 end,
                 fun(Trace) ->
                     ?assertMatch(
-                        [#{level := warning}],
+                        [#{level := warning, bind := Bind}],
                         ?of_kind(listener_bind_portability_log, Trace)
                     )
                 end
@@ -490,95 +492,153 @@ t_bind_portability_warning(_Config) ->
     end.
 
 -doc """
-Binding a listener to an IP that is not on the local interfaces logs an error;
-the config change is not rejected.
+A local non-loopback IPv6 address logs the same portability warning as an
+IPv4 one. The listener is disabled, so the case does not depend on the host
+being able to bind IPv6.
+""".
+t_bind_portability_warning_ipv6(_Config) ->
+    case local_non_loopback_addr(inet6) of
+        undefined ->
+            ct:pal("host has no non-loopback IPv6 address, nothing to check"),
+            ok;
+        IP ->
+            Bind = format_bind({IP, 21888}),
+            ?assertMatch(
+                [#{level := warning, bind := Bind}],
+                bind_portability_logs(Bind, #{<<"enable">> => false})
+            )
+    end.
+
+-doc """
+Binding a listener to an IPv4 address that is not on the local interfaces logs
+an error; the config change is not rejected.
 """.
 t_bind_portability_error_not_local(_Config) ->
-    #{<<"tcp">> := #{<<"default">> := Tcp}} = emqx:get_raw_config(?LISTENERS),
-    ConfPath = [listeners, tcp, portability],
     %% TEST-NET-1 (RFC 5737) address: never present on the local interfaces.
-    Conf = Tcp#{<<"bind">> => <<"192.0.2.7:21884">>, <<"enable">> => false},
-    ?check_trace(
-        begin
-            ?assertMatch({ok, _}, emqx:update_config(ConfPath, {create, Conf})),
-            {ok, _} = emqx:update_config(ConfPath, ?TOMBSTONE_CONFIG_CHANGE_REQ)
-        end,
-        fun(Trace) ->
-            ?assertMatch(
-                [#{level := error}],
-                ?of_kind(listener_bind_portability_log, Trace)
-            )
-        end
+    Bind = <<"192.0.2.7:21884">>,
+    ?assertMatch(
+        [#{level := error, bind := Bind}],
+        bind_portability_logs(Bind, #{<<"enable">> => false})
     ).
 
 -doc """
-Generic bind addresses (wildcard, loopback, bare port) log nothing.
+Binding a listener to an IPv6 address that is not on the local interfaces logs
+an error; the config change is not rejected.
+""".
+t_bind_portability_error_not_local_ipv6(_Config) ->
+    %% Documentation prefix (RFC 3849): never present on the local interfaces.
+    Bind = <<"[2001:db8::7]:21887">>,
+    ?assertMatch(
+        [#{level := error, bind := Bind}],
+        bind_portability_logs(Bind, #{<<"enable">> => false})
+    ).
+
+-doc """
+Generic bind addresses log nothing: the IPv4 and IPv6 wildcard, IPv4 and IPv6
+loopback, an address in 127.0.0.0/8 other than 127.0.0.1, and a bare port.
 """.
 t_bind_portability_no_log_for_generic(_Config) ->
-    #{<<"tcp">> := #{<<"default">> := Tcp}} = emqx:get_raw_config(?LISTENERS),
-    ConfPath = [listeners, tcp, portability],
-    ?check_trace(
-        begin
-            {ok, _} = emqx:update_config(
-                ConfPath, {create, Tcp#{<<"bind">> => <<"127.0.0.1:21885">>}}
-            ),
-            {ok, _} = emqx:update_config(ConfPath, {update, #{<<"bind">> => <<"0.0.0.0:21885">>}}),
-            {ok, _} = emqx:update_config(ConfPath, {update, #{<<"bind">> => 21885}}),
-            {ok, _} = emqx:update_config(ConfPath, ?TOMBSTONE_CONFIG_CHANGE_REQ)
+    Binds = [
+        <<"0.0.0.0:21885">>,
+        <<"127.0.0.1:21885">>,
+        <<"127.0.0.53:21885">>,
+        <<"[::]:21885">>,
+        <<"[::1]:21885">>,
+        21885
+    ],
+    lists:foreach(
+        fun(Bind) ->
+            ?assertEqual(
+                [],
+                bind_portability_logs(Bind, #{<<"enable">> => false}),
+                #{bind => Bind}
+            )
         end,
-        fun(Trace) ->
-            ?assertEqual([], ?of_kind(listener_bind_portability_log, Trace))
-        end
+        Binds
     ).
 
 -doc """
 Decision matrix of the log severity: a local address on a single-node cluster
 is a warning; a non-local address, or any host-specific address in a cluster
-with more than one node, is an error.
+with more than one node, is an error. Checked for an IPv4 and an IPv6 bind.
 """.
 t_bind_portability_decision(_Config) ->
-    Bind = {{192, 0, 2, 7}, 1883},
     Cases = [
         {true, true, warning},
         {true, false, error},
         {false, true, error},
         {false, false, error}
     ],
+    Binds = [
+        {{{192, 0, 2, 7}, 1883}, <<"192.0.2.7:1883">>},
+        {{{16#2001, 16#db8, 0, 0, 0, 0, 0, 7}, 1883}, <<"[2001:db8::7]:1883">>}
+    ],
     lists:foreach(
-        fun({IsLocal, IsSingleNode, ExpectedLevel}) ->
-            ?check_trace(
-                ok = emqx_listeners:do_log_bind_portability('tcp:x', Bind, IsLocal, IsSingleNode),
-                fun(Trace) ->
-                    ?assertMatch(
-                        [#{level := ExpectedLevel}],
-                        ?of_kind(listener_bind_portability_log, Trace),
-                        {IsLocal, IsSingleNode}
+        fun({Bind, BindStr}) ->
+            lists:foreach(
+                fun({IsLocal, IsSingleNode, ExpectedLevel}) ->
+                    ?check_trace(
+                        ok = emqx_listeners:do_log_bind_portability(
+                            'tcp:x', Bind, IsLocal, IsSingleNode
+                        ),
+                        fun(Trace) ->
+                            ?assertMatch(
+                                [#{level := ExpectedLevel, bind := BindStr}],
+                                ?of_kind(listener_bind_portability_log, Trace),
+                                #{is_local => IsLocal, is_single_node => IsSingleNode}
+                            )
+                        end
                     )
-                end
+                end,
+                Cases
             )
         end,
-        Cases
+        Binds
     ).
 
 %%
 
-local_non_loopback_addr() ->
+%% Create a listener with the given bind, then delete it. Returns the
+%% portability log events the config change produced. The events are emitted
+%% synchronously by `post_config_update', so the trace is complete when
+%% `update_config' returns.
+bind_portability_logs(Bind, Overrides) ->
+    #{<<"tcp">> := #{<<"default">> := Tcp}} = emqx:get_raw_config(?LISTENERS),
+    ConfPath = [listeners, tcp, portability],
+    Conf = maps:merge(Tcp#{<<"bind">> => Bind}, Overrides),
+    ok = snabbkaffe:start_trace(),
+    try
+        ?assertMatch({ok, _}, emqx:update_config(ConfPath, {create, Conf})),
+        {ok, _} = emqx:update_config(ConfPath, ?TOMBSTONE_CONFIG_CHANGE_REQ),
+        ?of_kind(listener_bind_portability_log, snabbkaffe:collect_trace())
+    after
+        snabbkaffe:stop()
+    end.
+
+local_non_loopback_addr(Family) ->
+    Size =
+        case Family of
+            inet -> 4;
+            inet6 -> 8
+        end,
     {ok, IfAddrs} = inet:getifaddrs(),
     Addrs = [
         Addr
      || {_Name, Opts} <- IfAddrs,
         {addr, Addr} <- Opts,
-        tuple_size(Addr) =:= 4,
-        not is_generic_ipv4_addr(Addr)
+        tuple_size(Addr) =:= Size,
+        not is_generic_addr(Addr)
     ],
     case Addrs of
         [] -> undefined;
         [Addr | _] -> Addr
     end.
 
-is_generic_ipv4_addr({127, _, _, _}) -> true;
-is_generic_ipv4_addr({0, 0, 0, 0}) -> true;
-is_generic_ipv4_addr(_) -> false.
+is_generic_addr({127, _, _, _}) -> true;
+is_generic_addr({0, 0, 0, 0}) -> true;
+is_generic_addr({0, 0, 0, 0, 0, 0, 0, 0}) -> true;
+is_generic_addr({0, 0, 0, 0, 0, 0, 0, 1}) -> true;
+is_generic_addr(_) -> false.
 
 emqtt_connect(Opts) ->
     case emqtt:start_link(Opts) of
