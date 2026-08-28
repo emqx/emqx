@@ -148,9 +148,7 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --set emqxConfig.EMQX_LICENSE__KEY="$EMQX_ENTERPRISE_LICENSE" \
             --set emqxConfig.EMQX_NODE__COOKIE="ci-smoke-test-cookie" \
-            --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND="0.0.0.0:1883" \
             --set-string emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
-            --set emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND="0.0.0.0:18083" \
             --set emqxConfig.EMQX_DASHBOARD__DEFAULT_PASSWORD="CiSm0kePass1" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
@@ -176,9 +174,7 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --set emqxConfig.EMQX_LICENSE__KEY="$EMQX_ENTERPRISE_LICENSE" \
             --set emqxConfig.EMQX_NODE__COOKIE="ci-smoke-test-cookie" \
-            --set emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND="0.0.0.0:1883" \
             --set-string emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
-            --set emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND="0.0.0.0:18083" \
             --set emqxConfig.EMQX_DASHBOARD__DEFAULT_PASSWORD="CiSm0kePass1" \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \

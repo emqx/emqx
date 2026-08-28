@@ -16,11 +16,11 @@ NET='emqx.io'
 NODE1="node1.$NET"
 NODE2="node2.$NET"
 COOKIE='this-is-a-secret'
-## The hardened profile (default since 7.0) binds listeners to loopback and
-## rejects dashboard login with the unchanged default password. The haproxy
-## backends and the smoke tests reach the nodes over the docker network, so
-## bind to all interfaces and set a non-default password (exported for
-## emqx-smoke-test.sh via EMQX_SMOKE_PASSWORD by the callers).
+## The hardened profile (default since 7.0) rejects dashboard login with the
+## unchanged default password, so set a non-default one (exported for
+## emqx-smoke-test.sh via EMQX_SMOKE_PASSWORD by the callers). The listener
+## binds need no override: the docker entrypoint sets
+## node.default_listener_address=all.
 DASHBOARD_PASSWORD="${EMQX_SMOKE_PASSWORD:-CiSm0kePass1}"
 IPV6=0
 DASHBOARD_NODES='both'
@@ -139,11 +139,8 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  -e EMQX_LISTENERS__TCP__DEFAULT__BIND='0.0.0.0:1883' \
-  -e EMQX_LISTENERS__WS__DEFAULT__BIND='0.0.0.0:8083' \
   -e EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
   -e EMQX_LISTENERS__WS__DEFAULT__ENABLE_AUTHN=false \
-  -e EMQX_DASHBOARD__LISTENERS__HTTP__BIND='0.0.0.0:18083' \
   -e EMQX_DASHBOARD__DEFAULT_PASSWORD="${DASHBOARD_PASSWORD}" \
   -e EMQX_LICENSE__KEY="${LICENSE_KEY1:-evaluation}" \
   "$IMAGE1"
@@ -161,11 +158,8 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
-  -e EMQX_LISTENERS__TCP__DEFAULT__BIND='0.0.0.0:1883' \
-  -e EMQX_LISTENERS__WS__DEFAULT__BIND='0.0.0.0:8083' \
   -e EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
   -e EMQX_LISTENERS__WS__DEFAULT__ENABLE_AUTHN=false \
-  -e EMQX_DASHBOARD__LISTENERS__HTTP__BIND='0.0.0.0:18083' \
   -e EMQX_DASHBOARD__DEFAULT_PASSWORD="${DASHBOARD_PASSWORD}" \
   -e EMQX_LICENSE__KEY="${LICENSE_KEY2:-evaluation}" \
   "$IMAGE2"
