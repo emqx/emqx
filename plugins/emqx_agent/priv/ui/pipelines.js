@@ -30,9 +30,9 @@ export async function loadPipelines() {
       <td>${steps}</td>
       <td>${statusBadge}</td>
       <td><div style="display:flex;gap:4px">
-        <button class="btn sm" onclick="togglePipelineActive('${esc(p.pipeline_id)}')">${toggleLabel}</button>
-        <button class="btn sm" onclick="editPipeline('${esc(p.pipeline_id)}')">edit</button>
-        <button class="btn sm danger" onclick="deletePipeline('${esc(p.pipeline_id)}')">delete</button>
+        <button class="btn sm" data-id="${esc(p.pipeline_id)}" onclick="togglePipelineActive(this.dataset.id)">${toggleLabel}</button>
+        <button class="btn sm" data-id="${esc(p.pipeline_id)}" onclick="editPipeline(this.dataset.id)">edit</button>
+        <button class="btn sm danger" data-id="${esc(p.pipeline_id)}" onclick="deletePipeline(this.dataset.id)">delete</button>
       </div></td>
     </tr>`;
   }).join('');
