@@ -151,7 +151,9 @@ parse(Str) ->
     end.
 
 parse_hostname(Str) ->
-    case is_valid_hostname(Str) of
+    %% inet_parse:domain/1 accepts exactly what OTP's resolver treats as a
+    %% hostname, so resolution at listener start gets only resolvable shapes.
+    case inet_parse:domain(Str) of
         true ->
             {ok, {hostname, Str}};
         false ->
@@ -168,11 +170,6 @@ parse_hostname(Str) ->
 
 str(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin);
 str(List) when is_list(List) -> List.
-
-is_valid_hostname(Str) ->
-    Label = "[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?",
-    RE = "^" ++ Label ++ "(\\." ++ Label ++ ")*$",
-    length(Str) =< 253 andalso re:run(Str, RE, [{capture, none}]) =:= match.
 
 host_part(NodeStr) ->
     [_Name, Host] = string:split(NodeStr, "@"),

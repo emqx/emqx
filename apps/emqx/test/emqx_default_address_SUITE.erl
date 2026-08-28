@@ -173,7 +173,7 @@ t_resolver_invalid(_Config) ->
                 )
             end)
         end,
-        ["0.0.0.0:1883", "-bad", "bad-", "under_score"]
+        ["0.0.0.0:1883", "-bad", "999.1.1.1", "a..b"]
     ).
 
 -doc """

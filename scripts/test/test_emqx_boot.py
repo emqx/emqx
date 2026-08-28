@@ -259,7 +259,7 @@ def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
     assert "hardened" in output
 
 
-@pytest.mark.parametrize("default_address", ["bad_value", "0.0.0.0:1883"])
+@pytest.mark.parametrize("default_address", ["999.1.1.1", "0.0.0.0:1883"])
 def test_invalid_default_listener_address_fails_fast(emqx_bin_path, default_address):
     """A malformed node.default_listener_address fails schema validation
     before boot."""
