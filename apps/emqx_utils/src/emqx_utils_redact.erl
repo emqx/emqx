@@ -22,6 +22,10 @@
 
 -define(REDACT_VAL, "******").
 -define(IS_KEY_HEADERS(K), (K == headers orelse K == <<"headers">> orelse K == "headers")).
+-define(IS_KEY_CLIENT_JWKS(K),
+    (K == client_jwks orelse K == <<"client_jwks">> orelse K == "client_jwks")
+).
+-define(IS_VAL_NONE(V), (V == none orelse V == <<"none">> orelse V == "none")).
 
 redacted_value() -> <<?REDACT_VAL>>.
 
@@ -141,7 +145,7 @@ do_redact({Headers, Value}, _Checker) when ?IS_KEY_HEADERS(Headers) ->
 do_redact({Key, Value}, Checker) ->
     case Checker(Key) of
         true ->
-            {Key, redact_v(Value)};
+            {Key, redact_v(Key, Value)};
         false ->
             {do_redact(Key, Checker), do_redact(Value, Checker)}
     end;
@@ -162,7 +166,7 @@ do_redact(Headers, V, _Checker) when ?IS_KEY_HEADERS(Headers) ->
 do_redact(K, V, Checker) ->
     case Checker(K) of
         true ->
-            redact_v(V);
+            redact_v(K, V);
         false ->
             do_redact(V, Checker)
     end.
@@ -224,6 +228,13 @@ is_sensitive_header("x-auth-token") ->
     true;
 is_sensitive_header(_Any) ->
     false.
+
+%% `client_jwks' is a union of the atom `none' and a JWKS object; only the
+%% object holds key material. `none' (the default) must stay readable.
+redact_v(K, V) when ?IS_KEY_CLIENT_JWKS(K), ?IS_VAL_NONE(V) ->
+    V;
+redact_v(_K, V) ->
+    redact_v(V).
 
 redact_v(V) when is_binary(V) ->
     case emqx_placeholder:preproc_tmpl(V) of
