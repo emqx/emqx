@@ -60,4 +60,6 @@ t_conf_check_auth_ext(_Config) ->
     ?assertMatch({Fun, _} when is_function(Fun), proplists:get_value(verify_fun, SSLOpts)).
 
 listener_ref(Type, Name) ->
-    {emqx_listeners:listener_id(Type, Name), emqx_config:get([listeners, Type, Name, bind])}.
+    %% A bare-port bind is registered under the resolved default address.
+    Bind = emqx_config:get([listeners, Type, Name, bind]),
+    {emqx_listeners:listener_id(Type, Name), emqx_default_address:listen_on(mqtt, Bind)}.

@@ -259,6 +259,51 @@ def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
     assert "hardened" in output
 
 
+@pytest.mark.parametrize("default_address", ["999.1.1.1", "0.0.0.0:1883"])
+def test_invalid_default_listener_address_fails_fast(emqx_bin_path, default_address):
+    """A malformed node.default_listener_address fails schema validation
+    before boot."""
+    result = run_emqx_console(
+        emqx_bin_path,
+        {"EMQX_NODE__DEFAULT_LISTENER_ADDRESS": default_address},
+        timeout=120,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "default_listener_address" in output
+
+
+def test_unresolvable_default_listener_address_fails_boot(emqx_bin_path):
+    """A syntactically valid hostname that does not resolve passes schema
+    validation and fails at listener start (.invalid never resolves)."""
+    result = run_emqx_console(
+        emqx_bin_path,
+        {"EMQX_NODE__DEFAULT_LISTENER_ADDRESS": "host.invalid"},
+        timeout=120,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "invalid_default_address" in output
+
+
+@pytest.mark.parametrize("default_address", ["loopback", "nodename", "all", "::1"])
+def test_valid_default_listener_address_accepted(emqx_bin_path, default_address):
+    """A valid node.default_listener_address passes validation; boot
+    proceeds until the hardened-profile default-cookie check aborts it."""
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_NODE__DEFAULT_LISTENER_ADDRESS": default_address,
+            "EMQX_SECURITY_PROFILE": "hardened",
+            "EMQX_NODE__COOKIE": "emqxsecretcookie",
+        },
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "default_listener_address" not in output
+    assert "Cannot continue with default cookie" in output
+
+
 @pytest.fixture
 def env_file(emqx_rel_path):
     """Yield the etc/emqx.env path and restore the shipped file afterwards."""

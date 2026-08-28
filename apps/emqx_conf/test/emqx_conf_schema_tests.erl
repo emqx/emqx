@@ -495,11 +495,11 @@ listeners_test(Profile) ->
     ),
     ok.
 
-expected_default_listener_bind(legacy, Port) -> {{0, 0, 0, 0}, Port};
-expected_default_listener_bind(hardened, Port) -> {{127, 0, 0, 1}, Port}.
+%% Schema defaults are static bare ports; the profile and the default
+%% address are applied at listener start, not in the schema.
+expected_default_listener_bind(_Profile, Port) -> Port.
 
-expected_configured_listener_bind(legacy, Port) -> Port;
-expected_configured_listener_bind(hardened, Port) -> {{127, 0, 0, 1}, Port}.
+expected_configured_listener_bind(_Profile, Port) -> Port.
 
 subscription_message_filter_test() ->
     ensure_acl_conf(),
