@@ -22,12 +22,10 @@ groups() ->
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:clear_security_profile(),
-    emqx_common_test_helpers:clear_default_address(),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:clear_security_profile(),
-    emqx_common_test_helpers:clear_default_address().
+    emqx_common_test_helpers:clear_security_profile().
 
 init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
     emqx_common_test_helpers:set_security_profile(Profile),
