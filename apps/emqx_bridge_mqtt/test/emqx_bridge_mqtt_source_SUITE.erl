@@ -903,8 +903,11 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     ct:pal("Restarting source node (1)"),
     {ok, SRef0} = snabbkaffe:subscribe(
         ?match_event(#{?snk_kind := "mqtt_source_reconnected"}),
-        %% 2 sources with 3 workers each
-        2 * PoolSize,
+        %% Every cluster node runs 2 sources with PoolSize workers each, and
+        %% every worker emits the event after it resubscribed. Waiting for
+        %% fewer events lets the publishes below race the remaining
+        %% subscriptions, and the QoS 1 messages are lost.
+        NumNodes * 2 * PoolSize,
         %% Timeout
         30_000
     ),
@@ -970,8 +973,8 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     ct:pal("Restarting source node (2)"),
     {ok, SRef1} = snabbkaffe:subscribe(
         ?match_event(#{?snk_kind := "mqtt_source_reconnected"}),
-        %% 1 source with 3 workers each
-        1 * PoolSize,
+        %% 1 remaining source (B is deleted), PoolSize workers per node.
+        NumNodes * 1 * PoolSize,
         %% Timeout
         30_000
     ),
