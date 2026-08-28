@@ -129,6 +129,21 @@ mfa_status.desc:
 - `disabled`: MFA is disabled for the user
 - Otherwise: The MFA mechanism in use, e.g. `totp`"""
 
+mfa_enrollment_status.desc:
+"""What the account has to do about MFA, derived from its stored state and the
+policy that applies to it.
+- `complete`: enrolled, and one authenticator code has been verified
+- `pending_enforced`: MFA is required and not complete, so the next login stops for setup
+- `pending_voluntary`: no MFA and nothing requires it, so the user may opt in
+- `disabled`: opted out, and nothing requires the user to opt back in"""
+
+account_api.desc:
+"""Return the account of the authenticated Dashboard user, including its MFA status.
+Reads only the caller's own record, so it needs no user management permission."""
+
+account_api.label:
+"""Current account"""
+
 change_mfa.label:
 """Change MFA"""
 

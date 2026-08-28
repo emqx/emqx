@@ -24,6 +24,7 @@
     set_mfa_state/2,
     get_mfa_state/1,
     mfa_enforced_for/1,
+    mfa_status/1,
     clear_login_lock/1,
     set_login_lock/2,
     get_login_lock/1,
@@ -1060,6 +1061,53 @@ format_mfa(Username) ->
         _ -> none
     end.
 
+-type mfa_status() :: complete | pending_enforced | pending_voluntary | disabled.
+
+%% @doc What the account has to do about MFA, as opposed to `format_mfa/1',
+%% which reports what is stored. Derived from the stored state plus the policy
+%% that applies to the account, so no new configuration is involved.
+%%
+%%   complete          enrolled, and one TOTP code has been verified
+%%   pending_enforced  not complete while MFA is required, so the next login
+%%                     stops for setup
+%%   pending_voluntary no MFA and nothing requires it: the user may opt in
+%%   disabled          opted out, and nothing requires them to opt back in
+-spec mfa_status(dashboard_username()) -> mfa_status().
+mfa_status(Username) ->
+    case get_mfa_state(Username) of
+        {ok, #{mechanism := _, first_verify_ts := _}} ->
+            complete;
+        {ok, #{mechanism := _}} ->
+            %% A secret was issued and never verified. Login stops on it
+            %% either way, so the enrollment being voluntary does not make
+            %% this state dismissible.
+            pending_enforced;
+        {ok, disabled} ->
+            pending_or(disabled, Username);
+        _ ->
+            pending_or(pending_voluntary, Username)
+    end.
+
+pending_or(Otherwise, Username) ->
+    case mfa_required_for(Username) of
+        true -> pending_enforced;
+        false -> Otherwise
+    end.
+
+%% Whether anything requires this account to keep MFA: the admin's explicit
+%% per-user decision, or the global `dashboard.default_mfa' mandate.
+%%
+%% NOTE: the two are not enforced at the same seams. `maybe_init_mfa_state/2'
+%% acts on the mandate only, so a local user carrying
+%% `admin_override = mfa_required' with no MFA state is reported here as
+%% required but is not actually stopped at a password login; the SSO path
+%% (`emqx_dashboard_sso_mfa:mfa_required_for_user/2') does honour the override.
+%% The override is an explicit admin decision, so it counts here. Making the
+%% local login path honour it is a separate change.
+mfa_required_for(Username) ->
+    admin_override_of(Username) =:= ?ADMIN_MFA_REQUIRED orelse
+        mfa_enforced_for(Username).
+
 -spec return({atomic | aborted, term()}) -> {ok, term()} | {error, Reason :: binary()}.
 return({atomic, Result}) ->
     {ok, Result};
@@ -1262,7 +1310,8 @@ sign_token(Username, Password, MfaToken) ->
         {ok, User} ?= check(Username, Password, MfaToken),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
         {ok, Role, Token, Namespace} ?= emqx_dashboard_token:sign(User),
-        {ok, Result#{?role => Role, token => Token, namespace => Namespace}}
+        {ok,
+            add_mfa_status(Username, Result#{?role => Role, token => Token, namespace => Namespace})}
     end.
 
 -spec complete_scram_login(#?ADMIN{}, term()) ->
@@ -1276,8 +1325,14 @@ complete_scram_login(#?ADMIN{username = Username, pwdhash = PwdHash} = User, Mfa
         ok ?= check_unchanged_default_credentials_hash(PwdHash),
         {ok, Result} ?= verify_password_expiration(ExpiredTime, User),
         {ok, Role, Token, Namespace} ?= emqx_dashboard_token:sign(User),
-        {ok, Result#{?role => Role, token => Token, namespace => Namespace}}
+        {ok,
+            add_mfa_status(Username, Result#{?role => Role, token => Token, namespace => Namespace})}
     end.
+
+%% Only a caller that has cleared the first factor reaches here, so this does
+%% not tell an unauthenticated client anything about the account.
+add_mfa_status(Username, Result) ->
+    Result#{mfa_status => mfa_status(Username)}.
 
 -spec verify_token(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
     {ok, emqx_dashboard_rbac:actor_context()}
