@@ -323,7 +323,10 @@ Convert a listener id and raw configuration to a runtime id.
     listener_runtime_id().
 rt_listener_id(ListenerId, ListenerRawConfig) ->
     {_GwName, TypeBin, _NameBin} = emqx_gateway_utils:parse_listener_id(ListenerId),
-    ListenOn = emqx_default_address:listen_on(gateway, maps:get(<<"bind">>, ListenerRawConfig)),
+    %% The raw config carries the bind as a string; parse it to the term the
+    %% listener is registered under, then apply the default address.
+    Bind = emqx_gateway_utils:parse_listenon(maps:get(<<"bind">>, ListenerRawConfig)),
+    ListenOn = emqx_default_address:listen_on(gateway, Bind),
     ListenerType =
         case binary_to_existing_atom(TypeBin) of
             T when ?IS_ESOCKD_LISTENER(T) ->

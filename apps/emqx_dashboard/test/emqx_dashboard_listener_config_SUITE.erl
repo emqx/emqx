@@ -78,8 +78,9 @@ t_http_default_bind_default_address(_Config) ->
         ok = assert_http_default_bind(false, {{127, 0, 0, 1}, 18083}, inet),
         ok = assert_http_default_bind(true, {{0, 0, 0, 0, 0, 0, 0, 1}, 18083}, inet6)
     end),
+    %% `all' keeps the bare port, which binds every interface.
     with_address("all", fun() ->
-        ok = assert_http_default_bind(false, {{0, 0, 0, 0}, 18083}, inet)
+        ok = assert_http_default_bind(false, 18083, inet)
     end),
     with_address("127.0.0.2", fun() ->
         ok = assert_http_default_bind(false, {{127, 0, 0, 2}, 18083}, inet)

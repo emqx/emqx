@@ -115,7 +115,7 @@ t_resolver_values(_Config) ->
         end,
         [
             {"loopback", loopback},
-            {"all", {0, 0, 0, 0}},
+            {"all", any},
             {"192.0.2.7", {192, 0, 2, 7}},
             {"::1", {0, 0, 0, 0, 0, 0, 0, 1}},
             {"::", {0, 0, 0, 0, 0, 0, 0, 0}},
@@ -159,6 +159,11 @@ t_listen_on(_Config) ->
     end),
     with_address("192.0.2.7", fun() ->
         ?assertEqual({{192, 0, 2, 7}, 1883}, emqx_default_address:listen_on(mqtt, 1883))
+    end),
+    %% `all' keeps the bare port, so listener identifiers stay unchanged.
+    with_address("all", fun() ->
+        ?assertEqual(1883, emqx_default_address:listen_on(mqtt, 1883)),
+        ?assertEqual(1883, emqx_default_address:listen_on(gateway, 1883))
     end),
     emqx_common_test_helpers:with_security_profile(hardened, fun() ->
         emqx_default_address:clear(),
@@ -206,7 +211,7 @@ address_cases(Profile) ->
     [
         {unset, profile_address(Profile)},
         {"loopback", {127, 0, 0, 1}},
-        {"all", {0, 0, 0, 0}},
+        {"all", any},
         {"127.0.0.2", {127, 0, 0, 2}},
         {"::", {0, 0, 0, 0, 0, 0, 0, 0}},
         {"nodename", nodename_address()}

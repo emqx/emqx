@@ -284,7 +284,11 @@ current_listener_status(Type, Id, _ListenOn) when Type =:= ws; Type =:= wss ->
         error:badarg ->
             {false, 0}
     end;
-current_listener_status(_Type, Id, ListenOn) ->
+current_listener_status(_Type, Id, ListenOn0) ->
+    %% The caller sends the bind from the config, which this node registered
+    %% its listener under after applying its own default address. Resolve
+    %% here, on the node that owns the listener, not in the caller.
+    ListenOn = emqx_default_address:listen_on(gateway, ListenOn0),
     try esockd:get_current_connections({Id, ListenOn}) of
         Int -> {true, Int}
     catch

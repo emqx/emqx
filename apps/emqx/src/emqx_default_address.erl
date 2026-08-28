@@ -104,7 +104,10 @@ profile_policy(gateway) ->
     any.
 
 address(loopback) -> loopback;
-address(all) -> {0, 0, 0, 0};
+%% Bind all interfaces without an explicit address, which is what a bare
+%% port already does. Keeping the bind a bare port means `all' leaves every
+%% listener identifier exactly as it is without this config.
+address(all) -> any;
 address(nodename) -> host_address(host_part(atom_to_list(node())));
 address({hostname, Host}) -> host_address(Host);
 address(IP) -> IP.
