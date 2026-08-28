@@ -197,6 +197,63 @@ t_auth_failed(_) ->
     end),
     meck:unload(emqx_access_control).
 
+-doc """
+A CONNECT whose passcode contains a colon authenticates with the original
+password (#12917).  CONNECT headers carry the colon raw: STOMP 1.2 exempts
+CONNECT and CONNECTED frames from header escaping.
+""".
+t_auth_passcode_with_colon(_) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{password := <<"pa:ss">>}) -> {ok, #{is_superuser => false}};
+            (_) -> {error, bad_username_or_password}
+        end
+    ),
+    try
+        with_connection(fun(Sock) ->
+            Wire = <<
+                "CONNECT\n"
+                "accept-version:1.2\n"
+                "host:127.0.0.1:61613\n"
+                "login:admin\n"
+                "passcode:pa:ss\n"
+                "\n",
+                0
+            >>,
+            ok = gen_tcp:send(Sock, Wire),
+            ?assertMatch(
+                {ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)
+            )
+        end)
+    after
+        meck:unload(emqx_access_control)
+    end.
+
+-doc """
+A destination containing a colon works end to end: SUBSCRIBE and SEND carry it
+escaped as `\c` per STOMP 1.2, the broker decodes it, and the MESSAGE frame
+returns it escaped on the wire and decoded after parsing.
+""".
+t_escaped_destination_roundtrip(_) ->
+    Topic = <<"t/a:b">>,
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        %% the serializer escapes the colon in these frames
+        ok = send_subscribe_frame(Sock, 0, Topic),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+        ok = send_message_frame(Sock, Topic, <<"hello">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+        {ok, Frame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"MESSAGE">>, body = <<"hello">>}, Frame),
+        ?assertEqual(
+            Topic, proplists:get_value(<<"destination">>, Frame#stomp_frame.headers)
+        )
+    end).
+
 t_heartbeat(_) ->
     %% Test heartbeat
     with_connection(fun(Sock) ->

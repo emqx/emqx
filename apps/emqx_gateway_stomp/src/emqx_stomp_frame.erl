@@ -85,6 +85,10 @@
 -define(BSL, $\\).
 -define(COLON, $:).
 
+%% CONNECT and CONNECTED frames do not use header escaping, for backward
+%% compatibility with STOMP 1.0 (STOMP 1.2, "Value Encoding").
+-define(NO_HEADER_ESCAPE(Cmd), (Cmd =:= ?CMD_CONNECT orelse Cmd =:= ?CMD_CONNECTED)).
+
 -record(parser_state, {
     cmd,
     headers = [],
@@ -126,58 +130,62 @@ g(Key, Opts, Val) ->
 -spec parse(binary(), parse_state()) -> parse_result().
 parse(<<>>, Parser) ->
     {more, Parser};
-%% treat the \n as a heartbeat frame
-parse(<<$\n>>, Parser = #{phase := none}) ->
-    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, <<>>, Parser};
-parse(Bytes, #{phase := body, length := Len, state := State}) ->
-    parse(body, Bytes, State, Len);
-parse(<<?LF, Bytes/binary>>, #{phase := hdname, state := State}) ->
-    parse(body, Bytes, State, content_len(State));
-parse(Bytes, #{phase := Phase, state := State}) when Phase =/= none ->
-    parse(Phase, Bytes, State);
+%% a byte kept from the previous chunk (a trailing `\r` or `\\`)
 parse(Bytes, Parser = #{pre := Pre}) ->
     parse(<<Pre/binary, Bytes/binary>>, maps:without([pre], Parser));
-parse(<<?CR, ?LF, Rest/binary>>, #{phase := Phase, state := State}) ->
-    parse(Phase, <<?LF, Rest/binary>>, State);
-parse(<<?CR>>, Parser) ->
-    {more, Parser#{pre => <<?CR>>}};
-parse(<<?CR, _Ch:8, _Rest/binary>>, _Parser) ->
-    error(linefeed_expected);
-parse(<<?BSL>>, Parser = #{phase := Phase}) when
-    Phase =:= hdname;
-    Phase =:= hdvalue
-->
-    {more, Parser#{pre => <<?BSL>>}};
-parse(
-    <<?BSL, Ch:8, Rest/binary>>,
-    #{phase := Phase, state := State}
-) when
-    Phase =:= hdname;
-    Phase =:= hdvalue
-->
-    parse(Phase, Rest, acc(unescape(Ch), State));
+%% treat a standalone EOL as a heartbeat frame
 parse(<<?LF>>, Parser = #{phase := none}) ->
-    {more, Parser};
+    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, <<>>, Parser};
+parse(<<?CR, ?LF>>, Parser = #{phase := none}) ->
+    {ok, #stomp_frame{command = ?CMD_HEARTBEAT}, <<>>, Parser};
+parse(<<?CR>>, Parser = #{phase := none}) ->
+    {more, Parser#{pre => <<?CR>>}};
+parse(Bytes, #{phase := body, length := Len, state := State}) ->
+    parse(body, Bytes, State, Len);
+parse(Bytes, #{phase := Phase, state := State}) when Phase =/= none ->
+    parse(Phase, Bytes, State);
 parse(Bytes, #{phase := none, state := State}) ->
     parse(command, Bytes, State).
 
 %% @private
 parse(command, <<?LF, Rest/binary>>, State = #parser_state{acc = Acc}) ->
     parse(headers, Rest, State#parser_state{cmd = Acc, acc = <<>>});
+parse(command, <<?CR>>, State) ->
+    {more, #{phase => command, pre => <<?CR>>, state => State}};
+parse(command, <<?CR, ?LF, Rest/binary>>, State) ->
+    parse(command, <<?LF, Rest/binary>>, State);
+parse(command, <<?CR, _Rest/binary>>, _State) ->
+    error(linefeed_expected);
 parse(command, <<Ch:8, Rest/binary>>, State) ->
     parse(command, Rest, acc(Ch, State));
 parse(command, <<>>, State) ->
     {more, #{phase => command, state => State}};
 parse(headers, <<?LF, Rest/binary>>, State) ->
     parse(body, Rest, State, content_len(State#parser_state{acc = <<>>}));
+parse(headers, <<?CR>>, State) ->
+    {more, #{phase => headers, pre => <<?CR>>, state => State}};
+parse(headers, <<?CR, ?LF, Rest/binary>>, State) ->
+    parse(headers, <<?LF, Rest/binary>>, State);
+parse(headers, <<?CR, _Rest/binary>>, _State) ->
+    error(linefeed_expected);
+parse(headers, <<>>, State) ->
+    {more, #{phase => headers, state => State}};
 parse(headers, Bin, State) ->
     parse(hdname, Bin, State);
 parse(hdname, <<?LF, _Rest/binary>>, _State) ->
     error(unexpected_linefeed);
-parse(hdname, <<?COLON, $\s, Rest/binary>>, State = #parser_state{acc = Acc}) ->
-    parse(hdvalue, Rest, State#parser_state{hdname = Acc, acc = <<>>});
+parse(hdname, <<?CR, _Rest/binary>>, _State) ->
+    error(unexpected_linefeed);
 parse(hdname, <<?COLON, Rest/binary>>, State = #parser_state{acc = Acc}) ->
     parse(hdvalue, Rest, State#parser_state{hdname = Acc, acc = <<>>});
+parse(hdname, <<?BSL, Rest/binary>>, State = #parser_state{cmd = Cmd}) when
+    ?NO_HEADER_ESCAPE(Cmd)
+->
+    parse(hdname, Rest, acc(?BSL, State));
+parse(hdname, <<?BSL>>, State) ->
+    {more, #{phase => hdname, pre => <<?BSL>>, state => State}};
+parse(hdname, <<?BSL, Ch:8, Rest/binary>>, State) ->
+    parse(hdname, Rest, acc(unescape(Ch), State));
 parse(hdname, <<Ch:8, Rest/binary>>, State) ->
     parse(hdname, Rest, acc(Ch, State));
 parse(hdname, <<>>, State) ->
@@ -193,6 +201,20 @@ parse(
         acc = <<>>
     },
     parse(headers, Rest, NState);
+parse(hdvalue, <<?CR>>, State) ->
+    {more, #{phase => hdvalue, pre => <<?CR>>, state => State}};
+parse(hdvalue, <<?CR, ?LF, Rest/binary>>, State) ->
+    parse(hdvalue, <<?LF, Rest/binary>>, State);
+parse(hdvalue, <<?CR, _Rest/binary>>, _State) ->
+    error(linefeed_expected);
+parse(hdvalue, <<?BSL, Rest/binary>>, State = #parser_state{cmd = Cmd}) when
+    ?NO_HEADER_ESCAPE(Cmd)
+->
+    parse(hdvalue, Rest, acc(?BSL, State));
+parse(hdvalue, <<?BSL>>, State) ->
+    {more, #{phase => hdvalue, pre => <<?BSL>>, state => State}};
+parse(hdvalue, <<?BSL, Ch:8, Rest/binary>>, State) ->
+    parse(hdvalue, Rest, acc(unescape(Ch), State));
 parse(hdvalue, <<Ch:8, Rest/binary>>, State) ->
     parse(hdvalue, Rest, acc(Ch, State));
 parse(hdvalue, <<>>, State) ->
@@ -252,7 +274,7 @@ unescape($r) -> ?CR;
 unescape($n) -> ?LF;
 unescape($c) -> ?COLON;
 unescape($\\) -> ?BSL;
-unescape(_Ch) -> error(cannnot_unescape).
+unescape(Ch) -> error({cannot_unescape, <<?BSL, Ch>>}).
 
 check_max_headers(
     Headers,
