@@ -10,14 +10,29 @@
 
 -type placeholder() :: emqx_template:placeholder().
 
+%% Represent string templates, e.g. 'aaa ${bbb} ccc' as
+%% [
+%%   #tpl_text{text = <<"aaa ">>},
+%%   #tpl_placeholder{placeholder = {var, "bbb", ...}},
+%%   #tpl_text{text = <<"ccc ">>}
+%% ]
 -record(tpl_text, {text :: binary()}).
 -record(tpl_placeholder, {placeholder :: placeholder()}).
+
+%% Represent resolved parts of a template string,
+%% e.g. 'aaa ${bbb} ccc' might be pre-rendered as
+%% [
+%%   #part_text{text = <<"aaa ">>},
+%%   #part_value{value = BBBValue},
+%%   #part_text{text = <<"ccc ">>}
+%% ]
 -record(part_text, {text :: binary()}).
 -record(part_value, {value :: term()}).
 
 -type template_part() :: #tpl_text{} | #tpl_placeholder{}.
 -type part() :: #part_text{} | #part_value{}.
 
+%% Pre-rendered parts of a full SQL statement
 -record(raw, {sql :: binary()}).
 -record(value, {placeholder :: placeholder()}).
 -record(varchar_string, {parts :: [template_part()]}).
@@ -134,9 +149,8 @@ render_template_op(Style, Parts, Rest, Data, Opts, Cache0, Acc) ->
     end.
 
 encode_result(Encoder) ->
-    try Encoder() of
-        {error, _} = Error -> Error;
-        Encoded -> {ok, Encoded}
+    try
+        {ok, Encoder()}
     catch
         Class:Reason -> {error, {Class, Reason}}
     end.
@@ -425,10 +439,7 @@ encode_value(false, _Opts) ->
     encode_string(<<"false">>, varchar);
 encode_value(Value, _Opts) when is_integer(Value) -> integer_to_binary(Value);
 encode_value(Value, _Opts) when is_float(Value) ->
-    case Value =:= Value of
-        true -> emqx_template:to_string(Value);
-        false -> {error, non_finite_number}
-    end;
+    emqx_template:to_string(Value);
 encode_value(<<"0x", Rest/binary>> = Value, _Opts) ->
     case Rest =/= <<>> andalso re:run(Rest, <<"^[0-9A-Fa-f]+$">>, [{capture, none}]) =:= match of
         true -> Value;
@@ -479,6 +490,7 @@ assert_no_nul(Text) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
+%% Checks that compilation merges adjacent static SQL around a value placeholder.
 compile_merges_raw_segments_test() ->
     {ok, Placeholder} = parse_placeholder(<<"${value}">>),
     {ok, #sqlserver_plan{plan = [#raw{sql = <<"(1, 2)">>}]}} =
@@ -494,6 +506,7 @@ compile_merges_raw_segments_test() ->
         Plan
     ).
 
+%% Checks nested SQL Server function calls containing placeholders.
 function_expression_test() ->
     SQL = <<
         "INSERT INTO TransactionLog(MessageId, DateStamp) VALUES ("
@@ -505,6 +518,7 @@ function_expression_test() ->
         render(Plan, #{id => <<"m1">>, ms_shift => 1, s_shift => 2}, null_opts())
     ).
 
+%% Checks rendering of CASE, IIF, comparisons, null predicates, and logical expressions.
 conditional_expression_test() ->
     SQL = <<
         "INSERT INTO t(a, b, c) VALUES ("
@@ -523,6 +537,66 @@ conditional_expression_test() ->
         rendered_binary(render(Plan, #{v => 10}, null_opts()))
     ).
 
+%% Checks timestamps, grouped values, null predicates, DEFAULT, functions, and quoted identifiers.
+timestamp_default_and_grouped_expression_forms_test() ->
+    SQL = <<
+        "INSERT INTO \"a\"\"b\"([c]]d]) VALUES ("
+        "CURRENT_TIMESTAMP, (1), ${v} IS NULL, "
+        "CASE WHEN 1 = 1 THEN DEFAULT END, GETDATE(), '')"
+    >>,
+    {ok, Plan} = compile(SQL),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO [a\"b] ([c]]d]) VALUES ("
+            "CURRENT_TIMESTAMP, (1), 1 IS NULL, "
+            "CASE WHEN 1 = 1 THEN DEFAULT END, GETDATE(), '')"
+        >>},
+        rendered_binary(render(Plan, #{v => 1}, null_opts()))
+    ).
+
+%% Checks booleans, floats, numbers, and literal dollar text inside and outside strings.
+scalar_template_value_types_test() ->
+    SQL = <<
+        "INSERT INTO t VALUES ("
+        "'pre${$}${text}post', ${yes}, ${no}, ${float}, ${hexish}, '${number}')"
+    >>,
+    {ok, Plan} = compile(SQL),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO [t] VALUES ("
+            "'pre$okpost', 'true', 'false', 1.5, '0xyz', '42')"
+        >>},
+        rendered_binary(
+            render(
+                Plan,
+                #{
+                    text => <<"ok">>,
+                    yes => true,
+                    no => false,
+                    float => 1.5,
+                    hexish => <<"0xyz">>,
+                    number => 42
+                },
+                null_opts()
+            )
+        )
+    ).
+
+%% Checks missing string values with both undefined-value policies.
+undefined_string_template_values_test() ->
+    {ok, Plan} = compile(<<"INSERT INTO t VALUES ('${missing}')">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO [t] VALUES ('null')">>},
+        rendered_binary(render(Plan, #{}, null_opts()))
+    ),
+    ?assertEqual(
+        {ok, <<"INSERT INTO [t] VALUES ('undefined')">>},
+        rendered_binary(
+            render(Plan, #{}, #{undefined_vars_as_null => false})
+        )
+    ).
+
+%% Checks that a placeholder with a leading dot resolves against the input map.
 leading_dot_placeholder_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${.payload})">>),
     ?assertEqual(
@@ -530,12 +604,14 @@ leading_dot_placeholder_test() ->
         rendered_binary(render(Plan, #{payload => <<"hello">>}, null_opts()))
     ).
 
+%% Checks that an injection payload remains valid SQL inside an interpolated Unicode string.
 quoted_string_boundary_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (N'pre${payload}post')">>),
     Attack = <<"'); DROP TABLE t; --\\">>,
     {ok, Rendered} = render(Plan, #{payload => Attack}, null_opts()),
     ?assertMatch({ok, _}, compile(Rendered)).
 
+%% Checks batch escaping, indexed NUL errors, and the SQL Server row limit.
 batch_shape_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
     {ok, Rendered} = render_batch(
@@ -570,6 +646,7 @@ batch_shape_test() ->
         render_batch(Plan, [#{payload => <<"extra">>} | Rows], null_opts())
     ).
 
+%% Checks rendering of arbitrary binary and Unicode values in SQL Server strings.
 binary_and_unicode_value_test() ->
     {ok, ValuePlan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
     ?assertEqual(
@@ -583,6 +660,7 @@ binary_and_unicode_value_test() ->
         rendered_binary(render(UnicodePlan, #{payload => Unicode}, null_opts()))
     ).
 
+%% Checks that a hexadecimal binary literal renders without string quoting.
 binary_literal_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
     ?assertEqual(
@@ -590,6 +668,7 @@ binary_literal_test() ->
         rendered_binary(render(Plan, #{payload => <<"0x0010">>}, null_opts()))
     ).
 
+%% Checks that the null input value renders as SQL NULL.
 null_value_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${payload})">>),
     ?assertEqual(
@@ -597,6 +676,7 @@ null_value_test() ->
         rendered_binary(render(Plan, #{payload => null}, null_opts()))
     ).
 
+%% Checks qualified object and function names and rejects excessive qualification.
 qualified_names_test() ->
     {ok, Plan} = compile(<<"INSERT INTO mqtt..t(v) VALUES (dbo.fn(${payload}))">>),
     ?assertEqual(
@@ -617,6 +697,7 @@ qualified_names_test() ->
     ),
     ?assertMatch({error, _}, compile(<<"INSERT INTO a.b.c.d.e(v) VALUES (1)">>)).
 
+%% Checks rejection of comments, dynamic targets, partial placeholders, and multiple rows.
 reject_unsupported_syntax_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (1) --(* comment">>)),
     ?assertMatch({error, _}, compile(<<"INSERT INTO ${table}(v) VALUES (1)">>)),
@@ -624,6 +705,7 @@ reject_unsupported_syntax_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO t(v) VALUES (${value}0)">>)),
     ?assertMatch({error, _}, compile(<<"INSERT INTO t(v) VALUES (1), (2)">>)).
 
+%% Checks identifier, whitespace, expression, length, and NUL lexical boundaries.
 lexical_boundary_test() ->
     Accepted = [
         <<"INSERT INTO @t(v) VALUES (1)">>,

@@ -82,14 +82,7 @@ rebar-git-cache.tar
 .git/
 apps/emqx_utils/src/emqx_variform_parser.erl
 apps/emqx_utils/src/emqx_variform_scan.erl
-apps/emqx_bridge_clickhouse/src/emqx_bridge_clickhouse_sql_lexer.erl
-apps/emqx_bridge_clickhouse/src/emqx_bridge_clickhouse_sql_parser.erl
-apps/emqx_bridge_sqlserver/src/emqx_bridge_sqlserver_sql_lexer.erl
-apps/emqx_bridge_sqlserver/src/emqx_bridge_sqlserver_sql_parser.erl
-apps/emqx_bridge_tdengine/src/emqx_bridge_tdengine_sql_lexer.erl
-apps/emqx_bridge_tdengine/src/emqx_bridge_tdengine_sql_parser.erl
-apps/emqx_mysql/src/emqx_mysql_sql_lexer.erl
-apps/emqx_mysql/src/emqx_mysql_sql_parser.erl
+apps/*/src/*_sql_lexer.erl
+apps/*/src/*_sql_parser.erl
 default-profile.mk
 __pycache__/
-docs/

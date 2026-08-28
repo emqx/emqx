@@ -259,6 +259,7 @@ t_send_message_query(Config) ->
     delete_bridge(),
     ok.
 
+%% Checks safe storage of injected, binary, JSON, Unicode, NUL, and CASE-derived values.
 t_sql_value_escaping(Config) ->
     Attack = <<"x\\'); DROP TABLE mqtt.mqtt_test; --">>,
     Cases = [

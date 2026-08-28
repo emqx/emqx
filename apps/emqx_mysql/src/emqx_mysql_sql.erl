@@ -10,12 +10,20 @@
 
 -type placeholder() :: emqx_template:placeholder().
 
--record(raw, {sql :: binary()}).
--record(value, {placeholder :: placeholder()}).
+%% Represent string templates, e.g. 'aaa ${bbb} ccc' as
+%% [
+%%   #string_raw{sql = <<"aaa ">>},
+%%   #string_placeholder{placeholder = {var, "bbb", ...}},
+%%   #string_raw{sql = <<"ccc ">>}
+%% ]
 -record(string_raw, {sql :: binary()}).
 -record(string_placeholder, {placeholder :: placeholder()}).
 -type string_part() :: #string_raw{} | #string_placeholder{}.
 -record(string_template, {parts :: [string_part()]}).
+
+%% Pre-rendered parts of a full SQL statement
+-record(raw, {sql :: binary()}).
+-record(value, {placeholder :: placeholder()}).
 
 -type render_op() :: #raw{} | #value{} | #string_template{}.
 -type render_plan() :: [render_op()].
@@ -160,9 +168,8 @@ render_error({var, Name, _Accessor}, Reason) ->
     {invalid_sql_template_value, #{placeholder => Name, reason => Reason}}.
 
 encode_result(Encoder) ->
-    try Encoder() of
-        {error, _} = Error -> Error;
-        Encoded -> {ok, Encoded}
+    try
+        {ok, Encoder()}
     catch
         Class:Reason -> {error, {Class, Reason}}
     end.
@@ -424,10 +431,7 @@ encode_value(undefined, _Opts) ->
 encode_value(Value, _Opts) when is_integer(Value) ->
     integer_to_binary(Value);
 encode_value(Value, _Opts) when is_float(Value) ->
-    case Value =:= Value of
-        true -> emqx_template:to_string(Value);
-        false -> {error, non_finite_number}
-    end;
+    emqx_template:to_string(Value);
 encode_value(Value, _Opts) ->
     encode_string(to_text(Value)).
 
@@ -492,6 +496,7 @@ escape_string(<<Char, Rest/binary>>, Acc) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
+%% Checks basic compilation and rendering of a MySQL INSERT template.
 basic_compile_and_render_test() ->
     {ok, Plan} = compile(
         <<"INSERT INTO mqtt_test(payload, arrived) ",
@@ -504,6 +509,7 @@ basic_compile_and_render_test() ->
         rendered_binary(render(Plan, #{payload => <<"hello">>, timestamp => 2}, null_opts()))
     ).
 
+%% Checks that multiline client CASE expressions compile after rendering placeholder values.
 client_case_expression_test() ->
     SQL = <<
         "INSERT INTO tab1 (field1, field2)\r\n"
@@ -517,6 +523,7 @@ client_case_expression_test() ->
     {ok, Rendered} = rendered_binary(render(Plan, Data, null_opts())),
     ?assertMatch({ok, _}, compile(Rendered)).
 
+%% Checks rendering of CASE, IF, null predicates, logical operators, and null-safe comparisons.
 conditional_expression_test() ->
     SQL = <<
         "INSERT INTO t(a, b) VALUES ("
@@ -533,6 +540,26 @@ conditional_expression_test() ->
         rendered_binary(render(Plan, #{v => <<"x">>}, null_opts()))
     ).
 
+%% Checks booleans, DEFAULT, grouping, null predicates, CASE, aliases, and duplicate-key updates.
+boolean_default_alias_and_duplicate_key_forms_test() ->
+    SQL = <<
+        "INSERT INTO t VALUES ("
+        "TRUE, FALSE, DEFAULT, (${v}), ${v} IS NOT NULL, "
+        "CASE WHEN TRUE THEN 1 END) AS new(c1) "
+        "ON DUPLICATE KEY UPDATE `t`.`c` = `new`.`c`"
+    >>,
+    {ok, Plan} = compile(SQL),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO `t` VALUES ("
+            "TRUE, FALSE, DEFAULT, (1), 1 IS NOT NULL, "
+            "CASE WHEN TRUE THEN 1 END) AS `new`(`c1`) "
+            "ON DUPLICATE KEY UPDATE `t`.`c` = `new`.`c`"
+        >>},
+        rendered_binary(render(Plan, #{v => 1}, null_opts()))
+    ).
+
+%% Checks that an apostrophe in a rendered value receives MySQL string escaping.
 single_quote_doubling_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     ?assertEqual(
@@ -540,6 +567,7 @@ single_quote_doubling_test() ->
         rendered_binary(render(Plan, #{v => <<"a'b">>}, null_opts()))
     ).
 
+%% Checks that a backslash-and-quote injection payload is escaped as one string value.
 backslash_escape_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     Attack = <<"\\'); DROP TABLE t; --">>,
@@ -548,6 +576,7 @@ backslash_escape_test() ->
         rendered_binary(render(Plan, #{v => Attack}, null_opts()))
     ).
 
+%% Checks batch rendering, backslash escaping, empty batches, and indexed render errors.
 batch_shape_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     Unsafe = <<"a\\b">>,
@@ -558,8 +587,13 @@ batch_shape_test() ->
     ?assertEqual(
         {ok, <<"INSERT INTO `t` (`v`) VALUES ">>},
         rendered_binary(render_batch(Plan, [], null_opts()))
+    ),
+    ?assertMatch(
+        {error, {mysql_template_render_failed, #{batch_index := 2, reason := _}}},
+        render_batch(Plan, [#{v => 1}, #{v => {unsupported}}], null_opts())
     ).
 
+%% Checks MySQL escaping of control bytes, quotes, and backslashes.
 string_escape_bytes_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     Value = <<$\b, $\t, $\n, $\r, 16#1A, $", $', $\\>>,
@@ -568,6 +602,7 @@ string_escape_bytes_test() ->
         rendered_binary(render(Plan, #{v => Value}, null_opts()))
     ).
 
+%% Checks CONCAT rendering and escaping for placeholders embedded in single-quoted strings.
 single_quoted_template_segments_test() ->
     {ok, Plan} = compile(
         <<"INSERT INTO t(v) VALUES ('prefix\\n ${v} suffix')">>
@@ -577,6 +612,7 @@ single_quoted_template_segments_test() ->
         rendered_binary(render(Plan, #{v => <<"a'b">>}, null_opts()))
     ).
 
+%% Checks interpolation in double-quoted strings, static strings, and backtick-quoted identifiers.
 double_quoted_string_test() ->
     SQL = <<"INSERT INTO t(v) VALUES (\"prefix ${value}\")">>,
     {ok, Plan} = compile(SQL),
@@ -596,6 +632,7 @@ double_quoted_string_test() ->
         rendered_binary(render(BacktickPlan, #{value => <<"changed">>}, null_opts()))
     ).
 
+%% Checks escaped-quote boundaries and rejection of placeholders preceded by an invalid escape.
 quoted_template_boundary_test() ->
     ?assertMatch(
         {ok, _},
@@ -610,6 +647,7 @@ quoted_template_boundary_test() ->
         compile(<<"INSERT INTO t(v) VALUES ('prefix\\${v} suffix')">>)
     ).
 
+%% Checks preservation and quoting of mixed-case identifiers that match SQL keywords.
 keyword_identifier_case_test() ->
     {ok, Plan} = compile(
         <<"INSERT INTO VaLuEs(KeY, UpDaTe) VALUES (${key}, ${update})">>
@@ -619,6 +657,7 @@ keyword_identifier_case_test() ->
         rendered_binary(render(Plan, #{key => 1, update => 2}, null_opts()))
     ).
 
+%% Checks rendering of Unicode lists, invalid UTF-8, and NUL-containing UTF-8 values.
 charset_and_unicode_value_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     ?assertEqual(
@@ -635,6 +674,7 @@ charset_and_unicode_value_test() ->
         rendered_binary(render(Plan, #{v => <<"a", 0, "b">>}, null_opts()))
     ).
 
+%% Checks batch aliases and duplicate-key updates and rejects dynamic update expressions.
 on_duplicate_key_update_test() ->
     SQL = <<
         "INSERT INTO t(c1, c2) VALUES (${a}, ${b}) AS new ",
@@ -656,6 +696,7 @@ on_duplicate_key_update_test() ->
         )
     ).
 
+%% Checks missing-value rendering as either SQL NULL or the string undefined.
 undefined_value_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${missing})">>),
     ?assertEqual(
@@ -667,6 +708,7 @@ undefined_value_test() ->
         rendered_binary(render(Plan, #{}, #{undefined_vars_as_null => false}))
     ).
 
+%% Checks rejection of multiple template rows, comments, dynamic targets, aliases, and INSERT SELECT.
 reject_unsupported_syntax_test() ->
     Rejected = [
         <<"INSERT INTO t VALUES (${a}), (${b})">>,
@@ -678,6 +720,7 @@ reject_unsupported_syntax_test() ->
     ],
     lists:foreach(fun(SQL) -> ?assertMatch({error, _}, compile(SQL)) end, Rejected).
 
+%% Checks whitespace, identifiers, literals, unterminated tokens, and NUL lexical boundaries.
 lexical_boundary_test() ->
     ?assertMatch({ok, _}, compile(<<"INSERT", 11, "INTO t VALUES (1)">>)),
     ?assertMatch({ok, _}, compile(<<"INSERT INTO таблица VALUES (0x12)"/utf8>>)),

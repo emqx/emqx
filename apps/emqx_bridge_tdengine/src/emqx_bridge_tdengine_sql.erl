@@ -10,14 +10,29 @@
 
 -type placeholder() :: emqx_template:placeholder().
 
+%% Represent string templates, e.g. 'aaa ${bbb} ccc' as
+%% [
+%%   #tpl_text{text = <<"aaa ">>},
+%%   #tpl_placeholder{placeholder = {var, "bbb", ...}},
+%%   #tpl_text{text = <<"ccc ">>}
+%% ]
 -record(tpl_text, {text :: binary()}).
 -record(tpl_placeholder, {placeholder :: placeholder()}).
+
+%% Represent resolved parts of a template string,
+%% e.g. 'aaa ${bbb} ccc' might be pre-rendered as
+%% [
+%%   #part_text{text = <<"aaa ">>},
+%%   #part_value{value = BBBValue},
+%%   #part_text{text = <<"ccc ">>}
+%% ]
 -record(part_text, {text :: binary()}).
 -record(part_value, {value :: term()}).
 
 -type template_part() :: #tpl_text{} | #tpl_placeholder{}.
 -type part() :: #part_text{} | #part_value{}.
 
+%% Pre-rendered parts of a full SQL statement
 -record(raw, {sql :: binary()}).
 -record(value, {placeholder :: placeholder()}).
 -record(string, {parts :: [template_part()]}).
@@ -476,10 +491,7 @@ encode_value(false, _Opts) ->
     <<"false">>;
 encode_value(Value, _Opts) when is_integer(Value) -> integer_to_binary(Value);
 encode_value(Value, _Opts) when is_float(Value) ->
-    case Value =:= Value of
-        true -> float_to_binary(Value, [compact]);
-        false -> {error, non_finite_number}
-    end;
+    float_to_binary(Value, [compact]);
 encode_value(Value, _Opts) ->
     encode_string(to_text(Value)).
 
@@ -565,6 +577,7 @@ assert_no_nul(Text) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
+%% Checks that compilation merges adjacent static SQL around a value placeholder.
 compile_merges_raw_segments_test() ->
     {ok, Placeholder} = parse_placeholder(<<"${value}">>),
     {ok, #tdengine_plan{plan = [#raw{sql = <<"t VALUES (1, 2)">>}]}} =
@@ -580,6 +593,7 @@ compile_merges_raw_segments_test() ->
         Plan
     ).
 
+%% Checks placeholder compilation and rendering across multiple TDengine table clauses.
 multi_table_compile_and_render_test() ->
     SQL = <<
         "INSERT INTO ${clientid} USING s_tab TAGS ('${clientid}') "
@@ -607,6 +621,7 @@ multi_table_compile_and_render_test() ->
         iolist_to_binary(Rendered)
     ).
 
+%% Checks leading-dot placeholders in dynamic identifiers and values.
 leading_dot_placeholder_test() ->
     {ok, Plan} = compile(<<"INSERT INTO test_${.clientid} VALUES (${.payload})">>),
     ?assertEqual(
@@ -616,6 +631,7 @@ leading_dot_placeholder_test() ->
         )
     ).
 
+%% Checks that hostile dynamic identifier text is quoted and remains valid SQL.
 identifier_boundary_test() ->
     {ok, Plan} = compile(<<"INSERT INTO test_${clientid} VALUES (${timestamp}, ${payload})">>),
     {ok, Rendered} = render(
@@ -629,6 +645,7 @@ identifier_boundary_test() ->
     ),
     ?assertMatch({ok, _}, compile(Rendered)).
 
+%% Checks multiple placeholders in bare and backtick-quoted identifiers.
 identifier_template_test() ->
     {ok, BarePlan} = compile(
         <<"INSERT INTO pre_${tenant}_${clientid} VALUES (1)">>
@@ -647,12 +664,14 @@ identifier_template_test() ->
         rendered_binary(render(BacktickPlan, #{clientid => <<"client-1">>}, null_opts()))
     ).
 
+%% Checks that injected text remains valid SQL next to a statically escaped backslash.
 static_escape_boundary_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t VALUES (1, '\\\\${payload}')">>),
     Attack = <<"') t VALUES (2, 'owned'); --">>,
     {ok, Rendered} = render(Plan, #{payload => Attack}, null_opts()),
     ?assertMatch({ok, _}, compile(Rendered)).
 
+%% Checks multi-table batches, empty batches, safe escaping, and indexed render errors.
 batch_shape_test() ->
     {ok, Plan} = compile(<<"INSERT INTO ${clientid} VALUES (${timestamp}, '${payload}')">>),
     {ok, Rendered} = render_batch(
@@ -681,6 +700,7 @@ batch_shape_test() ->
         )
     ).
 
+%% Checks rendering of arbitrary binary and Unicode values.
 binary_and_unicode_value_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t VALUES (${value})">>),
     ?assertEqual(
@@ -693,6 +713,7 @@ binary_and_unicode_value_test() ->
         rendered_binary(render(Plan, #{value => Unicode}, null_opts()))
     ).
 
+%% Checks decoding and preservation of TDengine string escape sequences.
 escape_decode_test() ->
     {ok, Plan} = compile(
         <<"INSERT INTO t VALUES ('\\n\\r\\t\\%\\_\\q${value}')">>
@@ -709,6 +730,43 @@ escape_decode_test() ->
         rendered_binary(render(Plan, #{value => <<"x">>}, null_opts()))
     ).
 
+%% Checks qualified table clauses, tag clauses, and static literal values.
+qualified_table_clause_and_literal_forms_test() ->
+    SQL = <<
+        "INSERT INTO db.t (c1, c2, c3, c4, c5) "
+        "USING db.st TAGS (1) "
+        "VALUES (NULL, true, false, TODAY, 1.25)"
+    >>,
+    {ok, Plan} = compile(SQL),
+    ?assertEqual(
+        {ok, SQL},
+        rendered_binary(render(Plan, #{}, null_opts()))
+    ).
+
+%% Checks rejection of columns placed both before and after a USING clause.
+invalid_column_position_test() ->
+    ?assertMatch(
+        {error, invalid_tdengine_column_positions},
+        compile(<<"INSERT INTO t (c) USING s TAGS (1) (c) VALUES (1)">>)
+    ).
+
+%% Checks missing, null, boolean, and float values rendered through placeholders.
+dynamic_scalar_value_forms_test() ->
+    {ok, Plan} = compile(
+        <<"INSERT INTO t VALUES (${missing}, ${null}, ${yes}, ${no}, ${float})">>
+    ),
+    ?assertEqual(
+        {ok, <<"INSERT INTO t VALUES (NULL, NULL, true, false, 1.50000000000000000000e+00)">>},
+        rendered_binary(
+            render(
+                Plan,
+                #{null => null, yes => true, no => false, float => 1.5},
+                null_opts()
+            )
+        )
+    ).
+
+%% Checks rejection of comments, file inserts, partial placeholders, and dynamic stable names.
 reject_unsupported_syntax_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (1) -- comment">>)),
     ?assertMatch({error, _}, compile(<<"INSERT INTO t FILE 'rows.csv'">>)),
@@ -720,6 +778,7 @@ reject_unsupported_syntax_test() ->
         compile(<<"INSERT INTO t USING stable_${tenant} TAGS (1) VALUES (1)">>)
     ).
 
+%% Checks normalization of commas between TDengine table clauses.
 comma_separated_table_clauses_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t VALUES (1), u VALUES (2)">>),
     ?assertEqual(
@@ -727,6 +786,7 @@ comma_separated_table_clauses_test() ->
         rendered_binary(render(Plan, #{}, null_opts()))
     ).
 
+%% Checks normalization of commas between rows and table clauses.
 row_and_table_clause_commas_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t VALUES (1), (2), u VALUES (3), (4)">>),
     ?assertEqual(
@@ -739,6 +799,7 @@ row_and_table_clause_commas_test() ->
         rendered_binary(render(MixedPlan, #{}, null_opts()))
     ).
 
+%% Checks accepted leading-dot decimals and rejected trailing-dot decimal forms.
 decimal_forms_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t VALUES (.5, 1.5, -.5, -1.5)">>),
     ?assertEqual(
@@ -748,6 +809,7 @@ decimal_forms_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (1.)">>)),
     ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (1.e2)">>)).
 
+%% Checks time suffixes, identifiers, Unicode, and escaped-newline lexical boundaries.
 literal_boundary_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t VALUES (NOW+1s+1n-1y)">>),
     ?assertEqual(
@@ -760,6 +822,7 @@ literal_boundary_test() ->
     EscapedLF = iolist_to_binary([<<"INSERT INTO t VALUES ('a">>, $\\, $\n, <<"b')">>]),
     ?assertMatch({ok, _}, compile(EscapedLF)).
 
+%% Checks NUL rejection in SQL strings, identifiers, values, and dynamic identifiers.
 nul_boundary_test() ->
     Rejected = [
         iolist_to_binary([<<"INSERT INTO t VALUES ('a">>, 0, <<"b')">>]),
@@ -771,6 +834,7 @@ nul_boundary_test() ->
     {ok, IdentifierPlan} = compile(<<"INSERT INTO ${table} VALUES (1)">>),
     ?assertMatch({error, _}, render(IdentifierPlan, #{table => <<"a", 0, "b">>}, null_opts())).
 
+%% Checks that invalid identifier types report the responsible placeholder.
 identifier_error_placeholder_test() ->
     {ok, Plan} = compile(<<"INSERT INTO ${clientid} VALUES (1)">>),
     ?assertEqual(
@@ -781,6 +845,7 @@ identifier_error_placeholder_test() ->
         render(Plan, #{clientid => #{}}, null_opts())
     ).
 
+%% Checks detailed errors for empty, qualified, and oversized dynamic identifiers.
 invalid_dynamic_identifier_test() ->
     {ok, Plan} = compile(<<"INSERT INTO ${clientid} VALUES (1)">>),
     ?assertMatch(

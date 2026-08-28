@@ -10,14 +10,29 @@
 
 -type placeholder() :: emqx_template:placeholder().
 
+%% Represent string templates, e.g. 'aaa ${bbb} ccc' as
+%% [
+%%   #tpl_text{text = <<"aaa ">>},
+%%   #tpl_placeholder{placeholder = {var, "bbb", ...}},
+%%   #tpl_text{text = <<"ccc ">>}
+%% ]
 -record(tpl_text, {text :: binary()}).
 -record(tpl_placeholder, {placeholder :: placeholder()}).
+
+%% Represent resolved parts of a template string,
+%% e.g. 'aaa ${bbb} ccc' might be pre-rendered as
+%% [
+%%   #part_text{text = <<"aaa ">>},
+%%   #part_value{value = BBBValue},
+%%   #part_text{text = <<"ccc ">>}
+%% ]
 -record(part_text, {text :: binary()}).
 -record(part_value, {value :: term()}).
 
 -type template_part() :: #tpl_text{} | #tpl_placeholder{}.
 -type part() :: #part_text{} | #part_value{}.
 
+%% Pre-rendered parts of a full SQL statement
 -record(raw, {sql :: binary()}).
 -record(sql_value, {placeholder :: placeholder()}).
 -record(json_value, {placeholder :: placeholder()}).
@@ -189,9 +204,8 @@ render_template_op(Parts, Encoder, Rest, Data, Opts, Cache0, Acc) ->
     end.
 
 encode_result(Encoder) ->
-    try Encoder() of
-        {error, _} = Error -> Error;
-        Encoded -> {ok, Encoded}
+    try
+        {ok, Encoder()}
     catch
         Class:Reason -> {error, {Class, Reason}}
     end.
@@ -672,10 +686,7 @@ encode_value(false, _Opts) ->
 encode_value(Value, _Opts) when is_integer(Value) ->
     integer_to_binary(Value);
 encode_value(Value, _Opts) when is_float(Value) ->
-    case Value =:= Value of
-        true -> float_to_binary(Value, [compact]);
-        false -> {error, non_finite_number}
-    end;
+    float_to_binary(Value, [compact]);
 encode_value(Value, _Opts) ->
     encode_sql_string(to_text(Value)).
 
@@ -709,6 +720,7 @@ encode_sql_string(Text) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
+%% Checks accepted and rejected ClickHouse INSERT forms and their compiled plans.
 parse_insert_sql_template_test() ->
     Accepted = [
         {<<"insert into tag_VALUES(tag_values,Timestamp) values (${tagvalues},${date})"/utf8>>,
@@ -886,6 +898,7 @@ test_plan_template(#clickhouse_values_plan{plan = Plan}) ->
 test_plan_template(#clickhouse_json_plan{plan = Plan}) ->
     {<<>>, Plan}.
 
+%% Checks that compilation merges static SQL while preserving SQL and JSON placeholders.
 compile_merges_raw_segments_test() ->
     Placeholder = test_placeholder(<<"value">>),
     {ok, #clickhouse_values_plan{plan = [#raw{sql = <<"(1, 2)">>}]}} =
@@ -911,6 +924,7 @@ compile_merges_raw_segments_test() ->
         JSONPlan
     ).
 
+%% Checks compilation and rendering of a ClickHouse VALUES template.
 values_compile_and_render_test() ->
     {ok, Plan} = compile(
         <<"INSERT INTO mqtt_test(key, data, arrived) VALUES (${key}, '${data}', ${timestamp})">>
@@ -920,6 +934,7 @@ values_compile_and_render_test() ->
         rendered_binary(render(Plan, #{key => 1, data => <<"hello">>, timestamp => 2}, null_opts()))
     ).
 
+%% Checks rendering of CASE, logical operators, comparisons, and conditional functions.
 conditional_expression_test() ->
     SQL = <<
         "INSERT INTO t(a, b, c, d) VALUES ("
@@ -940,6 +955,54 @@ conditional_expression_test() ->
         rendered_binary(render(Plan, #{v => 10}, null_opts()))
     ).
 
+%% Checks quoted identifiers, SQL literals, arrays, and CASE expressions.
+sql_literal_expression_forms_test() ->
+    SQL = <<
+        "INSERT INTO \"a\"\"b\" (*) VALUES ("
+        "NULL, true, false, [1, 2], CASE WHEN 1 IS NULL THEN 2 END)"
+    >>,
+    {ok, Plan} = compile(SQL),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO `a\"b` (*) VALUES ("
+            "NULL, true, false, [1, 2], CASE WHEN 1 IS NULL THEN 2 END)"
+        >>},
+        rendered_binary(render(Plan, #{}, null_opts()))
+    ).
+
+%% Checks static JSON objects, strings, booleans, nulls, and empty arrays.
+static_json_literal_forms_test() ->
+    {ok, Plan} = compile(
+        <<
+            "INSERT INTO t FORMAT JSONCompactEachRow "
+            "[{\"k\":\"x\",\"b\":true,\"f\":false,\"n\":null,\"e\":[]}]"
+        >>
+    ),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO `t` FORMAT JSONCompactEachRow "
+            "[{\"k\":\"x\",\"b\":true,\"f\":false,\"n\":null,\"e\":[]}]"
+        >>},
+        rendered_binary(render(Plan, #{}, null_opts()))
+    ).
+
+%% Checks rendering of missing values with both undefined-value policies.
+undefined_value_test() ->
+    {ok, ValuesPlan} = compile(<<"INSERT INTO t VALUES (${v}, '${v}', ${f})">>),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` VALUES (NULL, 'null', 1.50000000000000000000e+00)">>},
+        rendered_binary(render(ValuesPlan, #{f => 1.5}, null_opts()))
+    ),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO `t` VALUES ('undefined', 'undefined', 1.50000000000000000000e+00)"
+        >>},
+        rendered_binary(
+            render(ValuesPlan, #{f => 1.5}, #{undefined_vars_as_null => false})
+        )
+    ).
+
+%% Checks that a placeholder with a leading dot resolves against the input map.
 leading_dot_placeholder_test() ->
     {ok, Plan} = compile(<<"INSERT INTO mqtt_test(payload) VALUES (${.payload})">>),
     ?assertEqual(
@@ -947,6 +1010,7 @@ leading_dot_placeholder_test() ->
         rendered_binary(render(Plan, #{payload => <<"hello">>}, null_opts()))
     ).
 
+%% Checks compilation and escaping of placeholders in JSONCompactEachRow templates.
 json_compile_and_render_test() ->
     {ok, Plan} = compile(
         <<"INSERT INTO mqtt_test(key, data) FORMAT JSONCompactEachRow [${key}, \"${data}\"]">>
@@ -957,12 +1021,14 @@ json_compile_and_render_test() ->
         rendered_binary(render(Plan, #{key => 1, data => <<"a\"b">>}, null_opts()))
     ).
 
+%% Checks that injected text remains valid SQL next to a statically escaped backslash.
 static_escape_boundary_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES ('\\\\${v}')">>),
     Attack = <<"'); INSERT INTO t(v) VALUES ('owned'); --">>,
     {ok, Rendered} = render(Plan, #{v => Attack}, null_opts()),
     ?assertMatch({ok, _}, compile(Rendered)).
 
+%% Checks decoding and preservation of ClickHouse string escape sequences.
 sql_escape_decode_test() ->
     {ok, Plan} = compile(
         <<"INSERT INTO t(v) VALUES ('\\a\\n\\r\\t\\b\\f\\e\\v\\0\\'\\q${v}')">>
@@ -974,6 +1040,7 @@ sql_escape_decode_test() ->
         rendered_binary(render(Plan, #{v => <<"x">>}, null_opts()))
     ).
 
+%% Checks JSON escapes, surrogate pairs, rendering, and invalid escape rejection.
 json_escape_decode_test() ->
     {ok, Plan} = compile(
         <<
@@ -992,6 +1059,7 @@ json_escape_decode_test() ->
         compile(<<"INSERT INTO t(v) FORMAT JSONCompactEachRow [\"\\q${v}\"]">>)
     ).
 
+%% Checks vertical-tab whitespace and escaped-newline lexical boundaries.
 lexical_boundary_test() ->
     SQL = iolist_to_binary([
         <<"INSERT">>,
@@ -1003,6 +1071,7 @@ lexical_boundary_test() ->
     ]),
     ?assertMatch({ok, _}, compile(SQL)).
 
+%% Checks batch shape, empty batches, safe escaping, and indexed render errors.
 batch_shape_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     {ok, Rendered} = render_batch(Plan, [#{v => <<"a');--">>}, #{v => <<"b">>}], null_opts()),
@@ -1011,8 +1080,13 @@ batch_shape_test() ->
     ?assertEqual(
         {ok, <<"INSERT INTO `t` (`v`) VALUES ">>},
         rendered_binary(render_batch(Plan, [], null_opts()))
+    ),
+    ?assertMatch(
+        {error, {clickhouse_template_render_failed, #{batch_index := 2, reason := _}}},
+        render_batch(Plan, [#{v => 1}, #{v => {unsupported}}], null_opts())
     ).
 
+%% Checks rendering of invalid UTF-8, NUL-containing, and Unicode binary values.
 binary_value_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) VALUES (${v})">>),
     ?assertEqual(
@@ -1029,6 +1103,7 @@ binary_value_test() ->
         rendered_binary(render(Plan, #{v => Unicode}, null_opts()))
     ).
 
+%% Checks safe replacement of invalid UTF-8 when rendering JSON values.
 json_invalid_binary_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t(v) FORMAT JSONCompactEachRow [${v}]">>),
     ?assertEqual(
@@ -1036,6 +1111,7 @@ json_invalid_binary_test() ->
         rendered_binary(render(Plan, #{v => <<16#FF>>}, null_opts()))
     ).
 
+%% Checks rejection of comments, dynamic targets, partial placeholders, and unsupported formats.
 reject_unsupported_syntax_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (1) -- comment">>)),
     ?assertMatch({error, _}, compile(<<"INSERT INTO ${table} VALUES (1)">>)),
@@ -1043,6 +1119,7 @@ reject_unsupported_syntax_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (${value}0)">>)),
     ?assertMatch({error, _}, compile(<<"INSERT INTO t FORMAT CSV ${payload}">>)).
 
+%% Checks escaping of backticks and trailing backslashes in ClickHouse identifiers.
 identifier_escape_test() ->
     ?assertEqual(<<"`a\\\\\\`b`">>, quote_identifier(<<"a\\`b">>)),
     ?assertEqual(<<"`a\\\\`">>, quote_identifier(<<"a\\">>)).

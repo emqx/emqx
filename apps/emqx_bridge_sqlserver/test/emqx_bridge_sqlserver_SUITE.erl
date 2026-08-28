@@ -223,6 +223,7 @@ t_undefined_vars_as_null(Config) ->
     ),
     ok.
 
+%% Checks that a literal null payload is inserted as SQL NULL.
 t_null_value(Config) ->
     ?assertMatch(
         {ok, _},
@@ -452,6 +453,7 @@ t_simple_query(Config) ->
     ),
     ok.
 
+%% Checks that an injection payload remains one stored value in single and batch modes.
 t_sql_value_escaping(Config) ->
     BatchSize = batch_size(Config),
     SQL =

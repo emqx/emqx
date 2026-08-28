@@ -60,6 +60,7 @@ t_lifecycle_passwordless(_Config) ->
         mysql_config(passwordless)
     ).
 
+%% Checks execution of rendered injection text, typed values, and CASE-produced NULL values.
 t_sql_renderer(_Config) ->
     Conn = connect_mysql(),
     Table = <<"mqtt.emqx_mysql_sql_modes">>,
@@ -119,6 +120,7 @@ t_sql_renderer(_Config) ->
     ok = mysql:query(Conn, [<<"DROP TABLE ">>, Table]),
     ok = mysql:stop(Conn).
 
+%% Checks a batch template containing static and dynamic single-quoted string segments.
 t_segmented_batch_template(_Config) ->
     Conn = connect_mysql(),
     Table = <<"mqtt.emqx_mysql_segmented">>,

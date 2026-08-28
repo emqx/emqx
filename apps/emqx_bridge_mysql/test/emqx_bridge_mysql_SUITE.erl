@@ -772,6 +772,7 @@ t_nasty_sql_string(Config) ->
         connect_and_get_payload(Config)
     ).
 
+%% Checks rejection of batch SQL templates with a placeholder inside a comment.
 t_sql_injection_through_comment_placeholder(Config) ->
     ok = query_direct_mysql(Config, <<"DROP TABLE IF EXISTS mqtt_users">>),
     ok = query_direct_mysql(Config, <<
@@ -796,6 +797,7 @@ t_sql_injection_through_comment_placeholder(Config) ->
         re:run(ProbeBody, <<"failed_to_prepare_statement">>, [{capture, none}])
     ).
 
+%% Checks that payloads cannot inject rows when MySQL disables backslash escaping.
 t_sql_injection_through_no_backslash(Config) ->
     ok = query_direct_mysql(Config, <<"DROP TABLE IF EXISTS mqtt_users">>),
     ok = query_direct_mysql(Config, <<
@@ -828,12 +830,14 @@ t_sql_injection_through_no_backslash(Config) ->
         query_direct_mysql(Config, <<"SELECT username FROM mqtt_users WHERE username = 'admin'">>)
     ).
 
+%% Checks that connector pool sessions remove unsafe MySQL SQL modes.
 t_nbe_session_mode(Config) ->
     ?assertEqual(?UNSAFE_SQL_MODES, direct_session_modes(Config)),
     ?assertMatch({ok, _}, create_bridge(Config)),
     _ = assert_pool_session_modes(Config),
     ok.
 
+%% Checks that replacement pool connections remove unsafe SQL modes after reconnecting.
 t_nbe_session_mode_after_reconnect(Config) ->
     ?assertEqual(?UNSAFE_SQL_MODES, direct_session_modes(Config)),
     ?assertMatch({ok, _}, create_bridge(Config)),

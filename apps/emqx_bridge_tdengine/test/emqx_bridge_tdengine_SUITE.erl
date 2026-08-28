@@ -427,6 +427,7 @@ t_simple_insert(Config) ->
         connect_and_get_payload(Config)
     ).
 
+%% Checks safe insertion of Unicode, invalid UTF-8, and SQL injection text into multiple rows.
 t_sql_value_escaping(Config) ->
     connect_and_clear_table(Config),
     Payload = <<"你好😀 x\\'); DROP TABLE t_mqtt_msg; --"/utf8, 16#FF>>,
@@ -439,6 +440,7 @@ t_sql_value_escaping(Config) ->
     StoredPayload = <<"你好😀 x\\'); DROP TABLE t_mqtt_msg; --"/utf8, 16#FFFD/utf8>>,
     ?assertEqual([[StoredPayload], [StoredPayload]], connect_and_get_payload(Config)).
 
+%% Checks safe insertion of an injection payload through double-quoted string templates.
 t_double_quoted_sql_value(Config0) ->
     SQL =
         "insert into t_mqtt_msg(ts, payload) values (${timestamp}, \"${payload}\")"
