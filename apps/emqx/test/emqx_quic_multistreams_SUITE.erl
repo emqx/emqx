@@ -2163,13 +2163,17 @@ t_keep_alive_idle_ctrl_stream(Config) ->
 
 t_quic_takeover_tls(Config) ->
     process_flag(trap_exit, true),
-    %% Given: TLS client connected and subscribed a topic
+    %% Given: TLS client connected and subscribed a topic.
+    %% Nonzero session expiry interval, so the session outlives the
+    %% connection and can be taken over. With interval 0 the session ends
+    %% when its connection closes (MQTT 5.0 3.1.2.11.2).
     {ok, CTLS} = emqtt:start_link([
         {proto_ver, v5},
         {connect_timeout, 5},
         {ssl, true},
         {ssl_opts, [{verify, verify_none}]},
         {auto_ack, never},
+        {properties, #{'Session-Expiry-Interval' => 30}},
         {port, 8883}
     ]),
     {ok, _} = emqtt:connect(CTLS),
@@ -2214,12 +2218,16 @@ t_quic_takeover_tls(Config) ->
 
 t_quic_takeover_tls_0rtt(Config) ->
     process_flag(trap_exit, true),
-    %% GIVEN: QUIC connection
+    %% GIVEN: QUIC connection.
+    %% Nonzero session expiry interval, so the session outlives the
+    %% connection and can be taken over. With interval 0 the session ends
+    %% when its connection closes (MQTT 5.0 3.1.2.11.2).
     {ok, C0} = emqtt:start_link([
         {proto_ver, v5},
         {connect_timeout, 5},
         {clean_start, true},
         {auto_ack, never},
+        {properties, #{'Session-Expiry-Interval' => 30}},
         {quic_opts, {[{quic_event_mask, 1}], []}}
         | Config
     ]),
@@ -2244,6 +2252,7 @@ t_quic_takeover_tls_0rtt(Config) ->
         {auto_ack, never},
         {clean_start, false},
         {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30}},
         {port, 8883}
     ]),
     {ok, _} = emqtt:connect(CTLS),
@@ -2295,12 +2304,16 @@ t_quic_takeover_tls_0rtt(Config) ->
 
 t_tls_takeover_quic(Config) ->
     process_flag(trap_exit, true),
-    %% GIVEN: QUIC connection
+    %% GIVEN: QUIC connection.
+    %% Nonzero session expiry interval, so the session outlives the
+    %% connection and can be taken over. With interval 0 the session ends
+    %% when its connection closes (MQTT 5.0 3.1.2.11.2).
     {ok, C0} = emqtt:start_link([
         {proto_ver, v5},
         {connect_timeout, 5},
         {clean_start, true},
-        {auto_ack, never}
+        {auto_ack, never},
+        {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
 

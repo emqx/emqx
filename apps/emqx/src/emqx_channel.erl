@@ -1508,8 +1508,8 @@ handle_call(
 ) ->
     %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the session ends
     %% when the network connection is closed. The takeover closes it, so
-    %% there is no session to hand over: publish the will message and shut
-    %% down with reason `expired' (the client still gets DISCONNECT 0x8E).
+    %% there is no session to hand over: publish the will message because
+    %% the session ends now, then shut down like a takeover kick.
     %% `noreply' makes the connection process shut down without answering
     %% the call; the caller observes the `{shutdown, _}' exit, classifies
     %% it as `noproc', and falls back to creating a fresh session. Peer
@@ -1520,7 +1520,7 @@ handle_call(
         ),
         fun() ->
             Channel0 = maybe_publish_will_msg(expired, Channel),
-            disconnect_and_shutdown(expired, noreply, Channel0)
+            disconnect_and_shutdown(takenover, noreply, Channel0)
         end,
         []
     );
@@ -1572,25 +1572,6 @@ handle_call(
         end,
         []
     );
-handle_call(takeover_kick, Channel = #channel{conninfo = #{expiry_interval := 0}}) ->
-    %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the session ends
-    %% when the network connection is closed, so publish the will message now
-    %% regardless of the will delay interval (3.1.3.2.2) and shut down with
-    %% reason `expired' (the client still gets DISCONNECT 0x8E). For a
-    %% durable session the channel-side publish is a no-op and
-    %% `emqx_durable_will' decides at channel terminate.
-    ?EXT_TRACE_BROKER_DISCONNECT(
-        ?EXT_TRACE_ATTR(
-            maps:merge(
-                basic_attrs(Channel), disconnect_attrs(takeover_kick, Channel)
-            )
-        ),
-        fun() ->
-            Channel0 = maybe_publish_will_msg(expired, Channel),
-            disconnect_and_shutdown(expired, ok, Channel0)
-        end,
-        []
-    );
 handle_call(takeover_kick, Channel) ->
     ?EXT_TRACE_BROKER_DISCONNECT(
         ?EXT_TRACE_ATTR(
@@ -1599,7 +1580,14 @@ handle_call(takeover_kick, Channel) ->
             )
         ),
         fun() ->
-            Channel0 = maybe_publish_will_msg(takenover, Channel),
+            %% The channel-side will publish only has an effect for an
+            %% in-memory session; with durable sessions enabled a live
+            %% in-memory session implies session expiry interval 0
+            %% (MQTT 5.0 3.1.2.11.2), so it ends now and the will message
+            %% must be published regardless of the will delay interval.
+            %% For a durable session this publish is a no-op and
+            %% `emqx_durable_will' decides at channel terminate.
+            Channel0 = maybe_publish_will_msg(expired, Channel),
             disconnect_and_shutdown(takenover, ok, Channel0)
         end,
         []
@@ -3336,10 +3324,7 @@ disconnect_reason(?RC_SUCCESS) -> ?normal;
 disconnect_reason(ReasonCode) -> emqx_reason_codes:name(ReasonCode).
 
 reason_code(takenover) -> ?RC_SESSION_TAKEN_OVER;
-reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER;
-%% Session with expiry interval 0 ends at a takeover; the wire reason
-%% code is still "Session taken over" [MQTT-3.1.4-3].
-reason_code(expired) -> ?RC_SESSION_TAKEN_OVER.
+reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 
 %%--------------------------------------------------------------------
 %% Helper functions
