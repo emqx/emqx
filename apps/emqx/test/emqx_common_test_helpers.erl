@@ -1424,6 +1424,8 @@ format_io_requests(IoRequests) ->
                 {put_chars, unicode, M, F, A} ->
                     IoDat = apply(M, F, A),
                     unicode:characters_to_binary(IoDat);
+                {put_chars, unicode, IoDat} ->
+                    unicode:characters_to_binary(IoDat);
                 _ ->
                     error({unknown_io_request, Request})
             end
