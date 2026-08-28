@@ -23,6 +23,7 @@
     clear_mfa_state/1,
     set_mfa_state/2,
     get_mfa_state/1,
+    mfa_enforced_for/1,
     clear_login_lock/1,
     set_login_lock/2,
     get_login_lock/1,
@@ -1206,16 +1207,39 @@ do_verify_mfa_token(Username, MfaToken, IsPwdOk) ->
             ok
     end.
 
+%% @doc Whether `dashboard.default_mfa' mandates MFA for this account.
+%% The mandate covers every account except the ones an admin has explicitly
+%% exempted, the same way `emqx_dashboard_sso_mfa' resolves an SSO backend's
+%% `force_mfa' against `admin_override'.
+-spec mfa_enforced_for(dashboard_username()) -> boolean().
+mfa_enforced_for(Username) ->
+    default_mfa() =/= none andalso
+        admin_override_of(Username) =/= ?ADMIN_MFA_EXEMPTED.
+
+default_mfa() ->
+    emqx:get_config([dashboard, default_mfa], none).
+
 %% Initialize MFA state if there is a default MFA settings configured.
 maybe_init_mfa_state(Username, true) ->
-    case emqx:get_config([dashboard, default_mfa], none) of
+    case default_mfa() of
         none ->
             ok;
         #{mechanism := Mechanism} ->
             case get_mfa_state(Username) of
+                {ok, disabled} ->
+                    %% Self-disable is not a way out of the mandate: the user
+                    %% is enrolled again at the next login. An admin-set
+                    %% exemption is the way out, and is honoured here.
+                    %% `emqx_dashboard_sso_mfa:check_user_mfa_state/2' already
+                    %% draws the same line for a backend's `force_mfa'.
+                    case mfa_enforced_for(Username) of
+                        true ->
+                            reinit_mfa(Username, Mechanism, _ByAdmin = false);
+                        false ->
+                            ok
+                    end;
                 {ok, _} ->
                     %% already enabled
-                    %% or explicitly disabled
                     ok;
                 _ ->
                     %% Triggered by `dashboard.default_mfa' config on

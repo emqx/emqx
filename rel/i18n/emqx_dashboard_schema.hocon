@@ -174,8 +174,11 @@ default_mfa.label:
 default_mfa.desc:
 """Default Multifactor authentication settings for Dashboard.
 When set as `none`, MFA can be enabled per user from the dashboard.
-If set as `{mechanism = totp}`, the user will be initialized with
-a random TOTP secret when logging in for the first time."""
+If set as `{mechanism = totp}`, MFA is required for every user: a user
+without MFA is initialized with a random TOTP secret at the next login,
+and users cannot disable their own MFA, only replace the secret with a
+new one. An administrator can exempt an individual user by disabling
+MFA for that user."""
 
 mfa_mechanism.label:
 """MFA Mechanism"""
