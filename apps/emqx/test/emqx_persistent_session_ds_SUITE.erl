@@ -1322,10 +1322,25 @@ t_session_replay_retry(_Config) ->
             %% shards are unavailable.
             ?tp(notice, test_restart_client, #{}),
             meck:new(emqx_ds, [passthrough, no_history]),
+            %% we need to ensure _at least one_ iterator fails.  otherwise, the test might
+            %% get flaky and fail bellow with length(Pubs1) == length(Pubs0).
+            {ok, Agent} = emqx_utils_agent:start_link(undefined),
+            IsDoomed = fun(It) ->
+                emqx_utils_agent:get_and_update(Agent, fun(St) ->
+                    case St of
+                        undefined ->
+                            %% fist iterator we see is doomed
+                            {true, It};
+                        _ ->
+                            {St == It, St}
+                    end
+                end)
+            end,
             meck:expect(emqx_ds, next, fun(DB, It, NextLimit) ->
                 IsOk =
-                    DB =/= ?PERSISTENT_MESSAGE_DB orelse
-                        erlang:phash2(It, 1000) >= 500,
+                    not IsDoomed(It) andalso
+                        (DB =/= ?PERSISTENT_MESSAGE_DB orelse
+                            erlang:phash2(It, 1000) >= 500),
                 case IsOk of
                     true ->
                         meck:passthrough([DB, It, NextLimit]);
