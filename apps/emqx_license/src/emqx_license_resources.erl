@@ -24,7 +24,7 @@
 ]).
 
 %% For testing
--export([update_now/0]).
+-export([update_now/0, backdate_tps_breach/1]).
 
 %% gen_server callbacks
 -export([
@@ -89,6 +89,14 @@ update_now() ->
     _ = erlang:send(whereis(?MODULE), update_resources),
     ok.
 
+%% @doc For testing: move the start of the current over-limit window back by
+%% `Ms', so a test can reach the end of a long window without sleeping through
+%% it. Does nothing when no window is open. Goes through the owning process
+%% because the table is protected.
+-spec backdate_tps_breach(non_neg_integer()) -> ok.
+backdate_tps_breach(Ms) ->
+    gen_server:call(?MODULE, {backdate_tps_breach, Ms}, infinity).
+
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
@@ -98,6 +106,16 @@ init([CheckInterval]) ->
     State = ensure_timer(#{check_peer_interval => CheckInterval}),
     {ok, State}.
 
+handle_call({backdate_tps_breach, Ms}, _From, State) ->
+    Reply =
+        case cached_tps_over_limit_since() of
+            undefined ->
+                ok;
+            Since ->
+                true = ets:insert(?MODULE, {tps_over_limit_since, Since - Ms}),
+                ok
+        end,
+    {reply, Reply, State};
 handle_call(_Req, _From, State) ->
     {reply, ignored, State}.
 
@@ -149,7 +167,6 @@ connection_quota_early_alarm(_Limits) ->
 max_tps_alarm({ok, #{max_tps := Limit}}) ->
     LatestTps = cached_latest_cluster_tps(),
     HistMaxTps = cached_max_tps(),
-    ok = track_tps_breach(is_integer(Limit) andalso LatestTps > Limit),
     {Action, AlarmDetails} =
         case emqx_alarm:read_details(license_tps) of
             {ok, #{max_tps := AlarmTps} = Details} when LatestTps > AlarmTps ->
@@ -161,6 +178,14 @@ max_tps_alarm({ok, #{max_tps := Limit}}) ->
             {error, not_found} ->
                 {activate, new_tps_alarm_details(LatestTps, HistMaxTps)}
         end,
+    %% The window measures time until activation, so it only runs while there is
+    %% no alarm to raise. Leaving it armed under an active alarm would matter as
+    %% soon as an alarm can clear on its own: the first sample after it cleared
+    %% would find a window opened long ago and re-raise at once, turning a clear
+    %% duration into a flapping alarm.
+    ok = track_tps_breach(
+        Action =:= activate andalso is_integer(Limit) andalso LatestTps > Limit
+    ),
     MaxTps = maps:get(max_tps, AlarmDetails),
     case is_integer(Limit) andalso MaxTps > Limit of
         true when Action =:= update ->
@@ -220,7 +245,7 @@ tps_breach_sustained() ->
                 undefined ->
                     false;
                 Since ->
-                    monotonic_ms() - Since >= Duration
+                    monotonic_ms() - Since > Duration
             end
     end.
 

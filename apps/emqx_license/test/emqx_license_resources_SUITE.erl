@@ -263,18 +263,21 @@ t_alarm_tps_trigger_duration(Config) when is_list(Config) ->
         ),
         ok = update_now()
     end,
-    %% Over the limit, but the breach has only just started.
+    %% Over the limit, but the window has only just opened. The window is aged
+    %% with backdate_tps_breach/1 rather than by sleeping, so the case asserts
+    %% the logic instead of racing the runner.
     MockTps(11),
     ?assertNotReceive({alarm_activated, _, _}, 100),
     MockTps(11),
     ?assertNotReceive({alarm_activated, _, _}, 100),
-    %% A sample at or below the limit ends the run, so the wait starts over.
+    %% A sample at or below the limit ends the run, so an aged window is
+    %% discarded and the next over-limit sample starts a fresh one.
+    ok = emqx_license_resources:backdate_tps_breach(5000),
     MockTps(9),
-    timer:sleep(1100),
     MockTps(11),
     ?assertNotReceive({alarm_activated, _, _}, 100),
     %% Uninterrupted for longer than the configured duration.
-    timer:sleep(1100),
+    ok = emqx_license_resources:backdate_tps_breach(5000),
     MockTps(11),
     ?assertReceive(
         {alarm_activated, <<"License: TPS limit (10) exceeded.">>, #{max_tps := 11}}, 100
