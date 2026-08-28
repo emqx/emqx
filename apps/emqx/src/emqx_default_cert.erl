@@ -33,7 +33,6 @@ This module has no callers. It is a pure cryptography library.
 -elvis([{elvis_style, atom_naming_convention, disable}]).
 
 -include_lib("public_key/include/public_key.hrl").
--include("emqx_managed_certs.hrl").
 
 -export([
     generate_ca/1,
@@ -51,10 +50,13 @@ This module has no callers. It is a pure cryptography library.
 -type pem_pair() :: #{cert_pem := pem(), key_pem := pem()}.
 -type san() :: {dns, string()} | {ip, inet:ip_address()}.
 -type key_type() :: rsa | ec.
+%% Deliberately not the managed-certs file-kind vocabulary
+%% (`key`/`chain`/`ca`): this map is not a drop-in managed-certs bundle,
+%% and using that vocabulary here would suggest it is.
 -type cert_bundle() :: #{
-    ?FILE_KIND_KEY := pem(),
-    ?FILE_KIND_CHAIN := pem(),
-    ?FILE_KIND_CA := pem()
+    ca := pem(),
+    cert := pem(),
+    key := pem()
 }.
 
 %%--------------------------------------------------------------------
@@ -66,7 +68,8 @@ Generates a root CA certificate and its private key.
 
 Options: `cn` (required) becomes the subject common name; `org` is the
 subject organization name (defaults to `"EMQX"`); `key_type` is `ec`
-(default) or `rsa`.
+(default) or `rsa`. `cn` must not contain control characters or any of
+`#`, `+`, `/`; violating this raises an error.
 """.
 -spec generate_ca(#{cn := string(), org => string(), key_type => key_type()}) -> pem_pair().
 generate_ca(#{cn := _} = Opts) ->
@@ -82,7 +85,8 @@ Generates a certificate signed by the given CA.
 Options: `cn` (required) becomes the subject common name; `org` is the
 subject organization name (defaults to `"EMQX"`); `sans` is the list of
 subject alternative names (defaults to `[]`); `key_type` is `ec`
-(default) or `rsa`.
+(default) or `rsa`. `cn` must not contain control characters or any of
+`#`, `+`, `/`; violating this raises an error.
 """.
 -spec generate_cert(pem_pair(), #{
     cn := string(),
@@ -101,11 +105,15 @@ generate_cert(#{cert_pem := CaCertPem, key_pem := CaKeyPem}, Opts) ->
 
 -doc """
 Generates a complete self-signed certificate bundle: a one-off CA and a
-leaf certificate signed by it. The returned map is keyed by
-managed-certs file kinds. The CA private key is generated, used to
-sign the leaf, and then discarded: it is not part of the returned
+leaf certificate signed by it. The CA private key is generated, used
+to sign the leaf, and then discarded: it is not part of the returned
 bundle and is not retained anywhere, so nothing can issue another
 certificate under that CA afterwards.
+
+The returned map is a plain `ca`/`cert`/`key` triple, not the
+managed-certs file-kind vocabulary (`key`/`chain`/`ca`) — this is not
+a bundle a caller can drop directly into managed certs; a caller that
+wants that must build it explicitly.
 """.
 -spec self_signed_bundle(#{cn := string(), org => string(), sans => [san()], key_type => key_type()}) ->
     cert_bundle().
@@ -113,9 +121,9 @@ self_signed_bundle(Opts) ->
     #{cert_pem := CaCertPem} = CA = generate_ca(#{cn => "EMQX Self-Signed CA"}),
     #{cert_pem := CertPem, key_pem := KeyPem} = generate_cert(CA, Opts),
     #{
-        ?FILE_KIND_KEY => KeyPem,
-        ?FILE_KIND_CHAIN => CertPem,
-        ?FILE_KIND_CA => CaCertPem
+        ca => CaCertPem,
+        cert => CertPem,
+        key => KeyPem
     }.
 
 %%--------------------------------------------------------------------
@@ -191,11 +199,32 @@ public_key_info(#'ECPrivateKey'{parameters = Params, publicKey = PubKey}) ->
 
 subject(Opts) ->
     #{cn := CN} = Opts,
+    ok = validate_cn(CN),
     Org = maps:get(org, Opts, "EMQX"),
     {rdnSequence, [
         [attribute(?'id-at-commonName', {printableString, CN})],
         [attribute(?'id-at-organizationName', {printableString, Org})]
     ]}.
+
+%% Fail fast on a CN that is unsafe to carry into places EMQX uses a
+%% certificate's common name: control characters (e.g. CRLF) are never
+%% valid here, and `#`, `+`, `/` are rejected too because EMQX lets a
+%% client's certificate CN be used as a client attribute, which is
+%% often substituted into topic filters, where those characters are
+%% wildcards or the level separator.
+validate_cn(CN) ->
+    case unicode:characters_to_binary(CN) of
+        Bin when is_binary(Bin) ->
+            case emqx_utils:is_mqtt_safe_utf8(Bin) andalso not has_mqtt_topic_chars(CN) of
+                true -> ok;
+                false -> error(#{reason => invalid_common_name, cn => CN})
+            end;
+        _ ->
+            error(#{reason => invalid_common_name, cn => CN})
+    end.
+
+has_mqtt_topic_chars(CN) ->
+    lists:any(fun(C) -> C =:= $# orelse C =:= $+ orelse C =:= $/ end, CN).
 
 attribute(Type, Value) ->
     #'AttributeTypeAndValue'{type = Type, value = Value}.

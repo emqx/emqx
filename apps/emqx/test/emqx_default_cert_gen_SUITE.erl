@@ -46,19 +46,19 @@ extension(ExtnID, #'OTPTBSCertificate'{extensions = Exts}) ->
 
 -doc "A leaf certificate validates against the CA that signed it.".
 t_leaf_validates_against_ca(_TCConfig) ->
-    #{chain := ChainPem, ca := CaPem} = emqx_default_cert:self_signed_bundle(#{
+    #{cert := CertPem, ca := CaPem} = emqx_default_cert:self_signed_bundle(#{
         cn => "localhost", sans => sans()
     }),
-    {LeafDer, _} = decode_cert(ChainPem),
+    {LeafDer, _} = decode_cert(CertPem),
     {CaDer, _} = decode_cert(CaPem),
     ?assertMatch({ok, _}, public_key:pkix_path_validation(CaDer, [LeafDer], [])).
 
 -doc "SANs on the leaf carry the DNS name and both the IPv4 and IPv6 addresses.".
 t_sans_dns_and_ip(_TCConfig) ->
-    #{chain := ChainPem} = emqx_default_cert:self_signed_bundle(#{
+    #{cert := CertPem} = emqx_default_cert:self_signed_bundle(#{
         cn => "localhost", sans => sans()
     }),
-    {_, LeafOtp} = decode_cert(ChainPem),
+    {_, LeafOtp} = decode_cert(CertPem),
     SANs = extension(?'id-ce-subjectAltName', tbs(LeafOtp)),
     ?assert(lists:member({dNSName, "localhost"}, SANs)),
     ?assert(lists:member({iPAddress, <<127, 0, 0, 1>>}, SANs)),
@@ -67,10 +67,10 @@ t_sans_dns_and_ip(_TCConfig) ->
 
 -doc "The CA certificate has basicConstraints CA:TRUE; the leaf has CA:FALSE.".
 t_basic_constraints(_TCConfig) ->
-    #{chain := ChainPem, ca := CaPem} = emqx_default_cert:self_signed_bundle(#{
+    #{cert := CertPem, ca := CaPem} = emqx_default_cert:self_signed_bundle(#{
         cn => "localhost", sans => sans()
     }),
-    {_, LeafOtp} = decode_cert(ChainPem),
+    {_, LeafOtp} = decode_cert(CertPem),
     {_, CaOtp} = decode_cert(CaPem),
     ?assertMatch(
         #'BasicConstraints'{cA = true},
@@ -83,10 +83,10 @@ t_basic_constraints(_TCConfig) ->
 
 -doc "The validity window starts in the past and spans the configured number of days.".
 t_validity_window(_TCConfig) ->
-    #{chain := ChainPem} = emqx_default_cert:self_signed_bundle(#{
+    #{cert := CertPem} = emqx_default_cert:self_signed_bundle(#{
         cn => "localhost", sans => sans()
     }),
-    {_, LeafOtp} = decode_cert(ChainPem),
+    {_, LeafOtp} = decode_cert(CertPem),
     #'OTPTBSCertificate'{
         validity = #'Validity'{
             notBefore = {generalTime, NotBefore},
@@ -107,11 +107,11 @@ parse_generaltime_day([Y1, Y2, Y3, Y4, Mo1, Mo2, D1, D2 | _]) ->
 
 -doc "Two calls to self_signed_bundle/1 produce different keys and different serial numbers.".
 t_distinct_keys_and_serials(_TCConfig) ->
-    #{key := Key1, chain := Chain1} = emqx_default_cert:self_signed_bundle(#{cn => "localhost"}),
-    #{key := Key2, chain := Chain2} = emqx_default_cert:self_signed_bundle(#{cn => "localhost"}),
+    #{key := Key1, cert := Cert1} = emqx_default_cert:self_signed_bundle(#{cn => "localhost"}),
+    #{key := Key2, cert := Cert2} = emqx_default_cert:self_signed_bundle(#{cn => "localhost"}),
     ?assertNotEqual(Key1, Key2),
-    {_, Otp1} = decode_cert(Chain1),
-    {_, Otp2} = decode_cert(Chain2),
+    {_, Otp1} = decode_cert(Cert1),
+    {_, Otp2} = decode_cert(Cert2),
     #'OTPTBSCertificate'{serialNumber = Serial1} = tbs(Otp1),
     #'OTPTBSCertificate'{serialNumber = Serial2} = tbs(Otp2),
     ?assertNotEqual(Serial1, Serial2).
@@ -119,7 +119,7 @@ t_distinct_keys_and_serials(_TCConfig) ->
 -doc "self_signed_bundle/1 returns no CA private key, in any form, in any value.".
 t_no_ca_key_in_bundle(_TCConfig) ->
     Bundle = emqx_default_cert:self_signed_bundle(#{cn => "localhost", sans => sans()}),
-    ?assertEqual([ca, chain, key], lists:sort(maps:keys(Bundle))),
+    ?assertEqual([ca, cert, key], lists:sort(maps:keys(Bundle))),
     lists:foreach(
         fun(Pem) ->
             Entries = public_key:pem_decode(Pem),
@@ -132,19 +132,38 @@ t_no_ca_key_in_bundle(_TCConfig) ->
                 ]
             )
         end,
-        [maps:get(chain, Bundle), maps:get(ca, Bundle)]
+        [maps:get(cert, Bundle), maps:get(ca, Bundle)]
     ).
 
 -doc "Both rsa and ec key types generate a bundle whose leaf validates against its CA.".
 t_rsa_and_ec_key_types(_TCConfig) ->
     lists:foreach(
         fun(KeyType) ->
-            #{chain := ChainPem, ca := CaPem} = emqx_default_cert:self_signed_bundle(#{
+            #{cert := CertPem, ca := CaPem} = emqx_default_cert:self_signed_bundle(#{
                 cn => "localhost", sans => sans(), key_type => KeyType
             }),
-            {LeafDer, _} = decode_cert(ChainPem),
+            {LeafDer, _} = decode_cert(CertPem),
             {CaDer, _} = decode_cert(CaPem),
             ?assertMatch({ok, _}, public_key:pkix_path_validation(CaDer, [LeafDer], []))
         end,
         [rsa, ec]
+    ).
+
+-doc "A CN with a control character or an MQTT topic-structural character is rejected.".
+t_invalid_cn_raises(_TCConfig) ->
+    Invalid = [
+        "localhost\r\nX-Injected: 1",
+        "local\thost",
+        "client#1",
+        "client+1",
+        "client/1"
+    ],
+    lists:foreach(
+        fun(CN) ->
+            ?assertError(
+                #{reason := invalid_common_name},
+                emqx_default_cert:generate_ca(#{cn => CN})
+            )
+        end,
+        Invalid
     ).
