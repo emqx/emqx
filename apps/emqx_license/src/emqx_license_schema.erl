@@ -68,6 +68,14 @@ fields(key_license) ->
             example => default(connection_high_watermark),
             desc => ?DESC(connection_high_watermark_field)
         }},
+        {tps_alarm_trigger_duration, #{
+            type => emqx_schema:duration_ms(),
+            default => default(tps_alarm_trigger_duration),
+            example => <<"1h">>,
+            required => false,
+            importance => ?IMPORTANCE_LOW,
+            desc => ?DESC(tps_alarm_trigger_duration)
+        }},
         {high_watermark_timezone, #{
             type => hoconsc:union([system, binary()]),
             default => default(high_watermark_timezone),
@@ -131,7 +139,8 @@ default_setting() ->
             connection_low_watermark,
             connection_high_watermark,
             dynamic_max_connections,
-            high_watermark_timezone
+            high_watermark_timezone,
+            tps_alarm_trigger_duration
         ],
     maps:from_list(
         lists:map(
@@ -148,6 +157,9 @@ default(connection_high_watermark) ->
     <<"80%">>;
 default(high_watermark_timezone) ->
     system;
+default(tps_alarm_trigger_duration) ->
+    %% Fire on the first over-limit sample, as before this option existed.
+    <<"0s">>;
 default(dynamic_max_connections) ->
     %% This config is only applicable to CTYPE3
     ?DEFAULT_MAX_SESSIONS_CTYPE3.

@@ -149,6 +149,7 @@ connection_quota_early_alarm(_Limits) ->
 max_tps_alarm({ok, #{max_tps := Limit}}) ->
     LatestTps = cached_latest_cluster_tps(),
     HistMaxTps = cached_max_tps(),
+    ok = track_tps_breach(is_integer(Limit) andalso LatestTps > Limit),
     {Action, AlarmDetails} =
         case emqx_alarm:read_details(license_tps) of
             {ok, #{max_tps := AlarmTps} = Details} when LatestTps > AlarmTps ->
@@ -166,13 +167,56 @@ max_tps_alarm({ok, #{max_tps := Limit}}) ->
             _ = emqx_alarm:update_details(license_tps, AlarmDetails),
             ok;
         true when Action =:= activate ->
-            Message = iolist_to_binary(io_lib:format("License: TPS limit (~w) exceeded.", [Limit])),
-            ?OK(emqx_alarm:activate(license_tps, AlarmDetails, Message));
+            case tps_breach_sustained() of
+                true ->
+                    Message = iolist_to_binary(
+                        io_lib:format("License: TPS limit (~w) exceeded.", [Limit])
+                    ),
+                    ?OK(emqx_alarm:activate(license_tps, AlarmDetails, Message));
+                false ->
+                    %% Over the limit, but not for long enough yet.
+                    ok
+            end;
         true when Action =:= ignore ->
             ok;
         false ->
             %% License has higher TPS limit, ensure the alarm is deactivated.
             ?OK(emqx_alarm:ensure_deactivated(license_tps))
+    end.
+
+%% @private Remember when the current run of over-limit samples started, so the
+%% alarm can require the breach to last. A sample at or below the limit ends the
+%% run: `tps_alarm_trigger_duration' is a continuous window, not a total.
+%%
+%% Held in the same ephemeral table as the TPS cache, so a restart of this
+%% process starts the window over. That only delays an alarm by the configured
+%% duration, and the sampling itself restarts with the process anyway.
+track_tps_breach(_IsOverLimit = false) ->
+    _ = ?OK(ets:delete(?MODULE, tps_over_limit_since)),
+    ok;
+track_tps_breach(_IsOverLimit = true) ->
+    case cached_tps_over_limit_since() of
+        undefined ->
+            _ = ?OK(ets:insert(?MODULE, {tps_over_limit_since, now_ms()})),
+            ok;
+        _AlreadyTracking ->
+            ok
+    end.
+
+%% @private Whether the current run of over-limit samples has lasted at least
+%% `license.tps_alarm_trigger_duration'. The default of 0 keeps the alarm firing
+%% on the first over-limit sample.
+tps_breach_sustained() ->
+    case emqx_conf:get([license, tps_alarm_trigger_duration], 0) of
+        Duration when Duration =< 0 ->
+            true;
+        Duration ->
+            case cached_tps_over_limit_since() of
+                undefined ->
+                    false;
+                Since ->
+                    now_ms() - Since >= Duration
+            end
     end.
 
 new_tps_alarm_details(MaxTps, HistMaxTps) ->
@@ -193,6 +237,12 @@ cached_latest_cluster_tps() ->
 
 cached_max_tps() ->
     ?SAFE_CACHE_LOOKUP(max_cluster_tps, 0).
+
+cached_tps_over_limit_since() ->
+    ?SAFE_CACHE_LOOKUP(tps_over_limit_since, undefined).
+
+now_ms() ->
+    erlang:system_time(millisecond).
 
 update_resources() ->
     Now = erlang:system_time(millisecond),

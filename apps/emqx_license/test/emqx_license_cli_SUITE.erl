@@ -210,6 +210,7 @@ t_conf_update(_Config) ->
             connection_low_watermark => 0.45,
             dynamic_max_connections => ?DEFAULT_MAX_SESSIONS_CTYPE3,
             high_watermark_timezone => system,
+            tps_alarm_trigger_duration => 0,
             key => LicenseKey
         },
         emqx:get_config([license])

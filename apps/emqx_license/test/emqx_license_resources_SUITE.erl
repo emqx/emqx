@@ -220,6 +220,61 @@ t_alarm_if_tps_over_limit(Config) when is_list(Config) ->
     ?assertReceive(alarm_deactivated, 100),
     ok.
 
+%% `license.tps_alarm_trigger_duration' holds the alarm back until the limit has
+%% been exceeded for that long without interruption.
+t_alarm_tps_trigger_duration({init, Config}) ->
+    emqx_license_test_lib:mock_parser(),
+    Key = emqx_license_test_lib:make_license(#{max_tps => 10}),
+    emqx_license:update_key(Key),
+    emqx_config:put([license, tps_alarm_trigger_duration], 1000),
+    meck:new(emqx_alarm, [passthrough]),
+    meck:new(emqx_license_proto_v3, [passthrough]),
+    Config;
+t_alarm_tps_trigger_duration({'end', _Config}) ->
+    emqx_config:put([license, tps_alarm_trigger_duration], 0),
+    meck:unload(emqx_alarm),
+    meck:unload(emqx_license_proto_v3),
+    _ = emqx_alarm:ensure_deactivated(license_tps),
+    emqx_license_test_lib:unmock_parser(),
+    emqx_license:update_key(?DEFAULT_EVALUATION_LICENSE_KEY),
+    ok;
+t_alarm_tps_trigger_duration(Config) when is_list(Config) ->
+    Tester = self(),
+    meck:expect(
+        emqx_alarm,
+        activate,
+        fun(license_tps, Details, Msg) ->
+            Res = meck:passthrough([license_tps, Details, Msg]),
+            Tester ! {alarm_activated, Msg, Details},
+            Res
+        end
+    ),
+    MockTps = fun(Tps) ->
+        meck:expect(
+            emqx_license_proto_v3,
+            stats,
+            fun(_Nodes, _Now) -> [{ok, #{sessions => 21, tps => Tps}}] end
+        ),
+        ok = update_now()
+    end,
+    %% Over the limit, but the breach has only just started.
+    MockTps(11),
+    ?assertNotReceive({alarm_activated, _, _}, 100),
+    MockTps(11),
+    ?assertNotReceive({alarm_activated, _, _}, 100),
+    %% A sample at or below the limit ends the run, so the wait starts over.
+    MockTps(9),
+    timer:sleep(1100),
+    MockTps(11),
+    ?assertNotReceive({alarm_activated, _, _}, 100),
+    %% Uninterrupted for longer than the configured duration.
+    timer:sleep(1100),
+    MockTps(11),
+    ?assertReceive(
+        {alarm_activated, <<"License: TPS limit (10) exceeded.">>, #{max_tps := 11}}, 100
+    ),
+    ok.
+
 update_now() ->
     emqx_license_resources:update_now(),
     ignored = gen_server:call(emqx_license_resources, ignored),
