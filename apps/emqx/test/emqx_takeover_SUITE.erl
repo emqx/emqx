@@ -590,6 +590,13 @@ t_takeover_before_session_expire(Config) ->
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
     ct:pal("FCtx: ~p", [FCtx]),
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
+    %% THEN: the session survives (expiry interval > 0): the new connection
+    %% resumes it.
+    ?retry(
+        100,
+        50,
+        ?assertEqual(1, proplists:get_value(session_present, emqtt:info(CPid2)))
+    ),
 
     Sleep =
         case ?config(persistence_enabled, Config) of
@@ -610,8 +617,9 @@ t_takeover_before_session_expire(Config) ->
 -doc """
 Regression test for emqx/emqx#18565: a session with Session Expiry Interval 0
 ends when its network connection closes, so a takeover must publish the will
-message even when the Will Delay Interval is greater than zero
-(MQTT 5.0 3.1.3.2.2 and 3.1.2.11.2).
+message even when the Will Delay Interval is greater than zero, and the new
+connection must start a fresh session (Session Present 0, no inherited
+subscriptions) (MQTT 5.0 3.1.3.2.2 and 3.1.2.11.2).
 """.
 t_takeover_delayed_willmsg_session_expiry0(Config) ->
     takeover_delayed_willmsg_no_session(
@@ -628,22 +636,11 @@ t_takeover_delayed_willmsg_session_expiry_absent(Config) ->
 
 takeover_delayed_willmsg_no_session(Case, Config, ConnProps) ->
     ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
-    case ?config(persistence_enabled, Config) of
-        true ->
-            %% force_persistence makes even a session with expiry interval 0
-            %% durable. Taking such a session over crashes the new connection
-            %% with failed_to_commit_session (pre-existing, unrelated to the
-            %% will-message fix this case covers; see emqx/emqx#18565).
-            {skip, "Durable takeover with session expiry interval 0 crashes"};
-        false ->
-            do_takeover_delayed_willmsg_no_session(Case, Config, ConnProps)
-    end.
-
-do_takeover_delayed_willmsg_no_session(Case, Config, ConnProps) ->
     process_flag(trap_exit, true),
-    ClientId = atom_to_binary(Case),
+    ClientId = make_client_id(Case, Config),
     ClientIdSub = <<ClientId/binary, "_willsub">>,
     WillTopic = <<ClientId/binary, "willtopic">>,
+    SubTopic = <<ClientId/binary, "subtopic">>,
     ClientOpts = [
         {proto_ver, ?config(mqtt_vsn, Config)},
         {clean_start, false},
@@ -654,18 +651,26 @@ do_takeover_delayed_willmsg_no_session(Case, Config, ConnProps) ->
         {properties, ConnProps}
     ],
     %% GIVEN: client connects with will-delay-interval 10s
-    %%        and session expiry interval 0 (or absent).
+    %%        and session expiry interval 0 (or absent), and subscribes.
     CPid1 = start_connect_client(ClientId, ClientOpts),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(CPid1, SubTopic, ?QOS_1),
     CPidSub = start_connect_client(ClientIdSub, []),
     {ok, _, [?QOS_1]} = emqtt:subscribe(CPidSub, WillTopic, ?QOS_1),
     %% WHEN: the session is taken over.
     CPid2 = start_connect_client(ClientId, ClientOpts),
     assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
-    %% THEN: the session ended at the takeover, so the will message is
-    %% published without waiting for the will delay interval.
+    %% THEN: the old session ended at the takeover, so the new connection
+    %% starts a fresh session.
+    ?assertEqual(0, proplists:get_value(session_present, emqtt:info(CPid2))),
+    %% THEN: the will message is published without waiting for the will
+    %% delay interval.
     ?assertReceive(
         {publish, #{payload := <<"willpayload_delay10_sei0">>}}, timer:seconds(5)
     ),
+    %% THEN: the fresh session did not inherit the old session's subscription.
+    Marker = <<"no_inherited_sub">>,
+    _ = emqx:publish(emqx_message:make(ct, ?QOS_1, SubTopic, Marker)),
+    ?assertNotReceive({publish, #{payload := Marker}}, 1000),
     emqtt:stop(CPidSub),
     emqtt:stop(CPid2),
     ?assert(not is_process_alive(CPid1)),

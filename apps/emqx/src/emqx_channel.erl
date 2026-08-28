@@ -1504,6 +1504,23 @@ handle_call(discard, Channel = #channel{conninfo = ConnInfo}) ->
 %% Session Takeover
 handle_call(
     {takeover, 'begin'},
+    Channel = #channel{conninfo = #{expiry_interval := 0}}
+) ->
+    %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the session ends
+    %% when the network connection is closed. The takeover closes it, so
+    %% there is no session to hand over: shut down like a takeover kick.
+    ?EXT_TRACE_BROKER_DISCONNECT(
+        ?EXT_TRACE_ATTR(
+            maps:merge(basic_attrs(Channel), disconnect_attrs(takeover, Channel))
+        ),
+        fun() ->
+            Channel0 = maybe_publish_will_msg(takenover, Channel),
+            disconnect_and_shutdown(takenover, session_ended, Channel0)
+        end,
+        []
+    );
+handle_call(
+    {takeover, 'begin'},
     Channel = #channel{
         session = Session,
         clientinfo = #{clientid := ClientId},

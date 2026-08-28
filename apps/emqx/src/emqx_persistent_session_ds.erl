@@ -276,10 +276,20 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
         false ->
             false;
         State ->
-            Session = create_session(
-                takeover, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg, Conf
-            ),
-            {true, do_expire(ClientInfo, Session), []}
+            case emqx_persistent_session_ds_state:get_expiry_interval(State) of
+                0 ->
+                    %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the
+                    %% session ended when its network connection closed. Drop it
+                    %% (this also cleans persistent routes) and report no
+                    %% session, so the caller creates a fresh one.
+                    ok = drop_ended_session(ClientID),
+                    false;
+                _ ->
+                    Session = create_session(
+                        takeover, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg, Conf
+                    ),
+                    {true, do_expire(ClientInfo, Session), []}
+            end
     end.
 
 -spec destroy(session() | clientinfo()) -> ok.
@@ -1075,6 +1085,21 @@ ensure_new_session_state(
         ]
     ),
     emqx_persistent_session_ds_state:set_protocol({ProtoName, ProtoVer}, S).
+
+%% Drop a session that ended when its network connection closed (expiry
+%% interval 0). The session GC timer armed at that disconnect races this
+%% drop with its own `session_drop'; when the timer's delete wins, this
+%% one fails the collection-guard assertion. The session is gone either
+%% way, so tolerate exactly that failure.
+-spec drop_ended_session(id()) -> ok.
+drop_ended_session(ClientID) ->
+    try
+        session_drop(ClientID, expired)
+    catch
+        error:{badmatch, {error, unrecoverable, {precondition_failed, _}}} ->
+            ?tp(debug, sessds_drop_ended_session_race, #{client_id => ClientID}),
+            ok
+    end.
 
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
