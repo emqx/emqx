@@ -822,6 +822,28 @@ t_exclusive(_Config) ->
     emqx_ctl:run_command(["exclusive", "delete", "t/1"]),
     ok.
 
+-doc """
+`node_dump' backs `bin/node_dump'. Each sub-command must print non-empty
+output and return `ok', or `collect' in the shell script falls through to
+its `|| echo "Unavailable"' branch. The command is registered visibly, so
+it must also show up in `emqx ctl help'.
+""".
+t_node_dump(_Config) ->
+    {ok, SysInfoOut} = capture_ctl(["node_dump", "sys_info"]),
+    ?assertEqual(match, re:run(SysInfoOut, <<"release">>, [{capture, none}])),
+    ?assertEqual(match, re:run(SysInfoOut, <<"otp_version">>, [{capture, none}])),
+    {ok, AppEnvOut} = capture_ctl(["node_dump", "app_env"]),
+    ?assert(byte_size(AppEnvOut) > 0),
+    {ok, ConfOut} = capture_ctl(["node_dump", "conf"]),
+    ?assert(byte_size(ConfOut) > 0),
+    {ok, UsageOut} = capture_ctl(["node_dump", "unknown"]),
+    ?assertEqual(match, re:run(UsageOut, <<"node_dump sys_info">>, [{capture, none}])),
+    ?assertEqual(match, re:run(UsageOut, <<"node_dump app_env">>, [{capture, none}])),
+    ?assertEqual(match, re:run(UsageOut, <<"node_dump conf">>, [{capture, none}])),
+    {ok, HelpOut} = capture_ctl([]),
+    ?assertEqual(match, re:run(HelpOut, <<"node_dump sys_info">>, [{capture, none}])),
+    ok.
+
 %% Test default stats command
 t_clients_dump_stats_default(init, Config) ->
     %% Start a test client
