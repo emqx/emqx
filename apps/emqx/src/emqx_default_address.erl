@@ -5,25 +5,28 @@
 -module(emqx_default_address).
 
 -moduledoc """
-This module resolves the `EMQX_DEFAULT_ADDRESS` boot environment variable,
-which sets the address of listener binds that have no explicit address,
-independently of the security profile.
+This module resolves the `node.default_listener_address` config, which sets
+the address of listener binds that have no explicit address, independently
+of the security profile. The config is boot-only; the usual environment
+override `EMQX_NODE__DEFAULT_LISTENER_ADDRESS` applies.
 
 Valid values are `loopback`, `nodename`, `all`, a literal IPv4/IPv6
-address, or a hostname to resolve at boot. When the variable is not set,
+address, or a hostname to resolve at boot. When the config is not set,
 the security profile policy decides the default address.
 
-Schema defaults stay static bare ports; this module is called from
-runtime code only, on the running node, when a listener is started.
+Schema defaults stay static bare ports, and the schema only validates the
+value (`validate/1`); resolution happens in runtime code only, on the
+running node, when a listener is started.
 """.
 
 -include("logger.hrl").
 
 -define(PT_KEY, {?MODULE, value}).
 -define(PT_RESOLVED_KEY, {?MODULE, resolved_host}).
--define(ADDRESS_ENV_VAR, "EMQX_DEFAULT_ADDRESS").
+-define(CONF_KEY, [node, default_listener_address]).
+-define(CONF_NAME, "node.default_listener_address").
 
--export([resolve/1, listen_on/2, clear/0]).
+-export([resolve/1, listen_on/2, validate/1, clear/0]).
 
 -export_type([address/0, scope/0]).
 
@@ -39,8 +42,8 @@ runtime code only, on the running node, when a listener is started.
 -doc """
 Returns the address for a bare-port listener bind in the given scope.
 
-Returns the address resolved from the `EMQX_DEFAULT_ADDRESS` environment
-variable when it is set, otherwise the security profile policy for the
+Returns the address resolved from the `node.default_listener_address`
+config when it is set, otherwise the security profile policy for the
 scope. `any` means bind all interfaces without an explicit address;
 `loopback` means the caller binds its own loopback address.
 """.
@@ -68,6 +71,17 @@ listen_on(Scope, Port) when is_integer(Port) ->
     end;
 listen_on(_Scope, Bind) ->
     Bind.
+
+-doc """
+Validates a `node.default_listener_address` value. Schema validator; pure,
+it never resolves anything.
+""".
+-spec validate(string() | binary()) -> ok | {error, binary()}.
+validate(Value) ->
+    case parse(str(Value)) of
+        {ok, _} -> ok;
+        {error, Message} -> {error, Message}
+    end.
 
 -doc """
 Clears the cached value. This function is intended for testing purposes only.
@@ -106,38 +120,54 @@ value() ->
 
 cache_value() ->
     Value =
-        case os:getenv(?ADDRESS_ENV_VAR) of
-            false -> default;
-            "" -> default;
-            "loopback" -> loopback;
-            "all" -> all;
-            "nodename" -> nodename;
-            Str -> parse_address_or_hostname(Str)
+        case emqx_config:get(?CONF_KEY, undefined) of
+            undefined -> default;
+            Conf -> parse_or_exit(str(Conf))
         end,
     _ = persistent_term:put(?PT_KEY, Value),
     Value.
 
-parse_address_or_hostname(Str) ->
-    case inet:parse_address(Str) of
-        {ok, IP} ->
-            IP;
-        {error, _} ->
-            validate_hostname(Str)
+parse_or_exit(Str) ->
+    case parse(Str) of
+        {ok, Value} ->
+            Value;
+        {error, Message} ->
+            exit({invalid_default_address, Message})
     end.
 
-validate_hostname(Str) ->
+-spec parse(string()) -> {ok, value()} | {error, binary()}.
+parse("loopback") ->
+    {ok, loopback};
+parse("all") ->
+    {ok, all};
+parse("nodename") ->
+    {ok, nodename};
+parse(Str) ->
+    case inet:parse_address(Str) of
+        {ok, IP} ->
+            {ok, IP};
+        {error, _} ->
+            parse_hostname(Str)
+    end.
+
+parse_hostname(Str) ->
     case is_valid_hostname(Str) of
         true ->
-            {hostname, Str};
+            {ok, {hostname, Str}};
         false ->
             Message = io_lib:format(
-                "Invalid default address(~p) value: ~p. "
+                "Invalid "
+                ?CONF_NAME
+                " value: ~p. "
                 "Valid values are: `loopback', `nodename', `all', "
                 "a literal IPv4/IPv6 address, or a hostname.",
-                [?ADDRESS_ENV_VAR, Str]
+                [Str]
             ),
-            exit({invalid_default_address, iolist_to_binary(Message)})
+            {error, iolist_to_binary(Message)}
     end.
+
+str(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin);
+str(List) when is_list(List) -> List.
 
 is_valid_hostname(Str) ->
     Label = "[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?",
@@ -183,8 +213,8 @@ resolve_host_inet6(Host) ->
             V6;
         {error, Reason} ->
             Message = io_lib:format(
-                "~p: the host ~p does not resolve to any address: ~p.",
-                [?ADDRESS_ENV_VAR, Host, Reason]
+                ?CONF_NAME ": the host ~p does not resolve to any address: ~p.",
+                [Host, Reason]
             ),
             exit({invalid_default_address, iolist_to_binary(Message)})
     end.

@@ -114,7 +114,7 @@
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 -define(SECURITY_PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
--define(DEFAULT_ADDRESS_ENV_VAR, "EMQX_DEFAULT_ADDRESS").
+-define(DEFAULT_ADDRESS_CONF_KEY, [node, default_listener_address]).
 
 -define(MQTT_SSL_CLIENT_CERTS, [
     {keyfile, ?CERTS_PATH("client-key.pem")},
@@ -1419,12 +1419,12 @@ with_default_address(Address, Fun) ->
 
 -spec set_default_address(string()) -> ok.
 set_default_address(Address) when is_list(Address) ->
-    os:putenv(?DEFAULT_ADDRESS_ENV_VAR, Address),
+    ok = emqx_config:put(?DEFAULT_ADDRESS_CONF_KEY, Address),
     emqx_default_address:clear(),
     ok.
 
 clear_default_address() ->
-    os:unsetenv(?DEFAULT_ADDRESS_ENV_VAR),
+    ok = emqx_config:put(?DEFAULT_ADDRESS_CONF_KEY, undefined),
     emqx_default_address:clear(),
     ok.
 

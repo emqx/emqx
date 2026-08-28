@@ -256,19 +256,6 @@ if [[ "$IS_BOOT_COMMAND" = 'yes' ]]; then
         logerr "Invalid security profile: $EMQX_SECURITY_PROFILE. Valid values are: legacy, hardened."
         exit 1
     fi
-    ## Unset means: fall back to the security profile policy. Keep it unset,
-    ## do not export a default. The Erlang side parses an address or
-    ## hostname strictly; this check only rejects obvious garbage early.
-    case "${EMQX_DEFAULT_ADDRESS:-}" in
-        ''|loopback|nodename|all)
-            ;;
-        *[!0-9A-Za-z:.-]*)
-            logerr "Invalid default address: $EMQX_DEFAULT_ADDRESS. Valid values are: loopback, nodename, all, a literal IPv4/IPv6 address, or a hostname."
-            exit 1
-            ;;
-        *)
-            ;;
-    esac
 fi
 
 

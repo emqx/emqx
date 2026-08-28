@@ -117,7 +117,7 @@ t_resolver_values(_Config) ->
     ).
 
 -doc """
-Asserts that with the variable unset the resolver falls back to the
+Asserts that with the config unset the resolver falls back to the
 security profile policy, and that the profile does not cover the gateway
 scope.
 """.

@@ -86,7 +86,7 @@ done
 # Only these known non-secret variables; the file can carry arbitrary
 # EMQX_* overrides, including secrets.
 if [ -f "$EMQX_ETC_DIR/emqx.env" ]; then
-    grep -E '^(EMQX_FEATURES|EMQX_SECURITY_PROFILE|EMQX_DEFAULT_ADDRESS)=' \
+    grep -E '^(EMQX_FEATURES|EMQX_SECURITY_PROFILE)=' \
         "$EMQX_ETC_DIR/emqx.env" > "${ENV_FILE_DUMP}" || true
 fi
 

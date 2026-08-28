@@ -259,29 +259,26 @@ def test_invalid_security_profile_fails_fast(emqx_bin_path, security_profile):
     assert "hardened" in output
 
 
-@pytest.mark.parametrize("default_address", ["bad_value", "bad!addr"])
-def test_invalid_default_address_fails_fast(emqx_bin_path, default_address):
-    """Test that malformed EMQX_DEFAULT_ADDRESS fails before boot."""
+@pytest.mark.parametrize("default_address", ["bad_value", "0.0.0.0:1883"])
+def test_invalid_default_listener_address_fails_fast(emqx_bin_path, default_address):
+    """A malformed node.default_listener_address fails schema validation
+    before boot."""
     result = run_emqx_console(
         emqx_bin_path,
-        {"EMQX_DEFAULT_ADDRESS": default_address},
+        {"EMQX_NODE__DEFAULT_LISTENER_ADDRESS": default_address},
+        timeout=120,
     )
     output = result.stdout + result.stderr
     assert result.returncode != 0
-    assert "Invalid default address" in output
-    assert "loopback" in output
-    assert "nodename" in output
-    assert "all" in output
+    assert "default_listener_address" in output
 
 
-@pytest.mark.parametrize("default_address", ["0.0.0.0:1883", "host.invalid"])
-def test_default_address_erlang_rejects_bad_value(emqx_bin_path, default_address):
-    """A value that passes the bin/emqx character check is rejected by the
-    Erlang resolver: at parse time for bad syntax, at resolve time for a
-    hostname that does not resolve (.invalid never resolves)."""
+def test_unresolvable_default_listener_address_fails_boot(emqx_bin_path):
+    """A syntactically valid hostname that does not resolve passes schema
+    validation and fails at listener start (.invalid never resolves)."""
     result = run_emqx_console(
         emqx_bin_path,
-        {"EMQX_DEFAULT_ADDRESS": default_address},
+        {"EMQX_NODE__DEFAULT_LISTENER_ADDRESS": "host.invalid"},
         timeout=120,
     )
     output = result.stdout + result.stderr
@@ -290,20 +287,20 @@ def test_default_address_erlang_rejects_bad_value(emqx_bin_path, default_address
 
 
 @pytest.mark.parametrize("default_address", ["loopback", "nodename", "all", "::1"])
-def test_valid_default_address_accepted(emqx_bin_path, default_address):
-    """A valid EMQX_DEFAULT_ADDRESS passes validation; boot proceeds until
-    the hardened-profile default-cookie check aborts it."""
+def test_valid_default_listener_address_accepted(emqx_bin_path, default_address):
+    """A valid node.default_listener_address passes validation; boot
+    proceeds until the hardened-profile default-cookie check aborts it."""
     result = run_emqx_console(
         emqx_bin_path,
         {
-            "EMQX_DEFAULT_ADDRESS": default_address,
+            "EMQX_NODE__DEFAULT_LISTENER_ADDRESS": default_address,
             "EMQX_SECURITY_PROFILE": "hardened",
             "EMQX_NODE__COOKIE": "emqxsecretcookie",
         },
     )
     output = result.stdout + result.stderr
     assert result.returncode != 0
-    assert "Invalid default address" not in output
+    assert "default_listener_address" not in output
     assert "Cannot continue with default cookie" in output
 
 

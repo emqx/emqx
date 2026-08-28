@@ -235,8 +235,8 @@ shutdown_count(_, _, _) ->
 %% @doc Start all listeners.
 -spec start() -> ok.
 start() ->
-    %% Validate and resolve EMQX_DEFAULT_ADDRESS eagerly, so an invalid
-    %% value stops the boot with a clear reason.
+    %% Resolve node.default_listener_address eagerly, so an unresolvable
+    %% host stops the boot with a clear reason.
     _ = emqx_default_address:resolve(mqtt),
     %% The ?MODULE:start/0 will be called by emqx_app when emqx get started,
     %% so we install the config handler here.

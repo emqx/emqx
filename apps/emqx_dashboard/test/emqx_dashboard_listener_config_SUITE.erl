@@ -68,7 +68,7 @@ t_http_default_bind_security_profile(Config) ->
     ok = assert_http_default_bind(true, expected_http_bind(Profile, true), inet6).
 
 -doc """
-Asserts that EMQX_DEFAULT_ADDRESS overrides the security profile for the
+Asserts that node.default_listener_address overrides the security profile for the
 bare-port dashboard bind, that the loopback keyword keeps the inet6-aware
 loopback resolution, and that an IPv6 address implies inet6 in the socket
 options.
