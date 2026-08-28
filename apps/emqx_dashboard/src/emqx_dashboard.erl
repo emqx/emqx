@@ -220,11 +220,13 @@ list_listeners() ->
 
 %% http
 ip_port(http = _Protocol, #{bind := Port} = Opts) when is_integer(Port) ->
-    case emqx_security_profile:policy(dashboard_http_default_bind) of
+    case emqx_default_address:resolve(dashboard) of
         any ->
             {maps:without([bind], Opts#{port => Port}), Port};
         loopback ->
             IP = loopback_ip(Opts),
+            {maps:without([bind], Opts#{port => Port, ip => IP}), {IP, Port}};
+        IP ->
             {maps:without([bind], Opts#{port => Port, ip => IP}), {IP, Port}}
     end;
 ip_port(http = _Protocol, #{bind := {IP, Port} = Bind} = Opts) ->

@@ -149,6 +149,31 @@ node_name.desc:
 node_name.label:
 """Node Name"""
 
+node_default_listener_address.desc:
+"""The address for listener binds that have no explicit address, that is
+bare-port binds such as <code>bind = 1883</code>. Applies to MQTT listeners,
+gateway listeners, and the dashboard HTTP listener. An explicit
+<code>IP:port</code> bind always wins.<br/>
+Valid values:<br/>
+- <code>loopback</code>: bind 127.0.0.1. The dashboard binds ::1 instead when
+its inet6 option is set.<br/>
+- <code>nodename</code>: take the host part of the Erlang node name (after
+the @). When it is an IP address, bind it; otherwise resolve it at boot and
+bind the first IPv4 address, or the first IPv6 address when no IPv4 address
+resolves.<br/>
+- <code>all</code>: bind 0.0.0.0, that is all IPv4 interfaces.<br/>
+- A literal IPv4 or IPv6 address, for example <code>192.168.1.10</code> or
+<code>::1</code>. The address <code>::</code> accepts IPv4 and IPv6
+connections on most systems; the OS bindv6only setting decides.<br/>
+- A hostname, for example <code>broker1.example.com</code>, resolved at boot
+like the node name host.<br/>
+When not set, the security profile decides the default address: legacy binds
+all interfaces, hardened binds loopback. EMQX reads the value once at boot;
+change it and restart the node."""
+
+node_default_listener_address.label:
+"""Default Listener Address"""
+
 rpc_port_discovery.desc:
 """<code>manual</code>: discover ports by <code>server_port</code>.<br/>
 <code>stateless</code>: discover ports in a stateless manner, using the following algorithm.
