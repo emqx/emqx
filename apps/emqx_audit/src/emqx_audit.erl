@@ -103,8 +103,30 @@ log(_Level, undefined, _Handler) ->
 log(Level, Meta1, Handler) ->
     Meta2 = Meta1#{time => logger:timestamp(), level => Level},
     log_to_file(Level, Meta2, Handler),
-    log_to_db(Meta2),
+    try_log_to_db(Meta2),
     remove_handler_when_disabled().
+
+%% A crash must not propagate to the ?AUDIT call site: audit events are
+%% emitted from cluster_rpc transactions and CLI commands, and a raise
+%% breaks the audited operation itself. It would also skip
+%% remove_handler_when_disabled/0, leaving the handler installed
+%% forever after audit is disabled.
+try_log_to_db(Log) ->
+    try
+        log_to_db(Log)
+    catch
+        _:{aborted, {no_exists, _}} ->
+            %% The audit table is already gone when this node is
+            %% leaving the cluster.
+            ok;
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "failed_to_write_audit_log_to_db",
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            })
+    end.
 
 remove_handler_when_disabled() ->
     case emqx_config:get([log, audit, enable], false) of

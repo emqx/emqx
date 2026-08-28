@@ -60,6 +60,7 @@ persistent_session_testcases() ->
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
         t_list_clients_v2_limit,
+        t_list_clients_v2_limit2,
         t_list_clients_v2_exact_filters,
         t_list_clients_v2_regular_filters,
         t_list_clients_v2_bad_query_string_parameters
@@ -1542,10 +1543,35 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     {ok, LimitedMsgsResp} = emqx_mgmt_api_test_util:request_api(
         get, Path, QsPayloadLimit, AuthHeader
     ),
-    #{<<"meta">> := _, <<"data">> := FirstMsgOnly} = emqx_utils_json:decode(LimitedMsgsResp),
+    #{<<"meta">> := #{<<"position">> := TruncatedPos}, <<"data">> := FirstMsgOnly} =
+        emqx_utils_json:decode(LimitedMsgsResp),
     ?assertEqual(1, length(FirstMsgOnly)),
     ?assertEqual(
         <<"1">>, decode_payload(maps:get(<<"payload">>, hd(FirstMsgOnly)), PayloadEncoding)
+    ),
+    %% When `max_payload_bytes` cuts the page short, the position must point at the last
+    %% returned message, not at the last message walked before the cut, so that paging
+    %% skips no message.
+    ?assertEqual(TruncatedPos, msg_pos(hd(FirstMsgOnly), IsMqueue)),
+    %% Page through the remaining messages one message per page.
+    lists:foldl(
+        fun(Seq, PosIn) ->
+            PageQs = io_lib:format(
+                "payload=~s&max_payload_bytes=1&position=~s", [PayloadEncoding, PosIn]
+            ),
+            {ok, PageResp} = emqx_mgmt_api_test_util:request_api(get, Path, PageQs, AuthHeader),
+            #{<<"meta">> := #{<<"position">> := PosOut}, <<"data">> := PageMsgs} =
+                emqx_utils_json:decode(PageResp),
+            ?assertEqual(1, length(PageMsgs)),
+            ?assertEqual(
+                integer_to_binary(Seq),
+                decode_payload(maps:get(<<"payload">>, hd(PageMsgs)), PayloadEncoding)
+            ),
+            ?assertEqual(PosOut, msg_pos(hd(PageMsgs), IsMqueue)),
+            PosOut
+        end,
+        TruncatedPos,
+        lists:seq(2, Count)
     ),
 
     Limit = 19,
@@ -2081,6 +2107,27 @@ t_list_clients_v2(Config) ->
             end),
             ?assert(is_atom(binary_to_term(EvilAtomBin0))),
 
+            %% select only a few output fields
+            {ok,
+                {{_, 200, _}, _, #{
+                    <<"data">> := [ResFields1]
+                }}} = list_v2_request(
+                #{limit => "1", fields => "clientid"},
+                Config
+            ),
+            ?assertEqual([<<"clientid">>], lists:sort(maps:keys(ResFields1))),
+            {ok,
+                {{_, 200, _}, _, #{
+                    <<"data">> := [ResFields2]
+                }}} = list_v2_request(
+                #{limit => "1", fields => "connected_at,clientid,clean_start"},
+                Config
+            ),
+            ?assertEqual(
+                [<<"clean_start">>, <<"clientid">>, <<"connected_at">>],
+                lists:sort(maps:keys(ResFields2))
+            ),
+
             lists:foreach(
                 fun(ClientId) ->
                     ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [ClientId])
@@ -2166,6 +2213,60 @@ t_list_clients_v2_limit(Config) ->
         end)()
     after
         %% 3. Cleanup:
+        _ = [
+            begin
+                try
+                    emqtt:stop(Pid)
+                catch
+                    _:_ -> ok
+                end,
+                erpc:call(Node, emqx_persistent_session_ds, kick_offline_session, [ClientId])
+            end
+         || {ClientId, Node, Pid} <- Clients
+        ],
+        ok
+    end.
+
+-doc """
+Regression case for https://github.com/emqx/emqx/issues/18531
+
+If we have all clients on a single node, all memory sessions, and ask for the total number
+of clients, we don't get a cursor in the response, since there's no more data to fetch.
+""".
+t_list_clients_v2_limit2(Config) ->
+    [Node1 | _] = ?config(cluster_nodes, Config),
+    NClients = 20,
+    %% Create clients:
+    Clients = [
+        begin
+            ClientId = ?CLIENTID((integer_to_binary(I))),
+            Pid = connect_client(#{
+                port => get_mqtt_port(Node1, tcp),
+                clientid => ClientId,
+                expiry => 0,
+                clean_start => true
+            }),
+            {ClientId, Node1, Pid}
+        end
+     || I <- lists:seq(1, NClients)
+    ],
+    QP = #{<<"limit">> => integer_to_binary(NClients)},
+    {ok, {{_, 200, _}, _, Res1}} = list_v2_request(
+        QP,
+        Config
+    ),
+    %% shouldn't contain a cursor, so the client doesn't have the terrible burden of
+    %% fetching an empty page...  oh, the horror!
+    try
+        #{
+            <<"meta">> := Meta1,
+            <<"data">> := Data1
+        } = Res1,
+        ?assertMatch(#{<<"count">> := 20}, Meta1),
+        ?assertNotMatch(#{<<"cursor">> := _}, Meta1),
+        ?assertEqual(NClients, length(Data1)),
+        ok
+    after
         _ = [
             begin
                 try

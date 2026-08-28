@@ -7,6 +7,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 all() ->
     [
@@ -348,6 +349,18 @@ t_license_key_redacted(_) ->
     %% the recorded body is redacted: no license key, only the redaction mark
     ?assertEqual(nomatch, binary:match(AuditBody, <<"default">>), AuditBody),
     ?assertNotEqual(nomatch, binary:match(AuditBody, <<"******">>), AuditBody),
+    ok.
+
+-doc """
+Regression test for #18534: an audit event that `to_audit/1' has no
+clause for must not crash the ?AUDIT caller — audit events are
+emitted from within cluster_rpc transactions and CLI commands, where
+a raise breaks the audited operation itself.
+""".
+t_malformed_event_does_not_crash(_) ->
+    ?assertEqual(true, emqx:get_config([log, audit, enable])),
+    ?assertMatch({ok, _}, logger_config:get(logger, emqx_audit)),
+    ?assertEqual(ok, ?AUDIT(info, #{from => bogus_from, cmd => bogus})),
     ok.
 
 t_kickout_clients_without_log(_) ->

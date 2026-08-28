@@ -2177,3 +2177,95 @@ t_delete_then_disable(_TCConfig) ->
     ok = publish(C, Topic, #{t => <<"t">>}),
     ?assertNotReceive({publish, _}),
     ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that `matching_transformations/1` finds matches while the topic index table
+exists, and returns no matches instead of raising when the table is absent.  The
+table is absent while the registry owner process is down, e.g. during a restart.
+""".
+t_matching_transformations_missing_index_table(_Config) ->
+    Name1 = <<"foo">>,
+    {201, _} = insert(transformation(Name1, [dummy_operation()])),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_message_transformation_registry:matching_transformations(<<"t/1">>)
+    ),
+    IndexTab = emqx_message_transformation_index,
+    Owner = ets:info(IndexTab, owner),
+    true = ets:delete(IndexTab),
+    try
+        ?assertEqual(
+            [], emqx_message_transformation_registry:matching_transformations(<<"t/1">>)
+        )
+    after
+        restore_index_table(IndexTab, Owner)
+    end,
+    ok.
+
+restore_index_table(Tab, Owner) ->
+    _ = ets:new(Tab, [named_table, public, ordered_set, {read_concurrency, true}]),
+    true = ets:give_away(Tab, Owner, undefined),
+    ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that the topic index and transformation tables survive a restart of the
+registry worker process.  The supervisor owns the tables, so a worker restart
+neither loses configured transformations nor opens a window where lookups find no
+table.
+""".
+t_registry_restart_keeps_index(_Config) ->
+    Name1 = <<"foo">>,
+    {201, _} = insert(transformation(Name1, [dummy_operation()])),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_message_transformation_registry:matching_transformations(<<"t/1">>)
+    ),
+    Pid = whereis(emqx_message_transformation_registry),
+    Ref = monitor(process, Pid),
+    exit(Pid, kill),
+    receive
+        {'DOWN', Ref, process, Pid, killed} -> ok
+    after 1_000 -> ct:fail(registry_not_killed)
+    end,
+    ?retry(100, 50, begin
+        NewPid = whereis(emqx_message_transformation_registry),
+        ?assert(is_pid(NewPid) andalso NewPid =/= Pid)
+    end),
+    ?assertMatch(
+        [#{name := Name1}],
+        emqx_message_transformation_registry:matching_transformations(<<"t/1">>)
+    ),
+    ok.
+
+%% https://github.com/emqx/emqx/issues/17776
+-doc """
+Tests that stopping the application removes the `message.publish` hook, also when
+transformations are configured.  The teardown runs in `prep_stop/1`, while the
+registry is still alive: `stop/1` runs only after the supervision tree is down, so a
+registry call from there crashes and OTP silently discards the rest of the callback.
+""".
+t_app_stop_unregisters_hooks(_Config) ->
+    {201, _} = insert(transformation(<<"foo">>, [dummy_operation()])),
+    ?assert(is_publish_hook_registered(emqx_message_transformation)),
+    ok = application:stop(emqx_message_transformation),
+    try
+        ?assertNot(is_publish_hook_registered(emqx_message_transformation))
+    after
+        {ok, _} = application:ensure_all_started(emqx_message_transformation)
+    end,
+    ?assert(is_publish_hook_registered(emqx_message_transformation)),
+    ok.
+
+is_publish_hook_registered(Mod) ->
+    lists:any(
+        fun(Callback) ->
+            %% `#callback.action' (opaque to us): 2nd element of the record tuple.
+            case element(2, Callback) of
+                {Mod, _F, _A} -> true;
+                _ -> false
+            end
+        end,
+        emqx_hooks:lookup('message.publish')
+    ).

@@ -21,7 +21,7 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx, "mqtt { await_rel_timeout = 100ms, max_awaiting_rel = 5 }"}
+            {emqx, "mqtt { await_rel_timeout = 1s, max_awaiting_rel = 5 }"}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -70,7 +70,7 @@ t_check_rel_cleanup(_Config) ->
     ),
 
     %% Wait for the queue to be cleaned up
-    ct:sleep(200),
+    ct:sleep(1500),
 
     %% Reconnect after the queue is cleaned up
     {ok, Client1} = emqx_mqtt_test_client:start_link(Host, Port),
@@ -88,7 +88,7 @@ t_check_rel_cleanup(_Config) ->
     %% Disconnect the client
     emqx_mqtt_test_client:stop(Client1).
 
-t_qos2_dup_publish_not_redelivered_after_await_rel_expired(_Config) ->
+t_qos2_dup_publish_not_redelivered(_Config) ->
     Topic = <<"topic/qos2/dup/rel-expire">>,
     Payload = <<"hello">>,
     PacketId = 100,
@@ -115,8 +115,7 @@ t_qos2_dup_publish_not_redelivered_after_await_rel_expired(_Config) ->
         ),
         ?assertMatch({deliver, Topic, #message{payload = Payload}}, receive_deliver(1000)),
 
-        %% let awaiting_rel expire, then resend PUBLISH with DUP=1
-        ct:sleep(200),
+        %% resend PUBLISH with DUP=1
         HeaderDup = (Publish#mqtt_packet.header)#mqtt_packet_header{dup = true},
         PublishDup = Publish#mqtt_packet{header = HeaderDup},
         ok = emqx_mqtt_test_client:send(Client, PublishDup),

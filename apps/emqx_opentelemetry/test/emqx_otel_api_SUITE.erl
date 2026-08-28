@@ -167,6 +167,27 @@ t_put_invalid(Config) ->
             <<"exporter">> => #{<<"endpoint">> => <<"https://somehost.org:99999">>}
         })
     ),
+    %% no port
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, #{
+            <<"exporter">> => #{<<"endpoint">> => <<"https://localhost">>}
+        })
+    ),
+    %% no scheme nor port
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, #{
+            <<"exporter">> => #{<<"endpoint">> => <<"localhost">>}
+        })
+    ),
+    %% no scheme
+    ?assertMatch(
+        {error, {_, 400, _}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, #{
+            <<"exporter">> => #{<<"endpoint">> => <<"localhost:443">>}
+        })
+    ),
     ?assertMatch(
         {error, {_, 400, _}},
         emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, #{
@@ -215,10 +236,10 @@ t_put_valid(Config) ->
     ?assertMatch(
         {ok, _},
         emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, #{
-            <<"exporter">> => #{<<"endpoint">> => <<"nohost.com">>}
+            <<"exporter">> => #{<<"endpoint">> => <<"http://nohost.com:80/">>}
         })
     ),
-    ?assertEqual(<<"http://nohost.com/">>, emqx:get_config(?CONF_PATH ++ [exporter, endpoint])),
+    ?assertEqual(<<"http://nohost.com:80/">>, emqx:get_config(?CONF_PATH ++ [exporter, endpoint])),
 
     ?assertMatch(
         {ok, _}, emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, #{<<"exporter">> => #{}})

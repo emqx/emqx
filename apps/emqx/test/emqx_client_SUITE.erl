@@ -112,7 +112,8 @@ groups() ->
             t_first_packet_not_connect,
             t_frame_error_shutdown_count_idle,
             t_frame_error_shutdown_count_connected,
-            t_frame_error_shutdown_count_is_bounded
+            t_frame_error_shutdown_count_is_bounded,
+            t_sock_closed_incomplete_qos2_transmission
         ]},
         {socket, [], [
             t_connection_stats,
@@ -1732,6 +1733,56 @@ shutdown_count_keys(Config) ->
 
 shutdown_counts(Config) ->
     emqx_listeners:shutdown_count(listener_id(Config), listener_bind(Config)).
+
+t_sock_closed_incomplete_qos2_transmission(_) ->
+    Topic = <<"t">>,
+    SubscriberId = <<"s">>,
+    PublisherId = <<"p">>,
+    PacketId = 1,
+    Payload = <<"payload">>,
+    PublishPkt = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, Payload),
+    Publish = emqx_frame:serialize(PublishPkt),
+    IncompletePublish = binary:part(iolist_to_binary(Publish), 0, iolist_size(Publish) - 1),
+    %% Connect the subscriber "s", subscribe to topic "t" with QoS2:
+    {ok, Subscriber} = emqtt:start_link([{clientid, SubscriberId}]),
+    {ok, _} = emqtt:connect(Subscriber),
+    {ok, _, [?QOS_2]} = emqtt:subscribe(Subscriber, Topic, ?QOS_2),
+    %% Connect the publisher "p":
+    ConnPkt = ?CONNECT_PACKET(#mqtt_packet_connect{clean_start = false, clientid = PublisherId}),
+    Connect = emqx_frame:serialize(ConnPkt),
+    {ok, Socket1} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, false}, binary]),
+    ok = gen_tcp:send(Socket1, Connect),
+    %% Send incomplete QoS2 publish and close the connection abruptly:
+    ok = gen_tcp:send(Socket1, IncompletePublish),
+    ok = timer:sleep(1000),
+    ok = gen_tcp:close(Socket1),
+    ?retry(100, 20, begin
+        [ChanPid] = emqx_cm:lookup_channels(PublisherId),
+        false = emqx_cm:is_channel_connected(ChanPid)
+    end),
+    %% Prepare a duplicate publish:
+    #mqtt_packet{header = PublishHd} = PublishPkt,
+    DupPublishPkt = PublishPkt#mqtt_packet{header = PublishHd#mqtt_packet_header{dup = true}},
+    DupPublish = emqx_frame:serialize(DupPublishPkt),
+    %% Connect the publisher "p" and resend the complete publish with DUP flag:
+    {ok, Socket2} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, false}, binary]),
+    ok = gen_tcp:send(Socket2, Connect),
+    ok = gen_tcp:send(Socket2, DupPublish),
+    %% Subscriber should receive the publish:
+    ?assertReceive(
+        {publish, #{
+            client_pid := Subscriber,
+            topic := Topic,
+            qos := ?QOS_2,
+            dup := false,
+            payload := Payload
+        }},
+        3000
+    ),
+    %% Cleanup:
+    ok = gen_tcp:close(Socket2),
+    ok = emqx_cm:discard_session(PublisherId),
+    ok = emqtt:stop(Subscriber).
 
 %%--------------------------------------------------------------------
 %% Helper functions

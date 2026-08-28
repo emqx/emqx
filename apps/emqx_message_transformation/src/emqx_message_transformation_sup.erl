@@ -23,6 +23,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
+    ok = emqx_message_transformation_registry:create_tables(),
     Registry = worker_spec(emqx_message_transformation_registry),
     Metrics = emqx_message_transformation_registry:metrics_worker_spec(),
     SupFlags = #{

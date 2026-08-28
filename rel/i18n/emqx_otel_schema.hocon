@@ -31,7 +31,7 @@ scheduled_delay.desc: "The delay interval between two consecutive exports of Ope
 scheduled_delay.label: "Scheduled Delay Interval"
 
 exporter_endpoint.desc:
-"""The target URL to which the exporter is going to send Open Telemetry signal data."""
+"""The target URL to which the exporter is going to send Open Telemetry signal data.  Must explicitly define the port."""
 exporter_endpoint.label: "Exporter Endpoint"
 
 exporter_headers.desc:
@@ -39,7 +39,9 @@ exporter_headers.desc:
 The headers are a map with header names as keys."""
 exporter_headers.label: "Exporter Headers"
 
-exporter_protocol.desc: "The transport protocol of Open Telemetry Exporter"
+exporter_protocol.desc:
+"""The transport protocol of the OpenTelemetry exporter.
+Only `grpc` is supported. The exporter cannot send to an OTLP/HTTP endpoint."""
 exporter_protocol.label: "Exporter Protocol"
 
 exporter_ssl.desc: "SSL configuration for the Open Telemetry exporter"

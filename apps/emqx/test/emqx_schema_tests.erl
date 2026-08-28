@@ -1021,6 +1021,26 @@ servers_validator_test() ->
     ?assertThrow("cannot_be_empty", Required(undefined)),
     ?assertEqual(ok, NotRequired(undefined)),
     ?assertEqual(ok, NotRequired("undefined")),
+    SingleServer = emqx_schema:servers_validator(
+        #{
+            single_server => true,
+            supported_schemes => ["http", "https"]
+        },
+        true
+    ),
+    ?assertThrow(
+        "expecting_one_host_but_got: 2",
+        SingleServer("http://localhost:4317,https://localhost:4318")
+    ),
+    ?assertThrow(
+        "expecting_single_server_but_found_comma",
+        SingleServer("http://localhost:4317,")
+    ),
+    ?assertThrow(
+        "expecting_single_server_but_found_comma",
+        SingleServer("http://localhost:4317,  ")
+    ),
+    ?assertEqual(ok, SingleServer("http://localhost:4317")),
     ok.
 
 converter_invalid_input_test() ->
