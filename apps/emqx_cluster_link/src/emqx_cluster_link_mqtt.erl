@@ -199,19 +199,21 @@ on_query(
 ) ->
     QoS = min(?QOS_1, FwdQoS),
     Payload = encode_payload(FwdMsg#message{extra = #{}}),
-    PubResult = ecpool:pick_and_do(
-        {PoolName, PoolKey},
-        fun(ConnPid) ->
-            emqtt:publish(ConnPid, LinkTopic, Payload, QoS)
-        end,
-        no_handover
-    ),
-    ?tp_debug("cluster_link_message_forwarded", #{
-        pool => PoolName,
-        message => FwdMsg,
-        pub_result => PubResult
-    }),
-    handle_send_result(PubResult).
+    handle_ecpool_result(
+        ecpool:pick_and_do(
+            {PoolName, PoolKey},
+            fun(ConnPid) ->
+                Result = emqtt:publish(ConnPid, LinkTopic, Payload, QoS),
+                ?tp_debug("cluster_link_message_forwarded", #{
+                    pool => PoolName,
+                    message => FwdMsg,
+                    pub_result => Result
+                }),
+                handle_send_result(Result)
+            end,
+            no_handover
+        )
+    ).
 
 on_query_async(
     _ResourceId,
@@ -222,22 +224,26 @@ on_query_async(
     Callback = {fun on_async_result/2, [CallbackIn]},
     QoS = min(?QOS_1, FwdQoS),
     Payload = encode_payload(FwdMsg#message{extra = #{}}),
-    Result = ecpool:pick_and_do(
-        {PoolName, PoolKey},
-        fun(ConnPid) ->
-            PubResult = emqtt:publish_async(ConnPid, LinkTopic, Payload, QoS, Callback),
-            ?tp_debug("cluster_link_message_forwarded", #{
-                pool => PoolName,
-                message => FwdMsg,
-                pub_result => PubResult
-            }),
-            PubResult
-        end,
-        no_handover
-    ),
-    %% This result could be `{error, ecpool_empty}', for example, which should be
-    %% recoverable.  If we didn't handle it here, it would be considered unrecoverable.
-    handle_send_result(Result).
+    handle_ecpool_result(
+        ecpool:pick_and_do(
+            {PoolName, PoolKey},
+            fun(ConnPid) ->
+                Result = emqtt:publish_async(ConnPid, LinkTopic, Payload, QoS, Callback),
+                ?tp_debug("cluster_link_message_forwarded", #{
+                    pool => PoolName,
+                    message => FwdMsg,
+                    pub_result => Result
+                }),
+                case handle_send_result(Result) of
+                    ok ->
+                        {ok, ConnPid};
+                    Error ->
+                        Error
+                end
+            end,
+            no_handover
+        )
+    ).
 
 %% copied from emqx_bridge_mqtt_connector
 
@@ -262,18 +268,38 @@ handle_send_result({ok, Reply}) ->
 handle_send_result({error, Reason}) ->
     {error, classify_error(Reason)}.
 
+handle_ecpool_result({error, disconnected}) ->
+    {error, {recoverable_error, disconnected}};
+handle_ecpool_result({error, ecpool_empty}) ->
+    {error, {recoverable_error, disconnected}};
+handle_ecpool_result(Result) ->
+    Result.
+
 classify_reply(Reply = #{reason_code := _}) ->
     {unrecoverable_error, Reply}.
 
-classify_error(disconnected = Reason) ->
-    {recoverable_error, Reason};
-classify_error(ecpool_empty) ->
-    {recoverable_error, disconnected};
 classify_error({disconnected, _RC, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error({shutdown, _} = Reason) ->
     {recoverable_error, Reason};
 classify_error(shutdown = Reason) ->
+    {recoverable_error, Reason};
+classify_error(Reason) when
+    Reason =:= closed;
+    Reason =:= tcp_closed;
+    Reason =:= ssl_closed;
+    Reason =:= einval;
+    Reason =:= enotconn;
+    Reason =:= econnaborted;
+    Reason =:= econnrefused;
+    Reason =:= econnreset;
+    Reason =:= ehostdown;
+    Reason =:= ehostunreach;
+    Reason =:= enetdown;
+    Reason =:= enetreset;
+    Reason =:= enetunreach;
+    Reason =:= etimedout
+->
     {recoverable_error, Reason};
 classify_error(Reason) ->
     {unrecoverable_error, Reason}.

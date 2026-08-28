@@ -264,15 +264,26 @@ when
     TopicFilter :: binary(),
     Rule :: rule().
 get_rules_for_topic(Topic) ->
-    [
-        #{
-            rule => Rule,
-            trigger => Topic,
-            matched => join(MBinaryOrWords)
-        }
-     || {MBinaryOrWords, _} = M <- emqx_topic_index:matches(Topic, ?RULE_TOPIC_INDEX, [unique]),
-        Rule <- lookup_rule(emqx_topic_index:get_id(M))
-    ].
+    %% The supervisor owns the index table, so it exists for the whole application
+    %% lifecycle; finding it missing is an abnormal state.  Return no matches instead
+    %% of crashing the `message.publish' hook, and log so the fault stays visible.
+    case ets:whereis(?RULE_TOPIC_INDEX) of
+        undefined ->
+            log_missing_index_table(?RULE_TOPIC_INDEX),
+            [];
+        _ ->
+            [
+                #{
+                    rule => Rule,
+                    trigger => Topic,
+                    matched => join(MBinaryOrWords)
+                }
+             || {MBinaryOrWords, _} = M <- emqx_topic_index:matches(
+                    Topic, ?RULE_TOPIC_INDEX, [unique]
+                ),
+                Rule <- lookup_rule(emqx_topic_index:get_id(M))
+            ]
+    end.
 
 -spec get_enriched_rules_with_matching_event_all_namespaces(EventName :: atom()) ->
     [
@@ -555,6 +566,19 @@ code_change(_OldVsn, State, _Extra) ->
 %%----------------------------------------------------------------------------------------
 %% Internal Functions
 %%----------------------------------------------------------------------------------------
+
+log_missing_index_table(Tab) ->
+    Level =
+        case emqx_node_readiness:is_ready() of
+            true -> error;
+            false -> warning
+        end,
+    ?SLOG_THROTTLE(
+        Level,
+        atom_to_binary(Tab),
+        #{msg => topic_index_table_missing, table => Tab},
+        #{}
+    ).
 
 with_parsed_rule(
     Params = #{id := RuleId, namespace := Namespace, sql := Sql, actions := Actions},
