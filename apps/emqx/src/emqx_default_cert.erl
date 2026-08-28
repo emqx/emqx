@@ -16,8 +16,11 @@ never kept anywhere.
 
 Key parameters:
 
-* RSA keys are 2048 bits; EC keys use `secp256r1`. Both are the
-  current minimum widely accepted for a server certificate.
+* The default key type is `ec`, using `secp256r1`: smaller keys and
+  faster handshakes than RSA, and universally supported by TLS
+  clients. `rsa` (2048 bits) is also available for callers that need
+  it. Both are the current minimum widely accepted for a server
+  certificate.
 * Certificates are valid for 3650 days (about ten years) starting one
   day in the past, so a small clock skew between the generating node
   and a client does not make the certificate look not-yet-valid.
@@ -62,12 +65,12 @@ This module has no callers. It is a pure cryptography library.
 Generates a root CA certificate and its private key.
 
 Options: `cn` (required) becomes the subject common name; `org` is the
-subject organization name (defaults to `"EMQX"`); `key_type` is `rsa`
-(default) or `ec`.
+subject organization name (defaults to `"EMQX"`); `key_type` is `ec`
+(default) or `rsa`.
 """.
 -spec generate_ca(#{cn := string(), org => string(), key_type => key_type()}) -> pem_pair().
 generate_ca(#{cn := _} = Opts) ->
-    Key = gen_key(maps:get(key_type, Opts, rsa)),
+    Key = gen_key(maps:get(key_type, Opts, ec)),
     Subject = subject(Opts),
     TBS = tbs_certificate(Subject, Subject, Key, Key, ca_extensions()),
     Der = public_key:pkix_sign(TBS, Key),
@@ -78,8 +81,8 @@ Generates a certificate signed by the given CA.
 
 Options: `cn` (required) becomes the subject common name; `org` is the
 subject organization name (defaults to `"EMQX"`); `sans` is the list of
-subject alternative names (defaults to `[]`); `key_type` is `rsa`
-(default) or `ec`.
+subject alternative names (defaults to `[]`); `key_type` is `ec`
+(default) or `rsa`.
 """.
 -spec generate_cert(pem_pair(), #{
     cn := string(),
@@ -91,7 +94,7 @@ generate_cert(#{cert_pem := CaCertPem, key_pem := CaKeyPem}, Opts) ->
     SANs = maps:get(sans, Opts, []),
     CaKey = pem_to_key(CaKeyPem),
     Issuer = cert_subject(CaCertPem),
-    Key = gen_key(maps:get(key_type, Opts, rsa)),
+    Key = gen_key(maps:get(key_type, Opts, ec)),
     TBS = tbs_certificate(subject(Opts), Issuer, Key, CaKey, leaf_extensions(Key, SANs)),
     Der = public_key:pkix_sign(TBS, CaKey),
     #{cert_pem => cert_to_pem(Der), key_pem => key_to_pem(Key)}.
