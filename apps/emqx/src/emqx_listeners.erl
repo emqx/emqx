@@ -168,15 +168,8 @@ is_running(ListenerId) ->
         false -> {error, not_found}
     end.
 
-is_running(Type, ListenerId, Conf) when Type =:= tcp; Type =:= ssl ->
-    #{bind := ListenOn} = Conf,
-    try esockd:listener({ListenerId, ListenOn}) of
-        Pid when is_pid(Pid) ->
-            true
-    catch
-        _:_ ->
-            false
-    end;
+is_running(Type, ListenerId, _Conf) when Type =:= tcp; Type =:= ssl ->
+    find_listen_on(ListenerId) =/= error;
 is_running(Type, ListenerId, _Conf) when Type =:= ws; Type =:= wss ->
     try
         ranch:get_status(ListenerId) =:= running
@@ -196,7 +189,8 @@ current_conns(Id, ListenOn) ->
     {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
     current_conns(Type, Name, ListenOn).
 
-current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
+current_conns(Type, Name, Bind) when Type == tcp; Type == ssl ->
+    ListenOn = emqx_default_address:listen_on(mqtt, Bind),
     esockd:get_current_connections({listener_id(Type, Name), ListenOn});
 current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     maps:get(all_connections, ranch:info(listener_id(Type, Name)));
@@ -210,7 +204,8 @@ max_conns(Id, ListenOn) ->
     {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
     max_conns(Type, Name, ListenOn).
 
-max_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
+max_conns(Type, Name, Bind) when Type == tcp; Type == ssl ->
+    ListenOn = emqx_default_address:listen_on(mqtt, Bind),
     esockd:get_max_connections({listener_id(Type, Name), ListenOn});
 max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     maps:get(max_connections, ranch:info(listener_id(Type, Name)));
@@ -221,7 +216,8 @@ shutdown_count(Id, ListenOn) ->
     {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
     shutdown_count(Type, Name, ListenOn).
 
-shutdown_count(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
+shutdown_count(Type, Name, Bind) when Type == tcp; Type == ssl ->
+    ListenOn = emqx_default_address:listen_on(mqtt, Bind),
     esockd:get_shutdown_count({listener_id(Type, Name), ListenOn});
 shutdown_count(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     [];
@@ -231,6 +227,10 @@ shutdown_count(_, _, _) ->
 %% @doc Start all listeners.
 -spec start() -> ok.
 start() ->
+    %% Resolve node.default_listener_address eagerly, so an unresolvable
+    %% host stops the boot with a clear reason.
+    _ = emqx_default_address:resolve(mqtt),
+    ok = warn_loopback_by_profile(),
     %% The ?MODULE:start/0 will be called by emqx_app when emqx get started,
     %% so we install the config handler here.
     %% callback when http api request
@@ -239,12 +239,33 @@ start() ->
     ok = emqx_config_handler:add_handler([?ROOT_KEY], ?MODULE),
     foreach_listeners(fun start_listener/3).
 
+warn_loopback_by_profile() ->
+    case emqx_default_address:loopback_by_profile() of
+        true ->
+            ?SLOG(warning, #{
+                msg => "listeners_bind_loopback",
+                reason =>
+                    "the hardened security profile binds a listener that has no "
+                    "explicit bind address to loopback",
+                hint =>
+                    "Clients on other hosts cannot connect. Set "
+                    "node.default_listener_address to the address to bind, or "
+                    "set an address in the bind of each listener."
+            });
+        false ->
+            ok
+    end.
+
 -spec start_listener(listener_id()) -> ok | {error, term()}.
 start_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun ?MODULE:start_listener/3).
 
 -spec start_listener(listener_type(), atom(), map()) -> ok | {error, term()}.
-start_listener(Type, Name, #{bind := Bind, enable := true} = Conf) ->
+start_listener(Type, Name, #{bind := Bind0, enable := true} = Conf0) ->
+    %% A bare-port bind gets the resolved default address here, so every
+    %% later use of this listener's bind sees the same listen-on value.
+    Bind = emqx_default_address:listen_on(mqtt, Bind0),
+    Conf = Conf0#{bind := Bind},
     ListenerId = listener_id(Type, Name),
     ok = emqx_limiter:create_listener_limiters(ListenerId, Conf),
     case do_start_listener(Type, Name, ListenerId, Conf) of
@@ -364,8 +385,10 @@ stop() ->
 stop_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun stop_listener/3).
 
-stop_listener(Type, Name, #{bind := Bind} = Conf) ->
+stop_listener(Type, Name, #{bind := Bind0} = Conf0) ->
     Id = listener_id(Type, Name),
+    Bind = listen_on(Id, Bind0),
+    Conf = Conf0#{bind := Bind},
     ok = unregister_ocsp_stapling_refresh(Type, Name),
     case do_stop_listener(Type, Id, Conf) of
         ok ->
@@ -488,11 +511,16 @@ do_start_listener(quic, Name, Id, #{bind := Bind} = Opts) ->
     end.
 
 do_update_listener(
-    Type = tcp, Name, OldConf, NewConf = #{bind := ListenOn, tcp_backend := Backend}
+    Type = tcp, Name, OldConf, NewConf = #{bind := Bind, tcp_backend := Backend}
 ) ->
     Id = listener_id(tcp, Name),
-    case OldConf of
-        #{bind := ListenOn, tcp_backend := Backend} ->
+    %% Update in place only the address the listener actually runs on, and
+    %% only when the new config resolves to that same address. The configured
+    %% bind does not tell which address a running listener uses, because a
+    %% bare port gets the default address. A listener that stopped in the
+    %% meantime takes the restart path below.
+    case {find_listen_on(Id), OldConf, emqx_default_address:listen_on(mqtt, Bind)} of
+        {{ok, ListenOn}, #{tcp_backend := Backend}, ListenOn} ->
             case Backend of
                 gen_tcp -> ConnMod = emqx_connection;
                 socket -> ConnMod = emqx_socket_connection
@@ -506,12 +534,12 @@ do_update_listener(
             %% Again, we're not strictly required to drop live connections in this case.
             {error, not_supported}
     end;
-do_update_listener(Type, Name, OldConf, NewConf = #{bind := ListenOn}) when
+do_update_listener(Type, Name, _OldConf, NewConf = #{bind := Bind}) when
     ?ESOCKD_LISTENER(Type)
 ->
     Id = listener_id(Type, Name),
-    case OldConf of
-        #{bind := ListenOn} ->
+    case {find_listen_on(Id), emqx_default_address:listen_on(mqtt, Bind)} of
+        {{ok, ListenOn}, ListenOn} ->
             esockd:reset_options(
                 {Id, ListenOn},
                 esockd_opts(Id, Type, Name, emqx_connection, NewConf)
@@ -820,6 +848,32 @@ ip_port(Port) when is_integer(Port) ->
     [{port, Port}];
 ip_port({Addr, Port}) ->
     [{ip, Addr}, {port, Port}].
+
+-doc """
+Returns the address an esockd listener is registered under.
+
+A running listener is the source of truth: it keeps the address it was
+started with, which is what every esockd call must be keyed by. Falls back
+to the configured bind with the default address applied, for a listener
+that is not running yet.
+""".
+listen_on(Id, Bind) ->
+    case find_listen_on(Id) of
+        {ok, ListenOn} -> ListenOn;
+        error -> emqx_default_address:listen_on(mqtt, Bind)
+    end.
+
+find_listen_on(Id) ->
+    Found = lists:filtermap(
+        fun({{ListenerId, ListenOn}, _Pid}) ->
+            ListenerId =:= Id andalso {true, ListenOn}
+        end,
+        esockd:listeners()
+    ),
+    case Found of
+        [ListenOn | _] -> {ok, ListenOn};
+        [] -> error
+    end.
 
 esockd_access_rules(StrRules) ->
     Access = fun(S, Acc) ->

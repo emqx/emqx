@@ -180,7 +180,16 @@ fields_mqtt_quic_listener_tls_server_max_send_buffer.label:
 """TLS server max send buffer"""
 
 base_listener_bind.desc:
-"""IP address and port for the listening socket."""
+"""IP address and port for the listening socket.<br/>
+A port alone, for example <code>1883</code>, binds every interface, or the
+address set in <code>node.default_listener_address</code>.<br/>
+A listener configuration change made from the API or the CLI at runtime is
+replicated to every node, so a host-specific address such as
+<code>10.1.2.3:1883</code> then binds on the node that owns the address and
+fails on every other node. Such an address also stops working when the
+configuration is copied or restored to another host. To bind a host-specific
+address, set a port alone here and set
+<code>node.default_listener_address</code> on each node."""
 
 base_listener_bind.label:
 """IP address and port"""

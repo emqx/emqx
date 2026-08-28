@@ -698,7 +698,7 @@ fields("crl_cache") ->
             )}
     ];
 fields("mqtt_tcp_listener") ->
-    mqtt_listener(mqtt_default_bind_schema(1883)) ++
+    mqtt_listener(1883) ++
         [
             {"tcp_backend",
                 sc(
@@ -726,7 +726,7 @@ fields("mqtt_tcp_listener") ->
                 )}
         ];
 fields("mqtt_ssl_listener") ->
-    mqtt_listener(mqtt_default_bind_schema(8883)) ++
+    mqtt_listener(8883) ++
         mqtt_parse_options() ++
         [
             {"tcp_options",
@@ -741,7 +741,7 @@ fields("mqtt_ssl_listener") ->
                 )}
         ];
 fields("mqtt_ws_listener") ->
-    mqtt_listener(mqtt_default_bind_schema(8083)) ++
+    mqtt_listener(8083) ++
         [
             {"tcp_options",
                 sc(
@@ -755,7 +755,7 @@ fields("mqtt_ws_listener") ->
                 )}
         ];
 fields("mqtt_wss_listener") ->
-    mqtt_listener(mqtt_default_bind_schema(8084)) ++
+    mqtt_listener(8084) ++
         [
             {"tcp_options",
                 sc(
@@ -2323,7 +2323,6 @@ base_listener(Bind) ->
                 ip_port(),
                 #{
                     default => Bind,
-                    converter => fun listener_ip_port_converter/2,
                     required => true,
                     desc => ?DESC(base_listener_bind)
                 }
@@ -4061,11 +4060,11 @@ assert_required_field(Conf, Key, ErrorMessage) ->
 
 default_listener(tcp) ->
     #{
-        <<"bind">> => mqtt_default_bind_config(1883)
+        <<"bind">> => 1883
     };
 default_listener(ws) ->
     #{
-        <<"bind">> => mqtt_default_bind_config(8083),
+        <<"bind">> => 8083,
         <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
     };
 default_listener(SSLListener) ->
@@ -4078,12 +4077,12 @@ default_listener(SSLListener) ->
     case SSLListener of
         ssl ->
             #{
-                <<"bind">> => mqtt_default_bind_config(8883),
+                <<"bind">> => 8883,
                 <<"ssl_options">> => SslOptions
             };
         wss ->
             #{
-                <<"bind">> => mqtt_default_bind_config(8084),
+                <<"bind">> => 8084,
                 <<"ssl_options">> => SslOptions,
                 <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
             }
@@ -4695,41 +4694,6 @@ listeners() ->
                 }
             )}
     ].
-
-mqtt_default_bind_schema(Port) ->
-    case emqx_security_profile:policy(mqtt_default_bind) of
-        any -> Port;
-        loopback -> <<"127.0.0.1:", (integer_to_binary(Port))/binary>>
-    end.
-
-mqtt_default_bind_config(Port) ->
-    PortBin = integer_to_binary(Port),
-    case emqx_security_profile:policy(mqtt_default_bind) of
-        any -> <<"0.0.0.0:", PortBin/binary>>;
-        loopback -> <<"127.0.0.1:", PortBin/binary>>
-    end.
-
-listener_ip_port_converter(Value, Opts) ->
-    case emqx_security_profile:policy(mqtt_default_bind) of
-        any -> Value;
-        loopback -> maybe_add_loopback_converter(Value, Opts)
-    end.
-
-maybe_add_loopback_converter(undefined, _) ->
-    undefined;
-maybe_add_loopback_converter(Port, _) when is_integer(Port) ->
-    PortBin = integer_to_binary(Port),
-    <<"127.0.0.1:", PortBin/binary>>;
-maybe_add_loopback_converter(BindStr, _) when is_binary(BindStr) ->
-    case split_ip_port(BindStr) of
-        {"", Port} ->
-            PortBin = integer_to_binary(Port),
-            <<"127.0.0.1:", PortBin/binary>>;
-        {_MaybeIp, _Port} ->
-            BindStr
-    end;
-maybe_add_loopback_converter(Other, _) ->
-    Other.
 
 mkunion(Field, Schemas) ->
     mkunion(Field, Schemas, none).
