@@ -844,7 +844,13 @@ listen_on(Id, Bind) ->
     end.
 
 find_listen_on(Id) ->
-    case [ListenOn || {{I, ListenOn}, _Pid} <- esockd:listeners(), I =:= Id] of
+    Found = lists:filtermap(
+        fun({{ListenerId, ListenOn}, _Pid}) ->
+            ListenerId =:= Id andalso {true, ListenOn}
+        end,
+        esockd:listeners()
+    ),
+    case Found of
         [ListenOn | _] -> {ok, ListenOn};
         [] -> error
     end.
