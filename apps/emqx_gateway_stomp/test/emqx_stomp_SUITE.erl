@@ -982,6 +982,13 @@ t_rest_clientid_info(_) ->
         ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
 
         %% client lists
+        %% The client shows up in the clients API asynchronously to the
+        %% CONNECTED frame, so retry.
+        ?retry(
+            100,
+            20,
+            ?assertMatch({200, #{data := [_]}}, request(get, "/gateways/stomp/clients"))
+        ),
         {200, Clients} = request(get, "/gateways/stomp/clients"),
         ?assertEqual(1, length(maps:get(data, Clients))),
         StompClient = lists:nth(1, maps:get(data, Clients)),
