@@ -53,6 +53,10 @@ t_clean_authz_cache(_) ->
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
     ClientPid = find_client_pid(ClientId),
+    %% Same race as in t_drain_authz_cache: wait until the fire-and-forget
+    %% publish has been authorized, otherwise its cache entry can be written
+    %% after the channel handled `clean_authz_cache'.
+    ?retry(100, 20, ?assert(is_publish_cached(ClientPid))),
     Caches = list_cache(ClientPid),
     ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),
@@ -67,6 +71,12 @@ t_drain_authz_cache(_) ->
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
     ClientPid = find_client_pid(ClientId),
+    %% The publish is fire-and-forget, so the channel can cache its authz
+    %% result after drain_cache/0 recorded the eviction cutoff, and an entry
+    %% cached after the cutoff survives the drain. Wait for it. The
+    %% subscribe above is SUBACK-confirmed, so `length(Caches) > 0' alone
+    %% does not prove the publish was authorized yet.
+    ?retry(100, 20, ?assert(is_publish_cached(ClientPid))),
     Caches = list_cache(ClientPid),
     ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),
@@ -76,6 +86,15 @@ t_drain_authz_cache(_) ->
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     ?assert(length(list_cache(ClientPid)) > 0),
     emqtt:stop(Client).
+
+is_publish_cached(ClientPid) ->
+    lists:any(
+        fun
+            ({{#{action_type := publish}, <<"t1">>}, _}) -> true;
+            (_) -> false
+        end,
+        list_cache(ClientPid)
+    ).
 
 list_cache(ClientId) when is_binary(ClientId) ->
     ClientPid = find_client_pid(ClientId),
