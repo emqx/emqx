@@ -1342,7 +1342,13 @@ graceful_shutdown_transport(
         transport = emqx_quic_stream,
         socket = Socket
     }
-) when Reason =:= takenover; Reason =:= kicked; Reason =:= discarded ->
+) when
+    Reason =:= takenover;
+    Reason =:= kicked;
+    Reason =:= discarded;
+    %% Session with expiry interval 0 ended at a takeover or takeover kick.
+    Reason =:= expired
+->
     _ = emqx_quic_stream:abort_read(Socket, Reason),
     S#state{sockstate = read_aborted};
 graceful_shutdown_transport(_Reason, S = #state{transport = Transport, socket = Socket}) ->

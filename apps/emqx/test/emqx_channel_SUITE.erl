@@ -823,12 +823,39 @@ t_handle_call_discard(_) ->
         emqx_channel:handle_call(discard, channel()).
 
 t_handle_call_takeover_begin(_) ->
-    {reply, _Session, _Chan} = emqx_channel:handle_call({takeover, 'begin'}, channel()).
+    %% The default test channel has session expiry interval 0: its session
+    %% ends at the takeover, so the channel publishes the will message,
+    %% shuts down with reason `expired', and does not reply.
+    Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
+    {shutdown, expired, noreply, Packet, _Chan0} =
+        emqx_channel:handle_call({takeover, 'begin'}, channel()),
+    %% With a nonzero expiry interval the session is handed over.
+    Channel = channel(),
+    ConnInfo = emqx_channel:info(conninfo, Channel),
+    NChannel = emqx_channel:set_field(
+        conninfo, ConnInfo#{expiry_interval => 60000}, Channel
+    ),
+    {reply, _Session, _Chan} = emqx_channel:handle_call({takeover, 'begin'}, NChannel).
 
 t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
     {shutdown, takenover, [], _, _Chan} =
         emqx_channel:handle_call({takeover, 'end'}, channel()).
+
+t_handle_call_takeover_kick(_) ->
+    Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
+    %% The default test channel has session expiry interval 0: its session
+    %% ends at the kick, so the shutdown reason is `expired'.
+    {shutdown, expired, ok, Packet, _Chan0} =
+        emqx_channel:handle_call(takeover_kick, channel()),
+    %% With a nonzero expiry interval the session survives the kick.
+    Channel = channel(),
+    ConnInfo = emqx_channel:info(conninfo, Channel),
+    NChannel = emqx_channel:set_field(
+        conninfo, ConnInfo#{expiry_interval => 60000}, Channel
+    ),
+    {shutdown, takenover, ok, Packet, _Chan} =
+        emqx_channel:handle_call(takeover_kick, NChannel).
 
 t_handle_call_unexpected(_) ->
     {reply, ignored, _Chan} = emqx_channel:handle_call(unexpected_req, channel()).
