@@ -140,6 +140,7 @@ t_index_of(_) ->
     end,
     ?assertEqual(3, emqx_utils:index_of(a, [b, c, a, e, f])).
 
+-doc "Check the OOM policy against the calling process's own mailbox size.".
 t_check(_) ->
     Policy = #{
         max_mailbox_size => 10,
@@ -149,10 +150,65 @@ t_check(_) ->
     [self() ! {msg, I} || I <- lists:seq(1, 5)],
     ?assertEqual(ok, emqx_utils:check_oom(Policy)),
     [self() ! {msg, I} || I <- lists:seq(1, 6)],
-    ?assertEqual(
-        {shutdown, #{reason => mailbox_overflow, value => 11, max => 10}},
+    ?assertMatch(
+        {shutdown, #{reason := mailbox_overflow, value := 11, max := 10}},
         emqx_utils:check_oom(Policy)
     ).
+
+-doc """
+The shutdown reason returned by `check_oom/2` carries the checked
+process's label under the `label` key.
+""".
+t_check_oom_with_label(_) ->
+    Policy = #{
+        max_mailbox_size => 10,
+        max_heap_size => 1024 * 1024 * 8,
+        enable => true
+    },
+    Parent = self(),
+    Pid = spawn_link(fun() ->
+        proc_lib:set_label({clientid, <<"oom-client">>}),
+        Parent ! {ready, self()},
+        receive
+            stop -> ok
+        end
+    end),
+    receive
+        {ready, Pid} -> ok
+    end,
+    [Pid ! {msg, I} || I <- lists:seq(1, 11)],
+    ?assertEqual(
+        {shutdown, #{
+            reason => mailbox_overflow,
+            value => 11,
+            max => 10,
+            label => {clientid, <<"oom-client">>}
+        }},
+        emqx_utils:check_oom(Pid, Policy)
+    ),
+    Pid ! stop.
+
+-doc """
+When the checked process has no label, the shutdown reason contains no
+`label` key and keeps the `reason`, `value` and `max` keys unchanged.
+""".
+t_check_oom_without_label(_) ->
+    Policy = #{
+        max_mailbox_size => 10,
+        max_heap_size => 1024 * 1024 * 8,
+        enable => true
+    },
+    Pid = spawn_link(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    [Pid ! {msg, I} || I <- lists:seq(1, 11)],
+    ?assertEqual(
+        {shutdown, #{reason => mailbox_overflow, value => 11, max => 10}},
+        emqx_utils:check_oom(Pid, Policy)
+    ),
+    Pid ! stop.
 
 t_tune_heap_size(_Config) ->
     Policy = #{

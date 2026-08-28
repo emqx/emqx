@@ -280,6 +280,11 @@ t_verify_cacertfile(Config) ->
             ok;
         closed ->
             ok;
+        %% The server tears the connection down when the client sends no
+        %% certificate. When the teardown lands while the client still writes,
+        %% the client reports a socket-level einval instead of closed.
+        einval ->
+            ok;
         Other ->
             throw({unexpected, Other})
     end.

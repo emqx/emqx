@@ -9,6 +9,7 @@
     register_hooks/0,
     unregister_hooks/0,
     on_session_created/2,
+    on_session_resumed/2,
     on_authenticate/2,
     on_post_authn/1,
     on_api_actor_will_be_created/2,
@@ -25,6 +26,7 @@
 
 -define(TRACE(MSG, META), ?TRACE("MULTI_TENANCY", MSG, META)).
 -define(SESSION_HOOK, {?MODULE, on_session_created, []}).
+-define(SESSION_RESUMED_HOOK, {?MODULE, on_session_resumed, []}).
 -define(AUTHN_HOOK, {?MODULE, on_authenticate, []}).
 -define(POST_AUTHN_HOOK, {?MODULE, on_post_authn, []}).
 -define(LIMITER_HOOK(LEVEL), {emqx_mt_limiter, adjust_limiter, [LEVEL]}).
@@ -34,6 +36,7 @@
 
 register_hooks() ->
     ok = emqx_hooks:add('session.created', ?SESSION_HOOK, ?HP_HIGHEST),
+    ok = emqx_hooks:add('session.resumed', ?SESSION_RESUMED_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.authenticate', ?AUTHN_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('client.post_authn', ?POST_AUTHN_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('channel.limiter_adjustment', ?LIMITER_HOOK(channel), ?HP_HIGHEST),
@@ -52,6 +55,7 @@ register_hooks() ->
 
 unregister_hooks() ->
     ok = emqx_hooks:del('session.created', ?SESSION_HOOK),
+    ok = emqx_hooks:del('session.resumed', ?SESSION_RESUMED_HOOK),
     ok = emqx_hooks:del('client.authenticate', ?AUTHN_HOOK),
     ok = emqx_hooks:del('client.post_authn', ?POST_AUTHN_HOOK),
     ok = emqx_hooks:del('channel.limiter_adjustment', ?LIMITER_HOOK(channel)),
@@ -64,16 +68,25 @@ unregister_hooks() ->
     ok = emqx_hooks:del('delivery.dropped', ?DELIVERY_DROPPED_HOOK),
     ok.
 
-on_session_created(
+on_session_created(ClientInfo, _SessionInfo) ->
+    register_in_namespace(ClientInfo).
+
+%% A session resumed with clean_start=false fires 'session.resumed' instead of
+%% 'session.created'; register it too so the client index follows the client's
+%% current (possibly changed) namespace.  The entry for the previous channel
+%% process is removed by its 'DOWN' monitor in emqx_mt_pool.
+on_session_resumed(ClientInfo, _SessionInfo) ->
+    register_in_namespace(ClientInfo).
+
+register_in_namespace(
     #{
         clientid := ClientId,
         client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}
-    },
-    _SessionInfo
+    }
 ) ->
     ?TRACE("session_registered_in_namespace", #{}),
     ok = emqx_mt_pool:add(Tns, ClientId, self());
-on_session_created(_ClientInfo, _SessionInfo) ->
+register_in_namespace(_ClientInfo) ->
     %% not a multi-tenant client
     ok.
 
@@ -280,13 +293,14 @@ on_namespace_resource_pre_create(#{?namespace := Namespace}, ResCtx) when is_bin
 %%   * Reason `no_subscribers' is the only one that has a dedicated
 %%     fine-grained global counter ticked at the call site
 %%     (`emqx_broker:inc_dropped_cnt/1'); we mirror it per-namespace.
-%%   * QoS2 PUBREL await-timeout drops bump the global
-%%     `messages.dropped.await_pubrel_timeout' counter via
-%%     `emqx_session_events:inc_await_pubrel_timeout/1' but do not fire the
-%%     `message.dropped' hook (the event carries only a count, not the
-%%     `#message{}'s). So the per-namespace counter for that reason stays at
-%%     zero until the upstream gap is closed. Tracked in
-%%     https://github.com/emqx/emqx/issues/17663.
+%%   * QoS2 PUBREL await-timeout is not a message drop and must not fire the
+%%     `message.dropped' hook. EMQX publishes a QoS2 message to subscribers when
+%%     the PUBLISH arrives, not when the PUBREL does (see
+%%     `emqx_session_mem:publish/3'). What expires afterwards is the packet-ID
+%%     de-duplication state, so the message was delivered. The global
+%%     `messages.dropped.await_pubrel_timeout' counter is kept for backwards
+%%     compatibility but counts expired receive-flow state, not undelivered
+%%     messages. There is therefore no per-namespace counter for that reason.
 on_message_dropped(Msg, _Info, Reason) ->
     inc_ns(ns_from_msg(Msg), drop_metric_names('messages.dropped', Reason)).
 

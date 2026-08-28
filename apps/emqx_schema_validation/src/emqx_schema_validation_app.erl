@@ -6,7 +6,7 @@
 -behaviour(application).
 
 %% `application' API
--export([start/2, stop/1]).
+-export([start/2, prep_stop/1, stop/1]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -24,9 +24,16 @@ start(_Type, _Args) ->
     ok = emqx_schema_validation_config:load(),
     {ok, Sup}.
 
+-spec prep_stop(term()) -> term().
+prep_stop(State) ->
+    %% Runs before the supervision tree is terminated.  `stop/1' runs after it, when
+    %% the registry and its tables are already gone: the hooks must be unregistered
+    %% and the validations unloaded while both are still alive.
+    ok = emqx_schema_validation:unregister_hooks(),
+    ok = emqx_schema_validation_config:unload(),
+    State.
+
 -spec stop(term()) -> ok.
 stop(_State) ->
-    ok = emqx_schema_validation_config:unload(),
-    ok = emqx_schema_validation:unregister_hooks(),
     ok = emqx_schema_validation_config:remove_handler(),
     ok.
