@@ -16,9 +16,8 @@ tps_alarm_trigger_duration {
     label: "TPS Alarm Trigger Duration"
     desc: """~
         Minimum duration for which the cluster message throughput must stay above the license TPS limit before the throughput alarm is activated.
-        The default `0s` activates the alarm on the first sample above the limit.
         A sample at or below the limit restarts the count, so the limit has to be exceeded continuously.
-        The check runs on the license resource sampling interval (5s), so the duration takes effect in units of that interval."""
+        Set to `0s` to activate the alarm on the first sample above the limit."""
 }
 
 high_watermark_timezone {

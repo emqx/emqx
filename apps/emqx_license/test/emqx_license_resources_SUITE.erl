@@ -148,10 +148,15 @@ t_alarm_if_tps_over_limit({init, Config}) ->
     emqx_license_test_lib:mock_parser(),
     Key = emqx_license_test_lib:make_license(#{max_tps => 10}),
     emqx_license:update_key(Key),
+    %% This case is about alarming on the first over-limit sample, which is no
+    %% longer the default, so ask for it explicitly.
+    Original = trigger_duration(),
+    ok = set_trigger_duration(0),
     meck:new(emqx_alarm, [passthrough]),
     meck:new(emqx_license_proto_v3, [passthrough]),
-    Config;
-t_alarm_if_tps_over_limit({'end', _Config}) ->
+    [{orig_trigger_duration, Original} | Config];
+t_alarm_if_tps_over_limit({'end', Config}) ->
+    ok = set_trigger_duration(?config(orig_trigger_duration, Config)),
     emqx_license_test_lib:unmock_parser(),
     emqx_license:update_key(?DEFAULT_EVALUATION_LICENSE_KEY),
     meck:unload(emqx_alarm),
@@ -226,12 +231,13 @@ t_alarm_tps_trigger_duration({init, Config}) ->
     emqx_license_test_lib:mock_parser(),
     Key = emqx_license_test_lib:make_license(#{max_tps => 10}),
     emqx_license:update_key(Key),
-    emqx_config:put([license, tps_alarm_trigger_duration], 1000),
+    Original = trigger_duration(),
+    ok = set_trigger_duration(1000),
     meck:new(emqx_alarm, [passthrough]),
     meck:new(emqx_license_proto_v3, [passthrough]),
-    Config;
-t_alarm_tps_trigger_duration({'end', _Config}) ->
-    emqx_config:put([license, tps_alarm_trigger_duration], 0),
+    [{orig_trigger_duration, Original} | Config];
+t_alarm_tps_trigger_duration({'end', Config}) ->
+    ok = set_trigger_duration(?config(orig_trigger_duration, Config)),
     meck:unload(emqx_alarm),
     meck:unload(emqx_license_proto_v3),
     _ = emqx_alarm:ensure_deactivated(license_tps),
@@ -273,6 +279,13 @@ t_alarm_tps_trigger_duration(Config) when is_list(Config) ->
     ?assertReceive(
         {alarm_activated, <<"License: TPS limit (10) exceeded.">>, #{max_tps := 11}}, 100
     ),
+    ok.
+
+trigger_duration() ->
+    emqx_config:get([license, tps_alarm_trigger_duration], 0).
+
+set_trigger_duration(Duration) ->
+    emqx_config:put([license, tps_alarm_trigger_duration], Duration),
     ok.
 
 update_now() ->

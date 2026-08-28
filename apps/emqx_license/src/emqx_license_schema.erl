@@ -158,8 +158,7 @@ default(connection_high_watermark) ->
 default(high_watermark_timezone) ->
     system;
 default(tps_alarm_trigger_duration) ->
-    %% Fire on the first over-limit sample, as before this option existed.
-    <<"0s">>;
+    ~"30m";
 default(dynamic_max_connections) ->
     %% This config is only applicable to CTYPE3
     ?DEFAULT_MAX_SESSIONS_CTYPE3.
