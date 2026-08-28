@@ -559,6 +559,9 @@ handle_msg({'$gen_call', From, Req}, State) ->
         {reply, Reply, NState} ->
             gen_server:reply(From, Reply),
             {ok, NState};
+        {stop, Reason, noreply, NState} ->
+            %% The caller learns about the shutdown from the process exit.
+            stop(Reason, NState);
         {stop, Reason, Reply, NState} ->
             gen_server:reply(From, Reply),
             stop(Reason, NState)

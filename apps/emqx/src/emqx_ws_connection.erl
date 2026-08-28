@@ -531,13 +531,20 @@ handle_call(From, Req, State = #state{channel = Channel}) ->
             gen_server:reply(From, Reply),
             return(State#state{channel = NChannel});
         {shutdown, Reason, Reply, NChannel} ->
-            gen_server:reply(From, Reply),
+            ok = maybe_reply(From, Reply),
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Reply, Packet, NChannel} ->
-            gen_server:reply(From, Reply),
+            ok = maybe_reply(From, Reply),
             NState = State#state{channel = NChannel},
             shutdown(Reason, enqueue(Packet, NState))
     end.
+
+%% A `noreply' reply means the channel shuts down without answering the
+%% call; the caller learns about the shutdown from the process exit.
+maybe_reply(_From, noreply) ->
+    ok;
+maybe_reply(From, Reply) ->
+    gen_server:reply(From, Reply).
 
 %%--------------------------------------------------------------------
 %% Handle Info

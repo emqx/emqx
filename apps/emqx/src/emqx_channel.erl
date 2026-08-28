@@ -1559,6 +1559,28 @@ handle_call(discard, Channel) ->
         []
     );
 %% Session Takeover
+handle_call(
+    {takeover, 'begin'},
+    Channel = #channel{conninfo = #{expiry_interval := 0}}
+) ->
+    %% MQTT 5.0 3.1.2.11.2: with Session Expiry Interval 0 the session ends
+    %% when the network connection is closed. The takeover closes it, so
+    %% there is no session to hand over: publish the will message because
+    %% the session ends now, then shut down like a takeover kick.
+    %% `noreply' makes the connection process shut down without answering
+    %% the call; the caller observes the `{shutdown, _}' exit, classifies
+    %% it as `noproc', and falls back to creating a fresh session. Peer
+    %% nodes running older code handle this the same way.
+    ?EXT_TRACE_BROKER_DISCONNECT(
+        ?EXT_TRACE_ATTR(
+            maps:merge(basic_attrs(Channel), disconnect_attrs(takeover, Channel))
+        ),
+        fun() ->
+            Channel0 = maybe_publish_will_msg(expired, Channel),
+            disconnect_and_shutdown(takenover, noreply, Channel0)
+        end,
+        []
+    );
 handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
     reply(Session, Channel#channel{takeover = true});
 handle_call(
@@ -3108,6 +3130,9 @@ maybe_publish_will_msg(
     %% because the Session ends.
     %% """"
     %% NOTE, above clean start=1 is `discard' scenarios not `takeover' scenario.
+    %% NOTE: a session with expiry interval 0 never reaches here from the
+    %% takeover-begin path: that path publishes its will message with reason
+    %% `expired' before shutting down.
     case will_delay_interval(WillMsg) of
         0 ->
             ?tp(debug, maybe_publish_willmsg_takenover_pub, #{clientid => ClientId}),
