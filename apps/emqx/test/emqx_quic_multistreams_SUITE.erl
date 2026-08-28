@@ -834,18 +834,28 @@ t_conn_change_client_addr(Config) ->
         ],
         recv_pub(1)
     ),
-    NewPort = select_port(),
     {ok, OldAddr} = quicer:sockname(Conn),
-    ?assertEqual(
-        ok, quicer:setopt(Conn, local_address, "127.0.0.1:" ++ integer_to_list(NewPort))
-    ),
-
+    %% The address migration is asynchronous, and the selected port can be
+    %% taken by another socket between selection and rebind, in which case
+    %% msquic keeps the old path. Retry the whole migration with a fresh
+    %% port when the socket address does not change in time.
     ?retry(
-        _Delay = 50,
-        _attempt = 20,
+        _MigrateDelay = 200,
+        _MigrateAttempts = 10,
         begin
-            {ok, NewAddr} = quicer:sockname(Conn),
-            ?assertNotEqual(OldAddr, NewAddr)
+            NewPort = select_port(),
+            ?assertEqual(
+                ok,
+                quicer:setopt(Conn, local_address, "127.0.0.1:" ++ integer_to_list(NewPort))
+            ),
+            ?retry(
+                _Delay = 50,
+                _attempt = 20,
+                begin
+                    {ok, NewAddr} = quicer:sockname(Conn),
+                    ?assertNotEqual(OldAddr, NewAddr)
+                end
+            )
         end
     ),
     ?assert(is_list(emqtt:info(C))),
