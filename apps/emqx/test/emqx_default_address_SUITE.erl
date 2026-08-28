@@ -174,6 +174,29 @@ t_listen_on(_Config) ->
     emqx_default_address:clear().
 
 -doc """
+Asserts that loopback_by_profile/0 reports only the case where the security
+profile decides the address, not a configured loopback.
+""".
+t_loopback_by_profile(_Config) ->
+    emqx_common_test_helpers:clear_default_address(),
+    ?assertNot(emqx_default_address:loopback_by_profile()),
+    with_address("loopback", fun() ->
+        ?assertNot(emqx_default_address:loopback_by_profile())
+    end),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        emqx_default_address:clear(),
+        ?assert(emqx_default_address:loopback_by_profile()),
+        %% A configured address decides, so there is nothing to warn about.
+        with_address("loopback", fun() ->
+            ?assertNot(emqx_default_address:loopback_by_profile())
+        end),
+        with_address("all", fun() ->
+            ?assertNot(emqx_default_address:loopback_by_profile())
+        end)
+    end),
+    emqx_default_address:clear().
+
+-doc """
 Asserts that a value that is neither a keyword, a literal address, nor a
 syntactically valid hostname makes the resolver exit.
 """.

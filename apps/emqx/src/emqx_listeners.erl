@@ -230,6 +230,7 @@ start() ->
     %% Resolve node.default_listener_address eagerly, so an unresolvable
     %% host stops the boot with a clear reason.
     _ = emqx_default_address:resolve(mqtt),
+    ok = warn_loopback_by_profile(),
     %% The ?MODULE:start/0 will be called by emqx_app when emqx get started,
     %% so we install the config handler here.
     %% callback when http api request
@@ -237,6 +238,23 @@ start() ->
     %% callback when reload from config file
     ok = emqx_config_handler:add_handler([?ROOT_KEY], ?MODULE),
     foreach_listeners(fun start_listener/3).
+
+warn_loopback_by_profile() ->
+    case emqx_default_address:loopback_by_profile() of
+        true ->
+            ?SLOG(warning, #{
+                msg => "listeners_bind_loopback",
+                reason =>
+                    "the hardened security profile binds a listener that has no "
+                    "explicit bind address to loopback",
+                hint =>
+                    "Clients on other hosts cannot connect. Set "
+                    "node.default_listener_address to the address to bind, or "
+                    "set an address in the bind of each listener."
+            });
+        false ->
+            ok
+    end.
 
 -spec start_listener(listener_id()) -> ok | {error, term()}.
 start_listener(ListenerId) ->

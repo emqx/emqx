@@ -26,7 +26,7 @@ running node, when a listener is started.
 -define(CONF_KEY, [node, default_listener_address]).
 -define(CONF_NAME, "node.default_listener_address").
 
--export([resolve/1, listen_on/2, validate/1, clear/0]).
+-export([resolve/1, listen_on/2, validate/1, loopback_by_profile/0, clear/0]).
 
 -export_type([address/0, scope/0]).
 
@@ -71,6 +71,19 @@ listen_on(Scope, Port) when is_integer(Port) ->
     end;
 listen_on(_Scope, Bind) ->
     Bind.
+
+-doc """
+Returns true when listeners bind loopback because the security profile says
+so, and false when `node.default_listener_address` decides the address.
+
+An operator who sets the address gets what they asked for. An operator who
+only picks a security profile may not expect listeners to stop accepting
+remote connections, so the caller warns about this case.
+""".
+-spec loopback_by_profile() -> boolean().
+loopback_by_profile() ->
+    value() =:= default andalso
+        emqx_security_profile:policy(mqtt_default_bind) =:= loopback.
 
 -doc """
 Validates a `node.default_listener_address` value. Schema validator; pure,
