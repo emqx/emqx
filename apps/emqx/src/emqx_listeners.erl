@@ -512,12 +512,13 @@ do_update_listener(
     Type = tcp, Name, OldConf, NewConf = #{bind := Bind, tcp_backend := Backend}
 ) ->
     Id = listener_id(tcp, Name),
-    %% Compare the address the listener runs on with the one the new config
-    %% resolves to. The configured bind alone does not tell which address a
-    %% running listener uses, because a bare port gets the default address.
-    ListenOn = listen_on(Id, Bind),
-    case {OldConf, emqx_default_address:listen_on(mqtt, Bind)} of
-        {#{tcp_backend := Backend}, ListenOn} ->
+    %% Update in place only the address the listener actually runs on, and
+    %% only when the new config resolves to that same address. The configured
+    %% bind does not tell which address a running listener uses, because a
+    %% bare port gets the default address. A listener that stopped in the
+    %% meantime takes the restart path below.
+    case {find_listen_on(Id), OldConf, emqx_default_address:listen_on(mqtt, Bind)} of
+        {{ok, ListenOn}, #{tcp_backend := Backend}, ListenOn} ->
             case Backend of
                 gen_tcp -> ConnMod = emqx_connection;
                 socket -> ConnMod = emqx_socket_connection
@@ -535,9 +536,8 @@ do_update_listener(Type, Name, _OldConf, NewConf = #{bind := Bind}) when
     ?ESOCKD_LISTENER(Type)
 ->
     Id = listener_id(Type, Name),
-    ListenOn = listen_on(Id, Bind),
-    case emqx_default_address:listen_on(mqtt, Bind) of
-        ListenOn ->
+    case {find_listen_on(Id), emqx_default_address:listen_on(mqtt, Bind)} of
+        {{ok, ListenOn}, ListenOn} ->
             esockd:reset_options(
                 {Id, ListenOn},
                 esockd_opts(Id, Type, Name, emqx_connection, NewConf)
