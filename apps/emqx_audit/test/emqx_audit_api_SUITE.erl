@@ -276,6 +276,49 @@ t_cli_redaction(_Config) ->
     {ok, _} = emqx_mgmt_auth:delete(iolist_to_binary(Name)),
     ok.
 
+-doc """
+Regression test for #18588: `bin/node_dump' used to drive the node through
+`emqx eval', which is audited as `eval_erl' carrying the raw Erlang
+expression. Running the `node_dump' CLI command must write ordinary `cli'
+audit records identifying the sub-command, and must not write any
+`eval_erl' record.
+""".
+t_node_dump(_Config) ->
+    %% Need to explicitly load the commands because they are loaded by `emqx_machine'.
+    ok = emqx_mgmt_cli:load(),
+    %% Sub-command output content is covered by `emqx_mgmt_cli_SUITE:t_node_dump/1';
+    %% this only needs each call to succeed, to trigger the audit write below.
+    lists:foreach(
+        fun(SubCmd) ->
+            ?assertEqual(ok, emqx_ctl:run_command(["node_dump", SubCmd]), SubCmd)
+        end,
+        ["sys_info", "app_env", "conf"]
+    ),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, Res} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "operation_type=node_dump&limit=10", AuthHeader
+    ),
+    #{<<"data">> := Data} = emqx_utils_json:decode(Res),
+    ?assertEqual(3, length(Data)),
+    lists:foreach(
+        fun(#{<<"from">> := From, <<"operation_type">> := OpType}) ->
+            ?assertEqual(<<"cli">>, From),
+            ?assertEqual(<<"node_dump">>, OpType)
+        end,
+        Data
+    ),
+    ?assertEqual(
+        lists:sort([<<"app_env">>, <<"conf">>, <<"sys_info">>]),
+        lists:sort([Arg || #{<<"args">> := [Arg]} <- Data])
+    ),
+    %% no `eval_erl' record was written for any of the sub-commands
+    {ok, ResEval} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "operation_type=eval_erl", AuthHeader
+    ),
+    ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(ResEval)),
+    ok.
+
 t_max_size(_Config) ->
     {ok, _} = emqx:update_config([log, audit, cache_size], 999),
     %% Make sure this process is using latest cache_size.

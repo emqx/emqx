@@ -52,7 +52,7 @@ done
 # Collect system info:
 {
     collect "$RUNNER_BIN_DIR"/emqx ctl broker
-    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:sys_info()'"
+    collect "$RUNNER_BIN_DIR"/emqx ctl node_dump sys_info
 
     collect uname -a
     collect uptime
@@ -74,11 +74,11 @@ done
 
 # Collect information about the configuration:
 {
-    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:app_env_dump().'"
+    collect "$RUNNER_BIN_DIR"/emqx ctl node_dump app_env
 } > "${APP_ENV_DUMP}"
 
 {
-    collect "$RUNNER_BIN_DIR"/emqx eval "'emqx_node_dump:print_conf_dump().'"
+    collect "$RUNNER_BIN_DIR"/emqx ctl node_dump conf
 } > "${CONF_DUMP}"
 
 

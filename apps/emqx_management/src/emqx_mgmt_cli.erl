@@ -57,7 +57,9 @@
     ds/1,
     ds_audit_args/1,
     exclusive/1,
-    exclusive_audit_args/1
+    exclusive_audit_args/1,
+    node_dump/1,
+    node_dump_audit_args/1
 ]).
 
 -export([
@@ -75,6 +77,7 @@
     listeners,
     log,
     mnesia,
+    node_dump,
     olp,
     pem_cache,
     'session-top',
@@ -1919,3 +1922,26 @@ exclusive(_) ->
     ]).
 
 exclusive_audit_args(Args) -> Args.
+
+%%--------------------------------------------------------------------
+%% @doc node_dump Command
+%%
+%% CLI front-end for `bin/node_dump`. `sys_info/0` and `app_env_dump/0`
+%% return terms instead of printing, so render them here as `emqx eval`
+%% used to via nodetool.
+
+node_dump(["sys_info"]) ->
+    emqx_ctl:print("~p~n", [emqx_node_dump:sys_info()]);
+node_dump(["app_env"]) ->
+    emqx_ctl:print("~p~n", [emqx_node_dump:app_env_dump()]);
+node_dump(["conf"]) ->
+    emqx_node_dump:print_conf_dump();
+node_dump(_) ->
+    emqx_ctl:usage([
+        {"node_dump sys_info", "Print node release and OTP version"},
+        {"node_dump app_env", "Print the application environment (censored)"},
+        {"node_dump conf", "Print the raw configuration tree (redacted)"}
+    ]).
+
+%% No secrets among the sub-command names; pass them through unredacted.
+node_dump_audit_args(Args) -> Args.

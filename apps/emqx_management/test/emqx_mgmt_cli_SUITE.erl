@@ -822,6 +822,31 @@ t_exclusive(_Config) ->
     emqx_ctl:run_command(["exclusive", "delete", "t/1"]),
     ok.
 
+-doc """
+`node_dump' backs `bin/node_dump'. Each sub-command must print non-empty
+output and return `ok', or `collect' in the shell script falls through to
+its `|| echo "Unavailable"' branch. The command is registered visibly, so
+it must also show up in `emqx ctl help'.
+""".
+t_node_dump(_Config) ->
+    {ok, SysInfoOut} = capture_ctl(["node_dump", "sys_info"]),
+    ?assertEqual(match, re:run(SysInfoOut, <<"release">>, [{capture, none}])),
+    ?assertEqual(match, re:run(SysInfoOut, <<"otp_version">>, [{capture, none}])),
+    {ok, AppEnvOut} = capture_ctl(["node_dump", "app_env"]),
+    ?assert(byte_size(AppEnvOut) > 0),
+    %% `node_dump conf` prints via `io:put_chars/1` (pre-formatted text), not
+    %% `io:format/2` like the other sub-commands, so `capture_ctl` (which only
+    %% decodes deferred `io_lib:format` requests) cannot be reused here.
+    {ok, ConfOut} = capture_raw(fun() -> emqx_ctl:run_command(["node_dump", "conf"]) end),
+    ?assert(byte_size(ConfOut) > 0),
+    {ok, UsageOut} = capture_ctl(["node_dump", "unknown"]),
+    ?assertEqual(match, re:run(UsageOut, <<"node_dump sys_info">>, [{capture, none}])),
+    ?assertEqual(match, re:run(UsageOut, <<"node_dump app_env">>, [{capture, none}])),
+    ?assertEqual(match, re:run(UsageOut, <<"node_dump conf">>, [{capture, none}])),
+    {ok, HelpOut} = capture_ctl([]),
+    ?assertEqual(match, re:run(HelpOut, <<"node_dump sys_info">>, [{capture, none}])),
+    ok.
+
 %% Test default stats command
 t_clients_dump_stats_default(init, Config) ->
     %% Start a test client
@@ -989,6 +1014,39 @@ capture_ctl(Args) ->
     {Result, OutputChunks} =
         emqx_common_test_helpers:capture_io_format(fun() -> emqx_ctl:run_command(Args) end),
     {Result, iolist_to_binary(OutputChunks)}.
+
+%% Like `capture_ctl/1`, but also decodes `io:put_chars/1` `put_chars`
+%% requests, which carry pre-formatted iodata instead of a deferred
+%% `io_lib:format` call.
+capture_raw(Fun) ->
+    Owner = self(),
+    GL = spawn_link(fun() -> raw_gl_sink(Owner, []) end),
+    OldGL = group_leader(),
+    true = group_leader(GL, self()),
+    try
+        Result = Fun(),
+        GL ! {stop, self()},
+        Output =
+            receive
+                {raw_gl_output, O} -> O
+            after 1000 -> error(timeout)
+            end,
+        {Result, iolist_to_binary(Output)}
+    after
+        true = group_leader(OldGL, self())
+    end.
+
+raw_gl_sink(Owner, Acc) ->
+    receive
+        {io_request, From, ReplyAs, {put_chars, _Enc, Data}} ->
+            From ! {io_reply, ReplyAs, ok},
+            raw_gl_sink(Owner, [Data | Acc]);
+        {io_request, From, ReplyAs, {put_chars, _Enc, M, F, A}} ->
+            From ! {io_reply, ReplyAs, ok},
+            raw_gl_sink(Owner, [apply(M, F, A) | Acc]);
+        {stop, Owner} ->
+            Owner ! {raw_gl_output, lists:reverse(Acc)}
+    end.
 
 wait_session_top_status(Expected, Attempts) when Attempts > 0 ->
     {ok, Output} = capture_ctl(["session-top", "status"]),
