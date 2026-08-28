@@ -191,13 +191,18 @@ max_tps_alarm({ok, #{max_tps := Limit}}) ->
 %% Held in the same ephemeral table as the TPS cache, so a restart of this
 %% process starts the window over. That only delays an alarm by the configured
 %% duration, and the sampling itself restarts with the process anyway.
+%%
+%% The writes are deliberately not wrapped in `?OK/1': the table is created in
+%% `init/1' and written from its owning process, so a failure is a bug rather
+%% than an expected condition. Swallowed, it would freeze the window and the
+%% alarm would never fire again with nothing in the log to say why.
 track_tps_breach(_IsOverLimit = false) ->
-    _ = ?OK(ets:delete(?MODULE, tps_over_limit_since)),
+    true = ets:delete(?MODULE, tps_over_limit_since),
     ok;
 track_tps_breach(_IsOverLimit = true) ->
     case cached_tps_over_limit_since() of
         undefined ->
-            _ = ?OK(ets:insert(?MODULE, {tps_over_limit_since, now_ms()})),
+            true = ets:insert(?MODULE, {tps_over_limit_since, monotonic_ms()}),
             ok;
         _AlreadyTracking ->
             ok
@@ -215,7 +220,7 @@ tps_breach_sustained() ->
                 undefined ->
                     false;
                 Since ->
-                    now_ms() - Since >= Duration
+                    monotonic_ms() - Since >= Duration
             end
     end.
 
@@ -241,8 +246,14 @@ cached_max_tps() ->
 cached_tps_over_limit_since() ->
     ?SAFE_CACHE_LOOKUP(tps_over_limit_since, undefined).
 
-now_ms() ->
-    erlang:system_time(millisecond).
+%% The window is a duration, so it is measured with the monotonic clock.
+%% `erlang:system_time/1' can step - an NTP correction, a manual clock change, a
+%% suspended VM - and a step inside the window would delay the alarm or fire it
+%% early, which is what this option exists to prevent. The `system_time' call in
+%% `update_resources/0' stays as it is: that value is a timestamp to report, not
+%% a difference to compare.
+monotonic_ms() ->
+    erlang:monotonic_time(millisecond).
 
 update_resources() ->
     Now = erlang:system_time(millisecond),
