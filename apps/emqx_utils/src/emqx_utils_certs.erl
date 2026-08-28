@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_default_cert).
+-module(emqx_utils_certs).
 
 -moduledoc """
 Self-signed X.509 certificate generation using the OTP `public_key`

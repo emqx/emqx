@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_default_cert_gen_SUITE).
+-module(emqx_utils_certs_SUITE).
 
 -compile([nowarn_export_all, export_all]).
 
@@ -46,7 +46,7 @@ extension(ExtnID, #'OTPTBSCertificate'{extensions = Exts}) ->
 
 -doc "A leaf certificate validates against the CA that signed it.".
 t_leaf_validates_against_ca(_TCConfig) ->
-    #{cert := CertPem, ca := CaPem} = emqx_default_cert:self_signed_bundle(#{
+    #{cert := CertPem, ca := CaPem} = emqx_utils_certs:self_signed_bundle(#{
         cn => "localhost", sans => sans()
     }),
     {LeafDer, _} = decode_cert(CertPem),
@@ -55,7 +55,7 @@ t_leaf_validates_against_ca(_TCConfig) ->
 
 -doc "SANs on the leaf carry the DNS name and both the IPv4 and IPv6 addresses.".
 t_sans_dns_and_ip(_TCConfig) ->
-    #{cert := CertPem} = emqx_default_cert:self_signed_bundle(#{
+    #{cert := CertPem} = emqx_utils_certs:self_signed_bundle(#{
         cn => "localhost", sans => sans()
     }),
     {_, LeafOtp} = decode_cert(CertPem),
@@ -67,7 +67,7 @@ t_sans_dns_and_ip(_TCConfig) ->
 
 -doc "The CA certificate has basicConstraints CA:TRUE; the leaf has CA:FALSE.".
 t_basic_constraints(_TCConfig) ->
-    #{cert := CertPem, ca := CaPem} = emqx_default_cert:self_signed_bundle(#{
+    #{cert := CertPem, ca := CaPem} = emqx_utils_certs:self_signed_bundle(#{
         cn => "localhost", sans => sans()
     }),
     {_, LeafOtp} = decode_cert(CertPem),
@@ -83,7 +83,7 @@ t_basic_constraints(_TCConfig) ->
 
 -doc "The validity window starts in the past and spans the configured number of days.".
 t_validity_window(_TCConfig) ->
-    #{cert := CertPem} = emqx_default_cert:self_signed_bundle(#{
+    #{cert := CertPem} = emqx_utils_certs:self_signed_bundle(#{
         cn => "localhost", sans => sans()
     }),
     {_, LeafOtp} = decode_cert(CertPem),
@@ -107,8 +107,8 @@ parse_generaltime_day([Y1, Y2, Y3, Y4, Mo1, Mo2, D1, D2 | _]) ->
 
 -doc "Two calls to self_signed_bundle/1 produce different keys and different serial numbers.".
 t_distinct_keys_and_serials(_TCConfig) ->
-    #{key := Key1, cert := Cert1} = emqx_default_cert:self_signed_bundle(#{cn => "localhost"}),
-    #{key := Key2, cert := Cert2} = emqx_default_cert:self_signed_bundle(#{cn => "localhost"}),
+    #{key := Key1, cert := Cert1} = emqx_utils_certs:self_signed_bundle(#{cn => "localhost"}),
+    #{key := Key2, cert := Cert2} = emqx_utils_certs:self_signed_bundle(#{cn => "localhost"}),
     ?assertNotEqual(Key1, Key2),
     {_, Otp1} = decode_cert(Cert1),
     {_, Otp2} = decode_cert(Cert2),
@@ -118,7 +118,7 @@ t_distinct_keys_and_serials(_TCConfig) ->
 
 -doc "self_signed_bundle/1 returns no CA private key, in any form, in any value.".
 t_no_ca_key_in_bundle(_TCConfig) ->
-    Bundle = emqx_default_cert:self_signed_bundle(#{cn => "localhost", sans => sans()}),
+    Bundle = emqx_utils_certs:self_signed_bundle(#{cn => "localhost", sans => sans()}),
     ?assertEqual([ca, cert, key], lists:sort(maps:keys(Bundle))),
     lists:foreach(
         fun(Pem) ->
@@ -139,7 +139,7 @@ t_no_ca_key_in_bundle(_TCConfig) ->
 t_rsa_and_ec_key_types(_TCConfig) ->
     lists:foreach(
         fun(KeyType) ->
-            #{cert := CertPem, ca := CaPem} = emqx_default_cert:self_signed_bundle(#{
+            #{cert := CertPem, ca := CaPem} = emqx_utils_certs:self_signed_bundle(#{
                 cn => "localhost", sans => sans(), key_type => KeyType
             }),
             {LeafDer, _} = decode_cert(CertPem),
@@ -162,7 +162,7 @@ t_invalid_cn_raises(_TCConfig) ->
         fun(CN) ->
             ?assertError(
                 #{reason := invalid_common_name},
-                emqx_default_cert:generate_ca(#{cn => CN})
+                emqx_utils_certs:generate_ca(#{cn => CN})
             )
         end,
         Invalid
