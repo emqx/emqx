@@ -3175,25 +3175,24 @@ maybe_publish_will_msg(
     takenover,
     Channel0 = #channel{
         will_msg = WillMsg,
-        conninfo = #{clientid := ClientId}
+        conninfo = #{clientid := ClientId, expiry_interval := ExpiryInterval}
     }
 ) ->
     %% TAKEOVER [MQTT-3.1.4-3]
-    %% MQTT 5, Non-normative comment:
-    %% """"
-    %% If a Network Connection uses a Client Identifier of an existing Network Connection to the Server,
-    %% the Will Message for the exiting connection is sent unless the new connection specifies Clean Start
-    %% of 0 and the Will Delay is greater than zero. If the Will Delay is 0 the Will Message is sent at
-    %% the close of the existing Network Connection, and if Clean Start is 1 the Will Message is sent
-    %% because the Session ends.
-    %% """"
-    %% NOTE, above clean start=1 is `discard' scenarios not `takeover' scenario.
-    case will_delay_interval(WillMsg) of
-        0 ->
+    %% MQTT 5.0, normative:
+    %% - 3.1.3.2.2: "The Server delays publishing the Client's Will Message until
+    %%   the Will Delay Interval has passed or the Session ends, whichever happens first."
+    %% - 3.1.2.11.2: "If it [Session Expiry Interval] is set to 0, or is absent,
+    %%   the Session ends when the Network Connection is closed."
+    %% So skip publishing only when the session outlives the taken-over connection:
+    %% Will Delay Interval > 0 AND session expiry interval > 0.
+    %% NOTE: `ExpiryInterval' is in milliseconds, `will_delay_interval/1' returns
+    %% seconds; only compare either against 0.
+    case will_delay_interval(WillMsg) > 0 andalso ExpiryInterval > 0 of
+        false ->
             ?tp(debug, maybe_publish_willmsg_takenover_pub, #{clientid => ClientId}),
-            Channel = publish_will_msg(Channel0),
-            ok;
-        I when I > 0 ->
+            Channel = publish_will_msg(Channel0);
+        true ->
             %% @NOTE Non-normative comment in MQTT 5.0 spec
             %% """
             %% One use of this is to avoid publishing Will Messages if there is a temporary network
@@ -3201,9 +3200,10 @@ maybe_publish_will_msg(
             %% before the Will Message is published.
             %% """
             ?tp(debug, maybe_publish_willmsg_takenover_skip, #{clientid => ClientId}),
-            Channel = Channel0,
-            skip
+            Channel = Channel0
     end,
+    %% The will message belongs to the taken-over connection; the new connection
+    %% carries its own will message, so drop it here on both branches.
     remove_willmsg(Channel);
 maybe_publish_will_msg(
     Reason,
