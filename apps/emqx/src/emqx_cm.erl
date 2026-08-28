@@ -462,10 +462,6 @@ do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
             none;
         ConnMod when is_atom(ConnMod) ->
             case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid, ?T_TAKEOVER) of
-                {ok, session_ended} ->
-                    %% The channel refused the takeover: its session ended
-                    %% when the network connection closed (expiry interval 0).
-                    none;
                 {ok, Session} ->
                     {living, ConnMod, ChanPid, Session};
                 {error, Reason} ->

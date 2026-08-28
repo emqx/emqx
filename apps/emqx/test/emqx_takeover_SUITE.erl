@@ -51,6 +51,7 @@ tc_v5_only() ->
         t_takeover_before_session_expire_willdelay0,
         t_takeover_delayed_willmsg_session_expiry0,
         t_takeover_delayed_willmsg_session_expiry_absent,
+        t_takeover_kick_delayed_willmsg_session_expiry0,
         t_takeover_session_then_normal_disconnect,
         t_takeover_session_then_abnormal_disconnect,
         t_takeover_session_then_abnormal_disconnect_2,
@@ -674,6 +675,47 @@ takeover_delayed_willmsg_no_session(Case, Config, ConnProps) ->
     emqtt:stop(CPidSub),
     emqtt:stop(CPid2),
     ?assert(not is_process_alive(CPid1)),
+    ok.
+
+-doc """
+Regression test for emqx/emqx#18565 (takeover-kick path): a session with
+Session Expiry Interval 0 ends when its network connection closes, so a
+takeover kick must publish the will message even when the Will Delay
+Interval is greater than zero (MQTT 5.0 3.1.3.2.2 and 3.1.2.11.2). The
+kick path is how a persistence-eligible new connection steps down the
+old channel.
+""".
+t_takeover_kick_delayed_willmsg_session_expiry0(Config) ->
+    ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
+    process_flag(trap_exit, true),
+    ClientId = make_client_id(?FUNCTION_NAME, Config),
+    ClientIdSub = <<ClientId/binary, "_willsub">>,
+    WillTopic = <<ClientId/binary, "willtopic">>,
+    ClientOpts = [
+        {proto_ver, v5},
+        {clean_start, false},
+        {will_topic, WillTopic},
+        {will_payload, <<"willpayload_delay10_kick_sei0">>},
+        {will_qos, 1},
+        {will_props, #{'Will-Delay-Interval' => 10}},
+        {properties, #{'Session-Expiry-Interval' => 0}}
+    ],
+    %% GIVEN: client connects with will-delay-interval 10s and session
+    %%        expiry interval 0.
+    CPid = start_connect_client(ClientId, ClientOpts),
+    CPidSub = start_connect_client(ClientIdSub, []),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(CPidSub, WillTopic, ?QOS_1),
+    %% WHEN: the channel is kicked the way a durable-session takeover
+    %%       steps down the old channel.
+    ok = emqx_cm:takeover_kick(ClientId),
+    assert_client_exit(CPid, v5, takenover),
+    %% THEN: the session ended at the kick, so the will message is
+    %% published without waiting for the will delay interval.
+    ?assertReceive(
+        {publish, #{payload := <<"willpayload_delay10_kick_sei0">>}}, timer:seconds(5)
+    ),
+    emqtt:stop(CPidSub),
+    ?assert(not is_process_alive(CPid)),
     ok.
 
 t_takeover_session_then_normal_disconnect(Config) ->
