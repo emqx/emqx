@@ -211,7 +211,7 @@ max_tps_alarm({ok, #{max_tps := Limit}}) ->
 
 %% @private Remember when the current run of over-limit samples started, so the
 %% alarm can require the breach to last. A sample at or below the limit ends the
-%% run: `tps_alarm_trigger_duration' is a continuous window, not a total.
+%% run: `tps_alarm_sustain_duration' is a continuous window, not a total.
 %%
 %% Held in the same ephemeral table as the TPS cache, so a restart of this
 %% process starts the window over. That only delays an alarm by the configured
@@ -234,10 +234,10 @@ track_tps_breach(_IsOverLimit = true) ->
     end.
 
 %% @private Whether the current run of over-limit samples has lasted at least
-%% `license.tps_alarm_trigger_duration'. The default of 0 keeps the alarm firing
+%% `license.tps_alarm_sustain_duration'. The default of 0 keeps the alarm firing
 %% on the first over-limit sample.
 tps_breach_sustained() ->
-    case emqx_conf:get([license, tps_alarm_trigger_duration], 0) of
+    case emqx_conf:get([license, tps_alarm_sustain_duration], 0) of
         Duration when Duration =< 0 ->
             true;
         Duration ->

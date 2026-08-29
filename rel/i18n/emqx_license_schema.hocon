@@ -12,8 +12,8 @@ connection_low_watermark_field.desc:
 connection_low_watermark_field.label:
 """Connection low watermark"""
 
-tps_alarm_trigger_duration {
-    label: "TPS Alarm Trigger Duration"
+tps_alarm_sustain_duration {
+    label: "TPS Alarm Sustain Duration"
     desc: """~
         Minimum duration for which the cluster message throughput must stay above the license TPS limit before the throughput alarm is activated.
         A sample at or below the limit restarts the count, so the limit has to be exceeded continuously.
