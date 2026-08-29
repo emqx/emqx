@@ -106,6 +106,7 @@ t_infinity_simple_mqueue(_) ->
     {{value, V}, _Qy} = ?Q:out(Qx),
     ?assertEqual(<<1>>, V#message.payload).
 
+-doc "max_len caps the total queue length, not each priority lane independently.".
 t_priority_mqueue(_) ->
     Opts = #{
         max_len => 3,
@@ -124,21 +125,32 @@ t_priority_mqueue(_) ->
     {_, Q2} = ?Q:in(#message{qos = 1, topic = <<"t1">>, payload = <<>>}, Q1),
     {_, Q3} = ?Q:in(#message{qos = 1, topic = <<"t3">>, payload = <<>>}, Q2),
     ?assertEqual(3, ?Q:len(Q3)),
-    {_, Q4} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q3),
-    ?assertEqual(4, ?Q:len(Q4)),
-    {_, Q5} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q4),
-    ?assertEqual(5, ?Q:len(Q5)),
-    {_, Q6} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q5),
-    ?assertEqual(5, ?Q:len(Q6)),
-    {{value, _Msg}, Q7} = ?Q:out(Q6),
-    ?assertEqual(4, ?Q:len(Q7)).
+    %% Queue is at the global cap: enqueuing another t2 (prio 2) message must not
+    %% grow the total past max_len. The dropped message comes from t1 (prio 1),
+    %% the lowest non-empty lane, not from t2's own lane.
+    {Dropped4, Q4} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q3),
+    ?assertEqual(<<"t1">>, Dropped4#message.topic),
+    ?assertEqual(3, ?Q:len(Q4)),
+    %% t1 is now empty; the lowest non-empty lane is t2, which holds the oldest
+    %% surviving message.
+    {Dropped5, Q5} = ?Q:in(#message{qos = 1, topic = <<"t2">>, payload = <<>>}, Q4),
+    ?assertEqual(<<"t2">>, Dropped5#message.topic),
+    ?assertEqual(3, ?Q:len(Q5)),
+    {{value, Msg}, Q6} = ?Q:out(Q5),
+    ?assertEqual(<<"t3">>, Msg#message.topic),
+    ?assertEqual(2, ?Q:len(Q6)).
 
 t_priority_mqueue_conservation(_) ->
     true = proper:quickcheck(conservation_prop()).
 
+-doc """
+Dequeue order across priority lanes (round-robin with priority-weighted
+credits). max_len is unbounded here so the global cap from t_priority_mqueue
+does not interact with the scheduling being tested.
+""".
 t_priority_order(_) ->
     Opts = #{
-        max_len => 5,
+        max_len => 0,
         shift_multiplier => 1,
         priorities =>
             #{
@@ -168,28 +180,47 @@ t_priority_order(_) ->
     ),
     ?assertMatch(
         [
+            {<<"t3">>, <<"1">>},
+            {<<"t3">>, <<"2">>},
+            {<<"t3">>, <<"3">>},
+
+            {<<"t2">>, <<"1">>},
+            {<<"t2">>, <<"2">>},
+
+            {<<"t1">>, <<"1">>},
+
+            {<<"t3">>, <<"4">>},
+            {<<"t3">>, <<"5">>},
             {<<"t3">>, <<"6">>},
+
+            {<<"t2">>, <<"3">>},
+            {<<"t2">>, <<"4">>},
+
+            {<<"t1">>, <<"2">>},
+
             {<<"t3">>, <<"7">>},
             {<<"t3">>, <<"8">>},
-
-            {<<"t2">>, <<"6">>},
-            {<<"t2">>, <<"7">>},
-
-            {<<"t1">>, <<"6">>},
-
             {<<"t3">>, <<"9">>},
+
+            {<<"t2">>, <<"5">>},
+            {<<"t2">>, <<"6">>},
+
+            {<<"t1">>, <<"3">>},
+
             {<<"t3">>, <<"10">>},
 
+            {<<"t2">>, <<"7">>},
             {<<"t2">>, <<"8">>},
 
-            %% Note: for performance reasons we don't reset the
-            %% counter when we run out of messages with the
-            %% current prio, so next is t1:
-            {<<"t1">>, <<"7">>},
+            {<<"t1">>, <<"4">>},
 
             {<<"t2">>, <<"9">>},
             {<<"t2">>, <<"10">>},
 
+            %% t2 and t3 are exhausted; the round-robin drains the rest of t1.
+            {<<"t1">>, <<"5">>},
+            {<<"t1">>, <<"6">>},
+            {<<"t1">>, <<"7">>},
             {<<"t1">>, <<"8">>},
             {<<"t1">>, <<"9">>},
             {<<"t1">>, <<"10">>}
@@ -197,9 +228,14 @@ t_priority_order(_) ->
         drain(Q)
     ).
 
+-doc """
+Same as t_priority_order/1, with a different shift_multiplier and negative
+priorities. max_len is unbounded so the scheduling test is not affected by
+the global cap.
+""".
 t_priority_order2(_) ->
     Opts = #{
-        max_len => 5,
+        max_len => 0,
         shift_multiplier => 2,
         priorities =>
             #{
@@ -228,16 +264,29 @@ t_priority_order2(_) ->
     ),
     ?assertMatch(
         [
+            {<<"t2">>, <<"1">>},
+            {<<"t2">>, <<"2">>},
+            {<<"t2">>, <<"3">>},
+            {<<"t2">>, <<"4">>},
+
+            {<<"t1">>, <<"1">>},
+            {<<"t1">>, <<"2">>},
+
+            {<<"t2">>, <<"5">>},
             {<<"t2">>, <<"6">>},
             {<<"t2">>, <<"7">>},
             {<<"t2">>, <<"8">>},
+
+            {<<"t1">>, <<"3">>},
+            {<<"t1">>, <<"4">>},
+
             {<<"t2">>, <<"9">>},
-
-            {<<"t1">>, <<"6">>},
-            {<<"t1">>, <<"7">>},
-
             {<<"t2">>, <<"10">>},
 
+            %% t2 is exhausted; the round-robin drains the rest of t1.
+            {<<"t1">>, <<"5">>},
+            {<<"t1">>, <<"6">>},
+            {<<"t1">>, <<"7">>},
             {<<"t1">>, <<"8">>},
             {<<"t1">>, <<"9">>},
             {<<"t1">>, <<"10">>}
@@ -288,6 +337,76 @@ t_length_priority_mqueue(_) ->
     ?assertEqual(2, ?Q:len(Q4)),
     {{value, _Val}, Q5} = ?Q:out(Q4),
     ?assertEqual(1, ?Q:len(Q5)).
+
+-doc """
+Regression test for https://github.com/emqx/emqx/issues/13409: with several
+prioritised topics, max_len bounds the total number of queued messages, not
+each priority lane independently.
+""".
+t_max_len_bounds_total_not_per_priority(_) ->
+    MaxLen = 3,
+    Topics = [<<"t1">>, <<"t2">>, <<"t3">>, <<"t4">>, <<"t5">>],
+    Priorities = maps:from_list(lists:zip(Topics, lists:seq(1, length(Topics)))),
+    Opts = #{max_len => MaxLen, priorities => Priorities, store_qos0 => false},
+    Q = lists:foldl(
+        fun(_Round, QAcc) ->
+            lists:foldl(
+                fun(Topic, QAcc1) ->
+                    {_Dropped, QAcc2} = ?Q:in(
+                        emqx_message:make(?MODULE, ?QOS_1, Topic, <<"p">>), QAcc1
+                    ),
+                    %% The regression: this must hold after every single enqueue,
+                    %% not just at the end.
+                    ?assert(?Q:len(QAcc2) =< MaxLen),
+                    QAcc2
+                end,
+                QAcc,
+                Topics
+            )
+        end,
+        ?Q:init(Opts),
+        lists:seq(1, 20)
+    ),
+    ?assertEqual(MaxLen, ?Q:len(Q)),
+    %% t5 has the highest priority: a lower-priority message must never
+    %% survive at the expense of a higher-priority one.
+    ?assert(lists:any(fun(#message{topic = T}) -> T =:= <<"t5">> end, ?Q:to_list(Q))).
+
+-doc """
+The message dropped when the queue is full comes from the lowest-priority
+non-empty lane, even when the incoming message's own lane was empty before
+this enqueue (so a naive "drop from the incoming lane" rule would have
+dropped the message just enqueued, or refused it, instead).
+""".
+t_drop_from_lowest_priority_lane(_) ->
+    Opts = #{
+        max_len => 4,
+        priorities =>
+            #{
+                <<"low">> => 1,
+                <<"mid">> => 2,
+                <<"high">> => 3
+            },
+        store_qos0 => false
+    },
+    Q0 = ?Q:init(Opts),
+    {undefined, Q1} = ?Q:in(emqx_message:make(?MODULE, ?QOS_1, <<"low">>, <<"low-1">>), Q0),
+    {undefined, Q2} = ?Q:in(emqx_message:make(?MODULE, ?QOS_1, <<"low">>, <<"low-2">>), Q1),
+    {undefined, Q3} = ?Q:in(emqx_message:make(?MODULE, ?QOS_1, <<"mid">>, <<"mid-1">>), Q2),
+    {undefined, Q4} = ?Q:in(emqx_message:make(?MODULE, ?QOS_1, <<"mid">>, <<"mid-2">>), Q3),
+    ?assertEqual(4, ?Q:len(Q4)),
+    %% "high" is a brand-new, empty lane. The oldest message in "low", the
+    %% lowest non-empty priority, is the one that must go.
+    {Dropped, Q5} = ?Q:in(emqx_message:make(?MODULE, ?QOS_1, <<"high">>, <<"high-1">>), Q4),
+    ?assertEqual(<<"low-1">>, emqx_message:payload(Dropped)),
+    ?assertEqual(4, ?Q:len(Q5)),
+    Remaining = [{T, P} || #message{topic = T, payload = P} <- ?Q:to_list(Q5)],
+    ?assertEqual(4, length(Remaining)),
+    ?assertNot(lists:member({<<"low">>, <<"low-1">>}, Remaining)),
+    ?assert(lists:member({<<"low">>, <<"low-2">>}, Remaining)),
+    ?assert(lists:member({<<"mid">>, <<"mid-1">>}, Remaining)),
+    ?assert(lists:member({<<"mid">>, <<"mid-2">>}, Remaining)),
+    ?assert(lists:member({<<"high">>, <<"high-1">>}, Remaining)).
 
 t_dropped(_) ->
     Q = ?Q:init(#{max_len => 1, store_qos0 => true}),

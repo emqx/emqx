@@ -56,6 +56,7 @@
     filter/2,
     fold/3,
     highest/1,
+    lowest/1,
     shift/1
 ]).
 
@@ -363,6 +364,16 @@ fold(Fun, Init, Q) ->
 highest({pqueue, [{P, _} | _]}) ->
     maybe_negate_priority(P);
 highest(_Q) ->
+    0.
+
+%% Queues is sorted highest-priority-first (see `in/4`), and never holds
+%% an emptied-out lane (lanes are pruned in `out/1`, `out/2` and `drop/2`),
+%% so the last element is the lowest non-empty priority.
+-spec lowest(pqueue()) -> priority().
+lowest({pqueue, Queues}) ->
+    {P, _} = lists:last(Queues),
+    maybe_negate_priority(P);
+lowest(_Q) ->
     0.
 
 r2f([], 0) -> {queue, [], [], 0};

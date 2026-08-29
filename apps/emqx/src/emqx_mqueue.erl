@@ -308,15 +308,19 @@ in(
         end,
     Msg1 = with_ts(Msg),
     Q1 = emqx_pqueue:in(Msg1, Prio, Class, Q0),
-    case MaxLen =/= ?MAX_LEN_INFINITY andalso emqx_pqueue:plen(Prio, Q1) > MaxLen of
+    case MaxLen =/= ?MAX_LEN_INFINITY andalso emqx_pqueue:len(Q1) > MaxLen of
         false ->
             {_DroppedMsg = undefined, MQ#mqueue{
                 q = Q1,
                 payload_bytes = PayloadBytes + emqx_message:payload_size(Msg1)
             }};
         true ->
-            %% Reached max length: drop the oldest least important message.
-            {{value, DroppedMsg}, Q2} = emqx_pqueue:drop(Prio, Q1),
+            %% Reached max length: drop the oldest message from the lowest-priority
+            %% non-empty lane, so a lower-priority message never survives at the
+            %% expense of a higher-priority one. This may not be the lane the
+            %% incoming message was just added to.
+            DropPrio = emqx_pqueue:lowest(Q1),
+            {{value, DroppedMsg}, Q2} = emqx_pqueue:drop(DropPrio, Q1),
             PayloadBytes1 =
                 PayloadBytes - emqx_message:payload_size(DroppedMsg) +
                     emqx_message:payload_size(Msg1),
