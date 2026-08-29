@@ -949,6 +949,7 @@ change_pwd(post, #{bindings := #{username := Target}, body := Params} = Req) ->
                 ?SLOG(warning, #{
                     msg => "dashboard_change_password",
                     username => Target,
+                    attempted_by => Username,
                     result => denied,
                     reason => "not_the_authenticated_user"
                 }),
