@@ -473,8 +473,35 @@ find_emqx_process() {
 ## This is because starting the Erlang beam with all modules loaded
 ## and parsing HOCON config + environment variables is a non-trivial task
 CONF_KEYS=( 'node.data_dir' 'node.name' 'node.cookie' 'node.db_backend' 'cluster.proto_dist' 'node.dist_net_ticktime' )
+
+## The license key is an opaque string, but environment variable values are
+## parsed as HOCON. A key containing '//' (which is common in base64) gets
+## truncated at that point, because '//' starts a HOCON comment.
+## Quote the value so HOCON passes it through verbatim, both here (multi_get)
+## and in the node started from this script.
+normalize_license_key() {
+    local key="${EMQX_LICENSE__KEY:-}"
+    [ -z "$key" ] && return 0
+    ## drop surrounding whitespace (e.g. a trailing newline from a k8s Secret),
+    ## a quoted HOCON string cannot contain a raw newline
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    case "$key" in
+        \"*\")
+            ## already quoted, leave it as is
+            ;;
+        *)
+            key="${key//\\/\\\\}"
+            key="${key//\"/\\\"}"
+            key="\"${key}\""
+            ;;
+    esac
+    export EMQX_LICENSE__KEY="$key"
+}
+
 if [ "$IS_ENTERPRISE" = 'yes' ]; then
     CONF_KEYS+=( 'license.key' )
+    normalize_license_key
 fi
 
 ## To be backward compatible, read and then unset EMQX_NODE_NAME
@@ -617,7 +644,9 @@ check_license() {
         return 0
     fi
 
-    key_license="${EMQX_LICENSE__KEY:-$(get_boot_config 'license.key' || echo '')}"
+    ## Use the resolved boot config rather than the raw environment variable,
+    ## so this check sees exactly the value the node is going to use.
+    key_license="$(get_boot_config 'license.key' || echo '')"
 
     if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
       call_nodetool check_license_key "$key_license"
