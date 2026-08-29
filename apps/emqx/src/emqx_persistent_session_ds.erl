@@ -1150,7 +1150,7 @@ ensure_new_session_state(
 -spec drop_ended_session(id()) -> ok.
 drop_ended_session(ClientID) ->
     try
-        session_drop(ClientID, expired)
+        session_drop(ClientID, '_', expired)
     catch
         error:{badmatch, {error, unrecoverable, {precondition_failed, _}}} ->
             ?tp(debug, sessds_drop_ended_session_race, #{client_id => ClientID}),
