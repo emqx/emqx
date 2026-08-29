@@ -378,12 +378,16 @@ defmodule AppsVersionCheck do
 
     invalid_apps =
       apps
-      |> Enum.reject(&has_valid_app_vsn?(&1, context))
+      |> Enum.map(fn app -> Task.async(fn -> has_valid_app_vsn?(app, context) end) end)
+      |> Task.await_many(:infinity)
+      |> Enum.reject(&Function.identity/1)
       |> Enum.map(&"apps/#{&1}")
 
     invalid_plugins =
       plugins
-      |> Enum.reject(&has_valid_plugin_release_vsn?(&1, context))
+      |> Enum.map(fn app -> Task.async(fn -> has_valid_plugin_release_vsn?(app, context) end) end)
+      |> Task.await_many(:infinity)
+      |> Enum.reject(&Function.identity/1)
       |> Enum.map(&"plugins/#{&1}")
 
     (invalid_apps ++ invalid_plugins)
