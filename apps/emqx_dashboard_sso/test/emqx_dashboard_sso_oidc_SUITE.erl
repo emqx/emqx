@@ -175,6 +175,14 @@ create_backend(Node, Params, Opts) ->
         auth_header => auth_header_lazy(Opts)
     }).
 
+get_backend(Node, Opts) ->
+    URL = url(Node, ["sso", "oidc"]),
+    simple_request(#{
+        method => get,
+        url => URL,
+        auth_header => auth_header_lazy(Opts)
+    }).
+
 delete_backend(Node, Opts) ->
     URL = url(Node, ["sso", "oidc"]),
     simple_request(#{
@@ -873,6 +881,40 @@ t_error_login_callback(TCConfig) ->
         simple_login_get(LoginURL1)
     ),
 
+    ok.
+
+-doc """
+`GET /api/v5/sso/oidc' must return `client_jwks' as `none' when no client
+JWKS is configured (the default), while a configured file JWKS and the
+client secret must stay masked in both the GET and update responses.
+""".
+t_client_jwks_redaction(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/[...]"),
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    ok = emqx_utils_http_test_server:set_handler(fun oidc_content_type_handler/2),
+    Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
+    ProviderParams = oidc_provider_params(Issuer),
+
+    ?assertMatch({200, _}, create_backend(Node, ProviderParams, #{})),
+    ?assertMatch(
+        {200, #{<<"client_jwks">> := <<"none">>, <<"secret">> := <<"******">>}},
+        get_backend(Node, #{})
+    ),
+
+    JwksContent = <<"{\"keys\":[{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}]}">>,
+    ParamsWithJwks = ProviderParams#{
+        <<"client_jwks">> => #{<<"type">> => <<"file">>, <<"file">> => JwksContent}
+    },
+    ?assertMatch(
+        {200, #{<<"client_jwks">> := <<"******">>}},
+        create_backend(Node, ParamsWithJwks, #{})
+    ),
+    ?assertMatch(
+        {200, #{<<"client_jwks">> := <<"******">>, <<"secret">> := <<"******">>}},
+        get_backend(Node, #{})
+    ),
     ok.
 
 t_jwks_content_type_suffix(TCConfig) ->
