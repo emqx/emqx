@@ -836,18 +836,28 @@ t_conn_change_client_addr(Config) ->
         ],
         recv_pub(1)
     ),
-    NewPort = select_port(),
     {ok, OldAddr} = quicer:sockname(Conn),
-    ?assertEqual(
-        ok, quicer:setopt(Conn, local_address, "127.0.0.1:" ++ integer_to_list(NewPort))
-    ),
-
+    %% The address migration is asynchronous, and the selected port can be
+    %% taken by another socket between selection and rebind, in which case
+    %% msquic keeps the old path. Retry the whole migration with a fresh
+    %% port when the socket address does not change in time.
     ?retry(
-        _Delay = 50,
-        _attempt = 20,
+        _MigrateDelay = 200,
+        _MigrateAttempts = 10,
         begin
-            {ok, NewAddr} = quicer:sockname(Conn),
-            ?assertNotEqual(OldAddr, NewAddr)
+            NewPort = select_port(),
+            ?assertEqual(
+                ok,
+                quicer:setopt(Conn, local_address, "127.0.0.1:" ++ integer_to_list(NewPort))
+            ),
+            ?retry(
+                _Delay = 50,
+                _attempt = 20,
+                begin
+                    {ok, NewAddr} = quicer:sockname(Conn),
+                    ?assertNotEqual(OldAddr, NewAddr)
+                end
+            )
         end
     ),
     ?assert(is_list(emqtt:info(C))),
@@ -2211,13 +2221,17 @@ t_keep_alive_idle_ctrl_stream(Config) ->
 
 t_quic_takeover_tls(Config) ->
     process_flag(trap_exit, true),
-    %% Given: TLS client connected and subscribed a topic
+    %% Given: TLS client connected and subscribed a topic.
+    %% Nonzero session expiry interval, so the session outlives the
+    %% connection and can be taken over. With interval 0 the session ends
+    %% when its connection closes (MQTT 5.0 3.1.2.11.2).
     {ok, CTLS} = emqtt:start_link([
         {proto_ver, v5},
         {connect_timeout, 5},
         {ssl, true},
         {ssl_opts, [{verify, verify_none}]},
         {auto_ack, never},
+        {properties, #{'Session-Expiry-Interval' => 30}},
         {port, 8883}
     ]),
     {ok, _} = emqtt:connect(CTLS),
@@ -2262,12 +2276,16 @@ t_quic_takeover_tls(Config) ->
 
 t_quic_takeover_tls_0rtt(Config) ->
     process_flag(trap_exit, true),
-    %% GIVEN: QUIC connection
+    %% GIVEN: QUIC connection.
+    %% Nonzero session expiry interval, so the session outlives the
+    %% connection and can be taken over. With interval 0 the session ends
+    %% when its connection closes (MQTT 5.0 3.1.2.11.2).
     {ok, C0} = emqtt:start_link([
         {proto_ver, v5},
         {connect_timeout, 5},
         {clean_start, true},
         {auto_ack, never},
+        {properties, #{'Session-Expiry-Interval' => 30}},
         {quic_opts, {[{quic_event_mask, 1}], []}}
         | Config
     ]),
@@ -2292,6 +2310,7 @@ t_quic_takeover_tls_0rtt(Config) ->
         {auto_ack, never},
         {clean_start, false},
         {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30}},
         {port, 8883}
     ]),
     {ok, _} = emqtt:connect(CTLS),
@@ -2343,12 +2362,16 @@ t_quic_takeover_tls_0rtt(Config) ->
 
 t_tls_takeover_quic(Config) ->
     process_flag(trap_exit, true),
-    %% GIVEN: QUIC connection
+    %% GIVEN: QUIC connection.
+    %% Nonzero session expiry interval, so the session outlives the
+    %% connection and can be taken over. With interval 0 the session ends
+    %% when its connection closes (MQTT 5.0 3.1.2.11.2).
     {ok, C0} = emqtt:start_link([
         {proto_ver, v5},
         {connect_timeout, 5},
         {clean_start, true},
-        {auto_ack, never}
+        {auto_ack, never},
+        {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
 

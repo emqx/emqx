@@ -8,7 +8,8 @@
 -export([
     sys_info/0,
     app_env_dump/0,
-    print_conf_dump/0
+    print_conf_dump/0,
+    conf_dump/0
 ]).
 
 sys_info() ->
@@ -21,9 +22,20 @@ app_env_dump() ->
     censor(ets:tab2list(ac_tab)).
 
 print_conf_dump() ->
+    io:put_chars(conf_dump()).
+
+-doc """
+Render the node's config as HOCON text with sensitive values redacted.
+
+Values marked as sensitive in the config schema are replaced with
+`"******"`; `emqx_utils:redact/1` is applied on top to cover values
+under roots the schema walk passes through unchanged.
+""".
+conf_dump() ->
     RawConf0 = emqx_config:get_raw([]),
-    RawConf = emqx_utils:redact(RawConf0),
-    io:put_chars(hocon_pp:do(RawConf, #{})).
+    RawConf1 = emqx_config:fill_defaults(RawConf0, #{obfuscate_sensitive_values => true}),
+    RawConf = emqx_utils:redact(RawConf1),
+    hocon_pp:do(RawConf, #{}).
 
 censor([]) ->
     [];

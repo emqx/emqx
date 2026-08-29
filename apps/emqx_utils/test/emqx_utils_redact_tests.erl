@@ -97,6 +97,40 @@ redact_common_token_aliases_test() ->
         })
     ).
 
+redact_client_jwks_configured_test() ->
+    %% A configured (file) client JWKS holds key material and must stay redacted,
+    %% in both the checked-config shape (atom keys, file already saved to a path)
+    %% and the raw-request shape (binary keys, `file' still holding the content).
+    ?assertEqual(
+        #{
+            client_jwks => "******",
+            <<"client_jwks">> => "******"
+        },
+        redact(#{
+            client_jwks => #{type => file, file => <<"/path/to/client_jwks">>},
+            <<"client_jwks">> => #{
+                <<"type">> => <<"file">>,
+                <<"file">> => <<"{\"keys\":[{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}]}">>
+            }
+        })
+    ).
+
+no_redact_client_jwks_none_test() ->
+    %% `client_jwks' is a union of `none' and a JWKS object; `none' means no
+    %% client JWKS is configured and must not be masked.
+    ?assertEqual(
+        #{
+            client_jwks => none,
+            <<"client_jwks">> => <<"none">>,
+            "client_jwks" => "none"
+        },
+        redact(#{
+            client_jwks => none,
+            <<"client_jwks">> => <<"none">>,
+            "client_jwks" => "none"
+        })
+    ).
+
 redact_secret_headers_test() ->
     ?assertEqual(
         #{
