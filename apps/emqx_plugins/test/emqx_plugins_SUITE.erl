@@ -1841,7 +1841,6 @@ t_allow_ttl_expires({'end', _Config}) ->
     ok;
 t_allow_ttl_expires(_Config) ->
     NameVsn = <<"foo-1.0.0">>,
-    %% A sha256-bound grant is accepted by every profile.
     Sha = binary:encode_hex(crypto:hash(sha256, <<"hello world">>), lowercase),
     ok = emqx_plugins:allow_installation(NameVsn, Sha),
     ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
@@ -1895,7 +1894,6 @@ t_allow_sha256_undefined_accepts_any({'end', _Config}) ->
     application:unset_env(emqx_plugins, allowed_installations),
     ok;
 t_allow_sha256_undefined_accepts_any(_Config) ->
-    %% Unbound grants are a legacy-profile behavior.
     NameVsn = <<"foo-1.0.0">>,
     emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         ok = emqx_plugins:allow_installation(NameVsn),
@@ -2050,8 +2048,6 @@ t_cli_install_requires_allow(Config) ->
     ),
     ?assertMatch({error, _}, emqx_plugins:describe(NameVsn)),
     ?assertNot(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
-    %% Grant retained when the install itself fails. Bind a sha256 so the
-    %% grant is accepted by every profile.
     MissingNameVsn = "missing-plugin-1.0.0",
     MissingSha = binary:encode_hex(crypto:hash(sha256, <<"missing">>), lowercase),
     ok = emqx_plugins:allow_installation(MissingNameVsn, MissingSha),

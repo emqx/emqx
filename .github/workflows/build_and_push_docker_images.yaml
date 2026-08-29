@@ -103,10 +103,6 @@ jobs:
       - name: smoke test
         timeout-minutes: 5
         run: |
-          # The hardened profile (default since 7.0) refuses the default
-          # cookie and rejects login with the unchanged default password.
-          # The dashboard bind needs no override: the docker entrypoint sets
-          # node.default_listener_address=all.
           CID=$(docker run -d -p 18083:18083 \
             -e EMQX_NODE__COOKIE='ci-smoke-test-cookie' \
             -e EMQX_DASHBOARD__DEFAULT_PASSWORD='CiSm0kePass1' \
@@ -126,7 +122,6 @@ jobs:
 
       - name: test node_dump
         run: |
-          # The hardened profile (default since 7.0) refuses the default cookie.
           CID=$(docker run -d -P -e EMQX_NODE__COOKIE='ci-smoke-test-cookie' $_EMQX_DOCKER_IMAGE_TAG)
           docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
           docker exec -t -u root $CID node_dump

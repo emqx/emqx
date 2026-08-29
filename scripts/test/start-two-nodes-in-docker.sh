@@ -16,11 +16,6 @@ NET='emqx.io'
 NODE1="node1.$NET"
 NODE2="node2.$NET"
 COOKIE='this-is-a-secret'
-## The hardened profile (default since 7.0) rejects dashboard login with the
-## unchanged default password, so set a non-default one (exported for
-## emqx-smoke-test.sh via EMQX_SMOKE_PASSWORD by the callers). The listener
-## binds need no override: the docker entrypoint sets
-## node.default_listener_address=all.
 DASHBOARD_PASSWORD="${EMQX_SMOKE_PASSWORD:-CiSm0kePass1}"
 IPV6=0
 DASHBOARD_NODES='both'

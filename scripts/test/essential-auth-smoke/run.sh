@@ -28,8 +28,6 @@ cleanup
 ACL_IN_CONTAINER="/opt/emqx/etc/acl-smoke.conf"
 CSV_IN_CONTAINER="/opt/emqx/data/auth-bootstrap.csv"
 
-## The hardened profile (default since 7.0) limits manual password hashing to
-## the stronger algorithms; the plaintext CSV is hashed with sha256 at import.
 authentication="[{
   mechanism = password_based,
   backend = built_in_database,

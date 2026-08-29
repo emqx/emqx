@@ -4,9 +4,6 @@ services:
     hostname: emqx
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: admin
-      # The hardened profile (default since 7.0) refuses the default cookie.
-      # The dashboard bind needs no override: the docker entrypoint sets
-      # node.default_listener_address=all.
       EMQX_NODE__COOKIE: ci-smoke-test-cookie
 
   selenium:

@@ -147,9 +147,7 @@ t_hardened(_Config) ->
         emqx:get_config([authentication])
     ),
 
-    %% A pre-7.0 config carries a hash algorithm and no autogenerate_password
-    %% field. It must remain valid (as a manual config) under hardened, so
-    %% that config import and upgrade do not fail validation.
+    %% Pre-7.0 shape: hash algorithm set, no autogenerate_password field.
     {ok, _} = emqx:update_config([authentication], [
         #{
             <<"mechanism">> => <<"password_based">>,

@@ -137,8 +137,7 @@ builtin_db_refs(Kind, _) -> refs(Kind).
 autogenerate_password(#{<<"autogenerate_password">> := Value}) ->
     Value;
 autogenerate_password(#{<<"password_hash_algorithm">> := _}) ->
-    %% A config with a hash algorithm and no autogenerate_password field is a
-    %% pre-7.0 manual-password config; it must stay valid under hardened.
+    %% Pre-7.0 configs have no autogenerate_password field.
     false;
 autogenerate_password(_Value) ->
     emqx_security_profile:policy(authn_builtin_default_autogenerate_password).

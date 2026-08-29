@@ -39,15 +39,9 @@ export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
 export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
 export PAHO_MQTT_TESTING_PATH="${PAHO_MQTT_TESTING_PATH:-/paho-mqtt-testing}"
 
-## The hardened security profile (the default since 7.0) refuses to boot with
-## the default Erlang cookie and rejects dashboard login with the unchanged
-## default password. Configure both, as a real deployment must.
 export EMQX_NODE__COOKIE='ci-smoke-test-cookie'
 export EMQX_DASHBOARD__DEFAULT_PASSWORD='CiSm0kePass1'
 export EMQX_SMOKE_PASSWORD="$EMQX_DASHBOARD__DEFAULT_PASSWORD"
-## The interoperability test connects anonymously; hardened denies clients
-## when no authenticator is configured, and the shipped acl.conf allows
-## anonymous pub/sub only under the legacy profile.
 export EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN='false'
 export EMQX_AUTHORIZATION__NO_MATCH='allow'
 
@@ -141,8 +135,6 @@ emqx_test(){
                 echo "package install error"
                 exit 1
             fi
-            ## The reinstall ships a fresh emqx_vars without the appends made
-            ## in run_test; the hardened profile refuses the default cookie.
             echo 'export EMQX_NODE__COOKIE=ci-smoke-test-cookie' \
                 | tee -a "$(dpkg -L ${EMQX_NAME} | grep emqx_vars)"
             if ! /usr/bin/emqx start

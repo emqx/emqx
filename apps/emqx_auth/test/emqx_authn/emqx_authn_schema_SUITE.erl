@@ -81,8 +81,6 @@ t_check_schema(_Config) ->
         )
     end),
     emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        %% The hardened profile limits manual password hashing to the
-        %% stronger algorithms; bcrypt is rejected.
         ?assertThrow(
             #{
                 path := "authentication.1.password_hash_algorithm",
@@ -91,7 +89,6 @@ t_check_schema(_Config) ->
             },
             Check(ConfigBcrypt)
         ),
-        %% A pre-7.0 manual sha256 config stays valid.
         _ = Check(ConfigBcrypt#{
             <<"password_hash_algorithm">> => #{
                 <<"name">> => <<"sha256">>,

@@ -2116,8 +2116,6 @@ setup_primary_builtin_auth_runtime(PrimaryNode) ->
     end).
 
 builtin_authn_raw_config() ->
-    %% The hardened profile (the default since 7.0) limits manual password
-    %% hashing to the stronger algorithms; bcrypt is rejected.
     #{
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
