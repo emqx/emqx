@@ -570,13 +570,13 @@ t_resolved_address_hardened_bare_port(Config) when is_list(Config) ->
     Path = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     Listener = request(get, Path, [], []),
     ?assertMatch(#{<<"bind">> := <<":1883">>}, Listener),
-    ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1:1883">>}, Listener),
+    ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1">>}, Listener),
     %% GET-then-PUT the same body back unchanged succeeds: resolved_address
     %% must be stripped before the update is applied, or this round trip
     %% (what the dashboard does on every listener save) fails validation.
     Updated = request(put, Path, [], Listener),
     ?assertMatch(#{<<"bind">> := <<":1883">>}, Updated),
-    ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1:1883">>}, Updated),
+    ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1">>}, Updated),
     ok.
 
 action_listener(ID, Action, Running) ->

@@ -736,7 +736,7 @@ listener_type_status_example() ->
                             running => true,
                             current_connections => 11,
                             max_connections => 1024000,
-                            resolved_address => <<":1883">>
+                            resolved_address => <<"">>
                         }
                     },
                     #{
@@ -745,7 +745,7 @@ listener_type_status_example() ->
                             running => true,
                             current_connections => 10,
                             max_connections => 1024000,
-                            resolved_address => <<"127.0.0.1:1883">>
+                            resolved_address => <<"127.0.0.1">>
                         }
                     }
                 ],
@@ -806,7 +806,7 @@ listener_id_status_example() ->
                             running => true,
                             current_connections => 100,
                             max_connections => 1024000,
-                            resolved_address => <<"0.0.0.0:1884">>
+                            resolved_address => <<"0.0.0.0">>
                         }
                     },
                     #{
@@ -815,7 +815,7 @@ listener_id_status_example() ->
                             running => true,
                             current_connections => 101,
                             max_connections => 1024000,
-                            resolved_address => <<"0.0.0.0:1884">>
+                            resolved_address => <<"0.0.0.0">>
                         }
                     }
                 ],

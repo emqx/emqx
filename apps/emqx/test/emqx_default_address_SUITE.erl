@@ -111,7 +111,7 @@ t_resolved_address_not_running(_Config) ->
     {'tcp:default', Conf} = lists:keyfind('tcp:default', 1, emqx_listeners:list()),
     ?assertEqual(false, maps:get(running, Conf)),
     ?assertEqual(1883, maps:get(bind, Conf)),
-    ?assertEqual(<<"127.0.0.1:1883">>, maps:get(resolved_address, Conf)),
+    ?assertEqual(<<"127.0.0.1">>, maps:get(resolved_address, Conf)),
     ok = emqx_listeners:start_listener('tcp:default'),
     restart_with_address(unset).
 
@@ -344,7 +344,7 @@ esockd_listen_on(Id) ->
     ListenOn.
 
 assert_resolved_address(Id, Port, Expected) ->
-    ExpectedAddr = expected_resolved_address(Expected, Port),
+    ExpectedAddr = expected_resolved_address(Expected),
     {Id, Conf} = lists:keyfind(Id, 1, emqx_listeners:list()),
     ?assertEqual(Port, maps:get(bind, Conf)),
     ?assertEqual(ExpectedAddr, maps:get(resolved_address, Conf)),
@@ -352,5 +352,6 @@ assert_resolved_address(Id, Port, Expected) ->
     ?assertEqual(Port, maps:get(<<"bind">>, RawConf)),
     ?assertEqual(ExpectedAddr, maps:get(<<"resolved_address">>, RawConf)).
 
-expected_resolved_address(Expected, Port) ->
-    iolist_to_binary(emqx_listeners:format_bind(expected_listen_on(Expected, Port))).
+%% resolved_address carries only the IP, not the port.
+expected_resolved_address(any) -> <<>>;
+expected_resolved_address(IP) -> list_to_binary(inet:ntoa(IP)).

@@ -49,7 +49,7 @@
 -export([post_zone_config_update/2, update_listener_for_zone_changes/3]).
 -export([reconcile_cert_source/2]).
 
--export([format_bind/1]).
+-export([format_bind/1, format_bind_ip/1]).
 
 -ifdef(TEST).
 -export([certs_dir/2]).
@@ -113,7 +113,7 @@ format_list(Listener) ->
         begin
             Id = listener_id(Type, LName),
             Running = is_running(Type, Id, LConf),
-            ResolvedAddress = iolist_to_binary(format_bind(listen_on(Id, maps:get(bind, LConf)))),
+            ResolvedAddress = format_bind_ip(listen_on(Id, maps:get(bind, LConf))),
             {Id, maps:merge(LConf, #{running => Running, resolved_address => ResolvedAddress})}
         end
      || {LName, LConf} <- maps:to_list(Conf), is_map(LConf)
@@ -146,7 +146,7 @@ format_raw_listeners({Type0, Conf}) ->
                 Id = listener_id(Type, LName),
                 MaxConn = maps:get(<<"max_connections">>, LConf0, default_max_conn()),
                 Running = is_running(Type, Id, LConf0#{bind => Bind}),
-                ResolvedAddress = iolist_to_binary(format_bind(listen_on(Id, Bind))),
+                ResolvedAddress = format_bind_ip(listen_on(Id, Bind)),
                 LConf1 = maps:without([<<"authentication">>], LConf0),
                 LConf2 = maps:put(<<"running">>, Running, LConf1),
                 CurrConn =
@@ -936,6 +936,38 @@ format_bind(Str) when is_list(Str) ->
     end;
 format_bind(Bin) when is_binary(Bin) ->
     format_bind(binary_to_list(Bin)).
+
+-doc """
+Same input as `format_bind/1`, but returns only the IP address, without the
+port, as a binary. Empty binary for a bind with no explicit address (bind
+all interfaces), the same convention `format_bind/1` uses for the host
+part.
+""".
+-spec format_bind_ip(
+    integer() | {tuple(), integer()} | string() | binary()
+) -> binary().
+format_bind_ip(Bind) ->
+    iolist_to_binary(do_format_bind_ip(Bind)).
+
+do_format_bind_ip(Port) when is_integer(Port) ->
+    "";
+do_format_bind_ip({Addr, _Port}) when is_list(Addr) ->
+    Addr;
+do_format_bind_ip({Addr, _Port}) when is_tuple(Addr), tuple_size(Addr) == 4 ->
+    inet:ntoa(Addr);
+do_format_bind_ip({Addr, _Port}) when is_tuple(Addr), tuple_size(Addr) == 8 ->
+    inet:ntoa(Addr);
+do_format_bind_ip(Str) when is_list(Str) ->
+    case emqx_schema:to_ip_port(Str) of
+        {ok, {Ip, Port}} ->
+            do_format_bind_ip({Ip, Port});
+        {ok, Port} ->
+            do_format_bind_ip(Port);
+        {error, _} ->
+            do_format_bind_ip(list_to_integer(Str))
+    end;
+do_format_bind_ip(Bin) when is_binary(Bin) ->
+    do_format_bind_ip(binary_to_list(Bin)).
 
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).

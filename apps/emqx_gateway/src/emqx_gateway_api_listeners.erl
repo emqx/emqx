@@ -281,7 +281,7 @@ current_listener_status(Type, Id, ListenOn0) when Type =:= ws; Type =:= wss ->
     %% its listener under after applying its own default address. Resolve
     %% here, on the node that owns the listener, not in the caller.
     ListenOn = emqx_default_address:listen_on(gateway, ListenOn0),
-    ResolvedAddress = iolist_to_binary(emqx_listeners:format_bind(ListenOn)),
+    ResolvedAddress = emqx_listeners:format_bind_ip(ListenOn),
     try
         Info = ranch:info(Id),
         Conns = maps:get(all_connections, Info, 0),
@@ -296,7 +296,7 @@ current_listener_status(_Type, Id, ListenOn0) ->
     %% its listener under after applying its own default address. Resolve
     %% here, on the node that owns the listener, not in the caller.
     ListenOn = emqx_default_address:listen_on(gateway, ListenOn0),
-    ResolvedAddress = iolist_to_binary(emqx_listeners:format_bind(ListenOn)),
+    ResolvedAddress = emqx_listeners:format_bind_ip(ListenOn),
     try esockd:get_current_connections({Id, ListenOn}) of
         Int -> {true, Int, ResolvedAddress}
     catch
