@@ -2748,13 +2748,17 @@ do_authenticate(
     case emqx_access_control:authenticate(Credential) of
         {ok, AuthResult} ->
             Channel1 = Channel#channel{
-                clientinfo = merge_auth_result(ClientInfo, AuthResult),
+                clientinfo = merge_auth_result(
+                    ClientInfo, freeze_client_attrs_on_reauth(AuthResult, Channel)
+                ),
                 auth_cache = #{}
             },
             with_post_authn(Channel1, Properties);
         {ok, AuthResult, AuthData} ->
             Channel1 = Channel#channel{
-                clientinfo = merge_auth_result(ClientInfo, AuthResult),
+                clientinfo = merge_auth_result(
+                    ClientInfo, freeze_client_attrs_on_reauth(AuthResult, Channel)
+                ),
                 auth_cache = #{}
             },
             with_post_authn(Channel1, Properties#{'Authentication-Data' => AuthData});
@@ -2802,6 +2806,17 @@ log_auth_failure(Reason) ->
         },
         #{tag => "AUTHN"}
     ).
+
+%% [MQTT-4.12.0-1] fixes the authentication method at CONNECT, so a
+%% re-authentication always belongs to a session whose client attributes were
+%% already derived by the CONNECT enrichment pipeline. Keep them frozen; only
+%% the authorization context follows the new credential.
+freeze_client_attrs_on_reauth(AuthResult, #channel{conn_state = ConnState}) when
+    ConnState =:= connected orelse ConnState =:= reauthenticating
+->
+    maps:remove(client_attrs, AuthResult);
+freeze_client_attrs_on_reauth(AuthResult, _Channel) ->
+    AuthResult.
 
 %% Merge authentication result into ClientInfo
 %% Authentication result may include:
