@@ -21,7 +21,7 @@ defmodule EMQXUtils.MixProject do
 
   def application do
     [
-      extra_applications: UMP.extra_applications()
+      extra_applications: [:public_key] ++ UMP.extra_applications()
     ]
   end
 
