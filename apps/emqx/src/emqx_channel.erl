@@ -471,7 +471,9 @@ handle_in(
                         handle_out(
                             auth,
                             {?RC_SUCCESS, NProperties},
-                            NChannel#channel{conn_state = connected}
+                            schedule_connection_auth_expire(
+                                NChannel#channel{conn_state = connected}
+                            )
                         )
                 end;
             {continue, NProperties, NChannel} ->
@@ -3397,11 +3399,13 @@ ensure_connected(
         conn_state = connected
     }).
 
+%% Also called on re-authentication, where a timer from the previous credential
+%% may still be armed, hence reset/clean rather than ensure.
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
-    Channel;
+    clean_timer(connection_auth_expire, Channel);
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
     Interval = max(0, ExpireAt - erlang:system_time(millisecond)),
-    ensure_timer(connection_auth_expire, Interval, Channel).
+    reset_timer(connection_auth_expire, Interval, Channel).
 
 trim_conninfo(ConnInfo) ->
     maps:without(
