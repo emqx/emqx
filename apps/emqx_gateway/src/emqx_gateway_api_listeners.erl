@@ -228,14 +228,16 @@ get_cluster_listeners_info(GwName) ->
                 ClusterStatus
             ),
 
-            {MaxCons, CurrCons, Running, ResolvedAddress} = aggregate_listener_status(NodeStatus),
+            {MaxCons, CurrCons, Running, ResolvedAddress, ResolvedAddressFrom} =
+                aggregate_listener_status(NodeStatus),
 
             Listener#{
                 status => #{
                     running => Running,
                     max_connections => MaxCons,
                     current_connections => CurrCons,
-                    resolved_address => ResolvedAddress
+                    resolved_address => ResolvedAddress,
+                    resolved_address_from => ResolvedAddressFrom
                 },
                 node_status => NodeStatus
             }
@@ -256,7 +258,8 @@ do_listeners_cluster_status(Listeners) ->
     Node = node(),
     lists:foldl(
         fun({Type, Id, ListenOn}, Acc) ->
-            {Running, Curr, ResolvedAddress} = current_listener_status(Type, Id, ListenOn),
+            {Running, Curr, ResolvedAddress, ResolvedAddressFrom} =
+                current_listener_status(Type, Id, ListenOn),
             {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(
                 erlang:atom_to_binary(Id)
             ),
@@ -267,7 +270,8 @@ do_listeners_cluster_status(Listeners) ->
                         running => Running,
                         current_connections => Curr,
                         max_connections => ensure_integer_or_infinity(Max),
-                        resolved_address => ResolvedAddress
+                        resolved_address => ResolvedAddress,
+                        resolved_address_from => ResolvedAddressFrom
                     }
                 }
             }
@@ -282,14 +286,15 @@ current_listener_status(Type, Id, ListenOn0) when Type =:= ws; Type =:= wss ->
     %% here, on the node that owns the listener, not in the caller.
     ListenOn = emqx_default_address:listen_on(gateway, ListenOn0),
     ResolvedAddress = emqx_listeners:format_bind_ip(ListenOn),
+    ResolvedAddressFrom = emqx_default_address:listen_on_from(gateway, ListenOn0),
     try
         Info = ranch:info(Id),
         Conns = maps:get(all_connections, Info, 0),
         Running = maps:get(status, Info) =:= running,
-        {Running, Conns, ResolvedAddress}
+        {Running, Conns, ResolvedAddress, ResolvedAddressFrom}
     catch
         error:badarg ->
-            {false, 0, ResolvedAddress}
+            {false, 0, ResolvedAddress, ResolvedAddressFrom}
     end;
 current_listener_status(_Type, Id, ListenOn0) ->
     %% The caller sends the bind from the config, which this node registered
@@ -297,12 +302,13 @@ current_listener_status(_Type, Id, ListenOn0) ->
     %% here, on the node that owns the listener, not in the caller.
     ListenOn = emqx_default_address:listen_on(gateway, ListenOn0),
     ResolvedAddress = emqx_listeners:format_bind_ip(ListenOn),
+    ResolvedAddressFrom = emqx_default_address:listen_on_from(gateway, ListenOn0),
     try esockd:get_current_connections({Id, ListenOn}) of
-        Int -> {true, Int, ResolvedAddress}
+        Int -> {true, Int, ResolvedAddress, ResolvedAddressFrom}
     catch
         %% not started
         error:not_found ->
-            {false, 0, ResolvedAddress}
+            {false, 0, ResolvedAddress, ResolvedAddressFrom}
     end.
 
 ensure_integer_or_infinity(infinity) ->
@@ -315,7 +321,7 @@ ensure_integer_or_infinity(I) when is_integer(I) ->
     I.
 
 aggregate_listener_status(NodeStatus) ->
-    aggregate_listener_status(NodeStatus, 0, 0, undefined, undefined).
+    aggregate_listener_status(NodeStatus, 0, 0, undefined, undefined, undefined).
 
 aggregate_listener_status(
     [
@@ -324,7 +330,8 @@ aggregate_listener_status(
                 running := Running,
                 max_connections := Max,
                 current_connections := Current,
-                resolved_address := ResolvedAddress
+                resolved_address := ResolvedAddress,
+                resolved_address_from := ResolvedAddressFrom
             }
         }
         | T
@@ -332,7 +339,8 @@ aggregate_listener_status(
     MaxAcc,
     CurrAcc,
     RunningAcc,
-    ResolvedAddressAcc
+    ResolvedAddressAcc,
+    ResolvedAddressFromAcc
 ) ->
     NMaxAcc = emqx_gateway_utils:add_max_connections(MaxAcc, Max),
     NRunning = aggregate_agreement(Running, RunningAcc),
@@ -341,9 +349,17 @@ aggregate_listener_status(
     %% which is exactly the disagreement this field exists to surface, so
     %% mark it `inconsistent` instead of picking one node's value silently.
     NResolvedAddress = aggregate_agreement(ResolvedAddress, ResolvedAddressAcc),
-    aggregate_listener_status(T, NMaxAcc, Current + CurrAcc, NRunning, NResolvedAddress);
-aggregate_listener_status([], MaxAcc, CurrAcc, RunningAcc, ResolvedAddressAcc) ->
-    {MaxAcc, CurrAcc, RunningAcc, ResolvedAddressAcc}.
+    %% Unlike resolved_address, this normally agrees across the cluster even
+    %% under `nodename`, because every node applies the same category.
+    %% Disagreement here means the nodes are not actually configured alike.
+    NResolvedAddressFrom = aggregate_agreement(ResolvedAddressFrom, ResolvedAddressFromAcc),
+    aggregate_listener_status(
+        T, NMaxAcc, Current + CurrAcc, NRunning, NResolvedAddress, NResolvedAddressFrom
+    );
+aggregate_listener_status(
+    [], MaxAcc, CurrAcc, RunningAcc, ResolvedAddressAcc, ResolvedAddressFromAcc
+) ->
+    {MaxAcc, CurrAcc, RunningAcc, ResolvedAddressAcc, ResolvedAddressFromAcc}.
 
 aggregate_agreement(R, R) -> R;
 aggregate_agreement(R, undefined) -> R;

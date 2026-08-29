@@ -430,7 +430,8 @@ t_listeners_status_default_address(_) ->
                 status := #{
                     running := true,
                     current_connections := 0,
-                    resolved_address := <<"127.0.0.1">>
+                    resolved_address := <<"127.0.0.1">>,
+                    resolved_address_from := <<"loopback">>
                 }
             },
             Listener

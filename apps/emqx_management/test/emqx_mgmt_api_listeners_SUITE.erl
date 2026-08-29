@@ -557,13 +557,15 @@ t_ssl_password_obfuscated(Config) when is_list(Config) ->
 -doc """
 Under the `hardened` security profile, a bare-port bind resolves to
 loopback: `GET /listeners/tcp:default` reports `resolved_address` as the
-loopback address while `bind` still reports the bare port unchanged. This
-is the regression test for the case that motivated the `resolved_address`
-field.
+loopback address, and `resolved_address_from` as `loopback` (the security
+profile decided it, not an explicit config value), while `bind` still
+reports the bare port unchanged. This is the regression test for the case
+that motivated the `resolved_address` field.
 
 Also asserts that a GET-then-PUT round trip of the unchanged body succeeds:
-`resolved_address` is read-only and must not be sent back to the config,
-which is what the dashboard does on every listener save.
+`resolved_address` and `resolved_address_from` are read-only and must not
+be sent back to the config, which is what the dashboard does on every
+listener save.
 """.
 t_resolved_address_hardened_bare_port(Config) when is_list(Config) ->
     ListenerId = <<"tcp:default">>,
@@ -571,12 +573,15 @@ t_resolved_address_hardened_bare_port(Config) when is_list(Config) ->
     Listener = request(get, Path, [], []),
     ?assertMatch(#{<<"bind">> := <<":1883">>}, Listener),
     ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1">>}, Listener),
+    ?assertMatch(#{<<"resolved_address_from">> := <<"loopback">>}, Listener),
     %% GET-then-PUT the same body back unchanged succeeds: resolved_address
-    %% must be stripped before the update is applied, or this round trip
-    %% (what the dashboard does on every listener save) fails validation.
+    %% and resolved_address_from must be stripped before the update is
+    %% applied, or this round trip (what the dashboard does on every
+    %% listener save) fails validation.
     Updated = request(put, Path, [], Listener),
     ?assertMatch(#{<<"bind">> := <<":1883">>}, Updated),
     ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1">>}, Updated),
+    ?assertMatch(#{<<"resolved_address_from">> := <<"loopback">>}, Updated),
     ok.
 
 action_listener(ID, Action, Running) ->

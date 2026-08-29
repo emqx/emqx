@@ -89,12 +89,13 @@ t_resolved_address_reporting(Config) ->
     Profile = ?config(security_profile, Config),
     lists:foreach(
         fun({Address, Expected}) ->
-            ct:pal("address ~p, expected ~p", [Address, Expected]),
+            ExpectedFrom = expected_resolved_from(Address, Profile),
+            ct:pal("address ~p, expected ~p, expected_from ~p", [Address, Expected, ExpectedFrom]),
             restart_with_address(Address),
-            assert_resolved_address('tcp:default', 1883, Expected),
-            assert_resolved_address('ssl:default', 8883, Expected),
-            assert_resolved_address('ws:default', 8083, Expected),
-            assert_resolved_address('wss:default', 8084, Expected)
+            assert_resolved_address('tcp:default', 1883, Expected, ExpectedFrom),
+            assert_resolved_address('ssl:default', 8883, Expected, ExpectedFrom),
+            assert_resolved_address('ws:default', 8083, Expected, ExpectedFrom),
+            assert_resolved_address('wss:default', 8084, Expected, ExpectedFrom)
         end,
         address_cases(Profile)
     ),
@@ -112,6 +113,7 @@ t_resolved_address_not_running(_Config) ->
     ?assertEqual(false, maps:get(running, Conf)),
     ?assertEqual(1883, maps:get(bind, Conf)),
     ?assertEqual(<<"127.0.0.1">>, maps:get(resolved_address, Conf)),
+    ?assertEqual(<<"loopback">>, maps:get(resolved_address_from, Conf)),
     ok = emqx_listeners:start_listener('tcp:default'),
     restart_with_address(unset).
 
@@ -213,6 +215,46 @@ t_listen_on(_Config) ->
         ?assertEqual({{127, 0, 0, 1}, 1883}, emqx_default_address:listen_on(mqtt, 1883)),
         %% The security profile does not cover gateway binds.
         ?assertEqual(1883, emqx_default_address:listen_on(gateway, 1883))
+    end),
+    emqx_default_address:clear().
+
+-doc """
+Asserts that resolved_from/1 and listen_on_from/2 report the source
+category, not the resolved value: the fixed keywords for `loopback`,
+`all` and `nodename`, the literal configured value for a hostname or IP
+address, the profile policy label when the config is unset, and `bind`
+for a bind that already has an explicit address.
+""".
+t_listen_on_from(_Config) ->
+    emqx_common_test_helpers:clear_default_address(),
+    ?assertEqual(<<"all">>, emqx_default_address:resolved_from(mqtt)),
+    ?assertEqual(<<"bind">>, emqx_default_address:listen_on_from(mqtt, {{1, 2, 3, 4}, 1883})),
+    with_address("loopback", fun() ->
+        ?assertEqual(<<"loopback">>, emqx_default_address:resolved_from(mqtt)),
+        ?assertEqual(<<"loopback">>, emqx_default_address:listen_on_from(mqtt, 1883)),
+        ?assertEqual(
+            <<"bind">>, emqx_default_address:listen_on_from(mqtt, {{1, 2, 3, 4}, 1883})
+        )
+    end),
+    with_address("all", fun() ->
+        ?assertEqual(<<"all">>, emqx_default_address:resolved_from(mqtt))
+    end),
+    with_address("nodename", fun() ->
+        ?assertEqual(<<"nodename">>, emqx_default_address:resolved_from(mqtt)),
+        ?assertEqual(<<"nodename">>, emqx_default_address:resolved_from(gateway))
+    end),
+    with_address("192.0.2.7", fun() ->
+        ?assertEqual(<<"192.0.2.7">>, emqx_default_address:resolved_from(mqtt))
+    end),
+    {ok, LocalHost} = inet:gethostname(),
+    with_address(LocalHost, fun() ->
+        ?assertEqual(list_to_binary(LocalHost), emqx_default_address:resolved_from(mqtt))
+    end),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        emqx_default_address:clear(),
+        ?assertEqual(<<"loopback">>, emqx_default_address:resolved_from(mqtt)),
+        %% The security profile does not cover gateway binds.
+        ?assertEqual(<<"all">>, emqx_default_address:resolved_from(gateway))
     end),
     emqx_default_address:clear().
 
@@ -343,15 +385,28 @@ esockd_listen_on(Id) ->
     [ListenOn] = [L || {{I, L}, _Pid} <- esockd:listeners(), I =:= Id],
     ListenOn.
 
-assert_resolved_address(Id, Port, Expected) ->
+assert_resolved_address(Id, Port, Expected, ExpectedFrom) ->
     ExpectedAddr = expected_resolved_address(Expected),
     {Id, Conf} = lists:keyfind(Id, 1, emqx_listeners:list()),
     ?assertEqual(Port, maps:get(bind, Conf)),
     ?assertEqual(ExpectedAddr, maps:get(resolved_address, Conf)),
+    ?assertEqual(ExpectedFrom, maps:get(resolved_address_from, Conf)),
     {Id, _Type, RawConf} = lists:keyfind(Id, 1, emqx_listeners:list_raw()),
     ?assertEqual(Port, maps:get(<<"bind">>, RawConf)),
-    ?assertEqual(ExpectedAddr, maps:get(<<"resolved_address">>, RawConf)).
+    ?assertEqual(ExpectedAddr, maps:get(<<"resolved_address">>, RawConf)),
+    ?assertEqual(ExpectedFrom, maps:get(<<"resolved_address_from">>, RawConf)).
 
 %% resolved_address carries only the IP, not the port.
 expected_resolved_address(any) -> <<>>;
 expected_resolved_address(IP) -> list_to_binary(inet:ntoa(IP)).
+
+%% resolved_address_from carries the category, derived from the configured
+%% `node.default_listener_address` value itself, not the resolved address.
+expected_resolved_from(unset, Profile) -> profile_from_label(Profile);
+expected_resolved_from("loopback", _Profile) -> <<"loopback">>;
+expected_resolved_from("all", _Profile) -> <<"all">>;
+expected_resolved_from("nodename", _Profile) -> <<"nodename">>;
+expected_resolved_from(Address, _Profile) -> list_to_binary(Address).
+
+profile_from_label(legacy) -> <<"all">>;
+profile_from_label(hardened) -> <<"loopback">>.

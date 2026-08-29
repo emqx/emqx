@@ -26,7 +26,15 @@ running node, when a listener is started.
 -define(CONF_KEY, [node, default_listener_address]).
 -define(CONF_NAME, "node.default_listener_address").
 
--export([resolve/1, listen_on/2, validate/1, loopback_by_profile/0, clear/0]).
+-export([
+    resolve/1,
+    listen_on/2,
+    resolved_from/1,
+    listen_on_from/2,
+    validate/1,
+    loopback_by_profile/0,
+    clear/0
+]).
 
 -export_type([address/0, scope/0]).
 
@@ -73,6 +81,41 @@ listen_on(_Scope, Bind) ->
     Bind.
 
 -doc """
+Returns the source of the address `resolve/1` returns for the scope:
+`<<"all">>`, `<<"loopback">>`, `<<"nodename">>`, or the literal
+`node.default_listener_address` value (a hostname or IP string) when it is
+set to one of those.
+
+Unlike `resolve/1`, this stays the same across a cluster with identical
+config even when the resolved address itself differs from node to node.
+Under `nodename`, for example, every node resolves its own host part, so
+`resolve/1` legitimately differs per node while this stays `<<"nodename">>`
+everywhere: it explains that difference instead of leaving it looking like
+a misconfiguration.
+""".
+-spec resolved_from(scope()) -> binary().
+resolved_from(Scope) ->
+    case value() of
+        default -> profile_policy_label(Scope);
+        loopback -> <<"loopback">>;
+        all -> <<"all">>;
+        nodename -> <<"nodename">>;
+        {hostname, Host} -> unicode:characters_to_binary(Host);
+        IP -> list_to_binary(inet:ntoa(IP))
+    end.
+
+-doc """
+Same branching as `listen_on/2`: `<<"bind">>` for a bind that already has an
+explicit address, so the address did not come from this module at all,
+otherwise the category `resolved_from/1` reports for the scope.
+""".
+-spec listen_on_from(scope(), Bind :: term()) -> binary().
+listen_on_from(_Scope, Bind) when not is_integer(Bind) ->
+    <<"bind">>;
+listen_on_from(Scope, Port) when is_integer(Port) ->
+    resolved_from(Scope).
+
+-doc """
 Returns true when listeners bind loopback because the security profile says
 so, and false when `node.default_listener_address` decides the address.
 
@@ -115,6 +158,12 @@ profile_policy(dashboard) ->
 profile_policy(gateway) ->
     %% The security profile does not cover gateway binds.
     any.
+
+profile_policy_label(Scope) ->
+    case profile_policy(Scope) of
+        any -> <<"all">>;
+        loopback -> <<"loopback">>
+    end.
 
 address(loopback) -> loopback;
 %% Bind all interfaces without an explicit address, which is what a bare

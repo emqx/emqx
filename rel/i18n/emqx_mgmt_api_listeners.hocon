@@ -109,6 +109,11 @@ listener_resolved_address {
     label: "Resolved Address"
 }
 
+listener_resolved_address_from {
+    desc: "The source of 'resolved_address': 'bind' when the listener's own 'bind' already sets an explicit address, 'all', 'loopback', or 'nodename', or the literal 'node.default_listener_address' value when it is set to a hostname or IP address. Read-only. Unlike 'resolved_address', this stays the same across the cluster even when nodes resolve to different addresses by design, for example under 'nodename', where each node resolves its own host part. Reports 'inconsistent' only when nodes are not actually configured alike, for example a different security profile or a different 'node.default_listener_address' per node."
+    label: "Resolved Address Source"
+}
+
 listener_status {
     desc: "Status of the listener. 'true' for running, otherwise 'false'."
     label: "Listener Status"

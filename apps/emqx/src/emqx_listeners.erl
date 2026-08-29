@@ -112,9 +112,16 @@ format_list(Listener) ->
     [
         begin
             Id = listener_id(Type, LName),
+            Bind = maps:get(bind, LConf),
             Running = is_running(Type, Id, LConf),
-            ResolvedAddress = format_bind_ip(listen_on(Id, maps:get(bind, LConf))),
-            {Id, maps:merge(LConf, #{running => Running, resolved_address => ResolvedAddress})}
+            ResolvedAddress = format_bind_ip(listen_on(Id, Bind)),
+            ResolvedAddressFrom = emqx_default_address:listen_on_from(mqtt, Bind),
+            {Id,
+                maps:merge(LConf, #{
+                    running => Running,
+                    resolved_address => ResolvedAddress,
+                    resolved_address_from => ResolvedAddressFrom
+                })}
         end
      || {LName, LConf} <- maps:to_list(Conf), is_map(LConf)
     ].
@@ -147,6 +154,7 @@ format_raw_listeners({Type0, Conf}) ->
                 MaxConn = maps:get(<<"max_connections">>, LConf0, default_max_conn()),
                 Running = is_running(Type, Id, LConf0#{bind => Bind}),
                 ResolvedAddress = format_bind_ip(listen_on(Id, Bind)),
+                ResolvedAddressFrom = emqx_default_address:listen_on_from(mqtt, Bind),
                 LConf1 = maps:without([<<"authentication">>], LConf0),
                 LConf2 = maps:put(<<"running">>, Running, LConf1),
                 CurrConn =
@@ -157,7 +165,8 @@ format_raw_listeners({Type0, Conf}) ->
                 LConf = maps:merge(LConf2, #{
                     <<"current_connections">> => CurrConn,
                     <<"max_connections">> => ensure_max_conns(MaxConn),
-                    <<"resolved_address">> => ResolvedAddress
+                    <<"resolved_address">> => ResolvedAddress,
+                    <<"resolved_address_from">> => ResolvedAddressFrom
                 }),
                 {true, {Type0, LName, LConf}};
             ({_LName, _MarkDel}) ->

@@ -257,6 +257,11 @@ fields(status) ->
             ?HOCON(
                 hoconsc:union([inconsistent, binary()]),
                 #{desc => ?DESC("listener_resolved_address"), required => false}
+            )},
+        {resolved_address_from,
+            ?HOCON(
+                hoconsc:union([inconsistent, binary()]),
+                #{desc => ?DESC("listener_resolved_address_from"), required => false}
             )}
     ];
 fields(node_status) ->
@@ -361,6 +366,10 @@ listeners_info(Opts) ->
                     {resolved_address,
                         ?HOCON(binary(), #{
                             desc => ?DESC("listener_resolved_address"), required => false
+                        })},
+                    {resolved_address_from,
+                        ?HOCON(binary(), #{
+                            desc => ?DESC("listener_resolved_address_from"), required => false
                         })}
                     | Fields3
                 ]
@@ -468,7 +477,13 @@ crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
 %% either fails validation or gets persisted as junk.
 parse_listener_conf(id, Conf0) ->
     Conf1 = maps:without(
-        [<<"running">>, <<"current_connections">>, <<"resolved_address">>], Conf0
+        [
+            <<"running">>,
+            <<"current_connections">>,
+            <<"resolved_address">>,
+            <<"resolved_address_from">>
+        ],
+        Conf0
     ),
     {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
     TypeAtom = binary_to_existing_atom(TypeBin),
@@ -484,7 +499,13 @@ parse_listener_conf(id, Conf0) ->
     end;
 parse_listener_conf(name, Conf0) ->
     Conf1 = maps:without(
-        [<<"running">>, <<"current_connections">>, <<"resolved_address">>], Conf0
+        [
+            <<"running">>,
+            <<"current_connections">>,
+            <<"resolved_address">>,
+            <<"resolved_address_from">>
+        ],
+        Conf0
     ),
     {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
     TypeAtom = binary_to_existing_atom(TypeBin),
@@ -633,7 +654,8 @@ format_status(Key, Node, Listener, Acc) ->
         <<"current_connections">> := CurrentConnections,
         <<"acceptors">> := Acceptors,
         <<"bind">> := Bind,
-        <<"resolved_address">> := ResolvedAddress
+        <<"resolved_address">> := ResolvedAddress,
+        <<"resolved_address_from">> := ResolvedAddressFrom
     } = Listener,
     {ok, #{name := Name}} = emqx_listeners:parse_listener_id(Id),
     GroupKey = maps:get(Key, Listener),
@@ -651,7 +673,8 @@ format_status(Key, Node, Listener, Acc) ->
                         running => Running,
                         max_connections => MaxConnections,
                         current_connections => CurrentConnections,
-                        resolved_address => ResolvedAddress
+                        resolved_address => ResolvedAddress,
+                        resolved_address_from => ResolvedAddressFrom
                     },
                     node_status => [
                         #{
@@ -660,7 +683,8 @@ format_status(Key, Node, Listener, Acc) ->
                                 running => Running,
                                 max_connections => MaxConnections,
                                 current_connections => CurrentConnections,
-                                resolved_address => ResolvedAddress
+                                resolved_address => ResolvedAddress,
+                                resolved_address_from => ResolvedAddressFrom
                             }
                         }
                     ]
@@ -673,7 +697,8 @@ format_status(Key, Node, Listener, Acc) ->
                     running := Running0,
                     max_connections := MaxConnections0,
                     current_connections := CurrentConnections0,
-                    resolved_address := ResolvedAddress0
+                    resolved_address := ResolvedAddress0,
+                    resolved_address_from := ResolvedAddressFrom0
                 },
                 node_status := NodeStatus0
             } = GroupValue,
@@ -684,7 +709,8 @@ format_status(Key, Node, Listener, Acc) ->
                         running => Running,
                         max_connections => MaxConnections,
                         current_connections => CurrentConnections,
-                        resolved_address => ResolvedAddress
+                        resolved_address => ResolvedAddress,
+                        resolved_address_from => ResolvedAddressFrom
                     }
                 }
                 | NodeStatus0
@@ -704,6 +730,16 @@ format_status(Key, Node, Listener, Acc) ->
                     true -> ResolvedAddress0;
                     _ -> inconsistent
                 end,
+            %% Unlike resolved_address, this normally agrees across the
+            %% cluster even when node.default_listener_address is
+            %% `nodename` or a hostname, because every node applies the
+            %% same category. Disagreement here means the nodes are not
+            %% actually configured alike.
+            NResolvedAddressFrom =
+                case ResolvedAddressFrom == ResolvedAddressFrom0 of
+                    true -> ResolvedAddressFrom0;
+                    _ -> inconsistent
+                end,
             Acc#{
                 GroupKey =>
                     GroupValue#{
@@ -712,7 +748,8 @@ format_status(Key, Node, Listener, Acc) ->
                             running => NRunning,
                             max_connections => max_conn(MaxConnections0, MaxConnections),
                             current_connections => CurrentConnections0 + CurrentConnections,
-                            resolved_address => NResolvedAddress
+                            resolved_address => NResolvedAddress,
+                            resolved_address_from => NResolvedAddressFrom
                         },
                         node_status => NodeStatus
                     }
@@ -731,29 +768,36 @@ listener_type_status_example() ->
             node_status =>
                 [
                     #{
-                        node => 'emqx@127.0.0.1',
+                        node => 'emqx@node1.example.com',
                         status => #{
                             running => true,
                             current_connections => 11,
                             max_connections => 1024000,
-                            resolved_address => <<"">>
+                            resolved_address => <<"192.0.2.10">>,
+                            resolved_address_from => <<"nodename">>
                         }
                     },
                     #{
-                        node => 'emqx@127.0.0.1',
+                        node => 'emqx@node2.example.com',
                         status => #{
                             running => true,
                             current_connections => 10,
                             max_connections => 1024000,
-                            resolved_address => <<"127.0.0.1">>
+                            resolved_address => <<"192.0.2.11">>,
+                            resolved_address_from => <<"nodename">>
                         }
                     }
                 ],
+            %% resolved_address is `inconsistent`: each node resolves its
+            %% own nodename to a different address, as expected.
+            %% resolved_address_from agrees: both nodes apply the same
+            %% `nodename` category, so this is not a misconfiguration.
             status => #{
                 running => true,
                 current_connections => 21,
                 max_connections => 2048000,
-                resolved_address => inconsistent
+                resolved_address => inconsistent,
+                resolved_address_from => <<"nodename">>
             },
             type => tcp
         },
@@ -806,7 +850,8 @@ listener_id_status_example() ->
                             running => true,
                             current_connections => 100,
                             max_connections => 1024000,
-                            resolved_address => <<"0.0.0.0">>
+                            resolved_address => <<"0.0.0.0">>,
+                            resolved_address_from => <<"bind">>
                         }
                     },
                     #{
@@ -815,7 +860,8 @@ listener_id_status_example() ->
                             running => true,
                             current_connections => 101,
                             max_connections => 1024000,
-                            resolved_address => <<"0.0.0.0">>
+                            resolved_address => <<"0.0.0.0">>,
+                            resolved_address_from => <<"bind">>
                         }
                     }
                 ],
@@ -824,7 +870,8 @@ listener_id_status_example() ->
                 running => true,
                 current_connections => 201,
                 max_connections => 2048000,
-                resolved_address => <<"0.0.0.0">>
+                resolved_address => <<"0.0.0.0">>,
+                resolved_address_from => <<"bind">>
             }
         },
         #{
