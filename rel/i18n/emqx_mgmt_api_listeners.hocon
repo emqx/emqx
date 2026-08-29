@@ -104,6 +104,11 @@ listener_running_status {
     label: "Running Status"
 }
 
+listener_resolved_address {
+    desc: "The address the listener is actually bound to on this node. Read-only. Can differ from 'bind' when the address comes from the security profile or 'node.default_listener_address', which are resolved locally on each node. Can be 'inconsistent' when nodes resolve to different addresses."
+    label: "Resolved Address"
+}
+
 listener_status {
     desc: "Status of the listener. 'true' for running, otherwise 'false'."
     label: "Listener Status"

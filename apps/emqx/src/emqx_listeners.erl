@@ -111,8 +111,10 @@ format_list(Listener) ->
     {Type, Conf} = Listener,
     [
         begin
-            Running = is_running(Type, listener_id(Type, LName), LConf),
-            {listener_id(Type, LName), maps:put(running, Running, LConf)}
+            Id = listener_id(Type, LName),
+            Running = is_running(Type, Id, LConf),
+            ResolvedAddress = iolist_to_binary(format_bind(listen_on(Id, maps:get(bind, LConf)))),
+            {Id, maps:merge(LConf, #{running => Running, resolved_address => ResolvedAddress})}
         end
      || {LName, LConf} <- maps:to_list(Conf), is_map(LConf)
     ].
@@ -141,8 +143,10 @@ format_raw_listeners({Type0, Conf}) ->
         fun
             ({LName, LConf0}) when is_map(LConf0) ->
                 Bind = parse_bind(LConf0),
+                Id = listener_id(Type, LName),
                 MaxConn = maps:get(<<"max_connections">>, LConf0, default_max_conn()),
-                Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
+                Running = is_running(Type, Id, LConf0#{bind => Bind}),
+                ResolvedAddress = iolist_to_binary(format_bind(listen_on(Id, Bind))),
                 LConf1 = maps:without([<<"authentication">>], LConf0),
                 LConf2 = maps:put(<<"running">>, Running, LConf1),
                 CurrConn =
@@ -152,7 +156,8 @@ format_raw_listeners({Type0, Conf}) ->
                     end,
                 LConf = maps:merge(LConf2, #{
                     <<"current_connections">> => CurrConn,
-                    <<"max_connections">> => ensure_max_conns(MaxConn)
+                    <<"max_connections">> => ensure_max_conns(MaxConn),
+                    <<"resolved_address">> => ResolvedAddress
                 }),
                 {true, {Type0, LName, LConf}};
             ({_LName, _MarkDel}) ->

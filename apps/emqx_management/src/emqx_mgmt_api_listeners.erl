@@ -252,7 +252,12 @@ fields(status) ->
             )},
         {max_connections,
             ?HOCON(hoconsc:union([infinity, integer()]), #{desc => ?DESC(max_connections)})},
-        {current_connections, ?HOCON(non_neg_integer(), #{desc => ?DESC(current_connections)})}
+        {current_connections, ?HOCON(non_neg_integer(), #{desc => ?DESC(current_connections)})},
+        {resolved_address,
+            ?HOCON(
+                hoconsc:union([inconsistent, binary()]),
+                #{desc => ?DESC("listener_resolved_address"), required => false}
+            )}
     ];
 fields(node_status) ->
     [
@@ -348,7 +353,15 @@ listeners_info(Opts) ->
                         ?HOCON(
                             non_neg_integer(),
                             #{desc => ?DESC("current_connections"), required => false}
-                        )}
+                        )},
+                    %% Read-only, injected here. Keep this in sync with the
+                    %% strip-list in parse_listener_conf/2: any field added
+                    %% here must be stripped there too, or a GET-then-PUT
+                    %% round trip sends it back and fails validation.
+                    {resolved_address,
+                        ?HOCON(binary(), #{
+                            desc => ?DESC("listener_resolved_address"), required => false
+                        })}
                     | Fields3
                 ]
             }
@@ -449,8 +462,14 @@ crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
             {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}}
     end.
 
+%% Strips the read-only fields injected in listeners_info/1 before an update
+%% is applied. Keep this list in sync with the fields injected there: a
+%% GET-then-PUT round trip sends every field back, and one left off this list
+%% either fails validation or gets persisted as junk.
 parse_listener_conf(id, Conf0) ->
-    Conf1 = maps:without([<<"running">>, <<"current_connections">>], Conf0),
+    Conf1 = maps:without(
+        [<<"running">>, <<"current_connections">>, <<"resolved_address">>], Conf0
+    ),
     {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
     TypeAtom = binary_to_existing_atom(TypeBin),
     case maps:take(<<"id">>, Conf2) of
@@ -464,7 +483,9 @@ parse_listener_conf(id, Conf0) ->
             {error, listener_config_invalid}
     end;
 parse_listener_conf(name, Conf0) ->
-    Conf1 = maps:without([<<"running">>, <<"current_connections">>], Conf0),
+    Conf1 = maps:without(
+        [<<"running">>, <<"current_connections">>, <<"resolved_address">>], Conf0
+    ),
     {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
     TypeAtom = binary_to_existing_atom(TypeBin),
     case maps:take(<<"name">>, Conf2) of
@@ -611,7 +632,8 @@ format_status(Key, Node, Listener, Acc) ->
         <<"max_connections">> := MaxConnections,
         <<"current_connections">> := CurrentConnections,
         <<"acceptors">> := Acceptors,
-        <<"bind">> := Bind
+        <<"bind">> := Bind,
+        <<"resolved_address">> := ResolvedAddress
     } = Listener,
     {ok, #{name := Name}} = emqx_listeners:parse_listener_id(Id),
     GroupKey = maps:get(Key, Listener),
@@ -628,7 +650,8 @@ format_status(Key, Node, Listener, Acc) ->
                     status => #{
                         running => Running,
                         max_connections => MaxConnections,
-                        current_connections => CurrentConnections
+                        current_connections => CurrentConnections,
+                        resolved_address => ResolvedAddress
                     },
                     node_status => [
                         #{
@@ -636,7 +659,8 @@ format_status(Key, Node, Listener, Acc) ->
                             status => #{
                                 running => Running,
                                 max_connections => MaxConnections,
-                                current_connections => CurrentConnections
+                                current_connections => CurrentConnections,
+                                resolved_address => ResolvedAddress
                             }
                         }
                     ]
@@ -648,7 +672,8 @@ format_status(Key, Node, Listener, Acc) ->
                 status := #{
                     running := Running0,
                     max_connections := MaxConnections0,
-                    current_connections := CurrentConnections0
+                    current_connections := CurrentConnections0,
+                    resolved_address := ResolvedAddress0
                 },
                 node_status := NodeStatus0
             } = GroupValue,
@@ -658,7 +683,8 @@ format_status(Key, Node, Listener, Acc) ->
                     status => #{
                         running => Running,
                         max_connections => MaxConnections,
-                        current_connections => CurrentConnections
+                        current_connections => CurrentConnections,
+                        resolved_address => ResolvedAddress
                     }
                 }
                 | NodeStatus0
@@ -668,6 +694,16 @@ format_status(Key, Node, Listener, Acc) ->
                     true -> Running0;
                     _ -> inconsistent
                 end,
+            %% Nodes with byte-identical config can resolve different
+            %% addresses (security profile / node.default_listener_address
+            %% are node-local), which is exactly the disagreement this field
+            %% exists to surface, so mark it `inconsistent` instead of
+            %% picking one node's value silently.
+            NResolvedAddress =
+                case ResolvedAddress == ResolvedAddress0 of
+                    true -> ResolvedAddress0;
+                    _ -> inconsistent
+                end,
             Acc#{
                 GroupKey =>
                     GroupValue#{
@@ -675,7 +711,8 @@ format_status(Key, Node, Listener, Acc) ->
                         status => #{
                             running => NRunning,
                             max_connections => max_conn(MaxConnections0, MaxConnections),
-                            current_connections => CurrentConnections0 + CurrentConnections
+                            current_connections => CurrentConnections0 + CurrentConnections,
+                            resolved_address => NResolvedAddress
                         },
                         node_status => NodeStatus
                     }
@@ -698,7 +735,8 @@ listener_type_status_example() ->
                         status => #{
                             running => true,
                             current_connections => 11,
-                            max_connections => 1024000
+                            max_connections => 1024000,
+                            resolved_address => <<":1883">>
                         }
                     },
                     #{
@@ -706,14 +744,16 @@ listener_type_status_example() ->
                         status => #{
                             running => true,
                             current_connections => 10,
-                            max_connections => 1024000
+                            max_connections => 1024000,
+                            resolved_address => <<"127.0.0.1:1883">>
                         }
                     }
                 ],
             status => #{
                 running => true,
                 current_connections => 21,
-                max_connections => 2048000
+                max_connections => 2048000,
+                resolved_address => inconsistent
             },
             type => tcp
         },
@@ -765,7 +805,8 @@ listener_id_status_example() ->
                         status => #{
                             running => true,
                             current_connections => 100,
-                            max_connections => 1024000
+                            max_connections => 1024000,
+                            resolved_address => <<"0.0.0.0:1884">>
                         }
                     },
                     #{
@@ -773,7 +814,8 @@ listener_id_status_example() ->
                         status => #{
                             running => true,
                             current_connections => 101,
-                            max_connections => 1024000
+                            max_connections => 1024000,
+                            resolved_address => <<"0.0.0.0:1884">>
                         }
                     }
                 ],
@@ -781,7 +823,8 @@ listener_id_status_example() ->
             status => #{
                 running => true,
                 current_connections => 201,
-                max_connections => 2048000
+                max_connections => 2048000,
+                resolved_address => <<"0.0.0.0:1884">>
             }
         },
         #{

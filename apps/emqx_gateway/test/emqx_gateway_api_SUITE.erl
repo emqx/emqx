@@ -425,7 +425,14 @@ t_listeners_status_default_address(_) ->
         {201, _} = request(post, "/gateways/stomp/listeners", LisConf),
         {200, [Listener]} = request(get, "/gateways/stomp/listeners"),
         ?assertMatch(
-            #{status := #{running := true, current_connections := 0}},
+            #{
+                bind := <<":61613">>,
+                status := #{
+                    running := true,
+                    current_connections := 0,
+                    resolved_address := <<"127.0.0.1:61613">>
+                }
+            },
             Listener
         ),
         %% Stop the listener while the address still resolves the same way.

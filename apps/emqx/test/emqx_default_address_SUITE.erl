@@ -10,7 +10,12 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(GROUP_CASES, [t_default_binds, t_explicit_bind_not_rewritten]).
+-define(GROUP_CASES, [
+    t_default_binds,
+    t_explicit_bind_not_rewritten,
+    t_resolved_address_reporting,
+    t_resolved_address_not_running
+]).
 
 all() ->
     All = emqx_common_test_helpers:all(?MODULE),
@@ -68,6 +73,46 @@ t_default_binds(Config) ->
         end,
         address_cases(Profile)
     ),
+    restart_with_address(unset).
+
+-doc """
+Asserts that `emqx_listeners:list/0` and `list_raw/0` report a
+`resolved_address` that matches the address a listener is actually bound
+to, while the configured `bind` keeps reporting the static schema value
+unchanged, for every address value under the group's security profile.
+
+This is the regression test for the case that motivated this field: under
+the `hardened` profile a bare-port bind reports `resolved_address` as the
+loopback address, while `bind` still reports the bare port.
+""".
+t_resolved_address_reporting(Config) ->
+    Profile = ?config(security_profile, Config),
+    lists:foreach(
+        fun({Address, Expected}) ->
+            ct:pal("address ~p, expected ~p", [Address, Expected]),
+            restart_with_address(Address),
+            assert_resolved_address('tcp:default', 1883, Expected),
+            assert_resolved_address('ssl:default', 8883, Expected),
+            assert_resolved_address('ws:default', 8083, Expected),
+            assert_resolved_address('wss:default', 8084, Expected)
+        end,
+        address_cases(Profile)
+    ),
+    restart_with_address(unset).
+
+-doc """
+Asserts that a listener that is not running still reports a resolved
+address from the configured bind, via the `find_listen_on/1` fallback in
+`emqx_listeners:listen_on/2`.
+""".
+t_resolved_address_not_running(_Config) ->
+    restart_with_address("loopback"),
+    ok = emqx_listeners:stop_listener('tcp:default'),
+    {'tcp:default', Conf} = lists:keyfind('tcp:default', 1, emqx_listeners:list()),
+    ?assertEqual(false, maps:get(running, Conf)),
+    ?assertEqual(1883, maps:get(bind, Conf)),
+    ?assertEqual(<<"127.0.0.1:1883">>, maps:get(resolved_address, Conf)),
+    ok = emqx_listeners:start_listener('tcp:default'),
     restart_with_address(unset).
 
 -doc """
@@ -297,3 +342,15 @@ expected_ranch_addr(IP, Port) -> {IP, Port}.
 esockd_listen_on(Id) ->
     [ListenOn] = [L || {{I, L}, _Pid} <- esockd:listeners(), I =:= Id],
     ListenOn.
+
+assert_resolved_address(Id, Port, Expected) ->
+    ExpectedAddr = expected_resolved_address(Expected, Port),
+    {Id, Conf} = lists:keyfind(Id, 1, emqx_listeners:list()),
+    ?assertEqual(Port, maps:get(bind, Conf)),
+    ?assertEqual(ExpectedAddr, maps:get(resolved_address, Conf)),
+    {Id, _Type, RawConf} = lists:keyfind(Id, 1, emqx_listeners:list_raw()),
+    ?assertEqual(Port, maps:get(<<"bind">>, RawConf)),
+    ?assertEqual(ExpectedAddr, maps:get(<<"resolved_address">>, RawConf)).
+
+expected_resolved_address(Expected, Port) ->
+    iolist_to_binary(emqx_listeners:format_bind(expected_listen_on(Expected, Port))).

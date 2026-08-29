@@ -228,13 +228,14 @@ get_cluster_listeners_info(GwName) ->
                 ClusterStatus
             ),
 
-            {MaxCons, CurrCons, Running} = aggregate_listener_status(NodeStatus),
+            {MaxCons, CurrCons, Running, ResolvedAddress} = aggregate_listener_status(NodeStatus),
 
             Listener#{
                 status => #{
                     running => Running,
                     max_connections => MaxCons,
-                    current_connections => CurrCons
+                    current_connections => CurrCons,
+                    resolved_address => ResolvedAddress
                 },
                 node_status => NodeStatus
             }
@@ -255,7 +256,7 @@ do_listeners_cluster_status(Listeners) ->
     Node = node(),
     lists:foldl(
         fun({Type, Id, ListenOn}, Acc) ->
-            {Running, Curr} = current_listener_status(Type, Id, ListenOn),
+            {Running, Curr, ResolvedAddress} = current_listener_status(Type, Id, ListenOn),
             {ok, #{<<"max_connections">> := Max}} = emqx_gateway_conf:listener(
                 erlang:atom_to_binary(Id)
             ),
@@ -265,7 +266,8 @@ do_listeners_cluster_status(Listeners) ->
                     status => #{
                         running => Running,
                         current_connections => Curr,
-                        max_connections => ensure_integer_or_infinity(Max)
+                        max_connections => ensure_integer_or_infinity(Max),
+                        resolved_address => ResolvedAddress
                     }
                 }
             }
@@ -274,27 +276,33 @@ do_listeners_cluster_status(Listeners) ->
         Listeners
     ).
 
-current_listener_status(Type, Id, _ListenOn) when Type =:= ws; Type =:= wss ->
+current_listener_status(Type, Id, ListenOn0) when Type =:= ws; Type =:= wss ->
+    %% The caller sends the bind from the config, which this node registered
+    %% its listener under after applying its own default address. Resolve
+    %% here, on the node that owns the listener, not in the caller.
+    ListenOn = emqx_default_address:listen_on(gateway, ListenOn0),
+    ResolvedAddress = iolist_to_binary(emqx_listeners:format_bind(ListenOn)),
     try
         Info = ranch:info(Id),
         Conns = maps:get(all_connections, Info, 0),
         Running = maps:get(status, Info) =:= running,
-        {Running, Conns}
+        {Running, Conns, ResolvedAddress}
     catch
         error:badarg ->
-            {false, 0}
+            {false, 0, ResolvedAddress}
     end;
 current_listener_status(_Type, Id, ListenOn0) ->
     %% The caller sends the bind from the config, which this node registered
     %% its listener under after applying its own default address. Resolve
     %% here, on the node that owns the listener, not in the caller.
     ListenOn = emqx_default_address:listen_on(gateway, ListenOn0),
+    ResolvedAddress = iolist_to_binary(emqx_listeners:format_bind(ListenOn)),
     try esockd:get_current_connections({Id, ListenOn}) of
-        Int -> {true, Int}
+        Int -> {true, Int, ResolvedAddress}
     catch
         %% not started
         error:not_found ->
-            {false, 0}
+            {false, 0, ResolvedAddress}
     end.
 
 ensure_integer_or_infinity(infinity) ->
@@ -307,26 +315,39 @@ ensure_integer_or_infinity(I) when is_integer(I) ->
     I.
 
 aggregate_listener_status(NodeStatus) ->
-    aggregate_listener_status(NodeStatus, 0, 0, undefined).
+    aggregate_listener_status(NodeStatus, 0, 0, undefined, undefined).
 
 aggregate_listener_status(
     [
-        #{status := #{running := Running, max_connections := Max, current_connections := Current}}
+        #{
+            status := #{
+                running := Running,
+                max_connections := Max,
+                current_connections := Current,
+                resolved_address := ResolvedAddress
+            }
+        }
         | T
     ],
     MaxAcc,
     CurrAcc,
-    RunningAcc
+    RunningAcc,
+    ResolvedAddressAcc
 ) ->
     NMaxAcc = emqx_gateway_utils:add_max_connections(MaxAcc, Max),
-    NRunning = aggregate_running(Running, RunningAcc),
-    aggregate_listener_status(T, NMaxAcc, Current + CurrAcc, NRunning);
-aggregate_listener_status([], MaxAcc, CurrAcc, RunningAcc) ->
-    {MaxAcc, CurrAcc, RunningAcc}.
+    NRunning = aggregate_agreement(Running, RunningAcc),
+    %% Nodes with byte-identical config can resolve different addresses
+    %% (security profile / node.default_listener_address are node-local),
+    %% which is exactly the disagreement this field exists to surface, so
+    %% mark it `inconsistent` instead of picking one node's value silently.
+    NResolvedAddress = aggregate_agreement(ResolvedAddress, ResolvedAddressAcc),
+    aggregate_listener_status(T, NMaxAcc, Current + CurrAcc, NRunning, NResolvedAddress);
+aggregate_listener_status([], MaxAcc, CurrAcc, RunningAcc, ResolvedAddressAcc) ->
+    {MaxAcc, CurrAcc, RunningAcc, ResolvedAddressAcc}.
 
-aggregate_running(R, R) -> R;
-aggregate_running(R, undefined) -> R;
-aggregate_running(_, _) -> inconsistent.
+aggregate_agreement(R, R) -> R;
+aggregate_agreement(R, undefined) -> R;
+aggregate_agreement(_, _) -> inconsistent.
 
 bind2str(Listener = #{bind := Bind}) ->
     Listener#{bind := iolist_to_binary(emqx_listeners:format_bind(Bind))};

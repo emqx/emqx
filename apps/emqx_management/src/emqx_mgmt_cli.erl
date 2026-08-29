@@ -1223,6 +1223,7 @@ listeners([]) ->
     lists:foreach(
         fun({Id, Conf}) ->
             Bind = maps:get(bind, Conf),
+            ResolvedAddress = maps:get(resolved_address, Conf),
             Enable = maps:get(enable, Conf),
             Acceptors = maps:get(acceptors, Conf),
             ProxyProtocol = maps:get(proxy_protocol, Conf, undefined),
@@ -1252,6 +1253,7 @@ listeners([]) ->
             Info =
                 [
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
+                    {resolved_address, {string, ResolvedAddress}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {enbale, Enable},
