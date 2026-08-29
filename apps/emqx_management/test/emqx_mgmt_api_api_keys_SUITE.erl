@@ -1145,6 +1145,7 @@ t_ee_authorize_admin_cannot_manage_mfa(_Config) ->
     ok = ensure_victim_user(Victim),
     DeleteMfa = emqx_mgmt_api_test_util:api_path(["users", Victim, "mfa"]),
     PostMfa = DeleteMfa,
+    ShimPwd = emqx_mgmt_api_test_util:api_path(["users", Victim, "change_pwd"]),
     CurrentUser = emqx_mgmt_api_test_util:api_path(["current_user"]),
     CurrentUserMfa = emqx_mgmt_api_test_util:api_path(["current_user", "mfa"]),
     CurrentUserPwd = emqx_mgmt_api_test_util:api_path(["current_user", "change_pwd"]),
@@ -1154,6 +1155,15 @@ t_ee_authorize_admin_cannot_manage_mfa(_Config) ->
     ),
     ok = assert_api_key_not_allow(
         post, PostMfa, [], BasicHeader, #{mechanism => totp}
+    ),
+    %% The deprecated self-only shim is a self operation too, and it
+    %% carries no scope, so only the handler-name denial stops an API key.
+    ok = assert_api_key_not_allow(
+        post,
+        ShimPwd,
+        [],
+        BasicHeader,
+        #{old_pwd => <<"mfa_victim_pass">>, new_pwd => <<"new_pass_123">>}
     ),
     %% Self-service routes are equally out of reach for an API key.
     ok = assert_api_key_not_allow(get, CurrentUser, [], BasicHeader, []),
@@ -1203,6 +1213,11 @@ t_ee_authorize_admin_cannot_manage_mfa_module_level(_Config) ->
     },
     PostMfaHandler = DeleteMfaHandler#{method => post},
     SelfHandlers = [
+        #{
+            method => post,
+            function => change_pwd,
+            path => "/users/:username/change_pwd"
+        },
         #{method => get, function => current_user, path => "/current_user"},
         #{
             method => post,

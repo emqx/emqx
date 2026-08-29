@@ -471,7 +471,12 @@ t_check_login_user_scopes_current_user_is_public(_) ->
         [
             <<"/current_user">>,
             <<"/current_user/change_pwd">>,
-            <<"/current_user/mfa">>
+            <<"/current_user/mfa">>,
+            %% The deprecated shim is unscoped for the same reason. It is
+            %% a templated ?SCOPE_PUBLIC entry, so it only classifies as
+            %% public through segment matching, not exact lookup.
+            <<"/users/", Username/binary, "/change_pwd">>,
+            <<"/users/somebody_else/change_pwd">>
         ]
     ),
     %% Nothing under /users/ is exempt any more, not even a path that

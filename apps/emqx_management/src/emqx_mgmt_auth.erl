@@ -275,7 +275,12 @@ authorize(#{module := emqx_dashboard_api, function := change_mfa}, _Req, _ApiKey
 authorize(#{module := emqx_dashboard_api, function := Fn}, _Req, _ApiKey, _ApiSecret) when
     Fn == current_user;
     Fn == current_user_change_pwd;
-    Fn == current_user_mfa
+    Fn == current_user_mfa;
+    %% Same reasoning for the deprecated `/users/:username/change_pwd'
+    %% shim, which is a self operation and so equally meaningless for a
+    %% machine credential. It also no longer carries a scope, so the
+    %% scope layer would not stop an API key either.
+    Fn == change_pwd
 ->
     {error, <<"not_allowed">>, <<"users">>};
 authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->

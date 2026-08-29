@@ -281,11 +281,19 @@ do_check_rbac(#{}, _, ?DASHBOARD_API(post, logout)) ->
 do_check_rbac(#{}, _, ?DASHBOARD_API(_, Fn)) when
     Fn == current_user;
     Fn == current_user_change_pwd;
-    Fn == current_user_mfa
+    Fn == current_user_mfa;
+    %% The deprecated `/users/:username/change_pwd' shim belongs here
+    %% too: it is a self operation wearing an admin-shaped path. RBAC
+    %% lets any authenticated user through and the handler asserts the
+    %% target is the caller, answering 403 otherwise. Keeping the check
+    %% in one place is the point -- an RBAC-level `IsSelf' clause here
+    %% is exactly the machinery this split removes.
+    Fn == change_pwd
 ->
     %% emqx_dashboard_api:current_user
     %% emqx_dashboard_api:current_user_change_pwd
     %% emqx_dashboard_api:current_user_mfa
+    %% emqx_dashboard_api:change_pwd
     true;
 %% Managing another user's MFA is a global-administrator operation. A
 %% namespaced administrator must not reach it even inside its own

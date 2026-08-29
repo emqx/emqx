@@ -30,6 +30,7 @@
     users/2,
     user_scopes/2,
     user/2,
+    change_pwd/2,
     change_mfa/2,
     current_user/2,
     current_user_change_pwd/2,
@@ -74,6 +75,12 @@ api_spec() ->
 %%     these operations can widen the caller's own privileges:
 %%     change_pwd verifies `old_pwd', and the MFA routes only ever touch
 %%     the caller's own record.
+%%   * /users/:username/change_pwd -- the deprecated self-only shim. It
+%%     carries no scope for the same reason as `/current_user/change_pwd':
+%%     the handler asserts the target is the caller and then acts on the
+%%     caller's own record, so there is nothing here to gate per-scope.
+%%     Dropping `user_management' is what lets a viewer keep using its
+%%     old password-change call.
 scopes() ->
     #{
         <<"/login">> => ?SCOPE_PUBLIC,
@@ -86,6 +93,7 @@ scopes() ->
         <<"/current_user/mfa">> => ?SCOPE_PUBLIC,
         <<"/users">> => ?SCOPE_USER_MGMT,
         <<"/users/:username">> => ?SCOPE_USER_MGMT,
+        <<"/users/:username/change_pwd">> => ?SCOPE_PUBLIC,
         <<"/users/:username/mfa">> => ?SCOPE_MFA_MGMT
     }.
 
@@ -100,6 +108,7 @@ paths() ->
         "/current_user/mfa",
         "/users",
         "/users/:username",
+        "/users/:username/change_pwd",
         "/users/:username/mfa",
         "/user_scopes"
     ].
@@ -317,6 +326,38 @@ schema("/users/:username") ->
                     [?BAD_REQUEST, ?NOT_ALLOWED], ?DESC(login_failed_response400)
                 ),
                 404 => response_schema(404)
+            }
+        }
+    };
+%% Deprecated self-only shim for `/current_user/change_pwd'. Kept so the
+%% heavily-integrated password-change call keeps working; scheduled for
+%% removal a release later.
+%%
+%% This is not the old endpoint with a new name. The old one was reachable
+%% for any target and merely failed on the `old_pwd' check, so a cross-user
+%% call was refused by accident. The shim asserts the target is the caller
+%% and answers 403 otherwise, which also makes the namespaced-administrator
+%% invariant deliberate rather than incidental.
+schema("/users/:username/change_pwd") ->
+    #{
+        'operationId' => change_pwd,
+        post => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(change_pwd_api),
+            deprecated => true,
+            security => [#{'bearerAuth' => []}],
+            parameters => fields([username_in_path]),
+            'requestBody' => fields([old_pwd, new_pwd]),
+            responses => #{
+                204 => <<"Update user password successfully">>,
+                403 => emqx_dashboard_swagger:error_codes(
+                    [?NOT_ALLOWED], ?DESC(change_pwd_self_only)
+                ),
+                404 => response_schema(404),
+                400 => emqx_dashboard_swagger:error_codes(
+                    [?BAD_REQUEST, ?ERROR_PWD_NOT_MATCH, ?NOT_ALLOWED],
+                    ?DESC(login_failed_response400)
+                )
             }
         }
     };
@@ -893,6 +934,37 @@ current_user_change_pwd(post, #{body := Params} = Req) ->
     with_caller(Req, fun(#?ADMIN{username = Username}) ->
         do_change_pwd(Username, Params)
     end).
+
+%% Deprecated shim: assert the path target is the caller, then run the
+%% canonical self operation. It always acts on `Username', the caller's
+%% own resolved key, never on the path segment, so the path cannot steer
+%% the write even if the match below were ever loosened.
+change_pwd(post, #{bindings := #{username := Target}, body := Params} = Req) ->
+    with_caller(Req, fun(#?ADMIN{username = Username}) ->
+        case is_self_target(Username, Target) of
+            true ->
+                do_change_pwd(Username, Params);
+            false ->
+                ?SLOG(warning, #{
+                    msg => "dashboard_change_password",
+                    username => Target,
+                    result => denied,
+                    reason => "not_the_authenticated_user"
+                }),
+                {403, ?NOT_ALLOWED, <<
+                    "This endpoint only changes your own password. "
+                    "Use /current_user/change_pwd."
+                >>}
+        end
+    end).
+
+%% The route carries no `?backend' parameter, so an SSO caller's key
+%% (`{Backend, Name}') never equals the bare path segment. Match on the
+%% name part as well, so an SSO user reaches `do_change_pwd/2' and gets
+%% the "no local password" answer rather than a misleading 403.
+is_self_target(Username, Username) -> true;
+is_self_target(?SSO_USERNAME(_Backend, Name), Name) -> true;
+is_self_target(_Caller, _Target) -> false.
 
 %% An SSO user has no local password -- the identity provider owns the
 %% credential -- so there is nothing here to change. Reject explicitly:

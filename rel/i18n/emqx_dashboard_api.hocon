@@ -140,6 +140,14 @@ current_user_api.desc:
 current_user_api.label:
 """Get own account"""
 
+change_pwd_api.desc:
+"""Deprecated. Change the signed-in user's own password; the `username` in the path must be the signed-in user, otherwise the request is rejected. Use `/current_user/change_pwd` instead, which takes no username."""
+change_pwd_api.label:
+"""Change own password (deprecated)"""
+
+change_pwd_self_only.desc:
+"""The `username` in the path is not the signed-in user. This endpoint changes your own password only."""
+
 current_user_change_pwd_api.desc:
 """Change the signed-in user's own password. The current password must be supplied as `old_pwd`. Accounts that sign in through an SSO backend have no local password and are rejected."""
 current_user_change_pwd_api.label:

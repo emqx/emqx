@@ -297,22 +297,88 @@ t_username_colliding_with_self_route(_Config) ->
         [<<"current_user">>, <<"self">>, <<"me">>]
     ).
 
-%% The administrator password-reset route is gone: self password change
-%% is `/current_user/change_pwd' and resetting another user's password
-%% stays CLI-only (`emqx ctl admins passwd'). A stale client hitting the
-%% old path gets a 404 from the router, not a silent success.
-t_old_change_pwd_route_is_gone(_Config) ->
+%%--------------------------------------------------------------------
+%% Deprecated shim: POST /users/:username/change_pwd
+%%--------------------------------------------------------------------
+
+%% The shim keeps working for the caller's own account, at any role and
+%% with an explicitly emptied scope list -- dropping `user_management'
+%% from the route is what lets a viewer keep its old call.
+t_shim_changes_own_password(_Config) ->
+    lists:foreach(
+        fun(Role) ->
+            ok = add_user(<<"u">>, Role),
+            {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, []),
+            ?assertMatch(
+                {ok, 204, _},
+                shim_change_pwd(token(<<"u">>), <<"u">>, ?PASSWORD, ?NEW_PASSWORD),
+                Role
+            ),
+            ?assertMatch({ok, _}, emqx_dashboard_admin:check(<<"u">>, ?NEW_PASSWORD), Role),
+            {ok, _} = emqx_dashboard_admin:remove_user(<<"u">>)
+        end,
+        [?ROLE_VIEWER, ?ROLE_SUPERUSER, <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>]
+    ).
+
+%% Pointing the shim at somebody else is refused with 403, for every
+%% role. Before the split this was allowed through RBAC for an
+%% administrator and merely failed the `old_pwd' check, so a cross-user
+%% call was blocked by accident; now it is blocked on purpose, and the
+%% namespaced-administrator invariant holds by the same single check.
+t_shim_rejects_other_user(_Config) ->
+    ok = add_user(<<"victim">>, ?ROLE_VIEWER),
+    lists:foreach(
+        fun(Role) ->
+            ok = add_user(<<"u">>, Role),
+            {ok, 403, Body} = shim_change_pwd(
+                token(<<"u">>), <<"victim">>, ?PASSWORD, ?NEW_PASSWORD
+            ),
+            ?assertEqual(<<"NOT_ALLOWED">>, error_code(Body), Role),
+            %% The refusal is real: the target's password is untouched
+            %% and so is the caller's.
+            ?assertMatch({ok, _}, emqx_dashboard_admin:check(<<"victim">>, ?PASSWORD), Role),
+            ?assertMatch({ok, _}, emqx_dashboard_admin:check(<<"u">>, ?PASSWORD), Role),
+            {ok, _} = emqx_dashboard_admin:remove_user(<<"u">>)
+        end,
+        [?ROLE_VIEWER, ?ROLE_SUPERUSER, <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>]
+    ).
+
+%% The shim runs the same checks as the canonical route, because it
+%% delegates to it rather than reimplementing anything.
+t_shim_verifies_old_password(_Config) ->
+    ok = add_user(<<"u">>, ?ROLE_VIEWER),
+    Token = token(<<"u">>),
+    {ok, 400, Wrong} = shim_change_pwd(Token, <<"u">>, <<"not-the-password">>, ?NEW_PASSWORD),
+    ?assertEqual(<<"ERROR_PWD_NOT_MATCH">>, error_code(Wrong)),
+    {ok, 400, Empty} = shim_change_pwd(Token, <<"u">>, <<>>, ?NEW_PASSWORD),
+    ?assertEqual(<<"BAD_REQUEST">>, error_code(Empty)),
+    ?assertMatch({ok, _}, emqx_dashboard_admin:check(<<"u">>, ?PASSWORD)).
+
+%% An SSO caller reaches the delegate and gets the "no local password"
+%% answer. The route has no `?backend' parameter, so without matching on
+%% the name part of the SSO key this would be a misleading 403 instead.
+t_shim_sso_user_gets_no_local_password(_Config) ->
+    Backend = saml,
+    SsoUser = <<"sso-shim@example.com">>,
+    {ok, _} = emqx_dashboard_admin:add_sso_user(Backend, SsoUser, ?ROLE_VIEWER, <<"d">>),
+    SsoKey = ?SSO_USERNAME(Backend, SsoUser),
+    {ok, 400, Body} = shim_change_pwd(sso_token(SsoKey), SsoUser, ?PASSWORD, ?NEW_PASSWORD),
+    ?assertEqual(<<"NOT_ALLOWED">>, error_code(Body)).
+
+%% The shim is advertised as deprecated so clients can see it is on the
+%% way out, and the canonical route is not.
+t_shim_is_marked_deprecated(_Config) ->
     ok = add_user(<<"boss">>, ?ROLE_SUPERUSER),
-    Token = token(<<"boss">>),
-    Url = api_path(["users", "boss", "change_pwd"]),
-    ?assertMatch(
-        {ok, 404, _},
-        request_api(
-            post, Url, auth_header(Token), #{old_pwd => ?PASSWORD, new_pwd => ?NEW_PASSWORD}
-        )
-    ),
-    %% The password is untouched: the route did not silently succeed.
-    ?assertMatch({ok, _}, emqx_dashboard_admin:check(<<"boss">>, ?PASSWORD)).
+    Url = ?HOST ++ "/api-docs/swagger.json",
+    {ok, {{_, 200, _}, _Headers, Body}} =
+        httpc:request(
+            get, {Url, [auth_header(token(<<"boss">>))]}, [], [{body_format, binary}]
+        ),
+    #{<<"paths">> := Paths} = json(Body),
+    Shim = maps:get(<<"post">>, maps:get(<<"/users/{username}/change_pwd">>, Paths)),
+    ?assertEqual(true, maps:get(<<"deprecated">>, Shim, false)),
+    Canonical = maps:get(<<"post">>, maps:get(<<"/current_user/change_pwd">>, Paths)),
+    ?assertEqual(false, maps:get(<<"deprecated">>, Canonical, false)).
 
 %% The Dashboard SPA and emqx-docs are generated from the OpenAPI spec,
 %% so the split is only really shipped once the spec carries it: the
@@ -333,15 +399,12 @@ t_openapi_spec_carries_the_split(_Config) ->
     ?assertMatch(
         #{<<"post">> := _, <<"delete">> := _}, maps:get(<<"/current_user/mfa">>, Paths)
     ),
-    ?assertEqual(
-        error,
-        maps:find(<<"/users/{username}/change_pwd">>, Paths),
-        {stale_admin_password_reset_route, maps:keys(Paths)}
-    ),
-    %% The administrator MFA route stays.
+    %% The administrator MFA route stays, and so does the deprecated
+    %% change_pwd shim (see t_shim_is_marked_deprecated).
     ?assertMatch(
         #{<<"post">> := _, <<"delete">> := _}, maps:get(<<"/users/{username}/mfa">>, Paths)
-    ).
+    ),
+    ?assertMatch(#{<<"post">> := _}, maps:get(<<"/users/{username}/change_pwd">>, Paths)).
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -365,6 +428,14 @@ token(Username) ->
 
 get_current_user(Token) ->
     request_api(get, api_path(["current_user"]), auth_header(Token)).
+
+shim_change_pwd(Token, Target, OldPwd, NewPwd) ->
+    request_api(
+        post,
+        api_path(["users", binary_to_list(Target), "change_pwd"]),
+        auth_header(Token),
+        #{<<"old_pwd">> => OldPwd, <<"new_pwd">> => NewPwd}
+    ).
 
 change_own_pwd(Token, OldPwd, NewPwd) ->
     request_api(
