@@ -824,7 +824,7 @@ listener_id_status_example() ->
                 running => true,
                 current_connections => 201,
                 max_connections => 2048000,
-                resolved_address => <<"0.0.0.0:1884">>
+                resolved_address => <<"0.0.0.0">>
             }
         },
         #{
