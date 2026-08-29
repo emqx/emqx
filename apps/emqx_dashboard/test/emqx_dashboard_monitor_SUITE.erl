@@ -646,7 +646,9 @@ t_monitor_reset(_) ->
             infinity
         ),
     {ok, Samplers} = request(["monitor"], "latest=1"),
-    ?assertEqual(1, erlang:length(Samplers)),
+    %% `latest=1' is a 1s window and the sample interval is also 1s, so the
+    %% window holds 1 or 2 samples depending on where it falls.
+    ?assertMatch([_ | _], Samplers),
     ok = delete(["monitor"]),
     ?assertMatch({ok, []}, request(["monitor"], "latest=1")),
     ok.
