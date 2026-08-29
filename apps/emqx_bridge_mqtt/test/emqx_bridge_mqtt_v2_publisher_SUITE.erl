@@ -291,6 +291,23 @@ get_emqtt_clients(PoolName) ->
         ecpool:workers(PoolName)
     ).
 
+%% `emqx_utils:drain_down/1' returns immediately (it receives with `after 0'),
+%% so it only reports the DOWNs that already happen to be in the mailbox.
+%% Neither a 204 from the kick API nor sending `die_if_test' means the channels
+%% are down, let alone that their DOWN messages were delivered. Wait for them.
+wait_down(N, Timeout) ->
+    wait_down(N, Timeout, []).
+
+wait_down(0, _Timeout, Acc) ->
+    lists:reverse(Acc);
+wait_down(N, Timeout, Acc) ->
+    receive
+        {'DOWN', _MRef, process, Pid, _Reason} ->
+            wait_down(N - 1, Timeout, [Pid | Acc])
+    after Timeout ->
+        lists:reverse(Acc)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -791,7 +808,7 @@ t_reconnect(Config) ->
             lists:foreach(fun(Pid) -> monitor(process, Pid) end, ChanPids),
             ct:pal("kicking ~p (leaving 1 client alive)", [ClientIds]),
             {204, _} = emqx_bridge_v2_testlib:kick_clients_http(ClientIds),
-            DownPids = emqx_utils:drain_down(PoolSize - 1),
+            DownPids = wait_down(PoolSize - 1, 10_000),
             ?assertEqual(lists:sort(ChanPids), lists:sort(DownPids)),
             %% Recovery
             ct:pal("clients kicked; waiting for recovery..."),
@@ -884,7 +901,7 @@ t_publish_while_tcp_closed_concurrently(Config) ->
                         %% Forcefully kill connection processes, so we get the ellusive `tcp_closed'
                         %% error more easily from `emqtt'.
                         lists:foreach(fun(ChanPid) -> ChanPid ! die_if_test end, ChanPids),
-                        _DownPids = emqx_utils:drain_down(PoolSize),
+                        _DownPids = wait_down(PoolSize, 10_000),
 
                         ok
                     end
