@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     evict_session_channel/4
 ]).
@@ -16,6 +17,9 @@
 
 introduced_in() ->
     "5.0.22".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec evict_session_channel(
     node(),

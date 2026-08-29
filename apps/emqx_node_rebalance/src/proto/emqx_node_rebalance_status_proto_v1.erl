@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     local_status/1,
     rebalance_status/1,
@@ -19,6 +20,9 @@
 
 introduced_in() ->
     "5.0.22".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec local_status(node()) ->
     emqx_rpc:badrpc() | disabled | {evacuation, map()} | {rebalance, map()}.
