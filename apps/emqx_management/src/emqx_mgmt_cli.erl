@@ -1251,15 +1251,20 @@ listeners([]) ->
                     MaxConn = [],
                     ShutdownCount = []
             end,
+            %% `running` must stay the 5th line after the listener id: some
+            %% scripts (e.g. .ci/docker-compose-file/scripts/run-emqx.sh,
+            %% scripts/test/essential-auth-smoke/run.sh) grep a fixed number
+            %% of lines after the id to find it. Append new fields after
+            %% `running`, never insert them before it.
             Info =
                 [
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
-                    {resolved_address, {string, ResolvedAddress}},
-                    {resolved_address_from, {string, ResolvedAddressFrom}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {enbale, Enable},
-                    {running, Running}
+                    {running, Running},
+                    {resolved_address, {string, ResolvedAddress}},
+                    {resolved_address_from, {string, ResolvedAddressFrom}}
                 ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
             emqx_ctl:print("~ts~n", [Id]),
             lists:foreach(fun indent_print/1, Info)
