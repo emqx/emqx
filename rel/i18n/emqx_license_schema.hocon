@@ -17,7 +17,8 @@ tps_alarm_sustain_duration {
     desc: """~
         Minimum duration for which the cluster message throughput must stay above the license TPS limit before the throughput alarm is activated.
         A sample at or below the limit restarts the count, so the limit has to be exceeded continuously.
-        Set to `0s` to activate the alarm on the first sample above the limit."""
+        Set to `0s` to activate the alarm on the first sample above the limit.
+        Accepted range is `0s` to `10m`, so the alarm cannot be held back indefinitely."""
 }
 
 high_watermark_timezone {

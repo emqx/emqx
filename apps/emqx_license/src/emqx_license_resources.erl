@@ -6,6 +6,8 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-include("emqx_license.hrl").
+
 -behaviour(gen_server).
 
 -define(CHECK_INTERVAL, 5000).
@@ -234,10 +236,10 @@ track_tps_breach(_IsOverLimit = true) ->
     end.
 
 %% @private Whether the current run of over-limit samples has lasted at least
-%% `license.tps_alarm_sustain_duration'. The default of 0 keeps the alarm firing
+%% `license.tps_alarm_sustain_duration'. A duration of 0 keeps the alarm firing
 %% on the first over-limit sample.
 tps_breach_sustained() ->
-    case emqx_conf:get([license, tps_alarm_sustain_duration], 0) of
+    case sustain_duration() of
         Duration when Duration =< 0 ->
             true;
         Duration ->
@@ -248,6 +250,15 @@ tps_breach_sustained() ->
                     monotonic_ms() - Since > Duration
             end
     end.
+
+%% @private The schema rejects anything outside the permitted range, but the
+%% cap is re-applied here so the alarm cannot be silenced by a value that
+%% reached the config without passing validation.
+sustain_duration() ->
+    min(
+        emqx_conf:get([license, tps_alarm_sustain_duration]),
+        ?MAX_TPS_ALARM_SUSTAIN_DURATION
+    ).
 
 new_tps_alarm_details(MaxTps, HistMaxTps) ->
     emqx_alarm:make_persistent_details(#{

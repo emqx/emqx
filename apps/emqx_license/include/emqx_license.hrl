@@ -85,6 +85,11 @@
 %% Allow 10% more sessions over the limit defined in the license key
 -define(SESSIONS_LIMIT_OVERSHOOT_FACTOR, 1.1).
 
+%% Upper bound for `license.tps_alarm_sustain_duration', 10 minutes. The alarm
+%% exists to prompt a license upgrade, so how long it can be held back is capped
+%% here rather than left to the operator. A literal so it can be used in guards.
+-define(MAX_TPS_ALARM_SUSTAIN_DURATION, 600_000).
+
 %% The default license key.
 %% This default license is of single-node type and has 10M sessions limit.
 %% Issued on 2025-03-02 and valid for 4 years (1460 days)

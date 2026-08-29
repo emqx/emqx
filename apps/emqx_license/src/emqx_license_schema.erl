@@ -17,7 +17,8 @@
 -export([namespace/0, roots/0, fields/1, validations/0, desc/1, tags/0]).
 
 -export([
-    default_setting/0
+    default_setting/0,
+    validate_tps_alarm_sustain_duration/1
 ]).
 
 namespace() -> "license".
@@ -74,6 +75,7 @@ fields(key_license) ->
             example => <<"1h">>,
             required => false,
             importance => ?IMPORTANCE_LOW,
+            validator => fun ?MODULE:validate_tps_alarm_sustain_duration/1,
             desc => ?DESC(tps_alarm_sustain_duration)
         }},
         {high_watermark_timezone, #{
@@ -131,6 +133,16 @@ check_high_watermark_timezone(Conf) ->
                     {bad_license_high_watermark_timezone, #{timezone => Offset}}
             end
     end.
+
+%% @doc The alarm is what prompts a license upgrade, so the window it can be
+%% held back by is bounded. Without an upper bound a large enough value silences
+%% it for good.
+validate_tps_alarm_sustain_duration(Duration) when
+    is_integer(Duration), Duration >= 0, Duration =< ?MAX_TPS_ALARM_SUSTAIN_DURATION
+->
+    ok;
+validate_tps_alarm_sustain_duration(_Duration) ->
+    {error, <<"must be between 0s and 10m">>}.
 
 %% @doc Exported for testing
 default_setting() ->
