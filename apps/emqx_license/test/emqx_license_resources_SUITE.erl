@@ -232,7 +232,10 @@ t_alarm_tps_sustain_duration({init, Config}) ->
     Key = emqx_license_test_lib:make_license(#{max_tps => 10}),
     emqx_license:update_key(Key),
     Original = sustain_duration(),
-    ok = set_sustain_duration(1000),
+    %% Far longer than any plausible runner stall, so the phases that assert the
+    %% alarm is still held back cannot be overtaken by real time. The window is
+    %% aged with backdate_tps_breach/1 instead.
+    ok = set_sustain_duration(timer:minutes(5)),
     meck:new(emqx_alarm, [passthrough]),
     meck:new(emqx_license_proto_v3, [passthrough]),
     [{orig_sustain_duration, Original} | Config];
@@ -263,21 +266,19 @@ t_alarm_tps_sustain_duration(Config) when is_list(Config) ->
         ),
         ok = update_now()
     end,
-    %% Over the limit, but the window has only just opened. The window is aged
-    %% with backdate_tps_breach/1 rather than by sleeping, so the case asserts
-    %% the logic instead of racing the runner.
+    %% Over the limit, but the window has only just opened.
     MockTps(11),
     ?assertNotReceive({alarm_activated, _, _}, 100),
     MockTps(11),
     ?assertNotReceive({alarm_activated, _, _}, 100),
     %% A sample at or below the limit ends the run, so an aged window is
     %% discarded and the next over-limit sample starts a fresh one.
-    ok = emqx_license_resources:backdate_tps_breach(5000),
+    ok = emqx_license_resources:backdate_tps_breach(timer:minutes(10)),
     MockTps(9),
     MockTps(11),
     ?assertNotReceive({alarm_activated, _, _}, 100),
     %% Uninterrupted for longer than the configured duration.
-    ok = emqx_license_resources:backdate_tps_breach(5000),
+    ok = emqx_license_resources:backdate_tps_breach(timer:minutes(10)),
     MockTps(11),
     ?assertReceive(
         {alarm_activated, <<"License: TPS limit (10) exceeded.">>, #{max_tps := 11}}, 100
