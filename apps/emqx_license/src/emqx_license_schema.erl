@@ -72,7 +72,7 @@ fields(key_license) ->
         {tps_alarm_sustain_duration, #{
             type => emqx_schema:duration_ms(),
             default => default(tps_alarm_sustain_duration),
-            example => <<"1h">>,
+            example => <<"2m">>,
             required => false,
             importance => ?IMPORTANCE_LOW,
             validator => fun ?MODULE:validate_tps_alarm_sustain_duration/1,
@@ -170,7 +170,7 @@ default(connection_high_watermark) ->
 default(high_watermark_timezone) ->
     system;
 default(tps_alarm_sustain_duration) ->
-    ~"30m";
+    ~"1m";
 default(dynamic_max_connections) ->
     %% This config is only applicable to CTYPE3
     ?DEFAULT_MAX_SESSIONS_CTYPE3.
