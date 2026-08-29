@@ -68,12 +68,11 @@ creation or update if the scope list contains any login-only scope,
 and the bootstrap-file loader filters such names with a warning.
 
 The `admin_only` flag indicates whether the scope is restricted to
-administrator role. `mfa_management` is the only login-only scope
-non-administrators may hold; for non-admins it acts as a self-
-exemption key allowing the holder to bypass force_mfa and
-admin_override locks on their OWN MFA — they still cannot manage
-other users' MFA (enforced by RBAC and by
-`emqx_dashboard_api:authorize_mfa_change/3').
+administrator role. All four login-only scopes are administrator-only:
+each one manages something about OTHER users. `mfa_management` in
+particular means "reset or disable another user's MFA" — managing
+one's own MFA is an identity-authorized operation on
+`/current_user/mfa' and needs no scope at all.
 """.
 -spec admin_only_scope_catalog() ->
     [#{name := binary(), desc := term(), admin_only := boolean()}].
@@ -86,7 +85,7 @@ admin_only_scope_catalog() ->
         },
         #{
             name => ?SCOPE_MFA_MGMT,
-            admin_only => false,
+            admin_only => true,
             desc => ?DESC(scope_mfa_management)
         },
         #{

@@ -112,15 +112,15 @@ end_per_testcase(_Case, _Config) ->
 %% role x scope schema validation (POST /users)
 %%--------------------------------------------------------------------
 
-%% Administrator can hold the three admin-only login scopes together
-%% (they are all privilege scopes, so a privilege-only list is allowed).
-%% mfa_management is a non-privilege scope and so cannot share an
-%% explicit list with the privilege scopes; it is exercised separately
-%% below and in t_user_mfa_mgmt_not_privilege/1.
+%% Administrator can hold the three privilege login scopes together
+%% (a privilege-only list is allowed). mfa_management is admin-only too
+%% but is NOT a privilege scope, so it cannot share an explicit list
+%% with them; it is exercised separately below and in
+%% t_user_mfa_mgmt_not_privilege/1.
 t_admin_can_hold_all_4_new_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
-    PrivLoginScopes = ?ADMIN_ONLY_SCOPES,
+    PrivLoginScopes = ?ADMIN_ONLY_SCOPES -- [?SCOPE_MFA_MGMT],
     Body = #{
         <<"username">> => <<"admin2">>,
         <<"password">> => test_password(),
@@ -474,9 +474,12 @@ t_viewer_cannot_hold_user_management(_Config) ->
         request_api(post, api_path(["users"]), auth_header(Token), Body)
     ).
 
-%% Viewer CAN hold mfa_management — non-admin self-exemption rule
-%% (viewer self-exemption rule).
-t_viewer_can_hold_mfa_management(_Config) ->
+%% Viewer cannot hold mfa_management: the scope means "manage another
+%% user's MFA" and is administrator-only. Its former non-administrator
+%% meaning (a self-exemption key) is gone -- managing one's own MFA is
+%% an identity-authorized operation on /current_user/mfa and needs no
+%% scope.
+t_viewer_cannot_hold_mfa_management(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
     Body = #{
@@ -486,9 +489,12 @@ t_viewer_can_hold_mfa_management(_Config) ->
         <<"description">> => <<"test">>,
         <<"scopes">> => [?SCOPE_MFA_MGMT]
     },
+    {ok, 400, RespBody} = request_api(
+        post, api_path(["users"]), auth_header(Token), Body
+    ),
     ?assertMatch(
-        {ok, 200, _},
-        request_api(post, api_path(["users"]), auth_header(Token), Body)
+        #{<<"message">> := <<"Non-administrator users cannot hold admin-only scopes:", _/binary>>},
+        emqx_utils_json:decode(RespBody)
     ).
 
 %% Viewer cannot hold sso_management.
@@ -1020,9 +1026,9 @@ t_role_demotion_with_compatible_persisted_scopes_succeeds(_Config) ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_SUPERUSER, "demote-target"
     ),
-    %% mfa_management is allowed for any role, so the persisted
-    %% scope remains compatible after demotion.
-    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_MFA_MGMT]),
+    %% A generic scope is allowed for any role, so the persisted scope
+    %% remains compatible after demotion.
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_CONNECTIONS]),
     PutBody = #{
         <<"role">> => ?ROLE_VIEWER,
         <<"description">> => <<"demoted">>

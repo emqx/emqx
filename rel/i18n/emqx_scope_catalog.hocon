@@ -31,10 +31,10 @@ scope_license.desc:
 """License management"""
 
 scope_user_management.desc:
-"""Manage dashboard users (create, update, delete, change other users' password)"""
+"""Manage dashboard users (create, update, delete)"""
 
 scope_mfa_management.desc:
-"""Manage MFA. For administrators: reset and re-key any user's MFA, override force_mfa and admin_override locks. For non-administrators: self-exemption only — bypass force_mfa / admin_override locks on the holder's own MFA"""
+"""Reset, re-key or disable another dashboard user's MFA. Administrator role only. Managing your own MFA needs no scope: use `/current_user/mfa`"""
 
 scope_sso_management.desc:
 """Configure SSO backends (LDAP, OIDC, SAML)"""
