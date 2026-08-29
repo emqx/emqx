@@ -265,9 +265,18 @@ authorize(#{module := emqx_dashboard_api, function := users}, _Req, _ApiKey, _Ap
     {error, <<"not_allowed">>, <<"users">>};
 authorize(#{module := emqx_dashboard_api, function := logout}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"logout">>};
-authorize(#{module := emqx_dashboard_api, function := change_pwd}, _Req, _ApiKey, _ApiSecret) ->
-    {error, <<"not_allowed">>, <<"users">>};
 authorize(#{module := emqx_dashboard_api, function := change_mfa}, _Req, _ApiKey, _ApiSecret) ->
+    {error, <<"not_allowed">>, <<"users">>};
+%% Self-service endpoints authorize on "the caller IS the subject". An
+%% API key has no such subject -- it is a machine credential, not a
+%% dashboard account -- so there is no account for it to act on here.
+%% Refusing by handler name keeps the check independent of the scope
+%% layer, where these paths are ?SCOPE_PUBLIC and would otherwise pass.
+authorize(#{module := emqx_dashboard_api, function := Fn}, _Req, _ApiKey, _ApiSecret) when
+    Fn == current_user;
+    Fn == current_user_change_pwd;
+    Fn == current_user_mfa
+->
     {error, <<"not_allowed">>, <<"users">>};
 authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>, <<"api_key">>};

@@ -1,10 +1,5 @@
 emqx_dashboard_api {
 
-change_pwd_api.desc:
-"""Change Dashboard user password"""
-change_pwd_api.label:
-"""Change Dashboard user password"""
-
 create_user_api.desc:
 """Create Dashboard user"""
 create_user_api.label:
@@ -120,10 +115,10 @@ password_expire_in_seconds.desc:
 """Time in seconds until the password expires."""
 
 change_mfa.desc:
-"""Set up or reset MFA for a Dashboard user. Calling this endpoint generates a fresh TOTP secret."""
+"""Set up or reset MFA for another Dashboard user. Calling this endpoint generates a fresh TOTP secret. Requires the `mfa_management` scope and the administrator role. To manage your own MFA, use `/current_user/mfa`."""
 
 delete_mfa.desc:
-"""Disable MFA for a Dashboard user. To reset or re-key TOTP, call the `POST` method."""
+"""Disable MFA for another Dashboard user. To reset or re-key TOTP, call the `POST` method. Requires the `mfa_management` scope and the administrator role. To manage your own MFA, use `/current_user/mfa`."""
 
 mfa_token.desc:
 """Multifactor authentication token."""
@@ -139,5 +134,31 @@ change_mfa.label:
 
 delete_mfa.label:
 """Delete MFA"""
+
+current_user_api.desc:
+"""Return the signed-in user's own account: username, role, effective permission scopes and MFA status."""
+current_user_api.label:
+"""Get own account"""
+
+current_user_change_pwd_api.desc:
+"""Change the signed-in user's own password. The current password must be supplied as `old_pwd`. Accounts that sign in through an SSO backend have no local password and are rejected."""
+current_user_change_pwd_api.label:
+"""Change own password"""
+
+current_user_mfa_api.desc:
+"""Set up or rotate MFA for the signed-in user's own account. Calling this endpoint generates a fresh TOTP secret."""
+current_user_mfa_api.label:
+"""Change own MFA"""
+
+delete_current_user_mfa_api.desc:
+"""Disable MFA for the signed-in user's own account. To reset or re-key TOTP, call the `POST` method."""
+delete_current_user_mfa_api.label:
+"""Delete own MFA"""
+
+current_user_mfa_locked.desc:
+"""MFA for this account was configured by an administrator and cannot be changed by the account holder. An administrator must reset it."""
+
+effective_user_scopes_response.desc:
+"""The permission scopes the user effectively holds. Unlike the `scopes` field of the user management endpoints, the role default is already expanded here, so this is always a concrete list."""
 
 }

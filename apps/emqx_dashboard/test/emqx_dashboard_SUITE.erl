@@ -297,8 +297,10 @@ t_rest_api(_Config) ->
     ),
     {ok, 204, _} = http_delete(["users", "usera"]),
     {ok, 404, _} = http_delete(["users", "usera"]),
+    %% Changing one's own password is self-service: the caller is the
+    %% subject, so there is no username in the path.
     {ok, 204, _} = http_post(
-        ["users", "admin", "change_pwd"],
+        ["current_user", "change_pwd"],
         #{
             <<"old_pwd">> => Password,
             <<"new_pwd">> => <<"newpwd_lkdfki1">>

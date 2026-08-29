@@ -30,8 +30,10 @@
     users/2,
     user_scopes/2,
     user/2,
-    change_pwd/2,
-    change_mfa/2
+    change_mfa/2,
+    current_user/2,
+    current_user_change_pwd/2,
+    current_user_mfa/2
 ]).
 -export([scopes/0]).
 
@@ -48,6 +50,7 @@
 -define(PASSWORD_LOGIN_DISABLED, 'PASSWORD_LOGIN_DISABLED').
 -define(SCRAM_CHALLENGE_INVALID, 'SCRAM_CHALLENGE_INVALID').
 -define(SERVICE_UNAVAILABLE, 'SERVICE_UNAVAILABLE').
+-define(MFA_LOCKED, 'MFA_LOCKED').
 
 namespace() -> "dashboard".
 
@@ -63,6 +66,14 @@ api_spec() ->
 %%   * /login -- pre-login (security => []).
 %%   * /logout -- any authenticated role may log itself out.
 %%   * /user_scopes -- static catalog endpoint, no tenant data.
+%%   * /current_user* -- self-service; the caller is the subject, so the
+%%     authenticated identity alone authorizes the operation. A scope
+%%     check here would let an explicit `scopes = []' lock a user out of
+%%     their own password and MFA, which is what the scope layer exists
+%%     to gate for OTHER users, not for the holder's own account. None of
+%%     these operations can widen the caller's own privileges:
+%%     change_pwd verifies `old_pwd', and the MFA routes only ever touch
+%%     the caller's own record.
 scopes() ->
     #{
         <<"/login">> => ?SCOPE_PUBLIC,
@@ -70,9 +81,11 @@ scopes() ->
         <<"/login/verify">> => ?SCOPE_PUBLIC,
         <<"/logout">> => ?SCOPE_PUBLIC,
         <<"/user_scopes">> => ?SCOPE_PUBLIC,
+        <<"/current_user">> => ?SCOPE_PUBLIC,
+        <<"/current_user/change_pwd">> => ?SCOPE_PUBLIC,
+        <<"/current_user/mfa">> => ?SCOPE_PUBLIC,
         <<"/users">> => ?SCOPE_USER_MGMT,
         <<"/users/:username">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username/change_pwd">> => ?SCOPE_USER_MGMT,
         <<"/users/:username/mfa">> => ?SCOPE_MFA_MGMT
     }.
 
@@ -82,9 +95,11 @@ paths() ->
         "/login/challenge",
         "/login/verify",
         "/logout",
+        "/current_user",
+        "/current_user/change_pwd",
+        "/current_user/mfa",
         "/users",
         "/users/:username",
-        "/users/:username/change_pwd",
         "/users/:username/mfa",
         "/user_scopes"
     ].
@@ -165,6 +180,74 @@ schema("/logout") ->
             }
         }
     };
+%% Self-service routes. `/current_user' is a top-level path outside
+%% `/users/', so it cannot be shadowed by -- or shadow -- a user whose
+%% name happens to be `current_user', `self' or `me'; those are all
+%% legal usernames and there is no reserved-word check on them.
+%%
+%% Every operationId is prefixed `current_user_' because minirest
+%% requires globally unique operationIds and the admin routes already
+%% own `change_pwd' / `change_mfa'.
+schema("/current_user") ->
+    #{
+        'operationId' => current_user,
+        get => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(current_user_api),
+            security => [#{'bearerAuth' => []}],
+            responses => #{
+                200 => current_user_fields(),
+                404 => response_schema(404)
+            }
+        }
+    };
+schema("/current_user/change_pwd") ->
+    #{
+        'operationId' => current_user_change_pwd,
+        post => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(current_user_change_pwd_api),
+            security => [#{'bearerAuth' => []}],
+            'requestBody' => fields([old_pwd, new_pwd]),
+            responses => #{
+                204 => <<"Password is updated">>,
+                404 => response_schema(404),
+                400 => emqx_dashboard_swagger:error_codes(
+                    [?BAD_REQUEST, ?ERROR_PWD_NOT_MATCH, ?NOT_ALLOWED],
+                    ?DESC(login_failed_response400)
+                )
+            }
+        }
+    };
+schema("/current_user/mfa") ->
+    #{
+        'operationId' => current_user_mfa,
+        post => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(current_user_mfa_api),
+            security => [#{'bearerAuth' => []}],
+            'requestBody' => emqx_dashboard_schema:mfa_fields(),
+            responses => #{
+                204 => <<"MFA setting is updated">>,
+                403 => emqx_dashboard_swagger:error_codes(
+                    [?MFA_LOCKED], ?DESC(current_user_mfa_locked)
+                ),
+                404 => response_schema(404)
+            }
+        },
+        delete => #{
+            tags => [<<"dashboard">>],
+            desc => ?DESC(delete_current_user_mfa_api),
+            security => [#{'bearerAuth' => []}],
+            responses => #{
+                204 => <<"MFA setting is disabled">>,
+                403 => emqx_dashboard_swagger:error_codes(
+                    [?MFA_LOCKED], ?DESC(current_user_mfa_locked)
+                ),
+                404 => response_schema(404)
+            }
+        }
+    };
 schema("/users") ->
     #{
         'operationId' => users,
@@ -237,24 +320,8 @@ schema("/users/:username") ->
             }
         }
     };
-schema("/users/:username/change_pwd") ->
-    #{
-        'operationId' => change_pwd,
-        post => #{
-            tags => [<<"dashboard">>],
-            desc => ?DESC(change_pwd_api),
-            parameters => fields([username_in_path]),
-            'requestBody' => fields([old_pwd, new_pwd]),
-            responses => #{
-                204 => <<"Update user password successfully">>,
-                404 => response_schema(404),
-                400 => emqx_dashboard_swagger:error_codes(
-                    [?BAD_REQUEST, ?ERROR_PWD_NOT_MATCH],
-                    ?DESC(login_failed_response400)
-                )
-            }
-        }
-    };
+%% Administrator-only: the target is always another user. A caller
+%% managing its own MFA uses `/current_user/mfa'.
 schema("/users/:username/mfa") ->
     #{
         'operationId' => change_mfa,
@@ -265,6 +332,9 @@ schema("/users/:username/mfa") ->
             'requestBody' => emqx_dashboard_schema:mfa_fields(),
             responses => #{
                 204 => <<"MFA setting is updated">>,
+                400 => emqx_dashboard_swagger:error_codes(
+                    [?NOT_ALLOWED], ?DESC(login_failed_response400)
+                ),
                 404 => response_schema(404)
             }
         },
@@ -274,6 +344,9 @@ schema("/users/:username/mfa") ->
             parameters => sso_parameters(fields([username_in_path])),
             responses => #{
                 204 => <<"MFA setting is disabled">>,
+                400 => emqx_dashboard_swagger:error_codes(
+                    [?NOT_ALLOWED], ?DESC(login_failed_response400)
+                ),
                 404 => response_schema(404)
             }
         }
@@ -295,6 +368,15 @@ fields(List) ->
 
 user_fields() ->
     fields([username, role, description, backend, scopes_response]) ++ ee_user_fields().
+
+%% Same shape as `user_fields/0', but `scopes' carries the EFFECTIVE
+%% list rather than the raw tri-state one. The admin routes report the
+%% raw value so that a read-modify-write of `PUT /users/:username' does
+%% not sediment the role default into an explicit list; this endpoint
+%% has no write counterpart, and its caller is asking what it may
+%% actually do, so the expanded list is the useful answer.
+current_user_fields() ->
+    fields([username, role, description, backend, effective_scopes_response]) ++ ee_user_fields().
 
 ee_user_fields() ->
     [
@@ -373,6 +455,15 @@ field(scopes_response) ->
             desc => ?DESC(user_scopes_response),
             required => false,
             example => [?SCOPE_USER_MGMT, ?SCOPE_MFA_MGMT]
+        })};
+field(effective_scopes_response) ->
+    %% Always a concrete list -- the role default is expanded, so the
+    %% `unset' sentinel of `scopes_response' cannot appear here.
+    {scopes,
+        mk(hoconsc:array(binary()), #{
+            desc => ?DESC(effective_user_scopes_response),
+            required => true,
+            example => [?SCOPE_MONITORING, ?SCOPE_CONNECTIONS]
         })};
 field(backend) ->
     {backend, mk(binary(), #{desc => ?DESC(backend), example => <<"local">>})};
@@ -758,9 +849,15 @@ is_default_admin(_NonLocalTarget) ->
     %% `dashboard.default_username'.
     false.
 
-handle_delete_user(#{bindings := #{username := Username0}, headers := Headers} = Req) ->
+handle_delete_user(#{bindings := #{username := Username0}} = Req) ->
     Username = username(Req, Username0),
-    case is_self_auth(Username0, Headers) of
+    %% The caller is identified by the authenticated token, not by
+    %% re-parsing the `Authorization' header: the header form varies
+    %% (basic / bearer, either capitalisation) and only the token
+    %% resolution knows the SSO key. `caller_key/1' returns the same
+    %% admin-record key `username/2' produces, so the two are directly
+    %% comparable for both local and SSO targets.
+    case caller_key(Req) =:= Username of
         true ->
             {400, ?NOT_ALLOWED, <<"Cannot delete self">>};
         false ->
@@ -775,40 +872,47 @@ handle_delete_user(#{bindings := #{username := Username0}, headers := Headers} =
             end
     end.
 
-is_self_auth(?SSO_USERNAME(_, _), _) ->
-    false;
-is_self_auth(Username, #{<<"authorization">> := Token}) ->
-    is_self_auth(Username, Token);
-is_self_auth(Username, #{<<"Authorization">> := Token}) ->
-    is_self_auth(Username, Token);
-is_self_auth(Username, <<"basic ", Token/binary>>) ->
-    is_self_auth_basic(Username, Token);
-is_self_auth(Username, <<"Basic ", Token/binary>>) ->
-    is_self_auth_basic(Username, Token);
-is_self_auth(Username, <<"bearer ", Token/binary>>) ->
-    is_self_auth_token(Username, Token);
-is_self_auth(Username, <<"Bearer ", Token/binary>>) ->
-    is_self_auth_token(Username, Token).
+%%--------------------------------------------------------------------
+%% Self-service handlers (`/current_user/*')
+%%
+%% The subject is the authenticated identity itself. There is no
+%% `:username' in the path, so there is nothing to spoof and nothing to
+%% compare: `caller_key/1' IS the target. Authorization is therefore
+%% complete once the request is authenticated -- RBAC lets any
+%% authenticated dashboard user through, and the scope layer treats
+%% these paths as public.
+%%--------------------------------------------------------------------
 
-is_self_auth_basic(Username, Token) ->
-    UP = base64:decode(Token),
-    case binary:match(UP, Username) of
-        {0, N} ->
-            binary:part(UP, {N, 1}) == <<":">>;
-        _ ->
-            false
-    end.
+current_user(get, Req) ->
+    with_caller(Req, fun(#?ADMIN{username = Username} = Admin) ->
+        Profile = emqx_dashboard_admin:to_external_user(Admin),
+        {200, Profile#{scopes => emqx_dashboard_admin:effective_scopes_of(Username)}}
+    end).
 
-is_self_auth_token(Username, Token) ->
-    case emqx_dashboard_token:owner(Token) of
-        {ok, Owner} ->
-            Owner == Username;
-        {error, _NotFound} ->
-            false
-    end.
+current_user_change_pwd(post, #{body := Params} = Req) ->
+    with_caller(Req, fun(#?ADMIN{username = Username}) ->
+        do_change_pwd(Username, Params)
+    end).
 
-change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
-    LogMeta = #{msg => "dashboard_change_password", username => binary_to_list(Username)},
+%% An SSO user has no local password -- the identity provider owns the
+%% credential -- so there is nothing here to change. Reject explicitly:
+%% `emqx_dashboard_admin:change_password/3' is guarded on a binary
+%% username and would otherwise raise a function_clause on the
+%% `?SSO_USERNAME' tuple, turning this into a 500.
+do_change_pwd(?SSO_USERNAME(Backend, Name), _Params) ->
+    ?SLOG(warning, #{
+        msg => "dashboard_change_password",
+        username => Name,
+        backend => Backend,
+        result => denied,
+        reason => "sso_user_has_no_local_password"
+    }),
+    {400, ?NOT_ALLOWED, <<
+        "This account signs in through an SSO backend and has no local "
+        "password. Change it with the identity provider instead."
+    >>};
+do_change_pwd(Username, Params) when is_binary(Username) ->
+    LogMeta = #{msg => "dashboard_change_password", username => Username},
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
     case ?EMPTY(OldPwd) orelse ?EMPTY(NewPwd) of
@@ -832,23 +936,99 @@ change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
             end
     end.
 
+current_user_mfa(post, #{body := Settings} = Req) ->
+    Mechanism = maps:get(<<"mechanism">>, Settings),
+    with_caller(Req, fun(#?ADMIN{username = Username}) ->
+        LogMeta = #{msg => "dashboard_user_mfa_setup", username => Username},
+        case authorize_self_mfa(Username, setup) of
+            ok ->
+                %% Never `ByAdmin': a self-initiated (re)init must not
+                %% touch the admin_override decision.
+                mfa_result(emqx_dashboard_admin:reinit_mfa(Username, Mechanism, false), LogMeta);
+            {deny, Code, ErrCode, Msg} ->
+                ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
+                {Code, ErrCode, Msg}
+        end
+    end);
+current_user_mfa(delete, Req) ->
+    with_caller(Req, fun(#?ADMIN{username = Username}) ->
+        LogMeta = #{msg => "dashboard_user_mfa_disable", username => Username},
+        case authorize_self_mfa(Username, disable) of
+            ok ->
+                mfa_result(emqx_dashboard_admin:disable_mfa(Username, false), LogMeta);
+            {deny, Code, ErrCode, Msg} ->
+                ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
+                {Code, ErrCode, Msg}
+        end
+    end).
+
+mfa_result(ok, LogMeta) ->
+    ?SLOG(info, LogMeta#{result => success}),
+    {204};
+mfa_result({error, <<"username_not_found">>}, LogMeta) ->
+    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
+    {404, ?USER_NOT_FOUND, <<"User not found">>};
+mfa_result({error, Reason}, LogMeta) ->
+    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+    {400, ?BAD_REQUEST, Reason}.
+
+%% Self-MFA policy, in full:
+%%
+%%   first-time setup           => allow  (deadlock prevention: a user
+%%                                         that has never enrolled must
+%%                                         always be able to)
+%%   admin_override = required  => deny   (an administrator reset this
+%%                                         account's MFA; only another
+%%                                         administrator or the CLI can
+%%                                         lift it)
+%%   otherwise                  => allow
+%%
+%% `admin_override' is only ever written when an administrator acts on
+%% ANOTHER user (`emqx_dashboard_api:change_mfa/2' passes ByAdmin), so a
+%% user cannot lock themselves out by rotating their own MFA.
+authorize_self_mfa(Username, Op) ->
+    case is_first_time_setup(Username, Op) orelse not self_mfa_locked(Username) of
+        true ->
+            ok;
+        false ->
+            {deny, 403, ?MFA_LOCKED, <<
+                "MFA for this account was set by an administrator and "
+                "cannot be changed here. Ask an administrator to reset it."
+            >>}
+    end.
+
+self_mfa_locked(Username) ->
+    emqx_dashboard_admin:admin_override_of(Username) =:= ?ADMIN_MFA_REQUIRED.
+
+is_first_time_setup(_Username, disable) ->
+    false;
+is_first_time_setup(Username, setup) ->
+    case emqx_dashboard_admin:get_mfa_state(Username) of
+        {ok, _} -> false;
+        _ -> true
+    end.
+
+%% Resolve the caller's own admin record from the bearer token's
+%% `source' -- the key `emqx_dashboard:authorize/2' already resolved
+%% (a `?SSO_USERNAME' tuple for SSO users, a plain binary otherwise).
+with_caller(Req, Fun) ->
+    case caller_admin(Req) of
+        #?ADMIN{} = Admin ->
+            Fun(Admin);
+        undefined ->
+            %% Unreachable in practice: these routes are bearer-only and
+            %% API keys are refused for them in `emqx_mgmt_auth:authorize/4'.
+            %% Reachable only if the account is deleted between login and
+            %% this request.
+            {404, ?USER_NOT_FOUND, <<"User not found">>}
+    end.
+
 change_mfa(delete, #{bindings := #{username := Username0}} = Req) ->
     Username = username(Req, Username0),
     LogMeta = #{msg => "dashboard_user_mfa_disable", username => Username},
-    case authorize_mfa_change(Req, Username, disable) of
+    case reject_self_target(Req, Username) of
         ok ->
-            ByAdmin = caller_is_admin_acting_on_other(Req, Username),
-            case emqx_dashboard_admin:disable_mfa(Username, ByAdmin) of
-                ok ->
-                    ?SLOG(info, LogMeta#{result => success}),
-                    {204};
-                {error, <<"username_not_found">>} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-                    {404, ?USER_NOT_FOUND, <<"User not found">>};
-                {error, Reason} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-                    {400, ?BAD_REQUEST, Reason}
-            end;
+            mfa_result(emqx_dashboard_admin:disable_mfa(Username, true), LogMeta);
         {deny, Code, ErrCode, Msg} ->
             ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
             {Code, ErrCode, Msg}
@@ -857,23 +1037,28 @@ change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req
     Username = username(Req, Username0),
     Mechanism = maps:get(<<"mechanism">>, Settings),
     LogMeta = #{msg => "dashboard_user_mfa_setup", username => Username},
-    case authorize_mfa_change(Req, Username, setup) of
+    case reject_self_target(Req, Username) of
         ok ->
-            ByAdmin = caller_is_admin_acting_on_other(Req, Username),
-            case emqx_dashboard_admin:reinit_mfa(Username, Mechanism, ByAdmin) of
-                ok ->
-                    ?SLOG(info, LogMeta#{result => success}),
-                    {204};
-                {error, <<"username_not_found">>} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => "username not found"}),
-                    {404, ?USER_NOT_FOUND, <<"User not found">>};
-                {error, Reason} ->
-                    ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
-                    {400, ?BAD_REQUEST, Reason}
-            end;
+            mfa_result(emqx_dashboard_admin:reinit_mfa(Username, Mechanism, true), LogMeta);
         {deny, Code, ErrCode, Msg} ->
             ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
             {Code, ErrCode, Msg}
+    end.
+
+%% The admin MFA routes act on other users only; the caller's own
+%% account is served by `/current_user/mfa'. Without this guard an
+%% administrator could route a self-change through the admin path,
+%% where it would be recorded as an administrator decision
+%% (`admin_override') and would skip the self policy entirely.
+reject_self_target(Req, TargetUsername) ->
+    case caller_key(Req) =:= TargetUsername of
+        false ->
+            ok;
+        true ->
+            {deny, 400, ?NOT_ALLOWED, <<
+                "This endpoint manages other users' MFA. "
+                "Use /current_user/mfa to manage your own."
+            >>}
     end.
 
 register_unsuccessful_login(Username, <<"password_error">>) ->
@@ -1098,94 +1283,6 @@ reload_external_user(Username, Fallback) ->
         _ -> Fallback
     end.
 
-%% --- MFA self-lock authorization ---
-%%
-%% Decision matrix:
-%%
-%%   IsFirstSetup = (Op == setup) AND (target.mfa_state == not_configured)
-%%   IsSelf       = (caller.username == target)
-%%   HasMfaMgmt   = caller.scopes contains mfa_management
-%%   Locked       = target.admin_override == mfa_required
-%%
-%%   IsFirstSetup => allow                                  (deadlock prevention)
-%%   IsSelf       AND HasMfaMgmt           => allow         (self-exempt)
-%%   IsSelf       AND NOT HasMfaMgmt AND NOT Locked => allow
-%%   IsSelf       AND NOT HasMfaMgmt AND Locked     => deny mfa_locked
-%%   NOT IsSelf   AND HasMfaMgmt AND administrator   => allow (admin reset)
-%%   NOT IsSelf   AND HasMfaMgmt AND non-admin       => deny self_only
-%%   NOT IsSelf   AND NOT HasMfaMgmt                 => deny missing_mfa_mgmt
-%%
-%% Returns:
-%%   ok                                          allow
-%%   {deny, HttpCode, ErrorCode, BinaryMessage}  deny with HTTP response
-authorize_mfa_change(Req, TargetUsername, Op) ->
-    Caller = caller_admin(Req),
-    case Caller of
-        undefined ->
-            %% No bearer token caller (shouldn't happen — bearer-only
-            %% endpoint, but guard anyway).
-            {deny, 401, 'UNAUTHORIZED', <<"Bearer auth required">>};
-        _ ->
-            authorize_mfa_change_with_caller(Caller, TargetUsername, Op)
-    end.
-
-authorize_mfa_change_with_caller(Caller, TargetUsername, Op) ->
-    IsSelf = (Caller#?ADMIN.username =:= TargetUsername),
-    CallerRole = Caller#?ADMIN.role,
-    HasMfaMgmt = caller_has_mfa_mgmt(Caller),
-    IsFirstSetup = is_first_time_setup(TargetUsername, Op),
-    Locked = target_self_locked(TargetUsername),
-    case {IsFirstSetup, IsSelf, HasMfaMgmt, Locked, CallerRole} of
-        {true, _, _, _, _} ->
-            ok;
-        {false, true, true, _, _} ->
-            ok;
-        {false, true, false, false, _} ->
-            ok;
-        {false, true, false, true, _} ->
-            {deny, 403, 'MFA_LOCKED', <<
-                "MFA changes for this account are restricted; "
-                "the mfa_management scope is required to override."
-            >>};
-        {false, false, true, _, ?ROLE_SUPERUSER} ->
-            ok;
-        {false, false, true, _, _NonAdmin} ->
-            {deny, 403, 'MFA_SELF_ONLY', <<
-                "Non-administrator users with mfa_management scope can "
-                "only manage their own MFA, not other users'."
-            >>};
-        {false, false, false, _, _} ->
-            {deny, 403, 'MFA_MGMT_REQUIRED', <<
-                "The mfa_management scope is required to manage other "
-                "users' MFA."
-            >>}
-    end.
-
-is_first_time_setup(_TargetUsername, disable) ->
-    false;
-is_first_time_setup(TargetUsername, setup) ->
-    case emqx_dashboard_admin:get_mfa_state(TargetUsername) of
-        {ok, _} -> false;
-        _ -> true
-    end.
-
-%% Compute the "self locked" boolean used by authorize_mfa_change/3.
-%% Only admin_override == mfa_required locks self-disable/rotate.
-%% undefined means "no admin decision" — self may always disable an
-%% already-configured MFA. The decision whether a user must SET UP
-%% MFA in the first place lives in the login flow (consults backend
-%% live force_mfa), not here.
-target_self_locked(TargetUsername) ->
-    emqx_dashboard_admin:admin_override_of(TargetUsername) =:= ?ADMIN_MFA_REQUIRED.
-
-caller_has_mfa_mgmt(#?ADMIN{} = Caller) ->
-    %% Use effective scopes so the role-default fallback (admin -> all
-    %% 14, viewer -> common scopes only) applies. Viewer with no explicit
-    %% scopes therefore does NOT carry mfa_management; admin always
-    %% does.
-    Scopes = emqx_dashboard_admin:effective_scopes_of_admin(Caller),
-    lists:member(?SCOPE_MFA_MGMT, Scopes).
-
 %% Look up the caller's #?ADMIN{} record using the bearer token's
 %% `source' field (set by emqx_dashboard:authorize/2). Returns
 %% undefined if not a bearer-token request or the user has been
@@ -1203,10 +1300,15 @@ caller_admin(#{auth_meta := #{auth_type := jwt_token, source := Username}}) ->
 caller_admin(_) ->
     undefined.
 
-caller_is_admin_acting_on_other(Req, TargetUsername) ->
+%% The caller's own admin-record key, in the same shape `username/2'
+%% builds for a path target, so the two compare directly. `undefined'
+%% for a non-bearer caller or a deleted account; it never equals a real
+%% target key, so a self-check against it is false, which is the safe
+%% answer for both call sites (delete and the admin MFA routes).
+caller_key(Req) ->
     case caller_admin(Req) of
-        #?ADMIN{username = Caller} when Caller =/= TargetUsername -> true;
-        _ -> false
+        #?ADMIN{username = Username} -> Username;
+        undefined -> undefined
     end.
 
 mk(Type, Props) ->

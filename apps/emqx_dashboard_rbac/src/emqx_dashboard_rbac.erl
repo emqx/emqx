@@ -117,24 +117,13 @@ check_login_user_scopes(Username, Req) when is_map(Req) ->
 check_login_user_scopes(Username, Path) when is_binary(Path) ->
     check_login_user_scopes_for_path(Username, Path).
 
+%% Self-service no longer needs a path-parsing exception here: it lives
+%% on `/current_user/*', which `emqx_dashboard_api:scopes/0' declares
+%% ?SCOPE_PUBLIC, so `check_login_user_scopes_strict/2' allows it
+%% through the `public' branch. Everything under `/users/' is now
+%% management of ANOTHER user and is scope-checked without exception.
 check_login_user_scopes_for_path(Username, Path) ->
-    %% Self-service endpoints — the user's own change_pwd / mfa —
-    %% bypass the scope check: they are gated by RBAC's self rule
-    %% and, for MFA, by emqx_dashboard_api:authorize_mfa_change/3
-    %% (admin_override decision, mfa_management self-exemption).
-    %% Locking viewers out of changing their own password / setting
-    %% up their own MFA via the scope check would defeat the
-    %% scope's purpose, which is to gate management of OTHER users.
-    %%
-    %% The bypass is intentionally restricted to those two actions.
-    %% PUT/DELETE on /users/<self> itself MUST still be scope-
-    %% checked — otherwise an admin who explicitly set
-    %% `scopes = []' could PUT their own record to add admin-only
-    %% scopes back, defeating the explicit self-restriction.
-    case is_self_service_endpoint(Path, Username) of
-        true -> true;
-        false -> check_login_user_scopes_strict(Username, Path)
-    end.
+    check_login_user_scopes_strict(Username, Path).
 
 parse_api_role(Role) ->
     parse_role(api, Role).
@@ -166,34 +155,6 @@ check_login_user_scopes_strict(Username, Path) ->
             Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
             lists:member(PathScope, Scopes)
     end.
-
-%% Whitelist of self-service paths that may skip the login-user
-%% scope check. Currently only the own password and MFA endpoints —
-%% extending this whitelist requires careful thought because it
-%% creates a hole where an admin who self-restricted via explicit
-%% scopes can no longer be reliably restricted.
-%%
-%% Match /users/<self>/change_pwd or /users/<self>/mfa (with
-%% %-encoded segments) regardless of whether Username is a bare
-%% binary (local) or a ?SSO_USERNAME(Backend, Name) tuple (SSO;
-%% the sub-path uses just Name).
-is_self_service_endpoint(<<"/users/", SubPath/binary>>, Username) ->
-    case binary:split(SubPath, <<"/">>, [global]) of
-        [SelfSeg, Action] when
-            Action =:= <<"change_pwd">>;
-            Action =:= <<"mfa">>
-        ->
-            Decoded = uri_string:percent_decode(SelfSeg),
-            is_same_user(Decoded, Username);
-        _ ->
-            false
-    end;
-is_self_service_endpoint(_Path, _Username) ->
-    false.
-
-is_same_user(Decoded, Decoded) -> true;
-is_same_user(Decoded, {_Backend, Decoded}) -> true;
-is_same_user(_, _) -> false.
 
 parse_role(Type, Role0) ->
     maybe
@@ -309,63 +270,40 @@ do_check_rbac(
 do_check_rbac(#{}, _, ?DASHBOARD_API(post, logout)) ->
     %% emqx_dashboard_api:logout
     true;
-%% viewer should allow to change self password and (re)setup multi-factor auth for self,
-%% superuser should allow to change any user
-do_check_rbac(
-    #{?role := ?ROLE_VIEWER, ?actor := Username},
-    Req,
-    ?DASHBOARD_API(post, Fn)
-) when Fn == change_pwd; Fn == change_mfa ->
-    %% emqx_dashboard_api:change_pwd
-    %% emqx_dashboard_api:change_mfa
-    case Req of
-        #{bindings := #{username := Username}} ->
-            true;
-        _ ->
-            {error, <<"Viewers may only change their own password or MFA">>}
-    end;
-do_check_rbac(
-    #{?role := ?ROLE_VIEWER, ?actor := Username},
-    Req,
-    ?DASHBOARD_API(delete, change_mfa)
-) ->
-    %% RBAC decides only that viewer may DELETE its OWN mfa endpoint.
-    %% Policy state (admin_override lock and mfa_management self-
-    %% exemption) is decided in emqx_dashboard_api:authorize_mfa_change/3.
-    %% RBAC must not consult the live backend force_mfa flag here —
-    %% doing so would bypass admin_override and prevent mfa_management
-    %% scope holders from self-exempting.
-    case Req of
-        #{bindings := #{username := Username}} -> true;
-        _ -> {error, <<"Viewers may only delete their own MFA">>}
-    end;
-do_check_rbac(
-    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
-    Req,
-    ?DASHBOARD_API(post, Fn)
-) when
-    is_binary(Namespace) andalso (Fn == change_pwd orelse Fn == change_mfa)
+%% Self-service: the caller IS the subject, so the authenticated
+%% identity alone authorizes the operation. There is no `:username' in
+%% these paths to compare the actor against, hence no `IsSelf' rule and
+%% nothing to spoof. Any authenticated dashboard user is allowed --
+%% including a viewer and a namespaced administrator, who each manage
+%% their own account here and nothing else. API keys never reach these
+%% functions: `emqx_mgmt_auth:authorize/4' refuses them by handler name
+%% before RBAC runs.
+do_check_rbac(#{}, _, ?DASHBOARD_API(_, Fn)) when
+    Fn == current_user;
+    Fn == current_user_change_pwd;
+    Fn == current_user_mfa
 ->
-    %% Namespaced administrators may manage their own password and MFA
-    %% only -- never another user's, even within their namespace.  The
-    %% `change_pwd` handler validates the supplied `old_pwd`, so it is
-    %% not a real admin-reset path; and `change_mfa` reset by a tenant
-    %% admin is a known social-engineering vector.
-    case Req of
-        #{bindings := #{username := Username}} -> true;
-        _ -> {error, <<"Namespaced administrators may only change their own password or MFA">>}
-    end;
+    %% emqx_dashboard_api:current_user
+    %% emqx_dashboard_api:current_user_change_pwd
+    %% emqx_dashboard_api:current_user_mfa
+    true;
+%% Managing another user's MFA is a global-administrator operation. A
+%% namespaced administrator must not reach it even inside its own
+%% namespace: resetting a tenant user's MFA is a known social-
+%% engineering vector. Their own MFA is at `/current_user/mfa'.
+%%
+%% Viewers and other non-administrator roles fall through to the
+%% catch-all deny below; only GET is granted to them earlier, and these
+%% routes have no GET.
 do_check_rbac(
-    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace, ?actor := Username},
-    Req,
-    ?DASHBOARD_API(delete, change_mfa)
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace},
+    _Req,
+    ?DASHBOARD_API(_, change_mfa)
 ) when is_binary(Namespace) ->
-    %% Namespaced administrators: same handler-decides policy as viewer.
-    %% Self only -- see the post change_mfa clause above for rationale.
-    case Req of
-        #{bindings := #{username := Username}} -> true;
-        _ -> {error, <<"Namespaced administrators may only delete their own MFA">>}
-    end;
+    {error, <<
+        "Namespaced administrators may not manage another user's MFA. "
+        "Use /current_user/mfa for your own account."
+    >>};
 do_check_rbac(#{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?CONNECTOR_API(_, _)) when
     is_binary(Namespace)
 ->
