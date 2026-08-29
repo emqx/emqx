@@ -6,11 +6,12 @@
 %% (emqx_dashboard_rbac:check_login_user_scopes/2) and the MFA
 %% authorization rules on both sides of the self/admin split.
 %%
-%% Self-MFA (`/current_user/mfa', emqx_dashboard_api:authorize_self_mfa/2):
+%% Self-MFA (`/current_user/mfa',
+%% emqx_dashboard_api:authorize_self_mfa_disable/1):
 %%
-%%   first-time setup          => allow (deadlock prevention)
-%%   admin_override = required => deny  MFA_LOCKED
-%%   otherwise                 => allow
+%%   setup / rotate             => allow (never gated)
+%%   disable, override=required => deny  MFA_ADMIN_REQUIRED
+%%   disable, otherwise         => allow
 %%
 %% Administrator MFA (`/users/:username/mfa'): global administrator
 %% holding `mfa_management', target must be another user.
@@ -1042,12 +1043,15 @@ t_role_demotion_with_compatible_persisted_scopes_succeeds(_Config) ->
 %% Self-MFA policy (`/current_user/mfa')
 %%
 %% What used to be a seven-row matrix over {IsFirstSetup, IsSelf,
-%% HasMfaMgmt, Locked, CallerRole} is now two rules, because the caller
+%% HasMfaMgmt, Locked, CallerRole} is now one rule, because the caller
 %% and the subject are the same identity on these routes:
 %%
-%%   first-time setup          => allow  (deadlock prevention)
-%%   admin_override = required => deny   (MFA_LOCKED)
-%%   otherwise                 => allow
+%%   setup / rotate             => allow  (never gated)
+%%   disable, override=required => deny   (MFA_ADMIN_REQUIRED)
+%%   disable, otherwise         => allow
+%%
+%% Rotation stays open under the requirement: it keeps MFA enabled, so it
+%% cannot weaken what the override protects.
 %%
 %% `mfa_management' no longer acts as a self-exemption key: it is an
 %% administrator-only scope meaning "manage OTHER users' MFA". The exits
@@ -1061,8 +1065,7 @@ t_first_time_setup_always_allowed(_Config) ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
     ),
-    %% Force the lock state -- it would block a rotate, but mfa_state is
-    %% absent (not_configured), so first-time setup short-circuits it.
+    %% Force the requirement: it blocks a self-disable, never an enrolment.
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
     ?assertMatch({ok, 204, _}, setup_own_mfa(Token)).
@@ -1079,8 +1082,9 @@ t_self_can_rotate_when_not_locked(_Config) ->
     Token = jwt(<<"u">>, test_password()),
     ?assertMatch({ok, 204, _}, setup_own_mfa(Token)).
 
-%% Locked by an administrator decision: rotate is denied.
-t_self_cannot_rotate_when_admin_override_required_locked(_Config) ->
+%% Required by an administrator: rotate stays available. Re-keying keeps
+%% MFA on, so it does not weaken the requirement.
+t_self_can_rotate_when_admin_override_required(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
@@ -1090,11 +1094,14 @@ t_self_cannot_rotate_when_admin_override_required_locked(_Config) ->
     ),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
-    {ok, 403, RespBody} = setup_own_mfa(Token),
-    ?assertEqual(<<"MFA_LOCKED">>, error_code(RespBody)).
+    ?assertMatch({ok, 204, _}, setup_own_mfa(Token)),
+    %% The rotate must not have cleared the requirement.
+    ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)),
+    {ok, 403, RespBody} = delete_own_mfa(Token),
+    ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(RespBody)).
 
-%% Locked by an administrator decision: self-disable is denied too.
-t_self_cannot_delete_when_admin_override_required_locked(_Config) ->
+%% Required by an administrator: self-disable is denied.
+t_self_cannot_delete_when_admin_override_required(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
@@ -1105,13 +1112,14 @@ t_self_cannot_delete_when_admin_override_required_locked(_Config) ->
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
     {ok, 403, RespBody} = delete_own_mfa(Token),
-    ?assertEqual(<<"MFA_LOCKED">>, error_code(RespBody)).
+    ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(RespBody)).
 
 %% `mfa_management' is no longer a self-exemption key. It is now an
 %% administrator-only scope, so the holder must be an administrator --
-%% and even then it does not unlock their own account. Replaces the two
-%% former "self with mfa_management can rotate/delete under lock" rows.
-t_self_with_mfa_mgmt_still_locked(_Config) ->
+%% and even then it does not lift the requirement on their own account.
+%% Replaces the two former "self with mfa_management can rotate/delete
+%% under lock" rows.
+t_self_with_mfa_mgmt_still_required(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_SUPERUSER, "u"
@@ -1122,10 +1130,9 @@ t_self_with_mfa_mgmt_still_locked(_Config) ->
     ),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
-    {ok, 403, RotateBody} = setup_own_mfa(Token),
-    ?assertEqual(<<"MFA_LOCKED">>, error_code(RotateBody)),
+    ?assertMatch({ok, 204, _}, setup_own_mfa(Token)),
     {ok, 403, DeleteBody} = delete_own_mfa(Token),
-    ?assertEqual(<<"MFA_LOCKED">>, error_code(DeleteBody)).
+    ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(DeleteBody)).
 
 %% A viewer with an explicitly emptied scope list still reaches its own
 %% MFA: self-service is not scope-gated.
@@ -1207,7 +1214,7 @@ t_admin_force_locks_user_against_self_disable(_Config) ->
     ),
     UserToken = jwt(<<"u">>, test_password()),
     {ok, 403, RespBody} = delete_own_mfa(UserToken),
-    ?assertEqual(<<"MFA_LOCKED">>, error_code(RespBody)).
+    ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(RespBody)).
 
 %% A non-administrator cannot reach the admin MFA route at all, with or
 %% without an explicit scope list. RBAC rejects it before any policy

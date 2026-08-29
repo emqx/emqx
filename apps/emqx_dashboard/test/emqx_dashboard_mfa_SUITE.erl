@@ -246,8 +246,8 @@ t_disable_mfa(_Config) ->
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer2">>), AdminJwtToken),
     {ok, 200, RspBody} = login(LoginBody),
     #{<<"token">> := JwtToken} = json_map(RspBody),
-    %% viewer1 cannot disable own admin-enforced MFA (MFA_LOCKED on
-    %% its own route -- admin_override = mfa_required).
+    %% viewer1 cannot disable own admin-enforced MFA (MFA_ADMIN_REQUIRED
+    %% on its own route -- admin_override = mfa_required).
     ?assertMatch({ok, 403, _}, disable_own_mfa(JwtToken)),
     %% a viewer may not reach the administrator routes at all, for any
     %% target -- including itself.

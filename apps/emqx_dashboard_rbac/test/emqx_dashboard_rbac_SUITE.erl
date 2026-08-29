@@ -332,7 +332,7 @@ t_delete_own_mfa_sso_admin_override_http(_) ->
     %% override=undefined (no admin decision): self-DELETE succeeds.
     {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, undefined),
     ?assertMatch({ok, 204, _}, delete_own_mfa_http(SsoToken)),
-    %% override=mfa_required: self-DELETE denied with MFA_LOCKED.
+    %% override=mfa_required: self-DELETE denied with MFA_ADMIN_REQUIRED.
     {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, ?ADMIN_MFA_REQUIRED),
     ?assertMatch({ok, 403, _}, delete_own_mfa_http(SsoToken)),
     ok.
@@ -340,9 +340,9 @@ t_delete_own_mfa_sso_admin_override_http(_) ->
 t_delete_own_mfa_sso_force_mfa(_) ->
     %% RBAC does not consult the SSO backend's live `force_mfa' flag for
     %% self-MFA: `/current_user/mfa' is allowed for any authenticated
-    %% user and the lock decision belongs to the handler
-    %% (`authorize_self_mfa/2', driven by `admin_override'). Assert RBAC
-    %% stays policy-independent across both values of the flag.
+    %% user and the decision belongs to the handler
+    %% (`authorize_self_mfa_disable/1', driven by `admin_override').
+    %% Assert RBAC stays policy-independent across both values of the flag.
     SsoBackend = saml,
     SsoUser = <<"sso_viewermfa">>,
     LocalUser = <<"local_viewermfa">>,

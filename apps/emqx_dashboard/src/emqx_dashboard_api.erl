@@ -51,7 +51,7 @@
 -define(PASSWORD_LOGIN_DISABLED, 'PASSWORD_LOGIN_DISABLED').
 -define(SCRAM_CHALLENGE_INVALID, 'SCRAM_CHALLENGE_INVALID').
 -define(SERVICE_UNAVAILABLE, 'SERVICE_UNAVAILABLE').
--define(MFA_LOCKED, 'MFA_LOCKED').
+-define(MFA_ADMIN_REQUIRED, 'MFA_ADMIN_REQUIRED').
 
 namespace() -> "dashboard".
 
@@ -238,9 +238,6 @@ schema("/current_user/mfa") ->
             'requestBody' => emqx_dashboard_schema:mfa_fields(),
             responses => #{
                 204 => <<"MFA setting is updated">>,
-                403 => emqx_dashboard_swagger:error_codes(
-                    [?MFA_LOCKED], ?DESC(current_user_mfa_locked)
-                ),
                 404 => response_schema(404)
             }
         },
@@ -251,7 +248,7 @@ schema("/current_user/mfa") ->
             responses => #{
                 204 => <<"MFA setting is disabled">>,
                 403 => emqx_dashboard_swagger:error_codes(
-                    [?MFA_LOCKED], ?DESC(current_user_mfa_locked)
+                    [?MFA_ADMIN_REQUIRED], ?DESC(current_user_mfa_admin_required)
                 ),
                 404 => response_schema(404)
             }
@@ -1016,20 +1013,14 @@ current_user_mfa(post, #{body := Settings} = Req) ->
     Mechanism = maps:get(<<"mechanism">>, Settings),
     with_caller(Req, fun(#?ADMIN{username = Username}) ->
         LogMeta = #{msg => "dashboard_user_mfa_setup", username => Username},
-        case authorize_self_mfa(Username, setup) of
-            ok ->
-                %% Never `ByAdmin': a self-initiated (re)init must not
-                %% touch the admin_override decision.
-                mfa_result(emqx_dashboard_admin:reinit_mfa(Username, Mechanism, false), LogMeta);
-            {deny, Code, ErrCode, Msg} ->
-                ?SLOG(warning, LogMeta#{result => denied, reason => ErrCode}),
-                {Code, ErrCode, Msg}
-        end
+        %% Never `ByAdmin': a self-initiated (re)init must not touch the
+        %% admin_override decision.
+        mfa_result(emqx_dashboard_admin:reinit_mfa(Username, Mechanism, false), LogMeta)
     end);
 current_user_mfa(delete, Req) ->
     with_caller(Req, fun(#?ADMIN{username = Username}) ->
         LogMeta = #{msg => "dashboard_user_mfa_disable", username => Username},
-        case authorize_self_mfa(Username, disable) of
+        case authorize_self_mfa_disable(Username) of
             ok ->
                 mfa_result(emqx_dashboard_admin:disable_mfa(Username, false), LogMeta);
             {deny, Code, ErrCode, Msg} ->
@@ -1050,38 +1041,29 @@ mfa_result({error, Reason}, LogMeta) ->
 
 %% Self-MFA policy, in full:
 %%
-%%   first-time setup           => allow  (deadlock prevention: a user
-%%                                         that has never enrolled must
-%%                                         always be able to)
-%%   admin_override = required  => deny   (an administrator reset this
-%%                                         account's MFA; only another
-%%                                         administrator or the CLI can
-%%                                         lift it)
-%%   otherwise                  => allow
+%%   setup / rotate             => always allowed. Rotation keeps MFA
+%%                                 enabled, so it cannot weaken the
+%%                                 requirement the override protects, and a
+%%                                 first enrolment has to stay open or an
+%%                                 account under a mandate could never
+%%                                 comply. Hence no check on this route.
+%%   disable, override=required => denied. An administrator requires MFA on
+%%                                 this account; only another administrator
+%%                                 or the CLI can lift it.
+%%   disable, otherwise         => allowed.
 %%
 %% `admin_override' is only ever written when an administrator acts on
 %% ANOTHER user (`emqx_dashboard_api:change_mfa/2' passes ByAdmin), so a
 %% user cannot lock themselves out by rotating their own MFA.
-authorize_self_mfa(Username, Op) ->
-    case is_first_time_setup(Username, Op) orelse not self_mfa_locked(Username) of
-        true ->
-            ok;
-        false ->
-            {deny, 403, ?MFA_LOCKED, <<
-                "MFA for this account was set by an administrator and "
-                "cannot be changed here. Ask an administrator to reset it."
-            >>}
-    end.
-
-self_mfa_locked(Username) ->
-    emqx_dashboard_admin:admin_override_of(Username) =:= ?ADMIN_MFA_REQUIRED.
-
-is_first_time_setup(_Username, disable) ->
-    false;
-is_first_time_setup(Username, setup) ->
-    case emqx_dashboard_admin:get_mfa_state(Username) of
-        {ok, _} -> false;
-        _ -> true
+authorize_self_mfa_disable(Username) ->
+    case emqx_dashboard_admin:admin_override_of(Username) of
+        ?ADMIN_MFA_REQUIRED ->
+            {deny, 403, ?MFA_ADMIN_REQUIRED, <<
+                "An administrator requires MFA on this account, so it "
+                "cannot be turned off here. It can still be re-keyed."
+            >>};
+        _ ->
+            ok
     end.
 
 %% Resolve the caller's own admin record from the bearer token's

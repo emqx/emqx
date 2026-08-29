@@ -14,9 +14,9 @@
 %% routes under `/users/:username/*' are the mirror image: scope plus
 %% global-administrator role, target is always another user.
 %%
-%% The MFA lock policy itself (first-time setup, admin_override) lives
-%% in emqx_dashboard_user_scopes_SUITE; this suite covers the routing,
-%% the identity binding, the password rules and the SSO case.
+%% The self-MFA policy itself (admin_override blocking a self-disable)
+%% lives in emqx_dashboard_user_scopes_SUITE; this suite covers the
+%% routing, the identity binding, the password rules and the SSO case.
 %%--------------------------------------------------------------------
 
 -module(emqx_dashboard_current_user_SUITE).

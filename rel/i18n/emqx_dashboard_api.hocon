@@ -163,8 +163,8 @@ delete_current_user_mfa_api.desc:
 delete_current_user_mfa_api.label:
 """Delete own MFA"""
 
-current_user_mfa_locked.desc:
-"""MFA for this account was configured by an administrator and cannot be changed by the account holder. An administrator must reset it."""
+current_user_mfa_admin_required.desc:
+"""MFA is required on this account by an administrator, so the account holder cannot turn it off. Re-keying it is still allowed."""
 
 effective_user_scopes_response.desc:
 """The permission scopes the user effectively holds. Unlike the `scopes` field of the user management endpoints, the role default is already expanded here, so this is always a concrete list."""
