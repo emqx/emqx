@@ -889,12 +889,6 @@ is_default_admin(_NonLocalTarget) ->
 
 handle_delete_user(#{bindings := #{username := Username0}} = Req) ->
     Username = username(Req, Username0),
-    %% The caller is identified by the authenticated token, not by
-    %% re-parsing the `Authorization' header: the header form varies
-    %% (basic / bearer, either capitalisation) and only the token
-    %% resolution knows the SSO key. `caller_key/1' returns the same
-    %% admin-record key `username/2' produces, so the two are directly
-    %% comparable for both local and SSO targets.
     case caller_key(Req) =:= Username of
         true ->
             {400, ?NOT_ALLOWED, <<"Cannot delete self">>};
