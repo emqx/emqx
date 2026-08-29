@@ -23,6 +23,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(BASE_CONF, <<"">>).
 
@@ -240,8 +241,9 @@ t_try_restore_with_bucket(_) ->
         {_, _, Retry, L2} = emqx_htb_limiter:check(150, Client),
         timer:sleep(200),
         {ok, L3} = emqx_htb_limiter:check(Retry, L2),
-        Avaiable = emqx_htb_limiter:available(L3),
-        ?assert(Avaiable >= 50)
+        %% The bucket is refilled by a timer, which can lag behind the sleep
+        %% above; available/1 reads live state, so poll it.
+        ?retry(100, 20, ?assert(emqx_htb_limiter:available(L3) >= 50))
     end,
     with_bucket(Fun, Case).
 
