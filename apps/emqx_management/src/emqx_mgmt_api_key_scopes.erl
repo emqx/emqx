@@ -107,6 +107,7 @@ classify(Path, PathMap) ->
         undefined ->
             case match_template(Path, PathMap) of
                 undefined -> not_found;
+                ?SCOPE_PUBLIC -> public;
                 Scope -> {scope, Scope}
             end;
         ?SCOPE_PUBLIC ->
@@ -116,37 +117,43 @@ classify(Path, PathMap) ->
             {scope, Scope}
     end.
 
-%% Iterate templates and return the scope for the first one whose
-%% segments match the request path. Concrete path segments must equal
-%% template segments verbatim except where the template segment starts
-%% with `:' (path parameter), which matches any single segment.
+%% Return the scope of the template whose segments match the request
+%% path. Concrete path segments must equal template segments verbatim
+%% except where the template segment starts with `:' (path parameter),
+%% which matches any single segment.
 %%
-%% Entries whose value is ?SCOPE_PUBLIC are skipped: they are kept in
-%% the cache as sentinels (so exact-match lookup can distinguish
-%% "intentionally public" from "genuinely unmapped"), but they must
-%% not claim a sibling concrete path via wildcard segment match.
-%% Without this skip, e.g. `/sso/running' (public) would be claimed
-%% by the sibling template `/sso/:backend' (sso_management).
+%% Scoped templates are tried first and ?SCOPE_PUBLIC ones only if none
+%% matched, so a scoped template always wins over a public one. That
+%% ordering is what the previous unconditional skip of public entries
+%% was protecting (a public template must not claim a path some other
+%% template scopes), and making it explicit lets a genuinely public
+%% template match its own paths, which the skip made impossible.
+%% `/sso/login/:backend' and `/users/:username/change_pwd' are declared
+%% public and are unreachable through an exact-match lookup, so without
+%% this they classified as `not_found' and fell to the fail-closed
+%% branch for any user carrying an explicit scope list.
 %%
-%% Match cost is O(n*m) where n is the number of templates and m is
-%% the average path depth. The cache is small (~250 entries) and this
-%% function is called once per authorised request, so the cost is
-%% acceptable.
+%% Two passes cost one extra traversal in the no-match case. The cache
+%% is small (~250 entries) and this runs once per authorised request.
 match_template(Path, PathMap) ->
     PathSegs = normalize_segments(split_segments(Path)),
-    Iter = maps:iterator(PathMap),
-    match_template_iter(PathSegs, Iter).
+    case match_template_iter(PathSegs, maps:iterator(PathMap), scoped) of
+        undefined -> match_template_iter(PathSegs, maps:iterator(PathMap), public);
+        Scope -> Scope
+    end.
 
-match_template_iter(PathSegs, Iter) ->
+match_template_iter(PathSegs, Iter, Pass) ->
     case maps:next(Iter) of
         none ->
             undefined;
-        {_Tmpl, ?SCOPE_PUBLIC, Iter1} ->
-            match_template_iter(PathSegs, Iter1);
+        {_Tmpl, ?SCOPE_PUBLIC, Iter1} when Pass =:= scoped ->
+            match_template_iter(PathSegs, Iter1, Pass);
+        {_Tmpl, Scope, Iter1} when Pass =:= public, Scope =/= ?SCOPE_PUBLIC ->
+            match_template_iter(PathSegs, Iter1, Pass);
         {Tmpl, Scope, Iter1} ->
             case segments_match(PathSegs, split_segments(Tmpl)) of
                 true -> Scope;
-                false -> match_template_iter(PathSegs, Iter1)
+                false -> match_template_iter(PathSegs, Iter1, Pass)
             end
     end.
 
