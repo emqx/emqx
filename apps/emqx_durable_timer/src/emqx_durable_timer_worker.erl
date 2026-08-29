@@ -472,7 +472,19 @@ handle_timeout(Type, CBM, Time, Key, Value) ->
         emqx_durable_timer:handle_durable_timeout(CBM, Key, Value),
         ok
     catch
-        _:_ ->
+        Class:Reason:Stacktrace ->
+            %% The timer is still treated as fired and is not retried, so this
+            %% log is the only trace the failure leaves. The value is left out:
+            %% it is opaque callback data, and for `emqx_durable_will' it is a
+            %% will message payload.
+            ?tp(error, ?tp_callback_failed, #{
+                type => Type,
+                cbm => CBM,
+                key => Key,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
             ok
     end.
 
