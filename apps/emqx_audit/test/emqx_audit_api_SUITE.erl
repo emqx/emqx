@@ -8,6 +8,7 @@
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     [
@@ -613,9 +614,12 @@ kickout_clients() ->
     KickoutBody = [ClientId1, ClientId2, ClientId3],
     {ok, 204, _} = emqx_mgmt_api_test_util:request_api_with_body(post, KickoutPath, KickoutBody),
 
-    {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
-    ClientsResponse2 = emqx_utils_json:decode(Clients2),
-    ?assertMatch(#{<<"data">> := []}, ClientsResponse2).
+    %% The kick call is answered before emqx_cm reaps the channel DOWN and
+    %% cleans its tables, so the clients API can still list the kicked clients.
+    ?retry(100, 20, begin
+        {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
+        ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Clients2))
+    end).
 
 ns_dashboard_auth_header(Username, Role) ->
     Password = <<"public_www1">>,
