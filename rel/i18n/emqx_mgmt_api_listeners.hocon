@@ -105,7 +105,7 @@ listener_running_status {
 }
 
 listener_resolved_address {
-    desc: "The address the listener is actually bound to on this node. Read-only. Can differ from 'bind' when the address comes from the security profile or 'node.default_listener_address', which are resolved locally on each node. Can be 'inconsistent' when nodes resolve to different addresses."
+    desc: "The IP address the listener is actually bound to on this node, without the port. The port stays in 'bind'. Read-only. When 'bind' sets an explicit 'IP:port', this field reports the same IP. When 'bind' sets only a port, this field reports the address the security profile or 'node.default_listener_address' resolves, which happens locally on each node; it is empty when that resolves to all interfaces. Reports 'inconsistent' when nodes in the cluster resolve to different addresses, for example when 'node.default_listener_address' is set to 'nodename' or to a hostname that resolves differently per node."
     label: "Resolved Address"
 }
 
