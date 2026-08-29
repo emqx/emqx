@@ -92,6 +92,13 @@ call_fold(IsIgnore, Hookpoint, Req, AccFun, [ServerName | More]) ->
                 ignore ->
                     call_fold(IsIgnore, Hookpoint, Req, AccFun, More)
             end;
+        ignore ->
+            %% The server does not advertise this hookpoint, or a message
+            %% hook's topic filter did not match. Nothing was attempted, so
+            %% this is not a failure and must not reach `failed_action':
+            %% under the default `deny' that would stop the chain and starve
+            %% every server behind this one.
+            call_fold(IsIgnore, Hookpoint, Req, AccFun, More);
         _ ->
             case emqx_exhook_server:failed_action(Server) of
                 ignore ->

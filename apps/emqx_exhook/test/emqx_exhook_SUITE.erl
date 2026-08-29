@@ -158,6 +158,40 @@ profile_cases() ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+%% A server that does not advertise the hookpoint answers `ignore'. That is
+%% not a failure, so it must not be routed through `failed_action': under
+%% the default `deny' that stops the chain and every server behind it stops
+%% seeing the event, silently.
+t_call_fold_skips_servers_without_the_hookpoint(_Config) ->
+    ok = meck:new(emqx_exhook_mgr, [passthrough, no_history]),
+    ok = meck:new(emqx_exhook_server, [passthrough, no_history]),
+    Tester = self(),
+    try
+        meck:expect(emqx_exhook_mgr, running, fun() -> [<<"a">>, <<"b">>] end),
+        meck:expect(emqx_exhook_mgr, service, fun(Name) -> #{name => Name} end),
+        meck:expect(emqx_exhook_server, call, fun
+            (_Hookpoint, _Req, #{name := <<"a">>}) ->
+                ignore;
+            (_Hookpoint, Req, #{name := <<"b">>}) ->
+                Tester ! reached_second_server,
+                {ok, Req}
+        end),
+        meck:expect(emqx_exhook_server, failed_action, fun(_Server) -> deny end),
+        Req = #{topic_filters => []},
+        ?assertMatch(
+            {ok, _},
+            emqx_exhook:call_fold('client.subscribe', Req, fun(_Req, Resp) -> {ok, Resp} end)
+        ),
+        receive
+            reached_second_server -> ok
+        after 0 ->
+            ct:fail("the server behind the one without the hookpoint was never called")
+        end
+    after
+        meck:unload(emqx_exhook_server),
+        meck:unload(emqx_exhook_mgr)
+    end.
+
 t_access_failed_if_no_server_running(Config) ->
     ClientInfo = #{
         clientid => <<"user-id-1">>,
