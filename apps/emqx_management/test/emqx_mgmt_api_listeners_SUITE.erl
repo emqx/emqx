@@ -556,9 +556,10 @@ t_ssl_password_obfuscated(Config) when is_list(Config) ->
 
 -doc """
 Under the `hardened` security profile, a bare-port bind resolves to
-loopback: `GET /listeners/tcp:default` reports `resolved_address` as the
-loopback address, and `resolved_address_from` as `loopback` (the security
-profile decided it, not an explicit config value), while `bind` still
+loopback: `GET /listeners/tcp:default` reports `resolved_address` and
+`resolved_address_from` both as `127.0.0.1` (the security profile decided
+it, not an explicit config value; the source label spells out the address
+directly instead of naming a `loopback` keyword), while `bind` still
 reports the bare port unchanged. This is the regression test for the case
 that motivated the `resolved_address` field.
 
@@ -573,7 +574,7 @@ t_resolved_address_hardened_bare_port(Config) when is_list(Config) ->
     Listener = request(get, Path, [], []),
     ?assertMatch(#{<<"bind">> := <<":1883">>}, Listener),
     ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1">>}, Listener),
-    ?assertMatch(#{<<"resolved_address_from">> := <<"loopback">>}, Listener),
+    ?assertMatch(#{<<"resolved_address_from">> := <<"127.0.0.1">>}, Listener),
     %% GET-then-PUT the same body back unchanged succeeds: resolved_address
     %% and resolved_address_from must be stripped before the update is
     %% applied, or this round trip (what the dashboard does on every
@@ -581,7 +582,7 @@ t_resolved_address_hardened_bare_port(Config) when is_list(Config) ->
     Updated = request(put, Path, [], Listener),
     ?assertMatch(#{<<"bind">> := <<":1883">>}, Updated),
     ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1">>}, Updated),
-    ?assertMatch(#{<<"resolved_address_from">> := <<"loopback">>}, Updated),
+    ?assertMatch(#{<<"resolved_address_from">> := <<"127.0.0.1">>}, Updated),
     ok.
 
 action_listener(ID, Action, Running) ->

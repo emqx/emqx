@@ -82,9 +82,12 @@ listen_on(_Scope, Bind) ->
 
 -doc """
 Returns the source of the address `resolve/1` returns for the scope:
-`<<"all">>`, `<<"loopback">>`, `<<"nodename">>`, or the literal
-`node.default_listener_address` value (a hostname or IP string) when it is
-set to one of those.
+`<<"0.0.0.0">>` for all interfaces, `<<"127.0.0.1">>` for loopback,
+`<<"nodename">>`, or the literal `node.default_listener_address` value (a
+hostname or IP string) when it is set to one of those. `<<"0.0.0.0">>` and
+`<<"127.0.0.1">>` spell out the address directly instead of naming the
+`all`/`loopback` config keywords, so the value is self-explanatory without
+looking up what the keyword means.
 
 Unlike `resolve/1`, this stays the same across a cluster with identical
 config even when the resolved address itself differs from node to node.
@@ -97,8 +100,8 @@ a misconfiguration.
 resolved_from(Scope) ->
     case value() of
         default -> profile_policy_label(Scope);
-        loopback -> <<"loopback">>;
-        all -> <<"all">>;
+        loopback -> <<"127.0.0.1">>;
+        all -> <<"0.0.0.0">>;
         nodename -> <<"nodename">>;
         {hostname, Host} -> unicode:characters_to_binary(Host);
         IP -> list_to_binary(inet:ntoa(IP))
@@ -161,8 +164,8 @@ profile_policy(gateway) ->
 
 profile_policy_label(Scope) ->
     case profile_policy(Scope) of
-        any -> <<"all">>;
-        loopback -> <<"loopback">>
+        any -> <<"0.0.0.0">>;
+        loopback -> <<"127.0.0.1">>
     end.
 
 address(loopback) -> loopback;
