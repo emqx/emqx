@@ -144,8 +144,11 @@
 %% scope cannot meaningfully restrict the account, so schema validation
 %% refuses that combination at write time: an explicit, non-empty scope
 %% list must be either entirely privilege or entirely non-privilege.
-%% `mfa_management' is intentionally excluded — any login user role may
-%% hold it and it is not administrator-equivalent.
+%% `mfa_management' is intentionally excluded: it is administrator-only
+%% like the other three, but it is not administrator-equivalent — it
+%% resets another user's MFA and cannot provision users, mint keys or
+%% rewrite configuration. So it may share an explicit list with
+%% restricted scopes while the other three may not.
 -define(PRIVILEGE_SCOPES, [
     ?SCOPE_SYSTEM,
     ?SCOPE_USER_MGMT,

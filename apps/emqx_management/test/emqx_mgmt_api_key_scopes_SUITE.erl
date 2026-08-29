@@ -477,6 +477,13 @@ collect_public_paths(Modules) ->
                 try apply(M, scopes, []) of
                     Map when is_map(Map) ->
                         [path_to_binary(P) || {P, ?SCOPE_PUBLIC} <- maps:to_list(Map)];
+                    %% Whole-module form: `scopes() -> ?SCOPE_PUBLIC'
+                    %% makes every path the module declares public.
+                    %% Missing this clause hid `/schemas/:name' from every
+                    %% test that consumes this helper, including the
+                    %% safety half of the wildcard invariant.
+                    ?SCOPE_PUBLIC ->
+                        [path_to_binary(P) || P <- apply(M, paths, [])];
                     _ ->
                         []
                 catch

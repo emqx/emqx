@@ -93,9 +93,27 @@ t_get_own_profile(_Config) ->
             <<"username">> := <<"viewer">>,
             <<"role">> := ?ROLE_VIEWER,
             <<"backend">> := <<"local">>,
-            <<"mfa">> := <<"none">>
+            <<"mfa">> := <<"none">>,
+            %% `null', not the string "global": the profile goes through
+            %% `to_json_out/1' like every other emitter of this shape.
+            <<"namespace">> := null
         },
         json(Body)
+    ).
+
+%% The profile is the same object `GET /users' reports for the same
+%% account, so the two must not disagree field by field. Only `scopes'
+%% differs by design: the self endpoint expands the role default.
+t_own_profile_matches_admin_view(_Config) ->
+    ok = add_user(<<"boss">>, ?ROLE_SUPERUSER),
+    Token = token(<<"boss">>),
+    {ok, 200, SelfBody} = get_current_user(Token),
+    {ok, 200, ListBody} = request_api(get, api_path(["users"]), auth_header(Token)),
+    Self = json(SelfBody),
+    [Admin] = [U || U <- json(ListBody), maps:get(<<"username">>, U) =:= <<"boss">>],
+    ?assertEqual(
+        maps:remove(<<"scopes">>, Admin),
+        maps:remove(<<"scopes">>, Self)
     ).
 
 %% `scopes' is the EFFECTIVE list: the role default is expanded, so the

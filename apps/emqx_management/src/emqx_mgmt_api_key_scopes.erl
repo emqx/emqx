@@ -128,10 +128,14 @@ classify(Path, PathMap) ->
 %% was protecting (a public template must not claim a path some other
 %% template scopes), and making it explicit lets a genuinely public
 %% template match its own paths, which the skip made impossible.
-%% `/sso/login/:backend' and `/users/:username/change_pwd' are declared
-%% public and are unreachable through an exact-match lookup, so without
-%% this they classified as `not_found' and fell to the fail-closed
-%% branch for any user carrying an explicit scope list.
+%% Three declarations in the umbrella are public templates and so were
+%% unreachable through an exact-match lookup: `/sso/login/:backend',
+%% `/users/:username/change_pwd', and `/schemas/:name' (declared by the
+%% whole-module form `scopes() -> ?SCOPE_PUBLIC'). All three classified
+%% as `not_found' and fell to the fail-closed branch for any user
+%% carrying an explicit scope list; they now classify as `public', which
+%% is what each module declared. API keys are unaffected either way:
+%% `path_to_scope/1' collapses `public' and `not_found' to `undefined'.
 %%
 %% Two passes cost one extra traversal in the no-match case. The cache
 %% is small (~250 entries) and this runs once per authorised request.

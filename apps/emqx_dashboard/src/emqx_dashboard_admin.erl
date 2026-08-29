@@ -482,8 +482,8 @@ scopes_of(Username) ->
 %%   any role      + explicit []         -> []
 %%   any role      + explicit [X, ...]   -> [X, ...]
 %%
-%% This is what RBAC checks, what `caller_has_mfa_mgmt/1' inspects,
-%% and what the /users API surfaces in responses.
+%% This is what RBAC checks and what the /users and /current_user APIs
+%% surface in responses.
 -spec effective_scopes_of(dashboard_username()) -> [binary()].
 effective_scopes_of(Username) ->
     case lookup_user(Username) of

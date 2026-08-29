@@ -927,7 +927,11 @@ handle_delete_user(#{bindings := #{username := Username0}} = Req) ->
 current_user(get, Req) ->
     with_caller(Req, fun(#?ADMIN{username = Username} = Admin) ->
         Profile = emqx_dashboard_admin:to_external_user(Admin),
-        {200, Profile#{scopes => emqx_dashboard_admin:effective_scopes_of(Username)}}
+        %% `to_json_out/1' like every other emitter of this shape: it maps
+        %% `?global_ns' to `null', and without it a global user reports
+        %% `"namespace": "global"' here while `GET /users' reports `null'
+        %% for the same account.
+        {200, to_json_out(Profile#{scopes => emqx_dashboard_admin:effective_scopes_of(Username)})}
     end).
 
 current_user_change_pwd(post, #{body := Params} = Req) ->
@@ -1143,10 +1147,11 @@ register_unsuccessful_login(_, _) ->
 %% Two-layer rule:
 %%   * Any unknown scope name is rejected.
 %%   * Non-administrator role users cannot hold any of the admin-only
-%%     subset (user_management, sso_management, api_key_management).
-%%     mfa_management is intentionally allowed for any role — non-
-%%     admin holders can self-exempt their own MFA but cannot manage
-%%     other users' MFA (handler-level enforcement).
+%%     subset, which is all four login-only scopes: user_management,
+%%     mfa_management, sso_management, api_key_management.
+%%     `mfa_management' means "manage OTHER users' MFA"; managing one's
+%%     own MFA is identity-authorized on /current_user/mfa and needs no
+%%     scope.
 %% @doc Normalize a `scopes' request value to a storage intent:
 %%   * `keep'       - field omitted (`undefined'): leave persisted scopes
 %%                    unchanged (PUT read-modify-write of another field).
