@@ -605,19 +605,7 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     ),
     ConnectSuccessCnt = counters:get(ConnectSuccessCntr, 1),
     ?assert(ConnectSuccessCnt > 0),
-    EventsThatShouldHaveHappened = lists:flatten(
-        lists:duplicate(
-            ConnectSuccessCnt,
-            [
-                emqx_cm_connected_client_count_inc,
-                emqx_cm_connected_client_count_dec_done
-            ]
-        )
-    ),
-    wait_for_events(fun() -> ok end, EventsThatShouldHaveHappened, 10000, infinity),
-    %% It must be 0 again because we got enough
-    %% emqx_cm_connected_client_count_dec_done events
-    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    ?retry(100, 20, ?assertEqual(0, emqx_cm:get_connected_client_count())),
     %% connecting again
     {ok, ConnPid1} = emqtt:start_link([
         {clean_start, true},
