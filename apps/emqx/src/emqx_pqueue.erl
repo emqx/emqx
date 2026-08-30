@@ -52,10 +52,12 @@
     out/1,
     out/2,
     drop/2,
+    drop_lowest/1,
     out_p/1,
     filter/2,
     fold/3,
     highest/1,
+    lowest/1,
     shift/1
 ]).
 
@@ -130,7 +132,7 @@ len({queue, _R, _F, L}) ->
 len(?cqueue(_, _, L)) ->
     L;
 len({pqueue, Queues}) ->
-    lists:sum([len(Q) || {_, Q} <- Queues]).
+    lists:foldl(fun({_P, Q}, Acc) -> Acc + len(Q) end, 0, Queues).
 
 -spec plen(priority(), pqueue()) -> non_neg_integer().
 plen(P, {pqueue, Queues}) ->
@@ -274,6 +276,31 @@ drop(Priority, {pqueue, Queues}) ->
 drop(Priority, _) ->
     erlang:error(badarg, [Priority]).
 
+-doc """
+Drop the oldest least important element from the lowest non-empty priority,
+in a single pass over the priority lanes. Equivalent to
+`drop(lowest(Q), Q)`, but without a separate lookup of the lowest priority
+followed by a second traversal to find and drop from that lane.
+""".
+-spec drop_lowest(pqueue()) -> {empty | {value, any()}, pqueue()}.
+drop_lowest({pqueue, Queues}) ->
+    {R, Queues1} = drop_lowest_lane(Queues),
+    {R, from_pqueue_list(Queues1)};
+drop_lowest(Q) ->
+    drop(0, Q).
+
+%% `Queues` is sorted highest-priority-first (see `in/4`) and never holds an
+%% emptied-out lane, so the last element is the lowest non-empty lane.
+drop_lowest_lane([{P, Q}]) ->
+    {R, Q1} = drop(0, Q),
+    case is_empty(Q1) of
+        true -> {R, []};
+        false -> {R, [{P, Q1}]}
+    end;
+drop_lowest_lane([Entry | Rest]) ->
+    {R, Rest1} = drop_lowest_lane(Rest),
+    {R, [Entry | Rest1]}.
+
 -spec shift(pqueue()) -> pqueue().
 shift({pqueue, []}) ->
     %% Shouldn't happen?
@@ -363,6 +390,16 @@ fold(Fun, Init, Q) ->
 highest({pqueue, [{P, _} | _]}) ->
     maybe_negate_priority(P);
 highest(_Q) ->
+    0.
+
+%% Queues is sorted highest-priority-first (see `in/4`), and never holds
+%% an emptied-out lane (lanes are pruned in `out/1`, `out/2` and `drop/2`),
+%% so the last element is the lowest non-empty priority.
+-spec lowest(pqueue()) -> priority().
+lowest({pqueue, Queues}) ->
+    {P, _} = lists:last(Queues),
+    maybe_negate_priority(P);
+lowest(_Q) ->
     0.
 
 r2f([], 0) -> {queue, [], [], 0};

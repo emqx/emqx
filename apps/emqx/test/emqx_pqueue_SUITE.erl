@@ -169,6 +169,42 @@ t_highest(_) ->
         ])
     ).
 
+-doc "lowest/1 returns the lowest non-empty priority, the mirror of highest/1.".
+t_lowest(_) ->
+    0 = ?PQ:lowest(?PQ:new()),
+    0 = ?PQ:lowest(?PQ:from_list([{0, default, a}, {0, default, b}])),
+    0 = ?PQ:lowest(
+        ?PQ:from_list([
+            {0, default, a},
+            {0, default, b},
+            {1, qos0, c},
+            {2, qos0, d},
+            {2, default, e}
+        ])
+    ),
+    %% Once the lowest lane empties out, it drops off the queue entirely.
+    PQ0 = ?PQ:from_list([{1, default, a}, {2, default, b}]),
+    ?assertEqual(1, ?PQ:lowest(PQ0)),
+    {_, PQ1} = ?PQ:drop(1, PQ0),
+    ?assertEqual(2, ?PQ:lowest(PQ1)),
+    ?assertEqual(infinity, ?PQ:lowest(?PQ:from_list([{infinity, default, a}]))).
+
+-doc "drop_lowest/1 is equivalent to drop(lowest(Q), Q).".
+t_drop_lowest(_) ->
+    {empty, _} = ?PQ:drop_lowest(?PQ:new()),
+    %% Single-lane queue: same as an ordinary drop.
+    {{value, a}, SQ1} = ?PQ:drop_lowest(?PQ:from_list([{0, default, a}, {0, default, b}])),
+    ?assertEqual([{0, b}], ?PQ:to_list(SQ1)),
+    %% Multi-lane queue: drops from the lowest priority, leaving higher
+    %% priorities untouched, and removes the lane once it empties out.
+    PQ0 = ?PQ:from_list([{2, default, a}, {1, default, b}, {1, default, c}]),
+    {{value, b}, PQ1} = ?PQ:drop_lowest(PQ0),
+    ?assertEqual([{2, a}, {1, c}], ?PQ:to_list(PQ1)),
+    {{value, c}, PQ2} = ?PQ:drop_lowest(PQ1),
+    ?assertEqual(2, ?PQ:highest(PQ2)),
+    ?assertEqual(2, ?PQ:lowest(PQ2)),
+    ?assertEqual([{2, a}], ?PQ:to_list(PQ2)).
+
 t_shift_squeue(_) ->
     %% shift on simple queue is identity
     Q = ?PQ:from_list([{0, default, a}, {0, default, b}]),
