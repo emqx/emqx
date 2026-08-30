@@ -45,6 +45,11 @@ filename.desc:
 filename.label:
 """Filename"""
 
+allow_security_profile_mismatch.desc:
+"""Import the backup even if it was exported under the `legacy` security profile (or predates this field) while this node runs the `hardened` profile. Without this, such an import is refused because restoring it may silently rebind listeners to loopback-only addresses."""
+allow_security_profile_mismatch.label:
+"""Allow Security Profile Mismatch"""
+
 created_at.desc:
 """Data backup file creation date and time."""
 created_at.label:
