@@ -82,6 +82,8 @@ t_name_selects_one_action(_Config) ->
 t_missing_name_target(_Config) ->
     {ok, StatusOutput} = capture_ctl(["actions", "status", "--name", "no_such_type:no_such_name"]),
     ?assertEqual([], emqx_utils_json:decode(StatusOutput)),
+    %% An empty array prints compactly on one line, not spread across three.
+    ?assertEqual(<<"[]\n">>, StatusOutput),
 
     {ok, ShowOutput} = capture_ctl(["actions", "show", "--name", "no_such_type:no_such_name"]),
     ?assertEqual(null, emqx_utils_json:decode(ShowOutput)).

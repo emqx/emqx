@@ -66,11 +66,18 @@ run(Cmd, Args) ->
     case collect_opts(Args, #{}) of
         {ok, Opts} ->
             Result = query(Cmd, Opts),
-            emqx_ctl:print("~ts~n", [emqx_utils_json:encode(Result, [pretty, force_utf8])]);
+            emqx_ctl:print("~ts~n", [format_json(Result)]);
         {error, Reason} ->
             emqx_ctl:warning("~ts~n", [Reason]),
             usage()
     end.
+
+%% Pretty-printing an empty array renders as three lines (`[`, a blank line, `]`); an
+%% empty result carries no structure worth spreading out, so print it compactly.
+format_json([]) ->
+    <<"[]">>;
+format_json(Result) ->
+    emqx_utils_json:encode(Result, [pretty, force_utf8]).
 
 %%--------------------------------------------------------------------------------
 %% Option parsing
