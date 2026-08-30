@@ -355,9 +355,22 @@ validate_resolver_preload_pubkeys([], _Index) ->
 validate_authn_jwt(Config) ->
     case validate_authn_jwt_required_fields(Config) of
         ok ->
-            validate_authn_jwt_nkey_material(Config);
+            case validate_authn_jwt_nkey_material(Config) of
+                ok ->
+                    validate_authn_jwt_account_tokens(Config);
+                {error, _Reason} = Error ->
+                    Error
+            end;
         {error, _Reason} = Error ->
             Error
+    end.
+
+validate_authn_jwt_account_tokens(Config) ->
+    case emqx_nats_authn:validate_jwt_config(Config) of
+        ok ->
+            ok;
+        {error, Hint} ->
+            {error, Hint}
     end.
 
 validate_authn_jwt_required_fields(Config) ->
