@@ -1019,7 +1019,12 @@ t_handle_call_takeover_begin(_) ->
 
 t_handle_call_takeover_end(_) ->
     ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
-    Chan0 = channel(),
+    %% The session must outlive the takeover for there to be anything to hand
+    %% over: with the default expiry interval 0 the channel shuts down at
+    %% `begin' instead of replying.
+    Chan00 = channel(),
+    ConnInfo = emqx_channel:info(conninfo, Chan00),
+    Chan0 = emqx_channel:set_field(conninfo, ConnInfo#{expiry_interval => 60000}, Chan00),
     {reply, _, Chan1} =
         emqx_channel:handle_call({takeover, 'begin'}, Chan0),
     {shutdown, takenover, [], _, _Chan} =
