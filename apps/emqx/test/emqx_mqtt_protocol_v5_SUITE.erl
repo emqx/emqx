@@ -249,7 +249,12 @@ t_connect_clean_start(Config) ->
     {ok, Client1} = emqtt:start_link([
         {clientid, <<"t_connect_clean_start">>},
         {proto_ver, v5},
-        {clean_start, true}
+        {clean_start, true},
+        %% Nonzero session expiry interval, so the session survives the
+        %% takeover below. With interval 0 the session ends when the taken-over
+        %% network connection closes (MQTT 5.0 3.1.2.11.2) and the new
+        %% connection would get a fresh session (Session Present 0).
+        {properties, #{'Session-Expiry-Interval' => 30}}
         | Config
     ]),
     {ok, _} = emqtt:ConnFun(Client1),

@@ -147,6 +147,29 @@ t_load_badconf_partial_authn_jwt(_Config) ->
         emqx_gateway_conf:load_gateway(nats, MissingResolverPreload)
     ),
 
+    BaseConfInvalidAccountJWT = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    InvalidAccountJWT = BaseConfInvalidAccountJWT#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"trusted_operators">> => [?VALID_OPERATOR_NKEY],
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{
+                            <<"pubkey">> => ?VALID_ACCOUNT_NKEY,
+                            <<"jwt">> => <<"invalid-jwt">>
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, InvalidAccountJWT)
+    ),
+
     BaseConfToken = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
     EmptyTokenMethod = BaseConfToken#{
         <<"internal_authn">> => [

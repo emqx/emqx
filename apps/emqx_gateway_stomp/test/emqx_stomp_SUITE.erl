@@ -9,6 +9,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_stomp.hrl").
 
 -compile(export_all).
@@ -355,6 +356,63 @@ t_authn_disabled_rejects_pre_connect_pub_sub(_) ->
         end
     end).
 
+-doc """
+A CONNECT whose passcode contains a colon authenticates with the original
+password (#12917).  CONNECT headers carry the colon raw: STOMP 1.2 exempts
+CONNECT and CONNECTED frames from header escaping.
+""".
+t_auth_passcode_with_colon(_) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun
+            (#{password := <<"pa:ss">>}) -> {ok, #{is_superuser => false}};
+            (_) -> {error, bad_username_or_password}
+        end
+    ),
+    try
+        with_connection(fun(Sock) ->
+            Wire = <<
+                "CONNECT\n"
+                "accept-version:1.2\n"
+                "host:127.0.0.1:61613\n"
+                "login:admin\n"
+                "passcode:pa:ss\n"
+                "\n",
+                0
+            >>,
+            ok = gen_tcp:send(Sock, Wire),
+            ?assertMatch(
+                {ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)
+            )
+        end)
+    after
+        meck:unload(emqx_access_control)
+    end.
+
+-doc """
+A destination containing a colon works end to end: SUBSCRIBE and SEND carry it
+escaped as `\c` per STOMP 1.2, the broker decodes it, and the MESSAGE frame
+returns it escaped on the wire and decoded after parsing.
+""".
+t_escaped_destination_roundtrip(_) ->
+    Topic = <<"t/a:b">>,
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+        %% the serializer escapes the colon in these frames
+        ok = send_subscribe_frame(Sock, 0, Topic),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+        ok = send_message_frame(Sock, Topic, <<"hello">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+        {ok, Frame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"MESSAGE">>, body = <<"hello">>}, Frame),
+        ?assertEqual(
+            Topic, proplists:get_value(<<"destination">>, Frame#stomp_frame.headers)
+        )
+    end).
+
 t_heartbeat(_) ->
     %% Test heartbeat
     with_connection(fun(Sock) ->
@@ -425,16 +483,15 @@ t_subscribe(_) ->
         ),
 
         %% assert subscription stats
-        [ClientInfo1] = clients(),
-        ?assertMatch(#{subscriptions_cnt := 1}, ClientInfo1),
+        %% The stats update is asynchronous to the RECEIPT, so retry.
+        ?retry(100, 20, ?assertMatch([#{subscriptions_cnt := 1}], clients())),
 
         %% Unsubscribe
         ok = send_unsubscribe_frame(Sock, 0),
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
 
         %% assert subscription stats
-        [ClientInfo2] = clients(),
-        ?assertMatch(#{subscriptions_cnt := 0}, ClientInfo2),
+        ?retry(100, 20, ?assertMatch([#{subscriptions_cnt := 0}], clients())),
 
         ok = send_message_frame(Sock, <<"/queue/foo">>, <<"You will not receive this msg">>),
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
@@ -553,16 +610,15 @@ t_receive_from_mqtt_publish(_) ->
         ),
 
         %% assert subscription stats
-        [ClientInfo1] = clients(),
-        ?assertMatch(#{subscriptions_cnt := 1}, ClientInfo1),
+        %% The stats update is asynchronous to the RECEIPT, so retry.
+        ?retry(100, 20, ?assertMatch([#{subscriptions_cnt := 1}], clients())),
 
         %% Unsubscribe
         ok = send_unsubscribe_frame(Sock, 0),
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
 
         %% assert subscription stats
-        [ClientInfo2] = clients(),
-        ?assertMatch(#{subscriptions_cnt := 0}, ClientInfo2),
+        ?retry(100, 20, ?assertMatch([#{subscriptions_cnt := 0}], clients())),
 
         ok = send_message_frame(Sock, <<"/queue/foo">>, <<"You will not receive this msg">>),
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
@@ -1178,6 +1234,13 @@ t_rest_clientid_info(_) ->
         ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
 
         %% client lists
+        %% The client shows up in the clients API asynchronously to the
+        %% CONNECTED frame, so retry.
+        ?retry(
+            100,
+            20,
+            ?assertMatch({200, #{data := [_]}}, request(get, "/gateways/stomp/clients"))
+        ),
         {200, Clients} = request(get, "/gateways/stomp/clients"),
         ?assertEqual(1, length(maps:get(data, Clients))),
         StompClient = lists:nth(1, maps:get(data, Clients)),

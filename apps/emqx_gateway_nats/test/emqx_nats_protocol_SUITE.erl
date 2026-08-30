@@ -545,6 +545,7 @@ missing_caps(TestCase, Target, Group) ->
 target_caps(emqx, _Group) ->
     [
         jwt_auth,
+        jwt_account_expiry,
         jwt_acl_intersection,
         mixed_auth_priority,
         security_profile
@@ -584,6 +585,8 @@ required_caps(t_jwt_auth_invalid_format_failure) ->
     [jwt_auth];
 required_caps(t_jwt_auth_invalid_signature_failure) ->
     [jwt_auth];
+required_caps(t_jwt_account_expire_disconnect) ->
+    [jwt_account_expiry];
 required_caps(t_jwt_permissions_intersection_with_acl) ->
     [jwt_auth, jwt_acl_intersection];
 required_caps(t_nkey_auth_priority_over_jwt) ->
@@ -997,18 +1000,7 @@ jwt_auth_setup(Config, Overrides) ->
             Existing = normalize_internal_authn(Prev),
             Fixture = jwt_fixture(),
             JWTConf0 = maps:merge(
-                #{
-                    trusted_operators => [maps:get(operator_nkey, Fixture)],
-                    resolver => #{
-                        type => memory,
-                        resolver_preload => [
-                            #{
-                                pubkey => maps:get(account_nkey, Fixture),
-                                jwt => maps:get(account_jwt, Fixture)
-                            }
-                        ]
-                    }
-                },
+                jwt_config(maps:get(account_jwt, Fixture)),
                 Overrides
             ),
             JWTConf = maps:merge(#{type => jwt}, JWTConf0),
@@ -1022,6 +1014,36 @@ jwt_auth_setup(Config, Overrides) ->
         nats ->
             Config
     end.
+
+jwt_config(AccountJWT) ->
+    Fixture = jwt_fixture(),
+    #{
+        trusted_operators => [maps:get(operator_nkey, Fixture)],
+        resolver => #{
+            type => memory,
+            resolver_preload => [
+                #{
+                    pubkey => maps:get(account_nkey, Fixture),
+                    jwt => AccountJWT
+                }
+            ]
+        }
+    }.
+
+update_jwt_account_claims(ExtraClaims) ->
+    Fixture = jwt_fixture(),
+    AccountJWT = build_account_jwt(
+        maps:get(operator_nkey, Fixture),
+        maps:get(account_nkey, Fixture),
+        ExtraClaims
+    ),
+    JWTMethod = maps:merge(#{type => jwt}, jwt_config(AccountJWT)),
+    _ = emqx_conf:update(
+        [gateway, nats, internal_authn],
+        [JWTMethod],
+        #{override_to => cluster}
+    ),
+    ok.
 
 jwt_auth_cleanup(Config) ->
     case target_from(Config) of
@@ -1135,6 +1157,9 @@ jwt_fixture() ->
     }.
 
 build_account_jwt(OperatorNKey, AccountNKey) ->
+    build_account_jwt(OperatorNKey, AccountNKey, #{}).
+
+build_account_jwt(OperatorNKey, AccountNKey, ExtraClaims) ->
     Claims = #{
         <<"iss">> => OperatorNKey,
         <<"sub">> => AccountNKey,
@@ -1144,7 +1169,7 @@ build_account_jwt(OperatorNKey, AccountNKey) ->
             <<"version">> => 2
         }
     },
-    sign_jwt(Claims, jwt_operator_priv()).
+    sign_jwt(emqx_utils_maps:deep_merge(Claims, ExtraClaims), jwt_operator_priv()).
 
 operator_nkey() ->
     public_nkey(?NKEY_OPERATOR_PREFIX, jwt_operator_priv()).
@@ -2045,6 +2070,23 @@ t_jwt_auth_invalid_signature_failure(Config) ->
     assert_auth_failed(Msgs),
     emqx_nats_client:stop(Client).
 
+t_jwt_account_expire_disconnect(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_account_expire_disconnect('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_account_expire_disconnect(Config) ->
+    AccountExp = now_seconds() + 5,
+    ok = update_jwt_account_claims(#{<<"exp">> => AccountExp}),
+    JWT = build_test_jwt(#{}),
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    assert_auth_failed(recv_disconnect_frames(Client, 10000)),
+    emqx_nats_client:stop(Client).
+
 t_token_auth_priority_over_jwt(init, Config) ->
     jwt_auth_setup(token_auth_setup(Config, plain, token_plain()));
 t_token_auth_priority_over_jwt('end', Config) ->
@@ -2528,6 +2570,30 @@ assert_auth_failed(Msgs) ->
             ok;
         _ ->
             ?assertMatch([#nats_frame{operation = ?OP_ERR}], Msgs)
+    end.
+
+recv_disconnect_frames(Client, Timeout) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    recv_disconnect_frames_until(Client, Deadline).
+
+recv_disconnect_frames_until(Client, Deadline) ->
+    Remaining = max(0, Deadline - erlang:monotonic_time(millisecond)),
+    recv_disconnect_frames_until(Client, Deadline, Remaining).
+
+recv_disconnect_frames_until(_Client, _Deadline, 0) ->
+    [];
+recv_disconnect_frames_until(Client, Deadline, Remaining) ->
+    case emqx_nats_client:receive_message(Client, 1, Remaining) of
+        {ok, []} ->
+            [];
+        {ok, [#nats_frame{operation = ?OP_PING}]} ->
+            recv_disconnect_frames_until(Client, Deadline);
+        {ok, [Frame = #nats_frame{operation = ?OP_ERR}]} ->
+            [Frame];
+        {ok, [tcp_closed]} ->
+            [tcp_closed];
+        {ok, _Frames} ->
+            recv_disconnect_frames_until(Client, Deadline)
     end.
 
 assert_protocol_error(Msgs) ->
