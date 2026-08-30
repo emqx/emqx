@@ -1182,9 +1182,14 @@ t_different_groups_update_subopts(Config) when is_list(Config) ->
 
     Fun = fun(Group, QoS) ->
         ?UPDATE_SUB_QOS(C, format_share(Group, Topic), QoS),
-        ?assertMatch(
-            #{qos := QoS},
-            emqx_broker:get_subopts(ClientId, emqx_topic:make_shared_record(Group, Topic))
+        %% The clientid is registered asynchronously, so the lookup can miss.
+        ?retry(
+            100,
+            20,
+            ?assertMatch(
+                #{qos := QoS},
+                emqx_broker:get_subopts(ClientId, emqx_topic:make_shared_record(Group, Topic))
+            )
         )
     end,
 
