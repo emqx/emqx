@@ -927,18 +927,28 @@ diagnose_boot_failure_and_die() {
 }
 
 ## Only works when started in daemon mode
+## Returns non-zero when there is no pipe to shut down from.
 pipe_shutdown() {
-    if [ -d "$PIPE_DIR" ]; then
-        echo "Shutting down $NAME from to_erl pipe."
-        ## can not evaluate init:stop() or erlang:halt() because the shell is restricted
-        echo 'emqx_machine:brutal_shutdown().' | "$BINDIR/to_erl" "$PIPE_DIR"
+    ## `run_erl' creates the pipe files in PIPE_DIR. The directory is left
+    ## behind when the node exits, so check that it still holds a pipe.
+    if [ ! -d "$PIPE_DIR" ] || [ -z "$(ls -A "$PIPE_DIR" 2>/dev/null)" ]; then
+        return 1
     fi
+    echo "Shutting down $NAME from to_erl pipe."
+    ## can not evaluate init:stop() or erlang:halt() because the shell is restricted
+    echo 'emqx_machine:brutal_shutdown().' | "$BINDIR/to_erl" "$PIPE_DIR"
 }
 
 ## Call nodetool to stop EMQX
 nodetool_shutdown() {
     # Wait for the node to completely stop...
-    PID="$(relx_get_pid)"
+    ## When the node cannot be reached, nodetool has already logged the reason.
+    ## Return here so the caller can try the to_erl pipe instead. Calling
+    ## nodetool again would repeat the same message, and there is no PID to
+    ## report a graceful shutdown failure for.
+    if ! PID="$(relx_get_pid)"; then
+        return 1
+    fi
     if ! relx_nodetool "stop"; then
         die "Graceful shutdown failed PID=[$PID]"
     fi
@@ -1013,7 +1023,8 @@ case "${COMMAND}" in
 
     stop)
         if ! nodetool_shutdown; then
-            pipe_shutdown
+            ## The node did not stop and there is no pipe to fall back to.
+            pipe_shutdown || exit 1
         fi
         ;;
 
