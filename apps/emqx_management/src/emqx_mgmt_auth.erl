@@ -65,7 +65,7 @@
 -export([trans/2, force_create_app/1]).
 -export([init_bootstrap_file/1]).
 %% Exported for emqx_mgmt_auth_tests.
--export([parse_bootstrap_scopes_lenient/2, group_rejected_by_reason/1]).
+-export([parse_bootstrap_scopes_lenient/3, group_rejected_by_reason/1]).
 -endif.
 
 -define(APP, emqx_app).
@@ -787,7 +787,7 @@ parse_simple_tail(ApiKey, ApiSecret, Tail) ->
             end);
         [Role, ScopesStr] ->
             with_valid_role(Role, fun(R) ->
-                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, ScopesStr),
+                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, ?global_ns, ScopesStr),
                 bootstrap_entry(ApiKey, ApiSecret, R, ?global_ns, Scopes, Rejected)
             end);
         _ ->
@@ -830,7 +830,7 @@ parse_role_and_scopes(ApiKey, ApiSecret, Namespace, RoleAndScopes) ->
             end);
         [Role, ScopesStr] ->
             with_valid_role(Role, fun(R) ->
-                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, ScopesStr),
+                {Scopes, Rejected} = parse_bootstrap_scopes_lenient(R, Namespace, ScopesStr),
                 bootstrap_entry(ApiKey, ApiSecret, R, Namespace, Scopes, Rejected)
             end);
         _ ->
@@ -864,24 +864,28 @@ bootstrap_entry(ApiKey, ApiSecret, Role, Namespace, Scopes, Rejected) ->
 %%
 %% Publisher API keys can only hold the `publish' scope; other scope names
 %% are dropped (same lenient policy as unknown scopes — a typo in ops
-%% config must not abort the whole load).
+%% config must not abort the whole load). A namespaced `Role' (`Namespace'
+%% is a binary) additionally drops any scope outside
+%% `?NS_ADMIN_ALLOWED_SCOPES', mirroring the create/update-path allowlist
+%% and the dashboard login-user rule.
 %%
 %% Returns `{Valid, Rejected}'.
 %%   Valid    — list of validated scope name binaries (possibly empty).
 %%   Rejected — list of scope name binaries that were not recognised or
-%%              not allowed for the given role.
+%%              not allowed for the given role/namespace.
 %%
 %% An empty input (`<<>>') returns `{[], []}' — explicit deny-all marker.
-parse_bootstrap_scopes_lenient(Role, <<>>) ->
+parse_bootstrap_scopes_lenient(Role, _Namespace, <<>>) ->
     filter_publisher_scopes(Role, [], []);
-parse_bootstrap_scopes_lenient(Role, ScopesStr) ->
+parse_bootstrap_scopes_lenient(Role, Namespace, ScopesStr) ->
     Candidates = binary:split(ScopesStr, <<",">>, [global, trim_all]),
     Raw = [string:lowercase(string:trim(S)) || S <- Candidates, string:trim(S) =/= <<>>],
     Available = [Name || #{name := Name} <- emqx_scope_catalog:scope_catalog()],
     {Valid0, Unknown0} = lists:partition(fun(S) -> lists:member(S, Available) end, Raw),
     Rejected0 = [{S, unknown_scope} || S <- Unknown0],
     {Valid1, Rejected1} = filter_publisher_scopes(Role, Valid0, Rejected0),
-    drop_mixed_privilege_scopes(Valid1, Rejected1).
+    {Valid2, Rejected2} = drop_mixed_privilege_scopes(Valid1, Rejected1),
+    drop_disallowed_namespaced_scopes(Namespace, Valid2, Rejected2).
 
 %% A privilege scope is administrator-equivalent, so it must not be
 %% combined with restricted scopes in the same list. In the strict HTTP
@@ -895,6 +899,18 @@ drop_mixed_privilege_scopes(Valid, Rejected) ->
         {_, []} -> {Valid, Rejected};
         {Priv, Other} -> {Other, Rejected ++ [{S, privilege_scope_conflict} || S <- Priv]}
     end.
+
+%% A namespaced bootstrap key (`Namespace' is a binary) may only hold
+%% scopes in `?NS_ADMIN_ALLOWED_SCOPES'; a global line (`Namespace' is
+%% `?global_ns') is unaffected. Returns updated `{Valid, Rejected}'.
+drop_disallowed_namespaced_scopes(Namespace, Valid, Rejected) when is_binary(Namespace) ->
+    {Keep, Drop} = lists:partition(
+        fun(S) -> lists:member(S, ?NS_ADMIN_ALLOWED_SCOPES) end,
+        Valid
+    ),
+    {Keep, Rejected ++ [{S, namespaced_scope_not_allowed} || S <- Drop]};
+drop_disallowed_namespaced_scopes(_Namespace, Valid, Rejected) ->
+    {Valid, Rejected}.
 
 %% Restrict publisher role to the `publish' scope only. Other roles
 %% pass through unchanged. Returns updated {Valid, Rejected}.
@@ -923,7 +939,9 @@ maybe_warn_rejected_scopes(File, Line, ApiKey, Rejected) ->
             "dropped: `unknown_scope' (not a known scope name, likely a typo), "
             "`not_allowed_for_publisher_role' (publisher keys may only hold `publish'), "
             "`privilege_scope_conflict' (a privilege/administrator-equivalent scope cannot be "
-            "combined with other scopes; the non-privilege scopes were kept)."
+            "combined with other scopes; the non-privilege scopes were kept), "
+            "`namespaced_scope_not_allowed' (a namespaced key may only hold scopes in the "
+            "namespaced-administrator allowlist)."
         >>,
         dropped => group_rejected_by_reason(Rejected),
         file => File,

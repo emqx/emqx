@@ -51,7 +51,10 @@
     t_ee_ns_key_create_rejects_publish_scope,
     t_ee_ns_key_update_rejects_publish_in_changed_scopes,
     t_ee_ns_admin_legacy_publish_scopes_roundtrip,
-    t_ee_ns_admin_legacy_publish_only_scopes_stay_set
+    t_ee_ns_admin_legacy_publish_only_scopes_stay_set,
+    %% Namespaced-key scope allowlist parity with the dashboard user rule (#412)
+    t_ee_ns_key_create_rejects_out_of_allowlist_scopes,
+    t_ee_ns_key_update_rejects_out_of_allowlist_scopes
 ]).
 
 -define(APP, emqx_app).
@@ -88,6 +91,7 @@ groups() ->
             t_bootstrap_file_2_segment_seeds_default_scopes,
             t_bootstrap_file_3_segment_publisher_seeds_publish_scope,
             t_bootstrap_file_ns_admin_seeds_ns_default_scopes,
+            t_bootstrap_file_ns_admin_drops_out_of_allowlist_scopes,
             t_create_failed
         ]}
     ].
@@ -879,6 +883,32 @@ t_bootstrap_file_ns_admin_seeds_ns_default_scopes(_) ->
     ?assertEqual(
         ?NS_ADMIN_COMMON_SCOPES,
         read_bootstrap_scopes(<<"from_bootstrap_file_ns_admin">>)
+    ),
+    ok.
+
+-doc """
+A namespaced bootstrap line granting scopes outside `?NS_ADMIN_ALLOWED_SCOPES'
+(`audit`, `gateways`, `publish`) has those scopes dropped; an allowlisted
+scope in the same line is kept (emqx-dev-team-tasks#412).
+""".
+t_bootstrap_file_ns_admin_drops_out_of_allowlist_scopes(_) ->
+    File = "./bootstrap_api_keys.txt",
+    Bin = iolist_to_binary([
+        "from_bootstrap_file_ns_over_grant:secret-ns-over-grant:ns:nsboot2::administrator:",
+        ?SCOPE_AUDIT,
+        ",",
+        ?SCOPE_GATEWAYS,
+        ",",
+        ?SCOPE_PUBLISH,
+        ",",
+        ?SCOPE_CONNECTIONS,
+        "\n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS],
+        read_bootstrap_scopes(<<"from_bootstrap_file_ns_over_grant">>)
     ),
     ok.
 
@@ -1735,6 +1765,68 @@ t_ee_ns_admin_legacy_publish_only_scopes_stay_set(_Config) ->
     ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_PUBLISH]}}, read_app(Name)),
     ?assertEqual(unset, emqx_mgmt_auth:write_scope_intent(NsRole, ?NS_ADMIN_COMMON_SCOPES)),
     delete_app(Name).
+
+-doc """
+POST with an explicit scope list containing `gateways` or `audit` for a
+namespaced role is rejected with 400, mirroring the dashboard login-user
+rule (`?NS_ADMIN_ALLOWED_SCOPES`, emqx-dev-team-tasks#412). An allowlisted
+scope is still accepted.
+""".
+t_ee_ns_key_create_rejects_out_of_allowlist_scopes(_Config) ->
+    NsAdmin = <<"ns:scopes_ns6::administrator">>,
+    assert_400(
+        create_app(<<"EE-NS-GATEWAYS-REJECT">>, #{role => NsAdmin, scopes => [?SCOPE_GATEWAYS]})
+    ),
+    assert_400(
+        create_app(<<"EE-NS-AUDIT-REJECT">>, #{role => NsAdmin, scopes => [?SCOPE_AUDIT]})
+    ),
+    assert_400(
+        create_app(<<"EE-NS-MIXED-REJECT">>, #{
+            role => NsAdmin, scopes => [?SCOPE_CONNECTIONS, ?SCOPE_AUDIT]
+        })
+    ),
+    Name = <<"EE-NS-ALLOWLISTED-OK">>,
+    ?assertMatch(
+        {ok, _},
+        create_app(Name, #{role => NsAdmin, scopes => [?SCOPE_CONNECTIONS]})
+    ),
+    delete_app(Name).
+
+-doc """
+PUT with a changed scope list adding `gateways` or `audit` on a namespaced
+key is rejected with 400 and leaves the record unchanged, even when the
+persisted list already carries the disallowed scope from before this
+allowlist existed (grandfathered legacy record) — changing the list is
+the opportunity to shed the disallowed scopes. A verbatim round-trip of
+the legacy list is still accepted (backward compat).
+""".
+t_ee_ns_key_update_rejects_out_of_allowlist_scopes(_Config) ->
+    Name = <<"EE-NS-UPDATE-NEW-AUDIT">>,
+    NsRole = <<"ns:scopes_ns7::administrator">>,
+    {ok, _} = create_app(Name, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS]}),
+    assert_400(
+        update_app(Name, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS, ?SCOPE_AUDIT]})
+    ),
+    ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_CONNECTIONS]}}, read_app(Name)),
+    %% A legacy key whose persisted list already carries `audit`/`gateways`
+    %% (minted before this allowlist existed) must shed them when changing
+    %% the list, but a verbatim round-trip is grandfathered.
+    Legacy = <<"EE-NS-UPDATE-LEGACY-AUDIT">>,
+    LegacyScopes = [?SCOPE_AUDIT, ?SCOPE_GATEWAYS, ?SCOPE_CONNECTIONS],
+    {ok, _} = emqx_mgmt_auth:create(Legacy, true, infinity, <<"legacy">>, NsRole, LegacyScopes),
+    ?assertMatch({ok, #{<<"scopes">> := LegacyScopes}}, read_app(Legacy)),
+    {ok, RoundTripped} = update_app(Legacy, #{role => NsRole, scopes => LegacyScopes}),
+    ?assertEqual(LegacyScopes, maps:get(<<"scopes">>, RoundTripped)),
+    assert_400(
+        update_app(Legacy, #{
+            role => NsRole, scopes => [?SCOPE_AUDIT, ?SCOPE_GATEWAYS, ?SCOPE_MONITORING]
+        })
+    ),
+    ?assertMatch({ok, #{<<"scopes">> := LegacyScopes}}, read_app(Legacy)),
+    {ok, Updated} = update_app(Legacy, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS]}),
+    ?assertEqual([?SCOPE_CONNECTIONS], maps:get(<<"scopes">>, Updated)),
+    delete_app(Name),
+    delete_app(Legacy).
 
 assert_400_publisher_only(Result) ->
     %% request_api/5 returns {error, {"HTTP/1.1", 400, "Bad Request"}}
