@@ -130,6 +130,52 @@ t_shutdown_reboot(Config) ->
         catch emqx_cth_cluster:stop([Node])
     end.
 
+%% Verify `emqx_machine_boot:stop_apps/0' shuts the readiness gate and stops
+%% the MQTT listeners before it stops the applications, so no client traffic
+%% reaches hook callbacks (e.g. the rule engine) while their state is torn
+%% down. Also verify a second `emqx_listeners:stop/0' (as run again from
+%% `emqx_app:prep_stop/1' when `emqx' itself stops) stays a harmless no-op.
+t_stop_apps_stops_listeners_first(Config) ->
+    [Node] = emqx_cth_cluster:start(
+        [{machine_listeners_SUITE1, #{role => core, apps => app_specs()}}],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    try
+        Port = get_tcp_mqtt_port(Node),
+        %% The listener accepts connections before shutdown.
+        {ok, Sock0} = gen_tcp:connect("127.0.0.1", Port, [], 5000),
+        ok = gen_tcp:close(Sock0),
+        ?check_trace(
+            ok = erpc:call(Node, emqx_machine_boot, stop_apps, []),
+            fun(Trace) ->
+                %% The (first) listener stop must precede the rule engine app stop.
+                Events = [
+                    Event
+                 || #{?snk_kind := Kind} = Event <- Trace,
+                    Kind =:= emqx_listeners_stopped orelse
+                        (Kind =:= machine_stopping_app andalso
+                            maps:get(app, Event) =:= emqx_rule_engine)
+                ],
+                ?assertMatch([#{?snk_kind := emqx_listeners_stopped} | _], Events),
+                %% `emqx_listeners:stop/0' runs a second time when the `emqx'
+                %% application itself is stopped later in the same loop (from
+                %% `emqx_app:prep_stop/1'). Both stops must succeed: each only
+                %% emits `emqx_listeners_stopped' after it completes without error.
+                StoppedEvents = [E || #{?snk_kind := emqx_listeners_stopped} = E <- Trace],
+                ?assertMatch([_, _], StoppedEvents)
+            end
+        ),
+        %% The readiness gate is shut and the listener no longer accepts.
+        ?assertNot(erpc:call(Node, emqx_node_readiness, is_ready, [])),
+        ?assertEqual({error, econnrefused}, gen_tcp:connect("127.0.0.1", Port, [], 5000))
+    after
+        catch emqx_cth_cluster:stop([Node])
+    end.
+
+get_tcp_mqtt_port(Node) ->
+    {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
+
 t_sorted_reboot_apps(_Config) ->
     Apps = emqx_machine_boot:sorted_reboot_apps(),
     SortApps = [App || App <- Apps, (App =:= emqx_dashboard orelse App =:= emqx_license)],
