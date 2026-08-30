@@ -14,6 +14,8 @@
 %% a matter of adding another top-level clause with its own root key, not a rewrite.
 -module(emqx_bridge_v2_cli).
 
+-behaviour(emqx_ctl).
+
 -include_lib("emqx/include/emqx_config.hrl").
 
 -export([load/0, unload/0]).

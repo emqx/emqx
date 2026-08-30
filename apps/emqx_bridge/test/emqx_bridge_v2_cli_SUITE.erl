@@ -67,6 +67,8 @@ t_name_selects_one_action(_Config) ->
     ok = create_connector(conn1, connected),
     ok = create_action(action1, conn1),
     ok = create_action(action2, conn1),
+    _ = force_health_check(?global_ns, action1),
+    _ = force_health_check(?global_ns, action2),
 
     {ok, AllOutput} = capture_ctl(["actions", "status"]),
     ?assertEqual(2, length(emqx_utils_json:decode(AllOutput))),
@@ -89,6 +91,7 @@ t_ns_selects_namespace(_Config) ->
     Namespace = <<"cli_test_ns">>,
     ok = create_connector(Namespace, conn_ns, connected),
     ok = create_action(Namespace, action_ns, conn_ns, #{}),
+    _ = force_health_check(Namespace, action_ns),
 
     {ok, GlobalOutput} = capture_ctl(["actions", "status"]),
     ?assertEqual([], emqx_utils_json:decode(GlobalOutput)),
