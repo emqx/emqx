@@ -23,6 +23,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_prometheus/include/emqx_prometheus.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -310,30 +311,25 @@ t_stats_auth_api(_) ->
 %% counter metric.
 t_listener_shutdown_count(_Config) ->
     ClientId1 = fresh_clientid(?FUNCTION_NAME),
-    {ok, C1} = emqtt:start_link(#{clientid => ClientId1}),
-    {ok, _} = emqtt:connect(C1),
-    ConnectRetry = fun Retry(ClientId) ->
-        {ok, C0} = emqtt:start_link(#{clientid => ClientId}),
-        try emqtt:connect(C0) of
-            {ok, _} -> {ok, C0}
-        catch
-            exit:{shutdown, server_unavailable} ->
-                ct:sleep(1),
-                Retry(ClientId)
-        end
-    end,
+    {ok, C1} = emqtt_connect(ClientId1),
     %% Takeover
     unlink(C1),
-    {ok, C2} = ConnectRetry(ClientId1),
+    {ok, C2} = emqtt_connect(ClientId1),
     %% Kick
     unlink(C2),
     ok = emqx_cm:kick_session(ClientId1),
     %% Normal disconnect
     ClientId2 = fresh_clientid(?FUNCTION_NAME),
-    {ok, C3} = ConnectRetry(ClientId2),
+    {ok, C3} = emqtt_connect(ClientId2),
     ok = emqtt:stop(C3),
+    %% Wait until C3's channel is fully deregistered before reconnecting with the
+    %% same clientid. emqtt:stop/1 closes the socket, but the broker records
+    %% tcp_closed asynchronously when it detects the peer close. If C4's CONNECT
+    %% (same clientid) races ahead of C3's reaping, C4 takes over C3's lingering
+    %% session and the event is miscounted as "discarded" instead of "tcp_closed".
+    ?retry(100, 20, [] = emqx_cm:lookup_channels(ClientId2)),
     %% Disconnect with reason code
-    {ok, C4} = ConnectRetry(ClientId2),
+    {ok, C4} = emqtt_connect(ClientId2),
     ok = emqtt:disconnect(C4, ?RC_IMPLEMENTATION_SPECIFIC_ERROR),
     OnlyDisconnectStats = fun(Stats0) ->
         Stats = lists:filter(
@@ -523,6 +519,24 @@ get_stats(Format, Mode) ->
             emqx_utils_json:decode(Response, [return_maps]);
         prometheus ->
             Response
+    end.
+
+emqtt_connect(ClientId) ->
+    {ok, C0} = emqtt:start_link(#{clientid => ClientId}),
+    %% temp unlink to avoid self (tester) exit due to server_unavailable race
+    unlink(C0),
+    try emqtt:connect(C0) of
+        {ok, _} ->
+            %% link again
+            link(C0),
+            {ok, C0};
+        {error, {server_unavailable, _}} ->
+            ct:sleep(100),
+            emqtt_connect(ClientId)
+    catch
+        exit:{shutdown, server_unavailable} ->
+            ct:sleep(100),
+            emqtt_connect(ClientId)
     end.
 
 fresh_clientid(TestCase) ->
