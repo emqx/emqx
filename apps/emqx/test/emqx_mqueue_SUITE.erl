@@ -143,11 +143,7 @@ t_priority_mqueue(_) ->
 t_priority_mqueue_conservation(_) ->
     true = proper:quickcheck(conservation_prop()).
 
--doc """
-Dequeue order across priority lanes (round-robin with priority-weighted
-credits). max_len is unbounded here so the global cap from t_priority_mqueue
-does not interact with the scheduling being tested.
-""".
+-doc "Dequeue order across priority lanes (round-robin with priority-weighted credits).".
 t_priority_order(_) ->
     Opts = #{
         max_len => 0,
@@ -228,11 +224,7 @@ t_priority_order(_) ->
         drain(Q)
     ).
 
--doc """
-Same as t_priority_order/1, with a different shift_multiplier and negative
-priorities. max_len is unbounded so the scheduling test is not affected by
-the global cap.
-""".
+-doc "Dequeue order with a different shift_multiplier and negative priorities.".
 t_priority_order2(_) ->
     Opts = #{
         max_len => 0,
@@ -372,12 +364,7 @@ t_max_len_bounds_total_not_per_priority(_) ->
     %% survive at the expense of a higher-priority one.
     ?assert(lists:any(fun(#message{topic = T}) -> T =:= <<"t5">> end, ?Q:to_list(Q))).
 
--doc """
-The message dropped when the queue is full comes from the lowest-priority
-non-empty lane, even when the incoming message's own lane was empty before
-this enqueue (so a naive "drop from the incoming lane" rule would have
-dropped the message just enqueued, or refused it, instead).
-""".
+-doc "The dropped message comes from the lowest-priority non-empty lane.".
 t_drop_from_lowest_priority_lane(_) ->
     Opts = #{
         max_len => 4,

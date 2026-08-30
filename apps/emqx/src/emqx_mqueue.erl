@@ -319,8 +319,7 @@ in(
             %% non-empty lane, so a lower-priority message never survives at the
             %% expense of a higher-priority one. This may not be the lane the
             %% incoming message was just added to.
-            DropPrio = emqx_pqueue:lowest(Q1),
-            {{value, DroppedMsg}, Q2} = emqx_pqueue:drop(DropPrio, Q1),
+            {{value, DroppedMsg}, Q2} = emqx_pqueue:drop_lowest(Q1),
             PayloadBytes1 =
                 PayloadBytes - emqx_message:payload_size(DroppedMsg) +
                     emqx_message:payload_size(Msg1),
