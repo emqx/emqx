@@ -35,15 +35,25 @@ json_status() {
     fi
 }
 
-## Check if the API docs are available
+## Check if the API docs are available.
+## The dashboard serves /status from the initial dispatch and installs the
+## API routes later, so /api-docs can still return 404 here.
 check_api_docs() {
     local url="$BASE_URL/api-docs/index.html"
+    local attempts=30
     local status
-    status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
-    if [ "$status" != "200" ]; then
-        echo "emqx return non-200 responses($status) on $url"
-        exit 1
-    fi
+    while true; do
+        status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
+        if [ "$status" = "200" ]; then
+            return 0
+        fi
+        if [ $attempts -eq 0 ]; then
+            echo "emqx return non-200 responses($status) on $url"
+            exit 1
+        fi
+        sleep 1
+        attempts=$((attempts-1))
+    done
 }
 
 ## Check if the swagger.json contains hidden fields
