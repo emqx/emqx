@@ -287,6 +287,144 @@ t_authenticate_jwt_time_validation(_Config) ->
         emqx_nats_authn:authenticate(#{<<"jwt">> => <<"invalid-jwt">>}, #{}, #{}, Authn)
     ).
 
+t_authenticate_jwt_account_claims_validation(_Config) ->
+    Now = now_seconds(),
+    UserJWT = build_test_jwt(#{}),
+    ExpiredAccountAuthn = jwt_conf_with_account_claims(#{<<"exp">> => Now - 10}),
+    FutureAccountAuthn = jwt_conf_with_account_claims(#{<<"nbf">> => Now + 3600}),
+    RevokedUserAccountAuthn = jwt_conf_with_account_claims(#{
+        <<"nats">> => #{<<"revocations">> => #{nkey_pub() => Now + 1}}
+    }),
+    RevokedAllAccountAuthn = jwt_conf_with_account_claims(#{
+        <<"nats">> => #{<<"revocations">> => #{<<"*">> => Now + 1}}
+    }),
+    UnknownRevocationKeyAccountAuthn = jwt_conf_with_account_claims(#{
+        <<"nats">> => #{<<"revocations">> => #{<<"unknown-key">> => Now}}
+    }),
+    MalformedRevocationTypeAuthn = jwt_conf_with_account_claims(#{
+        <<"nats">> => #{<<"revocations">> => <<"invalid">>}
+    }),
+    MalformedRevocationAuthn = jwt_conf_with_account_claims(#{
+        <<"nats">> => #{<<"revocations">> => #{nkey_pub() => <<"invalid">>}}
+    }),
+    Fixture = jwt_fixture(),
+    EmptyAccountJWTAuthn = jwt_conf(#{
+        resolver => #{
+            type => memory,
+            resolver_preload => [
+                #{pubkey => maps:get(account_nkey, Fixture), jwt => <<>>}
+            ]
+        }
+    }),
+    LowercaseSubjectJWT = build_test_jwt(#{
+        <<"sub">> => string:lowercase(nkey_pub())
+    }),
+    ReissuedUserJWT = build_test_jwt(#{<<"iat">> => Now + 2}),
+    InvalidIssuedAtJWT = build_test_jwt(#{<<"iat">> => <<"invalid">>}),
+    UserExp = Now + 120,
+    AccountExp = Now + 60,
+    ExpiringUserJWT = build_test_jwt(#{<<"exp">> => UserExp}),
+    ExpiringAccountAuthn = jwt_conf_with_account_claims(#{<<"exp">> => AccountExp}),
+
+    ?assertEqual(ok, emqx_nats_authn:validate_jwt_config(ExpiredAccountAuthn)),
+    ?assertEqual(ok, emqx_nats_authn:validate_jwt_config(FutureAccountAuthn)),
+    {error, MalformedRevocationConfigHint} =
+        emqx_nats_authn:validate_jwt_config(MalformedRevocationAuthn),
+    assert_binary_contains(MalformedRevocationConfigHint, maps:get(account_nkey, Fixture)),
+    assert_binary_contains(MalformedRevocationConfigHint, nkey_pub()),
+    assert_binary_contains(MalformedRevocationConfigHint, <<"must be an integer">>),
+    {error, UnknownRevocationKeyConfigHint} =
+        emqx_nats_authn:validate_jwt_config(UnknownRevocationKeyAccountAuthn),
+    assert_binary_contains(UnknownRevocationKeyConfigHint, <<"unknown-key">>),
+    ?assertEqual(
+        {error, <<"resolver_preload[1]: invalid account JWT entry">>},
+        emqx_nats_authn:validate_jwt_config(EmptyAccountJWTAuthn)
+    ),
+
+    ?assertEqual(
+        {error, {jwt, account_jwt_expired}},
+        emqx_nats_authn:authenticate(
+            #{<<"jwt">> => UserJWT},
+            #{},
+            #{},
+            mk_authn_ctx(undefined, [], ExpiredAccountAuthn, false)
+        )
+    ),
+    ?assertEqual(
+        {error, {jwt, account_jwt_not_before}},
+        emqx_nats_authn:authenticate(
+            #{<<"jwt">> => UserJWT},
+            #{},
+            #{},
+            mk_authn_ctx(undefined, [], FutureAccountAuthn, false)
+        )
+    ),
+    ?assertEqual(
+        {error, {jwt, jwt_revoked}},
+        emqx_nats_authn:authenticate(
+            #{<<"jwt">> => UserJWT},
+            #{},
+            #{},
+            mk_authn_ctx(undefined, [], RevokedUserAccountAuthn, false)
+        )
+    ),
+    ?assertEqual(
+        {error, {jwt, jwt_revoked}},
+        emqx_nats_authn:authenticate(
+            #{<<"jwt">> => UserJWT},
+            #{},
+            #{},
+            mk_authn_ctx(undefined, [], RevokedAllAccountAuthn, false)
+        )
+    ),
+    ?assertEqual(
+        {error, {jwt, jwt_revoked}},
+        emqx_nats_authn:authenticate(
+            #{<<"jwt">> => LowercaseSubjectJWT},
+            #{},
+            #{},
+            mk_authn_ctx(undefined, [], RevokedUserAccountAuthn, false)
+        )
+    ),
+    ?assertEqual(
+        {error, {jwt, jwt_revoked}},
+        emqx_nats_authn:authenticate(
+            #{<<"jwt">> => InvalidIssuedAtJWT},
+            #{},
+            #{},
+            mk_authn_ctx(undefined, [], RevokedUserAccountAuthn, false)
+        )
+    ),
+    {error, {jwt, MalformedRevocationHint}} = emqx_nats_authn:authenticate(
+        #{<<"jwt">> => UserJWT},
+        #{},
+        #{},
+        mk_authn_ctx(undefined, [], MalformedRevocationAuthn, false)
+    ),
+    assert_binary_contains(MalformedRevocationHint, nkey_pub()),
+    assert_binary_contains(MalformedRevocationHint, <<"must be an integer">>),
+    ?assertEqual(
+        {error, {jwt, <<"account JWT nats.revocations must be a map">>}},
+        emqx_nats_authn:authenticate(
+            #{<<"jwt">> => UserJWT},
+            #{},
+            #{},
+            mk_authn_ctx(undefined, [], MalformedRevocationTypeAuthn, false)
+        )
+    ),
+    {error, {jwt, UnknownRevocationKeyHint}} =
+        authenticate_test_jwt(UserJWT, UnknownRevocationKeyAccountAuthn),
+    assert_binary_contains(UnknownRevocationKeyHint, <<"unknown-key">>),
+    ?assertMatch(
+        {ok, _},
+        authenticate_test_jwt(ReissuedUserJWT, RevokedUserAccountAuthn)
+    ),
+    {ok, Result} = authenticate_test_jwt(ExpiringUserJWT, ExpiringAccountAuthn),
+    ?assertEqual(
+        erlang:convert_time_unit(AccountExp, second, millisecond),
+        maps:get(auth_expire_at, Result)
+    ).
+
 t_authenticate_jwt_signature_and_trust_chain_validation(_Config) ->
     Authn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     ValidJWT = build_test_jwt(#{}),
@@ -780,6 +918,39 @@ jwt_conf(Overrides) ->
         Overrides
     ).
 
+jwt_conf_with_account_claims(AccountClaims) ->
+    Fixture = jwt_fixture(),
+    jwt_conf(#{
+        resolver => #{
+            type => memory,
+            resolver_preload => [
+                #{
+                    pubkey => maps:get(account_nkey, Fixture),
+                    jwt => build_account_jwt(
+                        maps:get(operator_nkey, Fixture),
+                        maps:get(account_nkey, Fixture),
+                        AccountClaims
+                    )
+                }
+            ]
+        }
+    }).
+
+authenticate_test_jwt(JWT, JWTConf) ->
+    Nonce = <<"nonce-jwt-account-claims">>,
+    emqx_nats_authn:authenticate(
+        #{
+            <<"jwt">> => JWT,
+            <<"sig">> => nkey_sig(Nonce)
+        },
+        #{nkey_nonce => Nonce},
+        #{username => undefined},
+        mk_authn_ctx(undefined, [], JWTConf, false)
+    ).
+
+assert_binary_contains(Haystack, Needle) ->
+    ?assertNotEqual(nomatch, binary:match(Haystack, Needle)).
+
 build_test_jwt(Claims) ->
     Fixture = jwt_fixture(),
     DefaultClaims = #{
@@ -832,6 +1003,9 @@ jwt_fixture() ->
     }.
 
 build_account_jwt(OperatorNKey, AccountNKey) ->
+    build_account_jwt(OperatorNKey, AccountNKey, #{}).
+
+build_account_jwt(OperatorNKey, AccountNKey, ExtraClaims) ->
     Claims = #{
         <<"iss">> => OperatorNKey,
         <<"sub">> => AccountNKey,
@@ -841,7 +1015,7 @@ build_account_jwt(OperatorNKey, AccountNKey) ->
             <<"version">> => 2
         }
     },
-    sign_jwt(Claims, jwt_operator_priv()).
+    sign_jwt(emqx_utils_maps:deep_merge(Claims, ExtraClaims), jwt_operator_priv()).
 
 operator_nkey() ->
     public_nkey(?NKEY_OPERATOR_PREFIX, jwt_operator_priv()).

@@ -9,7 +9,8 @@
     is_auth_required/2,
     ensure_nkey_nonce/2,
     maybe_add_nkey_nonce/2,
-    authenticate/4
+    authenticate/4,
+    validate_jwt_config/1
 ]).
 
 -ifdef(TEST).
@@ -193,11 +194,11 @@ jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Method) ->
     maybe
         {ok, JWTToken = #{claims := Claims}} ?= decode_jwt(JWT),
         JWTConfig = maps:get(config, Method, #{}),
-        ok ?= verify_jwt_signature_chain(JWTToken, JWTConfig),
+        {ok, AccountClaims} ?= verify_jwt_signature_chain(JWTToken, JWTConfig),
         ok ?= verify_jwt_claims_time(Claims),
         {ok, Username} ?= verify_jwt_nonce_signature(Claims, NKey, Sig, ConnInfo),
         JWTPerms = extract_jwt_permissions(Claims),
-        AuthExpireAt = jwt_claim_expire_at(Claims),
+        AuthExpireAt = jwt_claims_expire_at([Claims, AccountClaims]),
         {ok, ClientInfo#{
             username => Username,
             password => undefined,
@@ -207,6 +208,52 @@ jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Method) ->
             jwt_permissions => JWTPerms,
             auth_expire_at => AuthExpireAt
         }}
+    end.
+
+-spec validate_jwt_config(map()) -> ok | {error, binary()}.
+validate_jwt_config(Config) ->
+    Resolver = map_get_any(Config, [resolver, <<"resolver">>], #{}),
+    Preload = map_get_any(Resolver, [resolver_preload, <<"resolver_preload">>], []),
+    validate_jwt_resolver_preload(Preload, Config, 1).
+
+validate_jwt_resolver_preload([Entry | Rest], Config, Index) ->
+    case normalize_resolver_preload_entry(Entry) of
+        {ok, {AccountPubKey, AccountJWT}} ->
+            case validate_configured_account_jwt(AccountPubKey, AccountJWT, Config) of
+                ok ->
+                    validate_jwt_resolver_preload(Rest, Config, Index + 1);
+                {error, Reason} ->
+                    {error, account_jwt_config_hint(Index, AccountPubKey, Reason)}
+            end;
+        error ->
+            {error,
+                iolist_to_binary(
+                    io_lib:format("resolver_preload[~B]: invalid account JWT entry", [Index])
+                )}
+    end;
+validate_jwt_resolver_preload([], _Config, _Index) ->
+    ok;
+validate_jwt_resolver_preload(_Preload, _Config, _Index) ->
+    {error, <<"resolver_preload must be a list">>}.
+
+account_jwt_config_hint(Index, AccountPubKey, Reason) ->
+    iolist_to_binary(
+        io_lib:format(
+            "resolver_preload[~B] account ~ts: ~ts",
+            [Index, AccountPubKey, error_hint(Reason)]
+        )
+    ).
+
+error_hint(Hint) when is_binary(Hint) ->
+    Hint;
+error_hint(Reason) ->
+    iolist_to_binary(io_lib:format("~0p", [Reason])).
+
+validate_configured_account_jwt(AccountPubKey, AccountJWT, Config) ->
+    maybe
+        {ok, AccountClaims} ?= verify_jwt_account_token(AccountPubKey, AccountJWT, Config),
+        {ok, _Revocations} ?= normalized_jwt_revocations(AccountClaims),
+        ok
     end.
 
 verify_jwt_nonce_signature(Claims, NKey, Sig, ConnInfo) ->
@@ -300,6 +347,7 @@ verify_jwt_signature_chain(#{claims := Claims} = UserToken, Config) ->
         {ok, AccountJWT} ?= jwt_account_jwt(Config, AccountPubKey),
         verify_jwt_account_chain(
             UserToken,
+            Claims,
             UserIssuer,
             AccountPubKey,
             AccountJWT,
@@ -307,7 +355,17 @@ verify_jwt_signature_chain(#{claims := Claims} = UserToken, Config) ->
         )
     end.
 
-verify_jwt_account_chain(UserToken, UserIssuer, AccountPubKey, AccountJWT, Config) ->
+verify_jwt_account_chain(UserToken, UserClaims, UserIssuer, AccountPubKey, AccountJWT, Config) ->
+    maybe
+        {ok, AccountClaims} ?= verify_jwt_account_token(AccountPubKey, AccountJWT, Config),
+        ok ?= verify_account_jwt_claims_time(AccountClaims),
+        ok ?= verify_jwt_user_revocation(UserClaims, AccountClaims),
+        ok ?= verify_jwt_user_issuer_allowed(UserIssuer, AccountPubKey, AccountClaims),
+        ok ?= verify_jwt_token_signature(UserToken, UserIssuer),
+        {ok, AccountClaims}
+    end.
+
+verify_jwt_account_token(AccountPubKey, AccountJWT, Config) ->
     maybe
         {ok, AccountToken = #{claims := AccountClaims}} ?= decode_jwt_account(AccountJWT),
         ok ?= verify_jwt_account_token_alg(AccountToken),
@@ -315,8 +373,7 @@ verify_jwt_account_chain(UserToken, UserIssuer, AccountPubKey, AccountJWT, Confi
         {ok, OperatorPubKey} ?= jwt_claim_account_issuer(AccountClaims),
         ok ?= verify_jwt_operator_trusted(OperatorPubKey, Config),
         ok ?= verify_jwt_token_signature(AccountToken, OperatorPubKey),
-        ok ?= verify_jwt_user_issuer_allowed(UserIssuer, AccountPubKey, AccountClaims),
-        verify_jwt_token_signature(UserToken, UserIssuer)
+        {ok, AccountClaims}
     end.
 
 ensure_jwt_trusted_operators(Config) ->
@@ -500,6 +557,112 @@ verify_jwt_claims_time(Claims) ->
             Error
     end.
 
+verify_jwt_user_revocation(UserClaims, AccountClaims) ->
+    maybe
+        {ok, UserSubject} ?= jwt_claim_sub(UserClaims),
+        UserIssuedAt = map_get(UserClaims, <<"iat">>, undefined),
+        {ok, Revocations} ?= normalized_jwt_revocations(AccountClaims),
+        RevocationAt = max_revocation_time(
+            map_get_any(Revocations, [UserSubject], undefined),
+            map_get_any(Revocations, [<<"*">>], undefined)
+        ),
+        verify_jwt_revocation_time(UserIssuedAt, RevocationAt)
+    end.
+
+max_revocation_time(UserRevocationAt, AllUsersRevocationAt) ->
+    case {revocation_time(UserRevocationAt), revocation_time(AllUsersRevocationAt)} of
+        {undefined, undefined} ->
+            undefined;
+        {UserAt, undefined} ->
+            UserAt;
+        {undefined, AllAt} ->
+            AllAt;
+        {UserAt, AllAt} ->
+            max(UserAt, AllAt)
+    end.
+
+revocation_time(Value) when is_integer(Value) ->
+    Value;
+revocation_time(_) ->
+    undefined.
+
+verify_jwt_revocation_time(_IssuedAt, undefined) ->
+    ok;
+verify_jwt_revocation_time(IssuedAt, RevocationAt) when is_number(IssuedAt) ->
+    case IssuedAt =< RevocationAt of
+        true -> {error, jwt_revoked};
+        false -> ok
+    end;
+verify_jwt_revocation_time(_IssuedAt, _RevocationAt) ->
+    {error, jwt_revoked}.
+
+normalized_jwt_revocations(AccountClaims) ->
+    case map_get_any(AccountClaims, [<<"nats">>, nats], undefined) of
+        undefined ->
+            {ok, #{}};
+        NATSClaims when is_map(NATSClaims) ->
+            case map_get_any(NATSClaims, [<<"revocations">>, revocations], undefined) of
+                undefined ->
+                    {ok, #{}};
+                Revocations when is_map(Revocations) ->
+                    normalize_revocation_map(Revocations);
+                _ ->
+                    {error, <<"account JWT nats.revocations must be a map">>}
+            end;
+        _ ->
+            {error, <<"account JWT nats must be a map">>}
+    end.
+
+normalize_revocation_map(Revocations) ->
+    maps:fold(
+        fun
+            (Key, Value, {ok, Acc}) ->
+                case normalize_revocation_key(Key) of
+                    {ok, NormalizedKey} when is_integer(Value) ->
+                        {ok, Acc#{NormalizedKey => Value}};
+                    error ->
+                        {error,
+                            iolist_to_binary(
+                                io_lib:format("invalid account JWT revocation key: ~0p", [Key])
+                            )};
+                    {ok, _NormalizedKey} ->
+                        {error,
+                            iolist_to_binary(
+                                io_lib:format(
+                                    "account JWT revocation timestamp for key ~0p must be an integer",
+                                    [Key]
+                                )
+                            )}
+                end;
+            (_Key, _Value, Error) ->
+                Error
+        end,
+        {ok, #{}},
+        Revocations
+    ).
+
+normalize_revocation_key(<<"*">>) ->
+    {ok, <<"*">>};
+normalize_revocation_key(Key) when is_binary(Key) ->
+    case emqx_nats_nkey:decode_public(Key) of
+        {ok, _} ->
+            {ok, emqx_nats_nkey:normalize(Key)};
+        _ ->
+            error
+    end;
+normalize_revocation_key(_Key) ->
+    error.
+
+verify_account_jwt_claims_time(AccountClaims) ->
+    case verify_jwt_claims_time(AccountClaims) of
+        ok ->
+            ok;
+        {error, jwt_expired} ->
+            {error, account_jwt_expired};
+        {error, jwt_not_before} ->
+            {error, account_jwt_not_before}
+    end.
+
 verify_jwt_exp(Claims, Now) ->
     case map_get(Claims, <<"exp">>, undefined) of
         undefined ->
@@ -532,6 +695,18 @@ jwt_claim_expire_at(Claims) ->
             erlang:convert_time_unit(trunc(Exp), second, millisecond);
         _ ->
             undefined
+    end.
+
+jwt_claims_expire_at(ClaimsList) ->
+    case lists:filtermap(fun claim_expire_at/1, ClaimsList) of
+        [] -> undefined;
+        ExpireAts -> lists:min(ExpireAts)
+    end.
+
+claim_expire_at(Claims) ->
+    case jwt_claim_expire_at(Claims) of
+        undefined -> false;
+        ExpireAt -> {true, ExpireAt}
     end.
 
 extract_jwt_permissions(Claims) ->
