@@ -458,79 +458,60 @@ t_client_attr_from_user_property(_Config) ->
 
 t_sock_closed_reason_normal(_) ->
     ProtoVers = [v3, v4, v5],
-    ClientId = atom_to_binary(?FUNCTION_NAME),
     [
-        ?check_trace(
-            begin
-                C = connect_retry_busy([{proto_ver, Ver}, {clientid, ClientId}]),
-                ?wait_async_action(
-                    emqtt:disconnect(C),
-                    #{?snk_kind := sock_closed_normal},
-                    5_000
-                )
-            end,
-            fun(Trace0) ->
-                ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
-                ok
-            end
-        )
+        begin
+            ClientId = per_version_clientid(?FUNCTION_NAME, Ver),
+            ?check_trace(
+                begin
+                    {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
+                    {ok, _} = emqtt:connect(C),
+                    ?wait_async_action(
+                        emqtt:disconnect(C),
+                        #{?snk_kind := sock_closed_normal},
+                        5_000
+                    )
+                end,
+                fun(Trace0) ->
+                    ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
+                    ok
+                end
+            )
+        end
      || Ver <- ProtoVers
     ].
 
-%% Reconnecting the same clientid can be refused while the previous channel is
-%% still being cleaned up (emqx_cm throttles registration until then).
-connect_retry_busy(Opts) ->
-    connect_retry_busy(Opts, 20).
-
-connect_retry_busy(Opts, 0) ->
-    {ok, C} = emqtt:start_link(Opts),
-    {ok, _} = emqtt:connect(C),
-    C;
-connect_retry_busy(Opts, N) ->
-    {ok, C} = emqtt:start_link(Opts),
-    unlink(C),
-    try emqtt:connect(C) of
-        {ok, _} ->
-            link(C),
-            C;
-        {error, {Reason, _}} when Reason =:= server_busy; Reason =:= server_unavailable ->
-            _ = exit(C, kill),
-            timer:sleep(100),
-            connect_retry_busy(Opts, N - 1);
-        {error, Reason} ->
-            _ = exit(C, kill),
-            error(Reason)
-    catch
-        exit:{shutdown, Reason} when Reason =:= server_busy; Reason =:= server_unavailable ->
-            timer:sleep(100),
-            connect_retry_busy(Opts, N - 1)
-    end.
-
 t_sock_closed_force_closed_by_client(_) ->
     ProtoVers = [v3, v4, v5],
-    ClientId = atom_to_binary(?FUNCTION_NAME),
     process_flag(trap_exit, true),
     [
-        ?check_trace(
-            begin
-                {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
-                {ok, _} = emqtt:connect(C),
-                ?wait_async_action(
-                    exit(C, kill),
-                    #{?snk_kind := sock_closed_with_other_reason},
-                    5_000
-                )
-            end,
-            fun(Trace0) ->
-                ?assertMatch(
-                    [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
-                ),
-                ok
-            end
-        )
+        begin
+            ClientId = per_version_clientid(?FUNCTION_NAME, Ver),
+            ?check_trace(
+                begin
+                    {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
+                    {ok, _} = emqtt:connect(C),
+                    ?wait_async_action(
+                        exit(C, kill),
+                        #{?snk_kind := sock_closed_with_other_reason},
+                        5_000
+                    )
+                end,
+                fun(Trace0) ->
+                    ?assertMatch(
+                        [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
+                    ),
+                    ok
+                end
+            )
+        end
      || Ver <- ProtoVers
     ],
     process_flag(trap_exit, false).
+
+%% A fresh clientid per protocol version: reusing one would be refused while the
+%% previous channel is still being cleaned up.
+per_version_clientid(Case, Ver) ->
+    <<(atom_to_binary(Case))/binary, "-", (atom_to_binary(Ver))/binary>>.
 
 t_clientid_override(_) ->
     emqx_logger:set_log_level(debug),
