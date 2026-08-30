@@ -566,7 +566,7 @@ takeover_delayed_willmsg_no_session(Case, Config, ConnProps) ->
     {ok, _, [?QOS_1]} = emqtt:subscribe(CPidSub, WillTopic, ?QOS_1),
     %% WHEN: the session is taken over.
     CPid2 = start_connect_client(ClientId, ClientOpts),
-    assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
+    assert_client_exit(CPid1, takenover, Config),
     %% THEN: the old session ended at the takeover, so the new connection
     %% starts a fresh session.
     ?assertEqual(0, proplists:get_value(session_present, emqtt:info(CPid2))),
@@ -615,7 +615,7 @@ t_takeover_kick_delayed_willmsg_session_expiry0(Config) ->
     %% WHEN: the channel is kicked the way a durable-session takeover
     %%       steps down the old channel.
     ok = emqx_cm:takeover_kick(ClientId),
-    assert_client_exit(CPid, v5, takenover),
+    assert_client_exit(CPid, takenover, Config),
     %% THEN: the session ended at the kick, so the will message is
     %% published without waiting for the will delay interval.
     ?assertReceive(
@@ -1112,6 +1112,23 @@ start_client_subscribe(Ctx, ClientId, Topic, Qos, Opts) ->
     {ok, _} = emqtt:connect(CPid),
     {ok, _, [Qos]} = emqtt:subscribe(CPid, Topic, Qos),
     Ctx#{client => [CPid | maps:get(client, Ctx, [])]}.
+
+%% Start a client, connect it, and retry a busy broker.  Built on
+%% `start_unlink_client/2' so the caller gets the monitor that
+%% `assert_client_exit/3' asserts on; unlike the dev-62 original this must
+%% not re-link, or the expected client exit would kill the test process.
+start_connect_client(ClientId, Opts) ->
+    CPid = start_unlink_client(ClientId, Opts),
+    case emqtt:connect(CPid) of
+        {ok, _} ->
+            CPid;
+        {error, {server_busy, _}} ->
+            ct:pal("server busy, clientid=~s retry connect after delay", [ClientId]),
+            timer:sleep(10),
+            start_connect_client(ClientId, Opts);
+        {error, Reason} ->
+            error(Reason)
+    end.
 
 start_unlink_client(ClientId, Opts) ->
     {ok, CPid} = emqtt:start_link([{clientid, ClientId} | Opts]),
