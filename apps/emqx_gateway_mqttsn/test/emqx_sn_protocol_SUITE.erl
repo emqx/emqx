@@ -233,26 +233,32 @@ t_auth_expire(_) ->
         emqx_access_control,
         authenticate,
         fun(_) ->
-            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 500}}
+            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 100}}
         end
     ),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
 
-    ?assertWaitEvent(
-        begin
-            {ok, Socket} = gen_udp:open(0, [binary]),
-            send_connect_msg(Socket, <<"client_id_test1">>),
-            ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
-
-            ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
-            gen_udp:close(Socket)
-        end,
+    {ok, {ok, Event}} =
+        ?wait_async_action(
+            begin
+                {ok, Socket} = gen_udp:open(0, [binary]),
+                send_connect_msg(Socket, ClientId),
+                ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+                ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+                gen_udp:close(Socket)
+            end,
+            #{?snk_kind := conn_process_terminated},
+            15_000
+        ),
+    ?assertMatch(
         #{
             ?snk_kind := conn_process_terminated,
-            clientid := <<"client_id_test1">>,
+            clientid := ClientId,
             reason := {shutdown, expired}
         },
-        5000
-    ).
+        Event
+    ),
+    meck:unload().
 
 t_first_disconnect(_) ->
     SockName = {'mqttsn:udp:default', 1884},
