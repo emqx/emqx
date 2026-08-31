@@ -65,6 +65,7 @@ init_per_testcase(t_bad_response = TestCase, TCConfig) ->
     init_per_testcase(common, [{tc_apps, TCApps} | TCConfig]);
 init_per_testcase(_TestCase, TCConfig) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
+    {ok, _} = emqx:update_config([authorization, include_mountpoint], true),
     ok = emqx_authz_test_lib:reset_node_cache(),
     HTTPPort = emqx_common_test_helpers:select_free_port(tcp),
     {ok, _} = emqx_utils_http_test_server:start_link(HTTPPort, ?HTTP_PATH),
@@ -224,7 +225,7 @@ t_query_params(TCConfig) ->
                 peerhost := <<"127.0.0.1">>,
                 proto_name := <<"MQTT">>,
                 mountpoint := <<"MOUNTPOINT">>,
-                topic := <<"t/1">>,
+                topic := <<"MOUNTPOINTt/1">>,
                 action := <<"publish">>,
                 access := <<"2">>,
                 qos := <<"1">>,
@@ -294,7 +295,7 @@ t_path(TCConfig) ->
                     "127.0.0.1/"
                     "MQTT/"
                     "MOUNTPOINT/"
-                    "t%2F1/"
+                    "MOUNTPOINTt%2F1/"
                     "publish/"
                     "2/"
                     "1/"
@@ -358,7 +359,7 @@ t_json_body(TCConfig) ->
                     <<"peerhost">> := <<"127.0.0.1">>,
                     <<"proto_name">> := <<"MQTT">>,
                     <<"mountpoint">> := <<"MOUNTPOINT">>,
-                    <<"topic">> := <<"t">>,
+                    <<"topic">> := <<"MOUNTPOINTt">>,
                     <<"action">> := <<"publish">>,
                     <<"access">> := <<"2">>,
                     <<"qos">> := <<"1">>,
@@ -423,7 +424,7 @@ t_placeholder_and_body(TCConfig) ->
                         <<"peerport">> := <<"1883">>,
                         <<"proto_name">> := <<"MQTT">>,
                         <<"mountpoint">> := <<"MOUNTPOINT">>,
-                        <<"topic">> := <<"t">>,
+                        <<"topic">> := <<"MOUNTPOINTt">>,
                         <<"action">> := <<"publish">>,
                         <<"access">> := <<"2">>,
                         <<"the_group">> := <<"g1">>,

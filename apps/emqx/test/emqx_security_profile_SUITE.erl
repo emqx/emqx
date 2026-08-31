@@ -103,6 +103,16 @@ assert_policies(legacy) ->
     ?assertEqual(true, emqx_security_profile:policy(authn_builtin_accept_weak_password_hash)),
     ?assertEqual(
         false, emqx_security_profile:policy(authn_mnesia_mt_user_conflict_protection)
+    ),
+    ?assertEqual(false, emqx_security_profile:policy(authz_default_include_mountpoint)),
+    ?assertMatch(
+        #{authorization := #{include_mountpoint := false}},
+        hocon_tconf:check_plain(
+            emqx_schema,
+            #{<<"authorization">> => #{}},
+            #{atom_key => true, required => false},
+            [authorization]
+        )
     );
 assert_policies(hardened) ->
     ?assertEqual(deny, emqx_security_profile:policy(authn_backend_failure)),
@@ -121,6 +131,16 @@ assert_policies(hardened) ->
     ?assertEqual(false, emqx_security_profile:policy(authn_builtin_accept_weak_password_hash)),
     ?assertEqual(
         true, emqx_security_profile:policy(authn_mnesia_mt_user_conflict_protection)
+    ),
+    ?assertEqual(true, emqx_security_profile:policy(authz_default_include_mountpoint)),
+    ?assertMatch(
+        #{authorization := #{include_mountpoint := true}},
+        hocon_tconf:check_plain(
+            emqx_schema,
+            #{<<"authorization">> => #{}},
+            #{atom_key => true, required => false},
+            [authorization]
+        )
     ).
 
 assert_default_binds(Profile) ->
