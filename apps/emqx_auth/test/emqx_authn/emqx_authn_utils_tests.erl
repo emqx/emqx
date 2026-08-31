@@ -72,10 +72,17 @@ client_attrs_value_types_test_() ->
                 })
             )
         end},
-        {"an iolist value is flattened", fun() ->
+        {"a list value is dropped rather than flattened", fun() ->
+            %% Backends return text as a binary. A list is more likely a
+            %% driver returning a column as a list of integers, which
+            %% `iolist_to_binary/1' would render as arbitrary bytes.
             ?assertEqual(
-                #{<<"sn">> => <<"abc">>},
+                #{},
                 ?ATTRS(#{<<"client_attrs.sn">> => ["a", <<"b">>, $c]})
+            ),
+            ?assertEqual(
+                #{},
+                ?ATTRS(#{<<"client_attrs.sn">> => [103, 111, 108, 100]})
             )
         end},
         {"a NULL column is dropped, not turned into a string", fun() ->
