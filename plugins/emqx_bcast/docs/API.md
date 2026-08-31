@@ -59,7 +59,7 @@ curl -u "<api_key>:<api_secret>" \
 
 Publishes messages to a specified list of devices, up to 10,000 per call (configurable). Supports `MessageContent` or `MessageId` (mutually exclusive) for specifying the message body.
 
-> Messages are delivered directly to the target client processes via internal channels, bypassing subscription state and ACL checks.
+> Messages are delivered directly to the target client processes via internal channels, bypassing ACL checks. Delivery is gated by the device's MQTT subscription: a device that is not subscribed to the delivery topic does not receive the message.
 
 > Delivery is asynchronous: a `200` response means the request was accepted, not that all devices have received the message. For QoS=1, messages to offline devices are stored on core and delivered when the device reconnects.
 
@@ -70,7 +70,7 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 | `DeviceName` | [String] | Yes | Target device list, max 10,000 (configurable), must not contain duplicates |
 | `MessageContent` | String | Conditional | Base64-encoded, max 10 KiB binary (API input limit: 13,656 characters). Mutually exclusive with `MessageId` |
 | `MessageId` | String | Conditional | UUID v4 format. Mutually exclusive with `MessageContent` |
-| `Qos` | Integer | No | 0 (default, online only) or 1 (online + offline storage, 15-day TTL) |
+| `Qos` | Integer | No | 0 (default, online only) or 1 (online + offline storage, TTL = `msg_ttl`, default 15 days) |
 | `TopicShortName` | String | No | Custom topic suffix |
 | `TopicTemplateName` | String | No | Custom topic template. Higher priority than `TopicShortName` |
 
@@ -79,7 +79,7 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 | QoS | Online Devices | Offline Devices | Storage | ACK Tracking |
 |-----|---------------|-----------------|---------|-------------|
 | 0 | Deliver | Skip | None | None |
-| 1 | Deliver + wait PUBACK | Store, replay on reconnect | 15-day TTL | Counter ≥ target_ack_count then delete |
+| 1 | Deliver + wait PUBACK | Store, replay on reconnect | TTL = `msg_ttl` (default 15 days) | Counter ≥ target_ack_count then delete |
 
 ```json
 // Request (inline MessageContent)
@@ -114,7 +114,7 @@ curl -u "<api_key>:<api_secret>" -X POST "http://127.0.0.1:18083/api/v5/plugin_a
 
 **Topic Priority** (BatchPub only):
 
-1. `TopicTemplateName` (API parameter) -- used directly, placeholder `${deviceName}` is expanded
+1. `TopicTemplateName` (API parameter) -- used directly, placeholders `${productKey}` and `${deviceName}` are expanded
 2. `TopicShortName` (API parameter) -- appended to `/${productKey}/${deviceName}/user/${TopicShortName}`
 3. Plugin config `batch_topic` template (default)
 
@@ -134,7 +134,7 @@ Pre-registers a message or refreshes an existing message's TTL. `MessageContent`
 
 | Input | Behavior | Response MessageId |
 |-------|----------|--------------------|
-| `MessageContent` (first) | Create message, TTL = now + 15d | New UUID v4 |
+| `MessageContent` (first) | Create message, TTL = now + `msg_ttl` (default 15d) | New UUID v4 |
 | `MessageContent` (duplicate) | Content dedup, refresh TTL | Existing UUID v4 |
 | `MessageId` | Refresh TTL | Same UUID v4 |
 
@@ -186,17 +186,22 @@ No endpoint returns payload content.
 ### List Messages
 
 ```
-GET /api/v5/plugin_api/emqx_bcast/messages?limit=100&offset=0
+GET /api/v5/plugin_api/emqx_bcast/messages?limit=100
+GET /api/v5/plugin_api/emqx_bcast/messages?limit=100&cursor=<cursor>
 ```
 
-`limit` defaults to 100 and is capped at 1000; `offset` defaults to 0.
-Messages are returned newest first.
+`limit` defaults to 100 and must be between 1 and 1000 (a larger value
+returns 400 `InvalidParams`). Messages are returned newest first. When
+more pages remain, the response includes a `Cursor` field; pass it back
+as the `cursor` query parameter to fetch the next page. The last page
+carries no `Cursor`. An invalid or missing cursor starts from the first
+page.
 
 ```json
 {
   "Success": true,
   "RequestId": "...",
-  "TotalCount": 42,
+  "Cursor": "1753200000_1a2b3c4d",
   "Messages": [
     { "MessageId": "...", "CreatedAt": 1753200000, "ExpiresAt": 1754496000, "PayloadSize": 128 }
   ]
@@ -287,6 +292,7 @@ unknown.
 | `UnknownAction` | 400 | Action value is not recognized |
 | `InvalidParams` | 400 | Missing required query parameters on management endpoints |
 | `DeliveryNotFound` | 404 | DeliveryId does not exist (management endpoints) |
+| `QuotaExceeded` | 429 | Pending delivery quota exceeded. For per-device over-limit the body includes a `Devices` array listing the devices over their cap |
 | `InternalError` | 500 | Internal server error |
 
 ---
@@ -312,7 +318,9 @@ This endpoint is separate from the built-in EMQX Prometheus endpoints.
 | `bcast_batch_pub_qos1_in` | BatchPub QoS=1 API requests |
 | `bcast_batch_pub_qos1_wanted` | QoS=1 total wanted acks |
 | `bcast_batch_pub_qos1_delivered` | QoS=1 deliveries to clients |
-| `bcast_batch_pub_qos1_acked` | QoS=1 acks received |
+| `bcast_batch_pub_qos1_acked` | QoS=1 PUBACKs matched to a pending delivery (duplicates are not counted) |
+| `bcast_batch_pub_qos1_auto_acked` | QoS=1 deliveries completed because the subscription QoS is 0 |
+| `bcast_batch_pub_qos1_persist_error` | QoS=1 persistence failures returned to API callers |
 | `bcast_broadcast_pub_in` | PubBroadcast API requests |
 | `bcast_broadcast_pub_error` | PubBroadcast errors |
 | `bcast_register_message_in` | RegisterMessage API requests |
@@ -326,8 +334,9 @@ forwarded to a core), so to get the cluster total you must scrape **every
 node** and sum the values. They are also updated by asynchronous workers, so
 they lag the API response by the time the queued tasks take to execute.
 
-QoS=1 delivery completion is tracked by comparing `wanted` against `acked`
-(a delivery is fully acknowledged when `acked` reaches `wanted` per DeliveryId).
+QoS=1 delivery completion is tracked by comparing `wanted` against
+`acked` plus `auto_acked` (a delivery is fully acknowledged when their sum
+reaches `wanted` per DeliveryId).
 
 ### Prometheus Configuration
 

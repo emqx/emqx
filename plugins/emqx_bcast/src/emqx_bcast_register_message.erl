@@ -39,8 +39,7 @@ validate(_MC, MessageId) when MessageId =/= undefined ->
     {refresh, MessageId}.
 
 get_max_message_size_batch() ->
-    Config = persistent_term:get({?APP, config}, #{}),
-    maps:get(max_message_size_batch, Config, 10240).
+    emqx_bcast_config:get(max_message_size_batch).
 
 do_create(Payload, RequestId) ->
     Hash = emqx_bcast_utils:sha256(Payload),

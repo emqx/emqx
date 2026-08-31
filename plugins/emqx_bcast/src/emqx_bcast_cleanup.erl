@@ -46,8 +46,7 @@ schedule(Interval) ->
     erlang:send_after(Interval, self(), cleanup).
 
 cleanup_interval() ->
-    Config = persistent_term:get({?APP, config}, #{}),
-    maps:get(cleanup_interval, Config, 60) * 1000.
+    emqx_bcast_config:get(cleanup_interval) * 1000.
 
 %% Only the lexicographically smallest running core executes the cleanup
 %% scan. Replicants never run the gen_server (see emqx_bcast_sup), and

@@ -27,8 +27,7 @@ validate(_, undefined, _) ->
 validate(ProductKey, MessageContent, TopicFullName) ->
     case emqx_bcast_utils:decode_base64(MessageContent) of
         {ok, Payload} ->
-            Config = persistent_term:get({?APP, config}, #{}),
-            MaxSize = maps:get(max_message_size_broadcast, Config, 65536),
+            MaxSize = emqx_bcast_config:get(max_message_size_broadcast),
             case byte_size(Payload) =< MaxSize of
                 true -> validate_topic_full_name(ProductKey, TopicFullName);
                 false -> {error, <<"MessageTooLarge">>, <<"Message too large">>}
@@ -62,8 +61,7 @@ do_broadcast(ProductKey, MessageContent, TopicFullName, RequestId) ->
     TopicTemplate =
         case TopicFullName of
             undefined ->
-                Config = persistent_term:get({?APP, config}, #{}),
-                maps:get(broadcast_topic, Config, <<"/sys/broadcast/${productKey}">>);
+                emqx_bcast_config:get(broadcast_topic);
             _ ->
                 TopicFullName
         end,

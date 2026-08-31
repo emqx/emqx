@@ -75,6 +75,33 @@ wait_until(Fun, Attempts) when Attempts > 0 ->
 wait_until(_Fun, 0) ->
     false.
 
+%% Channel pids and subscription tables are node-local: resolve the channel
+%% for ClientId on Node and check EMQX's subscription tables there.
+node_client_subscribed(Node, ClientId, Topic) ->
+    erpc:call(
+        Node,
+        fun() ->
+            case emqx_cm:lookup_channels(ClientId) of
+                [Pid | _] ->
+                    lists:any(
+                        fun({Filter, _}) -> emqx_topic:match(Topic, Filter) end,
+                        emqx_broker:subscriptions(Pid)
+                    );
+                _ ->
+                    false
+            end
+        end
+    ).
+
+%% Cold-start settle: the async QoS1 pipeline runs at full speed only
+%% after mria converges and the plugin workers are warm. Start timing only
+%% after the cluster has settled so delivery latency has a meaningful
+%% budget (recv/1) instead of being polluted by cold-start. (The test
+%% process runs on the CT node, so this is a plain settle sleep; the
+%% emqx_cth_cluster:start/1 call already waits for the nodes to come up.)
+settle_cluster() ->
+    timer:sleep(3000).
+
 %% tests
 
 %% Devices connected to different nodes must all receive the message when the
@@ -83,19 +110,21 @@ wait_until(_Fun, 0) ->
 -doc "QoS=0 BatchPub reaches devices connected to different cluster nodes.".
 t_cluster_cross_node_delivery(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
     DN1 = <<"cl_dn1">>,
     DN2 = <<"cl_dn2">>,
     C1 = connect(N1, DN1),
     C2 = connect(N2, DN2),
     sub(C1, topic(DN1)),
     sub(C2, topic(DN2)),
-    %% The subscribe hook casts into pull_pool asynchronously; poll the
-    %% subscription table on both nodes until the subscriptions landed.
+    %% The subscribe hook casts into pull_pool asynchronously; the plugin
+    %% reads EMQX's own subscription tables, so poll those on each node
+    %% (channel pid -> subscriptions) until the subscriptions landed.
     Subscribed =
         wait_until(
             fun() ->
-                erpc:call(N1, emqx_bcast_subscription, match, [DN1, topic(DN1)]) =/= false andalso
-                    erpc:call(N2, emqx_bcast_subscription, match, [DN2, topic(DN2)]) =/= false
+                node_client_subscribed(N1, DN1, topic(DN1)) andalso
+                    node_client_subscribed(N2, DN2, topic(DN2))
             end,
             50
         ),
@@ -122,6 +151,7 @@ t_cluster_cross_node_delivery(Config) ->
 -doc "QoS=1 delivery created on one node is replayed after reconnect on another node.".
 t_cluster_offline_replay_on_other_node(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
     DN = <<"cl_offline_dn">>,
     PK = <<"default">>,
     {ok, 200, _, _Resp} = api_call(N1, #{
@@ -159,6 +189,7 @@ t_cluster_offline_replay_on_other_node(Config) ->
 -doc "Ack state is cluster-wide: a delivery acked on one node is not replayed on another.".
 t_cluster_ack_idempotent_across_nodes(Config) ->
     [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
     DN1 = <<"cl_ack_dn1">>,
     DN2 = <<"cl_ack_dn2">>,
     PK = <<"default">>,

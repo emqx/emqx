@@ -15,12 +15,15 @@
     timer = undefined
 }).
 
+-spec start_link() -> gen_server:start_ret().
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+-spec ack(binary(), binary(), binary()) -> ok.
 ack(ClientId, DeliveryId, ProductKey) ->
     gen_server:cast(?MODULE, {ack, ClientId, DeliveryId, ProductKey}).
 
+-spec client_down(binary()) -> ok.
 client_down(ClientId) ->
     gen_server:cast(?MODULE, {client_down, ClientId}).
 
@@ -31,12 +34,11 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
-    %% Ack received on the client's own node: count it here so the metric is
-    %% node-local (aggregated across nodes by the observer).
-    emqx_bcast_metrics:qos1_acked(),
+    %% The qos1_acked metric is counted by pull_pool only when take_pending
+    %% matches, so duplicate PUBACKs cannot push acked above wanted.
     %% 1. Atomically delete the in-progress pending entry and trigger the next
     %%    want_next in pull_pool.
-    gen_server:cast(emqx_bcast_pull_pool, {ack, ClientId, DeliveryId, ProductKey}),
+    emqx_bcast_pull_pool:cast_client(ClientId, {ack, ClientId, DeliveryId, ProductKey}),
     %% 2. Accumulate for batched core accounting.
     Acks = [{ProductKey, ClientId, DeliveryId} | State#state.acks],
     State1 = State#state{acks = Acks},

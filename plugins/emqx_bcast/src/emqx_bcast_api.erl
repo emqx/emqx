@@ -7,10 +7,12 @@
     handle/3,
     handle_local/3,
     success_response/2,
-    error_response/3
+    error_response/3,
+    error_response/4
 ]).
 
 -include("emqx_bcast.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 handle(Method, Path, Request) ->
     case {Method, Path} of
@@ -29,15 +31,27 @@ handle(Method, Path, Request) ->
                     Core = emqx_bcast:random_core(),
                     case
                         emqx_rpc:call(
-                            ?MODULE, Core, ?MODULE, handle_local, [Method, Path, Request], 30000
+                            ?MODULE,
+                            Core,
+                            ?MODULE,
+                            handle_local,
+                            [Method, Path, Request],
+                            ?BCAST_API_RPC_TIMEOUT_MS
                         )
                     of
                         {badrpc, Reason} ->
+                            %% Keep internal RPC terms (including node names
+                            %% and mnesia reasons) in the server log, not in
+                            %% the HTTP response.
+                            ?SLOG(error, #{
+                                msg => "bcast_core_api_rpc_failed",
+                                reason => Reason
+                            }),
                             {error, 500, #{},
                                 error_response(
                                     emqx_bcast_utils:gen_api_uuid(),
                                     <<"InternalError">>,
-                                    iolist_to_binary(io_lib:format("~p", [Reason]))
+                                    <<"Internal error">>
                                 )};
                         Result ->
                             Result
@@ -73,12 +87,18 @@ handle_local(_Method, _Path, _Request) ->
     {error, not_found}.
 
 error_response(RequestId, Code, Message) ->
-    #{
-        <<"Success">> => false,
-        <<"RequestId">> => RequestId,
-        <<"Code">> => Code,
-        <<"ErrorMessage">> => Message
-    }.
+    error_response(RequestId, Code, Message, #{}).
+
+error_response(RequestId, Code, Message, Extra) ->
+    maps:merge(
+        #{
+            <<"Success">> => false,
+            <<"RequestId">> => RequestId,
+            <<"Code">> => Code,
+            <<"ErrorMessage">> => Message
+        },
+        Extra
+    ).
 
 success_response(RequestId, MessageId) ->
     #{

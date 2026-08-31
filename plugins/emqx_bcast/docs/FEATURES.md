@@ -2,10 +2,19 @@
 
 The plugin provides product-level device message delivery on top of EMQX:
 an HTTP API accepts a message and a target set of devices, and the plugin
-delivers it directly to the connected client processes, bypassing
-subscription state and ACL checks. Devices are addressed by
-`ProductKey` + `DeviceName`, derived from the MQTT username
-(`ProductKey-DeviceName`) via EMQX namespace attributes.
+delivers it directly to the connected client processes via internal
+channels, bypassing ACL checks. Delivery is gated by the device's MQTT
+subscription: only devices subscribed to the delivery topic receive the
+message. Subscription state is read live from EMQX's own subscription
+tables (`emqx_broker:subscriptions/1`) at delivery time; the plugin keeps
+no mirror. Devices are addressed by `ProductKey` + `DeviceName`, derived
+from the MQTT username (`ProductKey-DeviceName`) via EMQX namespace
+attributes.
+
+Listener mountpoints and `namespace_as_mountpoint` are not supported:
+with either configured, the topic filters in EMQX's subscription tables
+are prefixed by the mountpoint, which does not match the plugin's
+unmounted delivery topics.
 
 ## Actions
 
@@ -47,10 +56,17 @@ subscription state and ACL checks. Devices are addressed by
 - QoS=1 stores one shared message record plus one delivery record per
   call. The delivery is deleted once all target devices acknowledge, or
   when it expires.
-- `force_upgrade_qos = true` (default): QoS=1 is always delivered at
-  QoS=1 regardless of the device subscription QoS. When false, the
-  effective QoS is `min(publish, subscription)`; deliveries downgraded to
-  QoS=0 are completed immediately because no PUBACK will arrive.
+- Delivery QoS follows the device subscription: the effective QoS is
+  `min(publish, subscription)`. Devices subscribed at QoS=0 receive the
+  message at QoS=0 and the delivery is considered complete when it is
+  handed to the channel process; this path is at-most-once with respect
+  to the client actually observing the publish. Devices subscribed at
+  QoS=1 receive it at QoS=1 and the delivery is removed once the PUBACK
+  arrives.
+- BatchPub QoS=1 is at-least-once: a lost ack or a reconnect/takeover race
+  can redeliver a message, so clients must tolerate duplicates. QoS=0 can
+  also duplicate during the session-takeover window, although delivery is
+  now gated on the current session holder at send time.
 
 ## Offline Replay
 
@@ -63,7 +79,7 @@ subscription state and ACL checks. Devices are addressed by
 ## Delivery Pipeline
 
 1. Validate the request (sizes, device list, QoS, base64).
-2. All API requests are funnelled to a core node (F8).
+2. All API requests are funnelled to a core node.
 3. QoS=0 / PubBroadcast: core broadcasts full deliver data to every
    node; each `pull_pool` checks online + subscription and delivers.
 4. QoS=1: core writes message and delivery records in a single
@@ -71,9 +87,11 @@ subscription state and ACL checks. Devices are addressed by
    deduplicates triggers into `buffer3`, pulls from a random core,
    fills the active A/B buffer, delivers, and tracks pending acks.
 
-There is no delivery-queue admission control: workers are pooled and
-pull-side buffering provides backpressure through the 50ms/100 batch
-flush policy.
+The delivery workers themselves have no queue admission control:
+workers are pooled and pull-side buffering provides backpressure through
+the 50ms/100 batch flush policy. The API layer separately enforces pending
+delivery quotas and returns 429 QuotaExceeded when a QoS=1 BatchPub would
+exceed them.
 
 ## Configuration
 
@@ -86,8 +104,8 @@ flush policy.
 | `max_device_count` | `10000` | Max devices per BatchPub call |
 | `max_message_size_broadcast` | `65536` | Max PubBroadcast payload bytes |
 | `max_message_size_batch` | `10240` | Max BatchPub payload bytes (binary) |
-| `msg_warn_threshold` | `100000` | Warn when pending messages exceed this |
-| `force_upgrade_qos` | `true` | See QoS Semantics above |
+| `max_pending_deliveries` | `10000000` | Global cap on pending QoS=1 deliveries; QoS=1 BatchPub requests that would exceed it are rejected with 429 QuotaExceeded |
+| `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); requests targeting a device over the cap are rejected with 429 QuotaExceeded and the over-limit device list |
 | `delivery_pool_size` | `0` | Async workers for each of the three pools; 0 = one per scheduler |
 
 ## Metrics

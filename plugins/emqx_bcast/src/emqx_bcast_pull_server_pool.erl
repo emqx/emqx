@@ -10,31 +10,44 @@
     want_next/1,
     ack_batch/1,
     qos0_broadcast/4,
-    qos1_trigger/3
+    qos1_trigger/3,
+    qos0_fanout_nodes/1
 ]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -include("emqx_bcast.hrl").
 
--define(ENSURE_COPIES_MS, 30000).
+%% Cap the number of concurrently spawned ack workers. The old design
+%% spawned one process per ack_batch cast with no bound, so an ack storm
+%% could pile up an unbounded number of short-lived processes (and removed
+%% the natural serial backpressure of the earlier design). Acks beyond the
+%% cap queue in the gen_server and drain as workers finish; per-client
+%% ordering is still guaranteed by the index shard's own mailbox.
+-define(ACK_WORKER_MAX, 16).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %% Local call used both by local pull_pool workers and by remote pull_pool
-%% workers through emqx_rpc:call (F7: pull batches pick a random core).
+%% workers through emqx_rpc:call; pull batches pick a random core.
 want_next(Entries) ->
-    gen_server:call(?MODULE, {want_next, Entries}, 15000).
+    gen_server:call(?MODULE, {want_next, Entries}, ?BCAST_RPC_CALL_TIMEOUT_MS).
 
 ack_batch(Acks) ->
     gen_server:cast(?MODULE, {ack_batch, Acks}).
 
 %% QoS0 / PubBroadcast: one-shot delivery. Core broadcasts full deliver data
-%% to all nodes; each local pull_pool checks online + subscription and drops
-%% silently when either check fails. DeviceNames narrows the fanout to the
-%% BatchPub target list; undefined means product-wide (PubBroadcast).
+%% to the nodes that host the target devices; each local pull_pool checks
+%% online + subscription and drops silently when either check fails.
+%% DeviceNames narrows the fanout to the BatchPub target list; undefined
+%% means product-wide (PubBroadcast).
+%% BatchPub with an explicit DeviceNames list no longer broadcasts the
+%% full payload + list to EVERY node - the channel registry is global, so
+%% the target nodes are known up front and the payload travels only to
+%% them (PubBroadcast stays all-node: its targets cannot be precomputed).
 qos0_broadcast(ProductKey, DeviceNames, TopicTemplate, Payload) ->
-    broadcast_to_pull_pools(
+    broadcast_to_pull_pools_on(
+        qos0_fanout_nodes(DeviceNames),
         {qos0_deliver_local, [ProductKey, DeviceNames, TopicTemplate, Payload]}
     ).
 
@@ -49,27 +62,52 @@ qos1_trigger(ProductKey, DeviceNames, TopicTemplate) ->
 
 init([]) ->
     _ = ensure_core_copies(),
-    _ = erlang:send_after(?ENSURE_COPIES_MS, self(), ensure_core_copies),
-    {ok, #{}}.
+    _ = erlang:send_after(?BCAST_ENSURE_COPIES_MS, self(), ensure_core_copies),
+    {ok, #{in_flight => 0, pending_acks => []}}.
 
 handle_call({want_next, Entries}, _From, State) ->
-    %% Claim runs inline so the gen_server serializes it against ack batches
-    %% (spec 4.5: claim is one serialized tx); concurrent claim/ack txs on the
-    %% same index records would deadlock under mnesia write locks.
+    %% Claim runs inline (the caller needs the result synchronously). The
+    %% index shards are gen_servers themselves, so per-client claim/ack
+    %% ordering is preserved by the shard's mailbox; the previous "serialize
+    %% against ack batches here" requirement is gone now that acks are
+    %% handled off-box (below).
     Results = emqx_bcast_storage:claim_want_next_batch(Entries),
     {reply, Results, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({ack_batch, Acks}, State) ->
-    _ = emqx_bcast_storage:process_ack_batch(Acks),
-    {noreply, State};
+    %% Handle acks OFF the gen_server mailbox. A burst of ack batches
+    %% used to pile up ahead of every want_next call (cast-then-call on the
+    %% same mailbox), stalling window=1 claims cluster-wide. Spawning keeps
+    %% the cast O(1); the ack work (index shard call + meta decrement) runs
+    %% in a short-lived worker, and per-client ordering is still guaranteed
+    %% by the index shard's own mailbox. Bounded concurrency.
+    case maps:get(in_flight, State) < ?ACK_WORKER_MAX of
+        true ->
+            spawn_ack_worker(Acks),
+            {noreply, State#{in_flight => maps:get(in_flight, State) + 1}};
+        false ->
+            Pending = maps:get(pending_acks, State),
+            {noreply, State#{pending_acks => Pending ++ [Acks]}}
+    end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({ack_batch_done, Pid}, State) ->
+    %% The worker finished; drain one queued batch if any (fire-and-forget
+    %% by design, but receiving keeps the mailbox from accumulating DOWNs).
+    _ = Pid,
+    case maps:get(pending_acks, State) of
+        [] ->
+            {noreply, State#{in_flight => maps:get(in_flight, State) - 1}};
+        [Next | Rest] ->
+            spawn_ack_worker(Next),
+            {noreply, State#{pending_acks => Rest}}
+    end;
 handle_info(ensure_core_copies, State) ->
     _ = ensure_core_copies(),
-    _ = erlang:send_after(?ENSURE_COPIES_MS, self(), ensure_core_copies),
+    _ = erlang:send_after(?BCAST_ENSURE_COPIES_MS, self(), ensure_core_copies),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -84,8 +122,22 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal
 %%--------------------------------------------------------------------
 
+spawn_ack_worker(Acks) ->
+    Parent = self(),
+    _ = spawn(fun() ->
+        %% process_ack_batch returns per-ack results (a list), so the
+        %% old ok = pattern-match crashed every spawned worker with badmatch
+        %% (ack work itself had completed, but each batch left a crash
+        %% report and ack_batch_done never fired).
+        _ = emqx_bcast_storage:process_ack_batch(Acks),
+        Parent ! {ack_batch_done, self()}
+    end),
+    ok.
+
 broadcast_to_pull_pools({Fun, Args}) ->
-    Nodes0 = emqx:running_nodes(),
+    broadcast_to_pull_pools_on(emqx:running_nodes(), {Fun, Args}).
+
+broadcast_to_pull_pools_on(Nodes0, {Fun, Args}) ->
     Nodes =
         case lists:member(node(), Nodes0) of
             true -> Nodes0;
@@ -102,6 +154,38 @@ broadcast_to_pull_pools({Fun, Args}) ->
         end,
         Nodes
     ).
+
+%% Target nodes for a QoS0 fanout. undefined (PubBroadcast) = every
+%% running node; an explicit DeviceNames list = the union of nodes hosting
+%% the devices' channels (emqx_cm:lookup_channels/1 is the global
+%% registry, so a core node sees channels on all nodes).
+%% The global session registry can be disabled
+%% (enable_session_registry=false); lookup_channels/1 then degrades to
+%% node-local, and a targeted fanout would silently MISS devices on other
+%% nodes. Fall back to the all-node broadcast in that configuration -
+%% correctness over fanout savings.
+%% (Known constraint, EMQX semantics): channels that connect while the
+%% global registry is disabled are not re-registered when it is re-enabled;
+%% a targeted fanout still misses those devices even with is_enabled()
+%% true. Documented as a platform constraint, not a plugin bug.
+qos0_fanout_nodes(undefined) ->
+    emqx:running_nodes();
+qos0_fanout_nodes(DeviceNames) ->
+    case emqx_cm_registry:is_enabled() of
+        true ->
+            Nodes = lists:usort(
+                lists:append([
+                    [node(Pid) || Pid <- emqx_cm:lookup_channels(DN)]
+                 || DN <- DeviceNames
+                ])
+            ),
+            case lists:member(node(), Nodes) of
+                true -> Nodes;
+                false -> [node() | Nodes]
+            end;
+        false ->
+            emqx:running_nodes()
+    end.
 
 local_cast_fun(qos0_deliver_local) -> qos0_deliver_local;
 local_cast_fun(qos1_core_trigger_local) -> qos1_core_trigger_local.
