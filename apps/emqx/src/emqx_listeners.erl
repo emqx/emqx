@@ -52,7 +52,7 @@
 -export([format_bind/1]).
 
 -ifdef(TEST).
--export([certs_dir/2]).
+-export([certs_dir/2, do_log_bind_portability/4]).
 -endif.
 
 -export_type([
@@ -643,12 +643,15 @@ pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
 post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
     OldConf =:= undefined orelse OldConf =:= ?TOMBSTONE_TYPE
 ->
+    ok = check_bind_portability(Type, Name, undefined, NewConf),
     start_listener(Type, Name, NewConf);
 post_config_update([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
+    ok = check_bind_portability(Type, Name, OldConf, NewConf),
     update_listener(Type, Name, OldConf, NewConf);
 post_config_update([?ROOT_KEY, Type, Name], ?MARK_DEL, _, OldConf = #{}, _AppEnvs) ->
     stop_listener(Type, Name, OldConf);
 post_config_update([?ROOT_KEY, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
+    ok = check_bind_portability(Type, Name, OldConf, NewConf),
     update_listener(Type, Name, OldConf, NewConf);
 post_config_update([?ROOT_KEY], _Request, OldConf, OldConf, _AppEnvs) ->
     ok;
@@ -728,11 +731,95 @@ perform_listener_changes([{Action, Listener} | Rest]) ->
     end.
 
 perform_listener_change(start, {Type, Name, Conf}) ->
+    ok = check_bind_portability(Type, Name, undefined, Conf),
     start_listener(Type, Name, Conf);
 perform_listener_change(update, {{Type, Name, ConfOld}, {_, _, ConfNew}}) ->
+    ok = check_bind_portability(Type, Name, ConfOld, ConfNew),
     update_listener(Type, Name, ConfOld, ConfNew);
 perform_listener_change(stop, {Type, Name, Conf}) ->
     stop_listener(Type, Name, Conf).
+
+%% Log a notice when a config change sets a listener bind to a host-specific
+%% IP address. Logging only: this runs from `post_config_update/5', which every
+%% node executes when it applies a replicated config change. Returning an error
+%% here would block config replication, a much worse failure than one listener
+%% that cannot bind. Each node checks the address against its own network
+%% interfaces, so exactly the nodes that cannot bind the address log an error.
+check_bind_portability(Type, Name, OldConf, NewConf) ->
+    OldBind = bind_of(OldConf),
+    case bind_of(NewConf) of
+        {Ip, _Port} = Bind when Bind =/= OldBind ->
+            case is_generic_address(Ip) of
+                true -> ok;
+                false -> log_bind_portability(listener_id(Type, Name), Ip, Bind)
+            end;
+        _ ->
+            %% A bare-port bind has no address part. An unchanged bind was
+            %% already checked by the change that set it.
+            ok
+    end.
+
+bind_of(#{bind := Bind}) -> Bind;
+bind_of(undefined) -> undefined.
+
+log_bind_portability(Id, Ip, Bind) ->
+    IsLocal = is_local_address(Ip),
+    %% Count stopped nodes too: a stopped node applies the replicated config
+    %% when it comes back, and then cannot bind the address either.
+    IsSingleNode = length(emqx:cluster_nodes(all)) =:= 1,
+    do_log_bind_portability(Id, Bind, IsLocal, IsSingleNode).
+
+do_log_bind_portability(Id, Bind, true = _IsLocal, true = _IsSingleNode) ->
+    BindStr = format_bind_str(Bind),
+    ?tp(listener_bind_portability_log, #{listener => Id, level => warning, bind => BindStr}),
+    ?SLOG(warning, #{
+        msg => "listener_bind_address_not_portable",
+        listener => Id,
+        bind => BindStr,
+        hint =>
+            "The bind address is specific to this host. "
+            "The config will not work when copied or migrated to another host."
+    });
+do_log_bind_portability(Id, Bind, IsLocal, _IsSingleNode) ->
+    Reason =
+        case IsLocal of
+            true ->
+                "The bind address is specific to one host. "
+                "Other nodes in the cluster cannot bind it.";
+            false ->
+                "The bind address is not found on this node's network interfaces. "
+                "The listener cannot bind it on this node."
+        end,
+    BindStr = format_bind_str(Bind),
+    ?tp(listener_bind_portability_log, #{listener => Id, level => error, bind => BindStr}),
+    ?SLOG(error, #{
+        msg => "listener_bind_address_not_local",
+        listener => Id,
+        bind => BindStr,
+        reason => Reason
+    }).
+
+%% Addresses that bind the same way on any host: the IPv4/IPv6 wildcard and
+%% loopback. All of 127.0.0.0/8 is loopback on every host, not just 127.0.0.1,
+%% so the whole block counts as generic.
+is_generic_address({0, 0, 0, 0}) -> true;
+is_generic_address({127, _, _, _}) -> true;
+is_generic_address({0, 0, 0, 0, 0, 0, 0, 0}) -> true;
+is_generic_address({0, 0, 0, 0, 0, 0, 0, 1}) -> true;
+is_generic_address(_) -> false.
+
+is_local_address(Ip) ->
+    case inet:getifaddrs() of
+        {ok, IfAddrs} ->
+            lists:any(fun({_Name, Opts}) -> lists:member({addr, Ip}, Opts) end, IfAddrs);
+        {error, _} ->
+            %% Cannot inspect the interfaces; assume the address is local
+            %% rather than log a false alarm.
+            true
+    end.
+
+format_bind_str(Bind) ->
+    iolist_to_binary(format_bind(Bind)).
 
 esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
     Zone = zone(Opts0),
