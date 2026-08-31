@@ -291,10 +291,9 @@ t_case01_login(_Config) ->
 
 t_authz_denies_login_upstream_publish(_Config) ->
     BrokerTopic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
-    AuthzTopic = <<"gbt32960/1G1BL52P7TR115520/", BrokerTopic/binary>>,
     ok = emqx:subscribe("gbt32960/+/upstream/#"),
     try
-        with_gateway_authz_result(gbt32960, publish, AuthzTopic, deny, fun() ->
+        with_gateway_authz_result(gbt32960, publish, BrokerTopic, deny, fun() ->
             {ok, Socket} = login_first_without_broker_asserts(),
             try
                 ?assertEqual({error, timeout}, receive_published_msg(500))
@@ -308,10 +307,9 @@ t_authz_denies_login_upstream_publish(_Config) ->
 
 t_authz_allows_login_upstream_publish(_Config) ->
     BrokerTopic = <<"gbt32960/1G1BL52P7TR115520/upstream/vlogin">>,
-    AuthzTopic = <<"gbt32960/1G1BL52P7TR115520/", BrokerTopic/binary>>,
     ok = emqx:subscribe("gbt32960/+/upstream/#"),
     try
-        with_gateway_authz_result(gbt32960, publish, AuthzTopic, allow, fun() ->
+        with_gateway_authz_result(gbt32960, publish, BrokerTopic, allow, fun() ->
             {ok, Socket} = login_first_without_broker_asserts(),
             try
                 {BrokerTopic, _PubedMsg} = get_published_msg()
@@ -341,8 +339,7 @@ t_authz_include_mountpoint_login_upstream_publish(_Config) ->
 
 t_authz_denies_auto_subscribe(_Config) ->
     BrokerTopic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    AuthzTopic = <<"gbt32960/1G1BL52P7TR115520/", BrokerTopic/binary>>,
-    with_gateway_authz_result(gbt32960, subscribe, AuthzTopic, deny, fun() ->
+    with_gateway_authz_result(gbt32960, subscribe, BrokerTopic, deny, fun() ->
         {ok, Socket} = login_first_without_broker_asserts(),
         try
             ?assertEqual(false, lists:member(BrokerTopic, get_subscriptions())),
@@ -356,8 +353,7 @@ t_authz_denies_auto_subscribe(_Config) ->
 
 t_authz_allows_auto_subscribe(_Config) ->
     BrokerTopic = <<"gbt32960/1G1BL52P7TR115520/dnstream">>,
-    AuthzTopic = <<"gbt32960/1G1BL52P7TR115520/", BrokerTopic/binary>>,
-    with_gateway_authz_result(gbt32960, subscribe, AuthzTopic, allow, fun() ->
+    with_gateway_authz_result(gbt32960, subscribe, BrokerTopic, allow, fun() ->
         {ok, Socket} = login_first_without_broker_asserts(),
         try
             ?assertEqual(true, lists:member(BrokerTopic, get_subscriptions())),

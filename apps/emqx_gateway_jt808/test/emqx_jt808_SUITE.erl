@@ -38,10 +38,8 @@
 -define(JT808_MOUNTPOINT, "jt808/" ?JT808_PHONE "/").
 %% <<"jt808/000123456789/000123456789/up">>
 -define(JT808_UP_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/up">>).
--define(JT808_AUTHZ_UP_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_UP_TOPIC/binary>>).
 %% <<"jt808/000123456789/000123456789/dn">>
 -define(JT808_DN_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/dn">>).
--define(JT808_AUTHZ_DN_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_DN_TOPIC/binary>>).
 %% <<"jt808/000123456790/000123456790/dn">>
 -define(JT808_VICTIM_DN_TOPIC, <<"jt808/" ?JT808_VICTIM_PHONE "/" ?JT808_VICTIM_PHONE "/dn">>).
 
@@ -798,7 +796,7 @@ t_case04(_) ->
 t_authz_denies_upstream_publish(_) ->
     ok = emqx:subscribe(?JT808_UP_TOPIC),
     try
-        with_gateway_authz_result(jt808, publish, ?JT808_AUTHZ_UP_TOPIC, deny, fun() ->
+        with_gateway_authz_result(jt808, publish, ?JT808_UP_TOPIC, deny, fun() ->
             {ok, Socket} = connect_jt808(),
             try
                 send_event_report(Socket, 98, 79),
@@ -815,7 +813,7 @@ t_authz_denies_upstream_publish(_) ->
 t_authz_allows_upstream_publish(_) ->
     ok = emqx:subscribe(?JT808_UP_TOPIC),
     try
-        with_gateway_authz_result(jt808, publish, ?JT808_AUTHZ_UP_TOPIC, allow, fun() ->
+        with_gateway_authz_result(jt808, publish, ?JT808_UP_TOPIC, allow, fun() ->
             {ok, Socket} = connect_jt808(),
             try
                 send_event_report(Socket, 98, 79),
@@ -854,7 +852,7 @@ t_authz_include_mountpoint_upstream_publish(_) ->
     end).
 
 t_authz_denies_auto_subscribe(_) ->
-    with_gateway_authz_result(jt808, subscribe, ?JT808_AUTHZ_DN_TOPIC, deny, fun() ->
+    with_gateway_authz_result(jt808, subscribe, ?JT808_DN_TOPIC, deny, fun() ->
         {ok, Socket} = connect_jt808(false),
         try
             timer:sleep(100),
@@ -868,7 +866,7 @@ t_authz_denies_auto_subscribe(_) ->
     end).
 
 t_authz_allows_auto_subscribe(_) ->
-    with_gateway_authz_result(jt808, subscribe, ?JT808_AUTHZ_DN_TOPIC, allow, fun() ->
+    with_gateway_authz_result(jt808, subscribe, ?JT808_DN_TOPIC, allow, fun() ->
         {ok, Socket} = connect_jt808(),
         try
             timer:sleep(100),
