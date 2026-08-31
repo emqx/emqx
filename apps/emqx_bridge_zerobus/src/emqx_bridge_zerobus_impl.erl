@@ -581,7 +581,26 @@ sort_status(Errors0) ->
     CompareFn = fun(S1A, S2A) ->
         S1 = ToStatus(S1A),
         S2 = ToStatus(S2A),
-        S1 > S2
+        case S1 == S2 of
+            true ->
+                case {S1A, S2A} of
+                    {{_, noproc}, {_, _}} ->
+                        %% race: health check might've caught a restarting grpc_client, or
+                        %% grpc_client itself might've received `noproc` because it set up
+                        %% its monitor after gun died.  try to get the next reason;
+                        %% hopefully it's more informative.
+                        false;
+                    {{_, _}, {_, noproc}} ->
+                        true;
+                    {{_, _}, _} when not is_tuple(S2A) ->
+                        %% prefer those with reason
+                        true;
+                    _ ->
+                        false
+                end;
+            false ->
+                S1 > S2
+        end
     end,
     lists:sort(CompareFn, Errors0).
 
@@ -1084,6 +1103,7 @@ status_ordering_test() ->
         ?status_connected,
         {?status_connecting, ~"stream closed"},
         {?status_connected, ~"shouldn't happen, but..."},
+        {?status_disconnected, noproc},
         {?status_disconnected, ~"boom"},
         {?status_disconnected, {unhealthy_target, ~"needs manual intervention"}},
         ?status_disconnected
@@ -1091,8 +1111,9 @@ status_ordering_test() ->
     ?assertEqual(
         [
             {?status_disconnected, {unhealthy_target, ~"needs manual intervention"}},
-            ?status_disconnected,
             {?status_disconnected, ~"boom"},
+            {?status_disconnected, noproc},
+            ?status_disconnected,
             {?status_connecting, ~"stream closed"},
             ?status_connecting,
             {?status_connected, ~"shouldn't happen, but..."},
