@@ -361,11 +361,17 @@ connect_and_get_column(Config, Select) ->
     Result.
 
 connect_and_exec(Config, SQL) ->
-    ?WITH_CON({ok, _} = directly_query(Con, SQL)).
+    connect_and_exec(Config, SQL, [{db_name, ?TD_DATABASE}]).
+
+connect_and_exec(Config, SQL, QueryOpts) ->
+    ?WITH_CON({ok, #{<<"code">> := 0}} = directly_query(Con, SQL, QueryOpts)).
 
 connect_and_query(Config, SQL) ->
+    connect_and_query(Config, SQL, [{db_name, ?TD_DATABASE}]).
+
+connect_and_query(Config, SQL, QueryOpts) ->
     ?WITH_CON(
-        {ok, #{<<"code">> := 0, <<"data">> := Data}} = directly_query(Con, SQL)
+        {ok, #{<<"code">> := 0, <<"data">> := Data}} = directly_query(Con, SQL, QueryOpts)
     ),
     Data.
 
@@ -457,6 +463,62 @@ t_double_quoted_sql_value(Config0) ->
     ),
 
     ?assertEqual([[Payload], [Payload]], connect_and_get_payload(Config)).
+
+%% Checks doubled backticks with and without a preceding backslash in dynamic identifiers.
+t_dynamic_identifier_escaping(Config0) ->
+    Cases = [
+        #{
+            identifier => <<"xxx`; DROP TABLE t; --">>,
+            table => <<"xxx`; DROP TABLE t; --">>,
+            timestamp => 1668602148000
+        },
+        %% TDengine normalizes the suffix after this backslash-prefixed backtick to lowercase.
+        #{
+            identifier => <<"xxxx\\`; DROP TABLE t; --">>,
+            table => <<"xxxx\\`; drop table t; --">>,
+            timestamp => 1668602148001
+        }
+    ],
+    Database = <<"identifier_escaping">>,
+    QueryOpts = [{db_name, Database}],
+    SQL =
+        <<
+            "insert into ${clientid} USING s_tab TAGS ('${clientid}') "
+            "values (${timestamp}, '${payload}')"
+        >>,
+    Config = patch_bridge_config(Config0, #{
+        <<"parameters">> => #{<<"database">> => Database, <<"sql">> => SQL}
+    }),
+    ok = connect_and_exec(Config, <<"DROP DATABASE IF EXISTS identifier_escaping">>, []),
+    emqx_common_test_helpers:on_exit(fun() ->
+        ok = connect_and_exec(Config, <<"DROP DATABASE IF EXISTS identifier_escaping">>, [])
+    end),
+    ok = connect_and_exec(Config, <<"CREATE DATABASE identifier_escaping">>, []),
+    ok = connect_and_exec(Config, ?SQL_CREATE_STABLE, QueryOpts),
+    ok = connect_and_exec(
+        Config, <<"CREATE TABLE t (ts timestamp, payload BINARY(1024))">>, QueryOpts
+    ),
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+    lists:foreach(
+        fun(#{identifier := Identifier, timestamp := Timestamp}) ->
+            Message = {
+                BridgeId,
+                #{clientid => Identifier, payload => ?PAYLOAD, timestamp => Timestamp}
+            },
+            is_success_check(
+                emqx_resource:simple_sync_query(ResourceId, Message)
+            )
+        end,
+        Cases
+    ),
+    Tables = connect_and_query(Config, <<"SHOW TABLES">>, QueryOpts),
+    ?assertEqual([[0]], connect_and_query(Config, <<"SELECT COUNT(1) FROM t">>, QueryOpts)),
+    lists:foreach(
+        fun(#{table := Table}) -> ?assert(lists:member([Table], Tables)) end,
+        Cases
+    ).
 
 t_simple_insert_undefined(Config) ->
     connect_and_clear_table(Config),
