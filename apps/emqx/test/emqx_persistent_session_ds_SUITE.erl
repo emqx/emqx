@@ -28,6 +28,14 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
+suite() ->
+    [{ct_hooks, [emqx_cth_ct_hook_flaky]}].
+
+flaky_tests() ->
+    #{
+        t_session_replay_retry => 3
+    }.
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
