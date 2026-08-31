@@ -53,6 +53,7 @@ Returns policy depending on the current security profile.
     (authn_not_configured) -> allow | deny;
     (authn_backend_failure) -> ignore | deny;
     (authz_backend_failure) -> ignore | deny;
+    (authz_rule_render_failure) -> ignore | deny;
     (dashboard_unchanged_default_credentials) -> allow | deny;
     (access_control_hook_failure) -> ignore | interrupt;
     (outbound_tls_verify) -> verify_none | verify_peer;
@@ -89,6 +90,11 @@ policy(authn_backend_failure) ->
         hardened -> deny
     end;
 policy(authz_backend_failure) ->
+    case profile() of
+        legacy -> ignore;
+        hardened -> deny
+    end;
+policy(authz_rule_render_failure) ->
     case profile() of
         legacy -> ignore;
         hardened -> deny
