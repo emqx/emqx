@@ -20,8 +20,8 @@ export async function loadConnections() {
       : '<span class="tag draft">○ disabled</span>';
     const runtimeStatus = renderRuntimeStatus(statuses?.[c.id]);
     const action = c.enable === true
-      ? `<button class="btn sm" onclick="stopConnection('${esc(c.id)}')">stop</button>`
-      : `<button class="btn sm" onclick="startConnection('${esc(c.id)}')">start</button>`;
+      ? `<button class="btn sm" data-id="${esc(c.id)}" onclick="stopConnection(this.dataset.id)">stop</button>`
+      : `<button class="btn sm" data-id="${esc(c.id)}" onclick="startConnection(this.dataset.id)">start</button>`;
     return `<tr>
       <td><code>${esc(c.id)}</code></td>
       <td><span class="tag ch">${esc(c.type)}</span></td>
@@ -29,8 +29,8 @@ export async function loadConnections() {
       <td style="color:var(--muted)">${esc(c.config?.server ?? '')}</td>
       <td><div style="display:flex;gap:4px">
         ${action}
-        <button class="btn sm" onclick="editConnection('${esc(c.id)}')">edit</button>
-        <button class="btn sm danger" onclick="deleteConnection('${esc(c.id)}')">delete</button>
+        <button class="btn sm" data-id="${esc(c.id)}" onclick="editConnection(this.dataset.id)">edit</button>
+        <button class="btn sm danger" data-id="${esc(c.id)}" onclick="deleteConnection(this.dataset.id)">delete</button>
       </div></td>
     </tr>`;
   }).join('');
