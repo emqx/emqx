@@ -73,6 +73,24 @@ t_nodes_api(_) ->
         emqx_mgmt_api_test_util:request_api(get, BadNodePath)
     ).
 
+-doc """
+A node can pass the running-nodes liveness check and still fail the RPC right
+after, e.g. a concurrent `cluster leave`. `emqx_mgmt:lookup_node/1` then
+returns `{error, _}` instead of a node info map.
+""".
+t_node_api_unreachable_node(_) ->
+    meck:new(emqx_mgmt, [passthrough, no_history]),
+    meck:expect(emqx_mgmt, lookup_node, fun(_Node) -> {error, badarg} end),
+    try
+        NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
+        ?assertMatch(
+            {error, {_, 400, _}},
+            emqx_mgmt_api_test_util:request_api(get, NodePath)
+        )
+    after
+        meck:unload(emqx_mgmt)
+    end.
+
 t_log_path(_) ->
     NodePath = emqx_mgmt_api_test_util:api_path(["nodes", atom_to_list(node())]),
     {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
