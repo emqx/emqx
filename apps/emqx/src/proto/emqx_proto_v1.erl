@@ -10,6 +10,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     is_running/1,
 
@@ -27,6 +28,9 @@
 
 introduced_in() ->
     "5.0.0".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec is_running(node()) -> boolean() | {badrpc, term()}.
 is_running(Node) ->

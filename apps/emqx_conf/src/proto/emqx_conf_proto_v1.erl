@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     get_config/2,
     get_config/3,
@@ -30,6 +31,9 @@
 
 introduced_in() ->
     "5.0.0".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec get_config(node(), emqx_utils_maps:config_key_path()) ->
     term() | emqx_rpc:badrpc().

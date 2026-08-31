@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     node_rebalance_evacuation_start/2,
     node_rebalance_evacuation_stop/1,
@@ -21,6 +22,9 @@
 
 introduced_in() ->
     "5.0.22".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec node_rebalance_evacuation_start(node(), emqx_node_rebalance_evacuation:start_opts()) ->
     emqx_rpc:badrpc() | ok_or_error(emqx_node_rebalance_evacuation:start_error()).

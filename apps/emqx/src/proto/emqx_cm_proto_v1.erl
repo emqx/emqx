@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     lookup_client/2,
     kickout_client/2,
@@ -25,6 +26,9 @@
 
 introduced_in() ->
     "5.0.0".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec kickout_client(node(), emqx_types:clientid()) -> ok | {badrpc, _}.
 kickout_client(Node, ClientId) ->

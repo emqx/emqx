@@ -454,7 +454,20 @@ t_listeners_status_default_address(_) ->
         {201, _} = request(post, "/gateways/stomp/listeners", LisConf),
         {200, [Listener]} = request(get, "/gateways/stomp/listeners"),
         ?assertMatch(
-            #{status := #{running := true, current_connections := 0}},
+            #{
+                bind := <<":61613">>,
+                status := #{running := true, current_connections := 0},
+                %% resolved_address/resolved_address_from are node-local and
+                %% reported per node, not in the cluster-wide status above.
+                node_status := [
+                    #{
+                        status := #{
+                            resolved_address := <<"127.0.0.1">>,
+                            resolved_address_from := <<"127.0.0.1">>
+                        }
+                    }
+                ]
+            },
             Listener
         ),
         %% Stop the listener while the address still resolves the same way.
