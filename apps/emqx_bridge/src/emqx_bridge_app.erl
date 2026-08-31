@@ -11,10 +11,12 @@
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_bridge_sup:start_link(),
     ok = emqx_bridge_v2:load(),
+    ok = emqx_bridge_v2_cli:load(),
     ?tp(emqx_bridge_app_started, #{}),
     {ok, Sup}.
 
 stop(_State) ->
+    ok = emqx_bridge_v2_cli:unload(),
     ok = emqx_bridge_v2:unload(),
     emqx_action_info:clean_cache(),
     ok.
