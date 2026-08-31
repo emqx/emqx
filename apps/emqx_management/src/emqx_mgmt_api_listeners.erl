@@ -253,16 +253,17 @@ fields(status) ->
         {max_connections,
             ?HOCON(hoconsc:union([infinity, integer()]), #{desc => ?DESC(max_connections)})},
         {current_connections, ?HOCON(non_neg_integer(), #{desc => ?DESC(current_connections)})},
+        %% Node-local only (see node_status): the security profile and
+        %% node.default_listener_address both resolve per node, so these
+        %% two fields are present only inside node_status entries, never
+        %% in the cluster-wide status above -- there is no meaningful
+        %% cluster-wide rollup of a per-node address.
         {resolved_address,
-            ?HOCON(
-                hoconsc:union([inconsistent, binary()]),
-                #{desc => ?DESC("listener_resolved_address"), required => false}
-            )},
+            ?HOCON(binary(), #{desc => ?DESC("listener_resolved_address"), required => false})},
         {resolved_address_from,
-            ?HOCON(
-                hoconsc:union([inconsistent, binary()]),
-                #{desc => ?DESC("listener_resolved_address_from"), required => false}
-            )}
+            ?HOCON(binary(), #{
+                desc => ?DESC("listener_resolved_address_from"), required => false
+            })}
     ];
 fields(node_status) ->
     [
@@ -659,6 +660,23 @@ format_status(Key, Node, Listener, Acc) ->
     } = Listener,
     {ok, #{name := Name}} = emqx_listeners:parse_listener_id(Id),
     GroupKey = maps:get(Key, Listener),
+    %% resolved_address/resolved_address_from are node-local by nature (the
+    %% security profile and node.default_listener_address both resolve
+    %% per node), so they are reported per node in node_status only. There
+    %% is no meaningful cluster-wide rollup of an address: unlike running
+    %% or the connection counts, "inconsistent" would fire on every cluster
+    %% using node.default_listener_address = nodename, which is by design,
+    %% not a fault to surface at the cluster level.
+    NodeStatusEntry = #{
+        node => Node,
+        status => #{
+            running => Running,
+            max_connections => MaxConnections,
+            current_connections => CurrentConnections,
+            resolved_address => ResolvedAddress,
+            resolved_address_from => ResolvedAddressFrom
+        }
+    },
     case maps:find(GroupKey, Acc) of
         error ->
             Acc#{
@@ -672,22 +690,9 @@ format_status(Key, Node, Listener, Acc) ->
                     status => #{
                         running => Running,
                         max_connections => MaxConnections,
-                        current_connections => CurrentConnections,
-                        resolved_address => ResolvedAddress,
-                        resolved_address_from => ResolvedAddressFrom
+                        current_connections => CurrentConnections
                     },
-                    node_status => [
-                        #{
-                            node => Node,
-                            status => #{
-                                running => Running,
-                                max_connections => MaxConnections,
-                                current_connections => CurrentConnections,
-                                resolved_address => ResolvedAddress,
-                                resolved_address_from => ResolvedAddressFrom
-                            }
-                        }
-                    ]
+                    node_status => [NodeStatusEntry]
                 }
             };
         {ok, GroupValue} ->
@@ -696,48 +701,13 @@ format_status(Key, Node, Listener, Acc) ->
                 status := #{
                     running := Running0,
                     max_connections := MaxConnections0,
-                    current_connections := CurrentConnections0,
-                    resolved_address := ResolvedAddress0,
-                    resolved_address_from := ResolvedAddressFrom0
+                    current_connections := CurrentConnections0
                 },
                 node_status := NodeStatus0
             } = GroupValue,
-            NodeStatus = [
-                #{
-                    node => Node,
-                    status => #{
-                        running => Running,
-                        max_connections => MaxConnections,
-                        current_connections => CurrentConnections,
-                        resolved_address => ResolvedAddress,
-                        resolved_address_from => ResolvedAddressFrom
-                    }
-                }
-                | NodeStatus0
-            ],
             NRunning =
                 case Running == Running0 of
                     true -> Running0;
-                    _ -> inconsistent
-                end,
-            %% Nodes with byte-identical config can resolve different
-            %% addresses (security profile / node.default_listener_address
-            %% are node-local), which is exactly the disagreement this field
-            %% exists to surface, so mark it `inconsistent` instead of
-            %% picking one node's value silently.
-            NResolvedAddress =
-                case ResolvedAddress == ResolvedAddress0 of
-                    true -> ResolvedAddress0;
-                    _ -> inconsistent
-                end,
-            %% Unlike resolved_address, this normally agrees across the
-            %% cluster even when node.default_listener_address is
-            %% `nodename` or a hostname, because every node applies the
-            %% same category. Disagreement here means the nodes are not
-            %% actually configured alike.
-            NResolvedAddressFrom =
-                case ResolvedAddressFrom == ResolvedAddressFrom0 of
-                    true -> ResolvedAddressFrom0;
                     _ -> inconsistent
                 end,
             Acc#{
@@ -747,11 +717,9 @@ format_status(Key, Node, Listener, Acc) ->
                         status => #{
                             running => NRunning,
                             max_connections => max_conn(MaxConnections0, MaxConnections),
-                            current_connections => CurrentConnections0 + CurrentConnections,
-                            resolved_address => NResolvedAddress,
-                            resolved_address_from => NResolvedAddressFrom
+                            current_connections => CurrentConnections0 + CurrentConnections
                         },
-                        node_status => NodeStatus
+                        node_status => [NodeStatusEntry | NodeStatus0]
                     }
             }
     end.
@@ -788,16 +756,14 @@ listener_type_status_example() ->
                         }
                     }
                 ],
-            %% resolved_address is `inconsistent`: each node resolves its
-            %% own nodename to a different address, as expected.
-            %% resolved_address_from agrees: both nodes apply the same
-            %% `nodename` category, so this is not a misconfiguration.
+            %% resolved_address/resolved_address_from are per-node only
+            %% (see node_status above): under `node.default_listener_address
+            %% = nodename`, each node legitimately resolves a different
+            %% address, so there is no meaningful cluster-wide value.
             status => #{
                 running => true,
                 current_connections => 21,
-                max_connections => 2048000,
-                resolved_address => inconsistent,
-                resolved_address_from => <<"nodename">>
+                max_connections => 2048000
             },
             type => tcp
         },
@@ -869,9 +835,7 @@ listener_id_status_example() ->
             status => #{
                 running => true,
                 current_connections => 201,
-                max_connections => 2048000,
-                resolved_address => <<"0.0.0.0">>,
-                resolved_address_from => <<"bind">>
+                max_connections => 2048000
             }
         },
         #{

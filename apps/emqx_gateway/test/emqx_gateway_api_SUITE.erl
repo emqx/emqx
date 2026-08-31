@@ -427,12 +427,17 @@ t_listeners_status_default_address(_) ->
         ?assertMatch(
             #{
                 bind := <<":61613">>,
-                status := #{
-                    running := true,
-                    current_connections := 0,
-                    resolved_address := <<"127.0.0.1">>,
-                    resolved_address_from := <<"127.0.0.1">>
-                }
+                status := #{running := true, current_connections := 0},
+                %% resolved_address/resolved_address_from are node-local and
+                %% reported per node, not in the cluster-wide status above.
+                node_status := [
+                    #{
+                        status := #{
+                            resolved_address := <<"127.0.0.1">>,
+                            resolved_address_from := <<"127.0.0.1">>
+                        }
+                    }
+                ]
             },
             Listener
         ),

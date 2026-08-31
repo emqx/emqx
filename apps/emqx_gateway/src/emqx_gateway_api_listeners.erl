@@ -228,16 +228,13 @@ get_cluster_listeners_info(GwName) ->
                 ClusterStatus
             ),
 
-            {MaxCons, CurrCons, Running, ResolvedAddress, ResolvedAddressFrom} =
-                aggregate_listener_status(NodeStatus),
+            {MaxCons, CurrCons, Running} = aggregate_listener_status(NodeStatus),
 
             Listener#{
                 status => #{
                     running => Running,
                     max_connections => MaxCons,
-                    current_connections => CurrCons,
-                    resolved_address => ResolvedAddress,
-                    resolved_address_from => ResolvedAddressFrom
+                    current_connections => CurrCons
                 },
                 node_status => NodeStatus
             }
@@ -321,45 +318,32 @@ ensure_integer_or_infinity(I) when is_integer(I) ->
     I.
 
 aggregate_listener_status(NodeStatus) ->
-    aggregate_listener_status(NodeStatus, 0, 0, undefined, undefined, undefined).
+    aggregate_listener_status(NodeStatus, 0, 0, undefined).
 
+%% resolved_address/resolved_address_from are node-local (the security
+%% profile and node.default_listener_address both resolve per node), so
+%% they are reported per node in node_status only, not aggregated here.
+%% See the analogous comment in emqx_mgmt_api_listeners:format_status/4.
 aggregate_listener_status(
     [
         #{
             status := #{
                 running := Running,
                 max_connections := Max,
-                current_connections := Current,
-                resolved_address := ResolvedAddress,
-                resolved_address_from := ResolvedAddressFrom
+                current_connections := Current
             }
         }
         | T
     ],
     MaxAcc,
     CurrAcc,
-    RunningAcc,
-    ResolvedAddressAcc,
-    ResolvedAddressFromAcc
+    RunningAcc
 ) ->
     NMaxAcc = emqx_gateway_utils:add_max_connections(MaxAcc, Max),
     NRunning = aggregate_agreement(Running, RunningAcc),
-    %% Nodes with byte-identical config can resolve different addresses
-    %% (security profile / node.default_listener_address are node-local),
-    %% which is exactly the disagreement this field exists to surface, so
-    %% mark it `inconsistent` instead of picking one node's value silently.
-    NResolvedAddress = aggregate_agreement(ResolvedAddress, ResolvedAddressAcc),
-    %% Unlike resolved_address, this normally agrees across the cluster even
-    %% under `nodename`, because every node applies the same category.
-    %% Disagreement here means the nodes are not actually configured alike.
-    NResolvedAddressFrom = aggregate_agreement(ResolvedAddressFrom, ResolvedAddressFromAcc),
-    aggregate_listener_status(
-        T, NMaxAcc, Current + CurrAcc, NRunning, NResolvedAddress, NResolvedAddressFrom
-    );
-aggregate_listener_status(
-    [], MaxAcc, CurrAcc, RunningAcc, ResolvedAddressAcc, ResolvedAddressFromAcc
-) ->
-    {MaxAcc, CurrAcc, RunningAcc, ResolvedAddressAcc, ResolvedAddressFromAcc}.
+    aggregate_listener_status(T, NMaxAcc, Current + CurrAcc, NRunning);
+aggregate_listener_status([], MaxAcc, CurrAcc, RunningAcc) ->
+    {MaxAcc, CurrAcc, RunningAcc}.
 
 aggregate_agreement(R, R) -> R;
 aggregate_agreement(R, undefined) -> R;
