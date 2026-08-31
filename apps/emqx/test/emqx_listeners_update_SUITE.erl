@@ -42,9 +42,24 @@ end_per_group(_Profile, Config) ->
     emqx_cth_suite:stop(?config(apps, Config)),
     emqx_common_test_helpers:clear_security_profile().
 
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) ->
     Init = emqx:get_raw_config(?LISTENERS),
-    [{init_conf, Init} | Config].
+    maybe_require_local_addr(TestCase, [{init_conf, Init} | Config]).
+
+%% The bind portability warning needs an address that is really present on this
+%% host. Skip the case when the host has none of the required family.
+maybe_require_local_addr(t_bind_portability_warning, Config) ->
+    require_local_addr(inet, Config);
+maybe_require_local_addr(t_bind_portability_warning_ipv6, Config) ->
+    require_local_addr(inet6, Config);
+maybe_require_local_addr(_TestCase, Config) ->
+    Config.
+
+require_local_addr(Family, Config) ->
+    case local_non_loopback_addr(Family) of
+        undefined -> {skip, {no_non_loopback_address, Family}};
+        IP -> [{local_addr, IP} | Config]
+    end.
 
 end_per_testcase(_TestCase, Config) ->
     Conf = ?config(init_conf, Config),
@@ -464,50 +479,40 @@ Binding a listener to a real local non-loopback IPv4 address on a single-node
 cluster logs a portability warning; the config change succeeds and the
 listener runs.
 """.
-t_bind_portability_warning(_Config) ->
-    case local_non_loopback_addr(inet) of
-        undefined ->
-            ct:pal("host has no non-loopback IPv4 address, nothing to check"),
-            ok;
-        IP ->
-            #{<<"tcp">> := #{<<"default">> := Tcp}} = emqx:get_raw_config(?LISTENERS),
-            Bind = format_bind({IP, 21883}),
-            ConfPath = [listeners, tcp, portability],
-            ?check_trace(
-                begin
-                    ?assertMatch(
-                        {ok, _},
-                        emqx:update_config(ConfPath, {create, Tcp#{<<"bind">> => Bind}})
-                    ),
-                    ?assertEqual(0, current_conns(<<"tcp:portability">>, {IP, 21883})),
-                    {ok, _} = emqx:update_config(ConfPath, ?TOMBSTONE_CONFIG_CHANGE_REQ)
-                end,
-                fun(Trace) ->
-                    ?assertMatch(
-                        [#{level := warning, bind := Bind}],
-                        ?of_kind(listener_bind_portability_log, Trace)
-                    )
-                end
+t_bind_portability_warning(Config) ->
+    IP = ?config(local_addr, Config),
+    #{<<"tcp">> := #{<<"default">> := Tcp}} = emqx:get_raw_config(?LISTENERS),
+    Bind = format_bind({IP, 21883}),
+    ConfPath = [listeners, tcp, portability],
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {ok, _},
+                emqx:update_config(ConfPath, {create, Tcp#{<<"bind">> => Bind}})
+            ),
+            ?assertEqual(0, current_conns(<<"tcp:portability">>, {IP, 21883})),
+            {ok, _} = emqx:update_config(ConfPath, ?TOMBSTONE_CONFIG_CHANGE_REQ)
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{level := warning, bind := Bind}],
+                ?of_kind(listener_bind_portability_log, Trace)
             )
-    end.
+        end
+    ).
 
 -doc """
 A local non-loopback IPv6 address logs the same portability warning as an
 IPv4 one. The listener is disabled, so the case does not depend on the host
 being able to bind IPv6.
 """.
-t_bind_portability_warning_ipv6(_Config) ->
-    case local_non_loopback_addr(inet6) of
-        undefined ->
-            ct:pal("host has no non-loopback IPv6 address, nothing to check"),
-            ok;
-        IP ->
-            Bind = format_bind({IP, 21888}),
-            ?assertMatch(
-                [#{level := warning, bind := Bind}],
-                bind_portability_logs(Bind, #{<<"enable">> => false})
-            )
-    end.
+t_bind_portability_warning_ipv6(Config) ->
+    IP = ?config(local_addr, Config),
+    Bind = format_bind({IP, 21888}),
+    ?assertMatch(
+        [#{level := warning, bind := Bind}],
+        bind_portability_logs(Bind, #{<<"enable">> => false})
+    ).
 
 -doc """
 Binding a listener to an IPv4 address that is not on the local interfaces logs
