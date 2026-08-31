@@ -254,9 +254,17 @@ tps_breach_sustained() ->
 %% @private The schema rejects anything outside the permitted range, but the
 %% cap is re-applied here so the alarm cannot be silenced by a value that
 %% reached the config without passing validation.
+%%
+%% The lookup carries a default rather than relying on the schema having
+%% supplied one: this runs on every sampling tick, so a config that somehow
+%% reaches the node without the key would otherwise take the process down
+%% every 5 seconds.
 sustain_duration() ->
     min(
-        emqx_conf:get([license, tps_alarm_sustain_duration]),
+        emqx_conf:get(
+            [license, tps_alarm_sustain_duration],
+            ?DEFAULT_TPS_ALARM_SUSTAIN_DURATION
+        ),
         ?MAX_TPS_ALARM_SUSTAIN_DURATION
     ).
 

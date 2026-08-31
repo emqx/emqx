@@ -285,6 +285,22 @@ t_alarm_tps_sustain_duration(Config) when is_list(Config) ->
     ),
     ok.
 
+%% The runtime fallback in `emqx_license_resources:sustain_duration/0' and the
+%% schema default are the same duration written twice, in two forms: the schema
+%% keeps `1m' so generated docs and config files read well, the fallback needs
+%% milliseconds. Nothing in the compiler ties them together, so pin them here.
+t_sustain_duration_fallback_matches_schema_default({init, Config}) ->
+    Config;
+t_sustain_duration_fallback_matches_schema_default({'end', _Config}) ->
+    ok;
+t_sustain_duration_fallback_matches_schema_default(Config) when is_list(Config) ->
+    %% The suite starts emqx_license with only `license.key' set, so this value
+    %% is the schema default resolved to milliseconds.
+    ?assertEqual(
+        ?DEFAULT_TPS_ALARM_SUSTAIN_DURATION,
+        emqx_config:get([license, tps_alarm_sustain_duration])
+    ).
+
 sustain_duration() ->
     emqx_config:get([license, tps_alarm_sustain_duration], 0).
 
