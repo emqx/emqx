@@ -45,8 +45,16 @@ filename.desc:
 filename.label:
 """Filename"""
 
-allow_security_profile_mismatch.desc:
-"""Import the backup even if it was exported under the `legacy` security profile (or predates this field) while this node runs the `hardened` profile. Without this, such an import is refused because restoring it may silently rebind listeners to loopback-only addresses."""
+allow_security_profile_mismatch.desc: """~
+Import the backup even though its recorded security profile does not match this node's `hardened` profile: it was exported under `legacy`, or it predates this field (treated as `legacy`).
+
+Without this, such an import is not allowed by default, because configuration and data captured under `legacy` can behave differently once restored onto a `hardened` node, for example:
+  - Bare-port MQTT, gateway, and Dashboard HTTP listener binds resolve to loopback instead of all interfaces.
+  - An authenticator chain left empty, or fully disabled, under `legacy` starts denying every client instead of allowing them.
+  - A restored Dashboard account still on the default password can no longer log in.
+  - Authentication and authorization backend failures, and similar error conditions that `legacy` ignored, now deny the operation.
+
+Review the security profile documentation before setting this to import into a `hardened` node.~"""
 allow_security_profile_mismatch.label:
 """Allow Security Profile Mismatch"""
 

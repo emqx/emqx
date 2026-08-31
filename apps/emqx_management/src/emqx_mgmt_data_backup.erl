@@ -589,8 +589,12 @@ format_error({security_profile_mismatch, BackupProfile}) ->
     str(
         io_lib:format(
             "backup was exported under the \"~s\" security profile, but this node runs the "
-            "\"hardened\" profile; restoring it may silently rebind listeners to loopback-only "
-            "addresses. Override with allow_security_profile_mismatch to import anyway.~n",
+            "\"hardened\" profile, whose stricter defaults can behave differently for restored "
+            "data: bare-port listener binds resolve to loopback, an authenticator chain left "
+            "empty or disabled denies every client, a restored dashboard account on the default "
+            "password can no longer log in, and authentication/authorization backend failures "
+            "now deny the operation. Override with allow_security_profile_mismatch to import "
+            "anyway.~n",
             [BackupProfile]
         )
     );
