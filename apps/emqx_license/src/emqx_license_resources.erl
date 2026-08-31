@@ -6,6 +6,8 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-include("emqx_license.hrl").
+
 -behaviour(gen_server).
 
 -define(CHECK_INTERVAL, 5000).
@@ -24,7 +26,7 @@
 ]).
 
 %% For testing
--export([update_now/0]).
+-export([update_now/0, backdate_tps_breach/1]).
 
 %% gen_server callbacks
 -export([
@@ -89,6 +91,14 @@ update_now() ->
     _ = erlang:send(whereis(?MODULE), update_resources),
     ok.
 
+%% @doc For testing: move the start of the current over-limit window back by
+%% `Ms', so a test can reach the end of a long window without sleeping through
+%% it. Does nothing when no window is open. Goes through the owning process
+%% because the table is protected.
+-spec backdate_tps_breach(non_neg_integer()) -> ok.
+backdate_tps_breach(Ms) ->
+    gen_server:call(?MODULE, {backdate_tps_breach, Ms}, infinity).
+
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
@@ -98,6 +108,16 @@ init([CheckInterval]) ->
     State = ensure_timer(#{check_peer_interval => CheckInterval}),
     {ok, State}.
 
+handle_call({backdate_tps_breach, Ms}, _From, State) ->
+    Reply =
+        case cached_tps_over_limit_since() of
+            undefined ->
+                ok;
+            Since ->
+                true = ets:insert(?MODULE, {tps_over_limit_since, Since - Ms}),
+                ok
+        end,
+    {reply, Reply, State};
 handle_call(_Req, _From, State) ->
     {reply, ignored, State}.
 
@@ -160,20 +180,93 @@ max_tps_alarm({ok, #{max_tps := Limit}}) ->
             {error, not_found} ->
                 {activate, new_tps_alarm_details(LatestTps, HistMaxTps)}
         end,
+    %% The window measures time until activation, so it only runs while there is
+    %% no alarm to raise. Leaving it armed under an active alarm would matter as
+    %% soon as an alarm can clear on its own: the first sample after it cleared
+    %% would find a window opened long ago and re-raise at once, turning a clear
+    %% duration into a flapping alarm.
+    ok = track_tps_breach(
+        Action =:= activate andalso is_integer(Limit) andalso LatestTps > Limit
+    ),
     MaxTps = maps:get(max_tps, AlarmDetails),
     case is_integer(Limit) andalso MaxTps > Limit of
         true when Action =:= update ->
             _ = emqx_alarm:update_details(license_tps, AlarmDetails),
             ok;
         true when Action =:= activate ->
-            Message = iolist_to_binary(io_lib:format("License: TPS limit (~w) exceeded.", [Limit])),
-            ?OK(emqx_alarm:activate(license_tps, AlarmDetails, Message));
+            case tps_breach_sustained() of
+                true ->
+                    Message = iolist_to_binary(
+                        io_lib:format("License: TPS limit (~w) exceeded.", [Limit])
+                    ),
+                    ?OK(emqx_alarm:activate(license_tps, AlarmDetails, Message));
+                false ->
+                    %% Over the limit, but not for long enough yet.
+                    ok
+            end;
         true when Action =:= ignore ->
             ok;
         false ->
             %% License has higher TPS limit, ensure the alarm is deactivated.
             ?OK(emqx_alarm:ensure_deactivated(license_tps))
     end.
+
+%% @private Remember when the current run of over-limit samples started, so the
+%% alarm can require the breach to last. A sample at or below the limit ends the
+%% run: `tps_alarm_sustain_duration' is a continuous window, not a total.
+%%
+%% Held in the same ephemeral table as the TPS cache, so a restart of this
+%% process starts the window over. That only delays an alarm by the configured
+%% duration, and the sampling itself restarts with the process anyway.
+%%
+%% The writes are deliberately not wrapped in `?OK/1': the table is created in
+%% `init/1' and written from its owning process, so a failure is a bug rather
+%% than an expected condition. Swallowed, it would freeze the window and the
+%% alarm would never fire again with nothing in the log to say why.
+track_tps_breach(_IsOverLimit = false) ->
+    true = ets:delete(?MODULE, tps_over_limit_since),
+    ok;
+track_tps_breach(_IsOverLimit = true) ->
+    case cached_tps_over_limit_since() of
+        undefined ->
+            true = ets:insert(?MODULE, {tps_over_limit_since, monotonic_ms()}),
+            ok;
+        _AlreadyTracking ->
+            ok
+    end.
+
+%% @private Whether the current run of over-limit samples has lasted at least
+%% `license.tps_alarm_sustain_duration'. A duration of 0 keeps the alarm firing
+%% on the first over-limit sample.
+tps_breach_sustained() ->
+    case sustain_duration() of
+        Duration when Duration =< 0 ->
+            true;
+        Duration ->
+            case cached_tps_over_limit_since() of
+                undefined ->
+                    false;
+                Since ->
+                    monotonic_ms() - Since > Duration
+            end
+    end.
+
+%% @private The schema rejects anything outside the permitted range, but the
+%% cap is re-applied here so the alarm cannot be silenced by a value that
+%% reached the config without passing validation.
+%%
+%% The lookup carries a default rather than relying on the schema having
+%% supplied one: this runs on every sampling tick, so a config that somehow
+%% reaches the node without the key would otherwise take the process down
+%% every 5 seconds.
+sustain_duration() ->
+    min(
+        emqx_conf:get(
+            [license, tps_alarm_sustain_duration],
+            ?DEFAULT_TPS_ALARM_SUSTAIN_DURATION
+        ),
+        ?MAX_TPS_ALARM_SUSTAIN_DURATION
+    ).
 
 new_tps_alarm_details(MaxTps, HistMaxTps) ->
     emqx_alarm:make_persistent_details(#{
@@ -193,6 +286,18 @@ cached_latest_cluster_tps() ->
 
 cached_max_tps() ->
     ?SAFE_CACHE_LOOKUP(max_cluster_tps, 0).
+
+cached_tps_over_limit_since() ->
+    ?SAFE_CACHE_LOOKUP(tps_over_limit_since, undefined).
+
+%% The window is a duration, so it is measured with the monotonic clock.
+%% `erlang:system_time/1' can step - an NTP correction, a manual clock change, a
+%% suspended VM - and a step inside the window would delay the alarm or fire it
+%% early, which is what this option exists to prevent. The `system_time' call in
+%% `update_resources/0' stays as it is: that value is a timestamp to report, not
+%% a difference to compare.
+monotonic_ms() ->
+    erlang:monotonic_time(millisecond).
 
 update_resources() ->
     Now = erlang:system_time(millisecond),

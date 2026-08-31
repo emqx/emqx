@@ -210,6 +210,7 @@ t_conf_update(_Config) ->
             connection_low_watermark => 0.45,
             dynamic_max_connections => ?DEFAULT_MAX_SESSIONS_CTYPE3,
             high_watermark_timezone => system,
+            tps_alarm_sustain_duration => 60_000,
             key => LicenseKey
         },
         emqx:get_config([license])
@@ -221,4 +222,25 @@ t_conf_update(_Config) ->
         },
         Dump
     ),
+    ok.
+
+-doc "The TPS alarm cannot be held back for longer than the permitted range.".
+t_conf_update_tps_alarm_sustain_duration_range({init, Config}) ->
+    Config;
+t_conf_update_tps_alarm_sustain_duration_range({'end', _Config}) ->
+    ok;
+t_conf_update_tps_alarm_sustain_duration_range(_Config) ->
+    LicenseKey = emqx_license_test_lib:make_license(#{max_sessions => "123"}),
+    Update = fun(Duration) ->
+        emqx:update_config([license], #{
+            <<"key">> => LicenseKey,
+            <<"tps_alarm_sustain_duration">> => Duration
+        })
+    end,
+    ?assertMatch({error, _}, Update(<<"11m">>)),
+    ?assertMatch({error, _}, Update(<<"3650d">>)),
+    ?assertMatch({ok, _}, Update(<<"10m">>)),
+    ?assertEqual(600_000, emqx:get_config([license, tps_alarm_sustain_duration])),
+    ?assertMatch({ok, _}, Update(<<"0s">>)),
+    ?assertEqual(0, emqx:get_config([license, tps_alarm_sustain_duration])),
     ok.

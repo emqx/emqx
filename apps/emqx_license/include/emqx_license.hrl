@@ -85,6 +85,18 @@
 %% Allow 10% more sessions over the limit defined in the license key
 -define(SESSIONS_LIMIT_OVERSHOOT_FACTOR, 1.1).
 
+%% Upper bound for `license.tps_alarm_sustain_duration', 10 minutes. The alarm
+%% exists to prompt a license upgrade, so how long it can be held back is capped
+%% here rather than left to the operator. A literal so it can be used in guards.
+-define(MAX_TPS_ALARM_SUSTAIN_DURATION, 600_000).
+
+%% Fallback for `license.tps_alarm_sustain_duration' when the key is absent
+%% from the running config. Must stay equal to the schema default
+%% (`emqx_license_schema:default/1' returns the same duration as `1m'); the
+%% schema keeps the human-readable form for generated docs, and
+%% `t_sustain_duration_fallback_matches_schema_default' pins the two together.
+-define(DEFAULT_TPS_ALARM_SUSTAIN_DURATION, 60_000).
+
 %% The default license key.
 %% This default license is of single-node type and has 10M sessions limit.
 %% Issued on 2025-03-02 and valid for 4 years (1460 days)
