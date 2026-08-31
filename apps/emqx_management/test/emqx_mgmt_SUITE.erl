@@ -102,6 +102,104 @@ t_list_nodes(_) ->
         NodeInfos
     ).
 
+%% A node that `cluster_nodes(running)` reported but whose `node_info` RPC did
+%% not answer used to be filtered out by the `#{node := Node} = Info` generator
+%% in `list_nodes/0`, so it vanished from `GET /nodes` entirely. A vanished row
+%% is indistinguishable from a removed node, which is the condition the view
+%% exists to show, so it is reported as `unreachable` instead.
+t_list_nodes_reports_unreachable(init, Config) ->
+    meck:expect(
+        emqx,
+        cluster_nodes,
+        fun
+            (running) -> [node(), 'silent@node'];
+            (stopped) -> []
+        end
+    ),
+    meck:new(emqx_management_proto_v5, [passthrough, no_history]),
+    %% `erpc:multicall/5` answers in request order; the second node times out.
+    %% The first answer is synthetic: this suite starts no applications, so the
+    %% real `emqx_mgmt:node_info/0` has no ETS tables to read.
+    meck:expect(emqx_management_proto_v5, node_info, fun([Self, 'silent@node']) ->
+        [
+            {ok, #{node => Self, node_status => 'running', role => core}},
+            {error, {erpc, timeout}}
+        ]
+    end),
+    Config;
+t_list_nodes_reports_unreachable('end', _Config) ->
+    meck:unload(emqx_management_proto_v5),
+    ok.
+
+t_list_nodes_reports_unreachable(_) ->
+    Node = node(),
+    ?assertMatch(
+        [
+            {Node, #{node := Node, node_status := 'running'}},
+            {'silent@node', #{node := 'silent@node', node_status := 'unreachable'}}
+        ],
+        emqx_mgmt:list_nodes()
+    ),
+    %% `role` is the node's own `mria_rlog:role()`, so it is left out rather
+    %% than guessed. Unlike a stopped node, an unreachable one may be either.
+    [_, {_, Unreachable}] = emqx_mgmt:list_nodes(),
+    ?assertNot(maps:is_key(role, Unreachable)).
+
+%% The comprehension this replaced dropped anything it could not match, so an
+%% unexpected answer cost one row. Matching only `{error, _}` would make the
+%% same surprise a 500 for the whole endpoint instead.
+t_list_nodes_tolerates_an_unexpected_answer(init, Config) ->
+    meck:expect(
+        emqx,
+        cluster_nodes,
+        fun
+            (running) -> [node(), 'odd@node'];
+            (stopped) -> []
+        end
+    ),
+    meck:new(emqx_management_proto_v5, [passthrough, no_history]),
+    meck:expect(emqx_management_proto_v5, node_info, fun([Self, 'odd@node']) ->
+        [
+            {ok, #{node => Self, node_status => 'running', role => core}},
+            %% a map, but not a node report
+            {ok, #{unexpected => shape}}
+        ]
+    end),
+    Config;
+t_list_nodes_tolerates_an_unexpected_answer('end', _Config) ->
+    meck:unload(emqx_management_proto_v5),
+    ok.
+
+t_list_nodes_tolerates_an_unexpected_answer(_) ->
+    ?assertMatch(
+        [{_, #{node_status := 'running'}}, {'odd@node', #{node_status := 'unreachable'}}],
+        emqx_mgmt:list_nodes()
+    ).
+
+%% `GET /nodes/:node` reaches its handler for any node in `mria:running_nodes/0`,
+%% which is the same set the list endpoint fans out to, so it has the same
+%% window. `emqx_mgmt:lookup_node/1` answers `{error, Reason}` there and
+%% `format/1` takes a map only, which reached the client as a 500.
+t_get_node_reports_unreachable(init, Config) ->
+    meck:new(emqx_management_proto_v5, [passthrough, no_history]),
+    meck:expect(emqx_management_proto_v5, node_info, fun([_]) ->
+        [{error, {erpc, timeout}}]
+    end),
+    meck:new(mria, [passthrough, no_history]),
+    meck:expect(mria, running_nodes, 0, [node()]),
+    Config;
+t_get_node_reports_unreachable('end', _Config) ->
+    meck:unload(mria),
+    meck:unload(emqx_management_proto_v5),
+    ok.
+
+t_get_node_reports_unreachable(_) ->
+    Node = node(),
+    ?assertMatch(
+        {200, #{node := Node, node_status := 'unreachable'}},
+        emqx_mgmt_api_nodes:node(get, #{bindings => #{node => atom_to_binary(Node, utf8)}})
+    ).
+
 t_lookup_node(init, Config) ->
     meck:new(emqx_mgmt, [passthrough]),
     meck:expect(emqx_mgmt, os_type, 0, {win32, winME}),

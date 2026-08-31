@@ -85,7 +85,10 @@ emqx_mgmt_api_nodes {
     }
 
     node_status {
-        desc = "Node status."
+        desc = """Node status.
+`running`: the node answered with its own report.
+`stopped`: the node is a known cluster member that is not running.
+`unreachable`: the node is a running cluster member that did not answer within the timeout. Only `node` and `node_status` are reported for it."""
         label = "Node Status"
     }
 
