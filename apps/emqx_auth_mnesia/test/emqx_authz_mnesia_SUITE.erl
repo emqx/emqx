@@ -339,6 +339,103 @@ t_authz(_Config) ->
     ),
     ok.
 
+t_namespace_fallback_to_global(Config) ->
+    Namespace = <<"ns1">>,
+    ClientInfo = with_ns(Namespace, emqx_authz_test_lib:base_client_info()),
+    AllowRule = #{
+        <<"permission">> => <<"allow">>,
+        <<"action">> => <<"subscribe">>,
+        <<"topic">> => <<"t">>
+    },
+    ok = store_rules(?global_ns, all, [AllowRule]),
+
+    %% Empty namespaces keep the global fallback for backwards compatibility.
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>
+        )
+    ),
+
+    ok = store_rules(Namespace, {username, <<"other-user">>}, [AllowRule]),
+    Expected =
+        case ?config(security_profile, Config) of
+            legacy ->
+                ?assertMatch(
+                    {ok, [_ | _]},
+                    emqx_authz_mnesia:load_rules_for_authorize(
+                        Namespace, <<"someclientid">>, <<"someusername">>
+                    )
+                ),
+                allow;
+            hardened ->
+                ?assertEqual(
+                    {ok, []},
+                    emqx_authz_mnesia:load_rules_for_authorize(
+                        Namespace, <<"someclientid">>, <<"someusername">>
+                    )
+                ),
+                deny
+        end,
+    ?assertEqual(
+        Expected,
+        emqx_access_control:authorize(
+            emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>
+        )
+    ),
+    ok = emqx_authz_mnesia:purge_rules(Namespace).
+
+t_explicit_global_rule_conflicts(Config) ->
+    Namespace = <<"ns1">>,
+    Username = <<"someusername">>,
+    ClientId = <<"someclientid">>,
+    Rule = #{
+        <<"permission">> => <<"allow">>,
+        <<"action">> => <<"subscribe">>,
+        <<"topic">> => <<"t">>
+    },
+    ok = store_rules(?global_ns, {username, Username}, [Rule]),
+    ok = store_rules(?global_ns, {clientid, ClientId}, [Rule]),
+
+    case ?config(security_profile, Config) of
+        legacy ->
+            ok = store_rules(Namespace, {username, Username}, [Rule]),
+            ok = store_rules(Namespace, {clientid, ClientId}, [Rule]);
+        hardened ->
+            {error, rules_shadowed} = store_rules(Namespace, {username, Username}, [Rule]),
+            {error, rules_shadowed} = store_rules(Namespace, {clientid, ClientId}, [Rule])
+    end,
+    ok = emqx_authz_mnesia:purge_rules(Namespace),
+    ok = emqx_authz_mnesia:purge_rules(?global_ns),
+
+    %% Existing conflicts fail closed in strict mode, including conflicts created
+    %% by adding global rules after namespace rules.
+    ok = store_rules(Namespace, {username, Username}, [Rule]),
+    ok = store_rules(?global_ns, {username, Username}, [Rule]),
+    LoadResult = emqx_authz_mnesia:load_rules_for_authorize(Namespace, ClientId, Username),
+    ClientInfo0 = emqx_authz_test_lib:base_client_info(),
+    ClientInfo = with_ns(Namespace, ClientInfo0#{username => Username, clientid => ClientId}),
+    case ?config(security_profile, Config) of
+        legacy ->
+            {ok, Rules} = LoadResult,
+            ?assertNotEqual([], Rules),
+            ?assertEqual(
+                allow,
+                emqx_access_control:authorize(
+                    emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>
+                )
+            );
+        hardened ->
+            ?assertEqual(deny_for_conflict, LoadResult),
+            ?assertEqual(
+                deny,
+                emqx_access_control:authorize(
+                    emqx_authz_context:make(ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>
+                )
+            )
+    end,
+    ok = emqx_authz_mnesia:purge_rules(Namespace).
+
 test_authz(Expected, {Who, Rule}, {ClientInfo, Action, Topic}) ->
     test_authz(Expected, ?global_ns, {Who, Rule}, {ClientInfo, Action, Topic}).
 
@@ -366,7 +463,7 @@ t_purge_namespace_rules(_Config) ->
     },
     Ns1 = <<"tns1">>,
     Ns2 = <<"tns2">>,
-    ok = store_rules(?global_ns, {username, <<"username">>}, [Rule]),
+    ok = store_rules(?global_ns, {username, <<"global-username">>}, [Rule]),
     ok = store_rules(Ns1, {username, <<"username">>}, [Rule]),
     ok = store_rules(Ns1, {clientid, <<"clientid">>}, [Rule]),
     ok = store_rules(Ns1, all, [Rule]),
@@ -377,7 +474,7 @@ t_purge_namespace_rules(_Config) ->
     not_found = emqx_authz_mnesia:get_rules(Ns1, {username, <<"username">>}),
     not_found = emqx_authz_mnesia:get_rules(Ns1, {clientid, <<"clientid">>}),
     not_found = emqx_authz_mnesia:get_rules(Ns1, all),
-    {ok, _} = emqx_authz_mnesia:get_rules(?global_ns, {username, <<"username">>}),
+    {ok, _} = emqx_authz_mnesia:get_rules(?global_ns, {username, <<"global-username">>}),
     {ok, _} = emqx_authz_mnesia:get_rules(Ns2, {username, <<"username">>}),
     ?assertEqual(0, emqx_authz_mnesia:record_count(Ns1)),
 

@@ -1,0 +1,1 @@
+Added built-in database authorization rule conflict protection for the hardened security profile. EMQX now rejects namespaced username and client ID rules that conflict with explicit global rules, and prevents configured namespaces from falling back to global rules.

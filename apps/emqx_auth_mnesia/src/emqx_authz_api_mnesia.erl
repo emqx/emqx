@@ -182,6 +182,9 @@ schema("/authorization/sources/built_in_database/rules/clients") ->
                         ),
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request_clientid")
+                        ),
+                        409 => emqx_dashboard_swagger:error_codes(
+                            [?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS)
                         )
                     }
             }
@@ -226,6 +229,9 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
                         ),
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request_username")
+                        ),
+                        409 => emqx_dashboard_swagger:error_codes(
+                            [?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS)
                         )
                     }
             },
@@ -289,6 +295,9 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
                         ),
                         403 => emqx_dashboard_swagger:error_codes(
                             [?FORBIDDEN], ?DESC("forbidden")
+                        ),
+                        409 => emqx_dashboard_swagger:error_codes(
+                            [?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS)
                         )
                     }
             },
@@ -587,7 +596,7 @@ all(post, Req) ->
     handle_create_rules(Namespace, all, Req);
 all(delete, Req) ->
     #{resolved_ns := Namespace} = Req,
-    emqx_authz_mnesia:store_rules(Namespace, all, []),
+    ok = emqx_authz_mnesia:store_rules(Namespace, all, []),
     ?NO_CONTENT.
 
 rules(delete, Req) ->
@@ -720,13 +729,7 @@ handle_get_rules(Namespace, clientid, #{query_string := QueryString} = _Req) ->
 handle_create_rules(Namespace, username, #{body := Body}) when is_list(Body) ->
     case ensure_rules_is_valid(Namespace, <<"username">>, username, Body) of
         ok ->
-            lists:foreach(
-                fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules(Namespace, {username, Username}, Rules)
-                end,
-                Body
-            ),
-            ?NO_CONTENT;
+            store_subjects_rules(Namespace, <<"username">>, username, Body);
         {error, {Username, too_many_rules}} ->
             ?BAD_REQUEST(
                 binfmt(
@@ -740,13 +743,7 @@ handle_create_rules(Namespace, username, #{body := Body}) when is_list(Body) ->
 handle_create_rules(Namespace, clientid, #{body := Body}) when is_list(Body) ->
     case ensure_rules_is_valid(Namespace, <<"clientid">>, clientid, Body) of
         ok ->
-            lists:foreach(
-                fun(#{<<"clientid">> := ClientId, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules(Namespace, {clientid, ClientId}, Rules)
-                end,
-                Body
-            ),
-            ?NO_CONTENT;
+            store_subjects_rules(Namespace, <<"clientid">>, clientid, Body);
         {error, {ClientId, too_many_rules}} ->
             ?BAD_REQUEST(
                 binfmt(
@@ -760,7 +757,7 @@ handle_create_rules(Namespace, clientid, #{body := Body}) when is_list(Body) ->
 handle_create_rules(Namespace, all, #{body := #{<<"rules">> := Rules}}) ->
     case ensure_rules_len(Rules) of
         ok ->
-            emqx_authz_mnesia:store_rules(Namespace, all, Rules),
+            ok = emqx_authz_mnesia:store_rules(Namespace, all, Rules),
             ?NO_CONTENT;
         _ ->
             ?BAD_REQUEST(<<"The length of rules exceeds the maximum limit.">>)
@@ -789,12 +786,11 @@ handle_get_user(Namespace, #{bindings := #{clientid := ClientId}}) ->
 
 handle_update_user(Namespace, #{
     bindings := #{username := Username},
-    body := #{<<"username">> := Username, <<"rules">> := Rules}
+    body := #{<<"username">> := Username, <<"rules">> := Rules} = Body
 }) ->
     case ensure_rules_len(Rules) of
         ok ->
-            emqx_authz_mnesia:store_rules(Namespace, {username, Username}, Rules),
-            ?NO_CONTENT;
+            store_subjects_rules(Namespace, <<"username">>, username, [Body]);
         {error, too_many_rules} ->
             ?BAD_REQUEST(
                 binfmt(
@@ -805,12 +801,11 @@ handle_update_user(Namespace, #{
     end;
 handle_update_user(Namespace, #{
     bindings := #{clientid := ClientId},
-    body := #{<<"clientid">> := ClientId, <<"rules">> := Rules}
+    body := #{<<"clientid">> := ClientId, <<"rules">> := Rules} = Body
 }) ->
     case ensure_rules_len(Rules) of
         ok ->
-            emqx_authz_mnesia:store_rules(Namespace, {clientid, ClientId}, Rules),
-            ?NO_CONTENT;
+            store_subjects_rules(Namespace, <<"clientid">>, clientid, [Body]);
         {error, too_many_rules} ->
             ?BAD_REQUEST(
                 binfmt(
@@ -911,11 +906,51 @@ ensure_rules_is_valid(Namespace, Key, Type, MaxLen, [Cfg | Cfgs]) ->
                 {error, Reason} ->
                     {error, {Id, Reason}}
             end;
-        _ ->
+        {ok, _} ->
             {error, {already_exists, Id}}
     end;
 ensure_rules_is_valid(_Namespace, _Key, _Type, _MaxLen, []) ->
     ok.
+
+store_subjects_rules(Namespace, Key, Type, Cfgs) ->
+    case do_store_subjects_rules(Namespace, Key, Type, Cfgs) of
+        ok -> ?NO_CONTENT;
+        {error, {rules_shadowed, Id}} -> shadowed_rules_conflict(Type, Id)
+    end.
+
+do_store_subjects_rules(Namespace, Key, Type, [Cfg | Cfgs]) ->
+    #{Key := Id, <<"rules">> := Rules} = Cfg,
+    case do_store_subject_rules(Namespace, Type, Id, Rules) of
+        ok -> do_store_subjects_rules(Namespace, Key, Type, Cfgs);
+        {error, _} = Error -> Error
+    end;
+do_store_subjects_rules(_Namespace, _Key, _Type, []) ->
+    ok.
+
+do_store_subject_rules(Namespace, Type, Id, Rules) ->
+    case emqx_authz_mnesia:store_rules(Namespace, {Type, Id}, Rules) of
+        ok -> ok;
+        {error, rules_shadowed} -> {error, {rules_shadowed, Id}}
+    end.
+
+shadowed_rules_conflict(username, Username) ->
+    ?CONFLICT(
+        <<"ALREADY_EXISTS">>,
+        binfmt(
+            "Namespaced username rules for '~ts' cannot be created or updated because "
+            "matching global rules would shadow them.",
+            [Username]
+        )
+    );
+shadowed_rules_conflict(clientid, ClientId) ->
+    ?CONFLICT(
+        <<"ALREADY_EXISTS">>,
+        binfmt(
+            "Namespaced client ID rules for '~ts' cannot be created or updated because "
+            "matching global rules would shadow them.",
+            [ClientId]
+        )
+    ).
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 

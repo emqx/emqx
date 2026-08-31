@@ -113,6 +113,9 @@ assert_policies(legacy) ->
             #{atom_key => true, required => false},
             [authorization]
         )
+    ),
+    ?assertEqual(
+        false, emqx_security_profile:policy(authz_mnesia_mt_rule_conflict_protection)
     );
 assert_policies(hardened) ->
     ?assertEqual(deny, emqx_security_profile:policy(authn_backend_failure)),
@@ -141,6 +144,9 @@ assert_policies(hardened) ->
             #{atom_key => true, required => false},
             [authorization]
         )
+    ),
+    ?assertEqual(
+        true, emqx_security_profile:policy(authz_mnesia_mt_rule_conflict_protection)
     ).
 
 assert_default_binds(Profile) ->
