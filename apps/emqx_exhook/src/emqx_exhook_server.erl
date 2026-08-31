@@ -31,7 +31,7 @@
 ]).
 
 -ifdef(TEST).
--export([hk2func/1]).
+-export([hk2func/1, resolve_hookspec/1]).
 -endif.
 
 -type service() :: #{
@@ -203,7 +203,7 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
                         {false, _} ->
                             error({unknown_hookpoint, Name0});
                         {true, false} ->
-                            Acc#{Name => Opts};
+                            Acc#{Name => resolve_duplicate(Name, Opts, Acc)};
                         {true, true} ->
                             Acc#{
                                 Name => #{
@@ -216,6 +216,34 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
         #{},
         HookSpecs
     ).
+
+%% @private
+%% `client.subscribe' and `client.subscribe.rewrite' resolve to the same
+%% hookpoint, so a server that registers both -- the plausible shape while
+%% migrating from one to the other -- would otherwise get whichever its
+%% `HookSpec' list happened to end on. The server cannot observe which was
+%% chosen short of watching which RPC arrives, so pick the richer one and say
+%% so rather than leaving it to list order.
+resolve_duplicate(Name, New, Acc) ->
+    case maps:find(Name, Acc) of
+        error ->
+            New;
+        {ok, Existing} ->
+            Winner = prefer_valued(Existing, New),
+            ?SLOG(warning, #{
+                msg => "duplicate_hookpoint_registration",
+                hookpoint => Name,
+                using => rpc_of(Winner)
+            }),
+            Winner
+    end.
+
+prefer_valued(#{valued := true} = Valued, _Other) -> Valued;
+prefer_valued(_Other, #{valued := true} = Valued) -> Valued;
+prefer_valued(Existing, _New) -> Existing.
+
+rpc_of(#{valued := true}) -> 'OnClientSubscribeRewrite';
+rpc_of(_) -> 'OnClientSubscribe'.
 
 %% @private
 %% `client.subscribe.rewrite' is the `client.subscribe' hookpoint served by the
