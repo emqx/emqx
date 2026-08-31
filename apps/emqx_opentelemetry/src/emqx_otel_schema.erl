@@ -276,12 +276,16 @@ fields("otel_exporter") ->
 fields("otel_exporter_dynatrace") ->
     [
         {endpoint,
-            ?HOCON(
-                emqx_schema:url(),
+            emqx_schema:servers_sc(
                 #{
+                    type => binary(),
                     required => true,
                     desc => ?DESC(exporter_endpoint),
                     importance => ?IMPORTANCE_HIGH
+                },
+                #{
+                    single_server => true,
+                    supported_schemes => ["http", "https"]
                 }
             )},
         {headers,
