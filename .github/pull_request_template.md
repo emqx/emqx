@@ -1,14 +1,6 @@
-Release version:
-<!--
-run script ./scripts/rel-versions to get release versions
--->
-
-Introduced in:
-<!--
-N/A: If this is a pre-release fix (e.g. found in QA phase).
-pre-5.8: If it's an old one (5.8 is the earliest minor actively maintained).
-VSN: The exact version wihch introduced the bug.
--->
+Fixes: <!-- github issue number if applicable -->
+Release version: <!-- run script ./scripts/rel-versions to get release versions -->
+Introduced in: <!-- N/A: If this is a pre-release fix (e.g. found in QA phase);  pre-5.8: If it's an old one (5.8 is the earliest minor actively maintained); VSN: The exact version wihch introduced the bug.  -->
 
 ## Summary
 
