@@ -12,11 +12,17 @@ documented here.
   deliveries for its locally connected devices through dedicated
   `pull_pool`, `ack_pool`, and `pull_server_pool` processes. Direct
   process-to-process delivery was replaced by the want_next claim flow.
-- BatchPub QoS=1 storage and trigger broadcast now run asynchronously on a
-  worker pool, so the API returns `200` once the request is accepted.
+- BatchPub QoS=1 storage now completes before the API returns; only the
+  per-node trigger broadcast is asynchronous. A `200` means the delivery is
+  durable, and storage failures are returned to the caller as `500`.
 - Storage tables now keep a disc copy on every core node; transactions
   (create, claim, ack) execute locally instead of being shipped to a
   single owner.
+- Storage tables are created through `mria` as `ram_copies` (no disk
+  persistence): QoS=1 SLO is in-memory acceptance on the core pair, with
+  the subscriber PUBACK as the final confirmation. A full cluster restart
+  drops pending deliveries; existing disc copies are converted to ram
+  copies automatically on upgrade.
 - QoS=1 delivery and ack metrics are node-local: `bcast_batch_pub_qos1_delivered`
   and `bcast_batch_pub_qos1_acked` increment on the node that delivers/acks,
   so aggregating across all nodes gives the correct totals.

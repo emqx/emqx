@@ -58,9 +58,15 @@ unmounted delivery topics.
   when it expires.
 - Delivery QoS follows the device subscription: the effective QoS is
   `min(publish, subscription)`. Devices subscribed at QoS=0 receive the
-  message at QoS=0 and the delivery completes immediately (no PUBACK
-  exists for QoS=0), devices subscribed at QoS=1 receive it at QoS=1 and
-  the delivery is removed once the PUBACK arrives.
+  message at QoS=0 and the delivery is considered complete when it is
+  handed to the channel process; this path is at-most-once with respect
+  to the client actually observing the publish. Devices subscribed at
+  QoS=1 receive it at QoS=1 and the delivery is removed once the PUBACK
+  arrives.
+- BatchPub QoS=1 is at-least-once: a lost ack or a reconnect/takeover race
+  can redeliver a message, so clients must tolerate duplicates. QoS=0 can
+  also duplicate during the session-takeover window, although delivery is
+  now gated on the current session holder at send time.
 
 ## Offline Replay
 
@@ -73,7 +79,7 @@ unmounted delivery topics.
 ## Delivery Pipeline
 
 1. Validate the request (sizes, device list, QoS, base64).
-2. All API requests are funnelled to a core node (F8).
+2. All API requests are funnelled to a core node.
 3. QoS=0 / PubBroadcast: core broadcasts full deliver data to every
    node; each `pull_pool` checks online + subscription and delivers.
 4. QoS=1: core writes message and delivery records in a single
@@ -81,9 +87,11 @@ unmounted delivery topics.
    deduplicates triggers into `buffer3`, pulls from a random core,
    fills the active A/B buffer, delivers, and tracks pending acks.
 
-There is no delivery-queue admission control: workers are pooled and
-pull-side buffering provides backpressure through the 50ms/100 batch
-flush policy.
+The delivery workers themselves have no queue admission control:
+workers are pooled and pull-side buffering provides backpressure through
+the 50ms/100 batch flush policy. The API layer separately enforces pending
+delivery quotas and returns 429 QuotaExceeded when a QoS=1 BatchPub would
+exceed them.
 
 ## Configuration
 

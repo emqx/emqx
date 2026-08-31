@@ -88,7 +88,7 @@ The message reaches all online devices of product `P1`. Offline devices do not r
 
 ### Scenario 3: QoS=1 with Offline Replay
 
-QoS=1 messages are persisted for 15 days. When an offline device reconnects, the plugin automatically replays pending messages.
+QoS=1 messages are persisted for `msg_ttl` (default 15 days). When an offline device reconnects, the plugin automatically replays pending messages in FIFO order.
 
 ```bash
 # Device list includes both online and offline devices
@@ -101,7 +101,7 @@ curl -su "$API_KEY" \
 - `online_device` -- the core broadcasts a trigger, the node serving the device pulls the delivery and waits for PUBACK
 - `offline_device` -- stored in core Mnesia, pulled and delivered when the device reconnects and subscribes
 
-The delivery record is automatically deleted once all devices have acknowledged. Note that a `200` response means the request was accepted and stored; delivery completes asynchronously shortly after.
+The delivery record is automatically deleted once all devices have acknowledged. A `200` response means the request was accepted and the QoS=1 delivery record is stored before the response returns; actual delivery completes asynchronously. BatchPub QoS=1 is at-least-once, so clients should tolerate duplicate delivery around reconnect/takeover windows.
 
 ### Scenario 4: QoS=0 Fire-and-Forget
 
@@ -130,8 +130,8 @@ curl -su "$API_KEY" "$HOST/api/v5/plugin_api/emqx_bcast/metrics"
 2. Import the Grafana dashboard
 
 Key metrics to watch:
-- **`bcast_batch_pub_qos1_wanted - bcast_batch_pub_qos1_acked`** -- backlog of unacknowledged deliveries
-- **`rate(bcast_batch_pub_qos1_acked[5m]) / rate(bcast_batch_pub_qos1_wanted[5m])`** -- delivery success rate
+- **`bcast_batch_pub_qos1_wanted - (bcast_batch_pub_qos1_acked + bcast_batch_pub_qos1_auto_acked)`** -- backlog of unacknowledged deliveries
+- **`rate((bcast_batch_pub_qos1_acked + bcast_batch_pub_qos1_auto_acked)[5m]) / rate(bcast_batch_pub_qos1_wanted[5m])`** -- delivery success rate
 
 ---
 
@@ -160,4 +160,4 @@ Key metrics to watch:
 
 **Messages not delivered to offline devices**: Check that `msg_ttl` hasn't expired. Verify the device's `ProductKey` and `DeviceName` match between the API call and MQTT client connection.
 
-**High pending count**: If `bcast_batch_pub_qos1_wanted - bcast_batch_pub_qos1_acked` is growing, check that offline devices are eventually reconnecting within the TTL window. Consider increasing `msg_ttl` for longer offline tolerance.
+**High pending count**: If `bcast_batch_pub_qos1_wanted - (bcast_batch_pub_qos1_acked + bcast_batch_pub_qos1_auto_acked)` is growing, check that offline devices are eventually reconnecting within the TTL window. Consider increasing `msg_ttl` for longer offline tolerance.
