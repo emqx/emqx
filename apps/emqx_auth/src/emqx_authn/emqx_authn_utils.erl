@@ -345,29 +345,34 @@ without_password(Credential, [Name | Rest]) ->
 owner_id(Mechanism, Backend) ->
     bin([bin(Mechanism), ":", bin(Backend)]).
 
+%% Dropping an attribute is a misconfigured backend, not a client error: the
+%% column is there but unusable. Report the whole set once per authentication
+%% rather than one line per attribute, so a row with several bad columns does
+%% not scatter the evidence across the log.
 drop_invalid_attr(Map) when is_map(Map) ->
-    maps:from_list(do_drop_invalid_attr(maps:to_list(Map))).
+    {Kept, Dropped} = maps:fold(fun keep_or_drop_attr/3, {[], []}, Map),
+    ok = log_dropped_attrs(Dropped),
+    maps:from_list(Kept).
 
-do_drop_invalid_attr([]) ->
-    [];
-do_drop_invalid_attr([{K, V} | More]) ->
+keep_or_drop_attr(K, V, {Kept, Dropped}) ->
     case emqx_utils:is_restricted_str(K) of
+        false ->
+            {Kept, [{K, invalid_name} | Dropped]};
         true ->
             case attr_value(V) of
-                {ok, Value} ->
-                    [{iolist_to_binary(K), Value} | do_drop_invalid_attr(More)];
-                error ->
-                    ?SLOG(debug, #{msg => "invalid_client_attr_value_dropped", attr_name => K}, #{
-                        tag => "AUTHN"
-                    }),
-                    do_drop_invalid_attr(More)
-            end;
-        false ->
-            ?SLOG(debug, #{msg => "invalid_client_attr_dropped", attr_name => K}, #{
-                tag => "AUTHN"
-            }),
-            do_drop_invalid_attr(More)
+                {ok, Value} -> {[{iolist_to_binary(K), Value} | Kept], Dropped};
+                error -> {Kept, [{K, invalid_value} | Dropped]}
+            end
     end.
+
+log_dropped_attrs([]) ->
+    ok;
+log_dropped_attrs(Dropped) ->
+    ?SLOG(
+        warning,
+        #{msg => "invalid_client_attrs_dropped", dropped => maps:from_list(Dropped)},
+        #{tag => "AUTHN"}
+    ).
 
 %% A client attribute value is a binary. Database columns are typed, so one can
 %% arrive as a number or a boolean, and a nullable column arrives as `null' or
@@ -378,15 +383,10 @@ do_drop_invalid_attr([{K, V} | More]) ->
 attr_value(V) when is_binary(V) -> {ok, V};
 attr_value(V) when is_integer(V) -> {ok, integer_to_binary(V)};
 attr_value(V) when is_float(V) -> {ok, float_to_binary(V, [short])};
-attr_value(true) ->
-    {ok, <<"true">>};
-attr_value(false) ->
-    {ok, <<"false">>};
-attr_value(V) when is_list(V) ->
-    try
-        {ok, iolist_to_binary(V)}
-    catch
-        _:_ -> error
-    end;
-attr_value(_Other) ->
-    error.
+attr_value(true) -> {ok, <<"true">>};
+attr_value(false) -> {ok, <<"false">>};
+%% No clause for lists. A backend returns text as a binary, so a list here is
+%% not a string the caller meant to pass through: `iolist_to_binary/1' would
+%% turn a list of integers into whatever those bytes happen to spell, which is
+%% worse than dropping it and saying so.
+attr_value(_Other) -> error.
