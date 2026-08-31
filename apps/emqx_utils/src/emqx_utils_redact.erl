@@ -26,6 +26,7 @@
     (K == client_jwks orelse K == <<"client_jwks">> orelse K == "client_jwks")
 ).
 -define(IS_VAL_NONE(V), (V == none orelse V == <<"none">> orelse V == "none")).
+-define(IS_KEY_CLIENT_JWKS_FILE(K), (K == file orelse K == <<"file">> orelse K == "file")).
 
 redacted_value() -> <<?REDACT_VAL>>.
 
@@ -232,10 +233,29 @@ is_sensitive_header("x-auth-token") ->
 is_sensitive_header(_Any) ->
     false.
 
+%% Scoped to the `client_jwks' object: only `file' (the JWKS content or path)
+%% holds key material, unlike the blanket `is_sensitive_key/1` check.
+is_client_jwks_file_key(K) ->
+    ?IS_KEY_CLIENT_JWKS_FILE(K).
+
 %% `client_jwks' is a union of the atom `none' and a JWKS object; only the
-%% object holds key material. `none' (the default) must stay readable.
+%% object holds key material. `none' (the default) must stay readable. A
+%% configured object stays a union member instead of collapsing to a bare
+%% string: only `file' (the key material) is masked, so the redacted value
+%% still passes schema validation on the update path and `deobfuscate/2` can
+%% restore it.
 redact_v(K, V) when ?IS_KEY_CLIENT_JWKS(K), ?IS_VAL_NONE(V) ->
     V;
+redact_v(K, V) when ?IS_KEY_CLIENT_JWKS(K), is_map(V) ->
+    maps:map(
+        fun(FK, FV) ->
+            case is_client_jwks_file_key(FK) of
+                true -> redact_v(FV);
+                false -> FV
+            end
+        end,
+        V
+    );
 redact_v(_K, V) ->
     redact_v(V).
 
@@ -290,6 +310,8 @@ deobfuscate(NewConf, OldConf, IsSensitiveFun) ->
                     end;
                 {ok, OldV} when is_map(V), is_map(OldV), ?IS_KEY_HEADERS(K) ->
                     Acc#{K => deobfuscate(V, OldV, fun check_is_sensitive_header/1)};
+                {ok, OldV} when is_map(V), is_map(OldV), ?IS_KEY_CLIENT_JWKS(K) ->
+                    Acc#{K => deobfuscate(V, OldV, fun is_client_jwks_file_key/1)};
                 {ok, OldV} when is_map(V), is_map(OldV) ->
                     Acc#{K => deobfuscate(V, OldV, IsSensitiveFun)};
                 {ok, OldV} ->
