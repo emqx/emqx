@@ -469,7 +469,10 @@ t_stop_cleanup(TCConfig) ->
 -doc """
 `GET /api/v5/sso/oidc' must return `client_jwks' as `none' when no client
 JWKS is configured (the default), while a configured file JWKS and the
-client secret must stay masked in both the GET and update responses.
+client secret must stay masked in both the GET and update responses. Masking
+must only replace the `file' leaf, not the whole `client_jwks' object, or the
+value stops matching the `client_file_jwks' union member and PUT rejects it
+(see `t_client_jwks_update_roundtrip').
 """.
 t_client_jwks_redaction(TCConfig) ->
     start_apps(?FUNCTION_NAME, TCConfig),
@@ -491,12 +494,97 @@ t_client_jwks_redaction(TCConfig) ->
         <<"client_jwks">> => #{<<"type">> => <<"file">>, <<"file">> => JwksContent}
     },
     ?assertMatch(
-        {200, #{<<"client_jwks">> := <<"******">>}},
+        {200, #{<<"client_jwks">> := #{<<"type">> := <<"file">>, <<"file">> := <<"******">>}}},
         create_backend(Node, ParamsWithJwks, #{})
     ),
     ?assertMatch(
-        {200, #{<<"client_jwks">> := <<"******">>, <<"secret">> := <<"******">>}},
+        {200, #{
+            <<"client_jwks">> := #{<<"type">> := <<"file">>, <<"file">> := <<"******">>},
+            <<"secret">> := <<"******">>
+        }},
         get_backend(Node, #{})
+    ),
+    ok.
+
+-doc """
+Resubmitting the exact `GET' response as a `PUT' body must succeed and keep
+the configured JWKS. Before the fix, the redacted `client_jwks: "******"'
+failed schema validation (`matched_no_union_member') before the handler's
+de-obfuscation logic ever ran.
+""".
+t_client_jwks_update_roundtrip(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/[...]"),
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    ok = emqx_utils_http_test_server:set_handler(fun oidc_content_type_handler/2),
+    Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
+    ProviderParams = oidc_provider_params(Issuer),
+
+    JwksContent = <<"{\"keys\":[{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}]}">>,
+    ParamsWithJwks = ProviderParams#{
+        <<"client_jwks">> => #{<<"type">> => <<"file">>, <<"file">> => JwksContent}
+    },
+    ?assertMatch({200, _}, create_backend(Node, ParamsWithJwks, #{})),
+
+    {200, GetResp} = get_backend(Node, #{}),
+    ?assertMatch(
+        #{<<"client_jwks">> := #{<<"type">> := <<"file">>, <<"file">> := <<"******">>}},
+        GetResp
+    ),
+
+    %% Resubmit verbatim: only `enable' changes, everything else -- including
+    %% the redacted `client_jwks' -- is exactly what GET returned.
+    PutBody = GetResp#{<<"enable">> => false},
+    ?assertMatch({200, _}, create_backend(Node, PutBody, #{})),
+
+    ?assertMatch(
+        {200, #{
+            <<"enable">> := false,
+            <<"client_jwks">> := #{<<"type">> := <<"file">>, <<"file">> := <<"******">>}
+        }},
+        get_backend(Node, #{})
+    ),
+
+    %% The stored JWKS was preserved, not overwritten with the placeholder.
+    Config = ?ON(Node, emqx:get_config([dashboard, sso, oidc])),
+    ?assertMatch(#{client_jwks := #{type := file, file := _}}, Config),
+    #{client_jwks := #{file := StoredFile}} = Config,
+    ?assertEqual({ok, JwksContent}, file:read_file(StoredFile)),
+    ok.
+
+-doc """
+Explicitly setting `client_jwks' to `none' -- as opposed to resubmitting the
+redacted placeholder -- must remove the configured JWKS. The redacted
+placeholder means "unchanged"; an explicit `none' means "remove", and the two
+must stay distinguishable.
+""".
+t_client_jwks_explicit_none_removes(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, "/[...]"),
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    ok = emqx_utils_http_test_server:set_handler(fun oidc_content_type_handler/2),
+    Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
+    ProviderParams = oidc_provider_params(Issuer),
+
+    JwksContent = <<"{\"keys\":[{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}]}">>,
+    ParamsWithJwks = ProviderParams#{
+        <<"client_jwks">> => #{<<"type">> => <<"file">>, <<"file">> => JwksContent}
+    },
+    ?assertMatch({200, _}, create_backend(Node, ParamsWithJwks, #{})),
+    ?assertMatch(
+        #{client_jwks := #{type := file}},
+        ?ON(Node, emqx:get_config([dashboard, sso, oidc]))
+    ),
+
+    ?assertMatch(
+        {200, #{<<"client_jwks">> := <<"none">>}},
+        create_backend(Node, ProviderParams#{<<"client_jwks">> => <<"none">>}, #{})
+    ),
+    ?assertMatch(
+        #{client_jwks := none},
+        ?ON(Node, emqx:get_config([dashboard, sso, oidc]))
     ),
     ok.
 
