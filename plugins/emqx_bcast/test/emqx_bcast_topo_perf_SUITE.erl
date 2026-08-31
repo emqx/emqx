@@ -72,6 +72,7 @@ apps() ->
 -doc "QoS=0, QoS=1 and cross-node replay work in a 1-core 2-replicant cluster.".
 t_1c2r_e2e(Config) ->
     [Core, Rep1, Rep2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
     DN1 = <<"topo_1c2r_dn1">>,
     DN2 = <<"topo_1c2r_dn2">>,
     C1 = connect(Rep1, DN1),
@@ -103,6 +104,7 @@ t_1c2r_e2e(Config) ->
             <<"MessageContent">> => b64(?PAYLOAD),
             <<"Qos">> => 1
         }),
+
         [M1b] = recv(1),
         [M2b] = recv(1),
         ?assertEqual(?PAYLOAD, maps:get(payload, M1b)),
@@ -132,6 +134,7 @@ t_1c2r_e2e(Config) ->
 -doc "QoS=0, QoS=1 and cross-node replay work in a 3-core cluster.".
 t_3c_e2e(Config) ->
     [C1, C2, C3] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
     DN1 = <<"topo_3c_dn1">>,
     DN2 = <<"topo_3c_dn2">>,
     Client1 = connect(C1, DN1),
@@ -195,6 +198,7 @@ t_3c_e2e(Config) ->
 -doc "Latency probe: QoS=0 and QoS=1 round trips in a 1-core 2-replicant cluster.".
 t_perf_1c2r(Config) ->
     [Core, Rep1, _Rep2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
     DN = <<"perf_1c2r_dn">>,
     C = connect(Rep1, DN),
     try
@@ -208,6 +212,7 @@ t_perf_1c2r(Config) ->
 -doc "Latency probe: QoS=0 and QoS=1 round trips in a 3-core cluster.".
 t_perf_3c(Config) ->
     [C1, _C2, C3] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
     DN = <<"perf_3c_dn">>,
     C = connect(C1, DN),
     try
@@ -217,6 +222,17 @@ t_perf_3c(Config) ->
     after
         catch emqtt:stop(C)
     end.
+
+%% Cold-start settle: the async QoS1 pipeline runs at full speed only
+%% after mria converges and the plugin workers are warm. The tests used to
+%% start timing right after emqx_cth_cluster:start/1, so the first QoS1
+%% round-trip could exceed the recv budget on a cold multi-node cluster
+%% (t_3c_e2e / t_perf_1c2r flakes on shared machines). Settle before
+%% measuring so the delivery-latency numbers are meaningful. (The test
+%% process runs on the CT node, not a cluster node, so this is a plain
+%% settle sleep; emqx_cth_cluster:start/1 already waited for the nodes.)
+settle_cluster() ->
+    timer:sleep(3000).
 
 run_perf(ApiNode, AckNode, DN, Label) ->
     Qos0 = perf_qos0(ApiNode, DN),
@@ -315,6 +331,11 @@ recv(0, Msgs) ->
 recv(Count, Msgs) ->
     receive
         {publish, Msg} -> recv(Count - 1, [Msg | Msgs])
+        %% Delivery-latency budget. settle_cluster/0 runs after every cluster
+        %% start so the async QoS1 pipeline (intake -> promoter -> trigger ->
+        %% claim -> prepare -> deliver) is already warm; a delivery that
+        %% still misses this budget is a real regression, not cold-start
+        %% noise.
     after 3000 -> Msgs
     end.
 

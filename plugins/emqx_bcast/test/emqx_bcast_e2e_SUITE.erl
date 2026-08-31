@@ -46,8 +46,12 @@ init_test_config() ->
         max_device_count => 10000,
         max_message_size_batch => 10240,
         max_message_size_broadcast => 65536,
+        max_pending_deliveries => 10000000,
+        max_pending_deliveries_per_device => 100,
+        msg_warn_threshold => 100000,
         broadcast_topic => <<"/sys/broadcast/${productKey}">>,
-        batch_topic => <<"/${productKey}/${deviceName}/user/get">>
+        batch_topic => <<"/${productKey}/${deviceName}/user/get">>,
+        delivery_pool_size => 2
     }).
 
 init_per_testcase(_Case, Config) ->
@@ -211,6 +215,56 @@ t_batch_pub_qos0_e2e(_Config) ->
     ?assertEqual(2, length(Msgs)),
     disconnect(C1),
     disconnect(C2).
+
+-doc "QoS0 direct delivery checks the authoritative session holder.".
+t_qos0_delivery_uses_current_session_holder_e2e(_Config) ->
+    DN = <<"e2e_q0_session_1">>,
+    C1 = connect(DN),
+    sub_default(C1, DN),
+    wait_subscribed(DN, topic(DN)),
+    [CurrentPid] = emqx_cm:lookup_channels(DN),
+    OldPid = spawn(fun() -> ok end),
+    ok = emqx_bcast_pull_pool:do_deliver_qos0([
+        {OldPid, <<"default">>, DN, topic(DN), <<"stale">>}
+    ]),
+    ?assertEqual(0, length(recv(1))),
+    ok = emqx_bcast_pull_pool:do_deliver_qos0([
+        {CurrentPid, <<"default">>, DN, topic(DN), <<"current">>}
+    ]),
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    ?assertMatch(#{payload := <<"current">>}, hd(Msgs)),
+    disconnect(C1).
+
+-doc "Three QoS=0 BatchPub calls deliver exactly one message per call.".
+t_batch_pub_qos0_exactly_once_e2e(_Config) ->
+    C1 = connect(<<"e2e_q0_once_1">>),
+    sub_default(C1, <<"e2e_q0_once_1">>),
+    wait_subscribed(<<"e2e_q0_once_1">>, topic(<<"e2e_q0_once_1">>)),
+    Payloads = [<<"q0_once_1">>, <<"q0_once_2">>, <<"q0_once_3">>],
+    lists:foreach(
+        fun(Payload) ->
+            {ok, 200, _, Resp} = api_call(#{
+                <<"Action">> => <<"BatchPub">>,
+                <<"ProductKey">> => <<"default">>,
+                <<"DeviceName">> => [<<"e2e_q0_once_1">>],
+                <<"MessageContent">> => b64(Payload),
+                <<"Qos">> => 0
+            }),
+            ?assert(maps:get(<<"Success">>, Resp))
+        end,
+        Payloads
+    ),
+    Msgs = recv(3),
+    ?assertEqual(3, length(Msgs)),
+    ?assertEqual(
+        lists:sort(Payloads),
+        lists:sort([maps:get(payload, M) || M <- Msgs])
+    ),
+    %% The original duplicate-delivery report was three publishes for one
+    %% call; wait one more receive window and assert no fourth copy arrives.
+    ?assertEqual(0, length(recv(1))),
+    disconnect(C1).
 
 -doc "QoS=1 BatchPub delivers to two subscribed online devices and waits for PUBACK.".
 t_batch_pub_qos1_e2e(_Config) ->
@@ -438,6 +492,65 @@ t_pub_broadcast_wildcard_sub(_Config) ->
     ?assertEqual(1, length(Msgs)),
     disconnect(C1).
 
+%% Regression: the sharding change made
+%% PubBroadcast (DeviceNames = undefined) fan out to ALL pull_pool shards,
+%% and each shard's product-wide scan did not filter to its own partition,
+%% so every online device received 4 duplicate messages. recv(3) collected
+%% all three and returned before the duplicates showed up, so the old test
+%% could not see the regression. Assert EXACTLY one message per device by
+%% draining the mailbox afterwards.
+-doc "PubBroadcast delivers exactly once per online subscribed device.".
+t_pub_broadcast_exact_once_e2e(_Config) ->
+    C1 = connect(<<"e2e_bc1_1">>),
+    C2 = connect(<<"e2e_bc1_2">>),
+    C3 = connect(<<"e2e_bc1_3">>),
+    sub(C1, <<"/sys/broadcast/default">>),
+    sub(C2, <<"/sys/broadcast/default">>),
+    sub(C3, <<"/sys/broadcast/default">>),
+    wait_subscribed(<<"e2e_bc1_1">>, <<"/sys/broadcast/default">>),
+    wait_subscribed(<<"e2e_bc1_2">>, <<"/sys/broadcast/default">>),
+    wait_subscribed(<<"e2e_bc1_3">>, <<"/sys/broadcast/default">>),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"PubBroadcast">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"MessageContent">> => b64(?PAYLOAD)
+    }),
+    Msgs = recv(3),
+    ?assertEqual(3, length(Msgs)),
+    ?assert(lists:all(fun(M) -> maps:get(payload, M) =:= ?PAYLOAD end, Msgs)),
+    %% No duplicates: a 4x fanout would deliver 3 extra copies.
+    ?assertEqual([], recv(1)),
+    disconnect(C1),
+    disconnect(C2),
+    disconnect(C3).
+
+%% 4b9b1657 regression guard: a QoS0 BatchPub request with an explicit
+%% DeviceNames list must deliver ONLY to the listed devices. A client of
+%% the same product that subscribes to the target's topic must not receive
+%% the message (the pre-fix code fanned out to the whole product).
+-doc "QoS0 BatchPub does not leak to devices outside the DeviceNames list.".
+t_batch_pub_qos0_no_leak_e2e(_Config) ->
+    C1 = connect(<<"e2e_q0nl_1">>),
+    C2 = connect(<<"e2e_q0nl_2">>),
+    %% Both clients subscribe to C1's topic: a product-wide fanout would
+    %% wrongly deliver to C2 as well.
+    sub_default(C1, <<"e2e_q0nl_1">>),
+    sub_default(C2, <<"e2e_q0nl_1">>),
+    wait_subscribed(<<"e2e_q0nl_1">>, topic(<<"e2e_q0nl_1">>)),
+    wait_subscribed(<<"e2e_q0nl_2">>, topic(<<"e2e_q0nl_1">>)),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_q0nl_1">>],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 0
+    }),
+    Msgs = recv(1),
+    ?assertEqual(1, length(Msgs)),
+    %% C2 is NOT in DeviceNames: it must receive nothing.
+    ?assertEqual([], recv(1)),
+    disconnect(C1),
+    disconnect(C2).
 -doc "A connected but unsubscribed device receives no BatchPub delivery.".
 t_connect_only_no_sub_no_delivery(_Config) ->
     C1 = connect(<<"e2e_cnore_1">>),
@@ -567,7 +680,7 @@ t_qos0_subscriber_delivery_removed(_Config) ->
     C1 = connect(<<"e2e_fuq_3">>),
     sub_qos(C1, topic(<<"e2e_fuq_3">>), 0),
     wait_subscribed(<<"e2e_fuq_3">>, topic(<<"e2e_fuq_3">>)),
-    BeforeAcked = metric(<<"batch_pub_qos1_acked">>),
+    BeforeAutoAcked = metric(<<"batch_pub_qos1_auto_acked">>),
     {ok, 200, _, _} = api_call(#{
         <<"Action">> => <<"BatchPub">>,
         <<"ProductKey">> => <<"default">>,
@@ -578,10 +691,15 @@ t_qos0_subscriber_delivery_removed(_Config) ->
     [Msg] = recv(1),
     ?assertEqual(0, maps:get(qos, Msg)),
     ?assertEqual(?PAYLOAD, maps:get(payload, Msg)),
-    %% The self-ack must arrive (acked counter increases) and the delivery
-    %% record must be gone once the QoS=0 self-ack completes, otherwise the
-    %% pending entry lingers and blocks the window=1 slot.
-    ?assert(wait_until(fun() -> metric(<<"batch_pub_qos1_acked">>) > BeforeAcked end, 100)),
+    %% The self-ack must arrive (auto_acked counter increases) and the
+    %% delivery record must be gone once the QoS=0 self-ack completes,
+    %% otherwise the pending entry lingers and blocks the window=1 slot.
+    ?assert(
+        wait_until(
+            fun() -> metric(<<"batch_pub_qos1_auto_acked">>) > BeforeAutoAcked end,
+            100
+        )
+    ),
     ?assert(
         wait_until(
             fun() -> mnesia:dirty_match_object(#bcast_msg{_ = '_'}) =:= [] end,

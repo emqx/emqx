@@ -47,19 +47,51 @@ sup_keeper() ->
     end.
 
 init_per_testcase(_Case, Config) ->
+    %% Settle the async promoter before clearing anything: wait for the
+    %% intake queue to drain and give an in-flight promotion batch time to
+    %% finish, so the per-test clears cannot race it.
+    wait_intake_idle(),
     [
         mnesia:clear_table(T)
      || T <- [
-            bcast_msg, bcast_message, bcast_message_hash, bcast_message_api_id, bcast_msg_index
+            bcast_msg,
+            bcast_msg_meta,
+            bcast_message,
+            bcast_message_hash,
+            bcast_message_api_id,
+            bcast_msg_index,
+            bcast_quota
         ]
     ],
     catch emqx_bcast:init_tables(),
     [
         catch ets:delete_all_objects(T)
-     || T <- [bcast_buffer_a, bcast_buffer_b, bcast_buffer3, bcast_device_sub, bcast_subscription]
+     || T <- [
+            bcast_device_registry,
+            bcast_subscription
+        ]
     ],
+    %% Per-shard pull-pool tables (shard_count shards x 4 tables each).
+    [
+        catch ets:delete_all_objects(T)
+     || S <- lists:seq(0, emqx_bcast_pull_pool:shard_count() - 1),
+        T <- [
+            emqx_bcast_pull_pool:tab(S, bcast_buffer_a),
+            emqx_bcast_pull_pool:tab(S, bcast_buffer_b),
+            emqx_bcast_pull_pool:tab(S, bcast_buffer3),
+            emqx_bcast_pull_pool:tab(S, bcast_pull_inflight)
+        ]
+    ],
+    %% The owner ETS index/quota and the intake queue are not mnesia
+    %% tables; reset them explicitly so no state leaks between tests.
+    catch emqx_bcast_intake:reset(),
+    catch emqx_bcast_index_owner:reset(),
     emqx_bcast_metrics:init(),
     Config.
+
+wait_intake_idle() ->
+    _ = wait_until(fun() -> emqx_bcast_intake:depth() =:= 0 end, 50),
+    timer:sleep(50).
 
 end_per_testcase(_Case, _Config) ->
     ok.
@@ -71,6 +103,9 @@ init_test_config() ->
         max_device_count => 10000,
         max_message_size_batch => 10240,
         max_message_size_broadcast => 65536,
+        max_pending_deliveries => 10000000,
+        max_pending_deliveries_per_device => 100,
+        msg_warn_threshold => 100000,
         broadcast_topic => <<"/sys/broadcast/${productKey}">>,
         batch_topic => <<"/${productKey}/${deviceName}/user/get">>,
         delivery_pool_size => 2
@@ -165,12 +200,445 @@ t_create_delivery(_Config) ->
     DeliveryId = emqx_bcast_utils:gen_guid(),
     DNs = [<<"D1">>, <<"D2">>, <<"D3">>],
     PK = <<"P1">>,
-    D = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 3),
+    {ok, D} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 3),
     ?assertEqual(0, D#bcast_msg.counter),
     ?assertEqual(3, D#bcast_msg.target_ack_count),
     {ok, Ids} = emqx_bcast_storage:get_device_deliveries({PK, <<"D1">>}),
     ?assertEqual([DeliveryId], Ids).
 
+-doc "claim no_more on a fresh missing-row entry skips it (mria lag guard);\n"
+"the orphan scan then removes the genuinely stale entry.".
+t_claim_no_more_cleans_stale_index(_Config) ->
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = <<"stale claim">>,
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(<<"stale-claim-api-id">>, MsgGuid, Hash, Payload),
+    PK = <<"PSTALE">>,
+    DN = <<"DSTALE">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1
+    ),
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+    %% Simulate the two-phase delete crash window: the delivery record disappeared
+    %% while its index entry and quota count survived. The drain hot path
+    %% reads the small bcast_msg_meta row, so a vanished delivery = vanished meta.
+    ok = mnesia:dirty_delete(bcast_msg_meta, DeliveryId),
+    ?assertEqual(
+        [{DN, no_more}],
+        emqx_bcast_storage:claim_want_next_batch([
+            #{clientid => DN, product_key => PK, topics => []}
+        ])
+    ),
+    %% The entry is fresh (appended moments ago): a concurrent promotion on
+    %% the peer core might still be replicating its rows, so the claim
+    %% skips instead of dropping - the index entry and quota survive.
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+    %% The bounded orphan scan is the designated repair path for genuinely
+    %% stale entries (its per-entry validity check has no lag ambiguity).
+    emqx_bcast_storage:cleanup_expired(),
+    ?assertEqual(0, emqx_bcast_storage:pending_delivery_count()),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+-doc "A claim whose head entry is dropped (residual) must not deadlock\n"
+"when the remaining entries only retry (topic mismatch) - the anchor\n"
+"re-anchors to the new head (regression).".
+t_claim_no_deadlock_on_dropped_head(_Config) ->
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"deadlock guard">>),
+    PK = <<"PDEADLOCK">>,
+    DN = <<"DDEADLOCK">>,
+    DeliveryA = emqx_bcast_utils:gen_guid(),
+    DeliveryB = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryA, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryB, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    %% Drop the FIFO head entry from the index: the dids entry goes away but
+    %% the queue residual stays (lazy removal), so the claim walk sees a
+    %% dropped head followed by a topic-mismatch entry that would retry
+    %% forever if the wrap anchor pointed at the vanished head.
+    ok = emqx_bcast_storage:remove_index_entries(PK, [DN], DeliveryA),
+    Parent = self(),
+    {Pid, Ref} = spawn_monitor(fun() ->
+        Parent !
+            {
+                claim_result,
+                self(),
+                emqx_bcast_storage:claim_want_next_batch([
+                    #{clientid => DN, product_key => PK, topics => [{<<"nomatch">>, 1}]}
+                ])
+            }
+    end),
+    receive
+        {claim_result, Pid, [{DN, no_more}]} ->
+            ok;
+        {claim_result, Pid, Other} ->
+            ct:fail("unexpected claim result: ~p", [Other]);
+        {'DOWN', Ref, process, Pid, Reason} ->
+            ct:fail("claim process died: ~p", [Reason])
+    after 5000 ->
+        exit(Pid, kill),
+        ct:fail("claim did not terminate (anchor deadlock)")
+    end,
+    %% DeliveryB must still be claimable with the matching topic.
+    [{DN, {ok, _}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]).
+
+-doc "register_device / unregister_device use the keyed path and respect\n"
+"the current channel pid.".
+t_unregister_device_keyed(_Config) ->
+    PK = <<"PREGKEY">>,
+    DN = <<"DREGKEY">>,
+    Pid1 = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    Pid2 = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    try
+        emqx_bcast:register_device(PK, DN, Pid1),
+        ?assertEqual({ok, Pid1}, emqx_bcast:lookup_device({PK, DN})),
+        %% A stale pid (takeover) must not delete the current holder.
+        emqx_bcast:unregister_device(PK, DN, Pid2),
+        ?assertEqual({ok, Pid1}, emqx_bcast:lookup_device({PK, DN})),
+        %% The current holder's disconnect does delete the entry.
+        emqx_bcast:unregister_device(PK, DN, Pid1),
+        ?assertEqual({error, not_found}, emqx_bcast:lookup_device({PK, DN}))
+    after
+        exit(Pid1, kill),
+        exit(Pid2, kill)
+    end.
+
+-doc "process_ack_batch returns a per-ack list; the pull_server_pool ack_batch\n"
+"worker must complete without crashing (regression).".
+t_ack_batch_worker_no_crash(_Config) ->
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"ack batch no crash">>),
+    PK = <<"PACKB">>,
+    DN = <<"DACKB">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    %% process_ack_batch returns a per-ack result LIST, never ok; the
+    %% old ok = pattern in the spawned ack worker badmatched every batch.
+    Results = emqx_bcast_storage:process_ack_batch([{PK, DN, DeliveryId}]),
+    ?assertEqual([counted], Results),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})),
+    %% Full pull_server_pool ack_batch path (cast + spawned worker) must
+    %% complete the ack without crashing: fresh delivery, ack through the
+    %% pool, index clears.
+    DeliveryId2 = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId2, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    emqx_bcast_pull_server_pool:ack_batch([{PK, DN, DeliveryId2}]),
+    ?assert(
+        wait_until(
+            fun() -> emqx_bcast_storage:get_device_deliveries({PK, DN}) =:= {ok, []} end,
+            100
+        )
+    ).
+
+-doc "begin_pools_restart snapshots only the called shard's inflight marks\n"
+"(regression).".
+t_begin_pools_restart_snapshot_own_shard(_Config) ->
+    Shard0 = 0,
+    Shard1 = 1,
+    Now = erlang:system_time(millisecond),
+    Inflight0 = emqx_bcast_pull_pool:tab(Shard0, bcast_pull_inflight),
+    Inflight1 = emqx_bcast_pull_pool:tab(Shard1, bcast_pull_inflight),
+    ets:insert(Inflight0, {<<"R5C0">>, 11, <<"R5P">>, Now}),
+    ets:insert(Inflight1, {<<"R5C1">>, 22, <<"R5P">>, Now}),
+    try
+        {ok, Marks0} =
+            gen_server:call(
+                emqx_bcast_pull_pool:pool_name(Shard0), begin_pools_restart, infinity
+            ),
+        {ok, Marks1} =
+            gen_server:call(
+                emqx_bcast_pull_pool:pool_name(Shard1), begin_pools_restart, infinity
+            ),
+        %% Each shard returns ONLY its own marks (not the 4x aggregate).
+        ?assertEqual([{<<"R5C0">>, 11, <<"R5P">>}], Marks0),
+        ?assertEqual([{<<"R5C1">>, 22, <<"R5P">>}], Marks1)
+    after
+        gen_server:cast(emqx_bcast_pull_pool:pool_name(Shard0), {abort_pools_restart}),
+        gen_server:cast(emqx_bcast_pull_pool:pool_name(Shard1), {abort_pools_restart}),
+        ets:delete(Inflight0, <<"R5C0">>),
+        ets:delete(Inflight1, <<"R5C1">>)
+    end.
+
+-doc "abort_pools_restart replays deferred deliver_results (regression): a\n"
+"shard armed during a restart that is then aborted must not keep held\n"
+"inflight marks forever (window=1 stall).".
+t_abort_pools_restart_replays_deferred(_Config) ->
+    DN = <<"N1DN">>,
+    %% The mark lives on shard_of(DN): mark_current/clear_inflight_mark
+    %% resolve the table by the client's shard, so the test must insert
+    %% into that same shard's inflight table.
+    Shard = emqx_bcast_pull_pool:shard_of(DN),
+    Pool = emqx_bcast_pull_pool:pool_name(Shard),
+    InflightTab = emqx_bcast_pull_pool:tab(Shard, bcast_pull_inflight),
+    PK = <<"N1PK">>,
+    Tag = 424242,
+    ets:insert(InflightTab, {DN, Tag, PK, erlang:system_time(millisecond)}),
+    try
+        {ok, _Marks} = gen_server:call(Pool, begin_pools_restart, infinity),
+        %% A deliver_results batch arrives while pools_restarting: deferred
+        %% (kept, marks held).
+        gen_server:cast(Pool, {deliver_results, [{DN, no_more}], [{DN, Tag, PK}]}),
+        %% The restart is aborted (a sibling reported restart_in_progress):
+        %% the deferred batch must be replayed so the held mark is cleared.
+        gen_server:cast(Pool, {abort_pools_restart}),
+        ?assert(
+            wait_until(fun() -> ets:lookup(InflightTab, DN) =:= [] end, 100)
+        )
+    after
+        gen_server:cast(Pool, {abort_pools_restart}),
+        ets:delete(InflightTab, DN)
+    end.
+
+-doc "A delivery whose claim lease expires is redelivered; the client's ack\n"
+"must decrement the pending quota exactly once, whatever the ack count\n"
+"(delivery redelivery accounting - bug report).".
+t_lease_expiry_redelivery_ack_accounting(_Config) ->
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"lease accounting">>),
+    PK = <<"PLEASEA">>,
+    DN = <<"DLEASEA">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count_for({PK, DN})),
+    %% First claim = first delivery.
+    [{DN, {ok, M1}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+    %% Force the claim lease to expire: the inflight ts is rewritten so the
+    %% next claim releases the entry back to the queue (redelivery).
+    expire_inflight(PK, DN, DeliveryId),
+    %% Second claim: lease expired -> the SAME delivery is claimed again.
+    [{DN, {ok, M2}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    ?assertEqual(maps:get(delivery_id, M1), maps:get(delivery_id, M2)),
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+    %% Client acks once: pending quota must go 1 -> 0 (never negative).
+    ?assertEqual([counted], emqx_bcast_storage:process_ack_batch([{PK, DN, DeliveryId}])),
+    ?assertEqual(0, emqx_bcast_storage:pending_delivery_count()),
+    ?assertEqual(0, emqx_bcast_storage:pending_delivery_count_for({PK, DN})),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})),
+    %% A duplicate PUBACK must be a no-op on the counters.
+    ?assertEqual([not_found], emqx_bcast_storage:process_ack_batch([{PK, DN, DeliveryId}])),
+    ?assertEqual(0, emqx_bcast_storage:pending_delivery_count()),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+%% Rewrite the shard's inflight timestamp for a delivery so the claim
+%% lease appears expired (PENDING_TTL_MS backdated). The shard is the same
+%% phash2 partition emqx_bcast_index_owner uses internally (shard_of is not
+%% exported).
+expire_inflight(PK, DN, Did) ->
+    Shard = erlang:phash2({PK, DN}, emqx_bcast_index_owner:shard_count()),
+    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)),
+    Old = sys:get_state(Name),
+    Infl = maps:get(inflights, Old),
+    Key = {PK, DN},
+    Key3 = {PK, DN, Did},
+    DeviceInfl = maps:get(Key, Infl, #{}),
+    case maps:get(Key3, DeviceInfl, undefined) of
+        undefined ->
+            ok;
+        {_Ts, Tag} ->
+            DeviceInfl1 = maps:put(Key3, {0, Tag}, DeviceInfl),
+            New = Old#{inflights => maps:put(Key, DeviceInfl1, Infl)},
+            sys:replace_state(Name, fun(_) -> New end),
+            ok
+    end.
+-doc "cleanup_expired repairs orphaned index entries and quota counts.".
+t_cleanup_expired_repairs_orphan_index(_Config) ->
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = <<"orphan cleanup">>,
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(<<"orphan-api-id">>, MsgGuid, Hash, Payload),
+    PK = <<"PORPHAN">>,
+    DN = <<"DORPHAN">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1
+    ),
+    ok = mnesia:dirty_delete(bcast_msg_meta, DeliveryId),
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+    emqx_bcast_storage:cleanup_expired(),
+    ?assertEqual(0, emqx_bcast_storage:pending_delivery_count()),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+-doc "A duplicate ack (redelivery after a claim-lease expiry) must not\n"
+"complete the delivery early: the per-delivery meta counter is decremented\n"
+"only for acks that actually removed an index entry (bug report).".
+t_redelivery_duplicate_ack_no_early_complete(_Config) ->
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"dup ack accounting">>),
+    PK = <<"PDUPACK">>,
+    DN1 = <<"DDUPACK1">>,
+    DN2 = <<"DDUPACK2">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN1, DN2], 2),
+    ?assertEqual(2, emqx_bcast_storage:pending_delivery_count()),
+    %% DN1 is claimed (delivered) once, then redelivered after a lease
+    %% expiry (the client was too slow to ack).
+    [{DN1, {ok, _}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN1, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    expire_inflight(PK, DN1, DeliveryId),
+    [{DN1, {ok, _}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN1, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    %% The client acks the delivery TWICE (first + redelivered PUBLISH).
+    ?assertEqual([counted], emqx_bcast_storage:process_ack_batch([{PK, DN1, DeliveryId}])),
+    ?assertEqual([not_found], emqx_bcast_storage:process_ack_batch([{PK, DN1, DeliveryId}])),
+    %% The delivery must NOT be complete: DN2's entry is still pending and
+    %% claimable (the meta counter still requires DN2's ack).
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, DN2})),
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+    [{DN2, {ok, _}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN2, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    %% DN2's ack completes the delivery.
+    ?assertEqual([counted], emqx_bcast_storage:process_ack_batch([{PK, DN2, DeliveryId}])),
+    ?assertEqual(0, emqx_bcast_storage:pending_delivery_count()),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN1})),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN2})),
+    ?assertEqual([], mnesia:dirty_match_object(#bcast_msg{_ = '_'})),
+    ?assertEqual([], mnesia:dirty_match_object(#bcast_msg_meta{_ = '_'})).
+
+-doc "qos0_fanout_nodes targets only the nodes hosting the listed devices\n"
+"and falls back to all nodes when the global session registry is\n"
+"disabled (enable_session_registry=false).".
+t_qos0_fanout_nodes(_Config) ->
+    Self = node(),
+    %% undefined = every running node (PubBroadcast).
+    Nodes = emqx_bcast_pull_server_pool:qos0_fanout_nodes(undefined),
+    ?assert(lists:member(Self, Nodes)),
+    %% An explicit DeviceNames list with no online channels falls back to
+    %% the local node.
+    ?assertEqual([Self], emqx_bcast_pull_server_pool:qos0_fanout_nodes([<<"Q0FN1">>])),
+    %% With the global registry disabled, an explicit list must STILL
+    %% fan out to every node (lookup_channels degrades to node-local and a
+    %% targeted fanout would silently miss remote devices).
+    Prev = emqx:get_config([broker, enable_session_registry]),
+    try
+        _ = emqx:update_config([broker, enable_session_registry], false),
+        ?assertEqual(
+            Nodes,
+            emqx_bcast_pull_server_pool:qos0_fanout_nodes([<<"Q0FN1">>])
+        )
+    after
+        _ = emqx:update_config([broker, enable_session_registry], Prev)
+    end.
+
+-doc "A claim over a mixed queue (a lazy-residual non-head entry among\n"
+"topic-mismatch retries) must terminate and keep the claimable entry\n"
+"claimable - a dropped non-head entry must not reset the wrap anchor\n"
+"(keep_anchor).".
+t_claim_mixed_queue_residual_nonhead_terminates(_Config) ->
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"mixed queue">>),
+    PK = <<"PMIXED">>,
+    DN = <<"DMIXED">>,
+    DA = emqx_bcast_utils:gen_guid(),
+    DB = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DA, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    {ok, _} = emqx_bcast_storage:create_delivery(DB, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    %% Remove B: its queue residual stays (dids gone) as a lazy residual.
+    ok = emqx_bcast_storage:remove_index_entries(PK, [DN], DB),
+    %% Claim with a mismatched topic: both entries are skipped; the claim
+    %% must terminate (not wedge) with A left in the queue.
+    [{DN, no_more}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"nomatch">>, 1}]}
+    ]),
+    %% A is still claimable with the matching topic.
+    [{DN, {ok, Map}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    ?assertEqual(DA, maps:get(delivery_id, Map)).
+
+-doc "The global pending quota must never go negative under redelivery +\n"
+"duplicate ack (bug report): create -> claim -> lease expiry -> claim again\n"
+"-> ack -> duplicate ack, repeatedly; quota returns to 0 after each cycle.".
+t_quota_never_negative_under_redelivery(_Config) ->
+    PK = <<"PNEGQ">>,
+    DN = <<"DNEGQ">>,
+    lists:foreach(
+        fun(I) ->
+            {_ApiMsgId, MsgGuid} = create_test_msg(<<"neg q ", (integer_to_binary(I))/binary>>),
+            DeliveryId = emqx_bcast_utils:gen_guid(),
+            {ok, _} = emqx_bcast_storage:create_delivery(
+                DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1
+            ),
+            ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+            %% Claim (deliver) -> lease expiry -> claim again (redelivery).
+            [{DN, {ok, _}}] = emqx_bcast_storage:claim_want_next_batch([
+                #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+            ]),
+            expire_inflight(PK, DN, DeliveryId),
+            [{DN, {ok, _}}] = emqx_bcast_storage:claim_want_next_batch([
+                #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+            ]),
+            %% The client acks both deliveries (duplicate PUBACKs).
+            ?assertEqual([counted], emqx_bcast_storage:process_ack_batch([{PK, DN, DeliveryId}])),
+            ?assertEqual([not_found], emqx_bcast_storage:process_ack_batch([{PK, DN, DeliveryId}])),
+            Quota = emqx_bcast_storage:pending_delivery_count(),
+            ?assert(Quota >= 0),
+            ?assertEqual(0, Quota)
+        end,
+        lists:seq(1, 100)
+    ).
+
+-doc "backfill_meta_from_projection must not overwrite live meta rows when\n"
+"the meta table exceeds the scan budget (regression): partially-acked\n"
+"counters survive a takeover rebuild.".
+t_backfill_preserves_live_meta_over_budget(_Config) ->
+    PK = <<"PN2">>,
+    DN = <<"DN2">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"n2 backfill">>),
+    %% Write more than ?CLEANUP_BUDGET (10000) deliveries WITH existing meta
+    %% rows. A bounded read-side scan (the bug) would drop the
+    %% continuation and re-write the rows beyond the budget, resetting
+    %% their counters from the legacy bcast_msg.counter (0) to Target.
+    N = 10005,
+    Now = emqx_bcast_utils:now_sec(),
+    lists:foreach(
+        fun(_I) ->
+            Did = emqx_bcast_utils:gen_guid(),
+            ok = mnesia:dirty_write(#bcast_msg{
+                delivery_id = Did,
+                msg_id = MsgGuid,
+                product_key = PK,
+                topic_template = <<"tpl">>,
+                target_ack_count = 5,
+                counter = 0,
+                device_names = [DN],
+                created_at = Now,
+                expires_at = Now + 86400
+            }),
+            ok = mnesia:dirty_write(#bcast_msg_meta{
+                delivery_id = Did,
+                msg_id = MsgGuid,
+                topic_template = <<"tpl">>,
+                counter = 3
+            })
+        end,
+        lists:seq(1, N)
+    ),
+    %% Trigger the takeover rebuild: drive_activation runs backfill on
+    %% shard 0.
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    %% Every existing meta row must keep its counter (3); a reset would
+    %% write max(0, 5 - 0) = 5 for the rows the bounded scan missed.
+    Counters = mnesia:dirty_select(
+        bcast_msg_meta,
+        [{#bcast_msg_meta{counter = '$1', _ = '_'}, [], ['$1']}]
+    ),
+    ?assertEqual(N, length(Counters)),
+    ?assertEqual([], [C || C <- Counters, C =:= 5]),
+    ?assertEqual(N, length([C || C <- Counters, C =:= 3])).
 -doc "process_ack removes the delivery index entry for the acking device.".
 t_process_ack(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
@@ -180,7 +648,7 @@ t_process_ack(_Config) ->
     DeliveryId = emqx_bcast_utils:gen_guid(),
     DNs = [<<"DA">>, <<"DB">>],
     PK = <<"PA">>,
-    emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 2),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 2),
     emqx_bcast_storage:process_ack(PK, <<"DA">>, DeliveryId),
     {ok, IdsA} = emqx_bcast_storage:get_device_deliveries({PK, <<"DA">>}),
     ?assertEqual([], IdsA),
@@ -196,7 +664,7 @@ t_process_ack_all_devices(_Config) ->
     DeliveryId = emqx_bcast_utils:gen_guid(),
     DNs = [<<"DX">>],
     PK = <<"PX">>,
-    emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 1),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 1),
     emqx_bcast_storage:process_ack(PK, <<"DX">>, DeliveryId),
     ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
 
@@ -209,7 +677,7 @@ t_process_ack_duplicate(_Config) ->
     DeliveryId = emqx_bcast_utils:gen_guid(),
     DNs = [<<"DD">>, <<"DE">>],
     PK = <<"PD">>,
-    emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 2),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 2),
     emqx_bcast_storage:process_ack(PK, <<"DD">>, DeliveryId),
     emqx_bcast_storage:process_ack(PK, <<"DD">>, DeliveryId),
     {ok, Ids} = emqx_bcast_storage:get_device_deliveries({PK, <<"DE">>}),
@@ -224,7 +692,7 @@ t_cleanup_expired_delivery(_Config) ->
     DeliveryId = emqx_bcast_utils:gen_guid(),
     DNs = [<<"DE">>],
     PK = <<"PE">>,
-    D = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 1),
+    {ok, D} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 1),
     mnesia:dirty_write(D#bcast_msg{expires_at = 0}),
     emqx_bcast_storage:cleanup_expired(),
     ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
@@ -284,7 +752,7 @@ t_message_acked_hook(_Config) ->
     Hash = crypto:hash(sha256, Payload),
     emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
     DeliveryId = emqx_bcast_utils:gen_guid(),
-    emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
     Msg = emqx_message:make(
         DeliveryId,
         DN,
@@ -435,9 +903,9 @@ t_index_add_remove_idempotent(_Config) ->
 
 -doc "pull pool buffer tables exist after pool start.".
 t_pull_pool_buffers_initialized(_Config) ->
-    ?assertNotEqual(undefined, ets:info(bcast_buffer_a)),
-    ?assertNotEqual(undefined, ets:info(bcast_buffer_b)),
-    ?assertNotEqual(undefined, ets:info(bcast_buffer3)).
+    ?assertNotEqual(undefined, ets:info(emqx_bcast_pull_pool:tab(0, bcast_buffer_a))),
+    ?assertNotEqual(undefined, ets:info(emqx_bcast_pull_pool:tab(0, bcast_buffer_b))),
+    ?assertNotEqual(undefined, ets:info(emqx_bcast_pull_pool:tab(0, bcast_buffer3))).
 
 -doc "missing Action returns 400 MissingAction.".
 t_api_missing_action(_Config) ->
@@ -768,7 +1236,30 @@ t_batch_pub_invalid_template_name(_Config) ->
             {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
             ?assertEqual(<<"InvalidTopicTemplate">>, maps:get(<<"Code">>, Resp))
         end,
-        [<<"/a/+/b">>, <<"/a/#/b">>, <<"/a/${productKey}/b">>, <<"/a/${unknown}/b">>, 123]
+        [<<"/a/+/b">>, <<"/a/#/b">>, <<"/a/${unknown}/b">>, 123]
+    ).
+
+-doc "BatchPub accepts a TopicTemplateName with the supported ${productKey} and ${deviceName} placeholders.".
+t_batch_pub_template_supported_placeholders(_Config) ->
+    lists:foreach(
+        fun(TemplateName) ->
+            Body = #{
+                <<"Action">> => <<"BatchPub">>,
+                <<"ProductKey">> => <<"P1">>,
+                <<"DeviceName">> => [<<"D1">>],
+                <<"MessageContent">> => <<"aGVsbG8=">>,
+                <<"Qos">> => 0,
+                <<"TopicTemplateName">> => TemplateName
+            },
+            Request = #{body => Body},
+            {ok, 200, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
+            ?assert(maps:get(<<"Success">>, Resp))
+        end,
+        [
+            <<"/${productKey}/${deviceName}/user/get">>,
+            <<"/sys/${productKey}/thing/service">>,
+            <<"/${deviceName}/user/update">>
+        ]
     ).
 
 -doc "BatchPub with a non-binary MessageId returns 400 MessageNotFound.".
@@ -809,7 +1300,7 @@ t_quota_per_device_exceeded(_Config) ->
     %% Pre-fill 10 pending deliveries for D1 so a new one would exceed 10.
     lists:foreach(
         fun(_) ->
-            emqx_bcast_storage:create_delivery(
+            {ok, _} = emqx_bcast_storage:create_delivery(
                 emqx_bcast_utils:gen_guid(), MsgGuid, <<"PQ">>, <<"tpl">>, [<<"D1">>], 1
             )
         end,
@@ -837,7 +1328,7 @@ t_quota_per_device_within(_Config) ->
     emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, <<"h">>, <<"p">>),
     lists:foreach(
         fun(_) ->
-            emqx_bcast_storage:create_delivery(
+            {ok, _} = emqx_bcast_storage:create_delivery(
                 emqx_bcast_utils:gen_guid(), MsgGuid, <<"PQ">>, <<"tpl">>, [<<"D1">>], 1
             )
         end,
@@ -862,7 +1353,7 @@ t_quota_global_exceeded(_Config) ->
     emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, <<"h">>, <<"p">>),
     lists:foreach(
         fun(DN) ->
-            emqx_bcast_storage:create_delivery(
+            {ok, _} = emqx_bcast_storage:create_delivery(
                 emqx_bcast_utils:gen_guid(), MsgGuid, <<"PQ">>, <<"tpl">>, [DN], 1
             )
         end,
@@ -967,6 +1458,82 @@ metric(Name) ->
 
 mname(Suffix) -> <<"bcast_", Suffix/binary>>.
 
+-doc "Duplicate PUBACKs do not increment the acked metric twice.".
+t_duplicate_puback_metric_counted_once(_Config) ->
+    PK = <<"PMETRIC_ACK">>,
+    DN = <<"DMETRIC_ACK">>,
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = <<"metric ack payload">>,
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(<<"metric-ack-api">>, MsgGuid, Hash, Payload),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1
+    ),
+    Msg = emqx_message:make(
+        DeliveryId,
+        DN,
+        1,
+        <<"tpl">>,
+        Payload,
+        #{},
+        #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
+    ),
+    %% The metric is emitted only when take_pending matches an active buffer
+    %% entry, so seed the current buffer exactly like the claim path. The
+    %% buffer is a single fixed public table (the AB flip is gone).
+    ActiveTab = emqx_bcast_pull_pool:tab(emqx_bcast_pull_pool:shard_of(DN), bcast_buffer_a),
+    ets:insert(ActiveTab, #bcast_buffer_entry{
+        clientid = DN,
+        delivery_id = DeliveryId,
+        product_key = PK,
+        topic_template = <<"tpl">>,
+        payload = Payload,
+        pid = self()
+    }),
+    Before = metric(<<"batch_pub_qos1_acked">>),
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
+    ?assert(wait_metric(<<"batch_pub_qos1_acked">>, Before + 1)),
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
+    _ = sys:get_state(emqx_bcast_ack_pool),
+    _ = sys:get_state(emqx_bcast_pull_pool:pool_name(emqx_bcast_pull_pool:shard_of(DN))),
+    ?assertEqual(Before + 1, metric(<<"batch_pub_qos1_acked">>)).
+
+-doc "Concurrent BatchPub calls cannot pass the global quota through races.".
+t_quota_concurrent_atomic(_Config) ->
+    Cfg = persistent_term:get({?APP, config}),
+    persistent_term:put({?APP, config}, Cfg#{max_pending_deliveries => 5}),
+    try
+        Parent = self(),
+        Pids = [
+            spawn(fun() ->
+                Body = #{
+                    <<"Action">> => <<"BatchPub">>,
+                    <<"ProductKey">> => <<"PCONCURRENT">>,
+                    <<"DeviceName">> => [<<"DCONCURRENT_", (integer_to_binary(N))/binary>>],
+                    <<"MessageContent">> => base64:encode(crypto:strong_rand_bytes(8)),
+                    <<"Qos">> => 1
+                },
+                Result = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+                Parent ! {quota_result, self(), Result}
+            end)
+         || N <- lists:seq(1, 12)
+        ],
+        Results = [
+            receive
+                {quota_result, P, R} -> R
+            end
+         || P <- Pids
+        ],
+        OkCount = length([ok || {ok, 200, _, _} <- Results]),
+        QuotaCount = length([ok || {ok, 429, _, _} <- Results]),
+        ?assertEqual(5, OkCount),
+        ?assertEqual(7, QuotaCount),
+        ?assertEqual(5, emqx_bcast_storage:pending_delivery_count())
+    after
+        persistent_term:put({?APP, config}, Cfg)
+    end.
+
 -doc "QoS=0 BatchPub increments the targeted counter by device count.".
 t_metrics_qos0_targeted(_Config) ->
     Before = metric(<<"batch_pub_qos0_targeted">>),
@@ -1057,7 +1624,7 @@ t_mgmt_list_messages_pagination(_Config) ->
     Ids2 = [maps:get(<<"MessageId">>, I) || I <- Items2],
     ?assertEqual([], [I || I <- Ids1, lists:member(I, Ids2)]).
 
--doc "the last page carries no cursor; an invalid cursor starts from the beginning.".
+-doc "the last page carries no cursor; a malformed cursor is a 400.".
 t_mgmt_list_messages_cursor_end(_Config) ->
     [create_test_msg(<<"mgmt-off-", (integer_to_binary(N))/binary>>) || N <- [1, 2, 3]],
     {ok, 200, _, Page1} = emqx_bcast_api:handle(get, [<<"messages">>], #{
@@ -1065,11 +1632,12 @@ t_mgmt_list_messages_cursor_end(_Config) ->
     }),
     %% All messages fit on one page: no cursor.
     ?assertNot(maps:is_key(<<"Cursor">>, Page1)),
-    %% An invalid cursor must not crash; treat it as start.
-    {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"messages">>], #{
+    %% An invalid cursor is a client error rather than a silent restart from
+    %% the first page.
+    {error, 400, _, Resp} = emqx_bcast_api:handle(get, [<<"messages">>], #{
         query_string => #{<<"limit">> => <<"10">>, <<"cursor">> => <<"garbage">>}
     }),
-    ?assertEqual(3, length(maps:get(<<"Messages">>, Resp))).
+    ?assertEqual(<<"InvalidParams">>, maps:get(<<"Code">>, Resp)).
 
 -doc "a limit above the maximum returns 400 InvalidParams.".
 t_mgmt_list_messages_limit_too_high(_Config) ->
@@ -1082,7 +1650,7 @@ t_mgmt_list_messages_limit_too_high(_Config) ->
 t_mgmt_get_message(_Config) ->
     {ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt-get">>),
     DeliveryId = emqx_bcast_utils:gen_guid(),
-    emqx_bcast_storage:create_delivery(
+    {ok, _} = emqx_bcast_storage:create_delivery(
         DeliveryId, MsgGuid, <<"PMGMT">>, <<"tpl">>, [<<"DM1">>], 1
     ),
     {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"messages">>, ApiMsgId], #{}),
@@ -1100,7 +1668,9 @@ t_mgmt_delete_message_cascade(_Config) ->
     {ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt-del">>),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     DNs = [<<"DD1">>, <<"DD2">>],
-    emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, <<"PMGMT">>, <<"tpl">>, DNs, 2),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, <<"PMGMT">>, <<"tpl">>, DNs, 2
+    ),
     {ok, [_]} = emqx_bcast_storage:get_device_deliveries({<<"PMGMT">>, <<"DD1">>}),
     {ok, 200, _, Resp} = emqx_bcast_api:handle(delete, [<<"messages">>, ApiMsgId], #{}),
     ?assert(maps:get(<<"Success">>, Resp)),
@@ -1119,8 +1689,12 @@ t_mgmt_deliveries_for_device(_Config) ->
     {ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt-dev">>),
     D1 = emqx_bcast_utils:gen_guid(),
     D2 = emqx_bcast_utils:gen_guid(),
-    emqx_bcast_storage:create_delivery(D1, MsgGuid, <<"PMGMT">>, <<"tpl">>, [<<"DEV1">>], 1),
-    emqx_bcast_storage:create_delivery(D2, MsgGuid, <<"PMGMT">>, <<"tpl">>, [<<"DEV1">>], 1),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        D1, MsgGuid, <<"PMGMT">>, <<"tpl">>, [<<"DEV1">>], 1
+    ),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        D2, MsgGuid, <<"PMGMT">>, <<"tpl">>, [<<"DEV1">>], 1
+    ),
     {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"deliveries">>], #{
         query_string => #{<<"product_key">> => <<"PMGMT">>, <<"device_name">> => <<"DEV1">>}
     }),
@@ -1155,7 +1729,7 @@ t_mgmt_deliveries_for_device(_Config) ->
 t_mgmt_delete_delivery(_Config) ->
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"mgmt-ddel">>),
     DeliveryId = emqx_bcast_utils:gen_guid(),
-    emqx_bcast_storage:create_delivery(
+    {ok, _} = emqx_bcast_storage:create_delivery(
         DeliveryId, MsgGuid, <<"PMGMT">>, <<"tpl">>, [<<"DE1">>], 1
     ),
     {ok, [_]} = emqx_bcast_storage:get_device_deliveries({<<"PMGMT">>, <<"DE1">>}),
@@ -1171,6 +1745,247 @@ t_mgmt_delete_delivery(_Config) ->
         get, [<<"deliveries">>, <<"not-a-uuid">>], #{}
     ),
     ?assertEqual(<<"DeliveryNotFound">>, maps:get(<<"Code">>, BadId)).
+
+%%--------------------------------------------------------------------
+%% Regression tests for review bugs and user-reported upgrade/duplicate issues
+%%--------------------------------------------------------------------
+
+-doc "QoS=1 200 is returned on intake acceptance; the delivery row and index\n"
+"are promoted into mria shortly after (async persistence by design).".
+t_qos1_response_means_stored(_Config) ->
+    PK = <<"PSTORED">>,
+    DN = <<"DSTORED">>,
+    {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{
+        body => #{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => PK,
+            <<"DeviceName">> => [DN],
+            <<"MessageContent">> => base64:encode(<<"stored before 200">>),
+            <<"Qos">> => 1
+        }
+    }),
+    %% The promoter commits the delivery and appends the index asynchronously.
+    ?assert(
+        wait_until(
+            fun() ->
+                length(mnesia:dirty_match_object(#bcast_msg{_ = '_'})) =:= 1 andalso
+                    emqx_bcast_storage:pending_delivery_count() =:= 1
+            end,
+            100
+        )
+    ).
+
+-doc "Legacy 0.1.x table layouts are migrated in place on startup.".
+t_migrate_legacy_mnesia_layout(_Config) ->
+    [catch mnesia:delete_table(T) || T <- [bcast_message, bcast_msg, bcast_msg_index]],
+    MsgId = emqx_bcast_utils:gen_guid(),
+    ApiMsgId = emqx_bcast_utils:gen_api_uuid(),
+    Hash = crypto:hash(sha256, <<"legacy payload">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    PK = <<"PLEGACY">>,
+    DN = <<"DLEGACY">>,
+    {atomic, ok} = mnesia:create_table(bcast_message, [
+        {disc_copies, [node()]},
+        {type, set},
+        {record_name, bcast_message},
+        {attributes, [msg_id, api_msg_id, content_hash, payload, created_at, expires_at]}
+    ]),
+    {atomic, ok} = mnesia:create_table(bcast_msg, [
+        {disc_copies, [node()]},
+        {type, set},
+        {record_name, bcast_msg},
+        {attributes, [
+            delivery_id,
+            msg_id,
+            product_key,
+            topic_template,
+            target_ack_count,
+            counter,
+            device_names,
+            created_at,
+            expires_at,
+            response_topic_template
+        ]}
+    ]),
+    {atomic, ok} = mnesia:create_table(bcast_msg_index, [
+        {disc_copies, [node()]},
+        {type, set},
+        {record_name, bcast_msg_index},
+        {attributes, [key, deliveries]}
+    ]),
+    ok = mnesia:dirty_write({bcast_message, MsgId, ApiMsgId, Hash, <<"legacy payload">>, 111, 222}),
+    ok = mnesia:dirty_write(
+        {bcast_msg, DeliveryId, MsgId, PK, <<"tpl">>, 1, 0, [DN], 111, 222,
+            <<"legacy response topic">>}
+    ),
+    ok = mnesia:dirty_write({bcast_msg_index, {PK, DN}, [DeliveryId]}),
+    ok = emqx_bcast:init_tables(),
+    %% The per-device index is a derived ETS cache on the owner core; after
+    %% an in-place legacy migration the owner rebuilds it from the migrated
+    %% bcast_msg rows (the same path used at owner takeover).
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    ?assertEqual(
+        [msg_id, api_msg_id, content_hash, payload, delivery_count, created_at, expires_at],
+        mnesia:table_info(bcast_message, attributes)
+    ),
+    {ok, Msg} = emqx_bcast_storage:lookup_message(MsgId),
+    ?assertEqual(0, Msg#bcast_message.delivery_count),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, DN})),
+    ?assertEqual(
+        {ok, [{DeliveryId, stored}]},
+        emqx_bcast_storage:get_device_delivery_entries({PK, DN})
+    ),
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()).
+
+-doc "Concurrent create and ack transactions complete without lock-order failures.".
+t_concurrent_create_ack_lock_order(_Config) ->
+    PK = <<"PLOCK">>,
+    DN = <<"DLOCK">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"lock payload">>),
+    DeliveryIds = [emqx_bcast_utils:gen_guid() || _ <- lists:seq(1, 16)],
+    lists:foreach(
+        fun(Did) ->
+            {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN], 1)
+        end,
+        DeliveryIds
+    ),
+    Parent = self(),
+    AckPids = [
+        spawn(fun() ->
+            Result = emqx_bcast_storage:process_ack(PK, DN, Did),
+            Parent ! {ack_result, self(), Result}
+        end)
+     || Did <- DeliveryIds
+    ],
+    CreatePids = [
+        spawn(fun() ->
+            Payload = crypto:strong_rand_bytes(8),
+            Hash = crypto:hash(sha256, Payload),
+            {NewApiId, NewMsgId} = emqx_bcast_id:generate_message_id(),
+            NewDid = emqx_bcast_utils:gen_guid(),
+            Result = emqx_bcast_storage:create_message_and_delivery(
+                Payload, Hash, NewApiId, NewMsgId, NewDid, PK, <<"tpl">>, [DN]
+            ),
+            Parent ! {create_result, self(), Result}
+        end)
+     || _ <- lists:seq(1, 16)
+    ],
+    AckResults = [
+        receive
+            {ack_result, P, R} -> R
+        end
+     || P <- AckPids
+    ],
+    CreateResults = [
+        receive
+            {create_result, P, R} -> R
+        end
+     || P <- CreatePids
+    ],
+    lists:foreach(fun(R) -> ?assertEqual(counted, R) end, AckResults),
+    lists:foreach(fun(R) -> ?assertMatch({ok, _, _}, R) end, CreateResults),
+    ?assertEqual(16, emqx_bcast_storage:pending_delivery_count()).
+
+-doc "Restarting worker pools releases tagged inflight claims.".
+t_worker_pool_restart_recovers_inflight(_Config) ->
+    PK = <<"PRESTART">>,
+    DN = <<"DRESTART">>,
+    Tag = 888888,
+    InflightTab = emqx_bcast_pull_pool:tab(emqx_bcast_pull_pool:shard_of(DN), bcast_pull_inflight),
+    _ = create_tagged_claim(PK, DN, Tag),
+    ets:insert(InflightTab, {DN, Tag, PK, erlang:system_time(millisecond)}),
+    ok = emqx_bcast_sup:restart_pools(2),
+    ?assert(
+        wait_until(
+            fun() -> ets:lookup(InflightTab, DN) =:= [] end,
+            100
+        )
+    ),
+    ?assert(
+        wait_until(
+            fun() ->
+                case emqx_bcast_storage:get_device_delivery_entries({PK, DN}) of
+                    {ok, [{_, stored}]} -> true;
+                    _ -> false
+                end
+            end,
+            100
+        )
+    ).
+
+-doc "A stale deliver_results generation cannot clear the current inflight mark.".
+t_stale_deliver_results_keep_current_generation(_Config) ->
+    PK = <<"PSTALE">>,
+    DN = <<"DSTALE">>,
+    OldTag = 777777,
+    NewTag = 777778,
+    Shard = emqx_bcast_pull_pool:shard_of(DN),
+    InflightTab = emqx_bcast_pull_pool:tab(Shard, bcast_pull_inflight),
+    Map = create_tagged_claim(PK, DN, OldTag),
+    ets:insert(InflightTab, {DN, OldTag, PK, erlang:system_time(millisecond)}),
+    ets:insert(InflightTab, {DN, NewTag, PK, erlang:system_time(millisecond)}),
+    gen_server:cast(
+        emqx_bcast_pull_pool:pool_name(Shard),
+        {deliver_results, [{DN, {ok, Map}}], [{DN, OldTag, PK}]}
+    ),
+    _ = sys:get_state(emqx_bcast_pull_pool:pool_name(Shard)),
+    ?assertMatch([{DN, NewTag, PK, _}], ets:lookup(InflightTab, DN)),
+    ?assertEqual([], ets:tab2list(emqx_bcast_pull_pool:tab(Shard, bcast_buffer_a))),
+    ?assertEqual([], ets:tab2list(emqx_bcast_pull_pool:tab(Shard, bcast_buffer_b))),
+    ?assert(
+        wait_until(
+            fun() ->
+                case emqx_bcast_storage:get_device_delivery_entries({PK, DN}) of
+                    {ok, [{_, stored}]} -> true;
+                    _ -> false
+                end
+            end,
+            100
+        )
+    ).
+
+-doc "An empty claim result after an RPC timeout releases the tagged pending entry.".
+t_failed_claim_result_releases_pending_generation(_Config) ->
+    PK = <<"PTIMEOUT">>,
+    DN = <<"DTIMEOUT">>,
+    Tag = 999999,
+    Shard = emqx_bcast_pull_pool:shard_of(DN),
+    InflightTab = emqx_bcast_pull_pool:tab(Shard, bcast_pull_inflight),
+    _ = create_tagged_claim(PK, DN, Tag),
+    ets:insert(InflightTab, {DN, Tag, PK, erlang:system_time(millisecond)}),
+    gen_server:cast(
+        emqx_bcast_pull_pool:pool_name(Shard),
+        {deliver_results, [], [{DN, Tag, PK}]}
+    ),
+    _ = sys:get_state(emqx_bcast_pull_pool:pool_name(Shard)),
+    ?assertEqual([], ets:lookup(InflightTab, DN)),
+    ?assert(
+        wait_until(
+            fun() ->
+                case emqx_bcast_storage:get_device_delivery_entries({PK, DN}) of
+                    {ok, [{_, stored}]} -> true;
+                    _ -> false
+                end
+            end,
+            100
+        )
+    ).
+
+create_tagged_claim(PK, DN, Tag) ->
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"tagged claim">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1
+    ),
+    [{DN, {ok, Map}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{
+            clientid => DN,
+            product_key => PK,
+            topics => [{<<"tpl">>, 1}],
+            claim_tag => Tag
+        }
+    ]),
+    Map.
 
 create_test_msg(Payload) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
