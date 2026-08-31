@@ -164,10 +164,16 @@ on_client_subscribe(ClientInfo, Props, TopicFilters) ->
         {StopOrOk, #{topic_filters := RespTfs}} ->
             case rewrite_topicfilters(ClientInfo, TopicFilters, RespTfs) of
                 {ok, TopicFilters} ->
-                    %% Nothing was rewritten. Leave the accumulator alone so the rest
-                    %% of the `client.subscribe' chain still runs, as it did while
-                    %% this hook was fire-and-forget.
-                    ignore;
+                    %% Nothing was rewritten. Leave the accumulator alone so the
+                    %% rest of the `client.subscribe' chain still runs, as it did
+                    %% while this hook was fire-and-forget -- but only when the
+                    %% server said to continue. Returning the filters unchanged is
+                    %% a reasonable way for a server to say "I have looked at this
+                    %% and no later hook should touch it", and `ignore' would
+                    %% silently downgrade that to "continue": `emqx_hooks' treats
+                    %% any term other than `stop' or `{stop, Acc}' as continue.
+                    %% `{stop, TopicFilters}' keeps both properties.
+                    unchanged_topicfilters(StopOrOk, TopicFilters);
                 {ok, NTopicFilters} ->
                     {StopOrOk, NTopicFilters};
                 {error, _Reason} ->
@@ -176,6 +182,11 @@ on_client_subscribe(ClientInfo, Props, TopicFilters) ->
         ignore ->
             ignore
     end.
+
+unchanged_topicfilters(stop, TopicFilters) ->
+    {stop, TopicFilters};
+unchanged_topicfilters(_Ok, _TopicFilters) ->
+    ignore.
 
 on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
     {UserProps, SystemProps} = format_props(Props),
