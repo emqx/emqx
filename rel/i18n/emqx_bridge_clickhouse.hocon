@@ -51,7 +51,7 @@ local_topic.label:
 """Local Topic"""
 
 sql_template.desc:
-"""A restricted ClickHouse INSERT template. It supports VALUES, FORMAT Values, and FORMAT JSONCompactEachRow. Placeholders are allowed only in value positions and string values. Comments, extra statements, and dynamic identifiers are not allowed."""
+"""A restricted ClickHouse `INSERT` template. It supports `VALUES`, `FORMAT Values`, and `JSONCompactEachRow`. Placeholders are allowed only in value positions and string values. Comments, extra statements, and dynamic identifiers are not allowed."""
 
 sql_template.label:
 """SQL Template"""
