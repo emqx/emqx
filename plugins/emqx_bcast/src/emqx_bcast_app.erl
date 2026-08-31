@@ -13,9 +13,11 @@
 start(_StartType, _StartArgs) ->
     {ok, _} = application:ensure_all_started(prometheus),
     ok = emqx_bcast_config:load(),
+    %% Tables before the supervisor: the index owner rebuilds from mria in
+    %% its init and must find the tables ready on first activation.
+    ok = emqx_bcast:init_tables(),
     {ok, Sup} = emqx_bcast_sup:start_link(),
     ok = emqx_bcast_metrics:init(),
-    ok = emqx_bcast:init_tables(),
     ok = emqx_bcast:hook(),
     {ok, Sup}.
 
@@ -35,8 +37,7 @@ on_config_changed(_OldConf, NewConf) ->
     end.
 
 normalized_pool_size() ->
-    Config = persistent_term:get({emqx_bcast, config}, #{}),
-    maps:get(delivery_pool_size, Config, erlang:system_info(schedulers)).
+    emqx_bcast_config:get(delivery_pool_size).
 
 on_handle_api_call(Method, PathRemainder, Request, _Context) ->
     emqx_bcast_api:handle(Method, PathRemainder, Request).

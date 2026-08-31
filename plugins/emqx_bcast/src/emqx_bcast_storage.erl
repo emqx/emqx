@@ -3,19 +3,27 @@
 %%--------------------------------------------------------------------
 -module(emqx_bcast_storage).
 
-%% Message records.
+%% Message records (authoritative mria state).
 -export([
     create_message/4,
     lookup_message_by_hash/1,
     lookup_message/1,
     refresh_message_ttl/1,
-    lookup_or_create_message/4,
-    create_message_and_delivery/8,
-    create_delivery/6
+    lookup_or_create_message/4
 ]).
 
-%% Index / delivery state.
+%% Promotion primitives for the async intake path (emqx_bcast_promoter).
+-export([promote_batch/1, promote_entry_tx/1]).
+
+%% Delivery / index facade: the per-device pending index now lives in the
+%% ETS tables owned by emqx_bcast_index_owner on the owner core. Every
+%% index operation below routes to that single process (serialized, no
+%% mnesia locks). The mnesia bcast_msg_index / bcast_quota tables remain
+%% for compatibility but are no longer written.
 -export([
+    create_message_and_delivery/8,
+    create_message_and_delivery_quota/9,
+    create_delivery/6,
     add_index_entries/3,
     remove_index_entries/3,
     get_device_deliveries/1,
@@ -24,12 +32,13 @@
     pending_delivery_count_for/1
 ]).
 
-%% Acking and claim (core authoritative paths).
+%% Acking and claim (owner-routed).
 -export([
     process_ack/3,
     process_ack_batch/1,
     claim_want_next_batch/1,
-    release_claim/3
+    release_claim/3,
+    release_client_claims/3
 ]).
 
 %% Management and cleanup.
@@ -43,19 +52,25 @@
     cleanup_expired/0
 ]).
 
+%% Transaction helpers shared with the index owner (run inside the
+%% owner's own transactions).
+-export([inc_delivery_count_tx/1, dec_delivery_count_tx/1]).
+
 -include("emqx_bcast.hrl").
+-include_lib("emqx/include/logger.hrl").
 
--define(TAB_MSG, bcast_message).
--define(TAB_MSG_API_ID, bcast_message_api_id).
--define(TAB_MSG_HASH, bcast_message_hash).
--define(TAB_MSG_REC, bcast_msg).
--define(TAB_MSG_IDX, bcast_msg_index).
--define(TAB_QUOTA, bcast_quota).
+-type api_msg_id() :: binary().
+-type msg_id() :: binary().
+-type delivery_id() :: binary().
+-type product_key() :: binary().
+-type device_name() :: binary().
 
 %%--------------------------------------------------------------------
-%% Message create / lookup
+%% Message create / lookup (unchanged: authoritative mria state)
 %%--------------------------------------------------------------------
 
+-spec lookup_or_create_message(binary(), binary(), api_msg_id(), msg_id()) ->
+    {created | existing, api_msg_id(), msg_id()} | {error, term()}.
 lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
@@ -72,84 +87,7 @@ lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-%%--------------------------------------------------------------------
-%% Message dedup, delivery record creation and index insertion in one
-%% transaction. This path runs only on core nodes.
-%%
-%% Lock order is index -> delivery -> message, matching the claim and ack
-%% transactions, so concurrent create/claim/ack transactions cannot form a
-%% lock cycle (which would abort one of them and drop the claim).
-create_message_and_delivery(
-    Payload, Hash, ApiMsgId, MsgId, DeliveryId, ProductKey, TopicTemplate, DeviceNames
-) ->
-    Now = emqx_bcast_utils:now_sec(),
-    TTL = emqx_bcast_utils:ttl(),
-    case
-        transaction(fun() ->
-            {Status, ResolvedApiMsgId, ResolvedMsgId, NewMsg} = resolve_message_tx(
-                Hash, ApiMsgId, MsgId, Now, TTL
-            ),
-            add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, stored),
-            Delivery = #bcast_msg{
-                delivery_id = DeliveryId,
-                msg_id = ResolvedMsgId,
-                product_key = ProductKey,
-                topic_template = TopicTemplate,
-                target_ack_count = length(DeviceNames),
-                counter = 0,
-                device_names = DeviceNames,
-                created_at = Now,
-                expires_at = Now + TTL
-            },
-            mnesia:write(Delivery),
-            write_message_tx(NewMsg, Payload, Hash, ResolvedApiMsgId, ResolvedMsgId, Now, TTL),
-            inc_delivery_count_tx(ResolvedMsgId),
-            {Status, ResolvedApiMsgId, Delivery}
-        end)
-    of
-        {atomic, {_Status, ResolvedApiMsgId, Delivery}} ->
-            {ok, ResolvedApiMsgId, Delivery};
-        {aborted, Reason} ->
-            {error, Reason}
-    end.
-
-%% Hash lookup only; decides whether the message record must be created
-%% (NewMsg = true) or refreshed (false). The message writes are deferred so
-%% the create transaction locks index before delivery before message.
-resolve_message_tx(Hash, ApiMsgId, MsgId, _Now, _TTL) ->
-    case mnesia:wread({?TAB_MSG_HASH, Hash}) of
-        [] ->
-            {created, ApiMsgId, MsgId, true};
-        [#bcast_message_hash{msg_id = ExistingMsgId}] ->
-            case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
-                [#bcast_message{} = Existing] ->
-                    {existing, Existing#bcast_message.api_msg_id, ExistingMsgId, false};
-                [] ->
-                    {created, ApiMsgId, MsgId, true}
-            end
-    end.
-
-write_message_tx(true, Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
-    Record = #bcast_message{
-        msg_id = MsgId,
-        api_msg_id = ApiMsgId,
-        content_hash = Hash,
-        payload = Payload,
-        delivery_count = 0,
-        created_at = Now,
-        expires_at = Now + TTL
-    },
-    mnesia:write(Record),
-    mnesia:write(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
-    mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId});
-write_message_tx(false, _Payload, _Hash, _ApiMsgId, MsgId, Now, TTL) ->
-    case mnesia:wread({?TAB_MSG, MsgId}) of
-        [#bcast_message{} = Existing] ->
-            mnesia:write(Existing#bcast_message{expires_at = Now + TTL});
-        [] ->
-            ok
-    end.
-
+-spec create_message(api_msg_id(), msg_id(), binary(), binary()) -> ok.
 create_message(ApiMsgId, MsgId, Hash, Payload) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
@@ -171,6 +109,7 @@ create_message(ApiMsgId, MsgId, Hash, Payload) ->
     end),
     ok.
 
+-spec lookup_message_by_hash(binary()) -> {ok, #bcast_message{}} | {error, not_found}.
 lookup_message_by_hash(Hash) ->
     case mnesia:dirty_read(?TAB_MSG_HASH, Hash) of
         [#bcast_message_hash{msg_id = MsgId}] ->
@@ -179,6 +118,7 @@ lookup_message_by_hash(Hash) ->
             {error, not_found}
     end.
 
+-spec lookup_message(msg_id()) -> {ok, #bcast_message{}} | {error, not_found}.
 lookup_message(MsgId) ->
     case mnesia:dirty_read(?TAB_MSG, MsgId) of
         [#bcast_message{} = Msg] ->
@@ -187,6 +127,8 @@ lookup_message(MsgId) ->
             {error, not_found}
     end.
 
+-spec refresh_message_ttl(msg_id()) ->
+    {atomic, ok | {error, not_found}} | {aborted, term()}.
 refresh_message_ttl(MsgId) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
@@ -201,379 +143,339 @@ refresh_message_ttl(MsgId) ->
     end).
 
 %%--------------------------------------------------------------------
-%% Deliveries and index
+%% Promotion primitives (async intake path)
 %%--------------------------------------------------------------------
 
-create_delivery(DeliveryId, MsgId, ProductKey, TopicTemplate, DeviceNames, TargetCount) ->
-    Now = emqx_bcast_utils:now_sec(),
-    TTL = emqx_bcast_utils:ttl(),
-    Delivery = #bcast_msg{
-        delivery_id = DeliveryId,
+%% Promote one batch of intake entries with a single mnesia transaction:
+%% per entry one hash resolve + message create/refresh and one delivery
+%% row write. The number of mnesia rows per entry is independent of the
+%% batch size (the per-device index is appended to ETS by the index owner
+%% after the commit), which is what keeps promotion capacity above the
+%% 1600 req/s target at any batch size.
+%%
+%% Idempotent: an entry whose delivery row already exists (crash between
+%% commit and queue dequeue) resolves to `already_promoted` and is safe to
+%% re-append to the ETS index (dedup by delivery id).
+-spec promote_batch([map()]) -> {ok, [ok | already_promoted | {error, term()}]} | {error, term()}.
+promote_batch(Entries) ->
+    case transaction(fun() -> promote_batch_tx(Entries) end) of
+        {atomic, Results} -> {ok, Results};
+        {aborted, Reason} -> {error, Reason}
+    end.
+
+promote_batch_tx(Entries) ->
+    %% Group entries by content hash: identical payloads (the loadtest
+    %% sends the same 256B body for every request) share one message row,
+    %% so the delivery_count bump and TTL refresh happen once per group
+    %% instead of once per entry. With one hash for the whole run this
+    %% turns N read-modify-write pairs on the same mnesia row into a
+    %% single write, removing the cross-worker lock contention that capped
+    %% promotion at ~520 req/s. Delivery rows stay per entry (idempotent:
+    %% already-committed entries resolve to already_promoted).
+    %% O(n) map grouping (lists:keyfind/keyreplace per entry was
+    %% O(n x distinct-hash) inside the mnesia transaction, extending lock
+    %% hold time).
+    Groups = maps:to_list(
+        lists:foldl(
+            fun(Entry, Acc) ->
+                Hash = maps:get(hash, Entry),
+                maps:update_with(Hash, fun(List) -> [Entry | List] end, [Entry], Acc)
+            end,
+            #{},
+            Entries
+        )
+    ),
+    lists:append([promote_group_tx(Group) || {_Hash, Group} <- Groups]).
+
+%% Promote one hash-group: one message create/refresh + delivery_count
+%% bump for the whole group, then one delivery + meta row per entry.
+%% Runs inside the promote_batch transaction.
+promote_group_tx(Entries) ->
+    {First, _Rest} =
+        case Entries of
+            [F | R] -> {F, R};
+            [] -> {undefined, []}
+        end,
+    case First of
+        undefined ->
+            [];
+        _ ->
+            {_Status, ResolvedApiMsgId, ResolvedMsgId} = write_message_group_tx(
+                First, length(Entries)
+            ),
+            GroupResults = [
+                promote_entry_delivery_tx(Entry, ResolvedApiMsgId, ResolvedMsgId)
+             || Entry <- Entries
+            ],
+            GroupResults
+    end.
+
+%% Hash resolve + one message create/refresh for the whole group; the
+%% delivery_count bump is the group size (all entries share the message).
+write_message_group_tx(Entry, GroupSize) ->
+    Payload = maps:get(payload, Entry),
+    Hash = maps:get(hash, Entry),
+    ApiMsgId = maps:get(api_msg_id, Entry),
+    MsgId = maps:get(msg_id, Entry),
+    Now = maps:get(created_at, Entry),
+    TTL = maps:get(expires_at, Entry) - Now,
+    case mnesia:wread({?TAB_MSG_HASH, Hash}) of
+        [] ->
+            write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL, GroupSize),
+            {created, ApiMsgId, MsgId};
+        [#bcast_message_hash{msg_id = ExistingMsgId}] ->
+            case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
+                [#bcast_message{} = Existing] ->
+                    mnesia:write(Existing#bcast_message{
+                        delivery_count = Existing#bcast_message.delivery_count + GroupSize,
+                        expires_at = Now + TTL
+                    }),
+                    {existing, Existing#bcast_message.api_msg_id, ExistingMsgId};
+                [] ->
+                    write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL, GroupSize),
+                    {created, ApiMsgId, MsgId}
+            end
+    end.
+
+write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL, GroupSize) ->
+    mnesia:write(#bcast_message{
         msg_id = MsgId,
-        product_key = ProductKey,
-        topic_template = TopicTemplate,
-        target_ack_count = TargetCount,
-        counter = 0,
-        device_names = DeviceNames,
+        api_msg_id = ApiMsgId,
+        content_hash = Hash,
+        payload = Payload,
+        delivery_count = GroupSize,
         created_at = Now,
         expires_at = Now + TTL
-    },
-    %% Lock order index -> delivery matches the claim and ack transactions.
-    {atomic, ok} = transaction(fun() ->
-        add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, stored),
-        mnesia:write(Delivery),
-        inc_delivery_count_tx(MsgId)
-    end),
-    Delivery.
+    }),
+    mnesia:write(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
+    mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}).
 
-%% Index entries are {ProductKey, DeviceName} -> [{DeliveryId, State}].
-%% The read-modify-write runs inside a transaction so concurrent deliveries
-%% for the same device cannot overwrite each other.
-add_index_entries(ProductKey, DeviceNames, DeliveryId) ->
-    {atomic, ok} = transaction(fun() ->
-        add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, stored)
-    end),
-    ok.
-
-remove_index_entries(ProductKey, DeviceNames, DeliveryId) ->
-    {atomic, ok} = transaction(fun() ->
-        lists:foreach(
-            fun(DN) -> remove_index_entry_tx({ProductKey, DN}, DeliveryId) end,
-            DeviceNames
-        )
-    end),
-    ok.
-
-add_index_entries_tx(ProductKey, DeviceNames, DeliveryId, State) ->
-    lists:foreach(
-        fun(DN) ->
-            Key = {ProductKey, DN},
-            Index =
-                case mnesia:wread({?TAB_MSG_IDX, Key}) of
-                    [#bcast_msg_index{deliveries = Es, count = C}] -> {Es, C};
-                    [] -> {[], 0}
-                end,
-            {Entries, Count} = Index,
-            case lists:keymember(DeliveryId, 1, Entries) of
-                true ->
-                    ok;
-                false ->
-                    mnesia:write(#bcast_msg_index{
-                        key = Key,
-                        deliveries = [{DeliveryId, State} | Entries],
-                        count = Count + 1
-                    }),
-                    inc_quota_tx(1)
-            end
-        end,
-        DeviceNames
-    ).
-
-remove_index_entry_tx(Key, DeliveryId) ->
-    case mnesia:wread({?TAB_MSG_IDX, Key}) of
-        [#bcast_msg_index{deliveries = Entries, count = Count}] ->
-            NewEntries = lists:keydelete(DeliveryId, 1, Entries),
-            case length(NewEntries) =:= length(Entries) of
-                true ->
-                    ok;
-                false ->
-                    inc_quota_tx(-1),
-                    case NewEntries of
-                        [] ->
-                            mnesia:delete({?TAB_MSG_IDX, Key});
-                        _ ->
-                            mnesia:write(#bcast_msg_index{
-                                key = Key,
-                                deliveries = NewEntries,
-                                count = Count - 1
-                            })
-                    end
-            end;
+%% Delivery + meta rows for one entry, using the group-resolved message.
+promote_entry_delivery_tx(Entry, _ResolvedApiMsgId, ResolvedMsgId) ->
+    DeliveryId = maps:get(delivery_id, Entry),
+    case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
+        [_] ->
+            already_promoted;
         [] ->
+            Delivery = #bcast_msg{
+                delivery_id = DeliveryId,
+                msg_id = ResolvedMsgId,
+                product_key = maps:get(product_key, Entry),
+                topic_template = maps:get(topic_template, Entry),
+                target_ack_count = length(maps:get(devices, Entry)),
+                counter = 0,
+                device_names = maps:get(devices, Entry),
+                created_at = maps:get(created_at, Entry),
+                expires_at = maps:get(expires_at, Entry)
+            },
+            mnesia:write(Delivery),
+            mnesia:write(#bcast_msg_meta{
+                delivery_id = DeliveryId,
+                msg_id = ResolvedMsgId,
+                topic_template = maps:get(topic_template, Entry),
+                counter = length(maps:get(devices, Entry))
+            }),
             ok
     end.
 
-get_device_deliveries({ProductKey, DeviceName}) ->
-    case mnesia:dirty_read(?TAB_MSG_IDX, {ProductKey, DeviceName}) of
-        [#bcast_msg_index{deliveries = Entries}] ->
-            {ok, [DeliveryId || {DeliveryId, _State} <- Entries]};
+%% Entry shape matches emqx_bcast_intake:entry(). Runs inside a mnesia
+%% transaction (promoter batch or owner create_sync).
+%% Idempotent: an already-committed delivery returns {error, already_exists}
+%% instead of re-writing the rows and double-incrementing the message
+%% delivery_count (a create_sync retry after an index-append failure used
+%% to double-count; test/legacy path).
+-spec promote_entry_tx(map()) -> {ok, api_msg_id(), #bcast_msg{}} | {error, term()}.
+promote_entry_tx(Entry) ->
+    DeliveryId = maps:get(delivery_id, Entry),
+    case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
+        [_] ->
+            {error, already_exists};
         [] ->
-            {ok, []}
+            promote_entry_tx_new(Entry, DeliveryId)
     end.
 
-get_device_delivery_entries({ProductKey, DeviceName}) ->
-    case mnesia:dirty_read(?TAB_MSG_IDX, {ProductKey, DeviceName}) of
-        [#bcast_msg_index{deliveries = Entries}] ->
-            {ok, Entries};
-        [] ->
-            {ok, []}
-    end.
+promote_entry_tx_new(Entry, DeliveryId) ->
+    Payload = maps:get(payload, Entry),
+    Hash = maps:get(hash, Entry),
+    ApiMsgId = maps:get(api_msg_id, Entry),
+    MsgId = maps:get(msg_id, Entry),
+    ProductKey = maps:get(product_key, Entry),
+    TopicTemplate = maps:get(topic_template, Entry),
+    Devices = maps:get(devices, Entry),
+    CreatedAt = maps:get(created_at, Entry),
+    ExpiresAt = maps:get(expires_at, Entry),
+    %% Hash resolve, message create/refresh and the delivery_count bump are
+    %% one step; dedup resolves to an existing message whose TTL is
+    %% refreshed in the same write.
+    {_Status, ResolvedApiMsgId, ResolvedMsgId} = write_message_inc_tx(
+        Payload, Hash, ApiMsgId, MsgId, CreatedAt, ExpiresAt - CreatedAt
+    ),
+    Delivery = #bcast_msg{
+        delivery_id = DeliveryId,
+        msg_id = ResolvedMsgId,
+        product_key = ProductKey,
+        topic_template = TopicTemplate,
+        target_ack_count = length(Devices),
+        counter = 0,
+        device_names = Devices,
+        created_at = CreatedAt,
+        expires_at = ExpiresAt
+    },
+    mnesia:write(Delivery),
+    mnesia:write(#bcast_msg_meta{
+        delivery_id = DeliveryId,
+        msg_id = ResolvedMsgId,
+        topic_template = TopicTemplate,
+        counter = length(Devices)
+    }),
+    {ok, ResolvedApiMsgId, Delivery}.
 
-%% Total pending deliveries across all devices, maintained as a single
-%% counter record: every index entry insert/remove adjusts it inside the
-%% same transaction, so quota checks read one record instead of scanning
-%% the whole index. The bcast_quota table only lives on core nodes.
-pending_delivery_count() ->
-    case mnesia:dirty_read(?TAB_QUOTA, global) of
-        [#bcast_quota{count = N}] -> N;
-        [] -> 0
-    end.
+%%--------------------------------------------------------------------
+%% Delivery / index facade (routes to the ETS index owner)
+%%--------------------------------------------------------------------
 
-inc_quota_tx(Delta) ->
-    Count =
-        case mnesia:wread({?TAB_QUOTA, global}) of
-            [#bcast_quota{count = N}] -> N;
-            [] -> 0
-        end,
-    case Count + Delta of
-        0 ->
-            mnesia:delete({?TAB_QUOTA, global});
-        NewCount when NewCount > 0 ->
-            mnesia:write(#bcast_quota{key = global, count = NewCount});
-        _ ->
-            %% Defensive: never let the counter go negative.
-            mnesia:delete({?TAB_QUOTA, global})
-    end,
+-spec create_message_and_delivery(
+    binary(),
+    binary(),
+    api_msg_id(),
+    msg_id(),
+    delivery_id(),
+    product_key(),
+    binary(),
+    [device_name()]
+) -> {ok, api_msg_id(), #bcast_msg{}} | {error, term()}.
+create_message_and_delivery(
+    Payload, Hash, ApiMsgId, MsgId, DeliveryId, ProductKey, TopicTemplate, DeviceNames
+) ->
+    create_message_and_delivery_quota(
+        Payload,
+        Hash,
+        ApiMsgId,
+        MsgId,
+        DeliveryId,
+        ProductKey,
+        TopicTemplate,
+        DeviceNames,
+        #{global => infinity, per_device => infinity}
+    ).
+
+-spec create_message_and_delivery_quota(
+    binary(),
+    binary(),
+    api_msg_id(),
+    msg_id(),
+    delivery_id(),
+    product_key(),
+    binary(),
+    [device_name()],
+    #{global := non_neg_integer() | infinity, per_device := non_neg_integer() | infinity}
+) -> {ok, api_msg_id(), #bcast_msg{}} | {error, term()}.
+create_message_and_delivery_quota(
+    Payload, Hash, ApiMsgId, MsgId, DeliveryId, ProductKey, TopicTemplate, DeviceNames, Quota
+) ->
+    Now = emqx_bcast_utils:now_sec(),
+    TTL = emqx_bcast_utils:ttl(),
+    Entry = #{
+        payload => Payload,
+        hash => Hash,
+        api_msg_id => ApiMsgId,
+        msg_id => MsgId,
+        delivery_id => DeliveryId,
+        product_key => ProductKey,
+        topic_template => TopicTemplate,
+        devices => DeviceNames,
+        created_at => Now,
+        expires_at => Now + TTL
+    },
+    emqx_bcast_index_owner:create_sync(Entry, Quota).
+
+-spec create_delivery(
+    delivery_id(), msg_id(), product_key(), binary(), [device_name()], non_neg_integer()
+) -> {ok, #bcast_msg{}} | {error, term()}.
+create_delivery(DeliveryId, MsgId, ProductKey, TopicTemplate, DeviceNames, TargetCount) ->
+    emqx_bcast_index_owner:create_delivery(
+        DeliveryId, MsgId, ProductKey, TopicTemplate, DeviceNames, TargetCount
+    ).
+
+-spec add_index_entries(product_key(), [device_name()], delivery_id()) -> ok.
+add_index_entries(ProductKey, DeviceNames, DeliveryId) ->
+    _ = emqx_bcast_index_owner:append_batch(
+        [{ProductKey, DN, DeliveryId} || DN <- DeviceNames]
+    ),
     ok.
 
-%% Pending deliveries for one device: the count field of its index record.
-pending_delivery_count_for({ProductKey, DeviceName}) ->
-    case mnesia:dirty_read(?TAB_MSG_IDX, {ProductKey, DeviceName}) of
-        [#bcast_msg_index{count = Count}] -> Count;
-        [] -> 0
-    end.
+-spec remove_index_entries(product_key(), [device_name()], delivery_id()) -> ok.
+remove_index_entries(ProductKey, DeviceNames, DeliveryId) ->
+    _ = emqx_bcast_index_owner:remove_batch(
+        [{ProductKey, DN, DeliveryId} || DN <- DeviceNames]
+    ),
+    ok.
+
+-spec get_device_deliveries({product_key(), device_name()}) -> {ok, [delivery_id()]}.
+get_device_deliveries(Key) ->
+    emqx_bcast_index_owner:device_deliveries(Key).
+
+-spec get_device_delivery_entries({product_key(), device_name()}) -> {ok, [bcast_index_entry()]}.
+get_device_delivery_entries(Key) ->
+    emqx_bcast_index_owner:device_delivery_entries(Key).
+
+-spec pending_delivery_count() -> non_neg_integer().
+pending_delivery_count() ->
+    emqx_bcast_index_owner:pending_count().
+
+-spec pending_delivery_count_for({product_key(), device_name()}) -> non_neg_integer().
+pending_delivery_count_for(Key) ->
+    emqx_bcast_index_owner:pending_count_for(Key).
 
 %%--------------------------------------------------------------------
-%% Acking
+%% Acking and claim (owner-routed)
 %%--------------------------------------------------------------------
 
+-spec process_ack(product_key(), device_name(), delivery_id()) ->
+    counted | duplicate | not_found | {error, term()}.
 process_ack(ProductKey, DeviceName, DeliveryId) ->
     case process_ack_batch([{ProductKey, DeviceName, DeliveryId}]) of
         [Result | _] -> Result;
         [] -> not_found
     end.
 
-%% One transaction for the whole ack batch (F5).
+-spec process_ack_batch([{product_key(), device_name(), delivery_id()}]) ->
+    [counted | duplicate | not_found | {error, term()}].
 process_ack_batch(Acks) ->
-    case transaction(fun() -> process_ack_batch_tx(Acks, []) end) of
-        {atomic, Results} ->
-            Results;
-        {aborted, Reason} ->
+    try emqx_bcast_index_owner:ack_batch(Acks) of
+        Results -> Results
+    catch
+        Error:Reason ->
+            ?SLOG(warning, #{
+                msg => "bcast_ack_owner_call_failed",
+                exception => Error,
+                reason => Reason
+            }),
             [{error, Reason} || _ <- Acks]
     end.
 
-process_ack_batch_tx([], Acc) ->
-    lists:reverse(Acc);
-process_ack_batch_tx([{ProductKey, DeviceName, DeliveryId} | Rest], Acc) ->
-    Result = process_ack_one_tx(ProductKey, DeviceName, DeliveryId),
-    process_ack_batch_tx(Rest, [Result | Acc]).
-
-process_ack_one_tx(ProductKey, DeviceName, DeliveryId) ->
-    Key = {ProductKey, DeviceName},
-    case mnesia:wread({?TAB_MSG_IDX, Key}) of
-        [#bcast_msg_index{deliveries = Entries}] ->
-            case lists:keytake(DeliveryId, 1, Entries) of
-                {value, {DeliveryId, _State}, NewEntries} ->
-                    inc_quota_tx(-1),
-                    write_index_entries(Key, NewEntries),
-                    case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
-                        [#bcast_msg{counter = C, target_ack_count = T} = D] ->
-                            NewC = C + 1,
-                            case NewC >= T of
-                                true ->
-                                    mnesia:delete({?TAB_MSG_REC, DeliveryId}),
-                                    %% Remove the remaining devices' index
-                                    %% entries in the same transaction.
-                                    lists:foreach(
-                                        fun(DN) ->
-                                            remove_index_entry_tx(
-                                                {ProductKey, DN}, DeliveryId
-                                            )
-                                        end,
-                                        D#bcast_msg.device_names
-                                    ),
-                                    dec_delivery_count_tx(D#bcast_msg.msg_id),
-                                    counted;
-                                false ->
-                                    mnesia:write(D#bcast_msg{counter = NewC}),
-                                    counted
-                            end;
-                        [] ->
-                            counted
-                    end;
-                false ->
-                    %% Already acked (or delivery completed): the entry is
-                    %% gone, so a duplicate ACK does not count twice.
-                    duplicate
-            end;
-        [] ->
-            not_found
-    end.
-
-write_index_entries(Key, []) ->
-    mnesia:delete({?TAB_MSG_IDX, Key});
-write_index_entries(Key, NewEntries) ->
-    mnesia:write(#bcast_msg_index{
-        key = Key,
-        deliveries = NewEntries,
-        count = length(NewEntries)
-    }).
-
-%% Track how many deliveries reference a message. When the last delivery
-%% completes, delete the message records (payload, hash, api id). This is a
-%% per-message decrement instead of a full bcast_msg scan on every delivery
-%% completion, which kept ack batches from being O(table size).
-inc_delivery_count_tx(MsgId) ->
-    case mnesia:wread({?TAB_MSG, MsgId}) of
-        [#bcast_message{delivery_count = N} = M] ->
-            mnesia:write(M#bcast_message{delivery_count = N + 1});
-        [] ->
-            ok
-    end.
-
-dec_delivery_count_tx(MsgId) ->
-    case mnesia:wread({?TAB_MSG, MsgId}) of
-        [#bcast_message{delivery_count = N} = M] ->
-            case N - 1 of
-                0 ->
-                    mnesia:delete({?TAB_MSG, MsgId}),
-                    mnesia:delete({?TAB_MSG_HASH, M#bcast_message.content_hash}),
-                    mnesia:delete({?TAB_MSG_API_ID, M#bcast_message.api_msg_id});
-                Rest ->
-                    mnesia:write(M#bcast_message{delivery_count = Rest})
-            end;
-        [] ->
-            ok
-    end.
-
-%%--------------------------------------------------------------------
-%% Want-next claim (core side)
-%%--------------------------------------------------------------------
-
-%% Entries :: [#{clientid := binary(), product_key := binary(),
-%%               topics := [{binary(), non_neg_integer()}]}]
-%% Returns :: [{ClientId, {ok, DeliverMap} | no_more}]
-%% The whole batch claims in one transaction (F5). Claiming is mutating:
-%% each claimed index entry is marked pending in the same transaction, so
-%% dedup lives in the authoritative store instead of node-local caches and
-%% no concurrent or later claim (on any core) can hand out the same
-%% delivery until it is acked, released or its pending lease expires.
+-spec claim_want_next_batch([map()]) -> [{binary(), map() | no_more}] | {error, term()}.
 claim_want_next_batch(Entries) ->
-    case transaction(fun() -> claim_want_next_batch_tx(Entries, []) end) of
-        {atomic, R} ->
-            R;
-        {aborted, _Reason} ->
-            [{ClientId, no_more} || #{clientid := ClientId} <- Entries]
+    try emqx_bcast_index_owner:claim(Entries) of
+        Results -> Results
+    catch
+        Error:Reason ->
+            ?SLOG(error, #{
+                msg => "bcast_claim_owner_call_failed",
+                exception => Error,
+                reason => Reason
+            }),
+            {error, Reason}
     end.
 
-%% How long a pending (claimed but not acked/released) entry stays
-%% excluded from claims. This is the at-least-once fallback for lost claim
-%% results (RPC failure) and crashed pull nodes; it is sized far beyond
-%% any delivery pipeline latency so it never fires on the hot path.
--define(PENDING_TTL_MS, 60000).
-
-claimable(stored) ->
-    true;
-claimable({pending, Ts}) ->
-    erlang:system_time(millisecond) - Ts >= ?PENDING_TTL_MS.
-
-claim_want_next_batch_tx([], Acc) ->
-    lists:reverse(Acc);
-claim_want_next_batch_tx([#{clientid := ClientId, product_key := ProductKey} = Entry | Rest], Acc) ->
-    Topics = maps:get(topics, Entry, []),
-    Result = claim_one_tx(ProductKey, ClientId, Topics),
-    claim_want_next_batch_tx(Rest, [{ClientId, Result} | Acc]).
-
-claim_one_tx(ProductKey, DeviceName, Topics) ->
-    Key = {ProductKey, DeviceName},
-    %% Write lock up front: a successful claim writes the entry back as
-    %% pending, and upgrading a read lock mid-transaction can deadlock
-    %% against concurrent claim/ack transactions on the same key.
-    case mnesia:wread({?TAB_MSG_IDX, Key}) of
-        [] ->
-            no_more;
-        [#bcast_msg_index{deliveries = Entries}] ->
-            claim_from_entries(Key, Entries, length(Entries), Topics, ProductKey, DeviceName, [])
-    end.
-
-claim_from_entries(_Key, [], _OrigLen, _Topics, _PK, _DN, _Kept) ->
-    %% Nothing matched. Do not rewrite the index record: a later subscription
-    %% change may make one of the stored entries deliverable.
-    no_more;
-claim_from_entries(Key, [{DeliveryId, State} | Rest], OrigLen, Topics, PK, DN, Kept) ->
-    case mnesia:read(?TAB_MSG_REC, DeliveryId, read) of
-        [#bcast_msg{msg_id = MsgId, topic_template = Template}] ->
-            Topic = emqx_bcast_utils:expand_topic(Template, PK, DN),
-            case topics_match(Topic, Topics) andalso claimable(State) of
-                true ->
-                    case mnesia:read(?TAB_MSG, MsgId, read) of
-                        [#bcast_message{payload = Payload}] ->
-                            %% Mark pending in the same transaction. Stale
-                            %% entries met on the way (not in Kept) are
-                            %% dropped by this write.
-                            Ts = erlang:system_time(millisecond),
-                            NewEntries =
-                                lists:reverse(Kept) ++ [{DeliveryId, {pending, Ts}} | Rest],
-                            %% Dropped stale entries no longer count toward
-                            %% the quota; the count field is derived from the
-                            %% new list length by write_index_entries.
-                            Dropped = OrigLen - length(NewEntries),
-                            case Dropped > 0 of
-                                true -> inc_quota_tx(-Dropped);
-                                false -> ok
-                            end,
-                            write_index_entries(Key, NewEntries),
-                            {ok, #{
-                                delivery_id => DeliveryId,
-                                product_key => PK,
-                                topic_template => Template,
-                                payload => Payload
-                            }};
-                        [] ->
-                            %% Stale index: remove the entry and keep looking.
-                            claim_from_entries(Key, Rest, OrigLen, Topics, PK, DN, Kept)
-                    end;
-                false ->
-                    claim_from_entries(Key, Rest, OrigLen, Topics, PK, DN, [
-                        {DeliveryId, State}
-                        | Kept
-                    ])
-            end;
-        [] ->
-            %% Stale index entry: drop it and keep looking.
-            claim_from_entries(Key, Rest, OrigLen, Topics, PK, DN, Kept)
-    end.
-
-topics_match(_Topic, []) ->
-    false;
-topics_match(Topic, [{Filter, _Qos} | Rest]) ->
-    case emqx_topic:match(Topic, Filter) of
-        true -> true;
-        false -> topics_match(Topic, Rest)
-    end.
-
-%% Put a claimed delivery back to `stored`: used when a claimed entry turns
-%% out to be undeliverable (client unsubscribed, offline or gone before the
-%% deliver happened), so it does not stay pending until the lease expires.
+-spec release_claim(product_key(), device_name(), delivery_id()) -> ok.
 release_claim(ProductKey, DeviceName, Did) ->
-    Key = {ProductKey, DeviceName},
-    {atomic, ok} = transaction(fun() ->
-        case mnesia:wread({?TAB_MSG_IDX, Key}) of
-            [#bcast_msg_index{deliveries = Entries, count = Count}] ->
-                NewEntries = lists:map(
-                    fun
-                        ({EntryId, {pending, _}}) when EntryId =:= Did -> {EntryId, stored};
-                        (Entry) -> Entry
-                    end,
-                    Entries
-                ),
-                mnesia:write(#bcast_msg_index{
-                    key = Key, deliveries = NewEntries, count = Count
-                });
-            [] ->
-                ok
-        end
-    end),
+    _ = emqx_bcast_index_owner:release_claim(ProductKey, DeviceName, Did),
+    ok.
+
+-spec release_client_claims(product_key(), device_name(), pos_integer()) -> ok | {error, term()}.
+release_client_claims(ProductKey, DeviceName, ClaimTag) ->
+    _ = emqx_bcast_index_owner:release_client_claims(ProductKey, DeviceName, ClaimTag),
     ok.
 
 %%--------------------------------------------------------------------
@@ -584,8 +486,10 @@ release_claim(ProductKey, DeviceName, Did) ->
 %% descending. The cursor is an opaque token encoding the last seen
 %% (created_at, msg_id); messages are immutable so the order is stable
 %% between pages.
+-spec list_messages(pos_integer(), undefined | {non_neg_integer(), msg_id()}) ->
+    {[#bcast_message{}], undefined | {non_neg_integer(), msg_id()}}.
 list_messages(Limit, Cursor) ->
-    All = mnesia:dirty_match_object(#bcast_message{_ = '_'}),
+    All = mnesia:dirty_match_object(?TAB_MSG, #bcast_message{_ = '_'}),
     %% Sort by {created_at, msg_id} so messages created in the same second
     %% have a deterministic order (msg_id is unique).
     Sorted = lists:reverse(
@@ -623,15 +527,17 @@ maybe_cursor(Page, _Limit) ->
     {Created, MsgId, _M} = lists:last(Page),
     {Created, MsgId}.
 
+-spec get_message_by_api_id(api_msg_id()) ->
+    {ok, #bcast_message{}, non_neg_integer()} | {error, not_found}.
 get_message_by_api_id(ApiMsgId) ->
     case mnesia:dirty_read(?TAB_MSG_API_ID, ApiMsgId) of
         [#bcast_message_api_id{msg_id = MsgId}] ->
             case lookup_message(MsgId) of
                 {ok, Msg} ->
-                    Count = length(
-                        mnesia:dirty_match_object(#bcast_msg{msg_id = MsgId, _ = '_'})
-                    ),
-                    {ok, Msg, Count};
+                    %% delivery_count is maintained transactionally and is
+                    %% the authoritative value; a full bcast_msg scan here
+                    %% turned one metadata GET into O(all deliveries).
+                    {ok, Msg, Msg#bcast_message.delivery_count};
                 Error ->
                     Error
             end;
@@ -639,67 +545,34 @@ get_message_by_api_id(ApiMsgId) ->
             {error, not_found}
     end.
 
+-spec delete_message(api_msg_id()) -> ok | {error, term()}.
 delete_message(ApiMsgId) ->
-    case mnesia:dirty_read(?TAB_MSG_API_ID, ApiMsgId) of
-        [] ->
-            {error, not_found};
-        [#bcast_message_api_id{msg_id = MsgId}] ->
-            case
-                transaction(fun() ->
-                    Deliveries = mnesia:match_object(#bcast_msg{msg_id = MsgId, _ = '_'}),
-                    lists:foreach(
-                        fun(D) -> mnesia:delete({?TAB_MSG_REC, D#bcast_msg.delivery_id}) end,
-                        Deliveries
-                    ),
-                    case mnesia:read(?TAB_MSG, MsgId, write) of
-                        [#bcast_message{content_hash = Hash}] ->
-                            mnesia:delete({?TAB_MSG, MsgId}),
-                            mnesia:delete({?TAB_MSG_HASH, Hash}),
-                            mnesia:delete({?TAB_MSG_API_ID, ApiMsgId});
-                        [] ->
-                            ok
-                    end,
-                    Deliveries
-                end)
-            of
-                {atomic, Deliveries} ->
-                    {atomic, ok} = transaction(fun() ->
-                        lists:foreach(
-                            fun(D) ->
-                                lists:foreach(
-                                    fun(DN) ->
-                                        remove_index_entry_tx(
-                                            {D#bcast_msg.product_key, DN},
-                                            D#bcast_msg.delivery_id
-                                        )
-                                    end,
-                                    D#bcast_msg.device_names
-                                )
-                            end,
-                            Deliveries
-                        )
-                    end),
-                    ok;
-                {aborted, Reason} ->
-                    {error, Reason}
-            end
-    end.
+    emqx_bcast_index_owner:delete_message(ApiMsgId).
 
+-spec get_delivery(delivery_id()) ->
+    {ok, #bcast_msg{}, api_msg_id() | undefined} | {error, not_found}.
 get_delivery(DeliveryId) ->
     case mnesia:dirty_read(?TAB_MSG_REC, DeliveryId) of
         [#bcast_msg{} = D] ->
+            Counter =
+                case mnesia:dirty_read(?TAB_MSG_META, DeliveryId) of
+                    [#bcast_msg_meta{counter = C}] -> C;
+                    [] -> D#bcast_msg.counter
+                end,
             ApiMsgId =
                 case lookup_message(D#bcast_msg.msg_id) of
                     {ok, M} -> M#bcast_message.api_msg_id;
                     _ -> undefined
                 end,
-            {ok, D, ApiMsgId};
+            {ok, D#bcast_msg{counter = Counter}, ApiMsgId};
         [] ->
             {error, not_found}
     end.
 
+-spec deliveries_for_device(product_key(), device_name()) ->
+    {ok, [{#bcast_msg{}, api_msg_id() | undefined}]}.
 deliveries_for_device(ProductKey, DeviceName) ->
-    {ok, Entries} = get_device_delivery_entries({ProductKey, DeviceName}),
+    {ok, Entries} = emqx_bcast_index_owner:device_delivery_entries({ProductKey, DeviceName}),
     Found = lists:filtermap(
         fun({Id, _State}) ->
             case get_delivery(Id) of
@@ -711,68 +584,126 @@ deliveries_for_device(ProductKey, DeviceName) ->
     ),
     {ok, Found}.
 
+-spec delete_delivery(delivery_id()) -> ok | {error, term()}.
 delete_delivery(DeliveryId) ->
-    case mnesia:dirty_read(?TAB_MSG_REC, DeliveryId) of
+    emqx_bcast_index_owner:delete_delivery(DeliveryId).
+
+-spec cleanup_expired() -> ok.
+cleanup_expired() ->
+    emqx_bcast_index_owner:cleanup_expired().
+
+%%--------------------------------------------------------------------
+%% Shared transaction helpers (called by the index owner inside its own
+%% mnesia transactions)
+%%--------------------------------------------------------------------
+
+-spec inc_delivery_count_tx(msg_id()) -> ok.
+inc_delivery_count_tx(MsgId) ->
+    case mnesia:wread({?TAB_MSG, MsgId}) of
+        [#bcast_message{delivery_count = N} = M] ->
+            mnesia:write(M#bcast_message{delivery_count = N + 1});
         [] ->
-            {error, not_found};
-        [#bcast_msg{msg_id = MsgId, product_key = ProductKey, device_names = DeviceNames}] ->
-            {atomic, ok} = transaction(fun() ->
-                mnesia:delete({?TAB_MSG_REC, DeliveryId}),
-                lists:foreach(
-                    fun(DN) -> remove_index_entry_tx({ProductKey, DN}, DeliveryId) end,
-                    DeviceNames
-                ),
-                dec_delivery_count_tx(MsgId)
-            end),
             ok
     end.
 
-cleanup_expired() ->
-    Now = emqx_bcast_utils:now_sec(),
-    cleanup_expired_deliveries(Now),
-    cleanup_expired_messages(Now).
+-spec dec_delivery_count_tx(msg_id()) -> ok.
+dec_delivery_count_tx(MsgId) ->
+    case mnesia:wread({?TAB_MSG, MsgId}) of
+        [#bcast_message{delivery_count = N} = M] ->
+            case N - 1 of
+                0 ->
+                    mnesia:delete({?TAB_MSG, MsgId}),
+                    mnesia:delete({?TAB_MSG_HASH, M#bcast_message.content_hash}),
+                    mnesia:delete({?TAB_MSG_API_ID, M#bcast_message.api_msg_id});
+                Rest ->
+                    mnesia:write(M#bcast_message{delivery_count = Rest})
+            end;
+        [] ->
+            ok
+    end.
 
-cleanup_expired_deliveries(Now) ->
-    Expired = mnesia:dirty_select(
-        ?TAB_MSG_REC,
-        [{#bcast_msg{expires_at = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}]
-    ),
-    lists:foreach(
-        fun(#bcast_msg{delivery_id = Did, msg_id = MsgId, device_names = DNs, product_key = PK}) ->
-            {atomic, ok} = transaction(fun() ->
-                mnesia:delete({?TAB_MSG_REC, Did}),
-                lists:foreach(
-                    fun(DN) -> remove_index_entry_tx({PK, DN}, Did) end,
-                    DNs
-                ),
-                dec_delivery_count_tx(MsgId)
-            end)
-        end,
-        Expired
-    ).
+%%--------------------------------------------------------------------
+%% Message tx internals
+%%--------------------------------------------------------------------
 
-cleanup_expired_messages(Now) ->
-    Expired = mnesia:dirty_select(
-        ?TAB_MSG,
-        [{#bcast_message{expires_at = '$1', _ = '_'}, [{'<', '$1', Now}], ['$_']}]
-    ),
-    lists:foreach(
-        fun(#bcast_message{msg_id = Mid, content_hash = Hash, api_msg_id = ApiId}) ->
-            {atomic, ok} = transaction(fun() ->
-                mnesia:delete({?TAB_MSG, Mid}),
-                mnesia:delete({?TAB_MSG_HASH, Hash}),
-                mnesia:delete({?TAB_MSG_API_ID, ApiId})
-            end)
-        end,
-        Expired
-    ).
+%% Hash lookup only; decides whether the message record must be created
+%% (NewMsg = true) or refreshed (false).
+resolve_message_tx(Hash, ApiMsgId, MsgId, _Now, _TTL) ->
+    case mnesia:wread({?TAB_MSG_HASH, Hash}) of
+        [] ->
+            {created, ApiMsgId, MsgId, true};
+        [#bcast_message_hash{msg_id = ExistingMsgId}] ->
+            case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
+                [#bcast_message{} = Existing] ->
+                    {existing, Existing#bcast_message.api_msg_id, ExistingMsgId, false};
+                [] ->
+                    {created, ApiMsgId, MsgId, true}
+            end
+    end.
+
+%% Hash resolve + message create/refresh + delivery_count increment in one
+%% step. Callers must finish every delivery write before calling this.
+write_message_inc_tx(Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
+    case mnesia:wread({?TAB_MSG_HASH, Hash}) of
+        [] ->
+            write_new_message_inc_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL),
+            {created, ApiMsgId, MsgId};
+        [#bcast_message_hash{msg_id = ExistingMsgId}] ->
+            case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
+                [#bcast_message{} = Existing] ->
+                    mnesia:write(Existing#bcast_message{
+                        delivery_count = Existing#bcast_message.delivery_count + 1,
+                        expires_at = Now + TTL
+                    }),
+                    {existing, Existing#bcast_message.api_msg_id, ExistingMsgId};
+                [] ->
+                    %% The hash points at a message record that is already
+                    %% gone; create a fresh one under the new id.
+                    write_new_message_inc_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL),
+                    {created, ApiMsgId, MsgId}
+            end
+    end.
+
+write_new_message_inc_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL) ->
+    mnesia:write(#bcast_message{
+        msg_id = MsgId,
+        api_msg_id = ApiMsgId,
+        content_hash = Hash,
+        payload = Payload,
+        %% The delivery that triggered the creation counts immediately.
+        delivery_count = 1,
+        created_at = Now,
+        expires_at = Now + TTL
+    }),
+    mnesia:write(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
+    mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}).
+
+write_message_tx(true, Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
+    Record = #bcast_message{
+        msg_id = MsgId,
+        api_msg_id = ApiMsgId,
+        content_hash = Hash,
+        payload = Payload,
+        delivery_count = 0,
+        created_at = Now,
+        expires_at = Now + TTL
+    },
+    mnesia:write(Record),
+    mnesia:write(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
+    mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId});
+write_message_tx(false, _Payload, _Hash, _ApiMsgId, MsgId, Now, TTL) ->
+    case mnesia:wread({?TAB_MSG, MsgId}) of
+        [#bcast_message{} = Existing] ->
+            mnesia:write(Existing#bcast_message{expires_at = Now + TTL});
+        [] ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
 
 transaction(Fun) ->
-    %% Retry on lock clashes (concurrent create/claim/ack transactions on the
-    %% same index records). mnesia re-runs the fun from scratch on a retry, so
-    %% transaction semantics are preserved.
+    %% Retry on lock clashes. mnesia re-runs the fun from scratch on a
+    %% retry, so transaction semantics are preserved.
     mnesia:transaction(Fun, 20).

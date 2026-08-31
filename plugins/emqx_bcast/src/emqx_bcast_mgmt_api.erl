@@ -22,15 +22,23 @@ handle(get, [<<"messages">>], Request) ->
                     <<"limit must be between 1 and 1000">>
                 )};
         {ok, Limit} ->
-            Cursor = parse_cursor(maps:get(<<"cursor">>, QS, undefined)),
-            {Messages, NextCursor} = emqx_bcast_storage:list_messages(Limit, Cursor),
-            Resp0 = #{<<"Messages">> => [message_json(M) || M <- Messages]},
-            Resp =
-                case NextCursor of
-                    undefined -> Resp0;
-                    {Created, MsgId} -> Resp0#{<<"Cursor">> => cursor_str(Created, MsgId)}
-                end,
-            ok_response(Resp)
+            case parse_cursor(maps:get(<<"cursor">>, QS, undefined)) of
+                {ok, Cursor} ->
+                    {Messages, NextCursor} = emqx_bcast_storage:list_messages(Limit, Cursor),
+                    Resp0 = #{<<"Messages">> => [message_json(M) || M <- Messages]},
+                    Resp =
+                        case NextCursor of
+                            undefined -> Resp0;
+                            {Created, MsgId} -> Resp0#{<<"Cursor">> => cursor_str(Created, MsgId)}
+                        end,
+                    ok_response(Resp);
+                {error, invalid_cursor} ->
+                    RequestId = emqx_bcast_utils:gen_api_uuid(),
+                    {error, 400, #{},
+                        emqx_bcast_api:error_response(
+                            RequestId, <<"InvalidParams">>, <<"cursor is invalid">>
+                        )}
+            end
     end;
 handle(get, [<<"messages">>, ApiMsgId], _Request) ->
     case emqx_bcast_storage:get_message_by_api_id(ApiMsgId) of
@@ -46,7 +54,13 @@ handle(delete, [<<"messages">>, ApiMsgId], _Request) ->
         ok ->
             ok_response(#{});
         {error, not_found} ->
-            not_found(<<"MessageNotFound">>, <<"Message does not exist">>)
+            not_found(<<"MessageNotFound">>, <<"Message does not exist">>);
+        {error, _Reason} ->
+            RequestId = emqx_bcast_utils:gen_api_uuid(),
+            {error, 500, #{},
+                emqx_bcast_api:error_response(
+                    RequestId, <<"InternalError">>, <<"Storage error">>
+                )}
     end;
 handle(get, [<<"deliveries">>], Request) ->
     QS = maps:get(query_string, Request, #{}),
@@ -89,7 +103,13 @@ handle(delete, [<<"deliveries">>, IdStr], _Request) ->
                 ok ->
                     ok_response(#{});
                 {error, not_found} ->
-                    not_found(<<"DeliveryNotFound">>, <<"Delivery does not exist">>)
+                    not_found(<<"DeliveryNotFound">>, <<"Delivery does not exist">>);
+                {error, _Reason} ->
+                    RequestId = emqx_bcast_utils:gen_api_uuid(),
+                    {error, 500, #{},
+                        emqx_bcast_api:error_response(
+                            RequestId, <<"InternalError">>, <<"Storage error">>
+                        )}
             end;
         error ->
             not_found(<<"DeliveryNotFound">>, <<"Delivery does not exist">>)
@@ -128,7 +148,8 @@ delivery_json(
         <<"ProductKey">> => ProductKey,
         <<"DeviceNames">> => DeviceNames,
         <<"TargetCount">> => Target,
-        <<"PendingCount">> => Target - Counter,
+        %% Counter is the remaining-acks count from bcast_msg_meta.
+        <<"PendingCount">> => Counter,
         <<"CreatedAt">> => CreatedAt,
         <<"ExpiresAt">> => ExpiresAt
     }.
@@ -152,25 +173,27 @@ parse_limit(Bin) when is_binary(Bin) ->
 parse_limit(_) ->
     {error, invalid_limit}.
 
-%% cursor: opaque "<created_at>_<msg_id_hex>". Unknown/empty -> start.
+%% cursor: opaque "<created_at>_<msg_id_hex>". Empty means first page; a
+%% malformed non-empty cursor is a client error, not a silent restart from
+%% the first page.
 parse_cursor(undefined) ->
-    undefined;
+    {ok, undefined};
 parse_cursor(<<>>) ->
-    undefined;
+    {ok, undefined};
 parse_cursor(Bin) when is_binary(Bin) ->
     case binary:split(Bin, <<"_">>) of
         [CreatedBin, MsgIdHex] ->
             case catch {binary_to_integer(CreatedBin), binary:decode_hex(MsgIdHex)} of
                 {Created, MsgId} when is_integer(Created), is_binary(MsgId) ->
-                    {Created, MsgId};
+                    {ok, {Created, MsgId}};
                 _ ->
-                    undefined
+                    {error, invalid_cursor}
             end;
         _ ->
-            undefined
+            {error, invalid_cursor}
     end;
 parse_cursor(_) ->
-    undefined.
+    {error, invalid_cursor}.
 
 cursor_str(Created, MsgId) ->
     <<(integer_to_binary(Created))/binary, "_", (binary:encode_hex(MsgId))/binary>>.

@@ -8,8 +8,6 @@
 -include("emqx_bcast.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--define(WORKER_POOL, emqx_bcast_pull_server_worker_pool).
-
 handle(Body, RequestId) ->
     ProductKey = maps:get(<<"ProductKey">>, Body, undefined),
     DeviceNames = maps:get(<<"DeviceName">>, Body, undefined),
@@ -99,73 +97,106 @@ do_qos1(DeviceNames, ProductKey, TopicTemplate, MessageContent, MessageId, Reque
         {error, Code, Msg} ->
             {ok, 400, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg)};
         {ok, Content} ->
-            case check_delivery_quota(ProductKey, DeviceNames) of
-                ok ->
-                    do_qos1_persist(Content, DeviceNames, ProductKey, TopicTemplate, RequestId);
-                {error, Code, Msg, Extra} ->
-                    {ok, 429, #{}, emqx_bcast_api:error_response(RequestId, Code, Msg, Extra)}
-            end
+            do_qos1_intake(Content, DeviceNames, ProductKey, TopicTemplate, RequestId)
     end.
 
-%% Reject QoS=1 requests that would push the pending delivery counts over
-%% the configured quotas. Both checks run synchronously before the async
-%% persist task is submitted, so the 429 arrives before any storage write.
-check_delivery_quota(ProductKey, DeviceNames) ->
-    Config = persistent_term:get({?APP, config}, #{}),
-    GlobalMax = maps:get(max_pending_deliveries, Config, 10000000),
-    PerDeviceMax = maps:get(max_pending_deliveries_per_device, Config, 100),
-    case emqx_bcast_storage:pending_delivery_count() + length(DeviceNames) > GlobalMax of
-        true ->
-            {error, <<"QuotaExceeded">>, <<"Pending delivery quota exceeded">>, #{}};
-        false ->
-            OverLimit = [
-                DN
-             || DN <- DeviceNames,
-                emqx_bcast_storage:pending_delivery_count_for({ProductKey, DN}) + 1 >
-                    PerDeviceMax
-            ],
-            case OverLimit of
-                [] ->
-                    ok;
-                _ ->
-                    {error, <<"QuotaExceeded">>, <<"Device pending delivery quota exceeded">>, #{
-                        <<"Devices">> => OverLimit
-                    }}
-            end
-    end.
-
-do_qos1_persist({content, Payload, Hash}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
+%% Async acceptance: the request is enqueued into the node-local intake
+%% queue and the HTTP 200 is returned immediately (SLO: in-memory
+%% acceptance; the subscriber's PUBACK is the final confirmation). The
+%% promoter then commits it to mria (delivery + message rows, the
+%% durability point) and appends the per-device index on the owner core.
+%% Entries still queued when a node dies may be lost (by contract);
+%% everything committed to mria survives single-node crashes.
+do_qos1_intake({content, Payload, Hash}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
     {ApiMsgId, MsgGuid} = resolve_content_ids(Hash),
-    DeliveryId = emqx_bcast_utils:gen_guid(),
+    enqueue_request(
+        Payload, Hash, ApiMsgId, MsgGuid, DeviceNames, ProductKey, TopicTemplate, RequestId
+    );
+do_qos1_intake({reuse, ApiMsgId, MsgGuid}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
+    case emqx_bcast_storage:lookup_message(MsgGuid) of
+        {ok, #bcast_message{payload = Payload, content_hash = Hash}} ->
+            enqueue_request(
+                Payload, Hash, ApiMsgId, MsgGuid, DeviceNames, ProductKey, TopicTemplate, RequestId
+            );
+        {error, not_found} ->
+            {ok, 400, #{},
+                emqx_bcast_api:error_response(
+                    RequestId, <<"MessageNotFound">>, <<"MessageId not found">>
+                )}
+    end.
+
+enqueue_request(
+    Payload, Hash, ApiMsgId, MsgGuid, DeviceNames, ProductKey, TopicTemplate, RequestId
+) ->
     emqx_bcast_metrics:qos1_in(),
-    emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
-    ok = submit_qos1_task(fun() ->
-        persist_content_and_trigger(
-            Payload,
-            Hash,
-            ApiMsgId,
-            MsgGuid,
-            DeliveryId,
-            ProductKey,
-            TopicTemplate,
-            DeviceNames
-        )
-    end),
-    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
-do_qos1_persist({reuse, ApiMsgId, MsgGuid}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
-    DeliveryId = emqx_bcast_utils:gen_guid(),
-    emqx_bcast_metrics:qos1_in(),
-    emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
-    ok = submit_qos1_task(fun() ->
-        persist_reuse_and_trigger(
-            DeliveryId,
-            MsgGuid,
-            ProductKey,
-            TopicTemplate,
-            DeviceNames
-        )
-    end),
-    {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)}.
+    Now = emqx_bcast_utils:now_sec(),
+    TTL = emqx_bcast_utils:ttl(),
+    Entry = #{
+        payload => Payload,
+        hash => Hash,
+        api_msg_id => ApiMsgId,
+        msg_id => MsgGuid,
+        delivery_id => emqx_bcast_utils:gen_guid(),
+        product_key => ProductKey,
+        topic_template => TopicTemplate,
+        devices => DeviceNames,
+        created_at => Now,
+        expires_at => Now + TTL
+    },
+    %% Reject on a full queue BEFORE the admission work: a backpressured
+    %% loader otherwise burns a full 1000-device admit (+release) per
+    %% rejected request, saturating the index shards the promoters need
+    %% for appends (measured: shard 0 backed up at 1600 rejected req/s).
+    %% Arity-2 get: stale config maps (e.g. older suites) may lack the key.
+    MaxDepth = emqx_bcast_config:get(intake_queue_depth, 20000),
+    case emqx_bcast_intake:depth() >= MaxDepth of
+        true ->
+            emqx_bcast_metrics:intake_rejected(),
+            {ok, 429, #{},
+                emqx_bcast_api:error_response(
+                    RequestId, <<"Busy">>, <<"Intake queue full, retry later">>, #{}
+                )};
+        false ->
+            %% Atomic admission: the owner checks the pending quota and
+            %% reserves one slot per device in the same serialized step, so
+            %% concurrent requests cannot all pass a stale count. The
+            %% reservation converts into a real index entry when the
+            %% promoter appends, and is released here if the queue rejects
+            %% the entry (racy tail). During an owner takeover the call
+            %% degrades to `ok` (admission pressure deferred to the bounded
+            %% queue) instead of erroring the request.
+            case quota_admit(ProductKey, DeviceNames) of
+                ok ->
+                    case emqx_bcast_intake:enqueue(Entry) of
+                        {ok, _Seq} ->
+                            emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
+                            {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
+                        full ->
+                            _ = emqx_bcast_index_owner:release_admit(ProductKey, DeviceNames),
+                            {ok, 429, #{},
+                                emqx_bcast_api:error_response(
+                                    RequestId, <<"Busy">>, <<"Intake queue full, retry later">>, #{}
+                                )}
+                    end;
+                {error, {quota_exceeded, OverLimit}} ->
+                    quota_exceeded_response(RequestId, OverLimit)
+            end
+    end.
+
+quota_admit(ProductKey, DeviceNames) ->
+    try emqx_bcast_index_owner:admit(ProductKey, DeviceNames) of
+        ok ->
+            ok;
+        {error, {quota_exceeded, _} = Exceeded} ->
+            {error, Exceeded};
+        _Other ->
+            %% Owner not active yet (startup/takeover): degrade to
+            %% acceptance; the bounded queue provides the backpressure.
+            ok
+    catch
+        _:_ ->
+            ok
+    end.
 
 resolve_content_ids(Hash) ->
     case emqx_bcast_storage:lookup_message_by_hash(Hash) of
@@ -175,50 +206,19 @@ resolve_content_ids(Hash) ->
             emqx_bcast_id:generate_message_id_from_hash(Hash)
     end.
 
-submit_qos1_task(Fun) ->
-    emqx_bcast_utils:submit_pool(?WORKER_POOL, Fun).
-
-persist_content_and_trigger(
-    Payload, Hash, ApiMsgId, MsgGuid, DeliveryId, ProductKey, TopicTemplate, DeviceNames
-) ->
-    case
-        emqx_bcast_storage:create_message_and_delivery(
-            Payload,
-            Hash,
-            ApiMsgId,
-            MsgGuid,
-            DeliveryId,
-            ProductKey,
-            TopicTemplate,
-            DeviceNames
-        )
-    of
-        {ok, _ResolvedApiMsgId, _Delivery} ->
-            ok = emqx_bcast_pull_server_pool:qos1_trigger(
-                ProductKey, DeviceNames, TopicTemplate
-            );
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "bcast_qos1_persist_failed",
-                api_msg_id => ApiMsgId,
-                delivery_id => DeliveryId,
-                reason => Reason
-            })
-    end,
-    ok.
-
-persist_reuse_and_trigger(DeliveryId, MsgGuid, ProductKey, TopicTemplate, DeviceNames) ->
-    _Delivery = emqx_bcast_storage:create_delivery(
-        DeliveryId,
-        MsgGuid,
-        ProductKey,
-        TopicTemplate,
-        DeviceNames,
-        length(DeviceNames)
-    ),
-    _ = emqx_bcast_storage:refresh_message_ttl(MsgGuid),
-    ok = emqx_bcast_pull_server_pool:qos1_trigger(ProductKey, DeviceNames, TopicTemplate),
-    ok.
+quota_exceeded_response(RequestId, []) ->
+    {ok, 429, #{},
+        emqx_bcast_api:error_response(
+            RequestId, <<"QuotaExceeded">>, <<"Pending delivery quota exceeded">>, #{}
+        )};
+quota_exceeded_response(RequestId, OverLimit) ->
+    {ok, 429, #{},
+        emqx_bcast_api:error_response(
+            RequestId,
+            <<"QuotaExceeded">>,
+            <<"Device pending delivery quota exceeded">>,
+            #{<<"Devices">> => OverLimit}
+        )}.
 
 prepare_qos1_content(MessageContent, _MessageId) when MessageContent =/= undefined ->
     case emqx_bcast_utils:decode_base64(MessageContent) of
@@ -255,9 +255,9 @@ validate_input(PK, DNs, MC, MI, Qos, ShortName, TemplateName) ->
 validate_product_key(PK) when not is_binary(PK) orelse PK =:= <<>> ->
     {error, <<"InvalidProductKey">>, <<"ProductKey is required">>};
 validate_product_key(PK) ->
-    case re:run(PK, <<"[/+#$]">>) of
-        nomatch -> ok;
-        _ -> {error, <<"InvalidProductKey">>, <<"ProductKey contains invalid characters">>}
+    case contains_any(PK, [<<"/">>, <<"+">>, <<"#">>, <<"$">>]) of
+        false -> ok;
+        true -> {error, <<"InvalidProductKey">>, <<"ProductKey contains invalid characters">>}
     end.
 
 validate_input2(undefined, _, _, _, _, _) ->
@@ -308,9 +308,9 @@ validate_device_names(DeviceNames) ->
             case
                 lists:all(
                     fun(DN) ->
-                        case re:run(DN, <<"[/+#$]">>) of
-                            nomatch -> true;
-                            _ -> false
+                        case contains_any(DN, [<<"/">>, <<"+">>, <<"#">>, <<"$">>]) of
+                            false -> true;
+                            true -> false
                         end
                     end,
                     DeviceNames
@@ -326,8 +326,8 @@ validate_device_names(DeviceNames) ->
 %% TopicShortName is a suffix appended to the delivery topic, so it must not
 %% carry topic separators, wildcards or placeholder syntax. TopicTemplateName
 %% is a full template: reject wildcards (they would turn the delivery topic
-%% into a subscription filter) and any placeholder other than ${deviceName},
-%% which expand_topic/3 resolves before delivery.
+%% into a subscription filter) and any placeholder other than ${productKey}
+%% and ${deviceName}, which expand_topic/3 resolves before delivery.
 validate_topic_fields(ShortName, TemplateName) ->
     case validate_short_name(ShortName) of
         ok -> validate_template_name(TemplateName);
@@ -337,9 +337,11 @@ validate_topic_fields(ShortName, TemplateName) ->
 validate_short_name(undefined) ->
     ok;
 validate_short_name(ShortName) when is_binary(ShortName) ->
-    case re:run(ShortName, <<"[/+#${}]">>) of
-        nomatch -> ok;
-        _ -> {error, <<"InvalidTopicTemplate">>, <<"TopicShortName contains invalid characters">>}
+    case contains_any(ShortName, [<<"/">>, <<"+">>, <<"#">>, <<"$">>, <<"{">>, <<"}">>]) of
+        false ->
+            ok;
+        true ->
+            {error, <<"InvalidTopicTemplate">>, <<"TopicShortName contains invalid characters">>}
     end;
 validate_short_name(_) ->
     {error, <<"InvalidTopicTemplate">>, <<"TopicShortName must be a string">>}.
@@ -347,17 +349,28 @@ validate_short_name(_) ->
 validate_template_name(undefined) ->
     ok;
 validate_template_name(TemplateName) when is_binary(TemplateName) ->
-    case re:run(TemplateName, <<"[+#]">>) of
-        nomatch -> validate_placeholders(TemplateName);
-        _ -> {error, <<"InvalidTopicTemplate">>, <<"TopicTemplateName contains wildcards">>}
+    case contains_any(TemplateName, [<<"+">>, <<"#">>]) of
+        false -> validate_placeholders(TemplateName);
+        true -> {error, <<"InvalidTopicTemplate">>, <<"TopicTemplateName contains wildcards">>}
     end;
 validate_template_name(_) ->
     {error, <<"InvalidTopicTemplate">>, <<"TopicTemplateName must be a string">>}.
 
+%% Byte scan for any of the constant ASCII patterns. Faster than a
+%% per-call re:run (which recompiles the pattern every time) and the
+%% rejected characters are all single-byte ASCII. Returns true when any
+%% pattern occurs; callers must test the BOOLEAN (an earlier version kept
+%% kept the old re:run-style nomatch case branches, which rejected every
+%% valid product key with InvalidProductKey and broke all BatchPub /
+%% RegisterMessage API calls).
+contains_any(Bin, Patterns) ->
+    binary:match(Bin, Patterns) =/= nomatch.
+
 validate_placeholders(TemplateName) ->
-    %% Remove the supported ${deviceName} placeholder, then reject any
-    %% remaining ${...} syntax (e.g. ${productKey} is taken from ProductKey).
-    Rest = binary:replace(TemplateName, <<"${deviceName}">>, <<>>, [global]),
+    %% Remove the supported placeholders, then reject any remaining ${...}
+    %% syntax (unknown placeholders would silently leak into the topic).
+    Rest0 = binary:replace(TemplateName, <<"${productKey}">>, <<>>, [global]),
+    Rest = binary:replace(Rest0, <<"${deviceName}">>, <<>>, [global]),
     case binary:match(Rest, <<"${">>) of
         nomatch -> ok;
         _ -> {error, <<"InvalidTopicTemplate">>, <<"TopicTemplateName has invalid placeholders">>}
@@ -367,17 +380,14 @@ resolve_topic(TemplateName, _, _Pk) when TemplateName =/= undefined ->
     TemplateName;
 resolve_topic(_, ShortName, Pk) when ShortName =/= undefined ->
     <<"/", Pk/binary, "/${deviceName}/user/", ShortName/binary>>;
-resolve_topic(_, _, Pk) ->
-    Config = persistent_term:get({?APP, config}, #{}),
-    maps:get(batch_topic, Config, <<"/", Pk/binary, "/${deviceName}/user/get">>).
+resolve_topic(_, _, _Pk) ->
+    emqx_bcast_config:get(batch_topic).
 
 has_duplicates(List) ->
     length(lists:usort(List)) =/= length(List).
 
 get_max_device_count() ->
-    Config = persistent_term:get({emqx_bcast, config}, #{}),
-    maps:get(max_device_count, Config, 10000).
+    emqx_bcast_config:get(max_device_count).
 
 get_max_message_size_batch() ->
-    Config = persistent_term:get({emqx_bcast, config}, #{}),
-    maps:get(max_message_size_batch, Config, 10240).
+    emqx_bcast_config:get(max_message_size_batch).

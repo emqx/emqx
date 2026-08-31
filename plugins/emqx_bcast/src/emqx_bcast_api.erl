@@ -12,6 +12,7 @@
 ]).
 
 -include("emqx_bcast.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 handle(Method, Path, Request) ->
     case {Method, Path} of
@@ -30,15 +31,27 @@ handle(Method, Path, Request) ->
                     Core = emqx_bcast:random_core(),
                     case
                         emqx_rpc:call(
-                            ?MODULE, Core, ?MODULE, handle_local, [Method, Path, Request], 30000
+                            ?MODULE,
+                            Core,
+                            ?MODULE,
+                            handle_local,
+                            [Method, Path, Request],
+                            ?BCAST_API_RPC_TIMEOUT_MS
                         )
                     of
                         {badrpc, Reason} ->
+                            %% Keep internal RPC terms (including node names
+                            %% and mnesia reasons) in the server log, not in
+                            %% the HTTP response.
+                            ?SLOG(error, #{
+                                msg => "bcast_core_api_rpc_failed",
+                                reason => Reason
+                            }),
                             {error, 500, #{},
                                 error_response(
                                     emqx_bcast_utils:gen_api_uuid(),
                                     <<"InternalError">>,
-                                    iolist_to_binary(io_lib:format("~p", [Reason]))
+                                    <<"Internal error">>
                                 )};
                         Result ->
                             Result
