@@ -197,7 +197,6 @@ t_access_failed_if_no_server_running(Config) ->
         clientid => <<"user-id-1">>,
         username => <<"usera">>,
         peername => {{127, 0, 0, 1}, 3456},
-        peerhost => {127, 0, 0, 1},
         sockport => 1883,
         protocol => mqtt,
         mountpoint => undefined
@@ -905,6 +904,73 @@ t_subscribe_rewrite(_) ->
     %% the client is subscribed to what the hook asked for, and only to that
     ?assertEqual([<<"rewritten/t/1">>], subscribed_topics(ClientId)),
     ok = emqtt:stop(C).
+
+%% Returning the filters unchanged is how a server says "I have looked at this
+%% and no later hook should touch it". `emqx_hooks' continues the chain on any
+%% term other than `stop'/`{stop, Acc}', so answering `ignore' here would
+%% silently downgrade STOP_AND_RETURN to CONTINUE.
+t_subscribe_unchanged_filters_still_stop(_) ->
+    ok = meck:new(emqx_exhook, [passthrough, no_history]),
+    try
+        TopicFilters = [{<<"t/1">>, #{qos => 0, rh => 0, rap => 0, nl => 0}}],
+        meck:expect(emqx_exhook, call_fold, fun('client.subscribe', Req, _Fun) ->
+            {stop, #{topic_filters => maps:get(topic_filters, Req)}}
+        end),
+        ?assertEqual(
+            {stop, TopicFilters},
+            emqx_exhook_handler:on_client_subscribe(clientinfo_for_test(), #{}, TopicFilters)
+        ),
+        %% A server that answered CONTINUE keeps the old behaviour: the
+        %% accumulator is left alone so the rest of the chain runs.
+        meck:expect(emqx_exhook, call_fold, fun('client.subscribe', Req, _Fun) ->
+            {ok, #{topic_filters => maps:get(topic_filters, Req)}}
+        end),
+        ?assertEqual(
+            ignore,
+            emqx_exhook_handler:on_client_subscribe(clientinfo_for_test(), #{}, TopicFilters)
+        )
+    after
+        meck:unload(emqx_exhook)
+    end.
+
+clientinfo_for_test() ->
+    #{
+        clientid => <<"exhook_stop_test">>,
+        username => <<"u">>,
+        peername => {{127, 0, 0, 1}, 54321},
+        sockport => 1883,
+        protocol => mqtt,
+        mountpoint => undefined,
+        is_superuser => false,
+        anonymous => false,
+        cn => undefined,
+        dn => undefined
+    }.
+
+%% Both names resolve to the `client.subscribe' hookpoint, so a server that
+%% registers the two -- the plausible shape while migrating -- used to get
+%% whichever its HookSpec list happened to end on, with no way to observe the
+%% choice. The richer RPC wins now, in either order.
+t_duplicate_subscribe_registration_prefers_rewrite(_) ->
+    Plain = #{name => <<"client.subscribe">>},
+    Rewrite = #{name => <<"client.subscribe.rewrite">>},
+    ?assertEqual(
+        #{'client.subscribe' => #{valued => true}},
+        emqx_exhook_server:resolve_hookspec([Plain, Rewrite])
+    ),
+    ?assertEqual(
+        #{'client.subscribe' => #{valued => true}},
+        emqx_exhook_server:resolve_hookspec([Rewrite, Plain])
+    ),
+    %% A single registration of either name is unaffected.
+    ?assertEqual(
+        #{'client.subscribe' => #{}},
+        emqx_exhook_server:resolve_hookspec([Plain])
+    ),
+    ?assertEqual(
+        #{'client.subscribe' => #{valued => true}},
+        emqx_exhook_server:resolve_hookspec([Rewrite])
+    ).
 
 t_subscribe_rewrite_rejects_count_mismatch(_) ->
     %% SUBACK owes the client exactly one reason code per requested topic filter,
