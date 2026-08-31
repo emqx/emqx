@@ -1445,8 +1445,26 @@ data(["export" | Args]) ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),
             emqx_ctl:print("[error] Data export failed, reason: ~p.~n", [Reason1])
     end;
+data(["import", Filename, "--allow-security-profile-mismatch"]) ->
+    Opts = maps:merge(?DATA_BACKUP_OPTS, #{allow_security_profile_mismatch => true}),
+    do_import_cli(Filename, Opts);
 data(["import", Filename]) ->
-    case emqx_mgmt_data_backup:import_local(Filename, ?DATA_BACKUP_OPTS) of
+    do_import_cli(Filename, ?DATA_BACKUP_OPTS);
+data(_) ->
+    emqx_ctl:usage([
+        {"data import <File> [--allow-security-profile-mismatch]",
+            "Import data from the specified tar archive file"},
+        {
+            "data export \\\n"
+            "  [--root-keys key1,key2,key3] \\\n"
+            "  [--table-sets set1,set2,set3] \\\n"
+            "  [--dir out_dir]",
+            "Export data"
+        }
+    ]).
+
+do_import_cli(Filename, Opts) ->
+    case emqx_mgmt_data_backup:import_local(Filename, Opts) of
         {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} when
             map_size(DbErrs) =:= 0, map_size(ConfErrs) =:= 0
         ->
@@ -1458,18 +1476,7 @@ data(["import", Filename]) ->
         {error, Reason} ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),
             emqx_ctl:print("[error] Data import failed, reason: ~p.~n", [Reason1])
-    end;
-data(_) ->
-    emqx_ctl:usage([
-        {"data import <File>", "Import data from the specified tar archive file"},
-        {
-            "data export \\\n"
-            "  [--root-keys key1,key2,key3] \\\n"
-            "  [--table-sets set1,set2,set3] \\\n"
-            "  [--dir out_dir]",
-            "Export data"
-        }
-    ]).
+    end.
 
 data_audit_args(Args) -> Args.
 
