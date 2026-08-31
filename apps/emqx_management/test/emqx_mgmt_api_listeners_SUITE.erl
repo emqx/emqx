@@ -15,7 +15,8 @@ all() ->
     [
         {group, with_defaults_in_file},
         {group, without_defaults_in_file},
-        {group, max_connections}
+        {group, max_connections},
+        {group, hardened}
     ].
 
 groups() ->
@@ -26,10 +27,14 @@ groups() ->
     ZoneTests = [
         t_update_listener_zone
     ],
+    HardenedTests = [
+        t_resolved_address_hardened_bare_port
+    ],
     [
-        {with_defaults_in_file, AllTests -- MaxConnTests},
-        {without_defaults_in_file, AllTests -- (MaxConnTests ++ ZoneTests)},
-        {max_connections, MaxConnTests}
+        {with_defaults_in_file, AllTests -- (MaxConnTests ++ HardenedTests)},
+        {without_defaults_in_file, AllTests -- (MaxConnTests ++ ZoneTests ++ HardenedTests)},
+        {max_connections, MaxConnTests},
+        {hardened, HardenedTests}
     ].
 
 init_per_suite(Config) ->
@@ -54,7 +59,18 @@ init_per_group(max_connections, Config) ->
     init_group_apps(
         io_lib:format("listeners.tcp.max_connection_test {bind = \"0.0.0.0:~p\"}", [?PORT]),
         Config
-    ).
+    );
+init_per_group(hardened, Config) ->
+    emqx_common_test_helpers:set_security_profile(hardened),
+    try
+        init_group_apps(#{}, Config)
+    catch
+        Class:Reason:Stacktrace ->
+            %% end_per_group does not run when init fails; do not leak the
+            %% profile into later groups.
+            emqx_common_test_helpers:clear_security_profile(),
+            erlang:raise(Class, Reason, Stacktrace)
+    end.
 
 init_group_apps(Config, CTConfig) ->
     Apps = emqx_cth_suite:start(
@@ -67,6 +83,9 @@ init_group_apps(Config, CTConfig) ->
     ),
     [{suite_apps, Apps} | CTConfig].
 
+end_per_group(hardened, Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
+    emqx_common_test_helpers:clear_security_profile();
 end_per_group(_Group, Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
@@ -533,6 +552,37 @@ t_ssl_password_obfuscated(Config) when is_list(Config) ->
         Password,
         emqx:get_raw_config([listeners, ssl, default, ssl_options, password])
     ),
+    ok.
+
+-doc """
+Under the `hardened` security profile, a bare-port bind resolves to
+loopback: `GET /listeners/tcp:default` reports `resolved_address` and
+`resolved_address_from` both as `127.0.0.1` (the security profile decided
+it, not an explicit config value; the source label spells out the address
+directly instead of naming a `loopback` keyword), while `bind` still
+reports the bare port unchanged. This is the regression test for the case
+that motivated the `resolved_address` field.
+
+Also asserts that a GET-then-PUT round trip of the unchanged body succeeds:
+`resolved_address` and `resolved_address_from` are read-only and must not
+be sent back to the config, which is what the dashboard does on every
+listener save.
+""".
+t_resolved_address_hardened_bare_port(Config) when is_list(Config) ->
+    ListenerId = <<"tcp:default">>,
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
+    Listener = request(get, Path, [], []),
+    ?assertMatch(#{<<"bind">> := <<":1883">>}, Listener),
+    ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1">>}, Listener),
+    ?assertMatch(#{<<"resolved_address_from">> := <<"127.0.0.1">>}, Listener),
+    %% GET-then-PUT the same body back unchanged succeeds: resolved_address
+    %% and resolved_address_from must be stripped before the update is
+    %% applied, or this round trip (what the dashboard does on every
+    %% listener save) fails validation.
+    Updated = request(put, Path, [], Listener),
+    ?assertMatch(#{<<"bind">> := <<":1883">>}, Updated),
+    ?assertMatch(#{<<"resolved_address">> := <<"127.0.0.1">>}, Updated),
+    ?assertMatch(#{<<"resolved_address_from">> := <<"127.0.0.1">>}, Updated),
     ok.
 
 action_listener(ID, Action, Running) ->

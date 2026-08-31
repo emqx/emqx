@@ -1223,6 +1223,8 @@ listeners([]) ->
     lists:foreach(
         fun({Id, Conf}) ->
             Bind = maps:get(bind, Conf),
+            ResolvedAddress = maps:get(resolved_address, Conf),
+            ResolvedAddressFrom = maps:get(resolved_address_from, Conf),
             Enable = maps:get(enable, Conf),
             Acceptors = maps:get(acceptors, Conf),
             ProxyProtocol = maps:get(proxy_protocol, Conf, undefined),
@@ -1249,13 +1251,20 @@ listeners([]) ->
                     MaxConn = [],
                     ShutdownCount = []
             end,
+            %% `running` must stay the 5th line after the listener id: some
+            %% scripts (e.g. .ci/docker-compose-file/scripts/run-emqx.sh,
+            %% scripts/test/essential-auth-smoke/run.sh) grep a fixed number
+            %% of lines after the id to find it. Append new fields after
+            %% `running`, never insert them before it.
             Info =
                 [
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {enbale, Enable},
-                    {running, Running}
+                    {running, Running},
+                    {resolved_address, {string, ResolvedAddress}},
+                    {resolved_address_from, {string, ResolvedAddressFrom}}
                 ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
             emqx_ctl:print("~ts~n", [Id]),
             lists:foreach(fun indent_print/1, Info)
@@ -1852,10 +1861,13 @@ format(_, Val) ->
 
 bin(S) -> iolist_to_binary(S).
 
+%% The field width must fit the longest key printed through this function
+%% (currently `resolved_address_from`, 21 characters) or `~s` silently
+%% truncates it instead of just skipping the padding.
 indent_print({Key, {string, Val}}) ->
-    emqx_ctl:print("  ~-16s: ~ts~n", [Key, Val]);
+    emqx_ctl:print("  ~-22s: ~ts~n", [Key, Val]);
 indent_print({Key, Val}) ->
-    emqx_ctl:print("  ~-16s: ~w~n", [Key, Val]).
+    emqx_ctl:print("  ~-22s: ~w~n", [Key, Val]).
 
 for_node(Fun, Node) ->
     try list_to_existing_atom(Node) of
