@@ -95,8 +95,12 @@ from(#{code := Code} = Meta, Req) when Code =:= 401 orelse Code =:= 403 ->
 from(_, _Req) ->
     unknown.
 
-source(#{source := Source}) -> Source;
-source(#{log_source := Source}) -> Source;
+%% `Source' may be `emqx_dashboard_admin:dashboard_username()' for an SSO
+%% session, i.e. `{Backend, Name}' instead of a plain binary. Format it here,
+%% at the point the audit event is built for both file logging and DB
+%% storage, so neither carries an unformatted tuple.
+source(#{source := Source}) -> emqx_dashboard_admin:format_username(Source);
+source(#{log_source := Source}) -> emqx_dashboard_admin:format_username(Source);
 source(_Meta) -> <<"">>.
 
 source_ip(Req) ->

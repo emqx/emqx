@@ -25,6 +25,7 @@ defmodule EMQXAudit.MixProject do
     UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
+      {:emqx_dashboard, in_umbrella: true, runtime: false},
       :minirest
     ])
   end

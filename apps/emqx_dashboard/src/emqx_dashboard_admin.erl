@@ -75,6 +75,8 @@
 
 -export([role/1, namespace_of/1, serialize_role/1]).
 
+-export([format_username/1]).
+
 -export([to_external_user/1]).
 
 -export([backup_tables/0]).
@@ -1367,6 +1369,12 @@ flatten_username(#{username := ?SSO_USERNAME(Backend, Name)} = Data) ->
     };
 flatten_username(#{username := Username} = Data) when is_binary(Username) ->
     Data#{backend => ?BACKEND_LOCAL}.
+
+-spec format_username(dashboard_username()) -> binary().
+format_username(?SSO_USERNAME(Backend, Name)) ->
+    iolist_to_binary([atom_to_binary(Backend), <<":">>, Name]);
+format_username(Username) when is_binary(Username) ->
+    Username.
 
 -spec add_sso_user(dashboard_sso_backend(), binary(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, any()}.
