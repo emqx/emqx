@@ -5,10 +5,16 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+%% Fixed inputs to `emqx_dashboard_audit:log_meta/3' shared by every test
+%% case below: a fake cowboy request and an importance level, neither of
+%% which any test needs to vary.
+%%
 %% `log_meta/3' only needs a plain map shaped like a cowboy request (in
 %% Cowboy 2.x a request is just a map); this avoids booting the whole
 %% app just to exercise the redaction/shape logic below `log_meta/3'.
--define(REQ, #{headers => #{}, peer => {{127, 0, 0, 1}, 0}}).
+req() ->
+    #{headers => #{}, peer => {{127, 0, 0, 1}, 0}}.
+
 %% Any importance above the "low" threshold (30) skips the
 %% `ignore_high_frequency_request/0' branch, which reads `emqx_conf'.
 -define(IMPORTANCE, 100).
@@ -27,7 +33,7 @@ base_meta() ->
     }.
 
 log_meta(Meta) ->
-    emqx_dashboard_audit:log_meta(?IMPORTANCE, Meta, ?REQ).
+    emqx_dashboard_audit:log_meta(?IMPORTANCE, Meta, req()).
 
 http_request(Meta) ->
     #{http_request := Request} = log_meta(Meta),
