@@ -2236,7 +2236,8 @@ make_rule_engine_backup(Config, BackupName) ->
         hocon_pp:do(
             #{
                 edition => emqx_release:edition(),
-                version => emqx_release:version()
+                version => emqx_release:version(),
+                security_profile => emqx_security_profile:profile()
             },
             #{}
         )
