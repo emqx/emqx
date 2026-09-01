@@ -186,48 +186,31 @@ init_per_group(sources, Config) ->
 init_per_group(_Group, Config) ->
     Config.
 
-%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
-%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
-%% unknown field, so audit logging is only enabled on the `ee' edition.
-audit_conf_spec() ->
-    case emqx_release:edition() of
-        ee ->
-            {emqx_conf, #{
-                config => #{log => #{audit => #{enable => true, level => info}}},
-                schema_mod => emqx_enterprise_schema
-            }};
-        ce ->
-            emqx_conf
-    end.
-
-audit_app_specs() ->
-    case emqx_release:edition() of
-        ee -> [emqx_audit];
-        ce -> []
-    end.
-
 app_specs_without_dashboard() ->
     [
-        audit_conf_spec(),
+        {emqx_conf, #{
+            config => #{log => #{audit => #{enable => true, level => info}}},
+            %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+            %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
+            schema_mod => emqx_enterprise_schema
+        }},
         emqx,
-        emqx_auth
-    ] ++
-        audit_app_specs() ++
-        [
-            emqx_management,
-            emqx_connector,
-            emqx_bridge_mqtt,
-            {emqx_bridge, #{
-                after_start => fun() ->
-                    ok = emqx_hooks:add(
-                        'namespace.resource_pre_create',
-                        {?MODULE, on_namespace_resource_pre_create, []},
-                        ?HP_HIGHEST
-                    )
-                end
-            }},
-            emqx_rule_engine
-        ].
+        emqx_auth,
+        emqx_audit,
+        emqx_management,
+        emqx_connector,
+        emqx_bridge_mqtt,
+        {emqx_bridge, #{
+            after_start => fun() ->
+                ok = emqx_hooks:add(
+                    'namespace.resource_pre_create',
+                    {?MODULE, on_namespace_resource_pre_create, []},
+                    ?HP_HIGHEST
+                )
+            end
+        }},
+        emqx_rule_engine
+    ].
 
 mk_cluster(Name, Config) ->
     mk_cluster(Name, Config, #{}).
@@ -298,15 +281,7 @@ init_per_testcase(TestCase, Config) when
         BridgeConfig
         | Config
     ];
-init_per_testcase(t_source_audit_records_namespace = TestCase, Config) ->
-    case emqx_release:edition() of
-        ee -> init_per_testcase_1(TestCase, Config);
-        ce -> {skip, "audit logging is an ee-only feature"}
-    end;
 init_per_testcase(TestCase, Config) ->
-    init_per_testcase_1(TestCase, Config).
-
-init_per_testcase_1(TestCase, Config) ->
     setup_auth_header_fn(Config),
     case ?config(cluster_nodes, Config) of
         undefined ->

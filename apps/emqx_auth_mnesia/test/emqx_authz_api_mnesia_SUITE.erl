@@ -33,46 +33,26 @@ all() ->
 groups() ->
     emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
-%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
-%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
-%% unknown field, so audit logging is only enabled on the `ee' edition.
-audit_conf_spec() ->
-    case emqx_release:edition() of
-        ee ->
+init_per_suite(Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
             {emqx_conf, #{
                 config =>
                     "authorization.cache { enable = false },"
                     "authorization.no_match = deny,"
                     "authorization.sources = [{type = built_in_database, max_rules = 7}],"
                     "log.audit { enable = true, level = info }",
+                %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+                %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
                 schema_mod => emqx_enterprise_schema
-            }};
-        ce ->
-            {emqx_conf,
-                "authorization.cache { enable = false },"
-                "authorization.no_match = deny,"
-                "authorization.sources = [{type = built_in_database, max_rules = 7}]"}
-    end.
-
-audit_app_specs() ->
-    case emqx_release:edition() of
-        ee -> [emqx_audit];
-        ce -> []
-    end.
-
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            emqx,
-            audit_conf_spec(),
+            }},
             emqx_auth,
-            emqx_auth_mnesia
-        ] ++
-            audit_app_specs() ++
-            [
-                emqx_management,
-                emqx_mgmt_api_test_util:emqx_dashboard()
-            ],
+            emqx_auth_mnesia,
+            emqx_audit,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     ok = emqx_hooks:add(
@@ -132,11 +112,6 @@ init_per_group(_Group, TCConfig) ->
 end_per_group(_Group, _TCConfig) ->
     ok.
 
-init_per_testcase(t_create_rules_audit_records_namespace, TCConfig) ->
-    case emqx_release:edition() of
-        ee -> TCConfig;
-        ce -> {skip, "audit logging is an ee-only feature"}
-    end;
 init_per_testcase(_TestCase, TCConfig) ->
     AuthHeader = ?config(auth_header, TCConfig),
     put_auth_header(AuthHeader),

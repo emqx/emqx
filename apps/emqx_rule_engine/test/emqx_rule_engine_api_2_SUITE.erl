@@ -137,33 +137,16 @@ app_specs_no_dashboard() ->
                     emqx_cth_suite:inhibit_config_loader(App, AppOpts)
                 end
         }},
-        audit_conf_spec(),
-        rule_engine_app_spec()
-    ] ++
-        audit_app_specs() ++
-        [
-            emqx_management
-        ].
-
-%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
-%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
-%% unknown field, so audit logging is only enabled on the `ee' edition.
-audit_conf_spec() ->
-    case emqx_release:edition() of
-        ee ->
-            {emqx_conf, #{
-                config => #{log => #{audit => #{enable => true, level => info}}},
-                schema_mod => emqx_enterprise_schema
-            }};
-        ce ->
-            emqx_conf
-    end.
-
-audit_app_specs() ->
-    case emqx_release:edition() of
-        ee -> [emqx_audit];
-        ce -> []
-    end.
+        {emqx_conf, #{
+            config => #{log => #{audit => #{enable => true, level => info}}},
+            %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+            %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
+            schema_mod => emqx_enterprise_schema
+        }},
+        rule_engine_app_spec(),
+        emqx_audit,
+        emqx_management
+    ].
 
 rule_engine_app_spec() ->
     {emqx_rule_engine, #{
@@ -200,11 +183,6 @@ end_per_group(?custom_cluster, _TCConfig) ->
 end_per_group(_Group, _TCConfig) ->
     ok.
 
-init_per_testcase(t_rule_audit_records_namespace, Config) ->
-    case emqx_release:edition() of
-        ee -> Config;
-        ce -> {skip, "audit logging is an ee-only feature"}
-    end;
 init_per_testcase(_TestCase, Config) ->
     Config.
 
