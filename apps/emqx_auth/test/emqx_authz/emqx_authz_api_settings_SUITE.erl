@@ -50,6 +50,7 @@ end_per_suite(Config) ->
 %%------------------------------------------------------------------------------
 
 t_api(_) ->
+    DefaultIncludeMountpoint = emqx_security_profile:policy(authz_default_include_mountpoint),
     Settings1Put = #{
         <<"no_match">> => <<"deny">>,
         <<"deny_action">> => <<"disconnect">>,
@@ -81,7 +82,7 @@ t_api(_) ->
 
     Settings2Get = Settings2Put#{
         <<"cache">> := Cache#{<<"excludes">> => []},
-        <<"include_mountpoint">> => false,
+        <<"include_mountpoint">> => DefaultIncludeMountpoint,
         <<"ignore_backend_failures">> => false
     },
 

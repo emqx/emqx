@@ -57,7 +57,6 @@ Returns policy depending on the current security profile.
     (access_control_hook_failure) -> ignore | interrupt;
     (outbound_tls_verify) -> verify_none | verify_peer;
     (authn_jwt_missing) -> ignore | deny;
-    (saml_signature_verification) -> boolean();
     (internal_subscription_checks) -> boolean();
     (authz_context) -> legacy | restricted;
     (delayed_publish_reauthorization) -> boolean();
@@ -67,7 +66,9 @@ Returns policy depending on the current security profile.
     (authn_builtin_default_autogenerate_password) -> boolean();
     (authn_builtin_default_manual_password_hash) -> sha256 | pbkdf2;
     (authn_builtin_accept_weak_password_hash) -> boolean();
-    (authn_mnesia_mt_user_conflict_protection) -> boolean().
+    (authn_mnesia_mt_user_conflict_protection) -> boolean();
+    (authz_default_include_mountpoint) -> boolean();
+    (authz_mnesia_mt_rule_conflict_protection) -> boolean().
 policy(mqtt_default_bind) ->
     case profile() of
         legacy -> any;
@@ -112,11 +113,6 @@ policy(authn_jwt_missing) ->
     case profile() of
         legacy -> ignore;
         hardened -> deny
-    end;
-policy(saml_signature_verification) ->
-    case profile() of
-        legacy -> false;
-        hardened -> true
     end;
 policy(internal_subscription_checks) ->
     case profile() of
@@ -164,6 +160,16 @@ policy(authn_builtin_accept_weak_password_hash) ->
         hardened -> false
     end;
 policy(authn_mnesia_mt_user_conflict_protection) ->
+    case profile() of
+        legacy -> false;
+        hardened -> true
+    end;
+policy(authz_default_include_mountpoint) ->
+    case profile() of
+        legacy -> false;
+        hardened -> true
+    end;
+policy(authz_mnesia_mt_rule_conflict_protection) ->
     case profile() of
         legacy -> false;
         hardened -> true

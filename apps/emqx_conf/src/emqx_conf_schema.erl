@@ -565,6 +565,17 @@ fields("node") ->
                     desc => ?DESC(node_name)
                 }
             )},
+        {"default_listener_address",
+            sc(
+                binary(),
+                #{
+                    required => false,
+                    'readOnly' => true,
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(node_default_listener_address),
+                    validator => fun emqx_default_address:validate/1
+                }
+            )},
         {"cookie",
             sc(
                 string(),

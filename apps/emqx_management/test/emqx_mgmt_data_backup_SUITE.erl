@@ -735,6 +735,84 @@ t_future_version(Config) ->
     ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(ExpMajorReason)),
     ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(ExpMinorReason)).
 
+-doc "Exporting under `hardened' and importing into a `hardened' node succeeds.".
+t_security_profile_hardened_to_hardened(_Config) ->
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+        ?assertMatch({ok, _}, emqx_mgmt_data_backup:import(basename(FileName)))
+    end).
+
+-doc "Importing a `legacy'-profile backup into a `hardened' node is refused without the override.".
+t_security_profile_legacy_to_hardened_rejected(_Config) ->
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        ExpReason = {security_profile_mismatch, <<"legacy">>},
+        ?assertEqual(
+            {error, ExpReason},
+            emqx_mgmt_data_backup:import(basename(FileName))
+        ),
+        ?assertMatch([_ | _], emqx_mgmt_data_backup:format_error(ExpReason))
+    end).
+
+-doc "`allow_security_profile_mismatch' lets a `legacy'-profile backup import into `hardened'.".
+t_security_profile_legacy_to_hardened_override(_Config) ->
+    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_mgmt_data_backup:import(basename(FileName), #{
+                allow_security_profile_mismatch => true
+            })
+        )
+    end).
+
+-doc "Importing into a `legacy' node always succeeds, regardless of the backup's recorded profile.".
+t_security_profile_import_into_legacy_always_allowed(_Config) ->
+    {ok, #{filename := FileName}} = emqx_common_test_helpers:with_security_profile(
+        hardened, fun() -> emqx_mgmt_data_backup:export() end
+    ),
+    ?assertMatch({ok, _}, emqx_mgmt_data_backup:import(basename(FileName))).
+
+-doc """
+A META.hocon with no `security_profile' key (simulating a backup made before this
+feature existed) is treated the same as an explicit `legacy' value: rejected into
+`hardened' without the override.
+""".
+t_security_profile_missing_treated_as_legacy(Config) ->
+    Meta = backup_meta_bin(),
+    BackupFileName = filename:join(
+        ?config(priv_dir, Config), "export-no-security-profile.tar.gz"
+    ),
+    ok = erl_tar:create(
+        BackupFileName,
+        [
+            {"export-no-security-profile/cluster.hocon", <<>>},
+            {"export-no-security-profile/META.hocon", Meta}
+        ],
+        [compressed]
+    ),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        ?assertEqual(
+            {error, {security_profile_mismatch, <<"legacy">>}},
+            emqx_mgmt_data_backup:import_local(BackupFileName)
+        )
+    end).
+
+-doc """
+Uploading (staging) a `legacy'-profile backup onto a `hardened' node must never be
+gated by the security-profile check -- only `do_import/2' checks it.
+""".
+t_security_profile_upload_not_gated(Config) ->
+    BaseName = "legacy-backup-for-upload-test",
+    UploadName = <<"legacy-backup-for-upload-test.tar.gz">>,
+    BackupFileContent = tar_bin(Config, [
+        {BaseName ++ "/cluster.hocon", <<>>},
+        {BaseName ++ "/META.hocon", backup_meta_bin()}
+    ]),
+    emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        ?assertEqual(ok, emqx_mgmt_data_backup:upload(UploadName, BackupFileContent))
+    end).
+
 t_bad_config(Config) ->
     BadConfigFileName = filename:join(?config(priv_dir, Config), "export-bad-config-backup.tar.gz"),
     Meta = unicode:characters_to_binary(

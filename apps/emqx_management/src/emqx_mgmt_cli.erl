@@ -57,7 +57,9 @@
     ds/1,
     ds_audit_args/1,
     exclusive/1,
-    exclusive_audit_args/1
+    exclusive_audit_args/1,
+    node_dump/1,
+    node_dump_audit_args/1
 ]).
 
 -export([
@@ -75,6 +77,7 @@
     listeners,
     log,
     mnesia,
+    node_dump,
     olp,
     pem_cache,
     'session-top',
@@ -1223,6 +1226,8 @@ listeners([]) ->
     lists:foreach(
         fun({Id, Conf}) ->
             Bind = maps:get(bind, Conf),
+            ResolvedAddress = maps:get(resolved_address, Conf),
+            ResolvedAddressFrom = maps:get(resolved_address_from, Conf),
             Enable = maps:get(enable, Conf),
             Acceptors = maps:get(acceptors, Conf),
             ProxyProtocol = maps:get(proxy_protocol, Conf, undefined),
@@ -1249,13 +1254,20 @@ listeners([]) ->
                     MaxConn = [],
                     ShutdownCount = []
             end,
+            %% `running` must stay the 5th line after the listener id: some
+            %% scripts (e.g. .ci/docker-compose-file/scripts/run-emqx.sh,
+            %% scripts/test/essential-auth-smoke/run.sh) grep a fixed number
+            %% of lines after the id to find it. Append new fields after
+            %% `running`, never insert them before it.
             Info =
                 [
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
                     {enbale, Enable},
-                    {running, Running}
+                    {running, Running},
+                    {resolved_address, {string, ResolvedAddress}},
+                    {resolved_address_from, {string, ResolvedAddressFrom}}
                 ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
             emqx_ctl:print("~ts~n", [Id]),
             lists:foreach(fun indent_print/1, Info)
@@ -1445,8 +1457,26 @@ data(["export" | Args]) ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),
             emqx_ctl:print("[error] Data export failed, reason: ~p.~n", [Reason1])
     end;
+data(["import", Filename, "--allow-security-profile-mismatch"]) ->
+    Opts = maps:merge(?DATA_BACKUP_OPTS, #{allow_security_profile_mismatch => true}),
+    do_import_cli(Filename, Opts);
 data(["import", Filename]) ->
-    case emqx_mgmt_data_backup:import_local(Filename, ?DATA_BACKUP_OPTS) of
+    do_import_cli(Filename, ?DATA_BACKUP_OPTS);
+data(_) ->
+    emqx_ctl:usage([
+        {"data import <File> [--allow-security-profile-mismatch]",
+            "Import data from the specified tar archive file"},
+        {
+            "data export \\\n"
+            "  [--root-keys key1,key2,key3] \\\n"
+            "  [--table-sets set1,set2,set3] \\\n"
+            "  [--dir out_dir]",
+            "Export data"
+        }
+    ]).
+
+do_import_cli(Filename, Opts) ->
+    case emqx_mgmt_data_backup:import_local(Filename, Opts) of
         {ok, #{db_errors := DbErrs, config_errors := ConfErrs}} when
             map_size(DbErrs) =:= 0, map_size(ConfErrs) =:= 0
         ->
@@ -1458,18 +1488,7 @@ data(["import", Filename]) ->
         {error, Reason} ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),
             emqx_ctl:print("[error] Data import failed, reason: ~p.~n", [Reason1])
-    end;
-data(_) ->
-    emqx_ctl:usage([
-        {"data import <File>", "Import data from the specified tar archive file"},
-        {
-            "data export \\\n"
-            "  [--root-keys key1,key2,key3] \\\n"
-            "  [--table-sets set1,set2,set3] \\\n"
-            "  [--dir out_dir]",
-            "Export data"
-        }
-    ]).
+    end.
 
 data_audit_args(Args) -> Args.
 
@@ -1845,10 +1864,13 @@ format(_, Val) ->
 
 bin(S) -> iolist_to_binary(S).
 
+%% The field width must fit the longest key printed through this function
+%% (currently `resolved_address_from`, 21 characters) or `~s` silently
+%% truncates it instead of just skipping the padding.
 indent_print({Key, {string, Val}}) ->
-    emqx_ctl:print("  ~-16s: ~ts~n", [Key, Val]);
+    emqx_ctl:print("  ~-22s: ~ts~n", [Key, Val]);
 indent_print({Key, Val}) ->
-    emqx_ctl:print("  ~-16s: ~w~n", [Key, Val]).
+    emqx_ctl:print("  ~-22s: ~w~n", [Key, Val]).
 
 for_node(Fun, Node) ->
     try list_to_existing_atom(Node) of
@@ -1919,3 +1941,26 @@ exclusive(_) ->
     ]).
 
 exclusive_audit_args(Args) -> Args.
+
+%%--------------------------------------------------------------------
+%% @doc node_dump Command
+%%
+%% CLI front-end for `bin/node_dump`. `sys_info/0` and `app_env_dump/0`
+%% return terms instead of printing, so render them here as `emqx eval`
+%% used to via nodetool.
+
+node_dump(["sys_info"]) ->
+    emqx_ctl:print("~p~n", [emqx_node_dump:sys_info()]);
+node_dump(["app_env"]) ->
+    emqx_ctl:print("~p~n", [emqx_node_dump:app_env_dump()]);
+node_dump(["conf"]) ->
+    emqx_node_dump:print_conf_dump();
+node_dump(_) ->
+    emqx_ctl:usage([
+        {"node_dump sys_info", "Print node release and OTP version"},
+        {"node_dump app_env", "Print the application environment (censored)"},
+        {"node_dump conf", "Print the raw configuration tree (redacted)"}
+    ]).
+
+%% No secrets among the sub-command names; pass them through unredacted.
+node_dump_audit_args(Args) -> Args.

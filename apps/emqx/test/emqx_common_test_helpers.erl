@@ -69,6 +69,7 @@
 
 -export([clear_screen/0]).
 -export([set_security_profile/1, with_security_profile/2, clear_security_profile/0]).
+-export([set_default_address/1, with_default_address/2, clear_default_address/0]).
 -export([with_mock/4, with_mock/5, with_mocks/2, with_mocks/3]).
 -export([
     on_exit/1,
@@ -113,6 +114,7 @@
 
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 -define(SECURITY_PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
+-define(DEFAULT_ADDRESS_CONF_KEY, [node, default_listener_address]).
 
 -define(MQTT_SSL_CLIENT_CERTS, [
     {keyfile, ?CERTS_PATH("client-key.pem")},
@@ -1406,6 +1408,26 @@ clear_security_profile() ->
     emqx_security_profile:clear_profile(),
     ok.
 
+-spec with_default_address(string(), fun(() -> Result)) -> Result.
+with_default_address(Address, Fun) ->
+    set_default_address(Address),
+    try
+        Fun()
+    after
+        clear_default_address()
+    end.
+
+-spec set_default_address(string()) -> ok.
+set_default_address(Address) when is_list(Address) ->
+    ok = emqx_config:put(?DEFAULT_ADDRESS_CONF_KEY, Address),
+    emqx_default_address:clear(),
+    ok.
+
+clear_default_address() ->
+    ok = emqx_config:put(?DEFAULT_ADDRESS_CONF_KEY, undefined),
+    emqx_default_address:clear(),
+    ok.
+
 gl_sink(Owner, Acc) ->
     receive
         {io_request, From, ReplyAs, Request} ->
@@ -1423,6 +1445,8 @@ format_io_requests(IoRequests) ->
             case Request of
                 {put_chars, unicode, M, F, A} ->
                     IoDat = apply(M, F, A),
+                    unicode:characters_to_binary(IoDat);
+                {put_chars, unicode, IoDat} ->
                     unicode:characters_to_binary(IoDat);
                 _ ->
                     error({unknown_io_request, Request})

@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
     get_delayed_message/2,
     delete_delayed_message/2,
 
@@ -19,6 +20,9 @@
 
 introduced_in() ->
     "5.2.1".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec get_delayed_message(node(), binary()) ->
     emqx_delayed:with_id_return(map()) | emqx_rpc:badrpc().

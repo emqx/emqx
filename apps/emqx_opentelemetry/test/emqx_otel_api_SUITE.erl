@@ -364,4 +364,19 @@ t_dynatrace(_TCConfig) ->
     ?assertMatch({200, _}, update_config(ObfuscatedConf)),
     WrappedSecret = emqx_config:get([opentelemetry, exporter, auth, client_secret]),
     ?assertNotEqual(emqx_utils_redact:redacted_value(), WrappedSecret()),
+    %% endpoint validation
+    ConfInvalidEndpoint =
+        emqx_utils_maps:deep_merge(
+            Conf,
+            #{~"exporter" => #{~"endpoint" => ~"not_an_url"}}
+        ),
+    ?assertMatch(
+        {400, #{
+            ~"message" := #{
+                ~"kind" := ~"validation_error",
+                ~"path" := ~"root.exporter.endpoint"
+            }
+        }},
+        update_config(ConfInvalidEndpoint)
+    ),
     ok.

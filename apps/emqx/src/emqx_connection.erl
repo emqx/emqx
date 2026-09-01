@@ -574,6 +574,9 @@ handle_msg({'$gen_call', From, Req}, State) ->
         {reply, Reply, NState} ->
             gen_server:reply(From, Reply),
             {ok, NState};
+        {stop, Reason, noreply, NState} ->
+            %% The caller learns about the shutdown from the process exit.
+            stop(Reason, NState);
         {stop, Reason, Reply, NState} ->
             gen_server:reply(From, Reply),
             stop(Reason, NState)
@@ -1277,16 +1280,17 @@ signal_channel_congestion(Status, SQSize, State = #state{channel = Channel}) ->
 
 check_oom(Pubs, Bytes, #state{conf = #conf{force_shutdown = ShutdownPolicy}}) ->
     case emqx_utils:check_oom(ShutdownPolicy) of
-        {shutdown, Reason} ->
-            %% triggers terminate/2 callback immediately
-            ?tp(warning, check_oom_shutdown, #{
+        {shutdown, #{reason := OomReason} = Detail} ->
+            ?SLOG(error, Detail#{msg => connection_shutdown_due_to_oom}),
+            ?tp_ignore_side_effects_in_prod(check_oom_shutdown, #{
                 policy => ShutdownPolicy,
                 %% FIXME
                 incoming_pubs => Pubs,
                 incoming_bytes => Bytes,
-                shutdown => Reason
+                shutdown => Detail
             }),
-            erlang:exit({shutdown, Reason});
+            %% triggers terminate/2 callback immediately
+            erlang:exit({shutdown, OomReason});
         Result ->
             ?tp(debug, check_oom_ok, #{
                 policy => ShutdownPolicy,

@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
     invite_node/2,
     connected_replicants/1
 ]).
@@ -16,6 +17,9 @@
 
 introduced_in() ->
     "5.1.1".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec invite_node(node(), node()) -> ok | ignore | {error, term()} | emqx_rpc:badrpc().
 invite_node(Node, Self) ->

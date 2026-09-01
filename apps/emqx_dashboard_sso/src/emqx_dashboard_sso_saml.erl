@@ -110,12 +110,12 @@ sp_private_key(_) -> undefined.
 
 idp_signs_envelopes(type) -> boolean();
 idp_signs_envelopes(desc) -> ?DESC(idp_signs_envelopes);
-idp_signs_envelopes(default) -> emqx_security_profile:policy(saml_signature_verification);
+idp_signs_envelopes(default) -> true;
 idp_signs_envelopes(_) -> undefined.
 
 idp_signs_assertions(type) -> boolean();
 idp_signs_assertions(desc) -> ?DESC(idp_signs_assertions);
-idp_signs_assertions(default) -> emqx_security_profile:policy(saml_signature_verification);
+idp_signs_assertions(default) -> true;
 idp_signs_assertions(_) -> undefined.
 
 desc(saml) ->

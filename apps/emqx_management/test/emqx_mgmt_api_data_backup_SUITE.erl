@@ -153,6 +153,70 @@ t_import_rpc_failure(Config) ->
         ?ON(N1, meck:unload(emqx_mgmt_data_backup_proto_v2))
     end.
 
+-doc """
+The API request-body field `allow_security_profile_mismatch' is threaded through to
+the backend check: an import of a `legacy'-profile backup into a `hardened' node is
+refused without it, and succeeds with it.
+""".
+t_import_security_profile_mismatch(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    Auth = ?config(auth, Config),
+    {ok, RespBody} = export_backup(?NODE1_PORT, Auth),
+    #{<<"filename">> := FileName} = emqx_utils_json:decode(RespBody),
+    ok = ?ON(N1, emqx_common_test_helpers:set_security_profile(hardened)),
+    try
+        Path = emqx_mgmt_api_test_util:api_path(?api_base_url(?NODE1_PORT), ["data", "import"]),
+        {400, Rejected} = emqx_mgmt_api_test_util:simple_request(
+            post, Path, #{<<"filename">> => FileName}, Auth
+        ),
+        ?assertMatch(#{<<"message">> := _}, Rejected),
+        {204, _} = emqx_mgmt_api_test_util:simple_request(
+            post,
+            Path,
+            #{<<"filename">> => FileName, <<"allow_security_profile_mismatch">> => true},
+            Auth
+        )
+    after
+        ?ON(N1, emqx_common_test_helpers:clear_security_profile())
+    end.
+
+-doc """
+The CLI `--allow-security-profile-mismatch' flag reaches the same check as the API
+field.
+""".
+t_import_security_profile_mismatch_cli(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    Auth = ?config(auth, Config),
+    {ok, RespBody} = export_backup(?NODE1_PORT, Auth),
+    #{<<"filename">> := FileName} = emqx_utils_json:decode(RespBody),
+    ok = ?ON(N1, emqx_mgmt_cli:load()),
+    ok = ?ON(N1, meck:new(emqx_ctl, [no_link, passthrough])),
+    ok = ?ON(N1, emqx_common_test_helpers:set_security_profile(hardened)),
+    try
+        ?ON(N1, emqx_ctl:run_command(["data", "import", binary_to_list(FileName)])),
+        ?ON(
+            N1,
+            emqx_ctl:run_command([
+                "data", "import", binary_to_list(FileName), "--allow-security-profile-mismatch"
+            ])
+        ),
+        History = ?ON(N1, meck:history(emqx_ctl)),
+        OutputMsgs = [Fmt || {_Pid, {emqx_ctl, print, [Fmt | _]}, _Res} <- History],
+        ?assertMatch(
+            [_ | _],
+            [1 || "[error] Data import failed, reason:" ++ _ <- OutputMsgs],
+            #{output => OutputMsgs}
+        ),
+        ?assertMatch(
+            [_],
+            [1 || "Data has been imported successfully" ++ _ <- OutputMsgs],
+            #{output => OutputMsgs}
+        )
+    after
+        ?ON(N1, meck:unload(emqx_ctl)),
+        ?ON(N1, emqx_common_test_helpers:clear_security_profile())
+    end.
+
 %% Verifies that we not only check, but also use the checked **and converted**
 %% configuration being imported, so that we don't store non-converted raw configs in PT.
 t_import_checks_config(TCConfig) ->

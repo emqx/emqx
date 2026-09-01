@@ -148,10 +148,15 @@ t_alarm_if_tps_over_limit({init, Config}) ->
     emqx_license_test_lib:mock_parser(),
     Key = emqx_license_test_lib:make_license(#{max_tps => 10}),
     emqx_license:update_key(Key),
+    %% This case is about alarming on the first over-limit sample, which is no
+    %% longer the default, so ask for it explicitly.
+    Original = sustain_duration(),
+    ok = set_sustain_duration(0),
     meck:new(emqx_alarm, [passthrough]),
     meck:new(emqx_license_proto_v3, [passthrough]),
-    Config;
-t_alarm_if_tps_over_limit({'end', _Config}) ->
+    [{orig_sustain_duration, Original} | Config];
+t_alarm_if_tps_over_limit({'end', Config}) ->
+    ok = set_sustain_duration(?config(orig_sustain_duration, Config)),
     emqx_license_test_lib:unmock_parser(),
     emqx_license:update_key(?DEFAULT_EVALUATION_LICENSE_KEY),
     meck:unload(emqx_alarm),
@@ -218,6 +223,89 @@ t_alarm_if_tps_over_limit(Config) when is_list(Config) ->
     emqx_license:update_key(InfinityTpsKey),
     ok = update_now(),
     ?assertReceive(alarm_deactivated, 100),
+    ok.
+
+%% `license.tps_alarm_sustain_duration' holds the alarm back until the limit has
+%% been exceeded for that long without interruption.
+t_alarm_tps_sustain_duration({init, Config}) ->
+    emqx_license_test_lib:mock_parser(),
+    Key = emqx_license_test_lib:make_license(#{max_tps => 10}),
+    emqx_license:update_key(Key),
+    Original = sustain_duration(),
+    %% Far longer than any plausible runner stall, so the phases that assert the
+    %% alarm is still held back cannot be overtaken by real time. The window is
+    %% aged with backdate_tps_breach/1 instead.
+    ok = set_sustain_duration(timer:minutes(5)),
+    meck:new(emqx_alarm, [passthrough]),
+    meck:new(emqx_license_proto_v3, [passthrough]),
+    [{orig_sustain_duration, Original} | Config];
+t_alarm_tps_sustain_duration({'end', Config}) ->
+    ok = set_sustain_duration(?config(orig_sustain_duration, Config)),
+    meck:unload(emqx_alarm),
+    meck:unload(emqx_license_proto_v3),
+    _ = emqx_alarm:ensure_deactivated(license_tps),
+    emqx_license_test_lib:unmock_parser(),
+    emqx_license:update_key(?DEFAULT_EVALUATION_LICENSE_KEY),
+    ok;
+t_alarm_tps_sustain_duration(Config) when is_list(Config) ->
+    Tester = self(),
+    meck:expect(
+        emqx_alarm,
+        activate,
+        fun(license_tps, Details, Msg) ->
+            Res = meck:passthrough([license_tps, Details, Msg]),
+            Tester ! {alarm_activated, Msg, Details},
+            Res
+        end
+    ),
+    MockTps = fun(Tps) ->
+        meck:expect(
+            emqx_license_proto_v3,
+            stats,
+            fun(_Nodes, _Now) -> [{ok, #{sessions => 21, tps => Tps}}] end
+        ),
+        ok = update_now()
+    end,
+    %% Over the limit, but the window has only just opened.
+    MockTps(11),
+    ?assertNotReceive({alarm_activated, _, _}, 100),
+    MockTps(11),
+    ?assertNotReceive({alarm_activated, _, _}, 100),
+    %% A sample at or below the limit ends the run, so an aged window is
+    %% discarded and the next over-limit sample starts a fresh one.
+    ok = emqx_license_resources:backdate_tps_breach(timer:minutes(10)),
+    MockTps(9),
+    MockTps(11),
+    ?assertNotReceive({alarm_activated, _, _}, 100),
+    %% Uninterrupted for longer than the configured duration.
+    ok = emqx_license_resources:backdate_tps_breach(timer:minutes(10)),
+    MockTps(11),
+    ?assertReceive(
+        {alarm_activated, <<"License: TPS limit (10) exceeded.">>, #{max_tps := 11}}, 100
+    ),
+    ok.
+
+%% The runtime fallback in `emqx_license_resources:sustain_duration/0' and the
+%% schema default are the same duration written twice, in two forms: the schema
+%% keeps `1m' so generated docs and config files read well, the fallback needs
+%% milliseconds. Nothing in the compiler ties them together, so pin them here.
+t_sustain_duration_fallback_matches_schema_default({init, Config}) ->
+    Config;
+t_sustain_duration_fallback_matches_schema_default({'end', _Config}) ->
+    ok;
+t_sustain_duration_fallback_matches_schema_default(Config) when is_list(Config) ->
+    %% The suite starts emqx_license with only `license.key' set, so this value
+    %% is the schema default resolved to milliseconds.
+    ?assertEqual(
+        ?DEFAULT_TPS_ALARM_SUSTAIN_DURATION,
+        emqx_config:get([license, tps_alarm_sustain_duration])
+    ).
+
+sustain_duration() ->
+    emqx_config:get([license, tps_alarm_sustain_duration], 0).
+
+set_sustain_duration(Duration) ->
+    emqx_config:put([license, tps_alarm_sustain_duration], Duration),
     ok.
 
 update_now() ->

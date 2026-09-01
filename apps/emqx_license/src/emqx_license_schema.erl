@@ -17,7 +17,8 @@
 -export([namespace/0, roots/0, fields/1, validations/0, desc/1, tags/0]).
 
 -export([
-    default_setting/0
+    default_setting/0,
+    validate_tps_alarm_sustain_duration/1
 ]).
 
 namespace() -> "license".
@@ -67,6 +68,15 @@ fields(key_license) ->
             default => default(connection_high_watermark),
             example => default(connection_high_watermark),
             desc => ?DESC(connection_high_watermark_field)
+        }},
+        {tps_alarm_sustain_duration, #{
+            type => emqx_schema:duration_ms(),
+            default => default(tps_alarm_sustain_duration),
+            example => <<"2m">>,
+            required => false,
+            importance => ?IMPORTANCE_LOW,
+            validator => fun ?MODULE:validate_tps_alarm_sustain_duration/1,
+            desc => ?DESC(tps_alarm_sustain_duration)
         }},
         {high_watermark_timezone, #{
             type => hoconsc:union([system, binary()]),
@@ -124,6 +134,16 @@ check_high_watermark_timezone(Conf) ->
             end
     end.
 
+%% @doc The alarm is what prompts a license upgrade, so the window it can be
+%% held back by is bounded. Without an upper bound a large enough value silences
+%% it for good.
+validate_tps_alarm_sustain_duration(Duration) when
+    is_integer(Duration), Duration >= 0, Duration =< ?MAX_TPS_ALARM_SUSTAIN_DURATION
+->
+    ok;
+validate_tps_alarm_sustain_duration(_Duration) ->
+    {error, <<"must be between 0s and 10m">>}.
+
 %% @doc Exported for testing
 default_setting() ->
     Keys =
@@ -131,7 +151,8 @@ default_setting() ->
             connection_low_watermark,
             connection_high_watermark,
             dynamic_max_connections,
-            high_watermark_timezone
+            high_watermark_timezone,
+            tps_alarm_sustain_duration
         ],
     maps:from_list(
         lists:map(
@@ -148,6 +169,8 @@ default(connection_high_watermark) ->
     <<"80%">>;
 default(high_watermark_timezone) ->
     system;
+default(tps_alarm_sustain_duration) ->
+    ~"1m";
 default(dynamic_max_connections) ->
     %% This config is only applicable to CTYPE3
     ?DEFAULT_MAX_SESSIONS_CTYPE3.

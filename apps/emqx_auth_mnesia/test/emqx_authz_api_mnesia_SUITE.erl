@@ -111,7 +111,7 @@ init_per_testcase(_TestCase, TCConfig) ->
     TCConfig.
 
 end_per_testcase(_TestCase, _TCConfig) ->
-    ok.
+    emqx_common_test_helpers:call_janitor().
 
 %%------------------------------------------------------------------------------
 %% Helper fns
@@ -457,6 +457,53 @@ delete_authz() ->
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
+
+t_shadowed_rules() ->
+    [{matrix, true}].
+t_shadowed_rules(matrix) ->
+    [[?global]];
+t_shadowed_rules(_TCConfig) ->
+    PreviousProfile = emqx_security_profile:profile(),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_common_test_helpers:set_security_profile(PreviousProfile)
+    end),
+    ok = emqx_common_test_helpers:set_security_profile(hardened),
+
+    Namespace = <<"shadowed-rules-ns">>,
+    QueryParams = #{<<"ns">> => Namespace},
+    Username = <<"shadowed-user">>,
+    ClientId = <<"shadowed-client">>,
+    emqx_common_test_helpers:on_exit(fun() ->
+        ok = emqx_authz_mnesia:delete_rules(?global_ns, {username, Username}),
+        ok = emqx_authz_mnesia:delete_rules(?global_ns, {clientid, ClientId}),
+        ok = emqx_authz_mnesia:purge_rules(Namespace)
+    end),
+    UsernameExample0 = ?USERNAME_RULES_EXAMPLE,
+    UsernameExample = UsernameExample0#{username := Username},
+    ClientIdExample0 = ?CLIENTID_RULES_EXAMPLE,
+    ClientIdExample = ClientIdExample0#{clientid := ClientId},
+
+    {204, _} = create_username_rules([UsernameExample]),
+    {409, #{<<"code">> := <<"ALREADY_EXISTS">>, <<"message">> := UsernameMessage}} =
+        create_username_rules([UsernameExample], QueryParams),
+    ?assertEqual(
+        <<
+            "Namespaced username rules for 'shadowed-user' cannot be created or updated "
+            "because matching global rules would shadow them."
+        >>,
+        UsernameMessage
+    ),
+
+    {204, _} = create_clientid_rules([ClientIdExample]),
+    {409, #{<<"code">> := <<"ALREADY_EXISTS">>, <<"message">> := ClientIdMessage}} =
+        create_clientid_rules([ClientIdExample], QueryParams),
+    ?assertEqual(
+        <<
+            "Namespaced client ID rules for 'shadowed-client' cannot be created or updated "
+            "because matching global rules would shadow them."
+        >>,
+        ClientIdMessage
+    ).
 
 t_api() ->
     [{matrix, true}].

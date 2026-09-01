@@ -104,6 +104,16 @@ listener_running_status {
     label: "Running Status"
 }
 
+listener_resolved_address {
+    desc: "The IP address the listener is actually bound to on the node reporting this value, without the port. The port stays in 'bind'. Read-only and node-local: the security profile and 'node.default_listener_address' both resolve independently on each node, so this can differ between nodes in the same cluster. When 'bind' sets an explicit 'IP:port', this field reports the same IP. When 'bind' sets only a port, this field reports the address the security profile or 'node.default_listener_address' resolves; it is empty when that resolves to all interfaces."
+    label: "Resolved Address"
+}
+
+listener_resolved_address_from {
+    desc: "The source of 'resolved_address' on the node reporting this value: 'bind' when the listener's own 'bind' already sets an explicit address, '0.0.0.0' for all interfaces, '127.0.0.1' for loopback, 'nodename', or the literal 'node.default_listener_address' value when it is set to a hostname or IP address. Read-only and node-local."
+    label: "Resolved Address Source"
+}
+
 listener_status {
     desc: "Status of the listener. 'true' for running, otherwise 'false'."
     label: "Listener Status"

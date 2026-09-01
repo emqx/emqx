@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     node_info/1,
     broker_info/1,
@@ -26,6 +27,9 @@
 
 introduced_in() ->
     "5.0.0".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec node_info(node()) -> map() | {badrpc, _}.
 node_info(Node) ->

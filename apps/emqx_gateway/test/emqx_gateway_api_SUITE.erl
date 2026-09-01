@@ -440,6 +440,40 @@ t_listeners_tcp(_) ->
     {404, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def"),
     ok.
 
+t_listeners_status_default_address(_) ->
+    %% A bare-port bind is registered under the resolved default address.
+    %% The status API must resolve it the same way, on the node that owns
+    %% the listener, otherwise it reports the listener as not running.
+    emqx_common_test_helpers:with_default_address("loopback", fun() ->
+        {204, _} = request(put, "/gateways/stomp", #{}),
+        LisConf = #{
+            name => <<"def">>,
+            type => <<"tcp">>,
+            bind => 61613
+        },
+        {201, _} = request(post, "/gateways/stomp/listeners", LisConf),
+        {200, [Listener]} = request(get, "/gateways/stomp/listeners"),
+        ?assertMatch(
+            #{
+                bind := <<":61613">>,
+                status := #{running := true, current_connections := 0},
+                %% resolved_address/resolved_address_from are node-local and
+                %% reported per node, not in the cluster-wide status above.
+                node_status := [
+                    #{
+                        status := #{
+                            resolved_address := <<"127.0.0.1">>,
+                            resolved_address_from := <<"127.0.0.1">>
+                        }
+                    }
+                ]
+            },
+            Listener
+        ),
+        %% Stop the listener while the address still resolves the same way.
+        {204, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def")
+    end).
+
 t_listeners_max_conns(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
     {200, []} = request(get, "/gateways/stomp/listeners"),

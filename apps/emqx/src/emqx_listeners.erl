@@ -49,10 +49,10 @@
 -export([post_zone_config_update/2, update_listener_for_zone_changes/3]).
 -export([reconcile_cert_source/2]).
 
--export([format_bind/1]).
+-export([format_bind/1, format_bind_ip/1]).
 
 -ifdef(TEST).
--export([certs_dir/2]).
+-export([certs_dir/2, do_log_bind_portability/4]).
 -endif.
 
 -export_type([
@@ -111,8 +111,17 @@ format_list(Listener) ->
     {Type, Conf} = Listener,
     [
         begin
-            Running = is_running(Type, listener_id(Type, LName), LConf),
-            {listener_id(Type, LName), maps:put(running, Running, LConf)}
+            Id = listener_id(Type, LName),
+            Bind = maps:get(bind, LConf),
+            Running = is_running(Type, Id, LConf),
+            ResolvedAddress = format_bind_ip(listen_on(Id, Bind)),
+            ResolvedAddressFrom = emqx_default_address:listen_on_from(mqtt, Bind),
+            {Id,
+                maps:merge(LConf, #{
+                    running => Running,
+                    resolved_address => ResolvedAddress,
+                    resolved_address_from => ResolvedAddressFrom
+                })}
         end
      || {LName, LConf} <- maps:to_list(Conf), is_map(LConf)
     ].
@@ -141,8 +150,11 @@ format_raw_listeners({Type0, Conf}) ->
         fun
             ({LName, LConf0}) when is_map(LConf0) ->
                 Bind = parse_bind(LConf0),
+                Id = listener_id(Type, LName),
                 MaxConn = maps:get(<<"max_connections">>, LConf0, default_max_conn()),
-                Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
+                Running = is_running(Type, Id, LConf0#{bind => Bind}),
+                ResolvedAddress = format_bind_ip(listen_on(Id, Bind)),
+                ResolvedAddressFrom = emqx_default_address:listen_on_from(mqtt, Bind),
                 LConf1 = maps:without([<<"authentication">>], LConf0),
                 LConf2 = maps:put(<<"running">>, Running, LConf1),
                 CurrConn =
@@ -152,7 +164,9 @@ format_raw_listeners({Type0, Conf}) ->
                     end,
                 LConf = maps:merge(LConf2, #{
                     <<"current_connections">> => CurrConn,
-                    <<"max_connections">> => ensure_max_conns(MaxConn)
+                    <<"max_connections">> => ensure_max_conns(MaxConn),
+                    <<"resolved_address">> => ResolvedAddress,
+                    <<"resolved_address_from">> => ResolvedAddressFrom
                 }),
                 {true, {Type0, LName, LConf}};
             ({_LName, _MarkDel}) ->
@@ -168,15 +182,8 @@ is_running(ListenerId) ->
         false -> {error, not_found}
     end.
 
-is_running(Type, ListenerId, Conf) when Type =:= tcp; Type =:= ssl ->
-    #{bind := ListenOn} = Conf,
-    try esockd:listener({ListenerId, ListenOn}) of
-        Pid when is_pid(Pid) ->
-            true
-    catch
-        _:_ ->
-            false
-    end;
+is_running(Type, ListenerId, _Conf) when Type =:= tcp; Type =:= ssl ->
+    find_listen_on(ListenerId) =/= error;
 is_running(Type, ListenerId, _Conf) when Type =:= ws; Type =:= wss ->
     try
         ranch:get_status(ListenerId) =:= running
@@ -196,7 +203,8 @@ current_conns(Id, ListenOn) ->
     {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
     current_conns(Type, Name, ListenOn).
 
-current_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
+current_conns(Type, Name, Bind) when Type == tcp; Type == ssl ->
+    ListenOn = emqx_default_address:listen_on(mqtt, Bind),
     esockd:get_current_connections({listener_id(Type, Name), ListenOn});
 current_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     maps:get(all_connections, ranch:info(listener_id(Type, Name)));
@@ -210,7 +218,8 @@ max_conns(Id, ListenOn) ->
     {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
     max_conns(Type, Name, ListenOn).
 
-max_conns(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
+max_conns(Type, Name, Bind) when Type == tcp; Type == ssl ->
+    ListenOn = emqx_default_address:listen_on(mqtt, Bind),
     esockd:get_max_connections({listener_id(Type, Name), ListenOn});
 max_conns(Type, Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     maps:get(max_connections, ranch:info(listener_id(Type, Name)));
@@ -221,7 +230,8 @@ shutdown_count(Id, ListenOn) ->
     {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
     shutdown_count(Type, Name, ListenOn).
 
-shutdown_count(Type, Name, ListenOn) when Type == tcp; Type == ssl ->
+shutdown_count(Type, Name, Bind) when Type == tcp; Type == ssl ->
+    ListenOn = emqx_default_address:listen_on(mqtt, Bind),
     esockd:get_shutdown_count({listener_id(Type, Name), ListenOn});
 shutdown_count(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     [];
@@ -231,6 +241,10 @@ shutdown_count(_, _, _) ->
 %% @doc Start all listeners.
 -spec start() -> ok.
 start() ->
+    %% Resolve node.default_listener_address eagerly, so an unresolvable
+    %% host stops the boot with a clear reason.
+    _ = emqx_default_address:resolve(mqtt),
+    ok = warn_loopback_by_profile(),
     %% The ?MODULE:start/0 will be called by emqx_app when emqx get started,
     %% so we install the config handler here.
     %% callback when http api request
@@ -239,12 +253,33 @@ start() ->
     ok = emqx_config_handler:add_handler([?ROOT_KEY], ?MODULE),
     foreach_listeners(fun start_listener/3).
 
+warn_loopback_by_profile() ->
+    case emqx_default_address:loopback_by_profile() of
+        true ->
+            ?SLOG(warning, #{
+                msg => "listeners_bind_loopback",
+                reason =>
+                    "the hardened security profile binds a listener that has no "
+                    "explicit bind address to loopback",
+                hint =>
+                    "Clients on other hosts cannot connect. Set "
+                    "node.default_listener_address to the address to bind, or "
+                    "set an address in the bind of each listener."
+            });
+        false ->
+            ok
+    end.
+
 -spec start_listener(listener_id()) -> ok | {error, term()}.
 start_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun ?MODULE:start_listener/3).
 
 -spec start_listener(listener_type(), atom(), map()) -> ok | {error, term()}.
-start_listener(Type, Name, #{bind := Bind, enable := true} = Conf) ->
+start_listener(Type, Name, #{bind := Bind0, enable := true} = Conf0) ->
+    %% A bare-port bind gets the resolved default address here, so every
+    %% later use of this listener's bind sees the same listen-on value.
+    Bind = emqx_default_address:listen_on(mqtt, Bind0),
+    Conf = Conf0#{bind := Bind},
     ListenerId = listener_id(Type, Name),
     ok = emqx_limiter:create_listener_limiters(ListenerId, Conf),
     case do_start_listener(Type, Name, ListenerId, Conf) of
@@ -364,8 +399,10 @@ stop() ->
 stop_listener(ListenerId) ->
     apply_on_listener(ListenerId, fun stop_listener/3).
 
-stop_listener(Type, Name, #{bind := Bind} = Conf) ->
+stop_listener(Type, Name, #{bind := Bind0} = Conf0) ->
     Id = listener_id(Type, Name),
+    Bind = listen_on(Id, Bind0),
+    Conf = Conf0#{bind := Bind},
     ok = unregister_ocsp_stapling_refresh(Type, Name),
     case do_stop_listener(Type, Id, Conf) of
         ok ->
@@ -488,11 +525,16 @@ do_start_listener(quic, Name, Id, #{bind := Bind} = Opts) ->
     end.
 
 do_update_listener(
-    Type = tcp, Name, OldConf, NewConf = #{bind := ListenOn, tcp_backend := Backend}
+    Type = tcp, Name, OldConf, NewConf = #{bind := Bind, tcp_backend := Backend}
 ) ->
     Id = listener_id(tcp, Name),
-    case OldConf of
-        #{bind := ListenOn, tcp_backend := Backend} ->
+    %% Update in place only the address the listener actually runs on, and
+    %% only when the new config resolves to that same address. The configured
+    %% bind does not tell which address a running listener uses, because a
+    %% bare port gets the default address. A listener that stopped in the
+    %% meantime takes the restart path below.
+    case {find_listen_on(Id), OldConf, emqx_default_address:listen_on(mqtt, Bind)} of
+        {{ok, ListenOn}, #{tcp_backend := Backend}, ListenOn} ->
             case Backend of
                 gen_tcp -> ConnMod = emqx_connection;
                 socket -> ConnMod = emqx_socket_connection
@@ -506,12 +548,12 @@ do_update_listener(
             %% Again, we're not strictly required to drop live connections in this case.
             {error, not_supported}
     end;
-do_update_listener(Type, Name, OldConf, NewConf = #{bind := ListenOn}) when
+do_update_listener(Type, Name, _OldConf, NewConf = #{bind := Bind}) when
     ?ESOCKD_LISTENER(Type)
 ->
     Id = listener_id(Type, Name),
-    case OldConf of
-        #{bind := ListenOn} ->
+    case {find_listen_on(Id), emqx_default_address:listen_on(mqtt, Bind)} of
+        {{ok, ListenOn}, ListenOn} ->
             esockd:reset_options(
                 {Id, ListenOn},
                 esockd_opts(Id, Type, Name, emqx_connection, NewConf)
@@ -615,12 +657,15 @@ pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
 post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
     OldConf =:= undefined orelse OldConf =:= ?TOMBSTONE_TYPE
 ->
+    ok = check_bind_portability(Type, Name, undefined, NewConf),
     start_listener(Type, Name, NewConf);
 post_config_update([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
+    ok = check_bind_portability(Type, Name, OldConf, NewConf),
     update_listener(Type, Name, OldConf, NewConf);
 post_config_update([?ROOT_KEY, Type, Name], ?MARK_DEL, _, OldConf = #{}, _AppEnvs) ->
     stop_listener(Type, Name, OldConf);
 post_config_update([?ROOT_KEY, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
+    ok = check_bind_portability(Type, Name, OldConf, NewConf),
     update_listener(Type, Name, OldConf, NewConf);
 post_config_update([?ROOT_KEY], _Request, OldConf, OldConf, _AppEnvs) ->
     ok;
@@ -700,11 +745,95 @@ perform_listener_changes([{Action, Listener} | Rest]) ->
     end.
 
 perform_listener_change(start, {Type, Name, Conf}) ->
+    ok = check_bind_portability(Type, Name, undefined, Conf),
     start_listener(Type, Name, Conf);
 perform_listener_change(update, {{Type, Name, ConfOld}, {_, _, ConfNew}}) ->
+    ok = check_bind_portability(Type, Name, ConfOld, ConfNew),
     update_listener(Type, Name, ConfOld, ConfNew);
 perform_listener_change(stop, {Type, Name, Conf}) ->
     stop_listener(Type, Name, Conf).
+
+%% Log a notice when a config change sets a listener bind to a host-specific
+%% IP address. Logging only: this runs from `post_config_update/5', which every
+%% node executes when it applies a replicated config change. Returning an error
+%% here would block config replication, a much worse failure than one listener
+%% that cannot bind. Each node checks the address against its own network
+%% interfaces, so exactly the nodes that cannot bind the address log an error.
+check_bind_portability(Type, Name, OldConf, NewConf) ->
+    OldBind = bind_of(OldConf),
+    case bind_of(NewConf) of
+        {Ip, _Port} = Bind when Bind =/= OldBind ->
+            case is_generic_address(Ip) of
+                true -> ok;
+                false -> log_bind_portability(listener_id(Type, Name), Ip, Bind)
+            end;
+        _ ->
+            %% A bare-port bind has no address part. An unchanged bind was
+            %% already checked by the change that set it.
+            ok
+    end.
+
+bind_of(#{bind := Bind}) -> Bind;
+bind_of(undefined) -> undefined.
+
+log_bind_portability(Id, Ip, Bind) ->
+    IsLocal = is_local_address(Ip),
+    %% Count stopped nodes too: a stopped node applies the replicated config
+    %% when it comes back, and then cannot bind the address either.
+    IsSingleNode = length(emqx:cluster_nodes(all)) =:= 1,
+    do_log_bind_portability(Id, Bind, IsLocal, IsSingleNode).
+
+do_log_bind_portability(Id, Bind, true = _IsLocal, true = _IsSingleNode) ->
+    BindStr = format_bind_str(Bind),
+    ?tp(listener_bind_portability_log, #{listener => Id, level => warning, bind => BindStr}),
+    ?SLOG(warning, #{
+        msg => "listener_bind_address_not_portable",
+        listener => Id,
+        bind => BindStr,
+        hint =>
+            "The bind address is specific to this host. "
+            "The config will not work when copied or migrated to another host."
+    });
+do_log_bind_portability(Id, Bind, IsLocal, _IsSingleNode) ->
+    Reason =
+        case IsLocal of
+            true ->
+                "The bind address is specific to one host. "
+                "Other nodes in the cluster cannot bind it.";
+            false ->
+                "The bind address is not found on this node's network interfaces. "
+                "The listener cannot bind it on this node."
+        end,
+    BindStr = format_bind_str(Bind),
+    ?tp(listener_bind_portability_log, #{listener => Id, level => error, bind => BindStr}),
+    ?SLOG(error, #{
+        msg => "listener_bind_address_not_local",
+        listener => Id,
+        bind => BindStr,
+        reason => Reason
+    }).
+
+%% Addresses that bind the same way on any host: the IPv4/IPv6 wildcard and
+%% loopback. All of 127.0.0.0/8 is loopback on every host, not just 127.0.0.1,
+%% so the whole block counts as generic.
+is_generic_address({0, 0, 0, 0}) -> true;
+is_generic_address({127, _, _, _}) -> true;
+is_generic_address({0, 0, 0, 0, 0, 0, 0, 0}) -> true;
+is_generic_address({0, 0, 0, 0, 0, 0, 0, 1}) -> true;
+is_generic_address(_) -> false.
+
+is_local_address(Ip) ->
+    case inet:getifaddrs() of
+        {ok, IfAddrs} ->
+            lists:any(fun({_Name, Opts}) -> lists:member({addr, Ip}, Opts) end, IfAddrs);
+        {error, _} ->
+            %% Cannot inspect the interfaces; assume the address is local
+            %% rather than log a false alarm.
+            true
+    end.
+
+format_bind_str(Bind) ->
+    iolist_to_binary(format_bind(Bind)).
 
 esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
     Zone = zone(Opts0),
@@ -821,6 +950,32 @@ ip_port(Port) when is_integer(Port) ->
 ip_port({Addr, Port}) ->
     [{ip, Addr}, {port, Port}].
 
+-doc """
+Returns the address an esockd listener is registered under.
+
+A running listener is the source of truth: it keeps the address it was
+started with, which is what every esockd call must be keyed by. Falls back
+to the configured bind with the default address applied, for a listener
+that is not running yet.
+""".
+listen_on(Id, Bind) ->
+    case find_listen_on(Id) of
+        {ok, ListenOn} -> ListenOn;
+        error -> emqx_default_address:listen_on(mqtt, Bind)
+    end.
+
+find_listen_on(Id) ->
+    Found = lists:filtermap(
+        fun({{ListenerId, ListenOn}, _Pid}) ->
+            ListenerId =:= Id andalso {true, ListenOn}
+        end,
+        esockd:listeners()
+    ),
+    case Found of
+        [ListenOn | _] -> {ok, ListenOn};
+        [] -> error
+    end.
+
 esockd_access_rules(StrRules) ->
     Access = fun(S, Acc) ->
         [A, CIDR] = string:tokens(S, " "),
@@ -877,6 +1032,38 @@ format_bind(Str) when is_list(Str) ->
     end;
 format_bind(Bin) when is_binary(Bin) ->
     format_bind(binary_to_list(Bin)).
+
+-doc """
+Same input as `format_bind/1`, but returns only the IP address, without the
+port, as a binary. Empty binary for a bind with no explicit address (bind
+all interfaces), the same convention `format_bind/1` uses for the host
+part.
+""".
+-spec format_bind_ip(
+    integer() | {tuple(), integer()} | string() | binary()
+) -> binary().
+format_bind_ip(Bind) ->
+    iolist_to_binary(do_format_bind_ip(Bind)).
+
+do_format_bind_ip(Port) when is_integer(Port) ->
+    "";
+do_format_bind_ip({Addr, _Port}) when is_list(Addr) ->
+    Addr;
+do_format_bind_ip({Addr, _Port}) when is_tuple(Addr), tuple_size(Addr) == 4 ->
+    inet:ntoa(Addr);
+do_format_bind_ip({Addr, _Port}) when is_tuple(Addr), tuple_size(Addr) == 8 ->
+    inet:ntoa(Addr);
+do_format_bind_ip(Str) when is_list(Str) ->
+    case emqx_schema:to_ip_port(Str) of
+        {ok, {Ip, Port}} ->
+            do_format_bind_ip({Ip, Port});
+        {ok, Port} ->
+            do_format_bind_ip(Port);
+        {error, _} ->
+            do_format_bind_ip(list_to_integer(Str))
+    end;
+do_format_bind_ip(Bin) when is_binary(Bin) ->
+    do_format_bind_ip(binary_to_list(Bin)).
 
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).

@@ -569,7 +569,7 @@ t_oom_shutdown(init, Config) ->
     meck:expect(
         emqx_utils,
         check_oom,
-        fun(_) -> {shutdown, "fake_oom"} end
+        fun(_) -> {shutdown, #{reason => mailbox_overflow, value => 11, max => 10}} end
     ),
     Config;
 t_oom_shutdown('end', _Config) ->
@@ -588,7 +588,7 @@ t_oom_shutdown(_) ->
             ?assertEqual(1, length(?of_kind(terminate, Trace))),
             receive
                 {'EXIT', Pid, Reason} ->
-                    ?assertEqual({shutdown, "fake_oom"}, Reason)
+                    ?assertEqual({shutdown, mailbox_overflow}, Reason)
             after 1000 ->
                 error(timeout)
             end,

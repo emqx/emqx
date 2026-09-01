@@ -74,6 +74,9 @@
 
 -export([backup_tables/0]).
 
+%% MRIA transaction callbacks
+-export([store_explicit_rules_tx/4]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -122,8 +125,10 @@ authorize(
     #{type := built_in_database}
 ) ->
     Namespace = get_namespace(AuthzContext),
-    Rules = load_rules_for_authorize(Namespace, Clientid, Username),
-    do_authorize(AuthzContext, PubSub, Topic, Rules).
+    case load_rules_for_authorize(Namespace, Clientid, Username) of
+        deny_for_conflict -> {matched, deny};
+        {ok, Rules} -> do_authorize(AuthzContext, PubSub, Topic, Rules)
+    end.
 
 %%--------------------------------------------------------------------
 %% Data backup
@@ -141,11 +146,11 @@ init_tables() ->
     ok = mria:wait_for_tables(create_tables()).
 
 %% @doc Update authz rules
--spec store_rules(maybe_namespace(), who(), rules()) -> ok.
+-spec store_rules(maybe_namespace(), who(), rules()) -> ok | {error, term()}.
 store_rules(Namespace, {username, Username}, Rules) ->
-    do_store_rules(Namespace, {?ACL_TABLE_USERNAME, Username}, normalize_rules(Rules));
+    do_store_explicit_rules(Namespace, {?ACL_TABLE_USERNAME, Username}, normalize_rules(Rules));
 store_rules(Namespace, {clientid, Clientid}, Rules) ->
-    do_store_rules(Namespace, {?ACL_TABLE_CLIENTID, Clientid}, normalize_rules(Rules));
+    do_store_explicit_rules(Namespace, {?ACL_TABLE_CLIENTID, Clientid}, normalize_rules(Rules));
 store_rules(Namespace, all, Rules) ->
     do_store_rules(Namespace, ?ACL_TABLE_ALL, normalize_rules(Rules)).
 
@@ -262,12 +267,38 @@ record_count_per_namespace() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-load_rules_for_authorize(?global_ns, Clientid, Username) ->
+-spec load_rules_for_authorize(maybe_namespace(), binary(), binary()) ->
+    {ok, rules()} | deny_for_conflict.
+load_rules_for_authorize(Namespace, Clientid, Username) ->
+    case emqx_security_profile:policy(authz_mnesia_mt_rule_conflict_protection) of
+        false -> {ok, load_rules_legacy(Namespace, Clientid, Username)};
+        true -> load_rules_strict(Namespace, Clientid, Username)
+    end.
+
+load_rules_legacy(?global_ns, Clientid, Username) ->
     do_load_rules_for_authorize(?global_ns, Clientid, Username);
-load_rules_for_authorize(Namespace, Clientid, Username) when is_binary(Namespace) ->
+load_rules_legacy(Namespace, Clientid, Username) when is_binary(Namespace) ->
     maybe
         [] ?= do_load_rules_for_authorize(Namespace, Clientid, Username),
         do_load_rules_for_authorize(?global_ns, Clientid, Username)
+    end.
+
+load_rules_strict(?global_ns, Clientid, Username) ->
+    {ok, do_load_rules_for_authorize(?global_ns, Clientid, Username)};
+load_rules_strict(Namespace, Clientid, Username) when is_binary(Namespace) ->
+    %% Strict namespaced lookup applies these rules in order:
+    %% 1. Deny when matching global client ID or username rules exist.
+    %% 2. Apply only namespace rules when the namespace is not empty.
+    %% 3. Fall back to global rules when the namespace is empty.
+    case has_explicit_global_rules(Clientid, Username) of
+        true ->
+            deny_for_conflict;
+        false ->
+            case is_namespace_empty(Namespace) of
+                true -> {ok, do_load_rules_for_authorize(?global_ns, Clientid, Username)};
+                %% Maybe there still `all` rules in the namespace
+                false -> {ok, do_load_rules_for_authorize(Namespace, Clientid, Username)}
+            end
     end.
 
 do_load_rules_for_authorize(Namespace, Clientid, Username) ->
@@ -279,6 +310,56 @@ read_rules(Namespace, Key) ->
     case do_get_rules(Namespace, Key) of
         {ok, Rules} -> Rules;
         not_found -> []
+    end.
+
+is_namespace_empty(Namespace) when is_binary(Namespace) ->
+    case mnesia:dirty_next(?AUTHZ_NS_TAB, ?AUTHZ_WHO_NS(Namespace, -1)) of
+        ?AUTHZ_WHO_NS(Namespace, _) -> false;
+        _ -> true
+    end.
+
+has_explicit_global_rules(Clientid, Username) ->
+    global_rules_exist({?ACL_TABLE_CLIENTID, Clientid}) orelse
+        global_rules_exist({?ACL_TABLE_USERNAME, Username}).
+
+global_rules_exist(Who) ->
+    ets:member(?ACL_TABLE, Who).
+
+do_store_explicit_rules(Namespace, Who, Rules) ->
+    Strict = emqx_security_profile:policy(authz_mnesia_mt_rule_conflict_protection),
+    case
+        mria:transaction(
+            ?ACL_SHARDED,
+            fun ?MODULE:store_explicit_rules_tx/4,
+            [Strict, Namespace, Who, Rules]
+        )
+    of
+        {atomic, {ok, IsNew}} ->
+            IsNew andalso inc_ns_rule_count(Namespace),
+            ok;
+        {atomic, {error, _} = Error} ->
+            Error;
+        {aborted, Reason} ->
+            {error, Reason}
+    end.
+
+store_explicit_rules_tx(_Strict, ?global_ns, Who, Rules) ->
+    Record = #?ACL_TABLE{who = Who, rules = Rules},
+    ok = mnesia:write(?ACL_TABLE, Record, write),
+    {ok, false};
+store_explicit_rules_tx(Strict, Namespace, Who, Rules) when is_binary(Namespace) ->
+    %% Strict mode rejects namespaced client ID and username rules when the
+    %% corresponding explicit global rules exist. The global read lock keeps
+    %% the check and namespaced write atomic with global explicit-rule writes.
+    case {Strict, mnesia:read(?ACL_TABLE, Who, write)} of
+        {true, [_]} ->
+            {error, rules_shadowed};
+        {_, _} ->
+            Key = ?AUTHZ_WHO_NS(Namespace, Who),
+            IsNew = mnesia:read(?AUTHZ_NS_TAB, Key, write) =:= [],
+            Record = #?AUTHZ_NS_TAB{who = Key, rules = Rules},
+            ok = mnesia:write(?AUTHZ_NS_TAB, Record, write),
+            {ok, IsNew}
     end.
 
 do_store_rules(?global_ns, Who, Rules) ->

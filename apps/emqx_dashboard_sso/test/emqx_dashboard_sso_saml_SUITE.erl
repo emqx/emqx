@@ -45,9 +45,12 @@ groups() ->
         {unit, [sequence], [
             t_signature_defaults,
             t_validate_signature_config,
+            t_missing_idp_certificate_with_default_signing,
             t_maybe_load_cert_or_key,
             t_callback_rejects_xxe_response,
-            t_callback_rejects_deflate_xxe_response
+            t_callback_rejects_deflate_xxe_response,
+            t_callback_rejects_unsigned_response_by_default,
+            t_callback_accepts_unsigned_response_with_explicit_escape_hatch
         ]},
         {api, [sequence], [
             t_sso_running_disabled,
@@ -142,10 +145,19 @@ end_per_testcase(Case, _Config) ->
 %%------------------------------------------------------------------------------
 
 t_signature_defaults(_Config) ->
+    %% Signature verification defaults to enabled in every security profile;
+    %% it is no longer tied to `emqx_security_profile:policy/1`.
     emqx_common_test_helpers:with_security_profile("legacy", fun() ->
         ?assertMatch(
-            #{idp_signs_envelopes := false, idp_signs_assertions := false},
+            #{idp_signs_envelopes := true, idp_signs_assertions := true},
             checked_saml_config(#{})
+        ),
+        ?assertMatch(
+            #{idp_signs_envelopes := false, idp_signs_assertions := false},
+            checked_saml_config(#{
+                <<"idp_signs_envelopes">> => false,
+                <<"idp_signs_assertions">> => false
+            })
         )
     end),
     emqx_common_test_helpers:with_security_profile("hardened", fun() ->
@@ -189,6 +201,24 @@ t_validate_signature_config(_Config) ->
 
     ok.
 
+t_missing_idp_certificate_with_default_signing(_Config) ->
+    %% Defaulting idp_signs_* to true means a deployment whose IdP metadata
+    %% carries no certificate now fails to start, instead of silently
+    %% accepting unsigned assertions.
+    ?assertThrow(
+        {error, missing_idp_certificate},
+        emqx_dashboard_sso_saml:validate_signature_config(true, true, [])
+    ),
+    ?assertThrow(
+        {error, missing_idp_certificate},
+        emqx_dashboard_sso_saml:validate_signature_config(true, false, [])
+    ),
+    ?assertThrow(
+        {error, missing_idp_certificate},
+        emqx_dashboard_sso_saml:validate_signature_config(false, true, [])
+    ),
+    ok.
+
 t_maybe_load_cert_or_key(_Config) ->
     %% Test cert/key loading helper
     LoadFun = fun(Path) -> {loaded, Path} end,
@@ -221,6 +251,38 @@ t_callback_rejects_xxe_response(Config) ->
 
 t_callback_rejects_deflate_xxe_response(Config) ->
     assert_callback_rejects_xxe_response(Config, ?SAML_HTTP_REDIRECT_BINDING).
+
+t_callback_rejects_unsigned_response_by_default(_Config) ->
+    %% Reproduces the forged-assertion bypass: under the legacy (default)
+    %% security profile, idp_signs_envelopes/idp_signs_assertions used to
+    %% default to false, so this same unsigned, attacker-forged assertion
+    %% used to be accepted and would log the attacker in.
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertMatch(
+            #{idp_signs_envelopes := true, idp_signs_assertions := true},
+            checked_saml_config(#{})
+        )
+    end),
+    Username = <<"forged-attacker">>,
+    State = #{sp := SP} = signature_test_state(true, true),
+    Body = unsigned_response_body(SP, Username),
+    Result = emqx_dashboard_sso_saml:callback(#{body => Body}, State),
+    ?assertMatch({error, _}, Result),
+    ?assertEqual([], emqx_dashboard_admin:lookup_user(saml, Username)).
+
+t_callback_accepts_unsigned_response_with_explicit_escape_hatch(_Config) ->
+    %% The all-false escape hatch stays available for operators who
+    %% deliberately run an unsigned/test IdP.
+    Username = <<"unsigned-idp-user">>,
+    State = #{sp := SP} = signature_test_state(false, false),
+    Body = unsigned_response_body(SP, Username),
+    try
+        Result = emqx_dashboard_sso_saml:callback(#{body => Body}, State),
+        ?assertMatch({redirect, Username, _}, Result),
+        ?assertMatch([_], emqx_dashboard_admin:lookup_user(saml, Username))
+    after
+        _ = emqx_dashboard_admin:remove_user({saml, Username})
+    end.
 
 assert_callback_rejects_xxe_response(Config, SAMLEncoding) ->
     SecretPath = filename:join(?config(priv_dir, Config), "xxe-secret.txt"),
@@ -533,16 +595,56 @@ request(Method, Url, Body) ->
     emqx_mgmt_api_test_util:request_api(Method, Url, [], AuthHeader, Body, Opts).
 
 xxe_callback_state() ->
+    signature_test_state(false, false).
+
+%% @doc Build a callback state with the given signature-verification flags,
+%% for tests that exercise `emqx_dashboard_sso_saml:callback/2` directly.
+signature_test_state(IdpSignsEnvelopes, IdpSignsAssertions) ->
     DashboardAddr = list_to_binary(?BASE_URL),
     ConsumeURI = ?BASE_URL ++ "/api/v5/sso/saml/acs",
     MetadataURI = ?BASE_URL ++ "/api/v5/sso/saml/metadata",
     SP = #esaml_sp{
         consume_uri = ConsumeURI,
         metadata_uri = MetadataURI,
-        idp_signs_envelopes = false,
-        idp_signs_assertions = false
+        idp_signs_envelopes = IdpSignsEnvelopes,
+        idp_signs_assertions = IdpSignsAssertions
     },
     #{sp => SP, dashboard_addr => DashboardAddr}.
+
+%% @doc Build a well-formed but unsigned SAMLResponse body (HTTP-POST
+%% binding), for tests that exercise signature verification.
+unsigned_response_body(SP, Username) ->
+    Xml = iolist_to_binary([
+        <<"<?xml version=\"1.0\"?>">>,
+        <<"<samlp:Response ">>,
+        <<"xmlns:samlp=\"urn:oasis:names:tc:SAML:2.0:protocol\" ">>,
+        <<"xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" ">>,
+        <<"Version=\"2.0\" IssueInstant=\"2026-01-01T00:00:00Z\">">>,
+        <<"<samlp:Status><samlp:StatusCode ">>,
+        <<"Value=\"urn:oasis:names:tc:SAML:2.0:status:Success\"/>">>,
+        <<"</samlp:Status>">>,
+        <<"<saml:Assertion Version=\"2.0\" IssueInstant=\"2026-01-01T00:00:00Z\">">>,
+        <<"<saml:Issuer>emqx-test-idp</saml:Issuer>">>,
+        <<"<saml:Subject>">>,
+        <<"<saml:NameID>">>,
+        Username,
+        <<"</saml:NameID>">>,
+        <<"<saml:SubjectConfirmation Method=\"urn:oasis:names:tc:SAML:2.0:cm:bearer\">">>,
+        <<"<saml:SubjectConfirmationData Recipient=\"">>,
+        SP#esaml_sp.consume_uri,
+        <<"\" NotOnOrAfter=\"2099-01-01T00:00:00Z\"/>">>,
+        <<"</saml:SubjectConfirmation>">>,
+        <<"</saml:Subject>">>,
+        <<"<saml:Conditions NotOnOrAfter=\"2099-01-01T00:00:00Z\">">>,
+        <<"<saml:AudienceRestriction><saml:Audience>">>,
+        SP#esaml_sp.metadata_uri,
+        <<"</saml:Audience></saml:AudienceRestriction>">>,
+        <<"</saml:Conditions>">>,
+        <<"</saml:Assertion>">>,
+        <<"</samlp:Response>">>
+    ]),
+    Payload = base64:encode(Xml),
+    iolist_to_binary(uri_string:compose_query([{<<"SAMLResponse">>, Payload}])).
 
 xxe_callback_body(SecretPath, SAMLEncoding, #{sp := SP}) ->
     Xml = iolist_to_binary([
