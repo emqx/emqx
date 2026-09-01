@@ -25,39 +25,22 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
-%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
-%% unknown field, so audit logging is only enabled on the `ee' edition.
-audit_conf_spec() ->
-    case emqx_release:edition() of
-        ee ->
-            {emqx_conf, #{
-                config => #{log => #{audit => #{enable => true, level => info}}},
-                schema_mod => emqx_enterprise_schema
-            }};
-        ce ->
-            emqx_conf
-    end.
-
-audit_app_specs() ->
-    case emqx_release:edition() of
-        ee -> [emqx_audit];
-        ce -> []
-    end.
-
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             %% Needed by `emqx_modules`:
-            audit_conf_spec(),
+            {emqx_conf, #{
+                config => #{log => #{audit => #{enable => true, level => info}}},
+                %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+                %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
+                schema_mod => emqx_enterprise_schema
+            }},
             %% Manages `emqx_trace` server:
-            emqx_modules
-        ] ++
-            audit_app_specs() ++
-            [
-                emqx_management,
-                emqx_mgmt_api_test_util:emqx_dashboard()
-            ],
+            emqx_modules,
+            emqx_audit,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -66,19 +49,14 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(t_create_trace_audit_records_namespace, Config) ->
-    case emqx_release:edition() of
-        ce ->
-            {skip, "audit logging is an ee-only feature"};
-        ee ->
-            ok = snabbkaffe:start_trace(),
-            emqx_trace:clear(),
-            ok = emqx_hooks:add(
-                'namespace.resource_pre_create',
-                {?MODULE, mark_ns1_managed, []},
-                1000
-            ),
-            Config
-    end;
+    ok = snabbkaffe:start_trace(),
+    emqx_trace:clear(),
+    ok = emqx_hooks:add(
+        'namespace.resource_pre_create',
+        {?MODULE, mark_ns1_managed, []},
+        1000
+    ),
+    Config;
 init_per_testcase(t_namespaced_user_cross_ns_isolation, Config) ->
     ok = snabbkaffe:start_trace(),
     emqx_trace:clear(),

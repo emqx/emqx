@@ -32,11 +32,6 @@ groups() ->
 init_per_testcase(t_authenticator_fail, Config) ->
     meck:expect(emqx_authn_proto_v1, lookup_from_all_nodes, 3, [{error, {exception, badarg}}]),
     init_per_testcase(default, Config);
-init_per_testcase(t_authenticator_users_audit_records_namespace, Config) ->
-    case emqx_release:edition() of
-        ee -> init_per_testcase(default, Config);
-        ce -> {skip, "audit logging is an ee-only feature"}
-    end;
 init_per_testcase(_Case, Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [?CONF_NS_ATOM],
@@ -55,40 +50,23 @@ end_per_testcase(t_authenticator_fail, Config) ->
 end_per_testcase(_, Config) ->
     Config.
 
-%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
-%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
-%% unknown field, so audit logging is only enabled on the `ee' edition.
-audit_conf_spec() ->
-    case emqx_release:edition() of
-        ee ->
-            {emqx_conf, #{
-                config => "log.audit { enable = true, level = info }",
-                schema_mod => emqx_enterprise_schema
-            }};
-        ce ->
-            emqx_conf
-    end.
-
-audit_app_specs() ->
-    case emqx_release:edition() of
-        ee -> [emqx_audit];
-        ce -> []
-    end.
-
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            audit_conf_spec(),
+            {emqx_conf, #{
+                config => "log.audit { enable = true, level = info }",
+                %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+                %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
+                schema_mod => emqx_enterprise_schema
+            }},
             emqx,
             emqx_auth,
             %% to load schema
-            {emqx_auth_mnesia, #{start => false}}
-        ] ++
-            audit_app_specs() ++
-            [
-                emqx_management,
-                {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
-            ],
+            {emqx_auth_mnesia, #{start => false}},
+            emqx_audit,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
         #{
             work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
         }

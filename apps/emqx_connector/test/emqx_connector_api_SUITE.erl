@@ -102,67 +102,49 @@
 }).
 -define(KAFKA_BRIDGE(Name), ?KAFKA_BRIDGE(Name, ?CONNECTOR_NAME)).
 
--define(APPSPECS,
-    [
-        {emqx, #{
-            before_start => fun(App, AppConfig) ->
-                %% We need this in the tests because `emqx_cth_suite` does not start apps in
-                %% the exact same way as the release works: in the release,
-                %% `emqx_enterprise_schema` is the root schema that knows all root keys.  In
-                %% CTH, we need to manually load the schema below so that when
-                %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
-                %% the schema module for it.
-                emqx_config:init_load(emqx_connector_schema, <<"">>),
-                emqx_config:add_allowed_namespaced_config_root(<<"connectors">>),
-                ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
-                emqx_cth_suite:inhibit_config_loader(App, AppConfig)
-            end
-        }},
-        audit_conf_spec()
-    ] ++ audit_app_specs() ++
-        [
-            emqx_auth,
-            {emqx_connector, #{
-                after_start => fun() ->
-                    ok = emqx_hooks:add(
-                        'namespace.resource_pre_create',
-                        {?MODULE, on_namespace_resource_pre_create, []},
-                        ?HP_HIGHEST
-                    )
-                end
-            }},
-            emqx_bridge_http,
-            emqx_bridge,
-            emqx_rule_engine,
-            emqx_management
-        ]
-).
+-define(APPSPECS, [
+    {emqx, #{
+        before_start => fun(App, AppConfig) ->
+            %% We need this in the tests because `emqx_cth_suite` does not start apps in
+            %% the exact same way as the release works: in the release,
+            %% `emqx_enterprise_schema` is the root schema that knows all root keys.  In
+            %% CTH, we need to manually load the schema below so that when
+            %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
+            %% the schema module for it.
+            emqx_config:init_load(emqx_connector_schema, <<"">>),
+            emqx_config:add_allowed_namespaced_config_root(<<"connectors">>),
+            ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
+            emqx_cth_suite:inhibit_config_loader(App, AppConfig)
+        end
+    }},
+    {emqx_conf, #{
+        config => #{log => #{audit => #{enable => true, level => info}}},
+        %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+        %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
+        schema_mod => emqx_enterprise_schema
+    }},
+    emqx_auth,
+    emqx_audit,
+    {emqx_connector, #{
+        after_start => fun() ->
+            ok = emqx_hooks:add(
+                'namespace.resource_pre_create',
+                {?MODULE, on_namespace_resource_pre_create, []},
+                ?HP_HIGHEST
+            )
+        end
+    }},
+    emqx_bridge_http,
+    emqx_bridge,
+    emqx_rule_engine,
+    emqx_management
+]).
 
 -define(APPSPEC_DASHBOARD,
     {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
 ).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
-
-%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
-%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
-%% unknown field, so audit logging is only enabled on the `ee' edition.
-audit_conf_spec() ->
-    case emqx_release:edition() of
-        ee ->
-            {emqx_conf, #{
-                config => #{log => #{audit => #{enable => true, level => info}}},
-                schema_mod => emqx_enterprise_schema
-            }};
-        ce ->
-            emqx_conf
-    end.
-
-audit_app_specs() ->
-    case emqx_release:edition() of
-        ee -> [emqx_audit];
-        ce -> []
-    end.
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -228,15 +210,7 @@ end_per_group(_, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)),
     ok.
 
-init_per_testcase(t_connector_audit_records_namespace = TestCase, Config) ->
-    case emqx_release:edition() of
-        ee -> init_per_testcase_1(TestCase, Config);
-        ce -> {skip, "audit logging is an ee-only feature"}
-    end;
 init_per_testcase(TestCase, Config) ->
-    init_per_testcase_1(TestCase, Config).
-
-init_per_testcase_1(TestCase, Config) ->
     case ?config(cluster_nodes, Config) of
         undefined ->
             init_mocks(TestCase);
