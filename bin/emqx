@@ -237,6 +237,9 @@ if [ -f "$RELUP_PATH/current" ]; then
     exec "$RELUP_PATH/$TARGET_VSN"/bin/emqx "$@"
 fi
 
+# Turn off debug: the sourced files may set secrets such as
+# EMQX_NODE_COOKIE, which must not be traced by 'set -x'.
+set +x
 # shellcheck disable=SC1090,SC1091
 . "$RUNNER_ROOT_DIR"/releases/emqx_vars
 
@@ -249,9 +252,6 @@ export IS_ENTERPRISE
 
 ## Boot-time environment variables (EMQX_FEATURES, EMQX_SECURITY_PROFILE, ...).
 ## The file is optional. Values in the file override the inherited environment.
-# Turn off debug: the file may set secrets such as EMQX_NODE__COOKIE,
-# which must not be traced by 'set -x'.
-set +x
 if [ -f "$EMQX_ETC_DIR/emqx.env" ]; then
     set -a
     # shellcheck disable=SC1090,SC1091
