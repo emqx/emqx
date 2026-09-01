@@ -1177,8 +1177,12 @@ t_metrics(_Config) ->
     ),
     ?assertEqual(10, ReceivedMessages1 - ReceivedMessages0),
     ?assertEqual(10, InsertedMessages1 - InsertedMessages0),
-    #{received_messages := #{current := Current}} = emqx_mq_metrics:get_rates(ds),
-    ?assert(Current > 0),
+    %% The rate is recomputed by the metrics worker on its sampling tick, so it
+    %% stays at 0 until a tick lands after the messages are counted.
+    ?retry(100, 30, begin
+        #{received_messages := #{current := Current}} = emqx_mq_metrics:get_rates(ds),
+        ?assert(Current > 0)
+    end),
 
     %% Verify that other accessors work
     ?assert(is_integer(emqx_mq_metrics:get_quota_buffer_inbox_size())),
