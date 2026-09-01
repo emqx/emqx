@@ -22,6 +22,7 @@
     lookup_broker/1,
     node_info/0,
     node_info/1,
+    unreachable_node_info/1,
     broker_info/0,
     broker_info/1
 ]).
@@ -132,7 +133,27 @@ list_nodes() ->
     %% all stopped core nodes
     Stopped = emqx:cluster_nodes(stopped),
     DownNodes = lists:map(fun stopped_node_info/1, Stopped),
-    [{Node, Info} || #{node := Node} = Info <- node_info(Running)] ++ DownNodes.
+    running_node_info(Running) ++ DownNodes.
+
+%% A node that was in `cluster_nodes(running)' but did not answer `node_info/0'
+%% is reported as `unreachable' rather than left out. Dropping it made a cluster
+%% view where a node stopped answering indistinguishable from one where a node
+%% was removed, which is the condition the view exists to show.
+%%
+%% `erpc:multicall/5' answers in request order and `unwrap_erpc/1' maps over
+%% that list, so zipping the two recovers which node produced which answer.
+running_node_info(Nodes) ->
+    lists:zipwith(fun node_info_entry/2, Nodes, node_info(Nodes)).
+
+node_info_entry(_Node, #{node := Node} = Info) ->
+    {Node, Info};
+%% Anything that is not a node report is treated as no answer. The list
+%% comprehension this replaced dropped every shape it did not match, so a
+%% narrower match here would turn a surprise -- an older node answering with a
+%% map that has no `node` key, say -- from a missing row into a 500 for the
+%% whole endpoint.
+node_info_entry(Node, _NotANodeReport) ->
+    {Node, unreachable_node_info(Node)}.
 
 lookup_node(Node) ->
     [Info] = node_info([Node]),
@@ -200,6 +221,14 @@ node_info(Nodes) ->
 %% The schema marks every other `node_info` field as optional.
 stopped_node_info(Node) ->
     {Node, #{node => Node, node_status => 'stopped', role => core}}.
+
+%% As above, minus `role': `cluster_nodes(stopped)' yields core nodes only, so
+%% `stopped_node_info/1' can name the role, but a running node that stopped
+%% answering may be either, and `role' comes from the node's own
+%% `mria_rlog:role()'. Reporting a guess is worse than omitting an optional
+%% field.
+unreachable_node_info(Node) ->
+    #{node => Node, node_status => 'unreachable'}.
 
 %% Hide cpu stats if os_check is not supported.
 vm_stats() ->

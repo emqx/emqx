@@ -195,7 +195,7 @@ fields(node_info) ->
             )},
         {node_status,
             mk(
-                enum(['running', 'stopped']),
+                enum(['running', 'stopped', 'unreachable']),
                 #{desc => ?DESC("node_status"), example => "running"}
             )},
         {otp_release,
@@ -281,8 +281,14 @@ list_nodes(#{}) ->
     NodesInfo = [format(NodeInfo) || {_Node, NodeInfo} <- emqx_mgmt:list_nodes()],
     {200, NodesInfo}.
 
+%% `emqx_mgmt:lookup_node/1` answers `{error, Reason}` for a node that passed
+%% the membership check but did not report. `format/1` takes a map only, so that
+%% reached the client as a 500. Report it the way `GET /nodes` does instead.
 get_node(Node) ->
-    format(emqx_mgmt:lookup_node(Node)).
+    case emqx_mgmt:lookup_node(Node) of
+        Info when is_map(Info) -> format(Info);
+        {error, _Reason} -> format(emqx_mgmt:unreachable_node_info(Node))
+    end.
 
 %%--------------------------------------------------------------------
 %% internal function
