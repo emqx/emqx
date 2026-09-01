@@ -234,8 +234,13 @@ unset, and `<<"bind">>` for a bind that already has an explicit address.
 """.
 t_listen_on_from(_Config) ->
     emqx_common_test_helpers:clear_default_address(),
-    ?assertEqual(<<"0.0.0.0">>, emqx_default_address:resolved_from(mqtt)),
-    ?assertEqual(<<"bind">>, emqx_default_address:listen_on_from(mqtt, {{1, 2, 3, 4}, 1883})),
+    emqx_common_test_helpers:with_security_profile(legacy, fun() ->
+        emqx_default_address:clear(),
+        ?assertEqual(<<"0.0.0.0">>, emqx_default_address:resolved_from(mqtt)),
+        ?assertEqual(
+            <<"bind">>, emqx_default_address:listen_on_from(mqtt, {{1, 2, 3, 4}, 1883})
+        )
+    end),
     with_address("loopback", fun() ->
         ?assertEqual(<<"127.0.0.1">>, emqx_default_address:resolved_from(mqtt)),
         ?assertEqual(<<"127.0.0.1">>, emqx_default_address:listen_on_from(mqtt, 1883)),
