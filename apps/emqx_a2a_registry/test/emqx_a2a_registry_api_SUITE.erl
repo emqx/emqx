@@ -42,12 +42,13 @@ groups() ->
 init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx_conf,
+            {emqx_conf, #{config => #{log => #{audit => #{enable => true, level => info}}}}},
             {emqx_retainer, #{
                 config => #{<<"retainer">> => #{<<"enable">> => true}}
             }},
             {emqx_a2a_registry, #{config => #{<<"a2a_registry">> => #{<<"enable">> => true}}}},
             emqx_mt,
+            emqx_audit,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -130,6 +131,35 @@ register_card(OrgId0, UnitId0, AgentId0, Card, TCConfig) ->
     URL = emqx_mgmt_api_test_util:api_path(["a2a", "cards", "card", OrgId, UnitId, AgentId]),
     Body = #{<<"card">> => Card},
     simple_request(with_auth_header(#{method => post, url => URL, body => Body}, TCConfig)).
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs - SleepMs)
+    end.
+
+audit_entries_since(OperationId, StartAt) ->
+    URL = emqx_mgmt_api_test_util:api_path(["audit"]),
+    QueryParams = #{
+        <<"operation_id">> => OperationId,
+        <<"gte_created_at">> => integer_to_binary(StartAt),
+        <<"limit">> => <<"100">>
+    },
+    {200, #{<<"data">> := Data}} =
+        simple_request(#{method => get, url => URL, query_params => QueryParams}),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
 
 update_config(Path, Value, ValueToRestore) ->
     on_exit(fun() ->
@@ -237,6 +267,33 @@ t_crud(TCConfig) when is_list(TCConfig) ->
     ?assertMatch({400, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"not a json">>, TCConfig)),
     ?assertMatch({204, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"{}">>, TCConfig)),
 
+    ok.
+
+-doc """
+Regression test for #18653/#18664's class of bug: audit records for a
+namespaced a2a-registry operation must identify the namespace, both when a
+namespaced actor registers/deletes its own card (implicit own-namespace, no
+`?ns=' at all) and when a global admin targets a different namespace
+explicitly.
+""".
+t_register_delete_audit_records_namespace(TCConfig) ->
+    StartAt = erlang:system_time(microsecond),
+    Ns = <<"audit_ns">>,
+    _ = emqx_mt_config:create_managed_ns(Ns),
+    NsAuthHeader = ensure_namespaced_api_key(Ns),
+    TCConfigNs = [{auth_header, NsAuthHeader} | TCConfig],
+
+    Card = sample_card_bin(#{}),
+    %% Global admin registers a global card (implicit global namespace).
+    ?assertMatch({204, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, Card, TCConfig)),
+    %% Namespaced actor registers its own card (implicit own-namespace, no `?ns=').
+    ?assertMatch({204, _}, register_card(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2, Card, TCConfigNs)),
+
+    Entries = wait_for_audit_entries(
+        <<"/a2a/cards/card/:org_id/:unit_id/:agent_id">>, StartAt, 2, 2000
+    ),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, Ns]), Namespaces),
     ok.
 
 -doc """
