@@ -135,6 +135,13 @@ end_per_testcase(TestCase, _Config) when
     emqx_bridge_v2_testlib:delete_all_bridges(),
     emqx_bridge_v2_testlib:delete_all_connectors(),
     emqx_common_test_helpers:call_janitor(),
+    %% Stop the snabbkaffe supervision tree deterministically.
+    %% snabbkaffe:start_trace() calls snabbkaffe_sup:start_link() from the
+    %% calling process, so the tree is linked to whichever case process
+    %% started it first and dies with it asynchronously. A later case's
+    %% ?check_trace can attach to the still-registered old collector and
+    %% lose it mid-case; flush_trace then fails with noproc.
+    ok = snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, Config) ->
     case ?config(http_server, Config) of
@@ -144,6 +151,7 @@ end_per_testcase(_TestCase, Config) ->
     emqx_bridge_v2_testlib:delete_all_bridges(),
     emqx_bridge_v2_testlib:delete_all_connectors(),
     emqx_common_test_helpers:call_janitor(),
+    ok = snabbkaffe:stop(),
     ok.
 
 %%------------------------------------------------------------------------------

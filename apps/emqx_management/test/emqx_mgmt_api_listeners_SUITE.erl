@@ -9,8 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(PORT(Base), (Base + ?LINE)).
--define(PORT, ?PORT(20000)).
+-define(PORT, emqx_common_test_helpers:select_free_port(tcp)).
 
 all() ->
     [
@@ -155,7 +154,7 @@ t_tcp_crud_listeners_by_id(Config) when is_list(Config) ->
     MinListenerId = <<"tcp:min">>,
     BadId = <<"tcp:bad">>,
     Type = <<"tcp">>,
-    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, 31000).
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
 
 t_ssl_crud_listeners_by_id(Config) when is_list(Config) ->
     ListenerId = <<"ssl:default">>,
@@ -163,7 +162,7 @@ t_ssl_crud_listeners_by_id(Config) when is_list(Config) ->
     MinListenerId = <<"ssl:min">>,
     BadId = <<"ssl:bad">>,
     Type = <<"ssl">>,
-    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, 32000).
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
 
 t_ws_crud_listeners_by_id(Config) when is_list(Config) ->
     ListenerId = <<"ws:default">>,
@@ -171,7 +170,7 @@ t_ws_crud_listeners_by_id(Config) when is_list(Config) ->
     MinListenerId = <<"ws:min">>,
     BadId = <<"ws:bad">>,
     Type = <<"ws">>,
-    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, 33000).
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
 
 t_wss_crud_listeners_by_id(Config) when is_list(Config) ->
     ListenerId = <<"wss:default">>,
@@ -179,7 +178,7 @@ t_wss_crud_listeners_by_id(Config) when is_list(Config) ->
     MinListenerId = <<"wss:min">>,
     BadId = <<"wss:bad">>,
     Type = <<"wss">>,
-    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, 34000).
+    crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type).
 
 t_api_listeners_list_not_ready(Config) when is_list(Config) ->
     ct:timetrap({seconds, 120}),
@@ -294,7 +293,7 @@ assert_config_load_not_done(Node) ->
     Prio = rpc:call(Node, emqx_app, get_config_loader, []),
     ?assertEqual(emqx, Prio, #{node => Node}).
 
-crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, PortBase) ->
+crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type) ->
     OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
     NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
     OriginListener = request(get, OriginPath, [], []),
@@ -302,8 +301,8 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, Port
     %% create with full options
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
-    Port1 = integer_to_binary(?PORT(PortBase)),
-    Port2 = integer_to_binary(?PORT(PortBase)),
+    Port1 = integer_to_binary(?PORT),
+    Port2 = integer_to_binary(?PORT),
     NewConf = OriginListener#{
         <<"id">> => NewListenerId,
         <<"bind">> => <<"0.0.0.0:", Port1/binary>>

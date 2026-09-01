@@ -586,19 +586,10 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     ),
     ConnectSuccessCnt = counters:get(ConnectSuccessCntr, 1),
     ?assert(ConnectSuccessCnt > 0),
-    EventsThatShouldHaveHappened = lists:flatten(
-        lists:duplicate(
-            ConnectSuccessCnt,
-            [
-                emqx_cm_connected_client_count_inc,
-                emqx_cm_connected_client_count_dec
-            ]
-        )
-    ),
-    wait_for_events(fun() -> ok end, EventsThatShouldHaveHappened, 10000, infinity),
-    %% It must be 0 again because we got enough
-    %% emqx_cm_connected_client_count_dec events
-    ?assertEqual(0, emqx_cm:get_connected_client_count()),
+    %% A wait budgeted on kind-only event counts can be satisfied before every
+    %% channel has actually fully deregistered, so poll live state instead of
+    %% asserting once right after the event wait.
+    ?retry(100, 20, ?assertEqual(0, emqx_cm:get_connected_client_count())),
     %% connecting again, this time, retry until server is not busy
     {{ok, _}, {ok, [_]}} =
         wait_for_events(

@@ -35,11 +35,13 @@ json_status() {
     fi
 }
 
-## Check if the API docs are available
+## Check if the API docs are available.
+## The dashboard serves /status from the initial dispatch and installs the
+## API routes later, so /api-docs can still return 404 here.
 check_api_docs() {
     local url="$BASE_URL/api-docs/index.html"
+    local attempts=30
     local status
-    local attempts=5
     while [ $attempts -gt 0 ]; do
         status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
         if [ "$status" = "200" ]; then
@@ -49,10 +51,7 @@ check_api_docs() {
             echo "emqx return non-200 responses($status) on $url"
             exit 1
         fi
-        if [ $attempts -gt 1 ]; then
-            echo "emqx returned 404 on $url, waiting 1s for routes to be registered... ($((6 - attempts))/5)"
-            sleep 1
-        fi
+        sleep 1
         attempts=$((attempts - 1))
     done
     echo "emqx return non-200 responses($status) on $url after retries"

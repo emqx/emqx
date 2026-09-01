@@ -517,6 +517,24 @@ t_handle_in_frame_error(_) ->
     {ok, DisconnectedChan} =
         emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, DisconnectedChan).
 
+%% A bare-atom frame-error reason (e.g. malformed_properties) in conn_state=idle
+%% must close the connection, not crash the connection process.
+t_handle_in_frame_error_idle_atom_reason(_) ->
+    IdleChan = channel(#{conn_state => idle}),
+    ?assertMatch(
+        {shutdown, #{shutdown_count := frame_error, reason := malformed_properties}, _Chan},
+        emqx_channel:handle_in({frame_error, malformed_properties}, IdleChan)
+    ),
+
+    %% conn_state=connecting with an atom reason was already safe; keep it that way.
+    ConnackPacket = ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
+    ConnectingChan = channel(#{conn_state => connecting}),
+    ?assertMatch(
+        {shutdown, #{shutdown_count := frame_error, reason := malformed_properties}, ConnackPacket,
+            _Chan},
+        emqx_channel:handle_in({frame_error, malformed_properties}, ConnectingChan)
+    ).
+
 t_handle_in_expected_packet(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
     {ok, [{outgoing, Packet}, {close, protocol_error}], _Chan} =
