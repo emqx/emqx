@@ -186,25 +186,48 @@ init_per_group(sources, Config) ->
 init_per_group(_Group, Config) ->
     Config.
 
+%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
+%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
+%% unknown field, so audit logging is only enabled on the `ee' edition.
+audit_conf_spec() ->
+    case emqx_release:edition() of
+        ee ->
+            {emqx_conf, #{
+                config => #{log => #{audit => #{enable => true, level => info}}},
+                schema_mod => emqx_enterprise_schema
+            }};
+        ce ->
+            emqx_conf
+    end.
+
+audit_app_specs() ->
+    case emqx_release:edition() of
+        ee -> [emqx_audit];
+        ce -> []
+    end.
+
 app_specs_without_dashboard() ->
     [
-        emqx_conf,
+        audit_conf_spec(),
         emqx,
-        emqx_auth,
-        emqx_management,
-        emqx_connector,
-        emqx_bridge_mqtt,
-        {emqx_bridge, #{
-            after_start => fun() ->
-                ok = emqx_hooks:add(
-                    'namespace.resource_pre_create',
-                    {?MODULE, on_namespace_resource_pre_create, []},
-                    ?HP_HIGHEST
-                )
-            end
-        }},
-        emqx_rule_engine
-    ].
+        emqx_auth
+    ] ++
+        audit_app_specs() ++
+        [
+            emqx_management,
+            emqx_connector,
+            emqx_bridge_mqtt,
+            {emqx_bridge, #{
+                after_start => fun() ->
+                    ok = emqx_hooks:add(
+                        'namespace.resource_pre_create',
+                        {?MODULE, on_namespace_resource_pre_create, []},
+                        ?HP_HIGHEST
+                    )
+                end
+            }},
+            emqx_rule_engine
+        ].
 
 mk_cluster(Name, Config) ->
     mk_cluster(Name, Config, #{}).
@@ -275,7 +298,15 @@ init_per_testcase(TestCase, Config) when
         BridgeConfig
         | Config
     ];
+init_per_testcase(t_source_audit_records_namespace = TestCase, Config) ->
+    case emqx_release:edition() of
+        ee -> init_per_testcase_1(TestCase, Config);
+        ce -> {skip, "audit logging is an ee-only feature"}
+    end;
 init_per_testcase(TestCase, Config) ->
+    init_per_testcase_1(TestCase, Config).
+
+init_per_testcase_1(TestCase, Config) ->
     setup_auth_header_fn(Config),
     case ?config(cluster_nodes, Config) of
         undefined ->
@@ -3121,6 +3152,111 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     ?assertMatch({200, []}, list(TCConfigNS2)),
 
     ok.
+
+-doc """
+Regression test for #18653/#18664's class of bug: audit records for a
+source creation must identify the namespace, both for a global admin's
+implicit-global source and a namespaced admin's implicit-own-namespace
+source (no `?ns=' in either case).
+""".
+t_source_audit_records_namespace(matrix) ->
+    [[single, sources]];
+t_source_audit_records_namespace(TCConfig0) when is_list(TCConfig0) ->
+    clear_mocks(TCConfig0),
+    Node =
+        case proplists:get_value(node, TCConfig0) of
+            undefined -> node();
+            N -> N
+        end,
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfig = [{node, Node}, {api_key, APIKey} | TCConfig0],
+    AuthHeaderGlobal = emqx_common_test_http:auth_header(APIKey),
+    TCConfigGlobal = [{auth_header, AuthHeaderGlobal} | TCConfig],
+    Ns = <<"bridge_audit_ns">>,
+    AuthHeaderNs = ensure_namespaced_api_key(Ns, TCConfig),
+    TCConfigNs = [{auth_header, AuthHeaderNs} | TCConfig],
+
+    MQTTPort = get_tcp_mqtt_port(Node),
+    Server = <<"127.0.0.1:", (integer_to_binary(MQTTPort))/binary>>,
+    ConnectorType = <<"mqtt">>,
+    ConnectorNameGlobal = <<"conn_audit_global">>,
+    ConnectorNameNs = <<"conn_audit_ns">>,
+    ConnectorConfigGlobal = source_connector_create_config(#{<<"server">> => Server}),
+    ConnectorConfigNs = source_connector_create_config(#{<<"server">> => Server}),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorNameGlobal, ConnectorConfigGlobal, TCConfigGlobal
+        ),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorNameNs, ConnectorConfigNs, TCConfigNs
+        ),
+
+    StartAt = erlang:system_time(microsecond),
+    SourceNameGlobal = <<"src_audit_global">>,
+    SourceConfigGlobal = source_create_config(#{
+        <<"name">> => SourceNameGlobal,
+        <<"connector">> => ConnectorNameGlobal
+    }),
+    {201, _} = ?ON(
+        Node,
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["sources"]),
+            body => SourceConfigGlobal,
+            auth_header => AuthHeaderGlobal
+        })
+    ),
+    SourceNameNs = <<"src_audit_ns">>,
+    SourceConfigNs = source_create_config(#{
+        <<"name">> => SourceNameNs,
+        <<"connector">> => ConnectorNameNs
+    }),
+    {201, _} = ?ON(
+        Node,
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["sources"]),
+            body => SourceConfigNs,
+            auth_header => AuthHeaderNs
+        })
+    ),
+
+    Entries = ?ON(Node, wait_for_audit_entries(<<"/sources">>, StartAt, 2, 2000)),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, Ns]), Namespaces),
+    ok.
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs - SleepMs)
+    end.
+
+audit_entries_since(OperationId, StartAt) ->
+    URL = emqx_mgmt_api_test_util:api_path(["audit"]),
+    QueryParams = #{
+        <<"operation_id">> => OperationId,
+        <<"gte_created_at">> => integer_to_binary(StartAt),
+        <<"limit">> => <<"100">>
+    },
+    {200, #{<<"data">> := Data}} =
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get, url => URL, query_params => QueryParams
+        }),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
 
 -doc """
 Checks that we correctly load and unload connectors already in the config when a node
