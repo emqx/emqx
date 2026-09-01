@@ -65,6 +65,35 @@ cookie_not_in_vm_args_test() ->
     ?assertEqual(undefined, proplists:get_value('-setcookie', VMArgs)),
     ok.
 
+%% `node.dirty_io_schedulers = auto' (the default) tracks the resolved
+%% `node.schedulers' value, floored at 2 and capped at the historical fixed
+%% default of 8 -- see `resolve_dirty_io_schedulers/2'.
+dirty_io_schedulers_test() ->
+    ensure_acl_conf(),
+    Cases = [
+        %% {node.schedulers, node.dirty_io_schedulers, expected "+SDio"}
+        {2, auto, "2"},
+        {1, auto, "2"},
+        {20, auto, "8"},
+        {2, 5, "5"}
+    ],
+    lists:foreach(
+        fun({Schedulers, DirtyIo, Expected}) ->
+            ?assertEqual(Expected, get_dirty_io_schedulers_from_conf(Schedulers, DirtyIo))
+        end,
+        Cases
+    ),
+    ok.
+
+get_dirty_io_schedulers_from_conf(Schedulers, DirtyIo) ->
+    Extra = to_bin("node { schedulers = ~p, dirty_io_schedulers = ~p }", [Schedulers, DirtyIo]),
+    BaseConf = to_bin(?BASE_CONF, [["emqx1@127.0.0.1"]]),
+    ConfFile = <<BaseConf/binary, Extra/binary>>,
+    {ok, Conf} = hocon:binary(ConfFile, #{format => richmap}),
+    ConfList = hocon_tconf:generate(emqx_conf_schema, Conf),
+    VMArgs = proplists:get_value(vm_args, ConfList),
+    proplists:get_value('+SDio', VMArgs).
+
 %% erlfmt-ignore
 -define(OUTDATED_LOG_CONF,
     "
