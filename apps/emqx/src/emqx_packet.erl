@@ -381,6 +381,10 @@ check_client_id(
     _Opts
 ) ->
     ok;
+%% Client ID length is checked against `max_clientid_len` for every MQTT version.
+%% The MQTT 3.1 rule of 1..23 bytes (MQTT-3.1.3-5) is a "MAY reject", so EMQX does
+%% not enforce 23 separately for v3 clients; set `max_clientid_len` to 23 to enforce
+%% it. `strict_mode` does not affect this check. See emqx/emqx#17914 and emqx/emqx#18674.
 check_client_id(
     #mqtt_packet_connect{clientid = ClientId},
     #{max_clientid_len := MaxLen} = _Opts
