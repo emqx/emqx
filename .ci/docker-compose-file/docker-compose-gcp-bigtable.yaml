@@ -12,7 +12,7 @@ services:
 
   gcp-emulator-bigtable:
     container_name: gcp-emulator-bigtable
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:533.0.0-emulators
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:582.0.0-emulators
     restart: always
     expose:
       - "8086"
