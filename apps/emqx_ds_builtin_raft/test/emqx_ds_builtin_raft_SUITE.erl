@@ -1467,7 +1467,9 @@ do_kill_leader(DB, Shard, Reason, RetriesLeft) ->
         undefined when RetriesLeft =< 0 ->
             error(could_not_find_leader_to_kill);
         undefined ->
-            ct:sleep(10),
+            %% don't use `ct:sleep`; this runs on peer node, where test_server_ctrl
+            %% doesn't exist.
+            timer:sleep(10),
             do_kill_leader(DB, Shard, Reason, RetriesLeft - 1);
         Pid when is_pid(Pid) ->
             exit(Pid, Reason)

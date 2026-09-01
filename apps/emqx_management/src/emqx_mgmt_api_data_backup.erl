@@ -206,7 +206,7 @@ fields(export_request_body) ->
             )}
     ];
 fields(import_request_body) ->
-    [field_node(false), field_filename(true)];
+    [field_node(false), field_filename(true), field_allow_security_profile_mismatch()];
 fields(data_backup_file) ->
     [
         field_filename(true),
@@ -234,6 +234,14 @@ field_filename(IsRequired, Meta) ->
         ?HOCON(binary(), Meta#{
             desc => ?DESC("filename"),
             required => IsRequired
+        })}.
+
+field_allow_security_profile_mismatch() ->
+    {allow_security_profile_mismatch,
+        ?HOCON(boolean(), #{
+            desc => ?DESC("allow_security_profile_mismatch"),
+            required => false,
+            default => false
         })}.
 
 %%------------------------------------------------------------------------------
@@ -276,18 +284,19 @@ data_export(post, #{body := Params0} = Req) ->
 data_import(post, #{body := #{<<"filename">> := Filename} = Body, query_string := QS} = Req) ->
     Namespace = op_namespace(Req, QS),
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 2),
+    AllowMismatch = maps:get(<<"allow_security_profile_mismatch">>, Body, false),
     case safe_parse_node(Body, Nodes) of
         {error, Msg} ->
             {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
-            data_import_checked(Namespace, FileNode, Filename, Req)
+            data_import_checked(Namespace, FileNode, Filename, AllowMismatch, Req)
     end.
 
 %% Namespaced imports are scoped to the caller's own namespace and never write
 %% mnesia tables (only that namespace's configuration), so the sensitive-table
 %% guard -- which protects the global mnesia tables -- does not apply. Global
 %% imports keep the guard.
-data_import_checked(?global_ns, FileNode, Filename, Req) ->
+data_import_checked(?global_ns, FileNode, Filename, AllowMismatch, Req) ->
     case check_no_sensitive_tables(Filename, auth_meta(Req)) of
         {forbidden, Sets} ->
             {403, #{code => 'FORBIDDEN', message => import_refused_msg(Sets)}};
@@ -297,14 +306,14 @@ data_import_checked(?global_ns, FileNode, Filename, Req) ->
                 message => emqx_mgmt_data_backup:format_error(Reason)
             }};
         ok ->
-            do_data_import(FileNode, Filename, ?global_ns)
+            do_data_import(FileNode, Filename, ?global_ns, AllowMismatch)
     end;
-data_import_checked(Namespace, FileNode, Filename, _Req) when is_binary(Namespace) ->
+data_import_checked(Namespace, FileNode, Filename, AllowMismatch, _Req) when is_binary(Namespace) ->
     %% Defense-in-depth: the same scope check runs at upload time, but stored
     %% files may predate it or have been placed by other means.
     case check_import_scope(Namespace, FileNode, Filename) of
         ok ->
-            do_data_import(FileNode, Filename, Namespace);
+            do_data_import(FileNode, Filename, Namespace, AllowMismatch);
         {forbidden, ForeignScopes} ->
             {403, #{
                 code => 'FORBIDDEN',
@@ -322,9 +331,12 @@ data_import_checked(Namespace, FileNode, Filename, _Req) when is_binary(Namespac
             }}
     end.
 
-do_data_import(FileNode, Filename, Namespace) ->
+do_data_import(FileNode, Filename, Namespace, AllowMismatch) ->
     CoreNode = core_node(FileNode),
-    Opts = emqx_utils_maps:put_if(#{}, namespace, Namespace, is_binary(Namespace)),
+    Opts0 = emqx_utils_maps:put_if(#{}, namespace, Namespace, is_binary(Namespace)),
+    Opts = emqx_utils_maps:put_if(
+        Opts0, allow_security_profile_mismatch, true, AllowMismatch =:= true
+    ),
     Res =
         try
             emqx_mgmt_data_backup_proto_v2:import_file(

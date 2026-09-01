@@ -1180,6 +1180,9 @@ do_t_unsubscribe_replay(UnackedQoS, Config) ->
     ),
     %% 3. Unsubscribe from the topic and disconnect:
     ?assertMatch({ok, _, _}, emqtt:unsubscribe(Sub, Topic1)),
+    %% UNSUBACK precedes the route teardown, so without this the "5"/"6"
+    %% publishes below can still reach the session and replay on reconnect.
+    ?retry(100, 20, ?assertEqual([], emqx_router:match_routes(Topic1))),
     ok = emqtt:disconnect(Sub),
     %% 5. Publish more messages to the disconnected topic:
     ok = publish(Topic1, <<"5">>, ?QOS_1),

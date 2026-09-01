@@ -131,7 +131,8 @@
 -type import_opts() :: #{
     mnesia_restore_mode => merge | snapshot,
     print_fun => fun((io:format(), [term()]) -> ok),
-    namespace => emqx_config:maybe_namespace()
+    namespace => emqx_config:maybe_namespace(),
+    allow_security_profile_mismatch => boolean()
 }.
 -type raw_config() :: #{binary() => any()}.
 -type mnesia_table_filter() :: fun((atom()) -> boolean()).
@@ -584,6 +585,19 @@ format_error({unsupported_version, ImportVersion}) ->
             [str(ImportVersion), str(emqx_release:version())]
         )
     );
+format_error({security_profile_mismatch, BackupProfile}) ->
+    str(
+        io_lib:format(
+            "backup was exported under the \"~s\" security profile, but this node runs the "
+            "\"hardened\" profile, whose stricter defaults can behave differently for restored "
+            "data: bare-port listener binds resolve to loopback, an authenticator chain left "
+            "empty or disabled denies every client, a restored dashboard account on the default "
+            "password can no longer log in, and authentication/authorization backend failures "
+            "now deny the operation. Override with allow_security_profile_mismatch to import "
+            "anyway.~n",
+            [BackupProfile]
+        )
+    );
 format_error({already_exists, BackupFilename}) ->
     str(io_lib:format("Backup file \"~s\" already exists", [BackupFilename]));
 format_error({bad_backup_file, Reason}) ->
@@ -722,7 +736,8 @@ do_export(BackupName, TarDescriptor, Opts) ->
     BackupTarName = tar(BackupName),
     Meta = #{
         version => emqx_release:version(),
-        edition => emqx_release:edition()
+        edition => emqx_release:edition(),
+        security_profile => emqx_security_profile:profile()
     },
     MetaBin = bin(hocon_pp:do(Meta, #{})),
     MetaFilename = filename:join(BackupBaseName, ?META_FILENAME),
@@ -905,6 +920,27 @@ validate([ValidatorFun | T], OkRes) ->
 validate([], OkRes) ->
     OkRes.
 
+%% Deliberately not part of `validate_backup/1''s validator list: that function
+%% also runs at upload time, before an import override can be in scope. Staging
+%% a backup for review must never require the override, so this check only runs
+%% from `do_import/2', which has `Opts' in scope.
+check_security_profile(Meta, Opts) ->
+    case maps:get(allow_security_profile_mismatch, Opts, false) of
+        true ->
+            ok;
+        false ->
+            case emqx_security_profile:profile() of
+                hardened ->
+                    BackupProfile = maps:get(<<"security_profile">>, Meta, <<"legacy">>),
+                    case BackupProfile of
+                        <<"hardened">> -> ok;
+                        _ -> {error, {security_profile_mismatch, BackupProfile}}
+                    end;
+                legacy ->
+                    ok
+            end
+    end.
+
 check_edition(BackupEdition) when BackupEdition =:= <<"ce">>; BackupEdition =:= <<"ee">> ->
     Edition = bin(emqx_release:edition()),
     case {BackupEdition, Edition} of
@@ -956,7 +992,8 @@ do_import(BackupFilePath, Opts) ->
             {ok, BackupDir} ?= backup_dir(Namespace, BackupFilePath),
             ok ?= validate_backup_basename(BackupFilePath),
             ok ?= extract_backup(Namespace, BackupFilePath),
-            {ok, _} ?= validate_backup(BackupDir),
+            {ok, Meta} ?= validate_backup(BackupDir),
+            ok ?= check_security_profile(Meta, Opts),
             {ok, #{conf_errors := ConfErrors, mnesia_errors := MnesiaErrors}} ?=
                 do_import_for_namespace(Namespace, BackupDir, Opts),
             Result = #{db_errors => MnesiaErrors, config_errors => ConfErrors},

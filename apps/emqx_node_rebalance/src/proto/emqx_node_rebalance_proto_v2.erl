@@ -8,6 +8,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     available_nodes/1,
     evict_connections/2,
@@ -29,6 +30,9 @@
 
 introduced_in() ->
     "5.2.1".
+
+deprecated_since() ->
+    "6.3.0".
 
 -spec available_nodes([node()]) -> emqx_rpc:multicall_result(node()).
 available_nodes(Nodes) ->
