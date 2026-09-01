@@ -10,15 +10,15 @@
 ## such as `node.name` for `-name` and `node.cooke` for `-setcookie`.
 
 ## Sets the maximum number of simultaneously existing processes for this system.
-## Preferably set in `emqx.conf`,
+## Set via `node.process_limit` (and, by default, derived from `node.max_ports`) in `emqx.conf`.
 #+P 2097152
 
 ## Sets the maximum number of simultaneously existing ports for this system.
-## Preferably set in `emqx.conf`,
+## Set via `node.max_ports` in `emqx.conf`.
 #+Q 1048576
 
 ## Sets the maximum number of ETS tables
-## Preferably set in `emqx.conf`,
+## Set via `node.max_ets_tables` in `emqx.conf`.
 #+e 262144
 
 ## Sets the maximum number of atoms the virtual machine can handle.
@@ -38,9 +38,12 @@
 -stdlib restricted_shell emqx_restricted_shell
 
 ## Sets the distribution buffer busy limit (dist_buf_busy_limit) in kilobytes.
-## The default 1024 may not be sufficient when mnesia operations are intensive,
-##  and could result in busy_dist_port alarms.
-+zdbbl 32768
+## The Erlang default of 1024 may not be sufficient when mnesia operations are
+##  intensive, and could result in busy_dist_port alarms.
+## Set via `node.dist_buffer_size` in `emqx.conf` (default 8192). That
+##  config-derived value always overrides this line at boot, so this is
+##  commented out to avoid suggesting a 32768 default that never takes effect.
+#+zdbbl 32768
 
 ## Sets default scheduler hint for port parallelism.
 +spp true
@@ -71,13 +74,19 @@
 +IOt 4
 
 ## Sets the number of scheduler threads to create and scheduler threads to set online.
+## Set via `node.schedulers` in `emqx.conf` (default `auto`: the number of
+##  logical processors actually available to the VM, e.g. cgroup-limited).
 #+S 8:8
 
 ## Sets the number of dirty CPU scheduler threads to create and dirty CPU scheduler threads to set online.
+## Not exposed as a config key -- left unset, so it defaults to the online
+##  scheduler count (`+S`) already resolved above.
 #+SDcpu 8:8
 
 ## Sets the number of dirty I/O scheduler threads to create.
-+SDio 8
+## Set via `node.dirty_io_schedulers` in `emqx.conf` (default `auto`: tracks
+##  `node.schedulers`, floored at 2 and capped at 8).
+#+SDio 8
 
 ## Suggested stack size, in kilowords, for scheduler threads.
 #+sss 32
