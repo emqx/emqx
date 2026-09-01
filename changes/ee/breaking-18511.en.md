@@ -20,6 +20,7 @@ Authorization:
 - Subscriptions made on a client's behalf (REST API, CLI, auto-subscribe) are authorized like client subscriptions.
 - Delayed messages are re-authorized when they are published.
 - Authentication and authorization are interrupted when a hook callback crashes, instead of the crash being ignored.
+- Namespaced built-in database authorization rules are rejected when they conflict with explicit global rules, and a configured namespace no longer falls back to global rules.
 
 Other:
 
@@ -27,6 +28,7 @@ Other:
 - An ExHook failure denies the hooked action, and an unreachable ExHook server denies it rather than applying the configured `failed_action`.
 - Pre-approving a plugin installation requires a SHA-256 checksum, which the plugin package is verified against.
 - The node refuses to start with the default Erlang cookie.
+- Importing a data backup exported under `legacy` requires `--allow-security-profile-mismatch`, so the differences above are reviewed before they take effect.
 
 Set `EMQX_SECURITY_PROFILE=legacy` to retain the previous behaviour during migration.
 
