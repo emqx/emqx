@@ -1093,11 +1093,12 @@ t_self_can_rotate_when_admin_override_required(_Config) ->
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
-    Token = jwt(<<"u">>, test_password()),
-    ?assertMatch({ok, 204, _}, setup_own_mfa(Token)),
+    ?assertMatch({ok, 204, _}, setup_own_mfa(jwt(<<"u">>, test_password()))),
     %% The rotate must not have cleared the requirement.
     ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)),
-    {ok, 403, RespBody} = delete_own_mfa(Token),
+    %% Re-keying MFA invalidates the account's sessions, so the disable needs a
+    %% fresh token; reusing the one that authorized the rotate answers 401.
+    {ok, 403, RespBody} = delete_own_mfa(jwt(<<"u">>, test_password())),
     ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(RespBody)).
 
 %% Required by an administrator: self-disable is denied.
@@ -1129,9 +1130,9 @@ t_self_with_mfa_mgmt_still_required(_Config) ->
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
-    Token = jwt(<<"u">>, test_password()),
-    ?assertMatch({ok, 204, _}, setup_own_mfa(Token)),
-    {ok, 403, DeleteBody} = delete_own_mfa(Token),
+    ?assertMatch({ok, 204, _}, setup_own_mfa(jwt(<<"u">>, test_password()))),
+    %% Fresh token: the rotate above invalidated the account's sessions.
+    {ok, 403, DeleteBody} = delete_own_mfa(jwt(<<"u">>, test_password())),
     ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(DeleteBody)).
 
 %% A viewer with an explicitly emptied scope list still reaches its own
