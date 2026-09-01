@@ -1840,8 +1840,8 @@ resolve_namespace(Req, _Meta) ->
 log_ns(?global_ns) ->
     _ = minirest_handler:update_log_meta(#{namespace => <<"global">>}),
     ok;
-log_ns(NS) when is_binary(NS) ->
-    _ = minirest_handler:update_log_meta(#{namespace => NS}),
+log_ns(Ns) when is_binary(Ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => Ns}),
     ok.
 
 validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
