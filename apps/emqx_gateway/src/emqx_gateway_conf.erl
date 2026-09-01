@@ -404,9 +404,14 @@ pre_config_update(?GATEWAY, {update_gateway, GwName, Conf}, RawConf) ->
             badres_gateway(not_found, GwName);
         GwRawConf ->
             Conf1 = maps:without(?IGNORE_KEYS, Conf),
-            NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf1),
-            NConf1 = maps:merge(GwRawConf, NConf),
-            {ok, emqx_utils_maps:deep_put([GwName], RawConf, NConf1)}
+            case emqx_gateway_schema:deobfuscate(GwName, Conf1, GwRawConf) of
+                {ok, Conf2} ->
+                    NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf2),
+                    NConf1 = maps:merge(GwRawConf, NConf),
+                    {ok, emqx_utils_maps:deep_put([GwName], RawConf, NConf1)};
+                {error, _} = Error ->
+                    Error
+            end
     end;
 pre_config_update(?GATEWAY, {unload_gateway, GwName}, RawConf) ->
     {ok, maps:remove(GwName, RawConf)};
