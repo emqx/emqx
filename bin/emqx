@@ -50,6 +50,20 @@ die() {
     exit "$errno"
 }
 
+# Print the given arguments space-joined, with the value following
+# any -setcookie/--cookie flag masked.
+redact_cookie_args() {
+    local prev='' tok out=''
+    for tok in "$@"; do
+        case "$prev" in
+            -setcookie|--cookie) out="${out}****** " ;;
+            *) out="${out}${tok} " ;;
+        esac
+        prev="$tok"
+    done
+    printf '%s' "${out% }"
+}
+
 THIS_SCRIPT="$0"
 
 usage() {
@@ -410,6 +424,10 @@ remsh() {
     # transparently
     id="remsh$(gen_node_id)-${NAME}"
 
+    # Turn off debug (and keep it off through the exec below) so the
+    # cookie in the command arguments isn't traced by 'set -x'.
+    set +x
+
     # shellcheck disable=SC2086
     # Setup remote shell command to control node
     if [ "${EMQX_CONSOLE_FLAVOR:-erl}" = 'erl' ] ; then
@@ -455,9 +473,14 @@ call_nodetool() {
 
 # Control a node
 relx_nodetool() {
+    local ret=0
     command="$1"; shift
+    # Turn off debug so the cookie value isn't traced by 'set -x'.
+    set +x
     ERL_FLAGS="${ERL_FLAGS:-} $EPMD_ARGS -setcookie $COOKIE" \
-             call_nodetool "$NAME_TYPE" "$NAME" "$command" "$@"
+             call_nodetool "$NAME_TYPE" "$NAME" "$command" "$@" || ret=$?
+    if [ "$DEBUG" -gt 0 ]; then set -x; fi
+    return $ret
 }
 
 call_hocon() {
@@ -501,6 +524,10 @@ if [ -n "${EMQX_NODE_NAME:-}" ]; then
     unset EMQX_NODE_NAME
 fi
 
+# Turn off debug: the cookie value must not be traced by 'set -x',
+# and the ps output below can be quite noisy.
+set +x
+
 ## Resolve Erlang cookie.
 if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
     ## To be backward compatible, read and unset EMQX_NODE_COOKIE
@@ -508,11 +535,8 @@ if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
     unset EMQX_NODE_COOKIE
 fi
 
-# Turn off debug as the ps output can be quite noisy
-set +x
-
 PS_LINE="$(find_emqx_process)"
-logdebug "PS_LINE=$PS_LINE"
+logdebug "PS_LINE=$(echo -e "$PS_LINE" | sed -E 's/(-setcookie) +[^ ]+/\1 ******/g')"
 RUNNING_NODES_COUNT="$(echo -e "$PS_LINE" | sed '/^\s*$/d' | wc -l)"
 [ "$RUNNING_NODES_COUNT" -gt 1 ] && logdebug "More than one running node found: count=$RUNNING_NODES_COUNT"
 
@@ -584,13 +608,16 @@ else
         EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
     fi
 fi
-logdebug "EMQX_BOOT_CONFIGS: $EMQX_BOOT_CONFIGS"
+logdebug "EMQX_BOOT_CONFIGS: $(echo -e "$EMQX_BOOT_CONFIGS" | sed -E 's/^(node\.cookie|license\.key)=.*/\1=******/')"
 [[ "$DEBUG" -gt 0 ]] && set -x
 
-get_boot_config() {
+# Subshell body with trace off: EMQX_BOOT_CONFIGS may contain secrets
+# (node.cookie, license.key) which must not be traced by 'set -x'.
+get_boot_config() (
+    set +x
     path_to_value="$1"
     echo -e "$EMQX_BOOT_CONFIGS" | $GREP "$path_to_value=" | sed -e "s/$path_to_value=//g" | tr -d \"
-}
+)
 
 EPMD_ARGS="${EPMD_ARGS:-"-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"}"
 PROTO_DIST="$(get_boot_config 'cluster.proto_dist' || true)"
@@ -635,10 +662,15 @@ check_license() {
         return 0
     fi
 
+    # Turn off debug so the license key isn't traced by 'set -x'.
+    set +x
     key_license="${EMQX_LICENSE__KEY:-$(get_boot_config 'license.key' || echo '')}"
 
     if [[ -n "$key_license" && ("$key_license" != "undefined") ]]; then
-      call_nodetool check_license_key "$key_license"
+      local ret=0
+      call_nodetool check_license_key "$key_license" || ret=$?
+      if [ "$DEBUG" -gt 0 ]; then set -x; fi
+      return $ret
     else
       set +x
       logerr "License not found."
@@ -924,6 +956,8 @@ resolve_cookie_source() {
     esac
 }
 
+# Turn off debug so the cookie value isn't traced by 'set -x' below.
+set +x
 COOKIE="${EMQX_NODE__COOKIE:-}"
 COOKIE_IN_USE="$(get_boot_config 'node.cookie')"
 # Tracks whether the cookie was sourced from a 'file://' URL (see below).
@@ -955,11 +989,14 @@ fi
 if [ "$COOKIE_FROM_FILE" = 'yes' ]; then
     export EMQX_NODE__COOKIE="$COOKIE"
 fi
+[[ "$DEBUG" -gt 0 ]] && set -x
 
 # Frequently used sample cookie value for testing, not recommended for production use
 EMQX_SAMPLE_ERLANG_COOKIE="emqxsecretcookie"
 
 maybe_warn_default_cookie() {
+    # Turn off debug so the cookie value isn't traced by 'set -x'.
+    set +x
     if [[ "$IS_BOOT_COMMAND" = 'yes' && ("$COOKIE" = "$EMQX_DEFAULT_ERLANG_COOKIE" || "$COOKIE" = "$EMQX_SAMPLE_ERLANG_COOKIE") ]]; then
         logwarn "Default (insecure) Erlang cookie is in use."
         logwarn "Configure node.cookie in $EMQX_ETC_DIR/emqx.conf or override from environment variable EMQX_NODE__COOKIE"
@@ -968,6 +1005,7 @@ maybe_warn_default_cookie() {
             die "Cannot continue with default cookie and EMQX_SECURITY_PROFILE set to '$EMQX_SECURITY_PROFILE'."
         fi
     fi
+    if [ "$DEBUG" -gt 0 ]; then set -x; fi
 }
 
 ## check if OTP version has mnesia_hook feature; if not, fallback to
@@ -983,7 +1021,10 @@ fi
 diagnose_boot_failure_and_die() {
     local ps_line
     local app_status
+    # Turn off debug: the ps output contains the '-setcookie' argument.
+    set +x
     ps_line="$(find_emqx_process)"
+    if [ "$DEBUG" -gt 0 ]; then set -x; fi
     if [ -z "$ps_line" ]; then
         echo "Find more information in the latest log file: ${EMQX_LOG_DIR}/erlang.log.*"
         exit 1
@@ -1219,6 +1260,10 @@ case "${COMMAND}" in
         # Store passed arguments since they will be erased by `set`
         ARGS="$*"
 
+        # Turn off debug (and keep it off through the exec below) so the
+        # cookie in the command arguments isn't traced by 'set -x'.
+        set +x
+
         # shellcheck disable=SC2086
         # Build an array of arguments to pass to exec later on
         # Build it here because this command will be used for logging.
@@ -1261,8 +1306,8 @@ case "${COMMAND}" in
                 $INIT_DEBUG_ARG
         fi
 
-        # Log the startup
-        logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS} -ekka_proto_dist ${EKKA_PROTO_DIST_MOD} -emqx_data_dir ${DATA_DIR}"
+        # Log the startup, with the cookie masked
+        logger -t "${REL_NAME}[$$]" "EXEC: $(redact_cookie_args "$@") -- ${1+$ARGS} -ekka_proto_dist ${EKKA_PROTO_DIST_MOD} -emqx_data_dir ${DATA_DIR}"
 
         # Start the VM
         # add ekka_proto_dist emqx_data_dir to boot command so it is visible from 'ps -ef'
@@ -1302,6 +1347,8 @@ case "${COMMAND}" in
         assert_node_alive
 
         shift
+        # Turn off debug so the cookie value isn't traced by 'set -x'.
+        set +x
         "$REL_DIR/elixir" \
             --hidden \
             --name "rand-$(gen_node_id)-$NAME" \
