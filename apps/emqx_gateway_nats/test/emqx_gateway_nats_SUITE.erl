@@ -15,6 +15,7 @@
 -define(VALID_USER_NKEY, <<"UB4G32YJ2GVZG3KTC3Z7BLIU3PXPJC2Y4QF6SNJUN2XIF3M3E3NDEUCZ">>).
 -define(VALID_OPERATOR_NKEY, <<"OB43KVROR7TFJ6KAPCYRF2FJROTZAH4FHLTJLPWX4DRZCC5NASLGIT25">>).
 -define(VALID_ACCOUNT_NKEY, <<"ADT7CYVBBPWFLGX6UGK6JXHIJNUVNDK5FSYJMPVUI3AGQXRLC7ZPAOJZ">>).
+-define(REDACTED, <<"******">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -322,6 +323,40 @@ t_update_error_listener_in_use(_Config) ->
         _ = emqx_gateway_conf:unload_gateway(nats)
     end.
 
+t_gateway_api_preserves_redacted_internal_authn(_Config) ->
+    OriginalToken = <<"original-token">>,
+    InternalAuthn = [
+        #{
+            <<"type">> => <<"token">>,
+            <<"token">> => OriginalToken
+        }
+    ],
+    {204, _} = emqx_gateway_test_utils:request(
+        put,
+        "/gateways/nats",
+        #{<<"internal_authn">> => InternalAuthn}
+    ),
+    {200, GatewayConf} = emqx_gateway_test_utils:request(get, "/gateways/nats"),
+    [#{type := <<"token">>, token := ?REDACTED}] = maps:get(internal_authn, GatewayConf),
+
+    {204, _} = emqx_gateway_test_utils:request(
+        put,
+        "/gateways/nats",
+        #{
+            <<"server_name">> => <<"updated-server">>,
+            <<"internal_authn">> => [
+                #{
+                    <<"type">> => <<"token">>,
+                    <<"token">> => ?REDACTED
+                }
+            ]
+        }
+    ),
+    ?assertEqual(
+        InternalAuthn,
+        emqx:get_raw_config([gateway, nats, internal_authn])
+    ).
+
 t_gateway_client_management(Config) ->
     ClientOpts = maps:merge(
         ?config(client_opts, Config),
@@ -571,7 +606,8 @@ needs_gateway(TestCase) ->
             t_gateway_client_management,
             t_gateway_client_subscription_management,
             t_clientinfo_override_with_empty_clientid,
-            t_clientinfo_override_with_prefix_and_empty_clientid
+            t_clientinfo_override_with_prefix_and_empty_clientid,
+            t_gateway_api_preserves_redacted_internal_authn
         ]
     ).
 

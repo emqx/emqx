@@ -20,6 +20,91 @@ all() ->
 %% Test Cases
 %%--------------------------------------------------------------------
 
+t_deobfuscate_internal_authn(_Config) ->
+    OldConf = #{
+        <<"internal_authn">> => [
+            #{<<"type">> => <<"token">>, <<"token">> => <<"original-token">>}
+        ]
+    },
+    NewConf = #{
+        <<"internal_authn">> => [
+            #{<<"type">> => <<"token">>, <<"token">> => <<"******">>}
+        ]
+    },
+    {ok, Restored} = emqx_nats_schema:deobfuscate(NewConf, OldConf),
+    ?assertEqual(
+        #{
+            <<"internal_authn">> => [
+                #{<<"type">> => <<"token">>, <<"token">> => <<"original-token">>}
+            ]
+        },
+        Restored
+    ).
+
+t_deobfuscate_internal_authn_update_and_reject(_Config) ->
+    OldConf = #{
+        <<"internal_authn">> => [
+            #{<<"type">> => <<"token">>, <<"token">> => <<"original-token">>}
+        ]
+    },
+    ChangedConf = #{
+        <<"internal_authn">> => [
+            #{<<"type">> => <<"token">>, <<"token">> => <<"new-token">>}
+        ]
+    },
+    ReorderedConf = #{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"nkey">>,
+                <<"nkeys">> => [
+                    <<"UB4G32YJ2GVZG3KTC3Z7BLIU3PXPJC2Y4QF6SNJUN2XIF3M3E3NDEUCZ">>
+                ]
+            },
+            #{<<"type">> => <<"token">>, <<"token">> => <<"******">>}
+        ]
+    },
+    {ok, Changed} = emqx_nats_schema:deobfuscate(ChangedConf, OldConf),
+    ?assertEqual(
+        <<"new-token">>,
+        maps:get(<<"token">>, hd(maps:get(<<"internal_authn">>, Changed)))
+    ),
+    ?assertMatch(
+        {error, {badconf, #{reason := masked_secret_without_matching_old_value}}},
+        emqx_nats_schema:deobfuscate(ReorderedConf, OldConf)
+    ).
+
+t_deobfuscate_internal_authn_jwt_preload(_Config) ->
+    OldConf = #{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{<<"pubkey">> => <<"account-a">>, <<"jwt">> => <<"old-jwt">>}
+                    ]
+                }
+            }
+        ]
+    },
+    NewConf = #{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{<<"pubkey">> => <<"account-a">>, <<"jwt">> => <<"******">>}
+                    ]
+                }
+            }
+        ]
+    },
+    {ok, Restored} = emqx_nats_schema:deobfuscate(NewConf, OldConf),
+    [#{<<"resolver">> := #{<<"resolver_preload">> := [Entry]}}] =
+        maps:get(<<"internal_authn">>, Restored),
+    ?assertEqual(<<"old-jwt">>, maps:get(<<"jwt">>, Entry)).
+
 t_build_authn_ctx_and_auth_required(_Config) ->
     Disabled = mk_authn_ctx(undefined, [], undefined, false),
     ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => false}, Disabled)),

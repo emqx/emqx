@@ -9,7 +9,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 %% config schema provides
--export([namespace/0, fields/1, desc/1]).
+-export([namespace/0, fields/1, desc/1, deobfuscate/2]).
 
 namespace() -> "gateway".
 
@@ -236,8 +236,216 @@ desc(wss_listener) ->
 desc(websocket) ->
     ?DESC(websocket).
 
+deobfuscate(NewConf, OldConf) when is_map(NewConf), is_map(OldConf) ->
+    case map_get_any(NewConf, [internal_authn, <<"internal_authn">>], undefined) of
+        undefined ->
+            {ok, NewConf};
+        NewMethods ->
+            OldMethods = map_get_any(OldConf, [internal_authn, <<"internal_authn">>], []),
+            case deobfuscate_internal_authn(NewMethods, OldMethods) of
+                {ok, Methods} ->
+                    {ok, put_map_value(NewConf, internal_authn, Methods)};
+                {error, _} = Error ->
+                    Error
+            end
+    end;
+deobfuscate(NewConf, _OldConf) ->
+    {ok, NewConf}.
+
 %%--------------------------------------------------------------------
 %% internal functions
+
+deobfuscate_internal_authn(NewMethods, OldMethods) when
+    is_list(NewMethods), is_list(OldMethods)
+->
+    deobfuscate_internal_authn(NewMethods, OldMethods, 1, []);
+deobfuscate_internal_authn(NewMethods, _OldMethods) ->
+    {ok, NewMethods}.
+
+deobfuscate_internal_authn([], _OldMethods, _Pos, Acc) ->
+    {ok, lists:reverse(Acc)};
+deobfuscate_internal_authn([NewMethod | Rest], [OldMethod | OldRest], Pos, Acc) ->
+    NewType = method_type(NewMethod),
+    OldType = method_type(OldMethod),
+    case NewType =:= OldType andalso NewType =/= undefined of
+        true ->
+            case deobfuscate_method(NewMethod, OldMethod, NewType, Pos) of
+                {ok, Method} ->
+                    deobfuscate_internal_authn(Rest, OldRest, Pos + 1, [Method | Acc]);
+                {error, _} = Error ->
+                    Error
+            end;
+        false ->
+            case reject_redacted_method(NewMethod, Pos) of
+                ok ->
+                    deobfuscate_internal_authn(Rest, OldRest, Pos + 1, [NewMethod | Acc]);
+                {error, _} = Error ->
+                    Error
+            end
+    end;
+deobfuscate_internal_authn([NewMethod | Rest], [], Pos, Acc) ->
+    case reject_redacted_method(NewMethod, Pos) of
+        ok ->
+            deobfuscate_internal_authn(Rest, [], Pos + 1, [NewMethod | Acc]);
+        {error, _} = Error ->
+            Error
+    end.
+
+deobfuscate_method(NewMethod0, OldMethod0, token, Pos) ->
+    NewMethod = emqx_utils_maps:binary_key_map(NewMethod0),
+    OldMethod = emqx_utils_maps:binary_key_map(OldMethod0),
+    case is_redacted_field(NewMethod, token, <<"token">>) of
+        true when is_map_key(<<"token">>, OldMethod); is_map_key(token, OldMethod) ->
+            {ok, emqx_utils:deobfuscate(NewMethod, OldMethod)};
+        true ->
+            redacted_method_error(Pos, token);
+        false ->
+            {ok, NewMethod}
+    end;
+deobfuscate_method(NewMethod0, OldMethod0, jwt, Pos) ->
+    NewMethod = emqx_utils:deobfuscate(
+        emqx_utils_maps:binary_key_map(NewMethod0),
+        emqx_utils_maps:binary_key_map(OldMethod0)
+    ),
+    deobfuscate_jwt_resolver(NewMethod, OldMethod0, Pos);
+deobfuscate_method(NewMethod, _OldMethod, _Type, _Pos) ->
+    {ok, NewMethod}.
+
+deobfuscate_jwt_resolver(NewMethod, OldMethod0, Pos) ->
+    OldMethod = emqx_utils_maps:binary_key_map(OldMethod0),
+    NewResolver = map_get_any(NewMethod, [resolver, <<"resolver">>], undefined),
+    OldResolver = map_get_any(OldMethod, [resolver, <<"resolver">>], #{}),
+    case {is_map(NewResolver), is_map(OldResolver)} of
+        {true, true} ->
+            NewEntries = map_get_any(
+                NewResolver,
+                [resolver_preload, <<"resolver_preload">>],
+                []
+            ),
+            OldEntries = map_get_any(
+                OldResolver,
+                [resolver_preload, <<"resolver_preload">>],
+                []
+            ),
+            case deobfuscate_jwt_entries(NewEntries, OldEntries, Pos) of
+                {ok, Entries} ->
+                    Resolver = put_map_value(NewResolver, resolver_preload, Entries),
+                    {ok, put_map_value(NewMethod, resolver, Resolver)};
+                {error, _} = Error ->
+                    Error
+            end;
+        _ ->
+            {ok, NewMethod}
+    end.
+
+deobfuscate_jwt_entries(NewEntries, OldEntries, Pos) when
+    is_list(NewEntries), is_list(OldEntries)
+->
+    OldIndex = maps:from_list([
+        {PubKey, Entry}
+     || Entry <- OldEntries,
+        is_map(Entry),
+        PubKey <- [map_get_any(Entry, [pubkey, <<"pubkey">>], undefined)],
+        PubKey =/= undefined
+    ]),
+    deobfuscate_jwt_entries(NewEntries, OldIndex, Pos, 1, []);
+deobfuscate_jwt_entries(NewEntries, _OldEntries, _Pos) ->
+    {ok, NewEntries}.
+
+deobfuscate_jwt_entries([], _OldIndex, _MethodPos, _EntryPos, Acc) ->
+    {ok, lists:reverse(Acc)};
+deobfuscate_jwt_entries([NewEntry0 | Rest], OldIndex, MethodPos, EntryPos, Acc) ->
+    NewEntry = emqx_utils_maps:binary_key_map(NewEntry0),
+    PubKey = map_get_any(NewEntry, [pubkey, <<"pubkey">>], undefined),
+    OldEntry = maps:get(PubKey, OldIndex, #{}),
+    case is_redacted_field(NewEntry, jwt, <<"jwt">>) of
+        true when is_map_key(<<"jwt">>, OldEntry); is_map_key(jwt, OldEntry) ->
+            Entry = emqx_utils:deobfuscate(NewEntry, OldEntry),
+            deobfuscate_jwt_entries(Rest, OldIndex, MethodPos, EntryPos + 1, [Entry | Acc]);
+        true ->
+            redacted_entry_error(MethodPos, EntryPos, jwt);
+        false ->
+            deobfuscate_jwt_entries(Rest, OldIndex, MethodPos, EntryPos + 1, [NewEntry | Acc])
+    end.
+
+reject_redacted_method(Method, Pos) ->
+    case is_redacted_field(Method, token, <<"token">>) of
+        true ->
+            redacted_method_error(Pos, token);
+        false ->
+            case has_redacted_jwt(Method) of
+                true ->
+                    redacted_method_error(Pos, jwt);
+                false ->
+                    ok
+            end
+    end.
+
+has_redacted_jwt(Method) when is_map(Method) ->
+    Resolver = map_get_any(Method, [resolver, <<"resolver">>], #{}),
+    case is_map(Resolver) of
+        true ->
+            Entries = map_get_any(Resolver, [resolver_preload, <<"resolver_preload">>], []),
+            lists:any(
+                fun(Entry) ->
+                    is_map(Entry) andalso is_redacted_field(Entry, jwt, <<"jwt">>)
+                end,
+                Entries
+            );
+        false ->
+            false
+    end;
+has_redacted_jwt(_Method) ->
+    false.
+
+method_type(Method) when is_map(Method) ->
+    case map_get_any(Method, [type, <<"type">>], undefined) of
+        token -> token;
+        <<"token">> -> token;
+        nkey -> nkey;
+        <<"nkey">> -> nkey;
+        jwt -> jwt;
+        <<"jwt">> -> jwt;
+        _ -> undefined
+    end;
+method_type(_Method) ->
+    undefined.
+
+is_redacted_field(Map, AtomKey, BinaryKey) when is_map(Map) ->
+    case map_get_any(Map, [AtomKey, BinaryKey], undefined) of
+        undefined ->
+            false;
+        Value ->
+            emqx_utils:is_redacted(AtomKey, Value) orelse
+                emqx_utils:is_redacted(BinaryKey, Value)
+    end;
+is_redacted_field(_Map, _AtomKey, _BinaryKey) ->
+    false.
+
+put_map_value(Map, AtomKey, Value) ->
+    BinaryKey = atom_to_binary(AtomKey, utf8),
+    case maps:is_key(BinaryKey, Map) of
+        true -> maps:put(BinaryKey, Value, Map);
+        false -> maps:put(AtomKey, Value, Map)
+    end.
+
+redacted_method_error(Pos, Field) ->
+    {error,
+        {badconf, #{
+            key => internal_authn,
+            reason => masked_secret_without_matching_old_value,
+            position => Pos,
+            field => Field
+        }}}.
+
+redacted_entry_error(MethodPos, EntryPos, Field) ->
+    {error,
+        {badconf, #{
+            key => internal_authn,
+            reason => masked_secret_without_matching_old_value,
+            position => {MethodPos, EntryPos},
+            field => Field
+        }}}.
 
 validate_internal_authn(Methods) when is_list(Methods) ->
     validate_internal_authn(Methods, 1);
