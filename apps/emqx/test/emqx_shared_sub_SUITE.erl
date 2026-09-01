@@ -1014,12 +1014,17 @@ t_session_takeover(Config) when is_list(Config) ->
     {ok, _} = emqtt:connect(ConnPid2),
     ?assertMatch([_], emqx:publish(Message3)),
     ?assertMatch([_], emqx:publish(Message4)),
-    {true, _} = last_message(<<"hello2">>, [ConnPid2]),
+    %% Messages published around the takeover are delivered by session
+    %% redelivery, which can take longer than the default 1s under CI load.
+    {true, _} = last_message(<<"hello2">>, [ConnPid2], 5_000),
     %% We may or may not recv dup hello2 due to QoS1 redelivery
     _ = last_message(<<"hello2">>, [ConnPid2]),
-    {true, _} = last_message(<<"hello3">>, [ConnPid2]),
-    {true, _} = last_message(<<"hello4">>, [ConnPid2]),
-    ?assertEqual([], collect_msgs(timer:seconds(2))),
+    {true, _} = last_message(<<"hello3">>, [ConnPid2], 5_000),
+    {true, _} = last_message(<<"hello4">>, [ConnPid2], 5_000),
+    %% A QoS1 message delivered around the takeover may be redelivered with the
+    %% DUP flag set; such redeliveries are expected and must be ignored here.
+    Remaining = [Msg || {publish, #{dup := false}} = Msg <- collect_msgs(timer:seconds(2))],
+    ?assertEqual([], Remaining),
     emqtt:unsubscribe(ConnPid2, SharedTopic),
     emqtt:stop(ConnPid2),
     ok.
@@ -1163,9 +1168,14 @@ t_different_groups_update_subopts(Config) when is_list(Config) ->
 
     Fun = fun(Group, QoS) ->
         ?UPDATE_SUB_QOS(C, format_share(Group, Topic), QoS),
-        ?assertMatch(
-            #{qos := QoS},
-            emqx_broker:get_subopts(ClientId, emqx_topic:make_shared_record(Group, Topic))
+        %% The clientid is registered asynchronously, so the lookup can miss.
+        ?retry(
+            100,
+            20,
+            ?assertMatch(
+                #{qos := QoS},
+                emqx_broker:get_subopts(ClientId, emqx_topic:make_shared_record(Group, Topic))
+            )
         )
     end,
 

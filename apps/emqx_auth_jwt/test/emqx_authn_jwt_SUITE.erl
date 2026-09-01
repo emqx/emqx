@@ -36,6 +36,13 @@ end_per_suite(Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(),
+    %% Cases start and stop the snabbkaffe trace themselves. A case that
+    %% exits between the two leaves the supervision tree linked to its dead
+    %% process; the tree then dies asynchronously and can take the
+    %% registered collector with it while a later case is attached, whose
+    %% flush_trace then fails with noproc. Stop it here so every case starts
+    %% from a clean slate.
+    ok = snabbkaffe:stop(),
     ok.
 
 %%------------------------------------------------------------------------------

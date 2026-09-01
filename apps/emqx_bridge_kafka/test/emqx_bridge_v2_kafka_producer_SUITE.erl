@@ -1510,9 +1510,14 @@ t_inexistent_topic_after_created(Config) ->
                     ensure_kafka_topic(Topic),
                     #{?snk_kind := "kafka_producer_action_connected"}
                 ),
-            ?assertMatch(
-                {200, #{<<"status">> := <<"connected">>}},
-                simplify_result(emqx_bridge_v2_testlib:get_action_api(ActionParams))
+            %% The event precedes the status the API reports.
+            ?retry(
+                200,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    simplify_result(emqx_bridge_v2_testlib:get_action_api(ActionParams))
+                )
             ),
 
             ok
