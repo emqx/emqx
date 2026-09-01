@@ -5,7 +5,7 @@ defmodule EMQXAuthMnesia.MixProject do
   def project do
     [
       app: :emqx_auth_mnesia,
-      version: "6.1.2",
+      version: "6.1.3",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),
