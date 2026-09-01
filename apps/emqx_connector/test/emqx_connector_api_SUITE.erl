@@ -185,7 +185,10 @@ groups() ->
         t_actions_field,
         t_update_with_failed_validation,
         t_create_with_failed_root_validation,
-        t_create_or_update_with_unexpected_error_term
+        t_create_or_update_with_unexpected_error_term,
+        %% Namespace resolution and audit logging are not cluster-specific;
+        %% no need to exercise this under the `cluster` group too.
+        t_connector_audit_records_namespace
     ],
     ClusterOnlyTests = [
         t_inconsistent_state,
