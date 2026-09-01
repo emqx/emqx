@@ -244,6 +244,7 @@ field_filename(IsRequired, Meta) ->
 
 data_export(post, #{body := Params0} = Req) ->
     Namespace = emqx_dashboard:get_namespace(Req),
+    ok = log_ns(Namespace),
     Params1 = emqx_utils_maps:put_if(Params0, <<"namespace">>, Namespace, is_binary(Namespace)),
     Params = maybe_filter_export_params(Params1, auth_meta(Req)),
     maybe
@@ -277,6 +278,7 @@ data_export(post, #{body := Params0} = Req) ->
 
 data_import(post, #{body := #{<<"filename">> := Filename} = Body, query_string := QS} = Req) ->
     Namespace = op_namespace(Req, QS),
+    ok = log_ns(Namespace),
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 2),
     case safe_parse_node(Body, Nodes) of
         {error, Msg} ->
@@ -390,6 +392,7 @@ core_node(FileNode) ->
 
 data_files(post, #{body := #{<<"filename">> := #{type := _} = File}, query_string := QS} = Req) ->
     Namespace = op_namespace(Req, QS),
+    ok = log_ns(Namespace),
     [{Filename, FileContent} | _] = maps:to_list(maps:without([type], File)),
     case check_upload_scope(Namespace, FileContent) of
         ok ->
@@ -425,7 +428,9 @@ data_file_by_name(get, #{bindings := #{filename := Filename}, query_string := QS
             do_namespaced_file_op(get, Namespace, Filename, QS)
     end;
 data_file_by_name(delete, #{bindings := #{filename := Filename}, query_string := QS} = Req) ->
-    do_namespaced_file_op(delete, op_namespace(Req, QS), Filename, QS).
+    Namespace = op_namespace(Req, QS),
+    ok = log_ns(Namespace),
+    do_namespaced_file_op(delete, Namespace, Filename, QS).
 
 do_namespaced_file_op(Method, Namespace, Filename, QS) ->
     case safe_parse_node(QS) of
@@ -484,6 +489,17 @@ auth_meta(_) -> #{}.
 %% ignored for them. A global administrator may pass `namespace' to inspect or
 %% clean up a specific namespace's backups; without it, they operate on the
 %% global (non-namespaced) backups.
+%% Record the resolved target namespace on the audit log for this request
+%% (same class of gap as emqx/emqx#18653: the URL alone does not distinguish
+%% a global backup operation from a namespaced one). See
+%% emqx_dashboard_audit:http_request/1.
+log_ns(?global_ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => <<"global">>}),
+    ok;
+log_ns(NS) when is_binary(NS) ->
+    _ = minirest_handler:update_log_meta(#{namespace => NS}),
+    ok.
+
 op_namespace(Req, QueryString) ->
     case emqx_dashboard:get_namespace(Req) of
         ?global_ns -> query_namespace(QueryString);

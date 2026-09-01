@@ -613,6 +613,35 @@ t_global_admin_scoped_namespace(Config) ->
     ?assertEqual([], list_filenames(?NODE1_PORT, DashboardAuth, Ns1)),
     ok.
 
+%% Audit records for a data-backup operation must identify the target
+%% namespace, whether it is the actor's own (implicit, no query param, as for
+%% the namespaced admin's export below) or opted into via `?namespace=' (as
+%% for the global admin's namespaced import/upload/delete elsewhere in this
+%% suite). Same class of gap as emqx/emqx#18653 / #18664: `?namespace=' is a
+%% query parameter, and namespace resolution for POST /data/export has no
+%% query override at all -- it never appeared anywhere in the audit log
+%% before this fix.
+t_export_import_audit_records_namespace(Config) ->
+    [Core1 | _] = ?config(cluster, Config),
+    DashboardAuth = ?config(dashboard_auth, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    ok = ?ON(Core1, begin
+        {ok, _} = emqx:update_config([log, audit, enable], true),
+        {ok, _} = emqx:update_config([log, audit, level], info),
+        ok
+    end),
+    StartAt = erlang:system_time(microsecond),
+
+    {200, _} = export_backup2(?NODE1_PORT, DashboardAuth, #{}),
+    {200, _} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+
+    Entries = wait_for_audit_entries(
+        ?NODE1_PORT, DashboardAuth, <<"/data/export">>, StartAt, 2, 2000
+    ),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, <<"ns1">>]), Namespaces),
+    ok.
+
 %% A namespaced administrator cannot escape its namespace by supplying the
 %% `namespace' query parameter -- it is ignored for namespaced callers.
 t_namespaced_admin_cannot_override_namespace(Config) ->
@@ -1209,6 +1238,38 @@ upload_backup(NodeApiPort, Auth, BackupFilePath) ->
             Err
     end.
 
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_NodeApiPort, _Auth, _OperationId, _StartAt, _ExpectedCount, RemainMs) when
+    RemainMs =< 0
+->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(NodeApiPort, Auth, OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(NodeApiPort, Auth, OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(
+                NodeApiPort, Auth, OperationId, StartAt, ExpectedCount, RemainMs - SleepMs
+            )
+    end.
+
+audit_entries_since(NodeApiPort, Auth, OperationId, StartAt) ->
+    QueryList = [
+        {<<"operation_id">>, OperationId},
+        {<<"gte_created_at">>, integer_to_binary(StartAt)},
+        {<<"limit">>, <<"100">>}
+    ],
+    {ok, Res} = request(get, NodeApiPort, ["audit"], QueryList, [], Auth),
+    #{<<"data">> := Data} = emqx_utils_json:decode(Res),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
+
 request(Method, NodePort, PathParts, Auth) ->
     request(Method, NodePort, PathParts, [], [], Auth).
 
@@ -1385,6 +1446,12 @@ app_spec_dashboard(APIPort) ->
         }}
     ].
 
+test_case_specific_apps_spec(TC) when
+    TC =:= t_export_import_audit_records_namespace
+->
+    [
+        emqx_audit
+    ];
 test_case_specific_apps_spec(TC) when
     TC =:= t_upload_ee_backup;
     TC =:= t_import_ee_backup;
