@@ -2854,8 +2854,13 @@ t_awake_test01_to_connected(_) ->
     ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
 
     timer:sleep(1500),
-    % asleep timer should get timeout
-    ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId)),
+    %% Reconnecting from asleep cancels the old sleep timer.
+    ?assertMatch(
+        #{conn_state := connected},
+        emqx_gateway_cm:get_chan_info(mqttsn, ClientId)
+    ),
+    send_disconnect_msg(Socket, undefined),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
 t_awake_test02_to_disconnected(_) ->
