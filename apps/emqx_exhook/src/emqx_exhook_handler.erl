@@ -587,13 +587,13 @@ subopt(Key, SubOpts, Min, Max) ->
 %% client asked for, so a rewritten one has never been checked. Re-run both
 %% checks here, or a hook could hand the client a subscription it could not
 %% have requested itself.
-recheck_topicfilter(ClientInfo, {Topic, SubOpts = #{qos := QoS}}) ->
+recheck_topicfilter(ClientInfo, {Topic, SubOpts = #{qos := Qos}}) ->
     AuthzContext = emqx_authz_context:make(ClientInfo),
     %% As in `emqx_channel', a shared subscription is authorized on its real topic
     case
         emqx_access_control:authorize(
             AuthzContext,
-            ?AUTHZ_SUBSCRIBE(QoS),
+            ?AUTHZ_SUBSCRIBE(Qos),
             emqx_topic:get_shared_real_topic(Topic)
         )
     of
