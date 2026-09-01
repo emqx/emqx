@@ -494,7 +494,7 @@ if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
 fi
 
 PS_LINE="$(find_emqx_process)"
-logdebug "PS_LINE=$(echo -e "$PS_LINE" | sed -E 's/(-setcookie) +[^ ]+/\1 ******/g')"
+logdebug "PS_LINE=$(printf '%s' "$PS_LINE" | sed -E 's/(-setcookie) +[^ ]+/\1 ******/g')"
 RUNNING_NODES_COUNT="$(echo -e "$PS_LINE" | sed '/^\s*$/d' | wc -l)"
 [ "$RUNNING_NODES_COUNT" -gt 1 ] && logdebug "More than one running node found: count=$RUNNING_NODES_COUNT"
 
@@ -566,7 +566,10 @@ else
         EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
     fi
 fi
-logdebug "EMQX_BOOT_CONFIGS: $(echo -e "$EMQX_BOOT_CONFIGS" | sed -E 's/^(node\.cookie|license\.key)=.*/\1=******/')"
+# Redact the raw serialized string before any escape expansion, so an
+# embedded escape cannot split a secret across lines. Values may be
+# quoted (from hocon multi_get) or bare (parsed from ps output).
+logdebug "EMQX_BOOT_CONFIGS: $(printf '%s' "$EMQX_BOOT_CONFIGS" | sed -E 's/(node\.cookie|license\.key)=("(\\.|[^"\\])*"|[^\\ ]*)/\1=******/g')"
 [[ "$DEBUG" -gt 0 ]] && set -x
 
 # Subshell body with trace off: EMQX_BOOT_CONFIGS may contain secrets
@@ -922,11 +925,11 @@ diagnose_boot_failure_and_die() {
     # Turn off debug: the ps output contains the '-setcookie' argument.
     set +x
     ps_line="$(find_emqx_process)"
-    if [ "$DEBUG" -gt 0 ]; then set -x; fi
     if [ -z "$ps_line" ]; then
         echo "Find more information in the latest log file: ${EMQX_LOG_DIR}/erlang.log.*"
         exit 1
     fi
+    if [ "$DEBUG" -gt 0 ]; then set -x; fi
     if ! relx_nodetool "ping" > /dev/null; then
         logerr "$NAME seems to be running, but not responding to pings."
         echo "Make sure '$HOST_NAME' is a resolvable and reachable hostname."
