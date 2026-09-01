@@ -113,6 +113,9 @@ t_smoke_restart(TCConfig) ->
         )
     ),
 
+    %% Namespaced rules are stored before the global ones: the hardened
+    %% profile rejects a namespaced rule for an identity that already has
+    %% an explicit global rule, so global has to be written last.
     ACLs = [
         {Ns, Who, [
             #{
@@ -122,7 +125,7 @@ t_smoke_restart(TCConfig) ->
                 <<"listener_re">> => <<"^tcp:">>
             }
         ]}
-     || Ns <- [?global_ns, Ns1, Ns2],
+     || Ns <- [Ns1, Ns2, ?global_ns],
         Who <- [{username, <<"u1">>}, {clientid, <<"cid">>}, all]
     ],
     ?ON(
