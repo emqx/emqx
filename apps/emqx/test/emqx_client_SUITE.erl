@@ -438,13 +438,9 @@ t_client_attr_from_user_property(_Config) ->
 
 t_sock_closed_reason_normal(_) ->
     ProtoVers = [v3, v4, v5],
-    lists:foreach(
-        fun(Ver) ->
-            %% Use a per-version unique client id: reusing one client id across
-            %% the iterations can reconnect before the previous connection's
-            %% async deregistration completes, tripping the open_session
-            %% throttle (rejected as server_unavailable / server_busy).
-            ClientId = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), "-", atom_to_binary(Ver)]),
+    [
+        begin
+            ClientId = per_version_clientid(?FUNCTION_NAME, Ver),
             ?check_trace(
                 begin
                     {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
@@ -471,17 +467,16 @@ t_sock_closed_reason_normal(_) ->
                     ok
                 end
             )
-        end,
-        ProtoVers
-    ).
+        end
+     || Ver <- ProtoVers
+    ].
 
 t_sock_closed_force_closed_by_client(_) ->
     ProtoVers = [v3, v4, v5],
     process_flag(trap_exit, true),
-    lists:foreach(
-        fun(Ver) ->
-            %% Per-version unique client id, see t_sock_closed_reason_normal.
-            ClientId = iolist_to_binary([atom_to_binary(?FUNCTION_NAME), "-", atom_to_binary(Ver)]),
+    [
+        begin
+            ClientId = per_version_clientid(?FUNCTION_NAME, Ver),
             ?check_trace(
                 begin
                     {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
@@ -507,10 +502,15 @@ t_sock_closed_force_closed_by_client(_) ->
                     ok
                 end
             )
-        end,
-        ProtoVers
-    ),
+        end
+     || Ver <- ProtoVers
+    ],
     process_flag(trap_exit, false).
+
+%% A fresh clientid per protocol version: reusing one would be refused while the
+%% previous channel is still being cleaned up.
+per_version_clientid(Case, Ver) ->
+    <<(atom_to_binary(Case))/binary, "-", (atom_to_binary(Ver))/binary>>.
 
 t_clientid_override(_) ->
     emqx_logger:set_log_level(debug),

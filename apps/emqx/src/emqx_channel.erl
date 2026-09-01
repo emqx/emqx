@@ -1268,6 +1268,17 @@ handle_frame_error(
         _ ->
             shutdown(ShutdownCount, NChannel)
     end;
+%% Frame error before CONNECT is parsed, with a reason that is not a map
+%% (e.g. malformed_properties). No protocol version is known yet, so no
+%% CONNACK is sent.
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = idle}
+) ->
+    shutdown(
+        shutdown_count(frame_error, Reason, Channel),
+        Channel
+    );
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = connecting}
