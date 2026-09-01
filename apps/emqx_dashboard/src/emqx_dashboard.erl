@@ -293,13 +293,7 @@ authorize(Req, HandlerInfo) ->
                 false ->
                     return_unauthorized(
                         <<"AUTHORIZATION_HEADER_ERROR">>,
-                        <<
-                            "Missing authorization header. "
-                            "Use Basic auth with API key/secret, "
-                            "or Bearer token from POST /api/v5/login. "
-                            "API keys can be bootstrapped from config "
-                            "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
-                        >>
+                        authorization_header_error_message(HandlerInfo)
                     )
             end
     end.
@@ -317,15 +311,45 @@ cookie_authorize(Req, HandlerInfo) ->
         _ ->
             return_unauthorized(
                 <<"AUTHORIZATION_HEADER_ERROR">>,
-                <<
-                    "Missing authorization header. "
-                    "Use Basic auth with API key/secret, "
-                    "or Bearer token from POST /api/v5/login. "
-                    "API keys can be bootstrapped from config "
-                    "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
-                >>
+                authorization_header_error_message(HandlerInfo)
             )
     end.
+
+%% @doc Whether HandlerInfo's endpoint accepts API keys decides which auth-error
+%% messages may mention API keys — an endpoint that rejects them must not send a
+%% caller looking for one, and vice versa.
+with_api_key_hint(HandlerInfo, LoginOnlyMessage, ApiKeyAllowedMessage) ->
+    case emqx_mgmt_auth:is_api_key_allowed(HandlerInfo) of
+        true -> ApiKeyAllowedMessage;
+        false -> LoginOnlyMessage
+    end.
+
+authorization_header_error_message(HandlerInfo) ->
+    with_api_key_hint(
+        HandlerInfo,
+        <<"Missing authorization header. Get a bearer token from POST /api/v5/login.">>,
+        <<
+            "Missing authorization header. Use Basic auth with an API key, "
+            "or get a bearer token from POST /api/v5/login."
+        >>
+    ).
+
+token_timeout_message(HandlerInfo) ->
+    with_api_key_hint(
+        HandlerInfo,
+        <<"Token expired. Get a new token by POST /api/v5/login.">>,
+        <<"Token expired. Get a new token by POST /api/v5/login, or use an API key with Basic auth.">>
+    ).
+
+bad_token_message(HandlerInfo) ->
+    with_api_key_hint(
+        HandlerInfo,
+        <<"Invalid bearer token. Get a new token by POST /api/v5/login.">>,
+        <<
+            "Invalid bearer token. Get a new token by POST /api/v5/login, "
+            "or use an API key with Basic auth."
+        >>
+    ).
 
 return_unauthorized(Code, Message) ->
     {401,
@@ -387,20 +411,9 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
             },
             {ok, AuthnMeta};
         {error, token_timeout} ->
-            {401, 'TOKEN_TIME_OUT', <<
-                "Token expired. "
-                "Consider using API key (Basic auth) instead of bearer tokens "
-                "to avoid expiration. "
-                "Otherwise get a new token by POST /api/v5/login"
-            >>};
+            {401, 'TOKEN_TIME_OUT', token_timeout_message(HandlerInfo)};
         {error, not_found} ->
-            {401, 'BAD_TOKEN', <<
-                "Invalid bearer token. "
-                "Use API key (Basic auth) for persistent access, "
-                "or get a new bearer token by POST /api/v5/login. "
-                "API keys can be bootstrapped from config "
-                "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
-            >>};
+            {401, 'BAD_TOKEN', bad_token_message(HandlerInfo)};
         {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
             {403, 'UNAUTHORIZED_ROLE', Msg}
     end.

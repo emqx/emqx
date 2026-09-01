@@ -43,7 +43,7 @@
     check_scopes/3
 ]).
 
--export([authorize/4]).
+-export([authorize/4, is_api_key_allowed/1]).
 -export([post_config_update/5]).
 
 -export([backup_tables/0, validate_mnesia_backup/1]).
@@ -259,19 +259,15 @@ format_epoch(Epoch) ->
 list() ->
     to_map(ets:match_object(?APP, #?APP{_ = '_'})).
 
-authorize(#{module := emqx_dashboard_api, function := user}, _Req, _ApiKey, _ApiSecret) ->
-    {error, <<"not_allowed">>, <<"users">>};
-authorize(#{module := emqx_dashboard_api, function := users}, _Req, _ApiKey, _ApiSecret) ->
-    {error, <<"not_allowed">>, <<"users">>};
-authorize(#{module := emqx_dashboard_api, function := logout}, _Req, _ApiKey, _ApiSecret) ->
-    {error, <<"not_allowed">>, <<"logout">>};
-authorize(#{module := emqx_dashboard_api, function := change_pwd}, _Req, _ApiKey, _ApiSecret) ->
-    {error, <<"not_allowed">>, <<"users">>};
-authorize(#{module := emqx_dashboard_api, function := change_mfa}, _Req, _ApiKey, _ApiSecret) ->
-    {error, <<"not_allowed">>, <<"users">>};
-authorize(#{module := emqx_mgmt_api_api_keys}, _Req, _ApiKey, _ApiSecret) ->
-    {error, <<"not_allowed">>, <<"api_key">>};
 authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
+    case not_allowed_resource(HandlerInfo) of
+        {true, Resource} ->
+            {error, <<"not_allowed">>, Resource};
+        false ->
+            do_authorize(HandlerInfo, Req, ApiKey, ApiSecret)
+    end.
+
+do_authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of
         {ok, true, ExpiredAt, SecretHash, Role, Namespace, Extra} when ExpiredAt >= Now ->
@@ -288,6 +284,27 @@ authorize(HandlerInfo, Req, ApiKey, ApiSecret) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+%% @doc Whether HandlerInfo's endpoint accepts API key (Basic auth) credentials at all.
+%% Shared by authorize/4 so the set of API-key-rejecting endpoints has one definition.
+-spec is_api_key_allowed(map()) -> boolean().
+is_api_key_allowed(HandlerInfo) ->
+    not_allowed_resource(HandlerInfo) =:= false.
+
+not_allowed_resource(#{module := emqx_dashboard_api, function := user}) ->
+    {true, <<"users">>};
+not_allowed_resource(#{module := emqx_dashboard_api, function := users}) ->
+    {true, <<"users">>};
+not_allowed_resource(#{module := emqx_dashboard_api, function := logout}) ->
+    {true, <<"logout">>};
+not_allowed_resource(#{module := emqx_dashboard_api, function := change_pwd}) ->
+    {true, <<"users">>};
+not_allowed_resource(#{module := emqx_dashboard_api, function := change_mfa}) ->
+    {true, <<"users">>};
+not_allowed_resource(#{module := emqx_mgmt_api_api_keys}) ->
+    {true, <<"api_key">>};
+not_allowed_resource(_HandlerInfo) ->
+    false.
 
 check_rbac_and_scopes(Req, HandlerInfo, ApiKey, Role, Namespace, Extra) ->
     case check_rbac(Req, HandlerInfo, ApiKey, Role, Namespace) of
