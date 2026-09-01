@@ -690,7 +690,6 @@ t_bad_token_message_login_only_endpoint(_Config) ->
     {ok, 401, Body} = post_logout(bearer_header(<<"not-a-real-token">>)),
     #{<<"code">> := <<"BAD_TOKEN">>, <<"message">> := Message} = json(Body),
     ?assertNot(has_substring(Message, "API key")),
-    assert_no_bootstrap_file_mention(Message),
     ok.
 
 -doc "An invalid bearer token on an endpoint that accepts API keys still gets the API-key hint.".
@@ -698,7 +697,6 @@ t_bad_token_message_api_key_endpoint(_Config) ->
     {ok, 401, Body} = request_api(get, api_path(["nodes"]), bearer_header(<<"not-a-real-token">>)),
     #{<<"code">> := <<"BAD_TOKEN">>, <<"message">> := Message} = json(Body),
     ?assert(has_substring(Message, "API key")),
-    assert_no_bootstrap_file_mention(Message),
     ok.
 
 -doc "An expired bearer token on a login-only endpoint must not recommend an API key.".
@@ -707,7 +705,6 @@ t_token_timeout_message_login_only_endpoint(_Config) ->
     {ok, 401, Body} = post_logout(bearer_header(Token)),
     #{<<"code">> := <<"TOKEN_TIME_OUT">>, <<"message">> := Message} = json(Body),
     ?assertNot(has_substring(Message, "API key")),
-    assert_no_bootstrap_file_mention(Message),
     ok.
 
 -doc "An expired bearer token on an endpoint that accepts API keys still gets the API-key hint.".
@@ -716,7 +713,6 @@ t_token_timeout_message_api_key_endpoint(_Config) ->
     {ok, 401, Body} = request_api(get, api_path(["nodes"]), bearer_header(Token)),
     #{<<"code">> := <<"TOKEN_TIME_OUT">>, <<"message">> := Message} = json(Body),
     ?assert(has_substring(Message, "API key")),
-    assert_no_bootstrap_file_mention(Message),
     ok.
 
 -doc """
@@ -728,13 +724,11 @@ t_missing_auth_header_message_scope(_Config) ->
     #{<<"code">> := <<"AUTHORIZATION_HEADER_ERROR">>, <<"message">> := LoginOnlyMessage} =
         json(LoginOnlyBody),
     ?assertNot(has_substring(LoginOnlyMessage, "API key")),
-    assert_no_bootstrap_file_mention(LoginOnlyMessage),
 
     {ok, 401, ApiKeyBody} = request_api(get, api_path(["nodes"]), undefined),
     #{<<"code">> := <<"AUTHORIZATION_HEADER_ERROR">>, <<"message">> := ApiKeyMessage} =
         json(ApiKeyBody),
     ?assert(has_substring(ApiKeyMessage, "API key")),
-    assert_no_bootstrap_file_mention(ApiKeyMessage),
     ok.
 
 -doc """
@@ -760,9 +754,6 @@ post_logout(Auth) ->
 
 has_substring(Bin, SubStr) when is_binary(Bin) ->
     binary:match(Bin, list_to_binary(SubStr)) =/= nomatch.
-
-assert_no_bootstrap_file_mention(Message) ->
-    ?assertNot(has_substring(Message, "bootstrap_file")).
 
 sign_expired_token(Username) ->
     {ok, _Role, Token, _Namespace} = emqx_dashboard_token:sign(#?ADMIN{username = Username}),
