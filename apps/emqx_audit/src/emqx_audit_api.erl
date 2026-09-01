@@ -328,7 +328,7 @@ format(Audit) ->
         created_at => emqx_utils_calendar:epoch_to_rfc3339(CreatedAt, microsecond),
         node => Node,
         from => From,
-        source => Source,
+        source => stringify_source(Source),
         source_ip => SourceIp,
         operation_id => OperationId,
         operation_type => OperationType,
@@ -340,6 +340,14 @@ format(Audit) ->
         failure => Failure,
         http_request => HttpRequest
     }.
+
+%% SSO admin sessions carry `source' as `{Backend, Username}' (see
+%% ?SSO_USERNAME in emqx_dashboard.hrl); flatten it to a binary for the
+%% swagger schema, which declares this field as `binary()'.
+stringify_source({Backend, Name}) when is_atom(Backend), is_binary(Name) ->
+    <<(atom_to_binary(Backend))/binary, ":", Name/binary>>;
+stringify_source(Source) when is_binary(Source) ->
+    Source.
 
 audit_log_list_example() ->
     #{

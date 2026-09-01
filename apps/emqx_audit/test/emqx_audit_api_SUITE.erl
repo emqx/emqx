@@ -8,6 +8,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
 all() ->
     [
@@ -353,6 +354,48 @@ t_license_key_redacted(_) ->
     ?assertEqual(nomatch, binary:match(AuditBody, <<"default">>), AuditBody),
     ?assertNotEqual(nomatch, binary:match(AuditBody, <<"******">>), AuditBody),
     ok.
+
+%% `GET /audit' must not 500 when a page contains a record created by an
+%% SSO-authenticated admin: `source' is `{Backend, Username}' (see
+%% ?SSO_USERNAME), not a plain binary. See emqx/emqx#18687.
+t_sso_source_json_encoding(_Config) ->
+    SsoBackend = saml,
+    SsoUser = <<"jackson-http@example.com">>,
+    SsoUsername = ?SSO_USERNAME(SsoBackend, SsoUser),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_SUPERUSER, <<>>),
+    {ok, #{role := ?ROLE_SUPERUSER, token := SsoToken}} =
+        emqx_dashboard_admin:sign_token(SsoUsername, <<>>),
+    SsoAuthHeader = bearer_auth_header(SsoToken),
+
+    StartAt = erlang:system_time(microsecond),
+    {ok, Zones} = emqx_mgmt_api_configs_SUITE:get_global_zone(),
+    NewZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 2),
+    ConfigsPath = emqx_mgmt_api_test_util:api_path(["configs", "global_zone"]),
+    {ok, 200, _} = emqx_mgmt_api_test_util:request_api_with_body(
+        put, ConfigsPath, SsoAuthHeader, NewZones
+    ),
+
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Query = lists:flatten(
+        io_lib:format("operation_id=/configs/global_zone&gte_created_at=~B&limit=1", [StartAt])
+    ),
+    Res = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{
+                    <<"source">> := <<"saml:jackson-http@example.com">>,
+                    <<"operation_id">> := <<"/configs/global_zone">>
+                }
+            ]
+        },
+        emqx_utils_json:decode(Res, [return_maps])
+    ),
+    ok.
+
+bearer_auth_header(Token) ->
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 wait_for_matching_audit_entry(_AuditPath, _Query, _AuthHeader, RemainMs) when RemainMs =< 0 ->
     ct:fail(audit_entry_not_found_in_time);
