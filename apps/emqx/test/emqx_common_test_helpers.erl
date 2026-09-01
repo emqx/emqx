@@ -258,7 +258,20 @@ nested_groups([ParentNames, ChildNames | Names]) ->
 flaky_tests(Suite) ->
     case erlang:function_exported(Suite, flaky_tests, 0) of
         true ->
-            Suite:flaky_tests();
+            FlakyTests = Suite:flaky_tests(),
+            maps:foreach(
+                fun(TestCase, _Attempts) ->
+                    case erlang:function_exported(Suite, TestCase, 1) of
+                        true ->
+                            ok;
+                        false ->
+                            ct:print("declared flaky test ~s not exported by ~s", [TestCase, Suite]),
+                            error({"typo in flaky test spec?", fun Suite:TestCase/1})
+                    end
+                end,
+                FlakyTests
+            ),
+            FlakyTests;
         false ->
             #{}
     end.
