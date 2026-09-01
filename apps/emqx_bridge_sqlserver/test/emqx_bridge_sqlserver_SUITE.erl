@@ -113,13 +113,13 @@ init_per_group(async, Config) ->
 init_per_group(sync, Config) ->
     [{query_mode, sync} | Config];
 init_per_group(with_batch, Config0) ->
-    Config = [{enable_batch, true}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
+    Config = [{batch_size, ?BATCH_SIZE}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
     common_init(Config);
 init_per_group(without_batch, Config0) ->
-    Config = [{enable_batch, false}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
+    Config = [{batch_size, 1}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
     common_init(Config);
 init_per_group(health_check, Config0) ->
-    Config = [{query_mode, async}, {enable_batch, false}, {pool_size, 1} | Config0],
+    Config = [{query_mode, async}, {batch_size, 1}, {pool_size, 1} | Config0],
     common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
@@ -413,7 +413,7 @@ t_write_timeout(_Config) ->
     ok.
 
 t_simple_query(Config) ->
-    BatchSize = batch_size(Config),
+    BatchSize = ?config(batch_size, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
@@ -455,7 +455,7 @@ t_simple_query(Config) ->
 
 %% Checks that an injection payload remains one stored value in single and batch modes.
 t_sql_value_escaping(Config) ->
-    BatchSize = batch_size(Config),
+    BatchSize = ?config(batch_size, Config),
     SQL =
         "insert into t_mqtt_msg(msgid, topic, qos, payload) "
         "values (${id}, ${topic}, ${qos}, "
@@ -545,8 +545,7 @@ common_init(ConfigT) ->
         {sqlserver_host, Host},
         {sqlserver_port, Port},
         %% see also for `proxy_name` : $PROJ_ROOT/.ci/docker-compose-file/toxiproxy.json
-        {proxy_name, "sqlserver"},
-        {batch_size, batch_size(ConfigT)}
+        {proxy_name, "sqlserver"}
         | ConfigT
     ],
     BridgeType = proplists:get_value(bridge_type, Config0, <<"sqlserver">>),
@@ -597,7 +596,7 @@ sqlserver_config(BridgeType, Config) ->
     Port = integer_to_list(?config(sqlserver_port, Config)),
     Server = ?config(sqlserver_host, Config) ++ ":" ++ Port,
     Name = atom_to_binary(?MODULE),
-    BatchSize = batch_size(Config),
+    BatchSize = ?config(batch_size, Config),
     QueryMode = ?config(query_mode, Config),
     Passfile = ?config(sqlserver_passfile, Config),
     PoolSize = ?config(pool_size, Config),
@@ -787,12 +786,6 @@ directly_query(Con, Query, Timeout) ->
 %%--------------------------------------------------------------------
 %% help functions
 %%--------------------------------------------------------------------
-
-batch_size(Config) ->
-    case ?config(enable_batch, Config) of
-        true -> ?BATCH_SIZE;
-        false -> 1
-    end.
 
 conn_str([], Acc) ->
     lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);

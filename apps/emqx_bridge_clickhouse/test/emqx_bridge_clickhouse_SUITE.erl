@@ -269,10 +269,9 @@ t_sql_value_escaping(Config) ->
         {3, <<"你好😀"/utf8>>}
     ],
     lists:foreach(
-        fun({EnableBatch, BaseKey}) ->
+        fun({BatchSize, BaseKey}) ->
             BridgeID = make_bridge(#{
-                enable_batch => EnableBatch,
-                batch_size => 1
+                batch_size => BatchSize
             }),
             lists:foreach(
                 fun({Offset, Payload}) ->
@@ -295,11 +294,10 @@ t_sql_value_escaping(Config) ->
             ),
             delete_bridge()
         end,
-        [{false, 4210}, {true, 4220}]
+        [{1, 4210}, {100, 4220}]
     ),
     JSONPayload = <<"x\"], [999, \"injected\", 0]">>,
     BridgeID = make_bridge(#{
-        enable_batch => true,
         batch_size => 1,
         sql => sql_insert_template_for_bridge_json(),
         batch_value_separator => <<>>
@@ -313,7 +311,6 @@ t_sql_value_escaping(Config) ->
     delete_bridge(),
     CasePayload = <<"case-null">>,
     CaseBridgeID = make_bridge(#{
-        enable_batch => false,
         sql =>
             "INSERT INTO mqtt_test(key, data, arrived) VALUES "
             "(${key}, CASE WHEN ${data} = 'null' THEN 'case-null' ELSE ${data} END, ${timestamp})"

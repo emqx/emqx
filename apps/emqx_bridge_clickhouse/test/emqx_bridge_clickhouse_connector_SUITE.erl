@@ -12,7 +12,6 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(APP, emqx_bridge_clickhouse).
 -define(CLICKHOUSE_RESOURCE_MOD, emqx_bridge_clickhouse_connector).
 -define(CLICKHOUSE_PASSWORD, "public").
 

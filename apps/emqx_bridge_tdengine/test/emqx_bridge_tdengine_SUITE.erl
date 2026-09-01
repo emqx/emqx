@@ -109,16 +109,16 @@ init_per_group(sync, Config) ->
 init_per_group(cloud, Config0) ->
     Config = [
         {query_mode, async},
-        {enable_batch, true},
+        {batch_size, ?BATCH_SIZE},
         {cloud, true}
         | Config0
     ],
     common_init(Config);
 init_per_group(with_batch, Config0) ->
-    Config = [{enable_batch, true} | Config0],
+    Config = [{batch_size, ?BATCH_SIZE} | Config0],
     common_init(Config);
 init_per_group(without_batch, Config0) ->
-    Config = [{enable_batch, false} | Config0],
+    Config = [{batch_size, 1} | Config0],
     common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
@@ -205,11 +205,7 @@ common_init(ConfigT) ->
 
 action_config(TestCase, Name, Config) ->
     Type = ?config(bridge_type, Config),
-    BatchSize =
-        case ?config(enable_batch, Config) of
-            true -> ?BATCH_SIZE;
-            false -> 1
-        end,
+    BatchSize = ?config(batch_size, Config),
     QueryMode = ?config(query_mode, Config),
     ConfigString =
         io_lib:format(
