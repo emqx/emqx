@@ -19,6 +19,7 @@
     t_ee_authorize_admin,
     t_ee_authorize_admin_cannot_manage_mfa,
     t_ee_authorize_admin_cannot_manage_mfa_module_level,
+    t_is_api_key_allowed,
     t_ee_authorize_publisher,
     %% Schema validation: publisher role can only hold publish scope
     t_ee_publisher_only_publish_scope,
@@ -1179,6 +1180,32 @@ t_ee_authorize_admin_cannot_manage_mfa_module_level(_Config) ->
     ?assertEqual(
         {error, <<"not_allowed">>, <<"users">>},
         emqx_mgmt_auth:authorize(ChangePwdHandler, FakeReq, ApiKey, ApiSecret)
+    ),
+    ok.
+
+-doc """
+`emqx_mgmt_auth:is_api_key_allowed/1` is the single predicate the auth-error
+message code (emqx_dashboard.erl) consults to decide whether to hint at API
+keys. It must agree with authorize/4's own denylist for every handler shape
+on the list, and allow anything else.
+""".
+t_is_api_key_allowed(_Config) ->
+    NotAllowed = [
+        #{module => emqx_dashboard_api, function => user},
+        #{module => emqx_dashboard_api, function => users},
+        #{module => emqx_dashboard_api, function => logout},
+        #{module => emqx_dashboard_api, function => change_pwd},
+        #{module => emqx_dashboard_api, function => change_mfa},
+        #{module => emqx_mgmt_api_api_keys, function => list}
+    ],
+    lists:foreach(
+        fun(HandlerInfo) ->
+            ?assertNot(emqx_mgmt_auth:is_api_key_allowed(HandlerInfo), HandlerInfo)
+        end,
+        NotAllowed
+    ),
+    ?assert(
+        emqx_mgmt_auth:is_api_key_allowed(#{module => emqx_mgmt_api_nodes, function => nodes})
     ),
     ok.
 

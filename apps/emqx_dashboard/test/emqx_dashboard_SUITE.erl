@@ -682,6 +682,96 @@ t_cli_redact(_Config) ->
         emqx_dashboard_cli:api_keys_audit_args(["add", "--api-secret"])
     ).
 
+-doc """
+Regression test: an invalid bearer token on a login-only endpoint (POST
+/api/v5/logout, which rejects API keys) must not tell the caller to use one.
+""".
+t_bad_token_message_login_only_endpoint(_Config) ->
+    {ok, 401, Body} = post_logout(bearer_header(<<"not-a-real-token">>)),
+    #{<<"code">> := <<"BAD_TOKEN">>, <<"message">> := Message} = json(Body),
+    ?assertNot(has_substring(Message, "API key")),
+    assert_no_bootstrap_file_mention(Message),
+    ok.
+
+-doc "An invalid bearer token on an endpoint that accepts API keys still gets the API-key hint.".
+t_bad_token_message_api_key_endpoint(_Config) ->
+    {ok, 401, Body} = request_api(get, api_path(["nodes"]), bearer_header(<<"not-a-real-token">>)),
+    #{<<"code">> := <<"BAD_TOKEN">>, <<"message">> := Message} = json(Body),
+    ?assert(has_substring(Message, "API key")),
+    assert_no_bootstrap_file_mention(Message),
+    ok.
+
+-doc "An expired bearer token on a login-only endpoint must not recommend an API key.".
+t_token_timeout_message_login_only_endpoint(_Config) ->
+    Token = sign_expired_token(bin(["expired-user-", integer_to_list(random_num())])),
+    {ok, 401, Body} = post_logout(bearer_header(Token)),
+    #{<<"code">> := <<"TOKEN_TIME_OUT">>, <<"message">> := Message} = json(Body),
+    ?assertNot(has_substring(Message, "API key")),
+    assert_no_bootstrap_file_mention(Message),
+    ok.
+
+-doc "An expired bearer token on an endpoint that accepts API keys still gets the API-key hint.".
+t_token_timeout_message_api_key_endpoint(_Config) ->
+    Token = sign_expired_token(bin(["expired-user-", integer_to_list(random_num())])),
+    {ok, 401, Body} = request_api(get, api_path(["nodes"]), bearer_header(Token)),
+    #{<<"code">> := <<"TOKEN_TIME_OUT">>, <<"message">> := Message} = json(Body),
+    ?assert(has_substring(Message, "API key")),
+    assert_no_bootstrap_file_mention(Message),
+    ok.
+
+-doc """
+No authorization header at all: the message is gated by endpoint the same
+way as an invalid token.
+""".
+t_missing_auth_header_message_scope(_Config) ->
+    {ok, 401, LoginOnlyBody} = post_logout(undefined),
+    #{<<"code">> := <<"AUTHORIZATION_HEADER_ERROR">>, <<"message">> := LoginOnlyMessage} =
+        json(LoginOnlyBody),
+    ?assertNot(has_substring(LoginOnlyMessage, "API key")),
+    assert_no_bootstrap_file_mention(LoginOnlyMessage),
+
+    {ok, 401, ApiKeyBody} = request_api(get, api_path(["nodes"]), undefined),
+    #{<<"code">> := <<"AUTHORIZATION_HEADER_ERROR">>, <<"message">> := ApiKeyMessage} =
+        json(ApiKeyBody),
+    ?assert(has_substring(ApiKeyMessage, "API key")),
+    assert_no_bootstrap_file_mention(ApiKeyMessage),
+    ok.
+
+-doc """
+Baseline that must not regress: Basic auth (API key) on a login-only endpoint
+is still rejected outright, with the unchanged API_KEY_NOT_ALLOW code.
+""".
+t_basic_auth_on_login_only_endpoint_still_rejected(_Config) ->
+    {ok, _} = emqx_common_test_http:create_default_app(),
+    BasicHeader = emqx_common_test_http:default_auth_header(),
+    {ok, 401, Body} = post_logout(BasicHeader),
+    ?assertMatch(#{<<"code">> := <<"API_KEY_NOT_ALLOW">>}, json(Body)),
+    _ = emqx_common_test_http:delete_default_app(),
+    ok.
+
+bearer_header(Token) ->
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+%% httpc rejects a bodyless POST request tuple; send an empty JSON body so
+%% the auth check (which runs before the handler) is exercised the same way
+%% a real client's POST /logout would hit it.
+post_logout(Auth) ->
+    request_api(post, api_path(["logout"]), [], Auth, #{}).
+
+has_substring(Bin, SubStr) when is_binary(Bin) ->
+    binary:match(Bin, list_to_binary(SubStr)) =/= nomatch.
+
+assert_no_bootstrap_file_mention(Message) ->
+    ?assertNot(has_substring(Message, "bootstrap_file")).
+
+sign_expired_token(Username) ->
+    {ok, _Role, Token, _Namespace} = emqx_dashboard_token:sign(#?ADMIN{username = Username}),
+    [JWT] = emqx_dashboard_token:lookup_by_username(Username),
+    _ = mria:sync_transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [
+        JWT#?ADMIN_JWT{exptime = erlang:system_time(millisecond) - 1000}
+    ]),
+    Token.
+
 t_lookup_by_username_jwt(_Config) ->
     User = bin(["user-", integer_to_list(random_num())]),
     emqx_dashboard_token:sign(#?ADMIN{username = User}),
