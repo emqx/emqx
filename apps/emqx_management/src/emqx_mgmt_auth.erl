@@ -909,7 +909,7 @@ drop_disallowed_namespaced_scopes(Namespace, Valid, Rejected) when is_binary(Nam
         Valid
     ),
     {Keep, Rejected ++ [{S, namespaced_scope_not_allowed} || S <- Drop]};
-drop_disallowed_namespaced_scopes(_Namespace, Valid, Rejected) ->
+drop_disallowed_namespaced_scopes(?global_ns, Valid, Rejected) ->
     {Valid, Rejected}.
 
 %% Restrict publisher role to the `publish' scope only. Other roles
