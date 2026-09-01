@@ -27,6 +27,7 @@
 -export([get_namespace/1]).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_release.hrl").
@@ -49,7 +50,7 @@
 
 -type auth_meta() :: #{
     auth_type := jwt_token | api_key,
-    source := binary(),
+    source := dashboard_username(),
     namespace := ?global_ns | binary(),
     actor := emqx_dashboard_rbac:actor_context()
 }.
