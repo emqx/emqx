@@ -33,19 +33,46 @@ all() ->
 groups() ->
     emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
+%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
+%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
+%% unknown field, so audit logging is only enabled on the `ee' edition.
+audit_conf_spec() ->
+    case emqx_release:edition() of
+        ee ->
+            {emqx_conf, #{
+                config =>
+                    "authorization.cache { enable = false },"
+                    "authorization.no_match = deny,"
+                    "authorization.sources = [{type = built_in_database, max_rules = 7}],"
+                    "log.audit { enable = true, level = info }",
+                schema_mod => emqx_enterprise_schema
+            }};
+        ce ->
+            {emqx_conf,
+                "authorization.cache { enable = false },"
+                "authorization.no_match = deny,"
+                "authorization.sources = [{type = built_in_database, max_rules = 7}]"}
+    end.
+
+audit_app_specs() ->
+    case emqx_release:edition() of
+        ee -> [emqx_audit];
+        ce -> []
+    end.
+
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
-            {emqx_conf,
-                "authorization.cache { enable = false },"
-                "authorization.no_match = deny,"
-                "authorization.sources = [{type = built_in_database, max_rules = 7}]"},
+            audit_conf_spec(),
             emqx_auth,
-            emqx_auth_mnesia,
-            emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
-        ],
+            emqx_auth_mnesia
+        ] ++
+            audit_app_specs() ++
+            [
+                emqx_management,
+                emqx_mgmt_api_test_util:emqx_dashboard()
+            ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     ok = emqx_hooks:add(
@@ -105,6 +132,11 @@ init_per_group(_Group, TCConfig) ->
 end_per_group(_Group, _TCConfig) ->
     ok.
 
+init_per_testcase(t_create_rules_audit_records_namespace, TCConfig) ->
+    case emqx_release:edition() of
+        ee -> TCConfig;
+        ce -> {skip, "audit logging is an ee-only feature"}
+    end;
 init_per_testcase(_TestCase, TCConfig) ->
     AuthHeader = ?config(auth_header, TCConfig),
     put_auth_header(AuthHeader),
@@ -671,3 +703,84 @@ t_api(TCConfig) when is_list(TCConfig) ->
     }),
 
     ok.
+
+-doc """
+Regression test for #18653/#18664's class of bug: audit records for a
+built_in_database authorization-rule creation must identify the namespace,
+both when a global admin creates rules (implicit global namespace, no `?ns='
+at all) and when a namespaced admin creates its own rules (implicit
+own-namespace, no `?ns=' either).
+""".
+t_create_rules_audit_records_namespace(_TCConfig) ->
+    StartAt = erlang:system_time(microsecond),
+    GlobalAuthHeader = create_superuser(),
+    Ns = <<"authz_audit_ns">>,
+    Username = <<"authz_audit_ns_admin">>,
+    Password = <<"superSecureP@ss1">>,
+    AdminRole = <<"ns:", Ns/binary, "::administrator">>,
+    {200, _} = create_user_api(
+        #{
+            <<"username">> => Username,
+            <<"password">> => Password,
+            <<"role">> => AdminRole,
+            <<"description">> => <<"namespaced person">>
+        },
+        GlobalAuthHeader
+    ),
+    {200, #{<<"token">> := Token}} = login(#{
+        <<"username">> => Username,
+        <<"password">> => Password
+    }),
+    NsAuthHeader = bearer_auth_header(Token),
+
+    put_auth_header(GlobalAuthHeader),
+    {204, _} = create_username_rules([?USERNAME_RULES_EXAMPLE]),
+
+    put_auth_header(NsAuthHeader),
+    {204, _} = create_username_rules([?USERNAME_RULES_EXAMPLE]),
+
+    Entries = wait_for_audit_entries(
+        <<"/authorization/sources/built_in_database/rules/users">>,
+        StartAt,
+        2,
+        2000,
+        GlobalAuthHeader
+    ),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, Ns]), Namespaces),
+    ok.
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs, _AuthHeader) when
+    RemainMs =< 0
+->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs, AuthHeader) ->
+    Entries = audit_entries_since(OperationId, StartAt, AuthHeader),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(
+                OperationId, StartAt, ExpectedCount, RemainMs - SleepMs, AuthHeader
+            )
+    end.
+
+audit_entries_since(OperationId, StartAt, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["audit"]),
+    QueryParams = #{
+        <<"operation_id">> => OperationId,
+        <<"gte_created_at">> => integer_to_binary(StartAt),
+        <<"limit">> => <<"100">>
+    },
+    {200, #{<<"data">> := Data}} =
+        emqx_mgmt_api_test_util:simple_request(#{
+            method => get, url => URL, query_params => QueryParams, auth_header => AuthHeader
+        }),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.

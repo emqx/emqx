@@ -25,16 +25,39 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
+%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
+%% unknown field, so audit logging is only enabled on the `ee' edition.
+audit_conf_spec() ->
+    case emqx_release:edition() of
+        ee ->
+            {emqx_conf, #{
+                config => #{log => #{audit => #{enable => true, level => info}}},
+                schema_mod => emqx_enterprise_schema
+            }};
+        ce ->
+            emqx_conf
+    end.
+
+audit_app_specs() ->
+    case emqx_release:edition() of
+        ee -> [emqx_audit];
+        ce -> []
+    end.
+
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             %% Needed by `emqx_modules`:
-            emqx_conf,
+            audit_conf_spec(),
             %% Manages `emqx_trace` server:
-            emqx_modules,
-            emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
-        ],
+            emqx_modules
+        ] ++
+            audit_app_specs() ++
+            [
+                emqx_management,
+                emqx_mgmt_api_test_util:emqx_dashboard()
+            ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -42,6 +65,20 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
+init_per_testcase(t_create_trace_audit_records_namespace, Config) ->
+    case emqx_release:edition() of
+        ce ->
+            {skip, "audit logging is an ee-only feature"};
+        ee ->
+            ok = snabbkaffe:start_trace(),
+            emqx_trace:clear(),
+            ok = emqx_hooks:add(
+                'namespace.resource_pre_create',
+                {?MODULE, mark_ns1_managed, []},
+                1000
+            ),
+            Config
+    end;
 init_per_testcase(t_namespaced_user_cross_ns_isolation, Config) ->
     ok = snabbkaffe:start_trace(),
     emqx_trace:clear(),
@@ -64,6 +101,11 @@ init_per_testcase(_, Config) ->
     emqx_trace:clear(),
     Config.
 
+end_per_testcase(t_create_trace_audit_records_namespace, _Config) ->
+    ok = emqx_hooks:del('namespace.resource_pre_create', {?MODULE, mark_ns1_managed}),
+    snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
+    ok;
 end_per_testcase(t_namespaced_user_cross_ns_isolation, _Config) ->
     ok = emqx_hooks:del('namespace.resource_pre_create', {?MODULE, mark_ns1_managed}),
     snabbkaffe:stop(),
@@ -963,6 +1005,73 @@ t_namespaced_rule_trace(_TCConfig) ->
     ),
 
     ok.
+
+-doc """
+Regression test for #18653/#18664's class of bug: audit records for
+`POST /trace` must identify the namespace, both for a global admin's
+implicit-global trace and a namespaced admin's implicit-own-namespace
+trace (no `?ns=` in either case).
+""".
+t_create_trace_audit_records_namespace(_TCConfig) ->
+    StartAt = erlang:system_time(microsecond),
+    ?assertMatch(
+        {200, _},
+        create_trace_api(
+            #{
+                <<"name">> => <<"global_trace_for_audit">>,
+                <<"type">> => <<"clientid">>,
+                <<"clientid">> => <<"clientid_audit_global">>
+            },
+            #{}
+        )
+    ),
+    NsAdmin = namespaced_admin_headers(),
+    ?assertMatch(
+        {200, _},
+        create_trace_api(
+            #{
+                <<"name">> => <<"ns_trace_for_audit">>,
+                <<"type">> => <<"clientid">>,
+                <<"clientid">> => <<"clientid_audit_ns">>
+            },
+            #{auth_header => NsAdmin}
+        )
+    ),
+    Entries = wait_for_audit_entries(<<"/trace">>, StartAt, 2, 2000),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, <<"ns1">>]), Namespaces),
+    ok.
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs - SleepMs)
+    end.
+
+audit_entries_since(OperationId, StartAt) ->
+    URL = emqx_mgmt_api_test_util:api_path(["audit"]),
+    QueryParams = #{
+        <<"operation_id">> => OperationId,
+        <<"gte_created_at">> => integer_to_binary(StartAt),
+        <<"limit">> => <<"100">>
+    },
+    {200, #{<<"data">> := Data}} =
+        emqx_mgmt_api_test_util:simple_request(#{
+            method => get, url => URL, query_params => QueryParams
+        }),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
 
 -doc """
 Checks the cross-namespace access boundary on per-trace operations.

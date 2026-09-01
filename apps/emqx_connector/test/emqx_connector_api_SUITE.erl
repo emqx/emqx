@@ -102,43 +102,67 @@
 }).
 -define(KAFKA_BRIDGE(Name), ?KAFKA_BRIDGE(Name, ?CONNECTOR_NAME)).
 
--define(APPSPECS, [
-    {emqx, #{
-        before_start => fun(App, AppConfig) ->
-            %% We need this in the tests because `emqx_cth_suite` does not start apps in
-            %% the exact same way as the release works: in the release,
-            %% `emqx_enterprise_schema` is the root schema that knows all root keys.  In
-            %% CTH, we need to manually load the schema below so that when
-            %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
-            %% the schema module for it.
-            emqx_config:init_load(emqx_connector_schema, <<"">>),
-            emqx_config:add_allowed_namespaced_config_root(<<"connectors">>),
-            ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
-            emqx_cth_suite:inhibit_config_loader(App, AppConfig)
-        end
-    }},
-    emqx_conf,
-    emqx_auth,
-    {emqx_connector, #{
-        after_start => fun() ->
-            ok = emqx_hooks:add(
-                'namespace.resource_pre_create',
-                {?MODULE, on_namespace_resource_pre_create, []},
-                ?HP_HIGHEST
-            )
-        end
-    }},
-    emqx_bridge_http,
-    emqx_bridge,
-    emqx_rule_engine,
-    emqx_management
-]).
+-define(APPSPECS,
+    [
+        {emqx, #{
+            before_start => fun(App, AppConfig) ->
+                %% We need this in the tests because `emqx_cth_suite` does not start apps in
+                %% the exact same way as the release works: in the release,
+                %% `emqx_enterprise_schema` is the root schema that knows all root keys.  In
+                %% CTH, we need to manually load the schema below so that when
+                %% `emqx_config:init_load` runs and encounters a namespaced root key, it knows
+                %% the schema module for it.
+                emqx_config:init_load(emqx_connector_schema, <<"">>),
+                emqx_config:add_allowed_namespaced_config_root(<<"connectors">>),
+                ok = emqx_schema_hooks:inject_from_modules([?MODULE]),
+                emqx_cth_suite:inhibit_config_loader(App, AppConfig)
+            end
+        }},
+        audit_conf_spec()
+    ] ++ audit_app_specs() ++
+        [
+            emqx_auth,
+            {emqx_connector, #{
+                after_start => fun() ->
+                    ok = emqx_hooks:add(
+                        'namespace.resource_pre_create',
+                        {?MODULE, on_namespace_resource_pre_create, []},
+                        ?HP_HIGHEST
+                    )
+                end
+            }},
+            emqx_bridge_http,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management
+        ]
+).
 
 -define(APPSPEC_DASHBOARD,
     {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
 ).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
+%% `log.audit' is only declared in `emqx_enterprise_schema'; the base
+%% `emqx_conf_schema' (used e.g. on the OSS `emqx' test profile) rejects it as an
+%% unknown field, so audit logging is only enabled on the `ee' edition.
+audit_conf_spec() ->
+    case emqx_release:edition() of
+        ee ->
+            {emqx_conf, #{
+                config => #{log => #{audit => #{enable => true, level => info}}},
+                schema_mod => emqx_enterprise_schema
+            }};
+        ce ->
+            emqx_conf
+    end.
+
+audit_app_specs() ->
+    case emqx_release:edition() of
+        ee -> [emqx_audit];
+        ce -> []
+    end.
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -201,7 +225,15 @@ end_per_group(_, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)),
     ok.
 
+init_per_testcase(t_connector_audit_records_namespace = TestCase, Config) ->
+    case emqx_release:edition() of
+        ee -> init_per_testcase_1(TestCase, Config);
+        ce -> {skip, "audit logging is an ee-only feature"}
+    end;
 init_per_testcase(TestCase, Config) ->
+    init_per_testcase_1(TestCase, Config).
+
+init_per_testcase_1(TestCase, Config) ->
     case ?config(cluster_nodes, Config) of
         undefined ->
             init_mocks(TestCase);
@@ -1862,6 +1894,69 @@ t_namespaced_crud(TCConfig) ->
     ?assertMatch({200, []}, list(TCConfigNS2)),
 
     ok.
+
+-doc """
+Regression test for #18653/#18664's class of bug: audit records for a
+connector creation must identify the namespace, both for a global admin's
+implicit-global connector and a namespaced admin's implicit-own-namespace
+connector (no `?ns=' in either case).
+""".
+t_connector_audit_records_namespace(TCConfig0) ->
+    clear_mocks(TCConfig0),
+    TCConfig =
+        case proplists:get_value(node, TCConfig0) of
+            undefined -> [{node, node()} | TCConfig0];
+            _ -> TCConfig0
+        end,
+    Ns = <<"connector_audit_ns">>,
+    AuthHeaderNs = ensure_namespaced_api_key(Ns, TCConfig),
+    TCConfigNs = [{auth_header, AuthHeaderNs} | TCConfig],
+
+    StartAt = erlang:system_time(microsecond),
+    ConnectorType = <<"http">>,
+    ConnectorNameGlobal = <<"conn_audit_global">>,
+    ConnectorNameNs = <<"conn_audit_ns">>,
+    ConnectorConfigGlobal = http_connector_config(#{<<"description">> => <<"global">>}),
+    ConnectorConfigNs = http_connector_config(#{<<"description">> => Ns}),
+
+    {201, _} = create(ConnectorType, ConnectorNameGlobal, ConnectorConfigGlobal, TCConfig),
+    {201, _} = create(ConnectorType, ConnectorNameNs, ConnectorConfigNs, TCConfigNs),
+
+    Entries = wait_for_audit_entries(<<"/connectors">>, StartAt, 2, 2000),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, Ns]), Namespaces),
+    ok.
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs - SleepMs)
+    end.
+
+audit_entries_since(OperationId, StartAt) ->
+    URL = emqx_mgmt_api_test_util:api_path(["audit"]),
+    QueryParams = #{
+        <<"operation_id">> => OperationId,
+        <<"gte_created_at">> => integer_to_binary(StartAt),
+        <<"limit">> => <<"100">>
+    },
+    {200, #{<<"data">> := Data}} =
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get, url => URL, query_params => QueryParams
+        }),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
 
 -doc """
 Checks that we correctly load and unload connectors already in the config when a node
