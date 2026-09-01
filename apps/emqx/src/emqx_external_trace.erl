@@ -192,7 +192,7 @@ connect_attrs(
     }),
     Channel
 ) ->
-    #{
+    ?wrap(#{
         'client.clientid' => ClientId,
         'client.username' => Username,
         'client.proto_name' => ProtoName,
@@ -203,12 +203,12 @@ connect_attrs(
         'client.will_qos' => WillQos,
         'client.will_retain' => WillRetain,
         'client.keepalive' => KeepAlive,
-        'client.conn_props' => json_encode_proplist(redact_conn_props(Properties)),
-        'client.will_props' => json_encode(WillProps),
+        'client.conn_props' => safe_json_encode_proplist(redact_conn_props(Properties)),
+        'client.will_props' => safe_json_encode_proplist(WillProps),
         'client.will_topic' => WillTopic,
         'client.sockname' => emqx_utils:ntoa(emqx_channel:info(sockname, Channel)),
         'client.peername' => emqx_utils:ntoa(emqx_channel:info(peername, Channel))
-    };
+    });
 connect_attrs(_, _) ->
     ?fallback_attrs().
 
@@ -398,6 +398,23 @@ json_encode(Term) ->
 %% Properties is a map which may include 'User-Property' of key-value pairs
 json_encode_proplist(Properties) ->
     emqx_utils_json:encode_proplist(Properties).
+
+%% Same as json_encode_proplist/1, but degrades to a marker value on encode
+%% failure instead of crashing the caller. Connect properties come straight
+%% off the wire, so a single unencodable field (e.g. from a malformed or
+%% adversarial CONNECT) must not cost the whole connect span.
+safe_json_encode_proplist(Properties) ->
+    try
+        json_encode_proplist(Properties)
+    catch
+        Class:Reason ->
+            ?SLOG(debug, #{
+                msg => "failed_to_encode_trace_attr",
+                class => Class,
+                reason => Reason
+            }),
+            <<"\"encode_error\"">>
+    end.
 
 redact_conn_props(#{'Authentication-Data' := _} = Properties) ->
     Properties#{'Authentication-Data' := <<"******">>};
