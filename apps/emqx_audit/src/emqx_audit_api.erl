@@ -326,7 +326,7 @@ format(Audit) ->
         created_at => emqx_utils_calendar:epoch_to_rfc3339(CreatedAt, microsecond),
         node => Node,
         from => From,
-        source => Source,
+        source => stringify_source(Source),
         source_ip => SourceIp,
         operation_id => OperationId,
         operation_type => OperationType,
@@ -338,6 +338,15 @@ format(Audit) ->
         failure => Failure,
         http_request => HttpRequest
     }.
+
+%% `Source' is `emqx_dashboard_admin:dashboard_username()': either a plain binary
+%% (local user, API key) or `{Backend, Name}' (SSO admin, see `?SSO_USERNAME/2' in
+%% emqx_dashboard.hrl). Match the tuple shape structurally instead of depending on
+%% the `emqx_dashboard' header, since `emqx_audit' does not depend on that app.
+stringify_source(Source) when is_binary(Source) ->
+    Source;
+stringify_source({Backend, Name}) when is_atom(Backend), is_binary(Name) ->
+    iolist_to_binary([atom_to_binary(Backend, utf8), <<":">>, Name]).
 
 audit_log_list_example() ->
     #{

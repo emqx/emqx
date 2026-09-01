@@ -8,6 +8,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include("../../emqx_dashboard/include/emqx_dashboard.hrl").
+-include("../../emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 all() ->
     [
@@ -56,7 +58,8 @@ init_per_suite(Config) ->
             emqx_license,
             emqx_audit,
             emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
+            emqx_mgmt_api_test_util:emqx_dashboard(),
+            emqx_dashboard_rbac
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -105,6 +108,50 @@ t_http_api(_) ->
             ]
         },
         emqx_utils_json:decode(Res1)
+    ),
+    ok.
+
+%% Reproduces emqx/emqx#18687: an audit record whose `source' is the tuple
+%% form of an SSO admin identity (`?SSO_USERNAME(Backend, Name)') must not
+%% crash `GET /api/v5/audit' for every caller.
+t_http_api_sso_source(_) ->
+    process_flag(trap_exit, true),
+    SsoBackend = saml,
+    SsoUser = <<"jackson-audit@example.com">>,
+    Desc = <<"audit sso source test">>,
+    SsoUsername = ?SSO_USERNAME(SsoBackend, SsoUser),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_SUPERUSER, Desc),
+    {ok, #{token := SsoToken}} = emqx_dashboard_admin:sign_token(SsoUsername, <<>>),
+    SsoAuthHeader = {"Authorization", "Bearer " ++ binary_to_list(SsoToken)},
+    StartAt = erlang:system_time(microsecond),
+    ConfigsPath = emqx_mgmt_api_test_util:api_path(["configs", "global_zone"]),
+    {ok, Zones} = emqx_mgmt_api_configs_SUITE:get_global_zone(),
+    NewZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 2),
+    {ok, 200, _} = emqx_mgmt_api_test_util:request_api_with_body(
+        put, ConfigsPath, SsoAuthHeader, NewZones
+    ),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Query =
+        lists:flatten(
+            io_lib:format(
+                "operation_id=/configs/global_zone&gte_created_at=~B&limit=1",
+                [StartAt]
+            )
+        ),
+    Res = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{
+                    <<"from">> := <<"dashboard">>,
+                    <<"operation_id">> := <<"/configs/global_zone">>,
+                    <<"source">> := <<"saml:jackson-audit@example.com">>,
+                    <<"http_status_code">> := 200
+                }
+            ]
+        },
+        emqx_utils_json:decode(Res)
     ),
     ok.
 
