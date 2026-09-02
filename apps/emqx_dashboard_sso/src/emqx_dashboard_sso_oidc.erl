@@ -23,7 +23,8 @@
     create/1,
     update/2,
     destroy/1,
-    convert_certs/2
+    convert_certs/2,
+    check_ssl_opts/1
 ]).
 
 -define(PROVIDER_SVR_NAME, ?MODULE).
@@ -170,6 +171,14 @@ desc(_) ->
 %%------------------------------------------------------------------------------
 
 create(#{name_var := NameVar} = Config) ->
+    case check_ssl_opts(Config) of
+        {error, _} = Error ->
+            Error;
+        ok ->
+            start_session(Config, NameVar)
+    end.
+
+start_session(Config, NameVar) ->
     case
         emqx_dashboard_sso_oidc_session:start(
             ?PROVIDER_SVR_NAME,
@@ -281,6 +290,37 @@ validate_issuer_url(Value) ->
     else
         _ ->
             throw(invalid_issuer_url)
+    end.
+
+%% `ssl.enable` must match whether the issuer actually uses `https`:
+%% `false` on `https` silently drops all TLS options and fails at request
+%% time instead; `true` on `http` is dead config, oidcc always attaches it
+%% to the httpc request but httpc only ever uses it for a `https' URL.
+check_ssl_opts(#{issuer := Issuer, ssl := #{enable := false}}) ->
+    case is_https(Issuer) of
+        true ->
+            {error,
+                {invalid_ssl_opts,
+                    <<"it's required to enable the TLS option to establish a https connection">>}};
+        false ->
+            ok
+    end;
+check_ssl_opts(#{issuer := Issuer, ssl := #{enable := true}}) ->
+    case is_https(Issuer) of
+        false ->
+            {error,
+                {invalid_ssl_opts,
+                    <<"the TLS option must not be enabled when the issuer is not using https">>}};
+        true ->
+            ok
+    end;
+check_ssl_opts(_Config) ->
+    ok.
+
+is_https(Issuer) ->
+    case uri_string:parse(Issuer) of
+        #{scheme := <<"https">>} -> true;
+        _ -> false
     end.
 
 save_jwks_file(Dir, Content) ->
