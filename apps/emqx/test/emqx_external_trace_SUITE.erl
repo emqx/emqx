@@ -125,7 +125,7 @@ t_connect_attrs_unencodable_will_prop_degrades(_) ->
         #{
             'client.clientid' := <<"c1">>,
             'client.will_flag' := true,
-            'client.will_props' := <<"\"encode_error\"">>
+            'client.will_props' := <<"encode_error">>
         },
         Attrs
     ).

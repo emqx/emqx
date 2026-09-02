@@ -413,7 +413,7 @@ safe_json_encode_proplist(Properties) ->
                 class => Class,
                 reason => Reason
             }),
-            <<"\"encode_error\"">>
+            <<"encode_error">>
     end.
 
 redact_conn_props(#{'Authentication-Data' := _} = Properties) ->
