@@ -143,6 +143,7 @@
             emqx_bridge_syskeeper,
             emqx_bridge_confluent,
             emqx_bridge_disk_log,
+            emqx_bridge_nats,
             emqx_bridge_s3tables,
             emqx_bridge_doris,
             emqx_bridge_bigquery,

@@ -56,7 +56,7 @@ init_per_testcase(TestCase, Config) ->
             <<"servers">> => <<"127.0.0.1:", Port/binary>>,
             <<"pool_size">> => 1,
             <<"connect_timeout">> => <<"2s">>,
-            <<"auth_type">> => <<"none">>,
+            <<"authentication">> => <<"none">>,
             <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
         }
     ),
@@ -76,7 +76,7 @@ init_per_testcase(TestCase, Config) ->
                 <<"query_mode">> => <<"sync">>,
                 <<"batch_size">> => 10,
                 <<"batch_time">> => <<"100ms">>,
-                <<"request_ttl">> => <<"2s">>
+                <<"request_ttl">> => <<"60s">>
             }
         }
     ),
@@ -98,15 +98,35 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_core_publish(Config) ->
     {ok, Client} = nats_client(Config),
-    {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
+    {ok, _} = enats_client:subscribe(Client, <<"emqx.sensor/1/data">>, #{}),
     {201, _} = create_connector(Config),
-    {201, _} = create_action(Config),
+    Action = #{
+        <<"parameters">> => #{
+            <<"subject">> => <<"emqx.${.topic}">>,
+            <<"payload_template">> => <<"${.payload}">>,
+            <<"headers">> => [
+                #{<<"key">> => <<"x-topic">>, <<"value">> => <<"${.topic}">>}
+            ]
+        }
+    },
+    {201, _} = create_action(Config, Action),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
     emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-core">>)),
-    ?assertMatch(
-        {enats_client, Client,
-            {message, #{subject := <<"emqx.events">>, payload := <<"hello-core">>}}},
-        receive_message()
+    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-core">>)),
+    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-core">>)),
+    lists:foreach(
+        fun(_) ->
+            ?assertMatch(
+                {enats_client, Client,
+                    {message, #{
+                        subject := <<"emqx.sensor/1/data">>,
+                        payload := <<"hello-core">>,
+                        headers := [{<<"x-topic">>, <<"sensor/1/data">>}]
+                    }}},
+                receive_message()
+            )
+        end,
+        lists:seq(1, 3)
     ),
     ok = enats_client:stop(Client).
 
@@ -126,6 +146,7 @@ t_jetstream_publish(Config) ->
     {201, _} = create_action(Config, Action),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
     emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-js">>)),
+    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-js">>)),
     timer:sleep(200),
     ?assertEqual({ok, 1}, stream_last_sequence(Client)),
     ok = enats_client:stop(Client).
@@ -137,15 +158,30 @@ t_reconnect(Config) ->
     {201, _} = create_action(Config),
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
     stop_nats(?config(nats_pid, Config)),
-    wait_for_port_closed(?config(nats_port, Config)),
-    Pid = start_nats(?config(nats_executable, Config), ?config(nats_port, Config), false),
-    wait_for_port(?config(nats_port, Config)),
-    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-reconnect">>)),
+    receive
+        {enats_client, Client, disconnected, _Reason} -> ok
+    after 2000 -> ct:fail(nats_disconnect_not_observed)
+    end,
+    Parent = self(),
+    Restart = spawn(fun() ->
+        timer:sleep(200),
+        Nats = start_nats(?config(nats_executable, Config), ?config(nats_port, Config), false),
+        wait_for_port(?config(nats_port, Config)),
+        Parent ! {nats_restarted, self()},
+        receive
+            stop -> stop_nats(Nats)
+        end
+    end),
+    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-during-outage">>)),
+    receive
+        {nats_restarted, Restart} -> ok
+    after 10000 -> ct:fail(nats_restart_not_observed)
+    end,
     ?assertMatch(
-        {enats_client, Client, {message, #{payload := <<"hello-reconnect">>}}},
+        {enats_client, Client, {message, #{payload := <<"hello-during-outage">>}}},
         receive_message(5000)
     ),
-    stop_nats(Pid),
+    Restart ! stop,
     ok = enats_client:stop(Client).
 
 create_connector(Config) ->
@@ -206,8 +242,11 @@ free_port() ->
     Port.
 
 start_nats(Executable, Port, JetStream) ->
+    PidFile = filename:join(
+        "/tmp", "emqx-nats-" ++ integer_to_list(erlang:unique_integer([positive])) ++ ".pid"
+    ),
     Args =
-        ["-a", "127.0.0.1", "-p", integer_to_list(Port)] ++
+        ["-a", "127.0.0.1", "-p", integer_to_list(Port), "-P", PidFile] ++
             case JetStream of
                 true ->
                     StoreDir = filename:join(
@@ -218,14 +257,17 @@ start_nats(Executable, Port, JetStream) ->
                 false ->
                     []
             end,
-    open_port({spawn_executable, Executable}, [{args, Args}, exit_status]).
+    {open_port({spawn_executable, Executable}, [{args, Args}, exit_status]), Port, PidFile}.
 
-stop_nats(Port) when is_port(Port) ->
-    case erlang:port_info(Port, os_pid) of
-        {os_pid, OsPid} -> os:cmd("kill -KILL " ++ integer_to_list(OsPid));
-        undefined -> ok
+stop_nats({PortHandle, _Port, PidFile}) when is_port(PortHandle) ->
+    case file:read_file(PidFile) of
+        {ok, PidBin} -> os:cmd("kill -KILL " ++ string:trim(binary_to_list(PidBin)));
+        {error, _} -> ok
     end,
-    catch port_close(Port),
+    %% Do not synchronously close the open_port here.  On some systems
+    %% port_close/1 waits for the nats-server port program and can delay the
+    %% restart until the action request TTL expires.
+    _ = file:delete(PidFile),
     ok;
 stop_nats(_) ->
     ok.
@@ -238,14 +280,4 @@ wait_for_port(Port) ->
         {error, _} ->
             timer:sleep(50),
             wait_for_port(Port)
-    end.
-
-wait_for_port_closed(Port) ->
-    case gen_tcp:connect("127.0.0.1", Port, [], 100) of
-        {ok, Socket} ->
-            gen_tcp:close(Socket),
-            timer:sleep(50),
-            wait_for_port_closed(Port);
-        {error, _} ->
-            ok
     end.

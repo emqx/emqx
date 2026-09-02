@@ -1,0 +1,14 @@
+emqx_bridge_nats_connector_schema {
+
+servers.desc: "NATS server addresses."
+pool_size.desc: "Number of NATS connections in the connector pool."
+connect_timeout.desc: "Timeout for establishing a NATS connection."
+authentication.desc: "Authentication method used to connect to NATS."
+username.desc: "NATS username."
+password.desc: "NATS password."
+token.desc: "NATS token."
+nkey_seed.desc: "NATS user NKey seed."
+jwt.desc: "NATS user JWT."
+tls_handshake.desc: "TLS handshake mode: STARTTLS or TLS-first."
+
+}
