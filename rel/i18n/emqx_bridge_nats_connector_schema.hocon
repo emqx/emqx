@@ -9,6 +9,16 @@ password.desc: "NATS password."
 token.desc: "NATS token."
 nkey_seed.desc: "NATS user NKey seed."
 jwt.desc: "NATS user JWT."
-tls_handshake.desc: "TLS handshake mode: STARTTLS or TLS-first."
+tls_handshake.desc: "TLS handshake mode: NATS TLS upgrade or TLS-first."
+
+config_connector.desc: "NATS connector configuration."
+auth_user_password.desc: "NATS username/password authentication."
+auth_token.desc: "NATS token authentication."
+auth_nkey.desc: "NATS NKey authentication."
+auth_jwt.desc: "NATS JWT authentication."
+auth_creds_file.desc: "NATS credentials file authentication."
+mechanism.desc: "NATS authentication mechanism."
+public_key.desc: "Optional NKey public key."
+credentials_file.desc: "Path to the NATS credentials file."
 
 }

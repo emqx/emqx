@@ -1,10 +1,15 @@
 emqx_bridge_nats_action_schema {
 
-parameters.desc: "NATS publish parameters."
-subject.desc: "NATS subject template."
-payload_template.desc: "Published payload template."
-headers.desc: "NATS message header templates."
-delivery_mode.desc: "Core NATS or JetStream delivery mode."
-msg_id_template.desc: "Stable JetStream message ID template."
+ nats.desc: "NATS publish action configuration."
+ parameters.desc: "NATS publish parameters."
+
+ header.desc: "NATS message header configuration."
+ header_key.desc: "NATS header key template."
+ header_value.desc: "NATS header value template."
+ subject.desc: "NATS subject template."
+ payload_template.desc: "Published payload template."
+ headers.desc: "NATS message header templates."
+ delivery_mode.desc: "Core NATS or Jet Stream delivery mode."
+ msg_id_template.desc: "Stable Jet Stream message ID template."
 
 }

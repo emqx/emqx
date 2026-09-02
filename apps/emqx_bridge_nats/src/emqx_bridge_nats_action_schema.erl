@@ -66,6 +66,7 @@ fields(action_resource_opts) ->
 
 desc(?ACTION_TYPE) -> ?DESC(?ACTION_TYPE);
 desc(action_parameters) -> ?DESC("parameters");
+desc(header) -> ?DESC("header");
 desc(action_resource_opts) -> emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(_) -> undefined.
 
