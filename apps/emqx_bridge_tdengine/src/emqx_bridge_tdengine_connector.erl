@@ -232,10 +232,15 @@ on_stop(InstanceId, _State) ->
 
 on_query(InstanceId, {ChannelId, Data}, #{channels := Channels} = State) ->
     case maps:find(ChannelId, Channels) of
-        {ok, #{insert := Tokens, opts := Opts} = ChannelState} ->
-            Query = proc_nullable_tmpl(Tokens, Data, maps:get(channel_conf, ChannelState, #{})),
-            emqx_trace:rendered_action_template(ChannelId, #{query => Query}),
-            do_query_job(InstanceId, {?MODULE, execute, [Query, Opts]}, State);
+        {ok, #{sql_plan := Plan, opts := Opts} = ChannelState} ->
+            RenderOpts = render_opts(maps:get(channel_conf, ChannelState, #{})),
+            case emqx_bridge_tdengine_sql:render(Plan, Data, RenderOpts) of
+                {ok, Query} ->
+                    emqx_trace:rendered_action_template(ChannelId, #{query => Query}),
+                    do_query_job(InstanceId, {?MODULE, execute, [Query, Opts]}, State);
+                {error, Reason} ->
+                    {error, {unrecoverable_error, Reason}}
+            end;
         _ ->
             {error, {unrecoverable_error, {invalid_channel_id, InstanceId}}}
     end.
@@ -247,12 +252,12 @@ on_batch_query(
     #{channels := Channels} = State
 ) ->
     case maps:find(ChannelId, Channels) of
-        {ok, #{batch := Tokens, opts := Opts} = ChannelState} ->
+        {ok, #{sql_plan := Plan, opts := Opts} = ChannelState} ->
             TraceRenderedCTX = emqx_trace:make_rendered_action_template_trace_context(ChannelId),
             ChannelConf = maps:get(channel_conf, ChannelState, #{}),
             do_query_job(
                 InstanceId,
-                {?MODULE, do_batch_insert, [Tokens, BatchReq, Opts, TraceRenderedCTX, ChannelConf]},
+                {?MODULE, do_batch_insert, [Plan, BatchReq, Opts, TraceRenderedCTX, ChannelConf]},
                 State
             );
         _ ->
@@ -378,33 +383,23 @@ do_query_job(InstanceId, Job, #{pool_name := PoolName} = State) ->
 execute(Conn, Query, Opts) ->
     tdengine:insert(Conn, Query, Opts).
 
-do_batch_insert(Conn, Tokens, BatchReqs, Opts, TraceRenderedCTX, ChannelConf) ->
-    SQL = aggregate_query(Tokens, BatchReqs, <<"INSERT INTO">>, ChannelConf),
-    try
-        emqx_trace:rendered_action_template_with_ctx(
-            TraceRenderedCTX,
-            #{query => SQL}
-        ),
-        execute(Conn, SQL, Opts)
-    catch
-        error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
-            {error, Reason}
+do_batch_insert(Conn, Plan, BatchReqs, Opts, TraceRenderedCTX, ChannelConf) ->
+    DataList = [Data || {_, Data} <- BatchReqs],
+    case emqx_bridge_tdengine_sql:render_batch(Plan, DataList, render_opts(ChannelConf)) of
+        {ok, SQL} ->
+            try
+                emqx_trace:rendered_action_template_with_ctx(
+                    TraceRenderedCTX,
+                    #{query => SQL}
+                ),
+                execute(Conn, SQL, Opts)
+            catch
+                error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, {unrecoverable_error, Reason}}
     end.
-
-aggregate_query(BatchTks, BatchReqs, Acc, ChannelConf) ->
-    lists:foldl(
-        fun({_, Data}, InAcc) ->
-            InsertPart = proc_nullable_tmpl(BatchTks, Data, ChannelConf),
-            <<InAcc/binary, " ", InsertPart/binary>>
-        end,
-        Acc,
-        BatchReqs
-    ).
-
-proc_nullable_tmpl(Template, Data, #{undefined_vars_as_null := true}) ->
-    emqx_placeholder:proc_nullable_tmpl(Template, Data);
-proc_nullable_tmpl(Template, Data, _) ->
-    emqx_placeholder:proc_tmpl(Template, Data).
 
 connect(Opts) ->
     %% TODO: teach `tdengine` to accept 0-arity closures as passwords.
@@ -413,42 +408,13 @@ connect(Opts) ->
     tdengine:start_link(NOpts).
 
 parse_prepare_sql(SQL) ->
-    case emqx_utils_sql:get_statement_type(SQL) of
-        insert ->
-            InsertTks = emqx_placeholder:preproc_tmpl(SQL),
-            SQL1 = string:trim(SQL, trailing, ";"),
-            case split_insert_sql(SQL1) of
-                [_InsertPart, BatchDesc] ->
-                    BatchTks = emqx_placeholder:preproc_tmpl(BatchDesc),
-                    {ok, #{insert => InsertTks, batch => BatchTks}};
-                Result ->
-                    {error, #{msg => "split_sql_failed", sql => SQL, result => Result}}
-            end;
-        Type when is_atom(Type) ->
-            {error, #{msg => "detect_sql_type_unsupported", sql => SQL, type => Type}};
-        {error, Reason} ->
-            {error, #{msg => "detect_sql_type_failed", sql => SQL, reason => Reason}}
+    case emqx_bridge_tdengine_sql:compile(SQL) of
+        {ok, Plan} -> {ok, #{sql_plan => Plan}};
+        {error, Reason} -> {error, Reason}
     end.
 
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8).
 
-split_insert_sql(SQL0) ->
-    SQL = formalize_sql(SQL0),
-    lists:filtermap(
-        fun(E) ->
-            case string:trim(E) of
-                <<>> ->
-                    false;
-                E1 ->
-                    {true, E1}
-            end
-        end,
-        re:split(SQL, "(?i)(insert into)")
-    ).
-
-formalize_sql(Input) ->
-    %% 1. replace all whitespaces like '\r' '\n' or spaces to a single space char.
-    SQL = re:replace(Input, "\\s+", " ", [global, {return, binary}]),
-    %% 2. trims the result
-    string:trim(SQL).
+render_opts(ChannelConf) ->
+    #{undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false)}.
