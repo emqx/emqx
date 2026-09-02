@@ -45,8 +45,8 @@ materialize_file(Path, Filename) when is_binary(Filename) ->
     end.
 
 save_credentials(Path, Contents) ->
-    case enats_credentials:from_binary(Contents) of
-        {ok, _Auth} ->
+    case enats_credentials:validate(Contents) of
+        ok ->
             RelativeDir = filename:join(Path),
             Dir = emqx_tls_lib:pem_dir(RelativeDir),
             Digest = binary:encode_hex(crypto:hash(md5, [RelativeDir, Contents])),

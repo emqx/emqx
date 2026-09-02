@@ -292,8 +292,13 @@ auth_options(#{mechanism := user_password, username := Username, password := Pas
 auth_options(#{mechanism := nkey, nkey_seed := Seed}) ->
     #{mechanism => nkey_seed, seed => secret_provider(Seed)};
 auth_options(#{mechanism := jwt, credentials_file := Filename}) ->
-    {ok, Auth} = enats_credentials:from_file(Filename),
-    Auth;
+    case enats_credentials:validate_file(Filename) of
+        ok ->
+            {ok, Auth} = enats_credentials:from_file(Filename),
+            Auth;
+        {error, Reason} ->
+            {error, Reason}
+    end;
 auth_options(Authentication) ->
     {error, {invalid_authentication, Authentication}}.
 
