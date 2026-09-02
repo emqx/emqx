@@ -21,10 +21,14 @@ IDENTIFIER      = {ID_START}{ID_CONTINUE}*
 %% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
 PLACEHOLDER     = \$\{[A-Za-z0-9_.]*\}
 %% Match an identifier template that contains at least one placeholder.
-%% It may start with an identifier, or with a placeholder followed by an identifier byte
-%% or another placeholder. The tail may mix identifier bytes and placeholders.
+%% First match a prefix that proves this is an identifier template rather than a
+%% standalone placeholder:
+%% `id_part_${ph}`,
+%% `${ph}_id_part` or
+%% `${ph1}${ph2}`.
+%% Then, we allow any number of identifier bytes or placeholders to follow.
 %% A lone placeholder does not match, so the PLACEHOLDER rule handles it.
-IDENTIFIER_TEMPLATE = ({IDENTIFIER}{PLACEHOLDER}|{PLACEHOLDER}({ID_CONTINUE}|{PLACEHOLDER}))({ID_CONTINUE}|{PLACEHOLDER})*
+IDENTIFIER_TEMPLATE = ({IDENTIFIER}{PLACEHOLDER}|{PLACEHOLDER}{ID_CONTINUE}|{PLACEHOLDER}{PLACEHOLDER})({ID_CONTINUE}|{PLACEHOLDER})*
 %% A decimal point joins a TDengine number only when a digit follows it:
 %% https://github.com/taosdata/TDengine/blob/4bde7ac8fbebc3aa9143124bfcbd08645c46a037/source/libs/parser/src/parTokenizer.c#L487-L510
 %% https://github.com/taosdata/TDengine/blob/4bde7ac8fbebc3aa9143124bfcbd08645c46a037/source/libs/parser/src/parTokenizer.c#L538-L586
