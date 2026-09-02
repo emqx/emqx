@@ -631,9 +631,11 @@ dirty_io_schedulers.desc: """~
   I/O scheduler threads to create.
 
   When set to `auto` (the default), EMQX derives this from `node.schedulers`:
-  the same value, floored at 2 and capped at 8. This avoids spawning 8 dirty
-  I/O scheduler OS threads (each with its own stack/heap overhead) on a node
-  where `node.schedulers` has resolved to fewer than 8.
+  8 (the historical fixed default) when `node.schedulers` resolves to more
+  than 2, and 4 otherwise. Dirty I/O scheduler threads run blocking I/O jobs
+  (file operations and some NIFs), so a small node still keeps enough of them
+  to overlap blocking calls, while not paying the thread memory overhead of
+  the full default.
 
   Set this to a positive integer to override the derived value.~"""
 
