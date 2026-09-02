@@ -41,32 +41,35 @@ fields(connector_config) ->
     ] ++ emqx_connector_schema:resource_opts() ++ emqx_connector_schema_lib:ssl_fields();
 fields(auth_user_password) ->
     [
-        {mechanism, hoconsc:mk(user_password, #{required => true})},
+        {mechanism, hoconsc:mk(user_password, #{required => true, desc => ?DESC("mechanism")})},
         {username, hoconsc:mk(binary(), #{required => true, desc => ?DESC("username")})},
         {password, emqx_schema_secret:mk(#{required => true, desc => ?DESC("password")})}
     ];
 fields(auth_token) ->
     [
-        {mechanism, hoconsc:mk(token, #{required => true})},
+        {mechanism, hoconsc:mk(token, #{required => true, desc => ?DESC("mechanism")})},
         {token, emqx_schema_secret:mk(#{required => true, desc => ?DESC("token")})}
     ];
 fields(auth_nkey) ->
     [
-        {mechanism, hoconsc:mk(nkey, #{required => true})},
-        {public_key, hoconsc:mk(binary(), #{required => false, default => <<>>})},
+        {mechanism, hoconsc:mk(nkey, #{required => true, desc => ?DESC("mechanism")})},
+        {public_key,
+            hoconsc:mk(binary(), #{required => false, default => <<>>, desc => ?DESC("public_key")})},
         {nkey_seed, emqx_schema_secret:mk(#{required => true, desc => ?DESC("nkey_seed")})}
     ];
 fields(auth_jwt) ->
     [
-        {mechanism, hoconsc:mk(jwt, #{required => true})},
-        {public_key, hoconsc:mk(binary(), #{required => false, default => <<>>})},
+        {mechanism, hoconsc:mk(jwt, #{required => true, desc => ?DESC("mechanism")})},
+        {public_key,
+            hoconsc:mk(binary(), #{required => false, default => <<>>, desc => ?DESC("public_key")})},
         {jwt, emqx_schema_secret:mk(#{required => true, desc => ?DESC("jwt")})},
         {nkey_seed, emqx_schema_secret:mk(#{required => true, desc => ?DESC("nkey_seed")})}
     ];
 fields(auth_creds_file) ->
     [
-        {mechanism, hoconsc:mk(creds_file, #{required => true})},
-        {credentials_file, hoconsc:mk(binary(), #{required => true})}
+        {mechanism, hoconsc:mk(creds_file, #{required => true, desc => ?DESC("mechanism")})},
+        {credentials_file,
+            hoconsc:mk(binary(), #{required => true, desc => ?DESC("credentials_file")})}
     ].
 
 authentication_selector(all_union_members) ->
@@ -104,6 +107,11 @@ authentication_selector({value, Value}) ->
     throw(#{field_name => authentication, reason => {not_a_map, Value}}).
 
 desc("config_connector") -> ?DESC("config_connector");
+desc(auth_user_password) -> ?DESC("auth_user_password");
+desc(auth_token) -> ?DESC("auth_token");
+desc(auth_nkey) -> ?DESC("auth_nkey");
+desc(auth_jwt) -> ?DESC("auth_jwt");
+desc(auth_creds_file) -> ?DESC("auth_creds_file");
 desc(_) -> undefined.
 
 connector_examples(Method) ->
