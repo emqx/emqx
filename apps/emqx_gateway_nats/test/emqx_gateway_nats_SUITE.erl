@@ -282,6 +282,100 @@ t_load_badconf_partial_authn_jwt(_Config) ->
         emqx_gateway_conf:load_gateway(nats, InvalidResolverPubKeyClass)
     ).
 
+t_load_badconf_duplicate_internal_authn_type(_Config) ->
+    BaseConf = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    DuplicateTokenMethods = BaseConf#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"token">>,
+                <<"token">> => <<"token-a">>
+            },
+            #{
+                <<"type">> => <<"token">>,
+                <<"token">> => <<"token-b">>
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, DuplicateTokenMethods)
+    ).
+
+t_load_badconf_duplicate_nkeys(_Config) ->
+    BaseConf = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    DuplicateNKeys = BaseConf#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"nkey">>,
+                <<"nkeys">> => [?VALID_USER_NKEY, ?VALID_USER_NKEY]
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, DuplicateNKeys)
+    ).
+
+t_load_badconf_duplicate_resolver_preload_pubkey(_Config) ->
+    BaseConf = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    Fixture = emqx_nats_authn_SUITE:jwt_fixture(),
+    OperatorNKey = maps:get(operator_nkey, Fixture),
+    AccountNKey = maps:get(account_nkey, Fixture),
+    AccountJWT = maps:get(account_jwt, Fixture),
+    DuplicatePubKeys = BaseConf#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"trusted_operators">> => [OperatorNKey],
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{
+                            <<"pubkey">> => AccountNKey,
+                            <<"jwt">> => AccountJWT
+                        },
+                        #{
+                            <<"pubkey">> => AccountNKey,
+                            <<"jwt">> => AccountJWT
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, DuplicatePubKeys)
+    ).
+
+t_load_badconf_duplicate_trusted_operators(_Config) ->
+    BaseConf = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    Fixture = emqx_nats_authn_SUITE:jwt_fixture(),
+    OperatorNKey = maps:get(operator_nkey, Fixture),
+    AccountNKey = maps:get(account_nkey, Fixture),
+    AccountJWT = maps:get(account_jwt, Fixture),
+    DuplicateTrustedOperators = BaseConf#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"trusted_operators">> => [OperatorNKey, OperatorNKey],
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{
+                            <<"pubkey">> => AccountNKey,
+                            <<"jwt">> => AccountJWT
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, DuplicateTrustedOperators)
+    ).
+
 t_load_badconf_authn_jwt_cache_ttl(_Config) ->
     BaseConf = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
     UnsupportedCacheTTL = BaseConf#{
@@ -351,6 +445,23 @@ t_gateway_api_preserves_redacted_internal_authn(_Config) ->
     {200, GatewayConf} = emqx_gateway_test_utils:request(get, "/gateways/nats"),
     [#{type := <<"token">>, token := ?REDACTED}] = maps:get(internal_authn, GatewayConf),
 
+    {400, _} = emqx_gateway_test_utils:request(
+        put,
+        "/gateways/nats",
+        #{
+            <<"internal_authn">> => [
+                #{
+                    <<"type">> => <<"token">>,
+                    <<"token">> => OriginalToken
+                },
+                #{
+                    <<"type">> => <<"token">>,
+                    <<"token">> => <<"another-token">>
+                }
+            ]
+        }
+    ),
+
     {204, _} = emqx_gateway_test_utils:request(
         put,
         "/gateways/nats",
@@ -367,6 +478,31 @@ t_gateway_api_preserves_redacted_internal_authn(_Config) ->
     ?assertEqual(
         InternalAuthn,
         emqx:get_raw_config([gateway, nats, internal_authn])
+    ).
+
+t_full_gateway_update_propagates_deobfuscation_error(_Config) ->
+    OldConf = #{
+        <<"nats">> => #{
+            <<"internal_authn">> => [
+                #{<<"type">> => <<"nkey">>}
+            ]
+        }
+    },
+    NewConf = #{
+        <<"nats">> => #{
+            <<"internal_authn">> => [
+                #{<<"type">> => <<"token">>, <<"token">> => <<"******">>}
+            ]
+        }
+    },
+    ?assertMatch(
+        {error,
+            {badconf, #{
+                key := internal_authn,
+                reason := "masked_secret_without_matching_old_value",
+                value := token
+            }}},
+        emqx_gateway_conf:pre_config_update([gateway], NewConf, OldConf)
     ).
 
 t_gateway_client_management(Config) ->
