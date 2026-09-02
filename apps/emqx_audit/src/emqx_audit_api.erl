@@ -343,11 +343,15 @@ format(Audit) ->
 
 %% SSO admin sessions carry `source' as `{Backend, Username}' (see
 %% ?SSO_USERNAME in emqx_dashboard.hrl); flatten it to a binary for the
-%% swagger schema, which declares this field as `binary()'.
+%% swagger schema, which declares this field as `binary()'. During SSO
+%% pre-authentication (before any user identity is known), `source' is
+%% instead the bare backend atom, e.g. `oidc'.
 stringify_source({Backend, Name}) when is_atom(Backend), is_binary(Name) ->
     <<(atom_to_binary(Backend))/binary, ":", Name/binary>>;
 stringify_source(Source) when is_binary(Source) ->
-    Source.
+    Source;
+stringify_source(Backend) when is_atom(Backend) ->
+    atom_to_binary(Backend).
 
 audit_log_list_example() ->
     #{
