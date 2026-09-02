@@ -455,6 +455,28 @@ t_stop_cleanup(TCConfig) ->
     ok.
 
 -doc """
+`PUT /api/v5/sso/oidc' must reject an `https' issuer combined with
+`ssl.enable = false' with a clear error at config-write time, instead of
+accepting it and failing every login attempt later with an opaque TLS error
+(see `emqx_dashboard_sso_oidc:check_ssl_opts/1').
+""".
+t_reject_https_issuer_with_ssl_disabled(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    ProviderParams = (oidc_provider_params())#{
+        <<"ssl">> => #{<<"enable">> => false}
+    },
+    {400, #{<<"message">> := Message}} = create_backend(Node, ProviderParams, #{}),
+    ?assertNotEqual(nomatch, binary:match(Message, <<"invalid_ssl_opts">>)),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(Message, <<"required to enable the TLS option">>)
+    ),
+    %% The rejected config must not have been persisted or started.
+    ?assertEqual([], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
+    ok.
+
+-doc """
 `GET /api/v5/sso/oidc' must return `client_jwks' as `none' when no client
 JWKS is configured (the default), while a configured file JWKS and the
 client secret must stay masked in both the GET and update responses. Masking
