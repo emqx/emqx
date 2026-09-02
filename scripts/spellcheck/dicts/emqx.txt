@@ -196,6 +196,7 @@ natively
 NATS
 nif
 NIF
+NIFs
 NKEY
 nkey
 NKEYs

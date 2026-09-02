@@ -326,7 +326,7 @@ format(Audit) ->
         created_at => emqx_utils_calendar:epoch_to_rfc3339(CreatedAt, microsecond),
         node => Node,
         from => From,
-        source => Source,
+        source => emqx_dashboard_admin:format_username(Source),
         source_ip => SourceIp,
         operation_id => OperationId,
         operation_type => OperationType,

@@ -1193,7 +1193,8 @@ force_gc_count.label:
 """Process GC messages num"""
 
 mqtt_max_clientid_len.desc:
-"""Maximum allowed length of MQTT Client ID."""
+"""Maximum allowed length of MQTT Client ID.
+This limit applies to all MQTT versions (3.1, 3.1.1 and 5.0). EMQX does not enforce the MQTT 3.1 protocol limit of 23 bytes separately; set this value to 23 to enforce it. The `strict_mode` setting does not change Client ID length checking."""
 
 mqtt_max_clientid_len.label:
 """Max Client ID Length"""
@@ -1363,7 +1364,8 @@ fields_mqtt_quic_listener_maximum_mtu.label:
 mqtt_strict_mode.desc:
 """Whether to parse MQTT messages in strict mode.
 In strict mode, invalid UTF-8 strings (in client ID, topic name, etc.), reserved bits, and other malformed packet structure cause the offending client to be disconnected.
-Defaults to `true` since release 6.3 — set to `false` to restore the older lenient behavior for compatibility with nonconforming clients."""
+Defaults to `true` since release 6.3 — set to `false` to restore the older lenient behavior for compatibility with nonconforming clients.
+Strict mode checks packet well-formedness only. It does not enforce version-specific semantic limits such as the MQTT 3.1 Client ID length; Client ID length is controlled by `max_clientid_len`."""
 
 mqtt_strict_mode.label:
 """Strict Mode"""
@@ -1401,9 +1403,10 @@ shared_subscription_initial_sticky_pick_enum.desc:
  - `hash_topic`: Hash the publishing topic to select a subscriber."""
 
 mqtt_mqueue_store_qos0.desc: """~
-  Controls how QoS 0 messages are handled when the client connection is down or the inflight window (used for QoS 1 and 2) is full.
-  - When set to `true`, QoS 0 messages are buffered in the session’s message queue.
-  - When set to `false`, QoS 0 messages are dropped immediately.
+  Controls whether QoS 0 messages are buffered in a session’s message queue  while the client is disconnected or its connection is congested.
+  - When enabled, QoS 0 messages may also be queued behind QoS 1 and 2 messages to preserve delivery order when the inflight window is full.
+  - When disabled, QoS 0 messages are not stored.
+  Queue limits and message expiry still apply.
   This setting applies only to non-durable sessions.~"""
 
 mqtt_mqueue_store_qos0.label:

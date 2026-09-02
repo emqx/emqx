@@ -409,6 +409,9 @@ do_parse_connect(
         PasswordFlag
     ),
     {Properties, Rest3} = parse_properties(Rest, ProtoVer, StrictMode),
+    %% `strict_mode` here only rejects an invalid UTF-8 client ID. The length limit is
+    %% applied later by emqx_packet:check_client_id/2 against `max_clientid_len`, for all
+    %% MQTT versions alike (no separate MQTT 3.1 23-byte check). See emqx/emqx#18674.
     {ClientId, Rest4} = parse_utf8_string(Rest3, StrictMode, invalid_clientid),
     ConnPacket = #mqtt_packet_connect{
         proto_name = ProtoName,

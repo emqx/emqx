@@ -100,6 +100,15 @@
 %% table to avoid hitting +P before +Q under a full TLS load.
 -define(PROCESS_LIMIT_RATIO, 2).
 
+%% Dirty I/O scheduler threads run blocking NIF jobs (file I/O, rocksdb),
+%% so the pool size is about how many blocking calls may overlap, not about
+%% CPU parallelism. `node.dirty_io_schedulers = auto' keeps the historical
+%% fixed default of 8 threads whenever the resolved regular-scheduler count
+%% (see `resolve_schedulers/1') is above 2, and drops to 4 on 1-2 scheduler
+%% nodes to save thread memory while retaining some I/O overlap.
+-define(DEFAULT_DIRTY_IO_SCHEDULERS, 8).
+-define(MIN_DIRTY_IO_SCHEDULERS, 4).
+
 %% Don't forget to update `emqx_log_throttler:new_throttler/1` when adding a message that
 %% is throttled on a per-resource basis.
 -define(LOG_THROTTLING_MSGS, [
@@ -629,6 +638,20 @@ fields("node") ->
                     %% number of logical processors available and emits the
                     %% final `N:N' string into `vm_args.+S'.
                     desc => ?DESC(schedulers),
+                    default => auto,
+                    importance => ?IMPORTANCE_LOW,
+                    'readOnly' => true
+                }
+            )},
+        {"dirty_io_schedulers",
+            sc(
+                hoconsc:union([auto, pos_integer()]),
+                #{
+                    %% `mapping' is intentionally omitted: the translation
+                    %% `tr_vm_args_dirty_io_schedulers/1' below resolves `auto'
+                    %% to a value derived from `node.schedulers' and emits the
+                    %% final integer into `vm_args.+SDio'.
+                    desc => ?DESC(dirty_io_schedulers),
                     default => auto,
                     importance => ?IMPORTANCE_LOW,
                     'readOnly' => true
@@ -1501,6 +1524,7 @@ translation("vm_args") ->
         {"+Q", fun tr_vm_args_max_ports/1},
         {"+P", fun tr_vm_args_process_limit/1},
         {"+S", fun tr_vm_args_schedulers/1},
+        {"+SDio", fun tr_vm_args_dirty_io_schedulers/1},
         {"-kernel inet_dist_use_interface", fun tr_vm_args_dist_bind_address/1},
         {"-kernel inet_dist_connect_options", fun tr_kernel_inet_dist_connect_options/1},
         {"-kernel inet_dist_listen_options", fun tr_kernel_inet_dist_listen_options/1}
@@ -1525,6 +1549,24 @@ resolve_schedulers(auto) ->
         _ -> erlang:system_info(logical_processors)
     end;
 resolve_schedulers(N) when is_integer(N), N >= 1 ->
+    N.
+
+%% `vm.args.cloud' used to hardcode `+SDio 8' unconditionally -- fine for the
+%% multi-core host the "cloud" defaults were sized for, but on a small
+%% cgroup (e.g. 2 vCPUs, where `node.schedulers' auto-resolves to 2) it
+%% spawns 8 dirty I/O scheduler OS threads regardless, each with its own
+%% stack/heap overhead, the same waste `tr_vm_args_schedulers/1' already
+%% avoids for regular schedulers.
+tr_vm_args_dirty_io_schedulers(Conf) ->
+    N = resolve_dirty_io_schedulers(conf_get("node.dirty_io_schedulers", Conf, auto), Conf),
+    integer_to_list(N).
+
+resolve_dirty_io_schedulers(auto, Conf) ->
+    case resolve_schedulers(conf_get("node.schedulers", Conf, auto)) of
+        Schedulers when Schedulers > 2 -> ?DEFAULT_DIRTY_IO_SCHEDULERS;
+        _ -> ?MIN_DIRTY_IO_SCHEDULERS
+    end;
+resolve_dirty_io_schedulers(N, _Conf) when is_integer(N), N >= 1 ->
     N.
 
 tr_vm_args_max_ports(Conf) ->

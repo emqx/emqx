@@ -626,6 +626,22 @@ schedulers.desc: """~
 schedulers.label:
 """Erlang Schedulers"""
 
+dirty_io_schedulers.desc: """~
+  Translated to the `+SDio` flag of the Erlang VM, sets the number of dirty
+  I/O scheduler threads to create.
+
+  When set to `auto` (the default), EMQX derives this from `node.schedulers`:
+  8 (the historical fixed default) when `node.schedulers` resolves to more
+  than 2, and 4 otherwise. Dirty I/O scheduler threads run blocking I/O jobs
+  (file operations and some NIFs), so a small node still keeps enough of them
+  to overlap blocking calls, while not paying the thread memory overhead of
+  the full default.
+
+  Set this to a positive integer to override the derived value.~"""
+
+dirty_io_schedulers.label:
+"""Erlang Dirty I/O Schedulers"""
+
 desc_log_rotation.desc:
 """By default, the logs are stored in `./log` directory (for installation from zip file) or in `/var/log/emqx` (for binary installation).<br/>
 This section of the configuration controls the number of files kept for each log handler."""
