@@ -28,27 +28,81 @@ fields(connector_config) ->
             hoconsc:mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"5s">>, desc => ?DESC("connect_timeout")
             })},
-        {username,
-            hoconsc:mk(binary(), #{required => false, default => <<>>, desc => ?DESC("username")})},
-        {password,
-            emqx_schema_secret:mk(#{required => false, default => <<>>, desc => ?DESC("password")})},
-        {token,
-            emqx_schema_secret:mk(#{required => false, default => <<>>, desc => ?DESC("token")})},
-        {auth_type,
+        {authentication,
             hoconsc:mk(
-                hoconsc:enum([none, user_password, token, nkey, jwt, creds_file]),
-                #{default => none, desc => ?DESC("auth_type")}
+                hoconsc:union(fun authentication_selector/1),
+                #{default => none, desc => ?DESC("authentication")}
             )},
-        {public_key,
-            hoconsc:mk(binary(), #{required => false, default => <<>>, desc => ?DESC("public_key")})},
-        {jwt, emqx_schema_secret:mk(#{required => false, default => <<>>, desc => ?DESC("jwt")})},
-        {nkey_seed,
-            emqx_schema_secret:mk(#{required => false, default => <<>>, desc => ?DESC("nkey_seed")})},
-        {credentials_file,
-            hoconsc:mk(binary(), #{
-                required => false, default => <<>>, desc => ?DESC("credentials_file")
-            })}
-    ] ++ emqx_connector_schema:resource_opts() ++ emqx_connector_schema_lib:ssl_fields().
+        {tls_handshake,
+            hoconsc:mk(
+                hoconsc:enum([starttls, first]),
+                #{default => starttls, desc => ?DESC("tls_handshake")}
+            )}
+    ] ++ emqx_connector_schema:resource_opts() ++ emqx_connector_schema_lib:ssl_fields();
+fields(auth_user_password) ->
+    [
+        {mechanism, hoconsc:mk(user_password, #{required => true})},
+        {username, hoconsc:mk(binary(), #{required => true, desc => ?DESC("username")})},
+        {password, emqx_schema_secret:mk(#{required => true, desc => ?DESC("password")})}
+    ];
+fields(auth_token) ->
+    [
+        {mechanism, hoconsc:mk(token, #{required => true})},
+        {token, emqx_schema_secret:mk(#{required => true, desc => ?DESC("token")})}
+    ];
+fields(auth_nkey) ->
+    [
+        {mechanism, hoconsc:mk(nkey, #{required => true})},
+        {public_key, hoconsc:mk(binary(), #{required => false, default => <<>>})},
+        {nkey_seed, emqx_schema_secret:mk(#{required => true, desc => ?DESC("nkey_seed")})}
+    ];
+fields(auth_jwt) ->
+    [
+        {mechanism, hoconsc:mk(jwt, #{required => true})},
+        {public_key, hoconsc:mk(binary(), #{required => false, default => <<>>})},
+        {jwt, emqx_schema_secret:mk(#{required => true, desc => ?DESC("jwt")})},
+        {nkey_seed, emqx_schema_secret:mk(#{required => true, desc => ?DESC("nkey_seed")})}
+    ];
+fields(auth_creds_file) ->
+    [
+        {mechanism, hoconsc:mk(creds_file, #{required => true})},
+        {credentials_file, hoconsc:mk(binary(), #{required => true})}
+    ].
+
+authentication_selector(all_union_members) ->
+    [
+        none,
+        hoconsc:ref(?MODULE, auth_user_password),
+        hoconsc:ref(?MODULE, auth_token),
+        hoconsc:ref(?MODULE, auth_nkey),
+        hoconsc:ref(?MODULE, auth_jwt),
+        hoconsc:ref(?MODULE, auth_creds_file)
+    ];
+authentication_selector({value, Value}) when is_atom(Value) ->
+    authentication_selector({value, atom_to_binary(Value)});
+authentication_selector({value, <<"none">>}) ->
+    [none];
+authentication_selector({value, #{<<"mechanism">> := Mechanism}}) ->
+    case emqx_utils_conv:bin(Mechanism) of
+        <<"user_password">> ->
+            [hoconsc:ref(?MODULE, auth_user_password)];
+        <<"token">> ->
+            [hoconsc:ref(?MODULE, auth_token)];
+        <<"nkey">> ->
+            [hoconsc:ref(?MODULE, auth_nkey)];
+        <<"jwt">> ->
+            [hoconsc:ref(?MODULE, auth_jwt)];
+        <<"creds_file">> ->
+            [hoconsc:ref(?MODULE, auth_creds_file)];
+        _ ->
+            throw(#{
+                field_name => mechanism,
+                expected => "user_password | token | nkey | jwt | creds_file"
+            })
+    end;
+authentication_selector({value, Value}) ->
+    throw(#{field_name => authentication, reason => {not_a_map, Value}}).
+
 desc("config_connector") -> ?DESC("config_connector");
 desc(_) -> undefined.
 
@@ -65,14 +119,7 @@ example(put) ->
         servers => <<"127.0.0.1:4222">>,
         pool_size => 8,
         connect_timeout => <<"5s">>,
-        username => <<>>,
-        password => <<>>,
-        token => <<>>,
-        auth_type => none,
-        public_key => <<>>,
-        jwt => <<>>,
-        nkey_seed => <<>>,
-        credentials_file => <<>>,
+        authentication => none,
         ssl => #{enable => false},
         resource_opts => #{health_check_interval => <<"30s">>}
     }.

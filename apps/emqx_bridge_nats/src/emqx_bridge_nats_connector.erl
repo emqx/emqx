@@ -21,21 +21,25 @@
     on_query/3,
     on_batch_query/3
 ]).
--export([connect/1, publish/3]).
+-export([connect/1, publish/3, publish_batch/3]).
 
 resource_type() -> ?CONNECTOR_TYPE.
 callback_mode() -> always_sync.
 
 on_start(InstanceId, Config) ->
-    ClientOpts = client_options(Config),
-    PoolOpts = [
-        {pool, InstanceId},
-        {pool_size, maps:get(pool_size, Config, 8)},
-        {config, ClientOpts}
-    ],
-    case emqx_resource_pool:start(InstanceId, ?MODULE, PoolOpts) of
-        ok -> {ok, #{pool => InstanceId, channels => #{}}};
-        {error, Reason} -> {error, Reason}
+    case client_options(Config) of
+        {error, Reason} ->
+            {error, {invalid_config, Reason}};
+        ClientOpts ->
+            PoolOpts = [
+                {pool, InstanceId},
+                {pool_size, maps:get(pool_size, Config, 8)},
+                {config, ClientOpts}
+            ],
+            case emqx_resource_pool:start(InstanceId, ?MODULE, PoolOpts) of
+                ok -> {ok, #{pool => InstanceId, channels => #{}}};
+                {error, Reason} -> {error, Reason}
+            end
     end.
 
 on_stop(InstanceId, _State) ->
@@ -100,14 +104,21 @@ on_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_query, Query}}}.
 
 on_batch_query(InstanceId, [{_ChannelId, _Message} | _] = Batch, State) ->
-    lists:foldl(
-        fun
-            ({_ChannelId0, _Message0} = Query, ok) -> on_query(InstanceId, Query, State);
-            (_Query, Error) -> Error
-        end,
-        ok,
-        Batch
-    );
+    [{ChannelId, _} | _] = Batch,
+    case maps:find(ChannelId, maps:get(channels, State)) of
+        {ok, Channel} ->
+            case lists:all(fun({ChannelId0, _}) -> ChannelId0 =:= ChannelId end, Batch) of
+                true ->
+                    Result = ecpool:pick_and_do(
+                        InstanceId, {?MODULE, publish_batch, [Channel, Batch]}, no_handover
+                    ),
+                    classify_result(Result);
+                false ->
+                    {error, {unrecoverable_error, mixed_channels_in_batch}}
+            end;
+        error ->
+            {error, {unrecoverable_error, {invalid_channel, ChannelId}}}
+    end;
 on_batch_query(_InstanceId, Batch, _State) ->
     {error, {unrecoverable_error, {invalid_batch, Batch}}}.
 
@@ -127,19 +138,57 @@ connect(Options) ->
     end.
 
 publish(Client, Channel, Message) ->
-    Subject = emqx_placeholder:proc_tmpl(maps:get(subject, Channel), Message),
-    Payload = iolist_to_binary(
-        emqx_template:render_strict(
-            maps:get(payload, Channel), {emqx_jsonish, Message}
+    publish_message(Client, Channel, Message, true).
+
+publish_batch(Client, Channel, Batch) ->
+    case
+        lists:foldl(
+            fun
+                ({_ChannelId, Message}, ok) -> publish_message(Client, Channel, Message, false);
+                (_, Error) -> Error
+            end,
+            ok,
+            Batch
         )
-    ),
-    Headers = [
-        {
-            iolist_to_binary(emqx_template:render_strict(Key, {emqx_jsonish, Message})),
-            iolist_to_binary(emqx_template:render_strict(Value, {emqx_jsonish, Message}))
-        }
-     || {Key, Value} <- maps:get(headers, Channel, [])
-    ],
+    of
+        ok ->
+            case maps:get(delivery_mode, Channel, core) of
+                core -> enats_client:flush(Client, maps:get(request_ttl, Channel, 5000));
+                jetstream -> ok
+            end;
+        Error ->
+            Error
+    end.
+
+publish_message(Client, Channel, Message, FlushCore) ->
+    try
+        Subject = emqx_placeholder:proc_tmpl(maps:get(subject, Channel), Message),
+        Payload = iolist_to_binary(
+            emqx_template:render_strict(
+                maps:get(payload, Channel), {emqx_jsonish, Message}
+            )
+        ),
+        Headers = [
+            {
+                iolist_to_binary(emqx_template:render_strict(Key, {emqx_jsonish, Message})),
+                iolist_to_binary(emqx_template:render_strict(Value, {emqx_jsonish, Message}))
+            }
+         || {Key, Value} <- maps:get(headers, Channel, [])
+        ],
+        Result = publish_rendered(Client, Channel, Message, Subject, Payload, Headers),
+        maybe_flush_core(Client, Channel, FlushCore, Result)
+    catch
+        Class:_Reason -> {error, {template_error, Class}}
+    end.
+
+maybe_flush_core(_Client, _Channel, _FlushCore, {error, _} = Error) ->
+    Error;
+maybe_flush_core(Client, Channel, true, ok) ->
+    enats_client:flush(Client, maps:get(request_ttl, Channel, 5000));
+maybe_flush_core(_Client, _Channel, _FlushCore, Result) ->
+    Result.
+
+publish_rendered(Client, Channel, Message, Subject, Payload, Headers) ->
     Options = #{
         headers => Headers,
         timeout => maps:get(request_ttl, Channel, 5000)
@@ -151,7 +200,7 @@ publish(Client, Channel, Message) ->
             MsgId = emqx_placeholder:proc_tmpl(maps:get(msg_id, Channel), Message),
             case iolist_to_binary(MsgId) of
                 <<>> ->
-                    {error, {invalid_msg_id, missing}};
+                    enats_client:jetstream_publish(Client, Subject, Payload, Options);
                 Value ->
                     enats_client:jetstream_publish(Client, Subject, Payload, Options#{
                         msg_id => Value
@@ -163,76 +212,61 @@ client_options(Config) ->
     Servers0 = emqx_schema:parse_servers(maps:get(servers, Config), #{default_port => 4222}),
     Servers = [{maps:get(hostname, Server), maps:get(port, Server)} || Server <- Servers0],
     SSL = maps:get(ssl, Config, #{}),
-    Auth = auth_options(Config),
-    #{
-        servers => Servers,
-        connect_timeout => maps:get(connect_timeout, Config, 5000),
-        tls => maps:get(enable, SSL, false),
-        ssl_opts => emqx_tls_lib:to_client_opts(SSL),
-        auth => Auth,
-        reconnect => true
-    }.
+    case auth_options(maps:get(authentication, Config, none)) of
+        {error, _} = Error ->
+            Error;
+        Auth ->
+            #{
+                servers => Servers,
+                connect_timeout => maps:get(connect_timeout, Config, 5000),
+                tls => maps:get(enable, SSL, false),
+                tls_handshake => maps:get(tls_handshake, Config, starttls),
+                ssl_opts => emqx_tls_lib:to_client_opts(SSL),
+                auth => Auth,
+                reconnect => true,
+                notify => false
+            }
+    end.
 
-auth_options(#{token := Token}) when Token =/= <<>> ->
+auth_options(none) ->
+    none;
+auth_options(#{mechanism := token, token := Token}) ->
     #{mechanism => token, token => secret_provider(Token)};
-auth_options(#{auth_type := token, token := Token}) ->
-    #{mechanism => token, token => secret_provider(Token)};
-auth_options(#{auth_type := user_password, username := Username, password := Password}) ->
+auth_options(#{mechanism := user_password, username := Username, password := Password}) ->
     #{mechanism => user_password, username => Username, password => secret_provider(Password)};
-auth_options(#{auth_type := nkey, public_key := PublicKey, nkey_seed := Seed}) ->
+auth_options(#{mechanism := nkey, public_key := PublicKey, nkey_seed := Seed}) ->
     case enats_nkey:from_seed(emqx_secret:unwrap(Seed)) of
         {ok, PublicKey0, SignFun} when PublicKey =:= <<>>; PublicKey =:= PublicKey0 ->
             #{mechanism => nkey, public_key => PublicKey0, sign_fun => SignFun};
         {ok, _PublicKey0, _SignFun} ->
-            error(invalid_nkey_public_key);
+            {error, invalid_nkey_public_key};
         {error, Reason} ->
-            error(Reason)
+            {error, Reason}
     end;
-auth_options(#{auth_type := jwt, public_key := PublicKey, jwt := JWT, nkey_seed := Seed}) ->
-    {ok, PublicKey0, SignFun} = enats_nkey:from_seed(emqx_secret:unwrap(Seed)),
-    #{
-        mechanism => jwt,
-        public_key => choose_public_key(PublicKey, PublicKey0),
-        jwt => secret_provider(JWT),
-        sign_fun => SignFun
-    };
-auth_options(#{auth_type := creds_file, credentials_file := Filename}) ->
-    creds_auth_options(Filename);
-auth_options(#{username := Username, password := Password}) when
-    Username =/= <<>>, Password =/= <<>>
-->
-    #{mechanism => user_password, username => Username, password => secret_provider(Password)};
-auth_options(_Config) ->
-    none.
+auth_options(#{mechanism := jwt, public_key := PublicKey, jwt := JWT, nkey_seed := Seed}) ->
+    case enats_nkey:from_seed(emqx_secret:unwrap(Seed)) of
+        {ok, PublicKey0, SignFun} when PublicKey =:= <<>>; PublicKey =:= PublicKey0 ->
+            #{
+                mechanism => jwt,
+                public_key => PublicKey0,
+                jwt => secret_provider(JWT),
+                sign_fun => SignFun
+            };
+        {ok, _PublicKey0, _SignFun} ->
+            {error, invalid_jwt_public_key};
+        {error, Reason} ->
+            {error, Reason}
+    end;
+auth_options(#{mechanism := creds_file, credentials_file := Filename}) ->
+    case enats_credentials:from_file(Filename) of
+        {ok, Auth} -> Auth;
+        {error, Reason} -> {error, Reason}
+    end;
+auth_options(Authentication) ->
+    {error, {invalid_authentication, Authentication}}.
 
 secret_provider(Secret) ->
     fun() -> emqx_secret:unwrap(Secret) end.
-
-choose_public_key(<<>>, Default) -> Default;
-choose_public_key(Value, _Default) -> Value.
-
-creds_auth_options(Filename) ->
-    {ok, Contents} = file:read_file(Filename),
-    JWT = extract_creds(
-        Contents, <<"-----BEGIN NATS USER JWT-----">>, <<"-----END NATS USER JWT-----">>
-    ),
-    Seed = extract_creds(
-        Contents, <<"-----BEGIN USER NKEY SEED-----">>, <<"-----END USER NKEY SEED-----">>
-    ),
-    {ok, PublicKey, SignFun} = enats_nkey:from_seed(Seed),
-    #{mechanism => jwt, public_key => PublicKey, jwt => fun() -> JWT end, sign_fun => SignFun}.
-
-extract_creds(Contents, Begin, End) ->
-    case binary:split(Contents, Begin) of
-        [_, Rest] ->
-            [Value | _] = binary:split(Rest, End),
-            trim(Value);
-        _ ->
-            error({invalid_credentials_file, Begin})
-    end.
-
-trim(Value) ->
-    iolist_to_binary(string:trim(binary_to_list(Value))).
 
 worker_status(Worker) ->
     case ecpool_worker:client(Worker) of
@@ -271,16 +305,37 @@ classify_result({error, ecpool_empty}) -> {error, {recoverable_error, disconnect
 classify_result({error, Reason}) -> {error, classify_error(Reason)};
 classify_result(Result) -> Result.
 
-classify_error(disconnected) -> {recoverable_error, disconnected};
-classify_error(reconnecting) -> {recoverable_error, reconnecting};
-classify_error(closed) -> {recoverable_error, closed};
-classify_error(timeout) -> {recoverable_error, timeout};
-classify_error(econnrefused) -> {recoverable_error, econnrefused};
-classify_error({disconnected, _}) -> {recoverable_error, disconnected};
-classify_error({payload_too_large, _} = Reason) -> {unrecoverable_error, Reason};
-classify_error(headers_not_supported = Reason) -> {unrecoverable_error, Reason};
-classify_error({invalid_subject, _} = Reason) -> {unrecoverable_error, Reason};
-classify_error({server_error, _} = Reason) -> {unrecoverable_error, Reason};
-classify_error({jetstream_error, _} = Reason) -> {unrecoverable_error, Reason};
-classify_error({invalid_msg_id, _} = Reason) -> {unrecoverable_error, Reason};
-classify_error(Reason) -> {unrecoverable_error, Reason}.
+classify_error(disconnected) ->
+    {recoverable_error, disconnected};
+classify_error(reconnecting) ->
+    {recoverable_error, reconnecting};
+classify_error(closed) ->
+    {recoverable_error, closed};
+classify_error(timeout) ->
+    {recoverable_error, timeout};
+classify_error(econnrefused) ->
+    {recoverable_error, econnrefused};
+classify_error({disconnected, {server_error, ServerReason}}) ->
+    {unrecoverable_error, {server_error, ServerReason}};
+classify_error({disconnected, _}) ->
+    {recoverable_error, disconnected};
+classify_error({payload_too_large, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error(headers_not_supported = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({invalid_subject, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({template_error, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({server_error, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({jetstream_unavailable, _} = Reason) ->
+    {recoverable_error, Reason};
+classify_error({jetstream_rejected, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({jetstream_error, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({invalid_msg_id, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error(Reason) ->
+    {unrecoverable_error, Reason}.

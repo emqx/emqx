@@ -45,6 +45,7 @@ emqx_bridge_matrix: none
 emqx_bridge_mongodb: none
 emqx_bridge_mqtt: emqx_bridge_azure_event_grid emqx_cluster_link
 emqx_bridge_mysql: emqx_bridge_doris
+emqx_bridge_nats: none
 emqx_bridge_opents: none
 emqx_bridge_oracle: none
 emqx_bridge_pgsql: emqx_bridge_alloydb emqx_bridge_cockroachdb emqx_bridge_matrix emqx_bridge_redshift emqx_bridge_timescale

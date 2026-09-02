@@ -1,0 +1,10 @@
+emqx_bridge_nats_action_schema {
+
+parameters.desc: "NATS publish parameters."
+subject.desc: "NATS subject template."
+payload_template.desc: "Published payload template."
+headers.desc: "NATS message header templates."
+delivery_mode.desc: "Core NATS or JetStream delivery mode."
+msg_id_template.desc: "Stable JetStream message ID template."
+
+}
