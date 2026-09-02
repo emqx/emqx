@@ -1,3 +1,7 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
 -module(emqx_bridge_nats_SUITE).
 
 -compile(nowarn_export_all).
@@ -23,6 +27,10 @@ groups() ->
         {local, [], [
             t_core_publish,
             t_core_concurrent_publish,
+            t_core_batch_callback_mode,
+            t_invalid_query_shapes,
+            t_error_classification,
+            t_invalid_connector_config,
             t_core_batch_partial_failure,
             t_jetstream_publish,
             t_jetstream_batch_publish_all,
@@ -36,6 +44,7 @@ groups() ->
             t_tls,
             t_tls_first,
             t_creds_file_materialization,
+            t_credentials_validation_edges,
             t_auth_jwt_creds,
             t_cluster_credentials_materialization
         ]}
@@ -44,7 +53,12 @@ groups() ->
 init_per_suite(Config) ->
     case os:find_executable("nats-server") of
         false ->
-            {skip, "nats-server executable is unavailable"};
+            case os:getenv("IS_CI") of
+                "yes" ->
+                    ct:fail(nats_server_is_required_in_ci);
+                _ ->
+                    {skip, "nats-server executable is unavailable"}
+            end;
         Executable ->
             Port = free_port(),
             Pid = start_nats(Executable, Port, true),
@@ -128,6 +142,10 @@ end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(),
     ok.
 
+%%--------------------------------------------------------------------
+%% Core NATS publishing
+%%--------------------------------------------------------------------
+
 t_core_publish(Config) ->
     {ok, Client} = nats_client(Config),
     {ok, _} = enats_client:subscribe(Client, <<"emqx.sensor/1/data">>, #{}),
@@ -207,6 +225,165 @@ t_core_concurrent_publish(Config) ->
     ?assertEqual(lists:sort(Payloads), lists:sort(receive_payloads(length(Payloads), []))),
     ok = enats_client:stop(Client).
 
+t_core_batch_callback_mode(Config) ->
+    {ok, Client} = nats_client(Config),
+    {ok, _} = enats_client:subscribe(Client, <<"emqx.async">>, #{}),
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(
+        Config,
+        #{
+            <<"parameters">> => #{<<"subject">> => <<"emqx.async">>},
+            <<"resource_opts">> => #{
+                <<"query_mode">> => <<"async">>,
+                <<"batch_size">> => 3,
+                <<"batch_time">> => <<"1s">>,
+                <<"worker_pool_size">> => 2
+            }
+        }
+    ),
+    {ok, _} = create_rule(Config, <<"sensor/+/async">>),
+    ok = snabbkaffe:start_trace(),
+    try
+        lists:foreach(
+            fun(N) ->
+                emqx:publish(
+                    emqx_message:make(<<"sensor/1/async">>, integer_to_binary(N))
+                )
+            end,
+            lists:seq(1, 3)
+        ),
+        ?assertEqual(
+            lists:sort([<<"1">>, <<"2">>, <<"3">>]),
+            lists:sort(receive_payloads(3, []))
+        ),
+        Trace = snabbkaffe:collect_trace(),
+        ?assert(
+            lists:any(
+                fun
+                    (#{?snk_kind := call_batch_query}) -> true;
+                    (_) -> false
+                end,
+                Trace
+            )
+        ),
+        ?assertEqual([], ?of_kind(call_batch_query_async, Trace))
+    after
+        snabbkaffe:stop(),
+        ok = enats_client:stop(Client)
+    end.
+
+t_invalid_query_shapes(_Config) ->
+    EmptyState = #{channels => #{}},
+    ?assertEqual(
+        {error, {unrecoverable_error, {invalid_channel, missing}}},
+        emqx_bridge_nats_connector:on_query(test, {missing, #{}}, EmptyState)
+    ),
+    ?assertEqual(
+        {error, {unrecoverable_error, {invalid_query, malformed}}},
+        emqx_bridge_nats_connector:on_query(test, malformed, EmptyState)
+    ),
+    ?assertEqual(
+        {error, {unrecoverable_error, {invalid_batch, []}}},
+        emqx_bridge_nats_connector:on_batch_query(test, [], EmptyState)
+    ),
+    ?assertEqual(
+        {error, {unrecoverable_error, {invalid_channel, missing}}},
+        emqx_bridge_nats_connector:on_batch_query(test, [{missing, #{}}], EmptyState)
+    ),
+    State = #{channels => #{channel => #{}}},
+    ?assertEqual(
+        {error, {unrecoverable_error, mixed_channels_in_batch}},
+        emqx_bridge_nats_connector:on_batch_query(
+            test, [{channel, #{}}, {other_channel, #{}}], State
+        )
+    ).
+
+t_error_classification(_Config) ->
+    meck:new(ecpool, [passthrough]),
+    on_exit(fun() -> meck:unload(ecpool) end),
+    meck:expect(ecpool, pick_and_do, fun(_, _, _) -> {error, get(nats_test_reason)} end),
+    State = #{channels => #{channel => #{}}},
+    Cases = [
+        {disconnected, {error, {recoverable_error, disconnected}}},
+        {reconnecting, {error, {recoverable_error, reconnecting}}},
+        {closed, {error, {recoverable_error, closed}}},
+        {stale_connection, {error, {recoverable_error, stale_connection}}},
+        {timeout, {error, {recoverable_error, timeout}}},
+        {econnrefused, {error, {recoverable_error, econnrefused}}},
+        {{transport, closed}, {error, {recoverable_error, {transport, closed}}}},
+        {
+            {tls_upgrade_failed, bad_cert},
+            {error, {recoverable_error, {tls_upgrade_failed, bad_cert}}}
+        },
+        {{client_exit, normal}, {error, {recoverable_error, {client_exit, normal}}}},
+        {{auth, denied}, {error, {unrecoverable_error, {auth, denied}}}},
+        {{protocol, bad_frame}, {error, {recoverable_error, {protocol, bad_frame}}}},
+        {
+            {invalid_batch_message, 1, invalid_subject},
+            {error, {unrecoverable_error, {invalid_batch_message, 1, invalid_subject}}}
+        },
+        {
+            {batch_too_large, bytes, 2, 1},
+            {error, {unrecoverable_error, {batch_too_large, bytes, 2, 1}}}
+        },
+        {
+            {disconnected, {server_error, denied}},
+            {error, {unrecoverable_error, {server_error, denied}}}
+        },
+        {{disconnected, peer_closed}, {error, {recoverable_error, {disconnected, peer_closed}}}},
+        {{payload_too_large, 10}, {error, {unrecoverable_error, {payload_too_large, 10}}}},
+        {headers_not_supported, {error, {unrecoverable_error, headers_not_supported}}},
+        {{invalid_subject, invalid}, {error, {unrecoverable_error, {invalid_subject, invalid}}}},
+        {
+            {template_error, bad_template},
+            {error, {unrecoverable_error, {template_error, bad_template}}}
+        },
+        {{server_error, denied}, {error, {unrecoverable_error, {server_error, denied}}}},
+        {
+            {jetstream_unavailable, no_responders},
+            {error, {recoverable_error, {jetstream_unavailable, no_responders}}}
+        },
+        {
+            {jetstream_rejected, denied},
+            {error, {unrecoverable_error, {jetstream_rejected, denied}}}
+        },
+        {{jetstream_error, bad_ack}, {error, {unrecoverable_error, {jetstream_error, bad_ack}}}},
+        {{invalid_msg_id, bad_id}, {error, {unrecoverable_error, {invalid_msg_id, bad_id}}}},
+        {
+            {jetstream, unavailable, no_responders},
+            {error, {recoverable_error, {jetstream, unavailable, no_responders}}}
+        },
+        {
+            {jetstream, rejected, denied},
+            {error, {unrecoverable_error, {jetstream, rejected, denied}}}
+        },
+        {
+            {jetstream, invalid_ack, bad_ack},
+            {error, {unrecoverable_error, {jetstream, invalid_ack, bad_ack}}}
+        },
+        {other_error, {error, {unrecoverable_error, other_error}}},
+        {ecpool_empty, {error, {recoverable_error, disconnected}}}
+    ],
+    lists:foreach(
+        fun({Reason, Expected}) ->
+            put(nats_test_reason, Reason),
+            ?assertEqual(Expected, emqx_bridge_nats_connector:on_query(test, {channel, #{}}, State))
+        end,
+        Cases
+    ).
+
+t_invalid_connector_config(_Config) ->
+    ?assertMatch(
+        {error, {invalid_config, {invalid_authentication, _}}},
+        emqx_bridge_nats_connector:on_start(
+            test,
+            #{
+                servers => <<"127.0.0.1:4222">>,
+                authentication => #{mechanism => unsupported}
+            }
+        )
+    ).
+
 t_core_batch_partial_failure(Config) ->
     {ok, Client} = nats_client(Config),
     {ok, _} = enats_client:subscribe(Client, <<"emqx.>">>, #{}),
@@ -271,6 +448,10 @@ is_success({ok, _}) ->
     true;
 is_success(_) ->
     false.
+
+%%--------------------------------------------------------------------
+%% JetStream publishing
+%%--------------------------------------------------------------------
 
 t_jetstream_publish(Config) ->
     {ok, Client} = nats_client(Config),
@@ -351,13 +532,17 @@ t_jetstream_batch_publish_all(Config) ->
         ?assert(
             lists:any(
                 fun(#{batch := Batch}) -> length(Batch) =:= 3 end,
-                ?of_kind(call_batch_query, Trace)
+                ?of_kind(call_batch_query, Trace) ++ ?of_kind(call_batch_query_async, Trace)
             )
         )
     after
         snabbkaffe:stop(),
         ok = enats_client:stop(Client)
     end.
+
+%%--------------------------------------------------------------------
+%% Error and recovery handling
+%%--------------------------------------------------------------------
 
 t_jetstream_no_responders(Config) ->
     Port = free_port(),
@@ -400,7 +585,8 @@ t_jetstream_no_responders(Config) ->
                             #{
                                 ?snk_kind := nats_connector_query_return,
                                 result :=
-                                    {error, {recoverable_error, {jetstream_unavailable, <<"503">>}}}
+                                    {error,
+                                        {recoverable_error, {jetstream, unavailable, <<"503">>}}}
                             }
                         ) ->
                             true;
@@ -492,6 +678,10 @@ t_reconnect(Config) ->
     end,
     ok = enats_client:stop(Client).
 
+%%--------------------------------------------------------------------
+%% Authentication and TLS
+%%--------------------------------------------------------------------
+
 t_auth_user_password(Config) ->
     auth_publish_case(
         Config,
@@ -521,7 +711,7 @@ t_auth_token(Config) ->
 
 t_auth_nkey(Config) ->
     {PublicKey, PrivateKey} = crypto:generate_key(eddsa, ed25519),
-    PublicNKey = enats_nkey:encode_public(PublicKey),
+    PublicNKey = enats_auth:encode_nkey_public(PublicKey),
     ConfigFile = filename:join(?config(priv_dir, Config), "nats-connector-nkey.conf"),
     ConfigText = iolist_to_binary([
         "authorization { users = [{nkey: \"", PublicNKey, "\"}] }\n"
@@ -538,7 +728,7 @@ t_auth_nkey(Config) ->
         #{
             mechanism => nkey,
             public_key => PublicNKey,
-            sign_fun => enats_nkey:sign_fun(PublicKey, PrivateKey)
+            sign_fun => enats_auth:nkey_signer(PublicKey, PrivateKey)
         },
         #{},
         #{},
@@ -602,6 +792,10 @@ t_tls_first(Config) ->
         }
     ).
 
+%%--------------------------------------------------------------------
+%% Credentials materialization and cluster behavior
+%%--------------------------------------------------------------------
+
 t_creds_file_materialization(_Config) ->
     Seed = encode_seed(<<1:256>>),
     Contents = iolist_to_binary([
@@ -631,6 +825,71 @@ t_creds_file_materialization(_Config) ->
     ),
     ok = file:delete(Filename).
 
+t_credentials_validation_edges(Config) ->
+    Seed = encode_seed(<<1:256>>),
+    Contents = iolist_to_binary([
+        "-----BEGIN NATS USER JWT-----\njwt\n------END NATS USER JWT------\n",
+        "-----BEGIN USER NKEY SEED-----\n",
+        Seed,
+        "\n------END USER NKEY SEED------\n"
+    ]),
+    Path = [<<"connectors">>, <<"nats">>, <<"credentials_edges">>],
+    {ok, StoredConfig} = emqx_bridge_nats_connector:pre_config_update(
+        Path,
+        <<"credentials_edges">>,
+        #{authentication => #{mechanism => jwt, credentials_file => Contents}},
+        undefined
+    ),
+    #{authentication := #{credentials_file := Filename}} = StoredConfig,
+    ?assert(is_list(Filename) orelse is_binary(Filename)),
+    ?assertEqual({ok, Contents}, file:read_file(Filename)),
+    ok = file:delete(Filename),
+    InvalidContents = <<
+        "-----BEGIN NATS USER JWT-----\njwt\n------END NATS USER JWT------\n",
+        "-----BEGIN USER NKEY SEED-----\ninvalid\n------END USER NKEY SEED------\n"
+    >>,
+    ?assertMatch(
+        {error, #{reason := invalid_credentials}},
+        emqx_bridge_nats_connector:pre_config_update(
+            Path,
+            <<"credentials_edges">>,
+            #{authentication => #{mechanism => jwt, credentials_file => InvalidContents}},
+            undefined
+        )
+    ),
+    ?assertMatch(
+        {error, #{reason := invalid_credentials}},
+        emqx_bridge_nats_connector:pre_config_update(
+            Path,
+            <<"credentials_edges">>,
+            #{
+                <<"authentication">> => #{
+                    <<"mechanism">> => <<"jwt">>,
+                    <<"credentials_file">> => InvalidContents
+                }
+            },
+            undefined
+        )
+    ),
+    ExistingPath = filename:join(?config(priv_dir, Config), "existing.creds"),
+    ok = file:write_file(ExistingPath, Contents),
+    ?assertEqual(
+        {ok, #{authentication => #{mechanism => jwt, credentials_file => ExistingPath}}},
+        emqx_bridge_nats_connector:pre_config_update(
+            Path,
+            <<"credentials_edges">>,
+            #{authentication => #{mechanism => jwt, credentials_file => ExistingPath}},
+            undefined
+        )
+    ),
+    ok = file:delete(ExistingPath),
+    ?assertEqual(
+        {ok, #{other => value}},
+        emqx_bridge_nats_connector:pre_config_update(
+            Path, <<"credentials_edges">>, #{other => value}, undefined
+        )
+    ).
+
 t_auth_jwt_creds(Config) ->
     {Fixture, ConfigFile, Credentials} = jwt_credentials_fixture(Config),
     #{user_public := UserPublic, user_private := UserPrivate, user_jwt := UserJWT} = Fixture,
@@ -645,7 +904,7 @@ t_auth_jwt_creds(Config) ->
             mechanism => jwt,
             public_key => UserPublic,
             jwt => fun() -> UserJWT end,
-            sign_fun => enats_nkey:sign_fun(UserPublic, UserPrivate)
+            sign_fun => enats_auth:nkey_signer(UserPublic, UserPrivate)
         },
         #{},
         #{},
@@ -690,6 +949,10 @@ t_cluster_credentials_materialization(Config) ->
     after
         ok = emqx_cth_cluster:stop(Nodes)
     end.
+
+%%--------------------------------------------------------------------
+%% Test helpers
+%%--------------------------------------------------------------------
 
 auth_publish_case(Config, ServerArgs, Authentication, ClientAuth) ->
     auth_publish_case(Config, ServerArgs, Authentication, ClientAuth, #{}, #{}, fun(_Body) -> ok end).
