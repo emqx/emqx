@@ -1403,9 +1403,10 @@ shared_subscription_initial_sticky_pick_enum.desc:
  - `hash_topic`: Hash the publishing topic to select a subscriber."""
 
 mqtt_mqueue_store_qos0.desc: """~
-  Controls how QoS 0 messages are handled when the client connection is down or the inflight window (used for QoS 1 and 2) is full.
-  - When set to `true`, QoS 0 messages are buffered in the session’s message queue.
-  - When set to `false`, QoS 0 messages are dropped immediately.
+  Controls whether QoS 0 messages are buffered in a session’s message queue  while the client is disconnected or its connection is congested.
+  - When enabled, QoS 0 messages may also be queued behind QoS 1 and 2 messages to preserve delivery order when the inflight window is full.
+  - When disabled, QoS 0 messages are not stored.
+  Queue limits and message expiry still apply.
   This setting applies only to non-durable sessions.~"""
 
 mqtt_mqueue_store_qos0.label:
