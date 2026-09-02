@@ -43,7 +43,9 @@ unregister_hooks() ->
 
 -spec register_stream_hooks() -> ok.
 register_stream_hooks() ->
-    _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish_stream, []}, ?HP_HIGHEST),
+    _ = emqx_hooks:add(
+        'message.publish', {?MODULE, on_message_publish_stream, []}, ?HP_RETAINER + 1
+    ),
     _ = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
