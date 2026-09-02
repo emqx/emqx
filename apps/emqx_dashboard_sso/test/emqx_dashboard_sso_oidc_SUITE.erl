@@ -299,6 +299,12 @@ oidc_provider_params() ->
 oidc_provider_params(Issuer) ->
     (oidc_provider_params())#{<<"issuer">> => emqx_utils_conv:bin(Issuer)}.
 
+%% `emqx_utils_http_test_server' only ever serves plain http; ssl must be
+%% disabled to match, or the config is rejected up front (see
+%% `emqx_dashboard_sso_oidc:check_ssl_opts/1').
+oidc_provider_params_local_mock(Issuer) ->
+    (oidc_provider_params(Issuer))#{<<"ssl">> => #{<<"enable">> => false}}.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -477,6 +483,26 @@ t_reject_https_issuer_with_ssl_disabled(TCConfig) ->
     ok.
 
 -doc """
+`PUT /api/v5/sso/oidc' must reject a `http' issuer combined with
+`ssl.enable = true' with a clear error at config-write time. oidcc always
+attaches the TLS options to its httpc request regardless of URL scheme, but
+httpc only ever uses them for a `https' URL (see `httpc_handler:socket_type/1'),
+so the TLS options would be silently ignored, not applied.
+""".
+t_reject_http_issuer_with_ssl_enabled(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    ProviderParams = oidc_provider_params("http://authn-server:5556/dex"),
+    {400, #{<<"message">> := Message}} = create_backend(Node, ProviderParams, #{}),
+    ?assertNotEqual(nomatch, binary:match(Message, <<"invalid_ssl_opts">>)),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(Message, <<"must not be enabled">>)
+    ),
+    ?assertEqual([], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
+    ok.
+
+-doc """
 `GET /api/v5/sso/oidc' must return `client_jwks' as `none' when no client
 JWKS is configured (the default), while a configured file JWKS and the
 client secret must stay masked in both the GET and update responses. Masking
@@ -491,7 +517,7 @@ t_client_jwks_redaction(TCConfig) ->
     on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
     ok = emqx_utils_http_test_server:set_handler(fun oidc_content_type_handler/2),
     Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
-    ProviderParams = oidc_provider_params(Issuer),
+    ProviderParams = oidc_provider_params_local_mock(Issuer),
 
     ?assertMatch({200, _}, create_backend(Node, ProviderParams, #{})),
     ?assertMatch(
@@ -529,7 +555,7 @@ t_client_jwks_update_roundtrip(TCConfig) ->
     on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
     ok = emqx_utils_http_test_server:set_handler(fun oidc_content_type_handler/2),
     Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
-    ProviderParams = oidc_provider_params(Issuer),
+    ProviderParams = oidc_provider_params_local_mock(Issuer),
 
     JwksContent = <<"{\"keys\":[{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}]}">>,
     ParamsWithJwks = ProviderParams#{
@@ -576,7 +602,7 @@ t_client_jwks_explicit_none_removes(TCConfig) ->
     on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
     ok = emqx_utils_http_test_server:set_handler(fun oidc_content_type_handler/2),
     Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
-    ProviderParams = oidc_provider_params(Issuer),
+    ProviderParams = oidc_provider_params_local_mock(Issuer),
 
     JwksContent = <<"{\"keys\":[{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}]}">>,
     ParamsWithJwks = ProviderParams#{
@@ -606,7 +632,7 @@ t_jwks_content_type_suffix(TCConfig) ->
     ok = emqx_utils_http_test_server:set_handler(fun oidc_content_type_handler/2),
 
     Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
-    ProviderParams = oidc_provider_params(Issuer),
+    ProviderParams = oidc_provider_params_local_mock(Issuer),
     ?assertMatch({200, _}, create_backend(Node, ProviderParams, #{})),
 
     ?retry(
@@ -631,7 +657,7 @@ t_kanidm_cache_control_max_age_zero(TCConfig) ->
     ok = emqx_utils_http_test_server:set_handler(fun oidc_kanidm_shape_handler/2),
 
     Issuer = host(Port) ++ ?OIDC_PATH_PREFIX,
-    ProviderParams = oidc_provider_params(Issuer),
+    ProviderParams = oidc_provider_params_local_mock(Issuer),
     ?assertMatch({200, _}, create_backend(Node, ProviderParams, #{})),
 
     ?retry(

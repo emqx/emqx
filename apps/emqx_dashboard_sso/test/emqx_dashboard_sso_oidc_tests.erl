@@ -115,6 +115,14 @@ check_ssl_opts_test_() ->
                     ssl => #{enable => false}
                 })
             )},
+        {"http issuer with ssl enabled is rejected",
+            ?_assertMatch(
+                {error, {invalid_ssl_opts, _}},
+                emqx_dashboard_sso_oidc:check_ssl_opts(#{
+                    issuer => <<"http://example.com">>,
+                    ssl => #{enable => true}
+                })
+            )},
         {"https issuer without an ssl config is allowed",
             ?_assertEqual(
                 ok,
@@ -129,6 +137,17 @@ create_rejects_https_issuer_with_ssl_disabled_test() ->
         name_var => <<"${sub}">>,
         issuer => <<"https://example.com">>,
         ssl => #{enable => false}
+    },
+    ?assertMatch(
+        {error, {invalid_ssl_opts, _}},
+        emqx_dashboard_sso_oidc:create(Config)
+    ).
+
+create_rejects_http_issuer_with_ssl_enabled_test() ->
+    Config = #{
+        name_var => <<"${sub}">>,
+        issuer => <<"http://example.com">>,
+        ssl => #{enable => true}
     },
     ?assertMatch(
         {error, {invalid_ssl_opts, _}},

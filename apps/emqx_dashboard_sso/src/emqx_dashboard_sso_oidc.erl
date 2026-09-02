@@ -292,8 +292,10 @@ validate_issuer_url(Value) ->
             throw(invalid_issuer_url)
     end.
 
-%% `ssl.enable = false` on an `https` issuer silently drops all TLS options
-%% and fails at request time instead; reject it up front.
+%% `ssl.enable` must match whether the issuer actually uses `https`:
+%% `false` on `https` silently drops all TLS options and fails at request
+%% time instead; `true` on `http` is dead config, oidcc always attaches it
+%% to the httpc request but httpc only ever uses it for a `https' URL.
 check_ssl_opts(#{issuer := Issuer, ssl := #{enable := false}}) ->
     case is_https(Issuer) of
         true ->
@@ -301,6 +303,15 @@ check_ssl_opts(#{issuer := Issuer, ssl := #{enable := false}}) ->
                 {invalid_ssl_opts,
                     <<"it's required to enable the TLS option to establish a https connection">>}};
         false ->
+            ok
+    end;
+check_ssl_opts(#{issuer := Issuer, ssl := #{enable := true}}) ->
+    case is_https(Issuer) of
+        false ->
+            {error,
+                {invalid_ssl_opts,
+                    <<"the TLS option must not be enabled when the issuer is not using https">>}};
+        true ->
             ok
     end;
 check_ssl_opts(_Config) ->
