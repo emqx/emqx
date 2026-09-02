@@ -6,6 +6,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_trace.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include("emqx_bridge_nats.hrl").
 
 -export([
@@ -102,10 +103,12 @@ health_check(Client) ->
 on_query(InstanceId, {ChannelId, Message}, #{channels := Channels}) ->
     case maps:find(ChannelId, Channels) of
         {ok, Channel} ->
-            Result = ecpool:pick_and_do(
+            RawResult = ecpool:pick_and_do(
                 InstanceId, {?MODULE, publish, [Channel, Message]}, no_handover
             ),
-            classify_result(Result);
+            Result = classify_result(RawResult),
+            ?tp(nats_connector_query_return, #{instance_id => InstanceId, result => Result}),
+            Result;
         error ->
             {error, {unrecoverable_error, {invalid_channel, ChannelId}}}
     end;
@@ -118,10 +121,17 @@ on_batch_query(InstanceId, [{_ChannelId, _Message} | _] = Batch, State) ->
         {ok, Channel} ->
             case lists:all(fun({ChannelId0, _}) -> ChannelId0 =:= ChannelId end, Batch) of
                 true ->
-                    Result = ecpool:pick_and_do(
+                    RawResult = ecpool:pick_and_do(
                         InstanceId, {?MODULE, publish_batch, [Channel, Batch]}, no_handover
                     ),
-                    classify_result(Result);
+                    Result = classify_result(RawResult),
+                    ?tp(nats_connector_query_return, #{
+                        instance_id => InstanceId,
+                        batch => true,
+                        batch_size => length(Batch),
+                        result => Result
+                    }),
+                    Result;
                 false ->
                     {error, {unrecoverable_error, mixed_channels_in_batch}}
             end;
@@ -280,17 +290,10 @@ auth_options(#{mechanism := token, token := Token}) ->
 auth_options(#{mechanism := user_password, username := Username, password := Password}) ->
     #{mechanism => user_password, username => Username, password => secret_provider(Password)};
 auth_options(#{mechanism := nkey, nkey_seed := Seed}) ->
-    case enats_nkey:from_seed(emqx_secret:unwrap(Seed)) of
-        {ok, PublicKey, SignFun} ->
-            #{mechanism => nkey, public_key => PublicKey, sign_fun => SignFun};
-        {error, Reason} ->
-            {error, Reason}
-    end;
+    #{mechanism => nkey_seed, seed => secret_provider(Seed)};
 auth_options(#{mechanism := jwt, credentials_file := Filename}) ->
-    case enats_credentials:from_file(Filename) of
-        {ok, Auth} -> Auth;
-        {error, Reason} -> {error, Reason}
-    end;
+    {ok, Auth} = enats_credentials:from_file(Filename),
+    Auth;
 auth_options(Authentication) ->
     {error, {invalid_authentication, Authentication}}.
 

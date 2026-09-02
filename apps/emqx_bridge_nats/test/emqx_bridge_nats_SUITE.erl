@@ -26,6 +26,7 @@ groups() ->
             t_core_batch_partial_failure,
             t_jetstream_publish,
             t_jetstream_batch_publish_all,
+            t_jetstream_no_responders,
             t_template_error_details,
             t_publish_error_preserves_classification,
             t_reconnect,
@@ -358,6 +359,64 @@ t_jetstream_batch_publish_all(Config) ->
         ok = enats_client:stop(Client)
     end.
 
+t_jetstream_no_responders(Config) ->
+    Port = free_port(),
+    Nats = start_nats(?config(nats_executable, Config), Port, false),
+    try
+        wait_for_port(Port),
+        ConnectorOverrides = #{
+            <<"servers">> => iolist_to_binary(["127.0.0.1:", integer_to_list(Port)])
+        },
+        {ok, 201, _} = create_connector_silent(Config, ConnectorOverrides),
+        {201, _} = create_action(
+            Config,
+            #{
+                <<"parameters">> => #{
+                    <<"delivery_mode">> => <<"jetstream">>,
+                    <<"msg_id_template">> => <<"stable-id">>
+                },
+                <<"resource_opts">> => #{
+                    <<"batch_size">> => 1,
+                    <<"batch_time">> => <<"0ms">>,
+                    <<"request_ttl">> => <<"5s">>
+                }
+            }
+        ),
+        ok = snabbkaffe:start_trace(),
+        try
+            Result = emqx_bridge_v2:send_message(
+                ?global_ns,
+                ?ACTION_TYPE,
+                proplists:get_value(action_name, Config),
+                #{<<"payload">> => <<"no-js">>},
+                #{}
+            ),
+            Trace = snabbkaffe:collect_trace(),
+            ?assertMatch({error, {resource_error, #{reason := timeout}}}, Result),
+            ?assert(
+                lists:any(
+                    fun
+                        (
+                            #{
+                                ?snk_kind := nats_connector_query_return,
+                                result :=
+                                    {error, {recoverable_error, {jetstream_unavailable, <<"503">>}}}
+                            }
+                        ) ->
+                            true;
+                        (_) ->
+                            false
+                    end,
+                    Trace
+                )
+            )
+        after
+            snabbkaffe:stop()
+        end
+    after
+        stop_nats(Nats)
+    end.
+
 t_template_error_details(Config) ->
     {201, _} = create_connector(Config),
     {201, _} = create_action(
@@ -500,7 +559,13 @@ t_tls(Config) ->
         none,
         none,
         #{tls => true, ssl_opts => [{verify, verify_none}]},
-        #{<<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>}}
+        #{
+            <<"ssl">> => #{
+                <<"enable">> => true,
+                <<"verify">> => <<"verify_peer">>,
+                <<"cacertfile">> => CertFile
+            }
+        }
     ).
 
 t_tls_first(Config) ->
@@ -528,7 +593,11 @@ t_tls_first(Config) ->
         none,
         #{tls => true, tls_handshake => first, ssl_opts => [{verify, verify_none}]},
         #{
-            <<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>},
+            <<"ssl">> => #{
+                <<"enable">> => true,
+                <<"verify">> => <<"verify_peer">>,
+                <<"cacertfile">> => CertFile
+            },
             <<"tls_handshake">> => <<"first">>
         }
     ).
@@ -827,18 +896,47 @@ free_port() ->
     Port.
 
 generate_test_certificate(CertFile, KeyFile) ->
+    Dir = filename:dirname(CertFile),
+    CAKeyFile = filename:join(Dir, "nats-test-ca.key"),
+    CACertFile = filename:join(Dir, "nats-test-ca.crt"),
+    CSRFile = filename:join(Dir, "nats-test-server.csr"),
+    ExtFile = filename:join(Dir, "nats-test-server.ext"),
+    ok = file:write_file(
+        ExtFile,
+        <<"basicConstraints=critical,CA:FALSE\n",
+            "keyUsage=critical,digitalSignature,keyEncipherment\n", "extendedKeyUsage=serverAuth\n",
+            "subjectAltName=IP:127.0.0.1\n">>
+    ),
     Command = lists:flatten(
         io_lib:format(
             "openssl req -x509 -newkey rsa:2048 -nodes -keyout ~ts -out ~ts "
-            "-subj /CN=localhost -days 1 >/dev/null 2>&1",
-            [KeyFile, CertFile]
+            "-subj /CN=nats-test-ca -addext basicConstraints=critical,CA:TRUE "
+            "-addext keyUsage=critical,keyCertSign,cRLSign -days 1 >/dev/null 2>&1 && "
+            "openssl req -new -newkey rsa:2048 -nodes -keyout ~ts -out ~ts "
+            "-subj /CN=127.0.0.1 >/dev/null 2>&1 && "
+            "openssl x509 -req -in ~ts -CA ~ts -CAkey ~ts -CAcreateserial "
+            "-out ~ts -days 1 -sha256 -extfile ~ts >/dev/null 2>&1",
+            [
+                CAKeyFile,
+                CACertFile,
+                KeyFile,
+                CSRFile,
+                CSRFile,
+                CACertFile,
+                CAKeyFile,
+                CertFile,
+                ExtFile
+            ]
         )
     ),
     _ = os:cmd(Command),
+    {ok, ServerCert} = file:read_file(CertFile),
+    {ok, CACert} = file:read_file(CACertFile),
+    ok = file:write_file(CertFile, [ServerCert, CACert]),
     ok.
 
 encode_seed(PrivateSeed) ->
-    Prefix = <<16#90, 16#A0, PrivateSeed/binary>>,
+    Prefix = <<(16#90 bor (16#A0 bsr 5)), ((16#A0 band 31) bsl 3), PrivateSeed/binary>>,
     encode_base32(<<Prefix/binary, (test_crc16(Prefix)):16/little>>).
 
 test_crc16(Bin) ->
