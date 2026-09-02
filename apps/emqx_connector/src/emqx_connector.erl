@@ -12,6 +12,7 @@
 
 -export([
     pre_config_update/4,
+    propagated_pre_config_update/4,
     post_config_update/6
 ]).
 
@@ -147,6 +148,17 @@ pre_config_update([?ROOT_KEY, _Type, _Name], Oper, OldConfig, _ExtraContext) whe
     %% to save the 'enable' to the config files
     {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
 pre_config_update([?ROOT_KEY, Type, Name] = KeyPath, Conf = #{}, ConfOld, ExtraContext) ->
+    connector_pre_config_update_with_ssl(KeyPath, Type, Name, Conf, ConfOld, ExtraContext).
+
+propagated_pre_config_update([<<"connectors">>, Type, Name], Conf = #{}, ConfOld, ExtraContext) ->
+    TypeAtom = binary_to_existing_atom(Type, utf8),
+    connector_pre_config_update_with_ssl(
+        [connectors, TypeAtom, Name], TypeAtom, Name, Conf, ConfOld, ExtraContext
+    );
+propagated_pre_config_update(_KeyPath, _UpdateReq, _RawConf, _ExtraContext) ->
+    ok.
+
+connector_pre_config_update_with_ssl(KeyPath, Type, Name, Conf, ConfOld, ExtraContext) ->
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
     case validate_connector_name(Name) of
         ok ->
@@ -163,11 +175,17 @@ pre_config_update([?ROOT_KEY, Type, Name] = KeyPath, Conf = #{}, ConfOld, ExtraC
 
 connector_pre_config_update([?ROOT_KEY, Type, Name] = KeyPath, ConfNew, ConfOld) ->
     Mod = emqx_connector_info:config_transform_module(Type),
-    case Mod =/= undefined andalso erlang:function_exported(Mod, pre_config_update, 4) of
-        true ->
-            apply(Mod, pre_config_update, [KeyPath, Name, ConfNew, ConfOld]);
-        false ->
-            {ok, ConfNew}
+    case Mod of
+        undefined ->
+            {ok, ConfNew};
+        _ ->
+            ok = emqx_utils:interactive_load(Mod),
+            case erlang:function_exported(Mod, pre_config_update, 4) of
+                true ->
+                    apply(Mod, pre_config_update, [KeyPath, Name, ConfNew, ConfOld]);
+                false ->
+                    {ok, ConfNew}
+            end
     end.
 
 operation_to_enable(disable) -> false;

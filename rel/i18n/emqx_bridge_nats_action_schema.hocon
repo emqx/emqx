@@ -1,0 +1,49 @@
+emqx_bridge_nats_action_schema {
+
+nats.desc: "Configuration for an EMQX NATS publish action."
+nats.label: "NATS Action"
+
+parameters.desc:
+"""Publishing parameters for the NATS action.<br/>
+The action renders these templates for each message and sends the result through the referenced connector."""
+parameters.label: "Parameters"
+
+header.desc:
+"""A NATS message header key/value pair.<br/>
+Both fields support EMQX templates."""
+header.label: "Header"
+
+header_key.desc: "Template used to render the NATS header name."
+header_key.label: "Header Key"
+
+header_value.desc: "Template used to render the NATS header value."
+header_value.label: "Header Value"
+
+subject.desc:
+"""The NATS subject to publish to. Supports EMQX templates, for example <code>events.${.topic}</code>.<br/>
+The rendered subject must be a valid NATS subject."""
+subject.label: "Subject"
+
+payload_template.desc:
+"""Template used to render the published payload. The default is <code>${.payload}</code>.<br/>
+Use <code>${.}</code> when the complete rule input should be serialized as the payload."""
+payload_template.label: "Payload Template"
+
+headers.desc:
+"""List of NATS message header templates.<br/>
+If the connected NATS server does not advertise header support, publishing a message with headers fails."""
+headers.label: "Headers"
+
+delivery_mode.desc:
+"""Publishing mode:<br/>
+<code>core</code> publishes through Core NATS and confirms the batch with a flush barrier.<br/>
+<code>jetstream</code> publishes through Jet Stream and waits for a PubAck for each message."""
+delivery_mode.label: "Delivery Mode"
+
+msg_id_template.desc:
+"""Template for the Jet Stream message ID used for server-side duplicate detection.<br/>
+When empty, EMQX does not send <code>Nats-Msg-Id</code>, so message-ID-based duplicate detection is not enabled for this action.<br/>
+This field has no effect for Core NATS."""
+msg_id_template.label: "Message ID Template"
+
+}

@@ -1,0 +1,81 @@
+emqx_bridge_nats_connector_schema {
+
+servers.desc:
+"""A comma-separated failover list of NATS server addresses.<br/>
+Use <code>host[:port]</code>, for example <code>nats-1.example.com:4222,nats-2.example.com:4222</code>. The default port is <code>4222</code>.<br/>
+Each new pooled connection starts with the first configured server and advances through the list when connection, handshake, or reconnection attempts fail. The list does not distribute publishing load across NATS servers."""
+servers.label: "Servers"
+
+pool_size.desc:
+"""The number of NATS client connections in the connector pool.<br/>
+Increase this value when multiple actions share a connector and need more concurrent publishing.<br/>
+All pooled connections use the same server list, authentication, and TLS settings. Increasing the pool size does not distribute connections evenly across the configured servers."""
+pool_size.label: "Pool Size"
+
+connect_timeout.desc:
+"""The maximum time allowed to establish a connection to one configured server, including the protocol handshake and authentication.<br/>
+When multiple servers are configured, the client can try the next server within the overall connection deadline."""
+connect_timeout.label: "Connect Timeout"
+
+authentication.desc:
+"""The authentication method used by the connector.<br/>
+Choose <code>none</code>, <code>user_password</code>, <code>token</code>, <code>nkey</code>, or <code>jwt</code>.<br/>
+Password-like values are secret fields and should be supplied through EMQX's secret handling mechanism."""
+authentication.label: "Authentication"
+
+mechanism.desc:
+"""The authentication mechanism.<br/>
+Supported values are <code>user_password</code>, <code>token</code>, <code>nkey</code>, and <code>jwt</code>."""
+mechanism.label: "Mechanism"
+
+username.desc:
+"""The username configured on the NATS server.<br/>
+Used with the <code>user_password</code> authentication mechanism."""
+username.label: "Username"
+
+password.desc:
+"""The password configured on the NATS server.<br/>
+Used with the <code>user_password</code> authentication mechanism."""
+password.label: "Password"
+
+token.desc:
+"""The token configured on the NATS server.<br/>
+Used with the <code>token</code> authentication mechanism."""
+token.label: "Token"
+
+nkey_seed.desc:
+"""The user NKey seed used to sign the NATS nonce.<br/>
+Use the complete NKey seed, not the public key. The seed is resolved lazily for each connection and is not exposed in connector state."""
+nkey_seed.label: "NKey Seed"
+
+credentials_file.desc:
+"""A path to a standard NATS <code>.creds</code> file, or the file contents supplied inline.<br/>
+Inline contents are materialized to a protected file before the connector starts. File contents are validated at startup and read again after reconnect."""
+credentials_file.label: "Credentials File"
+
+tls_handshake.desc:
+"""Selects the TLS handshake sequence when <code>ssl.enable = true</code>.<br/>
+<code>starttls</code> connects over TCP, receives the NATS <code>INFO</code> frame, and upgrades the same socket to TLS.<br/>
+<code>first</code> starts TLS before any NATS protocol bytes are exchanged and requires a NATS server configured for TLS-first.<br/>
+The client validates certificates according to the SSL settings."""
+tls_handshake.label: "TLS Handshake"
+
+config_connector.desc:
+"""Configuration for an EMQX NATS connector.<br/>
+The connector owns the NATS connection pool and shared connection settings. Actions reference it by name and provide publishing parameters separately."""
+config_connector.label: "NATS Connector Configuration"
+
+auth_user_password.desc: "NATS username/password authentication configuration."
+auth_user_password.label: "Username/Password Authentication"
+
+auth_token.desc: "NATS token authentication configuration."
+auth_token.label: "Token Authentication"
+
+auth_nkey.desc: "NATS NKey authentication configuration."
+auth_nkey.label: "NKey Authentication"
+
+auth_jwt.desc:
+"""NATS JWT authentication configuration using a standard <code>.creds</code> file or inline credentials content."""
+auth_jwt.label: "JWT Authentication"
+
+}
