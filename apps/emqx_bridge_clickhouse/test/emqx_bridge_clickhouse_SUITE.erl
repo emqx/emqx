@@ -259,6 +259,21 @@ t_send_message_query(Config) ->
     delete_bridge(),
     ok.
 
+%% Checks decimal separators and base-prefixed literals against ClickHouse.
+t_numeric_literals(Config) ->
+    BridgeID = make_bridge(#{
+        batch_size => 1,
+        sql =>
+            "INSERT INTO mqtt_test(key, data, arrived) VALUES "
+            "(0x2_A, toString(0b10_1010), 4_2)"
+    }),
+    emqx_bridge:send_message(BridgeID, #{}),
+    check_key_in_clickhouse(42, Config),
+    ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),
+    {ok, 200, Result} = clickhouse:query(ClickhouseConnection, sql_find_data(42), []),
+    ?assertEqual(binary:encode_hex(<<"42">>), iolist_to_binary(string:trim(Result))),
+    delete_bridge().
+
 %% Checks safe storage of injected, binary, JSON, Unicode, NUL, and CASE-derived values.
 t_sql_value_escaping(Config) ->
     Attack = <<"x\\'); DROP TABLE mqtt.mqtt_test; --">>,

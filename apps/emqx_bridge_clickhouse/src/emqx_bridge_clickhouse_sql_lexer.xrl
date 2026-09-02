@@ -19,10 +19,18 @@ IDENTIFIER      = {ID_START}{ID_CONTINUE}*
 %% emqx_template placeholder envelope:
 %% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
 PLACEHOLDER     = \$\{[A-Za-z0-9_.]*\}
-%% ClickHouse decimal token scanning:
+%% ClickHouse numeric token scanning:
 %% https://github.com/ClickHouse/ClickHouse/blob/8dfb1700858195fa704221e360fa0798ac6ee9ed/src/Parsers/Lexer.cpp#L120-L223
 %% https://github.com/ClickHouse/ClickHouse/blob/8dfb1700858195fa704221e360fa0798ac6ee9ed/src/Parsers/Lexer.cpp#L250-L287
-NUMBER          = (([0-9]+(\.[0-9]*)?)|(\.[0-9]+))([eE][+-]?[0-9]+)?
+DEC_DIGITS      = [0-9](_?[0-9])*
+HEX_DIGITS      = [0-9A-Fa-f](_?[0-9A-Fa-f])*
+BIN_DIGITS      = [01](_?[01])*
+DEC_EXPONENT    = [eE][+-]?{DEC_DIGITS}
+HEX_EXPONENT    = [pP][+-]?{DEC_DIGITS}
+DEC_NUMBER      = (({DEC_DIGITS}(\.{DEC_DIGITS}?)?)|(\.{DEC_DIGITS}))({DEC_EXPONENT})?
+HEX_NUMBER      = 0[xX]{HEX_DIGITS}(\.{HEX_DIGITS}?)?({HEX_EXPONENT})?
+BIN_NUMBER      = 0[bB]{BIN_DIGITS}
+NUMBER          = ({HEX_NUMBER}|{BIN_NUMBER}|{DEC_NUMBER})
 %% A doubled delimiter stays in the token. A backslash consumes the next byte:
 %% https://github.com/ClickHouse/ClickHouse/blob/8dfb1700858195fa704221e360fa0798ac6ee9ed/src/Parsers/Lexer.cpp#L13-L46
 SQ_STRING       = '([^'\\]|\\[\000-\377]|'')*'

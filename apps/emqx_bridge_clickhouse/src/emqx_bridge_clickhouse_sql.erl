@@ -1119,6 +1119,42 @@ reject_unsupported_syntax_test() ->
     ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (${value}0)">>)),
     ?assertMatch({error, _}, compile(<<"INSERT INTO t FORMAT CSV ${payload}">>)).
 
+%% Checks ClickHouse numeric separators and base-prefixed literals.
+numeric_literals_test() ->
+    {ok, Plan} = compile(
+        <<
+            "INSERT INTO t VALUES (10_000, 1_000.25, 1_0e+1_0, .5_0, "
+            "0xc0_fe, 0XCA_FE, 0b11_01, 0B10_10)"
+        >>
+    ),
+    ?assertEqual(
+        {ok, <<
+            "INSERT INTO `t` VALUES (10_000, 1_000.25, 1_0e+1_0, .5_0, "
+            "0xc0_fe, 0XCA_FE, 0b11_01, 0B10_10)"
+        >>},
+        rendered_binary(render(Plan, #{}, null_opts()))
+    ).
+
+%% Checks rejection of separators outside digit groups and invalid base digits.
+malformed_numeric_literals_test() ->
+    Invalid = [
+        <<"1__0">>,
+        <<"1_">>,
+        <<"1_e2">>,
+        <<"1e_2">>,
+        <<"0x_FF">>,
+        <<"0xFF_">>,
+        <<"0b_10">>,
+        <<"0b10_">>,
+        <<"0b102">>
+    ],
+    lists:foreach(
+        fun(Number) ->
+            ?assertMatch({error, _}, compile(<<"INSERT INTO t VALUES (", Number/binary, ")">>))
+        end,
+        Invalid
+    ).
+
 %% Checks escaping of backticks and trailing backslashes in ClickHouse identifiers.
 identifier_escape_test() ->
     ?assertEqual(<<"`a\\\\\\`b`">>, quote_identifier(<<"a\\`b">>)),
