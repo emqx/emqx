@@ -1,6 +1,6 @@
 # emqx_telemetry
 
-In order for EMQ to understand how EMQX opensource edition is being used,
+In order for EMQ to understand how EMQX is being used,
 this app reports some telemetry data to [EMQ's telemetry server](https://telemetry.emqx.io/api/telemetry)
 
 To turn it off, you can set `telemetry.enable = false` in emqx.conf,
@@ -8,7 +8,6 @@ or start EMQX with environment variable `EMQX_TELEMETRY__ENABLE=false`.
 
 ## Reported Data
 
-This application is only relesaed in EMQX opensource edition.
 There is nothing in the reported data which can back-track the origin.
 The report interval is 7 days, so there is no performance impact.
 
@@ -17,7 +16,7 @@ Here is the full catalog of the reported data.
 ### Installation
 
 - EMQX version string
-- License (always stubed with "opensource")
+- License edition
 - VM Stats (number of cores, total memory)
 - Operating system name
 - Operating system version

@@ -5,8 +5,8 @@
 %% Sections are grouped between CONFIG_SECTION_BGN and
 %% CONFIG_SECTION_END pairs
 %%
-%% NOTE: this feature is so far not used in opensource
-%% edition due to backward-compatibility reasons.
+%% NOTE: this feature is so far not used, due to
+%% backward-compatibility reasons.
 
 -mode(compile).
 -define(APPS, ["emqx", "emqx_dashboard", "emqx_auth"]).

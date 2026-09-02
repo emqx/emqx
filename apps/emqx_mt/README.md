@@ -7,7 +7,7 @@ The 'users' or 'tenants' here can be a group of MQTT clients with a shared names
 or a group of admins with different access scopes.
 This app (so far) implements MQTT client multi-tenancy but not yet admin multi-tenancy.
 
-## Tenant Namespace Extraction (available in Open-Source Edition)
+## Tenant Namespace Extraction
 
 Starting from **EMQX 5.9**, MQTT clients with a client attribute named `tns`
 will be considered a client belonging to the corresponding tenant.
@@ -28,7 +28,7 @@ More examples are:
 - `user_property.foobar`: Use `foobar` field from User-Property of the CONNECT packet.
 - `peersni`: Use the server name indication sent by TLS client.
 
-## Tenant Client ID Isolation (available in Open-Source Edition)
+## Tenant Client ID Isolation
 
 Ideally, if well planed, MQTT clients should be pre-assigned to avoid ID clashes between
 different tenants.
@@ -41,7 +41,7 @@ to assign a prefix for all clients so to avoid client ID clashing between the te
 For example this config `mqtt.clientid_override = "concat([username, '-', clientid])"`
 should add `username-` as prefix to the client ID internally in EMQX.
 
-## Tenant Topic Isolation (available in Open-Source Edition)
+## Tenant Topic Isolation
 
 This can be done by making use of the MQTT listener's `mountpoint` config.
 For example: `listeners.tcp.default.mountpoint = "${client_attrs.tns}/"`.
