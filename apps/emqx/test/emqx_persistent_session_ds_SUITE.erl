@@ -1595,6 +1595,7 @@ start_cluster(TestCase, Config0, ClusterOpts) ->
     },
     Opts = emqx_utils_maps:deep_merge(ClusterOpts, #{
         durable_sessions_opts => DurableSessionsOpts,
+        wait_readiness_timeout => 30_000,
         work_dir => emqx_cth_suite:work_dir(TestCase, Config0)
     }),
     ClusterSpec = cluster(Opts),
