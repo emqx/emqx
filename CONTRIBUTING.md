@@ -2,6 +2,25 @@
 
 You are welcome to submit any bugs, issues and feature requests on this repository.
 
+## Which Branch to Target
+
+EMQX keeps active development on several `dev-XX` branches at once, one per still-supported
+release line (for example `dev-58`, `dev-60`, `dev-63`). Each `dev-XX` branch syncs forward
+automatically into the next branch in the chain, so a change merged into an earlier branch reaches
+every later branch without a separate pull request.
+
+- **Target the earliest active `dev-XX` branch the bug affects**, especially for high-severity
+  fixes. This is what lets the fix reach every supported release line downstream through the sync
+  chain.
+- **If you are not sure which branch is earliest or still active, targeting the latest `dev-XX`
+  branch is fine.** Say so in the pull request description and ask for guidance — a maintainer can
+  redirect the PR to an earlier branch during review if that fits better.
+- **Do not open the same pull request against multiple `dev-XX` branches.** The sync chain already
+  propagates the change forward. Duplicate pull requests create duplicate review work and can
+  diverge if they are not merged at the same time.
+- Never open a pull request against a `release-XX` branch directly. Those branches are
+  fast-forwarded automatically from the matching `dev-XX` branch and do not accept direct pushes.
+
 ## Commit Message Guidelines
 
 We have very precise rules over how our git commit messages can be formatted. This leads to **more readable messages** that are easy to follow when looking through the **project history**.
@@ -84,9 +103,8 @@ The footer should contain any information about **Breaking Changes** and is also
 
 Changes affecting EMQX functionality shall be described in a separate markdown file under `changes` directory.
 
-File name pattern: `changes/(ce|ee)/(feat|perf|fix)-<PR-id>.en.md`, where:
+File name pattern: `changes/ee/(feat|fix|perf|breaking)-<PR-id>.en.md`, where:
 
-- `ce,ee`: Indicates whether given change affects community and enterprise edition (`ce`), or enterprise edition only (`ee`); for any change only one file is needed as enterprise edition absorbs all changes from the community edition automatically. When in doubts, one could consult [documentation](https://www.emqx.io/docs/en/latest/). Enterprise features have a corresponding "Tip" banner, see for example [here](https://www.emqx.io/docs/en/v5.1/data-integration/data-bridge-influxdb.html).
-- `feat|perf|fix`: Whether the change is a new functionality (`feat`), performance improvement (`perf`), or a bug fix (`fix`).
+- `feat|fix|perf|breaking`: Whether the change is a new functionality (`feat`), a bug fix (`fix`), a performance improvement (`perf`), or a breaking change (`breaking`).
 - `PR-id`: Github pull request id. Since pull request id cannot be known before the PR is actually created, it's common to add change log entry in a separate commit.
 - `en`: ISO 639-1 language code indicating the language the change log entry is written in. Right now we are only accepting entries in English.
