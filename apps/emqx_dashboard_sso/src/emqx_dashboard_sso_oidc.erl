@@ -175,26 +175,29 @@ create(#{name_var := NameVar} = Config) ->
         {error, _} = Error ->
             Error;
         ok ->
-            case
-                emqx_dashboard_sso_oidc_session:start(
-                    ?PROVIDER_SVR_NAME,
-                    Config
-                )
-            of
-                {error, _} = Error ->
-                    Error;
-                _ ->
-                    %% Note: the oidcc maintains an ETS with the same name of the provider gen_server,
-                    %% we should use this name in each API calls not the PID,
-                    %% or it would backoff to sync calls to the gen_server
-                    ClientJwks = init_client_jwks(Config),
-                    {ok, #{
-                        name => ?PROVIDER_SVR_NAME,
-                        config => Config,
-                        client_jwks => ClientJwks,
-                        name_tokens => emqx_placeholder:preproc_tmpl(NameVar)
-                    }}
-            end
+            start_session(Config, NameVar)
+    end.
+
+start_session(Config, NameVar) ->
+    case
+        emqx_dashboard_sso_oidc_session:start(
+            ?PROVIDER_SVR_NAME,
+            Config
+        )
+    of
+        {error, _} = Error ->
+            Error;
+        _ ->
+            %% Note: the oidcc maintains an ETS with the same name of the provider gen_server,
+            %% we should use this name in each API calls not the PID,
+            %% or it would backoff to sync calls to the gen_server
+            ClientJwks = init_client_jwks(Config),
+            {ok, #{
+                name => ?PROVIDER_SVR_NAME,
+                config => Config,
+                client_jwks => ClientJwks,
+                name_tokens => emqx_placeholder:preproc_tmpl(NameVar)
+            }}
     end.
 
 update(Config, State) ->
