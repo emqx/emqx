@@ -23,7 +23,8 @@
     create/1,
     update/2,
     destroy/1,
-    convert_certs/2
+    convert_certs/2,
+    check_ssl_opts/1
 ]).
 
 -define(PROVIDER_SVR_NAME, ?MODULE).
@@ -170,25 +171,30 @@ desc(_) ->
 %%------------------------------------------------------------------------------
 
 create(#{name_var := NameVar} = Config) ->
-    case
-        emqx_dashboard_sso_oidc_session:start(
-            ?PROVIDER_SVR_NAME,
-            Config
-        )
-    of
+    case check_ssl_opts(Config) of
         {error, _} = Error ->
             Error;
-        _ ->
-            %% Note: the oidcc maintains an ETS with the same name of the provider gen_server,
-            %% we should use this name in each API calls not the PID,
-            %% or it would backoff to sync calls to the gen_server
-            ClientJwks = init_client_jwks(Config),
-            {ok, #{
-                name => ?PROVIDER_SVR_NAME,
-                config => Config,
-                client_jwks => ClientJwks,
-                name_tokens => emqx_placeholder:preproc_tmpl(NameVar)
-            }}
+        ok ->
+            case
+                emqx_dashboard_sso_oidc_session:start(
+                    ?PROVIDER_SVR_NAME,
+                    Config
+                )
+            of
+                {error, _} = Error ->
+                    Error;
+                _ ->
+                    %% Note: the oidcc maintains an ETS with the same name of the provider gen_server,
+                    %% we should use this name in each API calls not the PID,
+                    %% or it would backoff to sync calls to the gen_server
+                    ClientJwks = init_client_jwks(Config),
+                    {ok, #{
+                        name => ?PROVIDER_SVR_NAME,
+                        config => Config,
+                        client_jwks => ClientJwks,
+                        name_tokens => emqx_placeholder:preproc_tmpl(NameVar)
+                    }}
+            end
     end.
 
 update(Config, State) ->
@@ -281,6 +287,26 @@ validate_issuer_url(Value) ->
     else
         _ ->
             throw(invalid_issuer_url)
+    end.
+
+%% `ssl.enable = false` on an `https` issuer silently drops all TLS options
+%% and fails at request time instead; reject it up front.
+check_ssl_opts(#{issuer := Issuer, ssl := #{enable := false}}) ->
+    case is_https(Issuer) of
+        true ->
+            {error,
+                {invalid_ssl_opts,
+                    <<"it's required to enable the TLS option to establish a https connection">>}};
+        false ->
+            ok
+    end;
+check_ssl_opts(_Config) ->
+    ok.
+
+is_https(Issuer) ->
+    case uri_string:parse(Issuer) of
+        #{scheme := <<"https">>} -> true;
+        _ -> false
     end.
 
 save_jwks_file(Dir, Content) ->
