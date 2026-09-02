@@ -147,7 +147,7 @@ t_jetstream_publish(Config) ->
     {ok, _} = create_rule(Config, <<"sensor/+/data">>),
     emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-js">>)),
     emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-js">>)),
-    timer:sleep(200),
+    ok = wait_until(fun() -> stream_last_sequence(Client) =:= {ok, 1} end, 5000),
     ?assertEqual({ok, 1}, stream_last_sequence(Client)),
     ok = enats_client:stop(Client).
 
@@ -172,16 +172,19 @@ t_reconnect(Config) ->
             stop -> stop_nats(Nats)
         end
     end),
-    emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-during-outage">>)),
-    receive
-        {nats_restarted, Restart} -> ok
-    after 10000 -> ct:fail(nats_restart_not_observed)
+    try
+        emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-during-outage">>)),
+        receive
+            {nats_restarted, Restart} -> ok
+        after 10000 -> ct:fail(nats_restart_not_observed)
+        end,
+        ?assertMatch(
+            {enats_client, Client, {message, #{payload := <<"hello-during-outage">>}}},
+            receive_message(5000)
+        )
+    after
+        Restart ! stop
     end,
-    ?assertMatch(
-        {enats_client, Client, {message, #{payload := <<"hello-during-outage">>}}},
-        receive_message(5000)
-    ),
-    Restart ! stop,
     ok = enats_client:stop(Client).
 
 create_connector(Config) ->
@@ -273,11 +276,27 @@ stop_nats(_) ->
     ok.
 
 wait_for_port(Port) ->
+    wait_for_port(Port, 100).
+
+wait_for_port(_Port, 0) ->
+    ct:fail(nats_port_not_ready);
+wait_for_port(Port, Attempts) ->
     case gen_tcp:connect("127.0.0.1", Port, [], 100) of
         {ok, Socket} ->
             gen_tcp:close(Socket),
             ok;
         {error, _} ->
             timer:sleep(50),
-            wait_for_port(Port)
+            wait_for_port(Port, Attempts - 1)
+    end.
+
+wait_until(_Pred, Timeout) when Timeout =< 0 ->
+    ct:fail(wait_until_timeout);
+wait_until(Pred, Timeout) ->
+    case catch Pred() of
+        true ->
+            ok;
+        _ ->
+            timer:sleep(50),
+            wait_until(Pred, Timeout - 50)
     end.
