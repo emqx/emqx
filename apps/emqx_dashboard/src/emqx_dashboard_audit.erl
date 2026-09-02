@@ -7,6 +7,8 @@
 -include_lib("emqx/include/logger.hrl").
 %% API
 -export([log/2, log_fun/0, importance/1]).
+%% Exported for testability.
+-export([log_meta/3]).
 
 %% In the previous versions,
 %% this module used the request method to determine whether the request should be logged,

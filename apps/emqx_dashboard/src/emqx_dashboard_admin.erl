@@ -1322,11 +1322,16 @@ flatten_username(#{username := ?SSO_USERNAME(Backend, Name)} = Data) ->
 flatten_username(#{username := Username} = Data) when is_binary(Username) ->
     Data#{backend => ?BACKEND_LOCAL}.
 
--spec format_username(dashboard_username()) -> binary().
+%% `Username' is normally a `dashboard_username()', but during SSO
+%% pre-authentication (before any user identity is known) the audit hook
+%% may pass the bare backend atom instead, e.g. `oidc'.
+-spec format_username(dashboard_username() | dashboard_sso_backend()) -> binary().
 format_username(?SSO_USERNAME(Backend, Name)) ->
     iolist_to_binary([atom_to_binary(Backend), <<":">>, Name]);
 format_username(Username) when is_binary(Username) ->
-    Username.
+    Username;
+format_username(Backend) when is_atom(Backend) ->
+    atom_to_binary(Backend).
 
 -spec add_sso_user(dashboard_sso_backend(), binary(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, any()}.
