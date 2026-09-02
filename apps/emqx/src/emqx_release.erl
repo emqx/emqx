@@ -47,7 +47,7 @@ edition() ->
 edition_vsn_prefix() ->
     ?EMQX_REL_VSN_PREFIX.
 
-%% @doc Return EMQX edition name, ee => Enterprise ce => Opensource.
+%% @doc Return EMQX edition name.
 edition_longstr() -> ?EMQX_REL_NAME.
 
 %% @doc Return the release version with prefix.

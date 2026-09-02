@@ -21,9 +21,6 @@ help() {
 
 # PROFILE is no longer in use, TODO: clean up
 case ${1:-} in
-    opensource)
-        shift
-        ;;
     enterprise)
         shift
         ;;

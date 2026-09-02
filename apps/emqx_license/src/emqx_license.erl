@@ -32,8 +32,8 @@
 -define(CONF_KEY_PATH, [license]).
 
 %% Give the license app the highest priority.
-%% We don't define it in the emqx_hooks.hrl becasue that is an opensource code
-%% and can be changed by the communitiy.
+%% We don't define it in emqx_hooks.hrl because that header is part of the
+%% core emqx app, not the license app.
 -define(HP_LICENSE, 2000).
 
 -define(IS_CLIENTID_TO_BE_ASSIGENED(X), (X =:= <<>> orelse X =:= undefined)).
