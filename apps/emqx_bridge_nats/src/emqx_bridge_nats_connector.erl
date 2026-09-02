@@ -85,14 +85,19 @@ on_get_channel_status(InstanceId, _ChannelId, State) ->
     on_get_status(InstanceId, State).
 
 on_get_status(InstanceId, _State) ->
-    Workers = ecpool:workers(InstanceId),
-    case Workers of
-        [] ->
-            ?status_disconnected;
-        _ ->
-            Statuses = [worker_status(Worker) || {_Name, Worker} <- Workers],
-            combine_statuses(Statuses)
-    end.
+    emqx_resource_pool:common_health_check_workers(
+        InstanceId,
+        #{
+            check_fn => fun health_check/1,
+            is_success_fn => fun
+                (ok) -> false;
+                (_) -> true
+            end
+        }
+    ).
+
+health_check(Client) ->
+    enats_client:flush(Client, 1000).
 
 on_query(InstanceId, {ChannelId, Message}, #{channels := Channels}) ->
     case maps:find(ChannelId, Channels) of
@@ -145,26 +150,56 @@ publish(Client, Channel, Message) ->
     publish_message(Client, Channel, Message, true).
 
 publish_batch(Client, Channel, Batch) ->
-    case
-        lists:foldl(
-            fun
-                ({_ChannelId, Message}, ok) -> publish_message(Client, Channel, Message, false);
-                (_, Error) -> Error
-            end,
-            ok,
-            Batch
-        )
-    of
-        ok ->
+    case publish_batch_messages(Client, Channel, Batch, [], false) of
+        {recoverable, Reason} ->
+            {error, Reason};
+        {ok, Results, false} ->
+            Results;
+        {ok, Results, true} ->
             case maps:get(delivery_mode, Channel, core) of
-                core -> enats_client:flush(Client, maps:get(request_ttl, Channel, 5000));
-                jetstream -> ok
-            end;
-        Error ->
-            Error
+                core ->
+                    case enats_client:flush(Client, maps:get(request_ttl, Channel, 5000)) of
+                        ok -> Results;
+                        {error, _} = Error -> Error
+                    end;
+                jetstream ->
+                    Results
+            end
     end.
 
+publish_batch_messages(_Client, _Channel, [], Acc, Sent) ->
+    {ok, lists:reverse(Acc), Sent};
+publish_batch_messages(Client, Channel, [{_ChannelId, Message} | Rest], Acc, Sent) ->
+    Result = normalize_batch_result(publish_message(Client, Channel, Message, false)),
+    case Result of
+        ok ->
+            publish_batch_messages(Client, Channel, Rest, [ok | Acc], true);
+        {error, Reason} ->
+            case classify_error(Reason) of
+                {recoverable_error, _} ->
+                    {recoverable, Reason};
+                {unrecoverable_error, _} ->
+                    publish_batch_messages(Client, Channel, Rest, [Result | Acc], Sent)
+            end
+    end.
+
+normalize_batch_result(ok) ->
+    ok;
+normalize_batch_result({ok, _Result}) ->
+    ok;
+normalize_batch_result(Result) ->
+    Result.
+
 publish_message(Client, Channel, Message, FlushCore) ->
+    maybe
+        {ok, Rendered} ?= render_message(Channel, Message),
+        Result = publish_rendered(Client, Channel, Rendered),
+        maybe_flush_core(Client, Channel, FlushCore, Result)
+    else
+        {error, _} = Error -> Error
+    end.
+
+render_message(Channel, Message) ->
     try
         Subject = emqx_placeholder:proc_tmpl(maps:get(subject, Channel), Message),
         Payload = iolist_to_binary(
@@ -179,11 +214,16 @@ publish_message(Client, Channel, Message, FlushCore) ->
             }
          || {Key, Value} <- maps:get(headers, Channel, [])
         ],
-        Result = publish_rendered(Client, Channel, Message, Subject, Payload, Headers),
-        maybe_flush_core(Client, Channel, FlushCore, Result)
+        MsgId = render_msg_id(Channel, Message),
+        {ok, #{subject => Subject, payload => Payload, headers => Headers, msg_id => MsgId}}
     catch
-        Class:_Reason -> {error, {template_error, Class}}
+        Class:Reason -> {error, {template_error, #{class => Class, reason => Reason}}}
     end.
+
+render_msg_id(#{delivery_mode := jetstream, msg_id := MsgIdTemplate}, Message) ->
+    iolist_to_binary(emqx_placeholder:proc_tmpl(MsgIdTemplate, Message));
+render_msg_id(_Channel, _Message) ->
+    undefined.
 
 maybe_flush_core(_Client, _Channel, _FlushCore, {error, _} = Error) ->
     Error;
@@ -192,7 +232,9 @@ maybe_flush_core(Client, Channel, true, ok) ->
 maybe_flush_core(_Client, _Channel, _FlushCore, Result) ->
     Result.
 
-publish_rendered(Client, Channel, Message, Subject, Payload, Headers) ->
+publish_rendered(Client, Channel, #{
+    subject := Subject, payload := Payload, headers := Headers, msg_id := MsgId
+}) ->
     Options = #{
         headers => Headers,
         timeout => maps:get(request_ttl, Channel, 5000)
@@ -201,8 +243,7 @@ publish_rendered(Client, Channel, Message, Subject, Payload, Headers) ->
         core ->
             enats_client:publish(Client, Subject, Payload, Options);
         jetstream ->
-            MsgId = emqx_placeholder:proc_tmpl(maps:get(msg_id, Channel), Message),
-            case iolist_to_binary(MsgId) of
+            case MsgId of
                 <<>> ->
                     enats_client:jetstream_publish(Client, Subject, Payload, Options);
                 Value ->
@@ -256,42 +297,16 @@ auth_options(Authentication) ->
 secret_provider(Secret) ->
     fun() -> emqx_secret:unwrap(Secret) end.
 
-worker_status(Worker) ->
-    case ecpool_worker:client(Worker) of
-        {ok, Client} ->
-            case enats_client:status(Client) of
-                connected ->
-                    case enats_client:flush(Client, 1000) of
-                        ok -> connected;
-                        {error, flush_in_progress} -> connecting;
-                        {error, _} -> disconnected
-                    end;
-                connecting ->
-                    connecting;
-                reconnecting ->
-                    connecting;
-                disconnected ->
-                    disconnected
-            end;
-        {error, _} ->
-            disconnected
-    end.
-
-combine_statuses(Statuses) ->
-    case lists:member(disconnected, Statuses) of
-        true ->
-            ?status_disconnected;
-        false ->
-            case lists:member(connecting, Statuses) of
-                true -> ?status_connecting;
-                false -> ?status_connected
-            end
-    end.
-
-classify_result(ok) -> ok;
-classify_result({error, ecpool_empty}) -> {error, {recoverable_error, disconnected}};
-classify_result({error, Reason}) -> {error, classify_error(Reason)};
-classify_result(Result) -> Result.
+classify_result(ok) ->
+    ok;
+classify_result(Results) when is_list(Results) ->
+    [classify_result(Result) || Result <- Results];
+classify_result({error, ecpool_empty}) ->
+    {error, {recoverable_error, disconnected}};
+classify_result({error, Reason}) ->
+    {error, classify_error(Reason)};
+classify_result(Result) ->
+    Result.
 
 classify_error(disconnected) ->
     {recoverable_error, disconnected};
