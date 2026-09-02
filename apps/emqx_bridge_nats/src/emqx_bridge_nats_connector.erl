@@ -21,10 +21,14 @@
     on_query/3,
     on_batch_query/3
 ]).
+-export([pre_config_update/4]).
 -export([connect/1, publish/3, publish_batch/3]).
 
 resource_type() -> ?CONNECTOR_TYPE.
 callback_mode() -> always_sync.
+
+pre_config_update(Path, _Name, Config, _OldConfig) ->
+    emqx_bridge_nats_credentials:materialize(Path, Config).
 
 on_start(InstanceId, Config) ->
     case client_options(Config) of
@@ -234,30 +238,14 @@ auth_options(#{mechanism := token, token := Token}) ->
     #{mechanism => token, token => secret_provider(Token)};
 auth_options(#{mechanism := user_password, username := Username, password := Password}) ->
     #{mechanism => user_password, username => Username, password => secret_provider(Password)};
-auth_options(#{mechanism := nkey, public_key := PublicKey, nkey_seed := Seed}) ->
+auth_options(#{mechanism := nkey, nkey_seed := Seed}) ->
     case enats_nkey:from_seed(emqx_secret:unwrap(Seed)) of
-        {ok, PublicKey0, SignFun} when PublicKey =:= <<>>; PublicKey =:= PublicKey0 ->
-            #{mechanism => nkey, public_key => PublicKey0, sign_fun => SignFun};
-        {ok, _PublicKey0, _SignFun} ->
-            {error, invalid_nkey_public_key};
+        {ok, PublicKey, SignFun} ->
+            #{mechanism => nkey, public_key => PublicKey, sign_fun => SignFun};
         {error, Reason} ->
             {error, Reason}
     end;
-auth_options(#{mechanism := jwt, public_key := PublicKey, jwt := JWT, nkey_seed := Seed}) ->
-    case enats_nkey:from_seed(emqx_secret:unwrap(Seed)) of
-        {ok, PublicKey0, SignFun} when PublicKey =:= <<>>; PublicKey =:= PublicKey0 ->
-            #{
-                mechanism => jwt,
-                public_key => PublicKey0,
-                jwt => secret_provider(JWT),
-                sign_fun => SignFun
-            };
-        {ok, _PublicKey0, _SignFun} ->
-            {error, invalid_jwt_public_key};
-        {error, Reason} ->
-            {error, Reason}
-    end;
-auth_options(#{mechanism := creds_file, credentials_file := Filename}) ->
+auth_options(#{mechanism := jwt, credentials_file := Filename}) ->
     case enats_credentials:from_file(Filename) of
         {ok, Auth} -> Auth;
         {error, Reason} -> {error, Reason}
