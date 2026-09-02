@@ -437,7 +437,8 @@ encode_value(true, _Opts) ->
     encode_string(<<"true">>, varchar);
 encode_value(false, _Opts) ->
     encode_string(<<"false">>, varchar);
-encode_value(Value, _Opts) when is_integer(Value) -> integer_to_binary(Value);
+encode_value(Value, _Opts) when is_integer(Value) ->
+    integer_to_binary(Value);
 encode_value(Value, _Opts) when is_float(Value) ->
     emqx_template:to_string(Value);
 encode_value(<<"0x", Rest/binary>> = Value, _Opts) ->

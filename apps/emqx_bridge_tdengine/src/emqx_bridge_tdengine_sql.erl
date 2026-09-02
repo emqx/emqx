@@ -489,7 +489,8 @@ encode_value(true, _Opts) ->
     <<"true">>;
 encode_value(false, _Opts) ->
     <<"false">>;
-encode_value(Value, _Opts) when is_integer(Value) -> integer_to_binary(Value);
+encode_value(Value, _Opts) when is_integer(Value) ->
+    integer_to_binary(Value);
 encode_value(Value, _Opts) when is_float(Value) ->
     float_to_binary(Value, [compact]);
 encode_value(Value, _Opts) ->
