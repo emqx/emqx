@@ -237,7 +237,13 @@ is_managed_file(AbsPath, #file_info{type = Type, mode = Mode}) ->
     Type == regular andalso
         ?HAS_OWNER_READ(Mode) andalso
         ?HAS_OWNER_WRITE(Mode) andalso
-        emqx_tls_lib:is_managed_ssl_file(AbsPath).
+        (emqx_tls_lib:is_managed_ssl_file(AbsPath) orelse is_managed_credentials_file(AbsPath)).
+
+is_managed_credentials_file(Filename) ->
+    case re:run(filename:basename(Filename), "^credentials-[0-9A-Fa-f]{32}\\.creds$", [anchored]) of
+        {match, _} -> true;
+        nomatch -> false
+    end.
 
 -spec find_config_references(Root :: binary()) ->
     [fileref() | {basename(), {error, _}}].
@@ -247,7 +253,7 @@ find_config_references(Root) ->
     NsConfigs = NsConfigs0#{?global_ns => GlobalConfig},
     emqx_config_lib:fold_namespace_configs(
         fun(_Namespace, Stack, Value, Acc) ->
-            case is_file_reference(Stack) andalso is_binary(Value) of
+            case is_file_reference(Stack) andalso is_file_path(Value) of
                 true ->
                     Filename = emqx_schema:naive_env_interpolation(Value),
                     {stop, [mk_fileref(Filename) | Acc]};
@@ -259,6 +265,13 @@ find_config_references(Root) ->
         NsConfigs
     ).
 
+is_file_path(Value) when is_binary(Value) ->
+    true;
+is_file_path(Value) when is_list(Value) ->
+    io_lib:char_list(Value);
+is_file_path(_) ->
+    false.
+
 is_file_reference(Stack) ->
     lists:any(
         fun(KP) -> lists:prefix(lists:reverse(KP), Stack) end,
@@ -266,7 +279,7 @@ is_file_reference(Stack) ->
     ).
 
 conf_keypaths() ->
-    emqx_tls_lib:ssl_file_conf_keypaths().
+    emqx_tls_lib:ssl_file_conf_keypaths() ++ [[<<"authentication">>, <<"credentials_file">>]].
 
 mk_fileref(AbsPath) ->
     case emqx_utils_fs:read_info(AbsPath) of

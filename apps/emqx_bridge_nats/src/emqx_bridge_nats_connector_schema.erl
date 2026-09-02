@@ -53,21 +53,11 @@ fields(auth_token) ->
 fields(auth_nkey) ->
     [
         {mechanism, hoconsc:mk(nkey, #{required => true, desc => ?DESC("mechanism")})},
-        {public_key,
-            hoconsc:mk(binary(), #{required => false, default => <<>>, desc => ?DESC("public_key")})},
         {nkey_seed, emqx_schema_secret:mk(#{required => true, desc => ?DESC("nkey_seed")})}
     ];
 fields(auth_jwt) ->
     [
         {mechanism, hoconsc:mk(jwt, #{required => true, desc => ?DESC("mechanism")})},
-        {public_key,
-            hoconsc:mk(binary(), #{required => false, default => <<>>, desc => ?DESC("public_key")})},
-        {jwt, emqx_schema_secret:mk(#{required => true, desc => ?DESC("jwt")})},
-        {nkey_seed, emqx_schema_secret:mk(#{required => true, desc => ?DESC("nkey_seed")})}
-    ];
-fields(auth_creds_file) ->
-    [
-        {mechanism, hoconsc:mk(creds_file, #{required => true, desc => ?DESC("mechanism")})},
         {credentials_file,
             hoconsc:mk(binary(), #{required => true, desc => ?DESC("credentials_file")})}
     ].
@@ -78,8 +68,7 @@ authentication_selector(all_union_members) ->
         hoconsc:ref(?MODULE, auth_user_password),
         hoconsc:ref(?MODULE, auth_token),
         hoconsc:ref(?MODULE, auth_nkey),
-        hoconsc:ref(?MODULE, auth_jwt),
-        hoconsc:ref(?MODULE, auth_creds_file)
+        hoconsc:ref(?MODULE, auth_jwt)
     ];
 authentication_selector({value, Value}) when is_atom(Value) ->
     authentication_selector({value, atom_to_binary(Value)});
@@ -95,12 +84,10 @@ authentication_selector({value, #{<<"mechanism">> := Mechanism}}) ->
             [hoconsc:ref(?MODULE, auth_nkey)];
         <<"jwt">> ->
             [hoconsc:ref(?MODULE, auth_jwt)];
-        <<"creds_file">> ->
-            [hoconsc:ref(?MODULE, auth_creds_file)];
         _ ->
             throw(#{
                 field_name => mechanism,
-                expected => "user_password | token | nkey | jwt | creds_file"
+                expected => "user_password | token | nkey | jwt"
             })
     end;
 authentication_selector({value, Value}) ->
@@ -111,7 +98,6 @@ desc(auth_user_password) -> ?DESC("auth_user_password");
 desc(auth_token) -> ?DESC("auth_token");
 desc(auth_nkey) -> ?DESC("auth_nkey");
 desc(auth_jwt) -> ?DESC("auth_jwt");
-desc(auth_creds_file) -> ?DESC("auth_creds_file");
 desc(_) -> undefined.
 
 connector_examples(Method) ->

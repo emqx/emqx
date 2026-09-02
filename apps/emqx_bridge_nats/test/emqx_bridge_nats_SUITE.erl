@@ -5,11 +5,17 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/file.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include("../src/emqx_bridge_nats.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+-define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+
 all() -> [{group, local}].
+
+suite() -> [{timetrap, {seconds, 60}}].
 
 groups() ->
     [
@@ -20,7 +26,10 @@ groups() ->
             t_auth_user_password,
             t_auth_token,
             t_auth_nkey,
-            t_tls
+            t_tls,
+            t_creds_file_materialization,
+            t_auth_jwt_creds,
+            t_cluster_credentials_materialization
         ]}
     ].
 
@@ -239,7 +248,6 @@ t_auth_nkey(Config) ->
         ["-c", ConfigFile],
         #{
             <<"mechanism">> => <<"nkey">>,
-            <<"public_key">> => PublicNKey,
             <<"nkey_seed">> => Seed
         },
         #{
@@ -263,8 +271,94 @@ t_tls(Config) ->
         #{<<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>}}
     ).
 
+t_creds_file_materialization(_Config) ->
+    Seed = encode_seed(<<1:256>>),
+    Contents = iolist_to_binary([
+        "-----BEGIN NATS USER JWT-----\njwt\n------END NATS USER JWT------\n",
+        "-----BEGIN USER NKEY SEED-----\n",
+        Seed,
+        "\n------END USER NKEY SEED------\n"
+    ]),
+    RawConfig = #{
+        <<"authentication">> => #{
+            <<"mechanism">> => <<"jwt">>,
+            <<"credentials_file">> => Contents
+        }
+    },
+    Path = [<<"connectors">>, <<"nats">>, <<"creds_materialization">>],
+    {ok, StoredConfig} = emqx_bridge_nats_connector:pre_config_update(
+        Path, <<"creds_materialization">>, RawConfig, undefined
+    ),
+    StoredAuth = maps:get(<<"authentication">>, StoredConfig),
+    Filename = maps:get(<<"credentials_file">>, StoredAuth),
+    ?assert(is_binary(Filename)),
+    ?assertEqual({ok, Contents}, file:read_file(Filename)),
+    {ok, #file_info{mode = Mode}} = file:read_file_info(Filename),
+    ?assertEqual(8#600, Mode band 8#777),
+    {ok, StoredConfig} = emqx_bridge_nats_connector:pre_config_update(
+        Path, <<"creds_materialization">>, StoredConfig, undefined
+    ),
+    ok = file:delete(Filename).
+
+t_auth_jwt_creds(Config) ->
+    {Fixture, ConfigFile, Credentials} = jwt_credentials_fixture(Config),
+    #{user_public := UserPublic, user_private := UserPrivate, user_jwt := UserJWT} = Fixture,
+    auth_publish_case(
+        Config,
+        ["-c", ConfigFile],
+        #{
+            <<"mechanism">> => <<"jwt">>,
+            <<"credentials_file">> => Credentials
+        },
+        #{
+            mechanism => jwt,
+            public_key => UserPublic,
+            jwt => fun() -> UserJWT end,
+            sign_fun => enats_nkey:sign_fun(UserPublic, UserPrivate)
+        },
+        #{},
+        #{},
+        fun() -> assert_credentials_file_is_gc_safe(Config, Credentials) end
+    ).
+
+t_cluster_credentials_materialization(Config) ->
+    {_Fixture, _NatsConfigFile, Credentials} = jwt_credentials_fixture(Config),
+    Name = atom_to_binary(?FUNCTION_NAME),
+    ConnectorConfig = #{
+        <<"enable">> => false,
+        <<"servers">> => <<"127.0.0.1:4222">>,
+        <<"pool_size">> => 1,
+        <<"connect_timeout">> => <<"2s">>,
+        <<"authentication">> => #{
+            <<"mechanism">> => <<"jwt">>,
+            <<"credentials_file">> => Credentials
+        },
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
+    },
+    Cluster = [
+        {nats_credentials_1, #{apps => cluster_app_specs()}},
+        {nats_credentials_2, #{apps => cluster_app_specs()}}
+    ],
+    Nodes = emqx_cth_cluster:start(
+        Cluster,
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    [N1, N2] = Nodes,
+    try
+        ?assertEqual(
+            emqx_bridge_nats_connector, ?ON(N1, emqx_connector_info:config_transform_module(nats))
+        ),
+        {ok, _} = ?ON(N1, emqx_connector:create(?global_ns, nats, Name, ConnectorConfig)),
+        Filename1 = assert_cluster_credentials_file(N1, Name, Credentials),
+        Filename2 = assert_cluster_credentials_file(N2, Name, Credentials),
+        ?assertNotEqual(Filename1, Filename2),
+        ok
+    after
+        ok = emqx_cth_cluster:stop(Nodes)
+    end.
+
 auth_publish_case(Config, ServerArgs, Authentication, ClientAuth) ->
-    auth_publish_case(Config, ServerArgs, Authentication, ClientAuth, #{}, #{}).
+    auth_publish_case(Config, ServerArgs, Authentication, ClientAuth, #{}, #{}, fun() -> ok end).
 
 auth_publish_case(
     Config,
@@ -273,6 +367,25 @@ auth_publish_case(
     ClientAuth,
     ClientOptions,
     ConnectorOverrides0
+) ->
+    auth_publish_case(
+        Config,
+        ServerArgs,
+        Authentication,
+        ClientAuth,
+        ClientOptions,
+        ConnectorOverrides0,
+        fun() -> ok end
+    ).
+
+auth_publish_case(
+    Config,
+    ServerArgs,
+    Authentication,
+    ClientAuth,
+    ClientOptions,
+    ConnectorOverrides0,
+    AfterConnector
 ) ->
     Port = free_port(),
     Pid = start_nats(?config(nats_executable, Config), Port, false, ServerArgs),
@@ -300,6 +413,7 @@ auth_publish_case(
         ),
         {ok, 201, ConnectorBody} = create_connector_silent(Config, ConnectorOverrides),
         #{<<"status">> := <<"connected">>} = emqx_utils_json:decode(ConnectorBody),
+        ok = AfterConnector(),
         {201, _} = create_action(Config),
         {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
         {ok, _} = create_rule(Config, <<"sensor/+/data">>),
@@ -312,6 +426,50 @@ auth_publish_case(
     after
         stop_nats(Pid)
     end.
+
+assert_credentials_file_is_gc_safe(Config, Contents) ->
+    Name = proplists:get_value(connector_name, Config),
+    Filename = emqx:get_raw_config(
+        [connectors, nats, Name, authentication, credentials_file], undefined
+    ),
+    ?assert(is_binary(Filename) orelse is_list(Filename)),
+    ?assert(Filename =/= Contents),
+    {ok, _} = emqx_tls_certfile_gc:force(),
+    ?assertMatch({ok, _}, file:read_file_info(Filename)),
+    ok.
+
+assert_cluster_credentials_file(Node, Name, Contents) ->
+    Filename = ?ON(
+        Node,
+        emqx:get_raw_config(
+            [connectors, nats, Name, authentication, credentials_file], undefined
+        )
+    ),
+    ?assert(is_binary(Filename) orelse is_list(Filename)),
+    ?assert(Filename =/= Contents),
+    ?assertEqual({ok, Contents}, ?ON(Node, file:read_file(Filename))),
+    {ok, #file_info{mode = Mode}} = ?ON(Node, file:read_file_info(Filename)),
+    ?assertEqual(8#600, Mode band 8#777),
+    {ok, _} = ?ON(Node, emqx_tls_certfile_gc:force()),
+    ?assertMatch({ok, _}, ?ON(Node, file:read_file_info(Filename))),
+    Filename.
+
+cluster_app_specs() ->
+    [
+        {emqx, #{before_start => fun cluster_emqx_before_start/2}},
+        emqx_conf,
+        emqx_auth,
+        emqx_connector,
+        emqx_bridge_nats,
+        emqx_bridge,
+        emqx_rule_engine,
+        emqx_management
+    ].
+
+cluster_emqx_before_start(App, AppConfig) ->
+    emqx_config:init_load(emqx_connector_schema, <<>>),
+    emqx_config:add_allowed_namespaced_config_root(<<"connectors">>),
+    emqx_cth_suite:inhibit_config_loader(App, AppConfig).
 
 create_connector_silent(Config, Overrides) ->
     ConnectorConfig0 = proplists:get_value(connector_config, Config),
@@ -434,6 +592,125 @@ encode_base32(Bits, Acc) when bit_size(Bits) > 0 ->
     encode_base32(<<>>, [lists:nth(Padded + 1, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567") | Acc]);
 encode_base32(<<>>, Acc) ->
     list_to_binary(lists:reverse(Acc)).
+
+jwt_credentials_fixture(Config) ->
+    OperatorPrivate =
+        <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+            26, 27, 28, 29, 30, 31, 32>>,
+    AccountPrivate =
+        <<33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54,
+            55, 56, 57, 58, 59, 60, 61, 62, 63, 64>>,
+    OperatorPublic = public_nkey(16#70, OperatorPrivate),
+    AccountPublic = public_nkey(16#00, AccountPrivate),
+    AccountJWT = sign_jwt(
+        #{
+            <<"iss">> => OperatorPublic,
+            <<"sub">> => AccountPublic,
+            <<"iat">> => erlang:system_time(second),
+            <<"nats">> => #{
+                <<"type">> => <<"account">>,
+                <<"version">> => 2,
+                <<"limits">> => #{
+                    <<"subs">> => -1,
+                    <<"data">> => -1,
+                    <<"payload">> => -1,
+                    <<"imports">> => -1,
+                    <<"exports">> => -1,
+                    <<"conn">> => -1,
+                    <<"leaf">> => -1,
+                    <<"wildcards">> => true
+                },
+                <<"default_permissions">> => #{
+                    <<"pub">> => #{},
+                    <<"sub">> => #{}
+                }
+            }
+        },
+        OperatorPrivate
+    ),
+    {_UserPublicRaw, UserPrivate} = crypto:generate_key(eddsa, ed25519),
+    UserPublic = public_nkey(16#A0, UserPrivate),
+    UserJWT = sign_jwt(
+        #{
+            <<"iss">> => AccountPublic,
+            <<"sub">> => UserPublic,
+            <<"iat">> => erlang:system_time(second),
+            <<"nats">> => #{
+                <<"type">> => <<"user">>,
+                <<"version">> => 2,
+                <<"subs">> => -1,
+                <<"data">> => -1,
+                <<"payload">> => -1,
+                <<"pub">> => #{<<"allow">> => [<<"emqx.events">>]},
+                <<"sub">> => #{<<"allow">> => [<<"emqx.events">>, <<"_INBOX.>">>]}
+            }
+        },
+        AccountPrivate
+    ),
+    Seed = encode_seed(UserPrivate),
+    Credentials = iolist_to_binary([
+        "-----BEGIN NATS USER JWT-----\n",
+        UserJWT,
+        "\n------END NATS USER JWT------\n",
+        "-----BEGIN USER NKEY SEED-----\n",
+        Seed,
+        "\n------END USER NKEY SEED------\n"
+    ]),
+    ConfigFile = filename:join(?config(priv_dir, Config), "nats-connector-jwt.conf"),
+    ConfigText = iolist_to_binary([
+        "operator: ",
+        build_operator_jwt(OperatorPublic, OperatorPrivate),
+        "\n",
+        "resolver: MEMORY\n",
+        "resolver_preload: {\n  ",
+        AccountPublic,
+        ": ",
+        AccountJWT,
+        "\n}\n"
+    ]),
+    ok = file:write_file(ConfigFile, ConfigText),
+    {
+        #{
+            operator_public => OperatorPublic,
+            account_public => AccountPublic,
+            user_public => UserPublic,
+            user_private => UserPrivate,
+            user_jwt => UserJWT
+        },
+        ConfigFile,
+        Credentials
+    }.
+
+build_operator_jwt(OperatorPublic, OperatorPrivate) ->
+    sign_jwt(
+        #{
+            <<"iss">> => OperatorPublic,
+            <<"sub">> => OperatorPublic,
+            <<"iat">> => erlang:system_time(second),
+            <<"nats">> => #{<<"type">> => <<"operator">>, <<"version">> => 2}
+        },
+        OperatorPrivate
+    ).
+
+public_nkey(Prefix, PrivateKey) ->
+    {PublicKey, _} = crypto:generate_key(eddsa, ed25519, PrivateKey),
+    Payload = <<Prefix:8, PublicKey/binary>>,
+    encode_nkey(<<Payload/binary, (test_crc16(Payload)):16/little>>).
+
+encode_nkey(Bin) ->
+    encode_base32(Bin).
+
+sign_jwt(Claims, PrivateKey) ->
+    Header = base64url_encode(
+        emqx_utils_json:encode(#{alg => <<"ed25519-nkey">>, typ => <<"JWT">>})
+    ),
+    Payload = base64url_encode(emqx_utils_json:encode(Claims)),
+    SigningInput = <<Header/binary, ".", Payload/binary>>,
+    Signature = base64url_encode(crypto:sign(eddsa, none, SigningInput, [PrivateKey, ed25519])),
+    <<SigningInput/binary, ".", Signature/binary>>.
+
+base64url_encode(Bin) ->
+    base64:encode(Bin, #{mode => urlsafe, padding => false}).
 
 start_nats(Executable, Port, JetStream) ->
     start_nats(Executable, Port, JetStream, []).

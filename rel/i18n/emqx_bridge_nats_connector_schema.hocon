@@ -16,9 +16,7 @@ auth_user_password.desc: "NATS username/password authentication."
 auth_token.desc: "NATS token authentication."
 auth_nkey.desc: "NATS NKey authentication."
 auth_jwt.desc: "NATS JWT authentication."
-auth_creds_file.desc: "NATS credentials file authentication."
 mechanism.desc: "NATS authentication mechanism."
-public_key.desc: "Optional NKey public key."
-credentials_file.desc: "Path to the NATS credentials file."
+credentials_file.desc: "NATS credentials file path or content."
 
 }

@@ -5,6 +5,7 @@
     type_name/0,
     bridge_types/0,
     resource_callback_module/0,
+    config_transform_module/0,
     config_schema/0,
     schema_module/0,
     api_schema/1
@@ -13,6 +14,7 @@
 type_name() -> ?CONNECTOR_TYPE.
 bridge_types() -> [?ACTION_TYPE].
 resource_callback_module() -> emqx_bridge_nats_connector.
+config_transform_module() -> emqx_bridge_nats_connector.
 config_schema() ->
     {?CONNECTOR_TYPE,
         hoconsc:mk(
