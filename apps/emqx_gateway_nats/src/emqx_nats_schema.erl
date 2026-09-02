@@ -258,61 +258,85 @@ deobfuscate(NewConf, _OldConf) ->
 deobfuscate_internal_authn(NewMethods, OldMethods) when
     is_list(NewMethods), is_list(OldMethods)
 ->
-    deobfuscate_internal_authn(NewMethods, OldMethods, 1, []);
+    case find_duplicate_method_type(NewMethods) of
+        none ->
+            deobfuscate_internal_authn(NewMethods, OldMethods, []);
+        {duplicate, Type} ->
+            duplicate_method_error(Type)
+    end;
 deobfuscate_internal_authn(NewMethods, _OldMethods) ->
     {ok, NewMethods}.
 
-deobfuscate_internal_authn([], _OldMethods, _Pos, Acc) ->
+deobfuscate_internal_authn([], _OldMethods, Acc) ->
     {ok, lists:reverse(Acc)};
-deobfuscate_internal_authn([NewMethod | Rest], [OldMethod | OldRest], Pos, Acc) ->
+deobfuscate_internal_authn([NewMethod | Rest], OldMethods, Acc) ->
     NewType = method_type(NewMethod),
-    OldType = method_type(OldMethod),
-    case NewType =:= OldType andalso NewType =/= undefined of
-        true ->
-            case deobfuscate_method(NewMethod, OldMethod, NewType, Pos) of
-                {ok, Method} ->
-                    deobfuscate_internal_authn(Rest, OldRest, Pos + 1, [Method | Acc]);
-                {error, _} = Error ->
-                    Error
-            end;
-        false ->
-            case reject_redacted_method(NewMethod, Pos) of
-                ok ->
-                    deobfuscate_internal_authn(Rest, OldRest, Pos + 1, [NewMethod | Acc]);
-                {error, _} = Error ->
-                    Error
-            end
-    end;
-deobfuscate_internal_authn([NewMethod | Rest], [], Pos, Acc) ->
-    case reject_redacted_method(NewMethod, Pos) of
-        ok ->
-            deobfuscate_internal_authn(Rest, [], Pos + 1, [NewMethod | Acc]);
+    case deobfuscate_method(NewMethod, OldMethods, NewType) of
+        {ok, Method} ->
+            deobfuscate_internal_authn(Rest, OldMethods, [Method | Acc]);
         {error, _} = Error ->
             Error
     end.
 
-deobfuscate_method(NewMethod0, OldMethod0, token, Pos) ->
+deobfuscate_method(NewMethod0, OldMethods, token) ->
     NewMethod = emqx_utils_maps:binary_key_map(NewMethod0),
-    OldMethod = emqx_utils_maps:binary_key_map(OldMethod0),
     case is_redacted_field(NewMethod, token, <<"token">>) of
-        true when is_map_key(<<"token">>, OldMethod); is_map_key(token, OldMethod) ->
-            {ok, emqx_utils:deobfuscate(NewMethod, OldMethod)};
         true ->
-            redacted_method_error(Pos, token);
+            case find_unique_method(token, OldMethods) of
+                {ok, OldMethod0} ->
+                    OldMethod = emqx_utils_maps:binary_key_map(OldMethod0),
+                    case has_map_key(OldMethod, token, <<"token">>) of
+                        true ->
+                            {ok, emqx_utils:deobfuscate(NewMethod, OldMethod)};
+                        false ->
+                            redacted_method_error(token)
+                    end;
+                _ ->
+                    redacted_method_error(token)
+            end;
         false ->
             {ok, NewMethod}
     end;
-deobfuscate_method(NewMethod0, OldMethod0, jwt, Pos) ->
-    NewMethod = emqx_utils:deobfuscate(
-        emqx_utils_maps:binary_key_map(NewMethod0),
-        emqx_utils_maps:binary_key_map(OldMethod0)
-    ),
-    deobfuscate_jwt_resolver(NewMethod, OldMethod0, Pos);
-deobfuscate_method(NewMethod, _OldMethod, _Type, _Pos) ->
-    {ok, NewMethod}.
+deobfuscate_method(NewMethod0, OldMethods, jwt) ->
+    NewMethod = emqx_utils_maps:binary_key_map(NewMethod0),
+    case has_redacted_jwt(NewMethod) of
+        true ->
+            case find_unique_method(jwt, OldMethods) of
+                {ok, OldMethod0} ->
+                    OldMethod = emqx_utils_maps:binary_key_map(OldMethod0),
+                    deobfuscate_jwt_method(NewMethod, OldMethod);
+                _ ->
+                    redacted_method_error(jwt)
+            end;
+        false ->
+            deobfuscate_jwt_resolver(NewMethod, #{})
+    end;
+deobfuscate_method(NewMethod, _OldMethods, _Type) ->
+    case reject_redacted_method(NewMethod) of
+        ok ->
+            {ok, NewMethod};
+        {error, _} = Error ->
+            Error
+    end.
 
-deobfuscate_jwt_resolver(NewMethod, OldMethod0, Pos) ->
-    OldMethod = emqx_utils_maps:binary_key_map(OldMethod0),
+deobfuscate_jwt_method(NewMethod, OldMethod) ->
+    NewMethod1 = emqx_utils:deobfuscate(NewMethod, OldMethod),
+    case deobfuscate_jwt_resolver(NewMethod1, OldMethod) of
+        {ok, NewMethod2} ->
+            ensure_no_redacted_jwt(NewMethod2);
+        {error, _} = Error ->
+            Error
+    end.
+
+ensure_no_redacted_jwt(Method) ->
+    case has_redacted_jwt(Method) of
+        true ->
+            redacted_method_error(jwt);
+        false ->
+            {ok, Method}
+    end.
+
+deobfuscate_jwt_resolver(NewMethod, OldMethod) ->
     NewResolver = map_get_any(NewMethod, [resolver, <<"resolver">>], undefined),
     OldResolver = map_get_any(OldMethod, [resolver, <<"resolver">>], #{}),
     case {is_map(NewResolver), is_map(OldResolver)} of
@@ -327,7 +351,7 @@ deobfuscate_jwt_resolver(NewMethod, OldMethod0, Pos) ->
                 [resolver_preload, <<"resolver_preload">>],
                 []
             ),
-            case deobfuscate_jwt_entries(NewEntries, OldEntries, Pos) of
+            case deobfuscate_jwt_entries(NewEntries, OldEntries) of
                 {ok, Entries} ->
                     Resolver = put_map_value(NewResolver, resolver_preload, Entries),
                     {ok, put_map_value(NewMethod, resolver, Resolver)};
@@ -338,44 +362,119 @@ deobfuscate_jwt_resolver(NewMethod, OldMethod0, Pos) ->
             {ok, NewMethod}
     end.
 
-deobfuscate_jwt_entries(NewEntries, OldEntries, Pos) when
+deobfuscate_jwt_entries(NewEntries, OldEntries) when
     is_list(NewEntries), is_list(OldEntries)
 ->
-    OldIndex = maps:from_list([
-        {PubKey, Entry}
-     || Entry <- OldEntries,
-        is_map(Entry),
-        PubKey <- [map_get_any(Entry, [pubkey, <<"pubkey">>], undefined)],
-        PubKey =/= undefined
-    ]),
-    deobfuscate_jwt_entries(NewEntries, OldIndex, Pos, 1, []);
-deobfuscate_jwt_entries(NewEntries, _OldEntries, _Pos) ->
+    case find_duplicate_pubkey(NewEntries) of
+        none ->
+            deobfuscate_jwt_entries(NewEntries, OldEntries, []);
+        duplicate ->
+            duplicate_entry_error()
+    end;
+deobfuscate_jwt_entries(NewEntries, _OldEntries) ->
     {ok, NewEntries}.
 
-deobfuscate_jwt_entries([], _OldIndex, _MethodPos, _EntryPos, Acc) ->
+deobfuscate_jwt_entries([], _OldEntries, Acc) ->
     {ok, lists:reverse(Acc)};
-deobfuscate_jwt_entries([NewEntry0 | Rest], OldIndex, MethodPos, EntryPos, Acc) ->
+deobfuscate_jwt_entries([NewEntry0 | Rest], OldEntries, Acc) ->
     NewEntry = emqx_utils_maps:binary_key_map(NewEntry0),
     PubKey = map_get_any(NewEntry, [pubkey, <<"pubkey">>], undefined),
-    OldEntry = maps:get(PubKey, OldIndex, #{}),
     case is_redacted_field(NewEntry, jwt, <<"jwt">>) of
-        true when is_map_key(<<"jwt">>, OldEntry); is_map_key(jwt, OldEntry) ->
-            Entry = emqx_utils:deobfuscate(NewEntry, OldEntry),
-            deobfuscate_jwt_entries(Rest, OldIndex, MethodPos, EntryPos + 1, [Entry | Acc]);
         true ->
-            redacted_entry_error(MethodPos, EntryPos, jwt);
+            case find_unique_entry(PubKey, OldEntries) of
+                {ok, OldEntry0} ->
+                    OldEntry = emqx_utils_maps:binary_key_map(OldEntry0),
+                    case has_map_key(OldEntry, jwt, <<"jwt">>) of
+                        true ->
+                            Entry = emqx_utils:deobfuscate(NewEntry, OldEntry),
+                            deobfuscate_jwt_entries(Rest, OldEntries, [Entry | Acc]);
+                        false ->
+                            redacted_entry_error(jwt)
+                    end;
+                _ ->
+                    redacted_entry_error(jwt)
+            end;
         false ->
-            deobfuscate_jwt_entries(Rest, OldIndex, MethodPos, EntryPos + 1, [NewEntry | Acc])
+            deobfuscate_jwt_entries(Rest, OldEntries, [NewEntry | Acc])
     end.
 
-reject_redacted_method(Method, Pos) ->
+find_unique_method(Type, Methods) ->
+    case [Method || Method <- Methods, method_type(Method) =:= Type] of
+        [Method] ->
+            {ok, Method};
+        [] ->
+            not_found;
+        _ ->
+            ambiguous
+    end.
+
+find_unique_entry(undefined, _Entries) ->
+    not_found;
+find_unique_entry(PubKey, Entries) ->
+    case
+        [
+            Entry
+         || Entry <- Entries,
+            is_map(Entry),
+            entry_pubkey_identity(Entry) =:= normalize_pubkey(PubKey)
+        ]
+    of
+        [Entry] ->
+            {ok, Entry};
+        [] ->
+            not_found;
+        _ ->
+            ambiguous
+    end.
+
+find_duplicate_method_type(Methods) ->
+    Types = [
+        Type
+     || Method <- Methods,
+        Type <- [method_type(Method)],
+        Type =/= undefined
+    ],
+    case Types -- lists:usort(Types) of
+        [Duplicate | _] ->
+            {duplicate, Duplicate};
+        [] ->
+            none
+    end.
+
+find_duplicate_pubkey(Entries) ->
+    PubKeys = [
+        PubKey
+     || Entry <- Entries,
+        PubKey <- [entry_pubkey_identity(Entry)],
+        PubKey =/= undefined
+    ],
+    case PubKeys -- lists:usort(PubKeys) of
+        [_Duplicate | _] ->
+            duplicate;
+        [] ->
+            none
+    end.
+
+entry_pubkey_identity(Entry) when is_map(Entry) ->
+    normalize_pubkey(map_get_any(Entry, [pubkey, <<"pubkey">>], undefined));
+entry_pubkey_identity(_Entry) ->
+    undefined.
+
+normalize_pubkey(undefined) ->
+    undefined;
+normalize_pubkey(PubKey) when is_binary(PubKey) ->
+    emqx_nats_nkey:normalize(PubKey);
+normalize_pubkey(PubKey) ->
+    PubKey.
+
+reject_redacted_method(Method) ->
     case is_redacted_field(Method, token, <<"token">>) of
         true ->
-            redacted_method_error(Pos, token);
+            redacted_method_error(token);
         false ->
             case has_redacted_jwt(Method) of
                 true ->
-                    redacted_method_error(Pos, jwt);
+                    redacted_method_error(jwt);
                 false ->
                     ok
             end
@@ -386,12 +485,17 @@ has_redacted_jwt(Method) when is_map(Method) ->
     case is_map(Resolver) of
         true ->
             Entries = map_get_any(Resolver, [resolver_preload, <<"resolver_preload">>], []),
-            lists:any(
-                fun(Entry) ->
-                    is_map(Entry) andalso is_redacted_field(Entry, jwt, <<"jwt">>)
-                end,
-                Entries
-            );
+            case is_list(Entries) of
+                true ->
+                    lists:any(
+                        fun(Entry) ->
+                            is_map(Entry) andalso is_redacted_field(Entry, jwt, <<"jwt">>)
+                        end,
+                        Entries
+                    );
+                false ->
+                    false
+            end;
         false ->
             false
     end;
@@ -422,6 +526,11 @@ is_redacted_field(Map, AtomKey, BinaryKey) when is_map(Map) ->
 is_redacted_field(_Map, _AtomKey, _BinaryKey) ->
     false.
 
+has_map_key(Map, AtomKey, BinaryKey) when is_map(Map) ->
+    is_map_key(AtomKey, Map) orelse is_map_key(BinaryKey, Map);
+has_map_key(_Map, _AtomKey, _BinaryKey) ->
+    false.
+
 put_map_value(Map, AtomKey, Value) ->
     BinaryKey = atom_to_binary(AtomKey, utf8),
     case maps:is_key(BinaryKey, Map) of
@@ -429,26 +538,51 @@ put_map_value(Map, AtomKey, Value) ->
         false -> maps:put(AtomKey, Value, Map)
     end.
 
-redacted_method_error(Pos, Field) ->
+redacted_method_error(Field) ->
     {error,
         {badconf, #{
             key => internal_authn,
-            reason => masked_secret_without_matching_old_value,
-            position => Pos,
-            field => Field
+            reason => "masked_secret_without_matching_old_value",
+            value => Field
         }}}.
 
-redacted_entry_error(MethodPos, EntryPos, Field) ->
+redacted_entry_error(Field) ->
     {error,
         {badconf, #{
             key => internal_authn,
-            reason => masked_secret_without_matching_old_value,
-            position => {MethodPos, EntryPos},
-            field => Field
+            reason => "masked_secret_without_matching_old_value",
+            value => Field
+        }}}.
+
+duplicate_method_error(Type) ->
+    {error,
+        {badconf, #{
+            key => internal_authn,
+            reason => "duplicate_authentication_method_type",
+            value => Type
+        }}}.
+
+duplicate_entry_error() ->
+    {error,
+        {badconf, #{
+            key => internal_authn,
+            reason => "duplicate_resolver_preload_pubkey",
+            value => pubkey
         }}}.
 
 validate_internal_authn(Methods) when is_list(Methods) ->
-    validate_internal_authn(Methods, 1);
+    case find_duplicate_method_type(Methods) of
+        none ->
+            validate_internal_authn(Methods, 1);
+        {duplicate, Type} ->
+            {error,
+                iolist_to_binary(
+                    io_lib:format(
+                        "duplicate authentication method type '~p'",
+                        [Type]
+                    )
+                )}
+    end;
 validate_internal_authn(_) ->
     ok.
 
@@ -493,15 +627,22 @@ validate_authn_nkeys(Config) ->
         [] ->
             {error, <<"field `nkeys` must not be empty">>};
         _ ->
-            validate_nkey_list(
-                NKeys,
-                fun emqx_nats_nkey:decode_public/1,
-                fun(Index) ->
-                    iolist_to_binary(
-                        io_lib:format("field `nkeys[~B]` must be a valid user NKey", [Index])
-                    )
-                end
-            )
+            case
+                validate_nkey_list(
+                    NKeys,
+                    fun emqx_nats_nkey:decode_public/1,
+                    fun(Index) ->
+                        iolist_to_binary(
+                            io_lib:format("field `nkeys[~B]` must be a valid user NKey", [Index])
+                        )
+                    end
+                )
+            of
+                ok ->
+                    validate_unique_nkeys(NKeys, <<"nkeys">>);
+                {error, _} = Error ->
+                    Error
+            end
     end.
 
 validate_nkey_list(Values, DecodeFun, FormatError) when is_list(Values) ->
@@ -539,15 +680,21 @@ validate_account_nkey(Value) ->
     validate_nkey_with_prefix(Value, $A).
 
 validate_resolver_preload_pubkeys(Values) when is_list(Values) ->
-    validate_resolver_preload_pubkeys(Values, 1);
+    validate_resolver_preload_pubkeys(Values, 1, #{});
 validate_resolver_preload_pubkeys(_Values) ->
     ok.
 
-validate_resolver_preload_pubkeys([Entry | Rest], Index) ->
+validate_resolver_preload_pubkeys([Entry | Rest], Index, Seen) ->
     PubKey = map_get_any(Entry, [pubkey, <<"pubkey">>], undefined),
     case validate_account_nkey(PubKey) of
         {ok, _PubKey} ->
-            validate_resolver_preload_pubkeys(Rest, Index + 1);
+            PubKey1 = normalize_pubkey(PubKey),
+            case maps:is_key(PubKey1, Seen) of
+                true ->
+                    {error, <<"field `resolver.resolver_preload.pubkey` must be unique">>};
+                false ->
+                    validate_resolver_preload_pubkeys(Rest, Index + 1, Seen#{PubKey1 => true})
+            end;
         {error, _Reason} ->
             {error,
                 iolist_to_binary(
@@ -557,7 +704,7 @@ validate_resolver_preload_pubkeys([Entry | Rest], Index) ->
                     )
                 )}
     end;
-validate_resolver_preload_pubkeys([], _Index) ->
+validate_resolver_preload_pubkeys([], _Index, _Seen) ->
     ok.
 
 validate_authn_jwt(Config) ->
@@ -594,9 +741,10 @@ validate_authn_jwt_required_fields(Config) ->
     end.
 
 validate_authn_jwt_nkey_material(Config) ->
+    TrustedOperators = map_get_any(Config, [trusted_operators, <<"trusted_operators">>], []),
     case
         validate_nkey_list(
-            map_get_any(Config, [trusted_operators, <<"trusted_operators">>], []),
+            TrustedOperators,
             fun validate_operator_nkey/1,
             fun(Index) ->
                 iolist_to_binary(
@@ -609,13 +757,40 @@ validate_authn_jwt_nkey_material(Config) ->
         )
     of
         ok ->
-            Resolver = map_get_any(Config, [resolver, <<"resolver">>], #{}),
-            validate_resolver_preload_pubkeys(
-                map_get_any(Resolver, [resolver_preload, <<"resolver_preload">>], [])
-            );
+            case validate_unique_nkeys(TrustedOperators, <<"trusted_operators">>) of
+                ok ->
+                    Resolver = map_get_any(Config, [resolver, <<"resolver">>], #{}),
+                    validate_resolver_preload_pubkeys(
+                        map_get_any(Resolver, [resolver_preload, <<"resolver_preload">>], [])
+                    );
+                {error, _} = Error ->
+                    Error
+            end;
         {error, _Reason} = Error ->
             Error
     end.
+
+validate_unique_nkeys(Values, Field) ->
+    Identities = [nkey_identity(Value) || Value <- Values],
+    case Identities -- lists:usort(Identities) of
+        [_Duplicate | _] ->
+            {error,
+                iolist_to_binary(
+                    io_lib:format("field `~ts` must be unique", [Field])
+                )};
+        [] ->
+            ok
+    end.
+
+nkey_identity(Value) when is_binary(Value) ->
+    case emqx_nats_nkey:decode_public_any(Value) of
+        {ok, PubKey} ->
+            PubKey;
+        {error, _} ->
+            Value
+    end;
+nkey_identity(Value) ->
+    Value.
 
 jwt_has_trusted_operators(Config) ->
     has_non_empty_list(map_get_any(Config, [trusted_operators, <<"trusted_operators">>], [])).
