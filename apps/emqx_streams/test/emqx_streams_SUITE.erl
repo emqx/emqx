@@ -15,6 +15,8 @@ Main test suite for the Streams application.
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -include("../src/emqx_streams_internal.hrl").
@@ -101,6 +103,8 @@ init_per_testcase(_CaseName, Config) ->
     [{ext_sub_max_unacked, ExtSubMaxUnacked}, {limits, LimitOpts} | Config].
 
 end_per_testcase(_CaseName, Config) ->
+    _ = emqx_hooks:del('message.publish', {?MODULE, test_schema_validation}),
+    _ = emqx_hooks:del('message.publish', {?MODULE, test_message_transformation}),
     ok = snabbkaffe:stop(),
     ok = emqx_streams_test_utils:cleanup_streams(),
     ok = emqx_streams_test_utils:reset_config(),
@@ -121,6 +125,29 @@ t_smoke(_Config) ->
     AllMessages = emqx_streams_message_db:dirty_read_all(Stream),
     ?assertEqual(10, length(AllMessages)),
     ok.
+
+t_governance_hooks_run_before_streams(_Config) ->
+    Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"governance">>, topic_filter => <<"governed/#">>
+    }),
+    ok = emqx_hooks:add(
+        'message.publish', {?MODULE, test_schema_validation, []}, ?HP_SCHEMA_VALIDATION
+    ),
+    ok = emqx_hooks:add(
+        'message.publish',
+        {?MODULE, test_message_transformation, []},
+        ?HP_MESSAGE_TRANSFORMATION
+    ),
+
+    Dropped = emqx_message:make(<<"ct">>, ?QOS_1, <<"governed/drop">>, <<"invalid">>),
+    _ = emqx_broker:publish(Dropped),
+    Original = emqx_message:make(<<"ct">>, ?QOS_1, <<"governed/transform">>, <<"secret">>),
+    _ = emqx_broker:publish(Original),
+
+    ?assertEqual(
+        [<<"redacted">>],
+        record_payloads(emqx_streams_message_db:dirty_read_all(Stream))
+    ).
 
 %% Verify inserting a message with an explicit key stores it under that key.
 t_message_db_insert_with_key(_Config) ->
@@ -1057,6 +1084,16 @@ t_subscribe_two_unsubscribe_one_stream(_Config) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+test_schema_validation(#message{topic = <<"governed/drop">>, headers = Headers} = Message) ->
+    {stop, Message#message{headers = Headers#{allow_publish => false}}};
+test_schema_validation(Message) ->
+    {ok, Message}.
+
+test_message_transformation(#message{topic = <<"governed/transform">>} = Message) ->
+    {ok, Message#message{payload = <<"redacted">>}};
+test_message_transformation(Message) ->
+    {ok, Message}.
 
 validate_headers(Msgs) when is_list(Msgs) ->
     lists:foreach(fun validate_msg_headers/1, Msgs).
