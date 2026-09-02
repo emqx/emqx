@@ -642,7 +642,9 @@ sysmon_vm_process_high_watermark.label:
 """Process high watermark"""
 
 fields_tcp_opts_buffer.desc:
-"""The size of the user-space buffer used by the driver."""
+"""The size of the user-space buffer used by the driver.
+
+Values below 5 bytes (the largest MQTT fixed header) are not rejected; the effective buffer size is silently raised to 5 bytes for compatibility with existing configurations."""
 
 fields_tcp_opts_buffer.label:
 """TCP user-space buffer"""
@@ -1260,7 +1262,11 @@ server_ssl_opts_schema_ocsp_issuer_pem.label:
 
 fields_tcp_opts_active_n.desc:
 """Specify the {active, N} option for this Socket.<br/>
-See: https://erlang.org/doc/man/inet.html#setopts-2"""
+See: https://erlang.org/doc/man/inet.html#setopts-2
+
+With the `socket` TCP backend, this value only sets the message delivery batch size and the number of sent packets between memory checks.
+
+Values outside the 1-1000 range are not rejected; the effective value is silently clamped to that range for compatibility with existing configurations."""
 
 fields_tcp_opts_active_n.label:
 """active_n"""

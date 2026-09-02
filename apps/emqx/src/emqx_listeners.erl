@@ -23,7 +23,8 @@
     default_max_conn/0,
     shutdown_count/2,
     tcp_opts/1,
-    ip_port/1
+    ip_port/1,
+    clamp_active_n/1
 ]).
 
 -export([
@@ -86,6 +87,22 @@
 
 -define(ESOCKD_LISTENER(T), (T == tcp orelse T == ssl)).
 -define(COWBOY_LISTENER(T), (T == ws orelse T == wss)).
+
+%% `tcp_options.active_n' and `tcp_options.buffer' are clamped at the point of
+%% use. Out-of-range values are not rejected, so existing configs keep working.
+%%
+%% `active_n': `emqx_connection' passes it as `{active, N}', and N = 0 leaves
+%% the socket passive forever. `emqx_socket_connection' uses it only as the
+%% `#deliver{}' batch size and as the number of sent packets between OOM checks.
+%% The cap bounds how many packets either backend handles between OOM checks.
+-define(MIN_ACTIVE_N, 1).
+-define(MAX_ACTIVE_N, 1000).
+%% `buffer': the inet driver floors it at 1 byte (INET_BUFFER_MIN), while the
+%% `socket' module rejects `{otp, rcvbuf}' = 0 and esockd then drops the
+%% accepted connection. Floor it at the largest MQTT fixed header (1 type byte
+%% + up to 4 remaining-length bytes) on both backends, so a single read can
+%% hold a complete fixed header.
+-define(MIN_TCP_BUFFER, 5).
 
 -define(ROOT_KEY, listeners).
 -define(CONF_KEY_PATH, [?ROOT_KEY, '?', '?']).
@@ -1048,8 +1065,15 @@ tcp_opt({nolinger, Bool}) ->
             %% but also be able to revert it on the fly
             {linger, {false, 0}}
     end;
+tcp_opt({buffer, Bytes}) when is_integer(Bytes) andalso Bytes < ?MIN_TCP_BUFFER ->
+    {buffer, ?MIN_TCP_BUFFER};
 tcp_opt(Opt) ->
     Opt.
+
+%% Used by emqx_connection, emqx_socket_connection and emqx_ws_connection.
+-spec clamp_active_n(integer()) -> pos_integer().
+clamp_active_n(N) when is_integer(N) ->
+    max(?MIN_ACTIVE_N, min(?MAX_ACTIVE_N, N)).
 
 foreach_listeners(Do) ->
     lists:foreach(

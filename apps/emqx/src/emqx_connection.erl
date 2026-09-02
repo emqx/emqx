@@ -1614,7 +1614,9 @@ get_state(Pid) ->
 get_active_n(quic, _Listener) ->
     ?ACTIVE_N;
 get_active_n(Type, Listener) ->
-    emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n]).
+    emqx_listeners:clamp_active_n(
+        emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n])
+    ).
 
 get_high_watermark(quic, _Listener) ->
     0;
