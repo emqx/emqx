@@ -323,6 +323,10 @@ t_is_official_version(_) ->
 
 t_get_telemetry(_Config) ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
+    ?assertEqual(
+        [{edition, emqx_release:edition_longstr()}],
+        get_value(license, TelemetryData)
+    ),
     OTPVersion = bin(erlang:system_info(otp_release)),
     ?assertEqual(OTPVersion, get_value(otp_version, TelemetryData)),
     {ok, NodeUUID} = emqx_telemetry:get_node_uuid(),
