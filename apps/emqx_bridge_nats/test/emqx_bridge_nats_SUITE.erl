@@ -6,6 +6,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include("../src/emqx_bridge_nats.hrl").
 
@@ -21,12 +22,18 @@ groups() ->
     [
         {local, [], [
             t_core_publish,
+            t_core_concurrent_publish,
+            t_core_batch_partial_failure,
             t_jetstream_publish,
+            t_jetstream_batch_publish_all,
+            t_template_error_details,
+            t_publish_error_preserves_classification,
             t_reconnect,
             t_auth_user_password,
             t_auth_token,
             t_auth_nkey,
             t_tls,
+            t_tls_first,
             t_creds_file_materialization,
             t_auth_jwt_creds,
             t_cluster_credentials_materialization
@@ -43,7 +50,11 @@ init_per_suite(Config) ->
             wait_for_port(Port),
             Apps = emqx_cth_suite:start(
                 [
-                    emqx,
+                    {emqx,
+                        "listeners.tcp.default.enable = false\n"
+                        "listeners.ssl.default.enable = false\n"
+                        "listeners.ws.default.enable = false\n"
+                        "listeners.wss.default.enable = false\n"},
                     emqx_conf,
                     emqx_bridge_nats,
                     emqx_bridge,
@@ -150,6 +161,116 @@ t_core_publish(Config) ->
     ),
     ok = enats_client:stop(Client).
 
+t_core_concurrent_publish(Config) ->
+    {ok, Client} = nats_client(Config),
+    {ok, _} = enats_client:subscribe(Client, <<"emqx.concurrent">>, #{}),
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(
+        Config,
+        #{
+            <<"parameters">> => #{<<"subject">> => <<"emqx.concurrent">>},
+            <<"resource_opts">> => #{
+                <<"batch_size">> => 1,
+                <<"batch_time">> => <<"0ms">>,
+                <<"worker_pool_size">> => 16
+            }
+        }
+    ),
+    Payloads = [integer_to_binary(N) || N <- lists:seq(1, 32)],
+    Parent = self(),
+    _ = [
+        spawn(fun() ->
+            Result = emqx_bridge_v2:send_message(
+                ?global_ns,
+                ?ACTION_TYPE,
+                proplists:get_value(action_name, Config),
+                #{<<"payload">> => Payload},
+                #{}
+            ),
+            Parent ! {sent, Payload, Result}
+        end)
+     || Payload <- Payloads
+    ],
+    Results = [
+        receive
+            {sent, Payload, Result} -> {Payload, Result}
+        after 10000 ->
+            ct:fail(concurrent_send_timeout)
+        end
+     || _ <- Payloads
+    ],
+    ?assertEqual(
+        [],
+        [{Payload, Result} || {Payload, Result} <- Results, not is_success(Result)]
+    ),
+    ?assertEqual(lists:sort(Payloads), lists:sort(receive_payloads(length(Payloads), []))),
+    ok = enats_client:stop(Client).
+
+t_core_batch_partial_failure(Config) ->
+    {ok, Client} = nats_client(Config),
+    {ok, _} = enats_client:subscribe(Client, <<"emqx.>">>, #{}),
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(
+        Config,
+        #{
+            <<"parameters">> => #{
+                <<"subject">> => <<"${.topic}">>,
+                <<"payload_template">> => <<"${.payload}">>
+            },
+            <<"resource_opts">> => #{
+                <<"batch_size">> => 3,
+                <<"batch_time">> => <<"1s">>,
+                <<"worker_pool_size">> => 1
+            }
+        }
+    ),
+    ActionName = proplists:get_value(action_name, Config),
+    Parent = self(),
+    Messages = [
+        {<<"emqx.batch.one">>, <<"batch-one">>},
+        {<<"bad subject">>, <<"batch-bad">>},
+        {<<"emqx.batch.two">>, <<"batch-two">>}
+    ],
+    _ = [
+        spawn(fun() ->
+            Result = emqx_bridge_v2:send_message(
+                ?global_ns,
+                ?ACTION_TYPE,
+                ActionName,
+                #{<<"topic">> => Topic, <<"payload">> => Payload},
+                #{}
+            ),
+            Parent ! {batch_result, Topic, Result}
+        end)
+     || {Topic, Payload} <- Messages
+    ],
+    Results = [
+        receive
+            {batch_result, Topic, Result} -> {Topic, Result}
+        after 10000 ->
+            ct:fail(batch_partial_failure_timeout)
+        end
+     || _ <- Messages
+    ],
+    ?assertMatch(
+        {<<"bad subject">>, {error, {unrecoverable_error, {invalid_subject, _}}}},
+        lists:keyfind(<<"bad subject">>, 1, Results)
+    ),
+    ?assertEqual(ok, proplists:get_value(<<"emqx.batch.one">>, Results)),
+    ?assertEqual(ok, proplists:get_value(<<"emqx.batch.two">>, Results)),
+    ?assertEqual(
+        lists:sort([<<"batch-one">>, <<"batch-two">>]),
+        lists:sort(receive_payloads(2, []))
+    ),
+    ok = enats_client:stop(Client).
+
+is_success(ok) ->
+    true;
+is_success({ok, _}) ->
+    true;
+is_success(_) ->
+    false.
+
 t_jetstream_publish(Config) ->
     {ok, Client} = nats_client(Config),
     ok = create_stream(Client),
@@ -161,6 +282,10 @@ t_jetstream_publish(Config) ->
             <<"delivery_mode">> => <<"jetstream">>,
             <<"msg_id_template">> => <<"fixed-test-id">>,
             <<"headers">> => []
+        },
+        <<"resource_opts">> => #{
+            <<"batch_size">> => 1,
+            <<"batch_time">> => <<"0ms">>
         }
     },
     {201, _} = create_action(Config, Action),
@@ -170,6 +295,107 @@ t_jetstream_publish(Config) ->
     ok = wait_until(fun() -> stream_last_sequence(Client) =:= {ok, 1} end, 5000),
     ?assertEqual({ok, 1}, stream_last_sequence(Client)),
     ok = enats_client:stop(Client).
+
+t_jetstream_batch_publish_all(Config) ->
+    {ok, Client} = nats_client(Config),
+    ok = create_stream(Client),
+    {ok, InitialCount} = stream_last_sequence(Client),
+    {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
+    {201, _} = create_connector(Config),
+    Action = #{
+        <<"parameters">> => #{
+            <<"subject">> => <<"emqx.events">>,
+            <<"payload_template">> => <<"${.payload}">>,
+            <<"delivery_mode">> => <<"jetstream">>,
+            <<"msg_id_template">> => <<>>,
+            <<"headers">> => []
+        },
+        <<"resource_opts">> => #{
+            <<"batch_size">> => 3,
+            <<"batch_time">> => <<"1s">>,
+            <<"worker_pool_size">> => 1
+        }
+    },
+    {201, _} = create_action(Config, Action),
+    ok = snabbkaffe:start_trace(),
+    try
+        Parent = self(),
+        _ = [
+            spawn(fun() ->
+                Result = emqx_bridge_v2:send_message(
+                    ?global_ns,
+                    ?ACTION_TYPE,
+                    proplists:get_value(action_name, Config),
+                    #{<<"topic">> => <<"sensor/1/data">>, <<"payload">> => Payload},
+                    #{}
+                ),
+                Parent ! {sent, Result}
+            end)
+         || Payload <- [<<"js-batch-1">>, <<"js-batch-2">>, <<"js-batch-3">>]
+        ],
+        [
+            receive
+                {sent, {ok, _}} -> ok;
+                {sent, ok} -> ok
+            after 5000 -> ct:fail(batch_send_timeout)
+            end
+         || _ <- lists:seq(1, 3)
+        ],
+        ok = wait_until(fun() -> stream_last_sequence(Client) =:= {ok, InitialCount + 3} end, 5000),
+        ?assertEqual(
+            lists:sort([<<"js-batch-1">>, <<"js-batch-2">>, <<"js-batch-3">>]),
+            lists:sort(receive_payloads(3, []))
+        ),
+        Trace = snabbkaffe:collect_trace(),
+        ?assert(
+            lists:any(
+                fun(#{batch := Batch}) -> length(Batch) =:= 3 end,
+                ?of_kind(call_batch_query, Trace)
+            )
+        )
+    after
+        snabbkaffe:stop(),
+        ok = enats_client:stop(Client)
+    end.
+
+t_template_error_details(Config) ->
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(
+        Config,
+        #{
+            <<"parameters">> => #{<<"payload_template">> => <<"${.missing.payload}">>},
+            <<"resource_opts">> => #{<<"batch_size">> => 1}
+        }
+    ),
+    Result = emqx_bridge_v2:send_message(
+        ?global_ns,
+        ?ACTION_TYPE,
+        proplists:get_value(action_name, Config),
+        #{<<"payload">> => <<"hello">>},
+        #{}
+    ),
+    ?assertMatch(
+        {error, {unrecoverable_error, {template_error, #{class := error, reason := _}}}},
+        Result
+    ).
+
+t_publish_error_preserves_classification(Config) ->
+    {201, _} = create_connector(Config),
+    {201, _} = create_action(
+        Config,
+        #{<<"parameters">> => #{<<"subject">> => <<"bad subject">>}}
+    ),
+    Result = emqx_bridge_v2:send_message(
+        ?global_ns,
+        ?ACTION_TYPE,
+        proplists:get_value(action_name, Config),
+        #{<<"payload">> => <<"hello">>},
+        #{}
+    ),
+    ?assertMatch(
+        {error, {unrecoverable_error, {invalid_subject, _}}},
+        Result
+    ).
 
 t_reconnect(Config) ->
     {ok, Client} = nats_client(Config),
@@ -254,7 +480,13 @@ t_auth_nkey(Config) ->
             mechanism => nkey,
             public_key => PublicNKey,
             sign_fun => enats_nkey:sign_fun(PublicKey, PrivateKey)
-        }
+        },
+        #{},
+        #{},
+        fun(ConnectorBody) ->
+            ?assertEqual(nomatch, binary:match(ConnectorBody, Seed)),
+            ok
+        end
     ).
 
 t_tls(Config) ->
@@ -269,6 +501,36 @@ t_tls(Config) ->
         none,
         #{tls => true, ssl_opts => [{verify, verify_none}]},
         #{<<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>}}
+    ).
+
+t_tls_first(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    CertFile = filename:join(PrivDir, "nats-connector-tls-first.crt"),
+    KeyFile = filename:join(PrivDir, "nats-connector-tls-first.key"),
+    ConfigFile = filename:join(PrivDir, "nats-connector-tls-first.conf"),
+    generate_test_certificate(CertFile, KeyFile),
+    ConfigText = iolist_to_binary([
+        "tls {\n",
+        "  cert_file: \"",
+        CertFile,
+        "\"\n",
+        "  key_file: \"",
+        KeyFile,
+        "\"\n",
+        "  handshake_first: true\n",
+        "}\n"
+    ]),
+    ok = file:write_file(ConfigFile, ConfigText),
+    auth_publish_case(
+        Config,
+        ["-c", ConfigFile],
+        none,
+        none,
+        #{tls => true, tls_handshake => first, ssl_opts => [{verify, verify_none}]},
+        #{
+            <<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>},
+            <<"tls_handshake">> => <<"first">>
+        }
     ).
 
 t_creds_file_materialization(_Config) ->
@@ -318,7 +580,10 @@ t_auth_jwt_creds(Config) ->
         },
         #{},
         #{},
-        fun() -> assert_credentials_file_is_gc_safe(Config, Credentials) end
+        fun(ConnectorBody) ->
+            assert_credentials_not_exposed(ConnectorBody),
+            assert_credentials_file_is_gc_safe(Config, Credentials)
+        end
     ).
 
 t_cluster_credentials_materialization(Config) ->
@@ -358,7 +623,7 @@ t_cluster_credentials_materialization(Config) ->
     end.
 
 auth_publish_case(Config, ServerArgs, Authentication, ClientAuth) ->
-    auth_publish_case(Config, ServerArgs, Authentication, ClientAuth, #{}, #{}, fun() -> ok end).
+    auth_publish_case(Config, ServerArgs, Authentication, ClientAuth, #{}, #{}, fun(_Body) -> ok end).
 
 auth_publish_case(
     Config,
@@ -375,7 +640,7 @@ auth_publish_case(
         ClientAuth,
         ClientOptions,
         ConnectorOverrides0,
-        fun() -> ok end
+        fun(_Body) -> ok end
     ).
 
 auth_publish_case(
@@ -413,7 +678,7 @@ auth_publish_case(
         ),
         {ok, 201, ConnectorBody} = create_connector_silent(Config, ConnectorOverrides),
         #{<<"status">> := <<"connected">>} = emqx_utils_json:decode(ConnectorBody),
-        ok = AfterConnector(),
+        ok = AfterConnector(ConnectorBody),
         {201, _} = create_action(Config),
         {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
         {ok, _} = create_rule(Config, <<"sensor/+/data">>),
@@ -436,6 +701,11 @@ assert_credentials_file_is_gc_safe(Config, Contents) ->
     ?assert(Filename =/= Contents),
     {ok, _} = emqx_tls_certfile_gc:force(),
     ?assertMatch({ok, _}, file:read_file_info(Filename)),
+    ok.
+
+assert_credentials_not_exposed(ConnectorBody) ->
+    ?assertEqual(nomatch, binary:match(ConnectorBody, <<"BEGIN NATS USER JWT">>)),
+    ?assertEqual(nomatch, binary:match(ConnectorBody, <<"BEGIN USER NKEY SEED">>)),
     ok.
 
 assert_cluster_credentials_file(Node, Name, Contents) ->
@@ -543,6 +813,12 @@ receive_message(Timeout) ->
         _Other -> receive_message(Timeout)
     after Timeout -> ct:fail(nats_message_timeout)
     end.
+
+receive_payloads(0, Acc) ->
+    Acc;
+receive_payloads(N, Acc) ->
+    {enats_client, _Client, {message, #{payload := Payload}}} = receive_message(5000),
+    receive_payloads(N - 1, [Payload | Acc]).
 
 free_port() ->
     {ok, Socket} = gen_tcp:listen(0, [binary, {active, false}, {reuseaddr, true}]),
