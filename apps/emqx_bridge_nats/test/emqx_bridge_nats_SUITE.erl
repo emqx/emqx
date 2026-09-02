@@ -11,7 +11,18 @@
 
 all() -> [{group, local}].
 
-groups() -> [{local, [], [t_core_publish, t_jetstream_publish, t_reconnect]}].
+groups() ->
+    [
+        {local, [], [
+            t_core_publish,
+            t_jetstream_publish,
+            t_reconnect,
+            t_auth_user_password,
+            t_auth_token,
+            t_auth_nkey,
+            t_tls
+        ]}
+    ].
 
 init_per_suite(Config) ->
     case os:find_executable("nats-server") of
@@ -187,6 +198,143 @@ t_reconnect(Config) ->
     end,
     ok = enats_client:stop(Client).
 
+t_auth_user_password(Config) ->
+    auth_publish_case(
+        Config,
+        ["--user", "alice", "--pass", "secret"],
+        #{
+            <<"mechanism">> => <<"user_password">>,
+            <<"username">> => <<"alice">>,
+            <<"password">> => <<"secret">>
+        },
+        #{
+            mechanism => user_password,
+            username => <<"alice">>,
+            password => fun() -> <<"secret">> end
+        }
+    ).
+
+t_auth_token(Config) ->
+    auth_publish_case(
+        Config,
+        ["--auth", "token"],
+        #{
+            <<"mechanism">> => <<"token">>,
+            <<"token">> => <<"token">>
+        },
+        #{mechanism => token, token => fun() -> <<"token">> end}
+    ).
+
+t_auth_nkey(Config) ->
+    {PublicKey, PrivateKey} = crypto:generate_key(eddsa, ed25519),
+    PublicNKey = enats_nkey:encode_public(PublicKey),
+    ConfigFile = filename:join(?config(priv_dir, Config), "nats-connector-nkey.conf"),
+    ConfigText = iolist_to_binary([
+        "authorization { users = [{nkey: \"", PublicNKey, "\"}] }\n"
+    ]),
+    ok = file:write_file(ConfigFile, ConfigText),
+    Seed = encode_seed(PrivateKey),
+    auth_publish_case(
+        Config,
+        ["-c", ConfigFile],
+        #{
+            <<"mechanism">> => <<"nkey">>,
+            <<"public_key">> => PublicNKey,
+            <<"nkey_seed">> => Seed
+        },
+        #{
+            mechanism => nkey,
+            public_key => PublicNKey,
+            sign_fun => enats_nkey:sign_fun(PublicKey, PrivateKey)
+        }
+    ).
+
+t_tls(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    CertFile = filename:join(PrivDir, "nats-connector-tls.crt"),
+    KeyFile = filename:join(PrivDir, "nats-connector-tls.key"),
+    generate_test_certificate(CertFile, KeyFile),
+    auth_publish_case(
+        Config,
+        ["--tls", "--tlscert", CertFile, "--tlskey", KeyFile],
+        none,
+        none,
+        #{tls => true, ssl_opts => [{verify, verify_none}]},
+        #{<<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>}}
+    ).
+
+auth_publish_case(Config, ServerArgs, Authentication, ClientAuth) ->
+    auth_publish_case(Config, ServerArgs, Authentication, ClientAuth, #{}, #{}).
+
+auth_publish_case(
+    Config,
+    ServerArgs,
+    Authentication,
+    ClientAuth,
+    ClientOptions,
+    ConnectorOverrides0
+) ->
+    Port = free_port(),
+    Pid = start_nats(?config(nats_executable, Config), Port, false, ServerArgs),
+    wait_for_port(Port),
+    try
+        {ok, Client} = connect_client(
+            enats_client:start_link(
+                maps:merge(
+                    #{
+                        host => "127.0.0.1",
+                        port => Port,
+                        auth => ClientAuth,
+                        owner => self()
+                    },
+                    ClientOptions
+                )
+            )
+        ),
+        ConnectorOverrides = emqx_utils_maps:deep_merge(
+            #{
+                <<"servers">> => iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]),
+                <<"authentication">> => Authentication
+            },
+            ConnectorOverrides0
+        ),
+        {ok, 201, ConnectorBody} = create_connector_silent(Config, ConnectorOverrides),
+        #{<<"status">> := <<"connected">>} = emqx_utils_json:decode(ConnectorBody),
+        {201, _} = create_action(Config),
+        {ok, _} = enats_client:subscribe(Client, <<"emqx.events">>, #{}),
+        {ok, _} = create_rule(Config, <<"sensor/+/data">>),
+        emqx:publish(emqx_message:make(<<"sensor/1/data">>, <<"hello-auth">>)),
+        ?assertMatch(
+            {enats_client, Client, {message, #{payload := <<"hello-auth">>}}},
+            receive_message(5000)
+        ),
+        ok = enats_client:stop(Client)
+    after
+        stop_nats(Pid)
+    end.
+
+create_connector_silent(Config, Overrides) ->
+    ConnectorConfig0 = proplists:get_value(connector_config, Config),
+    ConnectorConfig = emqx_utils_maps:deep_merge(ConnectorConfig0, Overrides),
+    Params = ConnectorConfig#{
+        <<"type">> => ?CONNECTOR_TYPE_BIN,
+        <<"name">> => proplists:get_value(connector_name, Config)
+    },
+    Path = emqx_mgmt_api_test_util:api_path(["connectors"]),
+    Body = emqx_utils_json:encode(Params),
+    Headers = [
+        {"authorization", "Basic ZGVmYXVsdF9hcHBfa2V5OmRlZmF1bHRfYXBwX3NlY3JldA=="},
+        {"content-type", "application/json"}
+    ],
+    case
+        httpc:request(post, {Path, Headers, "application/json", Body}, [], [{body_format, binary}])
+    of
+        {ok, {{_, Code, _}, _ResponseHeaders, ResponseBody}} ->
+            {ok, Code, ResponseBody};
+        Error ->
+            Error
+    end.
+
 create_connector(Config) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_connector_api(Config, #{})
@@ -244,12 +392,58 @@ free_port() ->
     gen_tcp:close(Socket),
     Port.
 
+generate_test_certificate(CertFile, KeyFile) ->
+    Command = lists:flatten(
+        io_lib:format(
+            "openssl req -x509 -newkey rsa:2048 -nodes -keyout ~ts -out ~ts "
+            "-subj /CN=localhost -days 1 >/dev/null 2>&1",
+            [KeyFile, CertFile]
+        )
+    ),
+    _ = os:cmd(Command),
+    ok.
+
+encode_seed(PrivateSeed) ->
+    Prefix = <<16#90, 16#A0, PrivateSeed/binary>>,
+    encode_base32(<<Prefix/binary, (test_crc16(Prefix)):16/little>>).
+
+test_crc16(Bin) ->
+    test_crc16(Bin, 0).
+test_crc16(<<>>, Crc) ->
+    Crc;
+test_crc16(<<Byte, Rest/binary>>, Crc0) ->
+    Crc1 = Crc0 bxor (Byte bsl 8),
+    test_crc16(Rest, test_crc_byte(Crc1, 8)).
+
+test_crc_byte(Crc, 0) ->
+    Crc band 16#FFFF;
+test_crc_byte(Crc, N) when Crc band 16#8000 =/= 0 ->
+    test_crc_byte(((Crc bsl 1) bxor 16#1021) band 16#FFFF, N - 1);
+test_crc_byte(Crc, N) ->
+    test_crc_byte((Crc bsl 1) band 16#FFFF, N - 1).
+
+encode_base32(Bits) ->
+    encode_base32(Bits, []).
+
+encode_base32(<<Value:5, Rest/bitstring>>, Acc) ->
+    encode_base32(Rest, [lists:nth(Value + 1, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567") | Acc]);
+encode_base32(Bits, Acc) when bit_size(Bits) > 0 ->
+    Size = bit_size(Bits),
+    <<Value:Size>> = Bits,
+    Padded = Value bsl (5 - Size),
+    encode_base32(<<>>, [lists:nth(Padded + 1, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567") | Acc]);
+encode_base32(<<>>, Acc) ->
+    list_to_binary(lists:reverse(Acc)).
+
 start_nats(Executable, Port, JetStream) ->
+    start_nats(Executable, Port, JetStream, []).
+
+start_nats(Executable, Port, JetStream, ExtraArgs) ->
     PidFile = filename:join(
         "/tmp", "emqx-nats-" ++ integer_to_list(erlang:unique_integer([positive])) ++ ".pid"
     ),
     Args =
-        ["-a", "127.0.0.1", "-p", integer_to_list(Port), "-P", PidFile] ++
+        ["-a", "127.0.0.1", "-p", integer_to_list(Port), "-P", PidFile] ++ ExtraArgs ++
             case JetStream of
                 true ->
                     StoreDir = filename:join(
