@@ -1,3 +1,7 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
 -module(emqx_bridge_nats_connector).
 
 -behaviour(emqx_resource).
@@ -24,6 +28,10 @@
 ]).
 -export([pre_config_update/4]).
 -export([connect/1, publish/3, publish_batch/3]).
+
+%%--------------------------------------------------------------------
+%% Connector lifecycle
+%%--------------------------------------------------------------------
 
 resource_type() -> ?CONNECTOR_TYPE.
 callback_mode() -> always_sync.
@@ -64,7 +72,10 @@ on_add_channel(
         maps:get(payload_template, Params, <<"$", "{.payload}">>)
     ),
     HeaderTemplates = [
-        {emqx_template:parse(maps:get(key, Header)), emqx_template:parse(maps:get(value, Header))}
+        {
+            emqx_template:parse(maps:get(key, Header)),
+            emqx_template:parse(maps:get(value, Header))
+        }
      || Header <- maps:get(headers, Params, [])
     ],
     ResourceOpts = maps:get(resource_opts, ChannelConfig, #{}),
@@ -100,6 +111,10 @@ on_get_status(InstanceId, _State) ->
 health_check(Client) ->
     enats_client:flush(Client, 1000).
 
+%%--------------------------------------------------------------------
+%% Resource callbacks
+%%--------------------------------------------------------------------
+
 on_query(InstanceId, {ChannelId, Message}, #{channels := Channels}) ->
     case maps:find(ChannelId, Channels) of
         {ok, Channel} ->
@@ -107,7 +122,10 @@ on_query(InstanceId, {ChannelId, Message}, #{channels := Channels}) ->
                 InstanceId, {?MODULE, publish, [Channel, Message]}, no_handover
             ),
             Result = classify_result(RawResult),
-            ?tp(nats_connector_query_return, #{instance_id => InstanceId, result => Result}),
+            ?tp(
+                nats_connector_query_return,
+                #{instance_id => InstanceId, result => Result}
+            ),
             Result;
         error ->
             {error, {unrecoverable_error, {invalid_channel, ChannelId}}}
@@ -141,6 +159,10 @@ on_batch_query(InstanceId, [{_ChannelId, _Message} | _] = Batch, State) ->
 on_batch_query(_InstanceId, Batch, _State) ->
     {error, {unrecoverable_error, {invalid_batch, Batch}}}.
 
+%%--------------------------------------------------------------------
+%% NATS connection and publishing
+%%--------------------------------------------------------------------
+
 connect(Options) ->
     ClientOpts = proplists:get_value(config, Options),
     case enats_client:start_link(ClientOpts#{owner => self(), reconnect => true}) of
@@ -160,36 +182,95 @@ publish(Client, Channel, Message) ->
     publish_message(Client, Channel, Message, true).
 
 publish_batch(Client, Channel, Batch) ->
-    case publish_batch_messages(Client, Channel, Batch, [], false) of
-        {recoverable, Reason} ->
-            {error, Reason};
-        {ok, Results, false} ->
-            Results;
-        {ok, Results, true} ->
-            case maps:get(delivery_mode, Channel, core) of
-                core ->
-                    case enats_client:flush(Client, maps:get(request_ttl, Channel, 5000)) of
-                        ok -> Results;
-                        {error, _} = Error -> Error
-                    end;
-                jetstream ->
-                    Results
-            end
+    case maps:get(delivery_mode, Channel, core) of
+        core ->
+            publish_core_batch(Client, Channel, Batch);
+        jetstream ->
+            publish_jetstream_batch(Client, Channel, Batch)
     end.
 
-publish_batch_messages(_Client, _Channel, [], Acc, Sent) ->
-    {ok, lists:reverse(Acc), Sent};
-publish_batch_messages(Client, Channel, [{_ChannelId, Message} | Rest], Acc, Sent) ->
+publish_core_batch(Client, Channel, Batch) ->
+    IndexedBatch = lists:zip(lists:seq(1, length(Batch)), Batch),
+    {Valid, Results0} = render_batch(IndexedBatch, Channel, [], #{}),
+    publish_core_batch(Client, Channel, Valid, Results0).
+
+publish_core_batch(_Client, _Channel, [], Results) ->
+    results_in_order(Results);
+publish_core_batch(Client, Channel, Valid, Results0) ->
+    RequestTTL = maps:get(request_ttl, Channel, 5000),
+    Deadline = request_deadline(RequestTTL),
+    WireMessages = [rendered_to_batch_message(Rendered) || {_Index, Rendered} <- Valid],
+    case enats_client:publish_batch(Client, WireMessages, remaining_timeout(Deadline)) of
+        ok ->
+            case enats_client:flush(Client, remaining_timeout(Deadline)) of
+                ok -> results_in_order(Results0);
+                {error, _} = Error -> Error
+            end;
+        {error, {invalid_batch_message, BadIndex, Reason}} ->
+            {OriginalIndex, _Rendered} = lists:nth(BadIndex, Valid),
+            Valid1 = remove_nth(BadIndex, Valid),
+            Results1 = Results0#{OriginalIndex => {error, Reason}},
+            publish_core_batch(Client, Channel, Valid1, Results1);
+        {error, _} = Error ->
+            Error
+    end.
+
+publish_jetstream_batch(Client, Channel, Batch) ->
+    case publish_batch_messages(Client, Channel, Batch, []) of
+        {recoverable, Reason} ->
+            {error, Reason};
+        {ok, Results} ->
+            Results
+    end.
+
+%%--------------------------------------------------------------------
+%% Message rendering and batch handling
+%%--------------------------------------------------------------------
+
+render_batch([], _Channel, Valid, Results) ->
+    {lists:reverse(Valid), Results};
+render_batch([{Index, {_ChannelId, Message}} | Rest], Channel, Valid, Results0) ->
+    case render_message(Channel, Message) of
+        {ok, Rendered} ->
+            render_batch(Rest, Channel, [{Index, Rendered} | Valid], Results0#{Index => ok});
+        {error, Reason} ->
+            render_batch(
+                Rest,
+                Channel,
+                Valid,
+                Results0#{Index => {error, Reason}}
+            )
+    end.
+
+rendered_to_batch_message(#{subject := Subject, payload := Payload, headers := Headers}) ->
+    #{subject => Subject, payload => Payload, headers => Headers}.
+
+results_in_order(Results) ->
+    [maps:get(Index, Results) || Index <- lists:seq(1, map_size(Results))].
+
+remove_nth(Index, List) ->
+    {Prefix, [_ | Suffix]} = lists:split(Index - 1, List),
+    Prefix ++ Suffix.
+
+request_deadline(infinity) -> infinity;
+request_deadline(Timeout) -> erlang:monotonic_time(millisecond) + Timeout.
+
+remaining_timeout(infinity) -> infinity;
+remaining_timeout(Deadline) -> max(Deadline - erlang:monotonic_time(millisecond), 0).
+
+publish_batch_messages(_Client, _Channel, [], Acc) ->
+    {ok, lists:reverse(Acc)};
+publish_batch_messages(Client, Channel, [{_ChannelId, Message} | Rest], Acc) ->
     Result = normalize_batch_result(publish_message(Client, Channel, Message, false)),
     case Result of
         ok ->
-            publish_batch_messages(Client, Channel, Rest, [ok | Acc], true);
+            publish_batch_messages(Client, Channel, Rest, [ok | Acc]);
         {error, Reason} ->
             case classify_error(Reason) of
                 {recoverable_error, _} ->
                     {recoverable, Reason};
                 {unrecoverable_error, _} ->
-                    publish_batch_messages(Client, Channel, Rest, [Result | Acc], Sent)
+                    publish_batch_messages(Client, Channel, Rest, [Result | Acc])
             end
     end.
 
@@ -263,6 +344,10 @@ publish_rendered(Client, Channel, #{
             end
     end.
 
+%%--------------------------------------------------------------------
+%% Connector configuration and authentication
+%%--------------------------------------------------------------------
+
 client_options(Config) ->
     Servers0 = emqx_schema:parse_servers(maps:get(servers, Config), #{default_port => 4222}),
     Servers = [{maps:get(hostname, Server), maps:get(port, Server)} || Server <- Servers0],
@@ -292,9 +377,9 @@ auth_options(#{mechanism := user_password, username := Username, password := Pas
 auth_options(#{mechanism := nkey, nkey_seed := Seed}) ->
     #{mechanism => nkey_seed, seed => secret_provider(Seed)};
 auth_options(#{mechanism := jwt, credentials_file := Filename}) ->
-    case enats_credentials:validate_file(Filename) of
+    case enats_auth:validate_credentials_file(Filename) of
         ok ->
-            {ok, Auth} = enats_credentials:from_file(Filename),
+            {ok, Auth} = enats_auth:credentials_file(Filename),
             Auth;
         {error, Reason} ->
             {error, Reason}
@@ -304,6 +389,10 @@ auth_options(Authentication) ->
 
 secret_provider(Secret) ->
     fun() -> emqx_secret:unwrap(Secret) end.
+
+%%--------------------------------------------------------------------
+%% Result and error classification
+%%--------------------------------------------------------------------
 
 classify_result(ok) ->
     ok;
@@ -322,14 +411,30 @@ classify_error(reconnecting) ->
     {recoverable_error, reconnecting};
 classify_error(closed) ->
     {recoverable_error, closed};
+classify_error(stale_connection) ->
+    {recoverable_error, stale_connection};
 classify_error(timeout) ->
     {recoverable_error, timeout};
 classify_error(econnrefused) ->
     {recoverable_error, econnrefused};
+classify_error({transport, _} = Reason) ->
+    {recoverable_error, Reason};
+classify_error({tls_upgrade_failed, _} = Reason) ->
+    {recoverable_error, Reason};
+classify_error({client_exit, _} = Reason) ->
+    {recoverable_error, Reason};
+classify_error({auth, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({protocol, _} = Reason) ->
+    {recoverable_error, Reason};
+classify_error({invalid_batch_message, _Index, _Reason} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({batch_too_large, _Kind, _Actual, _Limit} = Reason) ->
+    {unrecoverable_error, Reason};
 classify_error({disconnected, {server_error, ServerReason}}) ->
     {unrecoverable_error, {server_error, ServerReason}};
-classify_error({disconnected, _}) ->
-    {recoverable_error, disconnected};
+classify_error({disconnected, _} = Reason) ->
+    {recoverable_error, Reason};
 classify_error({payload_too_large, _} = Reason) ->
     {unrecoverable_error, Reason};
 classify_error(headers_not_supported = Reason) ->
@@ -347,6 +452,12 @@ classify_error({jetstream_rejected, _} = Reason) ->
 classify_error({jetstream_error, _} = Reason) ->
     {unrecoverable_error, Reason};
 classify_error({invalid_msg_id, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({jetstream, unavailable, _} = Reason) ->
+    {recoverable_error, Reason};
+classify_error({jetstream, rejected, _} = Reason) ->
+    {unrecoverable_error, Reason};
+classify_error({jetstream, invalid_ack, _} = Reason) ->
     {unrecoverable_error, Reason};
 classify_error(Reason) ->
     {unrecoverable_error, Reason}.

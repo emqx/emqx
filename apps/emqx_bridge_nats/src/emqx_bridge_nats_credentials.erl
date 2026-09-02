@@ -1,6 +1,14 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
 -module(emqx_bridge_nats_credentials).
 
 -export([materialize/2]).
+
+%%--------------------------------------------------------------------
+%% Configuration transformation
+%%--------------------------------------------------------------------
 
 materialize(Path, Config) ->
     case authentication(Config) of
@@ -29,6 +37,10 @@ authentication(#{<<"authentication">> := Auth}) ->
 authentication(_) ->
     undefined.
 
+%%--------------------------------------------------------------------
+%% Credentials file materialization
+%%--------------------------------------------------------------------
+
 put_authentication(#{authentication := _} = Config, Auth) ->
     Config#{authentication := Auth};
 put_authentication(#{<<"authentication">> := _} = Config, Auth) ->
@@ -45,12 +57,17 @@ materialize_file(Path, Filename) when is_binary(Filename) ->
     end.
 
 save_credentials(Path, Contents) ->
-    case enats_credentials:validate(Contents) of
+    case enats_auth:validate_credentials(Contents) of
         ok ->
             RelativeDir = filename:join(Path),
             Dir = emqx_tls_lib:pem_dir(RelativeDir),
-            Digest = binary:encode_hex(crypto:hash(md5, [RelativeDir, Contents])),
-            Filename = filename:join(Dir, "credentials-" ++ binary_to_list(Digest) ++ ".creds"),
+            Digest = binary:encode_hex(
+                crypto:hash(md5, [RelativeDir, Contents])
+            ),
+            Filename = filename:join(
+                Dir,
+                "credentials-" ++ binary_to_list(Digest) ++ ".creds"
+            ),
             case filelib:ensure_dir(Filename) of
                 ok ->
                     write_credentials(Filename, Contents);

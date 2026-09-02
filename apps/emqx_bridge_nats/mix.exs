@@ -29,7 +29,7 @@ defmodule EMQXBridgeNats.MixProject do
 
   def deps do
     UMP.deps([
-      {:enats_client, github: "emqx/enats_client", tag: "v0.1.9"},
+      {:enats_client, github: "emqx/enats_client", tag: "0.1.12"},
       {:emqx_resource, in_umbrella: true},
       {:emqx_gen_bridge, in_umbrella: true},
       {:emqx_connector, in_umbrella: true, runtime: false}
