@@ -39,7 +39,14 @@
 
 -export([proxy_protocol_opts/0]).
 
--export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1, gateway_names/0]).
+-export([
+    mountpoint/0,
+    mountpoint/1,
+    gateway_common_options/0,
+    gateway_schema/1,
+    deobfuscate/3,
+    gateway_names/0
+]).
 
 -export([ws_listener/0, wss_listener/0, ws_opts/1]).
 
@@ -501,6 +508,39 @@ gateway_schema(Name) ->
         {error, _} = Error ->
             throw(Error)
     end.
+
+deobfuscate(Name0, NewRawConf, OldRawConf) ->
+    case find_gateway_definition(Name0) of
+        {ok, #{config_schema_module := SchemaMod}} ->
+            ok = emqx_utils:interactive_load(SchemaMod),
+            case erlang:function_exported(SchemaMod, deobfuscate, 2) of
+                true ->
+                    SchemaMod:deobfuscate(NewRawConf, OldRawConf);
+                false ->
+                    {ok, NewRawConf}
+            end;
+        {error, _} ->
+            {ok, NewRawConf}
+    end.
+
+find_gateway_definition(Name) when is_atom(Name) ->
+    emqx_gateway_utils:find_gateway_definition(Name);
+find_gateway_definition(Name) when is_binary(Name) ->
+    case
+        lists:search(
+            fun(#{name := GatewayName}) ->
+                atom_to_binary(GatewayName, utf8) =:= Name
+            end,
+            emqx_gateway_utils:find_gateway_definitions()
+        )
+    of
+        {value, Definition} ->
+            {ok, Definition};
+        false ->
+            {error, not_found}
+    end;
+find_gateway_definition(_Name) ->
+    {error, invalid_name}.
 
 gateway_names() ->
     [Name || #{name := Name} <- emqx_gateway_utils:find_gateway_definitions()].
