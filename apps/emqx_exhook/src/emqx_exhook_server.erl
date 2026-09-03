@@ -219,11 +219,10 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
 
 %% @private
 %% `client.subscribe' and `client.subscribe.rewrite' resolve to the same
-%% hookpoint, so a server that registers both -- the plausible shape while
-%% migrating from one to the other -- would otherwise get whichever its
-%% `HookSpec' list happened to end on. The server cannot observe which was
-%% chosen short of watching which RPC arrives, so pick the richer one and say
-%% so rather than leaving it to list order.
+%% hookpoint. A server that registers both -- the plausible shape while
+%% migrating from one to the other -- gets the `OnClientSubscribeRewrite' RPC
+%% regardless of its `HookSpec' order, plus a warning naming the RPC in use,
+%% since the server cannot otherwise observe which one was chosen.
 resolve_duplicate(Name, New, Acc) ->
     case maps:find(Name, Acc) of
         error ->
