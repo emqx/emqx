@@ -308,35 +308,92 @@ Content-Type: text/plain; version=0.0.4
 
 This endpoint is separate from the built-in EMQX Prometheus endpoints.
 
-### Counters
+The endpoint carries **bcast plugin business metrics only**. System-level
+values (node CPU, memory, connections, broker `messages.delivered`) are
+not duplicated here: they are available from EMQX's own Prometheus
+endpoint.
+
+### QoS=1 delivery ledger (counters)
+
+The unit of the delivery ledger is one **logical delivery**: one BatchPub
+request targeted at one device. All ledger counters are node-local and
+updated by asynchronous workers, so they lag the API response; to get
+cluster totals scrape **every node** and sum the values. `wanted` is
+incremented on the node that runs the promoter committing the request
+(core node); delivered/acked/ttl_expired/canceled count on the node where
+the event happened.
+
+| Metric | Description |
+|--------|-------------|
+| `bcast_batch_pub_qos1_wanted` | Logical deliveries durably committed to mria (promotion). Ledger base; incremented once per committed device, NOT at API acceptance |
+| `bcast_batch_pub_qos1_delivered` | Actual PUBLISH sends (includes redeliveries and the QoS0-subscription auto path) |
+| `bcast_batch_pub_qos1_redelivered` | Sends whose core claim attempt number was >= 2 (same logical delivery attempted before: lease expiry, disconnect, unsubscribe, claim-race release) |
+| `bcast_batch_pub_qos1_acked` | PUBACKs matched to a pending delivery (duplicates are not counted) |
+| `bcast_batch_pub_qos1_auto_acked` | Logical deliveries completed because the subscription QoS is 0 |
+| `bcast_batch_pub_qos1_ttl_expired` | Logical deliveries abandoned because the delivery TTL expired before confirmation |
+| `bcast_batch_pub_qos1_canceled` | Logical deliveries removed by management delete or reset before confirmation |
+
+**Ledger identity (eventually consistent):**
+
+`wanted = acked + auto_acked + ttl_expired + canceled + queued + inflight`
+
+where `queued`/`inflight` are the gauges below. Equivalently the current
+backlog (unconfirmed logical deliveries) is
+
+`wanted - (acked + auto_acked + ttl_expired + canceled)`
+
+and `delivered = first_sends + redelivered` (first_sends is derived as
+`delivered - redelivered`). Counters reset to zero when a node restarts;
+the ledger identity is guaranteed for events observed after the last
+restart/reset.
+
+### Admission counters (request level)
+
+| Metric | Description |
+|--------|-------------|
+| `bcast_batch_pub_qos1_in` | BatchPub QoS=1 API requests |
+| `bcast_batch_pub_qos1_enqueued` | QoS=1 requests accepted into the intake queue |
+| `bcast_batch_pub_qos1_intake_rejected` | QoS=1 requests rejected because the intake queue is full |
+| `bcast_batch_pub_qos1_promote_error` | QoS=1 promotion batch failures (retries exhausted) |
+
+Within a node's lifetime `in = enqueued + intake_rejected + quota
+rejections`; quota (429 QuotaExceeded) rejections are not exported
+separately — they are the derivable residual.
+
+### QoS=0 / broadcast / register counters
 
 | Metric | Description |
 |--------|-------------|
 | `bcast_batch_pub_qos0_in` | BatchPub QoS=0 API requests |
 | `bcast_batch_pub_qos0_targeted` | QoS=0 devices targeted |
 | `bcast_qos0_delivery_count` | QoS=0 one-shot deliveries to online clients |
-| `bcast_batch_pub_qos1_in` | BatchPub QoS=1 API requests |
-| `bcast_batch_pub_qos1_wanted` | QoS=1 total wanted acks |
-| `bcast_batch_pub_qos1_delivered` | QoS=1 deliveries to clients |
-| `bcast_batch_pub_qos1_acked` | QoS=1 PUBACKs matched to a pending delivery (duplicates are not counted) |
-| `bcast_batch_pub_qos1_auto_acked` | QoS=1 deliveries completed because the subscription QoS is 0 |
-| `bcast_batch_pub_qos1_persist_error` | QoS=1 persistence failures returned to API callers |
 | `bcast_broadcast_pub_in` | PubBroadcast API requests |
 | `bcast_broadcast_pub_error` | PubBroadcast errors |
 | `bcast_register_message_in` | RegisterMessage API requests |
 | `bcast_register_message_refresh` | RegisterMessage TTL refresh |
 | `bcast_register_message_error` | RegisterMessage errors |
 
-`delivered` and `acked` are node-local counters: they increment on the node
-that delivers or receives the PUBACK. Every node exposes only its own
-counters at this endpoint (including replicants; the request is not
-forwarded to a core), so to get the cluster total you must scrape **every
-node** and sum the values. They are also updated by asynchronous workers, so
-they lag the API response by the time the queued tasks take to execute.
+### Gauges
 
-QoS=1 delivery completion is tracked by comparing `wanted` against
-`acked` plus `auto_acked` (a delivery is fully acknowledged when their sum
-reaches `wanted` per DeliveryId).
+Sampled at scrape time from live state; sum over nodes for cluster totals
+(index shards run on core nodes, replicants report 0).
+
+| Metric | Description |
+|--------|-------------|
+| `bcast_intake_depth` | QoS=1 intake queue depth (requests awaiting promotion, node-local) |
+| `bcast_batch_pub_qos1_queued` | Committed logical deliveries queued but not yet claimed |
+| `bcast_batch_pub_qos1_inflight` | Claimed logical deliveries not yet terminal (awaiting ack/release/expiry) |
+
+### Metrics reset
+
+`POST /api/v5/plugin_api/emqx_bcast/metrics/reset`
+
+Resets the metric registry to zero on **every** running node (a partial
+reset would permanently break cross-node sums). Refuses with
+`409 PendingDeliveries` while any node still holds queued or in-flight
+deliveries: counters and delivery state are separate, and the ledger
+identity only holds for events observed after a reset. Intended for
+maintenance windows and test tooling.
 
 ### Prometheus Configuration
 

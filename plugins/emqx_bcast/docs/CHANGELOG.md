@@ -5,6 +5,33 @@ documented here.
 
 ## Unreleased
 
+### Metrics contract (0.4.0) - breaking
+
+Prometheus metric names and semantics were reworked around a closed QoS=1
+delivery ledger; dashboards and alerts must be updated.
+
+- `bcast_batch_pub_qos1_wanted` is now counted at the **durable mria
+  commit** (promotion) per committed logical delivery (request x device),
+  not at API acceptance; requests dropped before promotion no longer count.
+- New counters: `bcast_batch_pub_qos1_redelivered` (sends with claim
+  attempt >= 2), `bcast_batch_pub_qos1_ttl_expired` (TTL expiry without
+  confirmation), `bcast_batch_pub_qos1_canceled` (management delete /
+  reset without confirmation).
+- `bcast_batch_pub_qos1_delivered` now also counts the QoS0-subscription
+  auto delivery path; `delivered = first_sends + redelivered`.
+- Removed (duplicates of EMQX's own metrics or dead): `fanout_delivered`,
+  `node_cpu_use`, `node_memory`, `connections`,
+  `batch_pub_qos1_persist_error` (never incremented),
+  `batch_pub_qos1_promoted` (folded into `wanted`).
+- New gauges (sampled at scrape time, sum over nodes):
+  `bcast_intake_depth`, `bcast_batch_pub_qos1_queued`,
+  `bcast_batch_pub_qos1_inflight`.
+- Ledger identity documented and CT-asserted:
+  `wanted = acked + auto_acked + ttl_expired + canceled + queued + inflight`.
+- New guarded cluster-wide reset endpoint
+  `POST /api/v5/plugin_api/emqx_bcast/metrics/reset` (409 while pending
+  deliveries exist; resets every node so cross-node sums stay valid).
+
 ### Changed
 
 - Reworked the delivery pipeline into the core/replicant pull model:
