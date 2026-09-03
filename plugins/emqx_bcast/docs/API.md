@@ -59,6 +59,13 @@ curl -u "<api_key>:<api_secret>" \
 
 Publishes messages to a specified list of devices, up to 10,000 per call (configurable). Supports `MessageContent` or `MessageId` (mutually exclusive) for specifying the message body.
 
+> Batch size vs API latency (measured 2026-09-03, plugin 0.4.0, 5-node
+> cluster): acceptance is asynchronous, so a 10,000-device request no
+> longer stalls the API (sequential ~27 ms, 4 concurrent ~36 ms at 64 B
+> payload, zero rejects); promotion/drain cost still scales with the
+> device count, so use <= 1,000 devices per request for sustained
+> throughput and reserve 10,000-device calls for low-rate bulk loads.
+
 > Messages are delivered directly to the target client processes via internal channels, bypassing ACL checks. Delivery is gated by the device's MQTT subscription: a device that is not subscribed to the delivery topic does not receive the message.
 
 > Delivery is asynchronous: a `200` response means the request was accepted, not that all devices have received the message. For QoS=1, messages to offline devices are stored on core and delivered when the device reconnects.
