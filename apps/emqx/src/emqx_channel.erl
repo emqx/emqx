@@ -2807,10 +2807,9 @@ log_auth_failure(Reason) ->
         #{tag => "AUTHN"}
     ).
 
-%% [MQTT-4.12.0-1] fixes the authentication method at CONNECT, so a
-%% re-authentication always belongs to a session whose client attributes were
-%% already derived by the CONNECT enrichment pipeline. Keep them frozen; only
-%% the authorization context follows the new credential.
+%% Client attributes are computed once, while the CONNECT is enriched, and hold
+%% for the whole session. Drop them from the result of a re-authentication so
+%% only the rest of it, such as ACL rules and the superuser flag, is applied.
 freeze_client_attrs_on_reauth(AuthResult, #channel{conn_state = ConnState}) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
@@ -3414,8 +3413,9 @@ ensure_connected(
         conn_state = connected
     }).
 
-%% Also called on re-authentication, where a timer from the previous credential
-%% may still be armed, hence reset/clean rather than ensure.
+%% Called when the connection is established and again after every
+%% re-authentication. Any timer armed for an earlier credential is cancelled
+%% first, so the pending expiry always matches the current `auth_expire_at'.
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := undefined}}) ->
     clean_timer(connection_auth_expire, Channel);
 schedule_connection_auth_expire(Channel = #channel{clientinfo = #{auth_expire_at := ExpireAt}}) ->
