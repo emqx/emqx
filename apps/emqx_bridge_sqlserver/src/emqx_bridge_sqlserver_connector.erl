@@ -443,7 +443,7 @@ do_get_status(Conn) ->
     end.
 
 get_servername(Conn) ->
-    case execute(Conn, <<"select @@servername">>) of
+    case execute(Conn, "select @@servername") of
         {selected, _, [{RawName}]} ->
             {ok, RawName};
         _ ->
