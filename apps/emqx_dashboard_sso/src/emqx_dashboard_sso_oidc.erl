@@ -175,11 +175,16 @@ desc(_) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(#{name_var := NameVar, name_var_source := NameVarSource} = Config) ->
+create(#{name_var := NameVar} = Config) ->
     case check_ssl_opts(Config) of
         {error, _} = Error ->
             Error;
         ok ->
+            %% `name_var_source' has a schema default, so a config that went through
+            %% the schema always carries it. Hand-built configs may not, and the ssl
+            %% check above must stay reachable for them, so don't demand it in the
+            %% function head. Keep the fallback in sync with the schema default.
+            NameVarSource = maps:get(name_var_source, Config, userinfo),
             start_session(Config, NameVar, NameVarSource)
     end.
 
