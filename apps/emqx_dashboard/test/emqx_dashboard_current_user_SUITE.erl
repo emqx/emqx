@@ -286,6 +286,35 @@ t_own_mfa_write_ends_session(_Config) ->
     %% A fresh login is all it takes.
     ?assertMatch({ok, 200, _}, get_current_user(token(<<"viewer">>))).
 
+%% An SSO account's sessions end on a self MFA re-key just as a local
+%% account's do. A JWT row keeps the bare name and the backend in
+%% separate fields, so token invalidation has to match on the resolved
+%% key rather than on the name alone.
+t_own_mfa_write_ends_sso_session(_Config) ->
+    Backend = saml,
+    SsoUser = <<"sso-mfa@example.com">>,
+    {ok, _} = emqx_dashboard_admin:add_sso_user(Backend, SsoUser, ?ROLE_VIEWER, <<"d">>),
+    SsoKey = ?SSO_USERNAME(Backend, SsoUser),
+    Token = sso_token(SsoKey),
+    ?assertMatch({ok, 200, _}, get_current_user(Token)),
+    ?assertMatch({ok, 204, _}, setup_own_mfa(Token)),
+    {ok, 401, Body} = get_current_user(Token),
+    ?assertEqual(<<"BAD_TOKEN">>, error_code(Body)),
+    ?assertMatch({ok, 200, _}, get_current_user(sso_token(SsoKey))).
+
+%% A local account and an SSO account may carry the same name. Ending
+%% one account's sessions leaves the other's alone.
+t_own_mfa_write_keeps_other_backend_session(_Config) ->
+    Name = <<"twin_user">>,
+    Backend = saml,
+    ok = add_user(Name, ?ROLE_VIEWER),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(Backend, Name, ?ROLE_VIEWER, <<"d">>),
+    LocalToken = token(Name),
+    SsoToken = sso_token(?SSO_USERNAME(Backend, Name)),
+    ?assertMatch({ok, 204, _}, setup_own_mfa(SsoToken)),
+    ?assertMatch({ok, 401, _}, get_current_user(SsoToken)),
+    ?assertMatch({ok, 200, _}, get_current_user(LocalToken)).
+
 %%--------------------------------------------------------------------
 %% Routing
 %%--------------------------------------------------------------------
