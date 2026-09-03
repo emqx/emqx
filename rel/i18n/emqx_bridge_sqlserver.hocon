@@ -41,7 +41,7 @@ local_topic.label:
 """Local Topic"""
 
 sql_template.desc:
-"""SQL Template"""
+"""A restricted SQL Server INSERT INTO VALUES template. Placeholders are allowed only in value positions and string values. Comments, extra statements, multiple configured rows, and dynamic identifiers are not allowed."""
 
 sql_template.label:
 """SQL Template"""

@@ -43,7 +43,14 @@
     default_port => ?MYSQL_DEFAULT_PORT
 }).
 
--type template() :: {unicode:chardata(), emqx_template:str()}.
+%% Remove ANSI_QUOTES and NO_BACKSLASH_ESCAPES from session's sql_mode
+-define(SQL_MODE_QUERY, <<
+    "SET SESSION sql_mode = TRIM(BOTH ',' FROM "
+    "REPLACE(REPLACE(CONCAT(',', @@SESSION.sql_mode, ','), "
+    "',ANSI_QUOTES,', ','), ',NO_BACKSLASH_ESCAPES,', ','))"
+>>).
+
+-type template() :: {unicode:chardata(), emqx_template:str()} | emqx_mysql_sql:plan().
 -type state() ::
     #{
         pool_name := binary(),
@@ -377,16 +384,22 @@ get_reconnect_callback_signature([Templates]) ->
     ),
     ChannelID.
 
-prepare_sql_to_conn(_Conn, []) ->
+prepare_sql_to_conn(Conn, Templates) ->
+    case mysql:query(Conn, ?SQL_MODE_QUERY) of
+        ok -> do_prepare_sql_to_conn(Conn, Templates);
+        {error, _} = Error -> Error
+    end.
+
+do_prepare_sql_to_conn(_Conn, []) ->
     ok;
-prepare_sql_to_conn(Conn, [{{Key, prepstmt}, {SQL, _RowTemplate}} | Rest]) ->
+do_prepare_sql_to_conn(Conn, [{{Key, prepstmt}, {SQL, _RowTemplate}} | Rest]) ->
     LogMeta = #{msg => "MySQL Prepare Statement", name => Key, prepare_sql => SQL},
     ?SLOG(info, LogMeta),
     _ = unprepare_sql_to_conn(Conn, Key),
     case mysql:prepare(Conn, Key, SQL) of
         {ok, _Key} ->
             ?SLOG(info, LogMeta#{result => success}),
-            prepare_sql_to_conn(Conn, Rest);
+            do_prepare_sql_to_conn(Conn, Rest);
         {error, {1146, _, _} = Reason} ->
             %% Target table is not created
             ?tp(mysql_undefined_table, #{}),
@@ -398,8 +411,8 @@ prepare_sql_to_conn(Conn, [{{Key, prepstmt}, {SQL, _RowTemplate}} | Rest]) ->
             ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
             {error, Reason}
     end;
-prepare_sql_to_conn(Conn, [{_Key, _Template} | Rest]) ->
-    prepare_sql_to_conn(Conn, Rest).
+do_prepare_sql_to_conn(Conn, [{_Key, _Template} | Rest]) ->
+    do_prepare_sql_to_conn(Conn, Rest).
 
 unprepare_sql(ChannelID, #{query_templates := Templates, pool_name := PoolName}) ->
     lists:foreach(
@@ -449,9 +462,9 @@ parse_prepare_sql(Key, Query, Acc) ->
 parse_batch_sql(Key, Query, Acc) ->
     case emqx_utils_sql:get_statement_type(Query) of
         insert ->
-            case emqx_utils_sql:split_insert(Query) of
-                {ok, SplitedInsert} ->
-                    Acc#{{Key, batch} => parse_splited_sql(SplitedInsert)};
+            case emqx_mysql_sql:compile(Query) of
+                {ok, Plan} ->
+                    Acc#{{Key, batch} => Plan};
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "parse insert sql statement failed",
@@ -470,13 +483,6 @@ parse_batch_sql(Key, Query, Acc) ->
             }),
             Acc
     end.
-
-parse_splited_sql({Insert, Values, OnClause}) ->
-    RowTemplate = emqx_template_sql:parse(Values),
-    {Insert, RowTemplate, OnClause};
-parse_splited_sql({Insert, Values}) ->
-    RowTemplate = emqx_template_sql:parse(Values),
-    {Insert, RowTemplate}.
 
 proc_sql_params(query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
@@ -498,26 +504,17 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) -
 proc_sql_params(_TypeOrKey, SQLOrData, Params, _State) ->
     {SQLOrData, Params}.
 
-on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate, OnClause}, State, ChannelConfig) ->
-    Rows = [render_row(RowTemplate, Msg, ChannelConfig) || {_, Msg} <- BatchReqs],
-    Query = [InsertPart, <<" values ">> | lists:join($,, Rows)] ++ [<<" on ">>, OnClause],
-    on_sql_query(InstId, query, Query, no_params, default_timeout, State);
-on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate}, State, ChannelConfig) ->
-    Rows = [render_row(RowTemplate, Msg, ChannelConfig) || {_, Msg} <- BatchReqs],
-    Query = [InsertPart, <<" values ">> | lists:join($,, Rows)],
-    on_sql_query(InstId, query, Query, no_params, default_timeout, State).
-
-render_row(RowTemplate, Data, ChannelConfig) ->
-    RenderOpts =
-        case maps:get(undefined_vars_as_null, ChannelConfig, false) of
-            % NOTE:
-            %  Ignoring errors here, missing variables are set to "'undefined'" due to backward
-            %  compatibility requirements.
-            false -> #{escaping => mysql, undefined => <<"undefined">>};
-            true -> #{escaping => mysql}
-        end,
-    {Row, _Errors} = emqx_template_sql:render(RowTemplate, {emqx_jsonish, Data}, RenderOpts),
-    Row.
+on_batch_insert(InstId, BatchReqs, Plan, State, ChannelConfig) ->
+    DataList = [Msg || {_, Msg} <- BatchReqs],
+    RenderOpts = #{
+        undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConfig, false)
+    },
+    case emqx_mysql_sql:render_batch(Plan, DataList, RenderOpts) of
+        {ok, Query} ->
+            on_sql_query(InstId, query, Query, no_params, default_timeout, State);
+        {error, Reason} ->
+            {error, {unrecoverable_error, Reason}}
+    end.
 
 on_sql_query(InstId, SQLFunc, SQLOrKey, Params, Timeout, #{pool_name := PoolName} = State) ->
     LogMeta = #{connector => InstId, sql => SQLOrKey, state => State},

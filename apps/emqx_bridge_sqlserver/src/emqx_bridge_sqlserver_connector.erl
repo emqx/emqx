@@ -75,11 +75,6 @@
     maps:get(request_ttl, RESOURCE_OPTS, ?DEFAULT_REQUEST_TTL)
 ).
 
--define(BATCH_INSERT_TEMP, batch_insert_temp).
-
--define(BATCH_INSERT_PART, batch_insert_part).
--define(BATCH_PARAMS_TOKENS, batch_insert_tks).
-
 -define(FILE_MODE_755, 33261).
 %% 32768 + 8#00400 + 8#00200 + 8#00100 + 8#00040 + 8#00010 + 8#00004 + 8#00001
 %% See also
@@ -91,7 +86,7 @@
 %% as returned by connect/2
 -type connection_reference() :: term().
 -type time_out() :: milliseconds() | infinity.
--type sql() :: string() | binary().
+-type sql() :: iolist().
 -type milliseconds() :: pos_integer().
 %% Tuple of column values e.g. one row of the result set.
 %% it's a variable size tuple of column values.
@@ -282,20 +277,37 @@ on_start(
             {error, Reason}
     end.
 
-on_add_channel(_InstId, OldState, ChannelId, #{parameters := Params}) ->
-    #{installed_channels := InstalledChannels} = OldState,
-    case parse_sql_template(Params) of
-        {ok, Templs} ->
-            ChannelState = #{
-                sql_templates => Templs,
-                channel_conf => Params
-            },
+on_add_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels
+    } = OldState,
+    ChannelId,
+    ChannelConfig
+) ->
+    case create_channel_state(ChannelConfig) of
+        {ok, ChannelState} ->
             NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
             %% Update state
             NewState = OldState#{installed_channels => NewInstalledChannels},
             {ok, NewState};
-        {error, Reason} ->
-            {error, Reason}
+        {error, _} = Error ->
+            Error
+    end.
+
+create_channel_state(
+    #{parameters := ChannelConf}
+) ->
+    case maps:get(sql, ChannelConf, undefined) of
+        undefined ->
+            {error, missing_sql_template};
+        <<>> ->
+            {error, missing_sql_template};
+        SQL ->
+            case emqx_bridge_sqlserver_sql:compile(SQL) of
+                {ok, Plan} -> {ok, #{sql_plan => Plan, channel_conf => ChannelConf}};
+                {error, _} = Error -> Error
+            end
     end.
 
 on_remove_channel(_InstId, #{installed_channels := InstalledChannels} = OldState, ChannelId) ->
@@ -419,7 +431,7 @@ disconnect(ConnectionPid) ->
 
 -spec do_get_status(connection_reference()) -> ok | {error, term()}.
 do_get_status(Conn) ->
-    case execute(Conn, <<"SELECT 1">>) of
+    case execute(Conn, "SELECT 1") of
         {selected, [[]], [{1}]} ->
             ok;
         Other ->
@@ -431,7 +443,7 @@ do_get_status(Conn) ->
     end.
 
 get_servername(Conn) ->
-    case execute(Conn, <<"select @@servername">>) of
+    case execute(Conn, "select @@servername") of
         {selected, _, [{RawName}]} ->
             {ok, RawName};
         _ ->
@@ -494,25 +506,22 @@ do_query(ResourceId, Query, ApplyMode, State) ->
     ),
     ChannelId = get_channel_id(Query),
     QueryTuple = get_query_tuple(Query),
-    #{sql_templates := Templates} = ChannelState = maps:get(ChannelId, Channels),
+    #{sql_plan := Plan} = ChannelState = maps:get(ChannelId, Channels),
     ChannelConf = maps:get(channel_conf, ChannelState, #{}),
     %% only insert sql statement for single query and batch query
-    Result =
-        case apply_template(QueryTuple, Templates, ChannelConf) of
-            {?ACTION_SEND_MESSAGE, SQL} ->
-                emqx_trace:rendered_action_template(ChannelId, #{
-                    sql => SQL
-                }),
-                ecpool:pick_and_do(
-                    PoolName,
-                    {?MODULE, worker_do_insert, [SQL, State]},
-                    ApplyMode
-                );
-            QueryTuple ->
-                {error, {unrecoverable_error, invalid_query}};
-            _ ->
-                {error, {unrecoverable_error, failed_to_apply_sql_template}}
-        end,
+    case apply_template(QueryTuple, Plan, ChannelConf) of
+        {ok, SQL} ->
+            emqx_trace:rendered_action_template(ChannelId, #{
+                sql => SQL
+            }),
+            Result = ecpool:pick_and_do(
+                PoolName,
+                {?MODULE, worker_do_insert, [SQL, State]},
+                ApplyMode
+            );
+        {error, Reason} ->
+            Result = {error, {unrecoverable_error, Reason}}
+    end,
     handle_result(Result, ResourceId, Query).
 
 handle_result({error, {recoverable_error, _} = Reason} = Result, _ResourceId, _Query) ->
@@ -611,7 +620,8 @@ is_table_or_view_not_found_error(MsgStr) ->
     | [selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL) ->
-    odbc:sql_query(Conn, str(SQL)).
+    %% ODBC forwards the outer list to gen_tcp:send/2 as iodata.
+    odbc:sql_query(Conn, SQL).
 
 -spec execute(connection_reference(), sql(), time_out()) ->
     updated_tuple()
@@ -620,7 +630,7 @@ execute(Conn, SQL) ->
     | [selected_tuple()]
     | {error, common_reason()}.
 execute(Conn, SQL, Timeout) ->
-    odbc:sql_query(Conn, str(SQL), Timeout).
+    odbc:sql_query(Conn, SQL, Timeout).
 
 get_channel_id([{ChannelId, _Req} | _]) ->
     ChannelId;
@@ -639,82 +649,26 @@ get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
 get_query_tuple([_InsertQuery | _] = Reqs) ->
     lists:map(fun get_query_tuple/1, Reqs).
 
-%% for bridge data to sql server
-parse_sql_template(Config) ->
-    RawSQLTemplates =
-        case maps:get(sql, Config, undefined) of
-            undefined -> #{};
-            <<>> -> #{};
-            SQLTemplate -> #{?ACTION_SEND_MESSAGE => SQLTemplate}
-        end,
-    try
-        {ok, parse_sql_template(maps:to_list(RawSQLTemplates), #{})}
-    catch
-        throw:Reason ->
-            {error, Reason}
-    end.
-
-parse_sql_template([{Key, H} | T], BatchInsertTks) ->
-    case emqx_utils_sql:get_statement_type(H) of
-        select ->
-            parse_sql_template(T, BatchInsertTks);
-        insert ->
-            case emqx_utils_sql:split_insert(H) of
-                {ok, {InsertPart, Values}} ->
-                    Tks = #{
-                        ?BATCH_INSERT_PART => InsertPart,
-                        ?BATCH_PARAMS_TOKENS => emqx_placeholder:preproc_tmpl(Values)
-                    },
-                    parse_sql_template(T, BatchInsertTks#{Key => Tks});
-                {ok, {_InsertPart, _Values, OnClause}} ->
-                    throw(<<"The 'ON' clause is not supported in SQLServer: ", OnClause/binary>>);
-                {error, Reason} ->
-                    ?SLOG(error, #{msg => "split_sql_failed", sql => H, reason => Reason}),
-                    parse_sql_template(T, BatchInsertTks)
-            end;
-        Type when is_atom(Type) ->
-            ?SLOG(error, #{msg => "detect_sql_type_unsupported", sql => H, type => Type}),
-            parse_sql_template(T, BatchInsertTks);
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "detect_sql_type_failed", sql => H, reason => Reason}),
-            parse_sql_template(T, BatchInsertTks)
-    end;
-parse_sql_template([], BatchInsertTks) ->
-    #{
-        ?BATCH_INSERT_TEMP => BatchInsertTks
-    }.
-
 %% single insert
 apply_template(
-    {?ACTION_SEND_MESSAGE = _Key, _Msg} = Query, Templates, ChannelConf
+    {?ACTION_SEND_MESSAGE, Msg}, Plan, ChannelConf
 ) ->
-    %% TODO: fix emqx_placeholder:proc_tmpl/2
-    %% it won't add single quotes for string
-    apply_template([Query], Templates, ChannelConf);
+    emqx_bridge_sqlserver_sql:render(Plan, Msg, render_opts(ChannelConf));
 %% batch inserts
 apply_template(
-    [{?ACTION_SEND_MESSAGE = Key, _Msg} | _T] = BatchReqs,
-    #{?BATCH_INSERT_TEMP := BatchInsertsTks} = _Templates,
+    [{?ACTION_SEND_MESSAGE, _Msg} | _] = BatchReqs,
+    Plan,
     ChannelConf
 ) ->
-    case maps:get(Key, BatchInsertsTks, undefined) of
-        undefined ->
-            BatchReqs;
-        #{?BATCH_INSERT_PART := BatchInserts, ?BATCH_PARAMS_TOKENS := BatchParamsTks} ->
-            BatchParams = [proc_msg(BatchParamsTks, Msg, ChannelConf) || {_, Msg} <- BatchReqs],
-            Values = erlang:iolist_to_binary(lists:join($,, BatchParams)),
-            SQL = <<BatchInserts/binary, " values ", Values/binary>>,
-            {Key, SQL}
-    end;
-apply_template(Query, Templates, _) ->
+    DataList = [Msg || {?ACTION_SEND_MESSAGE, Msg} <- BatchReqs],
+    emqx_bridge_sqlserver_sql:render_batch(Plan, DataList, render_opts(ChannelConf));
+apply_template(Query, _Plan, _) ->
     %% TODO: more detail information
-    ?SLOG(error, #{msg => "apply_sql_template_failed", query => Query, templates => Templates}),
+    ?SLOG(error, #{msg => "apply_sql_template_failed", query => Query}),
     {error, failed_to_apply_sql_template}.
 
-proc_msg(Tokens, Msg, #{undefined_vars_as_null := true}) ->
-    emqx_placeholder:proc_sqlserver_param_str2(Tokens, Msg);
-proc_msg(Tokens, Msg, _) ->
-    emqx_placeholder:proc_sqlserver_param_str(Tokens, Msg).
+render_opts(ChannelConf) ->
+    #{undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConf, false)}.
 
 to_bin(B) when is_binary(B) ->
     B;
