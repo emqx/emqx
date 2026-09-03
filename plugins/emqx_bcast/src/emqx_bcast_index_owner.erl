@@ -64,7 +64,8 @@
     create_sync/2,
     create_delivery/6,
     rebuild_index/0,
-    reset/0
+    reset/0,
+    gauge_sample/0
 ]).
 -export([local_handle/3]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -186,6 +187,8 @@ init([Shard]) ->
         inflights => #{},
         %% pending count per device: #{Key => N}
         counts => #{},
+        %% delivery attempts per logical delivery: #{Key3 => N}
+        attempts => #{},
         %% admission reservations: #{Key => {Count, Ts}}
         reserves => #{},
         %% peak pending size for conditional fullsweep
@@ -252,13 +255,16 @@ append_batch(Entries) ->
     end.
 
 remove_batch(Entries) ->
-    parallel_foreach(
-        fun({Shard, Sub}) ->
-            route(Shard, {remove_batch, Sub}, ?SYNC_TIMEOUT_MS)
-        end,
-        group_entries(Entries)
-    ),
-    ok.
+    lists:sum([
+        Removed
+     || {ok, Removed} <-
+            parallel_map(
+                fun({Shard, Sub}) ->
+                    route(Shard, {remove_batch, Sub}, ?SYNC_TIMEOUT_MS)
+                end,
+                group_entries(Entries)
+            )
+    ]).
 
 claim(Entries) ->
     %% Per-shard calls run in parallel: the shards are independent, and a
@@ -486,7 +492,7 @@ delete_delivery(Did) ->
         [] ->
             {error, not_found};
         [#bcast_msg{product_key = PK, device_names = DNs, msg_id = MsgId}] ->
-            _ = remove_batch([{PK, DN, Did} || DN <- DNs]),
+            maybe_count_canceled(remove_batch([{PK, DN, Did} || DN <- DNs])),
             route(did_shard_of(Did), {delete_delivery_rows, Did, MsgId}, ?SYNC_TIMEOUT_MS)
     end.
 
@@ -498,11 +504,13 @@ delete_message(ApiId) ->
             Deliveries = mnesia:dirty_match_object(
                 ?TAB_MSG_REC, #bcast_msg{msg_id = MsgId, _ = '_'}
             ),
-            _ = remove_batch([
-                {D#bcast_msg.product_key, DN, D#bcast_msg.delivery_id}
-             || D <- Deliveries,
-                DN <- D#bcast_msg.device_names
-            ]),
+            maybe_count_canceled(
+                remove_batch([
+                    {D#bcast_msg.product_key, DN, D#bcast_msg.delivery_id}
+                 || D <- Deliveries,
+                    DN <- D#bcast_msg.device_names
+                ])
+            ),
             DeliveryIds = [D#bcast_msg.delivery_id || D <- Deliveries],
             route(0, {delete_message_rows, ApiId, DeliveryIds}, ?SYNC_TIMEOUT_MS)
     end.
@@ -675,11 +683,44 @@ rebuild_index() ->
     route(0, {rebuild_index}, ?SYNC_TIMEOUT_MS).
 
 reset() ->
-    lists:foreach(
-        fun(Shard) -> route(Shard, {reset_local}, ?SYNC_TIMEOUT_MS) end,
-        lists:seq(0, ?SHARD_COUNT - 1)
-    ),
+    %% Test/maintenance reset: every dropped pending entry is an
+    %% unconfirmed logical delivery, so it is counted into canceled to keep
+    %% the delivery ledger identity closed across the reset.
+    Results = [
+        try
+            route(Shard, {reset_local}, ?SYNC_TIMEOUT_MS)
+        catch
+            _:_ -> {ok, 0}
+        end
+     || Shard <- lists:seq(0, ?SHARD_COUNT - 1)
+    ],
+    maybe_count_canceled(lists:sum([Dropped || {ok, Dropped} <- Results])),
     ok.
+
+%% Sum of the queued/inflight gauges over the shards this node owns
+%% (index_owner processes exist only on core nodes; each core runs all
+%% ?SHARD_COUNT processes but only its shard_owner subset is active).
+%% Replicants and dormant shards contribute {0, 0}, so a cluster sum()
+%% over the metrics endpoint stays correct.
+-spec gauge_sample() -> {non_neg_integer(), non_neg_integer()}.
+gauge_sample() ->
+    lists:foldl(
+        fun(Shard, {QueuedAcc, InflightAcc}) ->
+            case shard_owner(Shard) =:= node() of
+                true ->
+                    try gen_server:call(shard_name(Shard), {sample_local}, ?SYNC_TIMEOUT_MS) of
+                        {Queued, Inflight} -> {QueuedAcc + Queued, InflightAcc + Inflight};
+                        _ -> {QueuedAcc, InflightAcc}
+                    catch
+                        _:_ -> {QueuedAcc, InflightAcc}
+                    end;
+                false ->
+                    {QueuedAcc, InflightAcc}
+            end
+        end,
+        {0, 0},
+        lists:seq(0, ?SHARD_COUNT - 1)
+    ).
 
 route(Shard, Req, Timeout) ->
     Target = shard_owner(Shard),
@@ -723,7 +764,7 @@ handle_call({remove_batch, Entries}, _From, State = #{active := true}) ->
             Entries
         ),
         quota_update(Delta),
-        {reply, ok, State2}
+        {reply, {ok, -Delta}, State2}
     catch
         Error:Reason:Stacktrace ->
             ?SLOG(error, #{
@@ -835,9 +876,11 @@ handle_call({reset_local}, _From, State = #{shard := 0}) ->
         true -> true = ets:insert(?TAB_QUOTA_ETS, {global, 0});
         false -> ok
     end,
-    {reply, ok, reset_state(State)};
+    {reply, {ok, total_pending(State)}, reset_state(State)};
 handle_call({reset_local}, _From, State) ->
-    {reply, ok, reset_state(State)};
+    {reply, {ok, total_pending(State)}, reset_state(State)};
+handle_call({sample_local}, _From, State) ->
+    {reply, sample_state(State), State};
 %% Dormant (not yet the owner, or takeover in progress): fail calls so
 %% callers retry; reads degrade to empty so management stays responsive.
 handle_call({admit, _PK, _DNs}, _From, State) ->
@@ -1208,10 +1251,43 @@ reset_state(State) ->
         dids => #{},
         inflights => #{},
         counts => #{},
+        attempts => #{},
         reserves => #{},
         peak => 0,
         orphan_cursor => 0
     }.
+
+%% Live gauges for this shard's partition: queued = live pending minus
+%% in-flight (claimed-not-terminal); in-flight = claimed entries awaiting
+%% ack/release/expiry. Iterating counts (one entry per device, not per
+%% delivery) keeps a scrape cost proportional to the number of active
+%% devices.
+sample_state(State) ->
+    Counts = maps:get(counts, State),
+    Infls = maps:get(inflights, State),
+    maps:fold(
+        fun(Key, N, {QueuedAcc, InflightAcc}) ->
+            Inflight = maps:size(maps:get(Key, Infls, #{})),
+            {QueuedAcc + (N - Inflight), InflightAcc + Inflight}
+        end,
+        {0, 0},
+        Counts
+    ).
+
+total_pending(State) ->
+    maps:fold(fun(_Key, N, Acc) -> Acc + N end, 0, maps:get(counts, State)).
+
+maybe_count_canceled(0) ->
+    ok;
+maybe_count_canceled(N) ->
+    emqx_bcast_metrics:qos1_canceled(N),
+    ok.
+
+maybe_count_ttl_expired(0) ->
+    ok;
+maybe_count_ttl_expired(N) ->
+    emqx_bcast_metrics:qos1_ttl_expired(N),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Routing helpers (public wrappers)
@@ -1331,7 +1407,8 @@ remove_did(State, Key, Key3) ->
     State1 = decr_in(counts, Key, State),
     State2 = unmark_inflight(State1, Key, Key3),
     State3 = maps:put(dids, maps:remove(Key3, maps:get(dids, State2)), State2),
-    maybe_drop_device(State3, Key).
+    State4 = maps:put(attempts, maps:remove(Key3, maps:get(attempts, State3)), State3),
+    maybe_drop_device(State4, Key).
 
 decr_in(MapName, K, State) ->
     M = maps:get(MapName, State),
@@ -1609,6 +1686,16 @@ claim_check(State, Key, Did, Key3, Ts, Now, Topics, PK, DN, Tag) ->
                 {ok, SubQos} ->
                     case mnesia:dirty_read(?TAB_MSG, MsgId) of
                         [#bcast_message{payload = Payload}] ->
+                            %% Attempt counter: one per claim of this logical
+                            %% delivery, surviving release and lease-expiry
+                            %% re-queues, so a redelivery (attempt >= 2) is
+                            %% distinguishable from a first attempt. A claim
+                            %% that never results in a send (session died in
+                            %% the claim->send window) also consumes an
+                            %% attempt; redelivered therefore counts sends
+                            %% whose claim number was >= 2.
+                            Attempts = maps:get(Key3, maps:get(attempts, State), 0) + 1,
+                            State1 = put_in(attempts, Key3, Attempts, State),
                             {claim,
                                 #{
                                     delivery_id => Did,
@@ -1616,9 +1703,10 @@ claim_check(State, Key, Did, Key3, Ts, Now, Topics, PK, DN, Tag) ->
                                     topic_template => Tpl,
                                     payload => Payload,
                                     claim_tag => Tag,
-                                    sub_qos => SubQos
+                                    sub_qos => SubQos,
+                                    attempt => Attempts
                                 },
-                                mark_inflight(State, Key, Key3, Now, Tag)};
+                                mark_inflight(State1, Key, Key3, Now, Tag)};
                         [] ->
                             maybe_drop_stale(State, Key, Did, Key3, Ts, Now)
                     end
@@ -2086,13 +2174,15 @@ scan_expired_deliveries(Now, Budget) ->
 %% Index removal for expired deliveries routes per shard in parallel
 %% (remove_batch/1 groups by device shard internally).
 dispatch_expired_index(Expired) ->
-    remove_batch(
-        [
-            {ProductKey, DN, DeliveryId}
-         || {DeliveryId, _MsgId, ProductKey, DeviceNames} <- Expired,
-            DN <- DeviceNames
-        ]
-    ).
+    %% Each removed per-device index entry is a logical delivery whose TTL
+    %% expired before confirmation; acked devices were already removed at
+    %% ack time, so the removed count equals the remaining unacked count.
+    Removed = remove_batch([
+        {ProductKey, DN, DeliveryId}
+     || {DeliveryId, _MsgId, ProductKey, DeviceNames} <- Expired,
+        DN <- DeviceNames
+    ]),
+    maybe_count_ttl_expired(Removed).
 
 %% Batched mnesia deletes. One transaction per chunk (100 deliveries)
 %% instead of one transaction per expired delivery.

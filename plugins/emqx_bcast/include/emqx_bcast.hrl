@@ -155,7 +155,11 @@
     %% re-expand per message, running binary:replace twice per delivery).
     topic :: binary(),
     payload :: binary(),
-    pid :: pid()
+    pid :: pid(),
+    %% Delivery attempt number carried from the core claim (attempt >= 2
+    %% means this logical delivery was already attempted before; such sends
+    %% count toward the redelivered metric).
+    attempts :: pos_integer()
 }).
 
 -record(bcast_buffer3, {
