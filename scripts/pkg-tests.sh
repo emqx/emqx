@@ -103,6 +103,10 @@ emqx_test(){
 
             run_test "${PACKAGE_PATH}/emqx/bin" "${PACKAGE_PATH}/emqx/log" "${PACKAGE_PATH}/emqx/releases/emqx_vars"
 
+            ## Only for the tgz flow: the deb/rpm flow re-execs through
+            ## 'su - emqx', which resets the DEBUG environment variable.
+            "$SCRIPTS/test/emqx-debug-trace-smoke.sh" "${PACKAGE_PATH}/emqx"
+
             rm -rf "${PACKAGE_PATH}"/emqx
         ;;
         "deb")

@@ -88,3 +88,68 @@ issuer_validation_test_() ->
                 parse_and_check(oidc_config(#{<<"issuer">> => <<"pulsar+ssl://string">>}))
             )}
     ].
+
+check_ssl_opts_test_() ->
+    [
+        {"https issuer with ssl disabled is rejected",
+            ?_assertMatch(
+                {error, {invalid_ssl_opts, _}},
+                emqx_dashboard_sso_oidc:check_ssl_opts(#{
+                    issuer => <<"https://example.com">>,
+                    ssl => #{enable => false}
+                })
+            )},
+        {"https issuer with ssl enabled is allowed",
+            ?_assertEqual(
+                ok,
+                emqx_dashboard_sso_oidc:check_ssl_opts(#{
+                    issuer => <<"https://example.com">>,
+                    ssl => #{enable => true}
+                })
+            )},
+        {"http issuer with ssl disabled is allowed",
+            ?_assertEqual(
+                ok,
+                emqx_dashboard_sso_oidc:check_ssl_opts(#{
+                    issuer => <<"http://example.com">>,
+                    ssl => #{enable => false}
+                })
+            )},
+        {"http issuer with ssl enabled is rejected",
+            ?_assertMatch(
+                {error, {invalid_ssl_opts, _}},
+                emqx_dashboard_sso_oidc:check_ssl_opts(#{
+                    issuer => <<"http://example.com">>,
+                    ssl => #{enable => true}
+                })
+            )},
+        {"https issuer without an ssl config is allowed",
+            ?_assertEqual(
+                ok,
+                emqx_dashboard_sso_oidc:check_ssl_opts(#{issuer => <<"https://example.com">>})
+            )}
+    ].
+
+create_rejects_https_issuer_with_ssl_disabled_test() ->
+    %% check_ssl_opts/1 runs before any network I/O, so this returns without
+    %% starting an oidcc session.
+    Config = #{
+        name_var => <<"${sub}">>,
+        issuer => <<"https://example.com">>,
+        ssl => #{enable => false}
+    },
+    ?assertMatch(
+        {error, {invalid_ssl_opts, _}},
+        emqx_dashboard_sso_oidc:create(Config)
+    ).
+
+create_rejects_http_issuer_with_ssl_enabled_test() ->
+    Config = #{
+        name_var => <<"${sub}">>,
+        issuer => <<"http://example.com">>,
+        ssl => #{enable => true}
+    },
+    ?assertMatch(
+        {error, {invalid_ssl_opts, _}},
+        emqx_dashboard_sso_oidc:create(Config)
+    ).
