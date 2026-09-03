@@ -1207,10 +1207,9 @@ do_verify_mfa_token(Username, MfaToken, IsPwdOk) ->
             ok
     end.
 
-%% @doc Whether `dashboard.default_mfa' mandates MFA for this account.
-%% The mandate covers every account except the ones an admin has explicitly
-%% exempted, the same way `emqx_dashboard_sso_mfa' resolves an SSO backend's
-%% `force_mfa' against `admin_override'.
+%% @doc Whether `dashboard.default_mfa' requires MFA for this account.
+%% It applies to every account except the ones an admin has exempted by
+%% setting `admin_override' to mfa_exempted.
 -spec mfa_enforced_for(dashboard_username()) -> boolean().
 mfa_enforced_for(Username) ->
     default_mfa() =/= none andalso
@@ -1227,11 +1226,9 @@ maybe_init_mfa_state(Username, true) ->
         #{mechanism := Mechanism} ->
             case get_mfa_state(Username) of
                 {ok, disabled} ->
-                    %% Self-disable is not a way out of the mandate: the user
-                    %% is enrolled again at the next login. An admin-set
-                    %% exemption is the way out, and is honoured here.
-                    %% `emqx_dashboard_sso_mfa:check_user_mfa_state/2' already
-                    %% draws the same line for a backend's `force_mfa'.
+                    %% A user who disabled their own MFA is enrolled
+                    %% again here at the next login. An account an admin
+                    %% has exempted keeps the disabled state.
                     case mfa_enforced_for(Username) of
                         true ->
                             reinit_mfa(Username, Mechanism, _ByAdmin = false);
