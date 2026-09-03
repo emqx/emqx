@@ -418,11 +418,11 @@ t_check_sso_mfa_admin_disabled(_Config) ->
 
 %% Regression for PR #17361 P1 review (HJianBo):
 %% An SSO viewer on a `force_mfa = true' backend completes MFA once,
-%% then self-DELETE /users/:self/mfa. Before the fix, the next login
-%% returned `{ok, login}' because `classify_mfa_state({ok, disabled})'
-%% mapped to `admin_disabled' regardless of WHO disabled it. Now,
-%% self-disable (admin_override = undefined) must still honour the
-%% live `force_mfa', forcing re-setup on the next login.
+%% then self-DELETE /current_user/mfa. That leaves `mfa_state' as
+%% `disabled' while `admin_override' stays `undefined', which marks a
+%% self-disable rather than an admin exemption, so the live
+%% `force_mfa' still applies and the next login must go through MFA
+%% setup again.
 t_check_sso_mfa_self_disabled_still_forced({init, Config}) ->
     mock_force_mfa(?SSO_BACKEND, true),
     SsoUsername = ?SSO_USERNAME(?SSO_BACKEND, ?SSO_USER),

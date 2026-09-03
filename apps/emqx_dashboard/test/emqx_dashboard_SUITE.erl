@@ -297,8 +297,10 @@ t_rest_api(_Config) ->
     ),
     {ok, 204, _} = http_delete(["users", "usera"]),
     {ok, 404, _} = http_delete(["users", "usera"]),
+    %% Changing one's own password is self-service: the caller is the
+    %% subject, so there is no username in the path.
     {ok, 204, _} = http_post(
-        ["users", "admin", "change_pwd"],
+        ["current_user", "change_pwd"],
         #{
             <<"old_pwd">> => Password,
             <<"new_pwd">> => <<"newpwd_lkdfki1">>
@@ -754,6 +756,31 @@ t_lookup_by_username_jwt(_Config) ->
     %% issue a gen_server call to sync the async destroy gen_server cast
     ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
     ?assertMatch([], emqx_dashboard_token:lookup_by_username(User)),
+    ok.
+
+t_lookup_by_username_jwt_sso(_Config) ->
+    Name = bin(["user-", integer_to_list(random_num())]),
+    Sso = ?SSO_USERNAME(ldap, Name),
+    emqx_dashboard_token:sign(#?ADMIN{username = Sso}),
+    ?assertMatch(
+        [#?ADMIN_JWT{username = Name}],
+        emqx_dashboard_token:lookup_by_username(Sso)
+    ),
+    ok = emqx_dashboard_token:destroy_by_username(Sso),
+    ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
+    ?assertMatch([], emqx_dashboard_token:lookup_by_username(Sso)),
+    ok.
+
+t_lookup_by_username_jwt_backend_isolation(_Config) ->
+    Name = bin(["user-", integer_to_list(random_num())]),
+    emqx_dashboard_token:sign(#?ADMIN{username = Name}),
+    emqx_dashboard_token:sign(#?ADMIN{username = ?SSO_USERNAME(ldap, Name)}),
+    ?assertMatch([_], emqx_dashboard_token:lookup_by_username(Name)),
+    ?assertMatch([_], emqx_dashboard_token:lookup_by_username(?SSO_USERNAME(ldap, Name))),
+    ok = emqx_dashboard_token:destroy_by_username(?SSO_USERNAME(ldap, Name)),
+    ok = gen_server:call(emqx_dashboard_token, dummy, infinity),
+    ?assertMatch([], emqx_dashboard_token:lookup_by_username(?SSO_USERNAME(ldap, Name))),
+    ?assertMatch([_], emqx_dashboard_token:lookup_by_username(Name)),
     ok.
 
 t_clean_expired_jwt(_Config) ->

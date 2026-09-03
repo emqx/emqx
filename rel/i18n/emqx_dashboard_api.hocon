@@ -1,10 +1,5 @@
 emqx_dashboard_api {
 
-change_pwd_api.desc:
-"""Change Dashboard user password"""
-change_pwd_api.label:
-"""Change Dashboard user password"""
-
 create_user_api.desc:
 """Create Dashboard user"""
 create_user_api.label:
@@ -104,14 +99,14 @@ If this field is omitted when a user is created, the server applies the default 
 
 On write (create or update) this field also accepts the literal string `unset`, and a scope list that matches the role's implicit default set is treated the same way: both are stored as \"no explicit scopes\", so the user keeps the forward-compatible role default instead of a frozen list. This lets a read-modify-write (for example editing only the description) round-trip the `unset` value or the expanded scope list returned by a `GET` without error.
 
-Login users may be assigned any API key catalog scope plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, and `api_key_management`. Among these four scopes, `user_management`, `sso_management`, and `api_key_management` are administrator-only. `mfa_management` may also be assigned to non-administrator users. For non-administrator users, it acts only as a self-exemption key that allows the user to bypass `force_mfa` and `admin_required` locks for their own MFA."""
+Login users may be assigned any API key catalog scope plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, and `api_key_management`. All four are administrator-only; assigning any of them to a non-administrator is rejected. `mfa_management` means "manage other users' MFA": managing your own MFA is done through `/current_user/mfa` and needs no scope at all."""
 
 user_scopes_response.desc:
 """Dashboard user scopes: a fine-grained access list applied in addition to the user's role.
 
 The literal string `unset` is a legacy-only sentinel for records upgraded from a release that did not support Dashboard user scopes. At runtime, such records fall back to the default scopes for the role. Clients should treat `unset` as \"no explicit scope policy has been set yet\". An empty list `[]` means deny-all; only anonymous endpoints such as `/status` remain reachable.
 
-Login users may be assigned any API key catalog scope plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, and `api_key_management`. Among these four scopes, `user_management`, `sso_management`, and `api_key_management` are administrator-only. `mfa_management` may also be assigned to non-administrator users. For non-administrator users, it acts only as a self-exemption key that allows the user to bypass `force_mfa` and `admin_required` locks for their own MFA."""
+Login users may be assigned any API key catalog scope plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, and `api_key_management`. All four are administrator-only; assigning any of them to a non-administrator is rejected. `mfa_management` means "manage other users' MFA": managing your own MFA is done through `/current_user/mfa` and needs no scope at all."""
 
 backend.desc:
 """User account source"""
@@ -120,10 +115,10 @@ password_expire_in_seconds.desc:
 """Time in seconds until the password expires."""
 
 change_mfa.desc:
-"""Set up or reset MFA for a Dashboard user. Calling this endpoint generates a fresh TOTP secret."""
+"""Set up or reset MFA for another Dashboard user. Calling this endpoint generates a fresh TOTP secret. Requires the `mfa_management` scope and the administrator role. To manage your own MFA, use `/current_user/mfa`."""
 
 delete_mfa.desc:
-"""Disable MFA for a Dashboard user. To reset or re-key TOTP, call the `POST` method."""
+"""Disable MFA for another Dashboard user. To reset or re-key TOTP, call the `POST` method. Requires the `mfa_management` scope and the administrator role. To manage your own MFA, use `/current_user/mfa`."""
 
 mfa_token.desc:
 """Multifactor authentication token."""
@@ -139,5 +134,39 @@ change_mfa.label:
 
 delete_mfa.label:
 """Delete MFA"""
+
+current_user_api.desc:
+"""Return the signed-in user's own account: username, role, effective permission scopes and MFA status."""
+current_user_api.label:
+"""Get own account"""
+
+change_pwd_api.desc:
+"""Deprecated. Change the signed-in user's own password; the `username` in the path must be the signed-in user, otherwise the request is rejected. Use `/current_user/change_pwd` instead, which takes no username."""
+change_pwd_api.label:
+"""Change own password (deprecated)"""
+
+change_pwd_self_only.desc:
+"""The `username` in the path is not the signed-in user. This endpoint changes your own password only."""
+
+current_user_change_pwd_api.desc:
+"""Change the signed-in user's own password. The current password must be supplied as `old_pwd`. Accounts that sign in through an SSO backend have no local password and are rejected."""
+current_user_change_pwd_api.label:
+"""Change own password"""
+
+current_user_mfa_api.desc:
+"""Set up or rotate MFA for the signed-in user's own account. Calling this endpoint generates a fresh TOTP secret."""
+current_user_mfa_api.label:
+"""Change own MFA"""
+
+delete_current_user_mfa_api.desc:
+"""Disable MFA for the signed-in user's own account. To reset or re-key TOTP, call the `POST` method."""
+delete_current_user_mfa_api.label:
+"""Delete own MFA"""
+
+current_user_mfa_admin_required.desc:
+"""MFA is required on this account by an administrator, so the account holder cannot turn it off. Re-keying it is still allowed."""
+
+effective_user_scopes_response.desc:
+"""The permission scopes the user effectively holds. Unlike the `scopes` field of the user management endpoints, the role default is already expanded here, so this is always a concrete list."""
 
 }

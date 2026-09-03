@@ -66,7 +66,7 @@ destroy(#?ADMIN_JWT{token = Token}) ->
 destroy(Token) when is_binary(Token) ->
     do_destroy(Token).
 
--spec destroy_by_username(Username :: term()) -> ok.
+-spec destroy_by_username(dashboard_username()) -> ok.
 destroy_by_username(Username) ->
     do_destroy_by_username(Username).
 
@@ -147,14 +147,12 @@ do_destroy(Token) ->
     ok.
 
 do_destroy_by_username(Username) ->
-    Spec = jwt_by_username_spec(Username),
     Fun = fun() ->
-        Tokens = mnesia:select(?TAB, Spec),
         lists:foreach(
             fun(#?ADMIN_JWT{token = Token}) ->
                 mnesia:delete({?TAB, Token})
             end,
-            Tokens
+            select_by_username(Username)
         ),
         ok
     end,
@@ -172,8 +170,7 @@ lookup(Token) ->
     end.
 
 lookup_by_username(Username) ->
-    Spec = jwt_by_username_spec(Username),
-    Fun = fun() -> mnesia:select(?TAB, Spec) end,
+    Fun = fun() -> select_by_username(Username) end,
     {atomic, List} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     List.
 
@@ -217,8 +214,25 @@ format(Token, Backend, Username, Role, ExpTime, Namespace) ->
         extra = Extra
     }.
 
-jwt_by_username_spec(Username) ->
-    [{jwt_pat([{#?ADMIN_JWT.username, Username}]), [], ['$_']}].
+%% A row keeps the bare name in `username' and the backend in `extra',
+%% so an SSO key matches nothing on its own.  Select on the name and
+%% keep the rows whose backend belongs to the same account, so that a
+%% local user and an SSO user of the same name stay isolated.
+select_by_username(Username) ->
+    Rows = mnesia:select(?TAB, jwt_by_username_spec(name_of(Username))),
+    [
+        JWT
+     || #?ADMIN_JWT{username = Name, extra = Extra} = JWT <- Rows,
+        full_admin_key(Name, Extra) =:= Username
+    ].
+
+name_of(?SSO_USERNAME(_Backend, Name)) ->
+    Name;
+name_of(Username) ->
+    Username.
+
+jwt_by_username_spec(Name) ->
+    [{jwt_pat([{#?ADMIN_JWT.username, Name}]), [], ['$_']}].
 
 jwt_pat(Overrides) ->
     erlang:make_tuple(

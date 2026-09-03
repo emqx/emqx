@@ -42,7 +42,8 @@ groups() ->
             t_all_endpoints_covered_by_scopes,
             t_init_cache_no_missing_path_warnings,
             t_public_paths_not_in_cache,
-            t_wildcard_does_not_claim_public_path
+            t_wildcard_does_not_claim_public_path,
+            t_public_template_classifies_concrete_path_as_public
         ]},
         {integration_tests, [parallel], [
             t_authorize_with_scopes,
@@ -476,6 +477,12 @@ collect_public_paths(Modules) ->
                 try apply(M, scopes, []) of
                     Map when is_map(Map) ->
                         [path_to_binary(P) || {P, ?SCOPE_PUBLIC} <- maps:to_list(Map)];
+                    %% Whole-module form: `scopes() -> ?SCOPE_PUBLIC'
+                    %% makes every path the module declares public.
+                    %% `emqx_dashboard_schema_api' uses this form, so
+                    %% `/schemas/:name' is public.
+                    ?SCOPE_PUBLIC ->
+                        [path_to_binary(P) || P <- apply(M, paths, [])];
                     _ ->
                         []
                 catch
@@ -730,6 +737,47 @@ create_app(Name, Extra) ->
         {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
     end.
+
+-doc """
+A ?SCOPE_PUBLIC entry that is itself a TEMPLATE must classify the
+concrete paths it covers as `public', not `not_found'.
+
+`classify_path/1' answers an exact-match lookup first, so a public
+template is only ever reached through segment matching. Both
+`/sso/login/:backend' and `/users/:username/change_pwd' are declared
+public and are templates, and
+`emqx_dashboard_rbac:check_login_user_scopes_strict/2' denies a
+`not_found' path to any user carrying an explicit scope list.
+
+`t_wildcard_does_not_claim_public_path' above covers the opposite
+direction: a scoped template wins over a public one, so `/sso/oidc'
+resolves to sso_management.
+""".
+t_public_template_classifies_concrete_path_as_public(_Config) ->
+    emqx_mgmt_api_key_scopes:init_cache(),
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    PublicPaths = collect_public_paths(Modules),
+    Templates = [P || P <- PublicPaths, binary:match(P, <<"/:">>) =/= nomatch],
+    ?assert(
+        Templates =/= [],
+        "no templated ?SCOPE_PUBLIC path declared -- test now vacuous"
+    ),
+    lists:foreach(
+        fun(Template) ->
+            Concrete = binary:replace(Template, <<":">>, <<>>, [global]),
+            ?assertEqual(
+                public,
+                emqx_mgmt_api_key_scopes:classify_path(Concrete),
+                lists:flatten(
+                    io_lib:format(
+                        "public template ~s did not cover ~s", [Template, Concrete]
+                    )
+                )
+            )
+        end,
+        Templates
+    ),
+    emqx_mgmt_api_key_scopes:clear_cache().
 
 read_app(Name) ->
     AuthHeader = emqx_common_test_http:default_user_auth_header(),

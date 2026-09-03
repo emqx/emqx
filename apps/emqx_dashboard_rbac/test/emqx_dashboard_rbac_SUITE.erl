@@ -256,38 +256,51 @@ t_logout(TCConfig) when is_list(TCConfig) ->
     {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     ok.
 
-t_change_pwd(_) ->
-    Viewer1 = <<"viewer1">>,
-    Viewer2 = <<"viewer2">>,
-    SuperUser = <<"super_user">>,
+%% RBAC's rule for `/current_user/*' is "any authenticated dashboard
+%% user": those routes carry no `:username' binding to compare the actor
+%% against, so every role passes, and a viewer with an explicitly
+%% emptied scope list passes too (the scope layer treats the paths as
+%% public).
+t_current_user_allowed_for_every_role(_) ->
     Password = <<"public_www1">>,
     Desc = <<"desc">>,
-    {ok, _} = emqx_dashboard_admin:add_user(Viewer1, Password, ?ROLE_VIEWER, Desc),
-    {ok, _} = emqx_dashboard_admin:add_user(Viewer2, Password, ?ROLE_VIEWER, Desc),
-    {ok, _} = emqx_dashboard_admin:add_user(SuperUser, Password, ?ROLE_SUPERUSER, Desc),
-    {ok, #{role := ?ROLE_VIEWER, token := Viewer1Token}} = emqx_dashboard_admin:sign_token(
-        Viewer1, Password
+    Users = [
+        {<<"cu_viewer">>, ?ROLE_VIEWER},
+        {<<"cu_admin">>, ?ROLE_SUPERUSER},
+        {<<"cu_ns_admin">>, <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>},
+        {<<"cu_ns_viewer">>, <<"ns:ns1::", ?ROLE_VIEWER/binary>>}
+    ],
+    lists:foreach(
+        fun({Username, Role}) ->
+            {ok, _} = emqx_dashboard_admin:add_user(Username, Password, Role, Desc),
+            %% Deliberately restricted to "no permissions" — self-service
+            %% must not be gated by the scope list.
+            {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, []),
+            {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+            lists:foreach(
+                fun({Method, Fn, Path}) ->
+                    ?assertMatch(
+                        {ok, #{actor := Username}},
+                        current_user_req(Token, Method, Fn, Path),
+                        #{username => Username, role => Role, function => Fn}
+                    )
+                end,
+                [
+                    {get, current_user, <<"/api/v5/current_user">>},
+                    {post, current_user_change_pwd, <<"/api/v5/current_user/change_pwd">>},
+                    {post, current_user_mfa, <<"/api/v5/current_user/mfa">>},
+                    {delete, current_user_mfa, <<"/api/v5/current_user/mfa">>}
+                ]
+            )
+        end,
+        Users
     ),
-    {ok, #{role := ?ROLE_SUPERUSER, token := SuperToken}} = emqx_dashboard_admin:sign_token(
-        SuperUser, Password
-    ),
-    %% viewer can change own password
-    ?assertMatch({ok, #{actor := Viewer1}}, change_pwd(Viewer1Token, Viewer1)),
-    %% viewer can't change other's password
-    ?assertMatch({error, {unauthorized_role, _}}, change_pwd(Viewer1Token, Viewer2)),
-    ?assertMatch({error, {unauthorized_role, _}}, change_pwd(Viewer1Token, SuperUser)),
-    %% superuser can change other's password
-    ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer1)),
-    ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer2)),
-    ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, SuperUser)),
     ok.
 
-change_pwd(Token, Username) ->
-    Req = #{
-        bindings => #{username => Username},
-        path => <<"/api/v5/users/", Username/binary, "/change_pwd">>
-    },
-    HandlerInfo = #{method => post, function => change_pwd, module => emqx_dashboard_api},
+current_user_req(Token, Method, Fn, Path) ->
+    %% No `bindings' at all — these routes carry no path parameter.
+    Req = #{bindings => #{}, path => Path},
+    HandlerInfo = #{method => Method, function => Fn, module => emqx_dashboard_api},
     emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token).
 
 t_setup_mfa(_) ->
@@ -296,19 +309,13 @@ t_setup_mfa(_) ->
 t_delete_mfa(_) ->
     test_mfa(fun delete_mfa/2).
 
-%% Port from release-510 #17122 c4ab6b15: SSO usernames may contain `@`
-%% (e.g. email addresses). The HTTP layer URL-encodes them as `%40`.
-%% On release-60, cowboy_router automatically URL-decodes path segments
-%% before populating `bindings`, so the RBAC binding match against the
-%% logged-in actor still works. This is the end-to-end equivalent of the
-%% release-510 path-string regression: it exercises cowboy + minirest +
-%% RBAC + the MFA handler with `backend=saml` and `force_mfa = false`/`true`.
-t_delete_mfa_sso_force_mfa_urlencoded_username_http(_) ->
-    %% Full HTTP path: RBAC + emqx_dashboard_api:authorize_mfa_change/3.
-    %% Lock state is derived from the per-user `admin_override' field,
-    %% so the test pins the contract: override=mfa_required denies
-    %% self-DELETE, override=undefined (or mfa_exempted) allows it,
-    %% regardless of the backend's live force_mfa flag.
+%% `/current_user/mfa' carries no username path segment, so an SSO
+%% username containing `@' (percent-encoded as `%40' by the HTTP layer)
+%% needs no decoding or comparison here. Over the full HTTP path this
+%% pins the contract: the self-MFA lock is driven by the per-user
+%% `admin_override' field, not by the SSO backend's live `force_mfa'
+%% flag, and it holds for an SSO identity whose name needs escaping.
+t_delete_own_mfa_sso_admin_override_http(_) ->
     SsoBackend = saml,
     SsoUser = <<"jackson-http@example.com">>,
     Desc = <<"desc">>,
@@ -319,26 +326,18 @@ t_delete_mfa_sso_force_mfa_urlencoded_username_http(_) ->
     ),
     %% override=undefined (no admin decision): self-DELETE succeeds.
     {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, undefined),
-    ?assertMatch(
-        {ok, 204, _},
-        delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
-    ),
-    %% override=mfa_required: self-DELETE denied with MFA_LOCKED.
+    ?assertMatch({ok, 204, _}, delete_own_mfa_http(SsoToken)),
+    %% override=mfa_required: self-DELETE denied with MFA_ADMIN_REQUIRED.
     {ok, ok} = emqx_dashboard_admin:set_admin_override(SsoUsername, ?ADMIN_MFA_REQUIRED),
-    ?assertMatch(
-        {ok, 403, _},
-        delete_mfa_urlencoded_username_http(SsoToken, SsoBackend, SsoUser)
-    ),
+    ?assertMatch({ok, 403, _}, delete_own_mfa_http(SsoToken)),
     ok.
 
-t_delete_mfa_sso_force_mfa(_) ->
-    %% RBAC layer no longer consults the live SSO backend `force_mfa'
-    %% flag for self-DELETE on /users/:self/mfa. Policy state (the
-    %% admin_override decision) is decided in
-    %% emqx_dashboard_api:authorize_mfa_change/3. This RBAC-only test
-    %% therefore asserts that self-DELETE always passes the RBAC
-    %% layer; admin_override enforcement is covered by the full-HTTP
-    %% test below and by emqx_dashboard_user_scopes_SUITE.
+t_delete_own_mfa_sso_force_mfa(_) ->
+    %% RBAC does not consult the SSO backend's live `force_mfa' flag for
+    %% self-MFA: `/current_user/mfa' is allowed for any authenticated
+    %% user and the decision belongs to the handler
+    %% (`authorize_self_mfa_disable/1', driven by `admin_override').
+    %% Assert RBAC stays policy-independent across both values of the flag.
     SsoBackend = saml,
     SsoUser = <<"sso_viewermfa">>,
     LocalUser = <<"local_viewermfa">>,
@@ -353,14 +352,15 @@ t_delete_mfa_sso_force_mfa(_) ->
     {ok, #{role := ?ROLE_VIEWER, token := LocalToken}} = emqx_dashboard_admin:sign_token(
         LocalUser, Password
     ),
+    Delete = fun(Token) ->
+        current_user_req(Token, delete, current_user_mfa, <<"/api/v5/current_user/mfa">>)
+    end,
     try
-        %% RBAC is policy-independent for self-DELETE: passes regardless
-        %% of the backend's current force_mfa value.
         ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => false}),
-        ?assertMatch({ok, #{actor := SsoUser}}, delete_mfa(SsoToken, SsoUser)),
+        ?assertMatch({ok, #{actor := SsoUser}}, Delete(SsoToken)),
         ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig#{force_mfa => true}),
-        ?assertMatch({ok, #{actor := SsoUser}}, delete_mfa(SsoToken, SsoUser)),
-        ?assertMatch({ok, #{actor := LocalUser}}, delete_mfa(LocalToken, LocalUser))
+        ?assertMatch({ok, #{actor := SsoUser}}, Delete(SsoToken)),
+        ?assertMatch({ok, #{actor := LocalUser}}, Delete(LocalToken))
     after
         ok = emqx_config:put([dashboard, sso, SsoBackend], SsoConfig)
     end,
@@ -390,18 +390,24 @@ test_mfa(VerifyFn) ->
     ),
     {ok, #{role := ?ROLE_SUPERUSER, token := NamespacedSuperToken}} =
         emqx_dashboard_admin:sign_token(NamespacedSuperUser, Password),
-    %% viewer can change own MFA
-    ?assertMatch({ok, #{actor := Viewer1}}, VerifyFn(Viewer1Token, Viewer1)),
-    %% viewer can't change other's MFA
+    %% `/users/:username/mfa' is purely administrative: it manages
+    %% another user, and the self case lives at `/current_user/mfa'.
+    %% A viewer is denied on every target, its own account included.
+    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, Viewer1)),
     ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, Viewer2)),
     ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, SuperUser)),
-    %% superuser can change other's MFA
+    %% A global administrator reaches every target. (The handler then
+    %% refuses the self target and points at /current_user/mfa; that is a
+    %% handler decision, not an RBAC one, and is asserted over HTTP in
+    %% emqx_dashboard_current_user_SUITE.)
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer1)),
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer2)),
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, SuperUser)),
-    %% namespaced superuser can change own MFA, but not other dashboard users' MFA
+    %% A namespaced administrator is denied on every target, its own
+    %% account included. Resetting a tenant user's MFA is the vector this
+    %% keeps closed; the namespaced admin's own MFA is at /current_user/mfa.
     ?assertMatch(
-        {ok, #{actor := NamespacedSuperUser}},
+        {error, {unauthorized_role, _}},
         VerifyFn(NamespacedSuperToken, NamespacedSuperUser)
     ),
     ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(NamespacedSuperToken, Viewer1)),
@@ -418,8 +424,8 @@ test_mfa(VerifyFn) ->
 %% scopes=undefined uses the role-default fallback (admin -> common + login-only,
 %% viewer -> common scopes only). A viewer with no explicit scopes therefore
 %% holds only generic scopes and is denied on /users (user_management
-%% scope). Self-targeted user endpoints are an exception (see
-%% t_check_login_user_scopes_self_user_endpoints_bypass below).
+%% scope). Self-service lives on /current_user/* and is unscoped (see
+%% t_check_login_user_scopes_current_user_is_public below).
 t_check_login_user_scopes_undefined_falls_back(_) ->
     Username = <<"login_user_scopes_undef">>,
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -438,66 +444,50 @@ t_check_login_user_scopes_undefined_falls_back(_) ->
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
     ).
 
-%% Self-targeted user endpoints (own change_pwd, own MFA) bypass the
-%% scope check — they are gated by RBAC's self-check and, for MFA, by
-%% emqx_dashboard_api:authorize_mfa_change/3.
-t_check_login_user_scopes_self_user_endpoints_bypass(_) ->
+%% Self-service is unscoped because `/current_user/*' is declared
+%% ?SCOPE_PUBLIC. A user with an explicit empty scope list still reaches
+%% its own account.
+t_check_login_user_scopes_current_user_is_public(_) ->
     Username = <<"login_user_scopes_self">>,
     {ok, _} = emqx_dashboard_admin:add_user(
         Username, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>
     ),
-    %% Viewer default does NOT contain user_management/mfa_management,
-    %% but self-targeted paths are still allowed.
-    ?assertEqual(
-        true,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/change_pwd">>
-        )
-    ),
-    ?assertEqual(
-        true,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/mfa">>
-        )
-    ),
-    %% Other users' endpoints still respect scope rules.
-    ?assertEqual(
-        false,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/somebody_else/mfa">>
-        )
-    ).
-
-%% Self-bypass is restricted to change_pwd and mfa. PUT /users/<self>
-%% (modifying one's own record) MUST still be subject to the scope
-%% check — otherwise a user with explicit `scopes = []' could PUT
-%% itself to add scopes back, defeating the self-restriction.
-t_check_login_user_scopes_self_user_record_not_bypassed(_) ->
-    Username = <<"login_user_scopes_self_put">>,
-    {ok, _} = emqx_dashboard_admin:add_user(
-        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
-    ),
     {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, []),
-    %% Self change_pwd / mfa still allowed.
-    ?assertEqual(
-        true,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/change_pwd">>
-        )
+    lists:foreach(
+        fun(Path) ->
+            ?assertEqual(
+                true,
+                emqx_dashboard_rbac:check_login_user_scopes(Username, Path),
+                #{path => Path}
+            )
+        end,
+        [
+            <<"/current_user">>,
+            <<"/current_user/change_pwd">>,
+            <<"/current_user/mfa">>,
+            %% The deprecated shim is unscoped for the same reason. It is
+            %% a templated ?SCOPE_PUBLIC entry, so it only classifies as
+            %% public through segment matching, not exact lookup.
+            <<"/users/", Username/binary, "/change_pwd">>,
+            <<"/users/somebody_else/change_pwd">>
+        ]
     ),
-    %% But PUT /users/<self> (the record itself) is NOT bypassed —
-    %% the user record path maps to user_management which the user
-    %% explicitly does not hold.
-    ?assertEqual(
-        false,
-        emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary>>
-        )
-    ),
-    %% Likewise GET /users (list) is not bypassed.
-    ?assertEqual(
-        false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+    %% Every other path under /users/ is scope-checked, even one that
+    %% names the caller: those routes manage other users.
+    lists:foreach(
+        fun(Path) ->
+            ?assertEqual(
+                false,
+                emqx_dashboard_rbac:check_login_user_scopes(Username, Path),
+                #{path => Path}
+            )
+        end,
+        [
+            <<"/users/", Username/binary, "/mfa">>,
+            <<"/users/somebody_else/mfa">>,
+            <<"/users/", Username/binary>>,
+            <<"/users">>
+        ]
     ).
 
 %% scopes=[] denies every mapped path (semantically: "explicitly no
@@ -546,7 +536,7 @@ t_check_login_user_scopes_user_mgmt_grants_users(_) ->
         )
     ).
 
-%% scopes=[mfa_management] grants MFA paths but not /users.
+%% scopes=[mfa_management] grants the other-user MFA path but not /users.
 t_check_login_user_scopes_mfa_mgmt_grants_only_mfa(_) ->
     Username = <<"login_user_scopes_mm">>,
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -558,7 +548,7 @@ t_check_login_user_scopes_mfa_mgmt_grants_only_mfa(_) ->
     ?assertEqual(
         true,
         emqx_dashboard_rbac:check_login_user_scopes(
-            Username, <<"/users/", Username/binary, "/mfa">>
+            Username, <<"/users/somebody_else/mfa">>
         )
     ),
     ?assertEqual(
@@ -894,14 +884,12 @@ delete_mfa(Token, Username) ->
     HandlerInfo = #{method => delete, module => emqx_dashboard_api, function => change_mfa},
     emqx_dashboard_admin:verify_token(Req, HandlerInfo, Token).
 
-delete_mfa_urlencoded_username_http(Token, Backend, Username) ->
-    Url = emqx_mgmt_api_test_util:api_path([
-        "users", uri_string:quote(binary_to_list(Username)), "mfa"
-    ]),
+delete_own_mfa_http(Token) ->
+    Url = emqx_mgmt_api_test_util:api_path(["current_user", "mfa"]),
     emqx_mgmt_api_test_util:request_api(
         delete,
         Url,
-        [{backend, atom_to_binary(Backend)}],
+        [],
         [bearer_auth_header(Token)],
         [],
         #{compatible_mode => true}

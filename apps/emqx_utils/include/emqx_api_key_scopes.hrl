@@ -47,16 +47,15 @@
 %% keys whose scope list includes any login-only scope; bootstrap-file
 %% loader filters them with a warning.
 %%
-%% Among the four:
-%%   * `user_management`, `sso_management`, `api_key_management` are
-%%     ADMIN-ONLY — only login users with role=administrator may hold
-%%     them. Schema validation enforces this in POST /users / PUT
-%%     /users/:name handlers.
-%%   * `mfa_management` is available to ANY login user role (including
-%%     viewer / SSO viewer). For non-admin holders it acts as a
-%%     "self-exemption key" — the user may bypass force_mfa /
-%%     admin_required locks on THEIR OWN MFA only. Non-admins with
-%%     mfa_management still cannot manage other users' MFA.
+%% All four are ADMIN-ONLY: only login users with role=administrator may
+%% hold them. Schema validation enforces this in POST /users / PUT
+%% /users/:name handlers.
+%%
+%% `mfa_management` means "manage OTHER users' MFA" and nothing else.
+%% It was previously holdable by any role, where for a non-administrator
+%% it acted as a self-exemption key over that user's own MFA. Self-MFA is
+%% now an identity-authorized operation on `/current_user/mfa', so the
+%% scope has no self meaning left to carry.
 
 -define(SCOPE_USER_MGMT, <<"user_management">>).
 -define(SCOPE_MFA_MGMT, <<"mfa_management">>).
@@ -75,9 +74,13 @@
 ]).
 
 %% Subset of login-only scopes that require role=administrator.
-%% mfa_management is intentionally NOT in this list — see comment above.
+%% Currently all of them, but kept as its own list: this is the
+%% role-compatibility rule, which is a different question from
+%% "is this scope administrator-EQUIVALENT" (?PRIVILEGE_SCOPES).
+%% `mfa_management' is admin-only and NOT a privilege scope.
 -define(ADMIN_ONLY_SCOPES, [
     ?SCOPE_USER_MGMT,
+    ?SCOPE_MFA_MGMT,
     ?SCOPE_SSO_MGMT,
     ?SCOPE_API_KEY_MGMT
 ]).
@@ -141,8 +144,11 @@
 %% scope cannot meaningfully restrict the account, so schema validation
 %% refuses that combination at write time: an explicit, non-empty scope
 %% list must be either entirely privilege or entirely non-privilege.
-%% `mfa_management' is intentionally excluded — any login user role may
-%% hold it and it is not administrator-equivalent.
+%% `mfa_management' is intentionally excluded: it is administrator-only
+%% like the other three, but it is not administrator-equivalent — it
+%% resets another user's MFA and cannot provision users, mint keys or
+%% rewrite configuration. So it may share an explicit list with
+%% restricted scopes while the other three may not.
 -define(PRIVILEGE_SCOPES, [
     ?SCOPE_SYSTEM,
     ?SCOPE_USER_MGMT,

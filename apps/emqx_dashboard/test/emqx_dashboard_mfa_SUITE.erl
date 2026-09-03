@@ -246,11 +246,14 @@ t_disable_mfa(_Config) ->
     ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer2">>), AdminJwtToken),
     {ok, 200, RspBody} = login(LoginBody),
     #{<<"token">> := JwtToken} = json_map(RspBody),
-    %% viewer1 cannot disable own admin-enforced MFA
+    %% viewer1 cannot disable own admin-enforced MFA (MFA_ADMIN_REQUIRED
+    %% on its own route -- admin_override = mfa_required).
+    ?assertMatch({ok, 403, _}, disable_own_mfa(JwtToken)),
+    %% a viewer may not reach the administrator routes at all, for any
+    %% target -- including itself.
+    ?assertMatch({ok, 403, _}, enable_mfa(<<"viewer1">>, JwtToken)),
     ?assertMatch({ok, 403, _}, disable_mfa(<<"viewer1">>, JwtToken)),
-    %% viewer is not allow to enable other user's MFA
     ?assertMatch({ok, 403, _}, enable_mfa(<<"viewer2">>, JwtToken)),
-    %% viewer is not allow to disable other user's MFA
     ?assertMatch({ok, 403, _}, disable_mfa(<<"viewer2">>, JwtToken)),
     %% admin can disable any user's MFA (overrides admin_required)
     ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer1">>, AdminJwtToken)),
@@ -307,15 +310,17 @@ t_enable_by_config(_Config) ->
     ),
     {ok, 200, LoginRsp} = login(LoginBody#{<<"mfa_token">> => ?GOOD_TOTP}),
     #{<<"token">> := JwtToken} = json_map(LoginRsp),
-    %% mark MFA disalbed for this user
-    ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer1">>, JwtToken)),
+    %% mark MFA disabled for this user (self-service: no administrator
+    %% decision recorded against the account, so it is not locked)
+    ?assertMatch({ok, 204, _}, disable_own_mfa(JwtToken)),
     ?assertMatch(#{<<"mfa">> := <<"disabled">>}, get_user(<<"viewer1">>)),
     %% should be able to login without TOTP even though default MFA is configured
     {ok, 200, _} = login(LoginBody),
     ok.
 
 %% DELETE MFA ignores the historical reset query parameter.
-%% Resetting/re-keying MFA should be done with POST /users/:username/mfa.
+%% Resetting/re-keying another user's MFA is POST /users/:username/mfa;
+%% for one's own account it is POST /current_user/mfa.
 t_reset_mfa({init, Config}) ->
     ok = mock_totp(),
     _ = emqx_dashboard_admin:clear_mfa_state(<<"viewer1">>),
@@ -373,9 +378,9 @@ t_reset_mfa_reinit_error(_Config) ->
         body => #{<<"mechanism">> => <<"totp">>},
         query_string => #{<<"backend">> => <<"local">>},
         %% Simulate authn metadata that minirest injects after a
-        %% successful bearer token verification (admin1 lookup
-        %% succeeds on the existing fixture, granting mfa_management
-        %% via the role-default fallback in caller_has_mfa_mgmt/1).
+        %% successful bearer token verification. admin1 is not the
+        %% target, so `reject_self_target/2' lets the call through to
+        %% the mecked `reinit_mfa/3'.
         auth_meta => #{auth_type => jwt_token, source => <<"admin1">>}
     },
     ?assertMatch({400, 'BAD_REQUEST', <<"boom">>}, emqx_dashboard_api:change_mfa(post, Req)),
@@ -412,6 +417,9 @@ enable_mfa(User, JwtToken) ->
 
 disable_mfa(User, JwtToken) ->
     request_api(delete, api_path(["users", User, mfa]), auth_header(JwtToken), #{}).
+
+disable_own_mfa(JwtToken) ->
+    request_api(delete, api_path(["current_user", "mfa"]), auth_header(JwtToken), #{}).
 
 delete_mfa_with_reset_query(User, JwtToken) ->
     Url = binary_to_list(iolist_to_binary(api_path(["users", User, "mfa"]))),

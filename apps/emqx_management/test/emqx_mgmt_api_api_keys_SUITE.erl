@@ -1117,14 +1117,19 @@ t_ee_authorize_admin(_Config) ->
 
 -doc """
 An admin-role API key must NOT be able to reach the dashboard user-account
-management endpoints change_mfa and change_pwd via HTTP Basic auth. These
-endpoints belong to the human-facing dashboard surface and are intended
-only for bearer-token (JWT) callers.
+endpoints via HTTP Basic auth -- neither the administrator MFA route nor
+any of the self-service `/current_user/*' routes. These endpoints belong
+to the human-facing dashboard surface and are intended only for
+bearer-token (JWT) callers.
 
-Before the fix, DELETE /api/v5/users/:username/mfa via API key Basic auth
-returned HTTP 204 and silently disabled the target user's MFA. After the
-fix it must return HTTP 401 with body code API_KEY_NOT_ALLOW, matching
-the policy already enforced on /users and /users/:username.
+DELETE and POST /api/v5/users/:username/mfa via API key Basic auth must
+return HTTP 401 with body code API_KEY_NOT_ALLOW, matching the policy
+already enforced on /users and /users/:username.
+
+The `/current_user/*' routes need the same guard for a different reason:
+they are declared ?SCOPE_PUBLIC (self-service is authorized by identity,
+not by scope), so the scope layer would let an API key through. An API
+key has no dashboard account to be the subject of a self-service call.
 """.
 t_ee_authorize_admin_cannot_manage_mfa(_Config) ->
     Name = <<"EMQX-EE-API-AUTHORIZE-KEY-ADMIN-MFA">>,
@@ -1139,7 +1144,10 @@ t_ee_authorize_admin_cannot_manage_mfa(_Config) ->
     ok = ensure_victim_user(Victim),
     DeleteMfa = emqx_mgmt_api_test_util:api_path(["users", Victim, "mfa"]),
     PostMfa = DeleteMfa,
-    ChangePwd = emqx_mgmt_api_test_util:api_path(["users", Victim, "change_pwd"]),
+    ShimPwd = emqx_mgmt_api_test_util:api_path(["users", Victim, "change_pwd"]),
+    CurrentUser = emqx_mgmt_api_test_util:api_path(["current_user"]),
+    CurrentUserMfa = emqx_mgmt_api_test_util:api_path(["current_user", "mfa"]),
+    CurrentUserPwd = emqx_mgmt_api_test_util:api_path(["current_user", "change_pwd"]),
 
     ok = assert_api_key_not_allow(
         delete, DeleteMfa, [], BasicHeader, []
@@ -1147,9 +1155,24 @@ t_ee_authorize_admin_cannot_manage_mfa(_Config) ->
     ok = assert_api_key_not_allow(
         post, PostMfa, [], BasicHeader, #{mechanism => totp}
     ),
+    %% The deprecated self-only shim is a self operation too, and it
+    %% carries no scope, so only the handler-name denial stops an API key.
     ok = assert_api_key_not_allow(
         post,
-        ChangePwd,
+        ShimPwd,
+        [],
+        BasicHeader,
+        #{old_pwd => <<"mfa_victim_pass">>, new_pwd => <<"new_pass_123">>}
+    ),
+    %% Self-service routes are equally out of reach for an API key.
+    ok = assert_api_key_not_allow(get, CurrentUser, [], BasicHeader, []),
+    ok = assert_api_key_not_allow(delete, CurrentUserMfa, [], BasicHeader, []),
+    ok = assert_api_key_not_allow(
+        post, CurrentUserMfa, [], BasicHeader, #{mechanism => totp}
+    ),
+    ok = assert_api_key_not_allow(
+        post,
+        CurrentUserPwd,
         [],
         BasicHeader,
         #{old_pwd => <<"mfa_victim_pass">>, new_pwd => <<"new_pass_123">>}
@@ -1166,9 +1189,10 @@ t_ee_authorize_admin_cannot_manage_mfa(_Config) ->
 -doc """
 Lower-level companion to t_ee_authorize_admin_cannot_manage_mfa:
 call emqx_mgmt_auth:authorize/4 directly with a HandlerInfo map that
-names the dashboard change_mfa / change_pwd handlers. This pins the
-contract at the exact clause being added in the fix, independent of
-any HTTP / minirest plumbing.
+names the dashboard change_mfa and current_user_* handlers. It checks
+the rule directly in emqx_mgmt_auth, independent of any HTTP / minirest
+plumbing. The denial matches on the handler function name, so a
+dashboard route is covered only once it appears in this list.
 """.
 t_ee_authorize_admin_cannot_manage_mfa_module_level(_Config) ->
     Name = <<"EMQX-EE-API-AUTH-MFA-MODULE">>,
@@ -1186,23 +1210,32 @@ t_ee_authorize_admin_cannot_manage_mfa_module_level(_Config) ->
         path => "/users/:username/mfa"
     },
     PostMfaHandler = DeleteMfaHandler#{method => post},
-    ChangePwdHandler = #{
-        method => post,
-        module => emqx_dashboard_api,
-        function => change_pwd,
-        path => "/users/:username/change_pwd"
-    },
-    ?assertEqual(
-        {error, <<"not_allowed">>, <<"users">>},
-        emqx_mgmt_auth:authorize(DeleteMfaHandler, FakeReq, ApiKey, ApiSecret)
-    ),
-    ?assertEqual(
-        {error, <<"not_allowed">>, <<"users">>},
-        emqx_mgmt_auth:authorize(PostMfaHandler, FakeReq, ApiKey, ApiSecret)
-    ),
-    ?assertEqual(
-        {error, <<"not_allowed">>, <<"users">>},
-        emqx_mgmt_auth:authorize(ChangePwdHandler, FakeReq, ApiKey, ApiSecret)
+    SelfHandlers = [
+        #{
+            method => post,
+            function => change_pwd,
+            path => "/users/:username/change_pwd"
+        },
+        #{method => get, function => current_user, path => "/current_user"},
+        #{
+            method => post,
+            function => current_user_change_pwd,
+            path => "/current_user/change_pwd"
+        },
+        #{method => post, function => current_user_mfa, path => "/current_user/mfa"},
+        #{method => delete, function => current_user_mfa, path => "/current_user/mfa"}
+    ],
+    lists:foreach(
+        fun(Handler) ->
+            ?assertEqual(
+                {error, <<"not_allowed">>, <<"users">>},
+                emqx_mgmt_auth:authorize(
+                    Handler#{module => emqx_dashboard_api}, FakeReq, ApiKey, ApiSecret
+                ),
+                Handler
+            )
+        end,
+        [DeleteMfaHandler, PostMfaHandler | SelfHandlers]
     ),
     ok.
 

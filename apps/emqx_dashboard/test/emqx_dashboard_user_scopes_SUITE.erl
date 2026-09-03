@@ -4,23 +4,17 @@
 %%
 %% Coverage for dashboard login user scope checking
 %% (emqx_dashboard_rbac:check_login_user_scopes/2) and the MFA
-%% self-lock matrix (emqx_dashboard_api:authorize_mfa_change/3).
+%% authorization rules on both sides of the self/admin split.
 %%
-%% MFA self-lock decision matrix:
+%% Self-MFA (`/current_user/mfa',
+%% emqx_dashboard_api:authorize_self_mfa_disable/1):
 %%
-%%   IsFirstSetup = (Op == setup) AND (target.mfa_state == not_configured)
-%%   IsSelf       = (caller.username == target)
-%%   HasMfaMgmt   = caller effective scopes contain mfa_management
-%%   Locked       = target.admin_override == mfa_required
-%%                  (admin_override == mfa_exempted or undefined => unlocked)
+%%   setup / rotate             => allow (never gated)
+%%   disable, override=required => deny  MFA_ADMIN_REQUIRED
+%%   disable, otherwise         => allow
 %%
-%%   IsFirstSetup                                    => allow (deadlock prevention)
-%%   IsSelf       AND HasMfaMgmt                     => allow (self-exempt)
-%%   IsSelf       AND NOT HasMfaMgmt AND NOT Locked  => allow
-%%   IsSelf       AND NOT HasMfaMgmt AND Locked      => deny  mfa_locked
-%%   NOT IsSelf   AND HasMfaMgmt AND administrator   => allow (admin reset)
-%%   NOT IsSelf   AND HasMfaMgmt AND non-admin       => deny  self_only
-%%   NOT IsSelf   AND NOT HasMfaMgmt                 => deny  missing_mfa_mgmt
+%% Administrator MFA (`/users/:username/mfa'): global administrator
+%% holding `mfa_management', target must be another user.
 %%
 %% Field-write tests verify the admin_override write rules:
 %% admin reinit writes mfa_required; admin disable writes mfa_exempted;
@@ -119,15 +113,15 @@ end_per_testcase(_Case, _Config) ->
 %% role x scope schema validation (POST /users)
 %%--------------------------------------------------------------------
 
-%% Administrator can hold the three admin-only login scopes together
-%% (they are all privilege scopes, so a privilege-only list is allowed).
-%% mfa_management is a non-privilege scope and so cannot share an
-%% explicit list with the privilege scopes; it is exercised separately
-%% below and in t_user_mfa_mgmt_not_privilege/1.
+%% Administrator can hold the three privilege login scopes together
+%% (a privilege-only list is allowed). mfa_management is admin-only too
+%% but is NOT a privilege scope, so it cannot share an explicit list
+%% with them; it is exercised separately below and in
+%% t_user_mfa_mgmt_not_privilege/1.
 t_admin_can_hold_all_4_new_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
-    PrivLoginScopes = ?ADMIN_ONLY_SCOPES,
+    PrivLoginScopes = ?ADMIN_ONLY_SCOPES -- [?SCOPE_MFA_MGMT],
     Body = #{
         <<"username">> => <<"admin2">>,
         <<"password">> => test_password(),
@@ -481,9 +475,9 @@ t_viewer_cannot_hold_user_management(_Config) ->
         request_api(post, api_path(["users"]), auth_header(Token), Body)
     ).
 
-%% Viewer CAN hold mfa_management — non-admin self-exemption rule
-%% (viewer self-exemption rule).
-t_viewer_can_hold_mfa_management(_Config) ->
+%% Viewer cannot hold mfa_management: the scope means "manage another
+%% user's MFA" and is administrator-only.
+t_viewer_cannot_hold_mfa_management(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
     Body = #{
@@ -493,9 +487,12 @@ t_viewer_can_hold_mfa_management(_Config) ->
         <<"description">> => <<"test">>,
         <<"scopes">> => [?SCOPE_MFA_MGMT]
     },
+    {ok, 400, RespBody} = request_api(
+        post, api_path(["users"]), auth_header(Token), Body
+    ),
     ?assertMatch(
-        {ok, 200, _},
-        request_api(post, api_path(["users"]), auth_header(Token), Body)
+        #{<<"message">> := <<"Non-administrator users cannot hold admin-only scopes:", _/binary>>},
+        emqx_utils_json:decode(RespBody)
     ).
 
 %% Viewer cannot hold sso_management.
@@ -1027,9 +1024,9 @@ t_role_demotion_with_compatible_persisted_scopes_succeeds(_Config) ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_SUPERUSER, "demote-target"
     ),
-    %% mfa_management is allowed for any role, so the persisted
-    %% scope remains compatible after demotion.
-    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_MFA_MGMT]),
+    %% A generic scope is allowed for any role, so the persisted scope
+    %% remains compatible after demotion.
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_CONNECTIONS]),
     PutBody = #{
         <<"role">> => ?ROLE_VIEWER,
         <<"description">> => <<"demoted">>
@@ -1040,49 +1037,36 @@ t_role_demotion_with_compatible_persisted_scopes_succeeds(_Config) ->
     ?assertEqual(?ROLE_VIEWER, Admin#?ADMIN.role).
 
 %%--------------------------------------------------------------------
-%% MFA self-lock matrix (the 7-line decision table)
+%% Self-MFA policy (`/current_user/mfa')
+%%
+%% One rule covers these routes, because the caller and the subject are
+%% the same identity:
+%%
+%%   setup / rotate             => allow  (never gated)
+%%   disable, override=required => deny   (MFA_ADMIN_REQUIRED)
+%%   disable, otherwise         => allow
+%%
+%% Rotation stays open under the requirement: it keeps MFA enabled, so it
+%% cannot weaken what the override protects.
+%%
+%% `mfa_management' is an administrator-only scope meaning "manage OTHER
+%% users' MFA"; it does not exempt its holder on their own account. The
+%% exits from a locked account are an administrator exemption and the CLI.
 %%--------------------------------------------------------------------
 
-%% Row 1: First-time setup is always allowed, regardless of locks.
-%% Without this, a user with force_mfa=true would be unable to
-%% complete initial MFA setup (deadlock).
+%% First-time setup is always allowed, regardless of the lock. Without
+%% this a user under an active mandate could never enrol (deadlock).
 t_first_time_setup_always_allowed(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
     ),
-    %% Force the lock state — would normally block a non-first-time
-    %% rotate. mfa_state is absent (not_configured), so the matrix
-    %% short-circuits to allow.
+    %% Force the requirement: it blocks a self-disable, never an enrolment.
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
-    Body = #{<<"mechanism">> => <<"totp">>},
-    ?assertMatch(
-        {ok, 204, _},
-        request_api(post, api_path(["users", "u", "mfa"]), auth_header(Token), Body)
-    ).
+    ?assertMatch({ok, 204, _}, setup_own_mfa(Token)).
 
-%% Row 2: Self with mfa_management scope, locked — allowed.
-t_self_with_mfa_mgmt_can_rotate_under_force_mfa_lock(_Config) ->
-    add_admin(<<"admin">>),
-    {ok, _} = emqx_dashboard_admin:add_user(
-        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
-    ),
-    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_MFA_MGMT]),
-    %% First setup MFA so subsequent POST is a rotate, not first-setup
-    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
-        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
-    ),
-    %% Now lock the user
-    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
-    Token = jwt(<<"u">>, test_password()),
-    Body = #{<<"mechanism">> => <<"totp">>},
-    ?assertMatch(
-        {ok, 204, _},
-        request_api(post, api_path(["users", "u", "mfa"]), auth_header(Token), Body)
-    ).
-
-%% Row 3: Self without mfa_management, NOT locked — allowed.
+%% Not locked: a user may rotate its own MFA.
 t_self_can_rotate_when_not_locked(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -1092,14 +1076,29 @@ t_self_can_rotate_when_not_locked(_Config) ->
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
     Token = jwt(<<"u">>, test_password()),
-    Body = #{<<"mechanism">> => <<"totp">>},
-    ?assertMatch(
-        {ok, 204, _},
-        request_api(post, api_path(["users", "u", "mfa"]), auth_header(Token), Body)
-    ).
+    ?assertMatch({ok, 204, _}, setup_own_mfa(Token)).
 
-%% Row 4: Self without mfa_management, force_mfa locked — denied.
-t_self_cannot_rotate_when_force_mfa_locked(_Config) ->
+%% Required by an administrator: rotate stays available. Re-keying keeps
+%% MFA on, so it does not weaken the requirement.
+t_self_can_rotate_when_admin_override_required(_Config) ->
+    add_admin(<<"admin">>),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
+        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
+    ?assertMatch({ok, 204, _}, setup_own_mfa(jwt(<<"u">>, test_password()))),
+    %% The rotate must not have cleared the requirement.
+    ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)),
+    %% Re-keying MFA invalidates the account's sessions, so the disable needs a
+    %% fresh token; reusing the one that authorized the rotate answers 401.
+    {ok, 403, RespBody} = delete_own_mfa(jwt(<<"u">>, test_password())),
+    ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(RespBody)).
+
+%% Required by an administrator: self-disable is denied.
+t_self_cannot_delete_when_admin_override_required(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
@@ -1109,87 +1108,46 @@ t_self_cannot_rotate_when_force_mfa_locked(_Config) ->
     ),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
     Token = jwt(<<"u">>, test_password()),
-    Body = #{<<"mechanism">> => <<"totp">>},
-    {ok, 403, RespBody} = request_api(
-        post, api_path(["users", "u", "mfa"]), auth_header(Token), Body
-    ),
-    Json = emqx_utils_json:decode(RespBody),
-    ?assertEqual(<<"MFA_LOCKED">>, maps:get(<<"code">>, Json)).
+    {ok, 403, RespBody} = delete_own_mfa(Token),
+    ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(RespBody)).
 
-%% Row 4 variant: admin override mfa_required instead of force_mfa.
-t_self_cannot_rotate_when_admin_override_required_locked(_Config) ->
+%% `mfa_management' does not lift the requirement on its holder's own
+%% account. It is an administrator-only scope, so the holder must be an
+%% administrator, and the self route still denies the disable.
+t_self_with_mfa_mgmt_still_required(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
-        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
-    ),
-    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
-        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
-    ),
-    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
-    Token = jwt(<<"u">>, test_password()),
-    Body = #{<<"mechanism">> => <<"totp">>},
-    {ok, 403, RespBody} = request_api(
-        post, api_path(["users", "u", "mfa"]), auth_header(Token), Body
-    ),
-    Json = emqx_utils_json:decode(RespBody),
-    ?assertEqual(<<"MFA_LOCKED">>, maps:get(<<"code">>, Json)).
-
-%% admin_override = mfa_required locks self changes: holding
-%% mfa_management scope self-exempts from both.
-t_self_with_mfa_mgmt_can_rotate_under_admin_override_required_lock(_Config) ->
-    add_admin(<<"admin">>),
-    {ok, _} = emqx_dashboard_admin:add_user(
-        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
+        <<"u">>, test_password(), ?ROLE_SUPERUSER, "u"
     ),
     {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_MFA_MGMT]),
     {ok, ok} = emqx_dashboard_admin:set_mfa_state(
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
-    Token = jwt(<<"u">>, test_password()),
-    Body = #{<<"mechanism">> => <<"totp">>},
-    ?assertMatch(
-        {ok, 204, _},
-        request_api(post, api_path(["users", "u", "mfa"]), auth_header(Token), Body)
-    ).
+    ?assertMatch({ok, 204, _}, setup_own_mfa(jwt(<<"u">>, test_password()))),
+    %% Fresh token: the rotate above invalidated the account's sessions.
+    {ok, 403, DeleteBody} = delete_own_mfa(jwt(<<"u">>, test_password())),
+    ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(DeleteBody)).
 
-%% Self-DELETE under admin_override=mfa_required without mfa_management — denied.
-t_self_cannot_delete_when_admin_override_required_locked(_Config) ->
+%% A viewer with an explicitly emptied scope list still reaches its own
+%% MFA: self-service is not scope-gated.
+t_self_mfa_not_gated_by_scopes(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"u">>, test_password(), ?ROLE_VIEWER, "u"
     ),
-    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
-        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
-    ),
-    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
-    Token = jwt(<<"u">>, test_password()),
-    {ok, 403, RespBody} = request_api(
-        delete, api_path(["users", "u", "mfa"]), auth_header(Token), #{}
-    ),
-    Json = emqx_utils_json:decode(RespBody),
-    ?assertEqual(<<"MFA_LOCKED">>, maps:get(<<"code">>, Json)).
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, []),
+    ?assertMatch({ok, 204, _}, setup_own_mfa(jwt(<<"u">>, test_password()))),
+    %% Re-keying MFA invalidates the account's sessions, so the disable
+    %% needs a fresh token.
+    ?assertMatch({ok, 204, _}, delete_own_mfa(jwt(<<"u">>, test_password()))).
 
-%% Self-DELETE under admin_override=mfa_required WITH mfa_management — allowed
-%% (self-exemption applies to DELETE too, not just POST/rotate).
-t_self_with_mfa_mgmt_can_delete_under_admin_override_required_lock(_Config) ->
-    add_admin(<<"admin">>),
-    {ok, _} = emqx_dashboard_admin:add_user(
-        <<"u">>, test_password(), ?ROLE_VIEWER, "u"
-    ),
-    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"u">>, [?SCOPE_MFA_MGMT]),
-    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
-        <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
-    ),
-    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, ?ADMIN_MFA_REQUIRED),
-    Token = jwt(<<"u">>, test_password()),
-    ?assertMatch(
-        {ok, 204, _},
-        request_api(delete, api_path(["users", "u", "mfa"]), auth_header(Token), #{})
-    ).
+%%--------------------------------------------------------------------
+%% Administrator MFA routes (`/users/:username/mfa')
+%%--------------------------------------------------------------------
 
-%% Row 5: Admin can reset another user's MFA — admin has implicit
-%% mfa_management via role-default fallback.
+%% An administrator resets another user's MFA. The role default gives
+%% an administrator `mfa_management' implicitly.
 t_admin_can_reset_others_mfa(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -1199,17 +1157,25 @@ t_admin_can_reset_others_mfa(_Config) ->
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
     Token = jwt(<<"admin">>, test_password()),
-    ?assertMatch(
-        {ok, 204, _},
-        request_api(
-            delete, api_path(["users", "u", "mfa"]), auth_header(Token), #{}
-        )
-    ).
+    ?assertMatch({ok, 204, _}, admin_delete_mfa(Token, <<"u">>)).
 
-%% End-to-end: admin disables a policy-locked user's MFA, then the
-%% user can self-setup MFA again (admin_override=mfa_exempted unlocks
-%% them despite snapshot=true). This exercises the full HTTP path
-%% across admin disable → self POST.
+%% The admin routes manage OTHER users only. An administrator aiming
+%% them at its own account is refused and pointed at /current_user/mfa,
+%% so a self-change cannot write `admin_override'.
+t_admin_cannot_target_self_on_admin_route(_Config) ->
+    add_admin(<<"admin">>),
+    Token = jwt(<<"admin">>, test_password()),
+    {ok, 400, PostBody} = admin_setup_mfa(Token, <<"admin">>),
+    ?assertEqual(<<"NOT_ALLOWED">>, error_code(PostBody)),
+    {ok, 400, DeleteBody} = admin_delete_mfa(Token, <<"admin">>),
+    ?assertEqual(<<"NOT_ALLOWED">>, error_code(DeleteBody)),
+    %% The refusal is a guard, not a side effect: no administrator
+    %% decision was recorded against the account.
+    ?assertEqual(undefined, emqx_dashboard_admin:admin_override_of(<<"admin">>)).
+
+%% End-to-end: an administrator exemption is the way out of a locked
+%% account. Admin disables (writes mfa_exempted), the user may then
+%% enrol again through its own route.
 t_admin_disable_unlocks_user_for_self_setup(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -1220,30 +1186,13 @@ t_admin_disable_unlocks_user_for_self_setup(_Config) ->
         <<"u">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
     AdminToken = jwt(<<"admin">>, test_password()),
-    %% Admin disables MFA — writes admin_override=mfa_exempted.
-    ?assertMatch(
-        {ok, 204, _},
-        request_api(
-            delete, api_path(["users", "u", "mfa"]), auth_header(AdminToken), #{}
-        )
-    ),
+    ?assertMatch({ok, 204, _}, admin_delete_mfa(AdminToken, <<"u">>)),
     ?assertEqual(?ADMIN_MFA_EXEMPTED, emqx_dashboard_admin:admin_override_of(<<"u">>)),
-    %% User self-setup MFA — would be locked by snapshot=true, but
-    %% admin_override=mfa_exempted overrides.
     UserToken = jwt(<<"u">>, test_password()),
-    ?assertMatch(
-        {ok, 204, _},
-        request_api(
-            post,
-            api_path(["users", "u", "mfa"]),
-            auth_header(UserToken),
-            #{<<"mechanism">> => <<"totp">>}
-        )
-    ).
+    ?assertMatch({ok, 204, _}, setup_own_mfa(UserToken)).
 
-%% End-to-end: admin forces MFA on a previously unlocked user
-%% (snapshot=false). User cannot self-disable afterwards even though
-%% snapshot says no lock — admin_override=mfa_required overrides.
+%% End-to-end: an administrator reset locks the account against
+%% self-disable, which is what `default_mfa' enforcement rests on.
 t_admin_force_locks_user_against_self_disable(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -1251,16 +1200,7 @@ t_admin_force_locks_user_against_self_disable(_Config) ->
     ),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"u">>, undefined),
     AdminToken = jwt(<<"admin">>, test_password()),
-    %% Admin forces MFA setup — writes admin_override=mfa_required.
-    ?assertMatch(
-        {ok, 204, _},
-        request_api(
-            post,
-            api_path(["users", "u", "mfa"]),
-            auth_header(AdminToken),
-            #{<<"mechanism">> => <<"totp">>}
-        )
-    ),
+    ?assertMatch({ok, 204, _}, admin_setup_mfa(AdminToken, <<"u">>)),
     ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)),
     %% Make MFA actually enabled (post-verify); set state directly to
     %% bypass the verify step.
@@ -1268,44 +1208,12 @@ t_admin_force_locks_user_against_self_disable(_Config) ->
         <<"u">>, #{mechanism => totp, secret => <<"S2">>, first_verify_ts => 1}
     ),
     UserToken = jwt(<<"u">>, test_password()),
-    %% User self-disable denied — admin_override=mfa_required locks
-    %% even with snapshot=false.
-    {ok, 403, RespBody} = request_api(
-        delete, api_path(["users", "u", "mfa"]), auth_header(UserToken), #{}
-    ),
-    Json = emqx_utils_json:decode(RespBody),
-    ?assertEqual(<<"MFA_LOCKED">>, maps:get(<<"code">>, Json)).
+    {ok, 403, RespBody} = delete_own_mfa(UserToken),
+    ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(RespBody)).
 
-%% Row 6: Non-admin with mfa_management cannot manage other users' MFA.
-%%
-%% Note: in the current code path the request is rejected by the
-%% existing RBAC layer (PR #16943, preserved unchanged) BEFORE the
-%% MFA self-lock check has a chance to run — the RBAC clause for
-%% ?ROLE_VIEWER POST /users/<other>/mfa returns false. So the
-%% expected error code is UNAUTHORIZED_ROLE, not MFA_SELF_ONLY.
-%%
-%% This is the correct RBAC × scope stacking behaviour. MFA_SELF_ONLY
-%% would only be reachable if a future change ever loosens the RBAC
-%% viewer rule for cross-user MFA paths; the scope check serves as
-%% defense-in-depth for that scenario.
-t_non_admin_with_mfa_mgmt_cannot_reset_others(_Config) ->
-    add_admin(<<"admin">>),
-    {ok, _} = emqx_dashboard_admin:add_user(
-        <<"v1">>, test_password(), ?ROLE_VIEWER, "v1"
-    ),
-    {ok, ok} = emqx_dashboard_admin:set_user_scopes(<<"v1">>, [?SCOPE_MFA_MGMT]),
-    {ok, _} = emqx_dashboard_admin:add_user(
-        <<"v2">>, test_password(), ?ROLE_VIEWER, "v2"
-    ),
-    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
-        <<"v2">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
-    ),
-    Token = jwt(<<"v1">>, test_password()),
-    {ok, 403, _RespBody} = request_api(
-        delete, api_path(["users", "v2", "mfa"]), auth_header(Token), #{}
-    ).
-
-%% Row 7: Non-admin without mfa_management cannot manage other users' MFA.
+%% A non-administrator cannot reach the admin MFA route at all, with or
+%% without an explicit scope list. RBAC rejects it before any policy
+%% check runs, so the assertion is on the status, not the error code.
 t_viewer_cannot_reset_other_users_mfa(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -1314,15 +1222,33 @@ t_viewer_cannot_reset_other_users_mfa(_Config) ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"v2">>, test_password(), ?ROLE_VIEWER, "v2"
     ),
-    Token = jwt(<<"v1">>, test_password()),
-    {ok, 403, RespBody} = request_api(
-        delete, api_path(["users", "v2", "mfa"]), auth_header(Token), #{}
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
+        <<"v2">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
     ),
-    Json = emqx_utils_json:decode(RespBody),
-    %% RBAC layer rejects this BEFORE the scope check kicks in (viewer
-    %% cannot DELETE on /users/<other>/mfa). The exact error code
-    %% depends on which layer rejects first, but it must be 403.
-    ?assert(maps:is_key(<<"code">>, Json)).
+    Token = jwt(<<"v1">>, test_password()),
+    ?assertMatch({ok, 403, _}, admin_delete_mfa(Token, <<"v2">>)),
+    ?assertMatch({ok, 403, _}, admin_setup_mfa(Token, <<"v2">>)).
+
+%% A namespaced administrator is denied on another user's MFA even
+%% inside its own namespace, and reaches its own account only through
+%% /current_user/mfa.
+t_ns_admin_cannot_reset_other_users_mfa(_Config) ->
+    add_admin(<<"admin">>),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"nsadmin">>, test_password(), <<"ns:ns1::", ?ROLE_SUPERUSER/binary>>, "ns"
+    ),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"victim">>, test_password(), ?ROLE_VIEWER, "victim"
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(
+        <<"victim">>, #{mechanism => totp, secret => <<"S1">>, first_verify_ts => 1}
+    ),
+    Token = jwt(<<"nsadmin">>, test_password()),
+    ?assertMatch({ok, 403, _}, admin_delete_mfa(Token, <<"victim">>)),
+    ?assertMatch({ok, 403, _}, admin_setup_mfa(Token, <<"victim">>)),
+    %% ... and its own account is reachable only through /current_user.
+    ?assertMatch({ok, 403, _}, admin_delete_mfa(Token, <<"nsadmin">>)),
+    ?assertMatch({ok, 204, _}, setup_own_mfa(Token)).
 
 %%--------------------------------------------------------------------
 %% Field-write triggers (admin_override write rules)
@@ -1454,3 +1380,36 @@ request_api(Method, Url, Auth, Body) ->
     emqx_common_test_http:request_api(
         Method, Url, _QueryParams = [], Auth, Body
     ).
+
+%% Self-service requests: no username in the path, the bearer token is
+%% the whole subject.
+setup_own_mfa(Token) ->
+    request_api(
+        post,
+        api_path(["current_user", "mfa"]),
+        auth_header(Token),
+        #{<<"mechanism">> => <<"totp">>}
+    ).
+
+delete_own_mfa(Token) ->
+    request_api(delete, api_path(["current_user", "mfa"]), auth_header(Token), #{}).
+
+%% Administrator requests against another user's account.
+admin_setup_mfa(Token, TargetUsername) ->
+    request_api(
+        post,
+        api_path(["users", binary_to_list(TargetUsername), "mfa"]),
+        auth_header(Token),
+        #{<<"mechanism">> => <<"totp">>}
+    ).
+
+admin_delete_mfa(Token, TargetUsername) ->
+    request_api(
+        delete,
+        api_path(["users", binary_to_list(TargetUsername), "mfa"]),
+        auth_header(Token),
+        #{}
+    ).
+
+error_code(RespBody) ->
+    maps:get(<<"code">>, emqx_utils_json:decode(RespBody)).
