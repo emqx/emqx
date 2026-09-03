@@ -556,7 +556,7 @@ wait_port_free(Port, Timeout) ->
 spy_create_stream(TCConfig) ->
     Tab = get_config(mocked_call_tab, TCConfig),
     fun(Msg, Req, Meta) ->
-        ct:pal("msg: ~p;\n  req: ~p", [Msg, Req]),
+        ct:pal("[~p] msg: ~p;\n  req: ~p", [self(), Msg, Req]),
         #{payload := {create_stream = Type, Req1}} = Msg,
         ets:insert(Tab, {now_ns(), #{type => Type, req => Req1, meta => Meta}}),
         ct:pal("grpc server ~p acking create stream", [self()]),

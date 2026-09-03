@@ -10,21 +10,17 @@
     start_link/1,
 
     where/2,
-    follow_stream/6
+    follow_stream/5
 ]).
 
 %% `gen_server' API
 -export([
     init/1,
     terminate/2,
-    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2
 ]).
-
-%% Internal exports
--export([do_recv_stream_once_async1/2]).
 
 -moduledoc """
 This worker receives gRPC client streams opened and managed by the stream writer, and
@@ -43,11 +39,8 @@ track the last acked sequence number.
 -define(name(ACTIONRESID, IDX), {n, l, {?MODULE, ACTIONRESID, IDX}}).
 -define(via(ACTIONRESID, IDX), {via, gproc, ?name(ACTIONRESID, IDX)}).
 
--define(nudge, nudge).
-
 %% calls/casts/infos/continues
--record(follow_stream, {writer, n_restarts, stream, opts}).
--record(recv, {}).
+-record(follow_stream, {writer, n_restarts, stream}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -60,7 +53,7 @@ start_link(Opts) ->
 where(Pool, Idx) ->
     gproc_pool:whereis_worker(Pool, {Pool, Idx}).
 
-follow_stream(Pool, Idx, Writer, NRestarts, Stream, Opts) ->
+follow_stream(Pool, Idx, Writer, NRestarts, Stream) ->
     Pid = where(Pool, Idx),
     try
         gen_server:call(
@@ -68,8 +61,7 @@ follow_stream(Pool, Idx, Writer, NRestarts, Stream, Opts) ->
             #follow_stream{
                 writer = Writer,
                 n_restarts = NRestarts,
-                stream = Stream,
-                opts = Opts
+                stream = Stream
             },
             infinity
         )
@@ -98,7 +90,7 @@ init(Opts) ->
         ?writer := Writer,
         ?n_restarts := NRestarts,
         ?stream := Stream,
-        ?opts := StreamOpts
+        ?recv_handle := Handle
     } = recover(ActionResId, Idx),
     State = #{
         ?action_res_id => ActionResId,
@@ -107,47 +99,31 @@ init(Opts) ->
         ?writer => Writer,
         ?n_restarts => NRestarts,
         ?last_acked_seq => -1,
-        ?helper => ?undefined,
         ?stream => Stream,
-        ?opts => StreamOpts
+        ?recv_handle => Handle
     },
-    nudge_recv(),
     {ok, State}.
 
 terminate(_Reason, State) ->
-    #{?pool := Pool, ?idx := Id, ?helper := Helper} = State,
+    #{?pool := Pool, ?idx := Id} = State,
     gproc_pool:disconnect_worker(Pool, {Pool, Id}),
-    maybe
-        true ?= is_pid(Helper),
-        exit(Helper, kill)
-    end,
     ok.
-
-handle_continue(#recv{}, State0) ->
-    State = handle_recv(State0),
-    {noreply, State}.
 
 handle_call(#follow_stream{} = FollowReq, _From, State0) ->
     {Reply, State} = handle_follow_stream(FollowReq, State0),
-    {reply, Reply, State, {continue, #recv{}}};
+    {reply, Reply, State};
 handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
-handle_info(#recv{}, State0) ->
-    State = handle_recv(State0),
+handle_info({'DOWN', Handle, _, _, Reason}, #{?recv_handle := Handle} = State0) ->
+    State1 = State0#{?recv_handle := ?undefined, ?stream := ?undefined},
+    State = handle_grpc_reply(Reason, State1),
     {noreply, State};
-handle_info({'EXIT', Helper, Res}, #{?helper := Helper} = State0) ->
-    State1 = State0#{?helper := ?undefined},
-    {Action, State} = handle_helper_down(Res, State1),
-    case Action of
-        ?nudge ->
-            nudge_recv();
-        ?continue ->
-            ok
-    end,
+handle_info({grpc_reply, Handle, ResRaw}, #{?recv_handle := Handle} = State0) ->
+    State = handle_grpc_reply(ResRaw, State0),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -163,18 +139,19 @@ recover(ActionResId, Idx) ->
         #{
             ?writer := Writer,
             ?n_restarts := _,
-            ?stream := _,
-            ?opts := _
+            ?stream := Stream
         } ?= Val,
         true ?= is_pid(Writer) andalso is_process_alive(Writer),
-        Val
+        Handle = grpc_client:recv_async(Stream, #{mode => active}),
+        Val#{?recv_handle => Handle}
     else
         _ ->
+            ?tp(~"zerobus_receiver_recv_no_stream", #{}),
             #{
+                ?recv_handle => ?undefined,
                 ?writer => ?undefined,
                 ?n_restarts => -1,
-                ?stream => ?undefined,
-                ?opts => #{}
+                ?stream => ?undefined
             }
     end.
 
@@ -184,26 +161,21 @@ is_end_of_stream(Resp) ->
         {true, Rest, Trailers}
     end.
 
-nudge_recv() ->
-    _ = self() ! #recv{},
-    ok.
-
 handle_follow_stream(FollowReq, State0) ->
     #follow_stream{
         writer = Writer,
         n_restarts = NRestarts,
-        stream = Stream,
-        opts = Opts
+        stream = Stream
     } = FollowReq,
-    State1 = abort_helper(State0),
-    #{?n_restarts := NRestarts0, ?last_acked_seq := LastAckedSeq0} = State1,
+    #{?n_restarts := NRestarts0, ?last_acked_seq := LastAckedSeq0} = State0,
+    Handle = grpc_client:recv_async(Stream, #{mode => active}),
     Reply = {ok, {NRestarts0, LastAckedSeq0}},
-    State = State1#{
+    State = State0#{
         ?writer := Writer,
         ?n_restarts := NRestarts,
         ?last_acked_seq := -1,
-        ?stream := Stream,
-        ?opts := Opts
+        ?recv_handle := Handle,
+        ?stream := Stream
     },
     {Reply, State}.
 
@@ -212,30 +184,23 @@ clear_state(State0) ->
     %% latest info when syncing.
     State0#{
         ?writer := ?undefined,
-        ?stream := ?undefined,
-        ?opts := #{}
+        ?stream := ?undefined
     }.
 
-handle_recv(#{?stream := ?undefined} = State0) ->
-    ?tp(~"zerobus_receiver_recv_no_stream", #{}),
-    State0;
-handle_recv(#{?helper := Helper} = State0) when is_pid(Helper) ->
-    %% impossible?  helper is already running.
-    State0;
-handle_recv(#{?helper := ?undefined} = State0) ->
-    #{
-        ?stream := Stream,
-        ?opts := Opts
-    } = State0,
-    Helper = do_recv_stream_once_async(Stream, Opts),
-    State0#{?helper := Helper}.
-
-handle_helper_down({ok, Res}, State0) ->
+handle_grpc_reply({ok, Res0}, State0) ->
     #{
         ?action_res_id := ActionResId,
         ?last_acked_seq := LastAckedSeq0,
         ?stream := Stream
     } = State0,
+    Res1 = grpc_client:map_recv_async_reply(Stream, Res0),
+    Res =
+        case is_end_of_stream(Res1) of
+            {true, Results0, Trailers0} ->
+                {done, Results0, Trailers0};
+            false ->
+                {more, Res1}
+        end,
     case Res of
         {done, Results, Trailers} ->
             LastAckedSeq = find_last_acked_seq(Results, LastAckedSeq0, State0),
@@ -245,23 +210,22 @@ handle_helper_down({ok, Res}, State0) ->
             Reason = maybe_format_grpc_reason(grpc_client:trailers_to_error(Trailers)),
             Error = {error, Reason},
             notify_errored(Error, State1),
-            State = clear_state(State1),
-            {?continue, State};
+            clear_state(State1);
         {more, Results} ->
             LastAckedSeq = find_last_acked_seq(Results, LastAckedSeq0, State0),
             ?tp("zerobus_last_seq_scanned", #{}),
             State1 = State0#{?last_acked_seq := LastAckedSeq},
             maybe_notify_acked(LastAckedSeq0, State1),
             ?tp("zerobus_last_seq_notified", #{}),
-            {?nudge, State1};
+            State1;
         {error, {deadline_exceeded, _}} ->
-            {?nudge, State0};
+            %% impossible?
+            State0;
         {error, not_found} ->
             %% stream is gone
             Error = {error, stream_closed},
             notify_errored(Error, State0),
-            State = clear_state(State0),
-            {?continue, State};
+            clear_state(State0);
         {error, Reason} ->
             ?tp(info, "zerobus_receiver_unexpected_error_response", #{
                 action_res_id => ActionResId,
@@ -272,64 +236,21 @@ handle_helper_down({ok, Res}, State0) ->
                 false ?= is_process_alive(Pid),
                 Error = {error, stream_closed},
                 notify_errored(Error, State0),
-                State = clear_state(State0),
-                {?continue, State}
+                clear_state(State0)
             else
                 _ ->
-                    {?nudge, State0}
+                    State0
             end
     end;
-handle_helper_down(worker_aborted, State0) ->
-    {?nudge, State0};
-handle_helper_down(Reason, State0) ->
+handle_grpc_reply(worker_aborted, State0) ->
+    State0;
+handle_grpc_reply(Reason, State0) ->
     #{?action_res_id := ActionResId} = State0,
-    ?tp(warning, "zerobus_receiver_helper_died", #{
+    ?tp(warning, "zerobus_receiver_stream_error", #{
         action_res_id => ActionResId,
         reason => Reason
     }),
-    {?nudge, State0}.
-
-%% we delegate to a helper process so that the main process is responsive, specially when
-%% a shutdown request arrives.
-do_recv_stream_once_async(Stream, Opts) ->
-    spawn_link(?MODULE, do_recv_stream_once_async1, [Stream, Opts]).
-
--spec do_recv_stream_once_async1(_Stream, _Opts) -> no_return().
-do_recv_stream_once_async1(Stream, Opts) ->
-    Res = do_recv_stream_once(Stream, Opts),
-    exit({ok, Res}).
-
-abort_helper(#{?helper := Helper} = State0) when is_pid(Helper) ->
-    exit(Helper, kill),
-    receive
-        {'EXIT', Helper, killed} ->
-            Res = worker_aborted;
-        {'EXIT', Helper, Res0} ->
-            Res = Res0
-    end,
-    State1 = State0#{?helper := ?undefined},
-    {_Action, State} = handle_helper_down(Res, State1),
-    State;
-abort_helper(State0) ->
     State0.
-
-do_recv_stream_once(Stream, Opts) ->
-    try grpc_client:recv(Stream, Opts) of
-        {ok, Resp} ->
-            case is_end_of_stream(Resp) of
-                {true, Results0, Trailers} ->
-                    {done, Results0, Trailers};
-                false ->
-                    {more, Resp}
-            end;
-        {error, Reason} ->
-            {error, Reason}
-    catch
-        error:Reason ->
-            {error, Reason};
-        Kind:Reason:Stacktrace ->
-            {error, {Kind, Reason, Stacktrace}}
-    end.
 
 find_last_acked_seq(Results, LastAckedSeq, State) ->
     #{?action_res_id := ActionResId} = State,

@@ -171,7 +171,7 @@ init(Opts) ->
         ?seq => 0,
         ?acked => -1,
         ?stream => ?undefined,
-        ?helper => ?undefined,
+        ?recv_handle => ?undefined,
         ?callers => gb_trees:empty(),
         ?client_pool => ClientPool,
         ?recv_pool => RecvPool,
@@ -203,6 +203,7 @@ handle_cast(#acked{n_restarts = NRestarts, last_acked_seq = LastAckedSeq}, State
     State = handle_acked(NRestarts, LastAckedSeq, State0),
     {noreply, State};
 handle_cast(#errored{n_restarts = NRestarts, error = Error}, State0) ->
+    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{e => Error}]),
     case handle_errored(NRestarts, Error, State0) of
         {?continue, State} ->
             {noreply, State};
@@ -226,9 +227,15 @@ handle_cast(#serde_updated{serde_name = SerdeName}, State0) ->
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
-handle_info({'EXIT', Helper, Res}, #{?helper := Helper} = State0) ->
-    State1 = State0#{?helper := ?undefined},
-    State = handle_helper_down(Res, State1),
+handle_info({'DOWN', Handle, _, _, Reason}, #{?recv_handle := {_, Handle}} = State0) ->
+    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{raw => Reason}]),
+    State1 = State0#{?recv_handle := ?undefined},
+    State = handle_grpc_reply(Reason, State1),
+    {noreply, State};
+handle_info({grpc_reply, Handle, ResRaw}, #{?recv_handle := {Stream, Handle}} = State0) ->
+    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{raw => ResRaw}]),
+    State1 = State0#{?recv_handle := ?undefined},
+    State = handle_grpc_reply({ok, {ResRaw, Stream}}, State1),
     {noreply, State};
 handle_info(#open_stream{}, State0) ->
     State1 = ensure_stream_closed(State0),
@@ -279,12 +286,11 @@ reply_callers_up_to(Reply, LastAckedSeq, State0) ->
     Callers = do_reply_callers_up_to(Reply, LastAckedSeq, Callers0),
     State0#{?callers := Callers}.
 
-register_stream(ActionResId, Idx, Writer, NRestarts, Stream, Opts) ->
+register_stream(ActionResId, Idx, Writer, NRestarts, Stream) ->
     Val = #{
         ?writer => Writer,
         ?n_restarts => NRestarts,
-        ?stream => Stream,
-        ?opts => Opts
+        ?stream => Stream
     },
     true = ets:insert(?META_TAB, ?META_ROW(?META_STREAM_KEY(ActionResId, Idx), Val)),
     ok.
@@ -312,10 +318,10 @@ do_reply_callers_up_to(Reply, LastAckedSeq, Callers0) ->
             end
     end.
 
-handle_open_stream(#{?helper := Helper} = State0) when is_pid(Helper) ->
+handle_open_stream(#{?recv_handle := {_, _}} = State0) ->
     %% impossible?
     State0;
-handle_open_stream(#{?helper := ?undefined} = State0) ->
+handle_open_stream(#{?recv_handle := ?undefined} = State0) ->
     #{
         ?action_res_id := ActionResId,
         ?idx := Idx
@@ -328,14 +334,14 @@ handle_open_stream(#{?helper := ?undefined} = State0) ->
         {ok, Meta} ?= grpc_meta(State0),
         {ok, Stream} ?= do_create_stream_impl(Meta, Opts),
         ok ?= grpc_send(Stream, Req, Opts),
-        Helper = grpc_recv_single_resp(Stream, Opts),
-        State0#{?helper := Helper}
+        Handle = grpc_client:recv_async(Stream, #{mode => once}),
+        State0#{?recv_handle := {Stream, Handle}}
     else
         {error, Reason} ->
             handle_open_stream_error(Reason, State0)
     end.
 
-handle_helper_down({ok, {{ok, _}, Stream, Opts}}, State0) ->
+handle_grpc_reply({ok, {{ok, ResRaw}, Stream}}, State0) ->
     #{
         ?action_res_id := ActionResId,
         ?recv_pool := RecvPool,
@@ -344,33 +350,42 @@ handle_helper_down({ok, {{ok, _}, Stream, Opts}}, State0) ->
         ?n_restarts := NRestarts0,
         ?acked := Acked0
     } = State0,
-    set_health(ActionResId, Idx, ?status_connected),
-    NRestarts = NRestarts0 + 1,
-    Writer = self(),
-    register_stream(ActionResId, Idx, Writer, NRestarts, Stream, Opts),
-    {ok, {NRestarts1, Acked1}} = emqx_bridge_zerobus_async_receiver_worker:follow_stream(
-        RecvPool, Idx, Writer, NRestarts, Stream, Opts
-    ),
-    Acked =
-        case NRestarts1 == NRestarts0 of
-            false ->
-                %% impossible?
-                Acked0;
-            true ->
-                max(Acked0, Acked1)
-        end,
-    State1 = reply_callers_up_to(ok, Acked, State0),
-    State2 = reply_callers_up_to({error, {recoverable_error, stream_closed}}, Seq, State1),
-    State2#{
-        ?seq := 0,
-        ?acked := -1,
-        ?stream := Stream,
-        ?callers := gb_trees:empty(),
-        ?n_restarts := NRestarts
-    };
-handle_helper_down({ok, {{error, Reason}, _Stream, _Opts}}, State0) ->
+    Res = grpc_client:map_recv_async_reply(Stream, ResRaw),
+    case is_end_of_stream(Res) of
+        {true, _, Trailers} ->
+            %% only closed on errors
+            Reason0 = grpc_client:trailers_to_error(Trailers),
+            Reason = maybe_format_grpc_reason(Reason0),
+            handle_open_stream_error({?stream_closed, Reason}, State0);
+        false ->
+            set_health(ActionResId, Idx, ?status_connected),
+            NRestarts = NRestarts0 + 1,
+            Writer = self(),
+            register_stream(ActionResId, Idx, Writer, NRestarts, Stream),
+            {ok, {NRestarts1, Acked1}} = emqx_bridge_zerobus_async_receiver_worker:follow_stream(
+                RecvPool, Idx, Writer, NRestarts, Stream
+            ),
+            Acked =
+                case NRestarts1 == NRestarts0 of
+                    false ->
+                        %% impossible?
+                        Acked0;
+                    true ->
+                        max(Acked0, Acked1)
+                end,
+            State1 = reply_callers_up_to(ok, Acked, State0),
+            State2 = reply_callers_up_to({error, {recoverable_error, stream_closed}}, Seq, State1),
+            State2#{
+                ?seq := 0,
+                ?acked := -1,
+                ?stream := Stream,
+                ?callers := gb_trees:empty(),
+                ?n_restarts := NRestarts
+            }
+    end;
+handle_grpc_reply({ok, {{error, Reason}, _Stream, _Opts}}, State0) ->
     handle_open_stream_error(Reason, State0);
-handle_helper_down(Reason, State0) ->
+handle_grpc_reply(Reason, State0) ->
     handle_open_stream_error(Reason, State0).
 
 handle_open_stream_error(Reason, State0) ->
@@ -614,8 +629,8 @@ grpc_send(Stream, Req, Opts) ->
 
 %% we delegate to a helper process so that the main process is responsive, specially when
 %% a shutdown request arrives.
-grpc_recv_single_resp(Stream, Opts) ->
-    spawn_link(?MODULE, grpc_recv_single_resp1, [Stream, Opts]).
+%% grpc_recv_single_resp(Stream, Opts) ->
+%%     spawn_link(?MODULE, grpc_recv_single_resp1, [Stream, Opts]).
 
 -spec grpc_recv_single_resp1(_Stream, _Opts) -> no_return().
 grpc_recv_single_resp1(Stream, Opts) ->
