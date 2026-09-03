@@ -35,7 +35,7 @@ local_topic.label:
 """Local Topic"""
 
 sql_template.desc:
-"""SQL Template"""
+"""A restricted TDengine INSERT template. It supports multi-table VALUES inserts and USING stable TAGS clauses. A bare or backtick-quoted target table may contain placeholders, for example, `test_${clientid}`. EMQX renders the complete target as one quoted identifier. Comments, FILE input, and extra statements are not allowed."""
 
 sql_template.label:
 """SQL Template"""

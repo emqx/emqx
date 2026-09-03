@@ -23,6 +23,8 @@ services:
       - 13306:3306
       # MySQL TLS
       - 13307:3307
+      # MySQL NO_BACKSLASH_ESCAPES and ANSI_QUOTES
+      - 13308:3308
       # PostgreSQL
       - 15432:5432
       # PostgreSQL TLS

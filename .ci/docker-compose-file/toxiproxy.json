@@ -29,6 +29,12 @@
     "upstream": "mysql-tls:3306",
     "enabled": true
   },
+  {
+    "name": "mysql_nbe",
+    "listen": "0.0.0.0:3308",
+    "upstream": "mysql-nbe:3306",
+    "enabled": true
+  },
 
   {
     "name": "redis_single_tcp",
