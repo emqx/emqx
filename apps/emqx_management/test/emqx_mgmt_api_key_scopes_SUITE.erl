@@ -479,9 +479,8 @@ collect_public_paths(Modules) ->
                         [path_to_binary(P) || {P, ?SCOPE_PUBLIC} <- maps:to_list(Map)];
                     %% Whole-module form: `scopes() -> ?SCOPE_PUBLIC'
                     %% makes every path the module declares public.
-                    %% Missing this clause hid `/schemas/:name' from every
-                    %% test that consumes this helper, including the
-                    %% safety half of the wildcard invariant.
+                    %% `emqx_dashboard_schema_api' uses this form, so
+                    %% `/schemas/:name' is public.
                     ?SCOPE_PUBLIC ->
                         [path_to_binary(P) || P <- apply(M, paths, [])];
                     _ ->
@@ -744,18 +743,15 @@ A ?SCOPE_PUBLIC entry that is itself a TEMPLATE must classify the
 concrete paths it covers as `public', not `not_found'.
 
 `classify_path/1' answers an exact-match lookup first, so a public
-template is only ever reached through segment matching. Public entries
-used to be skipped there unconditionally, which made a public template
-unreachable: every concrete path under it fell through to `not_found',
-and `emqx_dashboard_rbac:check_login_user_scopes_strict/2' fails that
-branch closed for any user carrying an explicit scope list. Both
+template is only ever reached through segment matching. Both
 `/sso/login/:backend' and `/users/:username/change_pwd' are declared
-public and are templates.
+public and are templates, and
+`emqx_dashboard_rbac:check_login_user_scopes_strict/2' denies a
+`not_found' path to any user carrying an explicit scope list.
 
-A scoped template still wins over a public one, which is what the old
-skip was really protecting; that is asserted by
-`t_wildcard_does_not_claim_public_path' above (`/sso/oidc' keeps
-resolving to sso_management).
+`t_wildcard_does_not_claim_public_path' above covers the opposite
+direction: a scoped template wins over a public one, so `/sso/oidc'
+resolves to sso_management.
 """.
 t_public_template_classifies_concrete_path_as_public(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),

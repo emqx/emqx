@@ -68,11 +68,10 @@ creation or update if the scope list contains any login-only scope,
 and the bootstrap-file loader filters such names with a warning.
 
 The `admin_only` flag indicates whether the scope is restricted to
-administrator role. All four login-only scopes are administrator-only:
-each one manages something about OTHER users. `mfa_management` in
-particular means "reset or disable another user's MFA" — managing
-one's own MFA is an identity-authorized operation on
-`/current_user/mfa' and needs no scope at all.
+administrator role. Every login-only scope is administrator-only: each one acts on
+other users' accounts. `mfa_management` covers resetting or
+disabling another user's MFA; a user's own MFA is managed through
+`/current_user/mfa', which requires no scope.
 """.
 -spec admin_only_scope_catalog() ->
     [#{name := binary(), desc := term(), admin_only := boolean()}].

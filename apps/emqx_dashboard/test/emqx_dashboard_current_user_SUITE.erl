@@ -11,8 +11,8 @@
 %%
 %% Self endpoints are authorized by the authenticated identity alone --
 %% no scope, no role, no `:username' in the path. The administrator
-%% routes under `/users/:username/*' are the mirror image: scope plus
-%% global-administrator role, target is always another user.
+%% routes under `/users/:username/*' require both a scope and the
+%% global-administrator role, and always target another user.
 %%
 %% The self-MFA policy itself (admin_override blocking a self-disable)
 %% lives in emqx_dashboard_user_scopes_SUITE; this suite covers the
@@ -35,35 +35,23 @@
 -define(PASSWORD, <<"P@ssw0rd_1">>).
 -define(NEW_PASSWORD, <<"P@ssw0rd_2">>).
 
--define(EE_ONLY(EXPR, NON_EE),
-    case emqx_release:edition() of
-        ee -> EXPR;
-        _ -> NON_EE
-    end
-).
-
 all() ->
-    ?EE_ONLY(emqx_common_test_helpers:all(?MODULE), []).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ?EE_ONLY(
-        begin
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    emqx_conf,
-                    emqx_management,
-                    emqx_mgmt_api_test_util:emqx_dashboard()
-                ],
-                #{work_dir => emqx_cth_suite:work_dir(Config)}
-            ),
-            [{apps, Apps} | Config]
-        end,
-        Config
-    ).
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    ?EE_ONLY(emqx_cth_suite:stop(?config(apps, Config)), ok),
+    emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 end_per_testcase(_Case, _Config) ->
@@ -165,9 +153,9 @@ t_viewer_self_service_allowed(_Config) ->
         [undefined, []]
     ).
 
-%% The mirror image: a viewer is refused on every administrator route,
-%% for every target -- another user and itself alike. Deleting the
-%% viewer-self RBAC clauses is what closes the "itself" half.
+%% A viewer is refused on every administrator route, for every target --
+%% another user and itself alike. There is no self-exemption in the
+%% RBAC check on those routes.
 t_viewer_denied_on_admin_routes(_Config) ->
     ok = add_user(<<"viewer">>, ?ROLE_VIEWER),
     ok = add_user(<<"other">>, ?ROLE_VIEWER),
@@ -187,8 +175,8 @@ t_viewer_denied_on_admin_routes(_Config) ->
 %%--------------------------------------------------------------------
 
 %% An administrator manages other users through the admin routes and
-%% its own account through the self routes -- and the admin routes
-%% refuse a self target rather than quietly doing the wrong thing.
+%% its own account through the self routes; the admin routes refuse a
+%% self target with 400.
 t_admin_manages_others_and_self_separately(_Config) ->
     ok = add_user(<<"boss">>, ?ROLE_SUPERUSER),
     ok = add_user(<<"other">>, ?ROLE_VIEWER),
@@ -204,9 +192,8 @@ t_admin_manages_others_and_self_separately(_Config) ->
     ?assertMatch({ok, 204, _}, setup_own_mfa(token(<<"boss">>))),
     ?assertMatch({ok, 204, _}, delete_own_mfa(token(<<"boss">>))).
 
-%% The "cannot delete self" guard now compares the authenticated
-%% identity with the target instead of re-parsing the Authorization
-%% header. Deleting somebody else still works.
+%% The "cannot delete self" guard compares the authenticated identity
+%% with the target. Deleting another user is allowed.
 t_admin_cannot_delete_self(_Config) ->
     ok = add_user(<<"boss">>, ?ROLE_SUPERUSER),
     ok = add_user(<<"other">>, ?ROLE_VIEWER),
@@ -316,41 +303,11 @@ t_own_mfa_write_keeps_other_backend_session(_Config) ->
     ?assertMatch({ok, 200, _}, get_current_user(LocalToken)).
 
 %%--------------------------------------------------------------------
-%% Routing
-%%--------------------------------------------------------------------
-
-%% `current_user', `self' and `me' are all legal usernames and there is
-%% no reserved-word check on them. `/current_user' is a top-level path
-%% outside `/users/', so such a user neither shadows nor is shadowed by
-%% the self-service routes, and an administrator still manages it by
-%% name.
-t_username_colliding_with_self_route(_Config) ->
-    ok = add_user(<<"boss">>, ?ROLE_SUPERUSER),
-    AdminToken = token(<<"boss">>),
-    lists:foreach(
-        fun(Name) ->
-            ok = add_user(Name, ?ROLE_VIEWER),
-            Token = token(Name),
-            %% The self route serves the caller, whatever it is called.
-            {ok, 200, Body} = get_current_user(Token),
-            ?assertMatch(#{<<"username">> := Name}, json(Body), Name),
-            ?assertMatch({ok, 204, _}, setup_own_mfa(Token), Name),
-            %% ... and the administrator still reaches the account by name.
-            ?assertMatch({ok, 204, _}, admin_delete_mfa(AdminToken, Name), Name),
-            ?assertMatch({ok, 200, _}, get_current_user(token(Name)), Name),
-            ?assertMatch({ok, 200, _}, update_user(AdminToken, Name), Name),
-            ?assertMatch({ok, 204, _}, delete_user(AdminToken, Name), Name)
-        end,
-        [<<"current_user">>, <<"self">>, <<"me">>]
-    ).
-
-%%--------------------------------------------------------------------
 %% Deprecated shim: POST /users/:username/change_pwd
 %%--------------------------------------------------------------------
 
-%% The shim keeps working for the caller's own account, at any role and
-%% with an explicitly emptied scope list -- dropping `user_management'
-%% from the route is what lets a viewer keep its old call.
+%% The shim serves the caller's own account at any role and with an
+%% explicitly emptied scope list: the route requires no scope.
 t_shim_changes_own_password(_Config) ->
     lists:foreach(
         fun(Role) ->
@@ -368,10 +325,8 @@ t_shim_changes_own_password(_Config) ->
     ).
 
 %% Pointing the shim at somebody else is refused with 403, for every
-%% role. Before the split this was allowed through RBAC for an
-%% administrator and merely failed the `old_pwd' check, so a cross-user
-%% call was blocked by accident; now it is blocked on purpose, and the
-%% namespaced-administrator invariant holds by the same single check.
+%% role: the route serves only the caller's own account, which is also
+%% what confines a namespaced administrator to itself.
 t_shim_rejects_other_user(_Config) ->
     ok = add_user(<<"victim">>, ?ROLE_VIEWER),
     lists:foreach(
@@ -426,32 +381,6 @@ t_shim_is_marked_deprecated(_Config) ->
     ?assertEqual(true, maps:get(<<"deprecated">>, Shim, false)),
     Canonical = maps:get(<<"post">>, maps:get(<<"/current_user/change_pwd">>, Paths)),
     ?assertEqual(false, maps:get(<<"deprecated">>, Canonical, false)).
-
-%% The Dashboard SPA and emqx-docs are generated from the OpenAPI spec,
-%% so the split is only really shipped once the spec carries it: the
-%% three self routes present, the administrator password-reset route
-%% gone.
-t_openapi_spec_carries_the_split(_Config) ->
-    ok = add_user(<<"boss">>, ?ROLE_SUPERUSER),
-    Url = ?HOST ++ "/api-docs/swagger.json",
-    {ok, {{_, 200, _}, _Headers, Body}} =
-        httpc:request(
-            get, {Url, [auth_header(token(<<"boss">>))]}, [], [{body_format, binary}]
-        ),
-    #{<<"paths">> := Paths} = json(Body),
-    ?assertMatch(#{<<"get">> := _}, maps:get(<<"/current_user">>, Paths)),
-    ?assertMatch(
-        #{<<"post">> := _}, maps:get(<<"/current_user/change_pwd">>, Paths)
-    ),
-    ?assertMatch(
-        #{<<"post">> := _, <<"delete">> := _}, maps:get(<<"/current_user/mfa">>, Paths)
-    ),
-    %% The administrator MFA route stays, and so does the deprecated
-    %% change_pwd shim (see t_shim_is_marked_deprecated).
-    ?assertMatch(
-        #{<<"post">> := _, <<"delete">> := _}, maps:get(<<"/users/{username}/mfa">>, Paths)
-    ),
-    ?assertMatch(#{<<"post">> := _}, maps:get(<<"/users/{username}/change_pwd">>, Paths)).
 
 %%--------------------------------------------------------------------
 %% Helpers

@@ -1,16 +1,16 @@
-Split the Dashboard self-service APIs out of the administrator user-management APIs. A user managing their own account now uses `/current_user/*`; the endpoints under `/users/:username/*` manage other users.
+Dashboard account APIs are now separate from user administration APIs.
 
-New self-service endpoints, authorized by the signed-in identity alone and requiring no permission scope:
+Users manage their own accounts through `/current_user`:
 
-- `GET /current_user`: own username, role, effective scopes and MFA status.
-- `POST /current_user/change_pwd`: change own password (`old_pwd` + `new_pwd`).
-- `POST /current_user/mfa`: set up or rotate own MFA.
-- `DELETE /current_user/mfa`: disable own MFA.
+- `GET /current_user` returns the signed-in user's username, role, effective scopes, and MFA status.
+- `POST /current_user/change_pwd` changes the signed-in user's password. The request must include `old_pwd` and `new_pwd`.
+- `POST /current_user/mfa` sets up or rotates the signed-in user's MFA.
+- `DELETE /current_user/mfa` disables the signed-in user's MFA.
 
-This is a breaking change:
+Breaking changes:
 
-- `POST /users/:username/change_pwd` is deprecated and now self-only: the `username` in the path must be the signed-in user, otherwise the request is rejected with `403`. It previously accepted any target and merely failed the `old_pwd` check, so a cross-user call was refused by accident rather than by rule. Use `POST /current_user/change_pwd` instead; the deprecated path will be removed in a later release. Resetting another user's password remains available only from the node console (`emqx ctl admins passwd`).
-- `POST` and `DELETE /users/:username/mfa` now require the administrator role and manage other users only. Use `/current_user/mfa` for your own account. A namespaced (multi-tenant) administrator can no longer reach another user's MFA, not even within its own namespace.
-- The `mfa_management` scope becomes administrator-only and means "manage other users' MFA". It previously also acted as a self-exemption key that let a non-administrator bypass an MFA lock on their own account. That meaning is gone, and assigning the scope to a non-administrator is now rejected with `400`. An account whose MFA an administrator has reset can be unlocked by another administrator or from the node console.
+- `POST /users/:username/change_pwd` is deprecated and restricted to the signed-in user. EMQX returns `403` when the path identifies another user. Use `POST /current_user/change_pwd` instead. Administrators can reset another local user's password only with `emqx ctl admins passwd`.
+- `POST` and `DELETE /users/:username/mfa` now manage other users and require the administrator role. Use `/current_user/mfa` to manage your own MFA. Namespaced administrators cannot manage another user's MFA.
+- The `mfa_management` scope is now administrator-only and grants permission to manage another user's MFA. It no longer lets non-administrators override an MFA requirement on their own accounts. EMQX returns `400` when this scope is assigned to a non-administrator. Another administrator or the node console must remove an administrator-set MFA requirement.
 
-Dashboard clients and any scripts calling the removed or narrowed endpoints must be updated.
+Operations that end a Dashboard session now also end the sessions of SSO accounts: rotating or disabling MFA, changing a password, changing a role, and deleting a user. An SSO account previously kept its bearer tokens through all of these. Ending one account's sessions no longer ends those of an account with the same name on a different backend.

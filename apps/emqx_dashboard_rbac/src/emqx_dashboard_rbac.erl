@@ -117,11 +117,11 @@ check_login_user_scopes(Username, Req) when is_map(Req) ->
 check_login_user_scopes(Username, Path) when is_binary(Path) ->
     check_login_user_scopes_for_path(Username, Path).
 
-%% Self-service no longer needs a path-parsing exception here: it lives
-%% on `/current_user/*', which `emqx_dashboard_api:scopes/0' declares
-%% ?SCOPE_PUBLIC, so `check_login_user_scopes_strict/2' allows it
-%% through the `public' branch. Everything under `/users/' is now
-%% management of ANOTHER user and is scope-checked without exception.
+%% Self-service lives on `/current_user/*', which
+%% `emqx_dashboard_api:scopes/0' declares ?SCOPE_PUBLIC, so
+%% `check_login_user_scopes_strict/2' allows it through the `public'
+%% branch. Everything under `/users/' is management of another user and
+%% is scope-checked without exception.
 check_login_user_scopes_for_path(Username, Path) ->
     check_login_user_scopes_strict(Username, Path).
 
@@ -271,23 +271,21 @@ do_check_rbac(#{}, _, ?DASHBOARD_API(post, logout)) ->
     %% emqx_dashboard_api:logout
     true;
 %% Self-service: the caller IS the subject, so the authenticated
-%% identity alone authorizes the operation. There is no `:username' in
-%% these paths to compare the actor against, hence no `IsSelf' rule and
-%% nothing to spoof. Any authenticated dashboard user is allowed --
-%% including a viewer and a namespaced administrator, who each manage
-%% their own account here and nothing else. API keys never reach these
-%% functions: `emqx_mgmt_auth:authorize/4' refuses them by handler name
-%% before RBAC runs.
+%% identity alone authorizes the operation. These paths carry no
+%% `:username' binding, so there is no target to compare the actor
+%% against and nothing to spoof. Any authenticated dashboard user is
+%% allowed -- including a viewer and a namespaced administrator, who
+%% each manage their own account here and nothing else. API keys never
+%% reach these functions: `emqx_mgmt_auth:authorize/4' refuses them by
+%% handler name before RBAC runs.
 do_check_rbac(#{}, _, ?DASHBOARD_API(_, Fn)) when
     Fn == current_user;
     Fn == current_user_change_pwd;
     Fn == current_user_mfa;
-    %% The deprecated `/users/:username/change_pwd' shim belongs here
-    %% too: it is a self operation wearing an admin-shaped path. RBAC
-    %% lets any authenticated user through and the handler asserts the
-    %% target is the caller, answering 403 otherwise. Keeping the check
-    %% in one place is the point -- an RBAC-level `IsSelf' clause here
-    %% is exactly the machinery this split removes.
+    %% `/users/:username/change_pwd' is a deprecated self-only shim on
+    %% an admin-style path. RBAC lets any authenticated user through and
+    %% the handler asserts the target is the caller, answering 403
+    %% otherwise.
     Fn == change_pwd
 ->
     %% emqx_dashboard_api:current_user

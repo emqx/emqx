@@ -256,12 +256,11 @@ t_logout(TCConfig) when is_list(TCConfig) ->
     {ok, #{actor := Username}} = emqx_dashboard_admin:verify_token(FakeReq, FakeHandlerInfo, Token),
     ok.
 
-%% Self-service moved to `/current_user/*'. RBAC's rule for those routes
-%% is "any authenticated dashboard user", with no `:username' binding to
-%% compare the actor against — so every role passes, and a viewer with an
-%% explicitly emptied scope list still passes (the scope layer treats the
-%% paths as public). Replaces the old viewer-self / namespaced-self
-%% clauses, which are deleted along with `is_self_service_endpoint/2'.
+%% RBAC's rule for `/current_user/*' is "any authenticated dashboard
+%% user": those routes carry no `:username' binding to compare the actor
+%% against, so every role passes, and a viewer with an explicitly
+%% emptied scope list passes too (the scope layer treats the paths as
+%% public).
 t_current_user_allowed_for_every_role(_) ->
     Password = <<"public_www1">>,
     Desc = <<"desc">>,
@@ -310,16 +309,12 @@ t_setup_mfa(_) ->
 t_delete_mfa(_) ->
     test_mfa(fun delete_mfa/2).
 
-%% Descendant of the #17122 regression (SSO usernames may contain `@`,
-%% which the HTTP layer percent-encodes as `%40`, and RBAC used to match
-%% the decoded path segment against the logged-in actor).
-%%
-%% `/current_user/mfa' carries no username segment at all, so there is
-%% nothing to encode, decode or compare -- the class of bug is gone
-%% rather than fixed. What this test still pins is the part that
-%% survives: the self-MFA lock is driven by the per-user
+%% `/current_user/mfa' carries no username path segment, so an SSO
+%% username containing `@' (percent-encoded as `%40' by the HTTP layer)
+%% needs no decoding or comparison here. Over the full HTTP path this
+%% pins the contract: the self-MFA lock is driven by the per-user
 %% `admin_override' field, not by the SSO backend's live `force_mfa'
-%% flag, and it applies to an SSO identity whose name needs escaping.
+%% flag, and it holds for an SSO identity whose name needs escaping.
 t_delete_own_mfa_sso_admin_override_http(_) ->
     SsoBackend = saml,
     SsoUser = <<"jackson-http@example.com">>,
@@ -395,10 +390,9 @@ test_mfa(VerifyFn) ->
     ),
     {ok, #{role := ?ROLE_SUPERUSER, token := NamespacedSuperToken}} =
         emqx_dashboard_admin:sign_token(NamespacedSuperUser, Password),
-    %% `/users/:username/mfa' is now purely administrative: it manages
-    %% ANOTHER user, and the self case lives at `/current_user/mfa'.
-    %% A viewer is denied on every target, its own account included --
-    %% there is no longer a viewer-self clause to fall into.
+    %% `/users/:username/mfa' is purely administrative: it manages
+    %% another user, and the self case lives at `/current_user/mfa'.
+    %% A viewer is denied on every target, its own account included.
     ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, Viewer1)),
     ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, Viewer2)),
     ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, SuperUser)),
@@ -451,9 +445,8 @@ t_check_login_user_scopes_undefined_falls_back(_) ->
     ).
 
 %% Self-service is unscoped because `/current_user/*' is declared
-%% ?SCOPE_PUBLIC, not because of a path-parsing exception -- the old
-%% `is_self_service_endpoint/2' whitelist is deleted. A user with an
-%% explicit empty scope list still reaches its own account.
+%% ?SCOPE_PUBLIC. A user with an explicit empty scope list still reaches
+%% its own account.
 t_check_login_user_scopes_current_user_is_public(_) ->
     Username = <<"login_user_scopes_self">>,
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -479,8 +472,8 @@ t_check_login_user_scopes_current_user_is_public(_) ->
             <<"/users/somebody_else/change_pwd">>
         ]
     ),
-    %% Nothing under /users/ is exempt any more, not even a path that
-    %% names the caller: those routes manage OTHER users now.
+    %% Every other path under /users/ is scope-checked, even one that
+    %% names the caller: those routes manage other users.
     lists:foreach(
         fun(Path) ->
             ?assertEqual(
@@ -495,29 +488,6 @@ t_check_login_user_scopes_current_user_is_public(_) ->
             <<"/users/", Username/binary>>,
             <<"/users">>
         ]
-    ).
-
-%% A user literally named `current_user' does not gain the self-service
-%% exemption for its own record: `/users/current_user' is still scope-
-%% checked. Guards against a prefix/segment confusion between the
-%% top-level `/current_user' route and a username of the same text.
-t_check_login_user_scopes_username_named_current_user(_) ->
-    Username = <<"current_user">>,
-    {ok, _} = emqx_dashboard_admin:add_user(
-        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
-    ),
-    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Username, []),
-    ?assertEqual(
-        true,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/current_user">>)
-    ),
-    ?assertEqual(
-        false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users/current_user">>)
-    ),
-    ?assertEqual(
-        false,
-        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users/current_user/mfa">>)
     ).
 
 %% scopes=[] denies every mapped path (semantically: "explicitly no

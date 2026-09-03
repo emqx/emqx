@@ -476,10 +476,7 @@ t_viewer_cannot_hold_user_management(_Config) ->
     ).
 
 %% Viewer cannot hold mfa_management: the scope means "manage another
-%% user's MFA" and is administrator-only. Its former non-administrator
-%% meaning (a self-exemption key) is gone -- managing one's own MFA is
-%% an identity-authorized operation on /current_user/mfa and needs no
-%% scope.
+%% user's MFA" and is administrator-only.
 t_viewer_cannot_hold_mfa_management(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -1042,9 +1039,8 @@ t_role_demotion_with_compatible_persisted_scopes_succeeds(_Config) ->
 %%--------------------------------------------------------------------
 %% Self-MFA policy (`/current_user/mfa')
 %%
-%% What used to be a seven-row matrix over {IsFirstSetup, IsSelf,
-%% HasMfaMgmt, Locked, CallerRole} is now one rule, because the caller
-%% and the subject are the same identity on these routes:
+%% One rule covers these routes, because the caller and the subject are
+%% the same identity:
 %%
 %%   setup / rotate             => allow  (never gated)
 %%   disable, override=required => deny   (MFA_ADMIN_REQUIRED)
@@ -1053,9 +1049,9 @@ t_role_demotion_with_compatible_persisted_scopes_succeeds(_Config) ->
 %% Rotation stays open under the requirement: it keeps MFA enabled, so it
 %% cannot weaken what the override protects.
 %%
-%% `mfa_management' no longer acts as a self-exemption key: it is an
-%% administrator-only scope meaning "manage OTHER users' MFA". The exits
-%% from a locked account are an administrator exemption and the CLI.
+%% `mfa_management' is an administrator-only scope meaning "manage OTHER
+%% users' MFA"; it does not exempt its holder on their own account. The
+%% exits from a locked account are an administrator exemption and the CLI.
 %%--------------------------------------------------------------------
 
 %% First-time setup is always allowed, regardless of the lock. Without
@@ -1115,11 +1111,9 @@ t_self_cannot_delete_when_admin_override_required(_Config) ->
     {ok, 403, RespBody} = delete_own_mfa(Token),
     ?assertEqual(<<"MFA_ADMIN_REQUIRED">>, error_code(RespBody)).
 
-%% `mfa_management' is no longer a self-exemption key. It is now an
-%% administrator-only scope, so the holder must be an administrator --
-%% and even then it does not lift the requirement on their own account.
-%% Replaces the two former "self with mfa_management can rotate/delete
-%% under lock" rows.
+%% `mfa_management' does not lift the requirement on its holder's own
+%% account. It is an administrator-only scope, so the holder must be an
+%% administrator, and the self route still denies the disable.
 t_self_with_mfa_mgmt_still_required(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(
@@ -1167,7 +1161,7 @@ t_admin_can_reset_others_mfa(_Config) ->
 
 %% The admin routes manage OTHER users only. An administrator aiming
 %% them at its own account is refused and pointed at /current_user/mfa,
-%% so a self-change cannot be laundered into an `admin_override' write.
+%% so a self-change cannot write `admin_override'.
 t_admin_cannot_target_self_on_admin_route(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -1236,7 +1230,8 @@ t_viewer_cannot_reset_other_users_mfa(_Config) ->
     ?assertMatch({ok, 403, _}, admin_setup_mfa(Token, <<"v2">>)).
 
 %% A namespaced administrator is denied on another user's MFA even
-%% inside its own namespace -- the cross-user reset vector stays closed.
+%% inside its own namespace, and reaches its own account only through
+%% /current_user/mfa.
 t_ns_admin_cannot_reset_other_users_mfa(_Config) ->
     add_admin(<<"admin">>),
     {ok, _} = emqx_dashboard_admin:add_user(

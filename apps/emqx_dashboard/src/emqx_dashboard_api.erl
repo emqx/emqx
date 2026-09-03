@@ -68,19 +68,12 @@ api_spec() ->
 %%   * /logout -- any authenticated role may log itself out.
 %%   * /user_scopes -- static catalog endpoint, no tenant data.
 %%   * /current_user* -- self-service; the caller is the subject, so the
-%%     authenticated identity alone authorizes the operation. A scope
-%%     check here would let an explicit `scopes = []' lock a user out of
-%%     their own password and MFA, which is what the scope layer exists
-%%     to gate for OTHER users, not for the holder's own account. None of
-%%     these operations can widen the caller's own privileges:
-%%     change_pwd verifies `old_pwd', and the MFA routes only ever touch
+%%     authenticated identity alone authorizes the operation. These routes only ever touch
 %%     the caller's own record.
 %%   * /users/:username/change_pwd -- the deprecated self-only shim. It
 %%     carries no scope for the same reason as `/current_user/change_pwd':
 %%     the handler asserts the target is the caller and then acts on the
 %%     caller's own record, so there is nothing here to gate per-scope.
-%%     Dropping `user_management' is what lets a viewer keep using its
-%%     old password-change call.
 scopes() ->
     #{
         <<"/login">> => ?SCOPE_PUBLIC,
@@ -189,14 +182,6 @@ schema("/logout") ->
             }
         }
     };
-%% Self-service routes. `/current_user' is a top-level path outside
-%% `/users/', so it cannot be shadowed by -- or shadow -- a user whose
-%% name happens to be `current_user', `self' or `me'; those are all
-%% legal usernames and there is no reserved-word check on them.
-%%
-%% Every operationId is prefixed `current_user_' because minirest
-%% requires globally unique operationIds and the admin routes already
-%% own `change_pwd' / `change_mfa'.
 schema("/current_user") ->
     #{
         'operationId' => current_user,
@@ -326,15 +311,10 @@ schema("/users/:username") ->
             }
         }
     };
-%% Deprecated self-only shim for `/current_user/change_pwd'. Kept so the
-%% heavily-integrated password-change call keeps working; scheduled for
-%% removal a release later.
-%%
-%% This is not the old endpoint with a new name. The old one was reachable
-%% for any target and merely failed on the `old_pwd' check, so a cross-user
-%% call was refused by accident. The shim asserts the target is the caller
-%% and answers 403 otherwise, which also makes the namespaced-administrator
-%% invariant deliberate rather than incidental.
+%% Deprecated self-only shim for `/current_user/change_pwd', kept for
+%% clients that still call this path; scheduled for removal a release
+%% later. The handler answers 403 unless the path target is the caller
+%% itself.
 schema("/users/:username/change_pwd") ->
     #{
         'operationId' => change_pwd,
@@ -407,12 +387,11 @@ fields(List) ->
 user_fields() ->
     fields([username, role, description, backend, scopes_response]) ++ ee_user_fields().
 
-%% Same shape as `user_fields/0', but `scopes' carries the EFFECTIVE
-%% list rather than the raw tri-state one. The admin routes report the
-%% raw value so that a read-modify-write of `PUT /users/:username' does
-%% not sediment the role default into an explicit list; this endpoint
-%% has no write counterpart, and its caller is asking what it may
-%% actually do, so the expanded list is the useful answer.
+%% Same fields as `user_fields/0', except `scopes' contains the effective
+%% scope list. Admin endpoints return the stored value so a `PUT
+%% /users/:username' round-trip does not replace implicit role defaults
+%% with an explicit list. This endpoint is read-only and reports the
+%% permissions the current user actually has.
 current_user_fields() ->
     fields([username, role, description, backend, effective_scopes_response]) ++ ee_user_fields().
 
@@ -889,7 +868,7 @@ is_default_admin(_NonLocalTarget) ->
 
 handle_delete_user(#{bindings := #{username := Username0}} = Req) ->
     Username = username(Req, Username0),
-    case caller_key(Req) =:= Username of
+    case is_caller(Req, Username) of
         true ->
             {400, ?NOT_ALLOWED, <<"Cannot delete self">>};
         false ->
@@ -918,10 +897,8 @@ handle_delete_user(#{bindings := #{username := Username0}} = Req) ->
 current_user(get, Req) ->
     with_caller(Req, fun(#?ADMIN{username = Username} = Admin) ->
         Profile = emqx_dashboard_admin:to_external_user(Admin),
-        %% `to_json_out/1' like every other emitter of this shape: it maps
-        %% `?global_ns' to `null', and without it a global user reports
-        %% `"namespace": "global"' here while `GET /users' reports `null'
-        %% for the same account.
+        %% `to_json_out/1' maps `?global_ns' to `null', so a global user
+        %% reports the same `"namespace": null' as `GET /users' does.
         {200, to_json_out(Profile#{scopes => emqx_dashboard_admin:effective_scopes_of(Username)})}
     end).
 
@@ -930,10 +907,10 @@ current_user_change_pwd(post, #{body := Params} = Req) ->
         do_change_pwd(Username, Params)
     end).
 
-%% Deprecated shim: assert the path target is the caller, then run the
-%% canonical self operation. It always acts on `Username', the caller's
-%% own resolved key, never on the path segment, so the path cannot steer
-%% the write even if the match below were ever loosened.
+%% Deprecated self-only shim for `/current_user/change_pwd'. Kept so the
+%% heavily-integrated password-change call keeps working; scheduled for
+%% removal a release later.
+%% The shim asserts the target is the caller and answers 403 otherwise.
 change_pwd(post, #{bindings := #{username := Target}, body := Params} = Req) ->
     with_caller(Req, fun(#?ADMIN{username = Username}) ->
         case is_self_target(Username, Target) of
@@ -1036,12 +1013,10 @@ mfa_result({error, Reason}, LogMeta) ->
 
 %% Self-MFA policy, in full:
 %%
-%%   setup / rotate             => always allowed. Rotation keeps MFA
-%%                                 enabled, so it cannot weaken the
-%%                                 requirement the override protects, and a
-%%                                 first enrolment has to stay open or an
-%%                                 account under a mandate could never
-%%                                 comply. Hence no check on this route.
+%%   setup / rotate             => always allowed. Rotation leaves MFA
+%%                                 enabled, and a first enrolment must
+%%                                 stay open, so this route runs no
+%%                                 check.
 %%   disable, override=required => denied. An administrator requires MFA on
 %%                                 this account; only another administrator
 %%                                 or the CLI can lift it.
@@ -1104,7 +1079,7 @@ change_mfa(post, #{bindings := #{username := Username0}, body := Settings} = Req
 %% where it would be recorded as an administrator decision
 %% (`admin_override') and would skip the self policy entirely.
 reject_self_target(Req, TargetUsername) ->
-    case caller_key(Req) =:= TargetUsername of
+    case is_caller(Req, TargetUsername) of
         false ->
             ok;
         true ->
@@ -1355,14 +1330,23 @@ caller_admin(_) ->
     undefined.
 
 %% The caller's own admin-record key, in the same shape `username/2'
-%% builds for a path target, so the two compare directly. `undefined'
-%% for a non-bearer caller or a deleted account; it never equals a real
-%% target key, so a self-check against it is false, which is the safe
-%% answer for both call sites (delete and the admin MFA routes).
+%% builds for a path target. `undefined' for a non-bearer caller or an
+%% account that no longer exists.
 caller_key(Req) ->
     case caller_admin(Req) of
         #?ADMIN{username = Username} -> Username;
         undefined -> undefined
+    end.
+
+%% Whether `Target' names the caller's own account. Every key shape is
+%% listed so that an unexpected one raises here rather than answering
+%% `false', which the callers read as "acting on somebody else" and act
+%% upon.
+is_caller(Req, Target) ->
+    case caller_key(Req) of
+        undefined -> false;
+        Name when is_binary(Name) -> Name =:= Target;
+        ?SSO_USERNAME(_Backend, Name) = Key when is_binary(Name) -> Key =:= Target
     end.
 
 mk(Type, Props) ->

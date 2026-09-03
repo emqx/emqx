@@ -1122,10 +1122,9 @@ any of the self-service `/current_user/*' routes. These endpoints belong
 to the human-facing dashboard surface and are intended only for
 bearer-token (JWT) callers.
 
-Before the fix, DELETE /api/v5/users/:username/mfa via API key Basic auth
-returned HTTP 204 and silently disabled the target user's MFA. After the
-fix it must return HTTP 401 with body code API_KEY_NOT_ALLOW, matching
-the policy already enforced on /users and /users/:username.
+DELETE and POST /api/v5/users/:username/mfa via API key Basic auth must
+return HTTP 401 with body code API_KEY_NOT_ALLOW, matching the policy
+already enforced on /users and /users/:username.
 
 The `/current_user/*' routes need the same guard for a different reason:
 they are declared ?SCOPE_PUBLIC (self-service is authorized by identity,
@@ -1190,11 +1189,10 @@ t_ee_authorize_admin_cannot_manage_mfa(_Config) ->
 -doc """
 Lower-level companion to t_ee_authorize_admin_cannot_manage_mfa:
 call emqx_mgmt_auth:authorize/4 directly with a HandlerInfo map that
-names the dashboard change_mfa and current_user_* handlers. This pins
-the contract at the exact clauses, independent of any HTTP / minirest
-plumbing -- the denial keys off the handler function name, so adding a
-dashboard route without adding it here would silently open it to API
-keys.
+names the dashboard change_mfa and current_user_* handlers. It checks
+the rule directly in emqx_mgmt_auth, independent of any HTTP / minirest
+plumbing. The denial matches on the handler function name, so a
+dashboard route is covered only once it appears in this list.
 """.
 t_ee_authorize_admin_cannot_manage_mfa_module_level(_Config) ->
     Name = <<"EMQX-EE-API-AUTH-MFA-MODULE">>,
