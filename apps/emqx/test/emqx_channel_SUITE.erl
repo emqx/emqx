@@ -264,7 +264,7 @@ t_reauthentication_reschedules_auth_expiry(_) ->
             clean_start = false,
             properties = Properties
         },
-        {ok, _, Channel1} =
+        {continue, _, Channel1} =
             emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt1), channel(#{conn_state => idle})),
         #{connection_auth_expire := TRef1} = emqx_channel:info(timers, Channel1),
 
