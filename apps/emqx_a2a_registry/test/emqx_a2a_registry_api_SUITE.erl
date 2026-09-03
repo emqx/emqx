@@ -42,7 +42,13 @@ groups() ->
 init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf, #{config => #{log => #{audit => #{enable => true, level => info}}}}},
+            %% `log.audit' is defined by `emqx_enterprise_schema' (it redefines the
+            %% `log' root), not by the `emqx_conf_schema' that `emqx_cth_suite'
+            %% would otherwise pick by app name, so name the schema explicitly.
+            {emqx_conf, #{
+                config => #{log => #{audit => #{enable => true, level => info}}},
+                schema_mod => emqx_enterprise_schema
+            }},
             {emqx_retainer, #{
                 config => #{<<"retainer">> => #{<<"enable">> => true}}
             }},
