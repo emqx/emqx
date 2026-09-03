@@ -79,7 +79,8 @@ init_per_testcase(_Case, Config) ->
             emqx_bcast_pull_pool:tab(S, bcast_buffer_a),
             emqx_bcast_pull_pool:tab(S, bcast_buffer_b),
             emqx_bcast_pull_pool:tab(S, bcast_buffer3),
-            emqx_bcast_pull_pool:tab(S, bcast_pull_inflight)
+            emqx_bcast_pull_pool:tab(S, bcast_pull_inflight),
+            emqx_bcast_pull_pool:tab(S, bcast_ack_pending)
         ]
     ],
     %% The owner ETS index/quota and the intake queue are not mnesia
@@ -1499,6 +1500,317 @@ t_duplicate_puback_metric_counted_once(_Config) ->
     ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
     _ = sys:get_state(emqx_bcast_ack_pool),
     _ = sys:get_state(emqx_bcast_pull_pool:pool_name(emqx_bcast_pull_pool:shard_of(DN))),
+    ?assertEqual(Before + 1, metric(<<"batch_pub_qos1_acked">>)).
+
+-doc "Repro: a duplicate PUBACK arriving after a redelivery (reconnect)\n"
+"generation re-creates the client buffer for the SAME delivery id, and\n"
+"take_pending matches it - so the acked metric counts the logical delivery\n"
+"twice. Observed online as acked == wanted + redelivered. take_pending keys\n"
+"only on (clientid, delivery_id); it cannot tell the old generation's late\n"
+"PUBACK from the new generation's own PUBACK. Until acks are counted\n"
+"authoritatively once per logical delivery (e.g. at the core index removal),\n"
+"this case locks the CURRENT behavior (2) and must be flipped to 1 after the\n"
+"fix.".
+t_metrics_acked_redelivery_generation_overcount(_Config) ->
+    PK = <<"PMETRIC_GEN">>,
+    DN = <<"DMETRIC_GEN">>,
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = <<"metric gen payload">>,
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(<<"metric-gen-api">>, MsgGuid, Hash, Payload),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1
+    ),
+    Msg = emqx_message:make(
+        DeliveryId,
+        DN,
+        1,
+        <<"tpl">>,
+        Payload,
+        #{},
+        #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
+    ),
+    ActiveTab = emqx_bcast_pull_pool:tab(emqx_bcast_pull_pool:shard_of(DN), bcast_buffer_a),
+    seed_ack_buffer(ActiveTab, DN, DeliveryId, PK, Payload),
+    Before = metric(<<"batch_pub_qos1_acked">>),
+    %% generation 1: first PUBLISH acked (counted once, buffer consumed).
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
+    ?assert(wait_metric(<<"batch_pub_qos1_acked">>, Before + 1)),
+    %% redelivery generation (reconnect re-claim): buffer re-created for the
+    %% same delivery id.
+    seed_ack_buffer(ActiveTab, DN, DeliveryId, PK, Payload),
+    %% the old generation's late duplicate PUBACK would once have matched the
+    %% new buffer and counted twice; with core-applied confirmation counting
+    %% (ack_in_flight marker + ack_applied), the logical delivery is counted
+    %% exactly once and the late duplicate is ignored.
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
+    _ = sys:get_state(emqx_bcast_ack_pool),
+    _ = sys:get_state(emqx_bcast_pull_pool:pool_name(emqx_bcast_pull_pool:shard_of(DN))),
+    ?assert(wait_metric(<<"batch_pub_qos1_acked">>, Before + 1)),
+    timer:sleep(50),
+    ?assertEqual(Before + 1, metric(<<"batch_pub_qos1_acked">>)).
+
+seed_ack_buffer(Tab, DN, DeliveryId, PK, Payload) ->
+    ets:insert(Tab, #bcast_buffer_entry{
+        clientid = DN,
+        delivery_id = DeliveryId,
+        product_key = PK,
+        topic_template = <<"tpl">>,
+        topic = <<"tpl">>,
+        payload = Payload,
+        pid = self(),
+        attempts = 1
+    }),
+    ok.
+
+-doc "Ack micro-storm: measure real-entry ack batch cost and the pull_server\n"
+"pool dispatch queueing under a burst. Records: real ack batch(500) cost,\n"
+"schedulers, theoretical per-worker caps (current ACK_WORKER_MAX vs\n"
+"schedulers), and max in_flight/pending observed during a parallel burst.\n"
+"Loose sanity only (no crash, drains); the numbers are compared before/\n"
+"after the ack-path fixes.".
+t_ack_micro_storm_throughput(_Config) ->
+    PK = <<"PMICRO">>,
+    Count = 2000,
+    DNs = [<<"DM_", (integer_to_binary(N))/binary>> || N <- lists:seq(1, Count)],
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = <<"micro storm">>,
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(<<"micro-storm-api">>, MsgGuid, Hash, Payload),
+    Did = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, DNs, Count),
+    Batch = fun(S, L) -> [{PK, DN, Did} || DN <- lists:sublist(DNs, S, L)] end,
+    %% (a) real ack batch cost (first pass removes entries -> one-time cost)
+    Costs = [
+        element(1, timer:tc(fun() -> emqx_bcast_storage:process_ack_batch(Batch(S, 500)) end))
+     || S <- [1, 501, 1001, 1501]
+    ],
+    Avg = lists:sum(Costs) div max(1, length(Costs)),
+    Sched = erlang:system_info(schedulers_online),
+    ct:pal(
+        "ack real batch(500) avg=~p us | schedulers=~p | cap16~p/s | sched-cap~p/s",
+        [Avg, Sched, 16 * 1000000 div max(1, Avg), Sched * 1000000 div max(1, Avg)]
+    ),
+    %% (b) dispatch queueing under a parallel burst (duplicate acks after the
+    %% first real pass are cheap, but exercise the ack_batch dispatch + worker
+    %% cap path and the pending_acks queueing)
+    Stats = ets:new(ack_storm_stats, [public, set]),
+    ets:insert(Stats, {max_i, 0}),
+    ets:insert(Stats, {max_p, 0}),
+    Sampler = spawn(fun() -> storm_sample(Stats, 10000) end),
+    [
+        spawn_link(fun() ->
+            lists:foreach(
+                fun(_) -> emqx_bcast_pull_server_pool:ack_batch(Batch(1, 100)) end,
+                lists:seq(1, 300)
+            )
+        end)
+     || _ <- lists:seq(1, 8)
+    ],
+    ?assert(
+        wait_until(
+            fun() ->
+                S = sys:get_state(emqx_bcast_pull_server_pool),
+                maps:get(in_flight, S) =:= 0 andalso maps:get(pending_acks, S) =:= []
+            end,
+            400
+        )
+    ),
+    exit(Sampler, kill),
+    timer:sleep(10),
+    [{_, MaxInflight}] = ets:lookup(Stats, max_i),
+    [{_, MaxPending}] = ets:lookup(Stats, max_p),
+    ets:delete(Stats),
+    ct:pal("ack storm done: max_in_flight=~p max_pending_batches=~p", [MaxInflight, MaxPending]),
+    ?assert(MaxInflight >= 0),
+    ok.
+
+storm_sample(Stats, 0) ->
+    ok;
+storm_sample(Stats, N) ->
+    S = catch sys:get_state(emqx_bcast_pull_server_pool),
+    case S of
+        #{} ->
+            In = maps:get(in_flight, S),
+            Pending = length(maps:get(pending_acks, S)),
+            [{_, MaxI}] = ets:lookup(Stats, max_i),
+            [{_, MaxP}] = ets:lookup(Stats, max_p),
+            ets:insert(Stats, {max_i, max(MaxI, In)}),
+            ets:insert(Stats, {max_p, max(MaxP, Pending)});
+        _ ->
+            ok
+    end,
+    timer:sleep(2),
+    storm_sample(Stats, N - 1).
+
+-doc "A real PUBACK sets the ack-in-flight marker until the core-applied\n"
+"confirmation arrives, which also counts acked exactly once and clears it.".
+t_metrics_ack_in_flight_marker_lifecycle(_Config) ->
+    PK = <<"PMARK">>,
+    DN = <<"DMARK">>,
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = <<"marker payload">>,
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(<<"marker-api">>, MsgGuid, Hash, Payload),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    Msg = emqx_message:make(
+        DeliveryId,
+        DN,
+        1,
+        <<"tpl">>,
+        Payload,
+        #{},
+        #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
+    ),
+    Shard = emqx_bcast_pull_pool:shard_of(DN),
+    ActiveTab = emqx_bcast_pull_pool:tab(Shard, bcast_buffer_a),
+    AckTab = emqx_bcast_pull_pool:tab(Shard, bcast_ack_pending),
+    ets:insert(ActiveTab, #bcast_buffer_entry{
+        clientid = DN,
+        delivery_id = DeliveryId,
+        product_key = PK,
+        topic_template = <<"tpl">>,
+        topic = <<"tpl">>,
+        payload = Payload,
+        pid = self(),
+        attempts = 1
+    }),
+    Before = metric(<<"batch_pub_qos1_acked">>),
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
+    %% core-applied confirmation arrives asynchronously and counts acked
+    %% exactly once (the marker lives in the pull shard only for the brief
+    %% ack-in-flight window; on a single node it is set and cleared faster
+    %% than a poll can observe, so we assert the observable contract)
+    ?assert(wait_metric(<<"batch_pub_qos1_acked">>, Before + 1)),
+    %% a duplicate PUBACK (buffer already consumed) must not count again
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
+    timer:sleep(100),
+    ?assertEqual(Before + 1, metric(<<"batch_pub_qos1_acked">>)),
+    %% no residual marker after the confirmation
+    ?assert(wait_until(fun() -> not ets:member(AckTab, DN) end, 100)).
+
+-doc "When the claim holder node is down, the shard requeues its in-flight\n"
+"claims so other nodes can deliver (cleanup_local reclaim).".
+t_metrics_claim_holder_node_down_reclaim(_Config) ->
+    PK = <<"PHOLDER">>,
+    DN = <<"DHOLDER">>,
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = <<"holder payload">>,
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(<<"holder-api">>, MsgGuid, Hash, Payload),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    [{DN, {ok, _}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    %% fake a dead holder on the owning index shard, then run the reclaim pass
+    Key = {PK, DN},
+    Shard = erlang:phash2(Key, emqx_bcast_index_owner:shard_count()),
+    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)),
+    Old = sys:get_state(Name),
+    Holders = maps:put(Key, 'down_fake@node', maps:get(holders, Old, #{})),
+    sys:replace_state(Name, fun(_) -> Old#{holders => Holders} end),
+    emqx_bcast_storage:cleanup_expired(),
+    %% the claim is reclaimed: inflight is 0 and the delivery is claimable again
+    ?assert(
+        wait_until(
+            fun() ->
+                S = sys:get_state(Name),
+                case maps:get(Key, maps:get(inflights, S), #{}) of
+                    I when map_size(I) =:= 0 -> true;
+                    _ -> false
+                end
+            end,
+            100
+        )
+    ),
+    [{DN, {ok, M}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    ?assertEqual(DeliveryId, maps:get(delivery_id, M)).
+
+-doc "While an ack is in flight (ack-in-flight marker set), a subscribe\n"
+"trigger for that client must not stage a want_next (pull returns no_more).".
+t_pull_ack_in_flight_gates_subscribe_trigger(_Config) ->
+    PK = <<"PGATE_S">>,
+    DN = <<"DGATE_S">>,
+    Shard = emqx_bcast_pull_pool:shard_of(DN),
+    AckTab = emqx_bcast_pull_pool:tab(Shard, bcast_ack_pending),
+    Buf3 = emqx_bcast_pull_pool:tab(Shard, bcast_buffer3),
+    ets:insert(AckTab, {DN, emqx_bcast_utils:gen_guid()}),
+    emqx_bcast_pull_pool:cast_client(DN, {subscribe, DN, self(), PK}),
+    timer:sleep(100),
+    %% nothing staged while the marker is present
+    ?assertEqual([], ets:lookup(Buf3, DN)),
+    ets:delete(AckTab, DN).
+
+-doc "While an ack is in flight, a ping keepalive trigger must also be\n"
+"suppressed (no want_next staged).".
+t_pull_ack_in_flight_gates_ping_trigger(_Config) ->
+    PK = <<"PGATE_P">>,
+    DN = <<"DGATE_P">>,
+    Shard = emqx_bcast_pull_pool:shard_of(DN),
+    AckTab = emqx_bcast_pull_pool:tab(Shard, bcast_ack_pending),
+    Buf3 = emqx_bcast_pull_pool:tab(Shard, bcast_buffer3),
+    ets:insert(AckTab, {DN, emqx_bcast_utils:gen_guid()}),
+    emqx_bcast_pull_pool:cast_client(DN, {ping, DN, self(), PK}),
+    timer:sleep(100),
+    ?assertEqual([], ets:lookup(Buf3, DN)),
+    ets:delete(AckTab, DN).
+
+-doc "The QoS0 auto-ack path counts delivered/auto_acked locally and never\n"
+"touches acked (no client PUBACK); the pull ack entry point forwards it and\n"
+"the core-applied confirmation (or its absence) decides advancement.".
+t_metrics_auto_ack_path_counts_local(_Config) ->
+    PK = <<"PAUTO_LOCAL">>,
+    DN = <<"DAUTO_LOCAL">>,
+    Did = emqx_bcast_utils:gen_guid(),
+    D0 = metric(<<"batch_pub_qos1_delivered">>),
+    A0 = metric(<<"batch_pub_qos1_auto_acked">>),
+    ACK0 = metric(<<"batch_pub_qos1_acked">>),
+    R0 = metric(<<"batch_pub_qos1_redelivered">>),
+    ok = emqx_bcast_pull_pool:do_deliver_qos0_and_ack(
+        DN, self(), <<"tpl">>, <<"auto payload">>, Did, PK, 1
+    ),
+    ?assert(wait_metric(<<"batch_pub_qos1_delivered">>, D0 + 1)),
+    ?assert(wait_metric(<<"batch_pub_qos1_auto_acked">>, A0 + 1)),
+    ?assertEqual(ACK0, metric(<<"batch_pub_qos1_acked">>)),
+    ?assertEqual(R0, metric(<<"batch_pub_qos1_redelivered">>)).
+
+-doc "A second PUBLISH copy of an already-confirmed delivery must not\n"
+"re-count acked (the core no longer holds the entry).".
+t_metrics_acked_second_copy_after_confirm_not_counted(_Config) ->
+    PK = <<"P2ND">>,
+    DN = <<"D2ND">>,
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = <<"second copy payload">>,
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(<<"2nd-api">>, MsgGuid, Hash, Payload),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    Msg = emqx_message:make(
+        DeliveryId,
+        DN,
+        1,
+        <<"tpl">>,
+        Payload,
+        #{},
+        #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
+    ),
+    Shard = emqx_bcast_pull_pool:shard_of(DN),
+    ActiveTab = emqx_bcast_pull_pool:tab(Shard, bcast_buffer_a),
+    seed_ack_buffer(ActiveTab, DN, DeliveryId, PK, Payload),
+    Before = metric(<<"batch_pub_qos1_acked">>),
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
+    ?assert(wait_metric(<<"batch_pub_qos1_acked">>, Before + 1)),
+    %% a later copy (would-be redelivery) is acknowledged: the buffer was
+    %% re-seeded for the test, but the core entry is gone, so no
+    %% confirmation arrives and acked stays at one
+    seed_ack_buffer(ActiveTab, DN, DeliveryId, PK, Payload),
+    ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
+    timer:sleep(200),
     ?assertEqual(Before + 1, metric(<<"batch_pub_qos1_acked">>)).
 
 -doc "Concurrent BatchPub calls cannot pass the global quota through races.".
