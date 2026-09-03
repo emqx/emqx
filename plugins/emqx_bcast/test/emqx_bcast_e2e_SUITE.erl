@@ -709,6 +709,87 @@ t_qos0_subscriber_delivery_removed(_Config) ->
     disconnect(C1).
 
 %%--------------------------------------------------------------------
+%% Ledger combo scenarios
+%%--------------------------------------------------------------------
+
+-doc "Combined ledger scenario A: one QoS1 acked delivery, one QoS0\n"
+"auto-acked delivery and one offline device that expires at TTL. After\n"
+"the async accounting settles the delivery ledger closes\n"
+"(wanted = acked + auto_acked + ttl_expired + canceled, live backlog 0)\n"
+"and delivered counts the real sends (redelivered stays 0 without any\n"
+"forced re-attempt).".
+t_metrics_ledger_combo_a_e2e(_Config) ->
+    PK = <<"default">>,
+    A1 = <<"e2e_ca_a1">>,
+    A2 = <<"e2e_ca_a2">>,
+    A3 = <<"e2e_ca_a3">>,
+    C1 = connect(A1),
+    C2 = connect(A2),
+    %% QoS1 subscriber: emqtt auto-PUBACKs -> acked
+    sub_default(C1, A1),
+    %% QoS0 subscriber: auto-ack path
+    sub_qos(C2, topic(A2), 0),
+    wait_subscribed(A1, topic(A1)),
+    wait_subscribed(A2, topic(A2)),
+    W0 = metric(<<"batch_pub_qos1_wanted">>),
+    A0 = metric(<<"batch_pub_qos1_acked">>),
+    AU0 = metric(<<"batch_pub_qos1_auto_acked">>),
+    D0 = metric(<<"batch_pub_qos1_delivered">>),
+    R0 = metric(<<"batch_pub_qos1_redelivered">>),
+    C0 = metric(<<"batch_pub_qos1_canceled">>),
+    T0 = metric(<<"batch_pub_qos1_ttl_expired">>),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => PK,
+        <<"DeviceName">> => [A1, A2, A3],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    Msgs = recv(2),
+    ?assertEqual(2, length(Msgs)),
+    %% Settle the async accounting: commit, sends, PUBACK, auto-ack.
+    ?assert(wait_until(fun() -> metric(<<"batch_pub_qos1_wanted">>) >= W0 + 3 end, 100)),
+    ?assert(wait_until(fun() -> metric(<<"batch_pub_qos1_delivered">>) >= D0 + 2 end, 100)),
+    ?assert(wait_until(fun() -> metric(<<"batch_pub_qos1_acked">>) >= A0 + 1 end, 100)),
+    ?assert(wait_until(fun() -> metric(<<"batch_pub_qos1_auto_acked">>) >= AU0 + 1 end, 100)),
+    %% The ack counters fire on the pull side before the core index removal
+    %% lands; wait until A1/A2 index entries are actually gone (acked) and
+    %% only A3 is still queued, so the cleanup below expires exactly A3.
+    ?assert(
+        wait_until(
+            fun() ->
+                {ok, []} =:= emqx_bcast_storage:get_device_deliveries({PK, A1}) andalso
+                    {ok, []} =:= emqx_bcast_storage:get_device_deliveries({PK, A2}) andalso
+                    case emqx_bcast_storage:get_device_deliveries({PK, A3}) of
+                        {ok, [_]} -> true;
+                        _ -> false
+                    end
+            end,
+            100
+        )
+    ),
+    %% Offline device A3: expire its unacked delivery row and run cleanup.
+    [Deliv = #bcast_msg{delivery_id = Did}] = [
+        D
+     || D <- mnesia:dirty_match_object(#bcast_msg{_ = '_'}),
+        lists:member(A3, D#bcast_msg.device_names)
+    ],
+    mnesia:dirty_write(Deliv#bcast_msg{expires_at = 0}),
+    emqx_bcast_storage:cleanup_expired(),
+    ?assert(wait_until(fun() -> metric(<<"batch_pub_qos1_ttl_expired">>) >= T0 + 1 end, 100)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, Did)),
+    %% The ledger closes with zero live backlog.
+    ?assertEqual(3, metric(<<"batch_pub_qos1_wanted">>) - W0),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_acked">>) - A0),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_auto_acked">>) - AU0),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_ttl_expired">>) - T0),
+    ?assertEqual(0, metric(<<"batch_pub_qos1_canceled">>) - C0),
+    ?assertEqual(2, metric(<<"batch_pub_qos1_delivered">>) - D0),
+    ?assertEqual(0, metric(<<"batch_pub_qos1_redelivered">>) - R0),
+    disconnect(C1),
+    disconnect(C2).
+
+%%--------------------------------------------------------------------
 %% Review regression tests
 %%--------------------------------------------------------------------
 
