@@ -502,7 +502,7 @@ render_topic(Topic, AuthzContext) ->
                 template => Topic,
                 reason => Reason
             }),
-            case emqx_security_profile:policy(authz_backend_failure) of
+            case emqx_security_profile:policy(authz_rule_render_failure) of
                 ignore -> error;
                 deny -> throw({cannot_render_topic_template, Reason})
             end
