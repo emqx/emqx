@@ -234,12 +234,18 @@ t_tcp_socket_conn(_Config) ->
         <<"bind">> => format_bind({"127.0.0.1", Port}),
         <<"tcp_backend">> => <<"socket">>
     },
+    NSockets = socket:number_of(),
     with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
         Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
         pong = emqtt:ping(Client),
         ?assertEqual(
             emqx_socket_connection,
             emqx_cth_broker:connection_info(connmod, Client)
+        ),
+        ?assertEqual(
+            NSockets,
+            socket:number_of(),
+            "Socket should skip registry by default"
         )
     end).
 
