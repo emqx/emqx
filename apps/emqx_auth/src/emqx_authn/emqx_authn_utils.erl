@@ -199,9 +199,9 @@ client_attrs(Selected) when is_map(Selected) ->
 client_attrs(_) ->
     #{client_attrs => #{}}.
 
-%% @doc Like `client_attrs/1', but leaves the key out when the backend returned
-%% no attributes, so a result keeps exactly the shape it had before a backend
-%% learned to report them. `clientid_override/1' omits its key the same way.
+%% @doc Like `client_attrs/1', but leaves the key out when there are no
+%% attributes to report, so the caller's result map gains no `client_attrs'
+%% key. `clientid_override/1' omits its key the same way.
 -spec maybe_client_attrs(#{binary() => term()}) -> #{client_attrs => map()}.
 maybe_client_attrs(Selected) ->
     case client_attrs(Selected) of
@@ -345,10 +345,9 @@ without_password(Credential, [Name | Rest]) ->
 owner_id(Mechanism, Backend) ->
     bin([bin(Mechanism), ":", bin(Backend)]).
 
-%% Dropping an attribute is a misconfigured backend, not a client error: the
-%% column is there but unusable. Report the whole set once per authentication
-%% rather than one line per attribute, so a row with several bad columns does
-%% not scatter the evidence across the log.
+%% A dropped attribute means the backend is misconfigured, not that the client
+%% did anything wrong: the column is there but unusable. Every attribute
+%% dropped during one authentication is reported in a single log entry.
 drop_invalid_attr(Map) when is_map(Map) ->
     {Kept, Dropped} = maps:fold(fun keep_or_drop_attr/3, {[], []}, Map),
     ok = log_dropped_attrs(Dropped),
@@ -376,17 +375,13 @@ log_dropped_attrs(Dropped) ->
 
 %% A client attribute value is a binary. Database columns are typed, so one can
 %% arrive as a number or a boolean, and a nullable column arrives as `null' or
-%% `undefined'. Convert what has an obvious representation and drop the rest:
-%% `iolist_to_binary/1' on, say, an integer raises badarg, which
-%% `emqx_authn_chains' turns into an `authenticator_error' and the client is
-%% refused - a whole failed login over one unusable attribute.
+%% `undefined'. Values with a binary representation are converted; the rest are
+%% dropped, so one unusable value does not fail the authentication.
 attr_value(V) when is_binary(V) -> {ok, V};
 attr_value(V) when is_integer(V) -> {ok, integer_to_binary(V)};
 attr_value(V) when is_float(V) -> {ok, float_to_binary(V, [short])};
 attr_value(true) -> {ok, <<"true">>};
 attr_value(false) -> {ok, <<"false">>};
-%% No clause for lists. A backend returns text as a binary, so a list here is
-%% not a string the caller meant to pass through: `iolist_to_binary/1' would
-%% turn a list of integers into whatever those bytes happen to spell, which is
-%% worse than dropping it and saying so.
+%% A list is dropped: backends return text as a binary, so a list is a driver
+%% rendering a column as character codes rather than an attribute value.
 attr_value(_Other) -> error.
