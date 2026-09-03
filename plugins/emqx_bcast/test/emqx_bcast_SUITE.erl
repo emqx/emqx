@@ -2417,3 +2417,133 @@ create_test_msg(Payload) ->
     Hash = crypto:hash(sha256, Payload),
     emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
     {ApiMsgId, MsgGuid}.
+
+%% Single-shard op-capacity probe: all devices are forced onto ONE shard
+%% (phash2 {PK, DN} -> target), so the numbers measure that single shard
+%% gen_server's real serial capacity for append (create_delivery), claim
+%% (2x mnesia dirty reads + topic match) and ack (index remove + meta dec),
+%% without EMQX channel/bench interference.
+-doc "Single-shard append/claim/ack op capacity probe.".
+t_shard_op_capacity_probe(_Config) ->
+    PK = <<"P1SHARD">>,
+    Target = 0,
+    Schedulers = erlang:system_info(schedulers_online),
+    true = wait_until(fun() -> shard_active(Target) end, 200),
+    NDev = 2000,
+    Depth = 20,
+    DNs = same_shard_dns(PK, Target, NDev),
+    ct:pal(
+        "probe: schedulers=~p target_shard=~p devices=~p depth=~p entries=~p",
+        [Schedulers, Target, NDev, Depth, NDev * Depth]
+    ),
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Payload = binary:copy(<<"0123456789abcdef">>, 16),
+    Hash = crypto:hash(sha256, Payload),
+    emqx_bcast_storage:create_message(<<"probe-api">>, MsgGuid, Hash, Payload),
+    %% ---- create + append (promoter-side cost incl. mnesia tx) ----
+    {CreateUs, _Dids} = timer:tc(fun() ->
+        [
+            begin
+                Did = emqx_bcast_utils:gen_guid(),
+                {ok, _} = emqx_bcast_storage:create_delivery(
+                    Did, MsgGuid, PK, <<"tpl">>, DNs, NDev
+                ),
+                Did
+            end
+         || _ <- lists:seq(1, Depth)
+        ]
+    end),
+    ct:pal(
+        "create+append: ~p entries in ~p us -> ~.1f entries/s (~.1f us/entry)",
+        [
+            NDev * Depth,
+            CreateUs,
+            NDev * Depth * 1.0e6 / max(1, CreateUs),
+            CreateUs / max(1, NDev * Depth)
+        ]
+    ),
+    Entries = [
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+     || DN <- DNs
+    ],
+    %% ---- drain: Depth rounds of (claim NDev) -> (ack NDev), window=1 ----
+    {ClaimUs, AckUs, TotalOk} =
+        lists:foldl(
+            fun(_, {CAcc, AAcc, OkAcc}) ->
+                {CUs, Claimed} = timer:tc(fun() ->
+                    emqx_bcast_storage:claim_want_next_batch(Entries)
+                end),
+                Acks = [
+                    {PK, DN, maps:get(delivery_id, M)}
+                 || {DN, {ok, M}} <- Claimed
+                ],
+                {AUs, AckRes} = timer:tc(fun() -> emqx_bcast_storage:process_ack_batch(Acks) end),
+                Counted = length([1 || counted <- AckRes]),
+                {CAcc + CUs, AAcc + AUs, OkAcc + Counted}
+            end,
+            {0, 0, 0},
+            lists:seq(1, Depth)
+        ),
+    ct:pal(
+        "claim: ~p entries in ~p us -> ~.1f entries/s (~.1f us/entry)",
+        [TotalOk, ClaimUs, TotalOk * 1.0e6 / max(1, ClaimUs), ClaimUs / max(1, TotalOk)]
+    ),
+    ct:pal(
+        "ack  : ~p entries in ~p us -> ~.1f entries/s (~.1f us/entry)",
+        [TotalOk, AckUs, TotalOk * 1.0e6 / max(1, AckUs), AckUs / max(1, TotalOk)]
+    ),
+    Total = NDev * Depth,
+    ct:pal(
+        "drain(claim+ack): ~p entries in ~p us -> ~.1f entries/s combined",
+        [TotalOk, ClaimUs + AckUs, TotalOk * 1.0e6 / max(1, ClaimUs + AckUs)]
+    ),
+    ct:pal(
+        "full cycle (create+claim+ack): ~p us -> ~.1f entries/s",
+        [CreateUs + ClaimUs + AckUs, Total * 1.0e6 / max(1, CreateUs + ClaimUs + AckUs)]
+    ),
+    %% ---- residual / ledger check ----
+    {Queued, Inflight} = emqx_bcast_index_owner:gauge_sample(),
+    Pending = emqx_bcast_storage:pending_delivery_count(),
+    HeapBefore = shard_heap(Target),
+    _ = wait_until(fun() -> emqx_bcast_intake:depth() =:= 0 end, 50),
+    HeapAfter = shard_heap(Target),
+    ct:pal(
+        "residual: queued=~p inflight=~p pending=~p shard_heap_before=~p after=~p words",
+        [Queued, Inflight, Pending, HeapBefore, HeapAfter]
+    ),
+    ?assertEqual(Total, TotalOk),
+    ?assertEqual(0, Queued + Inflight),
+    ?assertEqual(0, Pending),
+    ok.
+
+%% All device names that phash2 into the target shard.
+same_shard_dns(PK, Target, N) ->
+    same_shard_dns(PK, Target, N, 1, []).
+same_shard_dns(_PK, _Target, 0, _I, Acc) ->
+    lists:reverse(Acc);
+same_shard_dns(PK, Target, Need, I, Acc) ->
+    DN = <<"DN_", (integer_to_binary(I))/binary>>,
+    case erlang:phash2({PK, DN}, emqx_bcast_index_owner:shard_count()) of
+        Target ->
+            same_shard_dns(PK, Target, Need - 1, I + 1, [DN | Acc]);
+        _ ->
+            same_shard_dns(PK, Target, Need, I + 1, Acc)
+    end.
+
+shard_active(S) ->
+    try
+        maps:get(
+            active, sys:get_state(list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(S)))
+        )
+    of
+        A -> A =:= true
+    catch
+        _:_ -> false
+    end.
+
+shard_heap(S) ->
+    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(S)),
+    case erlang:process_info(whereis(Name), total_heap_size) of
+        {total_heap_size, H} -> H;
+        _ -> -1
+    end.
