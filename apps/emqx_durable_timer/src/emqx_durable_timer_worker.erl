@@ -473,10 +473,10 @@ handle_timeout(Type, CBM, Time, Key, Value) ->
         ok
     catch
         Class:Reason:Stacktrace ->
-            %% The timer is still treated as fired and is not retried, so this
-            %% log is the only trace the failure leaves. The value is left out:
-            %% it is opaque callback data, and for `emqx_durable_will' it is a
-            %% will message payload.
+            %% A failing callback does not prevent the timer from being
+            %% consumed: it is not retried. The value is not logged, because it
+            %% is opaque callback data and may hold user payload, such as an
+            %% `emqx_durable_will' will message.
             ?tp(error, ?tp_callback_failed, #{
                 type => Type,
                 cbm => CBM,
