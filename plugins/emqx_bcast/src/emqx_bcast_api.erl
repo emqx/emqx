@@ -23,6 +23,12 @@ handle(Method, Path, Request) ->
             %% random core's counters and make replicant-local counters
             %% invisible. Scrapers must aggregate all nodes.
             handle_local(get, [<<"metrics">>], Request);
+        {post, [<<"metrics">>, <<"reset">>]} ->
+            %% The metric registry is per node; a partial reset would leave a
+            %% permanent gap in cross-node sums, so the reset orchestrates
+            %% across every running node (guarded by each node's pending
+            %% state). Runs wherever the request lands.
+            handle_local(post, [<<"metrics">>, <<"reset">>], Request);
         _ ->
             case emqx_bcast:is_core() of
                 true ->
@@ -62,6 +68,31 @@ handle(Method, Path, Request) ->
 handle_local(get, [<<"metrics">>], _Request) ->
     Body = emqx_bcast_metrics:collect(),
     {ok, 200, #{<<"content-type">> => <<"text/plain; version=0.0.4">>}, Body};
+handle_local(post, [<<"metrics">>, <<"reset">>], _Request) ->
+    RequestId = emqx_bcast_utils:gen_api_uuid(),
+    case emqx_bcast_metrics:reset_cluster() of
+        {ok, Results} ->
+            {ok, 200, #{}, #{
+                <<"Success">> => true,
+                <<"RequestId">> => RequestId,
+                <<"Nodes">> => [
+                    #{<<"Node">> => atom_to_binary(N, utf8), <<"Result">> => <<"ok">>}
+                 || {N, ok} <- Results
+                ]
+            }};
+        {error, Results} ->
+            Blocked = [
+                #{<<"Node">> => atom_to_binary(N, utf8), <<"Reason">> => format_reset_reason(R)}
+             || {N, {error, R}} <- Results
+            ],
+            {ok, 409, #{},
+                error_response(
+                    RequestId,
+                    <<"PendingDeliveries">>,
+                    <<"Cannot reset metrics while pending (queued/in-flight) deliveries exist">>,
+                    #{<<"BlockedNodes">> => Blocked}
+                )}
+    end;
 handle_local(Method, [<<"messages">> | _] = Path, Request) ->
     emqx_bcast_mgmt_api:handle(Method, Path, Request);
 handle_local(Method, [<<"deliveries">> | _] = Path, Request) ->
@@ -85,6 +116,13 @@ handle_local(post, [<<"pub">>], Request) ->
     end;
 handle_local(_Method, _Path, _Request) ->
     {error, not_found}.
+
+format_reset_reason({pending_deliveries, Queued, Inflight}) ->
+    iolist_to_binary(
+        io_lib:format("pending_deliveries queued=~p inflight=~p", [Queued, Inflight])
+    );
+format_reset_reason(Other) ->
+    iolist_to_binary(io_lib:format("~p", [Other])).
 
 error_response(RequestId, Code, Message) ->
     error_response(RequestId, Code, Message, #{}).

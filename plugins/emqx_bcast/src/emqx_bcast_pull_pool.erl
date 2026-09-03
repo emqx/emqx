@@ -30,7 +30,7 @@
     do_find_trigger_devices/3,
     do_deliver_pending/1,
     do_deliver_qos0/1,
-    do_deliver_qos0_and_ack/6,
+    do_deliver_qos0_and_ack/7,
     do_release_claim/3,
     do_release_client_claims/3
 ]).
@@ -349,7 +349,8 @@ deliver_pending_one(
         product_key = ProductKey,
         topic = Topic,
         payload = Payload,
-        pid = Pid
+        pid = Pid,
+        attempts = Attempts
     }
 ) ->
     case session_holds_channel(ClientId, Pid) of
@@ -384,7 +385,11 @@ deliver_pending_one(
                         }
                     ),
                     Pid ! #deliver{topic = Topic, message = Msg},
-                    emqx_bcast_metrics:qos1_delivered()
+                    emqx_bcast_metrics:qos1_delivered(),
+                    case Attempts >= 2 of
+                        true -> emqx_bcast_metrics:qos1_redelivered();
+                        false -> ok
+                    end
             end;
         _ ->
             %% Client gone, dead, or taken over by another channel: do not
@@ -528,10 +533,21 @@ sub_match(Pid, Topic) ->
             end
     end.
 
--spec do_deliver_qos0_and_ack(binary(), pid(), binary(), binary(), binary(), binary()) -> ok.
-do_deliver_qos0_and_ack(ClientId, Pid, Topic, Payload, DeliveryId, ProductKey) ->
+-spec do_deliver_qos0_and_ack(
+    binary(), pid(), binary(), binary(), binary(), binary(), pos_integer()
+) ->
+    ok.
+do_deliver_qos0_and_ack(ClientId, Pid, Topic, Payload, DeliveryId, ProductKey, Attempts) ->
     Msg = emqx_message:make(ClientId, ?QOS_0, Topic, Payload),
     Pid ! #deliver{topic = Topic, message = Msg},
+    %% The QoS0-subscription delivery is an actual PUBLISH send too, so it
+    %% counts toward delivered (and redelivered when attempt >= 2) exactly
+    %% like the QoS1 send path; auto_acked records the self-confirmation.
+    emqx_bcast_metrics:qos1_delivered(),
+    case Attempts >= 2 of
+        true -> emqx_bcast_metrics:qos1_redelivered();
+        false -> ok
+    end,
     emqx_bcast_metrics:qos1_auto_acked(),
     emqx_bcast_ack_pool:ack(ClientId, DeliveryId, ProductKey).
 
@@ -1123,11 +1139,11 @@ handle_prepared(Prepared, State) ->
                             end),
                             {DeliverAcc, ActionAcc}
                     end;
-                {qos0, ClientId0, Pid, Topic, Payload, DeliveryId, ProductKey} ->
+                {qos0, ClientId0, Pid, Topic, Payload, DeliveryId, ProductKey, Attempts} ->
                     _ = clear_inflight_mark(ClientId, Tag),
                     Action = fun() ->
                         do_deliver_qos0_and_ack(
-                            ClientId0, Pid, Topic, Payload, DeliveryId, ProductKey
+                            ClientId0, Pid, Topic, Payload, DeliveryId, ProductKey, Attempts
                         )
                     end,
                     {DeliverAcc, [Action | ActionAcc]};
@@ -1206,6 +1222,10 @@ prepare_delivery(
     %% (QoS1 pending path) for callers that build claim maps without it
     %% (e.g. tests).
     SubQos = maps:get(sub_qos, ClaimMap, 1),
+    %% Attempt number comes from the core claim; entries claimed for the
+    %% first time carry 1, redeliveries (lease expiry, disconnect,
+    %% unsubscribe, claim-race release) carry >= 2.
+    Attempts = maps:get(attempt, ClaimMap, 1),
     case emqx_bcast:lookup_device({ProductKey, ClientId}) of
         {error, not_found} ->
             {offline, ProductKey, ClientId, DeliveryId};
@@ -1225,10 +1245,11 @@ prepare_delivery(
                                 topic_template = TopicTemplate,
                                 topic = Topic,
                                 payload = Payload,
-                                pid = Pid
+                                pid = Pid,
+                                attempts = Attempts
                             }};
                         false ->
-                            {qos0, ClientId, Pid, Topic, Payload, DeliveryId, ProductKey}
+                            {qos0, ClientId, Pid, Topic, Payload, DeliveryId, ProductKey, Attempts}
                     end
             end
     end.

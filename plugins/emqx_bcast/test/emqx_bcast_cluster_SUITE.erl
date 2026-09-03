@@ -237,3 +237,145 @@ t_cluster_ack_idempotent_across_nodes(Config) ->
     Msgs2 = recv(1),
     ?assertEqual(0, length(Msgs2)),
     emqtt:stop(C2).
+
+%%--------------------------------------------------------------------
+%% Ledger combo B: cross-node terminal outcomes close the cluster ledger
+%%--------------------------------------------------------------------
+
+sub_qos0(C, Topic) ->
+    emqtt:subscribe(C, Topic, 0).
+
+node_metric(Node, Suffix) ->
+    try
+        erpc:call(Node, prometheus_counter, value, [
+            ?BCAST_REGISTRY, <<"bcast_", Suffix/binary>>, []
+        ])
+    catch
+        _:_ -> 0
+    end.
+
+cluster_metric(Nodes, Suffix) ->
+    lists:sum([node_metric(N, Suffix) || N <- Nodes]).
+
+-doc "Combined ledger scenario B (cluster): D1 acked as QoS1 on node2, D2\n"
+"auto-acked as QoS0 on node1 and D3 canceled via management delete on\n"
+"node1. When everything settles, the cluster-wide ledger closes\n"
+"(sum(wanted) = sum(acked) + sum(auto_acked) + sum(canceled)) and the\n"
+"delivered counter matches the real sends across nodes.".
+t_metrics_ledger_combo_b_cluster(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster(),
+    Nodes = [N1, N2],
+    PK = <<"default">>,
+    D1 = <<"cl_b_d1">>,
+    D2 = <<"cl_b_d2">>,
+    D3 = <<"cl_b_d3">>,
+    %% QoS1 subscriber: emqtt auto-PUBACKs -> acked
+    C1 = connect(N2, D1),
+    %% QoS0 subscriber: auto-ack path
+    C2 = connect(N1, D2),
+    sub(C1, topic(D1)),
+    sub_qos0(C2, topic(D2)),
+    Subscribed =
+        wait_until(
+            fun() ->
+                node_client_subscribed(N2, D1, topic(D1)) andalso
+                    node_client_subscribed(N1, D2, topic(D2))
+            end,
+            50
+        ),
+    ?assert(Subscribed),
+    W0 = cluster_metric(Nodes, <<"batch_pub_qos1_wanted">>),
+    A0 = cluster_metric(Nodes, <<"batch_pub_qos1_acked">>),
+    AU0 = cluster_metric(Nodes, <<"batch_pub_qos1_auto_acked">>),
+    C0 = cluster_metric(Nodes, <<"batch_pub_qos1_canceled">>),
+    D0 = cluster_metric(Nodes, <<"batch_pub_qos1_delivered">>),
+    R0 = cluster_metric(Nodes, <<"batch_pub_qos1_redelivered">>),
+    {ok, 200, _, _} = api_call(N1, #{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => PK,
+        <<"DeviceName">> => [D1, D2, D3],
+        <<"MessageContent">> => base64:encode(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    Msgs = recv(2),
+    ?assertEqual(2, length(Msgs)),
+    %% Settle async accounting: commit, sends, PUBACK, auto-ack.
+    ?assert(
+        wait_until(
+            fun() -> cluster_metric(Nodes, <<"batch_pub_qos1_wanted">>) >= W0 + 3 end,
+            100
+        )
+    ),
+    ?assert(
+        wait_until(
+            fun() -> cluster_metric(Nodes, <<"batch_pub_qos1_delivered">>) >= D0 + 2 end,
+            100
+        )
+    ),
+    ?assert(
+        wait_until(
+            fun() -> cluster_metric(Nodes, <<"batch_pub_qos1_acked">>) >= A0 + 1 end,
+            100
+        )
+    ),
+    ?assert(
+        wait_until(
+            fun() -> cluster_metric(Nodes, <<"batch_pub_qos1_auto_acked">>) >= AU0 + 1 end,
+            100
+        )
+    ),
+    %% Core index removals lag the pull-side counters: wait until D1/D2 are
+    %% gone on both nodes and only D3 is still queued, then cancel D3.
+    Indexed =
+        wait_until(
+            fun() ->
+                {ok, []} =:= erpc:call(N2, emqx_bcast_storage, get_device_deliveries, [{PK, D1}]) andalso
+                    {ok, []} =:=
+                        erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D1}]) andalso
+                    {ok, []} =:=
+                        erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D2}]) andalso
+                    case erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D3}]) of
+                        {ok, [_ | _]} -> true;
+                        _ -> false
+                    end
+            end,
+            100
+        ),
+    ?assert(Indexed),
+    {ok, [D3Did]} = erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D3}]),
+    ok = erpc:call(N1, emqx_bcast_storage, delete_delivery, [D3Did]),
+    ?assert(
+        wait_until(
+            fun() -> cluster_metric(Nodes, <<"batch_pub_qos1_canceled">>) >= C0 + 1 end,
+            100
+        )
+    ),
+    ?assert(
+        wait_until(
+            fun() ->
+                erpc:call(N1, emqx_bcast_storage, get_device_deliveries, [{PK, D3}]) =:= {ok, []} andalso
+                    mnesia_safe_rows(N1) =:= 0
+            end,
+            100
+        )
+    ),
+    %% The cluster ledger closes with no live backlog.
+    ?assertEqual(3, cluster_metric(Nodes, <<"batch_pub_qos1_wanted">>) - W0),
+    ?assertEqual(1, cluster_metric(Nodes, <<"batch_pub_qos1_acked">>) - A0),
+    ?assertEqual(1, cluster_metric(Nodes, <<"batch_pub_qos1_auto_acked">>) - AU0),
+    ?assertEqual(1, cluster_metric(Nodes, <<"batch_pub_qos1_canceled">>) - C0),
+    ?assertEqual(0, cluster_metric(Nodes, <<"batch_pub_qos1_ttl_expired">>)),
+    ?assertEqual(2, cluster_metric(Nodes, <<"batch_pub_qos1_delivered">>) - D0),
+    ?assertEqual(0, cluster_metric(Nodes, <<"batch_pub_qos1_redelivered">>) - R0),
+    emqtt:stop(C1),
+    emqtt:stop(C2).
+
+mnesia_safe_rows(Node) ->
+    try
+        erpc:call(Node, fun() ->
+            length(mnesia:dirty_match_object(bcast_msg, #bcast_msg{_ = '_'}))
+        end)
+    catch
+        _:_ -> -1
+    end.

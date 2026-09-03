@@ -127,17 +127,23 @@ process_batch(Batch, Failures) ->
             %% The batch was already dequeued by the atomic take; the append
             %% completes the promotion. On failure the worker retries the
             %% same batch (idempotent: already_promoted + append dedup).
-            case
-                emqx_bcast_index_owner:append_batch(
-                    [
-                        {maps:get(product_key, E), DN, maps:get(delivery_id, E)}
-                     || E <- Promoted ++ AlreadyPromoted, DN <- maps:get(devices, E)
-                    ]
-                )
-            of
+            Appends = [
+                {maps:get(product_key, E), DN, maps:get(delivery_id, E)}
+             || E <- Promoted ++ AlreadyPromoted, DN <- maps:get(devices, E)
+            ],
+            case emqx_bcast_index_owner:append_batch(Appends) of
                 ok ->
-                    emqx_bcast_metrics:qos1_promoted(length(Promoted)),
-                    ok = trigger_broadcast(Promoted),
+                    %% Durable ledger base: count logical deliveries (one
+                    %% per appended device) only after the mria commit AND
+                    %% the per-device index append both succeeded. The
+                    %% retry path re-enters here with already_promoted
+                    %% entries, so every committed device is counted
+                    %% exactly once (no double count, no leak).
+                    emqx_bcast_metrics:qos1_wanted(length(Appends)),
+                    %% already_promoted entries were committed by an earlier
+                    %% run that failed before its append/trigger; re-trigger
+                    %% them too so committed deliveries are always claimed.
+                    ok = trigger_broadcast(Promoted ++ AlreadyPromoted),
                     {done, 0};
                 {error, _Reason} = Error ->
                     %% Owner takeover, shard overload (call timeout) or any

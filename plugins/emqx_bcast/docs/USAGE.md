@@ -129,9 +129,15 @@ curl -su "$API_KEY" "$HOST/api/v5/plugin_api/emqx_bcast/metrics"
 1. Configure Prometheus to scrape `http://<emqx>:18083/api/v5/plugin_api/emqx_bcast/metrics`
 2. Import the Grafana dashboard
 
-Key metrics to watch:
-- **`bcast_batch_pub_qos1_wanted - (bcast_batch_pub_qos1_acked + bcast_batch_pub_qos1_auto_acked)`** -- backlog of unacknowledged deliveries
-- **`rate((bcast_batch_pub_qos1_acked + bcast_batch_pub_qos1_auto_acked)[5m]) / rate(bcast_batch_pub_qos1_wanted[5m])`** -- delivery success rate
+Key metrics to watch (sum over all nodes; `wanted` is anchored at the
+durable commit point, `ttl_expired`/`canceled` close the ledger):
+- **Backlog (ledger)**: `sum(wanted) - (sum(acked) + sum(auto_acked) + sum(ttl_expired) + sum(canceled))`
+- **Backlog (live)**: `sum(bcast_batch_pub_qos1_queued) + sum(bcast_batch_pub_qos1_inflight)`
+- **Delivery rate**: `sum(rate(delivered[5m]))`; **confirmation rate**:
+  `sum(rate(acked[5m])) + sum(rate(auto_acked[5m]))`
+- **Redelivery rate (health)**: `sum(rate(redelivered[5m])) / clamp_min(sum(rate(delivered[5m])), 1e-9)`
+- **Ledger balance**: ledger backlog minus live backlog should hover at 0;
+  a persistent gap means a counting bug or an event outside the ledger
 
 ---
 
@@ -160,4 +166,11 @@ Key metrics to watch:
 
 **Messages not delivered to offline devices**: Check that `msg_ttl` hasn't expired. Verify the device's `ProductKey` and `DeviceName` match between the API call and MQTT client connection.
 
-**High pending count**: If `bcast_batch_pub_qos1_wanted - (bcast_batch_pub_qos1_acked + bcast_batch_pub_qos1_auto_acked)` is growing, check that offline devices are eventually reconnecting within the TTL window. Consider increasing `msg_ttl` for longer offline tolerance.
+**High pending count**: If the ledger backlog
+(`sum(wanted) - (sum(acked) + sum(auto_acked) + sum(ttl_expired) + sum(canceled))`)
+grows steadily, check that offline devices reconnect within the TTL
+window (`msg_ttl`); devices that never return are accounted for by
+`ttl_expired` once their TTL passes. If the live gauges
+(`queued`+`inflight`) stall while `wanted` keeps growing, the delivery
+pipeline (pull pools, index owner) is not draining - check node health
+rather than `msg_ttl`.

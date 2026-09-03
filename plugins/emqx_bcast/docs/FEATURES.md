@@ -111,15 +111,23 @@ exceed them.
 ## Metrics
 
 Prometheus text format at `GET /api/v5/plugin_api/emqx_bcast/metrics`
-(registry prefix `bcast_`):
+(registry prefix `bcast_`). The surface is bcast business metrics only;
+EMQX's own endpoint provides system-level values (CPU/memory/connections,
+broker `messages.delivered`).
 
-- Per-action API counters (`batch_pub_*_in`, `broadcast_pub_in`,
-  `register_message_*`).
 - BatchPub QoS=0: `targeted`, `qos0_delivery_count`.
-- BatchPub QoS=1: `wanted`, `delivered`, `acked`.
+- BatchPub QoS=1 delivery ledger: `wanted` (durable commit anchor),
+  `delivered` (actual sends incl. redeliveries), `redelivered`
+  (attempt >= 2), `acked`, `auto_acked`, `ttl_expired`, `canceled`.
+- BatchPub QoS=1 gauges: `intake_depth`, `queued`, `inflight`
+  (live backlog).
+- Request-level counters: `batch_pub_qos1_{in,enqueued,intake_rejected,promote_error}`,
+  `broadcast_pub_*`, `register_message_*`.
 
+Ledger identity (eventually consistent, cluster-summed):
+`wanted = acked + auto_acked + ttl_expired + canceled + queued + inflight`.
 Delivery counters are updated by asynchronous workers and lag the API
-response. `delivered` and `acked` are node-local (they count on the node
-that delivers or receives the PUBACK), so aggregate them across all nodes.
-See [API.md](API.md) for the full metric list and
-[USAGE.md](USAGE.md) for end-to-end workflows.
+response. All counters are node-local - aggregate across all nodes. A
+guarded cluster-wide metric reset endpoint exists (see [API.md](API.md)).
+See [API.md](API.md) for the full metric list and [USAGE.md](USAGE.md) for
+end-to-end workflows.

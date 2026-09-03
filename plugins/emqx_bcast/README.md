@@ -59,17 +59,29 @@ GET /api/v5/plugin_api/emqx_bcast/metrics
 Content-Type: text/plain; version=0.0.4
 ```
 
-| Metric | Description |
-|--------|-------------|
-| `bcast_batch_pub_qos0_in` | BatchPub QoS=0 API requests |
-| `bcast_batch_pub_qos0_targeted` | QoS=0 devices targeted |
-| `bcast_qos0_delivery_count` | QoS=0 one-shot deliveries to online clients |
-| `bcast_batch_pub_qos1_in` | BatchPub QoS=1 API requests |
-| `bcast_batch_pub_qos1_wanted` | QoS=1 total wanted acks |
-| `bcast_batch_pub_qos1_delivered` | QoS=1 deliveries to clients |
-| `bcast_batch_pub_qos1_acked` | QoS=1 acks received |
-| `bcast_broadcast_pub_in` | PubBroadcast API requests |
-| `bcast_broadcast_pub_error` | PubBroadcast errors |
-| `bcast_register_message_in` | RegisterMessage API requests |
-| `bcast_register_message_refresh` | RegisterMessage TTL refresh |
-| `bcast_register_message_error` | RegisterMessage errors |
+The endpoint carries **bcast plugin business metrics only** (EMQX's own
+Prometheus endpoint already exposes node CPU/memory/connections and broker
+`messages.delivered`). QoS=1 delivery counters count **logical deliveries**
+(one BatchPub request x one device) and are node-local - scrape every node
+and sum for cluster totals.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `bcast_batch_pub_qos1_wanted` | C | Logical deliveries durably committed to mria (ledger base, counted at promotion, not at API acceptance) |
+| `bcast_batch_pub_qos1_delivered` | C | Actual PUBLISH sends (includes redeliveries and QoS0-subscription auto sends) |
+| `bcast_batch_pub_qos1_redelivered` | C | Sends whose claim attempt number was >= 2 |
+| `bcast_batch_pub_qos1_acked` | C | PUBACKs matched to a pending delivery |
+| `bcast_batch_pub_qos1_auto_acked` | C | Deliveries completed because the subscription QoS is 0 |
+| `bcast_batch_pub_qos1_ttl_expired` | C | Deliveries abandoned at TTL expiry without confirmation |
+| `bcast_batch_pub_qos1_canceled` | C | Deliveries removed by management delete/reset without confirmation |
+| `bcast_batch_pub_qos1_queued` / `..._inflight` | G | Live backlog gauges (queued / claimed-not-terminal; sum over nodes) |
+| `bcast_intake_depth` | G | QoS=1 intake queue depth (node-local) |
+| `bcast_batch_pub_qos0_in` / `..._targeted` / `bcast_qos0_delivery_count` | C | BatchPub QoS=0 requests / targeted / delivered |
+| `bcast_batch_pub_qos1_{in,enqueued,intake_rejected,promote_error}` | C | QoS=1 API requests / accepted / queue-full rejects / promotion failures |
+| `bcast_broadcast_pub_in` / `..._error`, `bcast_register_message_{in,refresh,error}` | C | PubBroadcast / RegisterMessage counters |
+
+Ledger identity (eventually consistent, cluster-summed):
+`wanted = acked + auto_acked + ttl_expired + canceled + queued + inflight`.
+A guarded cluster-wide metric reset endpoint exists
+(`POST /api/v5/plugin_api/emqx_bcast/metrics/reset`, refuses with 409 while
+pending deliveries exist). See `docs/API.md` for the full contract.

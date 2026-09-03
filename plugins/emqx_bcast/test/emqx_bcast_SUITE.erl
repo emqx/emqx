@@ -86,7 +86,9 @@ init_per_testcase(_Case, Config) ->
     %% tables; reset them explicitly so no state leaks between tests.
     catch emqx_bcast_intake:reset(),
     catch emqx_bcast_index_owner:reset(),
-    emqx_bcast_metrics:init(),
+    %% Full metric registry reset: per-test isolation so ledger/gauge
+    %% assertions can compare absolute values, not just deltas.
+    catch emqx_bcast_metrics:reset(),
     Config.
 
 wait_intake_idle() ->
@@ -1568,7 +1570,8 @@ t_metrics_broadcast_error(_Config) ->
     After = metric(<<"broadcast_pub_error">>),
     ?assertEqual(1, After - Before).
 
--doc "QoS=1 BatchPub increments the wanted counter by device count.".
+-doc "QoS=1 BatchPub increments the wanted counter by device count, counted\n"
+"at the durable mria commit (promoter), not at API acceptance.".
 t_metrics_qos1_wanted(_Config) ->
     Before = metric(<<"batch_pub_qos1_wanted">>),
     Body = #{
@@ -1579,8 +1582,9 @@ t_metrics_qos1_wanted(_Config) ->
         <<"Qos">> => 1
     },
     {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
-    After = metric(<<"batch_pub_qos1_wanted">>),
-    ?assertEqual(2, After - Before).
+    %% wanted is counted asynchronously once the promoter commits both
+    %% devices, so wait instead of asserting immediately.
+    ?assert(wait_metric(<<"batch_pub_qos1_wanted">>, Before + 2)).
 
 -doc "RegisterMessage increments the register_message_in counter.".
 t_metrics_register_message_in(_Config) ->
@@ -1589,6 +1593,115 @@ t_metrics_register_message_in(_Config) ->
     {ok, 200, _, _} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
     After = metric(<<"register_message_in">>),
     ?assertEqual(1, After - Before).
+
+%%--------------------------------------------------------------------
+%% Delivery-ledger metric tests
+%%--------------------------------------------------------------------
+
+gauge(Name) ->
+    try
+        prometheus_gauge:value(?BCAST_REGISTRY, mname(Name), [])
+    catch
+        _:_ -> 0
+    end.
+
+refresh_gauges() ->
+    %% gauges are sampled at scrape time; emulate a scrape before reading.
+    _ = emqx_bcast_metrics:collect(),
+    ok.
+
+make_msg(PayloadBin) ->
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Hash = crypto:hash(sha256, PayloadBin),
+    emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, PayloadBin),
+    MsgGuid.
+
+-doc "A claim carries the attempt number; a lease-expiry redelivery claim\n"
+"carries attempt 2, and the redelivered bookkeeping matches the claim.".
+t_metrics_claim_attempt_number(_Config) ->
+    MsgGuid = make_msg(<<"attempt">>),
+    PK = <<"PATT">>,
+    DN = <<"DATT">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    [{DN, {ok, M1}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    ?assertEqual(1, maps:get(attempt, M1)),
+    expire_inflight(PK, DN, DeliveryId),
+    [{DN, {ok, M2}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    ?assertEqual(2, maps:get(attempt, M2)),
+    %% Ack removes the entry entirely (attempt state cleaned with it).
+    emqx_bcast_storage:process_ack(PK, DN, DeliveryId),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+-doc "queued/inflight gauges track the per-shard live state (queued, then\n"
+"in-flight while claimed, then empty after the ack).".
+t_metrics_gauge_sample(_Config) ->
+    MsgGuid = make_msg(<<"gauges">>),
+    PK = <<"PGAU">>,
+    DN = <<"DGAU">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    refresh_gauges(),
+    ?assertEqual(1, gauge(<<"batch_pub_qos1_queued">>)),
+    ?assertEqual(0, gauge(<<"batch_pub_qos1_inflight">>)),
+    [{DN, {ok, _}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    refresh_gauges(),
+    ?assertEqual(0, gauge(<<"batch_pub_qos1_queued">>)),
+    ?assertEqual(1, gauge(<<"batch_pub_qos1_inflight">>)),
+    emqx_bcast_storage:process_ack(PK, DN, DeliveryId),
+    refresh_gauges(),
+    ?assertEqual(0, gauge(<<"batch_pub_qos1_queued">>)),
+    ?assertEqual(0, gauge(<<"batch_pub_qos1_inflight">>)).
+
+-doc "TTL expiry of a partially-acked delivery counts the remaining unacked\n"
+"logical deliveries into ttl_expired (acked ones are not recounted).".
+t_metrics_ttl_expired(_Config) ->
+    MsgGuid = make_msg(<<"ttl metric">>),
+    PK = <<"PTTL">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    DNs = [<<"D1">>, <<"D2">>],
+    {ok, D} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 2),
+    %% one device acks, the other stays unacked until TTL
+    emqx_bcast_storage:process_ack(PK, <<"D1">>, DeliveryId),
+    mnesia:dirty_write(D#bcast_msg{expires_at = 0}),
+    emqx_bcast_storage:cleanup_expired(),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_ttl_expired">>)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
+
+-doc "Management delete of a partially-acked delivery counts the removed\n"
+"unacked logical deliveries into canceled.".
+t_metrics_canceled_mgmt_delete(_Config) ->
+    MsgGuid = make_msg(<<"cancel metric">>),
+    PK = <<"PCAN">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    DNs = [<<"D1">>, <<"D2">>],
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, 2),
+    emqx_bcast_storage:process_ack(PK, <<"D1">>, DeliveryId),
+    ok = emqx_bcast_storage:delete_delivery(DeliveryId),
+    ?assertEqual(1, metric(<<"batch_pub_qos1_canceled">>)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
+
+-doc "The guarded metric reset refuses while queued/in-flight deliveries\n"
+"exist, and after they drain it resets every counter to zero.".
+t_metrics_reset_guarded(_Config) ->
+    MsgGuid = make_msg(<<"reset metric">>),
+    PK = <<"PRST">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [<<"DRST">>], 1
+    ),
+    ?assertMatch({error, {pending_deliveries, 1, 0}}, emqx_bcast_metrics:reset_guarded()),
+    %% drain: delete the pending entry (counted into canceled), then reset ok
+    ok = emqx_bcast_storage:delete_delivery(DeliveryId),
+    ?assertEqual(ok, emqx_bcast_metrics:reset_guarded()),
+    ?assertEqual(0, metric(<<"batch_pub_qos1_canceled">>)),
+    ?assertEqual(0, metric(<<"batch_pub_qos1_wanted">>)).
 
 %%--------------------------------------------------------------------
 %% Management API tests

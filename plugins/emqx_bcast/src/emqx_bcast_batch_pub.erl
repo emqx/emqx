@@ -169,7 +169,10 @@ enqueue_request(
                 ok ->
                     case emqx_bcast_intake:enqueue(Entry) of
                         {ok, _Seq} ->
-                            emqx_bcast_metrics:qos1_wanted(length(DeviceNames)),
+                            %% wanted is counted at the mria commit point
+                            %% (promoter), not here: acceptance is
+                            %% non-durable and the delivery ledger anchors
+                            %% on committed logical deliveries.
                             {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
                         full ->
                             _ = emqx_bcast_index_owner:release_admit(ProductKey, DeviceNames),

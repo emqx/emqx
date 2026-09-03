@@ -25,6 +25,11 @@
 %% ordering is still guaranteed by the index shard's own mailbox.
 -define(ACK_WORKER_MAX, 16).
 
+%% Worker pool that executes want_next claims off this gen_server's
+%% mailbox, so concurrent claims run in parallel instead of serializing on
+%% one process per core (per-device ordering stays with the index shards).
+-define(SERVER_WORKER_POOL, bcast_pull_server_worker_pool).
+
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -65,14 +70,26 @@ init([]) ->
     _ = erlang:send_after(?BCAST_ENSURE_COPIES_MS, self(), ensure_core_copies),
     {ok, #{in_flight => 0, pending_acks => []}}.
 
-handle_call({want_next, Entries}, _From, State) ->
-    %% Claim runs inline (the caller needs the result synchronously). The
-    %% index shards are gen_servers themselves, so per-client claim/ack
-    %% ordering is preserved by the shard's mailbox; the previous "serialize
-    %% against ack batches here" requirement is gone now that acks are
-    %% handled off-box (below).
-    Results = emqx_bcast_storage:claim_want_next_batch(Entries),
-    {reply, Results, State};
+handle_call({want_next, Entries}, From, State) ->
+    %% Run the claim in the server worker pool so concurrent want_next
+    %% calls execute in parallel instead of serializing on this gen_server
+    %% (a burst of claims used to queue ahead of every other call on the
+    %% same mailbox). Each claim still fans out to the index shards in
+    %% parallel and replies to From; per-device ordering is preserved by
+    %% the shard mailboxes.
+    case
+        emqx_bcast_utils:submit_pool(?SERVER_WORKER_POOL, fun() ->
+            gen_server:reply(From, emqx_bcast_storage:claim_want_next_batch(Entries))
+        end)
+    of
+        ok ->
+            {noreply, State};
+        {error, _Reason} ->
+            %% Pool unavailable: fall back to inline so the caller's
+            %% window=1 is not stalled.
+            Results = emqx_bcast_storage:claim_want_next_batch(Entries),
+            {reply, Results, State}
+    end;
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
