@@ -58,6 +58,7 @@ jobs:
       profile: ${{ steps.parse-git-ref.outputs.profile }}
       release: ${{ steps.parse-git-ref.outputs.release }}
       latest: ${{ steps.parse-git-ref.outputs.latest }}
+      official_release: ${{ steps.parse-git-ref.outputs.official_release }}
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
@@ -78,9 +79,11 @@ jobs:
           PROFILE=$(echo "$JSON" | jq -cr '.profile')
           RELEASE=$(echo "$JSON" | jq -cr '.release')
           LATEST=$(echo "$JSON"  | jq -cr '.latest')
+          OFFICIAL_RELEASE=$(echo "$JSON"  | jq -cr '.official_release')
           echo "profile=$PROFILE" | tee -a $GITHUB_OUTPUT
           echo "release=$RELEASE" | tee -a $GITHUB_OUTPUT
           echo "latest=$LATEST"   | tee -a $GITHUB_OUTPUT
+          echo "official_release=$OFFICIAL_RELEASE" | tee -a $GITHUB_OUTPUT
       - name: Build matrix
         id: matrix
         run: |
@@ -102,6 +105,7 @@ jobs:
     with:
       profile: ${{ needs.prepare.outputs.profile }}
       publish: true
+      notarize: ${{ needs.prepare.outputs.official_release == 'true' }}
       otp_vsn: ${{ needs.init.outputs.OTP_VSN }}
       elixir_vsn: ${{ needs.init.outputs.ELIXIR_VSN }}
       builder_vsn: ${{ needs.init.outputs.BUILDER_VSN }}
