@@ -137,12 +137,6 @@ policy that applies to it.
 - `pending_voluntary`: no MFA and nothing requires it, so the user may opt in
 - `disabled`: opted out, and nothing requires the user to opt back in"""
 
-account_api.desc:
-"""Return the account of the authenticated Dashboard user, including its MFA status.
-Reads only the caller's own record, so it needs no user management permission."""
-
-account_api.label:
-"""Current account"""
 
 change_mfa.label:
 """Change MFA"""

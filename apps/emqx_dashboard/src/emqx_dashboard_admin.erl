@@ -1065,7 +1065,7 @@ format_mfa(Username) ->
 
 %% @doc What the account has to do about MFA, as opposed to `format_mfa/1',
 %% which reports what is stored. Derived from the stored state plus the policy
-%% that applies to the account, so no new configuration is involved.
+%% that applies to the account.
 %%
 %%   complete          enrolled, and one TOTP code has been verified
 %%   pending_enforced  not complete while MFA is required, so the next login
@@ -1097,13 +1097,11 @@ pending_or(Otherwise, Username) ->
 %% Whether anything requires this account to keep MFA: the admin's explicit
 %% per-user decision, or the global `dashboard.default_mfa' mandate.
 %%
-%% NOTE: the two are not enforced at the same seams. `maybe_init_mfa_state/2'
+%% NOTE: the two are not enforced in the same place. `maybe_init_mfa_state/2'
 %% acts on the mandate only, so a local user carrying
 %% `admin_override = mfa_required' with no MFA state is reported here as
 %% required but is not actually stopped at a password login; the SSO path
 %% (`emqx_dashboard_sso_mfa:mfa_required_for_user/2') does honour the override.
-%% The override is an explicit admin decision, so it counts here. Making the
-%% local login path honour it is a separate change.
 mfa_required_for(Username) ->
     admin_override_of(Username) =:= ?ADMIN_MFA_REQUIRED orelse
         mfa_enforced_for(Username).
@@ -1329,8 +1327,8 @@ complete_scram_login(#?ADMIN{username = Username, pwdhash = PwdHash} = User, Mfa
             add_mfa_status(Username, Result#{?role => Role, token => Token, namespace => Namespace})}
     end.
 
-%% Only a caller that has cleared the first factor reaches here, so this does
-%% not tell an unauthenticated client anything about the account.
+%% Reached only after the first factor has been verified: both login paths
+%% attach the status to their response.
 add_mfa_status(Username, Result) ->
     Result#{mfa_status => mfa_status(Username)}.
 

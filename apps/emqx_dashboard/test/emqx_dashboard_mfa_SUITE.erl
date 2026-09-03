@@ -417,22 +417,22 @@ t_mfa_status(_Config) ->
     {ok, 200, Rsp1} = login(LoginBody),
     #{<<"token">> := Token1, <<"mfa_status">> := Status1} = json_map(Rsp1),
     ?assertEqual(<<"pending_voluntary">>, Status1),
-    ?assertMatch(#{<<"mfa_status">> := <<"pending_voluntary">>}, account(Token1)),
-    %% opted in, secret issued but never verified. Login stops on it, so this
-    %% is not a state the banner may offer to dismiss.
-    ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer2">>, Token1)),
+    ?assertMatch(#{<<"mfa_status">> := <<"pending_voluntary">>}, current_user(Token1)),
+    %% opted in, secret issued but never verified. Login stops on it, so the
+    %% status is pending_enforced and not one of the voluntary states.
+    ?assertMatch({ok, 204, _}, enable_own_mfa(Token1)),
     ?assertEqual(pending_enforced, emqx_dashboard_admin:mfa_status(<<"viewer2">>)),
     %% verified once
     {ok, 200, Rsp2} = login(LoginBody#{<<"mfa_token">> => ?GOOD_TOTP}),
     #{<<"token">> := Token2, <<"mfa_status">> := Status2} = json_map(Rsp2),
     ?assertEqual(<<"complete">>, Status2),
-    ?assertMatch(#{<<"mfa_status">> := <<"complete">>}, account(Token2)),
+    ?assertMatch(#{<<"mfa_status">> := <<"complete">>}, current_user(Token2)),
     %% opted out again while nothing requires MFA
-    ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer2">>, Token2)),
+    ?assertMatch({ok, 204, _}, disable_own_mfa(Token2)),
     {ok, 200, Rsp3} = login(LoginBody),
     #{<<"token">> := Token3, <<"mfa_status">> := Status3} = json_map(Rsp3),
     ?assertEqual(<<"disabled">>, Status3),
-    ?assertMatch(#{<<"mfa_status">> := <<"disabled">>}, account(Token3)),
+    ?assertMatch(#{<<"mfa_status">> := <<"disabled">>}, current_user(Token3)),
     %% the same stored state reads as pending once the global mandate covers
     %% the account, because the next login enrols them again
     emqx_config:put([dashboard, default_mfa], #{mechanism => totp}),
@@ -455,15 +455,15 @@ t_mfa_status_admin_required(_Config) ->
     ?assertEqual(pending_enforced, emqx_dashboard_admin:mfa_status(<<"viewer4">>)),
     ok.
 
-%% The account view is the caller's own record, so it needs a bearer token but
-%% no user management permission: a viewer reads it for itself.
-t_account({init, Config}) ->
+%% `GET /current_user' reports the derived status alongside the stored one, and
+%% needs no user management permission: a viewer reads it for itself.
+t_current_user_mfa_status({init, Config}) ->
     {ok, ok} = emqx_dashboard_admin:clear_mfa_state(<<"viewer1">>),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer1">>, undefined),
     Config;
-t_account({'end', _Config}) ->
+t_current_user_mfa_status({'end', _Config}) ->
     ok;
-t_account(_Config) ->
+t_current_user_mfa_status(_Config) ->
     {ok, 200, Rsp} = login(#{
         <<"username">> => <<"viewer1">>,
         <<"password">> => <<"viewer1pass">>
@@ -476,11 +476,11 @@ t_account(_Config) ->
             <<"mfa">> := <<"none">>,
             <<"mfa_status">> := <<"pending_voluntary">>
         },
-        account(Token)
+        current_user(Token)
     ),
     %% and the admin sees its own record, not the viewer's
-    ?assertMatch(#{<<"username">> := <<"admin1">>}, account(admin_jwt_token())),
-    ?assertMatch({ok, 401, _}, request_api(get, api_path(["account"]), no_auth_header)),
+    ?assertMatch(#{<<"username">> := <<"admin1">>}, current_user(admin_jwt_token())),
+    ?assertMatch({ok, 401, _}, request_api(get, api_path(["current_user"]), no_auth_header)),
     ok.
 
 %% DELETE MFA ignores the historical reset query parameter.
@@ -580,8 +580,8 @@ enable_mfa(User, JwtToken) ->
     Body = #{mechanism => totp},
     request_api(post, api_path(["users", User, "mfa"]), auth_header(JwtToken), Body).
 
-account(JwtToken) ->
-    {ok, 200, Body} = request_api(get, api_path(["account"]), auth_header(JwtToken)),
+current_user(JwtToken) ->
+    {ok, 200, Body} = request_api(get, api_path(["current_user"]), auth_header(JwtToken)),
     json_map(Body).
 
 disable_mfa(User, JwtToken) ->
