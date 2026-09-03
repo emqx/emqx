@@ -134,7 +134,7 @@ handle_cast(_Message, State) ->
     {noreply, State}.
 
 handle_info(
-    {'EXIT', Pid, {operation_done, Operation}},
+    {'EXIT', Pid, normal},
     State = #state{worker = #{pid := Pid, operation := Operation}}
 ) ->
     Status = operation_result(Operation),
@@ -178,8 +178,7 @@ start_operation(Operation, State = #state{worker = undefined}) ->
     ok = set_status(Status),
     Pid = spawn_link(fun() ->
         ?tp(streams_controller_worker_start, #{operation => Operation, status => Status}),
-        ok = run_operation(Operation),
-        exit({operation_done, Operation})
+        ok = run_operation(Operation)
     end),
     State#state{
         worker = #{pid => Pid, operation => Operation}
