@@ -242,7 +242,7 @@ on_query(InstanceId, {ChannelId, Data}, #{channels := Channels} = State) ->
                     {error, {unrecoverable_error, Reason}}
             end;
         _ ->
-            {error, {unrecoverable_error, {invalid_channel_id, InstanceId}}}
+            {error, {unrecoverable_error, {invalid_channel_id, ChannelId}}}
     end.
 
 %% aggregate the batch queries to one SQL is a heavy job, we should put it in the worker process
@@ -261,7 +261,7 @@ on_batch_query(
                 State
             );
         _ ->
-            {error, {unrecoverable_error, {invalid_channel_id, InstanceId}}}
+            {error, {unrecoverable_error, {invalid_channel_id, ChannelId}}}
     end;
 on_batch_query(InstanceId, BatchReq, _State) ->
     LogMeta = #{connector => InstanceId, request => BatchReq},
