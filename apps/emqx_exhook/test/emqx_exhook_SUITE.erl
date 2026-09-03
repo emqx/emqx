@@ -920,8 +920,8 @@ t_subscribe_unchanged_filters_still_stop(_) ->
             {stop, TopicFilters},
             emqx_exhook_handler:on_client_subscribe(clientinfo_for_test(), #{}, TopicFilters)
         ),
-        %% A server that answered CONTINUE keeps the old behaviour: the
-        %% accumulator is left alone so the rest of the chain runs.
+        %% A server that answered CONTINUE leaves the accumulator alone, so
+        %% the rest of the chain runs.
         meck:expect(emqx_exhook, call_fold, fun('client.subscribe', Req, _Fun) ->
             {ok, #{topic_filters => maps:get(topic_filters, Req)}}
         end),
@@ -947,10 +947,9 @@ clientinfo_for_test() ->
         dn => undefined
     }.
 
-%% Both names resolve to the `client.subscribe' hookpoint, so a server that
-%% registers the two -- the plausible shape while migrating -- used to get
-%% whichever its HookSpec list happened to end on, with no way to observe the
-%% choice. The richer RPC wins now, in either order.
+%% Both names resolve to the `client.subscribe' hookpoint. A server that
+%% registers the two -- the plausible shape while migrating -- gets the
+%% `OnClientSubscribeRewrite' RPC, in either HookSpec order.
 t_duplicate_subscribe_registration_prefers_rewrite(_) ->
     Plain = #{name => <<"client.subscribe">>},
     Rewrite = #{name => <<"client.subscribe.rewrite">>},
