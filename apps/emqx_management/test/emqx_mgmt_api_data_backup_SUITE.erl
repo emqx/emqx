@@ -622,14 +622,8 @@ t_global_admin_scoped_namespace(Config) ->
 %% query override at all -- it never appeared anywhere in the audit log
 %% before this fix.
 t_export_import_audit_records_namespace(Config) ->
-    [Core1 | _] = ?config(cluster, Config),
     DashboardAuth = ?config(dashboard_auth, Config),
     Ns1Auth = ?config(ns_admin_auth, Config),
-    ok = ?ON(Core1, begin
-        {ok, _} = emqx:update_config([log, audit, enable], true),
-        {ok, _} = emqx:update_config([log, audit, level], info),
-        ok
-    end),
     StartAt = erlang:system_time(microsecond),
 
     {200, _} = export_backup2(?NODE1_PORT, DashboardAuth, #{}),
@@ -1416,11 +1410,25 @@ wait_for_dashboard_auth(ReplNode, Token, Retries) ->
     end.
 
 apps_spec(APIPort, TC) ->
-    common_apps_spec() ++
+    common_apps_spec(TC) ++
         app_spec_dashboard(APIPort) ++
         test_case_specific_apps_spec(TC).
 
-common_apps_spec() ->
+%% `log.audit' is defined by `emqx_enterprise_schema' (it redefines the `log'
+%% root), not by the `emqx_conf_schema' that `emqx_cth_suite' picks by app
+%% name, so the audit case names the schema explicitly. The cluster's own
+%% `emqx_conf' config (node, cluster, listeners) is deep-merged into this by
+%% `emqx_cth_cluster' and stays valid under the wider schema.
+common_apps_spec(t_export_import_audit_records_namespace) ->
+    [
+        emqx,
+        {emqx_conf, #{
+            config => #{log => #{audit => #{enable => true, level => info}}},
+            schema_mod => emqx_enterprise_schema
+        }},
+        emqx_management
+    ];
+common_apps_spec(_TC) ->
     [
         emqx,
         emqx_conf,

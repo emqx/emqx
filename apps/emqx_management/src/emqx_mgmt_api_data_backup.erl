@@ -496,8 +496,8 @@ auth_meta(_) -> #{}.
 log_ns(?global_ns) ->
     _ = minirest_handler:update_log_meta(#{namespace => <<"global">>}),
     ok;
-log_ns(NS) when is_binary(NS) ->
-    _ = minirest_handler:update_log_meta(#{namespace => NS}),
+log_ns(Ns) when is_binary(Ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => Ns}),
     ok.
 
 op_namespace(Req, QueryString) ->
