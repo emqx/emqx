@@ -15,8 +15,8 @@ for file in $added_files; do
   if [[ "$base" =~ ^(fix|feat|perf)- ]]; then
     # The valid pattern is:
     # changes/{ce|ee}/{fix|feat|perf}-PRNUMBER.en.md
-    if [[ ! "$file" =~ ^changes/(ce|ee)/(fix|feat|perf)-[0-9]+\.en\.md$ ]]; then
-      echo "Error: '$file' does not follow the required pattern 'changes/{ce|ee}/{fix|feat|perf}-PRNUMBER.en.md'" >&2
+    if [[ ! "$file" =~ ^changes/ee/(fix|feat|perf)-[0-9]+\.en\.md$ ]]; then
+      echo "Error: '$file' does not follow the required pattern 'changes/ee/{fix|feat|perf}-PRNUMBER.en.md'" >&2
       error=1
     fi
   fi

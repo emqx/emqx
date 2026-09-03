@@ -328,6 +328,8 @@ render_var(?VAR_PASSWORD, Value) ->
     iolist_to_binary(Value);
 render_var(?VAR_PEERPORT, Value) ->
     integer_to_binary(Value);
+render_var(?VAR_PEERNAME, Value) ->
+    emqx_utils:ntoa(Value);
 render_var(_Name, Value) ->
     Value.
 
