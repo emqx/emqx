@@ -51,10 +51,10 @@
     "measurement,t= a f=a,f1=b ${timestamp}",
     "measurement,t= a f=a,f1 =b ${timestamp}",
     "measurement, t = a f = a,f1 = b ${timestamp}",
-    "measurement,t=a f=a,f1=b \n ${timestamp}",
-    "measurement,t=a \n f=a,f1=b \n ${timestamp}",
+    "measurement,t=a f=a,f1=b \n ${t}${s}",
+    "measurement,t=a \n f=a,f1=b \n ${t}${s}",
     "measurement,t=a \n f=a,f1=b \n ",
-    "\n measurement,t=a \n f=a,f1=b \n ${timestamp}",
+    "\n measurement,t=a \n f=a,f1=b \n ${t}${s}",
     "\n measurement,t=a \n f=a,f1=b \n",
     %% not escaped backslash in a quoted field value is invalid
     "measurement,tag=1 field=\"val\\1\""
@@ -431,6 +431,48 @@ unicode_write_syntax_test_() ->
             [Expected],
             to_influx_lines(<<"m,tag=标签 f=\"固定中文\""/utf8>>)
         )
+    ].
+
+raw_line_write_syntax_test_() ->
+    [
+        {"a single placeholder line is a raw line template",
+            ?_assertEqual(
+                [#{line => "${payload.line}"}],
+                to_influx_lines(<<"${payload.line}">>)
+            )},
+        {"raw line template with trailing newline",
+            ?_assertEqual(
+                [#{line => "${payload.line}"}],
+                to_influx_lines(<<"${payload.line}\n">>)
+            )},
+        {"multiple raw line templates",
+            ?_assertEqual(
+                [#{line => "${payload.l1}"}, #{line => "${payload.l2}"}],
+                to_influx_lines(<<"${payload.l1}\n${payload.l2}">>)
+            )},
+        {"raw line template mixed with structured lines",
+            ?_assertEqual(
+                [
+                    #{line => "${payload.line}"},
+                    #{
+                        measurement => "m",
+                        tags => [{"tag", "1"}],
+                        fields => [{"f", "2"}],
+                        timestamp => undefined
+                    }
+                ],
+                to_influx_lines(<<"${payload.line}\nm,tag=1 f=2">>)
+            )},
+        {"escaped chars in a placeholder are unescaped",
+            ?_assertEqual(
+                [#{line => "${payload.line 1}"}],
+                to_influx_lines(<<"${payload.line\\ 1}">>)
+            )},
+        {"a line with two placeholders is not a raw line template",
+            ?_assertMatch(
+                {error, _},
+                to_influx_lines(<<"${payload.a}${payload.b}">>)
+            )}
     ].
 
 influxdb_api_v1_connector_ping_with_auth_test_() ->

@@ -338,6 +338,9 @@ authn_header_value(TCConfig) ->
     end.
 
 query_by_clientid(RuleTopic, ClientId, TCConfig) ->
+    query_in_bucket(<<"mqtt">>, RuleTopic, ClientId, TCConfig).
+
+query_in_bucket(Bucket, RuleTopic, ClientId, TCConfig) ->
     APIType = get_config(api_type, TCConfig, ?api_v2),
     RawBody0 =
         case APIType of
@@ -346,14 +349,16 @@ query_by_clientid(RuleTopic, ClientId, TCConfig) ->
                     c => ClientId,
                     t => RuleTopic
                 }),
-                Body = #{db => <<"mqtt">>, q => Query, format => <<"csv">>},
+                Body = #{db => Bucket, q => Query, format => <<"csv">>},
                 Path = <<"/api/v3/query_influxql">>,
                 Method = post,
                 Opts = #{method => Method, body => Body, path => Path},
                 query_v3(Opts, TCConfig);
             _ ->
                 Query = <<
-                    "from(bucket: \"mqtt\")\n"
+                    "from(bucket: \"",
+                    Bucket/binary,
+                    "\")\n"
                     "  |> range(start: -12h)\n"
                     "  |> filter(fn: (r) => r.clientid == \"",
                     ClientId/binary,
@@ -558,6 +563,70 @@ clear_table(RuleTopic, TCConfig) ->
             }
         },
         query_v3(Opts, TCConfig)
+    end.
+
+create_bucket(TCConfig) ->
+    {Host, Port} = server_tuple(TCConfig),
+    BaseURI = iolist_to_binary([
+        "http://",
+        Host,
+        ":",
+        integer_to_binary(Port)
+    ]),
+    Headers = [{"Authorization", "Token abcdefg"}],
+    {ok, 200, _, OrgBody} =
+        ehttpc:request(
+            ?HELPER_POOL,
+            get,
+            {<<BaseURI/binary, "/api/v2/orgs">>, Headers},
+            10_000,
+            0
+        ),
+    #{<<"orgs">> := [#{<<"id">> := OrgId} | _]} = emqx_utils_json:decode(OrgBody),
+    %% the matrix runs this test case several times against the same influxdb
+    %% container, so the bucket may already exist; only create it once
+    {ok, 200, _, BucketsBody} =
+        ehttpc:request(
+            ?HELPER_POOL,
+            get,
+            {<<BaseURI/binary, "/api/v2/buckets?orgID=", OrgId/binary>>, Headers},
+            10_000,
+            0
+        ),
+    Buckets = maps:get(<<"buckets">>, emqx_utils_json:decode(BucketsBody)),
+    case
+        lists:any(
+            fun
+                (#{<<"name">> := <<"mqtt2">>}) -> true;
+                (_) -> false
+            end,
+            Buckets
+        )
+    of
+        true ->
+            ok;
+        false ->
+            Body = emqx_utils_json:encode(#{
+                <<"name">> => <<"mqtt2">>,
+                <<"orgID">> => OrgId,
+                <<"retentionRules">> => []
+            }),
+            {ok, 201, _, _} =
+                ehttpc:request(
+                    ?HELPER_POOL,
+                    post,
+                    {
+                        <<BaseURI/binary, "/api/v2/buckets">>,
+                        [
+                            {"Authorization", "Token abcdefg"},
+                            {"Content-Type", "application/json"}
+                        ],
+                        Body
+                    },
+                    10_000,
+                    0
+                ),
+            ok
     end.
 
 proxy_name(TCConfig) ->
@@ -1243,6 +1312,73 @@ t_missing_field(TCConfig) when is_list(TCConfig) ->
             ok
         end
     ),
+    ok.
+
+t_dynamic_bucket() ->
+    [{matrix, true}].
+t_dynamic_bucket(matrix) ->
+    [
+        [?api_v2, ?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async], Batch <- [?without_batch, ?with_batch]
+    ];
+t_dynamic_bucket(TCConfig) when is_list(TCConfig) ->
+    create_bucket(TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"bucket">> => <<"${payload.bucket}">>,
+            <<"write_syntax">> => <<"${topic},clientid=${clientid} foo=${payload.foo}i">>
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    ClientId0 = emqx_guid:to_hexstr(emqx_guid:gen()),
+    ClientId1 = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C0 = start_client(#{clientid => ClientId0}),
+    C1 = start_client(#{clientid => ClientId1}),
+    ct:timetrap({seconds, 30}),
+    Payload0 = emqx_utils_json:encode(#{<<"foo">> => 123, <<"bucket">> => <<"mqtt2">>}),
+    %% payload without the bucket field, the connector bucket is used as fallback
+    Payload1 = emqx_utils_json:encode(#{<<"foo">> => 456}),
+    emqtt:publish(C0, RuleTopic, Payload0, [{qos, 1}]),
+    emqtt:publish(C1, RuleTopic, Payload1, [{qos, 1}]),
+    ?retry(200, 10, begin
+        PersistedData0 = query_in_bucket(<<"mqtt2">>, RuleTopic, ClientId0, TCConfig),
+        PersistedData1 = query_in_bucket(<<"mqtt">>, RuleTopic, ClientId1, TCConfig),
+        assert_persisted_data(ClientId0, #{foo => {<<"123">>, <<"long">>}}, PersistedData0),
+        assert_persisted_data(ClientId1, #{foo => {<<"456">>, <<"long">>}}, PersistedData1),
+        ok
+    end),
+    ok.
+
+t_raw_line_write_syntax() ->
+    [{matrix, true}].
+t_raw_line_write_syntax(matrix) ->
+    [
+        [?api_v2, ?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async], Batch <- [?without_batch, ?with_batch]
+    ];
+t_raw_line_write_syntax(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"write_syntax">> => <<"${line_protocol}">>}
+    }),
+    SQL = <<
+        "select clientid, topic, "
+        "concat(concat(concat(concat('mqtt,clientid=', clientid), ' foo='), payload.foo), 'i') "
+        "as line_protocol "
+        "from \"${t}\" "
+    >>,
+    #{topic := RuleTopic} = simple_create_rule_api(SQL, TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    ct:timetrap({seconds, 30}),
+    Payload = emqx_utils_json:encode(#{<<"foo">> => 123}),
+    emqtt:publish(C, RuleTopic, Payload, [{qos, 1}]),
+    ?retry(200, 10, begin
+        PersistedData = query_by_clientid(RuleTopic, ClientId, TCConfig),
+        Expected = #{foo => {<<"123">>, <<"long">>}},
+        assert_persisted_data(ClientId, Expected, PersistedData)
+    end),
     ok.
 
 t_authentication_error() ->
