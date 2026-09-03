@@ -32,6 +32,7 @@
 -export([
     t_e2e_connect_disconnect/1,
     t_e2e_abnormal_disconnect/1,
+    t_e2e_will_message_user_properties/1,
     t_e2e_authn_failed/1,
     t_e2e_authn_failed/2,
     t_e2e_client_sub_unsub/1,
@@ -186,6 +187,7 @@ groups() ->
     E2EModeTraceCases = [
         t_e2e_connect_disconnect,
         t_e2e_abnormal_disconnect,
+        t_e2e_will_message_user_properties,
         t_e2e_authn_failed,
         t_e2e_client_sub_unsub,
         t_e2e_client_publish_qos0,
@@ -745,6 +747,69 @@ t_e2e_abnormal_disconnect(Config) ->
         )
     ),
     ok.
+
+-doc """
+Regresses emqx/emqx#18673: a CONNECT with will User-Property must not crash
+the connection. The client.connect span must carry the submitted will
+properties, and killing the connection ungracefully must still deliver the
+will message, with its user properties intact, to a subscriber.
+""".
+t_e2e_will_message_user_properties(Config) ->
+    OtelConf = enabled_e2e_trace_conf_all(Config),
+    {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
+
+    ClientId = e2e_client_id(Config),
+    WillTopic = <<"t/will/", ClientId/binary>>,
+    WillPayload = <<"will payload">>,
+    WillUserProps = [
+        {<<"Will-Property1">>, <<"Will-Value1">>},
+        {<<"Will-Property2">>, <<"Will-Value2">>}
+    ],
+    WillProps = #{'User-Property' => WillUserProps},
+
+    {ok, SubConn} = connect(Config, <<ClientId/binary, "-sub">>),
+    {ok, _, [0]} = emqtt:subscribe(SubConn, WillTopic),
+
+    {ok, Conn} = connect_with_will(Config, ClientId, WillTopic, WillPayload, WillProps),
+    timer:sleep(500),
+    _ = stop_conn(Conn),
+
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:wait_for(
+            ?FUNCTION_NAME,
+            ?LINE,
+            fun() ->
+                {ok, #{<<"data">> := ConnectTraces}} = search_jaeger_traces(
+                    ?config(jaeger_url, Config),
+                    "client.connect",
+                    #{
+                        <<"client.clientid">> => ClientId,
+                        <<"cluster.id">> => <<"emqxcl">>
+                    }
+                ),
+                1 = length(ConnectTraces),
+                [#{<<"spans">> := ConnectSpans}] = ConnectTraces,
+                [ClientConnect_Span] = filter_spans(<<"client.connect">>, ConnectSpans),
+                #{<<"tags">> := ConnectTags} = ClientConnect_Span,
+                WillPropsJson = filter_tag_value(<<"client.will_props">>, ConnectTags),
+                Decoded = emqx_utils_json:decode_proplist(WillPropsJson),
+                WillUserProps = lists:sort(proplists:get_value(<<"User-Property">>, Decoded)),
+                true
+            end,
+            10_000
+        )
+    ),
+
+    receive
+        {publish, #{topic := WillTopic, payload := WillPayload, properties := RecvProps}} ->
+            #{'User-Property' := RecvUserProps} = RecvProps,
+            ?assertEqual(WillUserProps, lists:sort(RecvUserProps))
+    after 10_000 ->
+        ct:fail("will_message_not_received")
+    end,
+
+    stop_conns([SubConn]).
 
 t_e2e_authn_failed('init', Config) ->
     _ = meck:new(emqx_access_control, [passthrough, no_history]),
@@ -2180,6 +2245,31 @@ connect(Config, {Host, Port}, ClientId, Props) ->
             {port, Port},
             {clientid, ClientId},
             {properties, Props}
+        ] ++ ConnOpts
+    ),
+    case ConnFun(ConnPid) of
+        {ok, _} ->
+            {ok, ConnPid};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+connect_with_will(Config, ClientId, WillTopic, WillPayload, WillProps) ->
+    connect_with_will(Config, node(), ClientId, WillTopic, WillPayload, WillProps).
+
+connect_with_will(Config, Node, ClientId, WillTopic, WillPayload, WillProps) ->
+    {Host, Port} = mqtt_host_port(Config, Node),
+    {ConnFun, ConnOpts} = conn_opts(Config),
+    {ok, ConnPid} = emqtt:start_link(
+        [
+            {proto_ver, v5},
+            {host, Host},
+            {port, Port},
+            {clientid, ClientId},
+            {will_topic, WillTopic},
+            {will_payload, WillPayload},
+            {will_qos, 0},
+            {will_props, WillProps}
         ] ++ ConnOpts
     ),
     case ConnFun(ConnPid) of

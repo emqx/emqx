@@ -98,6 +98,7 @@ t_chan_info(_) ->
             protocol := mqtt,
             peername := {{127, 0, 0, 1}, 3456},
             peerhost := {127, 0, 0, 1},
+            peerport := 3456,
             sockport := 1883,
             clientid := <<"clientid">>,
             username := <<"username">>,
@@ -1175,6 +1176,25 @@ t_ws_cookie_init(_) ->
     ),
     ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
 
+-doc "peerport must be bound from the real peername ConnInfo, not just copied as a fixture.".
+t_init_binds_peerport(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 3456},
+        sockname => {{127, 0, 0, 1}, 1883}
+    },
+    Channel = emqx_channel:init(
+        ConnInfo,
+        #{
+            zone => default,
+            limiter => undefined,
+            listener => {tcp, default}
+        }
+    ),
+    ?assertMatch(
+        #{peerport := 3456, peerhost := {127, 0, 0, 1}, peername := {{127, 0, 0, 1}, 3456}},
+        emqx_channel:info(clientinfo, Channel)
+    ).
+
 %%--------------------------------------------------------------------
 %% Test cases for other mechanisms
 %%--------------------------------------------------------------------
@@ -1337,6 +1357,7 @@ clientinfo(InitProps) ->
             protocol => mqtt,
             peername => {{127, 0, 0, 1}, 3456},
             peerhost => {127, 0, 0, 1},
+            peerport => 3456,
             sockport => 1883,
             clientid => <<"clientid">>,
             username => <<"username">>,
