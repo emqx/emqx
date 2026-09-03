@@ -913,9 +913,9 @@ db_dump(Node) ->
 
 suite() -> [{timetrap, {minutes, 1}}].
 
-%% A callback that raises must leave a trace: the timer is treated as fired and
-%% is not retried, so without a log the work is lost silently. The worker has to
-%% survive it and keep firing later timers.
+%% A callback that raises is reported with its exception, and the timer is
+%% consumed rather than retried. The worker survives the failure and keeps
+%% firing later timers.
 t_080_callback_failure({init, Config}) ->
     Cluster = cluster(?FUNCTION_NAME, Config, 1, #{}),
     [{cluster, Cluster} | Config];
