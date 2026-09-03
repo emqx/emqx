@@ -32,10 +32,18 @@ TLDR:<br/>
 ```
 <measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
 ```
-Please note that a placeholder for an integer value must be annotated with a suffix `i`. For example `${payload.int_value}i`."""
+Please note that a placeholder for an integer value must be annotated with a suffix `i`. For example `${payload.int_value}i`.
+
+If a line consists of exactly one placeholder, the rendered value is written verbatim as a line protocol. This makes it possible to write a select result that is already a formatted line protocol, e.g. `write_syntax = "${payload.line}"`."""
 
 write_syntax.label:
 """Write Syntax"""
+
+bucket.desc:
+"""Bucket name to write data points to. It overrides the bucket (v2) or database (v1/v3) configured in the connector for this action. Placeholders are supported, so the bucket can be selected dynamically from the rule SQL result, e.g. `${payload.bucket_name}`. If the rendered value is empty or the referenced field is missing, the bucket configured in the connector is used."""
+
+bucket.label:
+"""Bucket"""
 
 action_parameters.label:
 """Action Parameters"""
