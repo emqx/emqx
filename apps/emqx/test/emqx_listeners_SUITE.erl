@@ -243,6 +243,52 @@ t_tcp_socket_conn(_Config) ->
         )
     end).
 
+-doc """
+`active_n=0` is clamped to 1 on the `socket` backend, so a client connects normally.
+""".
+t_tcp_socket_conn_active_n_zero(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"tcp_backend">> => <<"socket">>,
+        <<"tcp_options">> => #{<<"active_n">> => 0}
+    },
+    with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
+        Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
+        pong = emqtt:ping(Client)
+    end).
+
+-doc """
+`active_n=0` is clamped to 1 on the `gen_tcp` backend too, so a client connects
+normally, consistent with the `socket` backend.
+""".
+t_tcp_gen_tcp_conn_active_n_zero(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"tcp_backend">> => <<"gen_tcp">>,
+        <<"tcp_options">> => #{<<"active_n">> => 0}
+    },
+    with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
+        Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
+        pong = emqtt:ping(Client)
+    end).
+
+-doc """
+`buffer=0` is floored to 5 bytes on the `socket` backend, so a client connects normally.
+""".
+t_tcp_socket_conn_buffer_zero(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"tcp_backend">> => <<"socket">>,
+        <<"tcp_options">> => #{<<"buffer">> => <<"0KB">>}
+    },
+    with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
+        Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
+        pong = emqtt:ping(Client)
+    end).
+
 t_ssl_chunk_parsing_conn(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Port = emqx_common_test_helpers:select_free_port(ssl),

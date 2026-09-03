@@ -1582,7 +1582,9 @@ init_parser_and_serializer(FrameOpts0) ->
     {Parser0, Serialize0}.
 
 get_active_n(#conf{listener = {Type, Listener}}) ->
-    emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n]).
+    emqx_listeners:clamp_active_n(
+        emqx_config:get_listener_conf(Type, Listener, [tcp_options, active_n])
+    ).
 
 get_send_timeout(#conf{listener = {Type, Listener}}) ->
     emqx_config:get_listener_conf(Type, Listener, [tcp_options, send_timeout], 15_000).
