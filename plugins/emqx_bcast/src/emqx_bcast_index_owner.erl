@@ -86,7 +86,7 @@
 %% 4 (2 per core) keeps the per-batch claim/ack groups coarse; 16 made
 %% each 10ms batch split into ~4.5 entries per shard, multiplying the
 %% per-message RPC/scheduling cost.
--define(SHARD_COUNT, 4).
+-define(SHARD_COUNT, 8).
 
 %% How long a pending (claimed but not acked/released) entry stays excluded
 %% from claims. Same value as the historical mnesia claim lease.
