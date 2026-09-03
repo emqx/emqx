@@ -1883,10 +1883,18 @@ parse_namespace(#{query_string := QueryString} = Req) ->
 resolve_namespace(Req, _Meta) ->
     case parse_namespace(Req) of
         {ok, Namespace} ->
+            ok = log_ns(Namespace),
             {ok, Req#{resolved_ns => Namespace}};
         {error, not_authorized} ->
             ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
     end.
+
+log_ns(?global_ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => <<"global">>}),
+    ok;
+log_ns(NS) when is_binary(NS) ->
+    _ = minirest_handler:update_log_meta(#{namespace => NS}),
+    ok.
 
 validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
     {ok, Req};

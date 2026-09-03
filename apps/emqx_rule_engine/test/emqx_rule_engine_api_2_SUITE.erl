@@ -137,8 +137,14 @@ app_specs_no_dashboard() ->
                     emqx_cth_suite:inhibit_config_loader(App, AppOpts)
                 end
         }},
-        emqx_conf,
+        {emqx_conf, #{
+            config => #{log => #{audit => #{enable => true, level => info}}},
+            %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+            %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
+            schema_mod => emqx_enterprise_schema
+        }},
         rule_engine_app_spec(),
+        emqx_audit,
         emqx_management
     ].
 
@@ -2439,6 +2445,71 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     ok = emqtt:stop(C),
 
     ok.
+
+-doc """
+Regression test for #18653/#18664's class of bug: audit records for a rule
+creation must identify the namespace, both for a global admin's
+implicit-global rule and a namespaced admin's implicit-own-namespace rule
+(no `?ns=' in either case).
+""".
+t_rule_audit_records_namespace(TCConfig0) when is_list(TCConfig0) ->
+    Node = node(),
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfig = [{node, Node}, {api_key, APIKey} | TCConfig0],
+    AuthHeaderGlobal = emqx_common_test_http:auth_header(APIKey),
+    TCConfigGlobal = [{auth_header, AuthHeaderGlobal} | TCConfig],
+    Ns = <<"rule_audit_ns">>,
+    AuthHeaderNs = ensure_namespaced_api_key(Ns, TCConfig),
+    TCConfigNs = [{auth_header, AuthHeaderNs} | TCConfig],
+
+    StartAt = erlang:system_time(microsecond),
+    RuleTopic = <<"t">>,
+    ConfigGlobal = rule_config(#{
+        <<"id">> => <<"audit_rule_global">>,
+        <<"sql">> => fmt(<<"select * from ${t}">>, #{t => RuleTopic})
+    }),
+    ConfigNs = rule_config(#{
+        <<"id">> => <<"audit_rule_ns">>,
+        <<"sql">> => fmt(<<"select * from ${t}">>, #{t => RuleTopic})
+    }),
+    ?assertMatch({201, #{<<"namespace">> := null}}, create(ConfigGlobal, TCConfigGlobal)),
+    ?assertMatch({201, #{<<"namespace">> := Ns}}, create(ConfigNs, TCConfigNs)),
+
+    Entries = wait_for_audit_entries(<<"/rules">>, StartAt, 2, 2000),
+    Namespaces = lists:sort([audit_namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, Ns]), Namespaces),
+    ok.
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs - SleepMs)
+    end.
+
+audit_entries_since(OperationId, StartAt) ->
+    URL = emqx_mgmt_api_test_util:api_path(["audit"]),
+    QueryParams = #{
+        <<"operation_id">> => OperationId,
+        <<"gte_created_at">> => integer_to_binary(StartAt),
+        <<"limit">> => <<"100">>
+    },
+    {200, #{<<"data">> := Data}} =
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get, url => URL, query_params => QueryParams
+        }),
+    Data.
+
+audit_namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
 
 -doc """
 Verifies that rules referencing actions are restricted to their namespaces.

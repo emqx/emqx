@@ -53,11 +53,17 @@ end_per_testcase(_, Config) ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx_conf,
+            {emqx_conf, #{
+                config => "log.audit { enable = true, level = info }",
+                %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+                %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
+                schema_mod => emqx_enterprise_schema
+            }},
             emqx,
             emqx_auth,
             %% to load schema
             {emqx_auth_mnesia, #{start => false}},
+            emqx_audit,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
@@ -783,6 +789,104 @@ t_cache_reset(_) ->
         post,
         uri(["authentication", "node_cache", "reset"])
     ).
+
+-doc """
+Regression test for #18653/#18664's class of bug: audit records for
+`POST /authentication/:id/users` (built-in-database authenticator) must
+identify the namespace, both for a global admin's implicit-global request
+and a namespaced admin's implicit-own-namespace request (no `?ns=` in
+either case).
+""".
+t_authenticator_users_audit_records_namespace(_Config) ->
+    ok = emqx_hooks:add(
+        'namespace.resource_pre_create',
+        {?MODULE, on_namespace_resource_pre_create, []},
+        1000
+    ),
+    try
+        {ok, 200, _} = request(
+            post,
+            uri([?CONF_NS]),
+            emqx_authn_test_lib:built_in_database_example()
+        ),
+        StartAt = erlang:system_time(microsecond),
+        GlobalAuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+        GlobalUser = #{user_id => <<"audit_global_user">>, password => <<"p@ssw0rd1">>},
+        {201, _} = emqx_mgmt_api_test_util:simple_request(#{
+            method => post,
+            url => uri([?CONF_NS, "password_based:built_in_database", "users"]),
+            auth_header => GlobalAuthHeader,
+            body => GlobalUser
+        }),
+        Ns = <<"authn_audit_ns">>,
+        NsAuthHeader = create_namespaced_admin(Ns),
+        NsUser = #{user_id => <<"audit_ns_user">>, password => <<"p@ssw0rd1">>},
+        {201, _} = emqx_mgmt_api_test_util:simple_request(#{
+            method => post,
+            url => uri([?CONF_NS, "password_based:built_in_database", "users"]),
+            auth_header => NsAuthHeader,
+            body => NsUser
+        }),
+        Entries = wait_for_audit_entries(<<"/authentication/:id/users">>, StartAt, 2, 2000),
+        Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+        ?assertEqual(lists:sort([<<"global">>, Ns]), Namespaces)
+    after
+        ok = emqx_hooks:del(
+            'namespace.resource_pre_create', {?MODULE, on_namespace_resource_pre_create}
+        )
+    end.
+
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.
+
+create_namespaced_admin(Namespace) ->
+    Username = <<"authn_audit_ns_admin">>,
+    Password = <<"superSecureP@ss1">>,
+    Role = <<"ns:", Namespace/binary, "::administrator">>,
+    case
+        emqx_dashboard_admin:add_user(
+            Username, Password, Role, <<"namespaced admin for audit test">>
+        )
+    of
+        {ok, _} -> ok;
+        {error, <<"username_already_exists">>} -> ok
+    end,
+    {200, #{<<"token">> := Token}} = emqx_dashboard_admin_SUITE:login(#{
+        <<"username">> => Username,
+        <<"password">> => Password
+    }),
+    {"Authorization", <<"Bearer ", Token/binary>>}.
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs - SleepMs)
+    end.
+
+audit_entries_since(OperationId, StartAt) ->
+    URL = uri(["audit"]),
+    QueryParams = #{
+        <<"operation_id">> => OperationId,
+        <<"gte_created_at">> => integer_to_binary(StartAt),
+        <<"limit">> => <<"100">>
+    },
+    {200, #{<<"data">> := Data}} =
+        emqx_mgmt_api_test_util:simple_request(#{
+            method => get, url => URL, query_params => QueryParams
+        }),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
 
 %%------------------------------------------------------------------------------
 %% Helpers
