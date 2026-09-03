@@ -51,9 +51,9 @@ client_attrs_shapes_test_() ->
         end}
     ].
 
-%% Database columns are typed, and `iolist_to_binary/1' raises badarg on an
-%% integer, which emqx_authn_chains turns into an authenticator_error -- the
-%% whole login fails over one attribute.
+%% Database columns are typed, so an attribute value can arrive as something
+%% other than a binary. These check which types are converted to a binary and
+%% which are dropped.
 client_attrs_value_types_test_() ->
     [
         {"integers, floats and booleans are usable attribute values", fun() ->
@@ -73,9 +73,9 @@ client_attrs_value_types_test_() ->
             )
         end},
         {"a list value is dropped rather than flattened", fun() ->
-            %% Backends return text as a binary. A list is more likely a
-            %% driver returning a column as a list of integers, which
-            %% `iolist_to_binary/1' would render as arbitrary bytes.
+            %% Backends return text as a binary, so a list is a driver
+            %% rendering a column as character codes rather than an
+            %% attribute value.
             ?assertEqual(
                 #{},
                 ?ATTRS(#{<<"client_attrs.sn">> => ["a", <<"b">>, $c]})
@@ -103,8 +103,8 @@ client_attrs_value_types_test_() ->
         end}
     ].
 
-%% A backend result keeps its previous shape when there is nothing to report,
-%% so adding attribute support to a backend does not change every other result.
+%% `maybe_client_attrs/1' returns an empty map when there is nothing to
+%% report, so the caller's result map gains no `client_attrs' key.
 maybe_client_attrs_test_() ->
     [
         {"the key is left out when there are no attributes", fun() ->
