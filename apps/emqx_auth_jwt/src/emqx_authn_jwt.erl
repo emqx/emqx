@@ -95,9 +95,9 @@ update(
 update(#{use_jwks := true} = Config, _State) ->
     create(Config).
 
-%% MQTT 5.0 enhanced authentication. The token travels in `Authentication Data'
-%% rather than in the CONNECT field named by `from', which lets a connected
-%% client renew it in-session with an AUTH packet.
+%% MQTT 5.0 enhanced authentication: the token is carried in `Authentication
+%% Data' instead of the CONNECT field named by `from', so a connected client can
+%% renew it in-session with an AUTH packet.
 authenticate(
     #{auth_method := ?MQTT_AUTHN_METHOD_BIN, auth_data := JWT} = Credential,
     State

@@ -99,8 +99,8 @@ t_reauthenticate_preserves_session(_Config) ->
         emqx_cm:get_chan_info(ClientId)
     ).
 
-%% A fresh token must push the disconnect deadline out. Without re-arming the
-%% timer the client is dropped at the original `exp'.
+%% A fresh token pushes the disconnect deadline out: the connection outlives the
+%% `exp' of the token it connected with.
 t_reauthenticate_extends_deadline(_Config) ->
     _ = connect(<<"c_extend">>, jws(#{<<"exp">> => exp(3)})),
     ?assertMatch(?CONNACK_PACKET(?RC_SUCCESS, _, _), receive_packet()),
