@@ -24,7 +24,6 @@
 -define(client_pool, client_pool).
 -define(continue, continue).
 -define(descriptor, descriptor).
--define(helper, helper).
 -define(idx, idx).
 -define(last_acked_seq, last_acked_seq).
 -define(last_seen_seq, last_seen_seq).
@@ -34,6 +33,7 @@
 -define(pool, pool).
 -define(proto, proto).
 -define(record, record).
+-define(recv_handle, recv_handle).
 -define(recv_pool, recv_pool).
 -define(reopen, reopen).
 -define(request_ttl, request_ttl).
