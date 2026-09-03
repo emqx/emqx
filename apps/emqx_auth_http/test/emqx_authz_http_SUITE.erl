@@ -199,6 +199,7 @@ t_query_params(TCConfig) ->
                 username := <<"user name">>,
                 clientid := <<"client id">>,
                 peerhost := <<"127.0.0.1">>,
+                peerport := <<"9876">>,
                 proto_name := <<"MQTT">>,
                 mountpoint := <<"MOUNTPOINT">>,
                 topic := <<"t/1">>,
@@ -211,6 +212,7 @@ t_query_params(TCConfig) ->
                     username,
                     clientid,
                     peerhost,
+                    peerport,
                     proto_name,
                     mountpoint,
                     topic,
@@ -231,6 +233,7 @@ t_query_params(TCConfig) ->
                 "username=${username}&"
                 "clientid=${clientid}&"
                 "peerhost=${peerhost}&"
+                "peerport=${peerport}&"
                 "proto_name=${proto_name}&"
                 "mountpoint=${mountpoint}&"
                 "topic=${topic}&"
@@ -246,6 +249,7 @@ t_query_params(TCConfig) ->
         clientid => <<"client id">>,
         username => <<"user name">>,
         peerhost => {127, 0, 0, 1},
+        peerport => 9876,
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
         zone => default,
@@ -329,6 +333,7 @@ t_json_body(TCConfig) ->
                     <<"username">> := <<"user name">>,
                     <<"CLIENT">> := <<"client id">>,
                     <<"peerhost">> := <<"127.0.0.1">>,
+                    <<"peerport">> := <<"9876">>,
                     <<"proto_name">> := <<"MQTT">>,
                     <<"mountpoint">> := <<"MOUNTPOINT">>,
                     <<"topic">> := <<"t">>,
@@ -347,6 +352,7 @@ t_json_body(TCConfig) ->
                 <<"username">> => <<"${username}">>,
                 <<"CLIENT">> => <<"${clientid}">>,
                 <<"peerhost">> => <<"${peerhost}">>,
+                <<"peerport">> => <<"${peerport}">>,
                 <<"proto_name">> => <<"${proto_name}">>,
                 <<"mountpoint">> => <<"${mountpoint}">>,
                 <<"topic">> => <<"${topic}">>,
@@ -362,8 +368,81 @@ t_json_body(TCConfig) ->
         clientid => <<"client id">>,
         username => <<"user name">>,
         peerhost => {127, 0, 0, 1},
+        peerport => 9876,
         protocol => <<"MQTT">>,
         mountpoint => <<"MOUNTPOINT">>,
+        zone => default,
+        listener => 'tcp:default'
+    },
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
+    ).
+
+-doc "Verify that ${peerport} is rendered in HTTP authz body templates.".
+t_peerport_rendered_in_body(TCConfig) ->
+    ok = setup_handler_and_config(
+        TCConfig,
+        fun(Req0, State) ->
+            {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+            ?assertMatch(
+                #{
+                    <<"peerport">> := <<"9876">>
+                },
+                emqx_utils_json:decode(RawBody)
+            ),
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
+        end,
+        #{
+            <<"method">> => <<"post">>,
+            <<"body">> => #{
+                <<"peerport">> => <<"${peerport}">>
+            }
+        }
+    ),
+
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        peerport => 9876,
+        zone => default,
+        listener => 'tcp:default'
+    },
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
+    ).
+
+-doc "Verify that ${peername} is rendered as \"IP:PORT\" in HTTP authz body templates.".
+t_peername_rendered_in_body(TCConfig) ->
+    ok = setup_handler_and_config(
+        TCConfig,
+        fun(Req0, State) ->
+            {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+            ?assertMatch(
+                #{
+                    <<"peername">> := <<"127.0.0.1:9876">>
+                },
+                emqx_utils_json:decode(RawBody)
+            ),
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
+        end,
+        #{
+            <<"method">> => <<"post">>,
+            <<"body">> => #{
+                <<"peername">> => <<"${peername}">>
+            }
+        }
+    ),
+
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        peername => {{127, 0, 0, 1}, 9876},
         zone => default,
         listener => 'tcp:default'
     },

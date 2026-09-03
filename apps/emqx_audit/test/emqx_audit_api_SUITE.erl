@@ -5,6 +5,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -55,7 +56,8 @@ init_per_suite(Config) ->
             emqx_license,
             emqx_audit,
             emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
+            emqx_mgmt_api_test_util:emqx_dashboard(),
+            emqx_dashboard_sso
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -104,6 +106,91 @@ t_http_api(_) ->
             ]
         },
         emqx_utils_json:decode(Res1)
+    ),
+    ok.
+
+-doc """
+GET /audit must not 500 when a page includes a record written by an
+SSO-authenticated user, whose `auth_meta.source` is `{Backend, Name}`
+instead of a plain binary.
+""".
+t_http_api_sso_source(_) ->
+    process_flag(trap_exit, true),
+    SsoBackend = saml,
+    SsoUser = <<"jackson-http@example.com">>,
+    Desc = <<"desc">>,
+    SsoUsername = ?SSO_USERNAME(SsoBackend, SsoUser),
+    {ok, _} = emqx_dashboard_admin:add_sso_user(SsoBackend, SsoUser, ?ROLE_SUPERUSER, Desc),
+    {ok, #{role := ?ROLE_SUPERUSER, token := SsoToken}} =
+        emqx_dashboard_admin:sign_token(SsoUsername, <<>>),
+    SsoAuthHeader = {"Authorization", "Bearer " ++ binary_to_list(SsoToken)},
+    StartAt = erlang:system_time(microsecond),
+    {ok, Zones} = emqx_mgmt_api_configs_SUITE:get_global_zone(),
+    NewZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
+    ConfigsPath = emqx_mgmt_api_test_util:api_path(["configs", "global_zone"]),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(
+        put, ConfigsPath, "", SsoAuthHeader, NewZones
+    ),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Query =
+        lists:flatten(
+            io_lib:format(
+                "from=dashboard&operation_id=/configs/global_zone&gte_created_at=~B&limit=1",
+                [StartAt]
+            )
+        ),
+    %% Before the fix, this GET fails with 500 (invalid json term) because
+    %% `format/1` passed the tuple `source` straight to the JSON encoder.
+    Res = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{
+                    <<"operation_id">> := <<"/configs/global_zone">>,
+                    <<"source">> := <<"saml:jackson-http@example.com">>
+                }
+            ]
+        },
+        emqx_utils_json:decode(Res)
+    ),
+    ok.
+
+-doc """
+GET /audit must not 500 when a page includes a record whose `source' is the
+bare SSO backend atom (e.g. `oidc'), which `POST /sso/login/:backend' sets
+as `log_source' during pre-authentication, before any user identity is
+known. Regression test for emqx/emqx#18711.
+""".
+t_http_api_sso_login_pre_auth_source(_) ->
+    StartAt = erlang:system_time(microsecond),
+    LoginPath = emqx_mgmt_api_test_util:api_path(["sso", "login", "oidc"]),
+    ?assertMatch(
+        {ok, 404, _},
+        emqx_mgmt_api_test_util:request_api_with_body(
+            post, LoginPath, #{<<"backend">> => <<"oidc">>}
+        )
+    ),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Query =
+        lists:flatten(
+            io_lib:format(
+                "from=dashboard&gte_created_at=~B&limit=1",
+                [StartAt]
+            )
+        ),
+    %% Before the fix, this GET fails with 500 because `format/1' passes the
+    %% bare atom `source' to `emqx_dashboard_admin:format_username/1', which
+    %% has no clause for it.
+    Res = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{<<"source">> := <<"oidc">>}
+            ]
+        },
+        emqx_utils_json:decode(Res)
     ),
     ok.
 
