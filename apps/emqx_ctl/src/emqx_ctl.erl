@@ -76,6 +76,10 @@
 -define(SERVER, ?MODULE).
 -define(CMD_TAB, emqx_command).
 
+%% Set by usage/1,2 to tell execute_command/4 not to audit the command:
+%% it only printed its help. Both run in the same process.
+-define(USAGE_PRINT_NO_AUDIT, '$emqx_ctl_usage_no_audit').
+
 -spec start_link() -> {ok, pid()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
@@ -131,6 +135,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
     end.
 
 execute_command(Cmd, Args, {Mod, Fun} = CliHandler, Start) ->
+    _ = erase(?USAGE_PRINT_NO_AUDIT),
     Result =
         try
             apply(Mod, Fun, [Args])
@@ -146,12 +151,18 @@ execute_command(Cmd, Args, {Mod, Fun} = CliHandler, Start) ->
                 {error, Reason}
         end,
     Duration = erlang:convert_time_unit(erlang:monotonic_time() - Start, native, millisecond),
-    audit_log(
-        audit_level(Result, Duration),
-        cli,
-        CliHandler,
-        #{duration_ms => Duration, cmd => Cmd, args => Args, node => node()}
-    ),
+    case erase(?USAGE_PRINT_NO_AUDIT) of
+        true ->
+            %% The command only printed its usage, no operation to audit.
+            ok;
+        _ ->
+            audit_log(
+                audit_level(Result, Duration),
+                cli,
+                CliHandler,
+                #{duration_ms => Duration, cmd => Cmd, args => Args, node => node()}
+            )
+    end,
     Result.
 
 -spec lookup_command(cmd()) -> {module(), atom()} | {error, any()}.
@@ -221,10 +232,12 @@ warning(Format, Args) ->
 
 -spec usage([cmd_usage()]) -> ok.
 usage(UsageList) ->
+    mark_no_audit(),
     io:format(format_usage(UsageList)).
 
 -spec usage(cmd_params(), cmd_descr()) -> ok.
 usage(CmdParams, Desc) ->
+    mark_no_audit(),
     io:format(format_usage(CmdParams, Desc)).
 
 -spec format(io:format(), [term()]) -> string().
@@ -344,6 +357,10 @@ safe_to_existing_atom(Str) ->
 
 is_initialized() ->
     ets:info(?CMD_TAB) =/= undefined.
+
+mark_no_audit() ->
+    _ = put(?USAGE_PRINT_NO_AUDIT, true),
+    ok.
 
 audit_log(Level, From, CliHandler, Log) ->
     case lookup_command(audit) of
