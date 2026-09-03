@@ -44,6 +44,7 @@
     append_batch/1,
     remove_batch/1,
     claim/1,
+    claim/2,
     ack_batch/1,
     release_claim/3,
     release_client_claims/3,
@@ -189,6 +190,10 @@ init([Shard]) ->
         counts => #{},
         %% delivery attempts per logical delivery: #{Key3 => N}
         attempts => #{},
+        %% claim holder node per device: #{Key => Node}; set when a claim
+        %% succeeds, used for node-down reclaim (the holder's ack can never
+        %% arrive once its node is gone)
+        holders => #{},
         %% admission reservations: #{Key => {Count, Ts}}
         reserves => #{},
         %% peak pending size for conditional fullsweep
@@ -267,13 +272,18 @@ remove_batch(Entries) ->
     ]).
 
 claim(Entries) ->
+    claim(Entries, node()).
+
+claim(Entries, Origin) ->
     %% Per-shard calls run in parallel: the shards are independent, and a
     %% sequential fan-out multiplied the batch latency by the shard count
-    %% (window=1 per client makes the drain latency-bound).
+    %% (window=1 per client makes the drain latency-bound). Origin is the
+    %% node whose pull shard holds the client buffer for these claims; it
+    %% becomes the claim holder for node-down reclaim.
     lists:append(
         parallel_map(
             fun({Shard, Sub}) ->
-                route(Shard, {claim, Sub}, ?CLAIM_TIMEOUT_MS)
+                route(Shard, {claim, Sub, Origin}, ?CLAIM_TIMEOUT_MS)
             end,
             group_claim_entries(Entries)
         )
@@ -775,7 +785,7 @@ handle_call({remove_batch, Entries}, _From, State = #{active := true}) ->
             }),
             {reply, {error, {Error, Reason}}, State}
     end;
-handle_call({claim, Entries}, _From, State = #{active := true}) ->
+handle_call({claim, Entries, Origin}, _From, State = #{active := true}) ->
     {Results, State2} = lists:mapfoldl(
         fun(E, St) ->
             {R, St2} = claim_one(E, St),
@@ -784,7 +794,18 @@ handle_call({claim, Entries}, _From, State = #{active := true}) ->
         State,
         Entries
     ),
-    {reply, Results, State2};
+    State3 = lists:foldl(
+        fun
+            ({{ClientId, {ok, _}}, E}, St) ->
+                Key = {maps:get(product_key, E), ClientId},
+                St#{holders => maps:put(Key, Origin, maps:get(holders, St))};
+            (_, St) ->
+                St
+        end,
+        State2,
+        lists:zip(Results, Entries)
+    ),
+    {reply, Results, State3};
 handle_call({ack_index, Acks}, _From, State = #{active := true}) ->
     try
         {Results, {State2, Delta}} = lists:mapfoldl(
@@ -850,7 +871,8 @@ handle_call({delete_message_rows, ApiId, DeliveryIds}, _From, State = #{active :
     {reply, safe(fun() -> delete_message_rows_local(ApiId, DeliveryIds) end), State};
 handle_call({cleanup_local}, _From, State = #{active := true}) ->
     State2 = cleanup_orphan_index_local(State),
-    State3 = cleanup_stale_reservations(State2),
+    State2b = reclaim_down_holders(State2),
+    State3 = cleanup_stale_reservations(State2b),
     {reply, ok, State3};
 handle_call({rebuild_index}, _From, State = #{active := true}) ->
     {Reply, State2} = safe_state(fun() -> drive_activation(State) end, State),
@@ -1252,6 +1274,7 @@ reset_state(State) ->
         inflights => #{},
         counts => #{},
         attempts => #{},
+        holders => #{},
         reserves => #{},
         peak => 0,
         orphan_cursor => 0
@@ -1424,7 +1447,8 @@ maybe_drop_device(State, Key) ->
         0 ->
             State#{
                 queues => maps:remove(Key, maps:get(queues, State)),
-                inflights => maps:remove(Key, maps:get(inflights, State))
+                inflights => maps:remove(Key, maps:get(inflights, State)),
+                holders => maps:remove(Key, maps:get(holders, State))
             };
         _ ->
             State
@@ -1743,9 +1767,15 @@ release_expired_inflights(Key, State) ->
             State;
         _ ->
             Now = erlang:system_time(millisecond),
+            %% The holder node is down: its acks can never arrive, so reclaim
+            %% its claims immediately regardless of age. Otherwise keep the
+            %% PENDING_TTL expiry as the backstop (holder process crash on a
+            %% live node is recovered by the pull restart release-by-tag path,
+            %% and this timer covers any residual orphan).
+            HolderDown = holder_node_down(Key, State),
             {Expired, Kept} = maps:fold(
                 fun(Key3, {Ts, Tag}, {Exp, Kp}) ->
-                    case Now - Ts >= ?PENDING_TTL_MS of
+                    case HolderDown orelse Now - Ts >= ?PENDING_TTL_MS of
                         true -> {[Key3 | Exp], Kp};
                         false -> {Exp, maps:put(Key3, {Ts, Tag}, Kp)}
                     end
@@ -1767,13 +1797,79 @@ release_expired_inflights(Key, State) ->
                         Expired
                     ),
                     State1 = save_queue(State, Key, Q1),
+                    State2 =
+                        case maps:size(Kept) of
+                            0 -> clear_holder(State1, Key);
+                            _ -> State1
+                        end,
                     maps:put(
                         inflights,
-                        maps:put(Key, Kept, maps:get(inflights, State1)),
-                        State1
+                        maps:put(Key, Kept, maps:get(inflights, State2)),
+                        State2
                     )
             end
     end.
+
+%% True when the recorded claim holder node is no longer a running member.
+holder_node_down(Key, State) ->
+    case maps:get(Key, maps:get(holders, State), undefined) of
+        undefined -> false;
+        Holder -> not lists:member(Holder, running_nodes())
+    end.
+
+clear_holder(State, Key) ->
+    maps:put(holders, maps:remove(Key, maps:get(holders, State)), State).
+
+running_nodes() ->
+    try emqx:running_nodes() of
+        Nodes when is_list(Nodes) -> Nodes;
+        _ -> [node()]
+    catch
+        _:_ -> [node()]
+    end.
+
+%% Full-pass node-down reclaim: any device whose claim holder node is no
+%% longer a running member gets all its in-flight claims requeued so other
+%% nodes can deliver them (their holder's ack can never arrive).
+reclaim_down_holders(State) ->
+    Infls = maps:get(inflights, State),
+    Running = running_nodes(),
+    maps:fold(
+        fun
+            (Key, DeviceInfl, St) when map_size(DeviceInfl) > 0 ->
+                case maps:get(Key, maps:get(holders, St), undefined) of
+                    Holder when Holder =/= undefined ->
+                        case lists:member(Holder, Running) of
+                            true ->
+                                St;
+                            false ->
+                                Q = maps:get(Key, maps:get(queues, St), queue:new()),
+                                Q1 = lists:foldl(
+                                    fun({_PK, _DN, Did}, Qq) -> queue:in_r(Did, Qq) end,
+                                    Q,
+                                    maps:keys(DeviceInfl)
+                                ),
+                                St1 =
+                                    maps:put(
+                                        queues, maps:put(Key, Q1, maps:get(queues, St)), St
+                                    ),
+                                St2 =
+                                    maps:put(
+                                        inflights,
+                                        maps:remove(Key, maps:get(inflights, St1)),
+                                        St1
+                                    ),
+                                clear_holder(St2, Key)
+                        end;
+                    _ ->
+                        St
+                end;
+            (_Key, _DeviceInfl, St) ->
+                St
+        end,
+        State,
+        Infls
+    ).
 
 %% Return the highest matching subscription QoS (not just a boolean)
 %% so the claim result can carry it back to prepare_delivery, which no

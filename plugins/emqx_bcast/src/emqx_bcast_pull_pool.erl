@@ -20,7 +20,8 @@
     qos1_core_trigger_local/3,
     inflight_entries/1,
     begin_pools_restart/0,
-    worker_pools_restarted/1
+    worker_pools_restarted/1,
+    ack_applied/1
 ]).
 
 %% Worker tasks.
@@ -54,6 +55,12 @@
 -define(TAB_B(Shard), tab(Shard, bcast_buffer_b)).
 -define(TAB_BUF3(Shard), tab(Shard, bcast_buffer3)).
 -define(TAB_INFLIGHT(Shard), tab(Shard, bcast_pull_inflight)).
+%% Per-client "ack in flight" marker: set when a PUBACK matched the local
+%% buffer (the ack is on its way to be applied at core), cleared when the
+%% core-applied confirmation comes back. While set, this client's
+%% want_next claims return no_more (no new claim/delivery until the ack is
+%% actually applied), which is what makes the acked counter race-free.
+-define(TAB_ACKPEND(Shard), tab(Shard, bcast_ack_pending)).
 -define(WORKER_POOL, emqx_bcast_pull_worker_pool).
 -define(POOL_RESTART_WATCHDOG_MS, 30000).
 -define(POOL_RESTART_RETRY_MS, 1000).
@@ -247,7 +254,7 @@ do_want_next(Shard, Core, Entries) ->
         case Core =:= node() of
             true ->
                 try
-                    emqx_bcast_pull_server_pool:want_next(Entries1)
+                    emqx_bcast_pull_server_pool:want_next(Entries1, node())
                 catch
                     Error:Reason ->
                         ?SLOG(warning, #{
@@ -264,7 +271,7 @@ do_want_next(Shard, Core, Entries) ->
                         Core,
                         emqx_bcast_pull_server_pool,
                         want_next,
-                        [Entries1],
+                        [Entries1, node()],
                         ?BCAST_RPC_CALL_TIMEOUT_MS
                     )
                 of
@@ -549,7 +556,10 @@ do_deliver_qos0_and_ack(ClientId, Pid, Topic, Payload, DeliveryId, ProductKey, A
         false -> ok
     end,
     emqx_bcast_metrics:qos1_auto_acked(),
-    emqx_bcast_ack_pool:ack(ClientId, DeliveryId, ProductKey).
+    %% Route through the same pull {ack} entry point (no buffer exists for
+    %% the QoS0 self-ack, so it forwards to core accounting and the
+    %% core-applied confirmation unblocks the next delivery).
+    emqx_bcast_pull_pool:cast_client(ClientId, {ack, ClientId, DeliveryId, ProductKey}).
 
 -spec do_release_claim(binary(), binary(), binary()) -> ok.
 do_release_claim(ProductKey, ClientId, DeliveryId) ->
@@ -572,6 +582,7 @@ init([Shard]) ->
     ok = ensure_buffer_table(?TAB_B(Shard), #bcast_buffer_entry.clientid),
     ok = ensure_buffer_table(?TAB_BUF3(Shard), #bcast_buffer3.clientid),
     ok = ensure_buffer_table(?TAB_INFLIGHT(Shard), 1),
+    ok = ensure_ack_pending_table(?TAB_ACKPEND(Shard)),
     {ok, #state{shard = Shard}}.
 
 handle_call(begin_pools_restart, _From, State = #state{pools_restarting = true}) ->
@@ -631,27 +642,40 @@ handle_cast({ping, ClientId, Pid, ProductKey}, State) ->
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
     {noreply, trigger_want_next(ClientId, Pid, ProductKey, State)};
 handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
-    {Pid, State0} =
-        case take_pending(ClientId, DeliveryId) of
-            {ok, PendingPid} ->
-                emqx_bcast_metrics:qos1_acked(),
-                {PendingPid, State};
-            none ->
-                %% Duplicate PUBACK: core accounting is idempotent, and the
-                %% metric is intentionally not incremented here.
-                case emqx_bcast:lookup_device({ProductKey, ClientId}) of
-                    {ok, CurrentPid} -> {CurrentPid, State};
-                    {error, not_found} -> {undefined, State}
-                end
+    %% Pull is the ack entry point and forwards to core only AFTER the local
+    %% buffer is consumed (real PUBACK -> ack-in-flight marker set; auto-ack
+    %% from the QoS0 path -> no marker). This guarantees the marker exists
+    %% before any core-applied confirmation can come back, so the marker is
+    %% always cleared by ack_applied_batch and never wedges the client.
+    case take_pending(ClientId, DeliveryId) of
+        {ok, _PendingPid} ->
+            mark_ack_pending(State#state.shard, ClientId, DeliveryId);
+        none ->
+            ok
+    end,
+    emqx_bcast_ack_pool:ack(ClientId, DeliveryId, ProductKey),
+    {noreply, State};
+handle_cast({ack_applied_batch, Pairs}, State) ->
+    Shard = State#state.shard,
+    lists:foreach(
+        fun({ClientId, ProductKey, DeliveryId}) ->
+            case take_ack_pending(Shard, ClientId) of
+                {ok, DeliveryId} ->
+                    %% A real PUBACK was confirmed applied at core exactly
+                    %% once: count it here (device node) and free the slot.
+                    emqx_bcast_metrics:qos1_acked(),
+                    clear_ack_pending(Shard, ClientId),
+                    maybe_trigger_next(ClientId, ProductKey, State);
+                _ ->
+                    %% No matching marker: an auto-ack (QoS0 path) or stale
+                    %% confirmation. Do not count; still try to advance the
+                    %% client (the QoS0 self-ack completes without a marker).
+                    maybe_trigger_next(ClientId, ProductKey, State)
+            end
         end,
-    State2 =
-        case Pid of
-            undefined ->
-                State0;
-            _ ->
-                trigger_want_next(ClientId, Pid, ProductKey, State0)
-        end,
-    {noreply, State2};
+        Pairs
+    ),
+    {noreply, State};
 handle_cast({qos0_deliver, ProductKey, DeviceNames, TopicTemplate, Payload}, State) ->
     %% The per-device online + subscription check runs in a worker: it reads
     %% emqx_broker:subscriptions(Pid) per device and must not block the
@@ -876,6 +900,15 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 trigger_want_next(ClientId, Pid, ProductKey, State) ->
+    case ack_pending_p(State#state.shard, ClientId) of
+        true ->
+            %% Ack in flight: no_more until the core-applied confirmation.
+            State;
+        false ->
+            trigger_want_next_unblocked(ClientId, Pid, ProductKey, State)
+    end.
+
+trigger_want_next_unblocked(ClientId, Pid, ProductKey, State) ->
     Shard = State#state.shard,
     case ets:lookup(?TAB_A(Shard), ClientId) of
         [_ | _] ->
@@ -1100,6 +1133,64 @@ take_pending(ClientId, DeliveryId) ->
             {ok, Pid};
         _ ->
             none
+    end.
+
+%%--------------------------------------------------------------------
+%% Ack-in-flight marker (core-applied confirmation gating)
+%%--------------------------------------------------------------------
+
+ensure_ack_pending_table(Tab) ->
+    emqx_bcast_utils:ensure_ets(Tab, [named_table, set, public, {write_concurrency, true}]).
+
+ack_pending_p(Shard, ClientId) ->
+    ets:member(?TAB_ACKPEND(Shard), ClientId).
+
+mark_ack_pending(Shard, ClientId, DeliveryId) ->
+    ets:insert(?TAB_ACKPEND(Shard), {ClientId, DeliveryId}).
+
+take_ack_pending(Shard, ClientId) ->
+    case ets:lookup(?TAB_ACKPEND(Shard), ClientId) of
+        [{_ClientId, DeliveryId}] -> {ok, DeliveryId};
+        [] -> none
+    end.
+
+clear_ack_pending(Shard, ClientId) ->
+    ets:delete(?TAB_ACKPEND(Shard), ClientId).
+
+%% Core has applied acks and confirmed them; route back to the originating
+%% node's pull shards ({ClientId, ProductKey, DeliveryId} triples).
+-spec ack_applied([{binary(), binary(), binary()}]) -> ok.
+ack_applied(Pairs) ->
+    lists:foreach(
+        fun({Shard, Sub}) ->
+            gen_server:cast(pool_name(Shard), {ack_applied_batch, Sub})
+        end,
+        group_ack_pairs(Pairs)
+    ),
+    ok.
+
+group_ack_pairs(Pairs) ->
+    lists:foldl(
+        fun(Pair = {ClientId, _ProductKey, _Did}, Acc) ->
+            Shard = shard_of(ClientId),
+            case lists:keyfind(Shard, 1, Acc) of
+                {Shard, List} -> lists:keyreplace(Shard, 1, Acc, {Shard, [Pair | List]});
+                false -> [{Shard, [Pair]} | Acc]
+            end
+        end,
+        [],
+        Pairs
+    ).
+
+maybe_trigger_next(ClientId, ProductKey, State) ->
+    case emqx_bcast:lookup_device({ProductKey, ClientId}) of
+        {ok, Pid} when is_pid(Pid) ->
+            case is_process_alive(Pid) of
+                true -> trigger_want_next(ClientId, Pid, ProductKey, State);
+                false -> State
+            end;
+        _ ->
+            State
     end.
 
 %%--------------------------------------------------------------------
@@ -1457,24 +1548,30 @@ ensure_buffer_table(Name, KeyPos) ->
 %% timer. Safe concurrently: the key is the clientid, so the last writer
 %% wins and the shard is the only process that takes entries.
 stage_want_next(ClientId, Pid, ProductKey, Shard) ->
-    case ets:lookup(?TAB_A(Shard), ClientId) of
-        [_ | _] ->
+    case ack_pending_p(Shard, ClientId) of
+        true ->
+            %% Ack in flight: no_more until the core-applied confirmation.
             false;
-        [] ->
-            case ets:lookup(?TAB_INFLIGHT(Shard), ClientId) of
-                [{ClientId, _Tag, _ProductKey, _Ts}] ->
+        false ->
+            case ets:lookup(?TAB_A(Shard), ClientId) of
+                [_ | _] ->
                     false;
                 [] ->
-                    case ets:lookup(?TAB_BUF3(Shard), ClientId) of
-                        [_ | _] ->
+                    case ets:lookup(?TAB_INFLIGHT(Shard), ClientId) of
+                        [{ClientId, _Tag, _ProductKey, _Ts}] ->
                             false;
                         [] ->
-                            ets:insert(?TAB_BUF3(Shard), #bcast_buffer3{
-                                clientid = ClientId,
-                                product_key = ProductKey,
-                                pid = Pid
-                            }),
-                            true
+                            case ets:lookup(?TAB_BUF3(Shard), ClientId) of
+                                [_ | _] ->
+                                    false;
+                                [] ->
+                                    ets:insert(?TAB_BUF3(Shard), #bcast_buffer3{
+                                        clientid = ClientId,
+                                        product_key = ProductKey,
+                                        pid = Pid
+                                    }),
+                                    true
+                            end
                     end
             end
     end.

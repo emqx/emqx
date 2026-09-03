@@ -484,7 +484,13 @@ on_message_acked(ClientInfo, Msg) ->
                         undefined -> get_product_key(ClientInfo);
                         PK -> PK
                     end,
-                emqx_bcast_ack_pool:ack(DeviceName, DeliveryId, ProductKey),
+                %% Route through pull_pool first: it matches the local buffer
+                %% and sets the ack-in-flight marker BEFORE this ack can be
+                %% applied at core, then forwards to ack_pool for the batched
+                %% core accounting.
+                emqx_bcast_pull_pool:cast_client(
+                    DeviceName, {ack, DeviceName, DeliveryId, ProductKey}
+                ),
                 ok
         end
     end),

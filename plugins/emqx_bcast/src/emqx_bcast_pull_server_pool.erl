@@ -8,7 +8,9 @@
 -export([
     start_link/0,
     want_next/1,
+    want_next/2,
     ack_batch/1,
+    ack_batch/2,
     qos0_broadcast/4,
     qos1_trigger/3,
     qos0_fanout_nodes/1
@@ -17,13 +19,11 @@
 
 -include("emqx_bcast.hrl").
 
-%% Cap the number of concurrently spawned ack workers. The old design
-%% spawned one process per ack_batch cast with no bound, so an ack storm
-%% could pile up an unbounded number of short-lived processes (and removed
-%% the natural serial backpressure of the earlier design). Acks beyond the
-%% cap queue in the gen_server and drain as workers finish; per-client
-%% ordering is still guaranteed by the index shard's own mailbox.
--define(ACK_WORKER_MAX, 16).
+%% Ack workers are bounded by the number of schedulers (like the plugin's
+%% other pools: delivery_pool_size=0 means one per scheduler), not a hard
+%% fixed constant. Acks beyond the cap queue in the gen_server and drain as
+%% workers finish; per-client ordering is still guaranteed by the index
+%% shard's own mailbox.
 
 %% Worker pool that executes want_next claims off this gen_server's
 %% mailbox, so concurrent claims run in parallel instead of serializing on
@@ -36,10 +36,16 @@ start_link() ->
 %% Local call used both by local pull_pool workers and by remote pull_pool
 %% workers through emqx_rpc:call; pull batches pick a random core.
 want_next(Entries) ->
-    gen_server:call(?MODULE, {want_next, Entries}, ?BCAST_RPC_CALL_TIMEOUT_MS).
+    want_next(Entries, node()).
+
+want_next(Entries, Origin) ->
+    gen_server:call(?MODULE, {want_next, Entries, Origin}, ?BCAST_RPC_CALL_TIMEOUT_MS).
 
 ack_batch(Acks) ->
-    gen_server:cast(?MODULE, {ack_batch, Acks}).
+    ack_batch(Acks, node()).
+
+ack_batch(Acks, Origin) ->
+    gen_server:cast(?MODULE, {ack_batch, Origin, Acks}).
 
 %% QoS0 / PubBroadcast: one-shot delivery. Core broadcasts full deliver data
 %% to the nodes that host the target devices; each local pull_pool checks
@@ -68,18 +74,22 @@ qos1_trigger(ProductKey, DeviceNames, TopicTemplate) ->
 init([]) ->
     _ = ensure_core_copies(),
     _ = erlang:send_after(?BCAST_ENSURE_COPIES_MS, self(), ensure_core_copies),
-    {ok, #{in_flight => 0, pending_acks => []}}.
+    AckCap = max(1, erlang:system_info(schedulers_online)),
+    {ok, #{in_flight => 0, pending_acks => [], ack_cap => AckCap}}.
 
-handle_call({want_next, Entries}, From, State) ->
+handle_call({want_next, Entries, Origin}, From, State) ->
     %% Run the claim in the server worker pool so concurrent want_next
     %% calls execute in parallel instead of serializing on this gen_server
     %% (a burst of claims used to queue ahead of every other call on the
     %% same mailbox). Each claim still fans out to the index shards in
     %% parallel and replies to From; per-device ordering is preserved by
-    %% the shard mailboxes.
+    %% the shard mailboxes. Origin records the node whose pull shard holds
+    %% the client buffer (the claim holder for node-down reclaim).
     case
         emqx_bcast_utils:submit_pool(?SERVER_WORKER_POOL, fun() ->
-            gen_server:reply(From, emqx_bcast_storage:claim_want_next_batch(Entries))
+            gen_server:reply(
+                From, emqx_bcast_storage:claim_want_next_batch(Entries, Origin)
+            )
         end)
     of
         ok ->
@@ -87,26 +97,28 @@ handle_call({want_next, Entries}, From, State) ->
         {error, _Reason} ->
             %% Pool unavailable: fall back to inline so the caller's
             %% window=1 is not stalled.
-            Results = emqx_bcast_storage:claim_want_next_batch(Entries),
+            Results = emqx_bcast_storage:claim_want_next_batch(Entries, Origin),
             {reply, Results, State}
     end;
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({ack_batch, Acks}, State) ->
+handle_cast({ack_batch, Origin, Acks}, State) ->
     %% Handle acks OFF the gen_server mailbox. A burst of ack batches
     %% used to pile up ahead of every want_next call (cast-then-call on the
     %% same mailbox), stalling window=1 claims cluster-wide. Spawning keeps
     %% the cast O(1); the ack work (index shard call + meta decrement) runs
     %% in a short-lived worker, and per-client ordering is still guaranteed
-    %% by the index shard's own mailbox. Bounded concurrency.
-    case maps:get(in_flight, State) < ?ACK_WORKER_MAX of
+    %% by the index shard's own mailbox. Bounded concurrency. Each queued
+    %% item carries the origin node so the core-applied confirmation can be
+    %% routed back to the node whose pull shard owns the client buffer.
+    case maps:get(in_flight, State) < maps:get(ack_cap, State) of
         true ->
-            spawn_ack_worker(Acks),
+            spawn_ack_worker(Acks, Origin),
             {noreply, State#{in_flight => maps:get(in_flight, State) + 1}};
         false ->
             Pending = maps:get(pending_acks, State),
-            {noreply, State#{pending_acks => Pending ++ [Acks]}}
+            {noreply, State#{pending_acks => Pending ++ [{Origin, Acks}]}}
     end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -118,8 +130,8 @@ handle_info({ack_batch_done, Pid}, State) ->
     case maps:get(pending_acks, State) of
         [] ->
             {noreply, State#{in_flight => maps:get(in_flight, State) - 1}};
-        [Next | Rest] ->
-            spawn_ack_worker(Next),
+        [{Origin, Next} | Rest] ->
+            spawn_ack_worker(Next, Origin),
             {noreply, State#{pending_acks => Rest}}
     end;
 handle_info(ensure_core_copies, State) ->
@@ -139,17 +151,38 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal
 %%--------------------------------------------------------------------
 
-spawn_ack_worker(Acks) ->
+spawn_ack_worker(Acks, Origin) ->
     Parent = self(),
     _ = spawn(fun() ->
-        %% process_ack_batch returns per-ack results (a list), so the
-        %% old ok = pattern-match crashed every spawned worker with badmatch
-        %% (ack work itself had completed, but each batch left a crash
-        %% report and ack_batch_done never fired).
-        _ = emqx_bcast_storage:process_ack_batch(Acks),
+        Results = emqx_bcast_storage:process_ack_batch(Acks),
+        %% Route the acks that were actually applied (counted) back to the
+        %% origin node's pull shards: there the ack-in-flight marker is
+        %% cleared, acked is counted exactly once, and the client's next
+        %% want_next is unblocked. Duplicates/not_found produce no
+        %% confirmation and therefore no count.
+        route_notify(Origin, counted_pairs(Results, Acks)),
         Parent ! {ack_batch_done, self()}
     end),
     ok.
+
+%% [{result, {ProductKey, ClientId, DeliveryId}}] -> confirmed triples
+counted_pairs(Results, Acks) ->
+    lists:filtermap(
+        fun
+            ({counted, {ProductKey, ClientId, DeliveryId}}) ->
+                {true, {ClientId, ProductKey, DeliveryId}};
+            (_) ->
+                false
+        end,
+        lists:zip(Results, Acks)
+    ).
+
+route_notify(_Origin, []) ->
+    ok;
+route_notify(Origin, Notify) when Origin =:= node() ->
+    emqx_bcast_pull_pool:ack_applied(Notify);
+route_notify(Origin, Notify) ->
+    emqx_rpc:cast(Origin, emqx_bcast_pull_pool, ack_applied, [Notify]).
 
 broadcast_to_pull_pools({Fun, Args}) ->
     broadcast_to_pull_pools_on(emqx:running_nodes(), {Fun, Args}).
