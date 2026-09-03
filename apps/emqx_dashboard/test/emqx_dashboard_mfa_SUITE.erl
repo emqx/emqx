@@ -372,8 +372,8 @@ t_enforce_reinit_after_self_disable(_Config) ->
     ?assertMatch({ok, 200, _}, login(LoginBody#{<<"mfa_token">> => ?GOOD_TOTP})),
     ok.
 
-%% The admin exemption is the way out of the mandate: a user an admin
-%% disabled MFA for is left alone at login.
+%% An account an admin has exempted is not covered by the requirement: a
+%% user whose MFA an admin disabled is not enrolled again at login.
 t_enforce_skips_admin_exempted({init, Config}) ->
     {ok, ok} = emqx_dashboard_admin:clear_mfa_state(<<"viewer4">>),
     {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer4">>, undefined),
