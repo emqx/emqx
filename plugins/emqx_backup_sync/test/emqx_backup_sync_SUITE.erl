@@ -2122,8 +2122,8 @@ builtin_authn_raw_config() ->
         <<"enable">> => true,
         <<"user_id_type">> => <<"username">>,
         <<"password_hash_algorithm">> => #{
-            <<"name">> => <<"bcrypt">>,
-            <<"salt_rounds">> => 8
+            <<"name">> => <<"sha256">>,
+            <<"salt_position">> => <<"suffix">>
         }
     }.
 
@@ -2236,7 +2236,8 @@ make_rule_engine_backup(Config, BackupName) ->
         hocon_pp:do(
             #{
                 edition => emqx_release:edition(),
-                version => emqx_release:version()
+                version => emqx_release:version(),
+                security_profile => emqx_security_profile:profile()
             },
             #{}
         )

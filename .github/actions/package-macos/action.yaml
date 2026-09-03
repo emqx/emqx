@@ -64,6 +64,9 @@ runs:
         mkdir emqx
         unzip -d emqx $pkg_name > /dev/null
         set -e
+        export EMQX_NODE__COOKIE='ci-smoke-test-cookie'
+        export EMQX_DASHBOARD__DEFAULT_PASSWORD='CiSm0kePass1'
+        export EMQX_SMOKE_PASSWORD="$EMQX_DASHBOARD__DEFAULT_PASSWORD"
         ./emqx/bin/emqx start
         ./scripts/test/emqx-smoke-test.sh 127.0.0.1 18083
         ./emqx/bin/emqx ping

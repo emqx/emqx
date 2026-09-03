@@ -32,7 +32,7 @@ authentication="[{
   mechanism = password_based,
   backend = built_in_database,
   user_id_type = username,
-  password_hash_algorithm = {name = plain, salt_position = disable},
+  password_hash_algorithm = {name = sha256, salt_position = suffix},
   bootstrap_file = \"${CSV_IN_CONTAINER}\",
   bootstrap_type = plain
 }]"
@@ -41,6 +41,7 @@ echo "Starting ${CONTAINER} from ${IMAGE_TAG} ..."
 docker run -d --name "${CONTAINER}" \
   -v "${HERE}/acl.conf:${ACL_IN_CONTAINER}:ro" \
   -v "${HERE}/bootstrap.csv:${CSV_IN_CONTAINER}:ro" \
+  -e EMQX_NODE__COOKIE='ci-smoke-test-cookie' \
   -e EMQX_FEATURES=ESSENTIAL \
   -e EMQX_NODE__NAME="emqx@127.0.0.1" \
   -e EMQX_AUTHENTICATION="${authentication}" \

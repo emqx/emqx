@@ -137,6 +137,28 @@ def test_hardened_rejects_insecure_cookie(emqx_bin_path):
         assert "EMQX_SECURITY_PROFILE" in output
 
 
+def test_security_profile_defaults_to_hardened(emqx_bin_path):
+    """With EMQX_SECURITY_PROFILE unset, bin/emqx defaults to hardened.
+
+    The hardened profile rejects the insecure cookie before boot; the legacy
+    profile only warns. A rejection therefore proves the default is hardened.
+    """
+    env = os.environ.copy()
+    env.pop("EMQX_SECURITY_PROFILE", None)
+    env["EMQX_NODE__COOKIE"] = "emqxsecretcookie"
+    result = subprocess.run(
+        [str(emqx_bin_path), "console"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, "Expected the default (hardened) profile to reject the cookie"
+    assert "Cannot continue with default cookie" in output
+    assert "hardened" in output
+
+
 def test_node_cookie_from_file(emqx_bin_path, tmp_path):
     """Test that node.cookie can be sourced from a file via the file:// form."""
     cookie_file = tmp_path / "cookie"

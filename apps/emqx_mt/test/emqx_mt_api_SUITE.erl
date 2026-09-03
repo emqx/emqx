@@ -93,7 +93,8 @@ init_per_testcase(TestCase, Config) when
             emqx,
             {emqx_conf,
                 "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]\n"
-                "authentication = [{mechanism = password_based, backend = built_in_database}]\n"
+                "authentication = [{mechanism = password_based, backend = built_in_database, "
+                "autogenerate_password = false}]\n"
                 "authorization.no_match = allow\n"
                 "authorization.sources = [{type = built_in_database, max_rules = 7}]"},
             {emqx_mt, "multi_tenancy.default_max_sessions = 10"},
