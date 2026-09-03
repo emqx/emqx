@@ -78,7 +78,7 @@ maybe_start_listeners() ->
     case emqx_boot:is_enabled(listeners) of
         true ->
             %% NOTE
-            %% Disable global socket registry.
+            %% Disable socket registration by default.
             %% Having each socket saved in the registry is currently unnecessary.
             %% Registry needs few hundred extra bytes / socket, depending on the
             %% total number of sockets.
