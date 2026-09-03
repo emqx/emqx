@@ -12,24 +12,22 @@ refuse to serve until the node is ready, so no client can connect
 before authentication, authorization and plugin hooks are installed.
 The `GET /status` REST API and cluster join checks read it too.
 
-The gate is closed while the node is booting and re-opened by the
-managed boot sequence (`emqx_machine_boot:ensure_apps_started/0`) once
-all applications (including plugins) are started.  Contexts that do
-not boot through `emqx_machine` (test suites) are therefore always
-ready.
+The readiness flag defaults to `true`.  The managed boot sequence
+(`emqx_machine_boot:ensure_apps_started/0`) clears it while the node
+boots and sets it back once all applications (including plugins) are
+started.  Contexts that do not boot through `emqx_machine` (test
+suites) never clear it and are therefore always ready.
 
-"All applications started" is not always the same as "this node can
-serve traffic", so applications can narrow the gate further by
-registering a predicate with `register_check/2`.  `is_ready/0` returns
-`true` only once boot has completed *and* every registered check
-returns `true`.
+An application can add a further condition by registering a predicate
+with `register_check/2`.  `is_ready/0` returns `true` only once boot
+has completed and every registered check returns `true`.
 
 Registered checks are evaluated on every `is_ready/0` call, and that
 happens once per incoming connection.  A check must therefore be
 cheap: poll in your own process and let the predicate read the cached
 answer.  A check that raises, or returns anything other than a
-boolean, holds the gate closed and is reported through a throttled
-`readiness_check_failed` log.
+boolean, makes `is_ready/0` return `false` and is reported through a
+throttled `readiness_check_failed` log.
 
 The registry is kept in a `persistent_term` and is updated with a
 read-modify-write, so registration is only safe from a serialized

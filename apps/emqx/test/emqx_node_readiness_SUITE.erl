@@ -145,7 +145,7 @@ t_gate_cluster_join(_Config) ->
     ok = emqx_node_readiness:mark_ready(),
     ?assertEqual(ok, emqx_cluster:can_i_join(node())).
 
--doc "A registered check that does not return true holds the gate closed.".
+-doc "A registered check that does not return true makes `is_ready/0` return false.".
 t_registered_check_holds_gate(_Config) ->
     ?assert(emqx_node_readiness:is_ready()),
     ok = set_check(actions, false),
@@ -187,8 +187,8 @@ t_deregister_unknown_check(_Config) ->
     ?assert(emqx_node_readiness:is_ready()).
 
 -doc """
-A check that raises, or returns a non-boolean, holds the gate closed and is
-reported through the throttled readiness_check_failed log.
+A check that raises, or returns a non-boolean, makes is_ready/0 return false
+and is reported through the throttled readiness_check_failed log.
 """.
 t_broken_check_holds_gate(_Config) ->
     ok = emqx_node_readiness:register_check(raising, fun() -> error(badcheck) end),
@@ -218,8 +218,8 @@ t_check_gates_tcp_connection(_Config) ->
     ok = set_check(actions, true),
     ?assertEqual(ok, try_connect(fun emqtt:connect/1, #{port => ?TCP_PORT})).
 
-%% Register a check under `Name` that answers `Answer`, the way a real consumer
-%% would: the predicate reads a cached value rather than doing work per call.
+%% Register a check under `Name` that returns `Answer`.  The answer is kept in
+%% a persistent_term, so the check itself only reads a cached value.
 set_check(Name, Answer) ->
     persistent_term:put({?MODULE, Name}, Answer),
     emqx_node_readiness:register_check(Name, fun() ->
