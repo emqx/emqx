@@ -37,6 +37,7 @@
     process_ack/3,
     process_ack_batch/1,
     claim_want_next_batch/1,
+    claim_want_next_batch/2,
     release_claim/3,
     release_client_claims/3
 ]).
@@ -456,7 +457,11 @@ process_ack_batch(Acks) ->
 
 -spec claim_want_next_batch([map()]) -> [{binary(), map() | no_more}] | {error, term()}.
 claim_want_next_batch(Entries) ->
-    try emqx_bcast_index_owner:claim(Entries) of
+    claim_want_next_batch(Entries, node()).
+
+-spec claim_want_next_batch([map()], node()) -> [{binary(), map() | no_more}] | {error, term()}.
+claim_want_next_batch(Entries, Origin) ->
+    try emqx_bcast_index_owner:claim(Entries, Origin) of
         Results -> Results
     catch
         Error:Reason ->

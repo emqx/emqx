@@ -34,12 +34,9 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
-    %% The qos1_acked metric is counted by pull_pool only when take_pending
-    %% matches, so duplicate PUBACKs cannot push acked above wanted.
-    %% 1. Atomically delete the in-progress pending entry and trigger the next
-    %%    want_next in pull_pool.
-    emqx_bcast_pull_pool:cast_client(ClientId, {ack, ClientId, DeliveryId, ProductKey}),
-    %% 2. Accumulate for batched core accounting.
+    %% pull_pool is the ack entry point: it matches the local buffer first
+    %% (setting the ack-in-flight marker before this ack can be applied at
+    %% core). Here we only accumulate for batched core accounting.
     Acks = [{ProductKey, ClientId, DeliveryId} | State#state.acks],
     State1 = State#state{acks = Acks},
     State2 = maybe_flush(State1),
@@ -84,10 +81,10 @@ send_acks([]) ->
 send_acks(Acks) ->
     case is_core() of
         true ->
-            emqx_bcast_pull_server_pool:ack_batch(Acks);
+            emqx_bcast_pull_server_pool:ack_batch(Acks, node());
         false ->
             Core = emqx_bcast:random_core(),
-            emqx_rpc:cast(Core, emqx_bcast_pull_server_pool, ack_batch, [Acks])
+            emqx_rpc:cast(Core, emqx_bcast_pull_server_pool, ack_batch, [Acks, node()])
     end,
     ok.
 
