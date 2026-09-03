@@ -493,6 +493,9 @@ t_dynamic_identifier_escaping(Config0) ->
         Config, <<"CREATE TABLE t (ts timestamp, payload BINARY(1024))">>, QueryOpts
     ),
     ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    _ = emqx_bridge_v2_testlib:kickoff_action_health_check(
+        ?BRIDGE_TYPE_BIN, ?config(bridge_name, Config)
+    ),
     ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
     BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
     lists:foreach(
