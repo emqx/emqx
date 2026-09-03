@@ -8,6 +8,8 @@
 -export([compile/1, render/3, render_batch/3, parse_placeholder/1]).
 -export_type([plan/0]).
 
+-elvis([{elvis_style, no_match_in_condition, disable}]).
+
 -type placeholder() :: emqx_template:placeholder().
 
 %% Represent string templates, e.g. 'aaa ${bbb} ccc' as

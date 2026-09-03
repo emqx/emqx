@@ -269,18 +269,18 @@ on_add_channel(_InstId, #{channels := Channs} = OldState, ChannId, ChannConf0) -
             Error
     end.
 
-on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannId) ->
+on_remove_channel(_InstanceID, #{channels := Channels} = State, ChannId) ->
     NewState = State#{channels => maps:remove(ChannId, Channels)},
     {ok, NewState}.
 
-on_get_channel_status(InstanceId, _ChannId, State) ->
-    case on_get_status(InstanceId, State) of
+on_get_channel_status(InstanceID, _ChannId, State) ->
+    case on_get_status(InstanceID, State) of
         ?status_connected -> ?status_connected;
         {?status_disconnected, _} -> ?status_disconnected
     end.
 
-on_get_channels(InstanceId) ->
-    emqx_bridge_v2:get_channels_for_connector(InstanceId).
+on_get_channels(InstanceID) ->
+    emqx_bridge_v2:get_channels_for_connector(InstanceID).
 
 %% -------------------------------------------------------------------
 %% on_get_status emqx_resouce callback and related functions
