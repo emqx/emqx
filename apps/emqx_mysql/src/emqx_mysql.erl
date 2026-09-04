@@ -43,12 +43,26 @@
     default_port => ?MYSQL_DEFAULT_PORT
 }).
 
-%% Remove ANSI_QUOTES and NO_BACKSLASH_ESCAPES from session's sql_mode
--define(SQL_MODE_QUERY, <<
-    "SET SESSION sql_mode = TRIM(BOTH ',' FROM "
-    "REPLACE(REPLACE(CONCAT(',', @@SESSION.sql_mode, ','), "
-    "',ANSI_QUOTES,', ','), ',NO_BACKSLASH_ESCAPES,', ','))"
->>).
+%% Modes that would change how string literals are parsed, invalidating the
+%% assumptions emqx_mysql_sql makes when rendering templates.
+%%
+%% The composite modes are listed because the server reports them *alongside*
+%% their expansion: `sql_mode = ANSI' reads back as
+%% "REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES,IGNORE_SPACE,ONLY_FULL_GROUP_BY,ANSI",
+%% so dropping only `ANSI_QUOTES' and setting the rest back re-enables it.
+%% Only `ANSI' survives in MySQL 8; the rest are kept for older servers.
+-define(UNSAFE_SQL_MODES, [
+    <<"ANSI_QUOTES">>,
+    <<"NO_BACKSLASH_ESCAPES">>,
+    <<"ANSI">>,
+    <<"DB2">>,
+    <<"MAXDB">>,
+    <<"MSSQL">>,
+    <<"ORACLE">>,
+    <<"POSTGRESQL">>
+]).
+
+-define(READ_SQL_MODE_QUERY, <<"SELECT @@SESSION.sql_mode">>).
 
 -type template() :: {unicode:chardata(), emqx_template:str()} | emqx_mysql_sql:plan().
 -type state() ::
@@ -382,10 +396,49 @@ get_reconnect_callback_signature([Templates]) ->
     ChannelID.
 
 prepare_sql_to_conn(Conn, Templates) ->
-    case mysql:query(Conn, ?SQL_MODE_QUERY) of
+    case clear_unsafe_sql_modes(Conn) of
         ok -> do_prepare_sql_to_conn(Conn, Templates);
         {error, _} = Error -> Error
     end.
+
+%% Drop the modes listed in ?UNSAFE_SQL_MODES from the session's sql_mode.
+%%
+%% The filtering is done here rather than in SQL: doing it server-side needs
+%% `TRIM(... FROM ...)', which Doris (MySQL wire protocol, narrower dialect)
+%% cannot parse, and this connector is shared with the Doris bridge.
+clear_unsafe_sql_modes(Conn) ->
+    case mysql:query(Conn, ?READ_SQL_MODE_QUERY) of
+        {ok, _Columns, [[Modes]]} when is_binary(Modes) ->
+            case keep_safe_sql_modes(Modes) of
+                Modes -> ok;
+                Safe -> mysql:query(Conn, set_sql_mode_query(Safe))
+            end;
+        {ok, _Columns, _Rows} ->
+            %% No sql_mode reported (e.g. NULL): nothing unsafe to clear.
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
+
+keep_safe_sql_modes(Modes) ->
+    Kept = [
+        Mode
+     || Mode <- binary:split(Modes, <<",">>, [global, trim_all]),
+        not lists:member(Mode, ?UNSAFE_SQL_MODES)
+    ],
+    iolist_to_binary(lists:join(<<",">>, Kept)).
+
+%% The value is built from mode names the server itself just reported, and any
+%% name carrying something other than `[A-Za-z0-9_]' is dropped rather than
+%% quoted, so nothing attacker-controlled can reach the statement.
+set_sql_mode_query(Modes) ->
+    Safe = [Mode || Mode <- binary:split(Modes, <<",">>, [global, trim_all]), is_mode_name(Mode)],
+    iolist_to_binary([
+        "SET SESSION sql_mode = '", lists:join(<<",">>, Safe), "'"
+    ]).
+
+is_mode_name(Mode) ->
+    match =:= re:run(Mode, <<"\\A[A-Za-z0-9_]+\\z">>, [{capture, none}]).
 
 do_prepare_sql_to_conn(_Conn, []) ->
     ok;
