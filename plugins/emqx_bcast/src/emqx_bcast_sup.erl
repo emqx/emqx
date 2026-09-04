@@ -15,11 +15,11 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 restart_pools(PoolSize) ->
-    %% Ask pull_pool to stop flushing new batches and snapshot inflight
+    %% Ask pull_shard to stop flushing new batches and snapshot inflight
     %% claim marks atomically. No mark can slip in between this snapshot and
-    %% worker termination. pull_pool survives the restart and replays these
+    %% worker termination. pull_shard survives the restart and replays these
     %% generations after the new pools are up.
-    case emqx_bcast_pull_pool:begin_pools_restart() of
+    case emqx_bcast_pull_shard:begin_pools_restart() of
         {error, restart_in_progress} ->
             ?SLOG(warning, #{
                 msg => "bcast_pools_restart_already_in_progress"
@@ -29,7 +29,7 @@ restart_pools(PoolSize) ->
             Results = [
                 restart_pool_child(ChildId, PoolSize)
              || ChildId <- [
-                    bcast_pull_pool_sup,
+                    bcast_pull_worker_pool_sup,
                     bcast_pull_server_pool_sup
                 ]
             ],
@@ -48,7 +48,7 @@ restart_pools(PoolSize) ->
             ),
             %% Even if one pool failed to restart, clear/release the marks
             %% that were in flight while the workers were being killed.
-            emqx_bcast_pull_pool:worker_pools_restarted(Marks),
+            emqx_bcast_pull_shard:worker_pools_restarted(Marks),
             ok
     end.
 
@@ -87,31 +87,31 @@ init([]) ->
     %% ack batches in short-lived spawns bounded by its own ack_cap (=schedulers)
     %% because each ack needs a completion notification back to the coordinator
     %% (round-robin emqx_pool tasks have no per-task callback). A dedicated
-    %% bcast_ack_pool_sup existed but nothing ever submitted to it.
+    %% bcast_ack_aggregator_sup existed but nothing ever submitted to it.
     Children =
         [
-            pool_spec(bcast_pull_pool_sup, PoolSize)
+            pool_spec(bcast_pull_worker_pool_sup, PoolSize)
         ] ++
             core_pool_specs(Core, PoolSize) ++
             [
                 #{
-                    id => {emqx_bcast_pull_pool, Shard},
-                    start => {emqx_bcast_pull_pool, start_link, [Shard]},
+                    id => {emqx_bcast_pull_shard, Shard},
+                    start => {emqx_bcast_pull_shard, start_link, [Shard]},
                     restart => permanent,
                     shutdown => 5000,
                     type => worker,
-                    modules => [emqx_bcast_pull_pool]
+                    modules => [emqx_bcast_pull_shard]
                 }
-             || Shard <- lists:seq(0, emqx_bcast_pull_pool:shard_count() - 1)
+             || Shard <- lists:seq(0, emqx_bcast_pull_shard:shard_count() - 1)
             ] ++
             [
                 #{
-                    id => emqx_bcast_ack_pool,
-                    start => {emqx_bcast_ack_pool, start_link, []},
+                    id => emqx_bcast_ack_aggregator,
+                    start => {emqx_bcast_ack_aggregator, start_link, []},
                     restart => permanent,
                     shutdown => 5000,
                     type => worker,
-                    modules => [emqx_bcast_ack_pool]
+                    modules => [emqx_bcast_ack_aggregator]
                 }
             ] ++
             core_children(Core),
@@ -181,7 +181,7 @@ pool_size() ->
 pool_spec(ChildId, PoolSize) ->
     PoolName =
         case ChildId of
-            bcast_pull_pool_sup -> emqx_bcast_pull_worker_pool;
+            bcast_pull_worker_pool_sup -> emqx_bcast_pull_worker_pool;
             bcast_pull_server_pool_sup -> emqx_bcast_pull_server_worker_pool
         end,
     emqx_pool_sup:spec(ChildId, permanent, [

@@ -180,9 +180,9 @@ counted_pairs(Results, Acks) ->
 route_notify(_Origin, []) ->
     ok;
 route_notify(Origin, Notify) when Origin =:= node() ->
-    emqx_bcast_pull_pool:ack_applied(Notify);
+    emqx_bcast_pull_shard:ack_applied(Notify);
 route_notify(Origin, Notify) ->
-    emqx_rpc:cast(Origin, emqx_bcast_pull_pool, ack_applied, [Notify]).
+    emqx_rpc:cast(Origin, emqx_bcast_pull_shard, ack_applied, [Notify]).
 
 broadcast_to_pull_pools({Fun, Args}) ->
     broadcast_to_pull_pools_on(emqx:running_nodes(), {Fun, Args}).
@@ -197,9 +197,9 @@ broadcast_to_pull_pools_on(Nodes0, {Fun, Args}) ->
         fun(Node) ->
             case Node =:= node() of
                 true ->
-                    apply(emqx_bcast_pull_pool, local_cast_fun(Fun), Args);
+                    apply(emqx_bcast_pull_shard, local_cast_fun(Fun), Args);
                 false ->
-                    emqx_rpc:cast(Node, emqx_bcast_pull_pool, local_cast_fun(Fun), Args)
+                    emqx_rpc:cast(Node, emqx_bcast_pull_shard, local_cast_fun(Fun), Args)
             end
         end,
         Nodes

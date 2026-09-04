@@ -74,13 +74,13 @@ init_per_testcase(_Case, Config) ->
     %% Per-shard pull-pool tables (shard_count shards x 4 tables each).
     [
         catch ets:delete_all_objects(T)
-     || S <- lists:seq(0, emqx_bcast_pull_pool:shard_count() - 1),
+     || S <- lists:seq(0, emqx_bcast_pull_shard:shard_count() - 1),
         T <- [
-            emqx_bcast_pull_pool:tab(S, bcast_buffer_a),
-            emqx_bcast_pull_pool:tab(S, bcast_buffer_b),
-            emqx_bcast_pull_pool:tab(S, bcast_buffer3),
-            emqx_bcast_pull_pool:tab(S, bcast_pull_inflight),
-            emqx_bcast_pull_pool:tab(S, bcast_ack_pending)
+            emqx_bcast_pull_shard:tab(S, bcast_buffer_a),
+            emqx_bcast_pull_shard:tab(S, bcast_buffer_b),
+            emqx_bcast_pull_shard:tab(S, bcast_buffer3),
+            emqx_bcast_pull_shard:tab(S, bcast_pull_inflight),
+            emqx_bcast_pull_shard:tab(S, bcast_ack_pending)
         ]
     ],
     %% The owner ETS index/quota and the intake queue are not mnesia
@@ -347,25 +347,25 @@ t_begin_pools_restart_snapshot_own_shard(_Config) ->
     Shard0 = 0,
     Shard1 = 1,
     Now = erlang:system_time(millisecond),
-    Inflight0 = emqx_bcast_pull_pool:tab(Shard0, bcast_pull_inflight),
-    Inflight1 = emqx_bcast_pull_pool:tab(Shard1, bcast_pull_inflight),
+    Inflight0 = emqx_bcast_pull_shard:tab(Shard0, bcast_pull_inflight),
+    Inflight1 = emqx_bcast_pull_shard:tab(Shard1, bcast_pull_inflight),
     ets:insert(Inflight0, {<<"R5C0">>, 11, <<"R5P">>, Now}),
     ets:insert(Inflight1, {<<"R5C1">>, 22, <<"R5P">>, Now}),
     try
         {ok, Marks0} =
             gen_server:call(
-                emqx_bcast_pull_pool:pool_name(Shard0), begin_pools_restart, infinity
+                emqx_bcast_pull_shard:shard_name(Shard0), begin_pools_restart, infinity
             ),
         {ok, Marks1} =
             gen_server:call(
-                emqx_bcast_pull_pool:pool_name(Shard1), begin_pools_restart, infinity
+                emqx_bcast_pull_shard:shard_name(Shard1), begin_pools_restart, infinity
             ),
         %% Each shard returns ONLY its own marks (not the 4x aggregate).
         ?assertEqual([{<<"R5C0">>, 11, <<"R5P">>}], Marks0),
         ?assertEqual([{<<"R5C1">>, 22, <<"R5P">>}], Marks1)
     after
-        gen_server:cast(emqx_bcast_pull_pool:pool_name(Shard0), {abort_pools_restart}),
-        gen_server:cast(emqx_bcast_pull_pool:pool_name(Shard1), {abort_pools_restart}),
+        gen_server:cast(emqx_bcast_pull_shard:shard_name(Shard0), {abort_pools_restart}),
+        gen_server:cast(emqx_bcast_pull_shard:shard_name(Shard1), {abort_pools_restart}),
         ets:delete(Inflight0, <<"R5C0">>),
         ets:delete(Inflight1, <<"R5C1">>)
     end.
@@ -378,9 +378,9 @@ t_abort_pools_restart_replays_deferred(_Config) ->
     %% The mark lives on shard_of(DN): mark_current/clear_inflight_mark
     %% resolve the table by the client's shard, so the test must insert
     %% into that same shard's inflight table.
-    Shard = emqx_bcast_pull_pool:shard_of(DN),
-    Pool = emqx_bcast_pull_pool:pool_name(Shard),
-    InflightTab = emqx_bcast_pull_pool:tab(Shard, bcast_pull_inflight),
+    Shard = emqx_bcast_pull_shard:shard_of(DN),
+    Pool = emqx_bcast_pull_shard:shard_name(Shard),
+    InflightTab = emqx_bcast_pull_shard:tab(Shard, bcast_pull_inflight),
     PK = <<"N1PK">>,
     Tag = 424242,
     ets:insert(InflightTab, {DN, Tag, PK, erlang:system_time(millisecond)}),
@@ -769,9 +769,9 @@ t_message_acked_hook(_Config) ->
     %% delivery record removed after the target ack count is reached
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
     %% duplicate ack is idempotent and does not crash: the ack path is a cast
-    %% into emqx_bcast_ack_pool, so sys:get_state guarantees it was processed
+    %% into emqx_bcast_ack_aggregator, so sys:get_state guarantees it was processed
     ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
-    _ = sys:get_state(emqx_bcast_ack_pool),
+    _ = sys:get_state(emqx_bcast_ack_aggregator),
     ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
     %% messages without plugin headers pass through untouched
     Plain = emqx_message:make(DN, 0, <<"/t">>, <<"p">>),
@@ -905,10 +905,10 @@ t_index_add_remove_idempotent(_Config) ->
     {ok, []} = emqx_bcast_storage:get_device_deliveries({PK, <<"D1">>}).
 
 -doc "pull pool buffer tables exist after pool start.".
-t_pull_pool_buffers_initialized(_Config) ->
-    ?assertNotEqual(undefined, ets:info(emqx_bcast_pull_pool:tab(0, bcast_buffer_a))),
-    ?assertNotEqual(undefined, ets:info(emqx_bcast_pull_pool:tab(0, bcast_buffer_b))),
-    ?assertNotEqual(undefined, ets:info(emqx_bcast_pull_pool:tab(0, bcast_buffer3))).
+t_pull_shard_buffers_initialized(_Config) ->
+    ?assertNotEqual(undefined, ets:info(emqx_bcast_pull_shard:tab(0, bcast_buffer_a))),
+    ?assertNotEqual(undefined, ets:info(emqx_bcast_pull_shard:tab(0, bcast_buffer_b))),
+    ?assertNotEqual(undefined, ets:info(emqx_bcast_pull_shard:tab(0, bcast_buffer3))).
 
 -doc "missing Action returns 400 MissingAction.".
 t_api_missing_action(_Config) ->
@@ -1485,7 +1485,7 @@ t_duplicate_puback_metric_counted_once(_Config) ->
     %% The metric is emitted only when take_pending matches an active buffer
     %% entry, so seed the current buffer exactly like the claim path. The
     %% buffer is a single fixed public table (the AB flip is gone).
-    ActiveTab = emqx_bcast_pull_pool:tab(emqx_bcast_pull_pool:shard_of(DN), bcast_buffer_a),
+    ActiveTab = emqx_bcast_pull_shard:tab(emqx_bcast_pull_shard:shard_of(DN), bcast_buffer_a),
     ets:insert(ActiveTab, #bcast_buffer_entry{
         clientid = DN,
         delivery_id = DeliveryId,
@@ -1498,8 +1498,8 @@ t_duplicate_puback_metric_counted_once(_Config) ->
     ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
     ?assert(wait_metric(<<"batch_pub_qos1_acked">>, Before + 1)),
     ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
-    _ = sys:get_state(emqx_bcast_ack_pool),
-    _ = sys:get_state(emqx_bcast_pull_pool:pool_name(emqx_bcast_pull_pool:shard_of(DN))),
+    _ = sys:get_state(emqx_bcast_ack_aggregator),
+    _ = sys:get_state(emqx_bcast_pull_shard:shard_name(emqx_bcast_pull_shard:shard_of(DN))),
     ?assertEqual(Before + 1, metric(<<"batch_pub_qos1_acked">>)).
 
 -doc "Repro: a duplicate PUBACK arriving after a redelivery (reconnect)\n"
@@ -1531,7 +1531,7 @@ t_metrics_acked_redelivery_generation_overcount(_Config) ->
         #{},
         #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
     ),
-    ActiveTab = emqx_bcast_pull_pool:tab(emqx_bcast_pull_pool:shard_of(DN), bcast_buffer_a),
+    ActiveTab = emqx_bcast_pull_shard:tab(emqx_bcast_pull_shard:shard_of(DN), bcast_buffer_a),
     seed_ack_buffer(ActiveTab, DN, DeliveryId, PK, Payload),
     Before = metric(<<"batch_pub_qos1_acked">>),
     %% generation 1: first PUBLISH acked (counted once, buffer consumed).
@@ -1545,8 +1545,8 @@ t_metrics_acked_redelivery_generation_overcount(_Config) ->
     %% (ack_in_flight marker + ack_applied), the logical delivery is counted
     %% exactly once and the late duplicate is ignored.
     ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
-    _ = sys:get_state(emqx_bcast_ack_pool),
-    _ = sys:get_state(emqx_bcast_pull_pool:pool_name(emqx_bcast_pull_pool:shard_of(DN))),
+    _ = sys:get_state(emqx_bcast_ack_aggregator),
+    _ = sys:get_state(emqx_bcast_pull_shard:shard_name(emqx_bcast_pull_shard:shard_of(DN))),
     ?assert(wait_metric(<<"batch_pub_qos1_acked">>, Before + 1)),
     timer:sleep(50),
     ?assertEqual(Before + 1, metric(<<"batch_pub_qos1_acked">>)).
@@ -1664,9 +1664,9 @@ t_metrics_ack_in_flight_marker_lifecycle(_Config) ->
         #{},
         #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
     ),
-    Shard = emqx_bcast_pull_pool:shard_of(DN),
-    ActiveTab = emqx_bcast_pull_pool:tab(Shard, bcast_buffer_a),
-    AckTab = emqx_bcast_pull_pool:tab(Shard, bcast_ack_pending),
+    Shard = emqx_bcast_pull_shard:shard_of(DN),
+    ActiveTab = emqx_bcast_pull_shard:tab(Shard, bcast_buffer_a),
+    AckTab = emqx_bcast_pull_shard:tab(Shard, bcast_ack_pending),
     ets:insert(ActiveTab, #bcast_buffer_entry{
         clientid = DN,
         delivery_id = DeliveryId,
@@ -1736,11 +1736,11 @@ t_metrics_claim_holder_node_down_reclaim(_Config) ->
 t_pull_ack_in_flight_gates_subscribe_trigger(_Config) ->
     PK = <<"PGATE_S">>,
     DN = <<"DGATE_S">>,
-    Shard = emqx_bcast_pull_pool:shard_of(DN),
-    AckTab = emqx_bcast_pull_pool:tab(Shard, bcast_ack_pending),
-    Buf3 = emqx_bcast_pull_pool:tab(Shard, bcast_buffer3),
+    Shard = emqx_bcast_pull_shard:shard_of(DN),
+    AckTab = emqx_bcast_pull_shard:tab(Shard, bcast_ack_pending),
+    Buf3 = emqx_bcast_pull_shard:tab(Shard, bcast_buffer3),
     ets:insert(AckTab, {DN, emqx_bcast_utils:gen_guid()}),
-    emqx_bcast_pull_pool:cast_client(DN, {subscribe, DN, self(), PK}),
+    emqx_bcast_pull_shard:cast_client(DN, {subscribe, DN, self(), PK}),
     timer:sleep(100),
     %% nothing staged while the marker is present
     ?assertEqual([], ets:lookup(Buf3, DN)),
@@ -1751,11 +1751,11 @@ t_pull_ack_in_flight_gates_subscribe_trigger(_Config) ->
 t_pull_ack_in_flight_gates_ping_trigger(_Config) ->
     PK = <<"PGATE_P">>,
     DN = <<"DGATE_P">>,
-    Shard = emqx_bcast_pull_pool:shard_of(DN),
-    AckTab = emqx_bcast_pull_pool:tab(Shard, bcast_ack_pending),
-    Buf3 = emqx_bcast_pull_pool:tab(Shard, bcast_buffer3),
+    Shard = emqx_bcast_pull_shard:shard_of(DN),
+    AckTab = emqx_bcast_pull_shard:tab(Shard, bcast_ack_pending),
+    Buf3 = emqx_bcast_pull_shard:tab(Shard, bcast_buffer3),
     ets:insert(AckTab, {DN, emqx_bcast_utils:gen_guid()}),
-    emqx_bcast_pull_pool:cast_client(DN, {ping, DN, self(), PK}),
+    emqx_bcast_pull_shard:cast_client(DN, {ping, DN, self(), PK}),
     timer:sleep(100),
     ?assertEqual([], ets:lookup(Buf3, DN)),
     ets:delete(AckTab, DN).
@@ -1771,7 +1771,7 @@ t_metrics_auto_ack_path_counts_local(_Config) ->
     A0 = metric(<<"batch_pub_qos1_auto_acked">>),
     ACK0 = metric(<<"batch_pub_qos1_acked">>),
     R0 = metric(<<"batch_pub_qos1_redelivered">>),
-    ok = emqx_bcast_pull_pool:do_deliver_qos0_and_ack(
+    ok = emqx_bcast_pull_shard:do_deliver_qos0_and_ack(
         DN, self(), <<"tpl">>, <<"auto payload">>, Did, PK, 1
     ),
     ?assert(wait_metric(<<"batch_pub_qos1_delivered">>, D0 + 1)),
@@ -1799,8 +1799,8 @@ t_metrics_acked_second_copy_after_confirm_not_counted(_Config) ->
         #{},
         #{?BCAST_DELIVERY_ID => DeliveryId, ?BCAST_PRODUCT_KEY => PK}
     ),
-    Shard = emqx_bcast_pull_pool:shard_of(DN),
-    ActiveTab = emqx_bcast_pull_pool:tab(Shard, bcast_buffer_a),
+    Shard = emqx_bcast_pull_shard:shard_of(DN),
+    ActiveTab = emqx_bcast_pull_shard:tab(Shard, bcast_buffer_a),
     seed_ack_buffer(ActiveTab, DN, DeliveryId, PK, Payload),
     Before = metric(<<"batch_pub_qos1_acked">>),
     ok = emqx_bcast:on_message_acked(#{clientid => DN}, Msg),
@@ -2316,7 +2316,9 @@ t_worker_pool_restart_recovers_inflight(_Config) ->
     PK = <<"PRESTART">>,
     DN = <<"DRESTART">>,
     Tag = 888888,
-    InflightTab = emqx_bcast_pull_pool:tab(emqx_bcast_pull_pool:shard_of(DN), bcast_pull_inflight),
+    InflightTab = emqx_bcast_pull_shard:tab(
+        emqx_bcast_pull_shard:shard_of(DN), bcast_pull_inflight
+    ),
     _ = create_tagged_claim(PK, DN, Tag),
     ets:insert(InflightTab, {DN, Tag, PK, erlang:system_time(millisecond)}),
     ok = emqx_bcast_sup:restart_pools(2),
@@ -2344,19 +2346,19 @@ t_stale_deliver_results_keep_current_generation(_Config) ->
     DN = <<"DSTALE">>,
     OldTag = 777777,
     NewTag = 777778,
-    Shard = emqx_bcast_pull_pool:shard_of(DN),
-    InflightTab = emqx_bcast_pull_pool:tab(Shard, bcast_pull_inflight),
+    Shard = emqx_bcast_pull_shard:shard_of(DN),
+    InflightTab = emqx_bcast_pull_shard:tab(Shard, bcast_pull_inflight),
     Map = create_tagged_claim(PK, DN, OldTag),
     ets:insert(InflightTab, {DN, OldTag, PK, erlang:system_time(millisecond)}),
     ets:insert(InflightTab, {DN, NewTag, PK, erlang:system_time(millisecond)}),
     gen_server:cast(
-        emqx_bcast_pull_pool:pool_name(Shard),
+        emqx_bcast_pull_shard:shard_name(Shard),
         {deliver_results, [{DN, {ok, Map}}], [{DN, OldTag, PK}]}
     ),
-    _ = sys:get_state(emqx_bcast_pull_pool:pool_name(Shard)),
+    _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
     ?assertMatch([{DN, NewTag, PK, _}], ets:lookup(InflightTab, DN)),
-    ?assertEqual([], ets:tab2list(emqx_bcast_pull_pool:tab(Shard, bcast_buffer_a))),
-    ?assertEqual([], ets:tab2list(emqx_bcast_pull_pool:tab(Shard, bcast_buffer_b))),
+    ?assertEqual([], ets:tab2list(emqx_bcast_pull_shard:tab(Shard, bcast_buffer_a))),
+    ?assertEqual([], ets:tab2list(emqx_bcast_pull_shard:tab(Shard, bcast_buffer_b))),
     ?assert(
         wait_until(
             fun() ->
@@ -2374,15 +2376,15 @@ t_failed_claim_result_releases_pending_generation(_Config) ->
     PK = <<"PTIMEOUT">>,
     DN = <<"DTIMEOUT">>,
     Tag = 999999,
-    Shard = emqx_bcast_pull_pool:shard_of(DN),
-    InflightTab = emqx_bcast_pull_pool:tab(Shard, bcast_pull_inflight),
+    Shard = emqx_bcast_pull_shard:shard_of(DN),
+    InflightTab = emqx_bcast_pull_shard:tab(Shard, bcast_pull_inflight),
     _ = create_tagged_claim(PK, DN, Tag),
     ets:insert(InflightTab, {DN, Tag, PK, erlang:system_time(millisecond)}),
     gen_server:cast(
-        emqx_bcast_pull_pool:pool_name(Shard),
+        emqx_bcast_pull_shard:shard_name(Shard),
         {deliver_results, [], [{DN, Tag, PK}]}
     ),
-    _ = sys:get_state(emqx_bcast_pull_pool:pool_name(Shard)),
+    _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
     ?assertEqual([], ets:lookup(InflightTab, DN)),
     ?assert(
         wait_until(

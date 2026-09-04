@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bcast_ack_pool).
+-module(emqx_bcast_ack_aggregator).
 
 -behaviour(gen_server).
 
@@ -34,9 +34,9 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
-    %% pull_pool is the ack entry point: it matches the local buffer first
-    %% (setting the ack-in-flight marker before this ack can be applied at
-    %% core). Here we only accumulate for batched core accounting.
+    %% emqx_bcast_pull_shard is the ack entry point: it matches the local
+    %% buffer first (setting the ack-in-flight marker before this ack can be
+    %% applied at core). Here we only accumulate for batched core accounting.
     Acks = [{ProductKey, ClientId, DeliveryId} | State#state.acks],
     State1 = State#state{acks = Acks},
     State2 = maybe_flush(State1),

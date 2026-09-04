@@ -1908,7 +1908,7 @@ ack_one_index({PK, DN, Did}, State) ->
             {not_found, State, 0};
         true ->
             State1 = remove_did(State, Key, Key3),
-            %% The qos1_acked metric is counted by pull_pool on the
+            %% The qos1_acked metric is counted by pull_shard on the
             %% take_pending match (it owns the dedup of duplicate
             %% PUBACKs); the owner does not count it again.
             {counted, State1, -1}

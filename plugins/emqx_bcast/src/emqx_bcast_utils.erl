@@ -100,7 +100,7 @@ ttl() ->
     emqx_bcast_config:get(msg_ttl).
 
 %% Submit a task to an emqx_pool worker pool. Callers must not run the task
-%% inline on failure: pull_pool uses this helper from its gen_server and an
+%% inline on failure: pull_shard uses this helper from its gen_server and an
 %% inline RPC (do_want_next) would block every cast queued behind it.
 %% Returns ok | {error, Reason}; the caller decides whether to log and drop.
 

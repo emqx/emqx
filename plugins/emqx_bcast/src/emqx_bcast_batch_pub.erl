@@ -46,7 +46,7 @@ handle(Body, RequestId) ->
 
 %%--------------------------------------------------------------------
 %% QoS0: one-shot delivery, no storage, no pending, no retry.
-%% Core broadcasts full deliver data to every pull_pool; each pull_pool
+%% Core broadcasts full deliver data to every pull_shard; each pull_shard
 %% checks online + subscription and drops otherwise.
 %%--------------------------------------------------------------------
 

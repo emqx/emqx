@@ -410,7 +410,7 @@ on_client_connected(ClientInfo, _ConnInfo) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(ClientId, {client_connected, ClientId, Pid, ProductKey})
+        emqx_bcast_pull_shard:cast_client(ClientId, {client_connected, ClientId, Pid, ProductKey})
     end),
     {ok, ClientInfo}.
 
@@ -420,10 +420,10 @@ on_client_disconnected(ClientInfo, _Reason, _ConnInfo) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(
+        emqx_bcast_pull_shard:cast_client(
             ClientId, {client_disconnected, ClientId, Pid, ProductKey}
         ),
-        gen_server:cast(emqx_bcast_ack_pool, {client_down, ClientId})
+        gen_server:cast(emqx_bcast_ack_aggregator, {client_down, ClientId})
     end),
     ok.
 
@@ -433,7 +433,7 @@ on_client_subscribe(ClientInfo, _Properties, TopicFilters) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(ClientId, {subscribe, ClientId, Pid, ProductKey})
+        emqx_bcast_pull_shard:cast_client(ClientId, {subscribe, ClientId, Pid, ProductKey})
     end),
     TopicFilters.
 
@@ -443,7 +443,7 @@ on_client_unsubscribe(ClientInfo, _Properties, TopicFilters) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(ClientId, {unsubscribe, ClientId, Pid, ProductKey})
+        emqx_bcast_pull_shard:cast_client(ClientId, {unsubscribe, ClientId, Pid, ProductKey})
     end),
     TopicFilters.
 
@@ -457,7 +457,7 @@ on_session_resumed(ClientInfo, _SessionInfo) ->
         %% the old single registered name would hit a non-existent process
         %% and silently drop the subscribe signal (session resume would
         %% never re-arm a want_next).
-        emqx_bcast_pull_pool:cast_client(ClientId, {subscribe, ClientId, Pid, ProductKey})
+        emqx_bcast_pull_shard:cast_client(ClientId, {subscribe, ClientId, Pid, ProductKey})
     end),
     ok.
 
@@ -467,7 +467,7 @@ on_client_ping(ClientInfo, _ConnInfo, Acc) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(ClientId, {ping, ClientId, Pid, ProductKey})
+        emqx_bcast_pull_shard:cast_client(ClientId, {ping, ClientId, Pid, ProductKey})
     end),
     Acc.
 
@@ -484,11 +484,11 @@ on_message_acked(ClientInfo, Msg) ->
                         undefined -> get_product_key(ClientInfo);
                         PK -> PK
                     end,
-                %% Route through pull_pool first: it matches the local buffer
+                %% Route through pull_shard first: it matches the local buffer
                 %% and sets the ack-in-flight marker BEFORE this ack can be
-                %% applied at core, then forwards to ack_pool for the batched
+                %% applied at core, then forwards to ack_aggregator for the batched
                 %% core accounting.
-                emqx_bcast_pull_pool:cast_client(
+                emqx_bcast_pull_shard:cast_client(
                     DeviceName, {ack, DeviceName, DeliveryId, ProductKey}
                 ),
                 ok

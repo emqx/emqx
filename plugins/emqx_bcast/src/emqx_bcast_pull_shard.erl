@@ -1,18 +1,21 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_bcast_pull_pool).
+-module(emqx_bcast_pull_shard).
 
 -behaviour(gen_server).
 
-%% API for hooks and sibling pools. Hooks cast directly into the gen_server
-%% with the protocol tuples handled below; the exported wrappers used to
-%% construct different tuples and were silently swallowed by the catch-all
-%% so they have been removed.
+%% Per-node device-pull shards: each shard gen_server is the single-writer
+%% owner of the client buffer / inflight / ack-pending state for its
+%% partition of devices; heavy work (claim, deliver, release) is off-boxed
+%% to emqx_bcast_pull_worker_pool. Hooks cast directly into the shard
+%% gen_server with the protocol tuples handled below; the exported wrappers
+%% used to construct different tuples and were silently swallowed by the
+%% catch-all so they have been removed.
 -export([
     start_link/1,
     shard_count/0,
-    pool_name/1,
+    shard_name/1,
     shard_of/1,
     cast_client/2,
     tab/2,
@@ -49,7 +52,7 @@
 -include("emqx_bcast.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--define(PULL_POOL_SHARDS, 4).
+-define(PULL_SHARD_COUNT, 4).
 
 -define(TAB_A(Shard), tab(Shard, bcast_buffer_a)).
 -define(TAB_B(Shard), tab(Shard, bcast_buffer_b)).
@@ -93,26 +96,26 @@
 
 -spec start_link(non_neg_integer()) -> gen_server:start_ret().
 start_link(Shard) ->
-    gen_server:start_link({local, pool_name(Shard)}, ?MODULE, [Shard], []).
+    gen_server:start_link({local, shard_name(Shard)}, ?MODULE, [Shard], []).
 
 -spec shard_count() -> pos_integer().
 shard_count() ->
-    ?PULL_POOL_SHARDS.
+    ?PULL_SHARD_COUNT.
 
--spec pool_name(non_neg_integer()) -> atom().
-pool_name(Shard) ->
-    list_to_atom("emqx_bcast_pull_pool_" ++ integer_to_list(Shard)).
+-spec shard_name(non_neg_integer()) -> atom().
+shard_name(Shard) ->
+    list_to_atom("emqx_bcast_pull_shard_" ++ integer_to_list(Shard)).
 
 %% Route a client to its shard: phash2 over the device name. Every event
 %% for one client (hooks, ack, trigger, deliver_results) must reach the
 %% same shard so window=1 and the inflight mark stay single-writer.
 -spec shard_of(binary()) -> non_neg_integer().
 shard_of(ClientId) ->
-    erlang:phash2(ClientId, ?PULL_POOL_SHARDS).
+    erlang:phash2(ClientId, ?PULL_SHARD_COUNT).
 
 -spec cast_client(binary(), term()) -> ok.
 cast_client(ClientId, Msg) ->
-    gen_server:cast(pool_name(shard_of(ClientId)), Msg).
+    gen_server:cast(shard_name(shard_of(ClientId)), Msg).
 
 %% Per-shard ETS table name.
 -spec tab(non_neg_integer(), atom()) -> atom().
@@ -124,7 +127,7 @@ qos0_deliver_local(ProductKey, DeviceNames, TopicTemplate, Payload) ->
     lists:foreach(
         fun({Shard, Sub}) ->
             gen_server:cast(
-                pool_name(Shard),
+                shard_name(Shard),
                 {qos0_deliver, ProductKey, Sub, TopicTemplate, Payload}
             )
         end,
@@ -136,7 +139,7 @@ qos1_core_trigger_local(ProductKey, DeviceNames, TopicTemplate) ->
     lists:foreach(
         fun({Shard, Sub}) ->
             gen_server:cast(
-                pool_name(Shard),
+                shard_name(Shard),
                 {qos1_core_trigger, ProductKey, Sub, TopicTemplate}
             )
         end,
@@ -171,7 +174,7 @@ group_devices(DeviceNames) ->
 begin_pools_restart() ->
     Results = [
         begin
-            try gen_server:call(pool_name(Shard), begin_pools_restart, infinity) of
+            try gen_server:call(shard_name(Shard), begin_pools_restart, infinity) of
                 {ok, Marks} -> {ok, Marks};
                 {error, restart_in_progress} = E -> E
             catch
@@ -179,7 +182,7 @@ begin_pools_restart() ->
                 exit:{normal, _} -> {ok, []}
             end
         end
-     || Shard <- lists:seq(0, ?PULL_POOL_SHARDS - 1)
+     || Shard <- lists:seq(0, ?PULL_SHARD_COUNT - 1)
     ],
     case [E || {error, _} = E <- Results] of
         [] ->
@@ -192,11 +195,11 @@ begin_pools_restart() ->
             lists:foreach(
                 fun
                     ({Shard, {ok, _Marks}}) ->
-                        gen_server:cast(pool_name(Shard), {abort_pools_restart});
+                        gen_server:cast(shard_name(Shard), {abort_pools_restart});
                     ({_Shard, _}) ->
                         ok
                 end,
-                lists:zip(lists:seq(0, ?PULL_POOL_SHARDS - 1), Results)
+                lists:zip(lists:seq(0, ?PULL_SHARD_COUNT - 1), Results)
             ),
             E
     end.
@@ -230,7 +233,7 @@ worker_pools_restarted(Marks) ->
     ),
     lists:foreach(
         fun({Shard, SubMarks}) ->
-            gen_server:cast(pool_name(Shard), {worker_pools_restarted, SubMarks})
+            gen_server:cast(shard_name(Shard), {worker_pools_restarted, SubMarks})
         end,
         Groups
     ).
@@ -309,7 +312,7 @@ do_want_next(Shard, Core, Entries) ->
     %% release-by-tag when the RPC timed out (the core transaction may have
     %% committed) or when a stale result races a newer claim.
     Marks = [inflight_mark(M) || M <- Entries],
-    gen_server:cast(pool_name(Shard), {deliver_results, Results, Marks}).
+    gen_server:cast(shard_name(Shard), {deliver_results, Results, Marks}).
 
 %% [{TopicFilter, Qos}] from EMQX's own subscription tables for a channel
 %% pid. This is the single source of truth; no plugin-side mirror exists.
@@ -414,7 +417,7 @@ fail_pending_delivery(#bcast_buffer_entry{
     delivery_id = DeliveryId,
     product_key = ProductKey
 }) ->
-    gen_server:cast(pool_name(shard_of(ClientId)), {deliver_failed, ClientId, DeliveryId}),
+    gen_server:cast(shard_name(shard_of(ClientId)), {deliver_failed, ClientId, DeliveryId}),
     do_release_claim(ProductKey, ClientId, DeliveryId).
 
 -spec do_deliver_qos0([{pid(), binary(), binary(), binary(), binary()}]) -> ok.
@@ -559,7 +562,7 @@ do_deliver_qos0_and_ack(ClientId, Pid, Topic, Payload, DeliveryId, ProductKey, A
     %% Route through the same pull {ack} entry point (no buffer exists for
     %% the QoS0 self-ack, so it forwards to core accounting and the
     %% core-applied confirmation unblocks the next delivery).
-    emqx_bcast_pull_pool:cast_client(ClientId, {ack, ClientId, DeliveryId, ProductKey}).
+    emqx_bcast_pull_shard:cast_client(ClientId, {ack, ClientId, DeliveryId, ProductKey}).
 
 -spec do_release_claim(binary(), binary(), binary()) -> ok.
 do_release_claim(ProductKey, ClientId, DeliveryId) ->
@@ -653,7 +656,7 @@ handle_cast({ack, ClientId, DeliveryId, ProductKey}, State) ->
         none ->
             ok
     end,
-    emqx_bcast_ack_pool:ack(ClientId, DeliveryId, ProductKey),
+    emqx_bcast_ack_aggregator:ack(ClientId, DeliveryId, ProductKey),
     {noreply, State};
 handle_cast({ack_applied_batch, Pairs}, State) ->
     Shard = State#state.shard,
@@ -716,7 +719,7 @@ handle_cast({qos1_core_trigger, ProductKey, DeviceNames, TopicTemplate}, State) 
         ),
         case Staged of
             0 -> ok;
-            _ -> gen_server:cast(pool_name(Shard), {buffer3_staged, Staged})
+            _ -> gen_server:cast(shard_name(Shard), {buffer3_staged, Staged})
         end
     end),
     {noreply, State};
@@ -760,7 +763,7 @@ handle_cast({worker_pools_restarted, Marks}, State) ->
                 ok ->
                     submit_to_worker(fun() ->
                         do_release_client_claims(PK, C, Tag),
-                        gen_server:cast(pool_name(Shard), {claim_released, C, PK})
+                        gen_server:cast(shard_name(Shard), {claim_released, C, PK})
                     end);
                 stale ->
                     submit_release_mark(PK, C, Tag)
@@ -813,7 +816,7 @@ handle_cast({deliver_failed, ClientId, DeliveryId}, State) ->
     end,
     {noreply, State};
 handle_cast(Msg, State) ->
-    ?SLOG(warning, #{msg => "bcast_pull_pool_unexpected_cast", message => Msg}),
+    ?SLOG(warning, #{msg => "bcast_pull_shard_unexpected_cast", message => Msg}),
     {noreply, State}.
 
 handle_info(pools_restart_watchdog, State = #state{pools_restarting = true}) ->
@@ -891,7 +894,7 @@ handle_info({'DOWN', Ref, process, Pid, _Reason}, State) ->
     case maps:take(Ref, State#state.mons) of
         {{Pid, ClientId, ProductKey}, Mons} ->
             cleanup_client(ClientId, Pid, ProductKey),
-            gen_server:cast(emqx_bcast_ack_pool, {client_down, ClientId}),
+            gen_server:cast(emqx_bcast_ack_aggregator, {client_down, ClientId}),
             {noreply, State#state{mons = Mons}};
         error ->
             {noreply, State}
@@ -1025,7 +1028,7 @@ dispatch_deliver_results(Results, Marks, State) ->
 do_prepare_deliveries(Shard, FreshResults) ->
     try prepare_deliveries(FreshResults) of
         Prepared ->
-            gen_server:cast(pool_name(Shard), {prepared, Prepared})
+            gen_server:cast(shard_name(Shard), {prepared, Prepared})
     catch
         Error:Reason:Stacktrace ->
             ?SLOG(error, #{
@@ -1163,7 +1166,7 @@ clear_ack_pending(Shard, ClientId) ->
 ack_applied(Pairs) ->
     lists:foreach(
         fun({Shard, Sub}) ->
-            gen_server:cast(pool_name(Shard), {ack_applied_batch, Sub})
+            gen_server:cast(shard_name(Shard), {ack_applied_batch, Sub})
         end,
         group_ack_pairs(Pairs)
     ),
@@ -1428,7 +1431,7 @@ submit_to_worker(Fun) ->
         ok ->
             ok;
         {error, Reason} = Error ->
-            %% Never run the task inline in the pull_pool gen_server: the task
+            %% Never run the task inline in the pull_shard gen_server: the task
             %% may contain a 15s RPC. Propagate the error instead of
             %% swallowing it - the flush rollback and the prepare
             %% inline-fallback branches match on {error, _} and were dead

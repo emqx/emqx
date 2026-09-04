@@ -55,8 +55,8 @@
 %% Node-local ETS tables (not in Mnesia):
 %%   bcast_device_registry     -- {ProductKey, DeviceName} -> online channel pid;
 %%                               not a subscription mirror
-%%   bcast_buffer_a/b     -- active/inactive delivery buffers in pull_pool
-%%   bcast_buffer3        -- want_next dedup staging in pull_pool
+%%   bcast_buffer_a/b     -- active/inactive delivery buffers in pull_shard
+%%   bcast_buffer3        -- want_next dedup staging in pull_shard
 %%   bcast_pull_inflight  -- claim-in-flight guard (window=1)
 %%
 %% Subscription state is NOT mirrored: delivery decisions read
@@ -124,7 +124,7 @@
 -type bcast_delivery_state() ::
     stored
     | {pending, PendingTs :: non_neg_integer()}
-    %% claim_tag identifies the pull_pool flush generation that claimed the
+    %% claim_tag identifies the pull_shard flush generation that claimed the
     %% entry; timeout recovery can release exactly that claim without
     %% touching a newer concurrent claim.
     | {pending, PendingTs :: non_neg_integer(), ClaimTag :: pos_integer()}.
