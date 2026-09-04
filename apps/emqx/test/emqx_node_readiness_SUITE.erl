@@ -59,6 +59,8 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    _ = persistent_term:erase({emqx_node_readiness, checks}),
+    _ = [persistent_term:erase(K) || {{?MODULE, _} = K, _} <- persistent_term:get()],
     ok = emqx_node_readiness:mark_ready().
 
 -doc "The readiness flag defaults to true and toggles with mark_not_ready/mark_ready.".
@@ -142,6 +144,87 @@ t_gate_cluster_join(_Config) ->
     ),
     ok = emqx_node_readiness:mark_ready(),
     ?assertEqual(ok, emqx_cluster:can_i_join(node())).
+
+-doc "A registered check that does not return true makes `is_ready/0` return false.".
+t_registered_check_holds_gate(_Config) ->
+    ?assert(emqx_node_readiness:is_ready()),
+    ok = set_check(actions, false),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = set_check(actions, true),
+    ?assert(emqx_node_readiness:is_ready()),
+    ok = set_check(actions, false),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = emqx_node_readiness:deregister_check(actions),
+    ?assert(emqx_node_readiness:is_ready()).
+
+-doc "Boot completion and every registered check must hold for the node to be ready.".
+t_boot_flag_and_checks_both_apply(_Config) ->
+    ok = set_check(actions, true),
+    ok = emqx_node_readiness:mark_not_ready(),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = emqx_node_readiness:mark_ready(),
+    ?assert(emqx_node_readiness:is_ready()),
+    ok = set_check(other, false),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = emqx_node_readiness:deregister_check(other),
+    ?assert(emqx_node_readiness:is_ready()).
+
+-doc "Registering the same name twice replaces the check rather than adding one.".
+t_register_check_replaces(_Config) ->
+    ok = set_check(actions, false),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = set_check(actions, true),
+    ?assert(emqx_node_readiness:is_ready()),
+    ok = emqx_node_readiness:deregister_check(actions),
+    ?assert(emqx_node_readiness:is_ready()).
+
+-doc "Deregistering a name that was never registered is a no-op.".
+t_deregister_unknown_check(_Config) ->
+    ?assertEqual(ok, emqx_node_readiness:deregister_check(never_registered)),
+    ?assert(emqx_node_readiness:is_ready()),
+    ok = set_check(actions, true),
+    ?assertEqual(ok, emqx_node_readiness:deregister_check(never_registered)),
+    ?assert(emqx_node_readiness:is_ready()).
+
+-doc """
+A check that raises, or returns a non-boolean, makes is_ready/0 return false
+and is reported through the throttled readiness_check_failed log.
+""".
+t_broken_check_holds_gate(_Config) ->
+    ok = emqx_node_readiness:register_check(raising, fun() -> error(badcheck) end),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = emqx_node_readiness:deregister_check(raising),
+    ?assert(emqx_node_readiness:is_ready()),
+    ok = emqx_node_readiness:register_check(bad_return, fun() -> maybe_ready end),
+    ?assertNot(emqx_node_readiness:is_ready()),
+    ok = emqx_node_readiness:deregister_check(bad_return),
+    ?assert(emqx_node_readiness:is_ready()).
+
+-doc "A registered check that does not pass refuses a TCP MQTT connection.".
+t_check_gates_tcp_connection(_Config) ->
+    ok = set_check(actions, false),
+    ?assertMatch({error, _}, try_connect(fun emqtt:connect/1, #{port => ?TCP_PORT})),
+    Bind = emqx_config:get([listeners, tcp, default, bind]),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {node_not_ready, _},
+            lists:keyfind(
+                node_not_ready, 1, emqx_listeners:shutdown_count(<<"tcp:default">>, Bind)
+            )
+        )
+    ),
+    ok = set_check(actions, true),
+    ?assertEqual(ok, try_connect(fun emqtt:connect/1, #{port => ?TCP_PORT})).
+
+%% Register a check under `Name` that returns `Answer`.  The answer is kept in
+%% a persistent_term, so the check itself only reads a cached value.
+set_check(Name, Answer) ->
+    persistent_term:put({?MODULE, Name}, Answer),
+    emqx_node_readiness:register_check(Name, fun() ->
+        persistent_term:get({?MODULE, Name})
+    end).
 
 try_connect(ConnFun, Opts0) ->
     Opts = maps:merge(#{host => "127.0.0.1", connect_timeout => 5}, Opts0),
