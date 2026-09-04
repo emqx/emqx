@@ -801,6 +801,24 @@ t_allow_only_managed_namespaces(_Config) ->
     ?assertMatch({error, {not_authorized, _}}, emqtt:connect(Pid)),
     ok.
 
+t_deny_tombstoned_namespace(_Config) ->
+    Ns = <<"ns-being-deleted">>,
+    {204, _} = create_managed_ns(Ns),
+    Janitor = whereis(emqx_mt_config_janitor),
+    ok = sys:suspend(Janitor),
+    on_exit(fun() -> catch sys:resume(Janitor) end),
+
+    {204, _} = delete_ns(Ns),
+    ?assert(emqx_mt_state:is_tombstoned(Ns)),
+    ?assertError(
+        {error, {server_unavailable, _}},
+        connect(?NEW_CLIENTID(1), Ns)
+    ),
+    ?assertMatch({200, []}, list_nss(#{})),
+
+    ok = sys:resume(Janitor),
+    ok.
+
 %% Verifies bulk import config endpoint
 t_bulk_import_configs(_Config) ->
     %% Seed config with some preexisting configs and namespaces

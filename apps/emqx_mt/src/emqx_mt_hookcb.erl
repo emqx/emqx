@@ -105,12 +105,18 @@ on_authenticate(ClientInfo, DefaultResult) ->
 do_on_authenticate(
     #{clientid := ClientId, client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}}, DefaultResult
 ) ->
-    case emqx_config:get_namespace_config_errors(Tns) of
-        undefined ->
-            decide(ClientId, Tns, DefaultResult);
-        #{} ->
-            ?TRACE("deny_due_to_namespace_config_errors", #{tns => Tns}),
-            {stop, {error, server_unavailable}}
+    case emqx_mt_state:is_tombstoned(Tns) of
+        true ->
+            ?TRACE("deny_due_to_namespace_being_deleted", #{}),
+            {stop, {error, server_unavailable}};
+        false ->
+            case emqx_config:get_namespace_config_errors(Tns) of
+                undefined ->
+                    decide(ClientId, Tns, DefaultResult);
+                #{} ->
+                    ?TRACE("deny_due_to_namespace_config_errors", #{tns => Tns}),
+                    {stop, {error, server_unavailable}}
+            end
     end;
 do_on_authenticate(_, DefaultResult) ->
     AllowOnlyManagedNSs = emqx_mt_config:get_allow_only_managed_namespaces(),
