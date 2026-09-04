@@ -1596,7 +1596,9 @@ handle_out(
             }),
             {ok, Channel#channel{register_awaiting_queue = NRAQueue}}
     end;
-handle_out(disconnect, normal, Channel) ->
+handle_out(disconnect, normal, Channel = #channel{conn_state = ConnState}) when
+    ConnState =:= connected; ConnState =:= asleep; ConnState =:= awake
+->
     DisPkt = ?SN_DISCONNECT_MSG(undefined),
     {ok, [{outgoing, DisPkt}, {close, ?CLIENT_DISCONNECT}], Channel};
 handle_out(disconnect, RC, Channel) ->

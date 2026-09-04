@@ -2008,7 +2008,7 @@ t_connect_from_asleep_restarts_keepalive(_) ->
 
         %% Let the original keepalive timer expire while the client is asleep.
         timer:sleep(1500),
-        send_connect_msg(Socket, ClientId),
+        send_connect_msg(Socket, ClientId, 0, KeepaliveDuration),
         ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
         ?assertMatch(
             #{conn_state := connected},
@@ -2648,7 +2648,10 @@ send_searchgw_msg(Socket) ->
     Radius = 0,
     ok = gen_udp:send(Socket, ?HOST, ?PORT, <<Length:8, MsgType:8, Radius:8>>).
 
-make_connect_msg(ClientId, CleanSession) when
+make_connect_msg(ClientId, CleanSession) ->
+    make_connect_msg(ClientId, CleanSession, 10).
+
+make_connect_msg(ClientId, CleanSession, Duration) when
     CleanSession == 0;
     CleanSession == 1
 ->
@@ -2660,7 +2663,6 @@ make_connect_msg(ClientId, CleanSession) when
     Will = 0,
     TopicIdType = 0,
     ProtocolId = 1,
-    Duration = 10,
     <<Length:8, MsgType:8, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1, TopicIdType:2,
         ProtocolId:8, Duration:16, ClientId/binary>>.
 
@@ -2668,7 +2670,10 @@ send_connect_msg(Socket, ClientId) ->
     send_connect_msg(Socket, ClientId, 1).
 
 send_connect_msg(Socket, ClientId, CleanSession) ->
-    Packet = make_connect_msg(ClientId, CleanSession),
+    send_connect_msg(Socket, ClientId, CleanSession, 10).
+
+send_connect_msg(Socket, ClientId, CleanSession, Duration) ->
+    Packet = make_connect_msg(ClientId, CleanSession, Duration),
     ok = gen_udp:send(Socket, ?HOST, ?PORT, Packet).
 
 send_connect_msg_with_will(Socket, Duration, ClientId) ->
