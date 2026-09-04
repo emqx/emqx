@@ -597,7 +597,7 @@ handle_in(
         previous_state => ConnState,
         clientid => ClientId
     }),
-    Channel1 = cancel_timer(expire_asleep, Channel),
+    Channel1 = cancel_timer(keepalive, cancel_timer(expire_asleep, Channel)),
     handle_out(
         connack,
         ?SN_RC_ACCEPTED,
