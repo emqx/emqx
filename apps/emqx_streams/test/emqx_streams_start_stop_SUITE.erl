@@ -79,6 +79,8 @@ streams_initial_config(t_reverse_start) ->
     #{<<"streams">> => #{<<"enable">> => false}};
 streams_initial_config(t_reverse_stop) ->
     #{<<"streams">> => #{<<"enable">> => true}};
+streams_initial_config(t_reconcile_worker_crash) ->
+    #{<<"streams">> => #{<<"enable">> => false}};
 streams_initial_config(t_restart_during_stop) ->
     #{<<"streams">> => #{<<"enable">> => true}};
 streams_initial_config(t_cluster_runtime_enable) ->
@@ -272,6 +274,43 @@ t_reverse_stop(_Config) ->
     stopping = emqx_streams_controller:status(),
     Worker ! continue,
     started = emqx_streams_controller:wait_status(10_000),
+
+    true = meck:validate(emqx_streams_message_db).
+
+%% Verify that a worker crash starts the operation required by the latest target.
+t_reconcile_worker_crash(_Config) ->
+    TestPid = self(),
+    ok = meck:new(emqx_streams_message_db, [passthrough, no_history, no_link]),
+    on_exit(fun() -> meck:unload(emqx_streams_message_db) end),
+    ok = meck:expect(emqx_streams_message_db, open, fun() ->
+        TestPid ! {open_waiting, self()},
+        receive
+            crash -> meck:exception(error, test_worker_crash)
+        end
+    end),
+
+    ControllerPid = whereis(emqx_streams_controller),
+    ok = emqx_streams_controller:start_streams(),
+    Worker1 =
+        receive
+            {open_waiting, Pid1} -> Pid1
+        after 5_000 ->
+            ct:fail(open_not_reached)
+        end,
+    Worker1 ! crash,
+    Worker2 =
+        receive
+            {open_waiting, Pid2} -> Pid2
+        after 5_000 ->
+            ct:fail(start_not_retried)
+        end,
+    ?assertNotEqual(Worker1, Worker2),
+    ?assertEqual(ControllerPid, whereis(emqx_streams_controller)),
+
+    ok = emqx_streams_controller:stop_streams(),
+    Worker2 ! crash,
+    stopped = emqx_streams_controller:wait_status(5_000),
+    ?assertEqual(ControllerPid, whereis(emqx_streams_controller)),
 
     true = meck:validate(emqx_streams_message_db).
 

@@ -18,6 +18,7 @@ latest target.
 """.
 
 -include("emqx_streams_internal.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(gen_server).
 
@@ -147,9 +148,19 @@ handle_info(
     {noreply, operation_complete(Status, State#state{worker = undefined})};
 handle_info(
     {'EXIT', Pid, Reason},
-    State = #state{worker = #{pid := Pid, operation := Operation}}
+    State = #state{
+        target_status = TargetStatus,
+        worker = #{pid := Pid, operation := Operation}
+    }
 ) ->
-    {stop, {lifecycle_operation_failed, Operation, Reason}, State#state{worker = undefined}};
+    ?SLOG(warning, #{
+        msg => "streams_lifecycle_worker_crashed",
+        operation => Operation,
+        reason => Reason,
+        target_status => TargetStatus
+    }),
+    NewState = start_operation(target_operation(TargetStatus), State#state{worker = undefined}),
+    {noreply, NewState};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -163,10 +174,13 @@ terminate(Reason, State) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+%% Already in the desired state, no need to do anything
 set_target(TargetStatus, State = #state{target_status = TargetStatus, worker = undefined}) ->
     State;
+%% Not in desired state and no transition in progress, start transition
 set_target(TargetStatus, State = #state{worker = undefined}) ->
     start_operation(target_operation(TargetStatus), State#state{target_status = TargetStatus});
+%% Transition in progress, update target status
 set_target(TargetStatus, State) ->
     State#state{target_status = TargetStatus}.
 
@@ -208,7 +222,10 @@ stop_worker(#state{worker = #{pid := Pid}}) ->
     exit(Pid, shutdown),
     receive
         {'EXIT', Pid, _Reason} -> ok
-    end.
+    after 1_000 ->
+        exit(Pid, kill)
+    end,
+    ok.
 
 do_start_streams() ->
     ?tp(debug, streams_controller_start_streams, #{}),
@@ -220,7 +237,6 @@ do_start_streams() ->
     ok = emqx_streams_sup:start_gc_scheduler(),
     ok = emqx_streams:register_hooks(),
     ?tp(debug, streams_controller_start_streams_done, #{}),
-
     ok.
 
 do_stop_streams() ->
@@ -231,7 +247,6 @@ do_stop_streams() ->
     ok = emqx_streams_sup:stop_metrics(),
     _ = emqx_streams_message_db:close(),
     ?tp(debug, streams_controller_stop_streams_done, #{}),
-
     ok.
 
 need_start() ->

@@ -18,6 +18,7 @@ latest target.
 """.
 
 -include("emqx_mq_internal.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(gen_server).
 
@@ -147,9 +148,19 @@ handle_info(
     {noreply, operation_complete(Status, State#state{worker = undefined})};
 handle_info(
     {'EXIT', Pid, Reason},
-    State = #state{worker = #{pid := Pid, operation := Operation}}
+    State = #state{
+        target_status = TargetStatus,
+        worker = #{pid := Pid, operation := Operation}
+    }
 ) ->
-    {stop, {lifecycle_operation_failed, Operation, Reason}, State#state{worker = undefined}};
+    ?SLOG(warning, #{
+        msg => "mq_lifecycle_worker_crashed",
+        operation => Operation,
+        reason => Reason,
+        target_status => TargetStatus
+    }),
+    NewState = start_operation(target_operation(TargetStatus), State#state{worker = undefined}),
+    {noreply, NewState};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -211,11 +222,13 @@ stop_worker(#state{worker = #{pid := Pid}}) ->
     exit(Pid, shutdown),
     receive
         {'EXIT', Pid, _Reason} -> ok
-    end.
+    after 1_000 ->
+        exit(Pid, kill)
+    end,
+    ok.
 
 do_start_mqs() ->
     ?tp(debug, mq_controller_start_mqs, #{}),
-
     ok = emqx_mq_message_db:open(),
     ok = emqx_mq_state_storage:open_db(),
     ok = emqx_mq_sup:start_metrics(),
@@ -227,7 +240,6 @@ do_start_mqs() ->
     ok = emqx_topic:enable_queue_alias_to_share(false),
     ok = emqx_mq:register_hooks(),
     ?tp(debug, mq_controller_start_mqs_done, #{}),
-
     ok.
 
 do_stop_mqs() ->
@@ -240,7 +252,6 @@ do_stop_mqs() ->
     _ = emqx_mq_message_db:close(),
     _ = emqx_mq_state_storage:close_db(),
     ?tp(debug, mq_controller_stop_mqs_done, #{}),
-
     ok.
 
 need_start() ->
