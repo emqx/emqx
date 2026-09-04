@@ -161,8 +161,7 @@ groups() ->
         t_actions_field,
         t_update_with_failed_validation,
         t_create_with_failed_root_validation,
-        t_create_or_update_with_unexpected_error_term,
-        t_own_namespace_field_does_not_shadow_emqx_namespace
+        t_create_or_update_with_unexpected_error_term
     ],
     ClusterOnlyTests = [
         t_inconsistent_state,
@@ -1891,63 +1890,4 @@ t_namespaced_load_on_restart(TCConfig) ->
     ConnResId = emqx_connector_resource:resource_id(NS1, ConnectorType, ConnectorName1),
     ?assertMatch({ok, _, _}, ?ON(N1, emqx_resource:get_instance(ConnResId))),
 
-    ok.
-
--doc """
-The rocketmq connector schema defines its own top-level `namespace' config
-field, which used to collide with the EMQX namespace injected into API
-responses: both encoded to the JSON key "namespace" and clients kept the last
-one.  Checks that the response carries the key exactly once, holding the EMQX
-namespace, and that an update built from a `GET' body keeps the stored value.
-""".
-t_own_namespace_field_does_not_shadow_emqx_namespace(TCConfig) ->
-    Name = ?CONNECTOR_NAME,
-    OwnNamespace = <<"rmq-cn-fzh4bmq240a">>,
-    Config = #{
-        <<"type">> => <<"rocketmq">>,
-        <<"name">> => Name,
-        <<"enable">> => true,
-        <<"servers">> => <<"127.0.0.1:9876">>,
-        <<"namespace">> => OwnNamespace,
-        <<"access_key">> => <<"ak">>,
-        <<"secret_key">> => <<"sk">>
-    },
-    {ok, 201, _} = request(post, uri(["connectors"]), Config, TCConfig),
-    ConnectorId = emqx_connector_resource:connector_id(<<"rocketmq">>, Name),
-    {ok, 200, RawBody} = request(get, uri(["connectors", ConnectorId]), TCConfig),
-    %% The key must appear exactly once on the wire.  A duplicate is valid
-    %% Erlang but ambiguous JSON, and parsers keep the last occurrence.
-    ?assertEqual(
-        1,
-        length(binary:matches(RawBody, <<"\"namespace\":">>)),
-        #{raw_body => RawBody}
-    ),
-    %% and it must hold the EMQX namespace, which is `null' outside a
-    %% managed namespace.
-    ?assertMatch(#{<<"namespace">> := null}, emqx_utils_json:decode(RawBody)),
-    %% Read, change an unrelated field, write back: the connector's own
-    %% namespace must survive even though the body does not carry it.
-    Body0 = emqx_utils_json:decode(RawBody),
-    %% Drop the read-only metadata, as the dashboard does; note that
-    %% `namespace' is deliberately kept, carrying the `null' from the `GET'.
-    Body = maps:without(
-        [
-            <<"actions">>,
-            <<"sources">>,
-            <<"node">>,
-            <<"node_status">>,
-            <<"name">>,
-            <<"status">>,
-            <<"status_reason">>,
-            <<"type">>
-        ],
-        Body0
-    ),
-    {ok, 200, _} = request(
-        put, uri(["connectors", ConnectorId]), Body#{<<"pool_size">> => 16}, TCConfig
-    ),
-    ?assertMatch(
-        #{<<"namespace">> := OwnNamespace, <<"pool_size">> := 16},
-        emqx:get_raw_config([connectors, rocketmq, Name], #{})
-    ),
     ok.

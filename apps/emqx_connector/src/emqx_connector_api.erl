@@ -742,15 +742,7 @@ format_resource(
     Node
 ) ->
     ResourceData = lookup_channels(Namespace, Type, ConnectorName, ResourceData0),
-    RawConf1 = fill_defaults(Type, RawConf0),
-    %% The rocketmq connector schema defines its own top-level `namespace'
-    %% config field.  It has binary keys, while the EMQX namespace is merged in
-    %% below under an atom key.  Both encode to the JSON key "namespace", so the
-    %% response would carry that key twice and clients keep the last one.  Drop
-    %% the config field here so the single "namespace" key always holds the EMQX
-    %% namespace.  `restore_own_namespace/2' puts the stored value back when an
-    %% update omits it.
-    RawConf = maps:remove(<<"namespace">>, RawConf1),
+    RawConf = fill_defaults(Type, RawConf0),
     redact(
         maps:merge(
             RawConf#{
@@ -931,9 +923,7 @@ get_config(?global_ns, KeyPath, Default) ->
     emqx:get_config(KeyPath, Default).
 
 deobfuscate(Type, #{} = NewRawConf0, #{} = OldRawConf) ->
-    NewRawConf1 = restore_own_namespace(
-        emqx_utils:deobfuscate(NewRawConf0, OldRawConf), OldRawConf
-    ),
+    NewRawConf1 = emqx_utils:deobfuscate(NewRawConf0, OldRawConf),
     %% This is needed because MQTT connector has an array field which contains secrets
     %% within it, and `emqx_utils:deobfuscate` cannot handle general arrays, as there's no
     %% general way to map input configs (in which entries might have been added or removed
@@ -947,21 +937,6 @@ deobfuscate(Type, #{} = NewRawConf0, #{} = OldRawConf) ->
     end;
 deobfuscate(_Type, NewRawConf, _OldRawConf) ->
     NewRawConf.
-
-%% `format_resource/3' hides a connector's own `namespace' config field from API
-%% responses, so an update built from a `GET' body does not carry it.  Restore
-%% the stored value when the request omits it or sends it empty, so a read,
-%% modify and write back of an unrelated field keeps the namespace.
-restore_own_namespace(NewRawConf, OldRawConf) ->
-    case maps:get(<<"namespace">>, OldRawConf, <<>>) of
-        Stored when is_binary(Stored), Stored =/= <<>> ->
-            case maps:get(<<"namespace">>, NewRawConf, <<>>) of
-                <<>> -> NewRawConf#{<<"namespace">> => Stored};
-                _ -> NewRawConf
-            end;
-        _ ->
-            NewRawConf
-    end.
 
 deobfuscate_mqtt_connector(#{<<"static_clientids">> := _} = NewRawConf, OldRawConf) ->
     OldStaticClientidInfo = maps:get(<<"static_clientids">>, OldRawConf, []),
