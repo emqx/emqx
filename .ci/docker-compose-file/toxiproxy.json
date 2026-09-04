@@ -29,6 +29,12 @@
     "upstream": "mysql-tls:3306",
     "enabled": true
   },
+  {
+    "name": "mysql_nbe",
+    "listen": "0.0.0.0:3308",
+    "upstream": "mysql-nbe:3306",
+    "enabled": true
+  },
 
   {
     "name": "redis_single_tcp",
@@ -226,12 +232,6 @@
     "name": "gcp_emulator",
     "listen": "0.0.0.0:8085",
     "upstream": "gcp_emulator:8085",
-    "enabled": true
-  },
-  {
-    "name": "hstreamdb",
-    "listen": "0.0.0.0:6570",
-    "upstream": "hstreamdb:6570",
     "enabled": true
   },
   {
