@@ -152,19 +152,23 @@ emqx_mq_schema {
     auto_create {
         desc: """~
             Settings for automatically creating the Message Queue if it does not exist
-            when subscribing to the queue topic."""
+            when subscribing to the queue topic.
+            Automatic creation is disabled by default. Set either <code>regular</code> or
+            <code>lastvalue</code> to enable it. They cannot be enabled at the same time."""
         label: "Auto Create Settings"
     }
 
     auto_create_regular {
         desc: """~
-            Regular Message Queue settings for automatic creation"""
+            Regular Message Queue settings for automatic creation.
+            Set to <code>false</code> to not automatically create regular Message Queues."""
         label: "Auto Create Regular Settings"
     }
 
     auto_create_lastvalue {
         desc: """~
-            Last-Value Message Queue settings for automatic creation"""
+            Last-Value Message Queue settings for automatic creation.
+            Set to <code>false</code> to not automatically create Last-Value Message Queues."""
         label: "Auto Create Last-Value Settings"
     }
 
