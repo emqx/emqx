@@ -189,10 +189,14 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:jiffy), do: {:jiffy, "2.0.1", override: true}
 
+  # def common_dep(:grpc),
+  #   do:
+  #     {:grpc,
+  #      github: "emqx/grpc-erl", tag: "0.7.10", override: true, system_env: emqx_app_system_env()}
   def common_dep(:grpc),
     do:
       {:grpc,
-       github: "emqx/grpc-erl", tag: "0.7.10", override: true, system_env: emqx_app_system_env()}
+       path: "/emqx/_checkouts/grpc-erl", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
     do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-3", override: true}

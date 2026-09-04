@@ -48,7 +48,6 @@ init([]) ->
         period => 1
     },
     ChildSpecs = [],
-    ok = emqx_utils_ets:new(?META_TAB, [ordered_set, public]),
     {ok, {SupFlags, ChildSpecs}}.
 
 %%------------------------------------------------------------------------------
