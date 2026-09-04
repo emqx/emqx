@@ -2721,6 +2721,47 @@ t_asleep_test10_client_disconnect(_) ->
         gen_udp:close(Socket)
     end.
 
+t_connect_from_asleep_restarts_keepalive(_) ->
+    QoS = 1,
+    KeepaliveDuration = 1,
+    SleepDuration = 10,
+    WillTopic = <<"asleep/reconnect/keepalive/will">>,
+    WillPayload = <<10, 11, 12, 13, 14>>,
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    ClientId = ?CLIENTID,
+    ok = emqx_broker:subscribe(WillTopic),
+    try
+        send_connect_msg_with_will(Socket, KeepaliveDuration, ClientId),
+        ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
+        send_willtopic_msg(Socket, WillTopic, QoS),
+        ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),
+        send_willmsg_msg(Socket, WillPayload),
+        ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+
+        send_disconnect_msg(Socket, SleepDuration),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+
+        %% Let the original keepalive timer expire while the client is asleep.
+        timer:sleep(1500),
+        send_connect_msg(Socket, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket)),
+        ?assertMatch(
+            #{conn_state := connected},
+            emqx_gateway_cm:get_chan_info(mqttsn, ClientId)
+        ),
+
+        ?assertReceive({deliver, WillTopic, #message{payload = WillPayload}}, 5000),
+        ?retry(
+            50,
+            20,
+            ?assertEqual([], emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId))
+        )
+    after
+        ok = emqx_broker:unsubscribe(WillTopic),
+        _ = emqx_gateway_cm:discard_session(mqttsn, ClientId),
+        gen_udp:close(Socket)
+    end.
+
 t_asleep_test09_to_awake_again_qos1_dl_msg(_) ->
     QoS = 1,
     Duration = 5,
