@@ -479,10 +479,21 @@ setnok() ->
     put(bpapi_ok, false).
 
 dumps_dir() ->
-    filename:join(emqx_app_dir(), "test/emqx_static_checks_data").
+    filename:join(bpapi_app_dir(), "test/emqx_static_checks_data").
 
 versions_file() ->
     filename:join(emqx_app_dir(), "priv/bpapi.versions").
+
+%% The directory of the application this module belongs to.
+%% The per-release BPAPI dumps are stored there.
+bpapi_app_dir() ->
+    Info = ?MODULE:module_info(compile),
+    case proplists:get_value(source, Info) of
+        Source when is_list(Source) ->
+            filename:dirname(filename:dirname(Source));
+        undefined ->
+            "apps/emqx_bpapi"
+    end.
 
 emqx_app_dir() ->
     Info = ?MODULE:module_info(compile),
