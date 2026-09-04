@@ -28,6 +28,7 @@
 -define(MYSQL_USERNAME, "root").
 -define(MYSQL_PASSWORD, "public").
 -define(MYSQL_POOL_SIZE, 4).
+-define(UNSAFE_SQL_MODES, [<<"ANSI_QUOTES">>, <<"NO_BACKSLASH_ESCAPES">>]).
 
 -define(WORKER_POOL_SIZE, 1).
 
@@ -42,11 +43,19 @@
 all() ->
     [
         {group, tcp},
-        {group, tls}
+        {group, tls},
+        {group, tcp_nbe}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
+    SecurityCases = [
+        t_sql_injection_through_comment_placeholder,
+        t_sql_injection_through_no_backslash,
+        t_nbe_session_mode,
+        t_nbe_session_mode_after_reconnect
+    ],
+    RegularTCs = TCs -- SecurityCases,
     NonBatchCases = [
         t_write_timeout,
         t_uninitialized_prepared_statement,
@@ -63,12 +72,19 @@ groups() ->
     ],
     QueryModeGroups = [{group, async}, {group, sync}],
     [
-        {tcp, QueryModeGroups},
+        {tcp, QueryModeGroups ++ [{group, security_with_batch}]},
         {tls, QueryModeGroups},
+        {tcp_nbe, [{group, nbe_with_batch}]},
         {async, BatchingGroups},
         {sync, BatchingGroups},
-        {with_batch, TCs -- NonBatchCases},
-        {without_batch, TCs -- OnlyBatchCases}
+        {with_batch, RegularTCs -- NonBatchCases},
+        {without_batch, RegularTCs -- OnlyBatchCases},
+        {security_with_batch, [t_sql_injection_through_comment_placeholder]},
+        {nbe_with_batch, [
+            t_sql_injection_through_no_backslash,
+            t_nbe_session_mode,
+            t_nbe_session_mode_after_reconnect
+        ]}
     ].
 
 init_per_group(tcp, Config) ->
@@ -91,6 +107,16 @@ init_per_group(tls, Config) ->
         {proxy_name, "mysql_tls"}
         | Config
     ];
+init_per_group(tcp_nbe, Config) ->
+    MysqlHost = os:getenv("MYSQL_NBE_HOST", "toxiproxy"),
+    MysqlPort = list_to_integer(os:getenv("MYSQL_NBE_PORT", "3308")),
+    [
+        {mysql_host, MysqlHost},
+        {mysql_port, MysqlPort},
+        {enable_tls, false},
+        {proxy_name, "mysql_nbe"}
+        | Config
+    ];
 init_per_group(async, Config) ->
     [{query_mode, async} | Config];
 init_per_group(sync, Config) ->
@@ -101,10 +127,18 @@ init_per_group(with_batch, Config0) ->
 init_per_group(without_batch, Config0) ->
     Config = [{batch_size, 1} | Config0],
     common_init(Config);
+init_per_group(Group, Config0) when Group =:= security_with_batch; Group =:= nbe_with_batch ->
+    Config = [{batch_size, 100}, {query_mode, sync} | Config0],
+    common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
 
-end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
+end_per_group(Group, Config) when
+    Group =:= with_batch;
+    Group =:= without_batch;
+    Group =:= security_with_batch;
+    Group =:= nbe_with_batch
+->
     Apps = ?config(apps, Config),
     connect_and_drop_table(Config),
     ProxyHost = ?config(proxy_host, Config),
@@ -311,6 +345,9 @@ receive_result(Ref, Timeout) ->
     end.
 
 unprepare(Config, Key) ->
+    [ok = mysql:unprepare(Conn, Key) || Conn <- pool_connections(Config)].
+
+pool_connections(Config) ->
     Name = ?config(mysql_name, Config),
     BridgeType = ?config(mysql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
@@ -320,10 +357,32 @@ unprepare(Config, Key) ->
     [
         begin
             {ok, Conn} = ecpool_worker:client(Worker),
-            ok = mysql:unprepare(Conn, Key)
+            Conn
         end
      || {_Name, Worker} <- ecpool:workers(PoolName)
     ].
+
+assert_pool_session_modes(Config) ->
+    Connections = pool_connections(Config),
+    ?assertEqual(?MYSQL_POOL_SIZE, length(Connections)),
+    lists:foreach(
+        fun(Conn) -> ?assertEqual([], connection_session_modes(Conn)) end,
+        Connections
+    ),
+    Connections.
+
+connection_session_modes(Conn) ->
+    {ok, _, [[Modes]]} = mysql:query(Conn, <<"SELECT @@SESSION.sql_mode">>),
+    decode_sql_modes(Modes).
+
+direct_session_modes(Config) ->
+    {ok, _, [[Modes]]} = query_direct_mysql(Config, <<"SELECT @@SESSION.sql_mode">>),
+    decode_sql_modes(Modes).
+
+decode_sql_modes(<<>>) ->
+    [];
+decode_sql_modes(Modes) ->
+    lists:sort(binary:split(Modes, <<",">>, [global])).
 
 % We need to create and drop the test table outside of using bridges
 % since a bridge expects the table to exist when enabling it. We
@@ -715,6 +774,100 @@ t_nasty_sql_string(Config) ->
     ?assertMatch(
         {ok, [<<"payload">>], [[Payload]]},
         connect_and_get_payload(Config)
+    ).
+
+%% Checks rejection of batch SQL templates with a placeholder inside a comment.
+t_sql_injection_through_comment_placeholder(Config) ->
+    ok = query_direct_mysql(Config, <<"DROP TABLE IF EXISTS mqtt_users">>),
+    ok = query_direct_mysql(Config, <<
+        "CREATE TABLE mqtt_users (username varchar(255) NOT NULL, arrived datetime NOT NULL) "
+        "DEFAULT CHARSET=utf8MB4"
+    >>),
+    on_exit(fun() -> query_direct_mysql(Config, <<"DROP TABLE IF EXISTS mqtt_users">>) end),
+    SQL = <<
+        "INSERT INTO mqtt_users(username, arrived) "
+        "VALUES ('regular_user', NOW() /* ${payload} */)"
+    >>,
+    Overrides = #{<<"sql">> => SQL},
+    %% Batch templates containing comments must be rejected before rendering values into them.
+    ProbeResult = emqx_bridge_testlib:probe_bridge_api(Config, Overrides),
+    ?assertMatch(
+        {error, {{_, 400, _}, _, _}},
+        ProbeResult
+    ),
+    {error, {{_, 400, _}, _, ProbeBody}} = ProbeResult,
+    ?assertEqual(
+        match,
+        re:run(ProbeBody, <<"failed_to_prepare_statement">>, [{capture, none}])
+    ).
+
+%% Checks that payloads cannot inject rows when MySQL disables backslash escaping.
+t_sql_injection_through_no_backslash(Config) ->
+    ok = query_direct_mysql(Config, <<"DROP TABLE IF EXISTS mqtt_users">>),
+    ok = query_direct_mysql(Config, <<
+        "CREATE TABLE mqtt_users ("
+        "username varchar(255) NOT NULL, note varchar(255) NOT NULL, arrived datetime NOT NULL) "
+        "DEFAULT CHARSET=utf8MB4"
+    >>),
+    on_exit(fun() -> query_direct_mysql(Config, <<"DROP TABLE IF EXISTS mqtt_users">>) end),
+    ?assertEqual(?UNSAFE_SQL_MODES, direct_session_modes(Config)),
+    SQL = <<
+        "INSERT INTO mqtt_users(username, note, arrived) "
+        "VALUES ('regular_user', ${payload}, NOW())"
+    >>,
+    ?assertMatch({ok, _}, create_bridge(Config, #{<<"sql">> => SQL})),
+    %% Vulnerable backslash escaping lets this value inject a second row for `admin`.
+    Payload = <<"\\', NOW()),(CHAR(97,100,109,105,110),CHAR(112,119,110),NOW()) -- ">>,
+    {Result, {ok, _}} =
+        ?wait_async_action(
+            send_message(Config, #{payload => Payload}),
+            #{?snk_kind := mysql_connector_query_return},
+            10_000
+        ),
+    ?assertEqual(ok, Result),
+    ?assertEqual(
+        {ok, [<<"username">>, <<"note">>], [[<<"regular_user">>, Payload]]},
+        query_direct_mysql(Config, <<"SELECT username, note FROM mqtt_users">>)
+    ),
+    ?assertEqual(
+        {ok, [<<"username">>], []},
+        query_direct_mysql(Config, <<"SELECT username FROM mqtt_users WHERE username = 'admin'">>)
+    ).
+
+%% Checks that connector pool sessions remove unsafe MySQL SQL modes.
+t_nbe_session_mode(Config) ->
+    ?assertEqual(?UNSAFE_SQL_MODES, direct_session_modes(Config)),
+    ?assertMatch({ok, _}, create_bridge(Config)),
+    _ = assert_pool_session_modes(Config),
+    ok.
+
+%% Checks that replacement pool connections remove unsafe SQL modes after reconnecting.
+t_nbe_session_mode_after_reconnect(Config) ->
+    ?assertEqual(?UNSAFE_SQL_MODES, direct_session_modes(Config)),
+    ?assertMatch({ok, _}, create_bridge(Config)),
+    OldConnections = assert_pool_session_modes(Config),
+    ProxyName = ?config(proxy_name, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort),
+    ?retry(
+        100,
+        50,
+        ?assert(lists:all(fun(Conn) -> not is_process_alive(Conn) end, OldConnections))
+    ),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    ?retry(
+        500,
+        20,
+        begin
+            NewConnections = assert_pool_session_modes(Config),
+            ?assert(
+                lists:all(
+                    fun(Conn) -> not lists:member(Conn, OldConnections) end,
+                    NewConnections
+                )
+            )
+        end
     ).
 
 t_workload_fits_prepared_statement_limit(Config) ->

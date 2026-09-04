@@ -82,6 +82,8 @@ rebar-git-cache.tar
 .git/
 apps/emqx_utils/src/emqx_variform_parser.erl
 apps/emqx_utils/src/emqx_variform_scan.erl
+apps/*/src/*_sql_lexer.erl
+apps/*/src/*_sql_parser.erl
 default-profile.mk
 /_build.*
 __pycache__/

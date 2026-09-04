@@ -115,13 +115,13 @@ init_per_group(async, Config) ->
 init_per_group(sync, Config) ->
     [{query_mode, sync} | Config];
 init_per_group(with_batch, Config0) ->
-    Config = [{enable_batch, true}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
+    Config = [{batch_size, ?BATCH_SIZE}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
     common_init(Config);
 init_per_group(without_batch, Config0) ->
-    Config = [{enable_batch, false}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
+    Config = [{batch_size, 1}, {pool_size, ?WORKER_POOL_SIZE} | Config0],
     common_init(Config);
 init_per_group(health_check, Config0) ->
-    Config = [{query_mode, async}, {enable_batch, false}, {pool_size, 1} | Config0],
+    Config = [{query_mode, async}, {batch_size, 1}, {pool_size, 1} | Config0],
     common_init(Config);
 init_per_group(sync_no_batch, Config0) ->
     Config = [{query_mode, sync}, {enable_batch, false}, {pool_size, 1} | Config0],
@@ -210,6 +210,34 @@ t_undefined_vars_as_null(Config) ->
         create_bridge(Config, #{<<"undefined_vars_as_null">> => true})
     ),
     SentData = maps:put(payload, undefined, sent_data("tmp")),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertEqual(ok, send_message(Config, SentData)),
+                #{?snk_kind := sqlserver_connector_query_return},
+                10_000
+            ),
+            ?assertMatch(
+                [{null}],
+                connect_and_get_payload(Config)
+            ),
+            ok
+        end,
+        fun(Trace0) ->
+            Trace = ?of_kind(sqlserver_connector_query_return, Trace0),
+            ?assertMatch([#{result := ok}], Trace),
+            ok
+        end
+    ),
+    ok.
+
+%% Checks that a literal null payload is inserted as SQL NULL.
+t_null_value(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config, #{})
+    ),
+    SentData = maps:put(payload, null, sent_data("tmp")),
     ?check_trace(
         begin
             ?wait_async_action(
@@ -393,7 +421,7 @@ t_write_timeout(_Config) ->
     ok.
 
 t_simple_query(Config) ->
-    BatchSize = batch_size(Config),
+    BatchSize = ?config(batch_size, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
@@ -432,6 +460,31 @@ t_simple_query(Config) ->
         end
     ),
     ok.
+
+%% Checks that an injection payload remains one stored value in single and batch modes.
+t_sql_value_escaping(Config) ->
+    BatchSize = ?config(batch_size, Config),
+    SQL =
+        "insert into t_mqtt_msg(msgid, topic, qos, payload) "
+        "values (${id}, ${topic}, ${qos}, "
+        "CASE WHEN ${payload} = N'null' THEN NULL ELSE N'${payload}' END)",
+    ?assertMatch({ok, _}, create_bridge(Config, #{<<"sql">> => SQL})),
+    Payload = <<"x\\'); DROP TABLE mqtt.dbo.t_mqtt_msg; --">>,
+    Fillers = [integer_to_binary(N) || N <- lists:seq(2, BatchSize)],
+    Payloads = [Payload | Fillers],
+    BridgeType = ?config(sqlserver_bridge_type, Config),
+    Name = ?config(sqlserver_name, Config),
+    ActionId = emqx_bridge_v2:id(BridgeType, Name),
+    Requests = [{ActionId, sent_data(Value)} || Value <- Payloads],
+
+    ?wait_async_action(
+        [?assertEqual(ok, query_resource(Config, Request)) || Request <- Requests],
+        #{?snk_kind := sqlserver_connector_query_return},
+        10_000
+    ),
+    ?assertEqual(BatchSize, connect_and_get_count(Config)),
+    Rows = connect_and_get_payload(Config),
+    ?assert(lists:member({str(Payload)}, Rows)).
 
 -define(MISSING_TINYINT_ERROR,
     "[Microsoft][ODBC Driver 18 for SQL Server][SQL Server]"
@@ -556,8 +609,7 @@ common_init(ConfigT) ->
         {sqlserver_host, Host},
         {sqlserver_port, Port},
         %% see also for `proxy_name` : $PROJ_ROOT/.ci/docker-compose-file/toxiproxy.json
-        {proxy_name, "sqlserver"},
-        {batch_size, batch_size(ConfigT)}
+        {proxy_name, "sqlserver"}
         | ConfigT
     ],
     BridgeType = proplists:get_value(bridge_type, Config0, <<"sqlserver">>),
@@ -610,7 +662,7 @@ sqlserver_config(BridgeType, Config) ->
     Port = integer_to_list(?config(sqlserver_port, Config)),
     Server = ?config(sqlserver_host, Config) ++ ":" ++ Port,
     Name = atom_to_binary(?MODULE),
-    BatchSize = batch_size(Config),
+    BatchSize = ?config(batch_size, Config),
     QueryMode = ?config(query_mode, Config),
     Passfile = ?config(sqlserver_passfile, Config),
     PoolSize = ?config(pool_size, Config),
@@ -804,12 +856,6 @@ directly_query(Con, Query, Timeout) ->
 %%--------------------------------------------------------------------
 %% help functions
 %%--------------------------------------------------------------------
-
-batch_size(Config) ->
-    case ?config(enable_batch, Config) of
-        true -> ?BATCH_SIZE;
-        false -> 1
-    end.
 
 conn_str([], Acc) ->
     lists:join(";", ["Encrypt=YES", "TrustServerCertificate=YES" | Acc]);
