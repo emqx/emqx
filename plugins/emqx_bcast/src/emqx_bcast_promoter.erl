@@ -40,7 +40,14 @@
 %% batches becomes the shards' arrival order (within the concurrent
 %% window), which is not a tested property; the durability contract is
 %% unchanged (the mnesia commit is the durability point).
--define(PROMOTER_WORKERS, 4).
+%%
+%% The worker count follows schedulers_online (one per scheduler, matching
+%% the other pools where delivery_pool_size=0 means one per scheduler)
+%% instead of a hard-coded constant, so a bigger machine gets proportionally
+%% more promotion parallelism without a rebuild. The gen_server itself is
+%% worker 0, so the number of spawned siblings is one less.
+promoter_workers() ->
+    max(1, erlang:system_info(schedulers_online)).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -49,7 +56,7 @@ init([]) ->
     %% The gen_server is worker 0; the linked siblings run the same loop.
     %% A worker crash kills the link and the supervisor restarts the whole
     %% promoter (simplest safe recovery).
-    Workers = [spawn_link(fun() -> worker_loop(0) end) || _ <- lists:seq(1, ?PROMOTER_WORKERS - 1)],
+    Workers = [spawn_link(fun() -> worker_loop(0) end) || _ <- lists:seq(2, promoter_workers())],
     erlang:send_after(0, self(), drain),
     {ok, #{failures => 0, pending => undefined, workers => Workers}}.
 
