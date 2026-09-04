@@ -13,6 +13,10 @@ on:
       publish:
         required: true
         type: boolean
+      notarize:
+        required: false
+        type: boolean
+        default: false
       otp_vsn:
         required: true
         type: string
@@ -53,6 +57,10 @@ on:
         required: true
         default: 'emqx-enterprise'
       publish:
+        required: false
+        type: boolean
+        default: false
+      notarize:
         required: false
         type: boolean
         default: false
@@ -145,21 +153,29 @@ jobs:
         otp: ${{ matrix.otp }}
         elixir: ${{ matrix.elixir }}
         os: ${{ matrix.os }}
+        notarize: false
         apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ (matrix.os == 'macos-14') && secrets.APPLE_DEVELOPER_ID_BUNDLE || secrets.APPLE_DEVELOPER_ID_BUNDLE_NEW }}
         apple_developer_id_bundle_password: ${{ (matrix.os == 'macos-14') && secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD || secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD_NEW }}
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-      if: success()
+      if: success() && inputs.publish
+      with:
+        name: build-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
+        path: _packages/${{ matrix.profile }}/
+        retention-days: 7
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      if: success() && !inputs.publish
       with:
         name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
         path: _packages/${{ matrix.profile }}/
         retention-days: 7
 
-  test-mac:
+  finalize-mac:
     needs:
       - mac
       - prepare-matrix
+    if: inputs.publish
     strategy:
       fail-fast: false
       matrix:
@@ -176,19 +192,31 @@ jobs:
         ref: ${{ github.event.inputs.ref }}
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
-    - name: Test macOS package
+        name: build-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
+    - name: Finalize macOS package
+      shell: bash
+      env:
+        APPLE_SIGN_BINARIES: 1
+        APPLE_NOTARIZE_PACKAGE: ${{ inputs.notarize }}
+        APPLE_ID: developers@emqx.io
+        APPLE_TEAM_ID: 26N6HYJLZA
+        APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
       run: |
+        set -euo pipefail
         pkg_name=$(find . -mindepth 1 -maxdepth 1 -iname \*.zip)
-        mkdir emqx
-        unzip -d emqx $pkg_name > /dev/null
-        ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
-        ./scripts/test/emqx-smoke-test.sh 127.0.0.1 18083
-        ./emqx/bin/emqx ping
-        ./emqx/bin/emqx help
-        ./emqx/bin/emqx ctl status
-        ./emqx/bin/emqx eval 'emqx_conf:check_dynamic_desc()'
-        ./emqx/bin/emqx stop || cat emqx/log/erlang.log.1
+        if [ "${APPLE_NOTARIZE_PACKAGE}" = "true" ]; then
+          ./scripts/rel/macos-notarize-package.sh "$pkg_name"
+        else
+          echo "Skipping macOS package notarization for this ref"
+        fi
+        openssl dgst -sha256 "$pkg_name" | cut -d ' ' -f 2 > "$pkg_name.sha256"
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
+        path: |
+          *.zip
+          *.zip.sha256
+        retention-days: 7
 
   linux:
     needs: prepare-matrix
@@ -338,8 +366,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - plugins-linux-debian13-amd64
-      - mac
-      - test-mac
+      - finalize-mac
       - linux
       - snap
     if: inputs.publish
@@ -358,7 +385,7 @@ jobs:
       with:
         name: plugins
         path: packages/plugins
-    - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+    - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

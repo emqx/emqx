@@ -3,29 +3,24 @@ description: 'Build MacOS package for emqx or emqx-enterprise'
 inputs:
   profile: # emqx, emqx-enterprise
     required: true
-    type: string
   otp:
     required: true
-    type: string
   elixir:
     required: true
-    type: string
   os:
     required: false
-    type: string
     default: macos-15
   apple_id_password:
     required: false
-    type: string
   apple_developer_identity:
     required: false
-    type: string
   apple_developer_id_bundle:
     required: false
-    type: string
   apple_developer_id_bundle_password:
     required: false
-    type: string
+  notarize:
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -41,6 +36,7 @@ runs:
         PROFILE: ${{ inputs.profile }}
         OTP_VERSION: ${{ inputs.otp }}
         APPLE_SIGN_BINARIES: 1
+        APPLE_NOTARIZE_PACKAGE: ${{ inputs.notarize }}
         APPLE_ID: developers@emqx.io
         APPLE_TEAM_ID: 26N6HYJLZA
         APPLE_ID_PASSWORD: ${{ inputs.apple_id_password }}
@@ -52,7 +48,21 @@ runs:
         erl -s init stop
         elixir -e "System.version() |> IO.puts()"
         # needed by greptimedb-ingester-erlnif
-        brew install protobuf
+        if ! command -v protoc >/dev/null 2>&1; then
+          brew install protobuf
+        fi
+        if ! command -v gsha256sum >/dev/null 2>&1; then
+          brew install coreutils
+        fi
+        for coreutils_bin in \
+          /opt/homebrew/opt/coreutils/libexec/gnubin \
+          /usr/local/opt/coreutils/libexec/gnubin
+        do
+          if [ -d "$coreutils_bin" ]; then
+            export PATH="$coreutils_bin:$PATH"
+          fi
+        done
+        sha256sum --version | head -1 || true
         make ensure-rebar3
         mkdir -p $HOME/bin
         cp rebar3 $HOME/bin/rebar3
@@ -76,6 +86,7 @@ runs:
         ./emqx/bin/emqx ping
         ./emqx/bin/emqx help
         ./emqx/bin/emqx ctl status
+        ./emqx/bin/emqx eval 'emqx_conf:check_dynamic_desc()'
         ./emqx/bin/emqx stop
     - name: show logs
       shell: bash

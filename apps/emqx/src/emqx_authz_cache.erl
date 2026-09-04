@@ -275,6 +275,7 @@ keys_queue_remove(Key, KeysQ) ->
 keys_queue_set(KeysQ) ->
     erlang:put(authz_keys_q, KeysQ),
     ok.
+
 keys_queue_get() ->
     case erlang:get(authz_keys_q) of
         undefined -> queue:new();
