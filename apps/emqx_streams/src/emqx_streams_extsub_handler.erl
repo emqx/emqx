@@ -105,8 +105,7 @@ DS streams are explicity called `DS streams' here.
     status :: status(),
     %% Subscriptions to streams by their subscription ID in emqx_ds_client
     %% (Note that stream here means EMQX Streams, not a single DS stream).
-    %% There may be multiple subscriptions to the same stream by different topics, like
-    %% "$s/earliest/t/#" and "$sp/0/latest/t/#".
+    %% There may be multiple subscriptions to the same stream by different topic filters.
     ds_subs :: #{ds_sub_id() => stream_state()},
     by_topic_filter :: #{emqx_types:topic() => ds_sub_id()},
     %% Topics that correspond to unknown or deleted streams
@@ -579,12 +578,6 @@ validate_new_topic_filter(
         false -> ok
     end.
 
-split_topic_filter(TopicFilter) ->
-    case binary:split(TopicFilter, <<"/">>) of
-        [First, Rest] -> {ok, First, Rest};
-        _ -> ?err_unrec(invalid_topic_filter)
-    end.
-
 split_name_topic(NameTopic) ->
     case binary:split(NameTopic, <<"/">>) of
         [Name, Topic] -> {Name, Topic};
@@ -816,18 +809,6 @@ check_active_streams_status(
     #h{state = State} = Handler,
     Handler#h{state = State#state{unknown_topic_filters = UnknownTopicFilters}}.
 
-check_stream_subscribe_topic_filter(Ctx, <<"$s/", TopicFilter0/binary>> = FullTopicFilter) ->
-    maybe
-        ok ?= validate_protocol(Ctx),
-        {ok, StartFrom, TopicFilter} ?= split_topic_filter(TopicFilter0),
-        Name = emqx_streams_prop:default_name_from_topic(TopicFilter),
-        {ok, #subscribe_params{
-            name = Name,
-            start_from = StartFrom,
-            topic_filter = TopicFilter,
-            full_topic_filter = FullTopicFilter
-        }}
-    end;
 check_stream_subscribe_topic_filter(Ctx, <<"$stream/", NameTopicFilter/binary>> = FullTopicFilter) ->
     SubOpts = maps:get(subopts, Ctx, #{}),
     SubProps = maps:get(sub_props, SubOpts, #{}),
