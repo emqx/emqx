@@ -10,6 +10,11 @@ Enables and disables its integration into the EMQX.
 
 Lifecycle operations run in a linked worker so the controller can accept
 target changes while startup or shutdown is in progress.
+
+The controller does not cancel the current lifecycle operation when the target
+changes. It lets the operation complete before it starts the operation for the
+new target. Therefore, `status/0` may briefly report a state opposite to the
+latest target.
 """.
 
 -include("emqx_mq_internal.hrl").
