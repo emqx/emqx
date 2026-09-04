@@ -30,7 +30,6 @@ restart_pools(PoolSize) ->
                 restart_pool_child(ChildId, PoolSize)
              || ChildId <- [
                     bcast_pull_pool_sup,
-                    bcast_ack_pool_sup,
                     bcast_pull_server_pool_sup
                 ]
             ],
@@ -84,10 +83,14 @@ init([]) ->
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 3600},
     PoolSize = pool_size(),
     Core = emqx_bcast:is_core(),
+    %% ack work is NOT executed in a shared worker pool: pull_server_pool runs
+    %% ack batches in short-lived spawns bounded by its own ack_cap (=schedulers)
+    %% because each ack needs a completion notification back to the coordinator
+    %% (round-robin emqx_pool tasks have no per-task callback). A dedicated
+    %% bcast_ack_pool_sup existed but nothing ever submitted to it.
     Children =
         [
-            pool_spec(bcast_pull_pool_sup, PoolSize),
-            pool_spec(bcast_ack_pool_sup, PoolSize)
+            pool_spec(bcast_pull_pool_sup, PoolSize)
         ] ++
             core_pool_specs(Core, PoolSize) ++
             [
@@ -179,7 +182,6 @@ pool_spec(ChildId, PoolSize) ->
     PoolName =
         case ChildId of
             bcast_pull_pool_sup -> emqx_bcast_pull_worker_pool;
-            bcast_ack_pool_sup -> emqx_bcast_ack_worker_pool;
             bcast_pull_server_pool_sup -> emqx_bcast_pull_server_worker_pool
         end,
     emqx_pool_sup:spec(ChildId, permanent, [
