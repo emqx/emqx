@@ -50,7 +50,7 @@ The module is responsible for scheduling garbage collection of Stream data.
 -spec child_spec() -> supervisor:child_spec().
 child_spec() ->
     #{
-        id => ?MODULE,
+        id => ?STREAMS_GC_SCHEDULER,
         start => {?MODULE, start_link, []},
         restart => permanent,
         shutdown => 5000,
@@ -60,15 +60,15 @@ child_spec() ->
 
 -spec start_link() -> gen_server:start_ret().
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_server:start_link({local, ?STREAMS_GC_SCHEDULER}, ?MODULE, [], []).
 
 -spec gc() -> ok.
 gc() ->
-    gen_server:cast(?MODULE, #gc{}).
+    gen_server:cast(?STREAMS_GC_SCHEDULER, #gc{}).
 
 -spec reschedule(pos_integer()) -> ok.
 reschedule(IntervalMs) ->
-    gen_server:cast(?MODULE, #reschedule{interval_ms = IntervalMs}).
+    gen_server:cast(?STREAMS_GC_SCHEDULER, #reschedule{interval_ms = IntervalMs}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

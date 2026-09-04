@@ -4,6 +4,8 @@
 
 -module(emqx_mq_metrics).
 
+-include("emqx_mq_internal.hrl").
+
 -export([
     child_spec/0,
     inc/2,
@@ -26,8 +28,6 @@
     print_common_hists/1,
     print_flush_quota_hist/0
 ]).
-
--define(MQ_METRICS_WORKER, mq_metrics).
 
 -define(LATENCY_BUCKETS, [
     2,
