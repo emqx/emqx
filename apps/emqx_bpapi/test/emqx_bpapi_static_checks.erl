@@ -65,7 +65,32 @@
     emqx_bridge_proto_v7,
     emqx_license_proto_v1,
     emqx_mgmt_trace_proto_v1,
-    emqx_mgmt_api_relup_proto_v1
+    emqx_mgmt_api_relup_proto_v1,
+    %% Superseded before 5.8.0; no supported peer selects these versions:
+    emqx_cm_proto_v1,
+    emqx_cm_proto_v2,
+    emqx_conf_proto_v1,
+    emqx_conf_proto_v2,
+    emqx_conf_proto_v3,
+    emqx_delayed_proto_v1,
+    emqx_delayed_proto_v2,
+    emqx_eviction_agent_proto_v1,
+    emqx_eviction_agent_proto_v2,
+    emqx_management_proto_v1,
+    emqx_management_proto_v2,
+    emqx_management_proto_v3,
+    emqx_management_proto_v4,
+    emqx_metrics_proto_v1,
+    emqx_mgmt_api_plugins_proto_v1,
+    emqx_mgmt_api_plugins_proto_v2,
+    emqx_mgmt_cluster_proto_v1,
+    emqx_node_rebalance_proto_v1,
+    emqx_node_rebalance_proto_v2,
+    emqx_node_rebalance_api_proto_v1,
+    emqx_node_rebalance_status_proto_v1,
+    emqx_plugins_proto_v1,
+    emqx_prometheus_proto_v1,
+    emqx_resource_proto_v1
 ]).
 -define(FORCE_DELETED_APIS, [
     {emqx_statsd, 1},
@@ -93,7 +118,32 @@
     {emqx_bridge, 7},
     {emqx_license, 1},
     {emqx_mgmt_trace, 1},
-    {emqx_mgmt_api_relup, 1}
+    {emqx_mgmt_api_relup, 1},
+    %% Superseded before 5.8.0; no supported peer selects these versions:
+    {emqx_cm, 1},
+    {emqx_cm, 2},
+    {emqx_conf, 1},
+    {emqx_conf, 2},
+    {emqx_conf, 3},
+    {emqx_delayed, 1},
+    {emqx_delayed, 2},
+    {emqx_eviction_agent, 1},
+    {emqx_eviction_agent, 2},
+    {emqx_management, 1},
+    {emqx_management, 2},
+    {emqx_management, 3},
+    {emqx_management, 4},
+    {emqx_metrics, 1},
+    {emqx_mgmt_api_plugins, 1},
+    {emqx_mgmt_api_plugins, 2},
+    {emqx_mgmt_cluster, 1},
+    {emqx_node_rebalance, 1},
+    {emqx_node_rebalance, 2},
+    {emqx_node_rebalance_api, 1},
+    {emqx_node_rebalance_status, 1},
+    {emqx_plugins, 1},
+    {emqx_prometheus, 1},
+    {emqx_resource, 1}
 ]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
