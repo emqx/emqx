@@ -7,6 +7,10 @@
 -include_lib("emqx/include/logger.hrl").
 %% API
 -export([log/2, log_fun/0, importance/1]).
+%% Exported for direct unit testing of the redaction/shape logic
+%% below, without going through the ?AUDIT macro (which writes to
+%% mnesia and needs the whole app booted).
+-export([log_meta/3]).
 
 %% In the previous versions,
 %% this module used the request method to determine whether the request should be logged,
@@ -65,7 +69,20 @@ log_meta(Importance, Meta, Req) ->
                 operation_result => operation_result(Code, Meta),
                 node => node()
             },
-            Meta2 = maps:without([req_start, req_end, method, headers, body, bindings, code], Meta),
+            Meta2 = maps:without(
+                [
+                    req_start,
+                    req_end,
+                    method,
+                    headers,
+                    body,
+                    bindings,
+                    code,
+                    query_string,
+                    namespace
+                ],
+                Meta
+            ),
             emqx_utils:redact(maps:merge(Meta2, Meta1))
     end.
 
@@ -121,17 +138,38 @@ operation_type(Meta) ->
     end.
 
 http_request(Meta) ->
-    case maps:with([method, headers, bindings, body], Meta) of
-        #{body := Body} = Request when is_binary(Body) ->
-            Request#{body => <<"******">>};
-        #{body := _} = Request ->
-            case is_sensitive_body_operation(Meta) of
-                true -> Request#{body => <<"******">>};
-                false -> Request
-            end;
-        Request ->
-            Request
-    end.
+    Request0 =
+        case maps:with([method, headers, bindings, body], Meta) of
+            #{body := Body} = Request when is_binary(Body) ->
+                Request#{body => <<"******">>};
+            #{body := _} = Request ->
+                case is_sensitive_body_operation(Meta) of
+                    true -> Request#{body => <<"******">>};
+                    false -> Request
+                end;
+            Request ->
+                Request
+        end,
+    %% `query_string' is the parsed request query params (a map, not a raw
+    %% binary), so the `emqx_utils:redact/1' call at the end of `log_meta/3'
+    %% can see the keys and redact sensitive ones by name, same as it does
+    %% for `headers' and `body' above.
+    Request1 = maybe_put(
+        query_string, non_empty_map(maps:get(query_string, Meta, undefined)), Request0
+    ),
+    %% `namespace' is the resolved target namespace, set by handlers that
+    %% call `minirest_handler:update_log_meta/1' (see emqx_topic_metrics2_api
+    %% for an example). It is not always the same as the `ns' query param:
+    %% a namespaced admin's namespace comes from their dashboard token, not
+    %% from the request, so recording it here also covers requests with no
+    %% `ns' query param at all.
+    maybe_put(namespace, maps:get(namespace, Meta, undefined), Request1).
+
+maybe_put(_Key, undefined, Map) -> Map;
+maybe_put(Key, Value, Map) -> Map#{Key => Value}.
+
+non_empty_map(Map) when is_map(Map), map_size(Map) > 0 -> Map;
+non_empty_map(_) -> undefined.
 
 %% Endpoints whose request body carries a secret under a key name that
 %% the generic key-name based redaction does not cover.

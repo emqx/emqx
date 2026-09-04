@@ -664,6 +664,7 @@ t_rebalance_chaotic_converges(Config) ->
     %% allocation will converge to the target state.
     NMsgs = 400,
     Nodes = [N1, N2, N3] = ?config(nodes, Config),
+    NodeStream = emqx_utils_stream:repeat(emqx_utils_stream:list(Nodes)),
     Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
     NClients = 5,
     {Stream0, TopicStreams} = emqx_ds_test_helpers:interleaved_topic_messages(
@@ -723,7 +724,14 @@ t_rebalance_chaotic_converges(Config) ->
             ),
 
             %% Store the messages + chaotically change the membership.
-            emqx_ds_raft_test_helpers:apply_stream(?DB, Nodes, Stream),
+            emqx_ds_raft_test_helpers:apply_stream(?DB, NodeStream, Stream, 0, #{
+                %% race condition flakiness: since the membership is changing during this
+                %% test, it may happen that the otx leader changes just as we attempt to
+                %% dirty append a message.  this is classified as an unrecoverable error
+                %% which is usually not retried by the test helpers, hence this option to
+                %% avoid retrying all the application's test suites in CI.
+                should_retry_not_the_leader => true
+            }),
 
             %% Wait for the last transition to complete.
             ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),

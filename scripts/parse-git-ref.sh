@@ -32,6 +32,7 @@ is_latest_stable() {
 }
 
 PROFILE=emqx-enterprise
+OFFICIAL_RELEASE=false
 
 if [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+$ ]]; then
     RELEASE=true
@@ -44,9 +45,11 @@ elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
     LATEST=false
 elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+$ ]]; then
     RELEASE=true
+    OFFICIAL_RELEASE=true
     LATEST=$(is_latest_stable "$1")
 elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-patch\.[0-9]+$ ]]; then
     RELEASE=true
+    OFFICIAL_RELEASE=true
     LATEST=false
 elif [[ $1 =~ ^refs/tags/.+ ]]; then
     echo "Unrecognized tag: $1" 1>&2
@@ -66,5 +69,5 @@ else
 fi
 
 cat <<EOF
-{"profile": "$PROFILE", "release": $RELEASE, "latest": $LATEST}
+{"profile": "$PROFILE", "release": $RELEASE, "latest": $LATEST, "official_release": $OFFICIAL_RELEASE}
 EOF

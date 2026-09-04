@@ -237,7 +237,7 @@ if [ -f "$RELUP_PATH/current" ]; then
     exec "$RELUP_PATH/$TARGET_VSN"/bin/emqx "$@"
 fi
 
-# Turn off debug: the sourced files may set secrets such as
+# Turn off debug: the sourced file may set secrets such as
 # EMQX_NODE_COOKIE, which must not be traced by 'set -x'.
 set +x
 # shellcheck disable=SC1090,SC1091
@@ -752,6 +752,9 @@ generate_config() {
     ## read lines from generated vm.<time>.args file
     ## drop comment lines, and empty lines using sed
     ## pipe the lines to a while loop
+    ## Turn off debug: the generated args contain the '-setcookie' line,
+    ## which must not be traced by 'set -x'.
+    set +x
     sed '/^#/d' "$ARGS_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
         ## in the loop, split the 'key[:space:]value' pair
         ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
@@ -770,6 +773,7 @@ generate_config() {
             fi
         fi
     done
+    if [ "$DEBUG" -gt 0 ]; then set -x; fi
     echo "$name_type $node_name" >> "$TMP_ARG_FILE"
     echo "-mnesia dir '\"$DATA_DIR/mnesia/$NAME\"'" >> "$TMP_ARG_FILE"
     ## rename the generated vm.<time>.args file
