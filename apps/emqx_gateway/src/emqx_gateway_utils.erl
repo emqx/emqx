@@ -44,6 +44,7 @@ Utility functions for EMQX gateway.
     apply/2,
     parse_listenon/1,
     unix_ts_to_rfc3339/2,
+    validate_listener_id/3,
     listener_id/3,
     listener_name_from_id/1,
     parse_listener_id/1,
@@ -78,6 +79,7 @@ Utility functions for EMQX gateway.
 
 -define(ACTIVE_N, 10).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
+-define(MAX_LISTENER_ID_BYTES, 64).
 -define(DEFAULT_GC_OPTS, #{count => 1000, bytes => 1024 * 1024}).
 -define(DEFAULT_OOM_POLICY, #{
     max_heap_size => 4194304,
@@ -416,6 +418,15 @@ parse_listenon(Str) when is_list(Str) ->
                 {ok, R} -> R;
                 {error, _} -> error({invalid_listenon_name, Str})
             end
+    end.
+
+validate_listener_id(GwName, Type, LisName) ->
+    Id = <<(bin(GwName))/binary, ":", (bin(Type))/binary, ":", (bin(LisName))/binary>>,
+    case byte_size(Id) =< ?MAX_LISTENER_ID_BYTES of
+        true ->
+            ok;
+        false ->
+            error({listener_id_too_long, ?MAX_LISTENER_ID_BYTES})
     end.
 
 listener_id(GwName, Type, LisName) ->

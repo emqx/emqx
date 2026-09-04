@@ -484,6 +484,8 @@ reason2msg(
     );
 reason2msg({bad_ssl_config, Reason}) ->
     fmtstr("Bad TLS configuration: ~0p", [Reason]);
+reason2msg({listener_id_too_long, MaxBytes}) ->
+    fmtstr("Listener ID must not exceed ~B bytes", [MaxBytes]);
 reason2msg(
     {#{roots := [{gateway, _}]}, [_ | _]} = Error
 ) ->

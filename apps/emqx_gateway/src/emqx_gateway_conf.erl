@@ -413,6 +413,7 @@ pre_config_update(?GATEWAY, {unload_gateway, GwName}, RawConf) ->
 pre_config_update(?GATEWAY, {add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
     case get_listener(GwName, LType, LName, RawConf) of
         undefined ->
+            ok = emqx_gateway_utils:validate_listener_id(GwName, LType, LName),
             NConf = convert_certs(certs_dir(GwName), Conf),
             NListener = #{LType => #{LName => NConf}},
             {ok,

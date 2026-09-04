@@ -453,6 +453,26 @@ t_listeners_tcp(_) ->
     {404, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def"),
     ok.
 
+t_listener_id_too_long(_) ->
+    {204, _} = request(put, "/gateways/stomp", #{}),
+    ListenerName = binary:copy(<<"a">>, 55),
+    ListenerConf = #{
+        name => ListenerName,
+        type => <<"tcp">>,
+        bind => <<"127.0.0.1:61613">>
+    },
+    {400, #{code := <<"BAD_REQUEST">>, message := Message}} = request(
+        post, "/gateways/stomp/listeners", ListenerConf
+    ),
+    ?assertEqual(<<"Listener ID must not exceed 64 bytes">>, Message),
+    {200, []} = request(get, "/gateways/stomp/listeners"),
+    ?assertEqual(ok, emqx_gateway_utils:validate_listener_id(stomp, tcp, binary:copy(<<"a">>, 54))),
+    ?assertError(
+        {listener_id_too_long, 64},
+        emqx_gateway_utils:validate_listener_id(stomp, tcp, binary:copy(<<"a">>, 55))
+    ),
+    ok.
+
 t_listeners_max_conns(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
     {200, []} = request(get, "/gateways/stomp/listeners"),

@@ -86,14 +86,16 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
         _ = checks([<<"type">>, <<"name">>, <<"bind">>], LConf),
 
         Type = binary_to_existing_atom(maps:get(<<"type">>, LConf)),
-        LName = binary_to_atom(maps:get(<<"name">>, LConf)),
+        LNameBin = maps:get(<<"name">>, LConf),
+        %% Validate the complete listener ID before converting the user input
+        %% to an atom.  The atom conversion has a VM-level length limit.
+        ok = emqx_gateway_utils:validate_listener_id(GwName, Type, LNameBin),
+        LName = binary_to_atom(LNameBin),
+        ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
 
         Path = [listeners, Type, LName],
         case emqx_utils_maps:deep_get(Path, RunningConf, undefined) of
             undefined ->
-                ListenerId = emqx_gateway_utils:listener_id(
-                    GwName, Type, LName
-                ),
                 {ok, RespConf} = emqx_gateway_http:add_listener(
                     ListenerId, LConf
                 ),
