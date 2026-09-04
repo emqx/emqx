@@ -85,10 +85,12 @@
 %% Shards are placed round-robin across the RUNNING core nodes (each core
 %% runs all SHARD_COUNT processes, only its assigned subset activates), so
 %% the index work fans out over all cores instead of one owner node.
-%% 4 (2 per core) keeps the per-batch claim/ack groups coarse; 16 made
-%% each 10ms batch split into ~4.5 entries per shard, multiplying the
-%% per-message RPC/scheduling cost.
--define(SHARD_COUNT, 8).
+%% 12 divides evenly across 2/3/4/6 core nodes (6/4/3/2 shards per node);
+%% 16 made each 10ms batch split into ~4.5 entries per shard, multiplying
+%% the per-message RPC/scheduling cost. Per-device hash (shard_of/1) must
+%% stay stable across node counts, so this constant is fixed, not sized by
+%% schedulers.
+-define(SHARD_COUNT, 12).
 
 %% How long a pending (claimed but not acked/released) entry stays excluded
 %% from claims. Same value as the historical mnesia claim lease.
