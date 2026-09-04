@@ -20,7 +20,7 @@ end_per_suite(_Config) ->
         asciiart:visible(
             $=,
             "If this test suite failed, and you are unsure why, read this:~n"
-            "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md",
+            "https://github.com/emqx/emqx/blob/master/apps/emqx_bpapi/README.md",
             []
         )
     ).

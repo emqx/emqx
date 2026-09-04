@@ -17,6 +17,6 @@
 %% hyphen.
 
 %% NOTE: Also make sure to follow the instructions in end of
-%% `apps/emqx/src/bpapi/README.md'
+%% `apps/emqx_bpapi/README.md'
 
 -define(EMQX_RELEASE_EE, "6.0.3").
