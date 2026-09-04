@@ -9,7 +9,7 @@
 -export([
     start_link/1,
 
-    acked/3,
+    acked/2,
     errored/3,
     serde_updated/2,
     ingest_record_batch_sync/3,
@@ -18,10 +18,9 @@
 
 %% Internal exports
 -export([sync_reply_delegator/2]).
--export([unregister_stream/2]).
 -export([where/2]).
 -export([gproc_name/2]).
--export([grpc_recv_single_resp1/2]).
+-export([grpc_reply_callback/3]).
 
 %% `gen_server' API
 -export([
@@ -50,7 +49,7 @@
 %% calls/casts/infos/continues
 -record(open_stream, {}).
 -record(ingest_record_batch_async, {records :: [binary()], reply_fn}).
--record(acked, {n_restarts, last_acked_seq}).
+-record(acked, {n_restarts}).
 -record(errored, {n_restarts, error}).
 -record(serde_updated, {serde_name}).
 
@@ -69,6 +68,8 @@
 -define(proto_record_type, 1).
 -define(json_record_type, 2).
 
+-define(SEQ_ATOMIC_IDX, 1).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -80,8 +81,8 @@ start_link(Opts) ->
 where(Pool, Idx) ->
     gproc_pool:whereis_worker(Pool, {Pool, Idx}).
 
-acked(Pid, NRestarts, LastAckedSeq) ->
-    gen_server:cast(Pid, #acked{n_restarts = NRestarts, last_acked_seq = LastAckedSeq}).
+acked(Pid, NRestarts) ->
+    gen_server:cast(Pid, #acked{n_restarts = NRestarts}).
 
 errored(Pid, NRestarts, Error) ->
     gen_server:cast(Pid, #errored{n_restarts = NRestarts, error = Error}).
@@ -145,7 +146,7 @@ init(Opts) ->
         action_res_id := ActionResId,
         pool := Pool,
         client_pool := ClientPool,
-        recv_pool := RecvPool,
+        %% recv_pool := RecvPool,
         idx := Idx,
         record := Record,
         catalog := Catalog,
@@ -156,7 +157,6 @@ init(Opts) ->
     } = Opts,
     true = gproc_pool:connect_worker(Pool, {Pool, Idx}),
     ?tp("zerobus_writer_init_will_clear_old_stream", #{}),
-    NRestarts = clear_old_stream(ActionResId, Idx),
     TableFQN = fmt("${c}.${s}.${t}", #{
         c => Catalog,
         s => Schema,
@@ -167,14 +167,15 @@ init(Opts) ->
         ?idx => Idx,
         ?pool => Pool,
         ?open_stream_retry_interval => OpenStreamRetryInterval,
-        ?n_restarts => NRestarts,
+        ?n_restarts => -1,
         ?seq => 0,
         ?acked => -1,
+        ?atomics_ref => ?undefined,
         ?stream => ?undefined,
         ?recv_handle => ?undefined,
         ?callers => gb_trees:empty(),
         ?client_pool => ClientPool,
-        ?recv_pool => RecvPool,
+        %% ?recv_pool => RecvPool,
         ?request_ttl => RequestTTL,
         ?record => Record,
         ?catalog => Catalog,
@@ -185,9 +186,8 @@ init(Opts) ->
     {ok, State, {continue, #open_stream{}}}.
 
 terminate(_Reason, State) ->
-    #{?action_res_id := ActionResId, ?pool := Pool, ?idx := Idx} = State,
+    #{?pool := Pool, ?idx := Idx} = State,
     gproc_pool:disconnect_worker(Pool, {Pool, Idx}),
-    unregister_stream(ActionResId, Idx),
     _ = ensure_stream_closed(State),
     ok.
 
@@ -199,11 +199,10 @@ handle_continue(#open_stream{}, State0) ->
 handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
-handle_cast(#acked{n_restarts = NRestarts, last_acked_seq = LastAckedSeq}, State0) ->
-    State = handle_acked(NRestarts, LastAckedSeq, State0),
+handle_cast(#acked{n_restarts = NRestarts}, State0) ->
+    State = handle_acked(NRestarts, State0),
     {noreply, State};
 handle_cast(#errored{n_restarts = NRestarts, error = Error}, State0) ->
-    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{e => Error}]),
     case handle_errored(NRestarts, Error, State0) of
         {?continue, State} ->
             {noreply, State};
@@ -228,14 +227,12 @@ handle_cast(_Cast, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', Handle, _, _, Reason}, #{?recv_handle := {_, Handle}} = State0) ->
-    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{raw => Reason}]),
     State1 = State0#{?recv_handle := ?undefined},
-    State = handle_grpc_reply(Reason, State1),
+    State = handle_open_stream_reply(Reason, State1),
     {noreply, State};
 handle_info({grpc_reply, Handle, ResRaw}, #{?recv_handle := {Stream, Handle}} = State0) ->
-    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{raw => ResRaw}]),
     State1 = State0#{?recv_handle := ?undefined},
-    State = handle_grpc_reply({ok, {ResRaw, Stream}}, State1),
+    State = handle_open_stream_reply({ok, {ResRaw, Stream}}, State1),
     {noreply, State};
 handle_info(#open_stream{}, State0) ->
     State1 = ensure_stream_closed(State0),
@@ -248,12 +245,71 @@ handle_info(_Info, State) ->
 %% Internal exports
 %%------------------------------------------------------------------------------
 
-unregister_stream(ActionResId, Idx) ->
-    true = ets:delete(?META_TAB, ?META_STREAM_KEY(ActionResId, Idx)),
-    ok.
-
 gproc_name(ActionResId, Idx) ->
     ?name(ActionResId, Idx).
+
+grpc_reply_callback({ok, Res0}, _ReplyAlias, Ctx) ->
+    #{
+        ?action_res_id := ActionResId,
+        ?atomics_ref := AtomicsRef,
+        ?stream := Stream,
+        ?n_restarts := _,
+        ?writer := _
+    } = Ctx,
+    Res1 = grpc_client:map_recv_async_reply(Stream, Res0),
+    Res =
+        case is_end_of_stream(Res1) of
+            {true, Results0, Trailers0} ->
+                {done, Results0, Trailers0};
+            false ->
+                {more, Res1}
+        end,
+    case Res of
+        {done, Results, Trailers} ->
+            LastAckedSeq = find_last_acked_seq(Results, Ctx),
+            ?tp("zerobus_last_seq_scanned", #{}),
+            save_last_acked_seq(AtomicsRef, LastAckedSeq),
+            notify_acked(LastAckedSeq, Ctx),
+            Reason = maybe_format_grpc_reason(grpc_client:trailers_to_error(Trailers)),
+            Error = {error, Reason},
+            notify_errored(Error, Ctx),
+            ok;
+        {more, Results} ->
+            LastAckedSeq = find_last_acked_seq(Results, Ctx),
+            ?tp("zerobus_last_seq_scanned", #{}),
+            save_last_acked_seq(AtomicsRef, LastAckedSeq),
+            notify_acked(LastAckedSeq, Ctx),
+            ?tp("zerobus_last_seq_notified", #{}),
+            ok;
+        {error, not_found} ->
+            %% stream is gone
+            Error = {error, stream_closed},
+            notify_errored(Error, Ctx),
+            ok;
+        {error, Reason} ->
+            ?tp(info, "zerobus_receiver_unexpected_error_response", #{
+                action_res_id => ActionResId,
+                reason => Reason
+            }),
+            maybe
+                #{client_pid := Pid} ?= Stream,
+                false ?= is_process_alive(Pid),
+                Error = {error, stream_closed},
+                notify_errored(Error, Ctx),
+                ok
+            else
+                _ ->
+                    ok
+            end
+    end;
+grpc_reply_callback(Reason, _ReplyAlias, Ctx) ->
+    #{?action_res_id := ActionResId} = Ctx,
+    ?tp(warning, "zerobus_receiver_stream_error", #{
+        action_res_id => ActionResId,
+        reason => Reason
+    }),
+    notify_errored(Reason, Ctx),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -286,24 +342,6 @@ reply_callers_up_to(Reply, LastAckedSeq, State0) ->
     Callers = do_reply_callers_up_to(Reply, LastAckedSeq, Callers0),
     State0#{?callers := Callers}.
 
-register_stream(ActionResId, Idx, Writer, NRestarts, Stream) ->
-    Val = #{
-        ?writer => Writer,
-        ?n_restarts => NRestarts,
-        ?stream => Stream
-    },
-    true = ets:insert(?META_TAB, ?META_ROW(?META_STREAM_KEY(ActionResId, Idx), Val)),
-    ok.
-
-clear_old_stream(ActionResId, Idx) ->
-    case ets:take(?META_TAB, ?META_STREAM_KEY(ActionResId, Idx)) of
-        [?META_ROW(_, #{?n_restarts := NRestarts})] ->
-            %% when we register, it's at least 0. we'll bump when opening the new stream.
-            NRestarts;
-        _ ->
-            -1
-    end.
-
 do_reply_callers_up_to(Reply, LastAckedSeq, Callers0) ->
     case gb_trees:is_empty(Callers0) of
         true ->
@@ -322,12 +360,8 @@ handle_open_stream(#{?recv_handle := {_, _}} = State0) ->
     %% impossible?
     State0;
 handle_open_stream(#{?recv_handle := ?undefined} = State0) ->
-    #{
-        ?action_res_id := ActionResId,
-        ?idx := Idx
-    } = State0,
+    #{?action_res_id := ActionResId} = State0,
     ?tp(info, "zerobus_opening_stream", #{action_res_id => ActionResId}),
-    unregister_stream(ActionResId, Idx),
     Opts = grpc_opts(State0),
     Req = create_stream_req(State0),
     maybe
@@ -341,14 +375,14 @@ handle_open_stream(#{?recv_handle := ?undefined} = State0) ->
             handle_open_stream_error(Reason, State0)
     end.
 
-handle_grpc_reply({ok, {{ok, ResRaw}, Stream}}, State0) ->
+handle_open_stream_reply({ok, {{ok, ResRaw}, Stream}}, State0) ->
     #{
         ?action_res_id := ActionResId,
-        ?recv_pool := RecvPool,
         ?idx := Idx,
         ?seq := Seq,
         ?n_restarts := NRestarts0,
-        ?acked := Acked0
+        ?acked := Acked0,
+        ?atomics_ref := PrevAtomicRef
     } = State0,
     Res = grpc_client:map_recv_async_reply(Stream, ResRaw),
     case is_end_of_stream(Res) of
@@ -360,32 +394,28 @@ handle_grpc_reply({ok, {{ok, ResRaw}, Stream}}, State0) ->
         false ->
             set_health(ActionResId, Idx, ?status_connected),
             NRestarts = NRestarts0 + 1,
-            Writer = self(),
-            register_stream(ActionResId, Idx, Writer, NRestarts, Stream),
-            {ok, {NRestarts1, Acked1}} = emqx_bridge_zerobus_async_receiver_worker:follow_stream(
-                RecvPool, Idx, Writer, NRestarts, Stream
-            ),
-            Acked =
-                case NRestarts1 == NRestarts0 of
-                    false ->
-                        %% impossible?
-                        Acked0;
-                    true ->
-                        max(Acked0, Acked1)
+            AtomicsRef = atomics:new(?SEQ_ATOMIC_IDX, [{signed, true}]),
+            atomics:put(AtomicsRef, ?SEQ_ATOMIC_IDX, -1),
+            Acked1 =
+                case PrevAtomicRef of
+                    ?undefined ->
+                        -1;
+                    _ ->
+                        atomics:get(PrevAtomicRef, ?SEQ_ATOMIC_IDX)
                 end,
-            State1 = reply_callers_up_to(ok, Acked, State0),
-            State2 = reply_callers_up_to({error, {recoverable_error, stream_closed}}, Seq, State1),
-            State2#{
+            State1 = recv_async_active(Stream, NRestarts, AtomicsRef, State0),
+            Acked = max(Acked0, Acked1),
+            State2 = reply_callers_up_to(ok, Acked, State1),
+            State3 = reply_callers_up_to({error, {recoverable_error, stream_closed}}, Seq, State2),
+            State3#{
                 ?seq := 0,
-                ?acked := -1,
-                ?stream := Stream,
                 ?callers := gb_trees:empty(),
                 ?n_restarts := NRestarts
             }
     end;
-handle_grpc_reply({ok, {{error, Reason}, _Stream, _Opts}}, State0) ->
+handle_open_stream_reply({ok, {{error, Reason}, _Stream, _Opts}}, State0) ->
     handle_open_stream_error(Reason, State0);
-handle_grpc_reply(Reason, State0) ->
+handle_open_stream_reply(Reason, State0) ->
     handle_open_stream_error(Reason, State0).
 
 handle_open_stream_error(Reason, State0) ->
@@ -418,14 +448,19 @@ handle_open_stream_error(Reason, State0) ->
     erlang:send_after(OpenStreamRetryInterval, self(), #open_stream{}),
     State0.
 
-handle_acked(OldNRestarts, _LastAckedSeq, #{?n_restarts := NRestarts} = State0) when
+handle_acked(OldNRestarts, #{?n_restarts := NRestarts} = State0) when
     OldNRestarts < NRestarts
 ->
     %% stale response
     ?tp("zerobus_writer_stale_ack", #{}),
     State0;
-handle_acked(NRestarts, LastAckedSeq, State0) ->
-    #{?acked := Acked0} = State0,
+handle_acked(_NRestarts, #{?atomics_ref := ?undefined} = State0) ->
+    %% stale response
+    ?tp("zerobus_writer_stale_ack", #{}),
+    State0;
+handle_acked(NRestarts, State0) ->
+    #{?acked := Acked0, ?atomics_ref := AtomicsRef} = State0,
+    LastAckedSeq = atomics:get(AtomicsRef, ?SEQ_ATOMIC_IDX),
     State1 = reply_callers_up_to(ok, LastAckedSeq, State0),
     ?tp("zerobus_writer_acked", #{seq => LastAckedSeq, n_restarts => NRestarts}),
     State1#{?acked := max(Acked0, LastAckedSeq)}.
@@ -627,45 +662,77 @@ grpc_send(Stream, Req, Opts) ->
             {error, {Kind, Reason, Stacktrace}}
     end.
 
-%% we delegate to a helper process so that the main process is responsive, specially when
-%% a shutdown request arrives.
-%% grpc_recv_single_resp(Stream, Opts) ->
-%%     spawn_link(?MODULE, grpc_recv_single_resp1, [Stream, Opts]).
+notify_acked(LastAckedSeq, Ctx) ->
+    #{?n_restarts := NRestarts, ?writer := Writer} = Ctx,
+    emqx_bridge_zerobus_stream_writer_worker:acked(Writer, NRestarts),
+    ?tp("zerobus_receiver_notified_ack", #{seq => LastAckedSeq}),
+    ok.
 
--spec grpc_recv_single_resp1(_Stream, _Opts) -> no_return().
-grpc_recv_single_resp1(Stream, Opts) ->
-    Res = do_grpc_recv_single_resp(Stream, Opts),
-    exit({ok, {Res, Stream, Opts}}).
+notify_errored(Error, Ctx) ->
+    #{?writer := Writer, ?n_restarts := NRestarts} = Ctx,
+    emqx_bridge_zerobus_stream_writer_worker:errored(
+        Writer, NRestarts, Error
+    ).
 
-do_grpc_recv_single_resp(Stream, Opts) ->
-    maybe
-        %% only closed on errors
-        {more, Resp} ?= grpc_recv(Stream, Opts),
-        {ok, Resp}
-    else
-        {error, Reason} ->
-            {error, Reason};
-        {done, _Resp, Trailers} ->
-            Reason0 = grpc_client:trailers_to_error(Trailers),
-            Reason = maybe_format_grpc_reason(Reason0),
-            {error, {?stream_closed, Reason}}
+recv_async_active(Stream, NRestarts, AtomicsRef, State0) ->
+    #{?action_res_id := ActionResId} = State0,
+    Ctx = #{
+        ?action_res_id => ActionResId,
+        ?atomics_ref => AtomicsRef,
+        ?n_restarts => NRestarts,
+        ?writer => self(),
+        ?stream => Stream
+    },
+    ReplyFn = {fun ?MODULE:grpc_reply_callback/3, [Ctx]},
+    Handle = grpc_client:recv_async(Stream, #{mode => active, reply_fn => ReplyFn}),
+    State0#{
+        ?atomics_ref := AtomicsRef,
+        ?stream := Stream,
+        ?recv_handle := Handle,
+        ?n_restarts := NRestarts,
+        ?acked := -1
+    }.
+
+save_last_acked_seq(AtomicsRef, LastAckedSeq) ->
+    case atomics:get(AtomicsRef, ?SEQ_ATOMIC_IDX) of
+        NewerSeq when NewerSeq >= LastAckedSeq ->
+            ok;
+        OlderSeq ->
+            _ = atomics:compare_exchange(AtomicsRef, ?SEQ_ATOMIC_IDX, OlderSeq, LastAckedSeq),
+            ok
     end.
 
-grpc_recv(Stream, Opts) ->
-    try grpc_client:recv(Stream, Opts) of
-        {ok, Resp} ->
-            case is_end_of_stream(Resp) of
-                {true, Results, Trailers} ->
-                    {done, Results, Trailers};
-                false ->
-                    {more, Resp}
-            end;
-        {error, Reason} ->
-            {error, Reason}
-    catch
-        error:Reason ->
-            {error, Reason}
-    end.
+find_last_acked_seq(Results, Ctx) ->
+    #{?action_res_id := ActionResId} = Ctx,
+    lists:foldl(
+        fun(Response, Acc) ->
+            case Response of
+                #{
+                    payload :=
+                        {ingest_record_response, #{
+                            durability_ack_up_to_offset := Offset
+                        }}
+                } when is_integer(Offset) ->
+                    max(Acc, Offset);
+                #{
+                    payload := {close_stream_signal, Data}
+                } ->
+                    ?tp(debug, "zerobus_server_will_close_stream", #{
+                        action_res_id => ActionResId,
+                        'when' => Data
+                    }),
+                    Acc;
+                _ ->
+                    ?tp(warning, "zerobus_unexpected_ingest_response", #{
+                        action_res_id => ActionResId,
+                        response => Response
+                    }),
+                    Acc
+            end
+        end,
+        -1,
+        Results
+    ).
 
 is_end_of_stream(Resp) ->
     maybe
@@ -697,7 +764,7 @@ ensure_stream_closed(#{?stream := ?undefined} = State0) ->
     State0;
 ensure_stream_closed(#{?stream := Stream} = State0) ->
     grpc_client:close_async(Stream),
-    State0#{?stream := ?undefined}.
+    State0#{?stream := ?undefined, ?recv_handle := ?undefined}.
 
 maybe_format_grpc_reason({Code, Reason}) when is_binary(Reason) ->
     {Code, uri_string:unquote(Reason)};
