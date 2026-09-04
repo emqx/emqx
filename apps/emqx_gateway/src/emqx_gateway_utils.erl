@@ -426,7 +426,7 @@ validate_listener_id(GwName, Type, LisName) ->
         true ->
             ok;
         false ->
-            error({listener_id_too_long, ?MAX_LISTENER_ID_BYTES})
+            {error, {listener_id_too_long, ?MAX_LISTENER_ID_BYTES}}
     end.
 
 listener_id(GwName, Type, LisName) ->

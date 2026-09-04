@@ -455,6 +455,16 @@ t_listeners_tcp(_) ->
 
 t_listener_id_too_long(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
+    AllowedName = binary:copy(<<"a">>, 54),
+    AllowedConf = #{
+        name => AllowedName,
+        type => <<"tcp">>,
+        bind => <<"127.0.0.1:61613">>
+    },
+    {201, _} = request(post, "/gateways/stomp/listeners", AllowedConf),
+    AllowedId = atom_to_list(emqx_gateway_utils:listener_id(stomp, tcp, AllowedName)),
+    {204, _} = request(delete, "/gateways/stomp/listeners/" ++ AllowedId),
+
     ListenerName = binary:copy(<<"a">>, 55),
     ListenerConf = #{
         name => ListenerName,
@@ -467,10 +477,28 @@ t_listener_id_too_long(_) ->
     ?assertEqual(<<"Listener ID must not exceed 64 bytes">>, Message),
     {200, []} = request(get, "/gateways/stomp/listeners"),
     ?assertEqual(ok, emqx_gateway_utils:validate_listener_id(stomp, tcp, binary:copy(<<"a">>, 54))),
-    ?assertError(
-        {listener_id_too_long, 64},
+    ?assertEqual(
+        {error, {listener_id_too_long, 64}},
         emqx_gateway_utils:validate_listener_id(stomp, tcp, binary:copy(<<"a">>, 55))
     ),
+    ok.
+
+t_gateway_listener_id_too_long(_) ->
+    ListenerName = binary:copy(<<"a">>, 55),
+    GatewayConf = #{
+        listeners => [
+            #{
+                name => ListenerName,
+                type => <<"tcp">>,
+                bind => <<"127.0.0.1:61613">>
+            }
+        ]
+    },
+    {400, #{code := <<"BAD_REQUEST">>, message := Message}} = request(
+        put, "/gateways/stomp", GatewayConf
+    ),
+    ?assertEqual(<<"Listener ID must not exceed 64 bytes">>, Message),
+    ?assertEqual(undefined, emqx_gateway:lookup(stomp)),
     ok.
 
 t_listeners_max_conns(_) ->

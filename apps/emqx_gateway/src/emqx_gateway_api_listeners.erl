@@ -87,21 +87,22 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
 
         Type = binary_to_existing_atom(maps:get(<<"type">>, LConf)),
         LNameBin = maps:get(<<"name">>, LConf),
-        %% Validate the complete listener ID before converting the user input
-        %% to an atom.  The atom conversion has a VM-level length limit.
-        ok = emqx_gateway_utils:validate_listener_id(GwName, Type, LNameBin),
-        LName = binary_to_atom(LNameBin),
-        ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
-
-        Path = [listeners, Type, LName],
-        case emqx_utils_maps:deep_get(Path, RunningConf, undefined) of
-            undefined ->
-                {ok, RespConf} = emqx_gateway_http:add_listener(
-                    ListenerId, LConf
-                ),
-                {201, RespConf};
-            _ ->
-                return_http_error(400, ?DESC("listener_name_occupied"))
+        case emqx_gateway_utils:validate_listener_id(GwName, Type, LNameBin) of
+            ok ->
+                LName = binary_to_atom(LNameBin),
+                ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
+                Path = [listeners, Type, LName],
+                case emqx_utils_maps:deep_get(Path, RunningConf, undefined) of
+                    undefined ->
+                        {ok, RespConf} = emqx_gateway_http:add_listener(
+                            ListenerId, LConf
+                        ),
+                        {201, RespConf};
+                    _ ->
+                        return_http_error(400, ?DESC("listener_name_occupied"))
+                end;
+            {error, Reason} ->
+                emqx_gateway_http:reason2resp(Reason)
         end
     end).
 
