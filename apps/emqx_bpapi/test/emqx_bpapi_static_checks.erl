@@ -52,10 +52,45 @@
     emqx_ds_proto_v4,
     emqx_ds_proto_v5,
     emqx_ds_otx_proto_v1,
-    emqx_ds_beamspliiter_proto_v1,
+    emqx_ds_beamsplitter_proto_v1,
     emqx_ds_beamsplitter_proto_v2,
     emqx_ds_shared_sub_proto_v1,
-    emqx_ds_shared_sub_proto_v2
+    emqx_ds_shared_sub_proto_v2,
+    emqx_bridge_proto_v1,
+    emqx_bridge_proto_v2,
+    emqx_bridge_proto_v3,
+    emqx_bridge_proto_v4,
+    emqx_bridge_proto_v5,
+    emqx_bridge_proto_v6,
+    emqx_bridge_proto_v7,
+    emqx_license_proto_v1,
+    emqx_mgmt_trace_proto_v1,
+    emqx_mgmt_api_relup_proto_v1,
+    %% Superseded before 5.8.0; no supported peer selects these versions:
+    emqx_cm_proto_v1,
+    emqx_cm_proto_v2,
+    emqx_conf_proto_v1,
+    emqx_conf_proto_v2,
+    emqx_conf_proto_v3,
+    emqx_delayed_proto_v1,
+    emqx_delayed_proto_v2,
+    emqx_eviction_agent_proto_v1,
+    emqx_eviction_agent_proto_v2,
+    emqx_management_proto_v1,
+    emqx_management_proto_v2,
+    emqx_management_proto_v3,
+    emqx_management_proto_v4,
+    emqx_metrics_proto_v1,
+    emqx_mgmt_api_plugins_proto_v1,
+    emqx_mgmt_api_plugins_proto_v2,
+    emqx_mgmt_cluster_proto_v1,
+    emqx_node_rebalance_proto_v1,
+    emqx_node_rebalance_proto_v2,
+    emqx_node_rebalance_api_proto_v1,
+    emqx_node_rebalance_status_proto_v1,
+    emqx_plugins_proto_v1,
+    emqx_prometheus_proto_v1,
+    emqx_resource_proto_v1
 ]).
 -define(FORCE_DELETED_APIS, [
     {emqx_statsd, 1},
@@ -68,12 +103,47 @@
     {emqx_ds, 4},
     {emqx_ds, 5},
     {emqx_ds_otx, 1},
-    {emqx_ds_beamspliiter, 1},
-    {emqx_ds_beamspliiter, 2},
+    {emqx_ds_beamsplitter, 1},
+    {emqx_ds_beamsplitter, 2},
     {emqx_node_rebalance_purge, 1},
     {emqx_ds_shared_sub, 1},
     {emqx_ds_shared_sub, 2},
-    {emqx_retainer, 1}
+    {emqx_retainer, 1},
+    {emqx_bridge, 1},
+    {emqx_bridge, 2},
+    {emqx_bridge, 3},
+    {emqx_bridge, 4},
+    {emqx_bridge, 5},
+    {emqx_bridge, 6},
+    {emqx_bridge, 7},
+    {emqx_license, 1},
+    {emqx_mgmt_trace, 1},
+    {emqx_mgmt_api_relup, 1},
+    %% Superseded before 5.8.0; no supported peer selects these versions:
+    {emqx_cm, 1},
+    {emqx_cm, 2},
+    {emqx_conf, 1},
+    {emqx_conf, 2},
+    {emqx_conf, 3},
+    {emqx_delayed, 1},
+    {emqx_delayed, 2},
+    {emqx_eviction_agent, 1},
+    {emqx_eviction_agent, 2},
+    {emqx_management, 1},
+    {emqx_management, 2},
+    {emqx_management, 3},
+    {emqx_management, 4},
+    {emqx_metrics, 1},
+    {emqx_mgmt_api_plugins, 1},
+    {emqx_mgmt_api_plugins, 2},
+    {emqx_mgmt_cluster, 1},
+    {emqx_node_rebalance, 1},
+    {emqx_node_rebalance, 2},
+    {emqx_node_rebalance_api, 1},
+    {emqx_node_rebalance_status, 1},
+    {emqx_plugins, 1},
+    {emqx_prometheus, 1},
+    {emqx_resource, 1}
 ]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
@@ -102,7 +172,8 @@
 %% Only the APIs for the features that haven't reached General
 %% Availability can be added here:
 -define(EXPERIMENTAL_APIS, [
-    {emqx_ds, 4}
+    {emqx_ds, 4},
+    {emqx_ds_beamformer, 1}
 ]).
 
 -define(XREF, myxref).
@@ -222,7 +293,9 @@ typecheck_apis(
 ) ->
     AllCalls0 = lists:flatten([
         [Calls, Casts]
-     || #{calls := Calls, casts := Casts} <- maps:values(CallerAPIs)
+     || #{calls := Calls, casts := Casts} <- maps:values(
+            maps:without(?EXPERIMENTAL_APIS, CallerAPIs)
+        )
     ]),
     AllCalls = filter_calls(AllCalls0),
     lists:foreach(
@@ -479,10 +552,21 @@ setnok() ->
     put(bpapi_ok, false).
 
 dumps_dir() ->
-    filename:join(emqx_app_dir(), "test/emqx_static_checks_data").
+    filename:join(bpapi_app_dir(), "test/emqx_static_checks_data").
 
 versions_file() ->
     filename:join(emqx_app_dir(), "priv/bpapi.versions").
+
+%% The directory of the application this module belongs to.
+%% The per-release BPAPI dumps are stored there.
+bpapi_app_dir() ->
+    Info = ?MODULE:module_info(compile),
+    case proplists:get_value(source, Info) of
+        Source when is_list(Source) ->
+            filename:dirname(filename:dirname(Source));
+        undefined ->
+            "apps/emqx_bpapi"
+    end.
 
 emqx_app_dir() ->
     Info = ?MODULE:module_info(compile),
