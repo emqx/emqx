@@ -368,7 +368,7 @@ handle_open_stream(#{?recv_handle := ?undefined} = State0) ->
         {ok, Meta} ?= grpc_meta(State0),
         {ok, Stream} ?= do_create_stream_impl(Meta, Opts),
         ok ?= grpc_send(Stream, Req, Opts),
-        Handle = grpc_client:recv_async(Stream, #{mode => once}),
+        Handle = grpc_client:async_install_receiver(Stream, #{mode => once}),
         State0#{?recv_handle := {Stream, Handle}}
     else
         {error, Reason} ->
@@ -684,7 +684,7 @@ recv_async_active(Stream, NRestarts, AtomicsRef, State0) ->
         ?stream => Stream
     },
     ReplyFn = {fun ?MODULE:grpc_reply_callback/3, [Ctx]},
-    Handle = grpc_client:recv_async(Stream, #{mode => active, reply_fn => ReplyFn}),
+    Handle = grpc_client:async_install_receiver(Stream, #{mode => active, reply_fn => ReplyFn}),
     State0#{
         ?atomics_ref := AtomicsRef,
         ?stream := Stream,
