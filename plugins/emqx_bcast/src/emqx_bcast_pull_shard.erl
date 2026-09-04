@@ -52,7 +52,7 @@
 -include("emqx_bcast.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--define(PULL_SHARD_COUNT, 4).
+-define(PULL_SHARD_COUNT, 12).
 
 -define(TAB_A(Shard), tab(Shard, bcast_buffer_a)).
 -define(TAB_B(Shard), tab(Shard, bcast_buffer_b)).
