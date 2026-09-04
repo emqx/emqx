@@ -139,7 +139,7 @@ callback_mode() -> always_sync.
 -spec on_start(resource_id(), clickhouse_config()) -> {ok, state()} | {error, _}.
 
 on_start(
-    InstanceId,
+    InstanceID,
     #{
         url := URL,
         database := DB,
@@ -149,7 +149,7 @@ on_start(
 ) ->
     ?SLOG(info, #{
         msg => "starting_clickhouse_connector",
-        connector => InstanceId,
+        connector => InstanceID,
         config => emqx_utils:redact(Config)
     }),
     Options = [
@@ -159,15 +159,15 @@ on_start(
         {database, DB},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
-        {pool, InstanceId}
+        {pool, InstanceID}
     ],
     try
         State = #{
             channels => #{},
-            pool_name => InstanceId,
+            pool_name => InstanceID,
             connect_timeout => ConnectTimeout
         },
-        case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
+        case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
             ok ->
                 {ok, State};
             {error, Reason} ->
@@ -247,12 +247,12 @@ connect(Options) ->
 
 -spec on_stop(resource_id(), resource_state()) -> term().
 
-on_stop(InstanceId, _State) ->
+on_stop(InstanceID, _State) ->
     ?SLOG(info, #{
         msg => "stopping clickouse connector",
-        connector => InstanceId
+        connector => InstanceID
     }),
-    emqx_resource_pool:stop(InstanceId).
+    emqx_resource_pool:stop(InstanceID).
 
 %% -------------------------------------------------------------------
 %% channel related emqx_resouce callbacks
@@ -287,7 +287,7 @@ on_get_channels(InstanceID) ->
 %% -------------------------------------------------------------------
 
 on_get_status(
-    _InstanceId,
+    _InstanceID,
     #{pool_name := PoolName, connect_timeout := Timeout}
 ) ->
     case do_get_status(PoolName, Timeout) of
