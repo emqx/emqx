@@ -106,6 +106,7 @@
 -define(REGISTER_INFLIGHT(TopicId, TopicName), #channel{register_inflight = {TopicId, _, TopicName}}).
 
 -define(MAX_RETRY_TIMES, 3).
+-define(CLIENT_DISCONNECT, client_disconnect).
 
 % 5s
 -define(REGISTER_TIMEOUT, 5000).
@@ -618,10 +619,11 @@ handle_in(
         previous_state => ConnState,
         clientid => ClientId
     }),
+    Channel1 = cancel_timer(keepalive, cancel_timer(expire_asleep, Channel)),
     handle_out(
         connack,
         ?SN_RC_ACCEPTED,
-        Channel#channel{conn_state = connected}
+        Channel1#channel{conn_state = connected}
     );
 %% new connection
 handle_in(
@@ -1624,6 +1626,11 @@ handle_out(
             }),
             {ok, Channel#channel{register_awaiting_queue = NRAQueue}}
     end;
+handle_out(disconnect, normal, Channel = #channel{conn_state = ConnState}) when
+    ConnState =:= connected; ConnState =:= asleep; ConnState =:= awake
+->
+    DisPkt = ?SN_DISCONNECT_MSG(undefined),
+    {ok, [{outgoing, DisPkt}, {close, ?CLIENT_DISCONNECT}], Channel};
 handle_out(disconnect, RC, Channel) ->
     DisPkt = ?SN_DISCONNECT_MSG(undefined),
     Reason =
@@ -1875,6 +1882,27 @@ handle_info(
 ) ->
     shutdown(Reason, Channel);
 handle_info(
+    {sock_closed, ?CLIENT_DISCONNECT},
+    Channel = #channel{
+        conn_state = connected
+    }
+) ->
+    handle_client_disconnect(Channel);
+handle_info(
+    {sock_closed, ?CLIENT_DISCONNECT},
+    Channel = #channel{
+        conn_state = asleep
+    }
+) ->
+    handle_client_disconnect(Channel);
+handle_info(
+    {sock_closed, ?CLIENT_DISCONNECT},
+    Channel = #channel{
+        conn_state = awake
+    }
+) ->
+    handle_client_disconnect(Channel);
+handle_info(
     {sock_closed, Reason},
     Channel = #channel{
         conn_state = connected,
@@ -1885,20 +1913,21 @@ handle_info(
     %% How to get the flapping detect policy ???
     %emqx_zone:enable_flapping_detect(Zone)
     %    andalso emqx_flapping:detect(ClientInfo),
-    handle_active_sock_closed(Reason, Channel);
+    handle_connection_lost(Reason, Channel);
 handle_info(
     {sock_closed, Reason},
     Channel = #channel{conn_state = awake}
 ) ->
-    handle_active_sock_closed(Reason, Channel);
+    handle_connection_lost(Reason, Channel);
 handle_info(
-    {sock_closed, Reason},
+    {sock_closed, _Reason},
+    Channel = #channel{conn_state = asleep}
+) ->
+    {ok, Channel};
+handle_info(
+    {sock_closed, _Reason},
     Channel = #channel{conn_state = disconnected}
 ) ->
-    ?SLOG(error, #{
-        msg => "unexpected_sock_closed",
-        reason => Reason
-    }),
     {ok, Channel};
 handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
@@ -1926,7 +1955,14 @@ handle_info(Info, Channel) ->
     }),
     {ok, Channel}.
 
-handle_active_sock_closed(Reason, Channel) ->
+handle_client_disconnect(Channel) ->
+    NChannel = ensure_disconnected(normal, cancel_timer(expire_asleep, Channel)),
+    case maybe_shutdown(normal, NChannel) of
+        {ok, NChannel1} -> {ok, {event, disconnected}, NChannel1};
+        Shutdown -> Shutdown
+    end.
+
+handle_connection_lost(Reason, Channel) ->
     NChannel = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, NChannel) of
         {ok, NChannel1} -> {ok, {event, disconnected}, NChannel1};
@@ -2174,8 +2210,14 @@ handle_timeout(
     end;
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
+handle_timeout(
+    _TRef,
+    expire_asleep,
+    Channel = #channel{conn_state = asleep}
+) ->
+    handle_connection_lost(asleep_timeout, clean_timer(expire_asleep, Channel));
 handle_timeout(_TRef, expire_asleep, Channel) ->
-    shutdown(asleep_timeout, Channel);
+    {ok, clean_timer(expire_asleep, Channel)};
 handle_timeout(_TRef, connection_expire, Channel) ->
     NChannel = clean_timer(connection_expire, Channel),
     handle_out(disconnect, expired, NChannel);
