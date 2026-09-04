@@ -1620,11 +1620,21 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
     Nodes = emqx_cth_cluster:start(ClusterSpec, ClusterOpts),
     ExpectedOk = lists:duplicate(length(Nodes), {ok, ok}),
-    WaitReadinessTimeout = maps:get(wait_readiness_timeout, Opts, 15_000),
+    Timeout = maps:get(start_timeout, Opts, 30_000),
     ExpectedOk = erpc:multicall(
         Nodes, emqx_persistent_message, wait_readiness, [WaitReadinessTimeout], infinity
     ),
-    [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config].
+    Config = [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config0],
+    StopCluster =
+        fun() ->
+            emqx_common_test_helpers:stop_cluster_ds(Config)
+        end,
+    CleanWorkDir =
+        fun() ->
+            Clean = not maps:get(keep_work_dir, Opts, false),
+            Clean andalso emqx_cth_suite:clean_work_dir(WorkDir)
+        end,
+    [{cleanup, StopCluster}, {cleanup, CleanWorkDir}, {work_dir, WorkDir} | Config].
 
 stop_cluster_ds(Config) ->
     emqx_cth_cluster:stop(proplists:get_value(cluster_nodes, Config)),
