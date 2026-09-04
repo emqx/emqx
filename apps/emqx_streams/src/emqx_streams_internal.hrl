@@ -25,6 +25,7 @@
 
 -define(STREAMS_QUOTA_BUFFER, streams_quota_buffer).
 
+-define(STREAMS_GC_SCHEDULER, emqx_streams_gc).
 -define(STREAMS_METRICS_WORKER, streams_metrics).
 
 -define(DEFAULT_QUOTA_THRESHOLD_PERCENTAGE, 10).

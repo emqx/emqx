@@ -57,7 +57,7 @@ stop_metrics() ->
     ensure_no_child(?STREAMS_SUP, ?STREAMS_METRICS_WORKER).
 
 stop_gc_scheduler() ->
-    ensure_no_child(?STREAMS_SUP, emqx_streams_gc).
+    ensure_no_child(?STREAMS_SUP, ?STREAMS_GC_SCHEDULER).
 
 start_gc() ->
     ensure_child(?GC_SUP, emqx_streams_gc_worker:child_spec()).

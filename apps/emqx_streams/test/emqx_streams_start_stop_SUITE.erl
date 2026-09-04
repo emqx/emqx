@@ -158,6 +158,7 @@ t_cluster_runtime_enable(Config) ->
 %% Verify that Streams subsystem may be started in runtime.
 t_config(_Config) ->
     #{id := MetricsWorker} = emqx_streams_metrics:child_spec(),
+    #{id := GCScheduler} = emqx_streams_gc:child_spec(),
     %% We started with disabled Streams subsystem, so stream API should be unavailable.
     ?assertMatch(
         {ok, 503, #{<<"code">> := <<"SERVICE_UNAVAILABLE">>, <<"message">> := <<"Not enabled">>}},
@@ -171,6 +172,7 @@ t_config(_Config) ->
     ),
     started = emqx_streams_controller:wait_status(5000),
     ?assert(is_pid(whereis(MetricsWorker))),
+    ?assert(is_pid(whereis(GCScheduler))),
     ok = emqx_streams_controller:start_streams(),
 
     %% Verify that stream API is now available.
@@ -186,6 +188,7 @@ t_config(_Config) ->
     ),
     stopped = emqx_streams_controller:wait_status(5000),
     ?assertEqual(undefined, whereis(MetricsWorker)),
+    ?assertEqual(undefined, whereis(GCScheduler)),
     ok = emqx_streams_controller:stop_streams(),
 
     %% Start Streams subsystem via API again.
@@ -195,6 +198,7 @@ t_config(_Config) ->
     ),
     started = emqx_streams_controller:wait_status(5000),
     ?assert(is_pid(whereis(MetricsWorker))),
+    ?assert(is_pid(whereis(GCScheduler))),
 
     %% Create a stream.
     _ = emqx_streams_test_utils:ensure_stream_created(#{

@@ -67,6 +67,7 @@
 
 -define(MQ_GC_REGULAR, gc_regular).
 -define(MQ_GC_LASTVALUE, gc_lastvalue).
+-define(MQ_GC_SCHEDULER, emqx_mq_gc).
 
 -define(DEFAULT_MQ_LIMITS,
     (#{

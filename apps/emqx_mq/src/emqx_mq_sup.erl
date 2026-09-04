@@ -69,7 +69,7 @@ stop_metrics() ->
     ensure_no_child(?MQ_SUP, ?MQ_METRICS_WORKER).
 
 stop_gc_scheduler() ->
-    ensure_no_child(?MQ_SUP, emqx_mq_gc).
+    ensure_no_child(?MQ_SUP, ?MQ_GC_SCHEDULER).
 
 start_consumer(Id, Args) ->
     case supervisor:start_child(?CONSUMER_SUP, emqx_mq_consumer:child_spec(Id, Args)) of
