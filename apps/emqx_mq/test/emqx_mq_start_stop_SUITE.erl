@@ -156,6 +156,7 @@ t_cluster_runtime_enable(Config) ->
 
 %% Verify that MQ subsystem may be started in runtime.
 t_config(_Config) ->
+    #{id := MetricsWorker} = emqx_mq_metrics:child_spec(),
     %% We started with disabled MQ subsystem, so queue API should be unavailable.
     ?assertMatch(
         {ok, 503, #{<<"code">> := <<"SERVICE_UNAVAILABLE">>, <<"message">> := <<"Not enabled">>}},
@@ -168,6 +169,7 @@ t_config(_Config) ->
         api_put([message_queues, config], #{<<"enable">> => true})
     ),
     started = emqx_mq_controller:wait_status(5000),
+    ?assert(is_pid(whereis(MetricsWorker))),
     ok = emqx_mq_controller:start_mqs(),
     %% Verify that queue API is now available.
     ?assertMatch(
@@ -181,6 +183,7 @@ t_config(_Config) ->
         api_put([message_queues, config], #{<<"enable">> => false})
     ),
     stopped = emqx_mq_controller:wait_status(5000),
+    ?assertEqual(undefined, whereis(MetricsWorker)),
     ok = emqx_mq_controller:stop_mqs(),
 
     %% Start MQ subsystem via API again.
@@ -189,6 +192,7 @@ t_config(_Config) ->
         api_put([message_queues, config], #{<<"enable">> => true})
     ),
     started = emqx_mq_controller:wait_status(5000),
+    ?assert(is_pid(whereis(MetricsWorker))),
 
     %% Create a queue.
     _ = emqx_mq_test_utils:ensure_mq_created(#{topic_filter => <<"test">>, name => <<"test">>}),

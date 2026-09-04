@@ -4,6 +4,8 @@
 
 -module(emqx_streams_sup).
 
+-include("emqx_streams_internal.hrl").
+
 -moduledoc """
 Supervisor for the Message Streams application.
 
@@ -52,7 +54,7 @@ start_metrics() ->
     ensure_child(?STREAMS_SUP, emqx_streams_metrics:child_spec()).
 
 stop_metrics() ->
-    ensure_no_child(?STREAMS_SUP, emqx_streams_metrics).
+    ensure_no_child(?STREAMS_SUP, ?STREAMS_METRICS_WORKER).
 
 stop_gc_scheduler() ->
     ensure_no_child(?STREAMS_SUP, emqx_streams_gc).

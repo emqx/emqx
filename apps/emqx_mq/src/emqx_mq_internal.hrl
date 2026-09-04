@@ -82,6 +82,8 @@
 -define(MQ_QUOTA_BUFFER, mq_message_quota_buffer).
 -define(DEFAULT_QUOTA_BUFFER_POOL_SIZE, 10).
 
+-define(MQ_METRICS_WORKER, mq_metrics).
+
 -define(LEGACY_QUEUE_NAME(TF), <<"/", (TF)/binary>>).
 
 -endif.
