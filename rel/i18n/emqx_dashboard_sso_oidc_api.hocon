@@ -13,6 +13,11 @@ backend_not_found.desc:
 backend_not_found.label:
 """Backend Not Found"""
 
+forbidden.desc:
+"""The login was not started by this browser"""
+forbidden.label:
+"""Forbidden"""
+
 code_callback.label:
 """Code Callback"""
 

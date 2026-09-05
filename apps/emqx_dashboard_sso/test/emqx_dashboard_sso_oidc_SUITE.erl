@@ -244,13 +244,32 @@ oidc_approve_req(QueryString) ->
     }).
 
 simple_login_get(URL) ->
+    simple_login_get(URL, undefined).
+
+simple_login_get(URL, Cookie) ->
+    ExtraHeaders =
+        case Cookie of
+            undefined -> [];
+            _ -> [{"cookie", Cookie}]
+        end,
     simple_request(#{
         return_headers => true,
         http_opts => [{autoredirect, false}],
         method => get,
         url => URL,
+        extra_headers => ExtraHeaders,
         auth_header => [{"x", "x"}]
     }).
+
+%% The `set-cookie' header of the login start response, verbatim.
+find_set_cookie(Headers) ->
+    {"set-cookie", SetCookie} = lists:keyfind("set-cookie", 1, Headers),
+    SetCookie.
+
+%% The `name=value' pair of that header, ready to be sent back as `cookie'.
+browser_binding_cookie(Headers) ->
+    [NameValue | _] = string:split(find_set_cookie(Headers), ";"),
+    NameValue.
 
 get_nodes(Node, Opts) ->
     URL = url(Node, ["nodes"]),
@@ -306,7 +325,10 @@ oidc_provider_params(Issuer) ->
 login_flow(InitiatorNode, LoginNode) ->
     login_flow(InitiatorNode, LoginNode, LoginNode).
 
-login_flow(InitiatorNode, LoginNode, FinalReqNode) ->
+%% Everything up to (but excluding) the callback request to emqx: start the
+%% login, walk the OP, and return the emqx callback URL together with the
+%% browser binding cookie that emqx set on the login start response.
+authorize_flow(InitiatorNode, LoginNode) ->
     maybe
         ct:pal("initial sso login in emqx"),
         {Status1, Headers1, Resp1} ?= login_sso(InitiatorNode, #{}),
@@ -339,7 +361,18 @@ login_flow(InitiatorNode, LoginNode, FinalReqNode) ->
             host := "127.0.0.1",
             port := LoginNodePort
         }),
-        {Status5, Headers5, Resp5} = simple_login_get(LoginURL1B),
+        {ok, #{
+            callback_url => LoginURL1B,
+            cookie => browser_binding_cookie(Headers1),
+            set_cookie => find_set_cookie(Headers1)
+        }}
+    end.
+
+login_flow(InitiatorNode, LoginNode, FinalReqNode) ->
+    maybe
+        {ok, #{callback_url := LoginURL1B, cookie := Cookie}} ?=
+            authorize_flow(InitiatorNode, LoginNode),
+        {Status5, Headers5, Resp5} = simple_login_get(LoginURL1B, Cookie),
         ct:pal("returned headers5:\n  ~p\nbody:\n  ~p\n", [Headers5, Resp5]),
         true ?= Status5 == 302 orelse
             {error, callback_response_to_emqx, #{
@@ -368,7 +401,8 @@ login_flow(InitiatorNode, LoginNode, FinalReqNode) ->
         #{<<"token">> := Token1} = ExchangeResp,
         {ok, #{
             final_token => Token1,
-            emqx_redirect_login_url => LoginURL1B
+            emqx_redirect_login_url => LoginURL1B,
+            cookie => Cookie
         }}
     end.
 
@@ -512,7 +546,11 @@ do_smoke_tests1(Node, LoginNode, FinalReqNode, Opts, _TCConfig) ->
     ),
 
     %% Login
-    {ok, #{final_token := Token1, emqx_redirect_login_url := LoginURL1B}} =
+    {ok, #{
+        final_token := Token1,
+        emqx_redirect_login_url := LoginURL1B,
+        cookie := Cookie
+    }} =
         login_flow(Node, LoginNode, FinalReqNode),
 
     %% Finally, can now perform actions in the API
@@ -520,12 +558,56 @@ do_smoke_tests1(Node, LoginNode, FinalReqNode, Opts, _TCConfig) ->
     ?assertMatch({200, _}, get_nodes(FinalReqNode, #{auth_header => FinalAuthHeader})),
 
     %% State must be deleted afterwards, so that it's not reusable, and does not leak
-    %% resources.
-    ?assertMatch({401, _, _}, simple_login_get(LoginURL1B)),
+    %% resources.  Replay with the same browser cookie, so that the state lookup is
+    %% what rejects it.
+    ?assertMatch({401, _, _}, simple_login_get(LoginURL1B, Cookie)),
     ?assertEqual(
         lists:duplicate(3, {ok, []}),
         ?ON_ALL([Node, LoginNode, FinalReqNode], emqx_dashboard_sso_oidc_session:all())
     ),
+
+    ok.
+
+-doc """
+The callback must only complete a login in the browser that started it.
+
+A callback URL replayed with no cookie, or with the cookie of another login,
+must be rejected before any dashboard user, login code or token is created, and
+must leave the pending login intact for the browser that owns it.
+""".
+t_reject_callback_from_another_browser(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    ?assertMatch({200, _}, create_backend(Node, oidc_provider_params(), #{})),
+
+    {ok, #{callback_url := CallbackURL, cookie := Cookie, set_cookie := SetCookie}} =
+        authorize_flow(Node, Node),
+
+    %% The cookie is scoped to the SSO endpoints and hidden from scripts.
+    ct:pal("set-cookie: ~s", [SetCookie]),
+    ?assertMatch({match, _}, re:run(SetCookie, "^emqx_sso_oidc=")),
+    ?assertMatch({match, _}, re:run(SetCookie, "Path=/api/v5/sso")),
+    ?assertMatch({match, _}, re:run(SetCookie, "HttpOnly")),
+    ?assertMatch({match, _}, re:run(SetCookie, "SameSite=Lax")),
+
+    %% Another browser replaying the callback URL carries no cookie.
+    ?assertMatch(
+        {403, _, #{<<"code">> := <<"FORBIDDEN">>}},
+        simple_login_get(CallbackURL)
+    ),
+    %% A cookie from an unrelated login does not help either.
+    ?assertMatch(
+        {403, _, #{<<"code">> := <<"FORBIDDEN">>}},
+        simple_login_get(CallbackURL, "emqx_sso_oidc=not-the-right-state")
+    ),
+
+    %% Nothing was created, and the pending login is still there.
+    ?assertEqual([], get_new_dashboard_users(Node)),
+    ?assertMatch([_], ?ON(Node, emqx_dashboard_sso_oidc_session:all())),
+
+    %% The browser that started the login still completes it.
+    ?assertMatch({302, _, _}, simple_login_get(CallbackURL, Cookie)),
+    ?assertMatch([_], get_new_dashboard_users(Node)),
 
     ok.
 
@@ -860,6 +942,7 @@ t_error_login_callback(TCConfig) ->
     ct:pal("initial sso login in emqx"),
     {302, Headers1, Resp1} = login_sso(N, #{}),
     ct:pal("returned headers1:\n  ~p\nbody:\n  ~p\n", [Headers1, Resp1]),
+    Cookie = browser_binding_cookie(Headers1),
     {"location", OIDCURL1} = lists:keyfind("location", 1, Headers1),
 
     ct:pal("redirected to oidc server"),
@@ -883,7 +966,7 @@ t_error_login_callback(TCConfig) ->
                 <<"error_description">> := _
             }
         }},
-        simple_login_get(LoginURL1)
+        simple_login_get(LoginURL1, Cookie)
     ),
 
     ok.
