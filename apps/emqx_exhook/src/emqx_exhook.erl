@@ -92,6 +92,13 @@ call_fold(IsIgnore, Hookpoint, Req, AccFun, [ServerName | More]) ->
                 ignore ->
                     call_fold(IsIgnore, Hookpoint, Req, AccFun, More)
             end;
+        ignore ->
+            %% The server does not advertise this hookpoint, or a message
+            %% hook's topic filter did not match. Nothing was attempted, so
+            %% there is no failure to act on: continue with the next server
+            %% rather than applying `failed_action', which under the default
+            %% `deny' would stop the chain and skip the remaining servers.
+            call_fold(IsIgnore, Hookpoint, Req, AccFun, More);
         _ ->
             case emqx_exhook_server:failed_action(Server) of
                 ignore ->
@@ -106,6 +113,10 @@ deny_action_result('client.authenticate', _) ->
     #{result => false};
 deny_action_result('client.authorize', _) ->
     #{result => false};
+%% The hook may only rewrite topic filters, so denying it means: do not rewrite.
+%% What the client asked for has already been authorized by the channel.
+deny_action_result('client.subscribe', Req) ->
+    Req;
 deny_action_result('message.ingress', _) ->
     #{result => false};
 deny_action_result('message.publish', Req) ->

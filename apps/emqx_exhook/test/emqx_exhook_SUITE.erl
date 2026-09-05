@@ -88,6 +88,16 @@ init_per_testcase(t_update_order_with_unhealthy_server = TC, Config) ->
     _ = emqx_exhook_demo_svr:start(),
     _ = emqx_exhook_demo_svr:start(<<"test1">>, 9001),
     common_init(TC, Config);
+init_per_testcase(TC, Config) when
+    TC =:= t_subscribe_rewrite;
+    TC =:= t_subscribe_rewrite_rejects_count_mismatch;
+    TC =:= t_subscribe_rewrite_rejects_invalid_subopts;
+    TC =:= t_subscribe_rewrite_rejects_beyond_caps;
+    TC =:= t_subscribe_rewrite_keeps_shared_subscription
+->
+    ok = emqx_exhook_demo_svr:enable_rewrite_hook(),
+    _ = emqx_exhook_demo_svr:start(),
+    common_init(TC, Config);
 init_per_testcase(TC, Config) ->
     _ = emqx_exhook_demo_svr:start(),
     common_init(TC, Config).
@@ -104,6 +114,8 @@ end_per_testcase(TC, Config) ->
 
 emqx_conf(t_cluster_name) ->
     io_lib:format("cluster.name = ~p", [?OTHER_CLUSTER_NAME_STRING]);
+emqx_conf(t_subscribe_rewrite_rejects_beyond_caps) ->
+    "mqtt.wildcard_subscription = false";
 emqx_conf(t_access_failed_if_no_server_running) ->
     "authorization.sources = []";
 emqx_conf(_) ->
@@ -129,6 +141,7 @@ common_init(TC, Config) ->
     emqx_common_test_helpers:init_per_testcase(?MODULE, TC, [{tc_apps, Apps} | Config]).
 
 common_stop(TC, Config) ->
+    ok = emqx_exhook_demo_svr:reset_rewrite_hook(),
     emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config),
     emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
@@ -145,12 +158,45 @@ profile_cases() ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+%% A server that does not advertise the hookpoint answers `ignore'. That is
+%% not a failure, so it must not be routed through `failed_action': under
+%% the default `deny' that stops the chain and every server behind it stops
+%% seeing the event, silently.
+t_call_fold_skips_servers_without_the_hookpoint(_Config) ->
+    ok = meck:new(emqx_exhook_mgr, [passthrough, no_history]),
+    ok = meck:new(emqx_exhook_server, [passthrough, no_history]),
+    Tester = self(),
+    try
+        meck:expect(emqx_exhook_mgr, running, fun() -> [<<"a">>, <<"b">>] end),
+        meck:expect(emqx_exhook_mgr, service, fun(Name) -> #{name => Name} end),
+        meck:expect(emqx_exhook_server, call, fun
+            (_Hookpoint, _Req, #{name := <<"a">>}) ->
+                ignore;
+            (_Hookpoint, Req, #{name := <<"b">>}) ->
+                Tester ! reached_second_server,
+                {ok, Req}
+        end),
+        meck:expect(emqx_exhook_server, failed_action, fun(_Server) -> deny end),
+        Req = #{topic_filters => []},
+        ?assertMatch(
+            {ok, _},
+            emqx_exhook:call_fold('client.subscribe', Req, fun(_Req, Resp) -> {ok, Resp} end)
+        ),
+        receive
+            reached_second_server -> ok
+        after 0 ->
+            ct:fail("the server behind the one without the hookpoint was never called")
+        end
+    after
+        meck:unload(emqx_exhook_server),
+        meck:unload(emqx_exhook_mgr)
+    end.
+
 t_access_failed_if_no_server_running(Config) ->
     ClientInfo = #{
         clientid => <<"user-id-1">>,
         username => <<"usera">>,
         peername => {{127, 0, 0, 1}, 3456},
-        peerhost => {127, 0, 0, 1},
         sockport => 1883,
         protocol => mqtt,
         mountpoint => undefined
@@ -841,6 +887,154 @@ t_ssl_clear(_) ->
     {ok, _} = emqx_tls_certfile_gc:force(),
     ?assertMatch({error, enoent}, list_pem_dir(SvrName)),
     ok.
+
+%%--------------------------------------------------------------------
+%% `client.subscribe.rewrite' topic filter rewrite
+%%--------------------------------------------------------------------
+
+t_subscribe_rewrite(_) ->
+    ok = emqx_exhook_demo_svr:set_rewrite_fun(
+        fun(TopicFilters) ->
+            [Tf#{name => <<"rewritten/", Name/binary>>} || Tf = #{name := Name} <- TopicFilters]
+        end
+    ),
+    ClientId = <<"exhook_sub_rw">>,
+    C = connect(ClientId),
+    ?assertMatch({ok, _, [0]}, emqtt:subscribe(C, <<"t/1">>, qos0)),
+    %% the client is subscribed to what the hook asked for, and only to that
+    ?assertEqual([<<"rewritten/t/1">>], subscribed_topics(ClientId)),
+    ok = emqtt:stop(C).
+
+%% Returning the filters unchanged is how a server says "I have looked at this
+%% and no later hook should touch it". `emqx_hooks' continues the chain on any
+%% term other than `stop'/`{stop, Acc}', so answering `ignore' here would
+%% silently downgrade STOP_AND_RETURN to CONTINUE.
+t_subscribe_unchanged_filters_still_stop(_) ->
+    ok = meck:new(emqx_exhook, [passthrough, no_history]),
+    try
+        TopicFilters = [{<<"t/1">>, #{qos => 0, rh => 0, rap => 0, nl => 0}}],
+        meck:expect(emqx_exhook, call_fold, fun('client.subscribe', Req, _Fun) ->
+            {stop, #{topic_filters => maps:get(topic_filters, Req)}}
+        end),
+        ?assertEqual(
+            {stop, TopicFilters},
+            emqx_exhook_handler:on_client_subscribe(clientinfo_for_test(), #{}, TopicFilters)
+        ),
+        %% A server that answered CONTINUE leaves the accumulator alone, so
+        %% the rest of the chain runs.
+        meck:expect(emqx_exhook, call_fold, fun('client.subscribe', Req, _Fun) ->
+            {ok, #{topic_filters => maps:get(topic_filters, Req)}}
+        end),
+        ?assertEqual(
+            ignore,
+            emqx_exhook_handler:on_client_subscribe(clientinfo_for_test(), #{}, TopicFilters)
+        )
+    after
+        meck:unload(emqx_exhook)
+    end.
+
+clientinfo_for_test() ->
+    #{
+        clientid => <<"exhook_stop_test">>,
+        username => <<"u">>,
+        peername => {{127, 0, 0, 1}, 54321},
+        sockport => 1883,
+        protocol => mqtt,
+        mountpoint => undefined,
+        is_superuser => false,
+        anonymous => false,
+        cn => undefined,
+        dn => undefined
+    }.
+
+%% Both names resolve to the `client.subscribe' hookpoint. A server that
+%% registers the two -- the plausible shape while migrating -- gets the
+%% `OnClientSubscribeRewrite' RPC, in either HookSpec order.
+t_duplicate_subscribe_registration_prefers_rewrite(_) ->
+    Plain = #{name => <<"client.subscribe">>},
+    Rewrite = #{name => <<"client.subscribe.rewrite">>},
+    ?assertEqual(
+        #{'client.subscribe' => #{valued => true}},
+        emqx_exhook_server:resolve_hookspec([Plain, Rewrite])
+    ),
+    ?assertEqual(
+        #{'client.subscribe' => #{valued => true}},
+        emqx_exhook_server:resolve_hookspec([Rewrite, Plain])
+    ),
+    %% A single registration of either name is unaffected.
+    ?assertEqual(
+        #{'client.subscribe' => #{}},
+        emqx_exhook_server:resolve_hookspec([Plain])
+    ),
+    ?assertEqual(
+        #{'client.subscribe' => #{valued => true}},
+        emqx_exhook_server:resolve_hookspec([Rewrite])
+    ).
+
+t_subscribe_rewrite_rejects_count_mismatch(_) ->
+    %% SUBACK owes the client exactly one reason code per requested topic filter,
+    %% ordered as requested (MQTT-3.9.3-1). A hook handing back a different number
+    %% of filters is refused as a whole rather than applied in part.
+    ok = emqx_exhook_demo_svr:set_rewrite_fun(
+        fun(TopicFilters) ->
+            TopicFilters ++ [#{name => <<"extra/topic">>, subopts => #{qos => 0}}]
+        end
+    ),
+    ClientId = <<"exhook_sub_rw_count">>,
+    C = connect(ClientId),
+    ?assertMatch({ok, _, [0]}, emqtt:subscribe(C, <<"t/1">>, qos0)),
+    ?assertEqual([<<"t/1">>], subscribed_topics(ClientId)),
+    ok = emqtt:stop(C).
+
+t_subscribe_rewrite_rejects_invalid_subopts(_) ->
+    %% `qos' is what the SUBACK reports as the granted QoS: 200 is not a reason
+    %% code the client could act on, and on MQTT 3.1.1 it would not serialize.
+    ok = emqx_exhook_demo_svr:set_rewrite_fun(
+        fun(TopicFilters) -> [Tf#{subopts => #{qos => 200}} || Tf <- TopicFilters] end
+    ),
+    ClientId = <<"exhook_sub_rw_qos">>,
+    C = connect(ClientId),
+    ?assertMatch({ok, _, [1]}, emqtt:subscribe(C, <<"t/1">>, qos1)),
+    ?assertEqual([<<"t/1">>], subscribed_topics(ClientId)),
+    ok = emqtt:stop(C).
+
+t_subscribe_rewrite_rejects_beyond_caps(_) ->
+    %% The hook runs after `check_sub_caps', so a rewritten filter is re-checked
+    %% where the rewrite happens; otherwise it would defeat the zone's own limits.
+    ok = emqx_exhook_demo_svr:set_rewrite_fun(
+        fun(TopicFilters) -> [Tf#{name => <<"t/#">>} || Tf <- TopicFilters] end
+    ),
+    ClientId = <<"exhook_sub_rw_caps">>,
+    C = connect(ClientId),
+    ?assertMatch({ok, _, [0]}, emqtt:subscribe(C, <<"t/1">>, qos0)),
+    ?assertEqual([<<"t/1">>], subscribed_topics(ClientId)),
+    ok = emqtt:stop(C).
+
+t_subscribe_rewrite_keeps_shared_subscription(_) ->
+    %% Filters echoed back unchanged must stay exactly as they were: session
+    %% subscriptions are keyed by the `#share{}' record, so one that came back
+    %% flattened to its `$share/...' wire form would no longer match on unsubscribe.
+    ok = emqx_exhook_demo_svr:set_rewrite_fun(fun(TopicFilters) -> TopicFilters end),
+    ClientId = <<"exhook_sub_rw_share">>,
+    C = connect(ClientId),
+    ?assertMatch({ok, _, [0]}, emqtt:subscribe(C, <<"$share/g/t/1">>, qos0)),
+    ?assertEqual([<<"$share/g/t/1">>], subscribed_topics(ClientId)),
+    ?assertMatch({ok, _, [0]}, emqtt:unsubscribe(C, <<"$share/g/t/1">>)),
+    ?assertEqual([], subscribed_topics(ClientId)),
+    ok = emqtt:stop(C).
+
+connect(ClientId) ->
+    {ok, C} = emqtt:start_link([
+        {host, "localhost"},
+        {port, 1883},
+        {clientid, ClientId},
+        {proto_ver, v5}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+subscribed_topics(ClientId) ->
+    [emqx_topic:maybe_format_share(T) || {T, _SubOpts} <- emqx_broker:subscriptions(ClientId)].
 
 t_format_props(_) ->
     ?assertMatch(
