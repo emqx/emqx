@@ -75,6 +75,9 @@ init_users() ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"viewer3">>, <<"viewer3pass">>, ?ROLE_VIEWER, "viewer"
     ),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"viewer4">>, <<"viewer4pass">>, ?ROLE_VIEWER, "viewer"
+    ),
     {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
         [User] = mnesia:wread({?ADMIN, <<"viewer3">>}),
         OldFormat = User#?ADMIN{extra = []},
@@ -269,6 +272,9 @@ t_enable_by_config({init, Config}) ->
     emqx_config:put([dashboard, default_mfa], #{mechanism => totp}),
     %% clear state so it can init a new state according to config
     {ok, ok} = emqx_dashboard_admin:clear_mfa_state(<<"viewer1">>),
+    %% an earlier case may have left an admin decision behind, and an
+    %% exemption would take this user out of the mandate entirely
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer1">>, undefined),
     ok = mock_totp(),
     Config;
 t_enable_by_config({'end', _Config}) ->
@@ -310,12 +316,171 @@ t_enable_by_config(_Config) ->
     ),
     {ok, 200, LoginRsp} = login(LoginBody#{<<"mfa_token">> => ?GOOD_TOTP}),
     #{<<"token">> := JwtToken} = json_map(LoginRsp),
-    %% mark MFA disabled for this user (self-service: no administrator
-    %% decision recorded against the account, so it is not locked)
-    ?assertMatch({ok, 204, _}, disable_own_mfa(JwtToken)),
-    ?assertMatch(#{<<"mfa">> := <<"disabled">>}, get_user(<<"viewer1">>)),
-    %% should be able to login without TOTP even though default MFA is configured
-    {ok, 200, _} = login(LoginBody),
+    %% the configured default is a mandate: the user cannot opt out of it
+    {ok, 403, DisableRsp} = disable_own_mfa(JwtToken),
+    ?assertMatch(#{<<"code">> := <<"MFA_ENFORCED">>}, json_map(DisableRsp)),
+    ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
+    %% rotating to a new authenticator keeps MFA on, so it stays allowed
+    %% (it invalidates JwtToken, hence last)
+    ?assertMatch({ok, 204, _}, enable_own_mfa(JwtToken)),
+    ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer1">>)),
+    ok.
+
+%% A user who opted out before `default_mfa' was configured does not stay out:
+%% turning the mandate on enrolls them again at their next login.
+t_enforce_reinit_after_self_disable({init, Config}) ->
+    {ok, ok} = emqx_dashboard_admin:clear_mfa_state(<<"viewer2">>),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer2">>, undefined),
+    ok = mock_totp(),
+    Config;
+t_enforce_reinit_after_self_disable({'end', _Config}) ->
+    emqx_config:put([dashboard, default_mfa], none),
+    ok = unmock_totp();
+t_enforce_reinit_after_self_disable(_Config) ->
+    LoginBody =
+        #{
+            <<"username">> => <<"viewer2">>,
+            <<"password">> => <<"viewer2pass">>
+        },
+    %% no mandate yet: enroll, then opt out again
+    {ok, 200, Rsp1} = login(LoginBody),
+    #{<<"token">> := Token1} = json_map(Rsp1),
+    ?assertMatch({ok, 204, _}, enable_own_mfa(Token1)),
+    {ok, 200, Rsp2} = login(LoginBody#{<<"mfa_token">> => ?GOOD_TOTP}),
+    #{<<"token">> := Token2} = json_map(Rsp2),
+    ?assertMatch({ok, 204, _}, disable_own_mfa(Token2)),
+    ?assertMatch(#{<<"mfa">> := <<"disabled">>}, get_user(<<"viewer2">>)),
+    ?assertMatch({ok, 200, _}, login(LoginBody)),
+    %% self-disable left no admin decision behind, so the mandate covers them
+    ?assertEqual(undefined, emqx_dashboard_admin:admin_override_of(<<"viewer2">>)),
+    emqx_config:put([dashboard, default_mfa], #{mechanism => totp}),
+    %% the next login enrolls them again instead of letting them through
+    {ok, 401, Rsp3} = login(LoginBody),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_MFA_TOKEN">>,
+            <<"message">> :=
+                #{
+                    <<"error">> := <<"missing_mfa_token">>,
+                    <<"mechanism">> := <<"totp">>,
+                    <<"secret">> := _
+                }
+        },
+        json_map(Rsp3)
+    ),
+    ?assertMatch(#{<<"mfa">> := <<"totp">>}, get_user(<<"viewer2">>)),
+    ?assertMatch({ok, 200, _}, login(LoginBody#{<<"mfa_token">> => ?GOOD_TOTP})),
+    ok.
+
+%% An account an admin has exempted is not covered by the requirement: a
+%% user whose MFA an admin disabled is not enrolled again at login.
+t_enforce_skips_admin_exempted({init, Config}) ->
+    {ok, ok} = emqx_dashboard_admin:clear_mfa_state(<<"viewer4">>),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer4">>, undefined),
+    ok = mock_totp(),
+    Config;
+t_enforce_skips_admin_exempted({'end', _Config}) ->
+    emqx_config:put([dashboard, default_mfa], none),
+    ok = unmock_totp();
+t_enforce_skips_admin_exempted(_Config) ->
+    LoginBody =
+        #{
+            <<"username">> => <<"viewer4">>,
+            <<"password">> => <<"viewer4pass">>
+        },
+    %% an admin disabling another user's MFA writes the exemption
+    ?assertMatch({ok, 204, _}, disable_mfa(<<"viewer4">>, admin_jwt_token())),
+    ?assertEqual(?ADMIN_MFA_EXEMPTED, emqx_dashboard_admin:admin_override_of(<<"viewer4">>)),
+    emqx_config:put([dashboard, default_mfa], #{mechanism => totp}),
+    ?assertMatch({ok, 200, _}, login(LoginBody)),
+    ?assertMatch(#{<<"mfa">> := <<"disabled">>}, get_user(<<"viewer4">>)),
+    ok.
+
+%% The four-state status the dashboard branches on, across a full opt-in and
+%% opt-out cycle. The states a blocked login cannot report are read from
+%% `mfa_status/1' directly, since no token is issued in those.
+t_mfa_status({init, Config}) ->
+    {ok, ok} = emqx_dashboard_admin:clear_mfa_state(<<"viewer2">>),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer2">>, undefined),
+    ok = mock_totp(),
+    Config;
+t_mfa_status({'end', _Config}) ->
+    emqx_config:put([dashboard, default_mfa], none),
+    ok = unmock_totp();
+t_mfa_status(_Config) ->
+    LoginBody =
+        #{
+            <<"username">> => <<"viewer2">>,
+            <<"password">> => <<"viewer2pass">>
+        },
+    %% nothing enrolled and nothing requiring it: the user may opt in
+    {ok, 200, Rsp1} = login(LoginBody),
+    #{<<"token">> := Token1, <<"mfa_status">> := Status1} = json_map(Rsp1),
+    ?assertEqual(<<"pending_voluntary">>, Status1),
+    ?assertMatch(#{<<"mfa_status">> := <<"pending_voluntary">>}, current_user(Token1)),
+    %% opted in, secret issued but never verified. Login stops on it, so the
+    %% status is pending_enforced and not one of the voluntary states.
+    ?assertMatch({ok, 204, _}, enable_own_mfa(Token1)),
+    ?assertEqual(pending_enforced, emqx_dashboard_admin:mfa_status(<<"viewer2">>)),
+    %% verified once
+    {ok, 200, Rsp2} = login(LoginBody#{<<"mfa_token">> => ?GOOD_TOTP}),
+    #{<<"token">> := Token2, <<"mfa_status">> := Status2} = json_map(Rsp2),
+    ?assertEqual(<<"complete">>, Status2),
+    ?assertMatch(#{<<"mfa_status">> := <<"complete">>}, current_user(Token2)),
+    %% opted out again while nothing requires MFA
+    ?assertMatch({ok, 204, _}, disable_own_mfa(Token2)),
+    {ok, 200, Rsp3} = login(LoginBody),
+    #{<<"token">> := Token3, <<"mfa_status">> := Status3} = json_map(Rsp3),
+    ?assertEqual(<<"disabled">>, Status3),
+    ?assertMatch(#{<<"mfa_status">> := <<"disabled">>}, current_user(Token3)),
+    %% the same stored state reads as pending once the global mandate covers
+    %% the account, because the next login enrols them again
+    emqx_config:put([dashboard, default_mfa], #{mechanism => totp}),
+    ?assertEqual(pending_enforced, emqx_dashboard_admin:mfa_status(<<"viewer2">>)),
+    %% an admin exemption takes the account back out of the mandate
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer2">>, ?ADMIN_MFA_EXEMPTED),
+    ?assertEqual(disabled, emqx_dashboard_admin:mfa_status(<<"viewer2">>)),
+    ok.
+
+%% An admin decision to require MFA is reported even with no global mandate.
+t_mfa_status_admin_required({init, Config}) ->
+    {ok, ok} = emqx_dashboard_admin:clear_mfa_state(<<"viewer4">>),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer4">>, ?ADMIN_MFA_REQUIRED),
+    Config;
+t_mfa_status_admin_required({'end', _Config}) ->
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer4">>, undefined),
+    ok;
+t_mfa_status_admin_required(_Config) ->
+    ?assertEqual(none, emqx:get_config([dashboard, default_mfa], none)),
+    ?assertEqual(pending_enforced, emqx_dashboard_admin:mfa_status(<<"viewer4">>)),
+    ok.
+
+%% `GET /current_user' reports the derived status alongside the stored one, and
+%% needs no user management permission: a viewer reads it for itself.
+t_current_user_mfa_status({init, Config}) ->
+    {ok, ok} = emqx_dashboard_admin:clear_mfa_state(<<"viewer1">>),
+    {ok, ok} = emqx_dashboard_admin:set_admin_override(<<"viewer1">>, undefined),
+    Config;
+t_current_user_mfa_status({'end', _Config}) ->
+    ok;
+t_current_user_mfa_status(_Config) ->
+    {ok, 200, Rsp} = login(#{
+        <<"username">> => <<"viewer1">>,
+        <<"password">> => <<"viewer1pass">>
+    }),
+    #{<<"token">> := Token} = json_map(Rsp),
+    ?assertMatch(
+        #{
+            <<"username">> := <<"viewer1">>,
+            <<"role">> := ?ROLE_VIEWER,
+            <<"mfa">> := <<"none">>,
+            <<"mfa_status">> := <<"pending_voluntary">>
+        },
+        current_user(Token)
+    ),
+    %% and the admin sees its own record, not the viewer's
+    ?assertMatch(#{<<"username">> := <<"admin1">>}, current_user(admin_jwt_token())),
+    ?assertMatch({ok, 401, _}, request_api(get, api_path(["current_user"]), no_auth_header)),
     ok.
 
 %% DELETE MFA ignores the historical reset query parameter.
@@ -415,11 +580,19 @@ enable_mfa(User, JwtToken) ->
     Body = #{mechanism => totp},
     request_api(post, api_path(["users", User, "mfa"]), auth_header(JwtToken), Body).
 
+current_user(JwtToken) ->
+    {ok, 200, Body} = request_api(get, api_path(["current_user"]), auth_header(JwtToken)),
+    json_map(Body).
+
 disable_mfa(User, JwtToken) ->
     request_api(delete, api_path(["users", User, mfa]), auth_header(JwtToken), #{}).
 
 disable_own_mfa(JwtToken) ->
     request_api(delete, api_path(["current_user", "mfa"]), auth_header(JwtToken), #{}).
+
+enable_own_mfa(JwtToken) ->
+    Body = #{mechanism => totp},
+    request_api(post, api_path(["current_user", "mfa"]), auth_header(JwtToken), Body).
 
 delete_mfa_with_reset_query(User, JwtToken) ->
     Url = binary_to_list(iolist_to_binary(api_path(["users", User, "mfa"]))),

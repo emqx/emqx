@@ -70,6 +70,8 @@ t_scram_login_roundtrip(_) ->
     ),
     ?assert(is_binary(maps:get(token, Result))),
     ?assertEqual(32, byte_size(base64:decode(maps:get(server_signature, Result)))),
+    %% the SCRAM completion carries the same MFA status the password login does
+    ?assertEqual(pending_voluntary, maps:get(mfa_status, Result)),
     ?assertEqual(
         {error, password_error},
         emqx_dashboard_login:scram_verify(
