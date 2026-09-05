@@ -30,6 +30,9 @@ start(_Type, _Args) ->
     ok = maybe_start_quicer(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = emqx_limiter:init(),
+    %% Must run before the listeners start, so a listener that
+    %% references the default bundle finds it on disk.
+    ok = emqx_default_cert:ensure_localhost_bundle(),
     ok = maybe_start_listeners(),
     emqx_config:add_handlers(),
     emqx_rpc_log:init(),
