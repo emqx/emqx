@@ -69,7 +69,7 @@ build_info.json
 .envrc
 # elixir
 mix.lock
-apps/emqx_bpapi/test/emqx_static_checks_data/master.bpapi2
+apps/emqx_bpapi/test/emqx_static_checks_data/master.bpapi*
 # rendered configurations
 *.conf.rendered
 *.conf.rendered.*

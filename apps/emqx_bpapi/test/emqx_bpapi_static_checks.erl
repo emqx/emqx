@@ -4,7 +4,16 @@
 
 -module(emqx_bpapi_static_checks).
 
--export([run/0, dump/1, dump/0, check_compat/1, versions_file/0, dumps_dir/0, dump_file_extension/0]).
+-export([
+    run/0,
+    dump/1,
+    dump/0,
+    check_compat/1,
+    versions_file/0,
+    dumps_dir/0,
+    dump_file_extension/0,
+    dump_files/0
+]).
 
 %% Using an undocumented API here :(
 -include_lib("dialyzer/src/dialyzer.hrl").
@@ -176,6 +185,11 @@
     {emqx_ds_beamformer, 1}
 ]).
 
+%% Layout of the union tuple as OTP27 and older wrote it: the opaque slot sits
+%% between the tuple and map slots and OTP28 no longer has it.
+-define(OTP27_UNION_SIZE, 9).
+-define(OTP27_UNION_OPAQUE_SLOT, 8).
+
 -define(XREF, myxref).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -186,7 +200,7 @@
 run() ->
     case dump() of
         true ->
-            Dumps = filelib:wildcard(dumps_dir() ++ "/*" ++ dump_file_extension()),
+            Dumps = dump_files(),
             case Dumps of
                 [] ->
                     logger:error("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
@@ -205,7 +219,8 @@ check_compat(DumpFilenames) ->
     put(bpapi_ok, true),
     Dumps = lists:map(
         fun(FN) ->
-            {ok, [Dump]} = file:consult(FN),
+            {ok, [Dump0]} = file:consult(FN),
+            Dump = upgrade_dump(filename:extension(FN), Dump0),
             Dump#{release => filename_to_release(FN)}
         end,
         DumpFilenames
@@ -554,6 +569,15 @@ setnok() ->
 dumps_dir() ->
     filename:join(bpapi_app_dir(), "test/emqx_static_checks_data").
 
+%% Every checked-in dump the running OTP can read. Dumps written by an older
+%% OTP are rewritten by upgrade_dump/2 when they are loaded.
+-spec dump_files() -> [file:filename()].
+dump_files() ->
+    lists:append([
+        filelib:wildcard(dumps_dir() ++ "/*" ++ Extension)
+     || Extension <- readable_dump_extensions()
+    ]).
+
 versions_file() ->
     filename:join(emqx_app_dir(), "priv/bpapi.versions").
 
@@ -585,14 +609,75 @@ project_root_dir() ->
 -if(?OTP_RELEASE >= 26).
 load_plt(File) ->
     dialyzer_cplt:from_file(File).
+-else.
+load_plt(File) ->
+    dialyzer_plt:from_file(File).
+-endif.
 
+-if(?OTP_RELEASE >= 28).
+
+dump_file_extension() ->
+    %% OTP28 replaces opaque types with nominal ones in the internal format
+    %% for the types:
+    ".bpapi3".
+
+readable_dump_extensions() ->
+    [".bpapi2", ".bpapi3"].
+
+%% OTP28 replaced opaque types with nominal ones and dropped the opaque slot
+%% from the union tuple. Rewrite an OTP26/27 dump into the current
+%% representation so that the releases it describes stay in the comparison.
+upgrade_dump(".bpapi2", Dump = #{signatures := Signatures}) ->
+    Dump#{signatures := maps:map(fun(_MFA, Sig) -> upgrade_signature(Sig) end, Signatures)};
+upgrade_dump(_Extension, Dump) ->
+    Dump.
+
+upgrade_signature({Return, Args}) ->
+    {upgrade_type(Return), [upgrade_type(Arg) || Arg <- Args]}.
+
+%% An opaque type becomes the nominal OTP28 declares for it. Keeping it
+%% nominal rather than unwrapping it to its structure is what makes the
+%% comparison meaningful: the current release holds the same type as a
+%% nominal, and a bare structure is not a subtype of one.
+upgrade_type({c, opaque, OpaqueSet, Qual}) ->
+    erl_types:t_sup([
+        {c, nominal, {{Mod, Name, Arity, opaque}, upgrade_type(Struct)}, Qual}
+     || {opaque, Mod, Name, Arity, Struct} <- OpaqueSet
+    ]);
+upgrade_type({c, union, Slots, Qual}) when length(Slots) =:= ?OTP27_UNION_SIZE ->
+    {Head, [Opaque, Map]} = lists:split(?OTP27_UNION_OPAQUE_SLOT - 1, [
+        upgrade_type(Slot)
+     || Slot <- Slots
+    ]),
+    Union = {c, union, Head ++ [Map], Qual},
+    case Opaque of
+        none -> Union;
+        _ -> erl_types:t_sup(Union, Opaque)
+    end;
+upgrade_type(Tuple) when is_tuple(Tuple) ->
+    list_to_tuple([upgrade_type(Element) || Element <- tuple_to_list(Tuple)]);
+upgrade_type(List) when is_list(List) ->
+    [upgrade_type(Element) || Element <- List];
+upgrade_type(Map) when is_map(Map) ->
+    maps:from_list([{upgrade_type(K), upgrade_type(V)} || {K, V} <- maps:to_list(Map)]);
+upgrade_type(Other) ->
+    Other.
+
+-else.
+
+-if(?OTP_RELEASE >= 26).
 dump_file_extension() ->
     %% OTP26 changes the internal format for the types:
     ".bpapi2".
 -else.
-load_plt(File) ->
-    dialyzer_plt:from_file(File).
-
 dump_file_extension() ->
     ".bpapi".
+-endif.
+
+readable_dump_extensions() ->
+    [dump_file_extension()].
+
+upgrade_dump(_Extension, Dump) ->
+    Dump.
+
 -endif.
