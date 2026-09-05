@@ -167,6 +167,14 @@ t_listener_id_length(Config) when is_list(Config) ->
     ?assertEqual(AllowedId, maps:get(<<"id">>, AllowedGet)),
     ?assertEqual([], delete(AllowedPath)),
 
+    UnicodeName = binary:copy(<<"你"/utf8>>, 20),
+    UnicodeConf = OriginListener1#{
+        <<"name">> => UnicodeName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    UnicodeResult = request(post, Path, [], UnicodeConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, UnicodeResult),
+
     TooLongName = binary:copy(<<"b">>, 61),
     TooLongConf = OriginListener1#{
         <<"name">> => TooLongName,

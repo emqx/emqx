@@ -876,10 +876,10 @@ format_bind(Bin) when is_binary(Bin) ->
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).
 
--spec validate_listener_id(listener_id() | iodata()) ->
+-spec validate_listener_id(listener_id() | unicode:chardata()) ->
     ok | {error, {listener_id_too_long, pos_integer()}}.
 validate_listener_id(Id) ->
-    IdBin = iolist_to_binary(str(Id)),
+    IdBin = listener_id_part_to_binary(Id),
     case byte_size(IdBin) =< ?MAX_LISTENER_ID_BYTES of
         true ->
             ok;
@@ -890,7 +890,16 @@ validate_listener_id(Id) ->
 -spec validate_listener_id(listener_type() | binary(), atom() | binary()) ->
     ok | {error, {listener_id_too_long, pos_integer()}}.
 validate_listener_id(Type, Name) ->
-    validate_listener_id(iolist_to_binary([str(Type), ":", str(Name)])).
+    TypeBin = listener_id_part_to_binary(Type),
+    NameBin = listener_id_part_to_binary(Name),
+    validate_listener_id(<<TypeBin/binary, ":", NameBin/binary>>).
+
+listener_id_part_to_binary(Value) when is_binary(Value) ->
+    Value;
+listener_id_part_to_binary(Value) when is_atom(Value) ->
+    atom_to_binary(Value, utf8);
+listener_id_part_to_binary(Value) when is_list(Value) ->
+    unicode:characters_to_binary(Value).
 
 -spec parse_listener_id(listener_id()) -> {ok, #{type => atom(), name => atom()}} | {error, term()}.
 parse_listener_id(Id) ->
@@ -1021,7 +1030,9 @@ parse_bind(#{<<"bind">> := Bind}) ->
 
 %% The relative dir for ssl files.
 certs_dir(Type, Name) ->
-    iolist_to_binary(filename:join(["listeners", Type, Name])).
+    TypePath = binary_to_list(listener_id_part_to_binary(Type)),
+    NamePath = binary_to_list(listener_id_part_to_binary(Name)),
+    iolist_to_binary(filename:join(["listeners", TypePath, NamePath])).
 
 convert_certs(ListenerConf) ->
     maps:fold(

@@ -56,6 +56,21 @@ t_default_conf(_Config) ->
 
 t_listener_id_length(_Config) ->
     ?assertEqual(ok, emqx_listeners:validate_listener_id(tcp, binary:copy(<<"a">>, 60))),
+    UnicodeName = binary:copy(<<"你"/utf8>>, 20),
+    UnicodeNameAtom = binary_to_atom(UnicodeName, utf8),
+    ?assertEqual(ok, emqx_listeners:validate_listener_id(tcp, UnicodeName)),
+    ?assertEqual(ok, emqx_listeners:validate_listener_id(tcp, UnicodeNameAtom)),
+    UnicodeTooLongName = binary:copy(<<"你"/utf8>>, 21),
+    ?assertEqual(
+        {error, {listener_id_too_long, 64}},
+        emqx_listeners:validate_listener_id(tcp, UnicodeTooLongName)
+    ),
+    ?assertEqual(
+        {error, {listener_id_too_long, 64}},
+        emqx_listeners:validate_listener_id(
+            tcp, binary_to_atom(UnicodeTooLongName, utf8)
+        )
+    ),
     ?assertEqual(
         {error, {listener_id_too_long, 64}},
         emqx_listeners:validate_listener_id(tcp, binary:copy(<<"a">>, 61))
