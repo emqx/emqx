@@ -152,6 +152,34 @@ t_clientid_override(TCConfig, Opts) when is_list(TCConfig) ->
     ok.
 
 -doc """
+Checks that client attributes returned by an authentication backend reach the
+connected client's `client_attrs`.
+""".
+t_client_attrs(TCConfig, Opts) when is_list(TCConfig) ->
+    #{
+        mk_config_fn := MkConfigFn,
+        expected_attrs := ExpectedAttrs
+    } = Opts,
+    PostConfigFn = maps:get(post_config_fn, Opts, fun() -> ok end),
+    ClientOpts = maps:get(client_opts, Opts, #{}),
+    Config = MkConfigFn(),
+    on_exit(fun() -> _ = emqx_authn_test_lib:delete_authenticators([?CONF_NS_ATOM], ?GLOBAL) end),
+    {ok, _} = emqx:update_config(
+        [?CONF_NS_ATOM],
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    PostConfigFn(),
+    ClientId = <<"client_attrs_client">>,
+    {ok, C} = emqtt:start_link(ClientOpts#{clientid => ClientId}),
+    {ok, _} = emqtt:connect(C),
+    ?assertMatch(
+        #{clientinfo := #{client_attrs := ExpectedAttrs}},
+        emqx_cm:get_chan_info(ClientId)
+    ),
+    ok = emqtt:stop(C),
+    ok.
+
+-doc """
 Checks that, if an authentication backend returns the `zone_override` attribute, it's
 used to override the listener's zone.
 """.

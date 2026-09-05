@@ -38,7 +38,7 @@ validate({command_name, AllowedNames}, [Name | _]) ->
 validate({command_name, _}, _) ->
     {error, invalid_command_name};
 validate({allowed_fields, AllowedFields}, [_CmdName, _CmdKey | Args]) ->
-    Unknown = lists:filter(fun(Arg) -> not lists:member(Arg, AllowedFields) end, Args),
+    Unknown = lists:filter(fun(Arg) -> not is_allowed_field(Arg, AllowedFields) end, Args),
     case Unknown of
         [] ->
             ok;
@@ -57,3 +57,23 @@ validate({required_field_one_of, Required}, [_CmdName, _CmdKey | Args]) ->
     end;
 validate({required_field_one_of, Required}, _) ->
     {error, {missing_required_field, Required}}.
+
+%% An allowed field is either an exact name or, for a family of fields whose
+%% names the user chooses, `{prefix, Prefix}' - the prefix alone is not a name.
+is_allowed_field(Arg, AllowedFields) ->
+    lists:any(
+        fun
+            ({prefix, Prefix}) -> has_prefix(Arg, Prefix);
+            (Field) -> Field =:= Arg
+        end,
+        AllowedFields
+    ).
+
+has_prefix(Arg, Prefix) when is_binary(Arg), is_binary(Prefix) ->
+    Size = byte_size(Prefix),
+    case Arg of
+        <<Prefix:Size/binary, Rest/binary>> -> Rest =/= <<>>;
+        _ -> false
+    end;
+has_prefix(_Arg, _Prefix) ->
+    false.

@@ -18,6 +18,7 @@
     parse_sql/2,
     is_superuser/1,
     client_attrs/1,
+    maybe_client_attrs/1,
     clientid_override/1,
     bin/1,
     ensure_apps_started/1,
@@ -176,11 +177,54 @@ is_superuser(#{<<"is_superuser">> := Value}) ->
 is_superuser(#{}) ->
     #{is_superuser => false}.
 
+%% @doc Collect client attributes from a backend result.
+%%
+%% Two shapes are accepted, so that a backend which returns a whole map (an
+%% HTTP JSON body, a Mongo subdocument) and one which can only return flat
+%% columns (SQL, a Redis hash) both have a way to express them:
+%%
+%%   * `client_attrs'          - a map of attributes;
+%%   * `client_attrs.<name>'   - one attribute per key, which is what a SQL
+%%                               query aliases a column to.
+%%
+%% A per-attribute key wins over the same name inside the map, so a query can
+%% override one attribute without rebuilding the whole thing.
 -spec client_attrs(#{binary() => term()}) -> #{client_attrs => map()}.
-client_attrs(#{<<"client_attrs">> := Attrs}) ->
+client_attrs(Selected) when is_map(Selected) ->
+    Attrs = maps:merge(
+        attr_map(maps:get(<<"client_attrs">>, Selected, #{})),
+        prefixed_attrs(Selected)
+    ),
     #{client_attrs => drop_invalid_attr(Attrs)};
 client_attrs(_) ->
     #{client_attrs => #{}}.
+
+%% @doc Like `client_attrs/1', but leaves the key out when there are no
+%% attributes to report, so the caller's result map gains no `client_attrs'
+%% key. `clientid_override/1' omits its key the same way.
+-spec maybe_client_attrs(#{binary() => term()}) -> #{client_attrs => map()}.
+maybe_client_attrs(Selected) ->
+    case client_attrs(Selected) of
+        #{client_attrs := Attrs} = Result when map_size(Attrs) > 0 ->
+            Result;
+        _ ->
+            #{}
+    end.
+
+attr_map(Attrs) when is_map(Attrs) -> Attrs;
+attr_map(_NotAMap) -> #{}.
+
+prefixed_attrs(Selected) ->
+    maps:fold(
+        fun
+            (<<"client_attrs.", Name/binary>>, Value, Acc) ->
+                Acc#{Name => Value};
+            (_Key, _Value, Acc) ->
+                Acc
+        end,
+        #{},
+        Selected
+    ).
 
 -spec clientid_override(#{binary() => term()}) -> #{clientid_override => term()}.
 clientid_override(#{<<"clientid_override">> := Value}) when
@@ -301,18 +345,43 @@ without_password(Credential, [Name | Rest]) ->
 owner_id(Mechanism, Backend) ->
     bin([bin(Mechanism), ":", bin(Backend)]).
 
+%% A dropped attribute means the backend is misconfigured, not that the client
+%% did anything wrong: the column is there but unusable. Every attribute
+%% dropped during one authentication is reported in a single log entry.
 drop_invalid_attr(Map) when is_map(Map) ->
-    maps:from_list(do_drop_invalid_attr(maps:to_list(Map))).
+    {Kept, Dropped} = maps:fold(fun keep_or_drop_attr/3, {[], []}, Map),
+    ok = log_dropped_attrs(Dropped),
+    maps:from_list(Kept).
 
-do_drop_invalid_attr([]) ->
-    [];
-do_drop_invalid_attr([{K, V} | More]) ->
+keep_or_drop_attr(K, V, {Kept, Dropped}) ->
     case emqx_utils:is_restricted_str(K) of
-        true ->
-            [{iolist_to_binary(K), iolist_to_binary(V)} | do_drop_invalid_attr(More)];
         false ->
-            ?SLOG(debug, #{msg => "invalid_client_attr_dropped", attr_name => K}, #{
-                tag => "AUTHN"
-            }),
-            do_drop_invalid_attr(More)
+            {Kept, [{K, invalid_name} | Dropped]};
+        true ->
+            case attr_value(V) of
+                {ok, Value} -> {[{iolist_to_binary(K), Value} | Kept], Dropped};
+                error -> {Kept, [{K, invalid_value} | Dropped]}
+            end
     end.
+
+log_dropped_attrs([]) ->
+    ok;
+log_dropped_attrs(Dropped) ->
+    ?SLOG(
+        warning,
+        #{msg => "invalid_client_attrs_dropped", dropped => maps:from_list(Dropped)},
+        #{tag => "AUTHN"}
+    ).
+
+%% A client attribute value is a binary. Database columns are typed, so one can
+%% arrive as a number or a boolean, and a nullable column arrives as `null' or
+%% `undefined'. Values with a binary representation are converted; the rest are
+%% dropped, so one unusable value does not fail the authentication.
+attr_value(V) when is_binary(V) -> {ok, V};
+attr_value(V) when is_integer(V) -> {ok, integer_to_binary(V)};
+attr_value(V) when is_float(V) -> {ok, float_to_binary(V, [short])};
+attr_value(true) -> {ok, <<"true">>};
+attr_value(false) -> {ok, <<"false">>};
+%% A list is dropped: backends return text as a binary, so a list is a driver
+%% rendering a column as character codes rather than an attribute value.
+attr_value(_Other) -> error.
