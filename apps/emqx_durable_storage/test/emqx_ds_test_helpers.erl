@@ -308,10 +308,16 @@ retry_dirty_append(Shard, Opts, TTVs, Retries) ->
             %% We've entered unknown territory, do not retry:
             {error, unrecoverable, timeout}
         end,
+    ShouldRetryNotTheLeader = maps:get(should_retry_not_the_leader, Opts, false),
     case Result of
         ok ->
             ok;
         {error, recoverable, _} when Retries > 0 ->
+            timer:sleep(500),
+            retry_dirty_append(Shard, Opts, TTVs, Retries - 1);
+        {error, unrecoverable, {not_the_leader, _}} when
+            Retries > 0 andalso ShouldRetryNotTheLeader
+        ->
             timer:sleep(500),
             retry_dirty_append(Shard, Opts, TTVs, Retries - 1);
         _ ->

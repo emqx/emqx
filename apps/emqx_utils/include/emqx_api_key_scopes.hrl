@@ -103,8 +103,11 @@
 %% Namespaced-administrator scope defaults — a restricted subset of
 %% scopes that are actually useful for a namespaced admin. RBAC blocks
 %% namespaced admins from mutating most system endpoints, but
-%% explicitly allows data_backup (export/import/list).  RBAC is the
-%% primary authorization gate — the scope layer is defense-in-depth.
+%% explicitly allows data_backup (export/import/list). RBAC is the
+%% primary authorization gate for mutating endpoints, where the scope
+%% layer is defense-in-depth; for GET endpoints RBAC's catch-all grants
+%% namespaced admins blanket read access, so there the scope layer is
+%% the sole gate, not a second layer.
 -define(NS_ADMIN_COMMON_SCOPES, [
     ?SCOPE_CONNECTIONS,
     ?SCOPE_MONITORING,

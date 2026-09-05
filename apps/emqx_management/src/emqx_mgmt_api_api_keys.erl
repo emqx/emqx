@@ -366,21 +366,33 @@ create_scopes(Role, RawScopes) ->
 
 %% Validation of a newly written explicit scope list — POST, or PUT with
 %% a list that genuinely differs from the persisted one: the shared
-%% four-layer validation plus the namespaced-key `publish' rejection.
+%% four-layer validation plus the namespaced-role scope allowlist.
 validate_explicit_scopes(Role, Scopes) ->
     case validate_scopes(Role, Scopes, Scopes) of
-        ok -> validate_no_publish_for_namespaced(Role, Scopes);
+        ok -> validate_namespaced_scope_allowlist(Role, Scopes);
         Error -> Error
     end.
 
-%% A namespaced API key cannot hold the `publish' scope: the publish APIs
-%% are global-only, so the scope could never be exercised. Applies to any
-%% newly written explicit list; only a verbatim round-trip of a stored
-%% list that predates this rule skips it (see validate_update_scopes/3).
-validate_no_publish_for_namespaced(Role, Scopes) ->
-    case is_binary(role_namespace(Role)) andalso lists:member(?SCOPE_PUBLISH, Scopes) of
+%% A namespaced API key may only hold scopes in `?NS_ADMIN_ALLOWED_SCOPES',
+%% mirroring the dashboard login-user rule
+%% (`emqx_dashboard_api:validate_role_scope_compat/2'). `publish' is not
+%% in the allowlist, so this subsumes the former publish-only rejection.
+%% Applies to any newly written explicit list; only a verbatim round-trip
+%% of a stored list that predates this rule skips it (see
+%% `validate_update_scopes/3').
+validate_namespaced_scope_allowlist(Role, Scopes) ->
+    case is_binary(role_namespace(Role)) of
         true ->
-            {error, <<"Namespaced API keys cannot hold the 'publish' scope">>};
+            case [S || S <- Scopes, not lists:member(S, ?NS_ADMIN_ALLOWED_SCOPES)] of
+                [] ->
+                    ok;
+                Forbidden ->
+                    Names = lists:join(<<", ">>, Forbidden),
+                    {error,
+                        iolist_to_binary([
+                            <<"Namespaced API keys cannot hold scopes: ">>, Names
+                        ])}
+            end;
         false ->
             ok
     end.
@@ -470,8 +482,8 @@ update_api_key(Name, Role, Body) ->
 %% persisted scopes against the (possibly changed) role, so a role
 %% change to `publisher' cannot keep non-`publish' scopes via a partial
 %% update; `unset' clears to role default (valid by construction);
-%% `{set, L}' validates `L' with the privilege mutex applied and rejects
-%% `publish' on a namespaced key — unless `L' merely re-submits the
+%% `{set, L}' validates `L' with the privilege mutex applied and enforces
+%% the namespaced-role scope allowlist — unless `L' merely re-submits the
 %% persisted scope list for the unchanged role/namespace (a
 %% read-modify-write), which is accepted verbatim so a key stored under
 %% an older role default (e.g. a namespaced key whose materialized
