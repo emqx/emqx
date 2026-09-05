@@ -20,13 +20,12 @@ suite() -> [{timetrap, {minutes, 2}}].
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-%% The bundle is generated before the listeners start, so these tests do not need
-%% any listener running — and not binding ports keeps the suite from colliding
-%% with anything else on the host.
+%% Nothing here needs a listener running, and not binding ports keeps the suite
+%% from colliding with anything else on the host.
 emqx_app_spec() ->
     {emqx, #{override_env => [{boot_modules, [broker]}]}}.
 
-init_per_testcase(t_fresh_cluster_nodes_keep_own_bundles = TCName, TCConfig) ->
+init_per_testcase(t_bundles_are_per_node = TCName, TCConfig) ->
     Nodes = emqx_cth_cluster:start(
         [
             {emqx_default_cert_SUITE1, #{role => core, apps => [emqx_app_spec()]}},
@@ -41,7 +40,7 @@ init_per_testcase(TCName, TCConfig) ->
     }),
     [{apps, Apps} | TCConfig].
 
-end_per_testcase(t_fresh_cluster_nodes_keep_own_bundles, TCConfig) ->
+end_per_testcase(t_bundles_are_per_node, TCConfig) ->
     ok = emqx_cth_cluster:stop(?config(nodes, TCConfig)),
     ok;
 end_per_testcase(_TCName, TCConfig) ->
@@ -52,25 +51,34 @@ end_per_testcase(_TCName, TCConfig) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-bundle_files() ->
-    {ok, Files} = emqx_managed_certs:list_managed_files(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME),
+ensure() ->
+    {ok, Files} = emqx_default_cert:ensure_localhost_bundle(),
     Files.
+
+%% `list_managed_files/2' reports `enoent' rather than an empty map when the
+%% bundle directory does not exist at all.
+bundle_files() ->
+    case emqx_managed_certs:list_managed_files(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME) of
+        {ok, Files} -> Files;
+        {error, enoent} -> #{}
+    end.
 
 %% The bundle's file contents keyed by file kind, so two bundles can be compared
 %% without depending on the paths they happen to live at.
-bundle_contents() ->
+contents(Files) ->
     maps:map(
         fun(_Kind, #{path := Path}) ->
             {ok, Contents} = file:read_file(Path),
             Contents
         end,
-        bundle_files()
+        Files
     ).
 
+bundle_contents() ->
+    contents(bundle_files()).
+
 bundle_contents(Node) ->
-    {ok, Files} = erpc:call(
-        Node, emqx_managed_certs, list_managed_files, [?global_ns, ?DEFAULT_CERT_BUNDLE_NAME]
-    ),
+    {ok, Files} = erpc:call(Node, emqx_default_cert, ensure_localhost_bundle, []),
     maps:map(
         fun(_Kind, #{path := Path}) ->
             {ok, Contents} = erpc:call(Node, file, read_file, [Path]),
@@ -101,26 +109,56 @@ common_name(#'OTPCertificate'{tbsCertificate = TBS}) ->
         CN -> iolist_to_binary(CN)
     end.
 
-path_validates(CertPem, CaPem) ->
-    [{'Certificate', LeafDer, not_encrypted}] = public_key:pem_decode(CertPem),
-    [{'Certificate', CaDer, not_encrypted}] = public_key:pem_decode(CaPem),
+%% The chain holds the leaf first, then the CA that signed it.
+chain_entries(ChainPem) ->
+    [{'Certificate', LeafDer, not_encrypted}, {'Certificate', CaDer, not_encrypted}] =
+        public_key:pem_decode(ChainPem),
+    {LeafDer, CaDer}.
+
+path_validates(ChainPem) ->
+    {LeafDer, CaDer} = chain_entries(ChainPem),
     public_key:pkix_path_validation(CaDer, [LeafDer], []).
+
+%% The leaf's public key as stored in the certificate, and the one derived from
+%% the stored private key. They match only if both files come from the same
+%% generation.
+cert_public_key(CertPem) ->
+    #'OTPCertificate'{tbsCertificate = TBS} = decode_cert(CertPem),
+    #'OTPTBSCertificate'{subjectPublicKeyInfo = SPKI} = TBS,
+    #'OTPSubjectPublicKeyInfo'{subjectPublicKey = PubKey} = SPKI,
+    PubKey.
+
+key_public_key(KeyPem) ->
+    [Entry] = public_key:pem_decode(KeyPem),
+    case public_key:pem_entry_decode(Entry) of
+        #'ECPrivateKey'{publicKey = Point} ->
+            #'ECPoint'{point = Point};
+        #'RSAPrivateKey'{modulus = N, publicExponent = E} ->
+            #'RSAPublicKey'{
+                modulus = N,
+                publicExponent = E
+            }
+    end.
+
+assert_self_consistent(Contents) ->
+    #{?FILE_KIND_KEY := KeyPem, ?FILE_KIND_CHAIN := ChainPem} = Contents,
+    ?assertMatch({ok, _}, path_validates(ChainPem)),
+    ?assertEqual(cert_public_key(ChainPem), key_public_key(KeyPem)).
 
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
 
--doc "Booting the node generates the default `localhost' certificate bundle.".
-t_generated_at_boot(_TCConfig) ->
-    ?assertMatch(
-        #{?FILE_KIND_KEY := _, ?FILE_KIND_CHAIN := _, ?FILE_KIND_CA := _},
-        bundle_files()
-    ).
+-doc "The bundle is generated on demand when the node does not have one.".
+t_generates_when_absent(_TCConfig) ->
+    %% Nothing generates at boot, so there is no bundle until it is asked for.
+    ?assertEqual(#{}, bundle_files()),
+    ?assertMatch(#{?FILE_KIND_KEY := _, ?FILE_KIND_CHAIN := _}, ensure()).
 
 -doc "The generated leaf certificate is for CN=localhost and carries the localhost SANs.".
 t_generated_cert_identifies_localhost(_TCConfig) ->
-    #{?FILE_KIND_CHAIN := CertPem} = bundle_contents(),
-    Cert = decode_cert(CertPem),
+    #{?FILE_KIND_CHAIN := ChainPem} = contents(ensure()),
+    Cert = decode_cert(ChainPem),
     ?assertEqual(<<"localhost">>, common_name(Cert)),
     SANs = extension(?'id-ce-subjectAltName', Cert),
     ?assert(lists:member({dNSName, "localhost"}, SANs), #{sans => SANs}),
@@ -128,72 +166,105 @@ t_generated_cert_identifies_localhost(_TCConfig) ->
     IPv6 = <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1>>,
     ?assert(lists:member({iPAddress, IPv6}, SANs), #{sans => SANs}).
 
--doc "The generated leaf certificate validates against the CA stored alongside it.".
-t_generated_leaf_validates_against_ca(_TCConfig) ->
-    #{?FILE_KIND_CHAIN := CertPem, ?FILE_KIND_CA := CaPem} = bundle_contents(),
-    ?assertMatch({ok, _}, path_validates(CertPem, CaPem)).
+-doc "The generated key, leaf certificate and CA belong to each other.".
+t_generated_bundle_is_self_consistent(_TCConfig) ->
+    assert_self_consistent(contents(ensure())).
+
+-doc """
+The bundle is a key and a chain, with no `ca' file: that slot is the trust
+anchor for verifying peers, which this node has no business filling in for
+itself. The CA travels in the chain instead, so a client can trust this node.
+""".
+t_bundle_has_chain_and_no_ca_file(_TCConfig) ->
+    Contents = contents(ensure()),
+    ?assertEqual([chain, key], lists:sort(maps:keys(Contents))),
+    #{?FILE_KIND_CHAIN := ChainPem} = Contents,
+    {_LeafDer, CaDer} = chain_entries(ChainPem),
+    CaCert = public_key:pkix_decode_cert(CaDer, otp),
+    ?assertMatch(
+        #'BasicConstraints'{cA = true},
+        extension(?'id-ce-basicConstraints', CaCert)
+    ).
 
 -doc "The bundle holds no CA private key: the signing key is discarded at generation time.".
 t_no_ca_key_in_bundle(_TCConfig) ->
-    Contents = bundle_contents(),
-    ?assertEqual([ca, chain, key], lists:sort(maps:keys(Contents))),
-    lists:foreach(
-        fun(Kind) ->
-            Entries = public_key:pem_decode(maps:get(Kind, Contents)),
-            ?assertEqual(
-                [],
-                [E || {Type, _, _} = E <- Entries, Type =/= 'Certificate'],
-                #{kind => Kind}
-            )
-        end,
-        [?FILE_KIND_CHAIN, ?FILE_KIND_CA]
-    ).
+    #{?FILE_KIND_CHAIN := ChainPem} = contents(ensure()),
+    Entries = public_key:pem_decode(ChainPem),
+    ?assertEqual([], [E || {Type, _, _} = E <- Entries, Type =/= 'Certificate']).
 
--doc "Running the boot hook again keeps the existing bundle instead of regenerating it.".
+-doc "Asking again returns the existing bundle instead of generating another.".
 t_ensure_is_idempotent(_TCConfig) ->
-    Before = bundle_contents(),
-    ok = emqx_default_cert:ensure_localhost_bundle(),
-    ?assertEqual(Before, bundle_contents()).
+    Before = contents(ensure()),
+    ?assertEqual(Before, contents(ensure())).
 
 -doc """
-A bundle already on disk is kept, not overwritten. This is what lets a node that
-inherited the cluster's bundle through `emqx_conf' data sync keep it: the boot hook
-runs after that sync and finds a complete bundle.
+A complete bundle already stored under this name is used as it is. This is what
+lets an operator supply their own default certificate, and what lets a node that
+inherited the cluster's bundle through `emqx_conf' data sync keep it.
 """.
 t_existing_bundle_is_kept(_TCConfig) ->
-    #{?FILE_KIND_KEY := #{path := KeyPath}, ?FILE_KIND_CHAIN := #{path := CertPath}} =
-        bundle_files(),
-    %% Stands in for a bundle synced from a cluster peer: content that
+    #{?FILE_KIND_KEY := #{path := KeyPath}, ?FILE_KIND_CHAIN := #{path := CertPath}} = ensure(),
+    %% Stands in for an operator-supplied or peer-synced bundle: content that
     %% generation would certainly not reproduce.
-    ok = file:write_file(KeyPath, <<"inherited-key">>),
-    ok = file:write_file(CertPath, <<"inherited-cert">>),
-    ok = emqx_default_cert:ensure_localhost_bundle(),
+    ok = file:write_file(KeyPath, <<"supplied-key">>),
+    ok = file:write_file(CertPath, <<"supplied-cert">>),
     ?assertMatch(
-        #{?FILE_KIND_KEY := <<"inherited-key">>, ?FILE_KIND_CHAIN := <<"inherited-cert">>},
-        bundle_contents()
+        #{?FILE_KIND_KEY := <<"supplied-key">>, ?FILE_KIND_CHAIN := <<"supplied-cert">>},
+        contents(ensure())
     ).
 
--doc "An incomplete bundle is regenerated, so a half-written one does not persist.".
+-doc "An incomplete bundle is replaced, so a half-written one does not persist.".
 t_incomplete_bundle_is_regenerated(_TCConfig) ->
-    #{?FILE_KIND_KEY := #{path := KeyPath}} = bundle_files(),
+    #{?FILE_KIND_KEY := #{path := KeyPath}} = ensure(),
     ok = file:delete(KeyPath),
-    ok = emqx_default_cert:ensure_localhost_bundle(),
-    #{?FILE_KIND_CHAIN := CertPem, ?FILE_KIND_CA := CaPem} = Contents = bundle_contents(),
+    Contents = contents(ensure()),
     ?assertMatch(#{?FILE_KIND_KEY := _}, Contents),
-    ?assertMatch({ok, _}, path_validates(CertPem, CaPem)).
+    assert_self_consistent(Contents).
 
 -doc """
-Two nodes forming a fresh cluster each generate and keep their own bundle. Each
-node's default certificate is its own identity; they are not expected to converge.
+Deleting the bundle keeps it deleted until something asks for a default
+certificate again: generation is driven by demand, not by boot.
 """.
-t_fresh_cluster_nodes_keep_own_bundles(TCConfig) ->
+t_deleted_bundle_stays_deleted(_TCConfig) ->
+    _ = ensure(),
+    ok = emqx_managed_certs:delete_bundle(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME),
+    ?assertEqual(#{}, bundle_files()),
+    %% Only an explicit request brings it back.
+    ?assertMatch(#{?FILE_KIND_KEY := _}, ensure()),
+    ?assertMatch(#{?FILE_KIND_KEY := _}, bundle_files()).
+
+-doc """
+Concurrent callers never interleave into a mixed bundle: whichever generation
+lands, the stored key, certificate and CA belong to each other.
+""".
+t_concurrent_ensure_is_consistent(_TCConfig) ->
+    Parent = self(),
+    Workers = [
+        spawn_link(fun() ->
+            Parent ! {self(), emqx_default_cert:ensure_localhost_bundle()}
+        end)
+     || _ <- lists:seq(1, 8)
+    ],
+    lists:foreach(
+        fun(Worker) ->
+            receive
+                {Worker, Result} -> ?assertMatch({ok, #{?FILE_KIND_KEY := _}}, Result)
+            after 30_000 -> ct:fail("worker ~p timed out", [Worker])
+            end
+        end,
+        Workers
+    ),
+    assert_self_consistent(bundle_contents()).
+
+-doc """
+Each node generates and keeps its own bundle: the default certificate is a
+per-node identity and is not pushed to the other nodes in the cluster.
+""".
+t_bundles_are_per_node(TCConfig) ->
     [N1, N2] = ?config(nodes, TCConfig),
     Bundle1 = bundle_contents(N1),
     Bundle2 = bundle_contents(N2),
-    ?assertMatch(#{?FILE_KIND_KEY := _, ?FILE_KIND_CHAIN := _, ?FILE_KIND_CA := _}, Bundle1),
-    ?assertMatch(#{?FILE_KIND_KEY := _, ?FILE_KIND_CHAIN := _, ?FILE_KIND_CA := _}, Bundle2),
+    assert_self_consistent(Bundle1),
+    assert_self_consistent(Bundle2),
     ?assertNotEqual(maps:get(?FILE_KIND_KEY, Bundle1), maps:get(?FILE_KIND_KEY, Bundle2)),
-    ?assertNotEqual(maps:get(?FILE_KIND_CHAIN, Bundle1), maps:get(?FILE_KIND_CHAIN, Bundle2)),
-    %% Stable: neither node adopts the other's bundle while clustered.
-    ?assertEqual(Bundle1, bundle_contents(N1)),
-    ?assertEqual(Bundle2, bundle_contents(N2)).
+    ?assertNotEqual(maps:get(?FILE_KIND_CHAIN, Bundle1), maps:get(?FILE_KIND_CHAIN, Bundle2)).

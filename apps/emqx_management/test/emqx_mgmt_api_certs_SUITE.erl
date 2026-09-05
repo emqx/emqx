@@ -119,11 +119,6 @@ init_per_testcase(_TestCase, TCConfig) ->
         AuthHeader = ?ON(N1, emqx_mgmt_api_test_util:auth_header_()),
         put_auth_header(AuthHeader)
     end,
-    %% Each node generates its default certificate bundle at boot, so the certs
-    %% dir is not empty to begin with. Clear it here as well as in
-    %% `end_per_testcase/2', so every case sees only what it creates itself.
-    Nodes = get_config(nodes, TCConfig),
-    ?ON_ALL(Nodes, ok = emqx_managed_certs:clean_certs_dir()),
     TCConfig.
 
 end_per_testcase(_TestCase, TCConfig) ->
