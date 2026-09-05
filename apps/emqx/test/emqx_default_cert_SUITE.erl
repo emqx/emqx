@@ -58,7 +58,7 @@ ensure() ->
 %% `list_managed_files/2' reports `enoent' rather than an empty map when the
 %% bundle directory does not exist at all.
 bundle_files() ->
-    case emqx_managed_certs:list_managed_files(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME) of
+    case emqx_managed_certs:list_managed_files(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME) of
         {ok, Files} -> Files;
         {error, enoent} -> #{}
     end.
@@ -227,7 +227,7 @@ certificate again: generation is driven by demand, not by boot.
 """.
 t_deleted_bundle_stays_deleted(_TCConfig) ->
     _ = ensure(),
-    ok = emqx_managed_certs:delete_bundle(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME),
+    ok = emqx_managed_certs:delete_bundle(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
     ?assertEqual(#{}, bundle_files()),
     %% Only an explicit request brings it back.
     ?assertMatch(#{?FILE_KIND_KEY := _}, ensure()),

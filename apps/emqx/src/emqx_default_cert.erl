@@ -68,13 +68,13 @@ ensure_localhost_bundle() ->
 %%--------------------------------------------------------------------
 
 list_bundle() ->
-    emqx_managed_certs:list_managed_files(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME).
+    emqx_managed_certs:list_managed_files(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME).
 
 generate_localhost_bundle() ->
     %% Anything already stored under this name is incomplete (`ensure_localhost_bundle/0'
     %% checked), and would block the rename. Clear it first, locally: a bundle
     %% this node cannot use is not worth keeping, and other nodes keep theirs.
-    _ = emqx_managed_certs:delete_bundle_v1(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME),
+    _ = emqx_managed_certs:delete_bundle_v1(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
     maybe
         {ok, Files} ?= generate(),
         ok ?= install(Files),
@@ -83,19 +83,19 @@ generate_localhost_bundle() ->
         {error, Reason} = Error ->
             ?SLOG(error, #{
                 msg => "failed_to_generate_default_tls_certificate",
-                bundle => ?DEFAULT_CERT_BUNDLE_NAME,
+                bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
                 reason => Reason
             }),
             Error
     end.
 
 install(Files) ->
-    case emqx_managed_certs:create_bundle(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME, Files) of
+    case emqx_managed_certs:create_bundle(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME, Files) of
         ok ->
             ?SLOG(info, #{
                 msg => "default_tls_certificate_generated",
-                bundle => ?DEFAULT_CERT_BUNDLE_NAME,
-                dir => emqx_managed_certs:dir(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME)
+                bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
+                dir => emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME)
             }),
             ok;
         {error, exists} ->

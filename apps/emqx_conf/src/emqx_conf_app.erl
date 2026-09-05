@@ -384,7 +384,7 @@ excluded_prefixes(Prefix) ->
     %% `dir/2' hands back a binary, since the bundle name is one; the collected
     %% paths are strings.
     DefaultCertDir = unicode:characters_to_list(
-        emqx_managed_certs:dir(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME)
+        emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME)
     ),
     [ensure_trailing_slash(to_data_dir_relative_path(DefaultCertDir, Prefix))].
 
