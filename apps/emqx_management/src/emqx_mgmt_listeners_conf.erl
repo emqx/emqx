@@ -30,7 +30,12 @@ action(Type, Name, Action, Conf) ->
     wrap(emqx_conf:update(?path(Type, Name), {action, Action, Conf}, ?OPTS)).
 
 create(Type, Name, Conf) ->
-    wrap(emqx_conf:update(?path(Type, Name), {create, Conf}, ?OPTS)).
+    case emqx_listeners:validate_listener_id(Type, Name) of
+        ok ->
+            wrap(emqx_conf:update(?path(Type, Name), {create, Conf}, ?OPTS));
+        {error, _} = Error ->
+            Error
+    end.
 
 ensure_remove(Type, Name) ->
     wrap(emqx_conf:tombstone(?path(Type, Name), ?OPTS)).

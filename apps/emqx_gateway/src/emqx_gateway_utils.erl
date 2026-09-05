@@ -44,6 +44,7 @@ Utility functions for EMQX gateway.
     apply/2,
     parse_listenon/1,
     unix_ts_to_rfc3339/2,
+    validate_listener_id/3,
     listener_id/3,
     listener_name_from_id/1,
     parse_listener_id/1,
@@ -417,6 +418,10 @@ parse_listenon(Str) when is_list(Str) ->
                 {error, _} -> error({invalid_listenon_name, Str})
             end
     end.
+
+validate_listener_id(GwName, Type, LisName) ->
+    Id = <<(bin(GwName))/binary, ":", (bin(Type))/binary, ":", (bin(LisName))/binary>>,
+    emqx_listeners:validate_listener_id(Id).
 
 listener_id(GwName, Type, LisName) ->
     binary_to_atom(

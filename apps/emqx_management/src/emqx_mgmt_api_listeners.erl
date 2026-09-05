@@ -451,10 +451,15 @@ parse_listener_conf(id, Conf0) ->
     TypeAtom = binary_to_existing_atom(TypeBin),
     case maps:take(<<"id">>, Conf2) of
         {IdBin, Conf3} ->
-            {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
-            case Type =:= TypeAtom of
-                true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf3};
-                false -> {error, listener_type_inconsistent}
+            case emqx_listeners:validate_listener_id(IdBin) of
+                ok ->
+                    {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
+                    case Type =:= TypeAtom of
+                        true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf3};
+                        false -> {error, listener_type_inconsistent}
+                    end;
+                {error, _} = Error ->
+                    Error
             end;
         _ ->
             {error, listener_config_invalid}
@@ -466,7 +471,12 @@ parse_listener_conf(name, Conf0) ->
     case maps:take(<<"name">>, Conf2) of
         {Name, Conf3} ->
             IdBin = <<TypeBin/binary, $:, Name/binary>>,
-            {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
+            case emqx_listeners:validate_listener_id(IdBin) of
+                ok ->
+                    {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
+                {error, _} = Error ->
+                    Error
+            end;
         _ ->
             {error, listener_config_invalid}
     end.
@@ -510,7 +520,10 @@ enabled(stop) -> #{<<"enable">> => false};
 enabled(restart) -> #{<<"enable">> => true}.
 
 err_msg(Atom) when is_atom(Atom) -> atom_to_binary(Atom);
-err_msg(Reason) -> list_to_binary(err_msg_str(Reason)).
+err_msg({listener_id_too_long, MaxBytes}) ->
+    iolist_to_binary(io_lib:format("Listener ID must not exceed ~B bytes", [MaxBytes]));
+err_msg(Reason) ->
+    list_to_binary(err_msg_str(Reason)).
 
 err_msg_str(Reason) ->
     io_lib:format("~p", [Reason]).

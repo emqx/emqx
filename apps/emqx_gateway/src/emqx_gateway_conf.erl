@@ -393,8 +393,13 @@ import_config(_Namespace, RawConf) ->
 pre_config_update(?GATEWAY, {load_gateway, GwName, Conf}, RawConf) ->
     case maps:get(GwName, RawConf, undefined) of
         undefined ->
-            NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf),
-            {ok, emqx_utils_maps:deep_put([GwName], RawConf, NConf)};
+            case validate_new_listener_ids(#{GwName => Conf}, RawConf) of
+                ok ->
+                    NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf),
+                    {ok, emqx_utils_maps:deep_put([GwName], RawConf, NConf)};
+                {error, _} = Error ->
+                    Error
+            end;
         _ ->
             badres_gateway(already_exist, GwName)
     end;
@@ -413,13 +418,18 @@ pre_config_update(?GATEWAY, {unload_gateway, GwName}, RawConf) ->
 pre_config_update(?GATEWAY, {add_listener, GwName, {LType, LName}, Conf}, RawConf) ->
     case get_listener(GwName, LType, LName, RawConf) of
         undefined ->
-            NConf = convert_certs(certs_dir(GwName), Conf),
-            NListener = #{LType => #{LName => NConf}},
-            {ok,
-                emqx_utils_maps:deep_merge(
-                    RawConf,
-                    #{GwName => #{<<"listeners">> => NListener}}
-                )};
+            case emqx_gateway_utils:validate_listener_id(GwName, LType, LName) of
+                ok ->
+                    NConf = convert_certs(certs_dir(GwName), Conf),
+                    NListener = #{LType => #{LName => NConf}},
+                    {ok,
+                        emqx_utils_maps:deep_merge(
+                            RawConf,
+                            #{GwName => #{<<"listeners">> => NListener}}
+                        )};
+                {error, _} = Error ->
+                    Error
+            end;
         _ ->
             badres_listener(already_exist, GwName, LType, LName)
     end;
@@ -519,14 +529,19 @@ pre_config_update(?GATEWAY, {remove_authn, GwName, {LType, LName}}, RawConf) ->
     Path = [GwName, <<"listeners">>, LType, LName, ?AUTHN_BIN],
     {ok, emqx_utils_maps:deep_remove(Path, RawConf)};
 pre_config_update(?GATEWAY, NewRawConf0 = #{}, OldRawConf = #{}) ->
-    %% FIXME don't support gateway's listener's authn update.
-    %% load all authentications
-    NewRawConf1 = pre_load_authentications(NewRawConf0, OldRawConf),
-    %% load all listeners
-    NewRawConf2 = pre_load_listeners(NewRawConf1, OldRawConf),
-    %% load all gateway
-    NewRawConf3 = pre_load_gateways(NewRawConf2, OldRawConf),
-    {ok, NewRawConf3};
+    case validate_new_listener_ids(NewRawConf0, OldRawConf) of
+        ok ->
+            %% FIXME don't support gateway's listener's authn update.
+            %% load all authentications
+            NewRawConf1 = pre_load_authentications(NewRawConf0, OldRawConf),
+            %% load all listeners
+            NewRawConf2 = pre_load_listeners(NewRawConf1, OldRawConf),
+            %% load all gateway
+            NewRawConf3 = pre_load_gateways(NewRawConf2, OldRawConf),
+            {ok, NewRawConf3};
+        {error, _} = Error ->
+            Error
+    end;
 pre_config_update(Path, UnknownReq, _RawConf) ->
     ?SLOG(error, #{
         msg => "unknown_gateway_update_request",
@@ -534,6 +549,58 @@ pre_config_update(Path, UnknownReq, _RawConf) ->
         path => Path
     }),
     {error, badreq}.
+
+validate_new_listener_ids(NewRawConf, OldRawConf) ->
+    maps:fold(
+        fun
+            (_GwName, _GwConf, {error, _} = Error) ->
+                Error;
+            (GwName, GwConf, ok) ->
+                validate_gateway_listener_ids(GwName, GwConf, OldRawConf)
+        end,
+        ok,
+        NewRawConf
+    ).
+
+validate_gateway_listener_ids(GwName, GwConf, OldRawConf) ->
+    Listeners = maps:get(<<"listeners">>, GwConf, #{}),
+    case is_map(Listeners) of
+        false ->
+            ok;
+        true ->
+            maps:fold(
+                fun
+                    (_LType, _ListenerConfigs, {error, _} = Error) ->
+                        Error;
+                    (LType, ListenerConfigs, ok) when is_map(ListenerConfigs) ->
+                        validate_listener_configs(GwName, LType, ListenerConfigs, OldRawConf);
+                    (_LType, _ListenerConfigs, ok) ->
+                        ok
+                end,
+                ok,
+                Listeners
+            )
+    end.
+
+validate_listener_configs(GwName, LType, ListenerConfigs, OldRawConf) ->
+    maps:fold(
+        fun
+            (_LName, _ListenerConf, {error, _} = Error) ->
+                Error;
+            (LName, _ListenerConf, ok) ->
+                validate_new_listener(GwName, LType, LName, OldRawConf)
+        end,
+        ok,
+        ListenerConfigs
+    ).
+
+validate_new_listener(GwName, LType, LName, OldRawConf) ->
+    case get_listener(GwName, LType, LName, OldRawConf) of
+        undefined ->
+            emqx_gateway_utils:validate_listener_id(GwName, LType, LName);
+        _ ->
+            ok
+    end.
 
 pre_load_gateways(NewConf, OldConf) ->
     %% unload old gateways

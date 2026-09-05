@@ -148,6 +148,51 @@ t_list_listeners(Config) when is_list(Config) ->
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     ok.
 
+t_listener_id_length(Config) when is_list(Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["listeners"]),
+    OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:default"]),
+    OriginListener = request(get, OriginPath, [], []),
+    OriginListener1 = maps:remove(<<"id">>, OriginListener),
+    Port = integer_to_binary(?PORT),
+    AllowedName = binary:copy(<<"a">>, 60),
+    AllowedId = <<"tcp:", AllowedName/binary>>,
+    AllowedPath = emqx_mgmt_api_test_util:api_path(["listeners", AllowedId]),
+    AllowedConf = OriginListener1#{
+        <<"name">> => AllowedName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    Created = request(post, Path, [], AllowedConf),
+    ?assertEqual(AllowedId, maps:get(<<"id">>, Created)),
+    AllowedGet = request(get, AllowedPath, [], []),
+    ?assertEqual(AllowedId, maps:get(<<"id">>, AllowedGet)),
+    ?assertEqual([], delete(AllowedPath)),
+
+    UnicodeName = binary:copy(<<"你"/utf8>>, 20),
+    UnicodeConf = OriginListener1#{
+        <<"name">> => UnicodeName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    UnicodeResult = request(post, Path, [], UnicodeConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, UnicodeResult),
+
+    TooLongName = binary:copy(<<"b">>, 61),
+    TooLongConf = OriginListener1#{
+        <<"name">> => TooLongName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    Result = request(post, Path, [], TooLongConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, Result),
+    {error, {{_, 400, _}, _, Body}} = Result,
+    #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message} =
+        emqx_utils_json:decode(Body),
+    ?assertEqual(<<"Listener ID must not exceed 64 bytes">>, Message),
+    TooLongId = <<"tcp:", TooLongName/binary>>,
+    DeprecatedPath = emqx_mgmt_api_test_util:api_path(["listeners", TooLongId]),
+    DeprecatedConf = TooLongConf#{<<"id">> => TooLongId},
+    DeprecatedResult = request(post, DeprecatedPath, [], DeprecatedConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, DeprecatedResult),
+    ok.
+
 t_tcp_crud_listeners_by_id(Config) when is_list(Config) ->
     ListenerId = <<"tcp:default">>,
     NewListenerId = <<"tcp:new">>,

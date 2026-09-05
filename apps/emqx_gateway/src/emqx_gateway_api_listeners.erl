@@ -86,20 +86,23 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
         _ = checks([<<"type">>, <<"name">>, <<"bind">>], LConf),
 
         Type = binary_to_existing_atom(maps:get(<<"type">>, LConf)),
-        LName = binary_to_atom(maps:get(<<"name">>, LConf)),
-
-        Path = [listeners, Type, LName],
-        case emqx_utils_maps:deep_get(Path, RunningConf, undefined) of
-            undefined ->
-                ListenerId = emqx_gateway_utils:listener_id(
-                    GwName, Type, LName
-                ),
-                {ok, RespConf} = emqx_gateway_http:add_listener(
-                    ListenerId, LConf
-                ),
-                {201, RespConf};
-            _ ->
-                return_http_error(400, ?DESC("listener_name_occupied"))
+        LNameBin = maps:get(<<"name">>, LConf),
+        case emqx_gateway_utils:validate_listener_id(GwName, Type, LNameBin) of
+            ok ->
+                LName = binary_to_atom(LNameBin),
+                ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LName),
+                Path = [listeners, Type, LName],
+                case emqx_utils_maps:deep_get(Path, RunningConf, undefined) of
+                    undefined ->
+                        {ok, RespConf} = emqx_gateway_http:add_listener(
+                            ListenerId, LConf
+                        ),
+                        {201, RespConf};
+                    _ ->
+                        return_http_error(400, ?DESC("listener_name_occupied"))
+                end;
+            {error, Reason} ->
+                emqx_gateway_http:reason2resp(Reason)
         end
     end).
 
