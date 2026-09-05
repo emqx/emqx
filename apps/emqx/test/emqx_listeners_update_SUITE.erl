@@ -54,6 +54,32 @@ t_default_conf(_Config) ->
     ),
     ok.
 
+t_listener_id_length(_Config) ->
+    ?assertEqual(ok, emqx_listeners:validate_listener_id(tcp, binary:copy(<<"a">>, 60))),
+    ?assertEqual(
+        {error, {listener_id_too_long, 64}},
+        emqx_listeners:validate_listener_id(tcp, binary:copy(<<"a">>, 61))
+    ),
+    Raw = emqx:get_raw_config(?LISTENERS),
+    Name = binary:copy(<<"b">>, 61),
+    Tcp = maps:get(<<"tcp">>, Raw),
+    RawWithLongListener = Raw#{
+        <<"tcp">> => Tcp#{Name => #{<<"bind">> => <<"127.0.0.1:0">>}}
+    },
+    ?assertEqual(
+        {error, {pre_config_update, emqx_listeners, {listener_id_too_long, 64}}},
+        emqx:update_config(?LISTENERS, RawWithLongListener)
+    ),
+    ?assertEqual(
+        {error, {pre_config_update, emqx_listeners, {listener_id_too_long, 64}}},
+        emqx:update_config(
+            [listeners, tcp, Name],
+            {create, #{<<"bind">> => <<"127.0.0.1:0">>}}
+        )
+    ),
+    ?assertEqual(Raw, emqx:get_raw_config(?LISTENERS)),
+    ok.
+
 t_update_conf(_Conf) ->
     Raw = emqx:get_raw_config(?LISTENERS),
     Raw1 = emqx_utils_maps:deep_put(

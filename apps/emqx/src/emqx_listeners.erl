@@ -38,6 +38,8 @@
 
 -export([
     listener_id/2,
+    validate_listener_id/1,
+    validate_listener_id/2,
     parse_listener_id/1,
     esockd_access_rules/1
 ]).
@@ -83,6 +85,7 @@
 -define(COWBOY_LISTENER(T), (T == ws orelse T == wss)).
 
 -define(ROOT_KEY, listeners).
+-define(MAX_LISTENER_ID_BYTES, 64).
 -define(CONF_KEY_PATH, [?ROOT_KEY, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
 -define(MARK_DEL, ?TOMBSTONE_CONFIG_CHANGE_REQ).
@@ -576,7 +579,12 @@ resume_cowboy_listener(Id, Retries) ->
 pre_config_update([?ROOT_KEY, Type, Name], {create, NewConf}, V) when
     V =:= undefined orelse V =:= ?TOMBSTONE_VALUE
 ->
-    {ok, convert_certs(Type, Name, NewConf)};
+    case validate_listener_id(Type, Name) of
+        ok ->
+            {ok, convert_certs(Type, Name, NewConf)};
+        {error, _} = Error ->
+            Error
+    end;
 pre_config_update([?ROOT_KEY, _Type, _Name], {create, _NewConf}, _RawConf) ->
     {error, already_exist};
 pre_config_update([?ROOT_KEY, _Type, _Name], {update, _Request}, undefined) ->
@@ -591,8 +599,13 @@ pre_config_update([?ROOT_KEY, _Type, _Name], ?MARK_DEL, _RawConf) ->
     {ok, ?TOMBSTONE_VALUE};
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
-pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
-    {ok, convert_certs(NewConf)}.
+pre_config_update([?ROOT_KEY], NewConf, OldConf) ->
+    case validate_new_listener_ids(NewConf, OldConf) of
+        ok ->
+            {ok, convert_certs(NewConf)};
+        {error, _} = Error ->
+            Error
+    end.
 
 post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
     OldConf =:= undefined orelse OldConf =:= ?TOMBSTONE_TYPE
@@ -863,6 +876,22 @@ format_bind(Bin) when is_binary(Bin) ->
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).
 
+-spec validate_listener_id(listener_id() | iodata()) ->
+    ok | {error, {listener_id_too_long, pos_integer()}}.
+validate_listener_id(Id) ->
+    IdBin = iolist_to_binary(str(Id)),
+    case byte_size(IdBin) =< ?MAX_LISTENER_ID_BYTES of
+        true ->
+            ok;
+        false ->
+            {error, {listener_id_too_long, ?MAX_LISTENER_ID_BYTES}}
+    end.
+
+-spec validate_listener_id(listener_type() | binary(), atom() | binary()) ->
+    ok | {error, {listener_id_too_long, pos_integer()}}.
+validate_listener_id(Type, Name) ->
+    validate_listener_id(iolist_to_binary([str(Type), ":", str(Name)])).
+
 -spec parse_listener_id(listener_id()) -> {ok, #{type => atom(), name => atom()}} | {error, term()}.
 parse_listener_id(Id) ->
     case string:split(str(Id), ":", leading) of
@@ -884,6 +913,20 @@ diff_confs(NewConfs, OldConfs) ->
         flatten_confs(OldConfs),
         fun({Type, Name, _}) -> {Type, Name} end
     ).
+
+validate_new_listener_ids(NewConf, OldConf) ->
+    #{added := Added} = diff_confs(NewConf, OldConf),
+    validate_listener_ids(Added).
+
+validate_listener_ids([]) ->
+    ok;
+validate_listener_ids([{Type, Name, _Conf} | Rest]) ->
+    case validate_listener_id(Type, Name) of
+        ok ->
+            validate_listener_ids(Rest);
+        {error, _} = Error ->
+            Error
+    end.
 
 flatten_confs(Confs) ->
     lists:flatmap(
