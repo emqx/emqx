@@ -271,16 +271,18 @@ login(
             clientid := ClientId,
             secret := Secret,
             scopes := Scopes,
+            session_expiry := SessionExpiry,
             require_pkce := RequirePKCE,
             preferred_auth_methods := AuthMethods
         }
     } = Cfg
 ) ->
     Nonce = emqx_dashboard_sso_oidc_session:random_bin(),
+    CallbackUrl = emqx_dashboard_sso_oidc_api:make_callback_url(Cfg),
     Opts = maybe_require_pkce(RequirePKCE, #{
         scopes => Scopes,
         nonce => Nonce,
-        redirect_uri => emqx_dashboard_sso_oidc_api:make_callback_url(Cfg)
+        redirect_uri => CallbackUrl
     }),
 
     Data = maps:with([nonce, require_pkce, pkce_verifier], Opts),
@@ -300,7 +302,13 @@ login(
             of
                 {ok, [Base, Delimiter, Params]} ->
                     RedirectUri = <<Base/binary, Delimiter/binary, Params/binary>>,
-                    Redirect = {302, ?REDIRECT_HEADERS(RedirectUri), ?REDIRECT_BODY},
+                    %% The cookie binds `State' to this browser. The callback
+                    %% rejects a `state' that arrives without it.
+                    Cookie = emqx_dashboard_sso_browser_binding:set_cookie_header(
+                        oidc, State, #{max_age => SessionExpiry, url => CallbackUrl}
+                    ),
+                    Headers = maps:merge(?REDIRECT_HEADERS(RedirectUri), Cookie),
+                    Redirect = {302, Headers, ?REDIRECT_BODY},
                     {redirect, Redirect};
                 {error, _Reason} = Error ->
                     Error

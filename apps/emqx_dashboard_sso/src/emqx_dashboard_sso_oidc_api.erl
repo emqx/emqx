@@ -28,6 +28,7 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
+-define(FORBIDDEN, 'FORBIDDEN').
 
 -define(REDIRECT_HEADERS(TARGET), #{
     <<"cache-control">> => <<"no-cache">>,
@@ -37,6 +38,7 @@
 }).
 
 -define(REDIRECT_BODY, <<"Redirecting...">>).
+-define(BROWSER_BINDING_MESSAGE, <<"This SSO login was not started by this browser">>).
 
 -define(TAGS, <<"Dashboard Single Sign-On">>).
 -define(BACKEND, oidc).
@@ -66,6 +68,7 @@ schema("/sso/oidc/callback") ->
                 200 => emqx_dashboard_api:fields([token, version, license]),
                 400 => response_schema(400),
                 401 => response_schema(401),
+                403 => response_schema(403),
                 404 => response_schema(404)
             },
             security => [],
@@ -76,14 +79,26 @@ schema("/sso/oidc/callback") ->
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-code_callback(get, #{query_string := QS}) ->
+code_callback(get, #{query_string := QS} = Req) ->
     minirest_handler:update_log_meta(#{log_from => oidc}),
-    case ensure_sso_state(QS) of
+    case ensure_sso_state(QS, Req) of
         {ok, Target} ->
             ?SLOG(info, #{
                 msg => "dashboard_sso_login_successful"
             }),
-            {302, ?REDIRECT_HEADERS(Target), ?REDIRECT_BODY};
+            Headers = maps:merge(
+                ?REDIRECT_HEADERS(Target),
+                emqx_dashboard_sso_browser_binding:clear_cookie_header(?BACKEND)
+            ),
+            {302, Headers, ?REDIRECT_BODY};
+        {error, browser_binding_mismatch} ->
+            %% Keep the server side state: the browser that started this login
+            %% may still complete it.
+            ?SLOG(info, #{
+                msg => "dashboard_sso_login_rejected",
+                reason => browser_binding_mismatch
+            }),
+            {403, #{code => ?FORBIDDEN, message => ?BROWSER_BINDING_MESSAGE}};
         {error, invalid_query_string_param} ->
             {400, #{code => ?BAD_REQUEST, message => <<"Invalid query string">>}};
         {error, invalid_backend} ->
@@ -108,6 +123,8 @@ response_schema(401) ->
     emqx_dashboard_swagger:error_codes(
         [?BAD_USERNAME_OR_PWD], ?DESC(emqx_dashboard_api, login_failed401)
     );
+response_schema(403) ->
+    emqx_dashboard_swagger:error_codes([?FORBIDDEN], ?DESC("forbidden"));
 response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?BACKEND_NOT_FOUND], ?DESC("backend_not_found")).
 
@@ -116,23 +133,29 @@ reason_to_message(Bin) when is_binary(Bin) ->
 reason_to_message(Term) ->
     erlang:iolist_to_binary(io_lib:format("~p", [Term])).
 
-ensure_sso_state(QS) ->
+ensure_sso_state(QS, Req) ->
     case emqx_dashboard_sso_manager:lookup_state(?BACKEND) of
         undefined ->
             {error, invalid_backend};
         Cfg ->
-            ensure_oidc_state(QS, Cfg)
+            ensure_oidc_state(QS, Req, Cfg)
     end.
 
-ensure_oidc_state(#{<<"state">> := State} = QS, Cfg) ->
-    case lookup_all_nodes(State) of
-        {ok, Data} ->
-            delete_all_nodes(State),
-            retrieve_token(QS, Cfg, Data);
-        _ ->
-            {error, session_not_exists}
+ensure_oidc_state(#{<<"state">> := State} = QS, Req, Cfg) ->
+    %% Check the browser binding before the state is consumed, so that a
+    %% callback replayed elsewhere cannot spend the state of a pending login.
+    maybe
+        ok ?= emqx_dashboard_sso_browser_binding:verify(?BACKEND, Req, State),
+        {ok, Data} ?= lookup_all_nodes(State),
+        delete_all_nodes(State),
+        retrieve_token(QS, Cfg, Data)
+    else
+        undefined ->
+            {error, session_not_exists};
+        {error, _} = Error ->
+            Error
     end;
-ensure_oidc_state(_, _Cfg) ->
+ensure_oidc_state(_, _Req, _Cfg) ->
     {error, invalid_query_string_param}.
 
 retrieve_token(
