@@ -410,27 +410,18 @@ create_listener_limiter(ZoneName, ListenerId, Name) ->
         ZoneLimiterClient, ListenerLimiterClient
     ]).
 
-create_channel_limiter(_ZoneName, ListenerId, Name) when ?IS_CHANNEL_ONLY_LIMITER(Name) ->
-    ChannelLimiterId = {channel_group(ListenerId), Name},
-    connect(ChannelLimiterId);
-create_channel_limiter(ZoneName, ListenerId, Name) ->
-    ZoneLimiterId = {zone_group(ZoneName), Name},
-    ZoneLimiterClient = connect(ZoneLimiterId),
-    ChannelLimiterId = {channel_group(ListenerId), Name},
-    ChannelLimiterClient = connect(ChannelLimiterId),
-    emqx_limiter_composite:new([
-        ZoneLimiterClient, ChannelLimiterClient
-    ]).
+%% Containers hold lazy entries: compact limiter id lists that connect into
+%% real clients on the first consume after a finite limit is configured.
 
-create_session_limiter(ListenerId, Name) ->
-    ChannelLimiterId = {channel_group(ListenerId), Name},
-    connect(ChannelLimiterId).
+channel_limiter_ids(_ZoneName, ListenerId, Name) when ?IS_CHANNEL_ONLY_LIMITER(Name) ->
+    [{channel_group(ListenerId), Name}];
+channel_limiter_ids(ZoneName, ListenerId, Name) ->
+    [{zone_group(ZoneName), Name}, {channel_group(ListenerId), Name}].
 
 create_channel_client_container(ZoneName, ListenerId, Names) ->
     Clients = lists:map(
         fun(Name) ->
-            LimiterClient = create_channel_limiter(ZoneName, ListenerId, Name),
-            {Name, LimiterClient}
+            {Name, {lazy, channel_limiter_ids(ZoneName, ListenerId, Name)}}
         end,
         Names
     ),
@@ -439,8 +430,7 @@ create_channel_client_container(ZoneName, ListenerId, Names) ->
 create_session_client_container(ListenerId, Names) ->
     Clients = lists:map(
         fun(Name) ->
-            LimiterClient = create_session_limiter(ListenerId, Name),
-            {Name, LimiterClient}
+            {Name, {lazy, [{channel_group(ListenerId), Name}]}}
         end,
         Names
     ),
