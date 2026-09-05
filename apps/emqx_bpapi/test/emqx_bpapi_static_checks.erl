@@ -4,7 +4,16 @@
 
 -module(emqx_bpapi_static_checks).
 
--export([run/0, dump/1, dump/0, check_compat/1, versions_file/0, dumps_dir/0, dump_file_extension/0]).
+-export([
+    run/0,
+    dump/1,
+    dump/0,
+    check_compat/1,
+    versions_file/0,
+    dumps_dir/0,
+    dump_file_extension/0,
+    dump_files/0
+]).
 
 %% Using an undocumented API here :(
 -include_lib("dialyzer/src/dialyzer.hrl").
@@ -52,10 +61,45 @@
     emqx_ds_proto_v4,
     emqx_ds_proto_v5,
     emqx_ds_otx_proto_v1,
-    emqx_ds_beamspliiter_proto_v1,
+    emqx_ds_beamsplitter_proto_v1,
     emqx_ds_beamsplitter_proto_v2,
     emqx_ds_shared_sub_proto_v1,
-    emqx_ds_shared_sub_proto_v2
+    emqx_ds_shared_sub_proto_v2,
+    emqx_bridge_proto_v1,
+    emqx_bridge_proto_v2,
+    emqx_bridge_proto_v3,
+    emqx_bridge_proto_v4,
+    emqx_bridge_proto_v5,
+    emqx_bridge_proto_v6,
+    emqx_bridge_proto_v7,
+    emqx_license_proto_v1,
+    emqx_mgmt_trace_proto_v1,
+    emqx_mgmt_api_relup_proto_v1,
+    %% Superseded before 5.8.0; no supported peer selects these versions:
+    emqx_cm_proto_v1,
+    emqx_cm_proto_v2,
+    emqx_conf_proto_v1,
+    emqx_conf_proto_v2,
+    emqx_conf_proto_v3,
+    emqx_delayed_proto_v1,
+    emqx_delayed_proto_v2,
+    emqx_eviction_agent_proto_v1,
+    emqx_eviction_agent_proto_v2,
+    emqx_management_proto_v1,
+    emqx_management_proto_v2,
+    emqx_management_proto_v3,
+    emqx_management_proto_v4,
+    emqx_metrics_proto_v1,
+    emqx_mgmt_api_plugins_proto_v1,
+    emqx_mgmt_api_plugins_proto_v2,
+    emqx_mgmt_cluster_proto_v1,
+    emqx_node_rebalance_proto_v1,
+    emqx_node_rebalance_proto_v2,
+    emqx_node_rebalance_api_proto_v1,
+    emqx_node_rebalance_status_proto_v1,
+    emqx_plugins_proto_v1,
+    emqx_prometheus_proto_v1,
+    emqx_resource_proto_v1
 ]).
 -define(FORCE_DELETED_APIS, [
     {emqx_statsd, 1},
@@ -68,12 +112,47 @@
     {emqx_ds, 4},
     {emqx_ds, 5},
     {emqx_ds_otx, 1},
-    {emqx_ds_beamspliiter, 1},
-    {emqx_ds_beamspliiter, 2},
+    {emqx_ds_beamsplitter, 1},
+    {emqx_ds_beamsplitter, 2},
     {emqx_node_rebalance_purge, 1},
     {emqx_ds_shared_sub, 1},
     {emqx_ds_shared_sub, 2},
-    {emqx_retainer, 1}
+    {emqx_retainer, 1},
+    {emqx_bridge, 1},
+    {emqx_bridge, 2},
+    {emqx_bridge, 3},
+    {emqx_bridge, 4},
+    {emqx_bridge, 5},
+    {emqx_bridge, 6},
+    {emqx_bridge, 7},
+    {emqx_license, 1},
+    {emqx_mgmt_trace, 1},
+    {emqx_mgmt_api_relup, 1},
+    %% Superseded before 5.8.0; no supported peer selects these versions:
+    {emqx_cm, 1},
+    {emqx_cm, 2},
+    {emqx_conf, 1},
+    {emqx_conf, 2},
+    {emqx_conf, 3},
+    {emqx_delayed, 1},
+    {emqx_delayed, 2},
+    {emqx_eviction_agent, 1},
+    {emqx_eviction_agent, 2},
+    {emqx_management, 1},
+    {emqx_management, 2},
+    {emqx_management, 3},
+    {emqx_management, 4},
+    {emqx_metrics, 1},
+    {emqx_mgmt_api_plugins, 1},
+    {emqx_mgmt_api_plugins, 2},
+    {emqx_mgmt_cluster, 1},
+    {emqx_node_rebalance, 1},
+    {emqx_node_rebalance, 2},
+    {emqx_node_rebalance_api, 1},
+    {emqx_node_rebalance_status, 1},
+    {emqx_plugins, 1},
+    {emqx_prometheus, 1},
+    {emqx_resource, 1}
 ]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
@@ -102,8 +181,14 @@
 %% Only the APIs for the features that haven't reached General
 %% Availability can be added here:
 -define(EXPERIMENTAL_APIS, [
-    {emqx_ds, 4}
+    {emqx_ds, 4},
+    {emqx_ds_beamformer, 1}
 ]).
+
+%% Layout of the union tuple as OTP27 and older wrote it: the opaque slot sits
+%% between the tuple and map slots and OTP28 no longer has it.
+-define(OTP27_UNION_SIZE, 9).
+-define(OTP27_UNION_OPAQUE_SLOT, 8).
 
 -define(XREF, myxref).
 
@@ -115,7 +200,7 @@
 run() ->
     case dump() of
         true ->
-            Dumps = filelib:wildcard(dumps_dir() ++ "/*" ++ dump_file_extension()),
+            Dumps = dump_files(),
             case Dumps of
                 [] ->
                     logger:error("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
@@ -134,7 +219,8 @@ check_compat(DumpFilenames) ->
     put(bpapi_ok, true),
     Dumps = lists:map(
         fun(FN) ->
-            {ok, [Dump]} = file:consult(FN),
+            {ok, [Dump0]} = file:consult(FN),
+            Dump = upgrade_dump(filename:extension(FN), Dump0),
             Dump#{release => filename_to_release(FN)}
         end,
         DumpFilenames
@@ -222,7 +308,9 @@ typecheck_apis(
 ) ->
     AllCalls0 = lists:flatten([
         [Calls, Casts]
-     || #{calls := Calls, casts := Casts} <- maps:values(CallerAPIs)
+     || #{calls := Calls, casts := Casts} <- maps:values(
+            maps:without(?EXPERIMENTAL_APIS, CallerAPIs)
+        )
     ]),
     AllCalls = filter_calls(AllCalls0),
     lists:foreach(
@@ -479,10 +567,30 @@ setnok() ->
     put(bpapi_ok, false).
 
 dumps_dir() ->
-    filename:join(emqx_app_dir(), "test/emqx_static_checks_data").
+    filename:join(bpapi_app_dir(), "test/emqx_static_checks_data").
+
+%% Every checked-in dump the running OTP can read. Dumps written by an older
+%% OTP are rewritten by upgrade_dump/2 when they are loaded.
+-spec dump_files() -> [file:filename()].
+dump_files() ->
+    lists:append([
+        filelib:wildcard(dumps_dir() ++ "/*" ++ Extension)
+     || Extension <- readable_dump_extensions()
+    ]).
 
 versions_file() ->
     filename:join(emqx_app_dir(), "priv/bpapi.versions").
+
+%% The directory of the application this module belongs to.
+%% The per-release BPAPI dumps are stored there.
+bpapi_app_dir() ->
+    Info = ?MODULE:module_info(compile),
+    case proplists:get_value(source, Info) of
+        Source when is_list(Source) ->
+            filename:dirname(filename:dirname(Source));
+        undefined ->
+            "apps/emqx_bpapi"
+    end.
 
 emqx_app_dir() ->
     Info = ?MODULE:module_info(compile),
@@ -501,14 +609,75 @@ project_root_dir() ->
 -if(?OTP_RELEASE >= 26).
 load_plt(File) ->
     dialyzer_cplt:from_file(File).
+-else.
+load_plt(File) ->
+    dialyzer_plt:from_file(File).
+-endif.
 
+-if(?OTP_RELEASE >= 28).
+
+dump_file_extension() ->
+    %% OTP28 replaces opaque types with nominal ones in the internal format
+    %% for the types:
+    ".bpapi3".
+
+readable_dump_extensions() ->
+    [".bpapi2", ".bpapi3"].
+
+%% OTP28 replaced opaque types with nominal ones and dropped the opaque slot
+%% from the union tuple. Rewrite an OTP26/27 dump into the current
+%% representation so that the releases it describes stay in the comparison.
+upgrade_dump(".bpapi2", Dump = #{signatures := Signatures}) ->
+    Dump#{signatures := maps:map(fun(_MFA, Sig) -> upgrade_signature(Sig) end, Signatures)};
+upgrade_dump(_Extension, Dump) ->
+    Dump.
+
+upgrade_signature({Return, Args}) ->
+    {upgrade_type(Return), [upgrade_type(Arg) || Arg <- Args]}.
+
+%% An opaque type becomes the nominal OTP28 declares for it. Keeping it
+%% nominal rather than unwrapping it to its structure is what makes the
+%% comparison meaningful: the current release holds the same type as a
+%% nominal, and a bare structure is not a subtype of one.
+upgrade_type({c, opaque, OpaqueSet, Qual}) ->
+    erl_types:t_sup([
+        {c, nominal, {{Mod, Name, Arity, opaque}, upgrade_type(Struct)}, Qual}
+     || {opaque, Mod, Name, Arity, Struct} <- OpaqueSet
+    ]);
+upgrade_type({c, union, Slots, Qual}) when length(Slots) =:= ?OTP27_UNION_SIZE ->
+    {Head, [Opaque, Map]} = lists:split(?OTP27_UNION_OPAQUE_SLOT - 1, [
+        upgrade_type(Slot)
+     || Slot <- Slots
+    ]),
+    Union = {c, union, Head ++ [Map], Qual},
+    case Opaque of
+        none -> Union;
+        _ -> erl_types:t_sup(Union, Opaque)
+    end;
+upgrade_type(Tuple) when is_tuple(Tuple) ->
+    list_to_tuple([upgrade_type(Element) || Element <- tuple_to_list(Tuple)]);
+upgrade_type(List) when is_list(List) ->
+    [upgrade_type(Element) || Element <- List];
+upgrade_type(Map) when is_map(Map) ->
+    maps:from_list([{upgrade_type(K), upgrade_type(V)} || {K, V} <- maps:to_list(Map)]);
+upgrade_type(Other) ->
+    Other.
+
+-else.
+
+-if(?OTP_RELEASE >= 26).
 dump_file_extension() ->
     %% OTP26 changes the internal format for the types:
     ".bpapi2".
 -else.
-load_plt(File) ->
-    dialyzer_plt:from_file(File).
-
 dump_file_extension() ->
     ".bpapi".
+-endif.
+
+readable_dump_extensions() ->
+    [dump_file_extension()].
+
+upgrade_dump(_Extension, Dump) ->
+    Dump.
+
 -endif.
