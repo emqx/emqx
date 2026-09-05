@@ -138,8 +138,15 @@ operation_type(Meta) ->
     end.
 
 http_request(Meta) ->
+    %% `namespace' is the resolved target namespace, set by handlers that call
+    %% `minirest_handler:update_log_meta/1' (see emqx_topic_metrics2_api for
+    %% an example). It is not always the same as the `ns' query param: a
+    %% namespaced admin's namespace comes from their dashboard token, not
+    %% from the request, so recording it here also covers requests with no
+    %% `ns' query param at all. `maps:with/2' already omits it when absent
+    %% from `Meta', same as it does for `method'/`headers'/`bindings'/`body'.
     Request0 =
-        case maps:with([method, headers, bindings, body], Meta) of
+        case maps:with([method, headers, bindings, body, namespace], Meta) of
             #{body := Body} = Request when is_binary(Body) ->
                 Request#{body => <<"******">>};
             #{body := _} = Request ->
@@ -153,17 +160,10 @@ http_request(Meta) ->
     %% `query_string' is the parsed request query params (a map, not a raw
     %% binary), so the `emqx_utils:redact/1' call at the end of `log_meta/3'
     %% can see the keys and redact sensitive ones by name, same as it does
-    %% for `headers' and `body' above.
-    Request1 = maybe_put(
-        query_string, non_empty_map(maps:get(query_string, Meta, undefined)), Request0
-    ),
-    %% `namespace' is the resolved target namespace, set by handlers that
-    %% call `minirest_handler:update_log_meta/1' (see emqx_topic_metrics2_api
-    %% for an example). It is not always the same as the `ns' query param:
-    %% a namespaced admin's namespace comes from their dashboard token, not
-    %% from the request, so recording it here also covers requests with no
-    %% `ns' query param at all.
-    maybe_put(namespace, maps:get(namespace, Meta, undefined), Request1).
+    %% for `headers' and `body' above. Handled separately from the `with/2'
+    %% above because an empty query string must be omitted, not recorded as
+    %% `query_string => #{}'.
+    maybe_put(query_string, non_empty_map(maps:get(query_string, Meta, undefined)), Request0).
 
 maybe_put(_Key, undefined, Map) -> Map;
 maybe_put(Key, Value, Map) -> Map#{Key => Value}.
