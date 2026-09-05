@@ -4,7 +4,7 @@
 -module(emqx_durable_test_timer).
 
 %% API:
--export([init/0, apply_after/3, dead_hand/3, cancel/1]).
+-export([init/0, apply_after/3, dead_hand/3, cancel/1, raising_value/0]).
 
 %% behavior callbacks:
 -export([durable_timer_type/0, timer_introduced_in/0, handle_durable_timeout/2]).
@@ -31,6 +31,11 @@ dead_hand(Key, Val, Delay) ->
 cancel(Key) ->
     emqx_durable_timer:cancel(durable_timer_type(), Key).
 
+%% @doc A timer carrying this value makes the callback raise, so a test can
+%% drive the worker's handling of a failing callback.
+raising_value() ->
+    <<"raise">>.
+
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
@@ -39,6 +44,8 @@ durable_timer_type() -> 16#fffffffe.
 
 timer_introduced_in() -> "6.0.0".
 
+handle_durable_timeout(_Key, <<"raise">>) ->
+    error(deliberate_callback_failure);
 handle_durable_timeout(Key, Value) ->
     ?tp(info, ?tp_test_fire, #{key => Key, val => Value, type => durable_timer_type()}).
 
