@@ -28,6 +28,43 @@ flaky_tests() ->
         t_copy_deprecated_data_dir => 3
     }.
 
+-doc """
+The default certificate bundle is left out of the data copied to a joining
+node. It holds a private key the node generated for itself, and every node
+generates its own; everything else under the synced directories still travels.
+""".
+t_default_cert_bundle_is_not_synced(Config) ->
+    DataDir = filename:join(?config(priv_dir, Config), ?FUNCTION_NAME),
+    DefaultCertDir = filename:join([DataDir, "certs2", "global", "localhost"]),
+    OtherBundleDir = filename:join([DataDir, "certs2", "global", "user-bundle"]),
+    AuthzDir = filename:join([DataDir, "authz"]),
+    lists:foreach(
+        fun({Dir, Filename}) ->
+            Path = filename:join(Dir, Filename),
+            ok = filelib:ensure_dir(Path),
+            ok = file:write_file(Path, <<"contents">>)
+        end,
+        [
+            {DefaultCertDir, "key.pem"},
+            {DefaultCertDir, "chain.pem"},
+            {OtherBundleDir, "key.pem"},
+            {AuthzDir, "acl.conf"}
+        ]
+    ),
+    Collected = erpc:call(node(), fun() ->
+        ok = application:set_env(emqx, data_dir, DataDir),
+        emqx_conf_app:traverse_and_collect_files(DataDir)
+    end),
+    ?assertEqual(
+        [],
+        [P || P <- Collected, string:find(P, "localhost") =/= nomatch],
+        #{collected => Collected}
+    ),
+    ?assert(lists:member("certs2/global/user-bundle/key.pem", Collected), #{
+        collected => Collected
+    }),
+    ?assert(lists:member("authz/acl.conf", Collected), #{collected => Collected}).
+
 t_copy_conf_override_on_restarts(Config) ->
     ct:timetrap({seconds, 120}),
     Cluster = cluster(

@@ -10,6 +10,7 @@
     delete_bundle/2,
     delete_managed_file/3,
     add_managed_files/3,
+    create_bundle/3,
     find_references/2
 ]).
 
@@ -206,6 +207,80 @@ add_managed_files(Namespace, BundleName, Files) ->
             [_ | _] ->
                 {error, Errors}
         end
+    end.
+
+-doc """
+Creates a bundle on the local node from a complete set of files, and only if no
+bundle is stored under that name yet.
+
+Not a replacement for `add_managed_files/3', which merges the given kinds into
+whatever the bundle already holds — uploading only a `ca' there leaves an
+existing key and chain in place. This one writes the bundle it is given and
+nothing else, so the caller must pass every file the bundle should end up with.
+
+The files are written to a temporary directory and moved into place with a
+single rename, so a bundle is never observed half-written and two concurrent
+callers cannot interleave into a mix of each other's files. A caller that finds
+a bundle already there gets `{error, exists}' and leaves it untouched; deciding
+what to do about that is the caller's business.
+
+Local only: unlike `add_managed_files/3', nothing is sent to the other nodes.
+""".
+-spec create_bundle(maybe_namespace(), bundle_name(), #{file_kind() := contents()}) ->
+    ok | {error, exists} | {error, bad_namespace} | {error, term()}.
+create_bundle(Namespace, BundleName, Files) ->
+    maybe
+        ok ?= check_namespace(Namespace),
+        TmpDir = tmp_dir(),
+        try
+            do_create_bundle(TmpDir, Namespace, BundleName, Files)
+        after
+            _ = file:del_dir_r(TmpDir)
+        end
+    end.
+
+do_create_bundle(TmpDir, Namespace, BundleName, Files) ->
+    Dir = dir(Namespace, BundleName),
+    maybe
+        ok ?= write_files_to_dir(TmpDir, Namespace, BundleName, Files),
+        ok ?= filelib:ensure_dir(filename:join(Dir, "dummy")),
+        move_into_place(TmpDir, Dir)
+    end.
+
+tmp_dir() ->
+    Unique = binary:encode_hex(crypto:strong_rand_bytes(8)),
+    %% Sibling of the namespace directories rather than inside one: a directory
+    %% under a namespace would be listed as a bundle while it exists.
+    filename:join([emqx:data_dir(), certs2, ".tmp", Unique]).
+
+write_files_to_dir(TmpDir, Namespace, BundleName, Files) ->
+    maps:fold(
+        fun
+            (Kind, Contents, ok) ->
+                %% Reuse the real layout's file names, so the rename lands a
+                %% directory that is already a valid bundle.
+                Filename = filename:basename(filename(Namespace, BundleName, Kind)),
+                Path = filename:join(TmpDir, Filename),
+                maybe
+                    ok ?= filelib:ensure_dir(Path),
+                    file:write_file(Path, Contents)
+                end;
+            (_Kind, _Contents, {error, _} = Error) ->
+                Error
+        end,
+        ok,
+        Files
+    ).
+
+move_into_place(TmpDir, Dir) ->
+    case file:rename(TmpDir, Dir) of
+        ok ->
+            ok;
+        {error, Reason} when Reason =:= eexist; Reason =:= enotempty; Reason =:= eisdir ->
+            %% Renaming onto a directory that is already there does not work.
+            {error, exists};
+        {error, _} = Error ->
+            Error
     end.
 
 %%------------------------------------------------------------------------------
