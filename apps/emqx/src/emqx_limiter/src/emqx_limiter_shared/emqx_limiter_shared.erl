@@ -59,11 +59,12 @@
     last_burst_time := atomic_value()
 }.
 
+%% The client state carries only the limiter identity. The bucket ref,
+%% options and mode are shared per-limiter data, fetched from the bucket
+%% registry and the limiter registry on use. This keeps the per-process
+%% copy small: channels hold a client per limiter.
 -type client_state() :: #{
-    limiter_id := emqx_limiter:id(),
-    bucket_ref := bucket_ref(),
-    mode := mode(),
-    options := emqx_limiter:options()
+    limiter_id := emqx_limiter:id()
 }.
 
 -type reason() :: emqx_limiter_client:reason().
@@ -128,17 +129,8 @@ connect(LimiterId) ->
     case emqx_limiter_bucket_registry:find_bucket(LimiterId) of
         undefined ->
             error({bucket_not_found, LimiterId});
-        BucketRef ->
-            Options = emqx_limiter_registry:get_limiter_options(LimiterId),
-            emqx_limiter_client:new(
-                ?MODULE,
-                _State = #{
-                    limiter_id => LimiterId,
-                    bucket_ref => BucketRef,
-                    mode => calc_mode(Options),
-                    options => Options
-                }
-            )
+        _BucketRef ->
+            emqx_limiter_client:new(?MODULE, _State = #{limiter_id => LimiterId})
     end.
 
 %%--------------------------------------------------------------------
@@ -146,49 +138,63 @@ connect(LimiterId) ->
 %%--------------------------------------------------------------------
 
 -spec try_consume(client_state(), non_neg_integer()) ->
-    true | {true, client_state()} | {false, client_state(), reason()}.
+    true | {false, client_state(), reason()}.
 try_consume(#{limiter_id := LimiterId} = State, Amount) ->
     Options = emqx_limiter_registry:get_limiter_options(LimiterId),
     case Options of
         #{capacity := infinity} ->
             true;
         _ ->
-            Result =
-                case try_consume(State, Options, Amount) of
-                    {true = Success, State1} ->
-                        {true, State1};
-                    {false = Success, State1} ->
-                        {false, State1, {failed_to_consume_from_limiter, LimiterId}}
+            Success =
+                case emqx_limiter_bucket_registry:find_bucket(LimiterId) of
+                    undefined ->
+                        %% The group is gone (e.g. deleted concurrently); fail open.
+                        true;
+                    BucketRef ->
+                        do_try_consume(BucketRef, calc_mode(Options), Options, Amount)
                 end,
             ?tp(limiter_shared_try_consume, #{
                 limiter_id => LimiterId,
                 amount => Amount,
                 success => Success
             }),
-            Result
+            case Success of
+                true ->
+                    true;
+                false ->
+                    {false, State, {failed_to_consume_from_limiter, LimiterId}}
+            end
     end.
 
 -spec put_back(client_state(), non_neg_integer()) -> client_state().
-put_back(#{bucket_ref := BucketRef, mode := Mode} = State, Amount) ->
-    case Mode of
-        #token_mode{us_per_token = UsPerToken} ->
-            #{last_time := LastTime} = BucketRef,
-            ok = atomic_sub(LastTime, UsPerToken * Amount);
-        #mini_token_mode{} ->
-            #{mini_tokens := MiniTokens} = BucketRef,
-            AmountMini = Amount * 1000,
-            ok = atomic_add(MiniTokens, AmountMini)
-    end,
-    State.
+put_back(#{limiter_id := LimiterId} = State, Amount) ->
+    Options = emqx_limiter_registry:get_limiter_options(LimiterId),
+    case emqx_limiter_bucket_registry:find_bucket(LimiterId) of
+        undefined ->
+            State;
+        BucketRef ->
+            case calc_mode(Options) of
+                #token_mode{us_per_token = UsPerToken} ->
+                    #{last_time := LastTime} = BucketRef,
+                    ok = atomic_sub(LastTime, UsPerToken * Amount);
+                #mini_token_mode{} ->
+                    #{mini_tokens := MiniTokens} = BucketRef,
+                    AmountMini = Amount * 1000,
+                    ok = atomic_add(MiniTokens, AmountMini)
+            end,
+            State
+    end.
 
 -spec inspect(client_state()) -> map().
-inspect(#{bucket_ref := BucketRef, mode := Mode, options := Options} = _State) ->
+inspect(#{limiter_id := LimiterId} = _State) ->
+    Options = emqx_limiter_registry:get_limiter_options(LimiterId),
+    BucketRef = emqx_limiter_bucket_registry:find_bucket(LimiterId),
     #{last_time := LastTime, mini_tokens := MiniTokens} = BucketRef,
     LastTimeUs = atomic_get(LastTime),
     #{capacity := Capacity, interval := IntervalMs} = Options,
     TimeLeftUs = now_us_monotonic() - LastTimeUs,
     #{
-        mode => Mode,
+        mode => calc_mode(Options),
         time_left_us => TimeLeftUs,
         mini_tokens => atomic_get(MiniTokens),
         tokens_left => ((TimeLeftUs * Capacity) div IntervalMs) div 1000
@@ -229,36 +235,35 @@ init_bucket(BucketRef, Options, NowUs) ->
     ok = apply_burst(BucketRef, Options, NowUs),
     ok.
 
-try_consume(State0, Options, Amount) ->
-    {Mode, State1} = mode(State0, Options),
-    {try_consume(State1, Mode, Options, Amount, now_us_monotonic()), State1}.
+do_try_consume(BucketRef, Mode, Options, Amount) ->
+    do_try_consume(BucketRef, Mode, Options, Amount, now_us_monotonic()).
 
-try_consume(State, Mode, #{burst_capacity := 0} = Options, Amount, NowUs) ->
-    case try_consume_regular(State, Mode, Options, Amount, NowUs) of
+do_try_consume(BucketRef, Mode, #{burst_capacity := 0} = Options, Amount, NowUs) ->
+    case try_consume_regular(BucketRef, Mode, Options, Amount, NowUs) of
         ok ->
             true;
         failed ->
             false
     end;
-try_consume(State, Mode, Options, Amount, NowUs) ->
-    case try_consume_accumulated_burst(State, Amount) of
+do_try_consume(BucketRef, Mode, Options, Amount, NowUs) ->
+    case try_consume_accumulated_burst(BucketRef, Amount) of
         ok ->
             true;
         {failed, LastBurstTimeUs} ->
-            case try_consume_regular(State, Mode, Options, Amount, NowUs) of
+            case try_consume_regular(BucketRef, Mode, Options, Amount, NowUs) of
                 ok ->
                     true;
                 failed ->
-                    case try_burst(State, Options, LastBurstTimeUs, NowUs) of
+                    case try_burst(BucketRef, Options, LastBurstTimeUs, NowUs) of
                         ok ->
-                            try_consume(State, Mode, Options, Amount, now_us_monotonic());
+                            do_try_consume(BucketRef, Mode, Options, Amount);
                         failed ->
                             false
                     end
             end
     end.
 
-try_consume_accumulated_burst(#{bucket_ref := BucketRef}, Amount) ->
+try_consume_accumulated_burst(BucketRef, Amount) ->
     #{
         burst_tokens := BurstTokens,
         last_burst_time := LastBurstTime
@@ -281,7 +286,7 @@ try_consume_accumulated_burst(#{bucket_ref := BucketRef}, Amount) ->
 Try to consume regular tokens when there are no accumulated burst tokens.
 """.
 try_consume_regular(
-    #{bucket_ref := BucketRef} = State,
+    BucketRef,
     #token_mode{us_per_token = UsPerToken, max_time_us = MaxTimeUs} = Mode,
     Options,
     Amount,
@@ -293,12 +298,12 @@ try_consume_regular(
         ok ->
             ok;
         retry ->
-            try_consume_regular(State, Mode, Options, Amount, now_us_monotonic());
+            try_consume_regular(BucketRef, Mode, Options, Amount, now_us_monotonic());
         failed ->
             failed
     end;
 try_consume_regular(
-    #{bucket_ref := BucketRef} = State,
+    BucketRef,
     #mini_token_mode{mini_tokens_per_ms = MiniTokensPerMs, max_time_us = MaxTimeUs} = Mode,
     Options,
     Amount,
@@ -322,14 +327,14 @@ try_consume_regular(
                 ok ->
                     ok = atomic_add(MiniTokens, LeftOver);
                 retry ->
-                    try_consume_regular(State, Mode, Options, Amount, now_us_monotonic());
+                    try_consume_regular(BucketRef, Mode, Options, Amount, now_us_monotonic());
                 failed ->
                     failed
             end
     end.
 
 try_burst(
-    #{bucket_ref := BucketRef} = _State,
+    BucketRef,
     #{burst_interval := BurstIntervalMs} = Options,
     LastBurstTimeUs,
     NowUs
@@ -408,13 +413,7 @@ init_last_time(
 now_us_monotonic() ->
     erlang:monotonic_time(microsecond).
 
-%% Do not re-calculate the mode if Options did not change
-mode(#{options := Options, mode := Mode} = State, Options) ->
-    {Mode, State};
-mode(State, NewOptions) ->
-    Mode = calc_mode(NewOptions),
-    {Mode, State#{mode := Mode}}.
-
+-spec calc_mode(emqx_limiter:options()) -> mode().
 calc_mode(#{capacity := infinity}) ->
     #token_mode{us_per_token = 1, max_time_us = 1};
 calc_mode(#{capacity := Capacity, interval := IntervalMs}) ->
