@@ -90,7 +90,7 @@ generate_localhost_bundle() ->
     end.
 
 install(Files) ->
-    case emqx_managed_certs:write_bundle_atomic(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME, Files) of
+    case emqx_managed_certs:create_bundle(?global_ns, ?DEFAULT_CERT_BUNDLE_NAME, Files) of
         ok ->
             ?SLOG(info, #{
                 msg => "default_tls_certificate_generated",

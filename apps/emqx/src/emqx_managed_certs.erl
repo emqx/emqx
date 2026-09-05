@@ -10,7 +10,7 @@
     delete_bundle/2,
     delete_managed_file/3,
     add_managed_files/3,
-    write_bundle_atomic/3,
+    create_bundle/3,
     find_references/2
 ]).
 
@@ -210,31 +210,36 @@ add_managed_files(Namespace, BundleName, Files) ->
     end.
 
 -doc """
-Writes a whole bundle to the local node in one step, but only if no bundle is
-stored under that name yet.
+Creates a bundle on the local node from a complete set of files, and only if no
+bundle is stored under that name yet.
+
+Not a replacement for `add_managed_files/3', which merges the given kinds into
+whatever the bundle already holds — uploading only a `ca' there leaves an
+existing key and chain in place. This one writes the bundle it is given and
+nothing else, so the caller must pass every file the bundle should end up with.
 
 The files are written to a temporary directory and moved into place with a
 single rename, so a bundle is never observed half-written and two concurrent
-writers cannot interleave into a mix of each other's files. A writer that finds
+callers cannot interleave into a mix of each other's files. A caller that finds
 a bundle already there gets `{error, exists}' and leaves it untouched; deciding
-what to do about it is the caller's business.
+what to do about that is the caller's business.
 
 Local only: unlike `add_managed_files/3', nothing is sent to the other nodes.
 """.
--spec write_bundle_atomic(maybe_namespace(), bundle_name(), #{file_kind() := contents()}) ->
+-spec create_bundle(maybe_namespace(), bundle_name(), #{file_kind() := contents()}) ->
     ok | {error, exists} | {error, bad_namespace} | {error, term()}.
-write_bundle_atomic(Namespace, BundleName, Files) ->
+create_bundle(Namespace, BundleName, Files) ->
     maybe
         ok ?= check_namespace(Namespace),
         TmpDir = tmp_dir(),
         try
-            do_write_bundle_atomic(TmpDir, Namespace, BundleName, Files)
+            do_create_bundle(TmpDir, Namespace, BundleName, Files)
         after
             _ = file:del_dir_r(TmpDir)
         end
     end.
 
-do_write_bundle_atomic(TmpDir, Namespace, BundleName, Files) ->
+do_create_bundle(TmpDir, Namespace, BundleName, Files) ->
     Dir = dir(Namespace, BundleName),
     maybe
         ok ?= write_files_to_dir(TmpDir, Namespace, BundleName, Files),
