@@ -821,6 +821,63 @@ t_quota_bytes(_) ->
         emqx_channel:handle_in(Pub, Chann3),
     ok.
 
+-doc "A channel without a limiter container keeps none while only non-consuming packets arrive.".
+t_quota_lazy_stays_absent(_) ->
+    Chann = channel(#{conn_state => connected, quota => undefined}),
+    {ok, {outgoing, ?PACKET(?PINGRESP)}, Chann1} =
+        emqx_channel:handle_in(?PACKET(?PINGREQ), Chann),
+    ?assertEqual(undefined, emqx_channel:info(quota, Chann1)).
+
+-doc "Publish builds the limiter container on first use and the limit applies.".
+t_quota_lazy_build_on_publish(_) ->
+    timer:sleep(1200),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+    Chann = channel(
+        clientinfo(#{listener => 'tcp:low_message_rate'}),
+        #{conn_state => connected, quota => undefined},
+        #{listener => {tcp, low_message_rate}}
+    ),
+    ?assertEqual(undefined, emqx_channel:info(quota, Chann)),
+    Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+        emqx_channel:handle_in(Pub, Chann),
+    ?assertNotEqual(undefined, emqx_channel:info(quota, Chann1)),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+        emqx_channel:handle_in(Pub, Chann1),
+    ok.
+
+-doc "A rate limit configured after connect applies to a channel that built its container lazily.".
+t_quota_lazy_hot_update(_) ->
+    ListenerId = 'tcp:lazy_hot_update',
+    DefaultConf = emqx_config:get_listener_conf(tcp, default, []),
+    emqx_config:put_listener_conf(tcp, lazy_hot_update, [], DefaultConf),
+    ok = emqx_limiter:create_listener_limiters(ListenerId, #{}),
+    try
+        ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+        Chann = channel(
+            clientinfo(#{listener => ListenerId}),
+            #{conn_state => connected, quota => undefined},
+            #{listener => {tcp, lazy_hot_update}}
+        ),
+        Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
+        %% No limit configured: both publishes pass.
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+            emqx_channel:handle_in(Pub, Chann),
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann2} =
+            emqx_channel:handle_in(Pub, Chann1),
+        %% Configure a tight rate at runtime; the limit must apply without reconnect.
+        {ok, MessagesRate} = emqx_limiter_schema:to_rate("1/s"),
+        ok = emqx_limiter:update_listener_limiters(ListenerId, #{messages_rate => MessagesRate}),
+        timer:sleep(1200),
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
+            emqx_channel:handle_in(Pub, Chann2),
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+            emqx_channel:handle_in(Pub, Chann3),
+        ok
+    after
+        emqx_limiter:delete_listener_limiters(ListenerId)
+    end.
+
 t_mount_will_msg(_) ->
     Self = self(),
     ClientInfo = clientinfo(#{mountpoint => <<"prefix/">>}),

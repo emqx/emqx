@@ -281,8 +281,10 @@ when
 }) ->
     callback_result().
 
--callback 'channel.limiter_adjustment'(emqx_types:clientinfo(), emqx_limiter_client:t()) ->
-    fold_callback_result(emqx_limiter_client:t()).
+-callback 'channel.limiter_adjustment'(
+    emqx_types:clientinfo(), undefined | emqx_limiter_client:t()
+) ->
+    fold_callback_result(undefined | emqx_limiter_client:t()).
 
 -callback 'session.limiter_adjustment'(emqx_types:clientinfo(), emqx_limiter_client:t()) ->
     fold_callback_result(emqx_limiter_client:t()).
