@@ -24,7 +24,8 @@
     create_esockd_limiter_client/2,
     create_listener_limiter_client/2,
     create_channel_client_container/2,
-    create_session_client_container/1
+    create_session_client_container/1,
+    session_limits_configured/1
 ]).
 
 %% Generic limiter client API
@@ -50,7 +51,7 @@
     config_from_rate_and_burst/2
 ]).
 
--export_type([zone/0, group/0, name/0, id/0, options/0]).
+-export_type([zone/0, group/0, name/0, id/0, options/0, listener_id/0]).
 
 -type zone() :: atom().
 -type group() :: term().
@@ -147,6 +148,25 @@ create_channel_client_container(ZoneName, ListenerId) ->
 -spec create_session_client_container(listener_id()) -> emqx_limiter_client_container:t().
 create_session_client_container(ListenerId) ->
     create_session_client_container(ListenerId, ?SESSION_LIMITS).
+
+%% Check whether any session (delivery) limiter has a finite limit.
+-spec session_limits_configured(listener_id()) -> boolean().
+session_limits_configured(ListenerId) ->
+    case emqx_limiter_registry:find_group(channel_group(ListenerId)) of
+        undefined ->
+            false;
+        {_Module, LimiterOptions} ->
+            lists:any(
+                fun(Name) ->
+                    case lists:keyfind(Name, 1, LimiterOptions) of
+                        {_, #{capacity := infinity}} -> false;
+                        {_, _} -> true;
+                        false -> false
+                    end
+                end,
+                ?SESSION_LIMITS
+            )
+    end.
 
 -spec create_esockd_limiter_client(zone(), listener_id()) -> emqx_esockd_limiter:create_options().
 create_esockd_limiter_client(ZoneName, ListenerId) ->

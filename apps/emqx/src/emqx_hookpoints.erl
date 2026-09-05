@@ -286,8 +286,10 @@ when
 ) ->
     fold_callback_result(undefined | emqx_limiter_client:t()).
 
--callback 'session.limiter_adjustment'(emqx_types:clientinfo(), emqx_limiter_client:t()) ->
-    fold_callback_result(emqx_limiter_client:t()).
+-callback 'session.limiter_adjustment'(
+    emqx_types:clientinfo(), emqx_limiter_client:t() | {lazy, emqx_limiter:listener_id()}
+) ->
+    fold_callback_result(emqx_limiter_client:t() | {lazy, emqx_limiter:listener_id()}).
 
 %% NOTE
 %% Executed out of channel process context
