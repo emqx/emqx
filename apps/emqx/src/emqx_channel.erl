@@ -240,6 +240,8 @@ info(alias_maximum, #channel{alias_maximum = Limits}) ->
     Limits;
 info(timers, #channel{timers = Timers}) ->
     Timers;
+info(quota, #channel{quota = Quota}) ->
+    Quota;
 info(session_state, #channel{session = Session}) ->
     Session;
 info(impl, #channel{session = Session}) ->
@@ -667,7 +669,7 @@ post_process_connect(
     }
 ) ->
     Channel = Channel0#channel{
-        quota = create_limiter(ClientInfo)
+        quota = adjust_limiter(ClientInfo)
     },
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
@@ -689,9 +691,17 @@ post_process_connect(
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
 
-create_limiter(#{zone := Zone, listener := ListenerId} = ClientInfo) ->
-    Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
-    emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], Limiter).
+%% A hook callback may install a limiter container at connect time
+%% (e.g. multi-tenant limiters). Otherwise the field stays `undefined`
+%% and the container is built on first use; see ensure_quota/1.
+adjust_limiter(ClientInfo) ->
+    emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], undefined).
+
+ensure_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+    #{zone := Zone, listener := ListenerId} = ClientInfo,
+    Channel#channel{quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)};
+ensure_quota(Channel) ->
+    Channel.
 
 handle_zone_change(
     _Output,
@@ -706,7 +716,7 @@ handle_zone_change(_Output, Channel) ->
 recreate_limiter(#channel{quota = undefined} = Channel) ->
     Channel;
 recreate_limiter(#channel{clientinfo = ClientInfo} = Channel) ->
-    Channel#channel{quota = create_limiter(ClientInfo)}.
+    Channel#channel{quota = adjust_limiter(ClientInfo)}.
 
 handle_session_zone_change(#channel{session = undefined} = Channel) ->
     Channel;
@@ -2946,8 +2956,9 @@ packing_alias(Packet, Channel) ->
 %% Check quota state
 
 check_quota_exceeded(
-    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), #channel{quota = Quota} = Chann
+    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), Chann0
 ) ->
+    #channel{quota = Quota} = Chann = ensure_quota(Chann0),
     Result = emqx_limiter_client_container:try_consume(
         Quota, [{bytes, erlang:byte_size(Payload)}, {messages, 1}]
     ),
@@ -2967,8 +2978,9 @@ check_quota_exceeded(
     end.
 
 check_subscribe_quota_exceeded(
-    #subscribe_operation{topic_filters = TopicFilters}, #channel{quota = Limiter0} = Chann
+    #subscribe_operation{topic_filters = TopicFilters}, Chann0
 ) ->
+    #channel{quota = Limiter0} = Chann = ensure_quota(Chann0),
     Result = emqx_limiter_client_container:try_consume(
         Limiter0, [{subscribes, 1}]
     ),
