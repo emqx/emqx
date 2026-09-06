@@ -197,6 +197,7 @@ check_compat(DumpFilenames) ->
     Dumps = lists:map(
         fun(FN) ->
             {ok, [Dump]} = file:consult(FN),
+            check_release_field(FN, Dump),
             Dump#{release => filename_to_release(FN)}
         end,
         DumpFilenames
@@ -204,6 +205,25 @@ check_compat(DumpFilenames) ->
     check_no_stale_exemptions(Dumps),
     [check_compat(I, J) || I <- Dumps, J <- Dumps],
     erase(bpapi_ok).
+
+%% A dump is compared as the release its file name states, so the `release'
+%% field it carries is never read. A baseline copied from another file keeps
+%% the source's field, which is the only trace left of the copy. (sets nok flag)
+-spec check_release_field(file:filename(), fulldump()) -> ok.
+check_release_field(FN, Dump) ->
+    Expected = filename:rootname(filename:basename(FN)),
+    case maps:get(release, Dump, undefined) of
+        Expected ->
+            ok;
+        Found ->
+            setnok(),
+            logger:error(
+                "~s states release \"~s\". The file name says \"~s\".~n"
+                "A dump copied from another release keeps the field it was copied with.",
+                [FN, Found, Expected]
+            )
+    end,
+    ok.
 
 %% An entry in the force-deleted lists only ever suppresses an error about an
 %% API or a module that some dump still describes. One that matches no dump
