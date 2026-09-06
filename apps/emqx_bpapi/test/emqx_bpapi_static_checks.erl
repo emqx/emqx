@@ -201,8 +201,38 @@ check_compat(DumpFilenames) ->
         end,
         DumpFilenames
     ),
+    check_no_stale_exemptions(Dumps),
     [check_compat(I, J) || I <- Dumps, J <- Dumps],
     erase(bpapi_ok).
+
+%% An entry in the force-deleted lists only ever suppresses an error about an
+%% API or a module that some dump still describes. One that matches no dump
+%% suppresses nothing, and it hides the fact that the deletion it was written
+%% for is no longer covered. (sets nok flag)
+-spec check_no_stale_exemptions([fulldump()]) -> ok.
+check_no_stale_exemptions(Dumps) ->
+    Keys = lists:usort(lists:append([maps:keys(API) || #{api := API} <- Dumps])),
+    Modules = lists:usort(
+        lists:append([
+            [Mf, Mt]
+         || #{api := API} <- Dumps,
+            #{calls := Calls, casts := Casts} <- maps:values(API),
+            {{Mf, _, _}, {Mt, _, _}} <- Calls ++ Casts
+        ])
+    ),
+    report_stale("FORCE_DELETED_APIS", ?FORCE_DELETED_APIS -- Keys),
+    report_stale("FORCE_DELETED_MODULES", ?FORCE_DELETED_MODULES -- Modules),
+    ok.
+
+report_stale(_List, []) ->
+    ok;
+report_stale(List, Stale) ->
+    setnok(),
+    logger:error(
+        "Stale ~s entries: ~p.~n"
+        "No dump describes them, so they suppress nothing. Remove them.",
+        [List, Stale]
+    ).
 
 filename_to_release(FN) ->
     Basename = filename:basename(FN),
