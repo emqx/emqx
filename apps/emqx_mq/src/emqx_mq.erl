@@ -94,10 +94,6 @@ on_session_resumed(_ClientInfo, SessionInfo) ->
     ok = set_mq_supported(SessionResumedCtx, SessionInfo).
 
 on_client_authorize(
-    ClientInfo, #{action_type := subscribe} = _Action, <<"$q/", _/binary>> = Topic, Result
-) ->
-    deny_if_mq_not_supported(ClientInfo, Topic, Result);
-on_client_authorize(
     ClientInfo, #{action_type := subscribe} = _Action, <<"$queue/", _/binary>> = Topic, Result
 ) ->
     deny_if_mq_not_supported(ClientInfo, Topic, Result);

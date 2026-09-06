@@ -6,10 +6,10 @@ The application provides EMQX Message Streams feature.
 
 A Message Stream is a collection of messages with the following properties:
 
-- Message Stream is identified by `topic/filter` from the user's perspective.
+- Message Stream is identified by a name and a `topic/filter` from the user's perspective.
 - Has an explicit lifecycle.
 - Is automatically replenished with published messages matched with the topic filter during the stream's lifetime.
-- Clients may subscribe to the stream's `$s/timestamp/topic/filter` to consume messages from the stream.
+- Clients may subscribe to `$stream/name/topic/filter` to consume messages from the stream. The `stream-offset` user property selects the starting offset.
 - A Stream is capped by time or size.
 - A Stream has a _key expression_ to extract a _key_ from each message.
 - A Stream is not strictly ordered, but it is strictly ordered within each key, i.e. messages with the same key are
@@ -43,7 +43,7 @@ Also, Streams reuse quota mechanism from [MQs](../emqx_mq/src/emqx_mq_quota/emqx
 ### Subscribing/Consuming
 
 * A client subscribes to some topic.
-* An ExtSub hook is triggered to handle the subscription. If the topic is a Streams topic (`$s/timestamp/topic` topic handled by the Streams ExtSub handler), ExtSub initializes ExtSub handler state.
+* An ExtSub hook is triggered to handle the subscription. If the topic is a Streams topic (`$stream/name/topic`), ExtSub initializes ExtSub handler state.
 * ExtSub handler subscribes to DS storage to get the messages.
 * ExtSub handler receives messages from DS storage and delivers them to the ExtSub application.
 * ExtSub application delivers messages to the clients.

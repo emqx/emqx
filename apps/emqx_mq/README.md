@@ -6,10 +6,10 @@ The application provides Message Queue functionality for EMQX.
 
 A Message Queue is a collection of messages with the following properties:
 
-- Message Queue is identified by `topic/filter` from the user's perspective.
+- Message Queue is identified by a name and a `topic/filter` from the user's perspective.
 - Has an explicit lifecycle.
 - Is automatically replenished with published messages matched with the topic filter during the queue's lifetime.
-- Clients may subscribe to the queue's `$q/topic/filter` to consume messages from the queue cooperatively.
+- Clients may subscribe to `$queue/name/topic/filter` to consume messages from the queue cooperatively.
 - A Queue is capped by time or size.
 - A Queue is not strictly ordered.A queue may have "Last-Value" semantics. When enabled,
   - A queue has a _key expression_ to extract a key from each message.
@@ -44,7 +44,7 @@ facilitating channel's connections to the Message Queues. They are stored in the
 
 * A client subscribes to some topic.
 * An MQ hook is triggered to handle the subscription.
-* If the topic is a Message Queue topic (`$q/some/topic`), the hook initializes a subscription in the Channel's state and
+* If the topic is a Message Queue topic (`$queue/name/some/topic`), the hook initializes a subscription in the Channel's state and
 initiates a connection to the Message Queue Consumer.
 * If a Consumer is not yet found, a new consumer is started.
 * The Consumer restores message consumption progress and starts to fetch data from the Message Queue message database.
@@ -104,7 +104,7 @@ The threshold and some other settings are configured via the `quota` section of 
 
 ## Queue auto creation
 
-Message Queues are automatically created when subscribing to a queue topic `$q/some/topic`. The auto creation is configured via the `auto_create` section of the global Message Queue configuration. By default, the queues are auto created as last-value queues.
+Message Queues are automatically created when subscribing to a queue topic `$queue/name/some/topic`. The auto creation is configured via the `auto_create` section of the global Message Queue configuration. By default, the queues are auto created as last-value queues.
 ```hocon
 ...
 auto_create {

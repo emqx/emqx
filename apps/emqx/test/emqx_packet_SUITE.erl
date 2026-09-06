@@ -258,7 +258,7 @@ t_check_subscribe(_) ->
         ?SUBSCRIBE_PACKET(1, [{<<"$queue/topic?location=roomA">>, #{qos => ?QOS_0}}]),
         #{subscription_message_filter => enable}
     ),
-    {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(
+    ok = emqx_packet:check(
         ?SUBSCRIBE_PACKET(1, [{<<"$q/topic?location=roomA">>, #{qos => ?QOS_0}}]),
         #{subscription_message_filter => enable}
     ),
@@ -266,7 +266,7 @@ t_check_subscribe(_) ->
         ?SUBSCRIBE_PACKET(1, [{<<"$stream/topic?location=roomA">>, #{qos => ?QOS_0}}]),
         #{subscription_message_filter => enable}
     ),
-    {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(
+    ok = emqx_packet:check(
         ?SUBSCRIBE_PACKET(1, [{<<"$s/topic?location=roomA">>, #{qos => ?QOS_0}}]),
         #{subscription_message_filter => enable}
     ),

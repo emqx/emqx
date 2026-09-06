@@ -102,10 +102,6 @@ on_session_resumed(ClientInfo, _SessionInfo) ->
     ok = save_support_info(Ctx, ClientInfo).
 
 on_client_authorize(
-    _ClientInfo, #{action_type := subscribe} = _Action, <<"$s/", _/binary>> = _Topic, Result
-) ->
-    deny_if_streams_not_supported(Result);
-on_client_authorize(
     _ClientInfo, #{action_type := subscribe} = _Action, <<"$stream/", _/binary>> = _Topic, Result
 ) ->
     deny_if_streams_not_supported(Result);

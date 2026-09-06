@@ -110,6 +110,17 @@ t_smoke(_Config) ->
     ?assertEqual(100, length(Msgs)),
     ok.
 
+-doc "The removed `$q/` prefix behaves as an ordinary MQTT topic prefix.".
+t_short_prefix_is_regular_topic(_Config) ->
+    Topic = <<"$q/regular/topic">>,
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(CSub, {Topic, ?QOS_1}),
+    CPub = emqx_mq_test_utils:emqtt_connect([]),
+    {ok, _} = emqtt:publish(CPub, Topic, <<"payload">>, ?QOS_1),
+    {ok, [#{topic := Topic}]} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
+    ok = emqtt:disconnect(CPub),
+    ok = emqtt:disconnect(CSub).
+
 %% Consume some history messages from a non-lastvalue(regular) queue
 t_publish_and_consume_regular(Config) ->
     %% Create a non-lastvalue Queue

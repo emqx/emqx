@@ -206,14 +206,6 @@ check_mq_topic_filter(Ctx, <<"$queue/", NameTopicBin/binary>> = _FullTopic) ->
         ok -> split_name_topic(NameTopicBin);
         {error, _} = Err -> Err
     end;
-check_mq_topic_filter(Ctx, <<"$q/", TopicFilter/binary>>) ->
-    case validate_protocol(Ctx) of
-        ok ->
-            Name = emqx_mq_prop:default_name_from_topic(TopicFilter),
-            {ok, Name, TopicFilter};
-        {error, _} = Err ->
-            Err
-    end;
 check_mq_topic_filter(_Ctx, _TopicFilter) ->
     ignore.
 
