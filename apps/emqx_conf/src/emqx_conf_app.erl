@@ -16,7 +16,13 @@
 -endif.
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_managed_certs.hrl").
 -include("emqx_conf.hrl").
+
+-ifdef(TEST).
+-export([traverse_and_collect_files/1]).
+-endif.
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
@@ -369,11 +375,22 @@ has_deprecated_file(#{conf := Conf} = Info) ->
 traverse_and_collect_files(DataDir) ->
     SubDirs = lists:map(fun(D) -> filename:join(DataDir, D) end, ?DATA_DIRS),
     Prefix = ensure_trailing_slash(DataDir),
-    do_traverse_and_collect_files(SubDirs, Prefix, _Acc = []).
+    do_traverse_and_collect_files(SubDirs, Prefix, excluded_prefixes(Prefix), _Acc = []).
 
-do_traverse_and_collect_files([] = _SubDirs, _Prefix, Acc) ->
+%% The default certificate bundle is a per-node identity, holding a private key
+%% this node generated for itself. It must not travel to a joining node, which
+%% generates its own.
+excluded_prefixes(Prefix) ->
+    %% `dir/2' hands back a binary, since the bundle name is one; the collected
+    %% paths are strings.
+    DefaultCertDir = unicode:characters_to_list(
+        emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME)
+    ),
+    [ensure_trailing_slash(to_data_dir_relative_path(DefaultCertDir, Prefix))].
+
+do_traverse_and_collect_files([] = _SubDirs, _Prefix, _Excluded, Acc) ->
     Acc;
-do_traverse_and_collect_files([SubDir | Rest], Prefix, Acc0) ->
+do_traverse_and_collect_files([SubDir | Rest], Prefix, Excluded, Acc0) ->
     %% This function already drops any non-regular file, including symlinks.
     Acc = filelib:fold_files(
         SubDir,
@@ -381,11 +398,17 @@ do_traverse_and_collect_files([SubDir | Rest], Prefix, Acc0) ->
         _Recursive = true,
         fun(Path0, Acc) ->
             Path = to_data_dir_relative_path(Path0, Prefix),
-            [Path | Acc]
+            case is_excluded(Path, Excluded) of
+                true -> Acc;
+                false -> [Path | Acc]
+            end
         end,
         Acc0
     ),
-    do_traverse_and_collect_files(Rest, Prefix, Acc).
+    do_traverse_and_collect_files(Rest, Prefix, Excluded, Acc).
+
+is_excluded(Path, Excluded) ->
+    lists:any(fun(P) -> lists:prefix(P, Path) end, Excluded).
 
 %% Note: `Prefix' must end in `/'.
 to_data_dir_relative_path(Path, Prefix) ->
