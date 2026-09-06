@@ -128,19 +128,39 @@ generator(Attempts) ->
     end.
 
 try_generate(Attempts) ->
-    try register(?LOCK, self()) of
-        true ->
-            try
-                _ = generate_localhost_bundle(),
-                ok
-            after
-                _ = catch unregister(?LOCK)
-            end
-    catch
-        error:badarg ->
+    case acquire_lock() of
+        ok ->
+            hold_and_generate();
+        busy ->
             %% Another process holds the name, or took it between the check
             %% above and here.
             wait_for_holder(Attempts)
+    end.
+
+acquire_lock() ->
+    try register(?LOCK, self()) of
+        true -> ok
+    catch
+        error:badarg -> busy
+    end.
+
+hold_and_generate() ->
+    try
+        _ = generate_localhost_bundle(),
+        ok
+    after
+        release_lock()
+    end.
+
+%% The name is released when this process exits in any case; doing it here as
+%% well keeps the holder's window as short as the work itself.
+release_lock() ->
+    try
+        _ = unregister(?LOCK),
+        ok
+    catch
+        error:badarg ->
+            ok
     end.
 
 wait_for_holder(Attempts) ->
