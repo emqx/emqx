@@ -73,8 +73,8 @@ ensure_localhost_bundle() ->
         _ ->
             %% Monitored rather than linked: a failed generation should come
             %% back as an error, not take the caller down with it.
-            {_Pid, MRef} = spawn_monitor(fun ?MODULE:generator/0),
-            await_generator(MRef),
+            {Pid, MRef} = spawn_monitor(fun ?MODULE:generator/0),
+            await_generator(Pid, MRef),
             complete_bundle()
     end.
 
@@ -92,7 +92,7 @@ generator() ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-await_generator(MRef) ->
+await_generator(Pid, MRef) ->
     receive
         {'DOWN', MRef, process, _Pid, normal} ->
             ok;
@@ -103,17 +103,31 @@ await_generator(MRef) ->
                 reason => Reason
             }),
             ok
-    after ?GENERATE_TIMEOUT ->
-        %% The generator may still finish and install the bundle; this only
-        %% stops a caller from waiting on it forever.
+    after generate_timeout() ->
+        %% Kill it rather than leave it behind: a generator wedged while
+        %% holding the lock would keep every later caller waiting too. The
+        %% bundle cannot be left half-written, since it only ever appears
+        %% through one rename, but the temporary directory is not cleaned up
+        %% here — an untrappable exit skips the cleanup in `create_bundle/3'.
+        %% It sits outside `certs2', so it is never copied to another node.
+        %% Frees the lock when this caller's own generator is the holder,
+        %% which is the ordinary case. A holder orphaned by a caller that died
+        %% while it was wedged is not covered; that would need the generator
+        %% linked to its caller, which would let a failed generation take a
+        %% starting listener down with it.
+        exit(Pid, kill),
         _ = erlang:demonitor(MRef, [flush]),
         ?SLOG(error, #{
             msg => "default_tls_certificate_generation_timeout",
             bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
-            timeout => ?GENERATE_TIMEOUT
+            timeout => generate_timeout()
         }),
         ok
     end.
+
+%% Overridable so tests do not have to wait out the real timeout.
+generate_timeout() ->
+    application:get_env(emqx, default_cert_generate_timeout, ?GENERATE_TIMEOUT).
 
 generator(0) ->
     %% Out of attempts. The caller re-reads the bundle and reports the failure.

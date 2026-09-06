@@ -51,6 +51,16 @@ end_per_testcase(_TCName, TCConfig) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
+on_exit(Fun) ->
+    Parent = self(),
+    spawn(fun() ->
+        MRef = erlang:monitor(process, Parent),
+        receive
+            {'DOWN', MRef, process, _, _} -> catch Fun()
+        end
+    end),
+    ok.
+
 ensure() ->
     {ok, Files} = emqx_default_cert:ensure_localhost_bundle(),
     Files.
@@ -335,6 +345,32 @@ t_waits_for_holder_instead_of_deleting(_TCConfig) ->
         {Caller, Seen} -> ?assertEqual(Installed, Seen)
     after 30_000 -> ct:fail("caller did not finish")
     end.
+
+-doc """
+A caller does not hang forever behind a generator that never finishes: it gives
+up after its timeout and reports the failure instead of blocking the listener
+that asked for a certificate.
+""".
+t_caller_gives_up_on_a_wedged_generator(_TCConfig) ->
+    ok = application:set_env(emqx, default_cert_generate_timeout, 200),
+    on_exit(fun() -> application:unset_env(emqx, default_cert_generate_timeout) end),
+    #{?FILE_KIND_KEY := #{path := KeyPath}} = ensure(),
+    ok = file:delete(KeyPath),
+    Parent = self(),
+    %% Holds the lock and never finishes.
+    Wedged = spawn(fun() ->
+        true = register(emqx_default_cert_generator, self()),
+        Parent ! {self(), holding},
+        receive
+            never -> ok
+        end
+    end),
+    receive
+        {Wedged, holding} -> ok
+    after 5_000 -> ct:fail("wedged holder did not start")
+    end,
+    ?assertMatch({error, _}, emqx_default_cert:ensure_localhost_bundle()),
+    exit(Wedged, kill).
 
 -doc """
 Each node generates and keeps its own bundle: the default certificate is a
