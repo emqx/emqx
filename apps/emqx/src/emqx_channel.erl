@@ -641,12 +641,17 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel0) ->
     of
         {ok, NConnPkt, Channel1 = #channel{clientinfo = ClientInfo}} ->
             ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
-            case authenticate(?CONNECT_PACKET(NConnPkt), Channel1) of
+            %% NOTE: Set alias_maximum before authentication, because enhanced
+            %% authentication completes in `handle_in(?AUTH_PACKET(...))', which
+            %% reaches `post_process_connect/2' without the connect packet.
+            Channel2 = Channel1#channel{
+                alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
+            },
+            case authenticate(?CONNECT_PACKET(NConnPkt), Channel2) of
                 {ok, Properties, Channel3} ->
                     Channel = Channel3#channel{
                         %% NOTE: Only store will_msg after successful authn.
-                        will_msg = emqx_packet:will_msg(NConnPkt),
-                        alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
+                        will_msg = emqx_packet:will_msg(NConnPkt)
                     },
                     post_process_connect(Properties, Channel);
                 {continue, Properties, Channel} ->

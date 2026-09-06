@@ -246,6 +246,44 @@ t_handle_in_extended_reauthentication(_) ->
         ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate_continue})
     end.
 
+-doc """
+A client that connects with enhanced authentication and does not advertise a
+`Topic Alias Maximum` must not be sent any topic alias [MQTT-3.1.2-27].
+""".
+t_handle_in_extended_auth_no_topic_alias(_) ->
+    try
+        {ok, Agent} = emqx_utils_agent:start_link({stop, {continue, #{}}}),
+        emqx_hooks:add(
+            'client.authenticate',
+            {?MODULE, authenticate_continue, [self(), Agent]},
+            ?HP_HIGHEST
+        ),
+        %% CONNECT starts the enhanced authentication exchange.  It carries no
+        %% `Topic-Alias-Maximum`, so the default of 0 applies.
+        Properties = #{
+            'Authentication-Method' => <<"auth_method">>,
+            'Authentication-Data' => <<"auth_data">>
+        },
+        ConnPkt = (connpkt())#mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = Properties
+        },
+        {ok, [_, {outgoing, ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION)}], Channel1} =
+            emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})),
+        %% The client completes the exchange with an AUTH packet.
+        ok = emqx_utils_agent:set(Agent, {stop, ok}),
+        {continue, [_, _, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
+            emqx_channel:handle_in(
+                ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel1
+            ),
+        ?assertMatch(#{outbound := 0}, emqx_channel:info(alias_maximum, Channel)),
+        Packet = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"t">>}},
+        {PackedPacket, _} = emqx_channel:packing_alias(Packet, Channel),
+        ?assertEqual(Packet, PackedPacket)
+    after
+        ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate_continue})
+    end.
+
 t_handle_in_unexpected_packet(_) ->
     Channel = emqx_channel:set_field(conn_state, idle, channel()),
     Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
