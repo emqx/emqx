@@ -362,6 +362,33 @@ t_clientid_override(TCConfig) when is_list(TCConfig) ->
     emqx_authn_test_lib:t_clientid_override(TCConfig, Opts),
     ok.
 
+-doc """
+Checks that a `client_attrs' subdocument becomes the client attributes.
+""".
+t_client_attrs(TCConfig) when is_list(TCConfig) ->
+    Client = ?config(mongo_client, TCConfig),
+    Username = <<"client_attrs_user">>,
+    Password = <<"password">>,
+    MkConfigFn = fun() ->
+        ok = create_user(Client, #{
+            username => Username,
+            password_hash => Password,
+            salt => <<"">>,
+            client_attrs => #{<<"tier">> => <<"gold">>}
+        }),
+        raw_mongo_auth_config()
+    end,
+    Opts = #{
+        client_opts => #{
+            username => Username,
+            password => Password
+        },
+        mk_config_fn => MkConfigFn,
+        expected_attrs => #{<<"tier">> => <<"gold">>}
+    },
+    emqx_authn_test_lib:t_client_attrs(TCConfig, Opts),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------

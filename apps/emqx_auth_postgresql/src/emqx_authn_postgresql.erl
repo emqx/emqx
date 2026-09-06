@@ -136,4 +136,5 @@ create_state(
 authn_result(Selected) ->
     Res0 = emqx_authn_utils:is_superuser(Selected),
     Res1 = emqx_authn_utils:clientid_override(Selected),
-    maps:merge(Res0, Res1).
+    Res2 = emqx_authn_utils:maybe_client_attrs(Selected),
+    lists:foldl(fun maps:merge/2, #{}, [Res0, Res1, Res2]).

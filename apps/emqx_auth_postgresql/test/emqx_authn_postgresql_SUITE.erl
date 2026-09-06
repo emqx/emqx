@@ -410,6 +410,40 @@ t_clientid_override(TCConfig) when is_list(TCConfig) ->
     emqx_authn_test_lib:t_clientid_override(TCConfig, Opts),
     ok.
 
+-doc """
+Checks that columns aliased to `client_attrs.<name>' become client attributes.
+""".
+t_client_attrs(TCConfig) when is_list(TCConfig) ->
+    Username = <<"client_attrs_user">>,
+    Password = <<"password">>,
+    MkConfigFn = fun() ->
+        ok = create_user(#{
+            username => Username,
+            password_hash => Password,
+            salt => <<"">>
+        }),
+        maps:merge(
+            raw_pgsql_auth_config(),
+            #{
+                <<"query">> =>
+                    ~b"""
+                    SELECT password_hash, salt, 'gold' as "client_attrs.tier"
+                    FROM users where username = ${username} LIMIT 1
+                    """
+            }
+        )
+    end,
+    Opts = #{
+        client_opts => #{
+            username => Username,
+            password => Password
+        },
+        mk_config_fn => MkConfigFn,
+        expected_attrs => #{<<"tier">> => <<"gold">>}
+    },
+    emqx_authn_test_lib:t_client_attrs(TCConfig, Opts),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
