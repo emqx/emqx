@@ -129,6 +129,15 @@ mfa_status.desc:
 - `disabled`: MFA is disabled for the user
 - Otherwise: The MFA mechanism in use, e.g. `totp`"""
 
+mfa_enrollment_status.desc:
+"""What the account has to do about MFA, derived from its stored state and the
+policy that applies to it.
+- `complete`: enrolled, and one authenticator code has been verified
+- `pending_enforced`: MFA is required and not complete, so the next login stops for setup
+- `pending_voluntary`: no MFA and nothing requires it, so the user may opt in
+- `disabled`: opted out, and nothing requires the user to opt back in"""
+
+
 change_mfa.label:
 """Change MFA"""
 
@@ -164,7 +173,7 @@ delete_current_user_mfa_api.label:
 """Delete own MFA"""
 
 current_user_mfa_admin_required.desc:
-"""MFA is required on this account by an administrator, so the account holder cannot turn it off. Re-keying it is still allowed."""
+"""MFA cannot be turned off on this account: either an administrator requires it, or `dashboard.default_mfa` requires it of every account. Re-keying it is still allowed."""
 
 effective_user_scopes_response.desc:
 """The permission scopes the user effectively holds. Unlike the `scopes` field of the user management endpoints, the role default is already expanded here, so this is always a concrete list."""

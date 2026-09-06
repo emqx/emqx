@@ -90,8 +90,10 @@ t_get_own_profile(_Config) ->
     ).
 
 %% The profile is the same object `GET /users' reports for the same
-%% account, so the two must not disagree field by field. Only `scopes'
-%% differs by design: the self endpoint expands the role default.
+%% account, so the two must not disagree on any field they share. Two
+%% differ by design: the self endpoint expands the role default into
+%% `scopes', and it adds `mfa_status', which only the account holder
+%% needs.
 t_own_profile_matches_admin_view(_Config) ->
     ok = add_user(<<"boss">>, ?ROLE_SUPERUSER),
     Token = token(<<"boss">>),
@@ -99,9 +101,10 @@ t_own_profile_matches_admin_view(_Config) ->
     {ok, 200, ListBody} = request_api(get, api_path(["users"]), auth_header(Token)),
     Self = json(SelfBody),
     [Admin] = [U || U <- json(ListBody), maps:get(<<"username">>, U) =:= <<"boss">>],
+    SelfOnly = [<<"scopes">>, <<"mfa_status">>],
     ?assertEqual(
-        maps:remove(<<"scopes">>, Admin),
-        maps:remove(<<"scopes">>, Self)
+        maps:without(SelfOnly, Admin),
+        maps:without(SelfOnly, Self)
     ).
 
 %% `scopes' is the EFFECTIVE list: the role default is expanded, so the
