@@ -249,9 +249,12 @@ do_create_bundle(TmpDir, Namespace, BundleName, Files) ->
 
 tmp_dir() ->
     Unique = binary:encode_hex(crypto:strong_rand_bytes(8)),
-    %% Sibling of the namespace directories rather than inside one: a directory
-    %% under a namespace would be listed as a bundle while it exists.
-    filename:join([emqx:data_dir(), certs2, ".tmp", Unique]).
+    %% Deliberately outside `certs2': `emqx_conf' collects every regular file
+    %% under the directories it syncs to a joining node, so a half-written
+    %% bundle sitting there could be swept into that copy — or vanish under it
+    %% mid-collection when the rename lands. Still under the data directory, so
+    %% the rename stays within one filesystem and remains atomic.
+    filename:join([emqx:data_dir(), tmp, Unique]).
 
 write_files_to_dir(TmpDir, Namespace, BundleName, Files) ->
     maps:fold(

@@ -40,6 +40,16 @@ private key.
 
 -export([ensure_localhost_bundle/0]).
 
+%% Internal export: spawned as the lock holder, see `ensure_localhost_bundle/0'.
+-export([generator/0]).
+
+%% Registering a name is the mutual exclusion: only one process holds it, and
+%% it is released automatically if that process dies.
+-define(LOCK, emqx_default_cert_generator).
+-define(MAX_ATTEMPTS, 10).
+-define(RETRY_INTERVAL, 5).
+-define(GENERATE_TIMEOUT, 30_000).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -48,37 +58,138 @@ private key.
 Returns the `localhost' bundle's files, generating the bundle first if this
 node does not have a complete one.
 
-Concurrent callers are safe: each generates its own bundle and the last one
-into place wins, so the stored bundle is always one caller's complete and
-self-consistent set of files.
+Concurrent callers are safe. Generation runs in a short-lived process that
+holds a registered name for the whole check-and-write sequence, so two callers
+cannot each decide the bundle is missing and then overwrite one another's work.
+Callers that lose the race wait for the holder and re-read what it produced.
 """.
 -spec ensure_localhost_bundle() ->
     {ok, #{emqx_managed_certs:file_kind() => #{path := file:filename_all()}}}
     | {error, term()}.
 ensure_localhost_bundle() ->
-    case list_bundle() of
-        {ok, #{?FILE_KIND_KEY := _, ?FILE_KIND_CHAIN := _}} = Complete ->
+    case complete_bundle() of
+        {ok, _} = Complete ->
             Complete;
         _ ->
-            generate_localhost_bundle()
+            %% Monitored rather than linked: a failed generation should come
+            %% back as an error, not take the caller down with it.
+            {_Pid, MRef} = spawn_monitor(fun ?MODULE:generator/0),
+            await_generator(MRef),
+            complete_bundle()
     end.
+
+-doc """
+Generates the bundle, or waits for whichever process is already doing so.
+
+Exported only to be spawned by `ensure_localhost_bundle/0'; not part of this
+module's interface.
+""".
+-spec generator() -> ok.
+generator() ->
+    generator(?MAX_ATTEMPTS).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
+await_generator(MRef) ->
+    receive
+        {'DOWN', MRef, process, _Pid, normal} ->
+            ok;
+        {'DOWN', MRef, process, _Pid, Reason} ->
+            ?SLOG(error, #{
+                msg => "default_tls_certificate_generator_crashed",
+                bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
+                reason => Reason
+            }),
+            ok
+    after ?GENERATE_TIMEOUT ->
+        %% The generator may still finish and install the bundle; this only
+        %% stops a caller from waiting on it forever.
+        _ = erlang:demonitor(MRef, [flush]),
+        ?SLOG(error, #{
+            msg => "default_tls_certificate_generation_timeout",
+            bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
+            timeout => ?GENERATE_TIMEOUT
+        }),
+        ok
+    end.
+
+generator(0) ->
+    %% Out of attempts. The caller re-reads the bundle and reports the failure.
+    ok;
+generator(Attempts) ->
+    case complete_bundle() of
+        {ok, _} ->
+            %% Another process finished while this one was starting up.
+            ok;
+        _ ->
+            try_generate(Attempts)
+    end.
+
+try_generate(Attempts) ->
+    try register(?LOCK, self()) of
+        true ->
+            try
+                _ = generate_localhost_bundle(),
+                ok
+            after
+                _ = catch unregister(?LOCK)
+            end
+    catch
+        error:badarg ->
+            %% Another process holds the name, or took it between the check
+            %% above and here.
+            wait_for_holder(Attempts)
+    end.
+
+wait_for_holder(Attempts) ->
+    case whereis(?LOCK) of
+        undefined ->
+            %% The holder finished in the meantime; try to take it over.
+            timer:sleep(?RETRY_INTERVAL),
+            generator(Attempts - 1);
+        Pid ->
+            MRef = erlang:monitor(process, Pid),
+            receive
+                {'DOWN', MRef, process, _, Reason} when
+                    Reason =:= normal; Reason =:= noproc
+                ->
+                    %% `noproc' means it had already finished when the monitor
+                    %% was set up, which is as good as a clean exit.
+                    generator(Attempts - 1);
+                {'DOWN', MRef, process, _, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "default_tls_certificate_generator_crashed",
+                        bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
+                        reason => Reason
+                    }),
+                    generator(Attempts - 1)
+            end
+    end.
+
 list_bundle() ->
     emqx_managed_certs:list_managed_files(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME).
 
+complete_bundle() ->
+    case list_bundle() of
+        {ok, #{?FILE_KIND_KEY := _, ?FILE_KIND_CHAIN := _}} = Complete ->
+            Complete;
+        {ok, _Incomplete} ->
+            {error, incomplete_bundle};
+        {error, enoent} ->
+            {error, no_bundle};
+        {error, _} = Error ->
+            Error
+    end.
+
+%% Runs while holding the lock, so nothing else is checking, deleting or
+%% writing this bundle at the same time.
 generate_localhost_bundle() ->
-    %% Anything already stored under this name is incomplete (`ensure_localhost_bundle/0'
-    %% checked), and would block the rename. Clear it first, locally: a bundle
-    %% this node cannot use is not worth keeping, and other nodes keep theirs.
-    _ = emqx_managed_certs:delete_bundle_v1(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
     maybe
+        ok ?= clear_unusable_bundle(),
         {ok, Files} ?= generate(),
-        ok ?= install(Files),
-        list_bundle()
+        install(Files)
     else
         {error, Reason} = Error ->
             ?SLOG(error, #{
@@ -86,6 +197,18 @@ generate_localhost_bundle() ->
                 bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
                 reason => Reason
             }),
+            Error
+    end.
+
+%% Whatever is stored is incomplete, or there is nothing at all. An incomplete
+%% bundle would block the rename, and this node cannot use it either way.
+clear_unusable_bundle() ->
+    case emqx_managed_certs:delete_bundle_v1(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME) of
+        ok ->
+            ok;
+        {error, enoent} ->
+            ok;
+        {error, _} = Error ->
             Error
     end.
 
@@ -99,9 +222,12 @@ install(Files) ->
             }),
             ok;
         {error, exists} ->
-            %% Another caller generated one in the meantime. Theirs is as good
-            %% as ours, so keep it and discard this generation.
-            ok;
+            %% Something appeared after the delete above. Accept it only if it
+            %% is a bundle this node can actually use.
+            case complete_bundle() of
+                {ok, _} -> ok;
+                {error, _} -> {error, unusable_bundle_in_place}
+            end;
         {error, _} = Error ->
             Error
     end.

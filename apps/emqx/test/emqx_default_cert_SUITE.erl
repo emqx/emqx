@@ -233,28 +233,108 @@ t_deleted_bundle_stays_deleted(_TCConfig) ->
     ?assertMatch(#{?FILE_KIND_KEY := _}, ensure()),
     ?assertMatch(#{?FILE_KIND_KEY := _}, bundle_files()).
 
--doc """
-Concurrent callers never interleave into a mixed bundle: whichever generation
-lands, the stored key, certificate and CA belong to each other.
-""".
-t_concurrent_ensure_is_consistent(_TCConfig) ->
+ensure_concurrently(Count) ->
     Parent = self(),
     Workers = [
         spawn_link(fun() ->
             Parent ! {self(), emqx_default_cert:ensure_localhost_bundle()}
         end)
-     || _ <- lists:seq(1, 8)
+     || _ <- lists:seq(1, Count)
     ],
     lists:foreach(
         fun(Worker) ->
             receive
-                {Worker, Result} -> ?assertMatch({ok, #{?FILE_KIND_KEY := _}}, Result)
+                {Worker, Result} ->
+                    %% Not just the shape: the paths handed back must still
+                    %% resolve. A caller whose bundle was deleted by a racer
+                    %% after it returned would fail here, which is the whole
+                    %% point of serializing generation.
+                    ?assertMatch({ok, #{?FILE_KIND_KEY := _}}, Result),
+                    {ok, Files} = Result,
+                    assert_self_consistent(contents(Files))
             after 30_000 -> ct:fail("worker ~p timed out", [Worker])
             end
         end,
         Workers
     ),
     assert_self_consistent(bundle_contents()).
+
+-doc """
+Concurrent callers never interleave into a mixed bundle: whichever generation
+lands, the stored key, certificate and CA belong to each other.
+""".
+t_concurrent_ensure_is_consistent(_TCConfig) ->
+    ensure_concurrently(8).
+
+-doc """
+Concurrent callers racing against an *incomplete* bundle are safe too. This is
+the interleaving that matters: without serialization one caller can delete the
+bundle another has just installed, leaving that one holding paths to files that
+no longer exist.
+""".
+t_concurrent_ensure_replacing_incomplete_bundle(_TCConfig) ->
+    #{?FILE_KIND_KEY := #{path := KeyPath}} = ensure(),
+    ok = file:delete(KeyPath),
+    ensure_concurrently(8),
+    %% Every caller must end up seeing the same usable bundle.
+    ?assertMatch({ok, #{?FILE_KIND_KEY := _}}, emqx_default_cert:ensure_localhost_bundle()).
+
+-doc """
+A caller that finds the bundle missing must not delete one that appeared while
+it was waiting. Drives the lock directly so the ordering is deterministic
+rather than left to timing: a holder is already in place when the caller
+starts, and installs the bundle only once the caller is parked behind it.
+""".
+t_waits_for_holder_instead_of_deleting(_TCConfig) ->
+    %% Leave an incomplete bundle behind: the state in which a caller would
+    %% otherwise delete before writing its own.
+    #{?FILE_KIND_KEY := #{path := KeyPath}} = ensure(),
+    ok = file:delete(KeyPath),
+    Installed = #{?FILE_KIND_KEY => <<"holder-key">>, ?FILE_KIND_CHAIN => <<"holder-chain">>},
+    Parent = self(),
+    %% Stands in for a generation already in progress: holds the name, then
+    %% installs a bundle whose contents are unmistakably not generated.
+    Holder = spawn_link(fun() ->
+        true = register(emqx_default_cert_generator, self()),
+        Parent ! {self(), holding},
+        receive
+            install -> ok
+        end,
+        ok = emqx_managed_certs:delete_bundle_v1(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
+        ok = emqx_managed_certs:create_bundle(
+            ?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME, Installed
+        ),
+        Parent ! {self(), installed}
+    end),
+    receive
+        {Holder, holding} -> ok
+    after 5_000 -> ct:fail("holder did not start")
+    end,
+    %% Reads its own result immediately, before the holder can overwrite it.
+    Caller = spawn_link(fun() ->
+        Result = emqx_default_cert:ensure_localhost_bundle(),
+        Seen =
+            case Result of
+                {ok, Files} -> contents(Files);
+                Other -> Other
+            end,
+        Parent ! {self(), Seen}
+    end),
+    %% Must be parked behind the holder. Without serialization it returns here
+    %% with a bundle of its own, having deleted what it found.
+    receive
+        {Caller, Early} -> ct:fail("caller did not wait for the holder: ~p", [Early])
+    after 500 -> ok
+    end,
+    Holder ! install,
+    receive
+        {Holder, installed} -> ok
+    after 30_000 -> ct:fail("holder did not install")
+    end,
+    receive
+        {Caller, Seen} -> ?assertEqual(Installed, Seen)
+    after 30_000 -> ct:fail("caller did not finish")
+    end.
 
 -doc """
 Each node generates and keeps its own bundle: the default certificate is a
