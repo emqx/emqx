@@ -71,6 +71,13 @@ init(top) ->
         },
         emqx_ds_builtin_metrics:child_spec(),
         #{
+            id => backup,
+            start => {emqx_ds_backup, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 5_000
+        },
+        #{
             id => new_streams_watch_sup,
             start => {?MODULE, start_link_watch_sup, []},
             type => supervisor,
