@@ -539,7 +539,7 @@ init({ShardId, Options}) ->
                 db = DB,
                 cf_refs = CFRefs
             },
-            {ok, S};
+            {ok, S, {continue, clean_orphans}};
         Schema ->
             Shard = open_shard(ShardId, DB, CFRefs, Schema),
             CurrentGenId = maps:get(current_generation, Schema),
@@ -557,6 +557,21 @@ init({ShardId, Options}) ->
             {ok, S, {continue, clean_orphans}}
     end.
 
+handle_continue(
+    clean_orphans,
+    S = #s_no_schema{shard_id = ShardId, db = DB, cf_refs = OrphanedCFRefs}
+) ->
+    %% Initial schema creation is not transactional.
+    %% Node may stop after the layout created some column families, but before
+    %% schema metadata was persisted. Since there is no schema, none of the
+    %% non-default column families can belong to a live generation.
+    lists:foreach(
+        fun({CFName, CFHandle}) ->
+            _ = drop_orphaned_column_family(ShardId, DB, CFName, CFHandle, S)
+        end,
+        OrphanedCFRefs
+    ),
+    {noreply, S#s_no_schema{cf_refs = []}};
 handle_continue(
     clean_orphans,
     S = #s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema}
@@ -586,22 +601,26 @@ handle_continue(
         [_ | _] ->
             lists:foreach(
                 fun({CFName, CFHandle}) ->
-                    Result = rocksdb:drop_column_family(DB, CFHandle),
-                    ?tp(
-                        warning,
-                        ds_storage_layer_dropped_orphaned_column_family,
-                        #{
-                            shard => ShardId,
-                            orphan => CFName,
-                            result => Result,
-                            s => format_state(S)
-                        }
-                    )
+                    _ = drop_orphaned_column_family(ShardId, DB, CFName, CFHandle, S)
                 end,
                 OrphanedCFRefs
             ),
             {noreply, S#s{cf_refs = CFRefs -- OrphanedCFRefs}}
     end.
+
+drop_orphaned_column_family(ShardId, DB, CFName, CFHandle, S) ->
+    Result = rocksdb:drop_column_family(DB, CFHandle),
+    ?tp(
+        warning,
+        ds_storage_layer_dropped_orphaned_column_family,
+        #{
+            shard => ShardId,
+            orphan => CFName,
+            result => Result,
+            s => format_state(S)
+        }
+    ),
+    Result.
 
 format_status(Status) ->
     maps:map(
