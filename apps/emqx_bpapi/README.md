@@ -193,6 +193,29 @@ differences that say nothing about a 6.x branch; those belong in
 
 # Two release lines claiming the same version
 
+## Check that a version number is free before you claim it
+
+Adding a proto version in a patch release, or bumping an existing API, claims that
+number for the whole cluster. `emqx_bpapi:supported_version/2` reports the number
+and nothing else, so two definitions of the same `{API, Version}` cannot be told
+apart at run time. A node picks one and calls it.
+
+Work lands on the lowest `dev-6*` branch and is forward-merged, so a higher branch
+may have released the number already. The local static check cannot see that,
+because baselines only travel forward.
+
+So before you add `myapp_proto_vN`, check every release newer than the branch you
+are on for a `myapp_proto_vN`, the other major included. If one exists:
+
+1. Back-port that released module to this branch unchanged, so the number means
+   one thing everywhere.
+2. Put the new work in `myapp_proto_v(N+1)`.
+
+Never reuse the number with different contents. Once both sides ship, neither can
+be corrected, and the only remaining option is the one below.
+
+## When it already happened
+
 `?DIVERGED_APIS` in `emqx_bpapi_static_checks` lists `{API, Version}` pairs that
 two lines gave the same number with different contents. Both sides have shipped,
 so neither can be corrected, and the incompatibility has to be prevented some
