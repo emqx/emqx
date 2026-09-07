@@ -977,7 +977,7 @@ listeners([]) ->
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
                     {acceptors, Acceptors},
                     {proxy_protocol, ProxyProtocol},
-                    {enbale, Enable},
+                    {enable, Enable},
                     {running, Running}
                 ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
             emqx_ctl:print("~ts~n", [Id]),
