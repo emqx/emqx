@@ -92,7 +92,7 @@ fields(status) ->
                 boolean(),
                 #{
                     desc => ?DESC(enable),
-                    default => true,
+                    required => true,
                     example => false
                 }
             )}
