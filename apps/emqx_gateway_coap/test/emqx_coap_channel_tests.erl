@@ -37,3 +37,37 @@ sock_closed_cleanup_uses_keepalive_interval_test() ->
         meck:unload(emqx_keepalive),
         meck:unload(emqx_utils)
     end.
+
+state_machine_stop_timeout_is_forwarded_test() ->
+    Session = session_marker,
+    Channel =
+        {channel, #{}, #{}, #{}, Session, undefined, #{}, false, connected, undefined},
+    TimerMsg = {1, stop_timeout, stop},
+    ok = meck:new(emqx_coap_session, [passthrough]),
+    try
+        ok = meck:expect(
+            emqx_coap_session,
+            timeout,
+            fun(Received, ReceivedSession) ->
+                ?assertEqual(TimerMsg, Received),
+                ?assertEqual(Session, ReceivedSession),
+                #{session => ReceivedSession}
+            end
+        ),
+        TRef = emqx_utils:start_timer(0, {state_machine, TimerMsg}),
+        receive
+            {timeout, TRef, Payload} ->
+                {ok, _} = emqx_coap_channel:handle_timeout(TRef, Payload, Channel)
+        after 1000 ->
+            ?assert(false)
+        end,
+        ?assert(
+            meck:called(
+                emqx_coap_session,
+                timeout,
+                [TimerMsg, Session]
+            )
+        )
+    after
+        meck:unload(emqx_coap_session)
+    end.
