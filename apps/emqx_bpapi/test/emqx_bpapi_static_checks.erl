@@ -164,7 +164,9 @@
 ]).
 
 %% APIs that two release lines independently gave the same version number with
-%% different contents. Neither side can be corrected: both have shipped.
+%% different contents. Neither side can be corrected: both have shipped. Every
+%% entry states why it cannot cause a bad call -- either a run-time guard, or
+%% that no node on this branch can reach the other side's version.
 -define(DIVERGED_APIS, [
     %% 5.8.11 and 6.0.0 both created `emqx_mgmt_data_backup_proto_v2'. The 5.x
     %% module wraps `maybe_copy_and_import/2' and the 6.x one

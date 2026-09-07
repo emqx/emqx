@@ -195,6 +195,8 @@ differences that say nothing about a 6.x branch; those belong in
 
 `?DIVERGED_APIS` in `emqx_bpapi_static_checks` lists `{API, Version}` pairs that
 two lines gave the same number with different contents. Both sides have shipped,
-so neither can be corrected, and the incompatibility has to be prevented at run
-time instead. Adding an entry without such a guard hides a real break -- every
-entry needs the guard named in its comment.
+so neither can be corrected, and the incompatibility has to be prevented some
+other way. An entry is only legitimate when its comment says which: a run-time
+guard that stops the two contracts meeting, or the reason no node on this branch
+can reach the other side's version. Without one of those, the entry hides a real
+break.
