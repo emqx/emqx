@@ -225,6 +225,9 @@ format(#route{topic = Topic, dest = {Group, Node}}) ->
     };
 format(#route{topic = Topic, dest = Node}) when is_atom(Node) ->
     #{topic => Topic, node => Node};
+format(#route{topic = Topic, dest = #share_dest{group = Group}}) ->
+    %% Belongs to the whole group, not one session; no `session` to report.
+    #{topic => emqx_topic:maybe_format_share(emqx_topic:make_shared_record(Group, Topic))};
 format(#route{topic = Topic, dest = SessionId}) when is_binary(SessionId) ->
     #{topic => Topic, session => SessionId}.
 

@@ -16,6 +16,13 @@
 -callback add_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
 -callback delete_persistent_route(emqx_types:topic(), emqx_persistent_session_ds:id()) -> ok.
 
+-callback add_persistent_shared_route(
+    emqx_types:topic(), emqx_types:group(), emqx_persistent_session_ds:id()
+) -> ok.
+-callback delete_persistent_shared_route(
+    emqx_types:topic(), emqx_types:group(), emqx_persistent_session_ds:id()
+) -> ok.
+
 -type dest() :: term().
 
 -export([
