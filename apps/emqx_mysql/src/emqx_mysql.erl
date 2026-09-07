@@ -501,18 +501,21 @@ parse_prepare_sql(Key, Config) ->
             _ ->
                 #{}
         end,
-    Templates = maps:fold(fun parse_prepare_sql/3, #{}, Queries),
+    Compiler = maps:get(sql_compiler, Config, emqx_mysql_sql),
+    Templates = maps:fold(
+        fun(K, Q, Acc) -> parse_prepare_sql(K, Q, Acc, Compiler) end, #{}, Queries
+    ),
     #{query_templates => Templates}.
 
-parse_prepare_sql(Key, Query, Acc) ->
+parse_prepare_sql(Key, Query, Acc, Compiler) ->
     Template = emqx_template_sql:parse_prepstmt(Query, #{parameters => '?'}),
     AccNext = Acc#{{Key, prepstmt} => Template},
-    parse_batch_sql(Key, Query, AccNext).
+    parse_batch_sql(Key, Query, AccNext, Compiler).
 
-parse_batch_sql(Key, Query, Acc) ->
+parse_batch_sql(Key, Query, Acc, Compiler) ->
     case emqx_utils_sql:get_statement_type(Query) of
         insert ->
-            case emqx_mysql_sql:compile(Query) of
+            case Compiler:compile(Query) of
                 {ok, Plan} ->
                     Acc#{{Key, batch} => Plan};
                 {error, Reason} ->
@@ -559,7 +562,8 @@ on_batch_insert(InstId, BatchReqs, Plan, State, ChannelConfig) ->
     RenderOpts = #{
         undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConfig, false)
     },
-    case emqx_mysql_sql:render_batch(Plan, DataList, RenderOpts) of
+    Compiler = maps:get(sql_compiler, ChannelConfig, emqx_mysql_sql),
+    case Compiler:render_batch(Plan, DataList, RenderOpts) of
         {ok, Query} ->
             on_sql_query(InstId, query, Query, no_params, default_timeout, State);
         {error, Reason} ->

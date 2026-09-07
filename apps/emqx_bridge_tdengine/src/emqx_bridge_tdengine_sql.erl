@@ -622,6 +622,27 @@ multi_table_compile_and_render_test() ->
         iolist_to_binary(Rendered)
     ).
 
+escaped_dollar_test() ->
+    Cases = [
+        {<<"${$}">>, <<"$">>},
+        {<<"${$}{amount}">>, <<"${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"${$}{amount}${v}${$}{$}">>, <<"${amount}x${$}">>}
+    ],
+    lists:foreach(
+        fun({Quote, Body, Expected}) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO t VALUES (", Quote, Body/binary, Quote, ")">>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO t VALUES ('", Expected/binary, "')">>},
+                rendered_binary(render(Plan, #{amount => 99, v => <<"x">>}, null_opts()))
+            )
+        end,
+        [{Quote, Body, Expected} || Quote <- "'\"", {Body, Expected} <- Cases]
+    ).
+
 %% Checks leading-dot placeholders in dynamic identifiers and values.
 leading_dot_placeholder_test() ->
     {ok, Plan} = compile(<<"INSERT INTO test_${.clientid} VALUES (${.payload})">>),

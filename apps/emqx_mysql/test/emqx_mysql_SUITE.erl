@@ -142,6 +142,36 @@ t_segmented_batch_template(_Config) ->
     ok = mysql:query(Conn, [<<"DROP TABLE ">>, Table]),
     ok = mysql:stop(Conn).
 
+t_escaped_dollar_roundtrip(_Config) ->
+    Conn = connect_mysql(),
+    ok = emqx_mysql:prepare_sql_to_conn(Conn, []),
+    ok = mysql:query(Conn, <<"CREATE TEMPORARY TABLE mqtt.emqx_mysql_dollar (txt TEXT)">>),
+    Cases = [
+        {<<"${$}">>, <<"$">>},
+        {<<"cost: ${$}{amount}">>, <<"cost: ${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"\\${$}{amount}">>, <<"${amount}">>},
+        {<<"\\\\${$}{amount}">>, <<"\\${amount}">>},
+        {<<"${$}{amount}${v}${$}{$}">>, <<"${amount}x${$}">>}
+    ],
+    lists:foreach(
+        fun({Quote, Body, Expected}) ->
+            {ok, Plan} = emqx_mysql_sql:compile(
+                <<"INSERT INTO mqtt.emqx_mysql_dollar VALUES (", Quote, Body/binary, Quote, ")">>
+            ),
+            {ok, SQL} = emqx_mysql_sql:render(Plan, #{v => <<"x">>, amount => 99}, #{}),
+            ok = mysql:query(Conn, SQL),
+            ?assertEqual(
+                {ok, [<<"txt">>], [[Expected]]},
+                mysql:query(Conn, <<"SELECT txt FROM mqtt.emqx_mysql_dollar">>)
+            ),
+            ok = mysql:query(Conn, <<"DELETE FROM mqtt.emqx_mysql_dollar">>)
+        end,
+        [{Q, B, E} || Q <- "'\"", {B, E} <- Cases]
+    ),
+    ok = mysql:stop(Conn).
+
 perform_lifecycle_check(ResourceId, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?MYSQL_RESOURCE_MOD, InitialConfig),

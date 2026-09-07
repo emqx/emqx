@@ -328,7 +328,7 @@ compile_case_else(Expression) ->
 parse_sql_string(Source) ->
     Delimiter = binary:first(Source),
     Body = binary:part(Source, 1, byte_size(Source) - 2),
-    parse_sql_string_body(Body, Delimiter, Source, [], [], false).
+    parse_sql_string_body(Body, Delimiter, Source, [], [], false, false).
 
 %% Arguments are
 %% * the remaining body
@@ -337,17 +337,23 @@ parse_sql_string(Source) ->
 %% * reversed text acc
 %% * reversed compiled parts
 %% * IsDynamic flag
-%% IsDynamic starts as false. When no placeholder is found, return the original token.
+%% * Rewritten flag for escaped dollars
+%% Return the original token only when neither flag is set.
 %% The first placeholder switches IsDynamic to true and starts accumulating compiled parts.
-parse_sql_string_body(_Body = <<>>, _Delimiter, Source, _Text, _Parts, _IsDynamic = false) ->
+parse_sql_string_body(<<>>, _Delimiter, Source, _Text, _Parts, false, false) ->
     {static, Source};
-parse_sql_string_body(<<>>, Delimiter, _Source, Text, Parts, _IsDynamic = true) ->
+parse_sql_string_body(<<>>, Delimiter, _Source, Text, [], false, true) ->
+    [#string_raw{sql = SQL}] = flush_string_text(Text, Delimiter, []),
+    {static, SQL};
+parse_sql_string_body(<<>>, Delimiter, _Source, Text, Parts, true, _Rewritten) ->
     ok = assert_safe_string_split(Text),
     {dynamic, lists:reverse(flush_string_text(Text, Delimiter, Parts))};
-parse_sql_string_body(<<"${$}", Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic) ->
-    parse_sql_string_body(Rest, Delimiter, Source, [$$ | Text], Parts, IsDynamic);
 parse_sql_string_body(
-    <<"${", _/binary>> = Bin, Delimiter, Source, Text, Parts, _IsDynamic
+    <<"${$}", Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic, _Rewritten
+) ->
+    parse_sql_string_body(Rest, Delimiter, Source, [$$ | Text], Parts, IsDynamic, true);
+parse_sql_string_body(
+    <<"${", _/binary>> = Bin, Delimiter, Source, Text, Parts, _IsDynamic, Rewritten
 ) ->
     ok = assert_safe_string_split(Text),
     {Placeholder, Rest} = take_placeholder(Bin),
@@ -355,9 +361,9 @@ parse_sql_string_body(
         #string_placeholder{placeholder = Placeholder}
         | flush_string_text(Text, Delimiter, Parts)
     ],
-    parse_sql_string_body(Rest, Delimiter, Source, [], PartsNext, true);
-parse_sql_string_body(<<Char, Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic) ->
-    parse_sql_string_body(Rest, Delimiter, Source, [Char | Text], Parts, IsDynamic).
+    parse_sql_string_body(Rest, Delimiter, Source, [], PartsNext, true, Rewritten);
+parse_sql_string_body(<<Char, Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic, Rewritten) ->
+    parse_sql_string_body(Rest, Delimiter, Source, [Char | Text], Parts, IsDynamic, Rewritten).
 
 flush_string_text([], _Delimiter, Parts) ->
     Parts;
@@ -632,6 +638,63 @@ double_quoted_string_test() ->
     ?assertEqual(
         {ok, <<"INSERT INTO `a``b` (`c``d`) VALUES ('changed')">>},
         rendered_binary(render(BacktickPlan, #{value => <<"changed">>}, null_opts()))
+    ).
+
+escaped_dollar_static_test() ->
+    Cases = [
+        {<<>>, <<>>},
+        {<<"plain\\n\\q">>, <<"plain\\n\\q">>},
+        {<<"${$}">>, <<"$">>},
+        {<<"cost: ${$}{amount}">>, <<"cost: ${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"\\${$}{amount}">>, <<"\\${amount}">>},
+        {<<"\\\\${$}{amount}">>, <<"\\\\${amount}">>},
+        {<<"${$}\\\\">>, <<"$\\\\">>}
+    ],
+    lists:foreach(
+        fun({Quote, Body, Expected}) ->
+            Prefix = <<"INSERT INTO `t` VALUES ">>,
+            {ok, Plan} = compile(<<Prefix/binary, "(", Quote, Body/binary, Quote, ")">>),
+            Row = <<"(", Quote, Expected/binary, Quote, ")">>,
+            ?assertMatch(#mysql_plan{row_plan = [#raw{sql = Row}]}, Plan),
+            lists:foreach(
+                fun(Data) ->
+                    ?assertEqual(
+                        {ok, <<Prefix/binary, Row/binary>>},
+                        rendered_binary(render(Plan, Data, #{}))
+                    )
+                end,
+                [#{}, #{amount => {must_not_resolve}}]
+            ),
+            ?assertEqual(
+                {ok, <<Prefix/binary, Row/binary, ", ", Row/binary>>},
+                rendered_binary(render_batch(Plan, [#{}, #{amount => 99}], #{}))
+            )
+        end,
+        [{Q, B, E} || Q <- "'\"", {B, E} <- Cases ++ [{<<Q, Q>>, <<Q, Q>>}]]
+    ),
+    {ok, UpdatePlan} = compile(
+        <<"INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE c = 'cost: ${$}{amount}'">>
+    ),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` VALUES (1) ON DUPLICATE KEY UPDATE c = 'cost: ${amount}'">>},
+        rendered_binary(render(UpdatePlan, #{amount => 99}, #{}))
+    ).
+
+escaped_dollar_dynamic_test() ->
+    lists:foreach(
+        fun(Quote) ->
+            SQL = <<"INSERT INTO t VALUES (", Quote, "${$}{amount}${v}${$}{$}", Quote, ")">>,
+            {ok, Plan} = compile(SQL),
+            ?assertEqual(
+                {ok,
+                    <<"INSERT INTO `t` VALUES (CONCAT(", Quote, "${amount}", Quote, ", 'x', ",
+                        Quote, "${$}", Quote, "))">>},
+                rendered_binary(render(Plan, #{v => <<"x">>, amount => {must_not_resolve}}, #{}))
+            )
+        end,
+        "'\""
     ).
 
 %% Checks escaped-quote boundaries and rejection of placeholders preceded by an invalid escape.

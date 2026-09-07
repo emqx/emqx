@@ -936,6 +936,32 @@ values_compile_and_render_test() ->
         rendered_binary(render(Plan, #{key => 1, data => <<"hello">>, timestamp => 2}, null_opts()))
     ).
 
+escaped_dollar_test() ->
+    Cases = [
+        {<<"${$}">>, <<"$">>},
+        {<<"${$}{amount}">>, <<"${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"${$}{amount}${v}${$}{$}">>, <<"${amount}x${$}">>}
+    ],
+    Formats = [
+        {<<"VALUES ('">>, <<"')">>},
+        {<<"FORMAT Values ('">>, <<"')">>},
+        {<<"FORMAT JSONCompactEachRow [\"">>, <<"\"]">>}
+    ],
+    lists:foreach(
+        fun({{Prefix, Suffix}, {Body, Expected}}) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO t ", Prefix/binary, Body/binary, Suffix/binary>>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO `t` ", Prefix/binary, Expected/binary, Suffix/binary>>},
+                rendered_binary(render(Plan, #{amount => 99, v => <<"x">>}, null_opts()))
+            )
+        end,
+        [{Format, Case} || Format <- Formats, Case <- Cases]
+    ).
+
 %% Checks rendering of CASE, logical operators, comparisons, and conditional functions.
 conditional_expression_test() ->
     SQL = <<

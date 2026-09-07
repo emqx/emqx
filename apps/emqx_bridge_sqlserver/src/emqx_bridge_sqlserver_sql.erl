@@ -585,6 +585,27 @@ scalar_template_value_types_test() ->
         )
     ).
 
+escaped_dollar_test() ->
+    Cases = [
+        {<<"${$}">>, <<"$">>},
+        {<<"${$}{amount}">>, <<"${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"${$}{amount}${v}${$}{$}">>, <<"${amount}x${$}">>}
+    ],
+    lists:foreach(
+        fun({Prefix, Body, Expected}) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO t VALUES (", Prefix/binary, "'", Body/binary, "')">>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO [t] VALUES (", Prefix/binary, "'", Expected/binary, "')">>},
+                rendered_binary(render(Plan, #{amount => 99, v => <<"x">>}, null_opts()))
+            )
+        end,
+        [{Prefix, Body, Expected} || Prefix <- [<<>>, <<"N">>], {Body, Expected} <- Cases]
+    ).
+
 %% Checks missing string values with both undefined-value policies.
 undefined_string_template_values_test() ->
     {ok, Plan} = compile(<<"INSERT INTO t VALUES ('${missing}')">>),
