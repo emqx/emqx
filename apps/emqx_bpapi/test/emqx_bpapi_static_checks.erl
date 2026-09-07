@@ -167,6 +167,21 @@
     {emqx_ds_beamformer, 1}
 ]).
 
+%% APIs that two release lines independently gave the same version number with
+%% different contents. Neither side can be corrected: both have shipped.
+-define(DIVERGED_APIS, [
+    %% 5.8.11 and 6.0.0 both created `emqx_mgmt_data_backup_proto_v2'. The 5.x
+    %% module wraps `maybe_copy_and_import/2' and the 6.x one
+    %% `maybe_copy_and_import/3'. `emqx_mgmt_api_data_backup' refuses an import
+    %% unless every running node reports the same major.minor version, so the
+    %% two contracts are never reached from one another.
+    {emqx_mgmt_data_backup, 2},
+    %% The 5.9 and 5.10 lines dropped `v2_wait_for_ready_v7/5' from
+    %% `emqx_bridge_proto_v7' after 5.8 froze it. 5.x only; 6.x deleted the
+    %% whole API.
+    {emqx_bridge, 7}
+]).
+
 -define(XREF, myxref).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -241,6 +256,7 @@ check_no_stale_exemptions(Dumps) ->
         ])
     ),
     report_stale("FORCE_DELETED_APIS", ?FORCE_DELETED_APIS -- Keys),
+    report_stale("DIVERGED_APIS", ?DIVERGED_APIS -- Keys),
     report_stale("FORCE_DELETED_MODULES", ?FORCE_DELETED_MODULES -- Modules),
     ok.
 
@@ -280,7 +296,7 @@ check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api 
     %% TODO: Handle API deprecation
     _ = maps:map(
         fun(Key, Val) ->
-            case lists:member(Key, ?EXPERIMENTAL_APIS) of
+            case lists:member(Key, ?EXPERIMENTAL_APIS ++ ?DIVERGED_APIS) of
                 true ->
                     ok;
                 false ->
