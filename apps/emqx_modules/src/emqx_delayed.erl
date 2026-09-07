@@ -263,7 +263,7 @@ get_delayed_message(Id) ->
 get_delayed_message(Node, Id) when Node =:= node() ->
     get_delayed_message(Id);
 get_delayed_message(Node, Id) ->
-    emqx_delayed_proto_v2:get_delayed_message(Node, Id).
+    emqx_delayed_proto_v3:get_delayed_message(Node, Id).
 
 -spec delete_delayed_message(binary()) -> with_id_return().
 delete_delayed_message(Id) ->
@@ -278,7 +278,7 @@ delete_delayed_message(Id) ->
 delete_delayed_message(Node, Id) when Node =:= node() ->
     delete_delayed_message(Id);
 delete_delayed_message(Node, Id) ->
-    emqx_delayed_proto_v2:delete_delayed_message(Node, Id).
+    emqx_delayed_proto_v3:delete_delayed_message(Node, Id).
 
 -spec delete_delayed_messages_by_topic_name(binary()) -> with_id_return().
 delete_delayed_messages_by_topic_name(TopicName) when is_binary(TopicName) ->
@@ -323,7 +323,7 @@ do_delete_delayed_messages_by_topic_name(TopicName) when is_binary(TopicName) ->
 -spec clear_all() -> ok.
 clear_all() ->
     Nodes = emqx:running_nodes(),
-    _ = emqx_delayed_proto_v2:clear_all(Nodes),
+    _ = emqx_delayed_proto_v3:clear_all(Nodes),
     ok.
 
 %% rpc target

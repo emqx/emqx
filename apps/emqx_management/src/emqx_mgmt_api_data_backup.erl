@@ -666,7 +666,7 @@ can_download_backup(
 ) ->
     ok;
 can_download_backup(#{auth_type := api_key}, Filename, Node) ->
-    case emqx_mgmt_data_backup_proto_v2:peek_sensitive_table_sets(Node, Filename, infinity) of
+    case emqx_mgmt_data_backup_proto_v4:peek_sensitive_table_sets(Node, Filename, infinity) of
         {ok, []} ->
             ok;
         {ok, Sets} ->

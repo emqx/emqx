@@ -20,7 +20,7 @@ end_per_suite(_Config) ->
         asciiart:visible(
             $=,
             "If this test suite failed, and you are unsure why, read this:~n"
-            "https://github.com/emqx/emqx/blob/master/apps/emqx/src/bpapi/README.md",
+            "https://github.com/emqx/emqx/blob/master/apps/emqx_bpapi/README.md",
             []
         )
     ).
@@ -49,12 +49,7 @@ t_run_check(_) ->
                 ),
                 error(version_mismatch)
             end,
-        BpapiDumps = filelib:wildcard(
-            filename:join(
-                emqx_bpapi_static_checks:dumps_dir(),
-                "*" ++ emqx_bpapi_static_checks:dump_file_extension()
-            )
-        ),
+        BpapiDumps = emqx_bpapi_static_checks:dump_files(),
         logger:info("Backplane API dump files: ~p", [BpapiDumps]),
         ?assert(emqx_bpapi_static_checks:check_compat(BpapiDumps))
     catch

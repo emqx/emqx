@@ -487,10 +487,10 @@ t_download_api_key_with_sensitive_tables_forbidden(Config) ->
 %% If the archive cannot be inspected, API-key download must fail closed.
 t_download_api_key_inspection_error_fails_closed(_Config) ->
     Filename = <<"emqx-export-inspection-error.tar.gz">>,
-    ok = meck:new(emqx_mgmt_data_backup_proto_v2, [passthrough, no_link, no_history]),
+    ok = meck:new(emqx_mgmt_data_backup_proto_v4, [passthrough, no_link, no_history]),
     try
         meck:expect(
-            emqx_mgmt_data_backup_proto_v2,
+            emqx_mgmt_data_backup_proto_v4,
             peek_sensitive_table_sets,
             fun(Node, Filename0, infinity) ->
                 ?assertEqual(node(), Node),
@@ -506,7 +506,7 @@ t_download_api_key_inspection_error_fails_closed(_Config) ->
         ?assertEqual(404, Status),
         ?assertMatch(#{code := 'NOT_FOUND'}, Body)
     after
-        meck:unload(emqx_mgmt_data_backup_proto_v2)
+        meck:unload(emqx_mgmt_data_backup_proto_v4)
     end.
 
 %% Dashboard viewers (read-only role) must be rejected with 403 when

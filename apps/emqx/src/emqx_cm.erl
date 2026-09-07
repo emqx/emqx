@@ -233,7 +233,7 @@ do_get_chan_info(ClientId, ChanPid) ->
 -spec get_chan_info(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:infos()).
 get_chan_info(ClientId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:get_chan_info(ClientId, ChanPid)).
+    wrap_rpc(emqx_cm_proto_v3:get_chan_info(ClientId, ChanPid)).
 
 %% @doc Update infos of the channel.
 -spec set_chan_info(emqx_types:clientid(), emqx_types:channel_attrs()) -> boolean().
@@ -263,7 +263,7 @@ do_get_chan_stats(ClientId, ChanPid) ->
 -spec get_chan_stats(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
 get_chan_stats(ClientId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:get_chan_stats(ClientId, ChanPid)).
+    wrap_rpc(emqx_cm_proto_v3:get_chan_stats(ClientId, ChanPid)).
 
 %% @doc Set channel's stats.
 -spec set_chan_stats(emqx_types:clientid(), emqx_types:stats()) -> boolean().
@@ -443,7 +443,7 @@ do_takeover_session(ClientId, Pid) ->
 takeover_finish(ConnMod, ChanPid) ->
     request_stepdown({takeover, 'end'}, ConnMod, ChanPid, ?T_TAKEOVER).
 
-%% @doc RPC Target @ emqx_cm_proto_v2:takeover_session/2
+%% @doc RPC Target @ emqx_cm_proto_v3:takeover_session/2
 %% Used only by `emqx_session_mem'
 takeover_session(ClientId, Pid) ->
     try
@@ -547,7 +547,7 @@ discard_session(ClientId, ChanPid) ->
 kick_session(ClientId, ChanPid) ->
     kick_session(kick, ClientId, ChanPid).
 
-%% @doc RPC Target @ emqx_cm_proto_v2:kick_session/3
+%% @doc RPC Target @ emqx_cm_proto_v3:kick_session/3
 -spec do_kick_session(kick | discard, emqx_types:clientid(), chan_pid()) -> ok.
 do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
     case do_get_chann_conn_mod(ClientId, ChanPid) of
@@ -588,7 +588,7 @@ ensure_stale_unregistered(ClientId, ChanPid) ->
 %% Action).
 kick_session(Action, ClientId, ChanPid) ->
     try
-        wrap_rpc(emqx_cm_proto_v2:kick_session(Action, ClientId, ChanPid))
+        wrap_rpc(emqx_cm_proto_v3:kick_session(Action, ClientId, ChanPid))
     catch
         Error:Reason ->
             %% This should mostly be RPC failures.
