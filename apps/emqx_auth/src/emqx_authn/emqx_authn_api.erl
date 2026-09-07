@@ -1827,6 +1827,7 @@ body_namespace(_Req) ->
 resolve_namespace(Req, _Meta) ->
     case parse_namespace(Req) of
         {ok, Namespace} ->
+            ok = log_ns(Namespace),
             {ok, Req#{resolved_ns => Namespace}};
         {error, conflicting_namespaces} ->
             ?BAD_REQUEST(
@@ -1835,6 +1836,13 @@ resolve_namespace(Req, _Meta) ->
         {error, not_authorized} ->
             ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
     end.
+
+log_ns(?global_ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => <<"global">>}),
+    ok;
+log_ns(Ns) when is_binary(Ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => Ns}),
+    ok.
 
 validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
     {ok, Req};

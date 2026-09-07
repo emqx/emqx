@@ -188,9 +188,15 @@ init_per_group(_Group, Config) ->
 
 app_specs_without_dashboard() ->
     [
-        emqx_conf,
+        {emqx_conf, #{
+            config => #{log => #{audit => #{enable => true, level => info}}},
+            %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+            %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
+            schema_mod => emqx_enterprise_schema
+        }},
         emqx,
         emqx_auth,
+        emqx_audit,
         emqx_management,
         emqx_connector,
         emqx_bridge_mqtt,
@@ -3121,6 +3127,111 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     ?assertMatch({200, []}, list(TCConfigNS2)),
 
     ok.
+
+-doc """
+Regression test for #18653/#18664's class of bug: audit records for a
+source creation must identify the namespace, both for a global admin's
+implicit-global source and a namespaced admin's implicit-own-namespace
+source (no `?ns=' in either case).
+""".
+t_source_audit_records_namespace(matrix) ->
+    [[single, sources]];
+t_source_audit_records_namespace(TCConfig0) when is_list(TCConfig0) ->
+    clear_mocks(TCConfig0),
+    Node =
+        case proplists:get_value(node, TCConfig0) of
+            undefined -> node();
+            N -> N
+        end,
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfig = [{node, Node}, {api_key, APIKey} | TCConfig0],
+    AuthHeaderGlobal = emqx_common_test_http:auth_header(APIKey),
+    TCConfigGlobal = [{auth_header, AuthHeaderGlobal} | TCConfig],
+    Ns = <<"bridge_audit_ns">>,
+    AuthHeaderNs = ensure_namespaced_api_key(Ns, TCConfig),
+    TCConfigNs = [{auth_header, AuthHeaderNs} | TCConfig],
+
+    MQTTPort = get_tcp_mqtt_port(Node),
+    Server = <<"127.0.0.1:", (integer_to_binary(MQTTPort))/binary>>,
+    ConnectorType = <<"mqtt">>,
+    ConnectorNameGlobal = <<"conn_audit_global">>,
+    ConnectorNameNs = <<"conn_audit_ns">>,
+    ConnectorConfigGlobal = source_connector_create_config(#{<<"server">> => Server}),
+    ConnectorConfigNs = source_connector_create_config(#{<<"server">> => Server}),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorNameGlobal, ConnectorConfigGlobal, TCConfigGlobal
+        ),
+    {201, #{<<"status">> := <<"connected">>}} =
+        emqx_connector_api_SUITE:create(
+            ConnectorType, ConnectorNameNs, ConnectorConfigNs, TCConfigNs
+        ),
+
+    StartAt = erlang:system_time(microsecond),
+    SourceNameGlobal = <<"src_audit_global">>,
+    SourceConfigGlobal = source_create_config(#{
+        <<"name">> => SourceNameGlobal,
+        <<"connector">> => ConnectorNameGlobal
+    }),
+    {201, _} = ?ON(
+        Node,
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["sources"]),
+            body => SourceConfigGlobal,
+            auth_header => AuthHeaderGlobal
+        })
+    ),
+    SourceNameNs = <<"src_audit_ns">>,
+    SourceConfigNs = source_create_config(#{
+        <<"name">> => SourceNameNs,
+        <<"connector">> => ConnectorNameNs
+    }),
+    {201, _} = ?ON(
+        Node,
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["sources"]),
+            body => SourceConfigNs,
+            auth_header => AuthHeaderNs
+        })
+    ),
+
+    Entries = ?ON(Node, wait_for_audit_entries(<<"/sources">>, StartAt, 2, 2000)),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, Ns]), Namespaces),
+    ok.
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs - SleepMs)
+    end.
+
+audit_entries_since(OperationId, StartAt) ->
+    URL = emqx_mgmt_api_test_util:api_path(["audit"]),
+    QueryParams = #{
+        <<"operation_id">> => OperationId,
+        <<"gte_created_at">> => integer_to_binary(StartAt),
+        <<"limit">> => <<"100">>
+    },
+    {200, #{<<"data">> := Data}} =
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get, url => URL, query_params => QueryParams
+        }),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
 
 -doc """
 Checks that we correctly load and unload connectors already in the config when a node
