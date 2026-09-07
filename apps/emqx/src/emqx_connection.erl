@@ -649,6 +649,7 @@ handle_msg(
             maps:get(conn_pid, QSS),
             {get_parser_state(Parser), Serialize, Channel}
         ),
+    ok = raise_packet_size_limit(State),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
     {ok, ensure_stats_timer(State)};
@@ -902,6 +903,19 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
     maps:merge(Hints, Reason);
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
+
+%% The listener accepts with `packet_size' set to the CONNECT limit. Now that the
+%% client is connected, raise it to `max_packet_size' so ordinary packets are not
+%% held to the CONNECT limit. Only the whole-frame parser reads `packet_size'.
+raise_packet_size_limit(#state{
+    parser = {frame, _}, transport = Transport, socket = Socket, conf = Conf
+}) ->
+    #conf{zone = Zone} = Conf,
+    MaxSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+    _ = Transport:setopts(Socket, [{packet_size, MaxSize}]),
+    ok;
+raise_packet_size_limit(_State) ->
+    ok.
 
 init_parser(Transport, Socket, FrameOpts) ->
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
@@ -1549,6 +1563,10 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
         %% zone will **not** take effect after the override.
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+        max_connect_size => emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
+        max_connect_user_properties => emqx_config:get_zone_conf(
+            Zone, [mqtt, max_connect_user_properties]
+        ),
         %% Any packet received before CONNECT is rejected by the parser.
         expect_connect => true
     },
