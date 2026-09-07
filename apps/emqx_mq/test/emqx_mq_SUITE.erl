@@ -1286,6 +1286,24 @@ t_auto_create_disabled(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that the default configuration does not automatically create queues
+t_auto_create_disabled_by_default(_Config) ->
+    %% Take the `auto_create' settings straight from the schema defaults
+    #{<<"mq">> := #{<<"auto_create">> := AutoCreate}} =
+        emqx_config:fill_defaults(#{<<"mq">> => #{}}),
+    ?assertEqual(#{<<"regular">> => false, <<"lastvalue">> => false}, AutoCreate),
+    {ok, _} = emqx:update_config([mq, auto_create], AutoCreate),
+
+    %% Connect a client and subscribe to a non-existent queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"auto_create_default">>, <<"non-existent/#">>),
+
+    %% Verify that the queue was not automatically created
+    ?assertEqual(not_found, emqx_mq_registry:find(<<"auto_create_default">>)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %% Subscribe to the same name under different topic filters
 t_conflicting_queues(_Config) ->
     %% Enable automatic creation of regular queues
