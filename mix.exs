@@ -1140,7 +1140,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict with emqx and emqtt
       do: [
         {:quicer,
-         github: "emqx/quic", tag: "0.4.9", override: true, system_env: quicer_build_env()}
+         github: "emqx/quic", tag: "0.4.11", override: true, system_env: quicer_build_env()}
       ],
       else: []
   end
