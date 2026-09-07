@@ -41,7 +41,11 @@ groups() ->
             t_parse_malformed_utf8_string,
             t_default_parse_state_is_strict,
             t_parse_bad_v5_publish_packet,
-            t_guess_first_packet_protocol
+            t_guess_first_packet_protocol,
+            t_parse_non_connect_before_connect,
+            t_parse_complete_non_connect_before_connect,
+            t_parse_after_connect,
+            t_parse_no_connect_expected
         ]},
         {connect, [parallel], [
             t_serialize_parse_v3_connect,
@@ -129,6 +133,81 @@ init_per_group(_Group, Config) ->
 
 end_per_group(_Group, _Config) ->
     ok.
+
+-doc """
+A non-CONNECT first packet is rejected from the fixed header alone, before any
+body byte is buffered, when the parser is told to expect CONNECT first.
+""".
+t_parse_non_connect_before_connect(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{expect_connect => true}),
+    lists:foreach(
+        fun({FirstByte, TypeName}) ->
+            %% Only the fixed header byte is fed, nothing can be buffered yet.
+            ?ASSERT_FRAME_THROW(
+                #{
+                    cause := unexpected_packet_before_connect,
+                    header_type := TypeName
+                },
+                emqx_frame:parse(<<FirstByte>>, ParseState)
+            ),
+            %% A 256 MB remaining length is rejected without buffering a body.
+            ?ASSERT_FRAME_THROW(
+                #{cause := unexpected_packet_before_connect},
+                emqx_frame:parse(<<FirstByte, 16#FF, 16#FF, 16#FF, 16#7F>>, ParseState)
+            )
+        end,
+        first_bytes()
+    ).
+
+-doc """
+The whole-frame parser applies the same check as the stream parser.
+""".
+t_parse_complete_non_connect_before_connect(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{expect_connect => true}),
+    lists:foreach(
+        fun({FirstByte, TypeName}) ->
+            ?ASSERT_FRAME_THROW(
+                #{
+                    cause := unexpected_packet_before_connect,
+                    header_type := TypeName
+                },
+                emqx_frame:parse_complete(<<FirstByte, 0>>, ParseState)
+            )
+        end,
+        first_bytes()
+    ).
+
+-doc """
+Once CONNECT is parsed, the packets after it are parsed as usual.
+""".
+t_parse_after_connect(_) ->
+    ParseState = emqx_frame:initial_parse_state(#{expect_connect => true}),
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{}),
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>),
+    %% Stream parser.
+    {Connect, <<>>, ParseState1} = emqx_frame:parse(serialize_to_binary(Connect), ParseState),
+    ?assertMatch(
+        {Publish, <<>>, _},
+        emqx_frame:parse(serialize_to_binary(Publish), ParseState1)
+    ),
+    %% Whole-frame parser.
+    [Connect, ParseState2] = emqx_frame:parse_complete(serialize_to_binary(Connect), ParseState),
+    ?assertMatch(
+        Publish,
+        emqx_frame:parse_complete(serialize_to_binary(Publish), ParseState2)
+    ).
+
+-doc """
+The default parse state does not require CONNECT to come first.
+""".
+t_parse_no_connect_expected(_) ->
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>),
+    PublishBin = serialize_to_binary(Publish),
+    ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin)),
+    ?assertMatch(
+        {Publish, <<>>, _},
+        emqx_frame:parse(PublishBin, emqx_frame:initial_parse_state(#{}))
+    ).
 
 t_parse_cont(_) ->
     Packet = ?CONNECT_PACKET(#mqtt_packet_connect{}),
@@ -1227,3 +1306,14 @@ parse_to_packet(Bin, Opts) ->
     Packet.
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
+
+%% Fixed header first bytes of the packet types a client may send.
+first_bytes() ->
+    [
+        {?PUBLISH bsl 4, 'PUBLISH'},
+        {(?SUBSCRIBE bsl 4) bor 2, 'SUBSCRIBE'},
+        {(?UNSUBSCRIBE bsl 4) bor 2, 'UNSUBSCRIBE'},
+        {?PINGREQ bsl 4, 'PINGREQ'},
+        {?DISCONNECT bsl 4, 'DISCONNECT'},
+        {?AUTH bsl 4, 'AUTH'}
+    ].
