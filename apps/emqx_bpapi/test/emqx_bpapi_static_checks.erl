@@ -43,15 +43,13 @@
 -define(IGNORED_MODULES, "emqx_rpc").
 -define(FORCE_DELETED_MODULES, [
     emqx_persistent_session_ds_proto_v1,
-    emqx_ds_proto_v1,
-    emqx_ds_proto_v2,
-    emqx_ds_proto_v3,
     emqx_ds_proto_v4,
     emqx_ds_proto_v5,
     emqx_ds_otx_proto_v1,
     emqx_ds_beamsplitter_proto_v1,
     emqx_ds_beamsplitter_proto_v2,
     emqx_ds_shared_sub_proto_v1,
+    emqx_ds_shared_sub_proto_v2,
     emqx_bridge_proto_v1,
     emqx_bridge_proto_v2,
     emqx_bridge_proto_v3,
@@ -90,15 +88,13 @@
 ]).
 -define(FORCE_DELETED_APIS, [
     {emqx_persistent_session_ds, 1},
-    {emqx_ds, 1},
-    {emqx_ds, 2},
-    {emqx_ds, 3},
     {emqx_ds, 4},
     {emqx_ds, 5},
     {emqx_ds_otx, 1},
     {emqx_ds_beamsplitter, 1},
     {emqx_ds_beamsplitter, 2},
     {emqx_ds_shared_sub, 1},
+    {emqx_ds_shared_sub, 2},
     {emqx_retainer, 1},
     {emqx_bridge, 1},
     {emqx_bridge, 2},
