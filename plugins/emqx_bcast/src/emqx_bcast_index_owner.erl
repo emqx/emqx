@@ -30,16 +30,18 @@
 %% core takes over and every shard rebuilds its partition from bcast_msg
 %% (activate_partition); pending data committed to mria is not lost.
 %%
-%% Routing is two-dimensional:
-%%   * per-device index state  -> shard_of({PK, DN})
-%%   * per-delivery meta counter -> did_shard_of(DeliveryId)
+%% Routing:
+%%   * per-device index state + per-delivery ack counter -> shard_of({PK, DN})
+%%     (the ack counter is a 3-tuple mnesia table, decremented atomically
+%%     on the device shard with dirty_update_counter/3)
+%%   * management delete of delivery rows -> did_shard_of(DeliveryId)
 %% The global pending counter lives in one shared ETS row
 %% (bcast_quota_ets) updated with atomic update_counter from every shard.
 
 -behaviour(gen_server).
 
 -export([start_link/1]).
--export([shard_count/0, owner_node/0, is_owner/0]).
+-export([shard_count/0, owner_node/0, is_owner/0, shard_of/1, shard_owner/1]).
 -export([
     append_batch/1,
     remove_batch/1,
@@ -48,6 +50,9 @@
     ack_batch/1,
     release_claim/3,
     release_client_claims/3,
+    release_claims_async/1,
+    release_client_claims_async/1,
+    release_client_claims_sync/1,
     check_quota/2,
     admit/2,
     release_admit/2,
@@ -62,13 +67,14 @@
     delete_delivery/1,
     delete_message/1,
     cleanup_expired/0,
+    cleanup_completed_deliveries/0,
     create_sync/2,
     create_delivery/6,
     rebuild_index/0,
     reset/0,
     gauge_sample/0
 ]).
--export([local_handle/3]).
+-export([local_handle/3, local_cast/2]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -include("emqx_bcast.hrl").
@@ -78,19 +84,29 @@
 %% start (CT topologies), so the leader must activate promptly. Polling a
 %% non-owner node every 50ms is a trivial is_owner() check.
 -define(OWNER_POLL_MS, 50).
--define(SYNC_TIMEOUT_MS, 30000).
--define(CLAIM_TIMEOUT_MS, 30000).
+%% Hot-path leg timeouts: 30s made one stalled shard hold every caller of
+%% the pmap fan-out (claim workers, promoter) for half a minute, which
+%% turned a single stuck partition into a cluster-wide drain stall. 5s is
+%% an order of magnitude above the expected sub-ms call latency while
+%% keeping failure recovery prompt.
+-define(SYNC_TIMEOUT_MS, 5000).
+-define(CLAIM_TIMEOUT_MS, 5000).
 
 %% How many parallel index-owner processes the index is sharded into.
 %% Shards are placed round-robin across the RUNNING core nodes (each core
 %% runs all SHARD_COUNT processes, only its assigned subset activates), so
 %% the index work fans out over all cores instead of one owner node.
-%% 12 divides evenly across 2/3/4/6 core nodes (6/4/3/2 shards per node);
-%% 16 made each 10ms batch split into ~4.5 entries per shard, multiplying
-%% the per-message RPC/scheduling cost. Per-device hash (shard_of/1) must
-%% stay stable across node counts, so this constant is fixed, not sized by
-%% schedulers.
--define(SHARD_COUNT, 12).
+%%
+%% Sizing: 48 shards / 4 cores = 12 active shards per core. Measured at
+%% 16 shards (4 active per core) the active index shards hit the
+%% single-process reduction wall (~2.5M red/s) at ~100k delivery/s, so 12
+%% active shards per core (3x the shards) leave per-shard headroom to
+%% sustain ~300k delivery/s before the same wall. The claim/ack/append
+%% fan-out (one pmap leg per touched shard) grows with the shard count,
+%% but the per-leg device count shrinks proportionally, so the total spawn
+%% cost stays negligible. 48 also divides evenly by 2/3/4 so 2-/3-/4-core
+%% topologies each get an equal number of active shards per core.
+-define(SHARD_COUNT, 48).
 
 %% How long a pending (claimed but not acked/released) entry stays excluded
 %% from claims. Same value as the historical mnesia claim lease.
@@ -122,6 +138,24 @@
 
 %% Heap threshold (words) above which a shrink triggers a major GC.
 -define(GC_MIN_HEAP_WORDS, 16000000).
+
+%% Node-local shadow of the global pending counter: every hot-path
+%% quota_update(Delta) (append/remove/ack/release, one per shard batch)
+%% bumps this local ETS row only - no cross-node RPC. Shard 0 periodically
+%% ships the accumulated delta to the quota owner's authoritative row
+%% (quota_update_local), which admission still reads (<=1 sync window lag;
+%% quota is a soft admission cap, overshoot by one window is harmless).
+-define(TAB_QUOTA_LOCAL, bcast_quota_local).
+%% Reconcile cadence for shipping local quota deltas to the owner.
+-define(QUOTA_SYNC_MS, 1000).
+
+%% Ack-counter decrement batching cadence: counted acks accumulate
+%% per-delivery negative deltas in the shard's ack_buf and are applied as a
+%% single dirty_update_counter(Did, -N) per delivery per flush instead of
+%% one rlog write per ack (~25k/s -> ~25/s). The per-ack writes saturated
+%% mria's rlog and aborted complete_delivery's transaction under load,
+%% leaking the bcast_msg / bcast_msg_meta / bcast_msg_meta_counter rows.
+-define(ACK_DEC_FLUSH_MS, 50).
 
 -spec start_link(integer()) -> gen_server:start_ret().
 start_link(Shard) ->
@@ -201,9 +235,19 @@ init([Shard]) ->
         %% peak pending size for conditional fullsweep
         peak => 0,
         %% bounded orphan-scan cursor
-        orphan_cursor => 0
+        orphan_cursor => 0,
+        %% shard 0 only: cumulative local quota delta already shipped to owner
+        quota_last_synced => 0,
+        %% batched ack-counter decrements pending flush: #{Did => N}
+        ack_buf => #{},
+        %% flush timer ref; undefined when idle (nothing buffered)
+        ack_flush_ref => undefined
     },
     State1 = start_gc_timer(State),
+    %% Every node keeps a local quota shadow and (on shard 0) a reconcile
+    %% timer that ships its accumulated delta to the quota owner. The local
+    %% table must exist before any hot-path quota_update lands on this node.
+    ensure_quota_local_table(),
     case Shard of
         0 ->
             %% Shard 0 is the activation leader (quota owner's shard 0).
@@ -211,8 +255,10 @@ init([Shard]) ->
             %% gen_server:calls the sibling shards, which may not be started
             %% yet); an immediate message runs inside the loop right after
             %% init, and the drive tolerates siblings that are still
-            %% starting (retry at ?OWNER_POLL_MS). The quota table is only
-            %% (re)initialized once this node actually is the quota owner.
+            %% starting (retry at ?OWNER_POLL_MS). The authoritative quota
+            %% table is only (re)initialized once this node actually is the
+            %% quota owner; the local shadow exists on every node.
+            erlang:send_after(?QUOTA_SYNC_MS, self(), quota_sync),
             self() ! maybe_activate,
             {ok, State1};
         _ ->
@@ -233,6 +279,92 @@ ensure_quota_table() ->
         error:badarg -> ok
     end.
 
+%% Node-local quota shadow table: every shard's hot-path quota_update(Delta)
+%% bumps this row (no cross-node RPC). Exists on every core node; shard 0's
+%% reconcile timer ships the accumulated delta to the owner authoritative row.
+%% The row holds the CUMULATIVE net delta since this node started (never
+%% reset by the hot path); shard 0 tracks last_synced in its state and sends
+%% only the increment, which is race-free against concurrent shard updates.
+ensure_quota_local_table() ->
+    try ets:new(?TAB_QUOTA_LOCAL, [named_table, set, public, {write_concurrency, true}]) of
+        _ -> ok
+    catch
+        error:badarg -> ok
+    end,
+    try ets:insert_new(?TAB_QUOTA_LOCAL, {global, 0}) of
+        _ -> ok
+    catch
+        error:badarg -> ok
+    end.
+
+%% Hot-path local delta: pure local update, never leaves the node.
+quota_local_update(Delta) when Delta =:= 0 ->
+    ok;
+quota_local_update(Delta) ->
+    try ets:update_counter(?TAB_QUOTA_LOCAL, global, {2, Delta}) of
+        _ -> ok
+    catch
+        error:badarg ->
+            %% Table missing (dormant shard before first ensure): create and retry.
+            ensure_quota_local_table(),
+            _ = ets:update_counter(?TAB_QUOTA_LOCAL, global, {2, Delta}),
+            ok
+    end.
+
+%% Reconcile (runs in shard 0 only): ship this node's cumulative-local minus
+%% last-synced delta to the quota owner's authoritative row. Runs once per
+%% ?QUOTA_SYNC_MS per node (4 nodes -> 4 sync RPC/s, negligible vs the former
+%% per-batch hot-path RPCs). Returns the new baseline: on RPC failure it
+%% returns the OLD baseline so the unsent delta is retried next tick (a lost
+%% sync would otherwise skew the owner row low forever).
+-spec quota_sync(non_neg_integer()) -> non_neg_integer().
+quota_sync(LastSynced) ->
+    case owner_node() =:= node() of
+        true ->
+            %% Owner writes the authoritative row directly on the hot path
+            %% (quota_update/1), so the local shadow is never used here.
+            local_quota_total();
+        false ->
+            Current = local_quota_total(),
+            Delta = Current - LastSynced,
+            case Delta of
+                0 ->
+                    Current;
+                _ ->
+                    case
+                        emqx_rpc:call(
+                            ?MODULE,
+                            owner_node(),
+                            ?MODULE,
+                            quota_update_local,
+                            [Delta],
+                            ?SYNC_TIMEOUT_MS
+                        )
+                    of
+                        ok -> Current;
+                        {badrpc, _Reason} -> LastSynced
+                    end
+            end
+    end.
+
+%% Current cumulative local quota delta (this node's shadow row).
+local_quota_total() ->
+    try ets:lookup_element(?TAB_QUOTA_LOCAL, global, 2) of
+        N when is_integer(N) -> N;
+        _ -> 0
+    catch
+        _:_ -> 0
+    end.
+
+%% Zero this node's local quota shadow (used by reset and takeover so stale
+%% cumulative deltas are never re-shipped to a freshly zeroed owner row).
+reset_quota_local() ->
+    try ets:insert(?TAB_QUOTA_LOCAL, {global, 0}) of
+        _ -> ok
+    catch
+        _:_ -> ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Public API: every operation routes to the shard that owns its key.
 %% Local callers go straight into the shard gen_server; remote callers use
@@ -249,11 +381,17 @@ append_batch(Entries) ->
         end,
         group_entries(Entries)
     ),
-    %% A timed-out shard call surfaces as {'EXIT', _} from the catch in
-    %% parallel_map; both shapes count as failure.
+    %% A failed shard call surfaces in three shapes, all of which must
+    %% count as failure: a local gen_server:call timeout/exit becomes
+    %% {'EXIT', _} (caught by parallel_map), a remote emqx_rpc timeout or
+    %% nodedown becomes {badrpc, _}, and a dormant shard replies
+    %% {error, not_active}. Treating {badrpc, _} as success silently lost
+    %% committed-but-unindexed deliveries (the promoter counted them wanted
+    %% and triggered, but the remote shard never got the entries).
     Failed = fun
         ({error, _}) -> true;
         ({'EXIT', _}) -> true;
+        ({badrpc, _}) -> true;
         (_) -> false
     end,
     case lists:any(Failed, Results) of
@@ -278,49 +416,64 @@ claim(Entries) ->
 
 claim(Entries, Origin) ->
     %% Per-shard calls run in parallel: the shards are independent, and a
-    %% sequential fan-out multiplied the batch latency by the shard count
-    %% (window=1 per client makes the drain latency-bound). Origin is the
-    %% node whose pull shard holds the client buffer for these claims; it
-    %% becomes the claim holder for node-down reclaim.
+    %% sequential fan-out multiplied the batch latency by the shard count.
+    %% Origin is the node whose pull shard holds the client buffer for
+    %% these claims; it becomes the claim holder for node-down reclaim.
+    %% A failed leg must NOT be swallowed into empty results: the caller
+    %% (pull side) distinguishes {ok, _} / no_more / {error, _} and only
+    %% releases-by-tag the entries of failed legs, keeping the release
+    %% storm proportional to the failure, not to the batch size.
     lists:append(
         parallel_map(
             fun({Shard, Sub}) ->
-                route(Shard, {claim, Sub, Origin}, ?CLAIM_TIMEOUT_MS)
+                %% A leg exception (route timeout / noproc while the shard
+                %% restarts) must not escape: an {'EXIT', _} tuple leaking
+                %% out of parallel_map used to become the tail of an
+                %% improper result list and crash the pull shard's
+                %% maps:from_list. Normalize to per-entry errors like the
+                %% non-list route reply.
+                try route(Shard, {claim, Sub, Origin}, ?CLAIM_TIMEOUT_MS) of
+                    Results when is_list(Results) ->
+                        Results;
+                    _ ->
+                        [
+                            {maps:get(clientid, E), {error, claim_unavailable}}
+                         || E <- Sub
+                        ]
+                catch
+                    _:_ ->
+                        [
+                            {maps:get(clientid, E), {error, claim_unavailable}}
+                         || E <- Sub
+                        ]
+                end
             end,
             group_claim_entries(Entries)
         )
     ).
 
 ack_batch(Acks) ->
-    %% The index removal runs on the device shard; the meta counter
-    %% decrement runs on the delivery shard. Groups run in parallel; each
-    %% group keeps its device-then-delivery ordering. Results are returned
-    %% in input order (callers only consume them for single-ack calls).
+    %% Index removal and the per-delivery meta counter decrement both run
+    %% on the device shard. The old second {meta_dec_batch} fan-out to the
+    %% delivery shard was a hot-spot at high ack rates; the counter now
+    %% lives in a 3-tuple mnesia table and is decremented atomically on
+    %% the device shard (see handle_call({ack_index,...})).
     Results0 = lists:append(
         parallel_map(
-            fun({{DevShard, DidShard}, Sub}) ->
-                Results = route(DevShard, {ack_index, Sub}, ?SYNC_TIMEOUT_MS),
-                %% Only decrement the per-delivery meta counter for acks
-                %% that actually removed an index entry (counted). A
-                %% duplicate PUBACK (not_found) must NOT decrement again:
-                %% after a claim-lease expiry redelivery the client acks
-                %% the same delivery twice, and the second (duplicate) ack
-                %% used to decrement the meta counter a second time -
-                %% completing the delivery early, deleting the
-                %% delivery/message rows while the OTHER devices of the
-                %% batch still had pending entries (lost deliveries and
-                %% quota skew).
-                CountedDids = [
-                    Did
-                 || {Did, counted} <- lists:zip(
-                        [Did || {_PK, _DN, Did} <- Sub],
-                        Results
-                    )
-                ],
-                ok = route(DidShard, {meta_dec_batch, CountedDids}, ?SYNC_TIMEOUT_MS),
-                lists:zip(Sub, Results)
+            fun({DevShard, Sub}) ->
+                %% Same normalization as claim legs: a route exit must not
+                %% leak an {'EXIT', _} tuple into the appended results.
+                try route(DevShard, {ack_index, Sub}, ?SYNC_TIMEOUT_MS) of
+                    Results when is_list(Results) ->
+                        lists:zip(Sub, Results);
+                    _ ->
+                        [{Ack, {error, not_active}} || Ack <- Sub]
+                catch
+                    _:_ ->
+                        [{Ack, {error, not_active}} || Ack <- Sub]
+                end
             end,
-            group_acks(Acks)
+            group_acks_by_dev(Acks)
         )
     ),
     %% O(n) map lookup instead of O(n^2) proplists scan per ack
@@ -353,12 +506,28 @@ parallel_foreach(Fun, List) ->
     ok.
 
 release_claim(PK, DN, Did) ->
-    route(shard_of({PK, DN}), {release_claim, PK, DN, Did}, ?SYNC_TIMEOUT_MS),
+    safe_route(shard_of({PK, DN}), {release_claim, PK, DN, Did}),
     ok.
 
 release_client_claims(PK, DN, Tag) ->
-    route(shard_of({PK, DN}), {release_client_claims, PK, DN, Tag}, ?SYNC_TIMEOUT_MS),
+    safe_route(shard_of({PK, DN}), {release_client_claims, PK, DN, Tag}),
     ok.
+
+%% Single-shard sync release with the worker-protection semantics of
+%% release_client_claims_sync/1.
+safe_route(Shard, Req) ->
+    try route(Shard, Req, ?SYNC_TIMEOUT_MS) of
+        _ -> ok
+    catch
+        Error:Reason ->
+            ?SLOG(warning, #{
+                msg => "bcast_release_leg_failed",
+                shard => Shard,
+                request => Req,
+                exception => Error,
+                reason => Reason
+            })
+    end.
 
 %% Caller-side quota check (no shard-0 mailbox): the global counter
 %% is read directly from the shared ETS row and the per-device checks fan
@@ -392,7 +561,13 @@ admit(PK, DNs) ->
                     {error, {quota_exceeded, Over}}
             end;
         {error, _} ->
-            {error, {quota_exceeded, []}}
+            {error, {quota_exceeded, []}};
+        {badrpc, _} ->
+            %% Quota owner unreachable (startup/takeover): degrade to
+            %% acceptance so the API request is not stuck waiting on the
+            %% reserve_global RPC; the bounded intake queue provides the
+            %% backpressure instead.
+            ok
     end.
 
 release_admit(PK, DNs) ->
@@ -453,10 +628,20 @@ parallel_check_devices(PK, Groups, Max) ->
     lists:append(
         parallel_map(
             fun({Shard, Sub}) ->
-                case route(Shard, {check_devices, PK, Sub, Max}, ?SYNC_TIMEOUT_MS) of
+                %% A timed-out / restarting shard surfaces as a local
+                %% gen_server:call exit (parallel_map's catch turns it into
+                %% {'EXIT', _}) or a remote emqx_rpc {badrpc, _}. Both must
+                %% degrade to "no over-limit device" instead of leaking a
+                %% non-list term into lists:append and crashing admit (the
+                %% caller then blocks the full timeout and degrades quota to
+                %% accept). Normalize here, mirroring the claim/ack legs.
+                try route(Shard, {check_devices, PK, Sub, Max}, ?SYNC_TIMEOUT_MS) of
                     {error, not_active} -> [];
-                    {'EXIT', _} -> [];
-                    Over -> Over
+                    {badrpc, _} -> [];
+                    Over when is_list(Over) -> Over;
+                    _ -> []
+                catch
+                    _:_ -> []
                 end
             end,
             Groups
@@ -543,6 +728,9 @@ cleanup_expired() ->
     %% Batched mnesia deletes: one transaction per chunk instead of one
     %% per expired delivery.
     delete_expired_deliveries_batched(Expired),
+    %% Fallback: reclaim counter rows that reached zero but linger because
+    %% the ack path deletes them dirty (node-local). Runs on every core.
+    cleanup_completed_deliveries_everywhere(),
     %% Every shard runs its own orphan scan and stale-reservation cleanup.
     lists:foreach(
         fun(Shard) -> route(Shard, {cleanup_local}, ?SYNC_TIMEOUT_MS) end,
@@ -610,18 +798,23 @@ create_delivery(Did, MsgId, PK, Tpl, DNs, Target) ->
     case
         mnesia:transaction(
             fun() ->
-                case mnesia:wread({?TAB_MSG_REC, Did}) of
+                case mnesia:wread({?TAB_MSG_META, Did}) of
                     [_] ->
                         {error, already_exists};
                     [] ->
-                        mnesia:write(Delivery),
+                        %% Lock order meta -> counter -> rec, matching
+                        %% complete_delivery/1.
                         mnesia:write(#bcast_msg_meta{
                             delivery_id = Did,
                             msg_id = MsgId,
                             topic_template = Tpl,
                             counter = Target
                         }),
-                        emqx_bcast_storage:inc_delivery_count_tx(MsgId)
+                        mnesia:write(#bcast_msg_meta_counter{
+                            delivery_id = Did,
+                            counter = Target
+                        }),
+                        mnesia:write(Delivery)
                 end
             end,
             20
@@ -813,7 +1006,17 @@ handle_call({ack_index, Acks}, _From, State = #{active := true}) ->
         {Results, {State2, Delta}} = lists:mapfoldl(
             fun(Ack, {St, D}) ->
                 {R, St2, D2} = ack_one_index(Ack, St),
-                {R, {St2, D + D2}}
+                St3 =
+                    case R of
+                        {counted, _RemQueued} ->
+                            %% Batch the counter decrement in ack_buf; the
+                            %% flush applies one dirty_update_counter per
+                            %% delivery instead of one rlog write per ack.
+                            buffer_ack_decrement(Ack, St2);
+                        not_found ->
+                            St2
+                    end,
+                {R, {St3, D + D2}}
             end,
             {State, 0},
             Acks
@@ -830,13 +1033,20 @@ handle_call({ack_index, Acks}, _From, State = #{active := true}) ->
             }),
             {reply, {error, {Error, Reason}}, State}
     end;
-handle_call({meta_dec_batch, Dids}, _From, State = #{active := true}) ->
-    lists:foreach(fun complete_or_count/1, Dids),
-    {reply, ok, State};
 handle_call({release_claim, PK, DN, Did}, _From, State = #{active := true}) ->
     {reply, ok, release_claim_local(PK, DN, Did, State)};
 handle_call({release_client_claims, PK, DN, Tag}, _From, State = #{active := true}) ->
     {reply, ok, release_client_claims_local(PK, DN, Tag, State)};
+handle_call({release_client_claims_batch, Entries}, _From, State = #{active := true}) ->
+    %% Batched tag release with a synchronous reply: used by release-then-
+    %% restage recovery paths that must not race a new claim round against
+    %% a still-inflight release cast.
+    State2 = lists:foldl(
+        fun({PK, DN, Tag}, St) -> release_client_claims_local(PK, DN, Tag, St) end,
+        State,
+        Entries
+    ),
+    {reply, ok, State2};
 handle_call({admit, PK, DNs}, _From, State = #{active := true}) ->
     {Reply, State2} = safe_state(fun() -> admit_local(PK, DNs, State) end, State),
     {reply, Reply, State2};
@@ -864,6 +1074,9 @@ handle_call({device_deliveries, Key}, _From, State = #{active := true}) ->
 handle_call({device_delivery_entries, Key}, _From, State = #{active := true}) ->
     {reply, device_delivery_entries_local(Key, State), State};
 handle_call({pending_count}, _From, State = #{active := true}) ->
+    %% Owner node: the authoritative row is updated directly on the hot path
+    %% (quota_update/1 owner branch), so this is exact. Remote nodes that
+    %% route here read the reconcile-updated row (<=1s lag, management only).
     {reply, pending_count_local(), State};
 handle_call({pending_count_for, Key}, _From, State = #{active := true}) ->
     {reply, pending_count_for_local(Key, State), State};
@@ -882,17 +1095,13 @@ handle_call({rebuild_index}, _From, State = #{active := true}) ->
 handle_call({activate}, _From, State) ->
     %% No-arg fallback (self-scan): kept for callers that cannot get the
     %% shared projection from the activation leader.
-    case activate_partition(scan_sorted_deliveries_projection(), State) of
-        {{error, _} = Error, _State1} -> {reply, Error, State};
-        {Count, State1} -> {reply, Count, State1#{active => true}}
-    end;
+    {Reply, State1} = run_activation(scan_sorted_deliveries_projection(), State),
+    {reply, Reply, State1};
 handle_call({activate, Proj}, _From, State) ->
     %% The activation leader scans + sorts bcast_msg once and hands
     %% every shard the same sorted projection.
-    case activate_partition(Proj, State) of
-        {{error, _} = Error, _State1} -> {reply, Error, State};
-        {Count, State1} -> {reply, Count, State1#{active => true}}
-    end;
+    {Reply, State1} = run_activation(Proj, State),
+    {reply, Reply, State1};
 handle_call({reset_local}, _From, State = #{shard := 0}) ->
     %% Only the quota owner's shard 0 resets the global counter (the table
     %% lives there); a peer core's shard 0 must not clobber it.
@@ -900,7 +1109,11 @@ handle_call({reset_local}, _From, State = #{shard := 0}) ->
         true -> true = ets:insert(?TAB_QUOTA_ETS, {global, 0});
         false -> ok
     end,
-    {reply, {ok, total_pending(State)}, reset_state(State)};
+    %% Every node resets its own local quota shadow and reconcile baseline,
+    %% so a reset (which drops all pending) does not leave stale cumulative
+    %% deltas that later reconcile ticks would re-ship to the zeroed owner row.
+    reset_quota_local(),
+    {reply, {ok, total_pending(State)}, reset_state(State#{quota_last_synced => 0})};
 handle_call({reset_local}, _From, State) ->
     {reply, {ok, total_pending(State)}, reset_state(State)};
 handle_call({sample_local}, _From, State) ->
@@ -920,6 +1133,18 @@ handle_call({device_delivery_entries, _Key}, _From, State) ->
 handle_call(_Req, _From, State) ->
     {reply, {error, not_active}, State}.
 
+handle_cast({release_batch, Releases}, State = #{active := true}) ->
+    %% Batched async release (one cast per shard instead of one per
+    %% release): idempotent per entry, claim lease is the backstop.
+    State2 = lists:foldl(
+        fun
+            ({claim, PK, DN, Did}, St) -> release_claim_local(PK, DN, Did, St);
+            ({tag, PK, DN, Tag}, St) -> release_client_claims_local(PK, DN, Tag, St)
+        end,
+        State,
+        Releases
+    ),
+    {noreply, State2};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -945,8 +1170,15 @@ handle_info(maybe_activate, State = #{active := false, shard := 0}) ->
     end;
 handle_info(maybe_activate, State) ->
     {noreply, State};
+handle_info(quota_sync, State = #{shard := 0, quota_last_synced := Last}) ->
+    %% Ship this node's local quota delta increment to the owner, then re-arm.
+    NewLast = quota_sync(Last),
+    erlang:send_after(?QUOTA_SYNC_MS, self(), quota_sync),
+    {noreply, State#{quota_last_synced => NewLast}};
 handle_info(maybe_gc, State) ->
     {noreply, maybe_fullsweep(State)};
+handle_info(ack_flush, State) ->
+    {noreply, flush_ack_decrements(State#{ack_flush_ref => undefined})};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -1108,7 +1340,11 @@ drive_activation(State) ->
     ),
     case [Error || {error, _} = Error <- Counts] of
         [] ->
-            ets:insert(?TAB_QUOTA_ETS, {global, lists:sum(Counts)}),
+            %% The authoritative row stays zeroed (set before activation):
+            %% each rebuilt entry was counted into its node's LOCAL quota
+            %% shadow, and shard 0's reconcile timer ships the per-node
+            %% increments to this row. Writing sum(Counts) here too would
+            %% double-count with the local shadows.
             {ok, State0};
         [Error | _] ->
             {Error, State0}
@@ -1155,6 +1391,29 @@ scan_sorted_deliveries_projection() ->
 %% at-least-once re-delivered, matching the claim lease expiry semantics).
 %% Shard 0 additionally backfills bcast_msg_meta rows for deliveries
 %% committed by older builds. Returns {Count, NewState}.
+%% Run a shard activation/rebuild. Every node's shard 0 resets the
+%% node-local quota shadow and its reconcile baseline FIRST, so a takeover
+%% rebuild counts each pending entry exactly once from zero (the old
+%% cumulative delta was already shipped to the previous owner row; without
+%% the reset the rebuilt increments would double-count it on the new owner).
+%% Non-shard-0 shards keep their local shadow untouched (the node-level
+%% reset is owned by shard 0; rebuild increments still accumulate into it).
+run_activation(Proj, State) ->
+    case maps:get(shard, State) of
+        0 ->
+            reset_quota_local(),
+            State0 = State#{quota_last_synced => 0},
+            case activate_partition(Proj, State0) of
+                {{error, _} = Error, _State1} -> {Error, State0};
+                {Count, State1} -> {Count, State1#{active => true}}
+            end;
+        _ ->
+            case activate_partition(Proj, State) of
+                {{error, _} = Error, _State1} -> {Error, State};
+                {Count, State1} -> {Count, State1#{active => true}}
+            end
+    end.
+
 activate_partition(Proj, State) ->
     try
         State1 = reset_state(State),
@@ -1174,7 +1433,12 @@ activate_partition(Proj, State) ->
                         Key = {ProductKey, DN},
                         case shard_of(Key) of
                             Shard ->
-                                {St3, _Delta} = append_entry(St2, Key, DeliveryId),
+                                {St3, Delta} = append_entry(St2, Key, DeliveryId),
+                                %% Rebuilt entries count into this node's quota
+                                %% accounting: the owner's authoritative row (zeroed
+                                %% before activation) on the owner node, this node's
+                                %% local shadow otherwise (shipped by reconcile).
+                                _ = quota_update(Delta),
                                 St3;
                             _ ->
                                 St2
@@ -1247,6 +1511,10 @@ backfill_meta_from_projection(Proj) ->
                                     msg_id = MsgId,
                                     topic_template = TopicTemplate,
                                     counter = Remaining
+                                }),
+                                mnesia:write(#bcast_msg_meta_counter{
+                                    delivery_id = DeliveryId,
+                                    counter = Remaining
                                 })
                             end,
                             Chunk
@@ -1267,6 +1535,52 @@ backfill_meta_from_projection(Proj) ->
         end,
         chunks(Missing, 100)
     ),
+    %% The atomic ack counter table was introduced after bcast_msg_meta;
+    %% backfill it from bcast_msg_meta for rows committed by older builds.
+    ExistingMeta = ets:select(
+        ?TAB_MSG_META,
+        [{#bcast_msg_meta{delivery_id = '$1', counter = '$2', _ = '_'}, [], [{{'$1', '$2'}}]}]
+    ),
+    ExistingCnt = ets:select(
+        ?TAB_MSG_META_CNT,
+        [{#bcast_msg_meta_counter{delivery_id = '$1', _ = '_'}, [], ['$1']}]
+    ),
+    CntSet = maps:from_keys(ExistingCnt, true),
+    MissingCnt = [
+        {Did, Cnt}
+     || {Did, Cnt} <- ExistingMeta,
+        not maps:is_key(Did, CntSet)
+    ],
+    lists:foreach(
+        fun(Chunk) ->
+            case
+                mnesia:transaction(
+                    fun() ->
+                        lists:foreach(
+                            fun({DeliveryId, Cnt}) ->
+                                mnesia:write(#bcast_msg_meta_counter{
+                                    delivery_id = DeliveryId,
+                                    counter = Cnt
+                                })
+                            end,
+                            Chunk
+                        )
+                    end,
+                    20
+                )
+            of
+                {atomic, _} ->
+                    ok;
+                {aborted, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "bcast_meta_counter_backfill_tx_aborted",
+                        reason => Reason,
+                        chunk_size => length(Chunk)
+                    })
+            end
+        end,
+        chunks(MissingCnt, 100)
+    ),
     ok.
 
 reset_state(State) ->
@@ -1279,7 +1593,9 @@ reset_state(State) ->
         holders => #{},
         reserves => #{},
         peak => 0,
-        orphan_cursor => 0
+        orphan_cursor => 0,
+        ack_buf => #{},
+        ack_flush_ref => undefined
     }.
 
 %% Live gauges for this shard's partition: queued = live pending minus
@@ -1344,14 +1660,14 @@ group_claim_entries(Entries) ->
         Entries
     ).
 
-%% [{DevShard, DidShard, [Ack]}]
-group_acks(Acks) ->
+%% [{DevShard, [Ack]}]
+group_acks_by_dev(Acks) ->
     lists:foldl(
-        fun(Ack = {PK, DN, Did}, Acc) ->
-            Key = {shard_of({PK, DN}), did_shard_of(Did)},
-            case lists:keyfind(Key, 1, Acc) of
-                {Key, List} -> lists:keyreplace(Key, 1, Acc, {Key, [Ack | List]});
-                false -> [{Key, [Ack]} | Acc]
+        fun(Ack = {PK, DN, _Did}, Acc) ->
+            Shard = shard_of({PK, DN}),
+            case lists:keyfind(Shard, 1, Acc) of
+                {Shard, List} -> lists:keyreplace(Shard, 1, Acc, {Shard, [Ack | List]});
+                false -> [{Shard, [Ack]} | Acc]
             end
         end,
         [],
@@ -1469,39 +1785,26 @@ unmark_inflight(State, Key, Key3) ->
 save_queue(State, Key, Q) ->
     maps:put(queues, maps:put(Key, Q, maps:get(queues, State)), State).
 
-%% Batch global-counter update. Local when this node owns the quota table,
-%% otherwise one emqx_rpc hop (per batch, not per entry).
+%% Hot-path pending-counter update, now PURELY LOCAL (no cross-node RPC):
+%% bumps this node's quota shadow row. Every pending entry is created and
+%% retired on the same shard, so the sum of per-node cumulative deltas equals
+%% the true global pending count; shard 0 periodically ships each node's
+%% increment to the owner's authoritative row (see quota_sync/1), which
+%% admission still reads with at most one sync-window lag.
 quota_update(0) ->
     ok;
 quota_update(Delta) ->
     case owner_node() =:= node() of
         true ->
-            _ = ets:update_counter(?TAB_QUOTA_ETS, global, {2, Delta}),
-            ok;
+            %% This node owns the authoritative row: update it directly
+            %% (local ETS, no RPC). Single-node deployments therefore see
+            %% an exact pending count immediately, and the reconcile timer
+            %% on this node does not double-count (see quota_sync/1).
+            quota_update_local(Delta);
         false ->
-            %% The global counter is a single ETS row on the owner node; a
-            %% lost update here silently skews the pending quota (it can go
-            %% negative when a later -1 lands but its +1 was dropped). Check
-            %% the RPC result and log instead of swallowing badrpc.
-            case
-                emqx_rpc:call(
-                    ?MODULE,
-                    owner_node(),
-                    ?MODULE,
-                    quota_update_local,
-                    [Delta],
-                    ?SYNC_TIMEOUT_MS
-                )
-            of
-                ok ->
-                    ok;
-                {badrpc, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "bcast_quota_update_rpc_failed",
-                        delta => Delta,
-                        reason => Reason
-                    })
-            end
+            %% Remote node: bump the node-local shadow only; shard 0's
+            %% reconcile timer ships the accumulated delta to the owner.
+            quota_local_update(Delta)
     end.
 
 %% Runs on the quota owner node (exported for emqx_rpc).
@@ -1522,21 +1825,18 @@ quota_update_local(Delta) ->
             ok
     end,
     ok.
-
 %%--------------------------------------------------------------------
 %% Claims
 %%--------------------------------------------------------------------
 
-%% Claim one entry for a client. Returns {Result, NewState} where Result
-%% is {ok, #{delivery_id, product_key, topic_template, payload,
-%% claim_tag}} or no_more. The FIFO head is popped; claimable entries are
-%% moved to inflights (out of the queue); unclaimable ones (topic
-%% mismatch, replication-lag, lazily deleted) are either skipped back to
-%% the tail or dropped.
+%% Claim up to the per-device window of entries for a client. Returns
+%% {Result, NewState} where Result is {ok, [ClaimMap]} | no_more. The
+%% FIFO head is popped; claimable entries are moved to inflights (out of
+%% the queue); unclaimable ones (topic mismatch, replication-lag, lazily
+%% deleted) are either skipped back to the tail or dropped. The scan is
+%% budget-bounded so one device with a long blocked head cannot hold the
+%% shard (see claim_scan).
 claim_one(#{clientid := DN, product_key := PK} = E, State) ->
-    %% External contract (as before the port): {Result, NewState} where
-    %% Result is {ok, Map} | no_more. Internally claim_loop threads the
-    %% state as a third element, so normalize the shapes here.
     try do_claim_one(E, PK, DN, State) of
         {ok, Result, St} -> {{ok, Result}, St};
         {no_more, St} -> {no_more, St}
@@ -1557,151 +1857,149 @@ do_claim_one(E, PK, DN, State) ->
     Key = {PK, DN},
     %% Expired in-flight claims become claimable again (at-least-once).
     State1 = release_expired_inflights(Key, State),
-    Q = maps:get(Key, maps:get(queues, State1), queue:new()),
-    %% Terminate on the starting head element instead of queue:len/1
-    %% (O(n) per claim at big queue sizes). One full pass = re-encountering
-    %% the head after skipped entries cycled to the tail.
-    Head =
-        case queue:peek(Q) of
-            {value, H} -> H;
-            empty -> undefined
-        end,
-    case claim_loop(State1, Key, Q, Head, Topics, PK, DN, Tag, false, 0) of
-        {ok, Result, St, Drops} ->
-            flush_claim_drops(St, Drops),
-            {ok, Result, St};
-        {no_more, St, Drops} ->
-            flush_claim_drops(St, Drops),
-            {no_more, St}
+    InflightCount = maps:size(maps:get(Key, maps:get(inflights, State1), #{})),
+    Capacity = window_size() - InflightCount,
+    case Capacity =< 0 of
+        true ->
+            {no_more, State1};
+        false ->
+            Q = maps:get(Key, maps:get(queues, State1), queue:new()),
+            case claim_scan(State1, Key, Q, Topics, PK, DN, Tag, Capacity, 0, undefined, []) of
+                {ok, Maps, St, Drops} ->
+                    flush_claim_drops(St, Drops),
+                    {ok, lists:reverse(Maps), St};
+                {no_more, St, Drops} ->
+                    flush_claim_drops(St, Drops),
+                    {no_more, St}
+            end
     end.
 
+%% Per-device in-flight window is FIXED at 1 (one outstanding delivery
+%% per device at a time, preserving per-device FIFO). The claim capacity
+%% and the pull-side stage gate both derive from this constant.
+window_size() ->
+    1.
+
+%% How many queue pops one claim scan may spend at most. A blocked head
+%% (topic mismatch, replication lag, stale rows) is cycled once per pass;
+%% the budget guarantees a single device cannot hold its shard for an
+%% unbounded scan even with a long queue of unclaimable entries.
+-define(CLAIM_SCAN_BUDGET, 512).
+
+%% Scan the per-device FIFO and claim up to Capacity entries. Claimable
+%% heads are popped into inflight; unclaimable entries cycle to the tail
+%% (at most one full pass, tracked by CycleAnchor). Terminates when the
+%% queue empties, the budget is spent, Capacity claims are made, or a full
+%% pass found nothing more.
+claim_scan(State, Key, Q, _Topics, _PK, _DN, _Tag, Capacity, Budget, _CycleAnchor, Acc) when
+    Capacity =< 0; Budget > ?CLAIM_SCAN_BUDGET
+->
+    finish_claim_scan(State, Key, Q, Acc);
+claim_scan(State, Key, Q, Topics, PK, DN, Tag, Capacity, Budget, CycleAnchor, Acc) ->
+    case queue:out(Q) of
+        {empty, _} ->
+            finish_claim_scan(State, Key, Q, Acc);
+        {{value, Did}, Q2} ->
+            case Did =:= CycleAnchor of
+                true ->
+                    %% One full pass done: nothing new became claimable.
+                    %% Put the anchor back and stop.
+                    finish_claim_scan(State, Key, queue:in(Did, Q2), Acc);
+                false ->
+                    claim_scan_step(
+                        State,
+                        Key,
+                        Q2,
+                        Topics,
+                        PK,
+                        DN,
+                        Tag,
+                        Capacity,
+                        Budget + 1,
+                        CycleAnchor,
+                        Acc,
+                        Did
+                    )
+            end
+    end.
+
+claim_scan_step(State, Key, Q, Topics, PK, DN, Tag, Capacity, Budget, CycleAnchor, Acc, Did) ->
+    Key3 = {PK, DN, Did},
+    case maps:is_key(Key3, maps:get(dids, State)) of
+        false ->
+            %% Lazy residual (acked/removed): drop and continue.
+            claim_scan(State, Key, Q, Topics, PK, DN, Tag, Capacity, Budget, CycleAnchor, Acc);
+        true ->
+            Now = erlang:system_time(millisecond),
+            Ts = maps:get(Key3, maps:get(dids, State)),
+            case claim_check(State, Key, Did, Key3, Ts, Now, Topics, PK, DN, Tag) of
+                {claim, Map, State2} ->
+                    claim_scan(
+                        State2,
+                        Key,
+                        Q,
+                        Topics,
+                        PK,
+                        DN,
+                        Tag,
+                        Capacity - 1,
+                        Budget,
+                        CycleAnchor,
+                        [Map | Acc]
+                    );
+                {retry, State2} ->
+                    %% Fresh-but-missing or topic mismatch: cycle to the
+                    %% tail. Arm the cycle anchor on the first requeued
+                    %% entry so a full pass terminates the scan.
+                    Anchor =
+                        case CycleAnchor of
+                            undefined -> Did;
+                            _ -> CycleAnchor
+                        end,
+                    claim_scan(
+                        State2,
+                        Key,
+                        queue:in(Did, Q),
+                        Topics,
+                        PK,
+                        DN,
+                        Tag,
+                        Capacity,
+                        Budget,
+                        Anchor,
+                        Acc
+                    );
+                {drop, State2} ->
+                    %% Stale entry dropped: the dids entry was removed by
+                    %% maybe_drop_stale; quota_update is a local ETS
+                    %% update, so account immediately (the owner RPC that
+                    %% once made batching necessary is gone).
+                    quota_update(-1),
+                    claim_scan(
+                        State2, Key, Q, Topics, PK, DN, Tag, Capacity, Budget, CycleAnchor, Acc
+                    )
+            end
+    end.
+
+finish_claim_scan(State, _Key, _Q, []) ->
+    {no_more, State, 0};
+finish_claim_scan(State, Key, Q, Acc) ->
+    {ok, Acc, save_queue(State, Key, Q), 0}.
+
 %% One batched quota update per claim call instead of one RPC per
-%% dropped stale entry (claim_loop can drop many residuals in one pass).
+%% dropped stale entry (legacy; kept for the residual drop counter shape).
 flush_claim_drops(State, 0) ->
     State;
 flush_claim_drops(State, Drops) ->
     quota_update(-Drops),
     State.
 
-%% Terminate when we have wrapped around to the head element (BackAtHead)
-%% or the queue emptied; undefined head = empty queue.
-%% The anchor is only armed when the head entry was CYCLED BACK to the
-%% tail. The original version set BackAtHead on the very first pop, so a
-%% head that was dropped (residual/stale, never re-queued) left the anchor
-%% pointing at an entry that can never reappear: with all remaining entries
-%% retrying (topic mismatch), the loop never terminated and wedged the whole
-%% shard (every claim/ack for its devices stalled forever). A dropped head
-%% re-anchors to the new queue head instead.
-claim_loop(State, Key, Q, Head, _Topics, _PK, _DN, _Tag, _BackAtHead, Drops) when
-    Head =:= undefined
-->
-    {no_more, save_queue(State, Key, Q), Drops};
-claim_loop(State, Key, Q, Head, Topics, PK, DN, Tag, BackAtHead, Drops) ->
-    case queue:out(Q) of
-        {empty, _} ->
-            {no_more, save_queue(State, Key, Q), Drops};
-        {{value, Did}, Q2} ->
-            case Did =:= Head andalso BackAtHead of
-                true ->
-                    %% Wrapped: the head was cycled back once and is now
-                    %% popped again - one full pass is done. Put it BACK
-                    %% (it was popped just now): saving the popped-empty
-                    %% queue silently removed the entry from the FIFO while
-                    %% dids/counts/quota still accounted for it - invisible
-                    %% to later claims AND to the orphan cleanup
-                    %% (t_claim_no_more_cleans_stale_index regression).
-                    {no_more, save_queue(State, Key, queue:in(Did, Q2)), Drops};
-                false ->
-                    claim_loop_step(
-                        State, Key, Q2, Head, Topics, PK, DN, Tag, BackAtHead, Drops, Did
-                    )
-            end
-    end.
-
-claim_loop_step(State, Key, Q, Head, Topics, PK, DN, Tag, BackAtHead, Drops, Did) ->
-    Key3 = {PK, DN, Did},
-    case maps:is_key(Key3, maps:get(dids, State)) of
-        false ->
-            %% Lazy residual (acked/removed): drop and continue. The dids
-            %% entry is already gone (no quota delta needed). Only a dropped
-            %% HEAD re-anchors (and resets the wrap anchor); dropping a
-            %% non-head entry must keep BackAtHead, otherwise a mixed
-            %% residual/topic-mismatch queue degrades to O(n*d) passes.
-            claim_loop(
-                State,
-                Key,
-                Q,
-                reanchor_head(Did, Head, Q),
-                Topics,
-                PK,
-                DN,
-                Tag,
-                keep_anchor(Did, Head, BackAtHead),
-                Drops
-            );
-        true ->
-            Now = erlang:system_time(millisecond),
-            Ts = maps:get(Key3, maps:get(dids, State)),
-            case claim_check(State, Key, Did, Key3, Ts, Now, Topics, PK, DN, Tag) of
-                {claim, Result, State2} ->
-                    {ok, Result, save_queue(State2, Key, Q), Drops};
-                {retry, State2} ->
-                    %% Fresh-but-missing or topic mismatch: cycle to the
-                    %% tail and keep looking. Only here does the anchor
-                    %% become meaningful (the head was cycled back).
-                    Q3 = queue:in(Did, Q),
-                    claim_loop(
-                        State2,
-                        Key,
-                        Q3,
-                        Head,
-                        Topics,
-                        PK,
-                        DN,
-                        Tag,
-                        BackAtHead orelse Did =:= Head,
-                        Drops
-                    );
-                {drop, State2} ->
-                    %% Stale entry dropped: the dids entry was removed by
-                    %% maybe_drop_stale, count it for the batched quota
-                    %% update at the end of this claim call. Same
-                    %% re-anchor rule as residuals.
-                    claim_loop(
-                        State2,
-                        Key,
-                        Q,
-                        reanchor_head(Did, Head, Q),
-                        Topics,
-                        PK,
-                        DN,
-                        Tag,
-                        keep_anchor(Did, Head, BackAtHead),
-                        Drops + 1
-                    )
-            end
-    end.
-
-%% If the dropped entry was the current anchor, anchor at the new head of
-%% the remaining queue (or undefined when the queue emptied).
-reanchor_head(Did, Head, Q) when Did =:= Head ->
-    case queue:peek(Q) of
-        {value, NewHead} -> NewHead;
-        empty -> undefined
-    end;
-reanchor_head(_Did, Head, _Q) ->
-    Head.
-
-%% The wrap anchor survives drops of non-head entries: only when the head
-%% itself is dropped does the anchor become meaningless (and reanchor_head
-%% already moved it to the new head, so BackAtHead resets).
-keep_anchor(Did, Head, _BackAtHead) when Did =:= Head ->
-    false;
-keep_anchor(_Did, _Head, BackAtHead) ->
-    BackAtHead.
-
 %% Returns {claim, Result, State'} (State' has the inflight mark) |
 %% {retry, State} | {drop, State}.
+%% The reply carries no payload: the claim only validates that the
+%% delivery row and its message exist (and are subscribed) on the core;
+%% the payload itself is read by the delivering node from its own local
+%% mria copy, so the cross-node claim reply stays small.
 claim_check(State, Key, Did, Key3, Ts, Now, Topics, PK, DN, Tag) ->
     case mnesia:dirty_read(?TAB_MSG_META, Did) of
         [#bcast_msg_meta{msg_id = MsgId, topic_template = Tpl}] ->
@@ -1711,7 +2009,7 @@ claim_check(State, Key, Did, Key3, Ts, Now, Topics, PK, DN, Tag) ->
                     {retry, State};
                 {ok, SubQos} ->
                     case mnesia:dirty_read(?TAB_MSG, MsgId) of
-                        [#bcast_message{payload = Payload}] ->
+                        [#bcast_message{}] ->
                             %% Attempt counter: one per claim of this logical
                             %% delivery, surviving release and lease-expiry
                             %% re-queues, so a redelivery (attempt >= 2) is
@@ -1725,9 +2023,9 @@ claim_check(State, Key, Did, Key3, Ts, Now, Topics, PK, DN, Tag) ->
                             {claim,
                                 #{
                                     delivery_id => Did,
+                                    msg_id => MsgId,
                                     product_key => PK,
                                     topic_template => Tpl,
-                                    payload => Payload,
                                     claim_tag => Tag,
                                     sub_qos => SubQos,
                                     attempt => Attempts
@@ -1755,8 +2053,7 @@ mark_inflight(State, Key, Key3, Ts, Tag) ->
 %% so it cannot block the device queue head.
 maybe_drop_stale(State, _Key, _Did, _Key3, Ts, Now) when Now - Ts < ?REPLICATION_LAG_MS ->
     {retry, State};
-%% Quota accounting is batched by the claim caller (no per-entry
-%% RPC to the quota owner from inside the shard).
+%% Quota accounting is applied by the drop branch of claim_scan_step.
 maybe_drop_stale(State, Key, _Did, Key3, _Ts, _Now) ->
     {drop, remove_did(State, Key, Key3)}.
 
@@ -1778,7 +2075,7 @@ release_expired_inflights(Key, State) ->
             {Expired, Kept} = maps:fold(
                 fun(Key3, {Ts, Tag}, {Exp, Kp}) ->
                     case HolderDown orelse Now - Ts >= ?PENDING_TTL_MS of
-                        true -> {[Key3 | Exp], Kp};
+                        true -> {[{Key3, {Ts, Tag}} | Exp], Kp};
                         false -> {Exp, maps:put(Key3, {Ts, Tag}, Kp)}
                     end
                 end,
@@ -1789,16 +2086,7 @@ release_expired_inflights(Key, State) ->
                 [] ->
                     State;
                 _ ->
-                    Q = maps:get(Key, maps:get(queues, State), queue:new()),
-                    Q1 = lists:foldl(
-                        fun(K3, Qq) ->
-                            {_, _, Did} = K3,
-                            queue:in_r(Did, Qq)
-                        end,
-                        Q,
-                        Expired
-                    ),
-                    State1 = save_queue(State, Key, Q1),
+                    State1 = requeue_inflight(State, Key, Expired),
                     State2 =
                         case maps:size(Kept) of
                             0 -> clear_holder(State1, Key);
@@ -1811,6 +2099,31 @@ release_expired_inflights(Key, State) ->
                     )
             end
     end.
+
+%% Requeue in-flight entries of a device in claim order (Ts ascending,
+%% front first): with several in-flight entries per device an unordered
+%% requeue would scramble the per-device FIFO. Input: [{Key3, {Ts, _Tag}}].
+requeue_inflight(State, Key, Entries) ->
+    save_queue(
+        State,
+        Key,
+        requeued_queue(Key, Entries, maps:get(Key, maps:get(queues, State), queue:new()))
+    ).
+
+%% Build the requeued FIFO (in-flight entries re-inserted in claim order,
+%% Ts ascending, front first) WITHOUT touching the state: callers that only
+%% need the queue value (e.g. reclaim_down_holders) must not store the
+%% whole state map as the per-device queue.
+requeued_queue(_Key, Entries, Q0) ->
+    Sorted = [K3 || {_Ts, K3} <- lists:keysort(1, [{Ts, K3} || {K3, {Ts, _Tag}} <- Entries])],
+    lists:foldl(
+        fun(K3, Qq) ->
+            {_, _, Did} = K3,
+            queue:in_r(Did, Qq)
+        end,
+        Q0,
+        Sorted
+    ).
 
 %% True when the recorded claim holder node is no longer a running member.
 holder_node_down(Key, State) ->
@@ -1845,15 +2158,19 @@ reclaim_down_holders(State) ->
                             true ->
                                 St;
                             false ->
-                                Q = maps:get(Key, maps:get(queues, St), queue:new()),
-                                Q1 = lists:foldl(
-                                    fun({_PK, _DN, Did}, Qq) -> queue:in_r(Did, Qq) end,
-                                    Q,
-                                    maps:keys(DeviceInfl)
-                                ),
                                 St1 =
                                     maps:put(
-                                        queues, maps:put(Key, Q1, maps:get(queues, St)), St
+                                        queues,
+                                        maps:put(
+                                            Key,
+                                            requeued_queue(
+                                                Key,
+                                                maps:to_list(DeviceInfl),
+                                                maps:get(Key, maps:get(queues, St), queue:new())
+                                            ),
+                                            maps:get(queues, St)
+                                        ),
+                                        St
                                     ),
                                 St2 =
                                     maps:put(
@@ -1888,16 +2205,17 @@ topics_match(Topic, [{Filter, Qos} | Rest]) ->
         false ->
             topics_match(Topic, Rest)
     end.
-
 %%--------------------------------------------------------------------
-%% Acks: index removal on the device shard, counter on the delivery shard
+%% Acks: index removal + atomic meta counter decrement on the device shard
 %%--------------------------------------------------------------------
 
 %% Removes the per-device index entry and adjusts the global counter.
-%% The bcast_msg_meta counter decrement runs on the delivery shard via
-%% the {meta_dec_batch} call dispatched by the ack_batch wrapper.
-%% Returns {counted | not_found, NewState, GlobalDelta} (delta batched by
-%% the caller).
+%% The bcast_msg_meta_counter decrement is performed right here, on the
+%% same device shard, for COUNTED acks only. The result carries whether
+%% the device still has queued (non-inflight) entries after the removal,
+%% so the pull side can decide to refill the window immediately instead of
+%% waiting for the next trigger (empty claims disappear structurally).
+%% Returns {{counted, RemQueued} | not_found, State, GlobalDelta}.
 ack_one_index({PK, DN, Did}, State) ->
     Key = {PK, DN},
     Key3 = {PK, DN, Did},
@@ -1908,30 +2226,80 @@ ack_one_index({PK, DN, Did}, State) ->
             {not_found, State, 0};
         true ->
             State1 = remove_did(State, Key, Key3),
-            %% The qos1_acked metric is counted by pull_pool on the
+            %% The qos1_acked metric is counted by pull_shard on the
             %% take_pending match (it owns the dedup of duplicate
-            %% PUBACKs); the owner does not count it again.
-            {counted, State1, -1}
+            %% PUBACKs); the owner does not count it again. The result
+            %% carries whether the device still has queued (non-inflight)
+            %% entries so the pull side can refill its window without an
+            %% empty claim round.
+            {{counted, queued_remaining(State1, Key)}, State1, -1}
     end.
 
-%% The delivery counter lives in the small per-request bcast_msg_meta row
-%% (not the 47KB bcast_msg row): an ack is one ~200B dirty read + one
-%% ~200B dirty write instead of a full 47KB row rewrite. Only the shard
-%% that owns the Did mutates it, so a dirty read-modify-write is
-%% race-free. Only the completion step (delete the delivery + meta rows
-%% and decrement the message's delivery_count) needs a real transaction:
-%% the message row is shared with promoter batch transactions.
-complete_or_count(Did) ->
-    case mnesia:dirty_read(?TAB_MSG_META, Did) of
-        [#bcast_msg_meta{counter = Counter} = M] when Counter =< 1 ->
-            complete_delivery(Did, M#bcast_msg_meta.msg_id);
-        [#bcast_msg_meta{counter = Counter} = M] ->
-            mnesia:dirty_write(M#bcast_msg_meta{counter = Counter - 1});
-        [] ->
-            ok
+%% Queued (not in-flight) entries left for the device after an ack.
+queued_remaining(State, Key) ->
+    Count = maps:get(Key, maps:get(counts, State), 0),
+    Inflight = maps:size(maps:get(Key, maps:get(inflights, State), #{})),
+    Count - Inflight > 0.
+
+%% Counted acks accumulate per-delivery decrements in ack_buf and are
+%% applied in bulk by flush_ack_decrements/1: one dirty_update_counter(Did,
+%% -N) per delivery per flush instead of one rlog write per ack (the
+%% per-ack writes saturated mria's rlog and aborted the completion
+%% transaction under load). The counter still lives in the 3-tuple
+%% bcast_msg_meta_counter table, decremented atomically from any shard, so
+%% exactly one flush observes the zero transition and runs the completion
+%% transaction. bcast_msg_meta remains the info row used by claim and
+%% management queries.
+buffer_ack_decrement({_PK, _DN, Did}, State) ->
+    Buf0 = maps:get(ack_buf, State, #{}),
+    Buf1 = maps:update_with(Did, fun(N) -> N + 1 end, 1, Buf0),
+    State1 = State#{ack_buf => Buf1},
+    case maps:size(Buf0) of
+        0 ->
+            %% First buffered entry: arm the flush timer.
+            arm_ack_flush(State1);
+        _ ->
+            State1
     end.
 
-complete_delivery(Did, MsgId) ->
+arm_ack_flush(State) ->
+    Ref = erlang:send_after(?ACK_DEC_FLUSH_MS, self(), ack_flush),
+    State#{ack_flush_ref => Ref}.
+
+%% Apply every buffered decrement in one dirty_update_counter per delivery.
+%% The shard whose decrement drives the counter to (or past) zero deletes
+%% the delivery rows; every other shard's buffer for that delivery is empty
+%% by then (the counter can only reach zero after all N decrements landed).
+flush_ack_decrements(State = #{ack_buf := Buf}) ->
+    case maps:size(Buf) of
+        0 ->
+            State;
+        _ ->
+            maps:foreach(
+                fun(Did, N) ->
+                    case mnesia:dirty_update_counter(?TAB_MSG_META_CNT, Did, -N) of
+                        New when New =< 0 ->
+                            complete_delivery(Did);
+                        _ ->
+                            ok
+                    end
+                end,
+                Buf
+            ),
+            State#{ack_buf => #{}}
+    end.
+
+complete_delivery(Did) ->
+    %% The counter is decremented DIRTY (dirty_update_counter) on the ack hot
+    %% path. Deleting it in the same transaction as the replicated
+    %% msg_meta/msg_rec rows fights that dirty write on the rlog table and
+    %% aborts the transaction under load, leaking all three rows. Delete the
+    %% counter dirty (matching the dirty decrement), then delete msg_meta +
+    %% msg_rec transactionally so the ram_copies replicas also drop them. The
+    %% transactional counter delete still runs in the periodic
+    %% cleanup_completed_deliveries/0 fallback, which fires well after the
+    %% dirty rlog entry has flushed.
+    _ = mnesia:dirty_delete({?TAB_MSG_META_CNT, Did}),
     case
         mnesia:transaction(
             fun() ->
@@ -1941,7 +2309,6 @@ complete_delivery(Did, MsgId) ->
                         case mnesia:wread({?TAB_MSG_REC, Did}) of
                             [#bcast_msg{}] ->
                                 mnesia:delete({?TAB_MSG_REC, Did}),
-                                emqx_bcast_storage:dec_delivery_count_tx(MsgId),
                                 ok;
                             [] ->
                                 ok
@@ -1956,9 +2323,6 @@ complete_delivery(Did, MsgId) ->
         {atomic, _} ->
             ok;
         {aborted, Reason} ->
-            %% The index entry is already gone; a repeated ack cannot
-            %% complete it. The delivery row then expires and cleanup
-            %% removes it (with its message-count decrement).
             ?SLOG(warning, #{
                 msg => "bcast_ack_completion_tx_aborted",
                 delivery_id => Did,
@@ -1995,10 +2359,10 @@ release_client_claims_local(PK, DN, Tag, State) ->
     Key = {PK, DN},
     Infl = maps:get(Key, maps:get(inflights, State), #{}),
     {ToRelease, Kept} = maps:fold(
-        fun(Key3, {_Ts, EntryTag}, {Rel, Kp}) ->
+        fun(Key3, {Ts, EntryTag}, {Rel, Kp}) ->
             case EntryTag =:= Tag of
-                true -> {[Key3 | Rel], Kp};
-                false -> {Rel, maps:put(Key3, {_Ts, EntryTag}, Kp)}
+                true -> {[{Ts, Key3} | Rel], Kp};
+                false -> {Rel, maps:put(Key3, {Ts, EntryTag}, Kp)}
             end
         end,
         {[], #{}},
@@ -2008,6 +2372,10 @@ release_client_claims_local(PK, DN, Tag, State) ->
         [] ->
             State;
         _ ->
+            %% Requeue in claim order (Ts ascending, front first): with
+            %% several in-flight entries per device, an unordered requeue
+            %% would scramble the per-device FIFO.
+            Sorted = [K3 || {_Ts1, K3} <- lists:keysort(1, ToRelease)],
             Q = maps:get(Key, maps:get(queues, State), queue:new()),
             Q1 = lists:foldl(
                 fun(K3, Qq) ->
@@ -2015,12 +2383,79 @@ release_client_claims_local(PK, DN, Tag, State) ->
                     queue:in_r(Did, Qq)
                 end,
                 Q,
-                ToRelease
+                Sorted
             ),
             State1 = save_queue(State, Key, Q1),
             maps:put(inflights, maps:put(Key, Kept, maps:get(inflights, State1)), State1)
     end.
 
+%%--------------------------------------------------------------------
+%% Batched release entry points (pull side)
+%%--------------------------------------------------------------------
+
+%% Async release fan-out without per-call spawns: group by index shard and
+%% emit one gen_server cast (local) or emqx_rpc cast (remote) per shard.
+%% Fire-and-forget; the shard handlers are idempotent and the claim lease
+%% is the backstop for a lost cast. Releases grouped this way cost one
+%% cast per shard per flush, not one spawn per release.
+release_claims_async(Claims) ->
+    lists:foreach(
+        fun({Shard, Sub}) -> cast_shard(Shard, {release_batch, [{claim, E} || E <- Sub]}) end,
+        group_entries([{PK, DN, Did} || {PK, DN, Did} <- Claims])
+    ),
+    ok.
+
+release_client_claims_async(Tags) ->
+    lists:foreach(
+        fun({Shard, Sub}) -> cast_shard(Shard, {release_batch, [{tag, E} || E <- Sub]}) end,
+        group_entries([{PK, DN, Tag} || {PK, DN, Tag} <- Tags])
+    ),
+    ok.
+
+%% Synchronous release of client claims by tag (used when the caller needs
+%% the release applied before the next claim round - e.g. release-then-
+%% restage recovery paths). Routes per shard in parallel with a bounded
+%% timeout; a failed leg is left to the claim lease.
+release_client_claims_sync(Tags) ->
+    lists:foreach(
+        fun({Shard, Sub}) ->
+            %% The release runs in a pull worker; a route exit (timeout /
+            %% shard restarting) must not kill the worker, or the caller's
+            %% re-stage signaling is lost. The claim lease is the backstop
+            %% for a release that never lands.
+            try route(Shard, {release_client_claims_batch, Sub}, ?SYNC_TIMEOUT_MS) of
+                _ -> ok
+            catch
+                Error:Reason ->
+                    ?SLOG(warning, #{
+                        msg => "bcast_release_sync_leg_failed",
+                        shard => Shard,
+                        exception => Error,
+                        reason => Reason,
+                        entries => length(Sub)
+                    })
+            end
+        end,
+        group_entries([{PK, DN, Tag} || {PK, DN, Tag} <- Tags])
+    ),
+    ok.
+
+%% Runs on the shard-owner node: cast straight into the local shard
+%% gen_server (exported for emqx_rpc:cast).
+-spec local_cast(pos_integer(), term()) -> ok.
+local_cast(Shard, Msg) ->
+    gen_server:cast(shard_name(Shard), Msg),
+    ok.
+
+cast_shard(Shard, Msg) ->
+    Target = shard_owner(Shard),
+    case Target =:= node() of
+        true ->
+            gen_server:cast(shard_name(Shard), Msg);
+        false ->
+            emqx_rpc:cast(Target, ?MODULE, local_cast, [Shard, Msg])
+    end,
+    ok.
 %%--------------------------------------------------------------------
 %% Admission reservations (atomic global reserve + per-shard device check)
 %%--------------------------------------------------------------------
@@ -2028,11 +2463,6 @@ release_client_claims_local(PK, DN, Tag, State) ->
 %% Serialized admission: shard 0 reserves the global budget atomically
 %% (update_counter returns the new value; overshoot rolls back) and each
 %% device shard checks + reserves its own devices in its own process.
-%% Each accepted device reserves one pending slot; the reservation
-%% converts into a real index entry at promotion (append) and is released
-%% when the intake rejects the entry (queue full) or the promoter drops
-%% it. A reservation whose intake node crashed expires via cleanup
-%% (self-healing quota).
 admit_local(PK, DNs, State) ->
     GlobalMax = emqx_bcast_config:get(max_pending_deliveries),
     PerDeviceMax = emqx_bcast_config:get(max_pending_deliveries_per_device),
@@ -2159,10 +2589,10 @@ pending_count_for_local(Key, State) ->
 
 %% Runs on the delivery shard: rows are shared state, so any process may
 %% run the transaction.
-%% Lock order is meta -> msg_rec, matching complete_delivery/2 and
+%% Lock order is meta -> msg_rec, matching complete_delivery/1 and
 %% delete_expired_deliveries_batched (the previous rec-first order widened
 %% the mnesia deadlock window with the ack hot path; retries masked it).
-delete_delivery_rows_local(Did, MsgId) ->
+delete_delivery_rows_local(Did, _MsgId) ->
     case
         mnesia:transaction(
             fun() ->
@@ -2173,15 +2603,14 @@ delete_delivery_rows_local(Did, MsgId) ->
                                 {error, not_found};
                             [#bcast_msg{}] ->
                                 mnesia:delete({?TAB_MSG_REC, Did}),
-                                emqx_bcast_storage:dec_delivery_count_tx(MsgId),
                                 ok
                         end;
                     [#bcast_msg_meta{}] ->
                         mnesia:delete({?TAB_MSG_META, Did}),
+                        mnesia:delete({?TAB_MSG_META_CNT, Did}),
                         case mnesia:wread({?TAB_MSG_REC, Did}) of
                             [#bcast_msg{}] ->
                                 mnesia:delete({?TAB_MSG_REC, Did}),
-                                emqx_bcast_storage:dec_delivery_count_tx(MsgId),
                                 ok;
                             [] ->
                                 %% meta present but rec gone (partial-delete
@@ -2204,8 +2633,11 @@ delete_message_rows_local(ApiId, DeliveryIds) ->
             fun() ->
                 lists:foreach(
                     fun(Did) ->
-                        mnesia:delete({?TAB_MSG_REC, Did}),
-                        mnesia:delete({?TAB_MSG_META, Did})
+                        %% Lock order meta -> counter -> rec, matching
+                        %% complete_delivery/1.
+                        mnesia:delete({?TAB_MSG_META, Did}),
+                        mnesia:delete({?TAB_MSG_META_CNT, Did}),
+                        mnesia:delete({?TAB_MSG_REC, Did})
                     end,
                     DeliveryIds
                 ),
@@ -2216,6 +2648,7 @@ delete_message_rows_local(ApiId, DeliveryIds) ->
                                 mnesia:delete({?TAB_MSG, MsgId}),
                                 mnesia:delete({?TAB_MSG_HASH, Hash}),
                                 mnesia:delete({?TAB_MSG_API_ID, ApiId}),
+                                mnesia:delete({?TAB_MSG_REG, MsgId}),
                                 ok;
                             [] ->
                                 ok
@@ -2230,7 +2663,6 @@ delete_message_rows_local(ApiId, DeliveryIds) ->
         {atomic, _} -> ok;
         {aborted, Reason} -> {error, Reason}
     end.
-
 %% Projection-only scan of expired deliveries. Returns tuples
 %% {DeliveryId, MsgId, ProductKey, DeviceNames} instead of full records so
 %% the caller heap never materializes the ~47KB payload rows. The scan is
@@ -2311,7 +2743,7 @@ delete_expired_deliveries_batched(Expired) ->
     ).
 
 %% Lock order is meta -> msg_rec, matching the ack hot path
-%% complete_delivery/2 (which reads/writes msg_meta before bcast_msg).
+%% complete_delivery/1 (which reads/writes msg_meta before bcast_msg).
 %% The previous msg_rec-first order was the reverse, widening the mnesia
 %% deadlock window between the cleanup tx and concurrent acks (the 20
 %% retries masked it, but each retry is wasted work and latency).
@@ -2322,19 +2754,18 @@ delete_one_expired_delivery_tx({DeliveryId, _MsgId, _ProductKey, _DeviceNames}) 
             %% concurrently or it never had one; clean up the row
             %% defensively.
             case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
-                [#bcast_msg{msg_id = MsgId}] ->
+                [#bcast_msg{}] ->
                     mnesia:delete({?TAB_MSG_REC, DeliveryId}),
-                    emqx_bcast_storage:dec_delivery_count_tx(MsgId),
                     ok;
                 [] ->
                     ok
             end;
-        [#bcast_msg_meta{msg_id = MsgId}] ->
+        [#bcast_msg_meta{}] ->
             mnesia:delete({?TAB_MSG_META, DeliveryId}),
+            mnesia:delete({?TAB_MSG_META_CNT, DeliveryId}),
             case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
                 [#bcast_msg{}] ->
                     mnesia:delete({?TAB_MSG_REC, DeliveryId}),
-                    emqx_bcast_storage:dec_delivery_count_tx(MsgId),
                     ok;
                 [] ->
                     ok
@@ -2346,6 +2777,104 @@ chunks([], _N) ->
 chunks(List, N) ->
     {Head, Tail} = lists:split(min(N, length(List)), List),
     [Head | chunks(Tail, N)].
+
+%% Fallback for deliveries whose rows leaked after completion. Each core scans
+%% its OWN local counter rows that already reached zero and deletes them dirty
+%% (matching the dirty decrement/delete on the ack path), then deletes the
+%% meta/rec rows transactionally (covers the rare case where complete_delivery's
+%% meta/rec transaction aborted after the dirty counter delete).
+cleanup_completed_deliveries() ->
+    Completed = scan_completed_deliveries(?CLEANUP_BUDGET),
+    lists:foreach(
+        fun(Did) -> _ = mnesia:dirty_delete({?TAB_MSG_META_CNT, Did}) end,
+        Completed
+    ),
+    delete_completed_deliveries_batched(Completed),
+    ok.
+
+%% Coordinate the counter-linger sweep across every running core: the cleanup
+%% leader runs it locally and asks each sibling core to sweep its own copy.
+cleanup_completed_deliveries_everywhere() ->
+    case emqx_bcast:core_nodes() of
+        [] ->
+            cleanup_completed_deliveries();
+        Nodes ->
+            lists:foreach(
+                fun(Node) ->
+                    case Node =:= node() of
+                        true ->
+                            ok = cleanup_completed_deliveries();
+                        false ->
+                            _ = emqx_rpc:call(
+                                ?MODULE,
+                                Node,
+                                ?MODULE,
+                                cleanup_completed_deliveries,
+                                [],
+                                ?SYNC_TIMEOUT_MS
+                            ),
+                            ok
+                    end
+                end,
+                Nodes
+            ),
+            ok
+    end.
+
+scan_completed_deliveries(Budget) ->
+    %% bcast_msg_meta_counter is a 3-tuple {bcast_msg_meta_counter, Did, N}.
+    case
+        ets:select(
+            ?TAB_MSG_META_CNT,
+            [
+                {{?TAB_MSG_META_CNT, '$1', '$2'}, [{'=<', '$2', 0}], ['$1']}
+            ],
+            Budget
+        )
+    of
+        '$end_of_table' -> [];
+        {Rows, _Continuation} -> Rows
+    end.
+
+delete_completed_deliveries_batched(Dids) ->
+    lists:foreach(
+        fun(Chunk) ->
+            case
+                mnesia:transaction(
+                    fun() -> lists:foreach(fun delete_one_completed_delivery_tx/1, Chunk) end,
+                    20
+                )
+            of
+                {atomic, _} ->
+                    ok;
+                {aborted, Reason} ->
+                    %% The next cleanup tick re-scans the completed rows.
+                    ?SLOG(warning, #{
+                        msg => "bcast_completed_delete_tx_aborted",
+                        reason => Reason,
+                        chunk_size => length(Chunk)
+                    })
+            end
+        end,
+        chunks(Dids, 100)
+    ).
+
+%% The counter was already deleted dirty by cleanup_completed_deliveries/0;
+%% delete only meta -> rec here (lock order matching complete_delivery/1).
+delete_one_completed_delivery_tx(Did) ->
+    case mnesia:wread({?TAB_MSG_META, Did}) of
+        [#bcast_msg_meta{}] ->
+            mnesia:delete({?TAB_MSG_META, Did}),
+            case mnesia:wread({?TAB_MSG_REC, Did}) of
+                [#bcast_msg{}] ->
+                    mnesia:delete({?TAB_MSG_REC, Did}),
+                    ok;
+                [] ->
+                    ok
+            end;
+        [] ->
+            ok
+    end.
 
 %% Expired-message cleanup is also bounded by ?CLEANUP_BUDGET
 %% (previously an unbounded full scan + per-row dirty_delete on every
@@ -2378,7 +2907,8 @@ cleanup_expired_messages_local(Now) ->
         fun({MsgId, ContentHash, ApiMsgId}) ->
             mnesia:dirty_delete({?TAB_MSG, MsgId}),
             mnesia:dirty_delete({?TAB_MSG_HASH, ContentHash}),
-            mnesia:dirty_delete({?TAB_MSG_API_ID, ApiMsgId})
+            mnesia:dirty_delete({?TAB_MSG_API_ID, ApiMsgId}),
+            mnesia:dirty_delete({?TAB_MSG_REG, MsgId})
         end,
         Expired
     ).

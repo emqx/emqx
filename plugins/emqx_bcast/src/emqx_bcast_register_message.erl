@@ -45,10 +45,12 @@ do_create(Payload, RequestId) ->
     Hash = emqx_bcast_utils:sha256(Payload),
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
     case emqx_bcast_storage:lookup_or_create_message(Payload, Hash, ApiMsgId, MsgGuid) of
-        {existing, Id, _} ->
+        {existing, Id, ExistingMsgGuid} ->
+            ok = emqx_bcast_storage:mark_message_registered(ExistingMsgGuid),
             emqx_bcast_metrics:register_refresh(),
             {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, Id)};
-        {created, Id, _} ->
+        {created, Id, NewMsgGuid} ->
+            ok = emqx_bcast_storage:mark_message_registered(NewMsgGuid),
             emqx_bcast_metrics:register_in(),
             {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, Id)};
         {error, _} ->
@@ -62,6 +64,7 @@ do_refresh(ApiMsgId, RequestId) ->
         {ok, MsgGuid} ->
             case emqx_bcast_storage:refresh_message_ttl(MsgGuid) of
                 {atomic, ok} ->
+                    ok = emqx_bcast_storage:mark_message_registered(MsgGuid),
                     emqx_bcast_metrics:register_refresh(),
                     {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
                 {atomic, {error, not_found}} ->

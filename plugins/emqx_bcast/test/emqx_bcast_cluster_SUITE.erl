@@ -117,7 +117,7 @@ t_cluster_cross_node_delivery(Config) ->
     C2 = connect(N2, DN2),
     sub(C1, topic(DN1)),
     sub(C2, topic(DN2)),
-    %% The subscribe hook casts into pull_pool asynchronously; the plugin
+    %% The subscribe hook casts into pull_shard asynchronously; the plugin
     %% reads EMQX's own subscription tables, so poll those on each node
     %% (channel pid -> subscriptions) until the subscriptions landed.
     Subscribed =

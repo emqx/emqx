@@ -11,9 +11,9 @@
     is_core/0,
     core_nodes/0,
     random_core/0,
-    core_for/1,
     rpc_core/3,
     rpc_core/4,
+    rpc_core_cast/3,
     register_device/3,
     unregister_device/3,
     lookup_device/1,
@@ -22,6 +22,8 @@
     on_client_disconnected/3,
     on_client_subscribe/3,
     on_client_unsubscribe/3,
+    on_session_subscribed/3,
+    on_session_unsubscribed/3,
     on_session_resumed/2,
     on_client_ping/3,
     on_message_acked/2
@@ -77,11 +79,6 @@ random_core() ->
 %% Deterministic core for a client: all want_next claims for the same client
 %% land on the same core, which keeps the per-client claim load stable. The
 %% node list is sorted so the mapping is stable regardless of discovery order.
--spec core_for(binary()) -> node().
-core_for(ClientId) ->
-    Nodes = lists:sort(core_nodes()),
-    lists:nth(erlang:phash2(ClientId, length(Nodes)) + 1, Nodes).
-
 -spec rpc_core(module(), atom(), [term()]) -> term().
 rpc_core(Mod, Fun, Args) ->
     rpc_core(Mod, Fun, Args, ?BCAST_RPC_CALL_TIMEOUT_MS).
@@ -99,6 +96,28 @@ rpc_core(Mod, Fun, Args, Timeout) ->
             end
     end.
 
+%% Fire-and-forget variant used by release paths. The storage release
+%% functions route to an index shard gen_server; running them inside a pull
+%% worker blocked the whole worker pool on gen_server:call/RPC whenever
+%% releases came in bursts. This casts the work to a core (or spawns it
+%% locally on a core) so the pull worker returns immediately.
+-spec rpc_core_cast(module(), atom(), [term()]) -> ok.
+rpc_core_cast(Mod, Fun, Args) ->
+    case is_core() of
+        true ->
+            _ = spawn(fun() -> apply(Mod, Fun, Args) end),
+            ok;
+        false ->
+            Core = random_core(),
+            case Core =:= node() of
+                true ->
+                    _ = spawn(fun() -> apply(Mod, Fun, Args) end),
+                    ok;
+                false ->
+                    emqx_rpc:cast(Core, Mod, Fun, Args)
+            end
+    end.
+
 %%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------
@@ -109,6 +128,10 @@ hook() ->
     ok = emqx_hooks:put('client.disconnected', {?MODULE, on_client_disconnected, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.subscribe', {?MODULE, on_client_subscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.unsubscribe', {?MODULE, on_client_unsubscribe, []}, ?HP_HIGHEST),
+    ok = emqx_hooks:put('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_HIGHEST),
+    ok = emqx_hooks:put(
+        'session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_HIGHEST
+    ),
     ok = emqx_hooks:put('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.ping', {?MODULE, on_client_ping, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('message.acked', {?MODULE, on_message_acked, []}, ?HP_HIGHEST).
@@ -119,6 +142,8 @@ unhook() ->
     ok = emqx_hooks:del('client.disconnected', {?MODULE, on_client_disconnected}),
     ok = emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe}),
     ok = emqx_hooks:del('client.unsubscribe', {?MODULE, on_client_unsubscribe}),
+    ok = emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
+    ok = emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     ok = emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
     ok = emqx_hooks:del('client.ping', {?MODULE, on_client_ping}),
     ok = emqx_hooks:del('message.acked', {?MODULE, on_message_acked}).
@@ -143,10 +168,11 @@ create_mnesia_tables() ->
                 {?TAB_MSG, bcast_message, record_info(fields, bcast_message)},
                 {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id)},
                 {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash)},
+                {?TAB_MSG_REG, bcast_message_reg, record_info(fields, bcast_message_reg)},
                 {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg)},
                 {?TAB_MSG_META, bcast_msg_meta, record_info(fields, bcast_msg_meta)},
-                {?TAB_MSG_IDX, bcast_msg_index, record_info(fields, bcast_msg_index)},
-                {?TAB_QUOTA, bcast_quota, record_info(fields, bcast_quota)}
+                {?TAB_MSG_META_CNT, bcast_msg_meta_counter,
+                    record_info(fields, bcast_msg_meta_counter)}
             ],
             lists:foreach(
                 fun({Tab, RecordName, Attributes}) ->
@@ -240,18 +266,31 @@ normalize_legacy_index_entries([]) ->
 %% bcast_quota did not exist in the legacy layout. Rebuild its global count
 %% from the migrated index rows so pending-delivery quotas start from the
 %% real backlog instead of zero.
+%% Legacy migration only: bcast_msg_index / bcast_quota existed in old
+%% builds; new installs no longer create them. Rebuild the legacy global
+%% count when the tables are present and skip when they are absent.
 initialize_quota_count() ->
-    Count = lists:sum([
-        Index#bcast_msg_index.count
-     || Index <- mnesia:dirty_match_object(#bcast_msg_index{_ = '_'})
-    ]),
-    case mnesia:dirty_read(?TAB_QUOTA, global) of
-        [] ->
-            ok = mnesia:dirty_write(#bcast_quota{key = global, count = Count});
-        [#bcast_quota{count = 0}] ->
-            ok = mnesia:dirty_write(#bcast_quota{key = global, count = Count});
-        [_] ->
-            ok
+    case lists:member(?TAB_MSG_IDX, mnesia:system_info(tables)) of
+        false ->
+            ok;
+        true ->
+            Count = lists:sum([
+                Index#bcast_msg_index.count
+             || Index <- mnesia:dirty_match_object(#bcast_msg_index{_ = '_'})
+            ]),
+            case lists:member(?TAB_QUOTA, mnesia:system_info(tables)) of
+                false ->
+                    ok;
+                true ->
+                    case mnesia:dirty_read(?TAB_QUOTA, global) of
+                        [] ->
+                            ok = mnesia:dirty_write(#bcast_quota{key = global, count = Count});
+                        [#bcast_quota{count = 0}] ->
+                            ok = mnesia:dirty_write(#bcast_quota{key = global, count = Count});
+                        [_] ->
+                            ok
+                    end
+            end
     end.
 
 %% Storage tables are mria ram_copies: pending deliveries are accepted
@@ -303,9 +342,10 @@ ensure_core_copies() ->
                 ?TAB_MSG,
                 ?TAB_MSG_API_ID,
                 ?TAB_MSG_HASH,
+                ?TAB_MSG_REG,
                 ?TAB_MSG_REC,
-                ?TAB_MSG_IDX,
-                ?TAB_QUOTA
+                ?TAB_MSG_META,
+                ?TAB_MSG_META_CNT
             ],
             lists:foreach(
                 fun(Tab) ->
@@ -410,7 +450,9 @@ on_client_connected(ClientInfo, _ConnInfo) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(ClientId, {client_connected, ClientId, Pid, ProductKey})
+        emqx_bcast_pull_shard:cast_client(
+            ProductKey, ClientId, {client_connected, ClientId, Pid, ProductKey}
+        )
     end),
     {ok, ClientInfo}.
 
@@ -420,10 +462,10 @@ on_client_disconnected(ClientInfo, _Reason, _ConnInfo) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(
-            ClientId, {client_disconnected, ClientId, Pid, ProductKey}
+        emqx_bcast_pull_shard:cast_client(
+            ProductKey, ClientId, {client_disconnected, ClientId, Pid, ProductKey}
         ),
-        gen_server:cast(emqx_bcast_ack_pool, {client_down, ClientId})
+        emqx_bcast_ack_shard:client_down(ProductKey, ClientId)
     end),
     ok.
 
@@ -433,7 +475,9 @@ on_client_subscribe(ClientInfo, _Properties, TopicFilters) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(ClientId, {subscribe, ClientId, Pid, ProductKey})
+        emqx_bcast_pull_shard:cast_client(
+            ProductKey, ClientId, {subscribe, ClientId, Pid, ProductKey}
+        )
     end),
     TopicFilters.
 
@@ -443,9 +487,40 @@ on_client_unsubscribe(ClientInfo, _Properties, TopicFilters) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(ClientId, {unsubscribe, ClientId, Pid, ProductKey})
+        emqx_bcast_pull_shard:cast_client(
+            ProductKey, ClientId, {unsubscribe, ClientId, Pid, ProductKey}
+        )
     end),
     TopicFilters.
+
+-spec on_session_subscribed(map(), emqx_types:topic() | emqx_types:share(), map()) -> ok.
+on_session_subscribed(ClientInfo, TopicFilter, SubOpts) ->
+    safe_hook(fun() ->
+        #{clientid := ClientId} = ClientInfo,
+        Pid = self(),
+        ProductKey = get_product_key(ClientInfo),
+        Qos = maps:get(qos, SubOpts, 0),
+        emqx_bcast_pull_shard:cast_client(
+            ProductKey,
+            ClientId,
+            {topic_added, ClientId, Pid, ProductKey, TopicFilter, Qos}
+        )
+    end),
+    ok.
+
+-spec on_session_unsubscribed(map(), emqx_types:topic() | emqx_types:share(), map()) -> ok.
+on_session_unsubscribed(ClientInfo, TopicFilter, _SubOpts) ->
+    safe_hook(fun() ->
+        #{clientid := ClientId} = ClientInfo,
+        Pid = self(),
+        ProductKey = get_product_key(ClientInfo),
+        emqx_bcast_pull_shard:cast_client(
+            ProductKey,
+            ClientId,
+            {topic_removed, ClientId, Pid, ProductKey, TopicFilter}
+        )
+    end),
+    ok.
 
 -spec on_session_resumed(map(), term()) -> ok.
 on_session_resumed(ClientInfo, _SessionInfo) ->
@@ -455,9 +530,13 @@ on_session_resumed(ClientInfo, _SessionInfo) ->
         ProductKey = get_product_key(ClientInfo),
         %% Completeness: the pools are sharded by clientid; casting to
         %% the old single registered name would hit a non-existent process
-        %% and silently drop the subscribe signal (session resume would
-        %% never re-arm a want_next).
-        emqx_bcast_pull_pool:cast_client(ClientId, {subscribe, ClientId, Pid, ProductKey})
+        %% and silently drop the resume signal (session resume would never
+        %% re-arm a want_next). Resume restores the session's
+        %% subscriptions without re-firing session.subscribed, so the pull
+        %% shard re-syncs its cached filters here.
+        emqx_bcast_pull_shard:cast_client(
+            ProductKey, ClientId, {resume, ClientId, Pid, ProductKey}
+        )
     end),
     ok.
 
@@ -467,7 +546,7 @@ on_client_ping(ClientInfo, _ConnInfo, Acc) ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_pool:cast_client(ClientId, {ping, ClientId, Pid, ProductKey})
+        emqx_bcast_pull_shard:cast_client(ProductKey, ClientId, {ping, ClientId, Pid, ProductKey})
     end),
     Acc.
 
@@ -484,12 +563,12 @@ on_message_acked(ClientInfo, Msg) ->
                         undefined -> get_product_key(ClientInfo);
                         PK -> PK
                     end,
-                %% Route through pull_pool first: it matches the local buffer
+                %% Route through pull_shard first: it matches the local buffer
                 %% and sets the ack-in-flight marker BEFORE this ack can be
-                %% applied at core, then forwards to ack_pool for the batched
+                %% applied at core, then forwards to the client's ack shard for the batched
                 %% core accounting.
-                emqx_bcast_pull_pool:cast_client(
-                    DeviceName, {ack, DeviceName, DeliveryId, ProductKey}
+                emqx_bcast_pull_shard:cast_client(
+                    ProductKey, DeviceName, {ack, DeviceName, DeliveryId, ProductKey}
                 ),
                 ok
         end

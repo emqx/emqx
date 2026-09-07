@@ -16,8 +16,10 @@
 -define(TAB_MSG, bcast_message).
 -define(TAB_MSG_API_ID, bcast_message_api_id).
 -define(TAB_MSG_HASH, bcast_message_hash).
+-define(TAB_MSG_REG, bcast_message_reg).
 -define(TAB_MSG_REC, bcast_msg).
 -define(TAB_MSG_META, bcast_msg_meta).
+-define(TAB_MSG_META_CNT, bcast_msg_meta_counter).
 -define(TAB_MSG_IDX, bcast_msg_index).
 -define(TAB_QUOTA, bcast_quota).
 
@@ -55,19 +57,23 @@
 %% Node-local ETS tables (not in Mnesia):
 %%   bcast_device_registry     -- {ProductKey, DeviceName} -> online channel pid;
 %%                               not a subscription mirror
-%%   bcast_buffer_a/b     -- active/inactive delivery buffers in pull_pool
-%%   bcast_buffer3        -- want_next dedup staging in pull_pool
-%%   bcast_pull_inflight  -- claim-in-flight guard (window=1)
+%%   bcast_client_state_<S> -- per-client pull state (claim round /
+%%                             unacked window) for pull_shard partition S
 %%
-%% Subscription state is NOT mirrored: delivery decisions read
-%% emqx_broker:subscriptions(ChannelPid) directly from EMQX
+%% Subscription filters are cached per client in its pull state row
+%% (topic_added/topic_removed from the session.subscribed /
+%% session.unsubscribed hooks; fully re-read from emqx_broker on
+%% session.resumed). The claim path reads the cache and falls back to
+%% emqx_broker:subscriptions(ChannelPid) when the cache is empty.
 
 -record(bcast_message, {
     msg_id :: binary(),
     api_msg_id :: binary(),
     content_hash :: binary(),
     payload :: binary(),
-    delivery_count :: non_neg_integer(),
+    %% Historical pending-delivery counter; no longer maintained (messages
+    %% are GC'd by TTL via cleanup_expired). Kept at 0 for compatibility.
+    delivery_count = 0 :: non_neg_integer(),
     created_at :: non_neg_integer(),
     expires_at :: non_neg_integer()
 }).
@@ -80,6 +86,16 @@
 -record(bcast_message_hash, {
     hash :: binary(),
     msg_id :: binary()
+}).
+
+%% Set of messages explicitly pre-registered via RegisterMessage (or a
+%% RegisterMessage refresh). Such messages must survive delivery_count
+%% reaching zero and live until msg_ttl expiry. All message rows are
+%% GC'd by TTL via cleanup_expired (delivery completion no longer
+%% deletes them).
+-record(bcast_message_reg, {
+    msg_id :: binary(),
+    registered_at :: non_neg_integer()
 }).
 
 -record(bcast_msg, {
@@ -107,6 +123,14 @@
     counter :: non_neg_integer()
 }).
 
+%% 3-tuple counter record for atomic mnesia:dirty_update_counter/3 from any
+%% shard process. bcast_msg_meta stays as the info row; this row owns the
+%% authoritative remaining-ack counter.
+-record(bcast_msg_meta_counter, {
+    delivery_id :: binary(),
+    counter :: non_neg_integer()
+}).
+
 -record(bcast_msg_index, {
     key :: {ProductKey :: binary(), DeviceName :: binary()},
     deliveries :: [bcast_index_entry()],
@@ -124,7 +148,7 @@
 -type bcast_delivery_state() ::
     stored
     | {pending, PendingTs :: non_neg_integer()}
-    %% claim_tag identifies the pull_pool flush generation that claimed the
+    %% claim_tag identifies the pull_shard flush generation that claimed the
     %% entry; timeout recovery can release exactly that claim without
     %% touching a newer concurrent claim.
     | {pending, PendingTs :: non_neg_integer(), ClaimTag :: pos_integer()}.
@@ -145,27 +169,36 @@
     {write_concurrency, true}
 ]).
 
--record(bcast_buffer_entry, {
-    clientid :: binary(),
-    delivery_id :: binary(),
+%% The only per-client state that survives after a delivery has been
+%% handed to the channel process: enough to match the PUBACK exactly once
+%% and to release the core claim if the client disappears before acking.
+%% `ack_in_flight = true` means the PUBACK arrived and the core ack is in
+%% flight; the row is then kept until the core-applied confirmation comes
+%% back so `acked` is counted exactly once.
+%% One per-client state row per pull_shard partition. Replaces the former
+%% three tables (unacked marker / want_next stage / claim-inflight mark):
+%% every client event costs one lookup instead of up to three, and the row
+%% carries the per-device window (up to 1 unacked delivery) plus the
+%% single in-flight claim round in one place, so the pull-side
+%% state transitions stay atomic in one ETS write. The claim round is
+%% written directly (no separate staged flag); the flush batches
+%% not-yet-submitted claims from the gen_server's pending list.
+-record(bcast_client_state, {
+    key :: {binary(), binary()},
     product_key :: binary(),
-    topic_template :: binary(),
-    %% The fully expanded delivery topic, computed once in
-    %% prepare_delivery and reused by deliver_pending_one (which used to
-    %% re-expand per message, running binary:replace twice per delivery).
-    topic :: binary(),
-    payload :: binary(),
+    clientid :: binary(),
     pid :: pid(),
-    %% Delivery attempt number carried from the core claim (attempt >= 2
-    %% means this logical delivery was already attempted before; such sends
-    %% count toward the redelivered metric).
-    attempts :: pos_integer()
-}).
-
--record(bcast_buffer3, {
-    clientid :: binary(),
-    product_key :: binary(),
-    pid :: pid()
+    %% claim round: {Tag, TsMillis}; at most one per client. Written
+    %% directly on trigger/refill and cleared on commit/release.
+    claim = undefined :: undefined | {pos_integer(), non_neg_integer()},
+    %% committed-but-unacked deliveries in send order:
+    %% [{DeliveryId, AckInFlight}] with length <= 1 (window=1)
+    inflight = [] :: [{binary(), boolean()}],
+    %% cached subscription filters [{TopicFilter, Qos}], maintained by the
+    %% session.subscribed / session.unsubscribed / session.resumed hooks so
+    %% the claim path reads them from this row instead of calling
+    %% emqx_broker:subscriptions/1 per claim.
+    topics = [] :: [{binary(), non_neg_integer()}]
 }).
 
 -endif.

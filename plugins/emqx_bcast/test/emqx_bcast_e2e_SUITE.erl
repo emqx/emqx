@@ -143,7 +143,7 @@ recv(Count, Msgs) ->
 
 topic(DN) -> <<"/default/", DN/binary, "/user/get">>.
 
-%% The subscribe hook casts into emqx_bcast_pull_pool asynchronously. The
+%% The subscribe hook casts into emqx_bcast_pull_shard asynchronously. The
 %% plugin reads EMQX's own subscription tables, so poll those: resolve the
 %% channel pid from the clientid, then look for a filter matching Topic.
 wait_subscribed(ClientId, Topic) ->
@@ -168,7 +168,7 @@ client_subscribed(ClientId, Topic) ->
 client_unsubscribed(ClientId, Topic) ->
     not client_subscribed(ClientId, Topic).
 
-%% The connected hook casts into emqx_bcast_pull_pool asynchronously; poll the
+%% The connected hook casts into emqx_bcast_pull_shard asynchronously; poll the
 %% device table until the registration has landed instead of sleeping.
 wait_registered(ClientId) ->
     ?assert(
@@ -224,11 +224,11 @@ t_qos0_delivery_uses_current_session_holder_e2e(_Config) ->
     wait_subscribed(DN, topic(DN)),
     [CurrentPid] = emqx_cm:lookup_channels(DN),
     OldPid = spawn(fun() -> ok end),
-    ok = emqx_bcast_pull_pool:do_deliver_qos0([
+    ok = emqx_bcast_pull_shard:do_deliver_qos0([
         {OldPid, <<"default">>, DN, topic(DN), <<"stale">>}
     ]),
     ?assertEqual(0, length(recv(1))),
-    ok = emqx_bcast_pull_pool:do_deliver_qos0([
+    ok = emqx_bcast_pull_shard:do_deliver_qos0([
         {CurrentPid, <<"default">>, DN, topic(DN), <<"current">>}
     ]),
     Msgs = recv(1),
@@ -493,7 +493,7 @@ t_pub_broadcast_wildcard_sub(_Config) ->
     disconnect(C1).
 
 %% Regression: the sharding change made
-%% PubBroadcast (DeviceNames = undefined) fan out to ALL pull_pool shards,
+%% PubBroadcast (DeviceNames = undefined) fan out to ALL pull_shard shards,
 %% and each shard's product-wide scan did not filter to its own partition,
 %% so every online device received 4 duplicate messages. recv(3) collected
 %% all three and returned before the duplicates showed up, so the old test

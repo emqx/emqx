@@ -9,7 +9,8 @@
     lookup_message_by_hash/1,
     lookup_message/1,
     refresh_message_ttl/1,
-    lookup_or_create_message/4
+    lookup_or_create_message/4,
+    mark_message_registered/1
 ]).
 
 %% Promotion primitives for the async intake path (emqx_bcast_promoter).
@@ -36,6 +37,7 @@
 -export([
     process_ack/3,
     process_ack_batch/1,
+    ack_batch_results/1,
     claim_want_next_batch/1,
     claim_want_next_batch/2,
     release_claim/3,
@@ -52,10 +54,6 @@
     delete_delivery/1,
     cleanup_expired/0
 ]).
-
-%% Transaction helpers shared with the index owner (run inside the
-%% owner's own transactions).
--export([inc_delivery_count_tx/1, dec_delivery_count_tx/1]).
 
 -include("emqx_bcast.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -88,6 +86,22 @@ lookup_or_create_message(Payload, Hash, ApiMsgId, MsgId) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
+-spec mark_message_registered(msg_id()) -> ok.
+mark_message_registered(MsgId) ->
+    %% Best-effort dirty write; the table exists on core nodes after
+    %% init_tables/1. Called only from RegisterMessage (API is funneled to
+    %% core), so the local table copy is always present.
+    try
+        mnesia:dirty_write(#bcast_message_reg{
+            msg_id = MsgId,
+            registered_at = erlang:system_time(second)
+        })
+    of
+        _ -> ok
+    catch
+        error:badarg -> ok
+    end.
+
 -spec create_message(api_msg_id(), msg_id(), binary(), binary()) -> ok.
 create_message(ApiMsgId, MsgId, Hash, Payload) ->
     Now = emqx_bcast_utils:now_sec(),
@@ -97,7 +111,6 @@ create_message(ApiMsgId, MsgId, Hash, Payload) ->
         api_msg_id = ApiMsgId,
         content_hash = Hash,
         payload = Payload,
-        delivery_count = 0,
         created_at = Now,
         expires_at = Now + TTL
     },
@@ -167,11 +180,11 @@ promote_batch(Entries) ->
 promote_batch_tx(Entries) ->
     %% Group entries by content hash: identical payloads (the loadtest
     %% sends the same 256B body for every request) share one message row,
-    %% so the delivery_count bump and TTL refresh happen once per group
-    %% instead of once per entry. With one hash for the whole run this
-    %% turns N read-modify-write pairs on the same mnesia row into a
-    %% single write, removing the cross-worker lock contention that capped
-    %% promotion at ~520 req/s. Delivery rows stay per entry (idempotent:
+    %% so the TTL refresh happens once per group instead of once per
+    %% entry. With one hash for the whole run this turns N read-modify-
+    %% write pairs on the same mnesia row into a single write, removing
+    %% the cross-worker lock contention that capped promotion at ~520
+    %% req/s. Delivery rows stay per entry (idempotent:
     %% already-committed entries resolve to already_promoted).
     %% O(n) map grouping (lists:keyfind/keyreplace per entry was
     %% O(n x distinct-hash) inside the mnesia transaction, extending lock
@@ -188,9 +201,9 @@ promote_batch_tx(Entries) ->
     ),
     lists:append([promote_group_tx(Group) || {_Hash, Group} <- Groups]).
 
-%% Promote one hash-group: one message create/refresh + delivery_count
-%% bump for the whole group, then one delivery + meta row per entry.
-%% Runs inside the promote_batch transaction.
+%% Promote one hash-group: one message create/refresh for the whole
+%% group, then one delivery + meta row per entry. Runs inside the
+%% promote_batch transaction.
 promote_group_tx(Entries) ->
     {First, _Rest} =
         case Entries of
@@ -201,9 +214,7 @@ promote_group_tx(Entries) ->
         undefined ->
             [];
         _ ->
-            {_Status, ResolvedApiMsgId, ResolvedMsgId} = write_message_group_tx(
-                First, length(Entries)
-            ),
+            {_Status, ResolvedApiMsgId, ResolvedMsgId} = write_message_group_tx(First),
             GroupResults = [
                 promote_entry_delivery_tx(Entry, ResolvedApiMsgId, ResolvedMsgId)
              || Entry <- Entries
@@ -212,8 +223,9 @@ promote_group_tx(Entries) ->
     end.
 
 %% Hash resolve + one message create/refresh for the whole group; the
-%% delivery_count bump is the group size (all entries share the message).
-write_message_group_tx(Entry, GroupSize) ->
+%% message row carries the payload and the TTL refresh, while delivery rows
+%% stay per entry. delivery_count is no longer maintained (TTL-only GC).
+write_message_group_tx(Entry) ->
     Payload = maps:get(payload, Entry),
     Hash = maps:get(hash, Entry),
     ApiMsgId = maps:get(api_msg_id, Entry),
@@ -222,29 +234,25 @@ write_message_group_tx(Entry, GroupSize) ->
     TTL = maps:get(expires_at, Entry) - Now,
     case mnesia:wread({?TAB_MSG_HASH, Hash}) of
         [] ->
-            write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL, GroupSize),
+            write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL),
             {created, ApiMsgId, MsgId};
         [#bcast_message_hash{msg_id = ExistingMsgId}] ->
             case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
                 [#bcast_message{} = Existing] ->
-                    mnesia:write(Existing#bcast_message{
-                        delivery_count = Existing#bcast_message.delivery_count + GroupSize,
-                        expires_at = Now + TTL
-                    }),
+                    mnesia:write(Existing#bcast_message{expires_at = Now + TTL}),
                     {existing, Existing#bcast_message.api_msg_id, ExistingMsgId};
                 [] ->
-                    write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL, GroupSize),
+                    write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL),
                     {created, ApiMsgId, MsgId}
             end
     end.
 
-write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL, GroupSize) ->
+write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL) ->
     mnesia:write(#bcast_message{
         msg_id = MsgId,
         api_msg_id = ApiMsgId,
         content_hash = Hash,
         payload = Payload,
-        delivery_count = GroupSize,
         created_at = Now,
         expires_at = Now + TTL
     }),
@@ -254,7 +262,7 @@ write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL, GroupSize) 
 %% Delivery + meta rows for one entry, using the group-resolved message.
 promote_entry_delivery_tx(Entry, _ResolvedApiMsgId, ResolvedMsgId) ->
     DeliveryId = maps:get(delivery_id, Entry),
-    case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
+    case mnesia:wread({?TAB_MSG_META, DeliveryId}) of
         [_] ->
             already_promoted;
         [] ->
@@ -269,26 +277,32 @@ promote_entry_delivery_tx(Entry, _ResolvedApiMsgId, ResolvedMsgId) ->
                 created_at = maps:get(created_at, Entry),
                 expires_at = maps:get(expires_at, Entry)
             },
-            mnesia:write(Delivery),
+            %% Lock order meta -> counter -> rec, matching complete_delivery/1
+            %% and delete_one_expired_delivery_tx/1 (the previous rec-first
+            %% order deadlocked with the ack hot path under load).
             mnesia:write(#bcast_msg_meta{
                 delivery_id = DeliveryId,
                 msg_id = ResolvedMsgId,
                 topic_template = maps:get(topic_template, Entry),
                 counter = length(maps:get(devices, Entry))
             }),
+            mnesia:write(#bcast_msg_meta_counter{
+                delivery_id = DeliveryId,
+                counter = length(maps:get(devices, Entry))
+            }),
+            mnesia:write(Delivery),
             ok
     end.
 
 %% Entry shape matches emqx_bcast_intake:entry(). Runs inside a mnesia
 %% transaction (promoter batch or owner create_sync).
 %% Idempotent: an already-committed delivery returns {error, already_exists}
-%% instead of re-writing the rows and double-incrementing the message
-%% delivery_count (a create_sync retry after an index-append failure used
-%% to double-count; test/legacy path).
+%% instead of re-writing the rows (a create_sync retry after an
+%% index-append failure used to double-count; test/legacy path).
 -spec promote_entry_tx(map()) -> {ok, api_msg_id(), #bcast_msg{}} | {error, term()}.
 promote_entry_tx(Entry) ->
     DeliveryId = maps:get(delivery_id, Entry),
-    case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
+    case mnesia:wread({?TAB_MSG_META, DeliveryId}) of
         [_] ->
             {error, already_exists};
         [] ->
@@ -305,9 +319,9 @@ promote_entry_tx_new(Entry, DeliveryId) ->
     Devices = maps:get(devices, Entry),
     CreatedAt = maps:get(created_at, Entry),
     ExpiresAt = maps:get(expires_at, Entry),
-    %% Hash resolve, message create/refresh and the delivery_count bump are
-    %% one step; dedup resolves to an existing message whose TTL is
-    %% refreshed in the same write.
+    %% Hash resolve and message create/refresh are one step; dedup
+    %% resolves to an existing message whose TTL is refreshed in the same
+    %% write.
     {_Status, ResolvedApiMsgId, ResolvedMsgId} = write_message_inc_tx(
         Payload, Hash, ApiMsgId, MsgId, CreatedAt, ExpiresAt - CreatedAt
     ),
@@ -322,13 +336,18 @@ promote_entry_tx_new(Entry, DeliveryId) ->
         created_at = CreatedAt,
         expires_at = ExpiresAt
     },
-    mnesia:write(Delivery),
+    %% Lock order meta -> counter -> rec, matching complete_delivery/1.
     mnesia:write(#bcast_msg_meta{
         delivery_id = DeliveryId,
         msg_id = ResolvedMsgId,
         topic_template = TopicTemplate,
         counter = length(Devices)
     }),
+    mnesia:write(#bcast_msg_meta_counter{
+        delivery_id = DeliveryId,
+        counter = length(Devices)
+    }),
+    mnesia:write(Delivery),
     {ok, ResolvedApiMsgId, Delivery}.
 
 %%--------------------------------------------------------------------
@@ -443,6 +462,17 @@ process_ack(ProductKey, DeviceName, DeliveryId) ->
 -spec process_ack_batch([{product_key(), device_name(), delivery_id()}]) ->
     [counted | duplicate | not_found | {error, term()}].
 process_ack_batch(Acks) ->
+    %% Normalized shape: counted acks are reported as the bare atom
+    %% counted; the remaining-queued flag that index_owner:ack_batch
+    %% returns stays internal to the ack pipeline (see
+    %% emqx_bcast_pull_server_pool, which reads the raw results).
+    [normalize_ack_result(R) || R <- ack_batch_results(Acks)].
+
+%% Raw ack results ({counted, RemQueued} | not_found | ...) for the ack
+%% pipeline, which needs the remaining-queued flag to refill windows.
+-spec ack_batch_results([{product_key(), device_name(), delivery_id()}]) ->
+    [{counted, boolean()} | duplicate | not_found | {error, term()}].
+ack_batch_results(Acks) ->
     try emqx_bcast_index_owner:ack_batch(Acks) of
         Results -> Results
     catch
@@ -454,6 +484,9 @@ process_ack_batch(Acks) ->
             }),
             [{error, Reason} || _ <- Acks]
     end.
+
+normalize_ack_result({counted, _RemQueued}) -> counted;
+normalize_ack_result(Other) -> Other.
 
 -spec claim_want_next_batch([map()]) -> [{binary(), map() | no_more}] | {error, term()}.
 claim_want_next_batch(Entries) ->
@@ -539,16 +572,22 @@ get_message_by_api_id(ApiMsgId) ->
         [#bcast_message_api_id{msg_id = MsgId}] ->
             case lookup_message(MsgId) of
                 {ok, Msg} ->
-                    %% delivery_count is maintained transactionally and is
-                    %% the authoritative value; a full bcast_msg scan here
-                    %% turned one metadata GET into O(all deliveries).
-                    {ok, Msg, Msg#bcast_message.delivery_count};
+                    %% delivery_count is no longer maintained transactionally
+                    %% (messages are GC'd by TTL); count the message's
+                    %% outstanding delivery rows on demand. This is a
+                    %% management GET, so the O(outstanding) scan is fine.
+                    {ok, Msg, outstanding_delivery_count(MsgId)};
                 Error ->
                     Error
             end;
         [] ->
             {error, not_found}
     end.
+
+%% Outstanding delivery rows for a message (one bcast_msg row per pending
+%% delivery-request). Replaces the former transactional delivery_count.
+outstanding_delivery_count(MsgId) ->
+    length(mnesia:dirty_match_object(?TAB_MSG_REC, #bcast_msg{msg_id = MsgId, _ = '_'})).
 
 -spec delete_message(api_msg_id()) -> ok | {error, term()}.
 delete_message(ApiMsgId) ->
@@ -560,9 +599,14 @@ get_delivery(DeliveryId) ->
     case mnesia:dirty_read(?TAB_MSG_REC, DeliveryId) of
         [#bcast_msg{} = D] ->
             Counter =
-                case mnesia:dirty_read(?TAB_MSG_META, DeliveryId) of
-                    [#bcast_msg_meta{counter = C}] -> C;
-                    [] -> D#bcast_msg.counter
+                case mnesia:dirty_read(?TAB_MSG_META_CNT, DeliveryId) of
+                    [#bcast_msg_meta_counter{counter = C}] ->
+                        C;
+                    [] ->
+                        case mnesia:dirty_read(?TAB_MSG_META, DeliveryId) of
+                            [#bcast_msg_meta{counter = C0}] -> C0;
+                            [] -> D#bcast_msg.counter
+                        end
                 end,
             ApiMsgId =
                 case lookup_message(D#bcast_msg.msg_id) of
@@ -598,36 +642,6 @@ cleanup_expired() ->
     emqx_bcast_index_owner:cleanup_expired().
 
 %%--------------------------------------------------------------------
-%% Shared transaction helpers (called by the index owner inside its own
-%% mnesia transactions)
-%%--------------------------------------------------------------------
-
--spec inc_delivery_count_tx(msg_id()) -> ok.
-inc_delivery_count_tx(MsgId) ->
-    case mnesia:wread({?TAB_MSG, MsgId}) of
-        [#bcast_message{delivery_count = N} = M] ->
-            mnesia:write(M#bcast_message{delivery_count = N + 1});
-        [] ->
-            ok
-    end.
-
--spec dec_delivery_count_tx(msg_id()) -> ok.
-dec_delivery_count_tx(MsgId) ->
-    case mnesia:wread({?TAB_MSG, MsgId}) of
-        [#bcast_message{delivery_count = N} = M] ->
-            case N - 1 of
-                0 ->
-                    mnesia:delete({?TAB_MSG, MsgId}),
-                    mnesia:delete({?TAB_MSG_HASH, M#bcast_message.content_hash}),
-                    mnesia:delete({?TAB_MSG_API_ID, M#bcast_message.api_msg_id});
-                Rest ->
-                    mnesia:write(M#bcast_message{delivery_count = Rest})
-            end;
-        [] ->
-            ok
-    end.
-
-%%--------------------------------------------------------------------
 %% Message tx internals
 %%--------------------------------------------------------------------
 
@@ -646,8 +660,8 @@ resolve_message_tx(Hash, ApiMsgId, MsgId, _Now, _TTL) ->
             end
     end.
 
-%% Hash resolve + message create/refresh + delivery_count increment in one
-%% step. Callers must finish every delivery write before calling this.
+%% Hash resolve + message create/refresh in one step. Callers must
+%% finish every delivery write before calling this.
 write_message_inc_tx(Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
     case mnesia:wread({?TAB_MSG_HASH, Hash}) of
         [] ->
@@ -656,10 +670,7 @@ write_message_inc_tx(Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
         [#bcast_message_hash{msg_id = ExistingMsgId}] ->
             case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
                 [#bcast_message{} = Existing] ->
-                    mnesia:write(Existing#bcast_message{
-                        delivery_count = Existing#bcast_message.delivery_count + 1,
-                        expires_at = Now + TTL
-                    }),
+                    mnesia:write(Existing#bcast_message{expires_at = Now + TTL}),
                     {existing, Existing#bcast_message.api_msg_id, ExistingMsgId};
                 [] ->
                     %% The hash points at a message record that is already
@@ -675,8 +686,6 @@ write_new_message_inc_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL) ->
         api_msg_id = ApiMsgId,
         content_hash = Hash,
         payload = Payload,
-        %% The delivery that triggered the creation counts immediately.
-        delivery_count = 1,
         created_at = Now,
         expires_at = Now + TTL
     }),
@@ -689,7 +698,6 @@ write_message_tx(true, Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
         api_msg_id = ApiMsgId,
         content_hash = Hash,
         payload = Payload,
-        delivery_count = 0,
         created_at = Now,
         expires_at = Now + TTL
     },

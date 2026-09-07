@@ -9,6 +9,7 @@
     start_link/0,
     want_next/1,
     want_next/2,
+    want_next_async/4,
     ack_batch/1,
     ack_batch/2,
     qos0_broadcast/4,
@@ -18,6 +19,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -include("emqx_bcast.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% Ack workers are bounded by the number of schedulers (like the plugin's
 %% other pools: delivery_pool_size=0 means one per scheduler), not a hard
@@ -28,7 +30,7 @@
 %% Worker pool that executes want_next claims off this gen_server's
 %% mailbox, so concurrent claims run in parallel instead of serializing on
 %% one process per core (per-device ordering stays with the index shards).
--define(SERVER_WORKER_POOL, bcast_pull_server_worker_pool).
+-define(SERVER_WORKER_POOL, emqx_bcast_pull_server_worker_pool).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -40,6 +42,16 @@ want_next(Entries) ->
 
 want_next(Entries, Origin) ->
     gen_server:call(?MODULE, {want_next, Entries, Origin}, ?BCAST_RPC_CALL_TIMEOUT_MS).
+
+%% Asynchronous want_next: the claim still executes on the core's server
+%% worker pool, but the caller (a pull pool worker) is not parked on the
+%% whole round trip. Shard is the originating pull_shard partition; Marks
+%% are its claim generations. On completion the results are routed back to
+%% the origin node's pull shard by deliver_results_remote/3.
+want_next_async(Shard, Origin, Entries, Marks) ->
+    gen_server:cast(
+        ?MODULE, {want_next_async, Shard, Origin, Entries, Marks}
+    ).
 
 ack_batch(Acks) ->
     ack_batch(Acks, node()).
@@ -62,8 +74,14 @@ qos0_broadcast(ProductKey, DeviceNames, TopicTemplate, Payload) ->
         {qos0_deliver_local, [ProductKey, DeviceNames, TopicTemplate, Payload]}
     ).
 
-%% QoS1 BatchPub: pure trigger signal (no payload). Each pull_pool checks
-%% online + subscription and turns the trigger into a want_next batch entry.
+%% QoS1 BatchPub: pure trigger signal (no payload). The trigger is
+%% broadcast to every node's pull shards; each pull shard directly stages
+%% want_next entries from the (PK, DN) list - no core-side per-device
+%% channel lookup and no per-device subscription check in the trigger path
+%% (subscription matching belongs to the claim path). Keeping the trigger
+%% broadcast all-node makes it independent of the global channel registry
+%% and its timing: a device the registry does not see yet is still staged
+%% on the node that actually hosts it.
 qos1_trigger(ProductKey, DeviceNames, TopicTemplate) ->
     broadcast_to_pull_pools({qos1_core_trigger_local, [ProductKey, DeviceNames, TopicTemplate]}).
 
@@ -103,6 +121,26 @@ handle_call({want_next, Entries, Origin}, From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast({want_next_async, Shard, Origin, Entries, Marks}, State) ->
+    %% Same server worker pool as the synchronous want_next call: the claim
+    %% fans out to the index shards in parallel and the worker, on
+    %% completion, routes deliver_results back to the origin pull shard
+    %% instead of replying to a parked caller.
+    case
+        emqx_bcast_utils:submit_pool(?SERVER_WORKER_POOL, fun() ->
+            Results = run_async_claim(Entries, Origin),
+            route_deliver_results(Origin, Shard, Results, Marks)
+        end)
+    of
+        ok ->
+            {noreply, State};
+        {error, _Reason} ->
+            %% Pool unavailable: release the marks immediately so the
+            %% origin's window=1 is not stalled; the entries are re-staged
+            %% by the next trigger.
+            route_deliver_results(Origin, Shard, [], Marks),
+            {noreply, State}
+    end;
 handle_cast({ack_batch, Origin, Acks}, State) ->
     %% Handle acks OFF the gen_server mailbox. A burst of ack batches
     %% used to pile up ahead of every want_next call (cast-then-call on the
@@ -151,26 +189,85 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal
 %%--------------------------------------------------------------------
 
+%% Execute one asynchronous claim, normalizing any failure to [] so the
+%% deliver_results side always runs (empty results release the marks).
+run_async_claim(Entries, Origin) ->
+    try emqx_bcast_storage:claim_want_next_batch(Entries, Origin) of
+        R when is_list(R) -> R;
+        {error, ClaimReason} ->
+            ?SLOG(warning, #{
+                msg => "bcast_want_next_async_claim_failed",
+                reason => ClaimReason
+            }),
+            [];
+        Other ->
+            ?SLOG(warning, #{
+                msg => "bcast_want_next_async_unexpected_result",
+                result => Other
+            }),
+            []
+    catch
+        Error:Reason ->
+            ?SLOG(warning, #{
+                msg => "bcast_want_next_async_claim_error",
+                exception => Error,
+                reason => Reason
+            }),
+            []
+    end.
+
+%% Route claim results back to the pull shard that staged the batch.
+route_deliver_results(Origin, Shard, Results, Marks) ->
+    case Origin =:= node() of
+        true ->
+            emqx_bcast_pull_shard:deliver_results_remote(Shard, Results, Marks);
+        false ->
+            emqx_rpc:cast(
+                Origin,
+                emqx_bcast_pull_shard,
+                deliver_results_remote,
+                [Shard, Results, Marks]
+            )
+    end.
+
 spawn_ack_worker(Acks, Origin) ->
     Parent = self(),
     _ = spawn(fun() ->
-        Results = emqx_bcast_storage:process_ack_batch(Acks),
-        %% Route the acks that were actually applied (counted) back to the
-        %% origin node's pull shards: there the ack-in-flight marker is
-        %% cleared, acked is counted exactly once, and the client's next
-        %% want_next is unblocked. Duplicates/not_found produce no
-        %% confirmation and therefore no count.
-        route_notify(Origin, counted_pairs(Results, Acks)),
+        try
+            Results = emqx_bcast_storage:ack_batch_results(Acks),
+            %% Route the acks that were actually applied (counted) back to
+            %% the origin node's pull shards: there the ack-in-flight
+            %% marker is cleared, acked is counted exactly once, and the
+            %% client's window is refilled when the core reports queued
+            %% deliveries remaining. Duplicates/not_found produce no
+            %% confirmation and therefore no count.
+            route_notify(Origin, counted_pairs(Results, Acks))
+        catch
+            Error:Reason:Stacktrace ->
+                ?SLOG(warning, #{
+                    msg => "bcast_ack_worker_failed",
+                    exception => Error,
+                    reason => Reason,
+                    stacktrace => Stacktrace,
+                    acks => length(Acks)
+                })
+        end,
+        %% Always report completion so the bounded-concurrency accounting
+        %% (in_flight) can never leak a slot and wedge the ack drain.
         Parent ! {ack_batch_done, self()}
     end),
     ok.
 
-%% [{result, {ProductKey, ClientId, DeliveryId}}] -> confirmed triples
+%% [{result, {ProductKey, ClientId, DeliveryId}}] -> confirmed quadruples
+%% {ClientId, ProductKey, DeliveryId, RemQueued}; RemQueued tells the pull
+%% side whether the device still has queued (non-inflight) entries so it
+%% can refill its window immediately instead of waiting for the next
+%% trigger (eliminates empty no_more claims on the drain path).
 counted_pairs(Results, Acks) ->
     lists:filtermap(
         fun
-            ({counted, {ProductKey, ClientId, DeliveryId}}) ->
-                {true, {ClientId, ProductKey, DeliveryId}};
+            ({{counted, RemQueued}, {ProductKey, ClientId, DeliveryId}}) ->
+                {true, {ClientId, ProductKey, DeliveryId, RemQueued}};
             (_) ->
                 false
         end,
@@ -180,13 +277,12 @@ counted_pairs(Results, Acks) ->
 route_notify(_Origin, []) ->
     ok;
 route_notify(Origin, Notify) when Origin =:= node() ->
-    emqx_bcast_pull_pool:ack_applied(Notify);
+    emqx_bcast_pull_shard:ack_applied(Notify);
 route_notify(Origin, Notify) ->
-    emqx_rpc:cast(Origin, emqx_bcast_pull_pool, ack_applied, [Notify]).
+    emqx_rpc:cast(Origin, emqx_bcast_pull_shard, ack_applied, [Notify]).
 
 broadcast_to_pull_pools({Fun, Args}) ->
     broadcast_to_pull_pools_on(emqx:running_nodes(), {Fun, Args}).
-
 broadcast_to_pull_pools_on(Nodes0, {Fun, Args}) ->
     Nodes =
         case lists:member(node(), Nodes0) of
@@ -197,9 +293,9 @@ broadcast_to_pull_pools_on(Nodes0, {Fun, Args}) ->
         fun(Node) ->
             case Node =:= node() of
                 true ->
-                    apply(emqx_bcast_pull_pool, local_cast_fun(Fun), Args);
+                    apply(emqx_bcast_pull_shard, local_cast_fun(Fun), Args);
                 false ->
-                    emqx_rpc:cast(Node, emqx_bcast_pull_pool, local_cast_fun(Fun), Args)
+                    emqx_rpc:cast(Node, emqx_bcast_pull_shard, local_cast_fun(Fun), Args)
             end
         end,
         Nodes

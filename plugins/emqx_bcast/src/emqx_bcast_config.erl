@@ -83,52 +83,40 @@ defaults() ->
 normalize(Config) ->
     Defaults = defaults(),
     #{
-        broadcast_topic => maps:get(
-            <<"broadcast_topic">>, Config, maps:get(<<"broadcast_topic">>, Defaults)
-        ),
-        batch_topic => maps:get(<<"batch_topic">>, Config, maps:get(<<"batch_topic">>, Defaults)),
-        msg_ttl => duration_to_sec(
-            msg_ttl, maps:get(<<"msg_ttl">>, Config, maps:get(<<"msg_ttl">>, Defaults))
-        ),
+        broadcast_topic => bin_or(<<"broadcast_topic">>, Config, Defaults),
+        batch_topic => bin_or(<<"batch_topic">>, Config, Defaults),
+        msg_ttl => duration_to_sec(msg_ttl, bin_or(<<"msg_ttl">>, Config, Defaults)),
         cleanup_interval => duration_to_sec(
-            cleanup_interval,
-            maps:get(<<"cleanup_interval">>, Config, maps:get(<<"cleanup_interval">>, Defaults))
+            cleanup_interval, bin_or(<<"cleanup_interval">>, Config, Defaults)
         ),
-        max_device_count => maps:get(
-            <<"max_device_count">>, Config, maps:get(<<"max_device_count">>, Defaults)
+        max_device_count => num_or(<<"max_device_count">>, Config, Defaults),
+        max_message_size_broadcast => num_or(
+            <<"max_message_size_broadcast">>, Config, Defaults
         ),
-        max_message_size_broadcast => maps:get(
-            <<"max_message_size_broadcast">>,
-            Config,
-            maps:get(<<"max_message_size_broadcast">>, Defaults)
-        ),
-        max_message_size_batch => maps:get(
-            <<"max_message_size_batch">>, Config, maps:get(<<"max_message_size_batch">>, Defaults)
-        ),
-        max_pending_deliveries => maps:get(
-            <<"max_pending_deliveries">>,
-            Config,
-            maps:get(<<"max_pending_deliveries">>, Defaults)
-        ),
+        max_message_size_batch => num_or(<<"max_message_size_batch">>, Config, Defaults),
+        max_pending_deliveries => num_or(<<"max_pending_deliveries">>, Config, Defaults),
         max_pending_deliveries_per_device => clamp_per_device(
-            maps:get(
-                <<"max_pending_deliveries_per_device">>,
-                Config,
-                maps:get(<<"max_pending_deliveries_per_device">>, Defaults)
-            )
+            num_or(<<"max_pending_deliveries_per_device">>, Config, Defaults)
         ),
-        msg_warn_threshold => maps:get(
-            <<"msg_warn_threshold">>, Config, maps:get(<<"msg_warn_threshold">>, Defaults)
-        ),
-        intake_queue_depth => maps:get(
-            <<"intake_queue_depth">>, Config, maps:get(<<"intake_queue_depth">>, Defaults)
-        ),
-        delivery_pool_size => pool_size(
-            maps:get(
-                <<"delivery_pool_size">>, Config, maps:get(<<"delivery_pool_size">>, Defaults)
-            )
-        )
+        msg_warn_threshold => num_or(<<"msg_warn_threshold">>, Config, Defaults),
+        intake_queue_depth => num_or(<<"intake_queue_depth">>, Config, Defaults),
+        delivery_pool_size => pool_size(num_or(<<"delivery_pool_size">>, Config, Defaults))
     }.
+
+%% A null (or otherwise mistyped) value in the stored plugin config - e.g. a
+%% field cleared in the dashboard persists as null - must not leak into the
+%% runtime config: fall back to the default.
+bin_or(Key, Config, Defaults) ->
+    case maps:get(Key, Config, maps:get(Key, Defaults)) of
+        V when is_binary(V) -> V;
+        _ -> maps:get(Key, Defaults)
+    end.
+
+num_or(Key, Config, Defaults) ->
+    case maps:get(Key, Config, maps:get(Key, Defaults)) of
+        V when is_integer(V) -> V;
+        _ -> maps:get(Key, Defaults)
+    end.
 
 %% Per-device quota is bounded to [10, 200] so an operator cannot
 %% accidentally disable the protection or configure an unbounded value.

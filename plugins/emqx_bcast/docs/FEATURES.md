@@ -85,7 +85,7 @@ unmounted delivery topics.
 4. QoS=1: core writes message and delivery records in a single
    transaction, then broadcasts a pure trigger. Each `pull_pool`
    deduplicates triggers into `buffer3`, pulls from a random core,
-   fills the active A/B buffer, delivers, and tracks pending acks.
+   fills the active delivery buffer, delivers, and tracks pending acks.
 
 The delivery workers themselves have no queue admission control:
 workers are pooled and pull-side buffering provides backpressure through

@@ -19,16 +19,15 @@
     submit_pool/2,
     pool_available/1,
     maybe_batch_flush/3,
+    maybe_batch_flush/5,
     cancel_timer/1,
     ensure_ets/2
 ]).
 
 -include("emqx_bcast.hrl").
 
-%% Batch-flush cadence shared by the ack and pull pools. 10ms keeps the
-%% per-client want_next/ack cycle latency low (window=1 makes the drain
-%% latency-bound at ~25-33k msg/s with 90k clients); 100 is the immediate
-%% flush threshold.
+%% Default batch-flush cadence (10ms / 100) kept for compatibility;
+%% pull/ack shards pass their own faster cadence through maybe_batch_flush/4.
 -define(FLUSH_MS, 10).
 -define(FLUSH_COUNT, 100).
 
@@ -100,13 +99,18 @@ ttl() ->
     emqx_bcast_config:get(msg_ttl).
 
 %% Submit a task to an emqx_pool worker pool. Callers must not run the task
-%% inline on failure: pull_pool uses this helper from its gen_server and an
+%% inline on failure: pull_shard uses this helper from its gen_server and an
 %% inline RPC (do_want_next) would block every cast queued behind it.
 %% Returns ok | {error, Reason}; the caller decides whether to log and drop.
 
 -spec pool_available(atom()) -> boolean().
 pool_available(Pool) ->
-    try gproc_pool:pick_worker(Pool) =/= false of
+    %% Use active_workers/1, NOT pick_worker/1, for the preflight check:
+    %% pick_worker advances the round-robin cursor, and submit_pool/2 used
+    %% to preflight with pick_worker and then call emqx_pool:async_submit_to_pool
+    %% (which picks again). Every submission therefore advanced the cursor
+    %% twice, so half of the pool workers never received any task.
+    try gproc_pool:active_workers(Pool) =/= [] of
         Available -> Available
     catch
         _:_ -> false
@@ -136,14 +140,24 @@ submit_pool(Pool, Fun) ->
 -spec maybe_batch_flush(non_neg_integer(), reference() | undefined, term()) ->
     reference() | undefined.
 maybe_batch_flush(Count, TimerRef, FlushMsg) ->
-    case Count >= ?FLUSH_COUNT of
+    maybe_batch_flush(Count, TimerRef, FlushMsg, ?FLUSH_MS, ?FLUSH_COUNT).
+
+-spec maybe_batch_flush(
+    non_neg_integer(),
+    reference() | undefined,
+    term(),
+    timeout(),
+    pos_integer()
+) -> reference() | undefined.
+maybe_batch_flush(Count, TimerRef, FlushMsg, FlushMs, FlushCount) ->
+    case Count >= FlushCount of
         true ->
             _ = cancel_timer(TimerRef),
             self() ! FlushMsg,
             undefined;
         false ->
             case TimerRef of
-                undefined -> erlang:send_after(?FLUSH_MS, self(), FlushMsg);
+                undefined -> erlang:send_after(FlushMs, self(), FlushMsg);
                 _ -> TimerRef
             end
     end.
