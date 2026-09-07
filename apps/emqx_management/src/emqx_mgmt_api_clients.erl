@@ -1036,7 +1036,10 @@ parse_qstring(QString) ->
     end.
 
 run_filters(Rows, QString0) ->
-    {_NClauses, {QString1, FuzzyQString1}} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
+    {_NClauses, ParsedQString} = emqx_mgmt_api:parse_qstring(QString0, ?CLIENT_QSCHEMA),
+    run_parsed_filters(Rows, ParsedQString).
+
+run_parsed_filters(Rows, {QString1, FuzzyQString1}) ->
     {QString, FuzzyQString} = adapt_custom_filters(QString1, FuzzyQString1),
     FuzzyFilterFn = fuzzy_filter_fun(FuzzyQString),
     lists:filter(
@@ -1444,7 +1447,9 @@ do_list_clients_cluster_query(
                         Tail, QueryState1
                     ),
                     QueryState = add_persistent_session_count(QueryState2),
-                    Complete = Complete0 andalso Tail =:= [] andalso no_persistent_sessions(),
+                    Complete =
+                        Complete0 andalso Tail =:= [] andalso
+                            no_matching_persistent_sessions(QueryState),
                     emqx_mgmt_api:finalize_query(
                         NResultAcc, emqx_mgmt_api:mark_complete(QueryState, Complete)
                     );
@@ -1475,9 +1480,9 @@ list_clients_node_query(Node, QString, Options) ->
             emqx_mgmt_api:format_query_result(fun ?MODULE:format_channel_info/3, Meta, Res, Opts)
     end.
 
-add_persistent_session_count(QueryState0 = #{total := Totals0}) ->
-    case emqx_persistent_message:is_persistence_enabled() of
-        true ->
+add_persistent_session_count(QueryState0 = #{total := Totals0, qs := Qs}) ->
+    case emqx_persistent_message:is_persistence_enabled() andalso may_durable_session_match(Qs) of
+        true when Qs =:= {[], []} ->
             %% TODO: currently, counting persistent sessions can be not only costly (needs
             %% to traverse the whole table), but also hard to deduplicate live connections
             %% from it...  So this count will possibly overshoot the true count of
@@ -1486,6 +1491,14 @@ add_persistent_session_count(QueryState0 = #{total := Totals0}) ->
                 emqx_persistent_session_bookkeeper:get_disconnected_session_count(),
             Totals = Totals0#{undefined => DisconnectedSessionCount},
             QueryState0#{total := Totals};
+        true ->
+            %% Counting the durable sessions that match the filters needs a full table
+            %% traversal. Drop the total instead of reporting a wrong count, like
+            %% fuzzy searches do.
+            case no_persistent_sessions() of
+                true -> QueryState0;
+                false -> maps:remove(total, QueryState0)
+            end;
         false ->
             QueryState0
     end;
@@ -1504,7 +1517,7 @@ do_list_clients_node_query(
         {Rows, NQueryState = #{complete := Complete}} ->
             case emqx_mgmt_api:accumulate_query_rows(Node, Rows, NQueryState, ResultAcc) of
                 {enough, NResultAcc} ->
-                    FComplete = Complete andalso no_persistent_sessions(),
+                    FComplete = Complete andalso no_matching_persistent_sessions(NQueryState),
                     emqx_mgmt_api:finalize_query(
                         NResultAcc, emqx_mgmt_api:mark_complete(NQueryState, FComplete)
                     );
@@ -1517,6 +1530,21 @@ do_list_clients_node_query(
 
 init_persistent_session_iterator() ->
     emqx_persistent_session_ds_state:make_session_iterator().
+
+no_matching_persistent_sessions(#{qs := Qs}) ->
+    not may_durable_session_match(Qs) orelse no_persistent_sessions().
+
+-doc """
+The durable sessions listed by the persistent-session tail query are all
+disconnected. When the query filters on another connection state, no durable
+session can match and the tail query can be skipped.
+""".
+may_durable_session_match({Qs, _Fuzzy}) ->
+    case lists:keyfind(conn_state, 1, Qs) of
+        false -> true;
+        {conn_state, '=:=', disconnected} -> true;
+        {conn_state, '=:=', _} -> false
+    end.
 
 no_persistent_sessions() ->
     case emqx_persistent_message:is_persistence_enabled() of
@@ -1532,8 +1560,8 @@ no_persistent_sessions() ->
             true
     end.
 
-do_persistent_session_query(ResultAcc, QueryState) ->
-    case emqx_persistent_message:is_persistence_enabled() of
+do_persistent_session_query(ResultAcc, QueryState = #{qs := Qs}) ->
+    case emqx_persistent_message:is_persistence_enabled() andalso may_durable_session_match(Qs) of
         true ->
             do_persistent_session_query1(
                 ResultAcc,
@@ -1547,9 +1575,9 @@ do_persistent_session_query(ResultAcc, QueryState) ->
 do_persistent_session_query1(ResultAcc, QueryState, Iter0) ->
     %% Since persistent session data is accessible from all nodes, there's no need to go
     %% through all the nodes.
-    #{limit := Limit} = QueryState,
+    #{limit := Limit, qs := Qs} = QueryState,
     {Rows0, Iter} = emqx_persistent_session_ds_state:session_iterator_next(Iter0, Limit),
-    Rows = check_for_live_and_expired(Rows0),
+    Rows = run_parsed_filters(check_for_live_and_expired(Rows0), Qs),
     case emqx_mgmt_api:accumulate_query_rows(undefined, Rows, QueryState, ResultAcc) of
         {enough, NResultAcc} ->
             emqx_mgmt_api:finalize_query(NResultAcc, emqx_mgmt_api:mark_complete(QueryState, true));
@@ -1758,6 +1786,11 @@ does_offline_chan_info_match({created_at, '=<', CreatedAtTo}, #{
     CreatedAt =< CreatedAtTo
 ->
     true;
+%% A `gte_' + `lte_' pair of query parameters produces one clause with both
+%% bounds; check each bound separately.
+does_offline_chan_info_match({Key, Op1, V1, Op2, V2}, ChanInfo) ->
+    does_offline_chan_info_match({Key, Op1, V1}, ChanInfo) andalso
+        does_offline_chan_info_match({Key, Op2, V2}, ChanInfo);
 does_offline_chan_info_match(_, _) ->
     false.
 
