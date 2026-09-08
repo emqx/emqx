@@ -1478,8 +1478,8 @@ commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added) ->
             },
             [],
             [
-                {{bcast_client_state, {{PK, ClientId}}, PK, ClientId, '$1', undefined,
-                    InflightExpr, '$2'}}
+                {{bcast_client_state, {{PK, ClientId}}, PK, ClientId, '$1', undefined, InflightExpr,
+                    '$2'}}
             ]
         }
     ],
@@ -2017,7 +2017,8 @@ take_expired_ack_in_flight(PK, DN, Did, Mark) ->
             [{{bcast_client_state, {{PK, DN}}, PK, DN, '$1', '$2', Rest, '$3'}}]
         }
     ],
-    try ets:select_replace(Tab, MS) =:= 1
+    try
+        ets:select_replace(Tab, MS) =:= 1
     catch
         error:badarg -> false
     end.

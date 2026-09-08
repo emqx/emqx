@@ -136,6 +136,86 @@ t_config_defaults(_Config) ->
     ?assert(is_binary(maps:get(broadcast_topic, Cfg))),
     ?assert(is_binary(maps:get(batch_topic, Cfg))).
 
+-doc "The runtime config surface matches the avro schema: keys the schema "
+"does not declare (e.g. the hardcoded intake queue depth) must not leak "
+"into the normalized runtime config - they could never be set through "
+"the plugin config API anyway.".
+t_config_surface_matches_schema(_Config) ->
+    try
+        ok = emqx_bcast_config:update(#{<<"intake_queue_depth">> => 5}),
+        ?assertEqual(undefined, emqx_bcast_config:get(intake_queue_depth, undefined)),
+        RuntimeKeys = lists:sort(maps:keys(persistent_term:get({?APP, config}))),
+        SchemaPath = filename:join(code:priv_dir(emqx_bcast), "config_schema.avsc"),
+        {ok, SchemaBin} = file:read_file(SchemaPath),
+        Schema = emqx_utils_json:decode(SchemaBin),
+        SchemaFields = lists:sort([
+            binary_to_atom(maps:get(<<"name">>, F))
+         || F <- maps:get(<<"fields">>, Schema)
+        ]),
+        ?assert(lists:all(fun(K) -> lists:member(K, SchemaFields) end, RuntimeKeys))
+    after
+        init_test_config()
+    end.
+
+-doc "Out-of-range per-device quota values are clamped to [10, 200]; a "
+"warning tells the operator the configured value was overridden "
+"instead of silently rewriting it.".
+t_config_per_device_quota_clamped_with_warning(_Config) ->
+    try
+        Reports = emqx_cth_log_capture:capture(fun() ->
+            ok = emqx_bcast_config:update(#{<<"max_pending_deliveries_per_device">> => 500})
+        end),
+        ?assertEqual(200, emqx_bcast_config:get(max_pending_deliveries_per_device)),
+        ?assert(
+            lists:any(
+                fun(R) -> maps:get(msg, R, undefined) =:= per_device_quota_clamped end, Reports
+            )
+        ),
+        ok = emqx_bcast_config:update(#{<<"max_pending_deliveries_per_device">> => 1}),
+        ?assertEqual(10, emqx_bcast_config:get(max_pending_deliveries_per_device)),
+        ok = emqx_bcast_config:update(#{<<"max_pending_deliveries_per_device">> => 50}),
+        ?assertEqual(50, emqx_bcast_config:get(max_pending_deliveries_per_device))
+    after
+        init_test_config()
+    end.
+
+-doc "Configured topic templates are validated like per-request templates: "
+"wildcards and unknown placeholders fall back to the default with a "
+"warning instead of failing at publish time; valid templates are kept.".
+t_config_topic_template_validated(_Config) ->
+    DefaultBroadcast = <<"/sys/broadcast/${productKey}">>,
+    DefaultBatch = <<"/${productKey}/${deviceName}/user/get">>,
+    try
+        Reports = emqx_cth_log_capture:capture(fun() ->
+            ok = emqx_bcast_config:update(#{<<"broadcast_topic">> => <<"/sys/broadcast/+">>}),
+            ok = emqx_bcast_config:update(#{
+                <<"batch_topic">> => <<"/${tenant}/${deviceName}/user/get">>
+            })
+        end),
+        ?assertEqual(DefaultBroadcast, emqx_bcast_config:get(broadcast_topic)),
+        ?assertEqual(DefaultBatch, emqx_bcast_config:get(batch_topic)),
+        ?assertEqual(
+            2,
+            length([
+                R
+             || R <- Reports,
+                maps:get(msg, R, undefined) =:= invalid_plugin_config_topic_template
+            ])
+        ),
+        ok = emqx_bcast_config:update(#{
+            <<"broadcast_topic">> => <<"/sys/b/${productKey}/${deviceName}">>,
+            <<"batch_topic">> => <<"/${productKey}/${deviceName}/custom">>
+        }),
+        ?assertEqual(
+            <<"/sys/b/${productKey}/${deviceName}">>, emqx_bcast_config:get(broadcast_topic)
+        ),
+        ?assertEqual(
+            <<"/${productKey}/${deviceName}/custom">>, emqx_bcast_config:get(batch_topic)
+        )
+    after
+        init_test_config()
+    end.
+
 %%--------------------------------------------------------------------
 %% ID Mapping tests
 %%--------------------------------------------------------------------
@@ -2047,8 +2127,16 @@ t_cleanup_client_ignores_stale_pid(_Config) ->
     DN = <<"DSTALEPID">>,
     Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
     Name = emqx_bcast_pull_shard:shard_name(Shard),
-    OldPid = spawn(fun() -> receive stop -> ok end end),
-    NewPid = spawn(fun() -> receive stop -> ok end end),
+    OldPid = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    NewPid = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
     Tag = 424242,
     seed_claim_row(PK, DN, Tag, erlang:system_time(millisecond), Shard),
     %% The row now belongs to the new channel pid (reconnect/takeover).
@@ -2650,7 +2738,9 @@ t_shard_crash_reactivates_partition(_Config) ->
     Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Target)),
     Pid0 = whereis(Name),
     exit(Pid0, kill),
-    ?assert(wait_until(fun() -> whereis(Name) =/= undefined andalso whereis(Name) =/= Pid0 end, 100)),
+    ?assert(
+        wait_until(fun() -> whereis(Name) =/= undefined andalso whereis(Name) =/= Pid0 end, 100)
+    ),
     %% The restarted shard re-activates its partition from the durable log
     %% and serves claims again.
     ?assert(

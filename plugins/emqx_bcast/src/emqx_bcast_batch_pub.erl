@@ -147,8 +147,7 @@ enqueue_request(
     %% loader otherwise burns a full 1000-device admit (+release) per
     %% rejected request, saturating the index shards the promoters need
     %% for appends (measured: shard 0 backed up at 1600 rejected req/s).
-    %% Arity-2 get: stale config maps (e.g. older suites) may lack the key.
-    MaxDepth = emqx_bcast_config:get(intake_queue_depth, 20000),
+    MaxDepth = ?INTAKE_QUEUE_DEPTH,
     case emqx_bcast_intake:depth() >= MaxDepth of
         true ->
             emqx_bcast_metrics:intake_rejected(),

@@ -74,7 +74,6 @@ defaults() ->
         <<"max_pending_deliveries">> => 10000000,
         <<"max_pending_deliveries_per_device">> => 100,
         <<"msg_warn_threshold">> => 100000,
-        <<"intake_queue_depth">> => 20000,
         <<"delivery_pool_size">> => 0
     }.
 
@@ -83,8 +82,8 @@ defaults() ->
 normalize(Config) ->
     Defaults = defaults(),
     #{
-        broadcast_topic => bin_or(<<"broadcast_topic">>, Config, Defaults),
-        batch_topic => bin_or(<<"batch_topic">>, Config, Defaults),
+        broadcast_topic => topic_or(<<"broadcast_topic">>, Config, Defaults),
+        batch_topic => topic_or(<<"batch_topic">>, Config, Defaults),
         msg_ttl => duration_to_sec(msg_ttl, bin_or(<<"msg_ttl">>, Config, Defaults)),
         cleanup_interval => duration_to_sec(
             cleanup_interval, bin_or(<<"cleanup_interval">>, Config, Defaults)
@@ -99,7 +98,6 @@ normalize(Config) ->
             num_or(<<"max_pending_deliveries_per_device">>, Config, Defaults)
         ),
         msg_warn_threshold => num_or(<<"msg_warn_threshold">>, Config, Defaults),
-        intake_queue_depth => num_or(<<"intake_queue_depth">>, Config, Defaults),
         delivery_pool_size => pool_size(num_or(<<"delivery_pool_size">>, Config, Defaults))
     }.
 
@@ -118,14 +116,56 @@ num_or(Key, Config, Defaults) ->
         _ -> maps:get(Key, Defaults)
     end.
 
+%% Configured topic templates take the default-topic path, which skips the
+%% per-request template validation. Apply the same rules here (no wildcards,
+%% no unknown placeholders) so a bad template fails loudly at config time
+%% instead of breaking every publish at runtime.
+topic_or(Key, Config, Defaults) ->
+    Template = bin_or(Key, Config, Defaults),
+    case valid_topic_template(Template) of
+        true ->
+            Template;
+        false ->
+            ?SLOG(warning, #{
+                msg => invalid_plugin_config_topic_template,
+                field => Key,
+                value => Template,
+                default => maps:get(Key, Defaults)
+            }),
+            maps:get(Key, Defaults)
+    end.
+
+valid_topic_template(Template) ->
+    case binary:match(Template, [<<"+">>, <<"#">>]) of
+        nomatch -> known_placeholders_only(Template);
+        _ -> false
+    end.
+
+known_placeholders_only(Template) ->
+    Rest0 = binary:replace(Template, <<"${productKey}">>, <<>>, [global]),
+    Rest = binary:replace(Rest0, <<"${deviceName}">>, <<>>, [global]),
+    binary:match(Rest, <<"${">>) =:= nomatch.
+
 %% Per-device quota is bounded to [10, 200] so an operator cannot
 %% accidentally disable the protection or configure an unbounded value.
+%% Values outside the range are clamped, with a warning: a silent rewrite
+%% would make the config surface lie about the effective value.
 clamp_per_device(N) when is_integer(N), N >= 10, N =< 200 ->
     N;
 clamp_per_device(N) when is_integer(N), N < 10 ->
+    clamp_warn(N, 10),
     10;
-clamp_per_device(_) ->
+clamp_per_device(N) ->
+    clamp_warn(N, 200),
     200.
+
+clamp_warn(Configured, Effective) ->
+    ?SLOG(warning, #{
+        msg => per_device_quota_clamped,
+        field => max_pending_deliveries_per_device,
+        configured => Configured,
+        effective => Effective
+    }).
 
 pool_size(0) -> erlang:system_info(schedulers);
 pool_size(N) when is_integer(N), N > 0 -> N;

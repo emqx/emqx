@@ -29,6 +29,12 @@
 -define(TAB_INT_Q, bcast_intake_queue).
 -define(TAB_INT_SEQ, bcast_intake_seq).
 
+%% Bounded node-local intake queue depth. Hardcoded on purpose: it is not
+%% part of the avro config schema, so a value here could never be changed
+%% through the plugin config API - keeping it in the config surface only
+%% pretended it was configurable.
+-define(INTAKE_QUEUE_DEPTH, 20000).
+
 %% Shared global pending-count row held by emqx_bcast_index_owner (the
 %% quota owner's node; update_counter from every shard). The per-device
 %% index itself lives in the shards' process heaps, rebuildable from

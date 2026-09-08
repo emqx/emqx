@@ -1163,8 +1163,9 @@ handle_cast({release_batch, Releases}, State = #{active := true}) ->
         Releases
     ),
     {noreply, State2};
-handle_cast({activate_shard, Shard}, State = #{active := true, shard := 0})
-  when Shard =/= 0 ->
+handle_cast({activate_shard, Shard}, State = #{active := true, shard := 0}) when
+    Shard =/= 0
+->
     %% A dormant shard asked for a targeted re-activation of its own
     %% partition (e.g. after a crash restart). Only the activation leader
     %% scans and hands out the shared projection. Quota is not re-counted:
@@ -1208,8 +1209,9 @@ handle_info(maybe_activate, State = #{active := false, shard := 0}) ->
             erlang:send_after(?OWNER_POLL_MS, self(), maybe_activate),
             {noreply, State}
     end;
-handle_info(maybe_activate, State = #{active := false, shard := Shard})
-  when Shard =/= 0 ->
+handle_info(maybe_activate, State = #{active := false, shard := Shard}) when
+    Shard =/= 0
+->
     case shard_owner(Shard) =:= node() of
         true ->
             %% This node owns the partition but the shard is dormant
