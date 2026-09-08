@@ -907,6 +907,11 @@ new_generation(ShardId, DB, CFRefs, Schema0, MaybePrototype, Shard0, Since, Crea
         current_generation => GenId,
         ?GEN_KEY(GenId) => GenSchema
     },
+    ?tp(debug, ds_storage_layer_new_generation, #{
+        shard => ShardId,
+        generation => GenId,
+        cf_names => cf_names(NewCFRefs)
+    }),
     {GenId, Schema, NewCFRefs}.
 
 -spec next_generation_id(gen_id()) -> gen_id().
