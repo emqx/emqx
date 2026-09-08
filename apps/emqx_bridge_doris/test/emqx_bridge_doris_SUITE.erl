@@ -449,7 +449,8 @@ t_sql_compiler_roundtrip(Config) ->
     {ok, _, [[Modes]]} = mysql:query(C, <<"SELECT @@SESSION.sql_mode">>),
     ?assertEqual(nomatch, binary:match(Modes, <<"ANSI_QUOTES">>)),
     ?assertEqual(nomatch, binary:match(Modes, <<"NO_BACKSLASH_ESCAPES">>)),
-    {ok, Plan} = emqx_doris_sql:compile(
+    {ok, Plan} = emqx_sql_plan:compile(
+        emqx_doris_sql,
         <<"INSERT INTO mqtt.t_mqtt_msg(payload) VALUES (${payload})">>
     ),
     Values = [
@@ -467,7 +468,7 @@ t_sql_compiler_roundtrip(Config) ->
         <<16#ED, 16#A0, 16#80>>,
         <<16#F4, 16#90, 16#80, 16#80>>
     ],
-    {ok, SQL} = emqx_doris_sql:render_batch(
+    {ok, SQL} = emqx_sql_plan:render_batch(
         Plan, [#{payload => Value} || Value <- Values], #{}
     ),
     ?assertEqual(ok, mysql:query(C, iolist_to_binary(SQL))),
@@ -476,10 +477,11 @@ t_sql_compiler_roundtrip(Config) ->
         lists:sort([[binary:encode_hex(Value)] || Value <- Values]),
         lists:sort(Rows)
     ),
-    {ok, TextPlan} = emqx_doris_sql:compile(
+    {ok, TextPlan} = emqx_sql_plan:compile(
+        emqx_doris_sql,
         <<"INSERT INTO mqtt.t_mqtt_msg(payload) VALUES ('prefix ${payload} suffix')">>
     ),
-    {ok, TextSQL} = emqx_doris_sql:render_batch(
+    {ok, TextSQL} = emqx_sql_plan:render_batch(
         TextPlan, [#{payload => Value} || Value <- Values], #{}
     ),
     ?assertEqual(ok, mysql:query(C, iolist_to_binary(TextSQL))),
@@ -490,13 +492,14 @@ t_sql_compiler_roundtrip(Config) ->
         ),
         lists:sort(TextRows)
     ),
-    {ok, ExpressionPlan} = emqx_doris_sql:compile(
+    {ok, ExpressionPlan} = emqx_sql_plan:compile(
+        emqx_doris_sql,
         ~B"""
         INSERT INTO mqtt.t_mqtt_msg(payload)
         VALUES (CONCAT('a''b', R'c\', ${value}))
         """
     ),
-    {ok, ExpressionSQL} = emqx_doris_sql:render(ExpressionPlan, #{value => <<"d">>}, #{}),
+    {ok, ExpressionSQL} = emqx_sql_plan:render(ExpressionPlan, #{value => <<"d">>}, #{}),
     ?assertEqual(ok, mysql:query(C, iolist_to_binary(ExpressionSQL))),
     %% Ordinary literals keep server semantics; raw bodies keep their bytes.
     {ok, _, [[Expected]]} = eval_query(<<"SELECT HEX(CONCAT('a''b', 'c\\\\', 'd'))">>, Config),
@@ -523,10 +526,11 @@ t_escaped_dollar_roundtrip(Config) ->
     ],
     ExpectedRows = [
         begin
-            {ok, Plan} = emqx_doris_sql:compile(
+            {ok, Plan} = emqx_sql_plan:compile(
+                emqx_doris_sql,
                 <<"INSERT INTO mqtt.t_mqtt_msg(payload) VALUES (", Quote, Body/binary, Quote, ")">>
             ),
-            {ok, SQL} = emqx_doris_sql:render(Plan, #{v => <<"x">>, amount => 99}, #{}),
+            {ok, SQL} = emqx_sql_plan:render(Plan, #{v => <<"x">>, amount => 99}, #{}),
             ?assertEqual(ok, mysql:query(C, iolist_to_binary(SQL))),
             [Expected]
         end
@@ -573,11 +577,12 @@ t_raw_string_roundtrip(Config) ->
     ],
     Expected = lists:append([
         begin
-            {ok, Plan} = emqx_doris_sql:compile(
+            {ok, Plan} = emqx_sql_plan:compile(
+                emqx_doris_sql,
                 <<"INSERT INTO mqtt.t_mqtt_msg(payload) VALUES (", R, Quote, Body/binary, Quote,
                     ")">>
             ),
-            {ok, SQL} = emqx_doris_sql:render_batch(Plan, [#{v => V} || V <- Values], #{}),
+            {ok, SQL} = emqx_sql_plan:render_batch(Plan, [#{v => V} || V <- Values], #{}),
             ?assertEqual(ok, mysql:query(C, iolist_to_binary(SQL)), {R, Quote, Body}),
             [[binary:encode_hex(ToExpected(V))] || V <- Values]
         end

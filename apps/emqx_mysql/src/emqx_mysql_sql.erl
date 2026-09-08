@@ -5,10 +5,10 @@
 %% @doc Compile and render restricted MySQL INSERT INTO VALUES templates.
 -module(emqx_mysql_sql).
 
--export([compile/1, render/3, render_batch/3, parse_placeholder/1]).
--export_type([plan/0]).
+-behaviour(emqx_sql_plan).
 
--elvis([{elvis_style, no_match_in_condition, disable}]).
+-export([compile/1, render/3, render_batch/3]).
+-export_type([plan/0]).
 
 -type placeholder() :: emqx_template:placeholder().
 
@@ -72,21 +72,9 @@ render(#mysql_plan{insert_prefix = Prefix, row_plan = Plan, suffix = Suffix}, Da
 render_batch(
     #mysql_plan{insert_prefix = Prefix, row_plan = Plan, suffix = Suffix}, DataList, Opts
 ) ->
-    case render_batch_units(DataList, Plan, Opts, _Index = 1, _Acc = []) of
+    case render_batch_units(DataList, Plan, Opts, 1, []) of
         {ok, Rendered} -> {ok, [Prefix, Rendered, Suffix]};
         {error, _} = Error -> Error
-    end.
-
--spec parse_placeholder(binary()) -> {ok, placeholder()} | {error, invalid_placeholder}.
-parse_placeholder(Source) ->
-    case valid_placeholder_source(Source) of
-        true ->
-            case emqx_template:parse(Source) of
-                [{var, _, _} = Placeholder] -> {ok, Placeholder};
-                _ -> {error, invalid_placeholder}
-            end;
-        false ->
-            {error, invalid_placeholder}
     end.
 
 %%------------------------------------------------------------------------------
@@ -392,27 +380,13 @@ merge_render_ops(Ops) ->
         )
     ).
 
-%% Restrict emqx_template's envelope to nonempty dotted paths.
-%% Retain `${}` and `${.}`.
-%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
-valid_placeholder_source(<<"${}">>) ->
-    true;
-valid_placeholder_source(<<"${.}">>) ->
-    true;
-valid_placeholder_source(Source) ->
-    re:run(
-        Source,
-        <<"^\\$\\{\\.?[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*\\}$">>,
-        [{capture, none}]
-    ) =:= match.
-
 take_placeholder(Bin) ->
     case binary:match(Bin, <<"}">>) of
         {End, 1} ->
             Size = End + 1,
             Source = binary:part(Bin, 0, Size),
             Rest = binary:part(Bin, Size, byte_size(Bin) - Size),
-            case parse_placeholder(Source) of
+            case emqx_sql_plan:parse_placeholder(Source) of
                 {ok, Placeholder} -> {Placeholder, Rest};
                 {error, _} -> error({invalid_placeholder, Source})
             end;

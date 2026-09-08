@@ -90,7 +90,7 @@ Erlang code.
 to_binary(Chars) -> list_to_binary(Chars).
 
 placeholder(Chars, Line) ->
-    case emqx_doris_sql:parse_placeholder(to_binary(Chars)) of
+    case emqx_sql_plan:parse_placeholder(to_binary(Chars)) of
         {ok, Var} -> {token, {placeholder, Line, Var}};
         {error, Reason} -> {error, Reason}
     end.

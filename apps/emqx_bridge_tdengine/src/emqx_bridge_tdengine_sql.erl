@@ -5,7 +5,9 @@
 %% @doc Compile and render restricted TDengine multi-table INSERT templates.
 -module(emqx_bridge_tdengine_sql).
 
--export([compile/1, render/3, render_batch/3, parse_placeholder/1, parse_identifier_parts/2]).
+-behaviour(emqx_sql_plan).
+
+-export([compile/1, render/3, render_batch/3, parse_identifier_parts/2]).
 -export_type([plan/0]).
 
 -type placeholder() :: emqx_template:placeholder().
@@ -93,18 +95,6 @@ parse_identifier_parts(Source, Style) ->
         {ok, parse_identifier_parts(Source, Style, [], [])}
     catch
         error:Reason -> {error, Reason}
-    end.
-
--spec parse_placeholder(binary()) -> {ok, placeholder()} | {error, invalid_placeholder}.
-parse_placeholder(Source) ->
-    case valid_placeholder_source(Source) of
-        true ->
-            case emqx_template:parse(Source) of
-                [{var, _, _} = Placeholder] -> {ok, Placeholder};
-                _ -> {error, invalid_placeholder}
-            end;
-        false ->
-            {error, invalid_placeholder}
     end.
 
 %%------------------------------------------------------------------------------
@@ -401,27 +391,13 @@ decode_escape($%) -> <<"\\%">>;
 decode_escape($_) -> <<"\\_">>;
 decode_escape(Char) -> Char.
 
-%% Restrict emqx_template's envelope to nonempty dotted paths.
-%% Retain `${}` and `${.}`.
-%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
-valid_placeholder_source(<<"${}">>) ->
-    true;
-valid_placeholder_source(<<"${.}">>) ->
-    true;
-valid_placeholder_source(Source) ->
-    re:run(
-        Source,
-        <<"^\\$\\{\\.?[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*\\}$">>,
-        [{capture, none}]
-    ) =:= match.
-
 take_placeholder(Bin) ->
     case binary:match(Bin, <<"}">>) of
         {End, 1} ->
             Size = End + 1,
             Source = binary:part(Bin, 0, Size),
             Rest = binary:part(Bin, Size, byte_size(Bin) - Size),
-            case parse_placeholder(Source) of
+            case emqx_sql_plan:parse_placeholder(Source) of
                 {ok, Placeholder} -> {Placeholder, Rest};
                 {error, _} -> error({invalid_placeholder, Source})
             end;
@@ -576,7 +552,7 @@ assert_no_nul(Text) ->
 
 %% Checks that compilation merges adjacent static SQL around a value placeholder.
 compile_merges_raw_segments_test() ->
-    {ok, Placeholder} = parse_placeholder(<<"${value}">>),
+    {ok, Placeholder} = emqx_sql_plan:parse_placeholder(<<"${value}">>),
     {ok, #tdengine_plan{plan = [#raw{sql = <<"t VALUES (1, 2)">>}]}} =
         compile(<<"INSERT INTO t VALUES (1, 2)">>),
     {ok, #tdengine_plan{plan = Plan}} =

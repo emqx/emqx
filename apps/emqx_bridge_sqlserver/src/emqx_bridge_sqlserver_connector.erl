@@ -304,7 +304,7 @@ create_channel_state(
         <<>> ->
             {error, missing_sql_template};
         SQL ->
-            case emqx_bridge_sqlserver_sql:compile(SQL) of
+            case emqx_sql_plan:compile(emqx_bridge_sqlserver_sql, SQL) of
                 {ok, Plan} -> {ok, #{sql_plan => Plan, channel_conf => ChannelConf}};
                 {error, _} = Error -> Error
             end
@@ -653,7 +653,7 @@ get_query_tuple([_InsertQuery | _] = Reqs) ->
 apply_template(
     {?ACTION_SEND_MESSAGE, Msg}, Plan, ChannelConf
 ) ->
-    emqx_bridge_sqlserver_sql:render(Plan, Msg, render_opts(ChannelConf));
+    emqx_sql_plan:render(Plan, Msg, render_opts(ChannelConf));
 %% batch inserts
 apply_template(
     [{?ACTION_SEND_MESSAGE, _Msg} | _] = BatchReqs,
@@ -661,7 +661,7 @@ apply_template(
     ChannelConf
 ) ->
     DataList = [Msg || {?ACTION_SEND_MESSAGE, Msg} <- BatchReqs],
-    emqx_bridge_sqlserver_sql:render_batch(Plan, DataList, render_opts(ChannelConf));
+    emqx_sql_plan:render_batch(Plan, DataList, render_opts(ChannelConf));
 apply_template(Query, _Plan, _) ->
     %% TODO: more detail information
     ?SLOG(error, #{msg => "apply_sql_template_failed", query => Query}),

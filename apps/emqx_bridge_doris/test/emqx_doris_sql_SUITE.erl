@@ -451,7 +451,7 @@ t_compiler_dispatch(_Config) ->
     #{query_templates := #{{test, batch} := Plan}} = emqx_mysql:parse_prepare_sql(test, Config),
     ?assertEqual(
         <<"INSERT INTO `t` VALUES (UNHEX('FF'))">>,
-        rendered(emqx_doris_sql:render(Plan, #{v => <<255>>}, #{}))
+        rendered(emqx_sql_plan:render(Plan, #{v => <<255>>}, #{}))
     ),
     Rejected = Config#{sql => <<"INSERT INTO t VALUES (f(DEFAULT))">>},
     #{query_templates := Templates} = emqx_mysql:parse_prepare_sql(test, Rejected),
@@ -733,7 +733,9 @@ t_placeholder_paths(_Config) ->
     ),
     lists:foreach(
         fun(Source) ->
-            ?assertEqual({error, invalid_placeholder}, emqx_doris_sql:parse_placeholder(Source)),
+            ?assertEqual(
+                {error, invalid_placeholder}, emqx_sql_plan:parse_placeholder(Source)
+            ),
             lists:foreach(
                 fun({Open, Close}) ->
                     ?assertMatch(

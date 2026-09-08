@@ -201,7 +201,7 @@ prepare_sql_templates(#{
     sql := Template,
     batch_value_separator := _ConfiguredSeparator
 }) ->
-    case emqx_bridge_clickhouse_sql:compile(Template) of
+    case emqx_sql_plan:compile(emqx_bridge_clickhouse_sql, Template) of
         {ok, Plan} -> {ok, #{sql_plan => Plan}};
         {error, Reason} -> {error, Reason}
     end;
@@ -387,7 +387,7 @@ get_channel_state(ChannId, State) ->
     end.
 
 get_sql(channel_message, #{sql_plan := Plan}, Data, ChannelConf) ->
-    emqx_bridge_clickhouse_sql:render(Plan, Data, render_opts(ChannelConf));
+    emqx_sql_plan:render(Plan, Data, render_opts(ChannelConf));
 get_sql(_, _, SQL, _) ->
     {ok, SQL}.
 
@@ -413,7 +413,7 @@ on_batch_query(ResourceID, BatchReq, #{pool_name := PoolName} = State) ->
     #{sql_plan := Plan} = get_templates(ChannId, State),
     ChannelState = get_channel_state(ChannId, State),
     Opts = render_opts(maps:get(channel_conf, ChannelState, #{})),
-    case emqx_bridge_clickhouse_sql:render_batch(Plan, ObjectsToInsert, Opts) of
+    case emqx_sql_plan:render_batch(Plan, ObjectsToInsert, Opts) of
         {ok, SQL} ->
             ResultFromClickhouse = execute_sql_in_clickhouse_server(ChannId, PoolName, SQL),
             transform_and_log_clickhouse_result(ResultFromClickhouse, ResourceID, SQL);

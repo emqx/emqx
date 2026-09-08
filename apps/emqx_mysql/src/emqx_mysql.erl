@@ -3,13 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_mysql).
 
-%% The shared connector dispatches to the configured SQL compiler.
--elvis([
-    {elvis_style, invalid_dynamic_call, #{
-        ignore => [{emqx_mysql, parse_batch_sql, 4}, {emqx_mysql, on_batch_insert, 5}]
-    }}
-]).
-
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -71,7 +64,7 @@
 
 -define(READ_SQL_MODE_QUERY, <<"SELECT @@SESSION.sql_mode">>).
 
--type template() :: {unicode:chardata(), emqx_template:str()} | emqx_mysql_sql:plan().
+-type template() :: {unicode:chardata(), emqx_template:str()} | emqx_sql_plan:plan().
 -type state() ::
     #{
         pool_name := binary(),
@@ -522,7 +515,7 @@ parse_prepare_sql(Key, Query, Acc, Compiler) ->
 parse_batch_sql(Key, Query, Acc, Compiler) ->
     case emqx_utils_sql:get_statement_type(Query) of
         insert ->
-            case Compiler:compile(Query) of
+            case emqx_sql_plan:compile(Compiler, Query) of
                 {ok, Plan} ->
                     Acc#{{Key, batch} => Plan};
                 {error, Reason} ->
@@ -569,8 +562,7 @@ on_batch_insert(InstId, BatchReqs, Plan, State, ChannelConfig) ->
     RenderOpts = #{
         undefined_vars_as_null => maps:get(undefined_vars_as_null, ChannelConfig, false)
     },
-    Compiler = maps:get(sql_compiler, ChannelConfig, emqx_mysql_sql),
-    case Compiler:render_batch(Plan, DataList, RenderOpts) of
+    case emqx_sql_plan:render_batch(Plan, DataList, RenderOpts) of
         {ok, Query} ->
             on_sql_query(InstId, query, Query, no_params, default_timeout, State);
         {error, Reason} ->
