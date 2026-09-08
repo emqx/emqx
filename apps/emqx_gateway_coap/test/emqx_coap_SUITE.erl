@@ -22,6 +22,18 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-record(channel, {
+    ctx,
+    conninfo,
+    clientinfo,
+    session,
+    keepalive,
+    timers,
+    connection_required,
+    conn_state,
+    token
+}).
+
 -define(CONF_DEFAULT, <<
     "\n"
     "gateway.coap\n"
@@ -43,6 +55,7 @@
 -define(PS_PREFIX, "coap://127.0.0.1/ps").
 -define(MQTT_PREFIX, "coap://127.0.0.1/mqtt").
 -define(REQUEST_TIMEOUT, 5000).
+-define(ACK_TIMEOUT_WAIT, 70000).
 -define(OBSERVE_NOTIFICATION_QUEUE_MAX_LEN, 100).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -704,6 +717,62 @@ t_observe_con_notify_queue_drains_after_reset(_) ->
         with_connection(Fun)
     end).
 
+t_observe_con_notify_timeout_retransmits_and_drains_pending(_) ->
+    ct:timetrap({seconds, 150}),
+    with_notify_type(con, fun() ->
+        Topic = <<"coap/observe_notify_timeout">>,
+        ObserveToken = <<"observe-timeout">>,
+        Channel0 = new_test_channel(),
+        Channel1 = direct_observe_channel(Topic, ObserveToken, Channel0),
+
+        {ok, [{outgoing, [NotifyA]}], Channel2} =
+            emqx_coap_channel:handle_deliver(
+                [direct_deliver(Topic, ?QOS_0, <<"first-unacknowledged">>)],
+                Channel1
+            ),
+        ?assertEqual(con, NotifyA#coap_message.type),
+        ?assertEqual(ObserveToken, NotifyA#coap_message.token),
+        ?assertEqual(<<"first-unacknowledged">>, NotifyA#coap_message.payload),
+
+        {ok, [{outgoing, []}], Channel3} =
+            emqx_coap_channel:handle_deliver(
+                [direct_deliver(Topic, ?QOS_0, <<"second-pending">>)],
+                Channel2
+            ),
+
+        {ok, [{outgoing, [Retry1]}], Channel4} = ack_timeout(Channel3),
+        {ok, [{outgoing, [Retry2]}], Channel5} = ack_timeout(Channel4),
+        {ok, [{outgoing, [Retry3]}], Channel6} = ack_timeout(Channel5),
+        {ok, [{outgoing, [Retry4]}], Channel7} = ack_timeout(Channel6),
+        assert_retransmission(NotifyA, Retry1),
+        assert_retransmission(NotifyA, Retry2),
+        assert_retransmission(NotifyA, Retry3),
+        assert_retransmission(NotifyA, Retry4),
+
+        {ok, [{outgoing, [NotifyB]}], Channel8} = ack_timeout(Channel7),
+        ?assertEqual(con, NotifyB#coap_message.type),
+        ?assertEqual(ObserveToken, NotifyB#coap_message.token),
+        ?assertEqual(<<"second-pending">>, NotifyB#coap_message.payload),
+        ?assertNotEqual(NotifyA#coap_message.id, NotifyB#coap_message.id),
+        ?assertEqual(1, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel8))),
+
+        OldAck = #coap_message{
+            type = ack,
+            id = NotifyA#coap_message.id,
+            token = ObserveToken
+        },
+        {ok, Channel9} = emqx_coap_channel:handle_in(OldAck, Channel8),
+        ?assertEqual(1, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel9))),
+
+        CurrentAck = #coap_message{
+            type = ack,
+            id = NotifyB#coap_message.id,
+            token = ObserveToken
+        },
+        {ok, Channel10} = emqx_coap_channel:handle_in(CurrentAck, Channel9),
+        ?assertEqual(0, proplists:get_value(inflight_cnt, emqx_coap_channel:stats(Channel10)))
+    end).
+
 t_observe_cancel_drops_pending_notifications(_) ->
     with_notify_type(con, fun() ->
         Fun = fun(Channel, Token) ->
@@ -1167,6 +1236,51 @@ assert_notify(Channel, Type, Payload) ->
 assert_notify(Channel, Type) ->
     {ok, content, Notify = #coap_message{type = Type}} = with_message_response(Channel),
     Notify.
+
+new_test_channel() ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    emqx_coap_channel:init(
+        ConnInfo,
+        #{
+            ctx => #{gwname => coap, cm => self()},
+            connection_required => false
+        }
+    ).
+
+direct_observe_channel(Topic, ObserveToken, #channel{session = Session0} = Channel) ->
+    SubData = #{topic => Topic, token => ObserveToken, subopts => #{qos => 0}},
+    ObserveReq = #coap_message{
+        type = con,
+        method = get,
+        id = 730,
+        token = ObserveToken,
+        options = #{observe => 0}
+    },
+    #{session := Session1} =
+        emqx_coap_session:process_subscribe(SubData, ObserveReq, #{}, Session0),
+    Channel#channel{session = Session1}.
+
+direct_deliver(Topic, QoS, Payload) ->
+    {deliver, Topic, emqx_message:make(undefined, QoS, Topic, Payload)}.
+
+ack_timeout(Channel) ->
+    receive
+        {timeout, TRef, {state_machine, {_SeqId, state_timeout, ack_timeout}} = Msg} ->
+            emqx_coap_channel:handle_timeout(TRef, Msg, Channel);
+        Other ->
+            ct:fail({unexpected_ack_timeout_message, Other})
+    after ?ACK_TIMEOUT_WAIT ->
+        ct:fail(ack_timeout_not_received)
+    end.
+
+assert_retransmission(Expected, Actual) ->
+    ?assertEqual(Expected#coap_message.id, Actual#coap_message.id),
+    ?assertEqual(Expected#coap_message.token, Actual#coap_message.token),
+    ?assertEqual(Expected#coap_message.type, Actual#coap_message.type),
+    ?assertEqual(Expected#coap_message.payload, Actual#coap_message.payload).
 
 notify_payload(Notify) ->
     #coap_content{payload = Payload} = er_coap_message:get_content(Notify),
