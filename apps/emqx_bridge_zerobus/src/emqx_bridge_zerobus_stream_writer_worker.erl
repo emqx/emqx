@@ -248,7 +248,6 @@ gproc_name(ActionResId, Idx) ->
 
 grpc_reply_callback({ok, Res0}, _ReplyAlias, Ctx) ->
     #{
-        ?action_res_id := ActionResId,
         ?atomics_ref := AtomicsRef,
         ?stream := Stream,
         ?n_restarts := _,
@@ -278,27 +277,7 @@ grpc_reply_callback({ok, Res0}, _ReplyAlias, Ctx) ->
             save_last_acked_seq(AtomicsRef, LastAckedSeq),
             notify_acked(LastAckedSeq, Ctx),
             ?tp("zerobus_last_seq_notified", #{}),
-            ok;
-        {error, not_found} ->
-            %% stream is gone
-            Error = {error, stream_closed},
-            notify_errored(Error, Ctx),
-            ok;
-        {error, Reason} ->
-            ?tp(info, "zerobus_receiver_unexpected_error_response", #{
-                action_res_id => ActionResId,
-                reason => Reason
-            }),
-            maybe
-                #{client_pid := Pid} ?= Stream,
-                false ?= is_process_alive(Pid),
-                Error = {error, stream_closed},
-                notify_errored(Error, Ctx),
-                ok
-            else
-                _ ->
-                    ok
-            end
+            ok
     end;
 grpc_reply_callback(Reason, _ReplyAlias, Ctx) ->
     #{?action_res_id := ActionResId} = Ctx,
