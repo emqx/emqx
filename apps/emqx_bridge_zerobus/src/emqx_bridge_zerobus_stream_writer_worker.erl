@@ -225,8 +225,15 @@ handle_cast(_Cast, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', Handle, _, _, Reason}, #{?recv_handle := {_, Handle}} = State0) ->
+    %% grpc client died while we were waiting for create stream reply
     State1 = State0#{?recv_handle := ?undefined},
     State = handle_open_stream_reply(Reason, State1),
+    {noreply, State};
+handle_info({'DOWN', Handle, _, _, Reason}, #{?recv_handle := Handle} = State0) ->
+    %% grpc client died while we had already opened the stream
+    #{?n_restarts := NRestarts} = State0,
+    State1 = State0#{?recv_handle := ?undefined},
+    State = handle_errored(NRestarts, Reason, State1),
     {noreply, State};
 handle_info({grpc_reply, Handle, ResRaw}, #{?recv_handle := {Stream, Handle}} = State0) ->
     State1 = State0#{?recv_handle := ?undefined},
