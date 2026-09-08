@@ -108,31 +108,31 @@ never the value, and that a failed apply still logs the error term.
 """.
 t_apply_result_not_logged(_Config) ->
     Marker = <<"UNIQUE_MARKER_423">>,
-    ok = start_log_capture(),
-    try
+    OkReports = emqx_cth_log_capture:capture(debug, fun() ->
         {M, F, A} = {?MODULE, echo_compiled, [Marker]},
-        ?assertMatch({ok, _, {ok, #{compiled := Marker}}}, multicall(M, F, A)),
-        Reports = collect_reports(),
-        ?assertMatch(
-            [#{result := {ok, '_'}}],
-            [R || #{msg := "cluster_rpc_apply_result"} = R <- Reports]
-        ),
-        %% one line per node applying the committed MFA
-        OkReports = [R || #{msg := "cluster_rpc_apply_ok"} = R <- Reports],
-        ?assertMatch([_, _ | _], OkReports),
-        lists:foreach(fun(R) -> ?assertMatch(#{result := {ok, '_'}}, R) end, OkReports),
-        Formatted = iolist_to_binary(io_lib:format("~p", [Reports])),
-        ?assertEqual(nomatch, binary:match(Formatted, Marker)),
-        %% a failure keeps reporting the error term
-        {M1, F1, A1} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
-        ?assertMatch({ok, _, ok}, multicall(M1, F1, A1, 1, 1000)),
-        ?assertMatch(
-            #{result := "MFA return not ok"},
-            wait_for_report("cluster_rpc_apply_failed", 5_000)
-        )
-    after
-        stop_log_capture()
-    end,
+        ?assertMatch({ok, _, {ok, #{compiled := Marker}}}, multicall(M, F, A))
+    end),
+    ?assertMatch(
+        [#{result := {ok, '_'}}],
+        [R || #{msg := "cluster_rpc_apply_result"} = R <- OkReports]
+    ),
+    %% one line per node applying the committed MFA
+    AppliedReports = [R || #{msg := "cluster_rpc_apply_ok"} = R <- OkReports],
+    ?assertMatch([_, _ | _], AppliedReports),
+    lists:foreach(fun(R) -> ?assertMatch(#{result := {ok, '_'}}, R) end, AppliedReports),
+    ?assertEqual(
+        nomatch, binary:match(iolist_to_binary(io_lib:format("~p", [OkReports])), Marker)
+    ),
+    %% a failure keeps reporting the error term
+    FailReports = emqx_cth_log_capture:capture(debug, fun() ->
+        {M, F, A} = {?MODULE, failed_on_other_node, [self(), erlang:whereis(?NODE1)]},
+        ?assertMatch({ok, _, ok}, multicall(M, F, A, 1, 1000)),
+        ?assertEqual(ok, receive_msg(2, mfa_failed_on_other_node))
+    end),
+    ?assertMatch(
+        [#{result := "MFA return not ok"} | _],
+        [R || #{msg := "cluster_rpc_apply_failed"} = R <- FailReports]
+    ),
     ok.
 
 t_commit_fail_test(_Config) ->
@@ -452,6 +452,17 @@ echo(Pid, Msg, _) ->
 echo_compiled(Value, _) ->
     {ok, #{compiled => Value}}.
 
+%% Succeeds on the initiating node and fails on the others, telling the test
+%% process each time it fails.
+failed_on_other_node(TestPid, InitPid, _) ->
+    case self() =:= InitPid of
+        true ->
+            ok;
+        false ->
+            erlang:send(TestPid, mfa_failed_on_other_node),
+            "MFA return not ok"
+    end.
+
 format(Fmt, Args, _Opts) ->
     io:format(Fmt, Args).
 
@@ -500,54 +511,4 @@ flush_msg(Acc) ->
             flush_msg([Msg | Acc])
     after 10 ->
         Acc
-    end.
-
-%%--------------------------------------------------------------------
-%% log capture
-%%--------------------------------------------------------------------
-
-start_log_capture() ->
-    #{level := Level} = logger:get_primary_config(),
-    _ = erlang:put({?MODULE, primary_level}, Level),
-    ok = logger:set_primary_config(level, debug),
-    ok = logger:add_handler(?MODULE, ?MODULE, #{
-        level => debug,
-        config => #{pid => self()},
-        filter_default => stop,
-        filters => [{cluster_rpc, {fun ?MODULE:filter_cluster_rpc/2, []}}]
-    }).
-
-stop_log_capture() ->
-    _ = logger:remove_handler(?MODULE),
-    Level = erlang:erase({?MODULE, primary_level}),
-    ok = logger:set_primary_config(level, Level),
-    _ = collect_reports(),
-    ok.
-
-filter_cluster_rpc(#{meta := #{mfa := {emqx_cluster_rpc, _, _}}} = Event, _) -> Event;
-filter_cluster_rpc(_Event, _) -> stop.
-
-%% logger handler callback
-log(#{msg := {report, Report}}, #{config := #{pid := Pid}}) ->
-    _ = erlang:send(Pid, {?MODULE, log_report, Report}),
-    ok;
-log(_Event, _Config) ->
-    ok.
-
-collect_reports() ->
-    collect_reports([]).
-
-collect_reports(Acc) ->
-    receive
-        {?MODULE, log_report, Report} -> collect_reports([Report | Acc])
-    after 200 ->
-        lists:reverse(Acc)
-    end.
-
-wait_for_report(Msg, Timeout) ->
-    receive
-        {?MODULE, log_report, #{msg := Msg} = Report} -> Report;
-        {?MODULE, log_report, _} -> wait_for_report(Msg, Timeout)
-    after Timeout ->
-        error({timeout_waiting_for_log, Msg})
     end.
