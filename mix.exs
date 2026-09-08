@@ -316,7 +316,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.2"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.12"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.13"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
@@ -1153,7 +1153,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict with emqx and emqtt
       do: [
         {:quicer,
-         github: "emqx/quic", tag: "0.4.9", override: true, system_env: quicer_build_env()}
+         github: "emqx/quic", tag: "0.4.11", override: true, system_env: quicer_build_env()}
       ],
       else: []
   end

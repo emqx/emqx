@@ -117,8 +117,14 @@
             emqx_cth_suite:inhibit_config_loader(App, AppConfig)
         end
     }},
-    emqx_conf,
+    {emqx_conf, #{
+        config => #{log => #{audit => #{enable => true, level => info}}},
+        %% `log.audit' is declared in `emqx_enterprise_schema', not in the
+        %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
+        schema_mod => emqx_enterprise_schema
+    }},
     emqx_auth,
+    emqx_audit,
     {emqx_connector, #{
         after_start => fun() ->
             ok = emqx_hooks:add(
@@ -161,7 +167,10 @@ groups() ->
         t_actions_field,
         t_update_with_failed_validation,
         t_create_with_failed_root_validation,
-        t_create_or_update_with_unexpected_error_term
+        t_create_or_update_with_unexpected_error_term,
+        %% Namespace resolution and audit logging are not cluster-specific;
+        %% no need to exercise this under the `cluster` group too.
+        t_connector_audit_records_namespace
     ],
     ClusterOnlyTests = [
         t_inconsistent_state,
@@ -1862,6 +1871,69 @@ t_namespaced_crud(TCConfig) ->
     ?assertMatch({200, []}, list(TCConfigNS2)),
 
     ok.
+
+-doc """
+Regression test for #18653/#18664's class of bug: audit records for a
+connector creation must identify the namespace, both for a global admin's
+implicit-global connector and a namespaced admin's implicit-own-namespace
+connector (no `?ns=' in either case).
+""".
+t_connector_audit_records_namespace(TCConfig0) ->
+    clear_mocks(TCConfig0),
+    TCConfig =
+        case proplists:get_value(node, TCConfig0) of
+            undefined -> [{node, node()} | TCConfig0];
+            _ -> TCConfig0
+        end,
+    Ns = <<"connector_audit_ns">>,
+    AuthHeaderNs = ensure_namespaced_api_key(Ns, TCConfig),
+    TCConfigNs = [{auth_header, AuthHeaderNs} | TCConfig],
+
+    StartAt = erlang:system_time(microsecond),
+    ConnectorType = <<"http">>,
+    ConnectorNameGlobal = <<"conn_audit_global">>,
+    ConnectorNameNs = <<"conn_audit_ns">>,
+    ConnectorConfigGlobal = http_connector_config(#{<<"description">> => <<"global">>}),
+    ConnectorConfigNs = http_connector_config(#{<<"description">> => Ns}),
+
+    {201, _} = create(ConnectorType, ConnectorNameGlobal, ConnectorConfigGlobal, TCConfig),
+    {201, _} = create(ConnectorType, ConnectorNameNs, ConnectorConfigNs, TCConfigNs),
+
+    Entries = wait_for_audit_entries(<<"/connectors">>, StartAt, 2, 2000),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, Ns]), Namespaces),
+    ok.
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs - SleepMs)
+    end.
+
+audit_entries_since(OperationId, StartAt) ->
+    URL = emqx_mgmt_api_test_util:api_path(["audit"]),
+    QueryParams = #{
+        <<"operation_id">> => OperationId,
+        <<"gte_created_at">> => integer_to_binary(StartAt),
+        <<"limit">> => <<"100">>
+    },
+    {200, #{<<"data">> := Data}} =
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => get, url => URL, query_params => QueryParams
+        }),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
 
 -doc """
 Checks that we correctly load and unload connectors already in the config when a node

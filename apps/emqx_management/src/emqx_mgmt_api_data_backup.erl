@@ -283,6 +283,14 @@ data_export(post, #{body := Params0} = Req) ->
     end.
 
 data_import(post, #{body := #{<<"filename">> := Filename} = Body, query_string := QS} = Req) ->
+    case check_uniform_cluster_version() of
+        ok ->
+            parse_node_and_import(Filename, Body, QS, Req);
+        {mixed, Versions} ->
+            {400, #{code => ?BAD_REQUEST, message => mixed_cluster_msg(Versions)}}
+    end.
+
+parse_node_and_import(Filename, Body, QS, Req) ->
     Namespace = op_namespace(Req, QS),
     ok = log_ns(Namespace),
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 2),
@@ -293,6 +301,40 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body, query_string :
         FileNode ->
             data_import_checked(Namespace, FileNode, Filename, AllowMismatch, Req)
     end.
+
+%% An import replays a backup through backplane calls whose contract is frozen
+%% per minor release, so every running node must be on the same major.minor.
+%% A node whose version cannot be read counts as a mismatch.
+-spec check_uniform_cluster_version() -> ok | {mixed, [{node(), binary() | unknown}]}.
+check_uniform_cluster_version() ->
+    Nodes = emqx:running_nodes(),
+    Infos = emqx_management_proto_v5:node_info(Nodes),
+    Versions = lists:zip(Nodes, lists:map(fun minor_version/1, Infos)),
+    case lists:usort([V || {_Node, V} <- Versions]) of
+        [Single] when Single =/= unknown -> ok;
+        _ -> {mixed, Versions}
+    end.
+
+minor_version({ok, #{version := Vsn}}) when is_binary(Vsn) ->
+    case binary:split(Vsn, <<".">>, [global]) of
+        [Major, Minor | _] -> <<Major/binary, ".", Minor/binary>>;
+        _ -> unknown
+    end;
+minor_version(_) ->
+    unknown.
+
+mixed_cluster_msg(Versions) ->
+    iolist_to_binary([
+        <<"Import is not available while the cluster runs more than one release. ">>,
+        <<"Upgrade every node to the same version first. Found: ">>,
+        lists:join(<<", ">>, [
+            [atom_to_binary(N, utf8), <<" ">>, format_minor(V)]
+         || {N, V} <- lists:sort(Versions)
+        ])
+    ]).
+
+format_minor(unknown) -> <<"unknown">>;
+format_minor(Vsn) -> Vsn.
 
 %% Namespaced imports are scoped to the caller's own namespace and never write
 %% mnesia tables (only that namespace's configuration), so the sensitive-table
@@ -676,7 +718,7 @@ can_download_backup(
 ) ->
     ok;
 can_download_backup(#{auth_type := api_key}, Filename, Node) ->
-    case emqx_mgmt_data_backup_proto_v2:peek_sensitive_table_sets(Node, Filename, infinity) of
+    case emqx_mgmt_data_backup_proto_v4:peek_sensitive_table_sets(Node, Filename, infinity) of
         {ok, []} ->
             ok;
         {ok, Sets} ->
