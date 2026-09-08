@@ -29,7 +29,7 @@
     serialize/3
 ]).
 
--export([describe_state/1]).
+-export([describe_state/1, update_opts/2]).
 
 -export_type([
     options/0,
@@ -56,8 +56,10 @@
 
 -record(remlen, {hdr, len, mult, opts :: #options{}}).
 -record(body, {hdr, need, acc :: iodata(), opts :: #options{}}).
+%% Options to apply once the frame being parsed is complete.
+-record(update, {inner :: #remlen{} | #body{}, opts :: options()}).
 
--type parse_state() :: #remlen{} | #body{} | parse_state_initial().
+-type parse_state() :: #remlen{} | #body{} | #update{} | parse_state_initial().
 -type parse_state_initial() :: #options{}.
 
 -type parse_result() ::
@@ -85,29 +87,69 @@
 describe_state({frame, Options = #options{}}) ->
     #{
         state => frame,
-        proto_ver => Options#options.version,
-        expect_connect => Options#options.expect_connect
+        proto_ver => Options#options.version
     };
 describe_state(Options = #options{}) ->
     #{
         state => clean,
-        proto_ver => Options#options.version,
-        expect_connect => Options#options.expect_connect
+        proto_ver => Options#options.version
     };
 describe_state(#remlen{opts = Options}) ->
     #{
         state => parsing_varint_length,
-        proto_ver => Options#options.version,
-        expect_connect => Options#options.expect_connect
+        proto_ver => Options#options.version
     };
 describe_state(#body{hdr = Hdr, need = Need, acc = Acc, opts = Options}) ->
     #{
         state => parsing_body,
         proto_ver => Options#options.version,
-        expect_connect => Options#options.expect_connect,
         parsed_header => Hdr,
         expected_bytes_remain => Need,
         received_bytes => iolist_size(Acc)
+    };
+describe_state(#update{inner = Inner}) ->
+    (describe_state(Inner))#{pending_opts_update => true}.
+
+-doc """
+Apply new configuration options to a parse state and its serializer.
+
+Only the options an operator can change at runtime are taken from `NewOpts';
+everything the parser owns is kept, in particular the negotiated protocol
+version and whether a CONNECT is still expected. Callers holding a parse state
+across a config change use this instead of building a fresh state, which would
+drop that.
+
+A frame being parsed keeps the options it started under. If one is in flight,
+the new options are held and applied as soon as it completes, so they take
+effect from the next frame rather than being dropped.
+""".
+-spec update_opts(parse_state(), options()) -> {ok, parse_state(), serialize_opts()}.
+update_opts(ParseState, NewOpts) ->
+    %% The serializer has no frame in flight, so it always takes them now.
+    SerializeOpts = initial_serialize_opts(NewOpts#{version => version(ParseState)}),
+    {ok, do_update_opts(ParseState, NewOpts), SerializeOpts}.
+
+%% `{frame, _}' is the whole-frame parser, which only ever sees complete frames.
+do_update_opts({frame, Options}, NewOpts) ->
+    {frame, merge_opts(Options, NewOpts)};
+do_update_opts(Options = #options{}, NewOpts) ->
+    merge_opts(Options, NewOpts);
+do_update_opts(#update{inner = Inner}, NewOpts) ->
+    %% A second change before the frame completes: the last one wins.
+    #update{inner = Inner, opts = NewOpts};
+do_update_opts(Inner, NewOpts) ->
+    #update{inner = Inner, opts = NewOpts}.
+
+version({frame, #options{version = Version}}) -> Version;
+version(#options{version = Version}) -> Version;
+version(#remlen{opts = #options{version = Version}}) -> Version;
+version(#body{opts = #options{version = Version}}) -> Version;
+version(#update{inner = Inner}) -> version(Inner).
+
+merge_opts(Options, NewOpts) ->
+    Options#options{
+        strict_mode = maps:get(strict_mode, NewOpts, Options#options.strict_mode),
+        max_size = maps:get(max_size, NewOpts, Options#options.max_size)
     }.
 
 %%--------------------------------------------------------------------
@@ -161,6 +203,14 @@ parse(
     #body{hdr = Header, need = Need, acc = Body, opts = Options}
 ) ->
     parse_body_frame(Bin, Header, Need, Body, Options);
+parse(Bin, #update{inner = Inner, opts = NewOpts}) ->
+    case parse(Bin, Inner) of
+        {Packet, Rest, Options} ->
+            %% The frame is complete, so the held options take effect now.
+            {Packet, Rest, merge_opts(Options, NewOpts)};
+        {More, NInner} ->
+            {More, #update{inner = NInner, opts = NewOpts}}
+    end;
 parse(<<>>, State) ->
     {some_more, State}.
 

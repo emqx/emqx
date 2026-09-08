@@ -405,6 +405,42 @@ t_parse_incoming_before_connect(_) ->
         emqx_connection:parse_incoming(Publish, st(#{}, #{conn_state => idle}))
     ).
 
+%% A zone change re-reads the zone settings but must keep the parser's own
+%% state: a connection that has sent CONNECT must not go back to expecting one.
+t_zone_change_keeps_parser_state(_) ->
+    {ok, St} = handle_msg({event, {zone_changed, default}}, st_after_connect()),
+    Publish = <<(?PUBLISH bsl 4), 3, 0, 1, $t>>,
+    ?assertMatch(
+        {1, [?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>)], _NState},
+        emqx_connection:parse_incoming(Publish, St)
+    ).
+
+%% A chunk may hold a CONNECT and the start of the next packet, so the parser
+%% can be mid-frame when the channel reports the zone change that CONNECT
+%% caused. The in-flight frame completes, and the new zone settings take effect
+%% from the frame after it.
+t_zone_change_mid_frame(_) ->
+    Old = emqx_config:get_zone_conf(default, [mqtt, max_packet_size]),
+    try
+        Connect = iolist_to_binary(emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{}))),
+        %% CONNECT, then the header of a PUBLISH whose body has not arrived.
+        {1, [?CONNECT_PACKET(_)], St0} =
+            emqx_connection:parse_incoming(<<Connect/binary, (?PUBLISH bsl 4), 3>>, st()),
+        %% The new zone allows far smaller packets than the one in flight.
+        ok = emqx_config:put_zone_conf(default, [mqtt, max_packet_size], 2),
+        {ok, St1} = handle_msg({event, {zone_changed, default}}, St0),
+        %% The in-flight frame still completes ...
+        {1, [?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>)], St2} =
+            emqx_connection:parse_incoming(<<0, 1, $t>>, St1),
+        %% ... and the new limit is in force from the next frame on.
+        ?assertMatch(
+            {0, [{frame_error, #{cause := frame_too_large, limit := 2}}], _NState},
+            emqx_connection:parse_incoming(<<(?PUBLISH bsl 4), 3, 0, 1, $t>>, St2)
+        )
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_packet_size], Old)
+    end.
+
 t_next_incoming_msgs(_) ->
     ?assertEqual(
         {incoming, packet},

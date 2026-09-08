@@ -960,18 +960,8 @@ init_zone_specific_state(Zone, _Opts, #state{} = State0) ->
             undefined ->
                 init_parser_and_serializer(FrameOpts0);
             Parser1 ->
-                case emqx_frame:describe_state(Parser1) of
-                    #{state := Clean, proto_ver := ProtoVer, expect_connect := ExpectConnect} when
-                        Clean == frame; Clean == clean
-                    ->
-                        FrameOpts = FrameOpts0#{
-                            version => ProtoVer, expect_connect => ExpectConnect
-                        },
-                        init_parser_and_serializer(FrameOpts);
-                    _ ->
-                        %% Keep state
-                        {State0#state.parse_state, State0#state.serialize}
-                end
+                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
+                {Parser2, Serialize2}
         end,
     GcState = get_force_gc(Zone),
     StatsTimer = get_stats_enable(Zone),

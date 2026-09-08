@@ -45,7 +45,9 @@ groups() ->
             t_parse_non_connect_before_connect,
             t_parse_complete_non_connect_before_connect,
             t_parse_after_connect,
-            t_parse_no_connect_expected
+            t_parse_no_connect_expected,
+            t_update_opts,
+            t_update_opts_mid_frame
         ]},
         {connect, [parallel], [
             t_serialize_parse_v3_connect,
@@ -396,6 +398,52 @@ t_guess_first_packet_protocol(_) ->
             <<"TRACE / HTTP/1.1\r\n">>,
             <<"PATCH / HTTP/1.1\r\n">>
         ]
+    ).
+
+%% update_opts/2 applies new settings but keeps everything the parser owns:
+%% the negotiated version and the CONNECT fence.
+t_update_opts(_) ->
+    PState0 = emqx_frame:initial_parse_state(#{expect_connect => true, max_size => 1024}),
+    {ok, PState1, Serialize1} = emqx_frame:update_opts(PState0, #{max_size => 8}),
+    %% The new size limit applies to both the parser and the serializer ...
+    ?assertMatch(#{max_size := 8}, Serialize1),
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{proto_ver = ?MQTT_PROTO_V5}),
+    ConnectBin = serialize_to_binary(Connect, ?MQTT_PROTO_V5),
+    ?ASSERT_FRAME_THROW(
+        #{cause := frame_too_large, limit := 8},
+        emqx_frame:parse(ConnectBin, PState1)
+    ),
+    %% ... while the CONNECT fence is kept.
+    ?ASSERT_FRAME_THROW(
+        #{cause := unexpected_packet_before_connect},
+        emqx_frame:parse(<<(?PUBLISH bsl 4)>>, PState1)
+    ),
+    %% After a CONNECT, the version and the cleared fence are kept too.
+    {Connect, <<>>, PState2} = emqx_frame:parse(ConnectBin, PState0),
+    {ok, PState3, Serialize3} = emqx_frame:update_opts(PState2, #{max_size => 2048}),
+    ?assertMatch(#{version := ?MQTT_PROTO_V5, max_size := 2048}, Serialize3),
+    ?assertMatch(#{proto_ver := ?MQTT_PROTO_V5}, emqx_frame:describe_state(PState3)),
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>),
+    PublishBin = serialize_to_binary(Publish, ?MQTT_PROTO_V5),
+    ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin, PState3)).
+
+%% A frame in flight is parsed under the options it started with. The new
+%% options are held and take effect from the next frame, not dropped.
+t_update_opts_mid_frame(_) ->
+    PState0 = emqx_frame:initial_parse_state(#{max_size => 1024}),
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, payload(64)),
+    PublishBin = serialize_to_binary(Publish),
+    <<Head:2/binary, Tail/binary>> = PublishBin,
+    {_More, Cont} = emqx_frame:parse(Head, PState0),
+    %% A limit too small for the frame already in flight.
+    {ok, Cont1, _Serialize} = emqx_frame:update_opts(Cont, #{max_size => 16}),
+    ?assertMatch(#{pending_opts_update := true}, emqx_frame:describe_state(Cont1)),
+    %% The in-flight frame still completes under the old limit ...
+    {Publish, <<>>, PState1} = emqx_frame:parse(Tail, Cont1),
+    %% ... and the held limit is in force from the next frame on.
+    ?ASSERT_FRAME_THROW(
+        #{cause := frame_too_large, limit := 16},
+        emqx_frame:parse(PublishBin, PState1)
     ).
 
 %% TODO: parse v3 with 0 length clientid
