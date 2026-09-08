@@ -43,9 +43,9 @@ init_per_suite(Config) ->
                     "authorization.no_match = deny,"
                     "authorization.sources = [{type = built_in_database, max_rules = 7}],"
                     "log.audit { enable = true, level = info }",
-                %% `log.audit' is declared in `emqx_enterprise_schema', not in the
-                %% bare `emqx_conf_schema' that `emqx_cth_suite' would pick by default.
-                schema_mod => emqx_enterprise_schema
+                %% `emqx_cth_suite' picks a schema by app name that does not declare
+                %% `log.audit', so name the one that does.
+                schema_mod => emqx_conf_schema
             }},
             emqx_auth,
             emqx_auth_mnesia,

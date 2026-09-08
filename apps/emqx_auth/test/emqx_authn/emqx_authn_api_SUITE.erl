@@ -65,12 +65,11 @@ init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
             {emqx_conf,
                 emqx_authn_test_lib:emqx_appspec(#{
                     config => "log.audit { enable = true, level = info }",
-                    %% `log.audit' is declared in `emqx_enterprise_schema', not in
-                    %% the bare `emqx_conf_schema' that `emqx_cth_suite' would pick
-                    %% by default.
-                    schema_mod => emqx_enterprise_schema
+                    %% `emqx_cth_suite' would otherwise pick a schema that does not
+                    %% declare `log.audit'. dev-63 folded the enterprise schema into
+                    %% `emqx_conf_schema', which its own audit suite also uses.
+                    schema_mod => emqx_conf_schema
                 })},
-            emqx,
             {emqx_auth, #{after_start => fun() -> ok end}},
             %% to load schema
             {emqx_auth_mnesia, #{start => false}},
