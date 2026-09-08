@@ -154,7 +154,7 @@ fields(action_parameters) ->
         [
             servers,
             ssl,
-            namespace,
+            rocketmq_namespace,
             pool_size,
             auto_reconnect,
             access_key,

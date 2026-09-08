@@ -61,6 +61,7 @@ Note: global name conflicts are resolved using `random_exit_name` strategy.
 -include("emqx_ds_shared_sub_format.hrl").
 -include("../gen_src/DSSharedSub.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_persistent_message.hrl").
 
@@ -394,9 +395,9 @@ handle_destroy(From, #st_leader{gr = Gr}, Data) ->
 handle_destroy(_, #st_candidate{}, _) ->
     {keep_state_and_data, postpone}.
 
-do_cleanup(Group = #share{topic = Topic}, From, #ls{h = HS = #hs{borrowers = B}}) ->
+do_cleanup(ShareTF = #share{topic = Topic, group = Group}, From, #ls{h = HS = #hs{borrowers = B}}) ->
     ?tp(info, ds_shared_sub_leader_destroy, #{group => Group}),
-    Id = emqx_ds_shared_sub_dl:mk_id(Group),
+    Id = emqx_ds_shared_sub_dl:mk_id(ShareTF),
     %% Notify borrowers:
     maps:foreach(
         fun(BorrowerId, _) ->
@@ -409,8 +410,9 @@ do_cleanup(Group = #share{topic = Topic}, From, #ls{h = HS = #hs{borrowers = B}}
     %% Potentially broken ordering assumptions? This delete op is not serialized with
     %% respective add op, it's possible (yet extremely unlikely) that they will arrive
     %% to the external broker out-of-order.
-    _ = emqx_external_broker:delete_persistent_route(Topic, Id),
-    _ = emqx_persistent_session_ds_router:do_delete_route(Topic, Id),
+    Dest = #share_dest{session_id = Id, group = Group},
+    _ = emqx_external_broker:delete_persistent_shared_route(Topic, Group, Id),
+    _ = emqx_persistent_session_ds_router:do_delete_route(Topic, Dest),
     %% Remove data:
     _ = emqx_ds_shared_sub_dl:destroy(Id),
     {stop_and_reply, normal, [{reply, From, true}]}.
@@ -804,8 +806,9 @@ enter_leader(ShareTF = #share{group = Group, topic = Topic}, Idle, Options = #{}
         start_time => emqx_persistent_session_ds:to_ds_time(StartTime)
     },
     %% Create route:
-    _ = emqx_persistent_session_ds_router:do_add_route(Topic, SId),
-    _ = emqx_external_broker:add_persistent_route(Topic, SId),
+    Dest = #share_dest{session_id = SId, group = Group},
+    _ = emqx_persistent_session_ds_router:do_add_route(Topic, Dest),
+    _ = emqx_external_broker:add_persistent_shared_route(Topic, Group, SId),
     %% Create the client:
     {ok, Client, HS} = emqx_ds_client:subscribe(
         emqx_ds_client:new(?MODULE, #{}),

@@ -2,6 +2,25 @@
 
 You are welcome to submit any bugs, issues and feature requests on this repository.
 
+## Which Branch to Target
+
+EMQX keeps active development on several `dev-XX` branches at once, one per still-supported
+release line (for example `dev-58`, `dev-60`, `dev-63`). Each `dev-XX` branch syncs forward
+automatically into the next branch in the chain, so a change merged into an earlier branch reaches
+every later branch without a separate pull request.
+
+- **Target the earliest active `dev-XX` branch the bug affects**, especially for high-severity
+  fixes. This is what lets the fix reach every supported release line downstream through the sync
+  chain.
+- **If you are not sure which branch is earliest or still active, targeting the latest `dev-XX`
+  branch is fine.** Say so in the pull request description and ask for guidance — a maintainer can
+  redirect the PR to an earlier branch during review if that fits better.
+- **Do not open the same pull request against multiple `dev-XX` branches.** The sync chain already
+  propagates the change forward. Duplicate pull requests create duplicate review work and can
+  diverge if they are not merged at the same time.
+- Never open a pull request against a `release-XX` branch directly. Those branches are
+  fast-forwarded automatically from the matching `dev-XX` branch and do not accept direct pushes.
+
 ## Commit Message Guidelines
 
 We have very precise rules over how our git commit messages can be formatted. This leads to **more readable messages** that are easy to follow when looking through the **project history**.

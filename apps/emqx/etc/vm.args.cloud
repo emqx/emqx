@@ -84,8 +84,8 @@
 #+SDcpu 8:8
 
 ## Sets the number of dirty I/O scheduler threads to create.
-## Set via `node.dirty_io_schedulers` in `emqx.conf` (default `auto`: tracks
-##  `node.schedulers`, floored at 2 and capped at 8).
+## Set via `node.dirty_io_schedulers` in `emqx.conf` (default `auto`: 8 when
+##  `node.schedulers` resolves to more than 2, otherwise 4).
 #+SDio 8
 
 ## Suggested stack size, in kilowords, for scheduler threads.
