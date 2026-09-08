@@ -8,6 +8,7 @@
 -export_type([context/0]).
 
 -include("emqx_gateway.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% @doc The running context for a Connection/Channel process.
 %%
@@ -57,12 +58,11 @@
 -spec authenticate(context(), emqx_types:clientinfo()) ->
     {ok, emqx_types:clientinfo()}
     | {error, any()}.
-authenticate(_Ctx, ClientInfo0) ->
+authenticate(#{gwname := GwName}, ClientInfo0) ->
     ClientInfo = ClientInfo0#{zone => default},
     case emqx_access_control:authenticate(ClientInfo) of
         {ok, AuthResult} ->
-            ClientInfo1 = merge_auth_result(ClientInfo, AuthResult),
-            {ok, eval_mountpoint(ClientInfo1)};
+            handle_auth_result(GwName, ClientInfo, AuthResult);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -184,6 +184,18 @@ eval_mountpoint(ClientInfo = #{mountpoint := undefined}) ->
 eval_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
     MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
     ClientInfo#{mountpoint := MountPoint1}.
+
+handle_auth_result(GwName, ClientInfo, #{clientid_override := ClientIdOverride}) ->
+    ?SLOG(warning, #{
+        msg => "gateway_authn_clientid_override_not_supported",
+        gateway => GwName,
+        clientid => maps:get(clientid, ClientInfo, undefined),
+        clientid_override => ClientIdOverride
+    }),
+    {error, not_authorized};
+handle_auth_result(_GwName, ClientInfo, AuthResult) ->
+    ClientInfo1 = merge_auth_result(ClientInfo, AuthResult),
+    {ok, eval_mountpoint(ClientInfo1)}.
 
 merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_map(AuthResult0) ->
     IsSuperuser = maps:get(is_superuser, AuthResult0, false),

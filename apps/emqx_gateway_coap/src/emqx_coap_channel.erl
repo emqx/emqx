@@ -618,7 +618,7 @@ enrich_conninfo(
     end.
 
 enrich_clientinfo(
-    {Queries, Msg},
+    {Queries, _Msg},
     Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo0}
 ) ->
     ClientInfo = ClientInfo0#{
@@ -626,8 +626,7 @@ enrich_clientinfo(
         username => maps:get(<<"username">>, Queries, undefined),
         password => maps:get(<<"password">>, Queries, undefined)
     },
-    {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
-    {ok, Channel#channel{clientinfo = NClientInfo}}.
+    {ok, Channel#channel{clientinfo = ClientInfo}}.
 
 set_log_meta(_Input, #channel{clientinfo = #{clientid := ClientId}}) ->
     emqx_logger:set_metadata_clientid(ClientId),
@@ -656,12 +655,6 @@ auth_connect(
             }),
             {error, Reason}
     end.
-
-fix_mountpoint(_Packet, #{mountpoint := <<>>} = ClientInfo) ->
-    {ok, ClientInfo};
-fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
-    {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
 process_connect(
     #channel{

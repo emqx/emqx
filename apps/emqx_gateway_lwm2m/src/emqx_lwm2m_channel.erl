@@ -522,7 +522,7 @@ enrich_conninfo(
     end.
 
 enrich_clientinfo(
-    #coap_message{options = Options} = Msg,
+    #coap_message{options = Options},
     Channel = #channel{clientinfo = ClientInfo0}
 ) ->
     Query = maps:get(uri_query, Options, #{}),
@@ -540,8 +540,7 @@ enrich_clientinfo(
                     password => Password,
                     clientid => ClientId
                 },
-            {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
-            {ok, Channel#channel{clientinfo = NClientInfo}};
+            {ok, Channel#channel{clientinfo = ClientInfo}};
         _ ->
             ?SLOG(error, #{
                 msg => "reject_REGISTER_request",
@@ -577,12 +576,6 @@ auth_connect(
             }),
             {error, Reason}
     end.
-
-fix_mountpoint(_Packet, #{mountpoint := undefined} = ClientInfo) ->
-    {ok, ClientInfo};
-fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
-    {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
 process_connect(
     Channel = #channel{

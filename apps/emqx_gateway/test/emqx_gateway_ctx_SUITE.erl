@@ -26,6 +26,10 @@ init_per_suite(Conf) ->
                 {error, bad_username_or_password};
             (#{clientid := admin}) ->
                 {ok, #{is_superuser => true}};
+            (#{clientid := <<"original-clientid">>}) ->
+                {ok, #{clientid_override => <<"overridden-clientid">>}};
+            (#{clientid := <<"client-with-auth-attrs">>}) ->
+                {ok, #{client_attrs => #{<<"tenant">> => <<"tenant-1">>}}};
             (_) ->
                 {ok, #{}}
         end
@@ -68,6 +72,33 @@ t_authenticate(_) ->
         clientid => admin
     },
     ?assertMatch({ok, #{is_superuser := true}}, emqx_gateway_ctx:authenticate(Ctx, Info4)),
+    ok.
+
+t_clientid_override_rejected(_) ->
+    Ctx = #{gwname => mqttsn, cm => self()},
+    Info = #{
+        mountpoint => <<"mqttsn/${clientid}/">>,
+        clientid => <<"original-clientid">>
+    },
+    ?assertEqual(
+        {error, not_authorized},
+        emqx_gateway_ctx:authenticate(Ctx, Info)
+    ),
+    ok.
+
+t_mountpoint_after_authn(_) ->
+    Ctx = #{gwname => mqttsn, cm => self()},
+    Info = #{
+        mountpoint => <<"mqttsn/${client_attrs.tenant}/${clientid}/">>,
+        clientid => <<"client-with-auth-attrs">>
+    },
+    ?assertMatch(
+        {ok, #{
+            clientid := <<"client-with-auth-attrs">>,
+            mountpoint := <<"mqttsn/tenant-1/client-with-auth-attrs/">>
+        }},
+        emqx_gateway_ctx:authenticate(Ctx, Info)
+    ),
     ok.
 
 default_result(Info) -> Info#{zone => default, is_superuser => false, auth_expire_at => undefined}.
