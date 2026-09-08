@@ -113,6 +113,8 @@ groups() ->
             t_connect_packet_too_large,
             t_connect_too_many_user_properties,
             t_frame_error_shutdown_count_idle,
+            t_shutdown_count_connect_packet_too_large,
+            t_shutdown_count_too_many_user_properties,
             t_frame_error_shutdown_count_connected,
             t_frame_error_shutdown_count_is_bounded,
             t_sock_closed_incomplete_qos2_transmission
@@ -1669,6 +1671,33 @@ t_first_packet_not_connect(Config) ->
     end.
 
 -doc """
+An oversized CONNECT shuts the connection down under its own counter, so an
+operator can tell a client hitting `mqtt.max_connect_packet_size` from a client
+sending garbage.
+""".
+t_shutdown_count_connect_packet_too_large(Config) ->
+    Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    %% No parser trace to assert on here: with `parse_unit = frame' the
+    %% transport refuses the frame before the parser sees it.
+    {ExitReason, _Reports} = assert_shutdown_counted(
+        Config, Socket, oversized_connect(Limit), connect_packet_too_large
+    ),
+    ?assertMatch({shutdown, #{cause := connect_packet_too_large, limit := Limit}}, ExitReason).
+
+-doc """
+A CONNECT with too many user properties shuts the connection down under its own
+counter.
+""".
+t_shutdown_count_too_many_user_properties(Config) ->
+    Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_user_properties]),
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    ExitReason = assert_frame_error_shutdown(
+        Config, Socket, connect_with_user_properties(Limit + 1), too_many_user_properties
+    ),
+    ?assertMatch({shutdown, #{cause := too_many_user_properties, limit := Limit}}, ExitReason).
+
+-doc """
 A non-MQTT first packet shuts the connection down under the fixed
 `invalid_connect_packet` counter, rather than being reported as an unidentified
 shutdown at error level. The cause stays in the shutdown reason.
@@ -1765,6 +1794,19 @@ send_malformed_when_connected(Config, Malformed) ->
 %% Send `Malformed' and assert the connection exits with a reason the connection
 %% supervisor attributes to `Cause'. Returns the exit reason.
 assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
+    {ExitReason, Reports} = assert_shutdown_counted(Config, Socket, Malformed, Cause),
+    %% The shutdown counter only names a kind, so the specific cause and the
+    %% offending bytes must stay reachable through `emqx_trace'.
+    ?assertMatch(
+        [#{reason := #{cause := _}, input_bytes := Malformed, at_state := _} | _],
+        [R1 || #{msg := "frame_parse_error"} = R1 <- Reports]
+    ),
+    ExitReason.
+
+%% Send `Malformed', wait for the connection to terminate, and assert the
+%% shutdown was attributed to `Cause' and counted. Returns the exit reason and
+%% the captured log reports.
+assert_shutdown_counted(Config, Socket, Malformed, Cause) ->
     CountBefore = shutdown_count(Config, Cause),
     Self = self(),
     Reports = emqx_cth_log_capture:capture(debug, fun() ->
@@ -1777,12 +1819,6 @@ assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
             {exit_reason, R0} -> R0
         after 0 -> ct:fail(no_terminate_event)
         end,
-    %% The shutdown counter only names a kind, so the specific cause and the
-    %% offending bytes must stay reachable through `emqx_trace'.
-    ?assertMatch(
-        [#{reason := #{cause := _}, input_bytes := Malformed, at_state := _} | _],
-        [R1 || #{msg := "frame_parse_error"} = R1 <- Reports]
-    ),
     %% esockd attributes a shutdown to a cause when the reason is either a plain
     %% atom or a map tagged with `shutdown_count'; anything else is reported as
     %% an unidentified shutdown at error level and left uncounted.
@@ -1794,7 +1830,7 @@ assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
     %% Counter only moves on the info-level branch, so this also proves no
     %% error-level supervisor report was emitted.
     ?WAIT(?assertEqual(CountBefore + 1, shutdown_count(Config, Cause)), 5),
-    ExitReason.
+    {ExitReason, Reports}.
 
 shutdown_count(Config, Cause) ->
     proplists:get_value(Cause, shutdown_counts(Config), 0).
