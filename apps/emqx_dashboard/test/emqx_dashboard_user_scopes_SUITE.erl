@@ -584,7 +584,7 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(?NS_CONTROL_USER),
-    %% Must have the restricted subset (7 common).
+    %% Must have the restricted common subset.
     ?assert(lists:member(?SCOPE_CONNECTIONS, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_MONITORING, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_DATA_INTEGRATION, EffectiveScopes)),
@@ -595,6 +595,9 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     %% groups for namespaced callers.
     ?assert(lists:member(?SCOPE_CLUSTER_OPERATIONS, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_LICENSE, EffectiveScopes)),
+    %% The plugin API gateway, which namespaced callers reached
+    %% through `system' before the `plugin_api' scope existed.
+    ?assert(lists:member(?SCOPE_PLUGIN_API, EffectiveScopes)),
     %% Must have the two allowed login-only scopes.
     ?assert(lists:member(?SCOPE_USER_MGMT, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_API_KEY_MGMT, EffectiveScopes)),
@@ -605,8 +608,10 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     %% Must NOT have mfa, sso login-only scopes.
     ?assertNot(lists:member(?SCOPE_MFA_MGMT, EffectiveScopes)),
     ?assertNot(lists:member(?SCOPE_SSO_MGMT, EffectiveScopes)),
-    %% Exact count: 9 scopes (7 common + 2 login-only).
-    ?assertEqual(9, length(EffectiveScopes)).
+    %% The default is exactly the ns-admin allowlist: no more, no less.
+    ?assertEqual(
+        lists:sort(?NS_ADMIN_ALLOWED_SCOPES), lists:sort(EffectiveScopes)
+    ).
 
 %% PUT a namespaced administrator with only the description field
 %% updated (role + scopes unchanged).  The persisted scopes are the

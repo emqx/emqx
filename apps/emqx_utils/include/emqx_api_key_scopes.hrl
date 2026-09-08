@@ -29,6 +29,20 @@
 -define(SCOPE_AUDIT, <<"audit">>).
 -define(SCOPE_LICENSE, <<"license">>).
 
+%% Grants the plugin-extended API gateway (`/plugin_api/:plugin/...`)
+%% and nothing else. This is the surface a plugin publishes for its own
+%% callers, NOT plugin administration: installing, starting, stopping
+%% and configuring plugins stays on `?SCOPE_SYSTEM`.
+%%
+%% The gateway path also accepts `?SCOPE_SYSTEM`, so keys and users
+%% that predate this scope keep working. See
+%% `emqx_plugins_api_endpoint:scopes/0`.
+%%
+%% The scope says nothing about what a plugin does behind the gateway.
+%% A plugin is free to publish a dangerous endpoint, and holding this
+%% scope reaches it.
+-define(SCOPE_PLUGIN_API, <<"plugin_api">>).
+
 %% ── Internal scopes ────────────────────────────────────────────────
 
 %% Endpoints that API Keys must never access (dashboard login/SSO/
@@ -105,7 +119,8 @@
     ?SCOPE_CLUSTER_OPERATIONS,
     ?SCOPE_SYSTEM,
     ?SCOPE_AUDIT,
-    ?SCOPE_LICENSE
+    ?SCOPE_LICENSE,
+    ?SCOPE_PLUGIN_API
 ]).
 
 %% Namespaced-administrator scope defaults — a restricted subset of
@@ -130,7 +145,12 @@
     %% `GET /license/setting`, `GET /license/session_hwm_history`).
     %% RBAC blocks `POST /license` and `PUT /license/setting` for
     %% namespaced callers, so writes still return 403.
-    ?SCOPE_LICENSE
+    ?SCOPE_LICENSE,
+    %% The gateway forwards the caller's namespace to the plugin, and
+    %% namespaced callers reach it today through `?SCOPE_SYSTEM`.
+    %% Listing it keeps that reach and lets a namespaced caller be
+    %% narrowed down to the plugin API alone.
+    ?SCOPE_PLUGIN_API
 ]).
 -define(NS_ADMIN_LOGIN_SCOPES, [
     ?SCOPE_USER_MGMT,
