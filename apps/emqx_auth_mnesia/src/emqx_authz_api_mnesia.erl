@@ -922,10 +922,18 @@ binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 resolve_namespace(Req, _Meta) ->
     case get_namespace(Req) of
         {ok, Namespace} ->
+            ok = log_ns(Namespace),
             {ok, Req#{resolved_ns => Namespace}};
         {error, not_authorized} ->
             ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
     end.
+
+log_ns(?global_ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => <<"global">>}),
+    ok;
+log_ns(NS) when is_binary(NS) ->
+    _ = minirest_handler:update_log_meta(#{namespace => NS}),
+    ok.
 
 get_namespace(#{query_string := QueryString} = Req) ->
     ActorNamespace = emqx_dashboard:get_namespace(Req),

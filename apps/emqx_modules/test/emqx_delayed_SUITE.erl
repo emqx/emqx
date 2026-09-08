@@ -160,15 +160,15 @@ t_cluster(_) ->
 
     ?assertMatch(
         {ok, _},
-        emqx_delayed_proto_v2:get_delayed_message(node(), Id)
+        emqx_delayed_proto_v3:get_delayed_message(node(), Id)
     ),
 
     %% The 'local' and the 'fake-remote' values should be the same,
     %% however there is a race condition, so we are just assert that they are both 'ok' tuples
     ?assertMatch({ok, _}, emqx_delayed:get_delayed_message(Id)),
-    ?assertMatch({ok, _}, emqx_delayed_proto_v2:get_delayed_message(node(), Id)),
+    ?assertMatch({ok, _}, emqx_delayed_proto_v3:get_delayed_message(node(), Id)),
 
-    ok = emqx_delayed_proto_v2:delete_delayed_message(node(), Id),
+    ok = emqx_delayed_proto_v3:delete_delayed_message(node(), Id),
 
     ?assertMatch(
         {error, _},
