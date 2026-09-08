@@ -437,6 +437,57 @@ t_batch_render_failure(Config) ->
         eval_query(<<"SELECT payload FROM mqtt.t_mqtt_msg ORDER BY payload">>, Config)
     ).
 
+t_connection_initialization(Config) ->
+    ok = meck:new(mysql, [passthrough, no_link]),
+    emqx_common_test_helpers:on_exit(fun() -> meck:unload(mysql) end),
+    ok = meck:expect(mysql, start_link, fun(Opts) ->
+        Queries = [
+            <<"SET SESSION sql_mode = 'ANSI_QUOTES,NO_BACKSLASH_ESCAPES'">>
+            | proplists:get_value(queries, Opts, [])
+        ],
+        meck:passthrough([[{queries, Queries} | proplists:delete(queries, Opts)]])
+    end),
+    ConnectorConfig = emqx_utils_maps:deep_merge(?config(connector_config, Config), #{
+        <<"pool_size">> => 1,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"1h">>}
+    }),
+    {ok, {{_, 201, _}, _, _}} = emqx_bridge_v2_testlib:create_bridge_api([
+        {connector_config, ConnectorConfig} | Config
+    ]),
+    Name = ?config(connector_name, Config),
+    [{_, Worker}] = ecpool:workers(<<"connector:doris:", Name/binary>>),
+    {ok, Conn} = ecpool_worker:client(Worker),
+    assert_session_initialized(Conn),
+    ok = mysql:stop(Conn),
+    ?retry(
+        200,
+        100,
+        begin
+            {ok, NewConn} = ecpool_worker:client(Worker),
+            ?assertNotEqual(Conn, NewConn),
+            assert_session_initialized(NewConn)
+        end
+    ).
+
+assert_session_initialized(Conn) ->
+    ?assert(meck:called(mysql, query, [Conn, <<"SET enable_nereids_planner = true">>])),
+    ?assert(
+        meck:called(mysql, query, [Conn, <<"SET enable_fallback_to_original_planner = false">>])
+    ),
+    ?assertMatch(
+        {ok, _, [[1, 0]]},
+        mysql:query(
+            Conn,
+            <<
+                "SELECT @@SESSION.enable_nereids_planner, "
+                "@@SESSION.enable_fallback_to_original_planner"
+            >>
+        )
+    ),
+    {ok, _, [[Modes]]} = mysql:query(Conn, <<"SELECT @@SESSION.sql_mode">>),
+    ?assertEqual(nomatch, binary:match(Modes, <<"ANSI_QUOTES">>)),
+    ?assertEqual(nomatch, binary:match(Modes, <<"NO_BACKSLASH_ESCAPES">>)).
+
 t_sql_compiler_roundtrip(Config) ->
     {ok, C} = mysql:start_link([
         {host, emqx_utils_conv:str(host(Config))},
@@ -445,7 +496,7 @@ t_sql_compiler_roundtrip(Config) ->
         {basic_capabilities, #{?CLIENT_TRANSACTIONS => false}}
     ]),
     ok = mysql:query(C, <<"SET SESSION sql_mode = 'ANSI_QUOTES,NO_BACKSLASH_ESCAPES'">>),
-    ok = emqx_mysql:prepare_sql_to_conn(C, []),
+    ok = emqx_mysql:prepare_sql_to_conn(C, [], fun emqx_bridge_doris_impl:prepare_conn/1),
     {ok, _, [[Modes]]} = mysql:query(C, <<"SELECT @@SESSION.sql_mode">>),
     ?assertEqual(nomatch, binary:match(Modes, <<"ANSI_QUOTES">>)),
     ?assertEqual(nomatch, binary:match(Modes, <<"NO_BACKSLASH_ESCAPES">>)),
@@ -514,7 +565,7 @@ t_escaped_dollar_roundtrip(Config) ->
         {user, ?USERNAME},
         {basic_capabilities, #{?CLIENT_TRANSACTIONS => false}}
     ]),
-    ok = emqx_mysql:prepare_sql_to_conn(C, []),
+    ok = emqx_mysql:prepare_sql_to_conn(C, [], fun emqx_bridge_doris_impl:prepare_conn/1),
     Cases = [
         {<<"${$}">>, <<"$">>},
         {<<"cost: ${$}{amount}">>, <<"cost: ${amount}">>},
@@ -548,9 +599,7 @@ t_raw_string_roundtrip(Config) ->
         {basic_capabilities, #{?CLIENT_TRANSACTIONS => false}}
     ]),
     ok = mysql:query(C, <<"SET SESSION sql_mode = 'ANSI_QUOTES,NO_BACKSLASH_ESCAPES'">>),
-    ok = emqx_mysql:prepare_sql_to_conn(C, []),
-    ok = mysql:query(C, <<"SET enable_nereids_planner = true">>),
-    ok = mysql:query(C, <<"SET enable_fallback_to_original_planner = false">>),
+    ok = emqx_mysql:prepare_sql_to_conn(C, [], fun emqx_bridge_doris_impl:prepare_conn/1),
     %% Record native raw behavior separately from the compiler's byte-preserving semantics.
     Native = mysql:query(C, <<"SELECT HEX(R'a\\n'), HEX(r\"a\\n\"), HEX(R'a\\'), HEX(R'')">>),
     ct:print("Native Doris raw literals: ~p", [Native]),

@@ -25,7 +25,9 @@
 ]).
 
 %% ecpool connect & reconnect
--export([connect/1, prepare_sql_to_conn/2, get_reconnect_callback_signature/1]).
+-export([
+    connect/1, prepare_sql_to_conn/2, prepare_sql_to_conn/3, get_reconnect_callback_signature/1
+]).
 
 -export([
     init_prepare/1,
@@ -339,22 +341,28 @@ maybe_prepare_sql(SQLOrKey, State = #{query_templates := Templates}) ->
         false -> {error, {unrecoverable_error, prepared_statement_invalid}}
     end.
 
-prepare_sql(#{query_templates := Templates, pool_name := PoolName}) ->
-    prepare_sql(maps:to_list(Templates), PoolName).
+prepare_sql(#{query_templates := Templates, pool_name := PoolName} = State) ->
+    PrepareConnFn = maps:get(prepare_conn_fn, State, undefined),
+    prepare_sql(maps:to_list(Templates), PoolName, PrepareConnFn).
 
 prepare_sql(Templates, PoolName) ->
-    case do_prepare_sql(Templates, PoolName) of
+    prepare_sql(Templates, PoolName, undefined).
+
+prepare_sql(Templates, PoolName, PrepareConnFn) ->
+    case do_prepare_sql(Templates, PoolName, PrepareConnFn) of
         ok ->
             %% prepare for reconnect
-            ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Templates]}),
+            ecpool:add_reconnect_callback(
+                PoolName, {?MODULE, prepare_sql_to_conn, [Templates, PrepareConnFn]}
+            ),
             ok;
         {error, R} ->
             {error, R}
     end.
 
-do_prepare_sql(Templates, PoolName) ->
+do_prepare_sql(Templates, PoolName, PrepareConnFn) ->
     Conns = get_connections_from_pool(PoolName),
-    prepare_sql_to_conn_list(Conns, Templates).
+    prepare_sql_to_conn_list(Conns, Templates, PrepareConnFn).
 
 get_connections_from_pool(PoolName) ->
     lists:map(
@@ -368,12 +376,12 @@ get_connections_from_pool(PoolName) ->
 pool_workers(PoolName) ->
     lists:map(fun({_Name, Worker}) -> Worker end, ecpool:workers(PoolName)).
 
-prepare_sql_to_conn_list([], _Templates) ->
+prepare_sql_to_conn_list([], _Templates, _PrepareConnFn) ->
     ok;
-prepare_sql_to_conn_list([Conn | ConnList], Templates) ->
-    case prepare_sql_to_conn(Conn, Templates) of
+prepare_sql_to_conn_list([Conn | ConnList], Templates, PrepareConnFn) ->
+    case prepare_sql_to_conn(Conn, Templates, PrepareConnFn) of
         ok ->
-            prepare_sql_to_conn_list(ConnList, Templates);
+            prepare_sql_to_conn_list(ConnList, Templates, PrepareConnFn);
         {error, R} ->
             %% rollback
             _ = [unprepare_sql_to_conn(Conn, Template) || Template <- Templates],
@@ -381,9 +389,9 @@ prepare_sql_to_conn_list([Conn | ConnList], Templates) ->
     end.
 
 %% this callback accepts the arg list provided to
-%% ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Templates]})
+%% ecpool:add_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn, [Templates | _]})
 %% so ecpool_worker can de-duplicate the callbacks based on the signature.
-get_reconnect_callback_signature([Templates]) ->
+get_reconnect_callback_signature([Templates | _]) ->
     [{{ChannelID, _}, _}] = lists:filter(
         fun
             ({{_, prepstmt}, _}) ->
@@ -394,6 +402,14 @@ get_reconnect_callback_signature([Templates]) ->
         Templates
     ),
     ChannelID.
+
+prepare_sql_to_conn(Conn, Templates, undefined) ->
+    prepare_sql_to_conn(Conn, Templates);
+prepare_sql_to_conn(Conn, Templates, PrepareConnFn) ->
+    case PrepareConnFn(Conn) of
+        ok -> prepare_sql_to_conn(Conn, Templates);
+        {error, _} = Error -> Error
+    end.
 
 prepare_sql_to_conn(Conn, Templates) ->
     case clear_unsafe_sql_modes(Conn) of
