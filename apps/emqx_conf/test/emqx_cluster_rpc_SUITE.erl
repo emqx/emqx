@@ -36,7 +36,8 @@ all() ->
         t_del_stale_mfa,
         t_skip_failed_commit,
         t_fast_forward_commit,
-        t_commit_concurrency
+        t_commit_concurrency,
+        t_apply_result_not_logged
     ].
 suite() -> [{timetrap, {minutes, 5}}].
 groups() -> [].
@@ -110,6 +111,37 @@ t_base_test(_Config) ->
                 ],
                 Status1
             )
+    end,
+    ok.
+
+%% Verify that a successful cluster-RPC apply logs only the shape of the result,
+%% never the value, and that a failed apply still logs the error term.
+t_apply_result_not_logged(_Config) ->
+    Marker = <<"UNIQUE_MARKER_423">>,
+    ok = start_log_capture(),
+    try
+        {M, F, A} = {?MODULE, echo_compiled, [Marker]},
+        ?assertMatch({ok, _, {ok, #{compiled := Marker}}}, multicall(M, F, A)),
+        Reports = collect_reports(),
+        ?assertMatch(
+            [#{result := {ok, '_'}}],
+            [R || #{msg := "cluster_rpc_apply_result"} = R <- Reports]
+        ),
+        %% one line per node applying the committed MFA
+        OkReports = [R || #{msg := "cluster_rpc_apply_ok"} = R <- Reports],
+        ?assertMatch([_, _ | _], OkReports),
+        lists:foreach(fun(R) -> ?assertMatch(#{result := {ok, '_'}}, R) end, OkReports),
+        Formatted = iolist_to_binary(io_lib:format("~p", [Reports])),
+        ?assertEqual(nomatch, binary:match(Formatted, Marker)),
+        %% a failure keeps reporting the error term
+        {M1, F1, A1} = {?MODULE, failed_on_node, [erlang:whereis(?NODE1)]},
+        ?assertMatch({ok, _, ok}, multicall(M1, F1, A1, 1, 1000)),
+        ?assertMatch(
+            #{result := "MFA return not ok"},
+            wait_for_report("cluster_rpc_apply_failed", 5_000)
+        )
+    after
+        stop_log_capture()
     end,
     ok.
 
@@ -425,6 +457,11 @@ echo(Pid, Msg, _) ->
     erlang:send(Pid, Msg),
     ok.
 
+%% Returns a value emqx_utils:redact/1 cannot mask, like the compiled runtime
+%% state a config update returns.
+echo_compiled(Value, _) ->
+    {ok, #{compiled => Value}}.
+
 format(Fmt, Args, _Opts) ->
     io:format(Fmt, Args).
 
@@ -473,4 +510,54 @@ flush_msg(Acc) ->
             flush_msg([Msg | Acc])
     after 10 ->
         Acc
+    end.
+
+%%--------------------------------------------------------------------
+%% log capture
+%%--------------------------------------------------------------------
+
+start_log_capture() ->
+    #{level := Level} = logger:get_primary_config(),
+    _ = erlang:put({?MODULE, primary_level}, Level),
+    ok = logger:set_primary_config(level, debug),
+    ok = logger:add_handler(?MODULE, ?MODULE, #{
+        level => debug,
+        config => #{pid => self()},
+        filter_default => stop,
+        filters => [{cluster_rpc, {fun ?MODULE:filter_cluster_rpc/2, []}}]
+    }).
+
+stop_log_capture() ->
+    _ = logger:remove_handler(?MODULE),
+    Level = erlang:erase({?MODULE, primary_level}),
+    ok = logger:set_primary_config(level, Level),
+    _ = collect_reports(),
+    ok.
+
+filter_cluster_rpc(#{meta := #{mfa := {emqx_cluster_rpc, _, _}}} = Event, _) -> Event;
+filter_cluster_rpc(_Event, _) -> stop.
+
+%% logger handler callback
+log(#{msg := {report, Report}}, #{config := #{pid := Pid}}) ->
+    _ = erlang:send(Pid, {?MODULE, log_report, Report}),
+    ok;
+log(_Event, _Config) ->
+    ok.
+
+collect_reports() ->
+    collect_reports([]).
+
+collect_reports(Acc) ->
+    receive
+        {?MODULE, log_report, Report} -> collect_reports([Report | Acc])
+    after 200 ->
+        lists:reverse(Acc)
+    end.
+
+wait_for_report(Msg, Timeout) ->
+    receive
+        {?MODULE, log_report, #{msg := Msg} = Report} -> Report;
+        {?MODULE, log_report, _} -> wait_for_report(Msg, Timeout)
+    after Timeout ->
+        error({timeout_waiting_for_log, Msg})
     end.
