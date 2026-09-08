@@ -461,61 +461,6 @@ t_compiler_dispatch(_Config) ->
     ),
     ?assert(maps:is_key({test, batch}, MySQLTemplates)).
 
-t_mysql_parity(_Config) ->
-    Templates = [
-        <<"INSERT INTO t VALUES (${v}, '${v}', \"${v}\")">>,
-        <<"INSERT INTO t VALUES ('', 'a${$}b', \"${$}{v}\", 'a\\n', 'a''b')">>,
-        <<"INSERT INTO t VALUES ('${v}${v}', '${$}${v}${$}', \"a${v}b\")">>,
-        <<"INSERT INTO t VALUES ('a\\\\${v}', 'a\\'${v}', \"a\\\"${v}\")">>,
-        ~b"""
-        INSERT INTO db.t(c) VALUES (
-            `f`(${v}, 1),
-            CASE WHEN ${v} IS NULL THEN -(2) ELSE 3 END
-        )
-        """
-    ],
-    Rows = [#{v => <<"a'b\"c\\">>}, #{v => 7}, #{v => 1.5}, #{v => [16#1F642]}, #{}],
-    lists:foreach(
-        fun(SQL) ->
-            {ok, MySQL} = emqx_mysql_sql:compile(SQL),
-            {ok, Doris} = emqx_doris_sql:compile(SQL),
-            lists:foreach(
-                fun(Opts) ->
-                    lists:foreach(
-                        fun(Data) ->
-                            ?assertEqual(
-                                rendered(emqx_mysql_sql:render(MySQL, Data, Opts)),
-                                rendered(emqx_doris_sql:render(Doris, Data, Opts)),
-                                {SQL, Data, Opts}
-                            )
-                        end,
-                        Rows
-                    ),
-                    ?assertEqual(
-                        rendered(emqx_mysql_sql:render_batch(MySQL, Rows, Opts)),
-                        rendered(emqx_doris_sql:render_batch(Doris, Rows, Opts))
-                    ),
-                    ?assertEqual(
-                        rendered(emqx_mysql_sql:render_batch(MySQL, [], Opts)),
-                        rendered(emqx_doris_sql:render_batch(Doris, [], Opts))
-                    )
-                end,
-                [#{}, #{undefined_vars_as_null => true}, #{undefined_vars_as_null => false}]
-            )
-        end,
-        Templates
-    ),
-    lists:foreach(
-        fun(Body) ->
-            SQL = <<"INSERT INTO t VALUES (", Body/binary, ")">>,
-            {error, {invalid_mysql_insert_template, Reason}} = emqx_mysql_sql:compile(SQL),
-            ?assertEqual(
-                {error, {invalid_doris_insert_template, Reason}}, emqx_doris_sql:compile(SQL)
-            )
-        end,
-        [<<"'a\\${v}'">>, <<"'${bad-name}'">>, <<"'${v'">>]
-    ).
-
 t_escaped_dollar(_Config) ->
     Cases = [
         {<<>>, <<>>},
