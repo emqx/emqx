@@ -213,6 +213,7 @@ collections(get, Req) ->
     ?OK([view(R) || R <- aggregated_list(OwnerNs)]);
 collections(post, #{body := Body} = Req) ->
     OwnerNs = actor_ns(Req),
+    ok = log_ns(OwnerNs),
     case parse_create(Body) of
         {ok, BinName, TopicFilter} ->
             Name = {OwnerNs, BinName},
@@ -236,6 +237,7 @@ collections(post, #{body := Body} = Req) ->
     end;
 collections(delete, Req) ->
     OwnerNs = actor_ns(Req),
+    ok = log_ns(OwnerNs),
     %% A global admin's "delete all visible" really means "delete
     %% everything"; a namespaced admin's call is scoped to their ns.
     ok = emqx_topic_metrics2:deregister_all(list_scope(OwnerNs)),
@@ -276,10 +278,25 @@ actor_ns(Req) ->
 with_ns(Req, Fun) ->
     case resolve_ns(Req) of
         {ok, OwnerNs} ->
+            ok = log_ns(OwnerNs),
             Fun(OwnerNs);
         {error, forbidden} ->
             ?FORBIDDEN(<<"not allowed to address another namespace's collection">>)
     end.
+
+%% Record the resolved target namespace on the audit log for this
+%% request (regression for #18653: `:name' alone does not distinguish
+%% `global/test' from `acme/test' in the audit trail). This is the
+%% *resolved* namespace, not the raw `ns' query param, so a namespaced
+%% admin's implicit own-namespace target (no `?ns=' at all) is also
+%% recorded, not just explicit cross-namespace targeting by a global
+%% admin. See emqx_dashboard_audit:http_request/1.
+log_ns(?global_ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => <<"global">>}),
+    ok;
+log_ns(NS) when is_binary(NS) ->
+    _ = minirest_handler:update_log_meta(#{namespace => NS}),
+    ok.
 
 %% Resolve the namespace an actor may operate on for a `:name' op.
 %% - No `ns' param  -> the actor's own namespace (unchanged behavior).

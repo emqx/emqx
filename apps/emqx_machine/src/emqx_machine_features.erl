@@ -117,7 +117,8 @@ known_features() ->
                 emqx_oracle,
                 emqx_redis,
                 emqx_s3,
-                emqx_mongodb
+                emqx_mongodb,
+                emqx_gcp_protos
             ] ++ data_integration_dynamic_apps(),
             deps => [schema_registry]
         },

@@ -22,6 +22,7 @@
 -define(NS_ACME_ADMIN, <<"acme_admin">>).
 -define(NS_BRAVO_ADMIN, <<"bravo_admin">>).
 -define(NS_ADMIN_PASS, <<"public123!">>).
+-define(RESET_OP_ID, <<"/mqtt/topic_metrics2/:name/reset">>).
 
 suite() -> [{timetrap, {seconds, 60}}].
 
@@ -310,6 +311,38 @@ t_namespaced_admin_own_ns_ok(Config) ->
     {204, _} = delete_one_ns(Config, ?NS_ACME, <<"n">>, ?NS_ACME),
     ?assertMatch({404, _}, get_one(Config, ?NS_ACME, <<"n">>)).
 
+-doc """
+Regression test for #18653, using the issue's exact scenario:
+resetting `global/test' and `acme/test' must produce two audit
+records that can be told apart. Before the fix, both records only
+carried the collection name `test' — the `ns' query parameter used
+to reach `acme/test' was dropped before it reached the audit log.
+""".
+t_reset_audit_records_namespace(Config) ->
+    StartAt = erlang:system_time(microsecond),
+    {201, _} = create(Config, ?global_ns, <<"test">>, <<"test/#">>),
+    {201, _} = create(Config, ?NS_ACME, <<"test">>, <<"test/#">>),
+    {204, _} = reset_one(Config, ?global_ns, <<"test">>),
+    {204, _} = reset_one_ns(Config, ?global_ns, <<"test">>, ?NS_ACME),
+    Entries = wait_for_audit_entries(?RESET_OP_ID, StartAt, 2, 2000),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, ?NS_ACME]), Namespaces).
+
+-doc """
+A namespaced admin resetting their own collection with no `ns' query
+parameter still gets their namespace recorded on the audit entry —
+not `global', and not absent. This is the case a fix that only
+records the raw `ns' query parameter would miss, since a namespaced
+admin's target namespace comes from their dashboard token, not from
+the request.
+""".
+t_reset_audit_no_ns_records_actor_namespace(Config) ->
+    StartAt = erlang:system_time(microsecond),
+    {201, _} = create(Config, ?NS_ACME, <<"n2">>, <<"n2/#">>),
+    {204, _} = reset_one(Config, ?NS_ACME, <<"n2">>),
+    [Entry] = wait_for_audit_entries(?RESET_OP_ID, StartAt, 1, 2000),
+    ?assertEqual(?NS_ACME, namespace_of(Entry)).
+
 %%------------------------------------------------------------------------------
 %% Helpers — real HTTP via dashboard listener
 %%------------------------------------------------------------------------------
@@ -378,3 +411,35 @@ bearer(Token) ->
 
 b2l(B) when is_binary(B) -> binary_to_list(B);
 b2l(L) when is_list(L) -> L.
+
+%%------------------------------------------------------------------------------
+%% Audit helpers
+%%------------------------------------------------------------------------------
+
+%% The audit write happens after the HTTP response is already sent
+%% (see minirest_handler:init/2), so poll for a bit rather than
+%% assume the record is there the instant the request returns.
+wait_for_audit_entries(_OperationId, _StartAt, _ExpectedCount, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(OperationId, StartAt, ExpectedCount, RemainMs - SleepMs)
+    end.
+
+audit_entries_since(OperationId, StartAt) ->
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Query = lists:flatten(
+        io_lib:format("operation_id=~ts&gte_created_at=~B&limit=100", [OperationId, StartAt])
+    ),
+    {ok, Res} = emqx_mgmt_api_test_util:request_api(get, AuditPath, Query, AuthHeader),
+    #{<<"data">> := Data} = emqx_utils_json:decode(Res),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
