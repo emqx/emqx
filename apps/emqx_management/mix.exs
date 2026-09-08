@@ -2,6 +2,7 @@ defmodule EMQXManagement.MixProject do
   use Mix.Project
   alias EMQXUmbrella.MixProject, as: UMP
 
+  # just to trigger ci; deleteme
   def project do
     [
       app: :emqx_management,
