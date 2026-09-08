@@ -8,36 +8,9 @@ defmodule EMQXBridgeBigtable.MixProject do
   def project do
     [
       app: :emqx_bridge_bigtable,
-      version: "6.3.0",
+      version: "6.3.1",
       build_path: "../../_build",
-      compilers: [:elixir, :grpc, :erlang, :app, :copy_srcs],
-      # used by our `Mix.Tasks.Compile.Grpc` compiler
-      grpc_opts: %{
-        gpb_opts: [
-          :use_packages,
-          :maps,
-          :strings_as_binaries,
-          i: ~c"scripts/protos",
-          module_name_prefix: ~c"emqx_bigtable_gen_",
-          module_name_suffix: ~c"_pb",
-          report_errors: false,
-          rename: {:msg_name, :snake_case}
-        ],
-        generate_server?: false,
-        generate_client?: true,
-        proto_dirs: ["scripts/protos/google/bigtable/v2"],
-        out_dir: "src/generated"
-      },
-      xref_ignores: [
-        :emqx_bigtable_gen_bigtable_pb,
-        :emqx_bigtable_gen_data_pb,
-        :emqx_bigtable_gen_feature_flags_pb,
-        :emqx_bigtable_gen_peer_info_pb,
-        :emqx_bigtable_gen_request_stats_pb,
-        :emqx_bigtable_gen_response_params_pb,
-        :emqx_bigtable_gen_session_pb,
-        :emqx_bigtable_gen_types_pb
-      ],
+      compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
       extra_dirs: extra_dirs(),
       erlc_options: UMP.strict_erlc_options(),
@@ -68,6 +41,7 @@ defmodule EMQXBridgeBigtable.MixProject do
       {:emqx_resource, in_umbrella: true},
       {:emqx_connector_jwt, in_umbrella: true},
       {:emqx_bridge_gcp_pubsub, in_umbrella: true},
+      {:emqx_gcp_protos, in_umbrella: true},
       :grpc
     ])
   end

@@ -24,7 +24,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -define(SERVICE, 'google.bigtable.v2.Bigtable').
--define(PROTO_MODULE, 'emqx_bigtable_gen_bigtable_pb').
+-define(PROTO_MODULE, 'emqx_gcp_protos_gen_bigtable_pb').
 -define(MARSHAL(T), fun(I) -> ?PROTO_MODULE:encode_msg(I, T) end).
 -define(UNMARSHAL(T), fun(I) -> ?PROTO_MODULE:decode_msg(I, T) end).
 -define(DEF(Path, Req, Resp, MessageType), #{
