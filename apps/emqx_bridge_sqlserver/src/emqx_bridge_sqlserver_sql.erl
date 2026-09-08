@@ -264,13 +264,11 @@ compile_row({row, Expressions}) ->
 compile_expression({var, Placeholder}) ->
     [#value{placeholder = Placeholder}];
 compile_expression({string, Style, Source}) ->
-    Parts = parse_string(Source, Style),
-    case lists:any(fun is_variable_part/1, Parts) of
-        true ->
-            [compile_string_op(Style, Parts)];
-        false ->
-            [#tpl_text{text = Text}] = Parts,
-            [#raw{sql = iolist_to_binary(encode_string(Text, Style))}]
+    case parse_string(Source, Style) of
+        [#tpl_text{text = Text}] ->
+            [#raw{sql = iolist_to_binary(encode_string(Text, Style))}];
+        Parts ->
+            [compile_string_op(Style, Parts)]
     end;
 compile_expression({number, Number}) ->
     [#raw{sql = Number}];
@@ -403,9 +401,6 @@ finish_parts(Text, Parts) ->
 
 strip_quotes(Source) ->
     binary:part(Source, 1, byte_size(Source) - 2).
-
-is_variable_part(#tpl_placeholder{}) -> true;
-is_variable_part(_) -> false.
 
 join_ops(_Separator, []) ->
     [];
@@ -583,6 +578,20 @@ scalar_template_value_types_test() ->
                 null_opts()
             )
         )
+    ).
+
+template_parts_classification_test() ->
+    lists:foreach(
+        fun(Prefix) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO t VALUES (", Prefix/binary, "'', ", Prefix/binary, "'${a}${b}')">>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO [t] VALUES (", Prefix/binary, "'', ", Prefix/binary, "'xy')">>},
+                rendered_binary(render(Plan, #{a => <<"x">>, b => <<"y">>}, null_opts()))
+            )
+        end,
+        [<<>>, <<"N">>]
     ).
 
 escaped_dollar_test() ->

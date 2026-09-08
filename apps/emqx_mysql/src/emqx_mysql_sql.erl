@@ -328,42 +328,30 @@ compile_case_else(Expression) ->
 parse_sql_string(Source) ->
     Delimiter = binary:first(Source),
     Body = binary:part(Source, 1, byte_size(Source) - 2),
-    parse_sql_string_body(Body, Delimiter, Source, [], [], false, false).
+    parse_sql_string_body(Body, Delimiter, [], []).
 
-%% Arguments are
-%% * the remaining body
-%% * quote delimiter
-%% * original token
-%% * reversed text acc
-%% * reversed compiled parts
-%% * IsDynamic flag
-%% * Rewritten flag for escaped dollars
-%% Return the original token only when neither flag is set.
-%% The first placeholder switches IsDynamic to true and starts accumulating compiled parts.
-parse_sql_string_body(<<>>, _Delimiter, Source, _Text, _Parts, false, false) ->
-    {static, Source};
-parse_sql_string_body(<<>>, Delimiter, _Source, Text, [], false, true) ->
-    [#string_raw{sql = SQL}] = flush_string_text(Text, Delimiter, []),
-    {static, SQL};
-parse_sql_string_body(<<>>, Delimiter, _Source, Text, Parts, true, _Rewritten) ->
-    ok = assert_safe_string_split(Text),
-    {dynamic, lists:reverse(flush_string_text(Text, Delimiter, Parts))};
-parse_sql_string_body(
-    <<"${$}", Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic, _Rewritten
-) ->
-    parse_sql_string_body(Rest, Delimiter, Source, [$$ | Text], Parts, IsDynamic, true);
-parse_sql_string_body(
-    <<"${", _/binary>> = Bin, Delimiter, Source, Text, Parts, _IsDynamic, Rewritten
-) ->
+parse_sql_string_body(<<>>, Delimiter, Text, Parts) ->
+    case lists:reverse(flush_string_text(Text, Delimiter, Parts)) of
+        [] ->
+            {static, <<Delimiter, Delimiter>>};
+        [#string_raw{sql = SQL}] ->
+            {static, SQL};
+        FinalParts ->
+            ok = assert_safe_string_split(Text),
+            {dynamic, FinalParts}
+    end;
+parse_sql_string_body(<<"${$}", Rest/binary>>, Delimiter, Text, Parts) ->
+    parse_sql_string_body(Rest, Delimiter, [$$ | Text], Parts);
+parse_sql_string_body(<<"${", _/binary>> = Bin, Delimiter, Text, Parts) ->
     ok = assert_safe_string_split(Text),
     {Placeholder, Rest} = take_placeholder(Bin),
     PartsNext = [
         #string_placeholder{placeholder = Placeholder}
         | flush_string_text(Text, Delimiter, Parts)
     ],
-    parse_sql_string_body(Rest, Delimiter, Source, [], PartsNext, true, Rewritten);
-parse_sql_string_body(<<Char, Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic, Rewritten) ->
-    parse_sql_string_body(Rest, Delimiter, Source, [Char | Text], Parts, IsDynamic, Rewritten).
+    parse_sql_string_body(Rest, Delimiter, [], PartsNext);
+parse_sql_string_body(<<Char, Rest/binary>>, Delimiter, Text, Parts) ->
+    parse_sql_string_body(Rest, Delimiter, [Char | Text], Parts).
 
 flush_string_text([], _Delimiter, Parts) ->
     Parts;

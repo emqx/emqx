@@ -268,9 +268,10 @@ compile_target({target, Database, Component}) ->
     DatabaseOps ++ compile_target_component(Component).
 
 compile_target_component({identifier_parts, Parts} = Identifier) ->
-    case lists:any(fun is_variable_part/1, Parts) of
-        true -> [#identifier{parts = Parts}];
-        false -> [#raw{sql = serialize_identifier(Identifier)}]
+    case Parts of
+        [] -> [#raw{sql = serialize_identifier(Identifier)}];
+        [#tpl_text{}] -> [#raw{sql = serialize_identifier(Identifier)}];
+        _ -> [#identifier{parts = Parts}]
     end;
 compile_target_component({identifier_placeholder, Placeholder}) ->
     [#identifier{parts = [#tpl_placeholder{placeholder = Placeholder}]}];
@@ -300,13 +301,11 @@ compile_row({row, Values}) ->
 compile_value({var, Placeholder}) ->
     [#value{placeholder = Placeholder}];
 compile_value({string, Style, Source}) ->
-    Parts = parse_string(Source, Style),
-    case lists:any(fun is_variable_part/1, Parts) of
-        true ->
-            [#string{parts = Parts}];
-        false ->
-            [#tpl_text{text = Text}] = Parts,
-            [#raw{sql = encode_string(Text)}]
+    case parse_string(Source, Style) of
+        [#tpl_text{text = Text}] ->
+            [#raw{sql = encode_string(Text)}];
+        Parts ->
+            [#string{parts = Parts}]
     end;
 compile_value({number, Number}) ->
     [#raw{sql = Number}];
@@ -441,9 +440,6 @@ finish_parts(Text, Parts) ->
 
 strip_quotes(Source) ->
     binary:part(Source, 1, byte_size(Source) - 2).
-
-is_variable_part(#tpl_placeholder{}) -> true;
-is_variable_part(_) -> false.
 
 join_ops(_Separator, []) ->
     [];
@@ -620,6 +616,36 @@ multi_table_compile_and_render_test() ->
             "`test_client-1` USING s_tab TAGS ('client-1') VALUES (2, 'hello')"
         >>,
         iolist_to_binary(Rendered)
+    ).
+
+template_parts_classification_test() ->
+    lists:foreach(
+        fun(Quote) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO `a``b` VALUES (", Quote, Quote, ", ", Quote, "${a}${b}", Quote, ")">>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO `a``b` VALUES ('', 'xy')">>},
+                rendered_binary(render(Plan, #{a => <<"x">>, b => <<"y">>}, null_opts()))
+            )
+        end,
+        "'\""
+    ),
+    lists:foreach(
+        fun(Target) ->
+            {ok, Plan} = compile(<<"INSERT INTO ", Target/binary, " VALUES (1)">>),
+            ?assertEqual(
+                {ok, <<"INSERT INTO `xy` VALUES (1)">>},
+                rendered_binary(
+                    render(Plan, #{a => <<"x">>, b => <<"y">>, table => <<"xy">>}, null_opts())
+                )
+            )
+        end,
+        [<<"${a}${b}">>, <<"`${a}${b}`">>, <<"`${table}`">>]
+    ),
+    ?assertEqual(
+        {error, {invalid_tdengine_insert_template, {error, dynamic_identifier_not_allowed}}},
+        compile(<<"INSERT INTO `` VALUES (1)">>)
     ).
 
 escaped_dollar_test() ->
