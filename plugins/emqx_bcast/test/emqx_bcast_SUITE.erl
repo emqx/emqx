@@ -57,6 +57,7 @@ init_per_testcase(_Case, Config) ->
             bcast_msg,
             bcast_msg_meta,
             bcast_msg_meta_counter,
+            bcast_msg_acked,
             bcast_message,
             bcast_message_hash,
             bcast_message_api_id,
@@ -762,6 +763,205 @@ t_cleanup_completed_deliveries_fallback(_Config) ->
     ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_meta, DeliveryId)),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)).
+
+-doc "An index rebuild must not resurrect a per-device index entry whose\n"
+"ack was already counted: acked-device markers are persisted on the ack\n"
+"flush path, so a rebuilt delivery only queues the devices still missing\n"
+"their ack. Without the persistent markers the rebuild re-created entries\n"
+"for every device in the bcast_msg row, a redelivered duplicate ack\n"
+"decremented the completion counter a second time, the delivery completed\n"
+"early, and the never-acked devices were stranded with no index entry.".
+t_rebuild_skips_counted_acked_devices(_Config) ->
+    PK = <<"PACKED">>,
+    [DN1] = same_shard_dns(PK, 7, 1),
+    [DN2] = same_shard_dns(PK, 8, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"acked persist">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN1, DN2], 2
+    ),
+    ?assertEqual(2, emqx_bcast_storage:pending_delivery_count()),
+    counted = emqx_bcast_storage:process_ack(PK, DN1, DeliveryId),
+    %% The acked marker lands with the shard's ack flush tick.
+    ?assert(wait_until(fun() -> acked_devices(DeliveryId) =:= [DN1] end, 100)),
+    %% Rebuild the index (forced, as on an activation drive).
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    %% DN1's entry is not resurrected; DN2's is still pending.
+    {ok, []} = emqx_bcast_storage:get_device_delivery_entries({PK, DN1}),
+    {ok, [{DeliveryId, stored}]} = emqx_bcast_storage:get_device_delivery_entries({PK, DN2}),
+    %% The completion counter still tracks exactly DN2's missing ack.
+    [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
+        bcast_msg_meta_counter, DeliveryId
+    ),
+    %% DN2's ack still completes the delivery, clearing the acked markers.
+    counted = emqx_bcast_storage:process_ack(PK, DN2, DeliveryId),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)).
+
+-doc "Deliveries committed within the same second must rebuild in commit\n"
+"order: created_at has second granularity, so the rebuild sort\n"
+"tie-breaks on the millisecond-ordered msg_id prefix, or the rebuilt\n"
+"per-device FIFO scrambles (a later delivery could be claimed first).".
+t_rebuild_preserves_same_second_fifo_order(_Config) ->
+    PK = <<"PFIFO">>,
+    [DN] = same_shard_dns(PK, 9, 1),
+    Now = emqx_bcast_utils:now_sec(),
+    Dids = lists:map(
+        fun(I) ->
+            {_ApiMsgId, MsgGuid} = create_test_msg(
+                <<"fifo ", (integer_to_binary(I))/binary>>
+            ),
+            DeliveryId = emqx_bcast_utils:gen_guid(),
+            {ok, D} = emqx_bcast_storage:create_delivery(
+                DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1
+            ),
+            %% force the same-second collision deterministically
+            mnesia:dirty_write(D#bcast_msg{created_at = Now}),
+            DeliveryId
+        end,
+        lists:seq(1, 8)
+    ),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    {ok, Entries} = emqx_bcast_storage:get_device_delivery_entries({PK, DN}),
+    ?assertEqual([{Did, stored} || Did <- Dids], Entries).
+
+-doc "A management delivery delete also removes the persisted acked-device\n"
+"markers, so they cannot leak into a later delivery that would reuse the\n"
+"table key space.".
+t_delete_delivery_clears_acked_markers(_Config) ->
+    PK = <<"PDELACK">>,
+    [DN1] = same_shard_dns(PK, 7, 1),
+    [DN2] = same_shard_dns(PK, 8, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"acked delete">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN1, DN2], 2
+    ),
+    counted = emqx_bcast_storage:process_ack(PK, DN1, DeliveryId),
+    ?assert(wait_until(fun() -> acked_devices(DeliveryId) =:= [DN1] end, 100)),
+    ok = emqx_bcast_storage:delete_delivery(DeliveryId),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)).
+
+-doc "A crash inside promoter batch processing must be contained: the\n"
+"intake take is atomic (dequeue-then-process), so an uncaught worker\n"
+"crash would silently lose the whole dequeued batch and kill the linked\n"
+"promoter gen_server with it. The guard turns a crash into a retry of\n"
+"the same batch; once the fault clears the batch still promotes.".
+t_promoter_retries_after_internal_crash(_Config) ->
+    Promoter = whereis(emqx_bcast_promoter),
+    true = is_pid(Promoter),
+    MRef = monitor(process, Promoter),
+    PK = <<"PPCRASH">>,
+    DN = <<"DPCRASH">>,
+    Now = emqx_bcast_utils:now_sec(),
+    Payload = <<"crash-guard payload">>,
+    {_ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    Entry = #{
+        payload => Payload,
+        hash => crypto:hash(sha256, Payload),
+        api_msg_id => <<"crash-api">>,
+        msg_id => MsgGuid,
+        delivery_id => emqx_bcast_utils:gen_guid(),
+        product_key => PK,
+        topic_template => <<"tpl/crash">>,
+        devices => [DN],
+        created_at => Now,
+        expires_at => Now + 3600
+    },
+    meck:new(emqx_bcast_index_owner, [passthrough, no_link]),
+    %% Crash the first few appends (below the consecutive-failure budget),
+    %% then let the real append through.
+    Ctr = atomics:new(1, []),
+    atomics:put(Ctr, 1, 6),
+    meck:expect(emqx_bcast_index_owner, append_batch, fun(Entries) ->
+        case atomics:sub_get(Ctr, 1, 1) > 0 of
+            true -> error(injected_append_crash);
+            false -> meck:passthrough([Entries])
+        end
+    end),
+    try
+        {ok, _Seq} = emqx_bcast_intake:enqueue(Entry),
+        %% the same batch promotes once the fault clears (no silent loss)
+        ?assert(
+            wait_until(
+                fun() ->
+                    case catch emqx_bcast_index_owner:device_deliveries({PK, DN}) of
+                        {ok, [_ | _]} -> true;
+                        _ -> false
+                    end
+                end,
+                5000
+            )
+        ),
+        %% the promoter and its linked workers survived the crashes
+        ?assertEqual(Promoter, whereis(emqx_bcast_promoter)),
+        receive
+            {'DOWN', MRef, process, Promoter, Reason} ->
+                ct:fail({promoter_died, Reason})
+        after 0 ->
+            ok
+        end
+    after
+        meck:unload(emqx_bcast_index_owner),
+        demonitor(MRef, [flush])
+    end,
+    ok.
+
+-doc "The delivery worker must commit only the fields it owns (claim,\n"
+"inflight): committing a full row copy read earlier would clobber a\n"
+"topics update that landed between the read and the write (subscription\n"
+"cache lost-update, no self-heal until the next hook event). The guarded\n"
+"update preserves the concurrently written fields.".
+t_commit_preserves_concurrent_topics_update(_Config) ->
+    PK = <<"PLU">>,
+    DN = <<"DLU">>,
+    _ = emqx_bcast:register_device(PK, DN, self()),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"lost update">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl/lu">>, [DN], 1),
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    Tab = emqx_bcast_pull_shard:tab(Shard, bcast_client_state),
+    Now = emqx_bcast_utils:now_sec(),
+    Tag = emqx_bcast_utils:gen_guid(),
+    ets:insert(Tab, #bcast_client_state{
+        key = {PK, DN},
+        product_key = PK,
+        clientid = DN,
+        pid = self(),
+        claim = {Tag, Now},
+        inflight = [],
+        topics = [{<<"old/filter">>, 1}]
+    }),
+    NewTopics = [{<<"new/filter">>, 1}],
+    %% Land the topics update between the worker's row read and its write:
+    %% the interposer runs inside prepare_and_commit (after the lookup,
+    %% before the commit) exactly where the race window lives.
+    meck:new(emqx_bcast, [passthrough, no_link]),
+    meck:expect(emqx_bcast, lookup_device, fun(Key) ->
+        [R] = ets:lookup(Tab, {PK, DN}),
+        ets:insert(Tab, R#bcast_client_state{topics = NewTopics}),
+        meck:passthrough([Key])
+    end),
+    ClaimMap = #{
+        delivery_id => DeliveryId,
+        msg_id => MsgGuid,
+        product_key => PK,
+        topic_template => <<"tpl/lu">>,
+        claim_tag => Tag,
+        sub_qos => 0,
+        attempt => 1
+    },
+    try
+        ok = emqx_bcast_pull_shard:do_commit_deliveries(
+            Shard, [{DN, {ok, [ClaimMap]}, {DN, Tag, PK}}]
+        )
+    after
+        meck:unload(emqx_bcast)
+    end,
+    [Row] = ets:lookup(Tab, {PK, DN}),
+    ?assertEqual(NewTopics, Row#bcast_client_state.topics),
+    ?assertEqual(undefined, Row#bcast_client_state.claim),
+    cleanup_row(PK, DN).
 
 %%--------------------------------------------------------------------
 %% Utils tests
@@ -1613,9 +1813,17 @@ t_metrics_acked_redelivery_generation_overcount(_Config) ->
     ?assertEqual(Before + 1, metric(<<"batch_pub_qos1_acked">>)).
 
 %%--- pull state helpers (single per-client state row per shard) ---
+acked_devices(Did) ->
+    lists:sort([
+        DN
+     || #bcast_msg_acked{device_name = DN} <- mnesia:dirty_read(bcast_msg_acked, Did)
+    ]).
+
 state_tab(PK, DN) ->
     emqx_bcast_pull_shard:tab(emqx_bcast_pull_shard:shard_of(PK, DN), bcast_client_state).
 
+seed_window(PK, DN, DeliveryId, true) ->
+    seed_window(PK, DN, DeliveryId, {true, erlang:system_time(millisecond)});
 seed_window(PK, DN, DeliveryId, AckInFlight) ->
     Row = #bcast_client_state{
         key = {PK, DN},
@@ -1827,6 +2035,70 @@ t_pull_ack_in_flight_gates_subscribe_trigger(_Config) ->
     %% nothing claimed while the window is full (window=1) and the
     %% delivery is ack-in-flight
     ?assertEqual(undefined, row_claim_of(PK, DN)),
+    cleanup_row(PK, DN).
+
+-doc "A stale client_disconnected cast (old channel pid) must not clear the\n"
+"state row of a client that already reconnected with a new pid (takeover\n"
+"race): the row's claim round and window belong to the new session, and\n"
+"clearing them under the old pid's event would lose exactly-once ack\n"
+"accounting and claim bookkeeping.".
+t_cleanup_client_ignores_stale_pid(_Config) ->
+    PK = <<"PSTALEPID">>,
+    DN = <<"DSTALEPID">>,
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    OldPid = spawn(fun() -> receive stop -> ok end end),
+    NewPid = spawn(fun() -> receive stop -> ok end end),
+    Tag = 424242,
+    seed_claim_row(PK, DN, Tag, erlang:system_time(millisecond), Shard),
+    %% The row now belongs to the new channel pid (reconnect/takeover).
+    Tab = emqx_bcast_pull_shard:tab(Shard, bcast_client_state),
+    [Row0] = ets:lookup(Tab, {PK, DN}),
+    ets:insert(Tab, Row0#bcast_client_state{pid = NewPid}),
+    %% A stale disconnect event for the OLD pid arrives late: the row must
+    %% survive with its claim round and pid untouched.
+    gen_server:cast(Name, {client_disconnected, DN, OldPid, PK}),
+    _ = sys:get_state(Name),
+    ?assertMatch(#bcast_client_state{claim = {Tag, _}, pid = NewPid}, row_lookup(PK, DN)),
+    %% A disconnect for the CURRENT pid still cleans the row up.
+    gen_server:cast(Name, {client_disconnected, DN, NewPid, PK}),
+    _ = sys:get_state(Name),
+    ?assertEqual(undefined, row_lookup(PK, DN)),
+    exit(OldPid, kill),
+    exit(NewPid, kill).
+
+-doc "An ack-in-flight marker whose core-applied confirmation never\n"
+"arrives (dropped cast, core crash between the ack application and the\n"
+"confirmation) must not hold the window closed forever: the periodic\n"
+"sweep expires markers older than the TTL, releases the core claim and\n"
+"re-claims the client so the delivery is redriven (at-least-once).\n"
+"A fresh marker is not expired.".
+t_pull_ack_in_flight_ttl_reclaims_window(_Config) ->
+    PK = <<"PACKTTL">>,
+    DN = <<"DACKTTL">>,
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    Tab = emqx_bcast_pull_shard:tab(Shard, bcast_client_state),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    Did = emqx_bcast_utils:gen_guid(),
+    Old = erlang:system_time(millisecond) - 60_000,
+    Row = #bcast_client_state{
+        key = {PK, DN},
+        product_key = PK,
+        clientid = DN,
+        pid = self(),
+        inflight = [{Did, {true, Old}}]
+    },
+    ets:insert(Tab, Row),
+    %% trigger the sweep directly instead of waiting for the periodic tick
+    _ = whereis(Name) ! sweep_stale_claims,
+    _ = sys:get_state(Name),
+    ?assertEqual([], (row_lookup(PK, DN))#bcast_client_state.inflight),
+    %% a fresh ack-in-flight marker survives the sweep
+    Fresh = {emqx_bcast_utils:gen_guid(), {true, erlang:system_time(millisecond)}},
+    ets:insert(Tab, Row#bcast_client_state{inflight = [Fresh]}),
+    _ = whereis(Name) ! sweep_stale_claims,
+    _ = sys:get_state(Name),
+    ?assertEqual([Fresh], (row_lookup(PK, DN))#bcast_client_state.inflight),
     cleanup_row(PK, DN).
 
 -doc "While an ack is in flight, a ping keepalive trigger must also be\n"
@@ -2356,6 +2628,112 @@ t_migrate_legacy_mnesia_layout(_Config) ->
         emqx_bcast_storage:get_device_delivery_entries({PK, DN})
     ),
     ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()).
+
+-doc "An index shard that crashes and is restarted by the supervisor must\n"
+"not stay dormant: it asks the activation leader for a targeted rebuild of\n"
+"its own partition and resumes serving claims, while sibling partitions and\n"
+"the global pending quota are untouched (the quota row never stopped\n"
+"counting the crashed shard's entries, so the rebuild must not re-count).".
+t_shard_crash_reactivates_partition(_Config) ->
+    PK = <<"PSELFIX">>,
+    Target = 1,
+    [DN1] = same_shard_dns(PK, Target, 1),
+    %% A sibling partition whose live heap state must survive the restart.
+    Sibling = 2,
+    [DN2] = same_shard_dns(PK, Sibling, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"shard self heal">>),
+    Did = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN1, DN2], 2),
+    true = wait_until(fun() -> shard_active(Target) end, 100),
+    ?assertEqual(2, emqx_bcast_storage:pending_delivery_count()),
+    %% Crash the shard; the supervisor restarts it with an empty heap.
+    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Target)),
+    Pid0 = whereis(Name),
+    exit(Pid0, kill),
+    ?assert(wait_until(fun() -> whereis(Name) =/= undefined andalso whereis(Name) =/= Pid0 end, 100)),
+    %% The restarted shard re-activates its partition from the durable log
+    %% and serves claims again.
+    ?assert(
+        wait_until(
+            fun() ->
+                case
+                    emqx_bcast_storage:claim_want_next_batch([
+                        #{clientid => DN1, product_key => PK, topics => [{<<"tpl">>, 1}]}
+                    ])
+                of
+                    [{DN1, {ok, [_]}}] -> true;
+                    _ -> false
+                end
+            end,
+            200
+        )
+    ),
+    %% The sibling partition was not reset: its entry is still claimable.
+    [{DN2, {ok, [M2]}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN2, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    ?assertEqual(Did, maps:get(delivery_id, M2)),
+    %% Targeted re-activation did not re-count the rebuilt entry into the
+    %% global pending quota.
+    ?assertEqual(2, emqx_bcast_storage:pending_delivery_count()).
+
+-doc "Restarting the activation leader (shard 0) must not reset sibling\n"
+"shards: their heaps (in-flight claims included) survive the leader's\n"
+"re-drive, and the global pending quota is recounted from live shard state\n"
+"(the quota ETS table dies with shard 0) instead of double-counting\n"
+"rebuilt entries.".
+t_leader_restart_preserves_sibling_shards(_Config) ->
+    PK = <<"PLEADRST">>,
+    Sibling = 3,
+    [DN] = same_shard_dns(PK, Sibling, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"leader restart">>),
+    Did = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    [{DN, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
+        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+    ]),
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+    Name = list_to_atom("emqx_bcast_index_owner_0"),
+    Pid0 = whereis(Name),
+    exit(Pid0, kill),
+    ?assert(
+        wait_until(
+            fun() -> whereis(Name) =/= undefined andalso whereis(Name) =/= Pid0 end, 100
+        )
+    ),
+    ?assert(wait_until(fun() -> shard_active(0) end, 200)),
+    %% The sibling heap was preserved: the entry is still in-flight, not
+    %% rebuilt back to stored (a reset would also lose the inflight mark).
+    {ok, Entries} = emqx_bcast_storage:get_device_delivery_entries({PK, DN}),
+    ?assertMatch([{Did, {pending, _}}], Entries),
+    %% The quota row was recounted from live shard state after the leader
+    %% restart destroyed the quota table: neither zeroed nor doubled.
+    ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()).
+
+-doc "A forced full rebuild (rebuild_index) flushes buffered ack\n"
+"decrements before resetting shard state: a decrement dropped with the\n"
+"reset would strand the delivery counter above zero and leak the\n"
+"delivery rows until TTL expiry.".
+t_rebuild_flushes_buffered_acks(_Config) ->
+    PK = <<"PACKBUF">>,
+    Sibling = 4,
+    [DN] = same_shard_dns(PK, Sibling, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"ack buf flush">>),
+    Did = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    %% The ack decrement sits buffered in the device shard's ack_buf; the
+    %% flush timer (50ms) has not fired yet.
+    counted = emqx_bcast_storage:process_ack(PK, DN, Did),
+    %% Immediately force a full rebuild, racing the pending flush timer.
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    %% The delivery completes anyway: the buffered decrement was flushed
+    %% before the reset, not dropped with it.
+    ?assert(
+        wait_until(
+            fun() -> mnesia:dirty_read(bcast_msg, Did) =:= [] end,
+            200
+        )
+    ).
 
 -doc "Concurrent create and ack transactions complete without lock-order failures.".
 t_concurrent_create_ack_lock_order(_Config) ->

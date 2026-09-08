@@ -16,11 +16,13 @@
 %% Promotion primitives for the async intake path (emqx_bcast_promoter).
 -export([promote_batch/1, promote_entry_tx/1]).
 
-%% Delivery / index facade: the per-device pending index now lives in the
-%% ETS tables owned by emqx_bcast_index_owner on the owner core. Every
-%% index operation below routes to that single process (serialized, no
-%% mnesia locks). The mnesia bcast_msg_index / bcast_quota tables remain
-%% for compatibility but are no longer written.
+%% Delivery / index facade: the per-device pending index lives in the
+%% in-memory state of the ?SHARD_COUNT emqx_bcast_index_owner shard
+%% processes (partitioned by {ProductKey, DeviceName} hash; each shard's
+%% owner core serves it). Every index operation below routes to the owning
+%% shard process (serialized, no mnesia locks). The mnesia bcast_msg_index
+%% / bcast_quota tables remain for compatibility but are no longer
+%% written.
 -export([
     create_message_and_delivery/8,
     create_message_and_delivery_quota/9,

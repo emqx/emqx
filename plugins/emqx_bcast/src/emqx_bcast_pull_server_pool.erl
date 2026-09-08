@@ -231,6 +231,10 @@ route_deliver_results(Origin, Shard, Results, Marks) ->
     end.
 
 spawn_ack_worker(Acks, Origin) ->
+    %% A raw spawn, deliberately not the worker pool: concurrency is
+    %% bounded by the ack_cap accounting at the call sites and the worker
+    %% always reports completion ({ack_batch_done}), so a pool queue would
+    %% only add a hop.
     Parent = self(),
     _ = spawn(fun() ->
         try

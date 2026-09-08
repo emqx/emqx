@@ -118,6 +118,13 @@
 -define(CLAIM_STALE_SWEEP_MS, 5000).
 -define(CLAIM_STALE_AGE_MS, 10000).
 
+%% An ack-in-flight mark whose core-applied confirmation never arrives
+%% would hold the per-device window closed forever. The sweep expires
+%% marks older than this TTL, releases the core claim and re-claims the
+%% client (at-least-once redelivery). Set far above the normal ack round
+%% trip so only a lost confirmation ever triggers it.
+-define(ACK_INFLIGHT_TTL_MS, 30_000).
+
 %% Release accumulation: releases are collected in the gen_server state
 %% and flushed as grouped casts (one per index shard) either when the
 %% batch reaches this size or on a short timer - never one spawn/cast
@@ -1363,22 +1370,31 @@ commit_delivery_result(Shard, ClientId, {ok, ClaimMaps}, PK, Tag) ->
             %% flight: the cleanup already released the round by tag.
             ok;
         [#bcast_client_state{claim = {Tag, _Ts}} = Row] ->
-            case prepare_and_commit(Shard, PK, ClientId, Row, ClaimMaps) of
-                {ok, Row2, Sends} ->
-                    row_put(Shard, Row2),
-                    bump_claim(Shard, -1),
-                    %% Send in claim order after the window rows are in
-                    %% place (window invariant: no new claim can open a
-                    %% slot before the sends).
-                    lists:foreach(fun run_send/1, Sends);
-                {retry, Row2} ->
+            OldInflight = Row#bcast_client_state.inflight,
+            case prepare_and_commit(Shard, PK, ClientId, ClaimMaps) of
+                {ok, Added, Sends} ->
+                    case commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added) of
+                        true ->
+                            bump_claim(Shard, -1),
+                            %% Send in claim order after the window rows are
+                            %% in place (window invariant: no new claim can
+                            %% open a slot before the sends).
+                            lists:foreach(fun run_send/1, Sends);
+                        false ->
+                            commit_lost_update_fallback(Shard, PK, ClientId, Tag)
+                    end;
+                {retry, Added} ->
                     %% Payload lag or session race: window entries for the
-                    %% claimable part were committed (Row2), the failed
-                    %% dids were released synchronously; re-claim the
-                    %% client for the next round.
-                    row_put(Shard, Row2),
-                    bump_claim(Shard, -1),
-                    gen_server:cast(shard_name(Shard), {retry_client, ClientId, PK})
+                    %% claimable part were committed, the failed dids were
+                    %% released synchronously; re-claim the client for the
+                    %% next round.
+                    case commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added) of
+                        true ->
+                            bump_claim(Shard, -1),
+                            gen_server:cast(shard_name(Shard), {retry_client, ClientId, PK});
+                        false ->
+                            commit_lost_update_fallback(Shard, PK, ClientId, Tag)
+                    end
             end;
         [#bcast_client_state{}] ->
             %% Stale generation: a newer round owns the row. Release this
@@ -1402,42 +1418,81 @@ commit_delivery_result(_Shard, _ClientId, {error, _Reason}, _PK, _Tag) ->
 %% {qos1, EntryMap} for window deliveries, {qos0, ...} for the
 %% auto-acked QoS0-subscription path. Returns {ok, Row2, Sends} when at
 %% least one delivery is ready to send, {retry, Row2} otherwise.
-prepare_and_commit(Shard, PK, ClientId, Row, ClaimMaps) ->
-    {Row1, SendsRev, Fails, Any} = lists:foldl(
-        fun(Map, {St, Sends, Fl, Any1}) ->
+prepare_and_commit(Shard, PK, ClientId, ClaimMaps) ->
+    {SendsRev, Fails, Any} = lists:foldl(
+        fun(Map, {Sends, Fl, Any1}) ->
             case prepare_delivery_entry(Shard, PK, ClientId, Map) of
                 {pending, Entry} ->
-                    {St, [{qos1, Entry} | Sends], Fl, true};
+                    {[{qos1, Entry} | Sends], Fl, true};
                 {qos0, Entry0} ->
-                    {St, [{qos0, Entry0} | Sends], Fl, true};
+                    {[{qos0, Entry0} | Sends], Fl, true};
                 {fail, Did} ->
                     %% Release the core claim NOW (synchronously) so a
                     %% retry claim of the same did cannot race it.
                     _ = emqx_bcast_index_owner:release_claim(PK, ClientId, Did),
-                    {St, Sends, [Did | Fl], Any1};
+                    {Sends, [Did | Fl], Any1};
                 {fail_retry, Did} ->
                     _ = emqx_bcast_index_owner:release_claim(PK, ClientId, Did),
-                    {St, Sends, [Did | Fl], Any1}
+                    {Sends, [Did | Fl], Any1}
             end
         end,
-        {Row, [], [], false},
+        {[], [], false},
         ClaimMaps
     ),
     _ = {Fails, Shard},
     Sends = lists:reverse(SendsRev),
-    NewInflight =
-        Row1#bcast_client_state.inflight ++
-            [
-                {maps:get(delivery_id, E), false}
-             || {qos1, E} <- Sends
-            ],
-    Row2 = Row1#bcast_client_state{claim = undefined, inflight = NewInflight},
+    Added = [
+        {maps:get(delivery_id, E), false}
+     || {qos1, E} <- Sends
+    ],
     case Any of
         false ->
-            {retry, Row2};
+            {retry, Added};
         true ->
-            {ok, Row2, Sends}
+            {ok, Added, Sends}
     end.
+
+%% Atomically close the claim round {Tag, _} and append the new window
+%% entries, but ONLY if the row's claim and inflight are still exactly
+%% what the worker read before preparing the sends. A full-row write
+%% would clobber fields owned by the shard gen_server or other writers
+%% (topics from subscribe/unsubscribe hooks, pid, an ack that landed
+%% mid-commit); the guarded replace preserves them.
+commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added) ->
+    Tab = ?TAB_STATE(Shard),
+    NewInflight = OldInflight ++ Added,
+    %% Match-spec bodies cannot hold literal tuples (a tuple in expression
+    %% position is parsed as a BIF call), so each inflight entry is
+    %% emitted with tuple-construction syntax.
+    InflightExpr = [{{Did, Acked}} || {Did, Acked} <- NewInflight],
+    MS = [
+        {
+            #bcast_client_state{
+                key = {PK, ClientId},
+                product_key = '_',
+                clientid = '_',
+                pid = '$1',
+                claim = {Tag, '_'},
+                inflight = OldInflight,
+                topics = '$2'
+            },
+            [],
+            [
+                {{bcast_client_state, {{PK, ClientId}}, PK, ClientId, '$1', undefined,
+                    InflightExpr, '$2'}}
+            ]
+        }
+    ],
+    ets:select_replace(Tab, MS) =:= 1.
+
+%% The row changed under the worker (ack landed, subscription update,
+%% cleanup): do not clobber it with a stale write. Release the claim
+%% round by tag (idempotent on the core) and re-claim the client.
+commit_lost_update_fallback(Shard, PK, ClientId, Tag) ->
+    _ = clear_row_claim(PK, ClientId, Tag),
+    do_release_client_claims(PK, ClientId, Tag),
+    gen_server:cast(shard_name(Shard), {retry_client, ClientId, PK}),
+    ok.
 
 run_send({qos1, Entry}) ->
     deliver_entry_committed(Entry);
@@ -1673,6 +1728,11 @@ cleanup_client(ClientId, Pid, ProductKey, State) ->
     case ets:lookup(?TAB_STATE(Shard), Key) of
         [] ->
             ok;
+        %% A disconnect/DOWN for a pid that no longer owns the row is
+        %% stale (the client already reconnected and the row belongs to
+        %% the new session): do not touch claim/window bookkeeping.
+        [#bcast_client_state{pid = RowPid}] when RowPid =/= Pid ->
+            ok;
         [#bcast_client_state{} = Row] ->
             %% Split the window: deliveries whose ack is already in flight
             %% must keep their row until the core-applied confirmation
@@ -1727,10 +1787,11 @@ mark_ack_in_flight(ProductKey, ClientId, DeliveryId) ->
                 {value, {DeliveryId, false}, Rest} ->
                     %% Rewrite only the inflight field (window=1 makes it a
                     %% one-element list) instead of the whole row.
+                    Now = erlang:system_time(millisecond),
                     ets:update_element(
                         Tab,
                         {ProductKey, ClientId},
-                        {#bcast_client_state.inflight, [{DeliveryId, true} | Rest]}
+                        {#bcast_client_state.inflight, [{DeliveryId, {true, Now}} | Rest]}
                     ),
                     true;
                 _ ->
@@ -1748,7 +1809,7 @@ take_ack_in_flight(ProductKey, ClientId, DeliveryId) ->
     case ets:lookup(Tab, {ProductKey, ClientId}) of
         [#bcast_client_state{} = Row] ->
             case lists:keytake(DeliveryId, 1, Row#bcast_client_state.inflight) of
-                {value, {DeliveryId, true}, Rest} ->
+                {value, {DeliveryId, {true, _Ts}}, Rest} ->
                     %% Rewrite only the inflight field instead of the whole row.
                     ets:update_element(
                         Tab,
@@ -1805,16 +1866,18 @@ group_ack_pairs(Pairs) ->
 %% (their backlog keeps draining even after a dropped cast). The claim
 %% counter is reconciled from the authoritative row table in the same pass
 %% (backstop for a crash between a row update and its counter update; the
-%% flush path itself is O(pending) thanks to the per-shard counter). One
-%% ets:foldl traversal replaces the former ets:tab2list materialization
-%% plus two list comprehensions plus the stale filter, which allocated
-%% every partition row up to three times per sweep tick.
+%% flush path itself is O(pending) thanks to the per-shard counter). The
+%% pass also expires ack-in-flight marks older than their TTL (a lost
+%% core-applied confirmation would otherwise hold the window closed
+%% forever). One ets:foldl traversal replaces the former ets:tab2list
+%% materialization plus two list comprehensions plus the stale filter,
+%% which allocated every partition row up to three times per sweep tick.
 sweep_stale_marks(State) ->
     Shard = State#state.shard,
     Now = erlang:system_time(millisecond),
     try
-        {Claimed, StaleRev} = ets:foldl(
-            fun(#bcast_client_state{} = Row, {C, Acc}) ->
+        {Claimed, StaleRev, ExpiredRev} = ets:foldl(
+            fun(#bcast_client_state{} = Row, {C, Acc, ExpAcc}) ->
                 C1 =
                     case Row#bcast_client_state.claim of
                         undefined -> C;
@@ -1834,15 +1897,36 @@ sweep_stale_marks(State) ->
                         _ ->
                             Acc
                     end,
-                {C1, Acc1}
+                ExpAcc1 = lists:foldl(
+                    fun
+                        ({Did, {true, ATs} = Mark}, EA) when
+                            Now - ATs > ?ACK_INFLIGHT_TTL_MS
+                        ->
+                            [
+                                {
+                                    Row#bcast_client_state.product_key,
+                                    Row#bcast_client_state.clientid,
+                                    Did,
+                                    Mark
+                                }
+                                | EA
+                            ];
+                        (_, EA) ->
+                            EA
+                    end,
+                    ExpAcc,
+                    Row#bcast_client_state.inflight
+                ),
+                {C1, Acc1, ExpAcc1}
             end,
-            {0, []},
+            {0, [], []},
             ?TAB_STATE(Shard)
         ),
         cnt_put(Shard, claim, Claimed),
+        State1 = expire_ack_in_flight(Shard, lists:reverse(ExpiredRev), State),
         case StaleRev of
             [] ->
-                State;
+                State1;
             _ ->
                 Live = [
                     Mark
@@ -1851,7 +1935,7 @@ sweep_stale_marks(State) ->
                 ],
                 case Live of
                     [] ->
-                        State;
+                        State1;
                     _ ->
                         ?SLOG(warning, #{
                             msg => "bcast_stale_claim_released",
@@ -1863,15 +1947,79 @@ sweep_stale_marks(State) ->
                             end)
                         of
                             ok ->
-                                State;
+                                State1;
                             {error, _} ->
-                                State
+                                State1
                         end
                 end
         end
     catch
         error:badarg ->
             State
+    end.
+
+%% Expire ack-in-flight marks whose core-applied confirmation was lost:
+%% remove the window entry (atomically, so a row recreated between the
+%% scan and the write is untouched), release the core claim so the
+%% delivery is re-queued, and re-claim the client (at-least-once). A
+%% confirmation that lands between the scan and the take simply wins:
+%% the entry is gone, the take is a no-op, and the release is idempotent
+%% on the core side (the claim is already consumed).
+expire_ack_in_flight(_Shard, [], State) ->
+    State;
+expire_ack_in_flight(Shard, Expired, State) ->
+    lists:foldl(
+        fun({PK, DN, Did, Mark}, St) ->
+            case take_expired_ack_in_flight(PK, DN, Did, Mark) of
+                true ->
+                    ?SLOG(warning, #{
+                        msg => "bcast_ack_in_flight_expired",
+                        product_key => PK,
+                        clientid => DN,
+                        delivery_id => Did
+                    }),
+                    reclaim_online(
+                        PK, DN, Shard, release_claims_later(St, [{PK, DN, Did}])
+                    );
+                false ->
+                    St
+            end
+        end,
+        State,
+        Expired
+    ).
+
+%% Atomically drop the expired mark from the row's window (returns true
+%% when the row still carried exactly this mark). The match spec guards
+%% on the whole inflight field so a row recreated after the scan (new
+%% session, new window entries) is never clobbered.
+take_expired_ack_in_flight(PK, DN, Did, Mark) ->
+    Tab = ?TAB_STATE(shard_of(PK, DN)),
+    Old = [{Did, Mark}],
+    Rest = lists:keydelete(Did, 1, Old),
+    %% The replacement body must be a double-wrapped tuple: a bare tuple
+    %% in a match spec body is parsed as a function call. The field order
+    %% mirrors the bcast_client_state record.
+    MS = [
+        {
+            #bcast_client_state{
+                key = {PK, DN},
+                %% Unmentioned record fields expand to their record
+                %% default (undefined), not '_': name them explicitly.
+                product_key = '_',
+                clientid = '_',
+                pid = '$1',
+                claim = '$2',
+                inflight = Old,
+                topics = '$3'
+            },
+            [],
+            [{{bcast_client_state, {{PK, DN}}, PK, DN, '$1', '$2', Rest, '$3'}}]
+        }
+    ],
+    try ets:select_replace(Tab, MS) =:= 1
+    catch
+        error:badarg -> false
     end.
 
 %%--------------------------------------------------------------------
