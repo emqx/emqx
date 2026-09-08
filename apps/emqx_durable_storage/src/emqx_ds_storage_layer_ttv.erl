@@ -69,6 +69,7 @@
 -callback create(
     emqx_ds_storage_layer:dbshard(),
     rocksdb:db_handle(),
+    emqx_ds_storage_layer:cf_refs(),
     emqx_ds:generation(),
     Options :: map(),
     emqx_ds_storage_layer:generation_data() | undefined,
