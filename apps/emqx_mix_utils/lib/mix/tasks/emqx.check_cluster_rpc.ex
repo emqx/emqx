@@ -77,12 +77,6 @@ defmodule Mix.Tasks.Emqx.CheckClusterRpc do
     # `emqx_mt_config:load/0`.
     {:emqx_mt_config, :execute_side_effects_v1},
     {:emqx_mt_config, :cleanup_managed_ns_configs_v1},
-    # Legacy `emqx_resource_proto_v1` targets: no live callers; the proto
-    # module is kept for RPC compatibility with old peers.
-    {:emqx_resource, :create_local},
-    {:emqx_resource, :create_dry_run_local},
-    {:emqx_resource, :recreate_local},
-    {:emqx_resource, :remove_local},
     # Metrics resets: a skipped replay loses only a counter reset.
     {:emqx_resource, :reset_metrics_local},
     {:emqx_rule_engine, :reset_metrics_for_rule}

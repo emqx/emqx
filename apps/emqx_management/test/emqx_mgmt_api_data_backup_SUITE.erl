@@ -485,12 +485,37 @@ t_download_api_key_with_sensitive_tables_forbidden(Config) ->
     ok.
 
 %% If the archive cannot be inspected, API-key download must fail closed.
+%% Import is refused while the running nodes report different major.minor
+%% versions: the backplane contract is frozen per minor release.
+t_import_refused_on_mixed_version_cluster(_Config) ->
+    ok = meck:new(emqx_management_proto_v5, [passthrough, no_link, no_history]),
+    ok = meck:new(emqx, [passthrough, no_link, no_history]),
+    try
+        meck:expect(emqx, running_nodes, fun() -> ['a@127.0.0.1', 'b@127.0.0.1'] end),
+        meck:expect(emqx_management_proto_v5, node_info, fun(['a@127.0.0.1', 'b@127.0.0.1']) ->
+            [{ok, #{version => <<"6.0.4">>}}, {ok, #{version => <<"6.1.5">>}}]
+        end),
+        {Status, Body} = emqx_mgmt_api_data_backup:data_import(post, #{
+            body => #{<<"filename">> => <<"whatever.tar.gz">>},
+            query_string => #{},
+            auth_meta => #{auth_type => jwt_token}
+        }),
+        ?assertEqual(400, Status),
+        ?assertMatch(#{code := 'BAD_REQUEST'}, Body),
+        #{message := Msg} = Body,
+        ?assertNotEqual(nomatch, binary:match(Msg, <<"6.0">>)),
+        ?assertNotEqual(nomatch, binary:match(Msg, <<"6.1">>))
+    after
+        meck:unload(emqx_management_proto_v5),
+        meck:unload(emqx)
+    end.
+
 t_download_api_key_inspection_error_fails_closed(_Config) ->
     Filename = <<"emqx-export-inspection-error.tar.gz">>,
-    ok = meck:new(emqx_mgmt_data_backup_proto_v2, [passthrough, no_link, no_history]),
+    ok = meck:new(emqx_mgmt_data_backup_proto_v4, [passthrough, no_link, no_history]),
     try
         meck:expect(
-            emqx_mgmt_data_backup_proto_v2,
+            emqx_mgmt_data_backup_proto_v4,
             peek_sensitive_table_sets,
             fun(Node, Filename0, infinity) ->
                 ?assertEqual(node(), Node),
@@ -506,7 +531,7 @@ t_download_api_key_inspection_error_fails_closed(_Config) ->
         ?assertEqual(404, Status),
         ?assertMatch(#{code := 'NOT_FOUND'}, Body)
     after
-        meck:unload(emqx_mgmt_data_backup_proto_v2)
+        meck:unload(emqx_mgmt_data_backup_proto_v4)
     end.
 
 %% Dashboard viewers (read-only role) must be rejected with 403 when
