@@ -51,13 +51,7 @@
 ).
 -define(IGNORED_MODULES, "emqx_rpc").
 -define(FORCE_DELETED_MODULES, [
-    emqx_statsd,
-    emqx_statsd_proto_v1,
-    emqx_persistent_session_proto_v1,
     emqx_persistent_session_ds_proto_v1,
-    emqx_ds_proto_v1,
-    emqx_ds_proto_v2,
-    emqx_ds_proto_v3,
     emqx_ds_proto_v4,
     emqx_ds_proto_v5,
     emqx_ds_otx_proto_v1,
@@ -102,19 +96,12 @@
     emqx_resource_proto_v1
 ]).
 -define(FORCE_DELETED_APIS, [
-    {emqx_statsd, 1},
-    {emqx_plugin_libs, 1},
-    {emqx_persistent_session, 1},
     {emqx_persistent_session_ds, 1},
-    {emqx_ds, 1},
-    {emqx_ds, 2},
-    {emqx_ds, 3},
     {emqx_ds, 4},
     {emqx_ds, 5},
     {emqx_ds_otx, 1},
     {emqx_ds_beamsplitter, 1},
     {emqx_ds_beamsplitter, 2},
-    {emqx_node_rebalance_purge, 1},
     {emqx_ds_shared_sub, 1},
     {emqx_ds_shared_sub, 2},
     {emqx_retainer, 1},
@@ -190,6 +177,23 @@
 -define(OTP27_UNION_SIZE, 9).
 -define(OTP27_UNION_OPAQUE_SLOT, 8).
 
+%% APIs that two release lines independently gave the same version number with
+%% different contents. Neither side can be corrected: both have shipped. Every
+%% entry states why it cannot cause a bad call -- either a run-time guard, or
+%% that no node on this branch can reach the other side's version.
+-define(DIVERGED_APIS, [
+    %% 5.8.11 and 6.0.0 both created `emqx_mgmt_data_backup_proto_v2'. The 5.x
+    %% module wraps `maybe_copy_and_import/2' and the 6.x one
+    %% `maybe_copy_and_import/3'. `emqx_mgmt_api_data_backup' refuses an import
+    %% unless every running node reports the same major.minor version, so the
+    %% two contracts are never reached from one another.
+    {emqx_mgmt_data_backup, 2},
+    %% The 5.9 and 5.10 lines dropped `v2_wait_for_ready_v7/5' from
+    %% `emqx_bridge_proto_v7' after 5.8 froze it. 5.x only; 6.x deleted the
+    %% whole API.
+    {emqx_bridge, 7}
+]).
+
 -define(XREF, myxref).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -221,12 +225,63 @@ check_compat(DumpFilenames) ->
         fun(FN) ->
             {ok, [Dump0]} = file:consult(FN),
             Dump = upgrade_dump(filename:extension(FN), Dump0),
+            check_release_field(FN, Dump),
             Dump#{release => filename_to_release(FN)}
         end,
         DumpFilenames
     ),
+    check_no_stale_exemptions(Dumps),
     [check_compat(I, J) || I <- Dumps, J <- Dumps],
     erase(bpapi_ok).
+
+%% A dump is compared as the release its file name states, so the `release'
+%% field it carries is never read. A baseline copied from another file keeps
+%% the source's field, which is the only trace left of the copy. (sets nok flag)
+-spec check_release_field(file:filename(), fulldump()) -> ok.
+check_release_field(FN, Dump) ->
+    Expected = filename:rootname(filename:basename(FN)),
+    case maps:get(release, Dump, undefined) of
+        Expected ->
+            ok;
+        Found ->
+            setnok(),
+            logger:error(
+                "~s states release \"~s\". The file name says \"~s\".~n"
+                "A dump copied from another release keeps the field it was copied with.",
+                [FN, Found, Expected]
+            )
+    end,
+    ok.
+
+%% An entry in the force-deleted lists only ever suppresses an error about an
+%% API or a module that some dump still describes. One that matches no dump
+%% suppresses nothing, and it hides the fact that the deletion it was written
+%% for is no longer covered. (sets nok flag)
+-spec check_no_stale_exemptions([fulldump()]) -> ok.
+check_no_stale_exemptions(Dumps) ->
+    Keys = lists:usort(lists:append([maps:keys(API) || #{api := API} <- Dumps])),
+    Modules = lists:usort(
+        lists:append([
+            [Mf, Mt]
+         || #{api := API} <- Dumps,
+            #{calls := Calls, casts := Casts} <- maps:values(API),
+            {{Mf, _, _}, {Mt, _, _}} <- Calls ++ Casts
+        ])
+    ),
+    report_stale("FORCE_DELETED_APIS", ?FORCE_DELETED_APIS -- Keys),
+    report_stale("DIVERGED_APIS", ?DIVERGED_APIS -- Keys),
+    report_stale("FORCE_DELETED_MODULES", ?FORCE_DELETED_MODULES -- Modules),
+    ok.
+
+report_stale(_List, []) ->
+    ok;
+report_stale(List, Stale) ->
+    setnok(),
+    logger:error(
+        "Stale ~s entries: ~p.~n"
+        "No dump describes them, so they suppress nothing. Remove them.",
+        [List, Stale]
+    ).
 
 filename_to_release(FN) ->
     Basename = filename:basename(FN),
@@ -254,7 +309,7 @@ check_api_immutability(#{release := Rel1, api := APIs1}, #{release := Rel2, api 
     %% TODO: Handle API deprecation
     _ = maps:map(
         fun(Key, Val) ->
-            case lists:member(Key, ?EXPERIMENTAL_APIS) of
+            case lists:member(Key, ?EXPERIMENTAL_APIS ++ ?DIVERGED_APIS) of
                 true ->
                     ok;
                 false ->
