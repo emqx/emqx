@@ -52,6 +52,7 @@
 -record(acked, {n_restarts}).
 -record(errored, {n_restarts, error}).
 -record(serde_updated, {serde_name}).
+-record(open_stream_timeout, {handle}).
 
 -define(SERVICE, 'databricks.zerobus.Zerobus').
 -define(PROTO_MODULE, 'emqx_bridge_zerobus_gen_zerobus_service_pb').
@@ -69,6 +70,7 @@
 -define(json_record_type, 2).
 
 -define(SEQ_ATOMIC_IDX, 1).
+-define(DEFAULT_CREATE_STREAM_TIMEOUT, 10_000).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -224,7 +226,7 @@ handle_cast(#serde_updated{serde_name = SerdeName}, State0) ->
 handle_cast(_Cast, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', Handle, _, _, Reason}, #{?recv_handle := {_, Handle}} = State0) ->
+handle_info({'DOWN', Handle, _, _, Reason}, #{?recv_handle := {_, Handle, _}} = State0) ->
     %% grpc client died while we were waiting for create stream reply
     State1 = State0#{?recv_handle := ?undefined},
     State = handle_open_stream_reply(Reason, State1),
@@ -235,13 +237,19 @@ handle_info({'DOWN', Handle, _, _, Reason}, #{?recv_handle := Handle} = State0) 
     State1 = State0#{?recv_handle := ?undefined},
     State = handle_errored(NRestarts, Reason, State1),
     {noreply, State};
-handle_info({grpc_reply, Handle, ResRaw}, #{?recv_handle := {Stream, Handle}} = State0) ->
+handle_info({grpc_reply, Handle, ResRaw}, #{?recv_handle := {Stream, Handle, TRef}} = State0) ->
+    _ = erlang:cancel_timer(TRef),
     State1 = State0#{?recv_handle := ?undefined},
     State = handle_open_stream_reply({ok, {ResRaw, Stream}}, State1),
     {noreply, State};
 handle_info(#open_stream{}, State0) ->
     State1 = ensure_stream_closed(State0),
     State = handle_open_stream(State1),
+    {noreply, State};
+handle_info(#open_stream_timeout{handle = Handle}, #{?recv_handle := {_, Handle, _}} = State0) ->
+    %% timeout while we were waiting for create stream reply
+    State1 = State0#{?recv_handle := ?undefined},
+    State = handle_open_stream_reply({error, create_stream_timeout}, State1),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -340,7 +348,16 @@ do_reply_callers_up_to(Reply, LastAckedSeq, Callers0) ->
             end
     end.
 
-handle_open_stream(#{?recv_handle := {_, _}} = State0) ->
+open_stream_timeout(State) ->
+    #{?request_ttl := RequestTTL} = State,
+    case RequestTTL of
+        infinity ->
+            ?DEFAULT_CREATE_STREAM_TIMEOUT;
+        _ ->
+            RequestTTL
+    end.
+
+handle_open_stream(#{?recv_handle := {_, _, _}} = State0) ->
     %% impossible?
     State0;
 handle_open_stream(#{?recv_handle := ?undefined} = State0) ->
@@ -353,7 +370,9 @@ handle_open_stream(#{?recv_handle := ?undefined} = State0) ->
         {ok, Stream} ?= do_create_stream_impl(Meta, Opts),
         ok ?= grpc_send(Stream, Req, Opts),
         Handle = grpc_client:async_install_receiver(Stream, #{mode => once}),
-        State0#{?recv_handle := {Stream, Handle}}
+        OpenStreamTimeout = open_stream_timeout(State0),
+        TRef = erlang:send_after(OpenStreamTimeout, self(), #open_stream_timeout{handle = Handle}),
+        State0#{?recv_handle := {Stream, Handle, TRef}}
     else
         {error, Reason} ->
             handle_open_stream_error(Reason, State0)
