@@ -655,9 +655,12 @@ t_api(TCConfig) when is_list(TCConfig) ->
         ok
     end,
 
-    %% Global admin can touch records from other namespaces
+    %% Global admin can touch records from other namespaces. Username1 is the
+    %% only identity still holding a global rule here, and a namespaced rule
+    %% is refused while an explicit global rule would shadow it.
     maybe
         true ?= ?config(namespace, TCConfig) == ?global_ns,
+        {204, _} = delete_one_username_rules(Username1),
         ?assertMatch({200, _}, get_username_rules(NsQueryParams)),
         ?assertMatch({200, _}, get_clientid_rules(NsQueryParams)),
         ?assertMatch({204, _}, create_username_rules([?USERNAME_RULES_EXAMPLE], NsQueryParams)),

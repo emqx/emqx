@@ -207,6 +207,15 @@ desc(simple) ->
     ?DESC("simple");
 desc(builtin_generated) ->
     ?DESC("builtin_generated");
+desc(hardened_builtin_simple) ->
+    ?DESC("simple");
+desc(Name) when
+    Name =:= hardened_builtin_pbkdf2_sha224;
+    Name =:= hardened_builtin_pbkdf2_sha256;
+    Name =:= hardened_builtin_pbkdf2_sha384;
+    Name =:= hardened_builtin_pbkdf2_sha512
+->
+    ?DESC("pbkdf2");
 desc(_) ->
     undefined.
 

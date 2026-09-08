@@ -39,6 +39,12 @@ export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
 export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
 export PAHO_MQTT_TESTING_PATH="${PAHO_MQTT_TESTING_PATH:-/paho-mqtt-testing}"
 
+export EMQX_NODE__COOKIE='ci-smoke-test-cookie'
+export EMQX_DASHBOARD__DEFAULT_PASSWORD='CiSm0kePass1'
+export EMQX_SMOKE_PASSWORD="$EMQX_DASHBOARD__DEFAULT_PASSWORD"
+export EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN='false'
+export EMQX_AUTHORIZATION__NO_MATCH='allow'
+
 SYSTEM="$("$SCRIPTS"/get-distro.sh)"
 
 if [ "$PACKAGE_TYPE" = 'tgz' ]; then
@@ -129,6 +135,8 @@ emqx_test(){
                 echo "package install error"
                 exit 1
             fi
+            echo 'export EMQX_NODE__COOKIE=ci-smoke-test-cookie' \
+                | tee -a "$(dpkg -L ${EMQX_NAME} | grep emqx_vars)"
             if ! /usr/bin/emqx start
             then
                 echo "ERROR: failed_to_start_emqx"
@@ -198,6 +206,10 @@ export EMQX_ZONES__DEFAULT__MQTT__SERVER_KEEPALIVE=60
 export EMQX_MQTT__MAX_TOPIC_ALIAS=10
 export EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug
 export EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL=debug
+export EMQX_NODE__COOKIE=ci-smoke-test-cookie
+export EMQX_DASHBOARD__DEFAULT_PASSWORD=CiSm0kePass1
+export EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false
+export EMQX_AUTHORIZATION__NO_MATCH=allow
 EOF
         ## for ARM, due to CI env issue, skip start of quic listener for the moment
         # [[ $(arch) == *arm* || $(arch) == aarch64 ]] && tee -a "$emqx_env_vars" <<EOF

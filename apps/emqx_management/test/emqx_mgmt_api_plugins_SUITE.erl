@@ -698,8 +698,8 @@ t_cluster_update_order(Config) ->
     Name2 = list_to_binary(Name2Str),
 
     ?ON(N1, begin
-        ok = allow_installation(NameVsn1),
-        ok = allow_installation(NameVsn2)
+        ok = allow_package(PackagePath1),
+        ok = allow_package(PackagePath2)
     end),
     ok = install_plugin_into_cluster(Config, PackagePath1),
     ok = install_plugin_into_cluster(Config, PackagePath2),
@@ -772,7 +772,7 @@ t_cluster_rejects_invalid_local_config_on_start(Config) ->
         <<"foo = \"bar\"\n">>
     ),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
-    ?ON(Initiator, ok = allow_installation(NameVsn)),
+    ?ON(Initiator, ok = allow_package(PackagePath)),
     ok = install_plugin_into_cluster(Config, PackagePath),
     InvalidConfigPath = ?ON(InvalidNode, emqx_plugins_fs:config_file_path(NameVsn)),
     ok = file:write_file(InvalidConfigPath, <<"foo = 42\n">>),
@@ -807,7 +807,7 @@ t_cluster_rolls_back_partial_start_failure(Config) ->
         <<"foo = \"bar\"\n">>
     ),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
-    ?ON(Initiator, ok = allow_installation(NameVsn)),
+    ?ON(Initiator, ok = allow_package(PackagePath)),
     ok = install_plugin_into_cluster(Config, PackagePath),
     FailingAppFile = ?ON(FailingNode, test_plugin_app_file(NameVsn)),
     ok = ?ON(

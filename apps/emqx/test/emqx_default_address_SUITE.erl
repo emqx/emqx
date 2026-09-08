@@ -176,9 +176,12 @@ scope.
 """.
 t_resolver_profile_fallback(_Config) ->
     emqx_common_test_helpers:clear_default_address(),
-    ?assertEqual(any, emqx_default_address:resolve(mqtt)),
-    ?assertEqual(any, emqx_default_address:resolve(dashboard)),
-    ?assertEqual(any, emqx_default_address:resolve(gateway)),
+    emqx_common_test_helpers:with_security_profile(legacy, fun() ->
+        emqx_default_address:clear(),
+        ?assertEqual(any, emqx_default_address:resolve(mqtt)),
+        ?assertEqual(any, emqx_default_address:resolve(dashboard)),
+        ?assertEqual(any, emqx_default_address:resolve(gateway))
+    end),
     emqx_common_test_helpers:with_security_profile(hardened, fun() ->
         emqx_default_address:clear(),
         ?assertEqual(loopback, emqx_default_address:resolve(mqtt)),
@@ -193,8 +196,11 @@ returns explicit binds unchanged.
 """.
 t_listen_on(_Config) ->
     emqx_common_test_helpers:clear_default_address(),
-    ?assertEqual(1883, emqx_default_address:listen_on(mqtt, 1883)),
-    ?assertEqual(1883, emqx_default_address:listen_on(gateway, 1883)),
+    emqx_common_test_helpers:with_security_profile(legacy, fun() ->
+        emqx_default_address:clear(),
+        ?assertEqual(1883, emqx_default_address:listen_on(mqtt, 1883)),
+        ?assertEqual(1883, emqx_default_address:listen_on(gateway, 1883))
+    end),
     with_address("loopback", fun() ->
         ?assertEqual({{127, 0, 0, 1}, 1883}, emqx_default_address:listen_on(mqtt, 1883)),
         ?assertEqual({{127, 0, 0, 1}, 1883}, emqx_default_address:listen_on(gateway, 1883)),
@@ -228,8 +234,13 @@ unset, and `<<"bind">>` for a bind that already has an explicit address.
 """.
 t_listen_on_from(_Config) ->
     emqx_common_test_helpers:clear_default_address(),
-    ?assertEqual(<<"0.0.0.0">>, emqx_default_address:resolved_from(mqtt)),
-    ?assertEqual(<<"bind">>, emqx_default_address:listen_on_from(mqtt, {{1, 2, 3, 4}, 1883})),
+    emqx_common_test_helpers:with_security_profile(legacy, fun() ->
+        emqx_default_address:clear(),
+        ?assertEqual(<<"0.0.0.0">>, emqx_default_address:resolved_from(mqtt)),
+        ?assertEqual(
+            <<"bind">>, emqx_default_address:listen_on_from(mqtt, {{1, 2, 3, 4}, 1883})
+        )
+    end),
     with_address("loopback", fun() ->
         ?assertEqual(<<"127.0.0.1">>, emqx_default_address:resolved_from(mqtt)),
         ?assertEqual(<<"127.0.0.1">>, emqx_default_address:listen_on_from(mqtt, 1883)),
@@ -265,7 +276,10 @@ profile decides the address, not a configured loopback.
 """.
 t_loopback_by_profile(_Config) ->
     emqx_common_test_helpers:clear_default_address(),
-    ?assertNot(emqx_default_address:loopback_by_profile()),
+    emqx_common_test_helpers:with_security_profile(legacy, fun() ->
+        emqx_default_address:clear(),
+        ?assertNot(emqx_default_address:loopback_by_profile())
+    end),
     with_address("loopback", fun() ->
         ?assertNot(emqx_default_address:loopback_by_profile())
     end),

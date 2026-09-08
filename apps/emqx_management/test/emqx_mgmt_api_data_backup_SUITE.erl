@@ -161,6 +161,7 @@ refused without it, and succeeds with it.
 t_import_security_profile_mismatch(Config) ->
     [N1 | _] = ?config(cluster, Config),
     Auth = ?config(auth, Config),
+    ok = ?ON(N1, emqx_common_test_helpers:set_security_profile(legacy)),
     {ok, RespBody} = export_backup(?NODE1_PORT, Auth),
     #{<<"filename">> := FileName} = emqx_utils_json:decode(RespBody),
     ok = ?ON(N1, emqx_common_test_helpers:set_security_profile(hardened)),
@@ -187,6 +188,7 @@ field.
 t_import_security_profile_mismatch_cli(Config) ->
     [N1 | _] = ?config(cluster, Config),
     Auth = ?config(auth, Config),
+    ok = ?ON(N1, emqx_common_test_helpers:set_security_profile(legacy)),
     {ok, RespBody} = export_backup(?NODE1_PORT, Auth),
     #{<<"filename">> := FileName} = emqx_utils_json:decode(RespBody),
     ok = ?ON(N1, emqx_mgmt_cli:load()),
@@ -930,7 +932,10 @@ write_tmp_tar(Bin) ->
 
 import_backup_full(NodeApiPort, Auth, BackupName) ->
     Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "import"]),
-    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    Body = #{
+        <<"filename">> => unicode:characters_to_binary(BackupName),
+        <<"allow_security_profile_mismatch">> => true
+    },
     emqx_mgmt_api_test_util:simple_request(post, Path, Body, Auth).
 
 %% Import a backup, optionally scoped to a namespace via the `namespace' query
@@ -1234,7 +1239,10 @@ import_backup(NodeApiPort, Auth, BackupName) ->
 
 import_backup(NodeApiPort, Auth, BackupName, Node) ->
     Path = ["data", "import"],
-    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    Body = #{
+        <<"filename">> => unicode:characters_to_binary(BackupName),
+        <<"allow_security_profile_mismatch">> => true
+    },
     Body1 =
         case Node of
             undefined -> Body;
