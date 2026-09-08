@@ -71,9 +71,10 @@ parse_dashboard_role(Role) ->
 %%   * scopes absent  (undefined)        -> fall back to RBAC default
 %%                                          (already passed at this
 %%                                          point), so allow.
-%%   * scopes = [...]  (list)            -> path must map to one of
-%%                                          the listed scopes; unmapped
-%%                                          paths fail-open (allow).
+%%   * scopes = [...]  (list)            -> the path's scopes must
+%%                                          overlap the listed scopes;
+%%                                          unmapped paths fail-open
+%%                                          (allow).
 %%
 %% The unmapped-path fail-open is consistent with API key scope
 %% semantics (emqx_mgmt_auth:check_path_in_scopes/2). CT
@@ -142,13 +143,15 @@ check_login_user_scopes_strict(Username, Path) ->
         %% governed by role-based RBAC alone, so they are not locked out.
         not_found ->
             emqx_dashboard_admin:scopes_of(Username) =:= undefined;
-        {scope, PathScope} ->
+        {scopes, PathScopes} ->
             %% Work on the effective scope list (role-default expanded) so
             %% administrators with no explicit scopes implicitly hold the
             %% full catalog and viewers implicitly hold the common scopes.
             %% Explicit [] is honoured as "no permissions".
+            %% A path may declare more than one acceptable scope; holding
+            %% any one of them grants access.
             Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
-            lists:member(PathScope, Scopes)
+            emqx_mgmt_api_key_scopes:any_scope_granted(PathScopes, Scopes)
     end.
 
 %% Whitelist of self-service paths that may skip the login-user

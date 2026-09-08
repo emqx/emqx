@@ -635,21 +635,21 @@ t_bootstrap_file_lenient_order_independence(_) ->
 t_bootstrap_file_scope_runtime_check(_) ->
     File = "./bootstrap_api_keys.txt",
     %% Sanity-check that the path-to-scope cache is populated for the
-    %% endpoints we exercise below — otherwise `path_to_scope/1' returns
+    %% endpoints we exercise below — otherwise `path_to_scopes/1' returns
     %% `undefined' and `check_path_in_scopes/2' would silently allow
     %% access regardless of the scope list, turning this test green for
     %% the wrong reason.
     ?assertEqual(
-        ?SCOPE_CONNECTIONS,
-        emqx_mgmt_api_key_scopes:path_to_scope(<<"/banned">>)
+        [?SCOPE_CONNECTIONS],
+        emqx_mgmt_api_key_scopes:path_to_scopes(<<"/banned">>)
     ),
     ?assertEqual(
-        ?SCOPE_PUBLISH,
-        emqx_mgmt_api_key_scopes:path_to_scope(<<"/publish">>)
+        [?SCOPE_PUBLISH],
+        emqx_mgmt_api_key_scopes:path_to_scopes(<<"/publish">>)
     ),
     ?assertEqual(
-        ?SCOPE_SYSTEM,
-        emqx_mgmt_api_key_scopes:path_to_scope(<<"/status">>)
+        [?SCOPE_SYSTEM],
+        emqx_mgmt_api_key_scopes:path_to_scopes(<<"/status">>)
     ),
 
     %% A single key scoped to `connections`. Endpoints that map to OTHER scopes
@@ -722,7 +722,7 @@ t_bootstrap_file_scope_runtime_check(_) ->
         auth_authorize(StatusPath, <<"scope-empty">>, <<"secret-3">>)
     ),
     %% Unmapped path: there should not be any in the management app at the
-    %% time this suite starts, but if `path_to_scope/1' returns `undefined'
+    %% time this suite starts, but if `path_to_scopes/1' returns `undefined'
     %% for a path the key with `scopes=[]' is allowed to reach it. We test
     %% that contract directly:
     ?assertEqual(

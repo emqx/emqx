@@ -388,7 +388,7 @@ check_scopes_for_path(Extra, Path) ->
     end.
 
 check_path_in_scopes(Path, Scopes) ->
-    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
+    case emqx_mgmt_api_key_scopes:path_to_scopes(Path) of
         undefined ->
             %% Path not mapped to any scope — allow access regardless of
             %% whether `Scopes' is empty. This keeps unmapped public
@@ -397,8 +397,10 @@ check_path_in_scopes(Path, Scopes) ->
             %% bootstrap loader, so an operator can still observe the
             %% node and reconfigure the key via the UI.
             ok;
-        PathScope ->
-            case lists:member(PathScope, Scopes) of
+        PathScopes ->
+            %% A path may declare more than one acceptable scope;
+            %% holding any one of them grants access.
+            case emqx_mgmt_api_key_scopes:any_scope_granted(PathScopes, Scopes) of
                 true -> ok;
                 false -> {error, unauthorized_role}
             end
@@ -406,9 +408,11 @@ check_path_in_scopes(Path, Scopes) ->
 
 %% @doc Check if a path belongs to a denied scope.
 is_denied_path(Path) ->
-    case emqx_mgmt_api_key_scopes:path_to_scope(Path) of
-        undefined -> false;
-        Scope -> emqx_mgmt_api_key_scopes:is_denied_scope(Scope)
+    case emqx_mgmt_api_key_scopes:path_to_scopes(Path) of
+        undefined ->
+            false;
+        PathScopes ->
+            lists:any(fun emqx_mgmt_api_key_scopes:is_denied_scope/1, PathScopes)
     end.
 
 get_scopes(#{scopes := Scopes}) when is_list(Scopes) ->

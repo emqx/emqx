@@ -8,6 +8,11 @@
 %% returns one of these macros (or a map of path => macro for modules
 %% whose endpoints span multiple scopes).
 %%
+%% A path may also declare a non-empty LIST of these macros, meaning
+%% "a holder of any one of these scopes may call this path". Use a list
+%% only where an endpoint has two legitimate audiences that cannot be
+%% collapsed into one scope name.
+%%
 %% Using macros ensures compile-time safety: a typo in a scope name
 %% will cause a compilation error rather than a silent runtime bug.
 
@@ -35,9 +40,12 @@
 %% only return static catalog data (/user_scopes, /api_key_scopes).
 %% Modules using the map form of scopes/0 must declare such paths with
 %% this value rather than omitting them, so that genuinely forgotten
-%% paths still produce a startup warning. The collector treats this
-%% value as: do not insert into the runtime cache (preserves fail-open
-%% semantics) and do not emit path_missing_from_scopes_map.
+%% paths still produce a startup warning. The collector inserts the
+%% sentinel into the runtime cache so that an exact-match lookup can
+%% tell "explicitly public" from "genuinely unmapped", and skips those
+%% entries during wildcard template matching so a sibling template
+%% cannot claim a public path. Lookups still report a public path as
+%% unscoped, preserving fail-open semantics.
 -define(SCOPE_PUBLIC, <<"$public">>).
 
 %% ── Login-user-only scopes (since 5.10.4) ─────────────────────────────
