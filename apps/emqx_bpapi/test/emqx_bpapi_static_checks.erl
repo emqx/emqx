@@ -192,7 +192,12 @@
     %% The 5.9 and 5.10 lines dropped `v2_wait_for_ready_v7/5' from
     %% `emqx_bridge_proto_v7' after 5.8 froze it. 5.x only; 6.x deleted the
     %% whole API.
-    {emqx_bridge, 7}
+    {emqx_bridge, 7},
+    %% 6.3.0 dropped `start/1' and `stop/1' from `emqx_prometheus_proto_v2' and
+    %% their targets `emqx_prometheus:do_start/0' and `do_stop/0' (a314325677).
+    %% The 5.8, 5.9 and 5.10 lines still declare the wrappers but no code on any
+    %% of them calls one, so no peer can reach the removed targets.
+    {emqx_prometheus, 2}
 ]).
 
 -define(XREF, myxref).
@@ -365,7 +370,7 @@ typecheck_apis(
     AllCalls0 = lists:flatten([
         [Calls, Casts]
      || #{calls := Calls, casts := Casts} <- maps:values(
-            maps:without(?EXPERIMENTAL_APIS, CallerAPIs)
+            maps:without(?EXPERIMENTAL_APIS ++ ?DIVERGED_APIS, CallerAPIs)
         )
     ]),
     AllCalls = filter_calls(AllCalls0),
