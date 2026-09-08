@@ -143,6 +143,21 @@ check_status(Default) ->
     ?assertEqual(Default, is_telemetry_process_enabled()),
     ok.
 
+%% `PUT /telemetry/status` rejects a body that omits `enable` with 400,
+%% and does not leak an Erlang stack trace.
+t_status_missing_enable(_) ->
+    {ok, Status, Body} = request(put, uri(["telemetry", "status"]), #{}),
+    ?assertEqual(400, Status),
+    #{<<"code">> := Code, <<"message">> := Message} = emqx_utils_json:decode(Body),
+    ?assertEqual(<<"BAD_REQUEST">>, Code),
+    ?assertMatch(
+        #{<<"reason">> := <<"required_field">>, <<"path">> := <<"root.enable">>},
+        emqx_utils_json:decode(Message)
+    ),
+    ?assertEqual(nomatch, binary:match(Body, <<"INTERNAL_ERROR">>)),
+    ?assertEqual(nomatch, binary:match(Body, <<"emqx_telemetry_api">>)),
+    ok.
+
 t_data(_) ->
     ?assert(is_telemetry_process_enabled()),
     {ok, 200, Result} =
