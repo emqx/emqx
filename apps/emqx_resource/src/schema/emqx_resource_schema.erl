@@ -13,6 +13,8 @@
 
 -export([create_opts/1, resource_opts_meta/0, override/2]).
 
+-export([request_ttl/1]).
+
 %% range interval in ms
 -define(HEALTH_CHECK_INTERVAL_RANGE_MIN, 1).
 -define(HEALTH_CHECK_INTERVAL_RANGE_MAX, 3_600_000).

@@ -9,6 +9,11 @@ services:
     #   - "8085:8085"
     networks:
       - emqx_bridge
+    ## uncomment the following volumes and envs to increase debugging output
+    # volumes:
+    #   - ./gcp_emulator_pubsub/debug-log.properties:/tmp/debug-log.properties:ro
+    # env:
+    #   JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/tmp/debug-log.properties"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8085"]
       interval: 5s
@@ -18,7 +23,7 @@ services:
       - bash
       - "-c"
       - |
-        gcloud beta emulators pubsub start --project=emqx-pubsub --host-port=0.0.0.0:8085 --impersonate-service-account test@emqx.iam.gserviceaccount.com
+        gcloud beta emulators pubsub start --project=emqx-pubsub --host-port=0.0.0.0:8085 --impersonate-service-account test@emqx.iam.gserviceaccount.com --verbosity=debug
 
   # The sole purpose of this is to downgrade http2 requests to http1.1 for the emulator.
   # Real gcp supports rest api with http2, but the emulator takes it to mean grpc.....

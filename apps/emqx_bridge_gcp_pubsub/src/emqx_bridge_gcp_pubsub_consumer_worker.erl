@@ -34,6 +34,13 @@
     ensure_subscription/1
 ]).
 
+%% Internal exports
+-export([
+    subscription_id/3,
+    subscription_resource/2,
+    topic_resource/2
+]).
+
 -type subscription_id() :: binary().
 -type bridge_name() :: atom() | binary().
 -type ack_id() :: binary().
@@ -393,6 +400,10 @@ terminate(_Reason, State) ->
     clear_optvar(SourceResId, WorkerId),
     ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => _Reason, topic => maps:get(topic, State)}),
     ok.
+
+%%-------------------------------------------------------------------------------------------------
+%% Internal exports
+%%-------------------------------------------------------------------------------------------------
 
 %%-------------------------------------------------------------------------------------------------
 %% Internal fns

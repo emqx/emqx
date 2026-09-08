@@ -83,6 +83,7 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_emqx_tables_connector_info,
         emqx_bridge_es_connector_info,
         emqx_bridge_gcp_pubsub_consumer_connector_info,
+        emqx_bridge_gcp_pubsub_consumer_grpc_connector_info,
         emqx_bridge_gcp_pubsub_producer_connector_info,
         emqx_bridge_greptimedb_connector_info,
         emqx_bridge_influxdb_connector_info,

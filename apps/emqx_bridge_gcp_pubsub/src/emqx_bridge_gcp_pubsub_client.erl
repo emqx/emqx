@@ -65,6 +65,10 @@
     project_id := project_id(),
     any() => term()
 }.
+-type auth_ctx() :: #{
+    auth_config := auth_state(),
+    project_id := project_id()
+}.
 -type auth_state() ::
     service_account_json_auth_state()
     | wif_auth_state()
@@ -113,6 +117,7 @@
 
 -export_type([
     authentication_config/0,
+    auth_ctx/0,
     service_account_json/0,
     state/0,
     extra_info/0,
@@ -457,6 +462,7 @@ get_or_refresh_attached_sa_token(ServerRef, Tab, ResId) ->
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
 
+-spec maybe_initialize_auth_resources(resource_id(), _) -> {ok, auth_ctx()} | {error, any()}.
 maybe_initialize_auth_resources(
     ResourceId, #{authentication := #{type := attached_service_account}} = Config
 ) ->
