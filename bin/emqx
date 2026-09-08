@@ -555,7 +555,7 @@ if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
     [ -f "$EMQX_ETC_DIR"/emqx.conf ] || die "emqx.conf is not found in $EMQX_ETC_DIR" 1
     maybe_use_portable_dynlibs
     if [ "${EMQX_BOOT_CONFIGS:-}" = '' ]; then
-        EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
+        EMQX_BOOT_CONFIGS="$(call_hocon get -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf "${CONF_KEYS[@]}")"
         ## export here so the 'console' command recursively called from
         ## 'start' command does not have to parse the configs again
         export EMQX_BOOT_CONFIGS
@@ -590,7 +590,7 @@ else
         SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
         tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
         tmp_datadir="$(echo -e "$PS_LINE" | $GREP -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
-        ## Make the format like what call_hocon multi_get prints out, but only need 4 args
+        ## Make the format like what call_hocon get prints out, but only need 4 args
         EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto_dist}\nnode.dist_net_ticktime=$tmp_ticktime\nnode.data_dir=${tmp_datadir}"
     else
         if [ "$RUNNING_NODES_COUNT" -gt 1 ]; then
@@ -609,12 +609,12 @@ else
         ## We have no choice but to read the bootstrap config (with environment overrides available in the current shell)
         [ -f "$EMQX_ETC_DIR"/emqx.conf ] || die "emqx.conf is not found in $EMQX_ETC_DIR" 1
         maybe_use_portable_dynlibs
-        EMQX_BOOT_CONFIGS="$(call_hocon -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf multi_get "${CONF_KEYS[@]}")"
+        EMQX_BOOT_CONFIGS="$(call_hocon get -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf "${CONF_KEYS[@]}")"
     fi
 fi
 # Redact the raw serialized string before any escape expansion, so an
 # embedded escape cannot split a secret across lines. Values may be
-# quoted (from hocon multi_get) or bare (parsed from ps output).
+# quoted (from hocon get) or bare (parsed from ps output).
 logdebug "EMQX_BOOT_CONFIGS: $(printf '%s' "$EMQX_BOOT_CONFIGS" | sed -E 's/(node\.cookie|license\.key)=("(\\.|[^"\\])*"|[^\\ ]*)/\1=******/g')"
 [[ "$DEBUG" -gt 0 ]] && set -x
 
@@ -703,12 +703,53 @@ relx_start_command() {
 # Function to check configs without generating them
 check_config() {
     ## this command checks the configs without generating any files
-    call_hocon -v \
+    call_hocon validate \
         -s "$SCHEMA_MOD" \
         -c "$EMQX_ETC_DIR"/base.hocon \
         -c "$CONFIGS_DIR"/cluster.hocon \
         -c "$EMQX_ETC_DIR"/emqx.conf \
-        check_schema
+        --log-env-overrides
+}
+
+# Keep only the most recent generated config files and remove their counterparts.
+prune_generated_configs() {
+    local max_history=3
+    local app_files=("$CONFIGS_DIR"/app.*.config)
+    local app_file
+    local vm_args_files
+    local vm_args_file
+    local timestamp
+    local delete_count
+    local i
+
+    ## An unmatched glob is normally retained literally by bash. Also handle
+    ## callers that export nullglob through BASHOPTS.
+    if [ "${#app_files[@]}" -gt 0 ] && [ -e "${app_files[0]}" ]; then
+        delete_count=$((${#app_files[@]} - max_history))
+        for ((i = 0; i < delete_count; i++)); do
+            app_file="${app_files[$i]}"
+            timestamp="${app_file#"$CONFIGS_DIR/app."}"
+            timestamp="${timestamp%.config}"
+            vm_args_file="$CONFIGS_DIR/vm.$timestamp.args"
+            if ! rm -f -- "$app_file" "$vm_args_file"; then
+                logerr "Could not delete old generated config pair: $timestamp"
+            fi
+        done
+    fi
+
+    vm_args_files=("$CONFIGS_DIR"/vm.*.args)
+    if [ "${#vm_args_files[@]}" -gt 0 ] && [ -e "${vm_args_files[0]}" ]; then
+        delete_count=$((${#vm_args_files[@]} - max_history))
+        for ((i = 0; i < delete_count; i++)); do
+            vm_args_file="${vm_args_files[$i]}"
+            timestamp="${vm_args_file#"$CONFIGS_DIR/vm."}"
+            timestamp="${timestamp%.args}"
+            app_file="$CONFIGS_DIR/app.$timestamp.config"
+            if ! rm -f -- "$vm_args_file" "$app_file"; then
+                logerr "Could not delete old generated config pair: $timestamp"
+            fi
+        done
+    fi
 }
 
 # Function to generate app.config and vm.args
@@ -724,7 +765,17 @@ generate_config() {
     local NOW_TIME
     NOW_TIME="$(date +'%Y.%m.%d.%H.%M.%S')"
 
-    ## This command populates two files: app.<time>.config and vm.<time>.args
+    CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
+    ARGS_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
+    local GENERATED_APP_CONFIG_FILE="$CONF_FILE.$$.generated.tmp"
+    local GENERATED_VM_ARGS_FILE="$ARGS_FILE.$$.generated.tmp"
+    local STAGED_VM_ARGS_FILE="$ARGS_FILE.$$.tmp"
+
+    ## The HOCON CLI writes its two outputs sequentially. Keep both outside the
+    ## final namespace until the complete app config and merged VM args are ready.
+    trap 'rm -f -- "$GENERATED_APP_CONFIG_FILE" "$GENERATED_VM_ARGS_FILE" "$STAGED_VM_ARGS_FILE"' EXIT
+
+    ## This command populates two staging files.
     ## It takes input sources and overlays values in below order:
     ##   - etc/base.hocon
     ##   - $CONFIGS_DIR/cluster.hocon
@@ -733,51 +784,54 @@ generate_config() {
     ##
     ## NOTE: it's a known issue that cluster.hocon may change right after the node boots up
     ##       because it has to sync cluster.hocon from other nodes.
-    call_hocon -v -t "$NOW_TIME" \
+    call_hocon generate \
         -s "$SCHEMA_MOD" \
         -c "$EMQX_ETC_DIR"/base.hocon \
         -c "$CONFIGS_DIR"/cluster.hocon \
         -c "$EMQX_ETC_DIR"/emqx.conf \
-        -d "$DATA_DIR"/configs generate
-
-    ## filenames are per-hocon convention
-    CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
-    ARGS_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
+        --out-app-config "$GENERATED_APP_CONFIG_FILE" \
+        --out-vm-args "$GENERATED_VM_ARGS_FILE" \
+        --log-env-overrides
 
     ## Merge hocon generated *.args into the vm.args
-    TMP_ARG_FILE="$CONFIGS_DIR/vm.args.tmp"
-    cp "$EMQX_ETC_DIR/vm.args" "$TMP_ARG_FILE"
-    echo "" >> "$TMP_ARG_FILE"
-    echo "-pa \"${REL_DIR}/consolidated\"" >> "$TMP_ARG_FILE"
+    cp "$EMQX_ETC_DIR/vm.args" "$STAGED_VM_ARGS_FILE"
+    echo "" >> "$STAGED_VM_ARGS_FILE"
+    echo "-pa \"${REL_DIR}/consolidated\"" >> "$STAGED_VM_ARGS_FILE"
     ## read lines from generated vm.<time>.args file
     ## drop comment lines, and empty lines using sed
     ## pipe the lines to a while loop
     ## Turn off debug: the generated args contain the '-setcookie' line,
     ## which must not be traced by 'set -x'.
     set +x
-    sed '/^#/d' "$ARGS_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
+    sed '/^#/d' "$GENERATED_VM_ARGS_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
         ## in the loop, split the 'key[:space:]value' pair
         ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
         ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
         ## use the key to look up in vm.args file for the value
-        TMP_ARG_VALUE=$($GREP "^$ARG_KEY" "$TMP_ARG_FILE" || true | awk '{print $NF}')
+        TMP_ARG_VALUE=$($GREP "^$ARG_KEY" "$STAGED_VM_ARGS_FILE" || true | awk '{print $NF}')
         ## compare generated (to override) value to original (to be overridden) value
         if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
             ## if they are different
             if [ -n "$TMP_ARG_VALUE" ]; then
                 ## if the old value is present, replace it with generated value
-                sh -c "$SED_REPLACE 's|^$ARG_KEY.*$|$ARG_LINE|' \"$TMP_ARG_FILE\""
+                sh -c "$SED_REPLACE 's|^$ARG_KEY.*$|$ARG_LINE|' \"$STAGED_VM_ARGS_FILE\""
             else
                 ## otherwise append generated value to the end
-                echo "$ARG_LINE" >> "$TMP_ARG_FILE"
+                echo "$ARG_LINE" >> "$STAGED_VM_ARGS_FILE"
             fi
         fi
     done
     if [ "$DEBUG" -gt 0 ]; then set -x; fi
-    echo "$name_type $node_name" >> "$TMP_ARG_FILE"
-    echo "-mnesia dir '\"$DATA_DIR/mnesia/$NAME\"'" >> "$TMP_ARG_FILE"
-    ## rename the generated vm.<time>.args file
-    mv -f "$TMP_ARG_FILE" "$ARGS_FILE"
+    echo "$name_type $node_name" >> "$STAGED_VM_ARGS_FILE"
+    echo "-mnesia dir '\"$DATA_DIR/mnesia/$NAME\"'" >> "$STAGED_VM_ARGS_FILE"
+
+    ## Publish the app config last; its presence marks a complete generation.
+    mv -f "$STAGED_VM_ARGS_FILE" "$ARGS_FILE"
+    mv -f "$GENERATED_APP_CONFIG_FILE" "$CONF_FILE"
+    rm -f -- "$GENERATED_VM_ARGS_FILE"
+    trap - EXIT
+
+    prune_generated_configs
 }
 
 # check if a PID is defunct
