@@ -3,6 +3,13 @@
 %%--------------------------------------------------------------------
 -module(emqx_mysql).
 
+%% The shared connector dispatches to the configured SQL compiler.
+-elvis([
+    {elvis_style, invalid_dynamic_call, #{
+        ignore => [{emqx_mysql, parse_batch_sql, 4}, {emqx_mysql, on_batch_insert, 5}]
+    }}
+]).
+
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").

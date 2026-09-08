@@ -97,7 +97,9 @@ on_get_channels(ConnResId) ->
 ) ->
     {ok, connector_state()}.
 on_add_channel(ConnResId, ConnState, ChanResId, ActionConfig) ->
-    emqx_bridge_mysql_connector:on_add_channel(ConnResId, ConnState, ChanResId, ActionConfig).
+    emqx_bridge_mysql_connector:on_add_channel(
+        ConnResId, ConnState, ChanResId, ActionConfig#{sql_compiler => emqx_doris_sql}
+    ).
 
 -spec on_remove_channel(
     connector_resource_id(),
