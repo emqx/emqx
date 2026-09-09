@@ -81,7 +81,7 @@ init_per_group(quic, Config) ->
                 "\n idle_timeout = 15s"
                 "\n ssl_options.verify = verify_peer"
                 "\n }" ++
-                    emqx_common_test_helpers:listener_example_certs("listeners.quic.test")}
+                    emqx_common_test_helpers:listener_test_certs("listeners.quic.test")}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),

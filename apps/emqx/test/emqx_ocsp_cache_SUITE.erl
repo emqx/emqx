@@ -123,7 +123,7 @@ init_per_testcase(TestCase, Config) when
                     %% stapling rules under test are only reached once one is
                     %% configured.
                     {emqx,
-                        emqx_common_test_helpers:listener_example_certs(
+                        emqx_common_test_helpers:listener_test_certs(
                             "listeners.ssl.default"
                         )},
                     emqx_management,
