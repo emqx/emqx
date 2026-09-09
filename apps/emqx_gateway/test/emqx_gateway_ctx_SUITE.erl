@@ -74,15 +74,28 @@ t_authenticate(_) ->
     ?assertMatch({ok, #{is_superuser := true}}, emqx_gateway_ctx:authenticate(Ctx, Info4)),
     ok.
 
-t_clientid_override_rejected(_) ->
+t_clientid_override_ignored(_) ->
     Ctx = #{gwname => mqttsn, cm => self()},
     Info = #{
         mountpoint => <<"mqttsn/${clientid}/">>,
         clientid => <<"original-clientid">>
     },
-    ?assertEqual(
-        {error, not_authorized},
-        emqx_gateway_ctx:authenticate(Ctx, Info)
+    Reports = emqx_cth_log_capture:capture(warning, fun() ->
+        {ok, NInfo} = emqx_gateway_ctx:authenticate(Ctx, Info),
+        ?assertEqual(<<"original-clientid">>, maps:get(clientid, NInfo)),
+        ?assertEqual(<<"mqttsn/original-clientid/">>, maps:get(mountpoint, NInfo)),
+        ?assertEqual(false, maps:is_key(clientid_override, NInfo))
+    end),
+    ?assertMatch(
+        [
+            #{
+                msg := "gateway_authn_clientid_override_not_supported",
+                gateway := mqttsn,
+                clientid := <<"original-clientid">>,
+                clientid_override := <<"overridden-clientid">>
+            }
+        ],
+        Reports
     ),
     ok.
 

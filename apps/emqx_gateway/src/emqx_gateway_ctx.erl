@@ -185,17 +185,24 @@ eval_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
     MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
     ClientInfo#{mountpoint := MountPoint1}.
 
-handle_auth_result(GwName, ClientInfo, #{clientid_override := ClientIdOverride}) ->
-    ?SLOG(warning, #{
-        msg => "gateway_authn_clientid_override_not_supported",
-        gateway => GwName,
-        clientid => maps:get(clientid, ClientInfo, undefined),
-        clientid_override => ClientIdOverride
-    }),
-    {error, not_authorized};
-handle_auth_result(_GwName, ClientInfo, AuthResult) ->
+handle_auth_result(GwName, ClientInfo, AuthResult0) ->
+    AuthResult = maybe_drop_clientid_override(GwName, ClientInfo, AuthResult0),
     ClientInfo1 = merge_auth_result(ClientInfo, AuthResult),
     {ok, eval_mountpoint(ClientInfo1)}.
+
+maybe_drop_clientid_override(GwName, ClientInfo, AuthResult) ->
+    case maps:take(clientid_override, AuthResult) of
+        {ClientIdOverride, AuthResult1} ->
+            ?SLOG(warning, #{
+                msg => "gateway_authn_clientid_override_not_supported",
+                gateway => GwName,
+                clientid => maps:get(clientid, ClientInfo, undefined),
+                clientid_override => ClientIdOverride
+            }),
+            AuthResult1;
+        error ->
+            AuthResult
+    end.
 
 merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_map(AuthResult0) ->
     IsSuperuser = maps:get(is_superuser, AuthResult0, false),
