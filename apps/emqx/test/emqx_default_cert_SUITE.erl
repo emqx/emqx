@@ -37,6 +37,20 @@ init_per_testcase(t_listener_without_cert_serves_default = TCName, TCConfig) ->
         #{work_dir => emqx_cth_suite:work_dir(TCName, TCConfig)}
     ),
     [{apps, Apps}, {port, Port} | TCConfig];
+init_per_testcase(t_enabling_a_listener_generates_the_bundle = TCName, TCConfig) ->
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    %% Every TLS listener starts disabled, so nothing needs the bundle at boot.
+    Config =
+        "listeners.tcp.default.enable = false\n"
+        "listeners.ws.default.enable = false\n"
+        "listeners.wss.default.enable = false\n"
+        "listeners.ssl.default.enable = false\n"
+        "listeners.ssl.default.bind = \"127.0.0.1:" ++ integer_to_list(Port) ++ "\"\n",
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{config => Config}}],
+        #{work_dir => emqx_cth_suite:work_dir(TCName, TCConfig)}
+    ),
+    [{apps, Apps}, {port, Port} | TCConfig];
 init_per_testcase(t_bundles_are_per_node = TCName, TCConfig) ->
     Nodes = emqx_cth_cluster:start(
         [
@@ -445,6 +459,29 @@ t_listener_without_cert_serves_default(TCConfig) ->
     ok = ssl:close(Sock),
     ?assertEqual(<<"localhost">>, common_name(public_key:pkix_decode_cert(Der, otp))),
     %% It is this node's own bundle that was served, not something else.
+    #{?FILE_KIND_CHAIN := ChainPem} = contents(bundle_files()),
+    {LeafDer, _CaDer} = chain_entries(ChainPem),
+    ?assertEqual(LeafDer, Der).
+
+-doc """
+A listener that starts disabled generates nothing, and generates the bundle when
+it is enabled at runtime -- how the Dashboard and the REST API turn one on. The
+certificate is created when a server first needs it, not only at boot.
+""".
+t_enabling_a_listener_generates_the_bundle(TCConfig) ->
+    Port = ?config(port, TCConfig),
+    %% Nothing has needed a certificate yet.
+    ?assertEqual(#{}, bundle_files()),
+
+    {ok, _} = emqx:update_config(
+        [listeners, ssl, default], {update, #{<<"enable">> => true}}
+    ),
+    ?assertMatch(#{?FILE_KIND_KEY := _, ?FILE_KIND_CHAIN := _}, bundle_files()),
+
+    %% And the listener that was just enabled serves it.
+    {ok, Sock} = ssl:connect("127.0.0.1", Port, [{verify, verify_none}], 5_000),
+    {ok, Der} = ssl:peercert(Sock),
+    ok = ssl:close(Sock),
     #{?FILE_KIND_CHAIN := ChainPem} = contents(bundle_files()),
     {LeafDer, _CaDer} = chain_entries(ChainPem),
     ?assertEqual(LeafDer, Der).
