@@ -143,3 +143,47 @@ t_scan_yields_after_chunk(_) ->
     Elapsed = erlang:monotonic_time(millisecond) - Start,
     %% 5 topics * 10ms, minus slack for timer granularity.
     ?assert(Elapsed >= 40, {elapsed, Elapsed}).
+
+-doc "Invalid scan options are rejected at the boundary instead of silently disabling throttling.".
+t_scan_rejects_invalid_opts(_) ->
+    Invalid = [
+        %% chunk must be a positive integer; 0 and -1 used to make the
+        %% maybe_yield/3 guard raise badarith, which silently skipped
+        %% every sleep and ran the scan unthrottled.
+        #{chunk => 0},
+        #{chunk => -1},
+        #{chunk => bad},
+        %% sleep_ms must be a non-negative integer; -1 used to be
+        %% accepted and bad used to crash inside timer:sleep/1.
+        #{sleep_ms => -1},
+        #{sleep_ms => bad},
+        %% A typo in a key name used to be ignored without any report.
+        #{chunks => 10},
+        %% A non-map used to raise badmap from maps:get/3.
+        not_a_map
+    ],
+    lists:foreach(
+        fun(Opts) ->
+            ?assertError(
+                {invalid_scan_opts, _},
+                emqx_router_tool:scan_missing_routes(Opts),
+                #{opts => Opts}
+            ),
+            ?assertError(
+                {invalid_scan_opts, _},
+                emqx_router_tool:reconcile_missing_routes(Opts),
+                #{opts => Opts}
+            )
+        end,
+        Invalid
+    ),
+    %% Positive control: the defaults and the smallest valid values are
+    %% still accepted and return a scan_result().
+    ?assertMatch(
+        #{node := _, schema := _, scanned := _, missing := _},
+        emqx_router_tool:scan_missing_routes(#{})
+    ),
+    ?assertMatch(
+        #{node := _, schema := _, scanned := _, missing := _},
+        emqx_router_tool:scan_missing_routes(#{chunk => 1, sleep_ms => 0})
+    ).
