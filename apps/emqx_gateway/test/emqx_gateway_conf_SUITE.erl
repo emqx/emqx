@@ -313,6 +313,75 @@ t_load_unload_gateway(_) ->
     ?assertEqual(undefined, emqx_gateway:lookup('stomp')),
     ok.
 
+t_listener_id_length_validation(_) ->
+    Name = binary:copy(<<"a">>, 65),
+    Error =
+        {error, {listener_name_too_long, <<"Listener name must not exceed 64 bytes">>}},
+    EmptyGateway = #{<<"listeners">> => #{}},
+    ListenerConfig = #{
+        <<"listeners">> => #{<<"tcp">> => #{Name => #{}}}
+    },
+    ?assertEqual(
+        Error,
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            {load_gateway, <<"stomp">>, ListenerConfig},
+            #{}
+        )
+    ),
+    ?assertEqual(
+        Error,
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            {add_listener, <<"stomp">>, {<<"tcp">>, Name}, #{}},
+            #{<<"stomp">> => EmptyGateway}
+        )
+    ),
+    RawWithLongListener = #{<<"stomp">> => ListenerConfig},
+    ?assertEqual(
+        Error,
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            RawWithLongListener,
+            #{<<"stomp">> => EmptyGateway}
+        )
+    ),
+    Raw0 = emqx:get_raw_config([gateway]),
+    ?assertEqual(
+        {error, {pre_config_update, emqx_gateway_conf, element(2, Error)}},
+        emqx:update_config([gateway], Raw0#{<<"stomp">> => ListenerConfig})
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            RawWithLongListener,
+            RawWithLongListener
+        )
+    ),
+    ?assert(is_atom(emqx_gateway_utils:listener_id(stomp, tcp, Name))),
+    InvalidName = <<"_invalid">>,
+    InvalidError =
+        {error,
+            {listener_name_invalid_chars,
+                <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>}},
+    InvalidListenerConfig = #{
+        <<"listeners">> => #{<<"tcp">> => #{InvalidName => #{}}}
+    },
+    ?assertEqual(
+        InvalidError,
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            {add_listener, <<"stomp">>, {<<"tcp">>, InvalidName}, #{}},
+            #{<<"stomp">> => EmptyGateway}
+        )
+    ),
+    ?assertEqual(
+        {error, {pre_config_update, emqx_gateway_conf, element(2, InvalidError)}},
+        emqx:update_config([gateway], Raw0#{<<"stomp">> => InvalidListenerConfig})
+    ),
+    ok.
+
 t_authn_create_failure_log_redacts_secret(_) ->
     Secret = <<"secret-pass">>,
     StompConf = compose_authn(?CONF_STOMP_BAISC_1, jwt_authn_conf(Secret)),

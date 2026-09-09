@@ -308,15 +308,7 @@ enrich_clientinfo(
         feedvar(Override, ConnParams, ConnInfo, ClientInfo0),
         ClientInfo0
     ),
-    {ok, _, ClientInfo2} = emqx_utils:pipeline(
-        [
-            %% FIXME: CALL After authentication successfully
-            fun fix_mountpoint/2
-        ],
-        ConnParams,
-        ClientInfo1
-    ),
-    {ok, Frame, Channel#channel{clientinfo = ClientInfo2}}.
+    {ok, Frame, Channel#channel{clientinfo = ClientInfo1}}.
 
 assign_clientid_to_conninfo(
     Packet,
@@ -364,14 +356,6 @@ write_clientinfo(Override, ClientInfo) ->
                 Override1
         end,
     maps:merge(ClientInfo, Override2).
-
-fix_mountpoint(_Packet, #{mountpoint := undefined}) ->
-    ok;
-fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    %% TODO: Enrich the variable replacement????
-    %%       i.e: ${ClientInfo.auth_result.productKey}
-    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
-    {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
 set_log_meta(_Packet, #channel{clientinfo = #{clientid := ClientId}}) ->
     emqx_logger:set_metadata_clientid(ClientId),
