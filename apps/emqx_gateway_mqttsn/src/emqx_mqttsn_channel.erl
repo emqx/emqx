@@ -106,6 +106,7 @@
 -define(REGISTER_INFLIGHT(TopicId, TopicName), #channel{register_inflight = {TopicId, _, TopicName}}).
 
 -define(MAX_RETRY_TIMES, 3).
+-define(CLIENT_DISCONNECT, client_disconnect).
 
 % 5s
 -define(REGISTER_TIMEOUT, 5000).
@@ -263,9 +264,7 @@ enrich_clientinfo(
     ),
     {ok, NPacket, NClientInfo} = emqx_utils:pipeline(
         [
-            fun maybe_assign_clientid/2,
-            %% FIXME: CALL After authentication successfully
-            fun fix_mountpoint/2
+            fun maybe_assign_clientid/2
         ],
         Packet,
         ClientInfo
@@ -301,14 +300,6 @@ maybe_assign_clientid(_Packet, ClientInfo = #{clientid := ClientId}) when
     {ok, ClientInfo#{clientid => emqx_utils:rand_id(?RAND_CLIENTID_BYTES)}};
 maybe_assign_clientid(_Packet, ClientInfo) ->
     {ok, ClientInfo}.
-
-fix_mountpoint(_Packet, #{mountpoint := undefined}) ->
-    ok;
-fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    %% TODO: Enrich the variable replacement????
-    %%       i.e: ${ClientInfo.auth_result.productKey}
-    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
-    {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
 set_log_meta(_Packet, #channel{clientinfo = #{clientid := ClientId}}) ->
     emqx_logger:set_metadata_clientid(ClientId),
@@ -618,10 +609,13 @@ handle_in(
         previous_state => ConnState,
         clientid => ClientId
     }),
+    %% A keepalive timeout may fire while asleep without removing its timer entry.
+    %% Clear it so CONNACK can arm fresh keepalive supervision.
+    Channel1 = cancel_timer(keepalive, cancel_timer(expire_asleep, Channel)),
     handle_out(
         connack,
         ?SN_RC_ACCEPTED,
-        Channel#channel{conn_state = connected}
+        Channel1#channel{conn_state = connected}
     );
 %% new connection
 handle_in(
@@ -1624,6 +1618,11 @@ handle_out(
             }),
             {ok, Channel#channel{register_awaiting_queue = NRAQueue}}
     end;
+handle_out(disconnect, normal, Channel = #channel{conn_state = ConnState}) when
+    ConnState =:= connected; ConnState =:= asleep; ConnState =:= awake
+->
+    DisPkt = ?SN_DISCONNECT_MSG(undefined),
+    {ok, [{outgoing, DisPkt}, {close, ?CLIENT_DISCONNECT}], Channel};
 handle_out(disconnect, RC, Channel) ->
     DisPkt = ?SN_DISCONNECT_MSG(undefined),
     Reason =
@@ -1875,6 +1874,15 @@ handle_info(
 ) ->
     shutdown(Reason, Channel);
 handle_info(
+    {sock_closed, ?CLIENT_DISCONNECT},
+    Channel = #channel{conn_state = ConnState}
+) when
+    ConnState =:= connected;
+    ConnState =:= asleep;
+    ConnState =:= awake
+->
+    handle_client_disconnect(Channel);
+handle_info(
     {sock_closed, Reason},
     Channel = #channel{
         conn_state = connected,
@@ -1885,20 +1893,30 @@ handle_info(
     %% How to get the flapping detect policy ???
     %emqx_zone:enable_flapping_detect(Zone)
     %    andalso emqx_flapping:detect(ClientInfo),
-    handle_active_sock_closed(Reason, Channel);
+    handle_connection_lost(Reason, Channel);
 handle_info(
     {sock_closed, Reason},
     Channel = #channel{conn_state = awake}
 ) ->
-    handle_active_sock_closed(Reason, Channel);
+    handle_connection_lost(Reason, Channel);
 handle_info(
     {sock_closed, Reason},
-    Channel = #channel{conn_state = disconnected}
+    Channel = #channel{
+        conn_state = asleep,
+        clientinfo = #{clientid := ClientId}
+    }
 ) ->
-    ?SLOG(error, #{
-        msg => "unexpected_sock_closed",
+    %% A sleeping MQTT-SN client has no live transport to lose.
+    %% Preserve its session until it wakes up or the sleep timer expires.
+    ?tp(debug, mqttsn_asleep_sock_closed_ignored, #{
+        clientid => ClientId,
         reason => Reason
     }),
+    {ok, Channel};
+handle_info(
+    {sock_closed, _Reason},
+    Channel = #channel{conn_state = disconnected}
+) ->
     {ok, Channel};
 handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
@@ -1926,7 +1944,14 @@ handle_info(Info, Channel) ->
     }),
     {ok, Channel}.
 
-handle_active_sock_closed(Reason, Channel) ->
+handle_client_disconnect(Channel) ->
+    NChannel = ensure_disconnected(normal, cancel_timer(expire_asleep, Channel)),
+    case maybe_shutdown(normal, NChannel) of
+        {ok, NChannel1} -> {ok, {event, disconnected}, NChannel1};
+        Shutdown -> Shutdown
+    end.
+
+handle_connection_lost(Reason, Channel) ->
     NChannel = ensure_disconnected(Reason, mabye_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, NChannel) of
         {ok, NChannel1} -> {ok, {event, disconnected}, NChannel1};
@@ -2100,6 +2125,9 @@ handle_timeout(
     ConnState =:= disconnected;
     ConnState =:= asleep
 ->
+    ?tp(debug, mqttsn_keepalive_timeout_ignored, #{
+        conn_state => ConnState
+    }),
     {ok, Channel};
 handle_timeout(
     _TRef,
@@ -2174,8 +2202,14 @@ handle_timeout(
     end;
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
+handle_timeout(
+    _TRef,
+    expire_asleep,
+    Channel = #channel{conn_state = asleep}
+) ->
+    handle_connection_lost(asleep_timeout, clean_timer(expire_asleep, Channel));
 handle_timeout(_TRef, expire_asleep, Channel) ->
-    shutdown(asleep_timeout, Channel);
+    {ok, clean_timer(expire_asleep, Channel)};
 handle_timeout(_TRef, connection_expire, Channel) ->
     NChannel = clean_timer(connection_expire, Channel),
     handle_out(disconnect, expired, NChannel);

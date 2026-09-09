@@ -111,6 +111,9 @@ is_sensitive_key(<<"sentinel_password">>) -> true;
 is_sensitive_key(service_account_json) -> true;
 is_sensitive_key("service_account_json") -> true;
 is_sensitive_key(<<"service_account_json">>) -> true;
+is_sensitive_key(setup_token) -> true;
+is_sensitive_key("setup_token") -> true;
+is_sensitive_key(<<"setup_token">>) -> true;
 is_sensitive_key(sp_private_key) -> true;
 is_sensitive_key(<<"sp_private_key">>) -> true;
 is_sensitive_key(token) -> true;
@@ -119,6 +122,12 @@ is_sensitive_key(<<"token">>) -> true;
 is_sensitive_key(client_secret) -> true;
 is_sensitive_key("client_secret") -> true;
 is_sensitive_key(<<"client_secret">>) -> true;
+is_sensitive_key(totp_code) -> true;
+is_sensitive_key("totp_code") -> true;
+is_sensitive_key(<<"totp_code">>) -> true;
+is_sensitive_key(verify_token) -> true;
+is_sensitive_key("verify_token") -> true;
+is_sensitive_key(<<"verify_token">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
