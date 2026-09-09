@@ -95,6 +95,11 @@ groups() ->
             t_bootstrap_file_3_segment_publisher_seeds_publish_scope,
             t_bootstrap_file_ns_admin_seeds_ns_default_scopes,
             t_bootstrap_file_ns_admin_drops_out_of_allowlist_scopes,
+            t_bootstrap_file_override,
+            t_bootstrap_file_dup_override,
+            t_bootstrap_file_same_secret_keeps_hash,
+            t_bootstrap_file_rotated_secret_rehashes,
+            t_bootstrap_file_same_secret_updates_metadata,
             t_create_failed
         ]}
     ].
@@ -250,7 +255,7 @@ t_bootstrap_file_override(_) ->
         ]},
         emqx_mgmt_auth:trans(MatchFun, [<<"test-1">>])
     ),
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"duplicated-secret-1">>)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, <<"test-1">>, <<"duplicated-secret-1">>)),
 
     ?assertMatch(
         {ok, [
@@ -261,7 +266,7 @@ t_bootstrap_file_override(_) ->
         ]},
         emqx_mgmt_auth:trans(MatchFun, [<<"test-2">>])
     ),
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"duplicated-secret-2">>)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, <<"test-2">>, <<"duplicated-secret-2">>)),
     ok.
 
 t_bootstrap_file_dup_override(_) ->
@@ -286,19 +291,10 @@ t_bootstrap_file_dup_override(_) ->
     MatchFun = fun(ApiKey) -> mnesia:match_object(#?APP{api_key = ApiKey, _ = '_'}) end,
 
     ?assertEqual({ok, ok}, emqx_mgmt_auth:trans(WriteFun, [SameAppWithDiffName])),
-    %% as erlang term order
-    ?assertMatch(
-        {ok, [
-            #?APP{
-                name = <<"name-1">>,
-                api_key = <<"test-1">>
-            },
-            #?APP{
-                name = <<"from_bootstrap_file_18926f94712af04e">>,
-                api_key = <<"test-1">>
-            }
-        ]},
-        emqx_mgmt_auth:trans(MatchFun, [TestApiKey])
+    %% `match_object' does not order its result, so compare the names as a set.
+    ?assertEqual(
+        [<<"from_bootstrap_file_18926f94712af04e">>, <<"name-1">>],
+        app_names(emqx_mgmt_auth:trans(MatchFun, [TestApiKey]))
     ),
 
     update_file(File),
@@ -306,20 +302,111 @@ t_bootstrap_file_dup_override(_) ->
     %% Similar to loading bootstrap file at node startup
     %% the duplicated apikey in mnesia will be cleaned up
     ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
-    ?assertMatch(
-        {ok, [
-            #?APP{
-                name = <<"from_bootstrap_file_18926f94712af04e">>,
-                api_key = <<"test-1">>
-            }
-        ]},
-        emqx_mgmt_auth:trans(MatchFun, [<<"test-1">>])
+    ?assertEqual(
+        [<<"from_bootstrap_file_18926f94712af04e">>],
+        app_names(emqx_mgmt_auth:trans(MatchFun, [<<"test-1">>]))
     ),
 
     %% the last apikey in bootstrap file will override the all in mnesia and the previous one(s) in bootstrap file
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
 
     ok.
+
+-doc """
+A bootstrap file re-read with an unchanged secret keeps the stored hash
+byte-identical, so a node joining a mixed-version cluster does not rewrite the
+shared record in a format the older nodes cannot verify.
+""".
+t_bootstrap_file_same_secret_keeps_hash(_) ->
+    TestPath = <<"/api/v5/status">>,
+    ApiKey = <<"keep-hash-1">>,
+    Secret = <<"secret-1">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, <<ApiKey/binary, ":", Secret/binary>>),
+    update_file(File),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+
+    %% Replace the hash with the pre-6.3 layout an older node writes.
+    LegacyHash = legacy_hash(<<"abcd">>, Secret),
+    ok = set_secret_hash(ApiKey, LegacyHash),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, ApiKey, Secret)),
+
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+    ?assertEqual(LegacyHash, read_secret_hash(ApiKey)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, ApiKey, Secret)),
+    ok.
+
+-doc """
+A bootstrap file re-read with a rotated secret replaces the stored hash with the
+current format, the old secret stops working and the new one works.
+""".
+t_bootstrap_file_rotated_secret_rehashes(_) ->
+    TestPath = <<"/api/v5/status">>,
+    ApiKey = <<"rotate-hash-1">>,
+    Secret = <<"secret-1">>,
+    NewSecret = <<"secret-2">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, <<ApiKey/binary, ":", Secret/binary>>),
+    update_file(File),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+    ok = set_secret_hash(ApiKey, legacy_hash(<<"abcd">>, Secret)),
+
+    ok = file:write_file(File, <<ApiKey/binary, ":", NewSecret/binary>>),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+
+    ?assertMatch(<<"$1$", _/binary>>, read_secret_hash(ApiKey)),
+    ?assertMatch({error, _}, auth_authorize(TestPath, ApiKey, Secret)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, ApiKey, NewSecret)),
+    ok.
+
+-doc """
+A role change in the bootstrap file takes effect on a re-read even though the
+secret is unchanged and the stored hash is kept.
+""".
+t_bootstrap_file_same_secret_updates_metadata(_) ->
+    ApiKey = <<"keep-hash-meta-1">>,
+    Secret = <<"secret-1">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, <<ApiKey/binary, ":", Secret/binary, ":viewer">>),
+    update_file(File),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+    ?assertEqual(<<"viewer">>, read_bootstrap_role(ApiKey)),
+    Hash = read_secret_hash(ApiKey),
+
+    ok = file:write_file(File, <<ApiKey/binary, ":", Secret/binary, ":administrator">>),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+
+    ?assertEqual(Hash, read_secret_hash(ApiKey)),
+    ?assertEqual(<<"administrator">>, read_bootstrap_role(ApiKey)),
+    ok.
+
+app_names({ok, Apps}) ->
+    lists:sort([Name || #?APP{name = Name} <- Apps]).
+
+%% The pre-6.3 hash layout: 4 salt characters followed by sha256(Salt ++ Secret).
+legacy_hash(Salt, Secret) ->
+    <<Salt/binary, (crypto:hash(sha256, <<Salt/binary, Secret/binary>>))/binary>>.
+
+read_app_by_api_key(ApiKey) ->
+    MatchFun = fun(Key) -> mnesia:match_object(#?APP{api_key = Key, _ = '_'}) end,
+    {ok, [App]} = emqx_mgmt_auth:trans(MatchFun, [ApiKey]),
+    App.
+
+read_secret_hash(ApiKey) ->
+    (read_app_by_api_key(ApiKey))#?APP.api_secret_hash.
+
+set_secret_hash(ApiKey, Hash) ->
+    App = read_app_by_api_key(ApiKey),
+    WriteFun = fun(A) -> mnesia:write(A) end,
+    {ok, ok} = emqx_mgmt_auth:trans(WriteFun, [App#?APP{api_secret_hash = Hash}]),
+    ok.
+
+read_bootstrap_role(ApiKey) ->
+    {value, #{role := Role}} = lists:search(
+        fun(#{api_key := Key}) -> Key =:= ApiKey end,
+        emqx_mgmt_auth:list()
+    ),
+    Role.
 
 t_bootstrap_file_with_role(_) ->
     Search = fun(Name) ->

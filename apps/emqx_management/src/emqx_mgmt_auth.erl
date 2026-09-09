@@ -706,7 +706,7 @@ add_bootstrap_file(File, Dev, MP, Line) ->
                         #?APP{
                             name = generate_unique_name(?FROM_BOOTSTRAP_FILE_PREFIX, ApiKey),
                             api_key = ApiKey,
-                            api_secret_hash = emqx_dashboard_admin:hash_api_secret(ApiSecret),
+                            api_secret_hash = bootstrap_secret_hash(ApiKey, ApiSecret),
                             enable = true,
                             extra = Extra,
                             created_at = erlang:system_time(second),
@@ -742,6 +742,24 @@ add_bootstrap_file(File, Dev, MP, Line) ->
             ok;
         {error, Reason} ->
             throw(#{file => File, line => Line, reason => Reason})
+    end.
+
+%% Keep the hash already stored for this key when the bootstrap file still
+%% holds the same secret. A fresh hash on every boot rewrites the
+%% cluster-shared record in a format older nodes cannot verify during a
+%% rolling upgrade.
+bootstrap_secret_hash(ApiKey, ApiSecret) ->
+    case find_by_api_key(ApiKey) of
+        {ok, _Enable, _ExpiredAt, StoredHash, _Role, _Namespace, _Extra} ->
+            keep_or_rehash(ApiSecret, StoredHash);
+        {error, _} ->
+            emqx_dashboard_admin:hash_api_secret(ApiSecret)
+    end.
+
+keep_or_rehash(ApiSecret, StoredHash) ->
+    case emqx_dashboard_admin:verify_hash(ApiSecret, StoredHash) of
+        ok -> StoredHash;
+        error -> emqx_dashboard_admin:hash_api_secret(ApiSecret)
     end.
 
 read_line(Dev) ->
