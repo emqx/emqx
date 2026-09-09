@@ -184,7 +184,7 @@ t_mountpoint_after_authn(_) ->
             ?assertEqual(<<"coap/tenant-1/">>, maps:get(mountpoint, ClientInfo)),
             ?assertMatch(
                 {ok, changed, _},
-                send_heartbeat(Token)
+                send_heartbeat(Channel, Token)
             ),
             ?assertMatch(
                 {ok, deleted, _},
