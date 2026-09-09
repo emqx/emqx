@@ -2,10 +2,10 @@
 
 MQTT Agent turns EMQX from MQTT infrastructure into an MQTT-native AI orchestration platform.
 
-MQTT Agent enables EMQX to run event-driven AI automation that reacts to client events using EMQX connectivity capabilities.
+MQTT Agent enables EMQX to run event-driven AI automation that reacts to client events using EMQX's connectivity capabilities.
 
-Unlike popular human facing agents, it is not primarily a chat interface.
-It is built for human-less AI automation: many devices, many concurrent workflows, restricted access to external systems, and auditable tool use.
+Unlike popular human-facing agents, it is not primarily a chat interface.
+It is built for humanless AI automation: many devices, many concurrent workflows, restricted access to external systems, and auditable tool use.
 
 Instead of wiring together a broker, API gateway, serverless runtime, AI service, workflow engine, and integration platform, MQTT Agent brings those primitives into one MQTT-native runtime.
 
@@ -32,13 +32,13 @@ MQTT Agent uses MQTT topics to provide features. Agent topics use `$` prefixes s
 
 Tools are restricted actions that may be used directly by a pipeline step or provided to an LLM step of a pipeline.
 
-Tools are addressed by type and id: `type@id`. Type identifies the tool implementation, e.g. make a HTTP request or query a database. `id` identifies the set of configured options and limitations for the tool.
+Tools are addressed by type and ID: `type@id`. Type identifies the tool implementation, e.g., making an HTTP request or querying a database. `id` identifies the set of configured options and constraints for the tool.
 
 ### Tool Topics
 
 Tool calls are MQTT request/response exchanges. The caller publishes a JSON request to the tool instance request topic (`$cap/<type>/<tool_id>/request/<req_id>`) and waits for a JSON response on the matching response topic (`$cap/<type>/<tool_id>/response/<req_id>`):
 
-The tool decodes the request payload, validates the `args` fieldagainst the tool input schema, executes the action, and publishes the result to the response topic with the same `req_id`.
+The tool decodes the request payload, validates the `args` field against the tool input schema, executes the action, and publishes the result to the response topic with the same `req_id`.
 
 For example, invoking `message__publish@alerts` with request ID `req-42` uses:
 
@@ -69,7 +69,7 @@ After publishing the MQTT message, the tool publishes this response payload to t
 }
 ```
 
-### Types, Instances, And Contexts
+### Types, Instances, and Contexts
 
 Tool type is the generic implementation. Tool ID is a configured instance of that implementation. The instance carries a context: fixed configuration that the caller cannot change at invocation time.
 
@@ -106,7 +106,7 @@ The same pattern applies to other tool types: a `message__publish` instance fixe
 | `kv__del` | Delete one key-value entry from a last-value EMQX stream. |
 | `kv__clear` | Clear all key-value entries from a last-value EMQX stream. |
 
-### Image Machinery
+### Image Handling
 
 The `http` and `message__request` tools can extract images from tool responses so multimodal data can be passed to the LLM safely. OpenAI-compatible APIs do not accept images embedded directly in tool response messages, so Agent replaces extracted images in the payload with `Image <id>` placeholders and returns the image data as separate attachments.
 
@@ -150,7 +150,7 @@ With `autodiscover_images` enabled, the tool response contains the sanitized res
 }
 ```
 
-The `result` field is further passed to an LLM as the tool response, and `attachments` are passed as additional multimodal data.
+The `result` field is then passed to an LLM as the tool response, and `attachments` are passed as additional multimodal data.
 
 #### Explicit path example
 
@@ -225,7 +225,7 @@ The root payload is represented as `Image .` and the PNG bytes are attached sepa
 
 ### Meta-Tools
 
-Meta-tools let build pipelines that modify Agent configuration. They are ordinary tools, but are usually exposed only to trusted builder workflows.
+Meta-tools let users build pipelines that modify Agent configuration. They are ordinary tools, but are usually exposed only to trusted builder workflows.
 
 - `agent__create_tool`
 - `agent__update_tool`
@@ -256,7 +256,7 @@ Inbound frames on `$sess/in/<sid>`:
 
 | Frame type | Purpose |
 |---|---|
-| `request` | Start LLM work with provider, model, instructions, input, tools, and persistence settings. |
+| `request` | Start LLM work with a provider, model, instructions, input, tools, and persistence settings. |
 | `tool_result` | Return the result of a tool call requested by the session. |
 | `event` | Add new event context to the next LLM turn. |
 | `stop` | Explicitly terminate the session. |
@@ -267,16 +267,16 @@ Outbound frames on `$sess/out/<sid>`:
 |---|---|
 | `intermediate` | Stream an intermediate model chunk before the turn finishes. Carries `chunk_type` such as `content` and the chunk bytes in `chunk`. |
 | `tool_request` | Ask the waiting pipeline to invoke a tool through `$cap/...`. |
-| `final` | Finish the current LLM turn and return result plus usage counters. |
+| `final` | Finish the current LLM turn and return the result plus usage counters. |
 | `error` | Report a session-side failure, such as an unavailable provider or history compaction error. |
 
 Every outbound frame includes `sid`, `iid`, `trace_id`, and accumulated `usage`. Model reasoning/thinking chunks are kept inside the session today; only published stream chunks appear as `intermediate` frames.
 
-Enabled persistence means session does not stop after `final` is published. It continues to exist and may receive further requests, forming a multi-turn conversation.
+Enabling persistence means the session does not stop after `final` is published. It continues to exist and may receive further requests, forming a multi-turn conversation.
 
 ## Pipelines
 
-A pipeline definition contains an ID, an MQTT trigger, and ordered steps. When an incoming MQTT message matches the trigger topic filter, MQTT Agent starts one pipeline instance with the message available as `$.event` in the pipeline context.
+A pipeline definition contains an ID, an MQTT trigger, and ordered steps. When an incoming MQTT message matches the trigger topic filter, MQTT Agent starts a pipeline instance with the message available as `$.event` in the pipeline context.
 
 Pipeline trigger topics are ordinary MQTT topic filters matched against `$evt/...` event topics, for example:
 
@@ -310,7 +310,7 @@ Pipelines can be active or draft; draft pipelines are stored but do not run unti
 
 ### LLM Step Key Expression
 
-To emulate multi-turn dialogs, one may still use `llm_loop` step with a persistent LLM session. In this case, this step for each pipeline instance will use the session identifier by the step's _key expression_. Using different key expressions we may have a single session per `clientid`, topic, or other criteria.
+To emulate multi-turn dialogs, one may still use an `llm_loop` step with a persistent LLM session. In this case, this step uses the session identifier produced by the step's _key expression_ for each pipeline instance. Using different key expressions, one may have a separate session for each `clientid`, topic, or other criterion.
 
 ## Management Surface
 
@@ -373,7 +373,7 @@ Provision the Apple Box Conveyor demo:
 python3 plugins/emqx_agent/demo_apple_box_init.py
 ```
 
-The script creates the `apple-inspector` AI provider, PostgreSQL connection, apple-box tools, database table, and active `apple-box-inspection` pipeline. Open the UI at:
+The script creates the `apple-inspector` AI provider, a PostgreSQL connection, apple-box tools, a database table, and an active `apple-box-inspection` pipeline. Open the UI at:
 
 ```text
 /api/v5/plugin_api/emqx_agent/apple-box/ui
@@ -385,7 +385,7 @@ Provision the Pipeline Builder demo:
 python3 plugins/emqx_agent/demo_builder_init.py
 ```
 
-The script creates the builder AI provider, PostgreSQL connection, builder meta-tools, reply tool, database table, and active `pipeline-builder` pipeline. Open the UI at:
+The script creates the builder AI provider, a PostgreSQL connection, builder meta-tools, a reply tool, a database table, and an active `pipeline-builder` pipeline. Open the UI at:
 
 ```text
 /api/v5/plugin_api/emqx_agent/builder/ui
@@ -397,7 +397,7 @@ Both scripts recreate their demo assets and may delete existing Agent demo resou
 python3 plugins/emqx_agent/demo_teardown.py
 ```
 
-## Build And Test
+## Build and Test
 
 Build the plugin from the repository root:
 
@@ -411,11 +411,11 @@ Run this plugin's Common Test suites:
 make plugins/emqx_agent-ct
 ```
 
-LLM-backed demo suites require a capable LLM. So they run only when `OPENAI_API_KEY` is set, otherwise skipped.
+LLM-backed demo suites require a capable LLM. They run only when `OPENAI_API_KEY` is set and are otherwise skipped.
 
 ## Development
 
-Build, install, enable, and start the plugin in that node:
+Build, install, enable, and start the plugin on the node:
 
 ```bash
 plugins/emqx_agent/script/start_dev.sh

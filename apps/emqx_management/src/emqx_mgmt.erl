@@ -376,7 +376,7 @@ lookup_client(What, FormatFun) ->
     emqx_cm:lookup_client_and_format(What, FormatFun).
 
 lookup_client(Node, Key, FormatFun) ->
-    case unwrap_rpc(emqx_cm_proto_v1:lookup_client(Node, Key)) of
+    case unwrap_rpc(emqx_cm_proto_v3:lookup_client(Node, Key)) of
         {error, Err} ->
             {error, Err};
         L ->
@@ -408,7 +408,7 @@ kickout_client(ClientId) ->
     end.
 
 kickout_client(Node, ClientId) ->
-    unwrap_rpc(emqx_cm_proto_v1:kickout_client(Node, ClientId)).
+    unwrap_rpc(emqx_cm_proto_v3:kickout_client(Node, ClientId)).
 
 kickout_clients(ClientIds) when is_list(ClientIds) ->
     F = fun(Node) ->

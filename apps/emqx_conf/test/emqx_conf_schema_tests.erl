@@ -65,15 +65,16 @@ cookie_not_in_vm_args_test() ->
     ?assertEqual(undefined, proplists:get_value('-setcookie', VMArgs)),
     ok.
 
-%% `node.dirty_io_schedulers = auto' (the default) tracks the resolved
-%% `node.schedulers' value, floored at 2 and capped at the historical fixed
-%% default of 8 -- see `resolve_dirty_io_schedulers/2'.
+%% `node.dirty_io_schedulers = auto' (the default) resolves to the historical
+%% fixed default of 8 when the resolved `node.schedulers' value is above 2,
+%% and to 4 otherwise -- see `resolve_dirty_io_schedulers/2'.
 dirty_io_schedulers_test() ->
     ensure_acl_conf(),
     Cases = [
         %% {node.schedulers, node.dirty_io_schedulers, expected "+SDio"}
-        {2, auto, "2"},
-        {1, auto, "2"},
+        {1, auto, "4"},
+        {2, auto, "4"},
+        {3, auto, "8"},
         {20, auto, "8"},
         {2, 5, "5"}
     ],

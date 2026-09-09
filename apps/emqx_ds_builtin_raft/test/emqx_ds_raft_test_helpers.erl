@@ -64,6 +64,9 @@ apply_stream(DB, Nodes, Stream) ->
     ).
 
 apply_stream(DB, NodeStream0, Stream0, N) ->
+    apply_stream(DB, NodeStream0, Stream0, N, _Opts = #{}).
+
+apply_stream(DB, NodeStream0, Stream0, N, Opts) ->
     case emqx_utils_stream:next(Stream0) of
         [] ->
             ?tp(all_done, #{});
@@ -77,14 +80,15 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
                 )
             ),
             ?assertMatch(
-                ok, ?ON(Node, emqx_ds_test_helpers:dirty_append(#{db => DB, retries => 30}, [Msg]))
+                ok,
+                ?ON(Node, emqx_ds_test_helpers:dirty_append(Opts#{db => DB, retries => 30}, [Msg]))
             ),
-            apply_stream(DB, NodeStream, Stream, N + 1);
+            apply_stream(DB, NodeStream, Stream, N + 1, Opts);
         [add_generation | Stream] ->
             ?tp(notice, test_add_generation, #{}),
             [Node | NodeStream] = emqx_utils_stream:next(NodeStream0),
             ?ON(Node, emqx_ds:add_generation(DB)),
-            apply_stream(DB, NodeStream, Stream, N);
+            apply_stream(DB, NodeStream, Stream, N, Opts);
         [{Node, Operation, Arg} | Stream] when
             Operation =:= join_db_site;
             Operation =:= leave_db_site;
@@ -99,10 +103,10 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
                     ?ON(Node, emqx_ds_builtin_raft_meta:Operation(DB, Arg))
                 )
             ),
-            apply_stream(DB, NodeStream0, Stream, N);
+            apply_stream(DB, NodeStream0, Stream, N, Opts);
         [Fun | Stream] when is_function(Fun) ->
             Fun(),
-            apply_stream(DB, NodeStream0, Stream, N)
+            apply_stream(DB, NodeStream0, Stream, N, Opts)
     end.
 
 %% Consuming streams and iterators

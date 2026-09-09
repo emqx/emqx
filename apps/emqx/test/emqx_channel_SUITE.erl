@@ -116,6 +116,7 @@ t_chan_info(_) ->
             protocol := mqtt,
             peername := {{127, 0, 0, 1}, 3456},
             peerhost := {127, 0, 0, 1},
+            peerport := 3456,
             sockport := 1883,
             clientid := <<"clientid">>,
             username := <<"username">>,
@@ -241,6 +242,44 @@ t_handle_in_extended_reauthentication(_) ->
             _Channel3} =
             emqx_channel:handle_in(PacketIn2, Channel2),
         ok
+    after
+        ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate_continue})
+    end.
+
+-doc """
+A client that connects with enhanced authentication and does not advertise a
+`Topic Alias Maximum` must not be sent any topic alias [MQTT-3.1.2-27].
+""".
+t_handle_in_extended_auth_no_topic_alias(_) ->
+    try
+        {ok, Agent} = emqx_utils_agent:start_link({stop, {continue, #{}}}),
+        emqx_hooks:add(
+            'client.authenticate',
+            {?MODULE, authenticate_continue, [self(), Agent]},
+            ?HP_HIGHEST
+        ),
+        %% CONNECT starts the enhanced authentication exchange.  It carries no
+        %% `Topic-Alias-Maximum`, so the default of 0 applies.
+        Properties = #{
+            'Authentication-Method' => <<"auth_method">>,
+            'Authentication-Data' => <<"auth_data">>
+        },
+        ConnPkt = (connpkt())#mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = Properties
+        },
+        {ok, [_, {outgoing, ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION)}], Channel1} =
+            emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})),
+        %% The client completes the exchange with an AUTH packet.
+        ok = emqx_utils_agent:set(Agent, {stop, ok}),
+        {continue, [_, _, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
+            emqx_channel:handle_in(
+                ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel1
+            ),
+        ?assertMatch(#{outbound := 0}, emqx_channel:info(alias_maximum, Channel)),
+        Packet = #mqtt_packet{variable = #mqtt_packet_publish{topic_name = <<"t">>}},
+        {PackedPacket, _} = emqx_channel:packing_alias(Packet, Channel),
+        ?assertEqual(Packet, PackedPacket)
     after
         ok = emqx_hooks:del('client.authenticate', {?MODULE, authenticate_continue})
     end.
@@ -819,6 +858,63 @@ t_quota_bytes(_) ->
     {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
         emqx_channel:handle_in(Pub, Chann3),
     ok.
+
+-doc "A channel without a limiter container keeps none while only non-consuming packets arrive.".
+t_quota_lazy_stays_absent(_) ->
+    Chann = channel(#{conn_state => connected, quota => undefined}),
+    {ok, {outgoing, ?PACKET(?PINGRESP)}, Chann1} =
+        emqx_channel:handle_in(?PACKET(?PINGREQ), Chann),
+    ?assertEqual(undefined, emqx_channel:info(quota, Chann1)).
+
+-doc "Publish builds the limiter container on first use and the limit applies.".
+t_quota_lazy_build_on_publish(_) ->
+    timer:sleep(1200),
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+    Chann = channel(
+        clientinfo(#{listener => 'tcp:low_message_rate'}),
+        #{conn_state => connected, quota => undefined},
+        #{listener => {tcp, low_message_rate}}
+    ),
+    ?assertEqual(undefined, emqx_channel:info(quota, Chann)),
+    Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+        emqx_channel:handle_in(Pub, Chann),
+    ?assertNotEqual(undefined, emqx_channel:info(quota, Chann1)),
+    {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+        emqx_channel:handle_in(Pub, Chann1),
+    ok.
+
+-doc "A rate limit configured after connect applies to a channel that built its container lazily.".
+t_quota_lazy_hot_update(_) ->
+    ListenerId = 'tcp:lazy_hot_update',
+    DefaultConf = emqx_config:get_listener_conf(tcp, default, []),
+    emqx_config:put_listener_conf(tcp, lazy_hot_update, [], DefaultConf),
+    ok = emqx_limiter:create_listener_limiters(ListenerId, #{}),
+    try
+        ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
+        Chann = channel(
+            clientinfo(#{listener => ListenerId}),
+            #{conn_state => connected, quota => undefined},
+            #{listener => {tcp, lazy_hot_update}}
+        ),
+        Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
+        %% No limit configured: both publishes pass.
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
+            emqx_channel:handle_in(Pub, Chann),
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann2} =
+            emqx_channel:handle_in(Pub, Chann1),
+        %% Configure a tight rate at runtime; the limit must apply without reconnect.
+        {ok, MessagesRate} = emqx_limiter_schema:to_rate("1/s"),
+        ok = emqx_limiter:update_listener_limiters(ListenerId, #{messages_rate => MessagesRate}),
+        timer:sleep(1200),
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann3} =
+            emqx_channel:handle_in(Pub, Chann2),
+        {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
+            emqx_channel:handle_in(Pub, Chann3),
+        ok
+    after
+        emqx_limiter:delete_listener_limiters(ListenerId)
+    end.
 
 t_mount_will_msg(_) ->
     Self = self(),
@@ -1545,6 +1641,25 @@ t_ws_cookie_init(_) ->
     ),
     ?assertMatch(#{ws_cookie := WsCookie}, emqx_channel:info(clientinfo, Channel)).
 
+-doc "peerport must be bound from the real peername ConnInfo, not just copied as a fixture.".
+t_init_binds_peerport(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 3456},
+        sockname => {{127, 0, 0, 1}, 1883}
+    },
+    Channel = emqx_channel:init(
+        ConnInfo,
+        #{
+            zone => default,
+            limiter => undefined,
+            listener => {tcp, default}
+        }
+    ),
+    ?assertMatch(
+        #{peerport := 3456, peerhost := {127, 0, 0, 1}, peername := {{127, 0, 0, 1}, 3456}},
+        emqx_channel:info(clientinfo, Channel)
+    ).
+
 %%--------------------------------------------------------------------
 %% Test cases for other mechanisms
 %%--------------------------------------------------------------------
@@ -1711,6 +1826,7 @@ clientinfo(InitProps) ->
             protocol => mqtt,
             peername => {{127, 0, 0, 1}, 3456},
             peerhost => {127, 0, 0, 1},
+            peerport => 3456,
             sockport => 1883,
             clientid => <<"clientid">>,
             username => <<"username">>,

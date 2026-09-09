@@ -45,6 +45,8 @@
 %% client Port
 -define(VAR_PEERPORT, "peerport").
 -define(PH_PEERPORT, ?PH(?VAR_PEERPORT)).
+%% client IPAddress and Port, e.g. "192.168.0.1:51544"
+-define(VAR_PEERNAME, "peername").
 %% ip & port
 -define(PH_HOST, ?PH("host")).
 -define(PH_PORT, ?PH("port")).

@@ -100,13 +100,14 @@
 %% table to avoid hitting +P before +Q under a full TLS load.
 -define(PROCESS_LIMIT_RATIO, 2).
 
-%% `node.dirty_io_schedulers = auto' tracks the resolved regular-scheduler
-%% count (see `resolve_schedulers/1'), capped at the historical fixed
-%% default of 8 dirty I/O scheduler threads so multi-core hosts keep today's
-%% behavior, with a floor of 2 so a 1-core node still gets some concurrency
-%% for blocking I/O (file, some NIFs).
+%% Dirty I/O scheduler threads run blocking NIF jobs (file I/O, rocksdb),
+%% so the pool size is about how many blocking calls may overlap, not about
+%% CPU parallelism. `node.dirty_io_schedulers = auto' keeps the historical
+%% fixed default of 8 threads whenever the resolved regular-scheduler count
+%% (see `resolve_schedulers/1') is above 2, and drops to 4 on 1-2 scheduler
+%% nodes to save thread memory while retaining some I/O overlap.
 -define(DEFAULT_DIRTY_IO_SCHEDULERS, 8).
--define(MIN_DIRTY_IO_SCHEDULERS, 2).
+-define(MIN_DIRTY_IO_SCHEDULERS, 4).
 
 %% Don't forget to update `emqx_log_throttler:new_throttler/1` when adding a message that
 %% is throttled on a per-resource basis.
@@ -1561,8 +1562,10 @@ tr_vm_args_dirty_io_schedulers(Conf) ->
     integer_to_list(N).
 
 resolve_dirty_io_schedulers(auto, Conf) ->
-    Schedulers = resolve_schedulers(conf_get("node.schedulers", Conf, auto)),
-    min(max(Schedulers, ?MIN_DIRTY_IO_SCHEDULERS), ?DEFAULT_DIRTY_IO_SCHEDULERS);
+    case resolve_schedulers(conf_get("node.schedulers", Conf, auto)) of
+        Schedulers when Schedulers > 2 -> ?DEFAULT_DIRTY_IO_SCHEDULERS;
+        _ -> ?MIN_DIRTY_IO_SCHEDULERS
+    end;
 resolve_dirty_io_schedulers(N, _Conf) when is_integer(N), N >= 1 ->
     N.
 

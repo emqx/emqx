@@ -250,6 +250,7 @@ field_allow_security_profile_mismatch() ->
 
 data_export(post, #{body := Params0} = Req) ->
     Namespace = emqx_dashboard:get_namespace(Req),
+    ok = log_ns(Namespace),
     Params1 = emqx_utils_maps:put_if(Params0, <<"namespace">>, Namespace, is_binary(Namespace)),
     Params = maybe_filter_export_params(Params1, auth_meta(Req)),
     maybe
@@ -282,7 +283,16 @@ data_export(post, #{body := Params0} = Req) ->
     end.
 
 data_import(post, #{body := #{<<"filename">> := Filename} = Body, query_string := QS} = Req) ->
+    case check_uniform_cluster_version() of
+        ok ->
+            parse_node_and_import(Filename, Body, QS, Req);
+        {mixed, Versions} ->
+            {400, #{code => ?BAD_REQUEST, message => mixed_cluster_msg(Versions)}}
+    end.
+
+parse_node_and_import(Filename, Body, QS, Req) ->
     Namespace = op_namespace(Req, QS),
+    ok = log_ns(Namespace),
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 2),
     AllowMismatch = maps:get(<<"allow_security_profile_mismatch">>, Body, false),
     case safe_parse_node(Body, Nodes) of
@@ -291,6 +301,40 @@ data_import(post, #{body := #{<<"filename">> := Filename} = Body, query_string :
         FileNode ->
             data_import_checked(Namespace, FileNode, Filename, AllowMismatch, Req)
     end.
+
+%% An import replays a backup through backplane calls whose contract is frozen
+%% per minor release, so every running node must be on the same major.minor.
+%% A node whose version cannot be read counts as a mismatch.
+-spec check_uniform_cluster_version() -> ok | {mixed, [{node(), binary() | unknown}]}.
+check_uniform_cluster_version() ->
+    Nodes = emqx:running_nodes(),
+    Infos = emqx_management_proto_v5:node_info(Nodes),
+    Versions = lists:zip(Nodes, lists:map(fun minor_version/1, Infos)),
+    case lists:usort([V || {_Node, V} <- Versions]) of
+        [Single] when Single =/= unknown -> ok;
+        _ -> {mixed, Versions}
+    end.
+
+minor_version({ok, #{version := Vsn}}) when is_binary(Vsn) ->
+    case binary:split(Vsn, <<".">>, [global]) of
+        [Major, Minor | _] -> <<Major/binary, ".", Minor/binary>>;
+        _ -> unknown
+    end;
+minor_version(_) ->
+    unknown.
+
+mixed_cluster_msg(Versions) ->
+    iolist_to_binary([
+        <<"Import is not available while the cluster runs more than one release. ">>,
+        <<"Upgrade every node to the same version first. Found: ">>,
+        lists:join(<<", ">>, [
+            [atom_to_binary(N, utf8), <<" ">>, format_minor(V)]
+         || {N, V} <- lists:sort(Versions)
+        ])
+    ]).
+
+format_minor(unknown) -> <<"unknown">>;
+format_minor(Vsn) -> Vsn.
 
 %% Namespaced imports are scoped to the caller's own namespace and never write
 %% mnesia tables (only that namespace's configuration), so the sensitive-table
@@ -400,6 +444,7 @@ core_node(FileNode) ->
 
 data_files(post, #{body := #{<<"filename">> := #{type := _} = File}, query_string := QS} = Req) ->
     Namespace = op_namespace(Req, QS),
+    ok = log_ns(Namespace),
     [{Filename, FileContent} | _] = maps:to_list(maps:without([type], File)),
     case check_upload_scope(Namespace, FileContent) of
         ok ->
@@ -435,7 +480,9 @@ data_file_by_name(get, #{bindings := #{filename := Filename}, query_string := QS
             do_namespaced_file_op(get, Namespace, Filename, QS)
     end;
 data_file_by_name(delete, #{bindings := #{filename := Filename}, query_string := QS} = Req) ->
-    do_namespaced_file_op(delete, op_namespace(Req, QS), Filename, QS).
+    Namespace = op_namespace(Req, QS),
+    ok = log_ns(Namespace),
+    do_namespaced_file_op(delete, Namespace, Filename, QS).
 
 do_namespaced_file_op(Method, Namespace, Filename, QS) ->
     case safe_parse_node(QS) of
@@ -494,6 +541,17 @@ auth_meta(_) -> #{}.
 %% ignored for them. A global administrator may pass `namespace' to inspect or
 %% clean up a specific namespace's backups; without it, they operate on the
 %% global (non-namespaced) backups.
+%% Record the resolved target namespace on the audit log for this request
+%% (same class of gap as emqx/emqx#18653: the URL alone does not distinguish
+%% a global backup operation from a namespaced one). See
+%% emqx_dashboard_audit:http_request/1.
+log_ns(?global_ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => <<"global">>}),
+    ok;
+log_ns(Ns) when is_binary(Ns) ->
+    _ = minirest_handler:update_log_meta(#{namespace => Ns}),
+    ok.
+
 op_namespace(Req, QueryString) ->
     case emqx_dashboard:get_namespace(Req) of
         ?global_ns -> query_namespace(QueryString);
@@ -660,7 +718,7 @@ can_download_backup(
 ) ->
     ok;
 can_download_backup(#{auth_type := api_key}, Filename, Node) ->
-    case emqx_mgmt_data_backup_proto_v2:peek_sensitive_table_sets(Node, Filename, infinity) of
+    case emqx_mgmt_data_backup_proto_v4:peek_sensitive_table_sets(Node, Filename, infinity) of
         {ok, []} ->
             ok;
         {ok, Sets} ->

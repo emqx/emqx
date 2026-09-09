@@ -404,9 +404,14 @@ pre_config_update(?GATEWAY, {update_gateway, GwName, Conf}, RawConf) ->
             badres_gateway(not_found, GwName);
         GwRawConf ->
             Conf1 = maps:without(?IGNORE_KEYS, Conf),
-            NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf1),
-            NConf1 = maps:merge(GwRawConf, NConf),
-            {ok, emqx_utils_maps:deep_put([GwName], RawConf, NConf1)}
+            case emqx_gateway_schema:deobfuscate(GwName, Conf1, GwRawConf) of
+                {ok, Conf2} ->
+                    NConf = tune_gw_certs(fun convert_certs/2, GwName, Conf2),
+                    NConf1 = maps:merge(GwRawConf, NConf),
+                    {ok, emqx_utils_maps:deep_put([GwName], RawConf, NConf1)};
+                {error, _} = Error ->
+                    Error
+            end
     end;
 pre_config_update(?GATEWAY, {unload_gateway, GwName}, RawConf) ->
     {ok, maps:remove(GwName, RawConf)};
@@ -525,8 +530,7 @@ pre_config_update(?GATEWAY, NewRawConf0 = #{}, OldRawConf = #{}) ->
     %% load all listeners
     NewRawConf2 = pre_load_listeners(NewRawConf1, OldRawConf),
     %% load all gateway
-    NewRawConf3 = pre_load_gateways(NewRawConf2, OldRawConf),
-    {ok, NewRawConf3};
+    pre_load_gateways(NewRawConf2, OldRawConf);
 pre_config_update(Path, UnknownReq, _RawConf) ->
     ?SLOG(error, #{
         msg => "unknown_gateway_update_request",
@@ -547,26 +551,40 @@ pre_load_gateways(NewConf, OldConf) ->
         OldConf
     ),
     %% load/update gateways
-    maps:map(
-        fun(GwName, NewGwConf) ->
-            case maps:find(GwName, OldConf) of
-                {ok, NewGwConf} ->
-                    NewGwConf;
-                {ok, _OldGwConf} ->
-                    {ok, #{GwName := NewGwConf1}} = pre_config_update(
-                        ?GATEWAY, {update_gateway, GwName, NewGwConf}, OldConf
-                    ),
-                    %% update gateway should pass through ignore keys(listener/authn)
-                    PassThroughConf = maps:with(?IGNORE_KEYS, NewGwConf),
-                    NewGwConf2 = maps:without(?IGNORE_KEYS, NewGwConf1),
-                    maps:merge(NewGwConf2, PassThroughConf);
-                error ->
-                    {ok, #{GwName := NewGwConf1}} = pre_config_update(
-                        ?GATEWAY, {load_gateway, GwName, NewGwConf}, OldConf
-                    ),
-                    NewGwConf1
-            end
+    maps:fold(
+        fun
+            (_GwName, _NewGwConf, {error, _} = Error) ->
+                Error;
+            (GwName, NewGwConf, {ok, Acc}) ->
+                case maps:find(GwName, OldConf) of
+                    {ok, NewGwConf} ->
+                        {ok, Acc#{GwName => NewGwConf}};
+                    {ok, _OldGwConf} ->
+                        case
+                            pre_config_update(
+                                ?GATEWAY, {update_gateway, GwName, NewGwConf}, OldConf
+                            )
+                        of
+                            {ok, #{GwName := NewGwConf1}} ->
+                                %% update gateway should pass through ignore keys(listener/authn)
+                                PassThroughConf = maps:with(?IGNORE_KEYS, NewGwConf),
+                                NewGwConf2 = maps:without(?IGNORE_KEYS, NewGwConf1),
+                                {ok, Acc#{GwName => maps:merge(NewGwConf2, PassThroughConf)}};
+                            {error, _} = Error ->
+                                Error
+                        end;
+                    error ->
+                        case
+                            pre_config_update(?GATEWAY, {load_gateway, GwName, NewGwConf}, OldConf)
+                        of
+                            {ok, #{GwName := NewGwConf1}} ->
+                                {ok, Acc#{GwName => NewGwConf1}};
+                            {error, _} = Error ->
+                                Error
+                        end
+                end
         end,
+        {ok, #{}},
         NewConf
     ).
 

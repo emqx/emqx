@@ -107,10 +107,14 @@ on_authenticate(ClientInfo, DefaultResult) ->
 do_on_authenticate(
     #{clientid := ClientId, client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}}, DefaultResult
 ) ->
+    IsTombstoned = emqx_mt_state:is_tombstoned(Tns),
     case emqx:is_denied_namespace(Tns) of
         true ->
             ?TRACE("deny_due_to_namespace_in_deny_list", #{tns => Tns}),
             {stop, {error, not_authorized}};
+        false when IsTombstoned ->
+            ?TRACE("deny_due_to_namespace_being_deleted", #{}),
+            {stop, {error, server_unavailable}};
         false ->
             case emqx_config:get_namespace_config_errors(Tns) of
                 undefined ->
@@ -168,6 +172,15 @@ decide(ClientId, Tns, OnPass) ->
             end
     end.
 
+validate_not_tombstoned(#{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}}) ->
+    case emqx_mt_state:is_tombstoned(Tns) of
+        true ->
+            ?TRACE("deny_due_to_namespace_being_deleted", #{}),
+            {stop, {error, server_unavailable}};
+        false ->
+            ok
+    end.
+
 %% Invoked on the `client.post_authn' hook. If the operator has configured
 %% `multi_tenancy.post_auth_tns_expression', evaluate it against the merged
 %% ClientInfo (which already contains pre-auth + authn-response client_attrs),
@@ -181,8 +194,10 @@ decide(ClientId, Tns, OnPass) ->
 %%   * `{stop, {error, Reason}}' to reject the client with a CONNACK error.
 on_post_authn(#{client_info := #{clientid := ClientId} = ClientInfo} = Ctx) ->
     case emqx_mt_config:get_post_auth_tns_expression() of
-        undefined -> ok;
-        Compiled -> eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx)
+        undefined ->
+            validate_not_tombstoned(ClientInfo);
+        Compiled ->
+            eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx)
     end.
 
 eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
@@ -213,10 +228,14 @@ eval_post_auth_tns_expression(Compiled, ClientId, ClientInfo, Ctx) ->
 gate_with_no_tns(ClientInfo, Ctx) ->
     case pre_auth_tns(ClientInfo) of
         Tns when is_binary(Tns) ->
+            IsTombstoned = emqx_mt_state:is_tombstoned(Tns),
             case emqx:is_denied_namespace(Tns) of
                 true ->
                     ?TRACE("deny_due_to_namespace_in_deny_list", #{tns => Tns}),
                     {stop, {error, not_authorized}};
+                false when IsTombstoned ->
+                    ?TRACE("deny_due_to_namespace_being_deleted", #{}),
+                    {stop, {error, server_unavailable}};
                 false ->
                     gate_managed_only(ClientInfo, Ctx)
             end;
@@ -245,10 +264,14 @@ strip_tns(ClientInfo) ->
     ClientInfo.
 
 decide_with_rewritten_tns(ClientId, Tns, ClientInfo, Ctx) ->
+    IsTombstoned = emqx_mt_state:is_tombstoned(Tns),
     case emqx:is_denied_namespace(Tns) of
         true ->
             ?TRACE("deny_due_to_namespace_in_deny_list", #{tns => Tns}),
             {stop, {error, not_authorized}};
+        false when IsTombstoned ->
+            ?TRACE("deny_due_to_namespace_being_deleted", #{}),
+            {stop, {error, server_unavailable}};
         false ->
             case emqx_config:get_namespace_config_errors(Tns) of
                 undefined ->
