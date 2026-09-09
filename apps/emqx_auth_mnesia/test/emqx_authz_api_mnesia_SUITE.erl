@@ -761,8 +761,14 @@ t_create_rules_audit_records_namespace(_TCConfig) ->
     put_auth_header(GlobalAuthHeader),
     {204, _} = create_username_rules([?USERNAME_RULES_EXAMPLE]),
 
+    %% A different username: namespaced rules are refused when matching global
+    %% rules exist, because the global ones would shadow them. The namespace on
+    %% the audit record is what this test is about, so use a subject the global
+    %% rules above do not cover.
+    UsernameRules = ?USERNAME_RULES_EXAMPLE,
+    NsUsernameRules = UsernameRules#{username => <<"authz_audit_ns_user">>},
     put_auth_header(NsAuthHeader),
-    {204, _} = create_username_rules([?USERNAME_RULES_EXAMPLE]),
+    {204, _} = create_username_rules([NsUsernameRules]),
 
     Entries = wait_for_audit_entries(
         <<"/authorization/sources/built_in_database/rules/users">>,
