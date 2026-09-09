@@ -26,13 +26,13 @@ ensure_default_certs_without_a_bundle_test() ->
     meck:new(emqx_default_cert, [passthrough, no_link, no_history]),
     meck:expect(emqx_default_cert, ensure_localhost_bundle, fun() -> {error, no_bundle} end),
     try
-        ?assertThrow(
-            #{error := <<"no_default_tls_certificate">>, reason := no_bundle},
+        ?assertMatch(
+            {error, #{error := <<"no_default_tls_certificate">>, reason := no_bundle}},
             emqx_tls_lib:ensure_default_certs(#{})
         ),
         %% A configuration that names its own certificate never asks for one.
         ?assertEqual(
-            #{certfile => <<"/x/cert.pem">>},
+            {ok, #{certfile => <<"/x/cert.pem">>}},
             emqx_tls_lib:ensure_default_certs(#{certfile => <<"/x/cert.pem">>})
         )
     after

@@ -217,7 +217,7 @@ t_installed_ca_file_is_used(_TCConfig) ->
     _ = ensure(),
     CaPath = install_bundle_ca_file(ca_pem()),
     ?assertMatch(
-        #{cacertfile := CaPath},
+        {ok, #{cacertfile := CaPath}},
         emqx_tls_lib:ensure_default_certs(#{})
     ).
 
@@ -229,7 +229,7 @@ t_configured_cacertfile_wins_over_bundle(_TCConfig) ->
     _ = ensure(),
     _ = install_bundle_ca_file(ca_pem()),
     ?assertMatch(
-        #{cacertfile := <<"/configured/ca.pem">>},
+        {ok, #{cacertfile := <<"/configured/ca.pem">>}},
         emqx_tls_lib:ensure_default_certs(#{cacertfile => <<"/configured/ca.pem">>})
     ).
 
@@ -241,7 +241,8 @@ down instead of leaving it without a trust anchor.
 t_installed_ca_file_without_certificate_is_ignored(_TCConfig) ->
     _ = ensure(),
     _ = install_bundle_ca_file(<<>>),
-    ?assertNot(maps:is_key(cacertfile, emqx_tls_lib:ensure_default_certs(#{}))).
+    {ok, Opts} = emqx_tls_lib:ensure_default_certs(#{}),
+    ?assertNot(maps:is_key(cacertfile, Opts)).
 
 %% Stands in for a bundle an operator installed themselves, which may carry a CA
 %% the generated one does not.

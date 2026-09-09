@@ -789,30 +789,33 @@ Kept out of `to_server_opts/2' for the same reason it is kept out of raw
 configuration: that function is a plain conversion from configuration to `ssl'
 options, and this is a decision about what the configuration should have been.
 
-A server that cannot be given a default certificate is left as it was, to fail
-with whatever its own missing-certificate error is.
+Returns `{error, Reason}' when the node has no default certificate and cannot
+generate one. The caller declines to start that server: `ssl' would accept a
+listener with no certificate and only fail each handshake afterwards, with an
+alert that names no cause.
 """.
--spec ensure_default_certs(map()) -> map().
+-spec ensure_default_certs(map()) -> {ok, map()} | {error, map()}.
 ensure_default_certs(Opts) ->
     case is_cert_configured(Opts) of
         true ->
-            Opts;
+            {ok, Opts};
         false ->
             case emqx_default_cert:ensure_localhost_bundle() of
                 {ok, Files} ->
-                    use_default_certs(Opts, Files);
+                    {ok, use_default_certs(Opts, Files)};
                 {error, Reason} ->
                     %% Returning the configuration unchanged would leave a TLS
                     %% server with no certificate at all. `ssl' accepts that at
                     %% listen time and only fails each handshake afterwards, with
                     %% an alert that names no cause, so the server would bind its
-                    %% port, look healthy and serve nobody. Fail here, where the
-                    %% cause is known.
-                    throw(#{
+                    %% port, look healthy and serve nobody. Report the failure
+                    %% here, where the cause is known, and let the caller decline
+                    %% to start that server.
+                    {error, #{
                         error => <<"no_default_tls_certificate">>,
                         bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
                         reason => Reason
-                    })
+                    }}
             end
     end.
 

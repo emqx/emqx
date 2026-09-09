@@ -11,8 +11,22 @@
 %% behind this call.
 ensure_ssl_cert_skips_disabled_https_test() ->
     Listeners = #{https => #{bind => 0, ssl_options => #{}}},
-    ?assertEqual(Listeners, emqx_dashboard:ensure_ssl_cert(Listeners)).
+    ?assertEqual({ok, Listeners}, emqx_dashboard:ensure_ssl_cert(Listeners)).
 
 ensure_ssl_cert_leaves_other_listeners_alone_test() ->
     Listeners = #{http => #{bind => 18083}},
-    ?assertEqual(Listeners, emqx_dashboard:ensure_ssl_cert(Listeners)).
+    ?assertEqual({ok, Listeners}, emqx_dashboard:ensure_ssl_cert(Listeners)).
+
+%% An HTTPS listener that cannot be given a certificate must not stop the others
+%% from starting, so the failure is reported rather than raised.
+ensure_ssl_cert_reports_a_missing_certificate_test() ->
+    meck:new(emqx_default_cert, [passthrough, no_link, no_history]),
+    meck:expect(emqx_default_cert, ensure_localhost_bundle, fun() -> {error, no_bundle} end),
+    try
+        ?assertMatch(
+            {error, #{error := <<"no_default_tls_certificate">>}},
+            emqx_dashboard:ensure_ssl_cert(#{https => #{bind => 18084, ssl_options => #{}}})
+        )
+    after
+        meck:unload(emqx_default_cert)
+    end.

@@ -326,19 +326,10 @@ start_listener(Type, Name, #{enable := false}) ->
     ),
     ok.
 
-%% `ensure_default_certs/1' throws when a listener needs the node's own
-%% certificate and it cannot be had. Report that the way every other start
-%% failure is reported, rather than letting it escape as a crash. The try covers
-%% only that call: throws from starting the listener itself keep reaching their
-%% existing handlers unchanged.
+%% A listener that needs the node's own certificate and cannot be given one does
+%% not start: the failure is reported the way every other start failure is.
 start_listener_with_certs(Type, Name, ListenerId, Conf) ->
-    case
-        try
-            {ok, ensure_default_certs(Conf)}
-        catch
-            throw:Reason -> {error, Reason}
-        end
-    of
+    case ensure_default_certs(Conf) of
         {ok, ConfWithCerts} -> do_start_listener(Type, Name, ListenerId, ConfWithCerts);
         {error, _} = Error -> Error
     end.
@@ -382,18 +373,18 @@ update_listener(Type, Name, OldConf, NewConf) ->
     end.
 
 do_update_running_listener(Type, Name, OldConf, NewConf) ->
-    case
-        do_update_listener(
-            Type, Name, default_certs_if_present(OldConf), ensure_default_certs(NewConf)
-        )
-    of
-        ok ->
-            ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
-            ok;
-        {skip, Error} when Type =:= quic ->
-            {error, {rollbacked, Error}};
-        {error, _Reason} ->
-            restart_listener(Type, Name, OldConf, NewConf)
+    maybe
+        {ok, NewConfWithCerts} ?= ensure_default_certs(NewConf),
+        OldConfWithCerts = default_certs_if_present(OldConf),
+        case do_update_listener(Type, Name, OldConfWithCerts, NewConfWithCerts) of
+            ok ->
+                ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
+                ok;
+            {skip, Error} when Type =:= quic ->
+                {error, {rollbacked, Error}};
+            {error, _Reason} ->
+                restart_listener(Type, Name, OldConf, NewConf)
+        end
     end.
 
 restart_listener(Type, Name, OldConf, NewConf) ->
@@ -1144,9 +1135,12 @@ Applied to both sides of an update so the comparison that decides whether the
 transport has to be torn down stays symmetric.
 """.
 ensure_default_certs(#{ssl_options := SSLOpts} = Conf) ->
-    Conf#{ssl_options => emqx_tls_lib:ensure_default_certs(SSLOpts)};
+    case emqx_tls_lib:ensure_default_certs(SSLOpts) of
+        {ok, SSLOpts1} -> {ok, Conf#{ssl_options => SSLOpts1}};
+        {error, _} = Error -> Error
+    end;
 ensure_default_certs(Conf) ->
-    Conf.
+    {ok, Conf}.
 
 %% The config a listener is being updated away from is only compared against and
 %% rolled back to, never served.  Resolving it must not generate a certificate.

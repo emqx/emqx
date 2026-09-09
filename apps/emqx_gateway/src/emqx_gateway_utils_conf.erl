@@ -495,9 +495,21 @@ ensure_dtls_protocol(_, SSLOpts) ->
     SSLOpts.
 
 ssl_server_opts(ssl_options, SSLOpts) ->
-    emqx_tls_lib:to_server_opts(tls, emqx_tls_lib:ensure_default_certs(SSLOpts));
+    emqx_tls_lib:to_server_opts(tls, with_default_certs(SSLOpts));
 ssl_server_opts(dtls_options, SSLOpts) ->
-    emqx_tls_lib:to_server_opts(dtls, emqx_tls_lib:ensure_default_certs(SSLOpts)).
+    emqx_tls_lib:to_server_opts(dtls, with_default_certs(SSLOpts)).
+
+%% A listener that cannot be given the node's own certificate does not start.
+%% Reported as a bad `listeners' config, which is how this module reports every
+%% other unusable listener option, so the gateway fails to load with a message
+%% naming the cause instead of binding a port it cannot serve on.
+with_default_certs(SSLOpts) ->
+    case emqx_tls_lib:ensure_default_certs(SSLOpts) of
+        {ok, SSLOpts1} ->
+            SSLOpts1;
+        {error, Reason} ->
+            error({badconf, #{key => listeners, value => SSLOpts, reason => Reason}})
+    end.
 
 default_tcp_options() ->
     [
