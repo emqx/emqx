@@ -288,11 +288,17 @@ worker_pools_restarted(Marks) ->
         [],
         Marks
     ),
+    %% Every shard entered the restart state on begin_pools_restart, so
+    %% every shard must get the completion cast - including shards with no
+    %% marks to replay. Otherwise an idle shard keeps pools_restarting set
+    %% until the watchdog, stalling flush_buffer3 and rejecting further
+    %% restarts in the meantime.
     lists:foreach(
-        fun({Shard, SubMarks}) ->
+        fun(Shard) ->
+            SubMarks = proplists:get_value(Shard, Groups, []),
             gen_server:cast(shard_name(Shard), {worker_pools_restarted, SubMarks})
         end,
-        Groups
+        lists:seq(0, shard_count() - 1)
     ).
 
 %%--------------------------------------------------------------------
@@ -1739,7 +1745,9 @@ cleanup_client(ClientId, Pid, ProductKey, State) ->
             %% (acked is counted exactly once); everything else is
             %% released and dropped.
             {Keep, Release} = lists:partition(
-                fun({_Did, AckInFlight}) -> AckInFlight end,
+                %% The predicate must be boolean: an ack-in-flight entry is
+                %% {true, Ts}, not true.
+                fun({_Did, AckInFlight}) -> AckInFlight =/= false end,
                 Row#bcast_client_state.inflight
             ),
             State1 = release_claims_later(

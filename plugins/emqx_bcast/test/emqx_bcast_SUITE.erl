@@ -809,6 +809,149 @@ t_process_ack_duplicate(_Config) ->
     {ok, Ids} = emqx_bcast_storage:get_device_deliveries({PK, <<"DE">>}),
     ?assertEqual([DeliveryId], Ids).
 
+-doc "The completion counter decrement and the per-device acked marker\n"
+"persist atomically in one flush transaction, which also dedups by the\n"
+"marker: a replayed ack of an already-counted device (the product of an\n"
+"index resurrection after a restart) must not decrement the counter a\n"
+"second time and delete the delivery before the remaining devices acked.\n"
+"Regression for the crash window between the counter decrement and the\n"
+"marker persistence.".
+t_counted_ack_counter_and_marker_atomic(_Config) ->
+    PK = <<"PATOM">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"atomic ack">>),
+    A = <<"DATOM_A">>,
+    B = <<"DATOM_B">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    %% the async flush lands both writes together: marker AND counter 2->1
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= [] end, 100)),
+    [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
+        bcast_msg_meta_counter, DeliveryId
+    ),
+    %% a rebuild keeps A acked and the counter untouched; B keeps its entry
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    {ok, []} = emqx_bcast_storage:get_device_deliveries({PK, A}),
+    {ok, [DeliveryId]} = emqx_bcast_storage:get_device_deliveries({PK, B}),
+    [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
+        bcast_msg_meta_counter, DeliveryId
+    ),
+    %% a duplicate ack of A is not counted again
+    not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
+        bcast_msg_meta_counter, DeliveryId
+    ),
+    %% B's ack completes the delivery exactly once; all rows go away
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
+    [] = mnesia:dirty_read(bcast_msg_acked, DeliveryId),
+    [] = mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId).
+
+-doc "Deterministic reproduction of the crash window between the counter\n"
+"decrement and the acked-marker persistence: mock mnesia:dirty_update_counter\n"
+"so that the index shard is killed right after the decrement lands and\n"
+"before the marker write runs. On code with the window the restart + rebuild\n"
+"resurrects the already-acked device, and its replayed ack decrements the\n"
+"counter a second time, completing the delivery while the remaining device\n"
+"never acked. On fixed code the flush is one transaction: the hook never\n"
+"fires (there is no dirty decrement call) and the accounting stays\n"
+"consistent end to end.".
+t_counted_ack_crash_window_between_decrement_and_marker(_Config) ->
+    PK = <<"PWIN">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"crash window">>),
+    A = <<"DWIN_A">>,
+    B = <<"DWIN_B">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    TestProc = self(),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(
+            mnesia,
+            dirty_update_counter,
+            fun
+                (Tab, Key, Incr) when Tab =:= bcast_msg_meta_counter, Key =:= DeliveryId ->
+                    Res = meck:passthrough([Tab, Key, Incr]),
+                    TestProc ! {decrement_done, self()},
+                    receive
+                        kill_me -> exit(kill)
+                    after 3000 -> ok
+                    end,
+                    Res;
+                (Tab, Key, Incr) ->
+                    meck:passthrough([Tab, Key, Incr])
+            end
+        ),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        receive
+            {decrement_done, ShardPid} ->
+                ShardPid ! kill_me,
+                put(shard_died, true)
+        after 3000 ->
+            put(shard_died, false)
+        end
+    after
+        meck:unload(mnesia)
+    end,
+    ShardDied = erase(shard_died),
+    case ShardDied of
+        true ->
+            %% The shard crashed with the counter decremented but the marker
+            %% unpersisted. Its restart re-drives a rebuild, which resurrects
+            %% A (no marker to consult), and the replayed ack of A must not be
+            %% counted again.
+            ?assert(
+                wait_until(
+                    fun() ->
+                        emqx_bcast_storage:get_device_deliveries({PK, A}) =:=
+                            {ok, [DeliveryId]}
+                    end,
+                    100
+                )
+            ),
+            %% the resurrected entry is indistinguishable from a fresh one,
+            %% so the replayed ack is accepted; give the flush time to run
+            counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+            timer:sleep(300),
+            %% Correct behavior: the replay is deduped and the delivery
+            %% survives. On buggy code the second decrement completes the
+            %% delivery early and deletes its durable rows while B never
+            %% acked.
+            ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
+            [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
+                bcast_msg_meta_counter, DeliveryId
+            ),
+            ?assertEqual(
+                {ok, [DeliveryId]},
+                emqx_bcast_storage:get_device_deliveries({PK, B})
+            );
+        false ->
+            %% No window: the flush transaction landed atomically.
+            ?assert(
+                wait_until(
+                    fun() -> mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= [] end,
+                    100
+                )
+            ),
+            [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
+                bcast_msg_meta_counter, DeliveryId
+            ),
+            ok = emqx_bcast_index_owner:rebuild_index(),
+            {ok, []} = emqx_bcast_storage:get_device_deliveries({PK, A}),
+            not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+            ?assertEqual(
+                {ok, [DeliveryId]},
+                emqx_bcast_storage:get_device_deliveries({PK, B})
+            )
+    end,
+    %% B completes the delivery exactly once.
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    ?assert(
+        wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)
+    ).
+
 -doc "cleanup_expired removes deliveries past their expiry.".
 t_cleanup_expired_delivery(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
@@ -2968,6 +3111,78 @@ t_worker_pool_restart_recovers_inflight(_Config) ->
             100
         )
     ).
+
+-doc "A pools restart with no claim rounds in flight must still release\n"
+"the per-shard restart guard: the completion cast must reach every shard,\n"
+"otherwise pools_restarting stays true until the watchdog, stalling\n"
+"flush_buffer3 submissions and rejecting any subsequent restart.".
+t_pools_restart_without_inflight_marks(_Config) ->
+    Baseline = bcast_pool_worker_count(bcast_pull_worker_pool_sup),
+    ok = emqx_bcast_sup:restart_pools(Baseline),
+    ?assert(
+        wait_until(
+            fun() -> bcast_pool_worker_count(bcast_pull_worker_pool_sup) =:= Baseline end,
+            100
+        )
+    ),
+    %% A second restart immediately after must not be rejected by the
+    %% reentry guard even though the first restart had no marks to replay.
+    ok = emqx_bcast_sup:restart_pools(Baseline + 1),
+    ?assert(
+        wait_until(
+            fun() -> bcast_pool_worker_count(bcast_pull_worker_pool_sup) =:= Baseline + 1 end,
+            100
+        )
+    ),
+    ok = emqx_bcast_sup:restart_pools(Baseline),
+    ?assert(
+        wait_until(
+            fun() -> bcast_pool_worker_count(bcast_pull_worker_pool_sup) =:= Baseline end,
+            100
+        )
+    ).
+
+bcast_pool_worker_count(PoolSupId) ->
+    {_, Pid, _, _} = lists:keyfind(PoolSupId, 1, supervisor:which_children(emqx_bcast_sup)),
+    length(supervisor:which_children(Pid)).
+
+-doc "Disconnecting a client whose window holds a timestamped\n"
+"ack-in-flight entry must not crash the pull shard: the keep/release\n"
+"partition of the window matches the two inflight states explicitly\n"
+"(a {true, Ts} entry fed to lists:partition/2 as a predicate result\n"
+"raises case_clause and kills the shard mid-cleanup).".
+t_cleanup_client_with_timestamped_ack_in_flight(_Config) ->
+    PK = <<"PTCIF">>,
+    DN = <<"DTCIF">>,
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    ShardPid = whereis(Name),
+    MRef = monitor(process, ShardPid),
+    Client = spawn(fun() -> timer:sleep(60_000) end),
+    gen_server:cast(Name, {client_connected, DN, Client, PK}),
+    %% sync barrier: the cast created the state row
+    _ = sys:get_state(Name),
+    Tab = emqx_bcast_pull_shard:tab(Shard, bcast_client_state),
+    [Row] = ets:lookup(Tab, {PK, DN}),
+    Did = emqx_bcast_utils:gen_guid(),
+    Ts = erlang:system_time(millisecond),
+    ets:insert(Tab, Row#bcast_client_state{inflight = [{Did, {true, Ts}}]}),
+    %% the client disconnects while its ack is still awaiting core
+    %% confirmation; the hook casts client_disconnected to the shard
+    gen_server:cast(Name, {client_disconnected, DN, Client, PK}),
+    %% sync barrier: the cast is ordered before this call (same sender),
+    %% so a reply guarantees the cleanup ran (or crashed the shard)
+    _ = sys:get_state(Name),
+    %% the ack-in-flight entry kept its row; nothing was released
+    [#bcast_client_state{inflight = [{Did, {true, Ts}}]}] = ets:lookup(Tab, {PK, DN}),
+    %% the shard survived the cleanup
+    ?assertEqual(ShardPid, whereis(Name)),
+    receive
+        {'DOWN', MRef, process, ShardPid, Reason} -> ct:fail({shard_died, Reason})
+    after 0 ->
+        ok
+    end,
+    demonitor(MRef, [flush]).
 
 -doc "A stale deliver_results generation cannot clear the current inflight mark.".
 t_stale_deliver_results_keep_current_generation(_Config) ->
