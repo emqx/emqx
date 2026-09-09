@@ -31,12 +31,33 @@ gateway.mqttsn {
 > Configuring the gateway via emqx.conf requires changes on a per-node basis,
 > but configuring it via Dashboard or the HTTP API will take effect across the cluster.
 
-## Sleeping clients and UDP source changes
+## Sleeping clients, NAT, and session resume
 
-On a plaintext UDP listener, a sleeping client can resume with PINGREQ only through the UDP flow
-already bound to its session. If the client's UDP source tuple changes, the gateway responds with
-DISCONNECT and the client must send CONNECT again before the session can be resumed. Use an
-authenticated DTLS configuration when transport-level client identity is required across network
-changes.
+MQTT-SN `asleep` and `CleanSession` are separate concepts:
+
+* A connected client enters `asleep` by sending `DISCONNECT` with a non-zero Duration. This
+  transition is accepted regardless of the `CleanSession` flag.
+* For a new connection, `CleanSession=false` is required to request session recovery. The old
+  sleeping session must still be alive, and recovery is subject to the sleep/session-expiry timer,
+  session queue limits, and the subscription-resume configuration.
+
+On a plaintext UDP listener, `PINGREQ` carries only the Client ID and does not authenticate the
+sender. A sleeping client can therefore be awakened with PINGREQ only through the UDP flow already
+bound to its session. This may work while the flow is stable, but it is not a reliable WAN/NAT
+mechanism: after NAT rebinding or another source-tuple change, the gateway cannot use the Client ID
+to prove ownership of the session. The gateway responds with `DISCONNECT`; the client must establish
+a new transport and send `CONNECT` with `CleanSession=false` to request recovery.
+
+`CleanSession=true` does not prevent a client from entering `asleep`, and a same-flow wake-up may
+continue to use the existing in-memory session. It does not provide a persistence guarantee,
+however. On a new connection, `CleanSession=true` creates a clean session and does not resume the
+old queued messages or subscriptions.
+
+DTLS does not remove the reconnect requirement. Mutual DTLS authentication (mTLS or a unique PSK)
+can provide an authenticated transport identity for a new DTLS association, but the gateway's
+authentication policy must bind that identity to the MQTT-SN Client ID. Server-authenticated-only
+DTLS does not authenticate the client. The current MQTT-SN gateway does not treat a new DTLS
+association's PINGREQ as a session-resume credential; after a network change, use `CONNECT` with
+`CleanSession=false`.
 
 More documentations: [MQTT-SN Gateway](https://www.emqx.io/docs/en/v5.0/gateway/mqttsn.html)
