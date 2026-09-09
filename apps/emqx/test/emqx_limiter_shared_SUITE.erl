@@ -20,7 +20,18 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    %% No listener is needed; not binding ports lets the suite run
+    %% beside a running broker.
+    ListenerConf = """
+    listeners.tcp.default.enable = false
+    listeners.ssl.default.enable = false
+    listeners.ws.default.enable = false
+    listeners.wss.default.enable = false
+    """,
+    Apps = emqx_cth_suite:start(
+        [{emqx, ListenerConf}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
