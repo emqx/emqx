@@ -14,9 +14,11 @@
     start_link/0,
     register_group/3,
     unregister_group/1,
+    put_buckets/2,
     find_group/1,
     list_groups/0,
-    get_limiter_options/1
+    get_limiter_options/1,
+    get_limiter/1
 ]).
 
 %% `gen_server` callbacks
@@ -35,10 +37,15 @@
 
 -define(PT_KEY(GROUP), {?MODULE, GROUP}).
 
+%% `buckets` holds module-specific shared state per limiter (e.g. the
+%% shared limiter's atomics refs). It lives in the same persistent_term
+%% record as the options so that one read yields both, and so that
+%% consumers copy nothing onto their heap.
 -record(group, {
     name :: group(),
     module :: module(),
-    limiter_options :: #{name() => emqx_limiter:options()}
+    limiter_options :: #{name() => emqx_limiter:options()},
+    buckets = #{} :: #{name() => term()}
 }).
 
 %%--------------------------------------------------------------------
@@ -53,6 +60,11 @@
 
 -record(unregister_group, {
     group :: group()
+}).
+
+-record(put_buckets, {
+    group :: group(),
+    buckets :: #{name() => term()}
 }).
 
 -record(list_groups, {}).
@@ -87,6 +99,18 @@ register_group(Group, Module, LimiterOptions) ->
 unregister_group(Group) ->
     gen_server:call(?MODULE, #unregister_group{group = Group}, infinity).
 
+%% Store per-limiter shared state for a registered group. Buckets are
+%% created once with the group; `register_group/3` keeps them across
+%% option updates and `unregister_group/1` drops them with the group.
+-spec put_buckets(group(), #{name() => term()}) -> ok | no_return().
+put_buckets(Group, Buckets) ->
+    case gen_server:call(?MODULE, #put_buckets{group = Group, buckets = Buckets}, infinity) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            error(Reason)
+    end.
+
 -spec list_groups() -> [group()].
 list_groups() ->
     gen_server:call(?MODULE, #list_groups{}, infinity).
@@ -109,6 +133,22 @@ get_limiter_options({Group, Name} = LimiterId) ->
             error({limiter_not_found, LimiterId})
     end.
 
+%% Options and bucket of one limiter from a single persistent_term read.
+%% The bucket is `undefined` when the group has stored none.
+-spec get_limiter(limiter_id()) -> {emqx_limiter:options(), _Bucket :: term()} | no_return().
+get_limiter({Group, Name} = LimiterId) ->
+    case persistent_term:get(?PT_KEY(Group), undefined) of
+        #group{limiter_options = #{Name := LimiterOptions}, buckets = Buckets} ->
+            {LimiterOptions, maps:get(Name, Buckets, undefined)};
+        _ ->
+            error({limiter_not_found, LimiterId})
+    end.
+
+old_buckets(#group{buckets = Buckets}) ->
+    Buckets;
+old_buckets(undefined) ->
+    #{}.
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -128,7 +168,10 @@ handle_call(
     case ensure_same_limiters(OldGroup, Req) of
         ok ->
             _ = persistent_term:put(?PT_KEY(Group), #group{
-                name = Group, module = Module, limiter_options = LimiterOptions
+                name = Group,
+                module = Module,
+                limiter_options = LimiterOptions,
+                buckets = old_buckets(OldGroup)
             }),
             {reply, ok, State#{
                 group_names := sets:add_element(Group, GroupNames)
@@ -141,6 +184,14 @@ handle_call(#unregister_group{group = Group}, _From, #{group_names := GroupNames
     {reply, ok, State#{
         group_names := sets:del_element(Group, GroupNames)
     }};
+handle_call(#put_buckets{group = Group, buckets = Buckets}, _From, State) ->
+    case persistent_term:get(?PT_KEY(Group), undefined) of
+        #group{} = OldGroup ->
+            _ = persistent_term:put(?PT_KEY(Group), OldGroup#group{buckets = Buckets}),
+            {reply, ok, State};
+        undefined ->
+            {reply, {error, {limiter_group_not_found, Group}}, State}
+    end;
 handle_call(#list_groups{}, _From, #{group_names := GroupNames} = State) ->
     {reply, sets:to_list(GroupNames), State};
 handle_call(Req, _From, State) ->
