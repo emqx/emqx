@@ -24,6 +24,9 @@
 ]).
 -export([scopes/0]).
 
+%% Exported for tests.
+-export([reconcile_cert_source/2]).
+
 -import(emqx_dashboard_swagger, [error_codes/2, error_codes/1]).
 
 -import(emqx_mgmt_listeners_conf, [
@@ -439,10 +442,7 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
                     %% overwrite stored secrets.
                     Conf1 = emqx_utils:deobfuscate(Conf, PrevConf),
                     MergeConf0 = emqx_utils_maps:deep_merge(PrevConf, Conf1),
-                    %% The merge above cannot drop keys, so a switch away from a managed
-                    %% certificate bundle would retain the stale `managed_certs'.  Let the
-                    %% raw request decide the certificate source.
-                    MergeConf = emqx_listeners:reconcile_cert_source(Conf1, MergeConf0),
+                    MergeConf = reconcile_cert_source(Conf1, MergeConf0),
                     case update(Type, Name, MergeConf) of
                         {ok, #{raw_config := _RawConf}} ->
                             crud_listeners_by_id(get, #{bindings => #{id => Id}});
@@ -604,6 +604,59 @@ listener_status_by_id([NodeL | Rest], Acc) ->
         Listeners
     ),
     listener_status_by_id(Rest, Acc1).
+
+-doc """
+Keeps the certificate source an update request asks for.
+
+A `PUT' body is deep-merged over the stored configuration, and a deep merge
+cannot drop keys: a request that switches a listener to file certificates, or
+that clears `managed_certs' outright, would keep the stale bundle reference.
+Removing the key here would not last either, because
+`emqx_listeners:pre_config_update/3' merges this against the stored config once
+more and would bring it back.
+
+A request may spell the clear as `null' (what the Dashboard sends), as an empty
+string, or as an empty array. Whichever it uses, this writes `null', which is
+the only one that works as the marker: it survives both merges and the schema
+check drops it, leaving the checked configuration a listener runs with free of a
+bundle. An empty string written here would survive the schema check instead --
+`hocon' passes it through unchecked and unconverted -- and reach the listener as
+a bundle reference. Normalising an empty string on the way in is what keeps a
+request that sends one out of that trap.
+
+Both arguments are raw (binary-keyed) configs.
+""".
+reconcile_cert_source(Request, MergedConf) ->
+    case clears_managed_certs(request_ssl_options(Request)) of
+        true -> clear_managed_certs(MergedConf);
+        false -> MergedConf
+    end.
+
+%% Whether the request names a certificate source that is not a managed bundle:
+%% file certificates, or an explicit clear. An empty array never reaches here
+%% through the API -- the schema validator rejects it -- but it means the same
+%% thing to a direct caller.
+clears_managed_certs(#{} = RequestSSL) ->
+    case maps:get(<<"managed_certs">>, RequestSSL, undefined) of
+        undefined ->
+            maps:is_key(<<"certfile">>, RequestSSL) orelse
+                maps:is_key(<<"keyfile">>, RequestSSL);
+        Cleared when Cleared =:= null; Cleared =:= <<>>; Cleared =:= [] ->
+            true;
+        %% A bundle, either as a single object or as an array of them.
+        _Bundles ->
+            false
+    end;
+clears_managed_certs(_NotAMap) ->
+    false.
+
+clear_managed_certs(#{<<"ssl_options">> := SSL} = Conf) when is_map(SSL) ->
+    Conf#{<<"ssl_options">> => SSL#{<<"managed_certs">> => null}};
+clear_managed_certs(Conf) ->
+    Conf.
+
+request_ssl_options(#{<<"ssl_options">> := SSL}) -> SSL;
+request_ssl_options(_Request) -> undefined.
 
 listener_type_filter(Type0, Listeners) ->
     lists:map(

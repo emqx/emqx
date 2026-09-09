@@ -80,7 +80,8 @@ init_per_group(quic, Config) ->
                 "\n max_connections = 1024000"
                 "\n idle_timeout = 15s"
                 "\n ssl_options.verify = verify_peer"
-                "\n }"}
+                "\n }" ++
+                    emqx_common_test_helpers:listener_example_certs("listeners.quic.test")}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),

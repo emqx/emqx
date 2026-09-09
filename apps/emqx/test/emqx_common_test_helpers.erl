@@ -33,6 +33,8 @@
     client_ssl/0,
     client_ssl/1,
     client_mtls/0,
+    listener_example_certs/0,
+    listener_example_certs/1,
     client_mtls/1,
     ensure_mnesia_stopped/0,
     ensure_quic_listener/2,
@@ -427,6 +429,36 @@ client_mtls() ->
 
 client_mtls(TLSVsn) ->
     ssl_verify_fun_allow_any_host() ++ client_certs() ++ ciphers(TLSVsn).
+
+-doc """
+HOCON that points a listener at the shipped example certificates.
+
+The listener schema no longer defaults `certfile', `keyfile' and `cacertfile'; a
+listener naming none of them serves the certificate the node generates for
+itself. Suites whose clients present or verify the example certificates have to
+name them, and this is the configuration that does it.
+
+`ListenerPath' is the dotted path to the listener, such as
+`"listeners.ssl.default"'.
+""".
+-spec listener_example_certs(string()) -> string().
+listener_example_certs(ListenerPath) ->
+    lists:flatten([
+        [ListenerPath, ".ssl_options.", binary_to_list(Key), " = \"", binary_to_list(File), "\"\n"]
+     || {Key, File} <- maps:to_list(listener_example_certs())
+    ]).
+
+-doc """
+The same example certificates as `listener_example_certs/1', as `ssl_options'
+entries, for a suite that builds its listener config as a map.
+""".
+-spec listener_example_certs() -> #{binary() => binary()}.
+listener_example_certs() ->
+    #{
+        <<"certfile">> => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
+        <<"keyfile">> => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
+        <<"cacertfile">> => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>
+    }.
 
 %% Paths prepended to cert filenames
 client_certs() ->

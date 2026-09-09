@@ -36,7 +36,13 @@ end_per_suite(_Config) ->
 init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
     ok = emqx_common_test_helpers:set_security_profile(Profile),
     Apps = emqx_cth_suite:start(
-        [{emqx, ?BASE_CONF}],
+        [
+            {emqx,
+                ?BASE_CONF ++
+                    emqx_common_test_helpers:listener_example_certs(
+                        "listeners.ssl.auth_ext"
+                    )}
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Profile, Config)}
     ),
     emqx_listeners:restart(),

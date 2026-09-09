@@ -26,6 +26,9 @@
 -export([authorize/2]).
 -export([get_namespace/1]).
 
+%% Exported for tests.
+-export([ensure_ssl_cert/1]).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
@@ -76,6 +79,7 @@ start_listeners(Listeners) ->
     %% Before starting the listeners, we do not generate the full dispatch upfront,
     %% because the listeners may fail to start and the generation may appear useless.
     InitDispatch = init_dispatch(),
+    {Listeners1, CertErrListeners} = ensure_ssl_cert_or_drop(Listeners),
     {OkListeners, ErrListeners} =
         lists:foldl(
             fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, {OkAcc, ErrAcc}) ->
@@ -98,8 +102,8 @@ start_listeners(Listeners) ->
                         {OkAcc, [Name | ErrAcc]}
                 end
             end,
-            {[], []},
-            listeners(ensure_ssl_cert(Listeners))
+            {[], CertErrListeners},
+            listeners(Listeners1)
         ),
     ok = emqx_dashboard_dispatch:regenerate_dispatch(OkListeners),
     case ErrListeners of
@@ -437,12 +441,35 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
             {403, 'UNAUTHORIZED_ROLE', Msg}
     end.
 
-ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->
-    SslOpt1 = maps:from_list(emqx_tls_lib:to_server_opts(tls, SslOpts)),
-    Https1 = maps:remove(ssl_options, Https0),
-    Listeners#{https => maps:merge(Https1, SslOpt1)};
+%% Leaves out the HTTPS listener when it cannot be given a certificate, rather
+%% than letting the failure stop the others: plain HTTP still starts, and the
+%% dashboard reports HTTPS as the listener that failed.
+ensure_ssl_cert_or_drop(Listeners) ->
+    case ensure_ssl_cert(Listeners) of
+        {ok, Listeners1} ->
+            {Listeners1, []};
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "dashboard_https_listener_not_started",
+                reason => Reason
+            }),
+            {maps:remove(https, Listeners), [listener_name(https)]}
+    end.
+
+%% `listeners/1' drops a listener bound to port 0, so it never starts and needs no
+%% certificate. Generating one here would create a key for a server that does not
+%% run, and again after every restart once an operator deleted it.
+ensure_ssl_cert(Listeners = #{https := #{bind := 0}}) ->
+    {ok, Listeners};
+ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts0}}) ->
+    maybe
+        {ok, SslOpts} ?= emqx_tls_lib:ensure_default_certs(SslOpts0),
+        SslOpt1 = maps:from_list(emqx_tls_lib:to_server_opts(tls, SslOpts)),
+        Https1 = maps:remove(ssl_options, Https0),
+        {ok, Listeners#{https => maps:merge(Https1, SslOpt1)}}
+    end;
 ensure_ssl_cert(Listeners) ->
-    Listeners.
+    {ok, Listeners}.
 
 static_dispatch(SwaggerSupport) ->
     StaticFiles = ["/editor.worker.js", "/json.worker.js", "/version"],
