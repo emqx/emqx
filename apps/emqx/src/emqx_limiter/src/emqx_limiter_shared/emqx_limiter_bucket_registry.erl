@@ -1,12 +1,20 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Registry for shared limiter buckets.
-
+%% @doc Registry of shared limiter instances (buckets).
+%%
+%% `emqx_limiter_registry' holds limiter prototypes (options); this module
+%% holds the live buckets of the shared limiter kind, keyed by group.
+%%
+%% Buckets are stored in `persistent_term', one key per group, so that a
+%% consumer reads its bucket as a literal reference: no ETS copy, no
+%% garbage. Writes go through this process. A group's buckets are stored
+%% once at creation (a new key: no global GC) and erased with the group.
+%% Option updates reset the atomics in place and never rewrite the key.
 -module(emqx_limiter_bucket_registry).
+
 -include_lib("emqx/include/logger.hrl").
--include_lib("stdlib/include/ms_transform.hrl").
 
 -behaviour(gen_server).
 
@@ -15,10 +23,6 @@
     find_bucket/1,
     insert_buckets/2,
     delete_buckets/1
-]).
-
--export([
-    create_table/0
 ]).
 
 -export([
@@ -34,39 +38,33 @@
 -type bucket_ref() :: emqx_limiter_shared:bucket_ref().
 -type limiter_id() :: emqx_limiter:id().
 
--define(TABLE, ?MODULE).
-
--record(bucket_ref, {
-    key :: {group(), name() | '_'},
-    bucket_ref :: bucket_ref() | '_'
-}).
+-define(PT_KEY(GROUP), {?MODULE, GROUP}).
 
 %%--------------------------------------------------------------------
-%%  Messages
+%% gen_server messages
 %%--------------------------------------------------------------------
 
 -record(insert_buckets, {
-    group :: emqx_limiter:group(),
-    buckets :: [{emqx_limiter:name(), bucket_ref()}]
+    group :: group(),
+    buckets :: [{name(), bucket_ref()}]
 }).
 
 -record(delete_buckets, {
-    group :: emqx_limiter:group()
+    group :: group()
 }).
 
 %%--------------------------------------------------------------------
-%%  API
+%% API
 %%--------------------------------------------------------------------
 
 -spec find_bucket(limiter_id()) -> bucket_ref() | undefined.
-find_bucket(LimiterId) ->
-    try
-        ets:lookup_element(?TABLE, LimiterId, #bucket_ref.bucket_ref)
-    catch
-        error:badarg -> undefined
+find_bucket({Group, Name}) ->
+    case persistent_term:get(?PT_KEY(Group), undefined) of
+        #{Name := BucketRef} -> BucketRef;
+        _ -> undefined
     end.
 
--spec insert_buckets(group(), [{limiter_id(), bucket_ref()}]) -> ok.
+-spec insert_buckets(group(), [{name(), bucket_ref()}]) -> ok.
 insert_buckets(Group, Buckets) ->
     gen_server:call(?MODULE, #insert_buckets{group = Group, buckets = Buckets}, infinity).
 
@@ -78,47 +76,35 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %%--------------------------------------------------------------------
-%% Internal API
-%%--------------------------------------------------------------------
-
-create_table() ->
-    ok = emqx_utils_ets:new(?TABLE, [named_table, ordered_set, public, {keypos, #bucket_ref.key}]).
-
-%%--------------------------------------------------------------------
-%%  gen_server callbacks
+%% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, #{}}.
+    process_flag(trap_exit, true),
+    {ok, #{groups => sets:new([{version, 2}])}}.
 
-handle_call(
-    #insert_buckets{group = Group, buckets = Buckets},
-    _From,
-    State
-) ->
-    Records = lists:map(
-        fun({Name, BucketRef}) ->
-            #bucket_ref{key = {Group, Name}, bucket_ref = BucketRef}
+handle_call(#insert_buckets{group = Group, buckets = Buckets}, _From, #{groups := Groups} = State) ->
+    _ = persistent_term:put(?PT_KEY(Group), maps:from_list(Buckets)),
+    {reply, ok, State#{groups := sets:add_element(Group, Groups)}};
+handle_call(#delete_buckets{group = Group}, _From, #{groups := Groups} = State) ->
+    _ = persistent_term:erase(?PT_KEY(Group)),
+    {reply, ok, State#{groups := sets:del_element(Group, Groups)}};
+handle_call(Req, _From, State) ->
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
+    {reply, ignore, State}.
+
+handle_cast(Req, State) ->
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
+    {noreply, State}.
+
+handle_info(Req, State) ->
+    ?SLOG(error, #{msg => "unexpected_info", info => Req}),
+    {noreply, State}.
+
+terminate(_Reason, #{groups := Groups} = _State) ->
+    lists:foreach(
+        fun(Group) ->
+            _ = persistent_term:erase(?PT_KEY(Group))
         end,
-        Buckets
-    ),
-    _ = ets:insert(?TABLE, Records),
-    {reply, ok, State};
-handle_call(#delete_buckets{group = Group}, _From, State) ->
-    MatchSpec = #bucket_ref{key = {Group, '_'}, _ = '_'},
-    _ = ets:match_delete(?TABLE, MatchSpec),
-    {reply, ok, State};
-handle_call(Request, _From, State) ->
-    ?SLOG(warning, #{msg => unknown_request, request => Request}),
-    {reply, {error, not_implemented}, State}.
-
-handle_cast(Request, State) ->
-    ?SLOG(warning, #{msg => unknown_cast, request => Request}),
-    {noreply, State}.
-
-handle_info(Request, State) ->
-    ?SLOG(warning, #{msg => unknown_info, request => Request}),
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ok.
+        sets:to_list(Groups)
+    ).

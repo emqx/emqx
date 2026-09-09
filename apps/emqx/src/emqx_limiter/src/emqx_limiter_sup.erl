@@ -30,7 +30,6 @@ init([]) ->
         period => 3600
     },
 
-    ok = emqx_limiter_bucket_registry:create_table(),
     Childs = [
         child_spec(emqx_limiter_registry, worker),
         child_spec(emqx_limiter_bucket_registry, worker)
