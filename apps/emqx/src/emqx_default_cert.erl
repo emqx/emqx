@@ -38,7 +38,7 @@ private key.
 -include("emqx_config.hrl").
 -include("logger.hrl").
 
--export([ensure_localhost_bundle/0]).
+-export([ensure_localhost_bundle/0, localhost_bundle/0]).
 
 %% Internal export: run under the lock by `emqx_utils_proc:singleton/4'.
 -export([generate_localhost_bundle/0]).
@@ -49,6 +49,20 @@ private key.
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+-doc """
+Returns the `localhost' bundle's files if this node already has a complete one,
+without generating it.
+
+Use this where a certificate is being read rather than served — inspecting the
+configuration a listener used to run with, for instance. Generating there would
+create a key as a side effect of looking at one.
+""".
+-spec localhost_bundle() ->
+    {ok, #{emqx_managed_certs:file_kind() => #{path := file:filename_all()}}}
+    | {error, term()}.
+localhost_bundle() ->
+    complete_bundle().
 
 -doc """
 Returns the `localhost' bundle's files, generating the bundle first if this

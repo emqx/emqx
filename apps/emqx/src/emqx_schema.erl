@@ -2583,8 +2583,8 @@ filter(Opts) ->
 
 %% @private This function defines the SSL opts which are commonly used by
 %% SSL listener and client.
--spec common_ssl_opts_schema(map(), server | client) -> hocon_schema:field_schema().
-common_ssl_opts_schema(Defaults, Type) ->
+-spec common_ssl_opts_schema(map()) -> hocon_schema:field_schema().
+common_ssl_opts_schema(Defaults) ->
     D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
@@ -2593,7 +2593,6 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 binary(),
                 #{
-                    default => cert_file("cacert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
                 }
@@ -2610,7 +2609,6 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 binary(),
                 #{
-                    default => cert_file("cert.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_certfile)
                 }
@@ -2619,7 +2617,6 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 binary(),
                 #{
-                    default => cert_file("key.pem", Type),
                     required => false,
                     desc => ?DESC(common_ssl_opts_schema_keyfile)
                 }
@@ -2734,7 +2731,7 @@ server_ssl_opts_schema(Defaults0, IsRanchListener) ->
     Defaults = maps:merge(#{reuse_sessions => false}, Defaults0),
     D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
-    common_ssl_opts_schema(Defaults, server) ++
+    common_ssl_opts_schema(Defaults) ++
         [
             {"dhfile",
                 sc(
@@ -2925,7 +2922,7 @@ crl_outer_validator(_SSLOpts) ->
 %% @doc Make schema for SSL client.
 -spec client_ssl_opts_schema(map()) -> hocon_schema:field_schema().
 client_ssl_opts_schema(Defaults) ->
-    common_ssl_opts_schema(Defaults, client) ++
+    common_ssl_opts_schema(Defaults) ++
         [
             {"enable",
                 sc(
@@ -4068,22 +4065,15 @@ default_listener(ws) ->
         <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
     };
 default_listener(SSLListener) ->
-    %% The env variable is resolved in emqx_tls_lib by calling naive_env_interpolate
-    SslOptions = #{
-        <<"cacertfile">> => cert_file(<<"cacert.pem">>, server),
-        <<"certfile">> => cert_file(<<"cert.pem">>, server),
-        <<"keyfile">> => cert_file(<<"key.pem">>, server)
-    },
+    %% No certificate here on purpose: a listener with none configured serves
+    %% the node's own generated bundle, which is unique per installation. See
+    %% `emqx_default_cert'.
     case SSLListener of
         ssl ->
-            #{
-                <<"bind">> => 8883,
-                <<"ssl_options">> => SslOptions
-            };
+            #{<<"bind">> => 8883};
         wss ->
             #{
                 <<"bind">> => 8084,
-                <<"ssl_options">> => SslOptions,
                 <<"websocket">> => #{<<"mqtt_path">> => <<"/mqtt">>}
             }
     end.
@@ -4146,11 +4136,6 @@ ensure_default_listener(#{<<"default">> := _} = Map, _ListenerType) ->
 ensure_default_listener(Map, ListenerType) ->
     NewMap = Map#{<<"default">> => default_listener(ListenerType)},
     keep_default_tombstone(NewMap, #{}).
-
-cert_file(_File, client) ->
-    undefined;
-cert_file(File, server) ->
-    unicode:characters_to_binary(filename:join(["${EMQX_ETC_DIR}", "certs", File])).
 
 mqtt_converter(#{<<"keepalive_multiplier">> := Multi} = Mqtt, _Opts) ->
     case round(Multi * 100) =:= round(?DEFAULT_MULTIPLIER * 100) of

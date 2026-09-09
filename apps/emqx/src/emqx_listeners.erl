@@ -47,7 +47,6 @@
 
 -export([pre_config_update/3, post_config_update/5]).
 -export([post_zone_config_update/2, update_listener_for_zone_changes/3]).
--export([reconcile_cert_source/2]).
 
 -export([format_bind/1, format_bind_ip/1]).
 
@@ -282,7 +281,7 @@ start_listener(Type, Name, #{bind := Bind0, enable := true} = Conf0) ->
     Conf = Conf0#{bind := Bind},
     ListenerId = listener_id(Type, Name),
     ok = emqx_limiter:create_listener_limiters(ListenerId, Conf),
-    case do_start_listener(Type, Name, ListenerId, Conf) of
+    case start_listener_with_certs(Type, Name, ListenerId, Conf) of
         {ok, {skipped, Reason}} when
             Reason =:= quic_app_missing
         ->
@@ -327,6 +326,23 @@ start_listener(Type, Name, #{enable := false}) ->
     ),
     ok.
 
+%% `ensure_default_certs/1' throws when a listener needs the node's own
+%% certificate and it cannot be had. Report that the way every other start
+%% failure is reported, rather than letting it escape as a crash. The try covers
+%% only that call: throws from starting the listener itself keep reaching their
+%% existing handlers unchanged.
+start_listener_with_certs(Type, Name, ListenerId, Conf) ->
+    case
+        try
+            {ok, ensure_default_certs(Conf)}
+        catch
+            throw:Reason -> {error, Reason}
+        end
+    of
+        {ok, ConfWithCerts} -> do_start_listener(Type, Name, ListenerId, ConfWithCerts);
+        {error, _} = Error -> Error
+    end.
+
 %% @doc Restart all listeners
 -spec restart() -> ok.
 restart() ->
@@ -366,7 +382,11 @@ update_listener(Type, Name, OldConf, NewConf) ->
     end.
 
 do_update_running_listener(Type, Name, OldConf, NewConf) ->
-    case do_update_listener(Type, Name, OldConf, NewConf) of
+    case
+        do_update_listener(
+            Type, Name, default_certs_if_present(OldConf), ensure_default_certs(NewConf)
+        )
+    of
         ok ->
             ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
             ok;
@@ -642,9 +662,8 @@ pre_config_update([?ROOT_KEY, _Type, _Name], {update, _Request}, undefined) ->
     {error, not_found};
 pre_config_update([?ROOT_KEY, Type, Name], {update, Request}, RawConf) ->
     RawConf1 = emqx_utils_maps:deep_merge(RawConf, Request),
-    RawConf2 = reconcile_cert_source(Request, RawConf1),
-    ok = assert_zone_exists(RawConf2),
-    {ok, convert_certs(Type, Name, RawConf2)};
+    ok = assert_zone_exists(RawConf1),
+    {ok, convert_certs(Type, Name, RawConf1)};
 pre_config_update([?ROOT_KEY, _Type, _Name], {action, _Action, Updated}, RawConf) ->
     {ok, emqx_utils_maps:deep_merge(RawConf, Updated)};
 pre_config_update([?ROOT_KEY, _Type, _Name], ?MARK_DEL, _RawConf) ->
@@ -1112,6 +1131,30 @@ enable_authn(Opts) ->
 ssl_opts(Opts) ->
     emqx_tls_lib:to_server_opts(tls, maps:get(ssl_options, Opts, #{})).
 
+-doc """
+Points a listener with no certificate of its own at the node's default bundle,
+generating it if this node has none.
+
+Done here, where a listener is actually started or updated, rather than in
+`ssl_opts/1': that is also called to compare two configurations, and
+`to_server_opts/2' is called by other applications to read a listener's
+certificate. Neither of those should mint one as a side effect.
+
+Applied to both sides of an update so the comparison that decides whether the
+transport has to be torn down stays symmetric.
+""".
+ensure_default_certs(#{ssl_options := SSLOpts} = Conf) ->
+    Conf#{ssl_options => emqx_tls_lib:ensure_default_certs(SSLOpts)};
+ensure_default_certs(Conf) ->
+    Conf.
+
+%% The config a listener is being updated away from is only compared against and
+%% rolled back to, never served.  Resolving it must not generate a certificate.
+default_certs_if_present(#{ssl_options := SSLOpts} = Conf) ->
+    Conf#{ssl_options => emqx_tls_lib:default_certs_if_present(SSLOpts)};
+default_certs_if_present(Conf) ->
+    Conf.
+
 tcp_opts(Opts) ->
     TcpOpts = maps:to_list(maps:get(tcp_options, Opts, #{})),
     lists:flatten(lists:map(fun tcp_opt/1, TcpOpts)).
@@ -1202,49 +1245,6 @@ convert_certs(ListenerConf) ->
         #{},
         ListenerConf
     ).
-
--doc """
-Enforce that a listener uses a single certificate source.
-
-`managed_certs' and file-based certificates (`certfile'/`keyfile') are mutually
-exclusive certificate sources.  Configuration updates are applied via `deep_merge',
-which can only add or override keys, never drop them.  Without this reconciliation an
-update that switches a listener from a managed certificate bundle back to file-based
-certificates would keep the stale `managed_certs' reference and fail to resolve a
-(possibly already deleted) bundle.
-
-When `Request' supplies file-based certificate material and does not itself reference
-`managed_certs', drop any residual `managed_certs' from `MergedConf' so the result
-uses only the requested certificate source.  A `managed_certs' explicitly set to JSON
-`null' (how the Dashboard clears it) or to an empty list is a request to stop using
-managed certificates, so the residual reference is dropped as well.  Both arguments
-are raw (binary-keyed) configs.
-""".
-reconcile_cert_source(Request, MergedConf) ->
-    case get_ssl_options(Request) of
-        RequestSSL when is_map(RequestSSL) ->
-            RequestSetsFileCerts =
-                maps:is_key(<<"certfile">>, RequestSSL) orelse
-                    maps:is_key(<<"keyfile">>, RequestSSL),
-            DropManaged =
-                case maps:get(<<"managed_certs">>, RequestSSL, undefined) of
-                    undefined -> RequestSetsFileCerts;
-                    null -> true;
-                    [] -> true;
-                    _ -> false
-                end,
-            case DropManaged of
-                true -> drop_managed_certs(MergedConf);
-                false -> MergedConf
-            end;
-        _ ->
-            MergedConf
-    end.
-
-drop_managed_certs(#{<<"ssl_options">> := SSL} = Conf) when is_map(SSL) ->
-    Conf#{<<"ssl_options">> => maps:remove(<<"managed_certs">>, SSL)};
-drop_managed_certs(Conf) ->
-    Conf.
 
 convert_certs(Type, Name, Conf) ->
     CertsDir = certs_dir(Type, Name),

@@ -162,10 +162,19 @@ ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"bind">> := Bind} = Ht
     Https1 = emqx_dashboard_schema:https_converter(Https0, #{}),
     Conf1 = emqx_utils_maps:deep_put([<<"listeners">>, <<"https">>], Conf0, Https1),
     Ssl = maps:get(<<"ssl_options">>, Https1, undefined),
-    Opts = #{required_keys => [[<<"keyfile">>], [<<"certfile">>]]},
+    Opts = required_cert_keys(Ssl),
     case emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(?DIR, Ssl, Opts) of
         {ok, undefined} ->
-            {error, <<"ssl_cert_not_found">>};
+            case emqx_tls_lib:is_cert_configured(Ssl) of
+                false ->
+                    %% No certificate is named: the listener serves the one this
+                    %% node generated for itself.
+                    {ok, Conf1};
+                true ->
+                    %% Something was configured but could not be resolved,
+                    %% which is still the operator's mistake to hear about.
+                    {error, <<"ssl_cert_not_found">>}
+            end;
         {ok, NewSsl} ->
             Keys = [<<"listeners">>, <<"https">>, <<"ssl_options">>],
             {ok, emqx_utils_maps:deep_put(Keys, Conf1, NewSsl)};
@@ -175,6 +184,15 @@ ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"bind">> := Bind} = Ht
     end;
 ensure_ssl_cert(Conf) ->
     {ok, Conf}.
+
+%% A listener that names no certificate of its own is served by the one this node
+%% generated for itself, so the key/certificate pair is only required once the
+%% configuration names something. Naming one without the other stays an error.
+required_cert_keys(Ssl) ->
+    case emqx_tls_lib:is_cert_configured(Ssl) of
+        true -> #{required_keys => [[<<"keyfile">>], [<<"certfile">>]]};
+        false -> #{}
+    end.
 
 %% NOTE: some requests for dashboard update may be issued from pre/post_config_update hooks.
 %% We should wait for the config update to be completed before performing the requested updates.

@@ -130,7 +130,10 @@ init_per_group(quic, Config0) ->
             <<"quic">> => #{
                 <<"test">> => #{
                     <<"enable">> => true,
-                    <<"ssl_options">> => #{<<"verify">> => <<"verify_peer">>}
+                    <<"ssl_options">> => maps:merge(
+                        #{<<"verify">> => <<"verify_peer">>},
+                        emqx_common_test_helpers:listener_example_certs()
+                    )
                 }
             }
         }

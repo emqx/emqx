@@ -119,7 +119,13 @@ init_per_testcase(TestCase, Config) when
             Apps = emqx_cth_suite:start(
                 [
                     emqx_conf,
-                    emqx,
+                    %% The listener needs a certificate of its own: the OCSP
+                    %% stapling rules under test are only reached once one is
+                    %% configured.
+                    {emqx,
+                        emqx_common_test_helpers:listener_example_certs(
+                            "listeners.ssl.default"
+                        )},
                     emqx_management,
                     {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
                 ],
@@ -908,13 +914,12 @@ do_t_validations(_Config) ->
                     }
             }
         ),
-    ListenerData3 = emqx_utils_maps:deep_remove(
-        [<<"ssl_options">>, <<"certfile">>], ListenerData3a
-    ),
-    {error, {_, _, ResRaw3}} = update_listener_via_api(ListenerId, ListenerData3),
+    %% The request keeps its `certfile': nothing defaults one any more, and a
+    %% request naming no server certificate is rejected by the stapling rule
+    %% above before it reaches the issuer file.
+    {error, {_, _, ResRaw3}} = update_listener_via_api(ListenerId, ListenerData3a),
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3} =
         emqx_utils_json:decode(ResRaw3),
-    %% we can't remove certfile now, because it has default value.
     ?assertMatch({match, _}, re:run(MsgRaw3, <<"enoent">>)),
     ?assertMatch({match, _}, re:run(MsgRaw3, <<"ocsp\\.issuer_pem">>)),
     ok.

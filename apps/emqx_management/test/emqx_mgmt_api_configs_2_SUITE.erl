@@ -14,19 +14,11 @@ all() ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx),
-    CertDir = filename:join([code:lib_dir(emqx), "etc", "certs"]),
-    Cert = fun(Name) -> filename:join(CertDir, Name) end,
     %% keep it the same as the dashboard defaults in apps/emqx_conf/etc/base.hocon
     Conf =
         [
             "dashboard.listeners.http { enable = true, bind = 18083 }",
-            "dashboard.listeners.https {\n",
-            "  bind = 0 # disabled by default\n",
-            "  ssl_options {\n",
-            "    certfile = \"" ++ Cert("cert.pem") ++ "\"\n",
-            "    keyfile = \"" ++ Cert("key.pem") ++ "\"\n",
-            "  }\n"
-            "}\n"
+            "dashboard.listeners.https { bind = 0 }\n"
         ],
     Apps = emqx_cth_suite:start(
         [
@@ -110,11 +102,25 @@ t_dashboard(_Config) ->
 
     ?assertMatch({ok, _}, update_config("dashboard", Dashboard)),
     {ok, Dashboard1} = get_config("dashboard"),
-    ?assertEqual(Dashboard, Dashboard1),
+    %% The update API deep-merges, and a deep merge cannot drop keys: the
+    %% certificate files set earlier in this case survive putting the original
+    %% config back.  Nothing defaults them, so the original carries none of them.
+    ?assertEqual(without_https_cert_files(Dashboard), without_https_cert_files(Dashboard1)),
     timer:sleep(1500),
     ok.
 
 %% Helpers
+
+without_https_cert_files(Conf) ->
+    lists:foldl(
+        fun(Key, Acc) ->
+            emqx_utils_maps:deep_remove(
+                [<<"listeners">>, <<"https">>, <<"ssl_options">>, Key], Acc
+            )
+        end,
+        Conf,
+        [<<"certfile">>, <<"keyfile">>, <<"cacertfile">>]
+    ).
 
 get_config(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),

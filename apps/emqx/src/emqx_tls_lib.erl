@@ -33,7 +33,10 @@
 -export([
     to_server_opts/2,
     to_client_opts/1,
-    to_client_opts/2
+    to_client_opts/2,
+    ensure_default_certs/1,
+    is_cert_configured/1,
+    default_certs_if_present/1
 ]).
 
 %% ssl:tls_version/0 is not exported.
@@ -770,6 +773,142 @@ to_client_opts(Type, Opts = #{enable := true}) ->
     ensure_valid_options(TLSClientOpts);
 to_client_opts(_Type, #{}) ->
     [].
+
+-doc """
+Points a server at the node's default certificate bundle when it has no
+certificate of its own, generating that bundle if this node does not have one
+yet.
+
+Applied to *checked* configuration at listener start, immediately before
+`to_server_opts/2', and deliberately never to raw configuration. Raw
+configuration is what gets persisted and what later REST updates deep-merge
+against, so a bundle injected there would outlive the listener start and read
+back as a certificate the operator had configured, which they did not.
+
+Kept out of `to_server_opts/2' for the same reason it is kept out of raw
+configuration: that function is a plain conversion from configuration to `ssl'
+options, and this is a decision about what the configuration should have been.
+
+A server that cannot be given a default certificate is left as it was, to fail
+with whatever its own missing-certificate error is.
+""".
+-spec ensure_default_certs(map()) -> map().
+ensure_default_certs(Opts) ->
+    case is_cert_configured(Opts) of
+        true ->
+            Opts;
+        false ->
+            case emqx_default_cert:ensure_localhost_bundle() of
+                {ok, Files} ->
+                    use_default_certs(Opts, Files);
+                {error, Reason} ->
+                    %% Returning the configuration unchanged would leave a TLS
+                    %% server with no certificate at all. `ssl' accepts that at
+                    %% listen time and only fails each handshake afterwards, with
+                    %% an alert that names no cause, so the server would bind its
+                    %% port, look healthy and serve nobody. Fail here, where the
+                    %% cause is known.
+                    throw(#{
+                        error => <<"no_default_tls_certificate">>,
+                        bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
+                        reason => Reason
+                    })
+            end
+    end.
+
+-doc """
+Points this configuration at the node's default certificate only if the node
+already has one, generating nothing.
+
+Use this for a configuration that is being read rather than served, such as the
+one a running listener is being updated away from. Generating there would create
+a key as a side effect of inspecting one. A node with no bundle yet is not an
+error here: the configuration is simply left as it is.
+""".
+-spec default_certs_if_present(map()) -> map().
+default_certs_if_present(Opts) ->
+    case is_cert_configured(Opts) of
+        true ->
+            Opts;
+        false ->
+            case emqx_default_cert:localhost_bundle() of
+                {ok, Files} -> use_default_certs(Opts, Files);
+                {error, _NoBundle} -> Opts
+            end
+    end.
+
+%% Names the bundle's files directly rather than pointing `managed_certs' at it.
+%% Resolving a managed bundle replaces the whole certificate triple, which would
+%% drop a `cacertfile' the configuration sets to verify peers with.
+use_default_certs(Opts, Files) ->
+    #{
+        ?FILE_KIND_CHAIN := #{path := Chain},
+        ?FILE_KIND_KEY := #{path := Key}
+    } = Files,
+    use_default_cacertfile(Opts#{certfile => Chain, keyfile => Key}, Files).
+
+%% The bundle a node generates for itself holds no `ca' file, but an operator can
+%% install their own under the same name, and theirs may carry one. Use it, so a
+%% listener that verifies peers has the trust anchor its bundle came with.
+%%
+%% A `cacertfile' the configuration names wins: the bundle only fills a slot
+%% nothing else does. A file holding no certificate is ignored rather than
+%% passed on, because `ssl' refuses to start a listener with such a `cacertfile'.
+use_default_cacertfile(Opts, #{?FILE_KIND_CA := #{path := Path}}) ->
+    case is_configured(conf_get_opt(cacertfile, Opts)) of
+        true ->
+            Opts;
+        false ->
+            case holds_certificate(Path) of
+                true ->
+                    Opts#{cacertfile => Path};
+                false ->
+                    ?SLOG(warning, #{
+                        msg => "ignored_default_tls_ca_file_without_certificate",
+                        bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
+                        file => Path
+                    }),
+                    Opts
+            end
+    end;
+use_default_cacertfile(Opts, _Files) ->
+    Opts.
+
+holds_certificate(Path) ->
+    case file:read_file(Path) of
+        {ok, PEM} -> is_pem(PEM);
+        {error, _} -> false
+    end.
+
+-doc """
+Whether this configuration names a server certificate of its own, by file or by
+managed bundle. Empty values do not count: the schema can leave a key present
+and unset.
+
+`cacertfile' is deliberately not one of the keys. It names the authority used to
+verify peers, not this server's own identity, so a listener that sets only a
+`cacertfile' to require client certificates still has no certificate to present
+and still wants the default one.
+""".
+-spec is_cert_configured(map()) -> boolean().
+is_cert_configured(Opts) ->
+    lists:any(
+        fun(Key) -> is_configured(conf_get_opt(Key, Opts)) end,
+        [certfile, keyfile, managed_certs]
+    ).
+
+%% Not all of these are shapes the schema can produce. Most callers pass checked
+%% configuration, but `emqx_dashboard_listener_config' passes a request's own
+%% `ssl_options', which has only been through a converter: there, `null' is how
+%% a request clears a value, and an empty map is an emptied `managed_certs'
+%% object. If that caller ever goes, the clauses below can go with it.
+is_configured(undefined) -> false;
+is_configured(null) -> false;
+is_configured(<<>>) -> false;
+%% Also covers "": an empty string is an empty list.
+is_configured([]) -> false;
+is_configured(Map) when is_map(Map) -> map_size(Map) > 0;
+is_configured(_Other) -> true.
 
 resolve_managed_certs(undefined, Opts) ->
     Password = conf_get_password(password, Opts),

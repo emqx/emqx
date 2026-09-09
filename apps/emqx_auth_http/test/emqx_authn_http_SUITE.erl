@@ -1200,10 +1200,13 @@ t_precondition_check_cert_cn(init, TCConfig) ->
     {ok, _} = emqx:update_config(
         [listeners, ssl, default],
         {update, #{
-            <<"ssl_options">> => #{
-                <<"verify">> => verify_peer,
-                <<"fail_if_no_peer_cert">> => true
-            }
+            <<"ssl_options">> => maps:merge(
+                #{
+                    <<"verify">> => verify_peer,
+                    <<"fail_if_no_peer_cert">> => true
+                },
+                emqx_common_test_helpers:listener_example_certs()
+            )
         }}
     ),
     TCConfig;
