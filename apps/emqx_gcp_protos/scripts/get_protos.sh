@@ -16,9 +16,18 @@ if [[ ! -d googleapis ]]; then
   git checkout "$REF"
 fi
 
-for path in api bigtable/v2 rpc type; do
+PATHS=(
+  # common
+  api
+  rpc
+  type
+  # bigtable
+  bigtable/v2
+)
+
+for path in "${PATHS[@]}"; do
   mkdir -p "$PRIV_DIR/protos/google/$path"
-  cp -r /tmp/googleapis/google/$path/*.proto "$PRIV_DIR/protos/google/$path/"
+  cp -r /tmp/googleapis/google/"$path"/*.proto "$PRIV_DIR/protos/google/$path/"
 done
 
 rm -rf googleapis

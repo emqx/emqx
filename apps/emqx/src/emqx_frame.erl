@@ -29,7 +29,7 @@
     serialize/3
 ]).
 
--export([describe_state/1]).
+-export([describe_state/1, update_opts/2]).
 
 -export_type([
     options/0,
@@ -42,19 +42,24 @@
 -type options() :: #{
     strict_mode => boolean(),
     max_size => 1..?MAX_PACKET_SIZE,
-    version => emqx_types:proto_ver()
+    version => emqx_types:proto_ver(),
+    expect_connect => boolean()
 }.
 
 -record(options, {
     strict_mode :: boolean(),
     max_size :: 1..?MAX_PACKET_SIZE,
-    version :: emqx_types:proto_ver()
+    version :: emqx_types:proto_ver(),
+    %% When true, the next packet must be a CONNECT.
+    expect_connect :: boolean()
 }).
 
 -record(remlen, {hdr, len, mult, opts :: #options{}}).
 -record(body, {hdr, need, acc :: iodata(), opts :: #options{}}).
+%% Options to apply once the frame being parsed is complete.
+-record(update, {inner :: #remlen{} | #body{}, opts :: options()}).
 
--type parse_state() :: #remlen{} | #body{} | parse_state_initial().
+-type parse_state() :: #remlen{} | #body{} | #update{} | parse_state_initial().
 -type parse_state_initial() :: #options{}.
 
 -type parse_result() ::
@@ -68,7 +73,8 @@
 -define(DEFAULT_OPTIONS, #{
     strict_mode => true,
     max_size => ?MAX_PACKET_SIZE,
-    version => ?MQTT_PROTO_V4
+    version => ?MQTT_PROTO_V4,
+    expect_connect => false
 }).
 
 -define(PARSE_ERR(Reason), ?THROW_FRAME_ERROR(Reason)).
@@ -100,6 +106,50 @@ describe_state(#body{hdr = Hdr, need = Need, acc = Acc, opts = Options}) ->
         parsed_header => Hdr,
         expected_bytes_remain => Need,
         received_bytes => iolist_size(Acc)
+    };
+describe_state(#update{inner = Inner}) ->
+    (describe_state(Inner))#{pending_opts_update => true}.
+
+-doc """
+Apply new configuration options to a parse state and its serializer.
+
+Only the options an operator can change at runtime are taken from `NewOpts';
+everything the parser owns is kept, in particular the negotiated protocol
+version and whether a CONNECT is still expected. Callers holding a parse state
+across a config change use this instead of building a fresh state, which would
+drop that.
+
+A frame being parsed keeps the options it started under. If one is in flight,
+the new options are held and applied as soon as it completes, so they take
+effect from the next frame rather than being dropped.
+""".
+-spec update_opts(parse_state(), options()) -> {ok, parse_state(), serialize_opts()}.
+update_opts(ParseState, NewOpts) ->
+    %% The serializer has no frame in flight, so it always takes them now.
+    SerializeOpts = initial_serialize_opts(NewOpts#{version => version(ParseState)}),
+    {ok, do_update_opts(ParseState, NewOpts), SerializeOpts}.
+
+%% `{frame, _}' is the whole-frame parser, which only ever sees complete frames.
+do_update_opts({frame, Options}, NewOpts) ->
+    {frame, merge_opts(Options, NewOpts)};
+do_update_opts(Options = #options{}, NewOpts) ->
+    merge_opts(Options, NewOpts);
+do_update_opts(#update{inner = Inner}, NewOpts) ->
+    %% A second change before the frame completes: the last one wins.
+    #update{inner = Inner, opts = NewOpts};
+do_update_opts(Inner, NewOpts) ->
+    #update{inner = Inner, opts = NewOpts}.
+
+version({frame, #options{version = Version}}) -> Version;
+version(#options{version = Version}) -> Version;
+version(#remlen{opts = #options{version = Version}}) -> Version;
+version(#body{opts = #options{version = Version}}) -> Version;
+version(#update{inner = Inner}) -> version(Inner).
+
+merge_opts(Options, NewOpts) ->
+    Options#options{
+        strict_mode = maps:get(strict_mode, NewOpts, Options#options.strict_mode),
+        max_size = maps:get(max_size, NewOpts, Options#options.max_size)
     }.
 
 %%--------------------------------------------------------------------
@@ -116,7 +166,8 @@ initial_parse_state(Options) when is_map(Options) ->
     #options{
         strict_mode = maps:get(strict_mode, Effective),
         max_size = maps:get(max_size, Effective),
-        version = maps:get(version, Effective)
+        version = maps:get(version, Effective),
+        expect_connect = maps:get(expect_connect, Effective)
     }.
 
 %%--------------------------------------------------------------------
@@ -132,6 +183,7 @@ parse(
     <<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
     Options = #options{strict_mode = StrictMode}
 ) ->
+    ok = validate_connect_first(Type, Options),
     %% Validate header if strict mode.
     StrictMode andalso validate_header(Type, Dup, QoS, Retain),
     Header = #mqtt_packet_header{
@@ -151,6 +203,14 @@ parse(
     #body{hdr = Header, need = Need, acc = Body, opts = Options}
 ) ->
     parse_body_frame(Bin, Header, Need, Body, Options);
+parse(Bin, #update{inner = Inner, opts = NewOpts}) ->
+    case parse(Bin, Inner) of
+        {Packet, Rest, Options} ->
+            %% The frame is complete, so the held options take effect now.
+            {Packet, Rest, merge_opts(Options, NewOpts)};
+        {More, NInner} ->
+            {More, #update{inner = NInner, opts = NewOpts}}
+    end;
 parse(<<>>, State) ->
     {some_more, State}.
 
@@ -161,6 +221,7 @@ parse_complete(
     <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>>,
     Options = #options{strict_mode = StrictMode}
 ) ->
+    ok = validate_connect_first(Type, Options),
     %% Validate header if strict mode.
     StrictMode andalso validate_header(Type, Dup, QoS, Retain),
     Header = #mqtt_packet_header{
@@ -176,6 +237,18 @@ parse_complete(
             {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
             parse_packet_complete(Rest2, Header, Options)
     end.
+
+%% Reject any packet received before CONNECT, while only the fixed header is
+%% read, so that no body byte is buffered for an unauthenticated connection.
+validate_connect_first(?CONNECT, _Options) ->
+    ok;
+validate_connect_first(_Type, #options{expect_connect = false}) ->
+    ok;
+validate_connect_first(Type, _Options) ->
+    ?PARSE_ERR(#{
+        cause => unexpected_packet_before_connect,
+        header_type => emqx_packet:type_name(Type)
+    }).
 
 -spec guess_first_packet_protocol(binary()) -> map().
 guess_first_packet_protocol(<<Type:4, _Flags:4, _/binary>> = Data) ->
@@ -328,7 +401,7 @@ packet(Header, Variable, Payload) ->
 parse_packet_complete(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
-    NOptions = update_parse_state(Variable#mqtt_packet_connect.proto_ver, Options),
+    NOptions = connect_parsed(Variable#mqtt_packet_connect.proto_ver, Options),
     [Packet, NOptions];
 parse_packet_complete(Frame, Header, Options) ->
     parse_packet(Frame, Header, Options).
@@ -337,7 +410,7 @@ parse_packet_complete(Frame, Header, Options) ->
 parse_packet(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options, Rest) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
-    {Packet, Rest, update_parse_state(Variable#mqtt_packet_connect.proto_ver, Options)};
+    {Packet, Rest, connect_parsed(Variable#mqtt_packet_connect.proto_ver, Options)};
 parse_packet(Frame, Header, Options, Rest) ->
     Packet = parse_packet(Frame, Header, Options),
     {Packet, Rest, Options}.
@@ -374,6 +447,12 @@ parse_connect(Frame, Options = #options{strict_mode = StrictMode}) ->
     parse_state_initial().
 update_parse_state(ProtoVer, Options) ->
     Options#options{version = ProtoVer}.
+
+%% CONNECT is parsed: record the protocol version and stop requiring CONNECT.
+-spec connect_parsed(emqx_types:proto_ver(), parse_state_initial()) ->
+    parse_state_initial().
+connect_parsed(ProtoVer, Options) ->
+    Options#options{version = ProtoVer, expect_connect = false}.
 
 do_parse_connect(
     ProtoName,
