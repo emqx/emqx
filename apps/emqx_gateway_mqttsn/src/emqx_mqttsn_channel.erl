@@ -514,6 +514,13 @@ handle_in(
             PubAck = ?SN_PUBACK_MSG(TopicId, MsgId, RC),
             shutdown(normal, PubAck, Channel)
     end;
+%% A PINGREQ reaching an idle channel came from an unbound UDP flow. It cannot
+%% prove ownership of a sleeping session, so require a new CONNECT exchange.
+handle_in(
+    ?SN_PINGREQ_MSG(_ClientId),
+    Channel = #channel{conn_state = idle}
+) ->
+    handle_out(disconnect, normal, Channel);
 handle_in(
     Pkt = #mqtt_sn_message{type = Type},
     Channel = #channel{conn_state = idle}

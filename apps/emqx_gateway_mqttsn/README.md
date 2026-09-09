@@ -31,4 +31,12 @@ gateway.mqttsn {
 > Configuring the gateway via emqx.conf requires changes on a per-node basis,
 > but configuring it via Dashboard or the HTTP API will take effect across the cluster.
 
+## Sleeping clients and UDP source changes
+
+On a plaintext UDP listener, a sleeping client can resume with PINGREQ only through the UDP flow
+already bound to its session. If the client's UDP source tuple changes, the gateway responds with
+DISCONNECT and the client must send CONNECT again before the session can be resumed. Use an
+authenticated DTLS configuration when transport-level client identity is required across network
+changes.
+
 More documentations: [MQTT-SN Gateway](https://www.emqx.io/docs/en/v5.0/gateway/mqttsn.html)
