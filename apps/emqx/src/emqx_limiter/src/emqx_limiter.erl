@@ -95,7 +95,9 @@
 %% Callbacks
 %%--------------------------------------------------------------------
 
--callback create_group(group(), [{name(), options()}]) -> ok.
+%% `create_group/2` returns the per-limiter shared state (buckets) to store
+%% in the group's registry record, so that registration is a single write.
+-callback create_group(group(), [{name(), options()}]) -> {ok, #{name() => term()}}.
 -callback update_group(group(), [{name(), options()}]) -> ok.
 -callback delete_group(group()) -> ok.
 -callback connect(id()) -> emqx_limiter_client:t().
@@ -206,8 +208,8 @@ create_group(exclusive, Group, Options) ->
     create_group(emqx_limiter_exclusive, Group, Options);
 %% Any other module
 create_group(Module, Group, Options) ->
-    ok = emqx_limiter_registry:register_group(Group, Module, Options),
-    Module:create_group(Group, Options).
+    {ok, Buckets} = Module:create_group(Group, Options),
+    emqx_limiter_registry:register_group(Group, Module, Options, Buckets).
 
 -spec update_group(group(), [{name(), options()}]) -> ok.
 update_group(Group, Options) ->

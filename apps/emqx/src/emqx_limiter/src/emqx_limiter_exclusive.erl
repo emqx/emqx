@@ -50,9 +50,10 @@
 %% Group operations are no-ops because the the buckets are on the client side.
 %% The limiter's state is just the settings, we do not need to update anything here.
 
--spec create_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) -> ok.
+-spec create_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
+    {ok, #{}}.
 create_group(_Group, _LimiterConfigs) ->
-    ok.
+    {ok, #{}}.
 
 -spec delete_group(emqx_limiter:group()) -> ok.
 delete_group(_Group) ->

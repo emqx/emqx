@@ -262,9 +262,10 @@ t_update_group_no_change(_Config) ->
 %% Limiter implementation (see `t_update_group_no_change/1`)
 %%--------------------------------------------------------------------
 
--spec create_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) -> ok.
+-spec create_group(emqx_limiter:group(), [{emqx_limiter:name(), emqx_limiter:options()}]) ->
+    {ok, #{}}.
 create_group(_Group, _LimiterConfigs) ->
-    ok.
+    {ok, #{}}.
 
 -spec delete_group(emqx_limiter:group()) -> ok.
 delete_group(_Group) ->

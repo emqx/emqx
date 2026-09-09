@@ -94,8 +94,8 @@
 
 -spec create_group(emqx_limiter:group(), [
     {emqx_limiter:name(), emqx_limiter:options()}
-]) -> ok | {error, term()}.
-create_group(Group, LimiterConfigs) when length(LimiterConfigs) > 0 ->
+]) -> {ok, #{emqx_limiter:name() => bucket_ref()}}.
+create_group(_Group, LimiterConfigs) when length(LimiterConfigs) > 0 ->
     Size = length(LimiterConfigs),
     %% Factor 4 is because we have 4 atomics per limiter:
     %% mini_tokens
@@ -105,7 +105,7 @@ create_group(Group, LimiterConfigs) when length(LimiterConfigs) > 0 ->
     ARef = atomics:new(Size * 4, []),
     NowUs = now_us_monotonic(),
     Buckets = make_buckets(LimiterConfigs, ARef, NowUs),
-    ok = emqx_limiter_registry:put_buckets(Group, maps:from_list(Buckets)).
+    {ok, maps:from_list(Buckets)}.
 
 -spec delete_group(emqx_limiter:group()) -> ok | {error, term()}.
 delete_group(_Group) ->

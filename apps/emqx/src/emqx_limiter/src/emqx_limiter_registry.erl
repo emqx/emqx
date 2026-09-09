@@ -13,8 +13,8 @@
 -export([
     start_link/0,
     register_group/3,
+    register_group/4,
     unregister_group/1,
-    put_buckets/2,
     find_group/1,
     list_groups/0,
     get_limiter_options/1,
@@ -55,16 +55,13 @@
 -record(register_group, {
     group :: group(),
     module :: module(),
-    limiter_options :: #{name() => emqx_limiter:options()}
+    limiter_options :: #{name() => emqx_limiter:options()},
+    %% `keep` carries the existing buckets over (option update).
+    buckets :: keep | #{name() => term()}
 }).
 
 -record(unregister_group, {
     group :: group()
-}).
-
--record(put_buckets, {
-    group :: group(),
-    buckets :: #{name() => term()}
 }).
 
 -record(list_groups, {}).
@@ -77,14 +74,27 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+%% Re-register a group with new options, keeping its buckets.
 -spec register_group(group(), module(), [{name(), emqx_limiter:options()}]) -> ok | no_return().
 register_group(Group, Module, LimiterOptions) ->
+    register_group(Group, Module, LimiterOptions, keep).
+
+%% Register a group together with its buckets in one write. Creating a
+%% new key does not trigger the persistent_term global GC; replacing one
+%% does, so creation must not write twice.
+-spec register_group(
+    group(), module(), [{name(), emqx_limiter:options()}], keep | #{name() => term()}
+) -> ok | no_return().
+register_group(Group, Module, LimiterOptions, Buckets) ->
     ok = assert_unique_names(LimiterOptions),
     case
         gen_server:call(
             ?MODULE,
             #register_group{
-                group = Group, module = Module, limiter_options = maps:from_list(LimiterOptions)
+                group = Group,
+                module = Module,
+                limiter_options = maps:from_list(LimiterOptions),
+                buckets = Buckets
             },
             infinity
         )
@@ -98,18 +108,6 @@ register_group(Group, Module, LimiterOptions) ->
 -spec unregister_group(group()) -> ok.
 unregister_group(Group) ->
     gen_server:call(?MODULE, #unregister_group{group = Group}, infinity).
-
-%% Store per-limiter shared state for a registered group. Buckets are
-%% created once with the group; `register_group/3` keeps them across
-%% option updates and `unregister_group/1` drops them with the group.
--spec put_buckets(group(), #{name() => term()}) -> ok | no_return().
-put_buckets(Group, Buckets) ->
-    case gen_server:call(?MODULE, #put_buckets{group = Group, buckets = Buckets}, infinity) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            error(Reason)
-    end.
 
 -spec list_groups() -> [group()].
 list_groups() ->
@@ -144,10 +142,12 @@ get_limiter({Group, Name} = LimiterId) ->
             error({limiter_not_found, LimiterId})
     end.
 
-old_buckets(#group{buckets = Buckets}) ->
+buckets(#register_group{buckets = keep}, #group{buckets = Buckets}) ->
     Buckets;
-old_buckets(undefined) ->
-    #{}.
+buckets(#register_group{buckets = keep}, undefined) ->
+    #{};
+buckets(#register_group{buckets = Buckets}, _OldGroup) ->
+    Buckets.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -171,7 +171,7 @@ handle_call(
                 name = Group,
                 module = Module,
                 limiter_options = LimiterOptions,
-                buckets = old_buckets(OldGroup)
+                buckets = buckets(Req, OldGroup)
             }),
             {reply, ok, State#{
                 group_names := sets:add_element(Group, GroupNames)
@@ -184,14 +184,6 @@ handle_call(#unregister_group{group = Group}, _From, #{group_names := GroupNames
     {reply, ok, State#{
         group_names := sets:del_element(Group, GroupNames)
     }};
-handle_call(#put_buckets{group = Group, buckets = Buckets}, _From, State) ->
-    case persistent_term:get(?PT_KEY(Group), undefined) of
-        #group{} = OldGroup ->
-            _ = persistent_term:put(?PT_KEY(Group), OldGroup#group{buckets = Buckets}),
-            {reply, ok, State};
-        undefined ->
-            {reply, {error, {limiter_group_not_found, Group}}, State}
-    end;
 handle_call(#list_groups{}, _From, #{group_names := GroupNames} = State) ->
     {reply, sets:to_list(GroupNames), State};
 handle_call(Req, _From, State) ->
