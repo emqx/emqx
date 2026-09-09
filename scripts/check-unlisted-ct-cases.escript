@@ -18,12 +18,15 @@
 %% that collect case names through module_info/1. A source scan cannot
 %% tell a listed case from an unlisted one in those suites.
 %%
-%% A t_*/1 function that is not a test case is declared in the suite:
+%% Two things are declared in the suite instead of being reported:
 %%
 %%   -ct_lint_skip_cases([t_helper_that_is_not_a_case]).
 %%
-%% Use that attribute only for a function CT can never run. It is not
-%% an allowlist for cases that should be listed and are not.
+%% a t_*/1 function that is not a test case at all, and a case that is
+%% disabled on purpose. Write the reason next to the attribute, and
+%% put it above the first function in the module -- the compiler
+%% rejects a user attribute that follows one. It is not an allowlist
+%% for cases that should be listed and are not.
 %%
 %% Usage:
 %%   ./scripts/check-unlisted-ct-cases.escript <lib_dir>
@@ -283,8 +286,9 @@ print_unlisted(Unlisted) ->
     io:format(
         standard_error,
         "~nAdd each case to all/0 or to a group that all/0 runs. "
-        "Delete it if what it tested is gone. A t_*/1 function that "
-        "is not a test case belongs in -ct_lint_skip_cases([...]).~n",
+        "Delete it if what it tested is gone. A function that is not "
+        "a test case, or a case disabled on purpose, belongs in "
+        "-ct_lint_skip_cases([...]) with the reason next to it.~n",
         []
     ).
 

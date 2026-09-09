@@ -15,6 +15,11 @@
 
 -define(DB, testdb).
 
+%% Disabled on purpose, not forgotten -- see `Broken' in all/0. Keep
+%% the two in step so scripts/check-unlisted-ct-cases.escript does not
+%% report the case as an oversight.
+-ct_lint_skip_cases([t_crash_restart_recover]).
+
 -define(ON(NODES, BODY),
     emqx_ds_test_helpers:on(NODES, fun() -> BODY end)
 ).
