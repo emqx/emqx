@@ -20,7 +20,7 @@
 -export([init/1]).
 
 -ifdef(TEST).
--export([async_receiver_pool/2, stream_writer_pool/2, whereis_action_sup/2]).
+-export([stream_writer_pool/2, whereis_action_sup/2]).
 -endif.
 
 %%------------------------------------------------------------------------------
@@ -40,7 +40,6 @@
 
 -define(grpc_client_pool(CONNRESID), {CONNRESID, grpc_client}).
 -define(stream_writer_pool(CONNRESID, ACTIONRESID), {CONNRESID, stream_writer, ACTIONRESID}).
--define(async_receiver_pool(CONNRESID, ACTIONRESID), {CONNRESID, async_receiver, ACTIONRESID}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -73,8 +72,7 @@ ensure_action_started(ConnResId, ActionResId, Opts) ->
     maybe
         {ok, _} ?= supervisor:start_child(?via(?actions_sup_id(ConnResId)), Spec),
         {ok, #{
-            writer_pool => ?stream_writer_pool(ConnResId, ActionResId),
-            recv_pool => ?async_receiver_pool(ConnResId, ActionResId)
+            writer_pool => ?stream_writer_pool(ConnResId, ActionResId)
         }}
     end.
 
@@ -87,13 +85,7 @@ ensure_action_stopped(ConnResId, ActionResId) ->
         ?via(?actions_sup_id(ConnResId)),
         ?action_sup_id(ConnResId, ActionResId)
     ),
-    lists:foreach(
-        fun ensure_worker_pool_removed/1,
-        [
-            ?stream_writer_pool(ConnResId, ActionResId),
-            ?async_receiver_pool(ConnResId, ActionResId)
-        ]
-    ),
+    _ = ensure_worker_pool_removed(?stream_writer_pool(ConnResId, ActionResId)),
     ok.
 
 start_link_connector_sup(Opts) ->
@@ -106,9 +98,6 @@ start_link_action_sup(ConnResId, ActionResId, Opts) ->
     supervisor:start_link(?via(?action_sup_id(ConnResId, ActionResId)), ?MODULE, {?action, Opts}).
 
 -ifdef(TEST).
-async_receiver_pool(ConnResId, ActionResId) ->
-    ?async_receiver_pool(ConnResId, ActionResId).
-
 stream_writer_pool(ConnResId, ActionResId) ->
     ?stream_writer_pool(ConnResId, ActionResId).
 
@@ -130,8 +119,6 @@ whereis_action_sup(ConnResId, ActionResId) ->
   *--- actions_sup (singleton, exists even when there are 0 actions; one_for_one)
        |
        *--- action_sup (1 per action; one_for_one)
-            |
-            *--- async_receiver (n = pool_size)
             |
             *--- stream_writer (n = pool_size)
 """.
@@ -172,17 +159,11 @@ init({?action, Opts}) ->
         period => 1
     },
     WriterPool = ?stream_writer_pool(ConnResId, ActionResId),
-    RecvPool = ?async_receiver_pool(ConnResId, ActionResId),
-    ensure_worker_pool(RecvPool, hash, [{size, PoolSize}]),
     ensure_worker_pool(WriterPool, hash, [{size, PoolSize}]),
-    Children = lists:flatmap(
+    Children = lists:map(
         fun(Idx) ->
-            ensure_worker_added(RecvPool, Idx),
             ensure_worker_added(WriterPool, Idx),
-            [
-                async_receiver_spec(Idx, Opts),
-                stream_writer_spec(Idx, Opts#{recv_pool => RecvPool})
-            ]
+            stream_writer_spec(Idx, Opts)
         end,
         lists:seq(1, PoolSize)
     ),
@@ -230,17 +211,6 @@ stream_writer_spec(Idx, Opts0) ->
     #{
         id => {stream_writer, Idx},
         start => {emqx_bridge_zerobus_stream_writer_worker, start_link, [Opts]},
-        type => worker,
-        restart => permanent,
-        shutdown => 5_000
-    }.
-
-async_receiver_spec(Idx, Opts0) ->
-    #{conn_res_id := ConnResId, action_res_id := ActionResId} = Opts0,
-    Opts = Opts0#{pool => ?async_receiver_pool(ConnResId, ActionResId), idx => Idx},
-    #{
-        id => {async_receiver, Idx},
-        start => {emqx_bridge_zerobus_async_receiver_worker, start_link, [Opts]},
         type => worker,
         restart => permanent,
         shutdown => 5_000
