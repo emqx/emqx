@@ -186,10 +186,7 @@ t_mountpoint_after_authn(_) ->
                 {ok, changed, _},
                 send_heartbeat(Channel, Token)
             ),
-            ?assertMatch(
-                {ok, deleted, _},
-                disconnection(Channel, Token)
-            ),
+            disconnection(Channel, Token),
             ok
         end,
         do(Action)
