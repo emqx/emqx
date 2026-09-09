@@ -24,7 +24,9 @@ print-ee-dashboard-version:
 	@echo $(EMQX_EE_DASHBOARD_VERSION)
 
 export EMQX_REL_FORM ?= tgz
-export QUICER_TLS_VER ?= sys
+# 'auto' resolves to 'sys' (link system libcrypto) when the build host has
+# OpenSSL >= 3.0, and to quicer's bundled quictls otherwise.
+export QUICER_TLS_VER ?= auto
 
 -include default-profile.mk
 PROFILE ?= emqx-enterprise
