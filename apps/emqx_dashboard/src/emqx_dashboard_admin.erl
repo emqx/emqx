@@ -115,7 +115,7 @@
 -define(SALT_BYTES, 16).
 -define(DK_LENGTH, 32).
 -define(PBKDF2_ITERATIONS, 600000).
-%% Legacy (pre-6.4) layout: 4 ASCII hex bytes of salt + 32 bytes raw sha256.
+%% Legacy layout: 4 ASCII hex bytes of salt + 32 bytes raw sha256.
 -define(LEGACY_HASH_SIZE, 36).
 -define(LEGACY_SALT_SIZE, 4).
 
@@ -848,7 +848,7 @@ verify_hash(Origin, <<"$1$", Rest/binary>>) ->
 verify_hash(Origin, <<Salt:?LEGACY_SALT_SIZE/binary, Hash/binary>> = Legacy) when
     byte_size(Legacy) =:= ?LEGACY_HASH_SIZE
 ->
-    %% Pre-6.4 layout. We do NOT rehash-on-login: during a rolling
+    %% Legacy layout. We do NOT rehash-on-login: during a rolling
     %% upgrade an older node would be unable to verify the new format,
     %% so an upgraded hash could lock the user out at the next request
     %% routed to an old node. Existing legacy hashes are replaced only
