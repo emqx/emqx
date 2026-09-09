@@ -1547,21 +1547,17 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
         %% zone will **not** take effect after the override.
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
+        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+        %% Any packet received before CONNECT is rejected by the parser.
+        expect_connect => true
     },
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
                 init_parser_and_serializer(FrameOpts0, State0);
             Parser1 ->
-                case emqx_frame:describe_state(Parser1) of
-                    #{state := Clean, proto_ver := ProtoVer} when Clean == frame; Clean == clean ->
-                        FrameOpts = FrameOpts0#{version => ProtoVer},
-                        init_parser_and_serializer(FrameOpts, State0);
-                    _ ->
-                        %% Keep state
-                        {State0#state.parser, State0#state.serialize}
-                end
+                {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
+                {Parser2, Serialize2}
         end,
     GcThresholds =
         case emqx_config:get_zone_conf(Zone, [force_gc]) of

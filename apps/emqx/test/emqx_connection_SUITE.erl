@@ -153,7 +153,7 @@ t_handle_msg(_) ->
     %% buffering the bytes silently.
     ?assertMatch(
         {ok, {incoming, {frame_error, bad_frame_header}}, _St},
-        handle_msg({tcp, From, <<"for_testing">>}, st())
+        handle_msg({tcp, From, <<"for_testing">>}, st_after_connect())
     ),
     ?assertMatch({ok, _St}, handle_msg(for_testing, st())).
 
@@ -251,15 +251,16 @@ t_parse_incoming(_) ->
     %% would have buffered as partial bytes.
     ?assertMatch(
         {0, [{frame_error, bad_frame_header}], _NState},
-        emqx_connection:parse_incoming(<<"for_testing">>, st())
+        emqx_connection:parse_incoming(<<"for_testing">>, st_after_connect())
     ),
-    %% SUBSCRIBE with remaining_len=0 in idle state:
-    %% parser throws zero_remaining_len, enriched with protocol hints
+    %% SUBSCRIBE as the first packet: rejected before CONNECT,
+    %% enriched with protocol hints
     ?assertMatch(
         {0,
             [
                 {frame_error, #{
-                    cause := zero_remaining_len,
+                    cause := unexpected_packet_before_connect,
+                    header_type := 'SUBSCRIBE',
                     packet_type := 'SUBSCRIBE',
                     resemble_protocol := _
                 }}
@@ -296,7 +297,7 @@ t_parse_incoming(_) ->
         {0, [{frame_error, bad_subqos}], _NState},
         emqx_connection:parse_incoming(
             <<16#82, 16#06, 16#00, 16#01, 16#00, 16#01, $t, 16#03>>,
-            st()
+            st_after_connect()
         )
     ),
     ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
@@ -382,6 +383,62 @@ t_packet_data_logging(_) ->
         ok = emqx_config:put_listener_conf(
             tcp, default, [allow_log_packet_data_from], OldIPMasks
         )
+    end.
+
+-doc """
+A non-CONNECT first packet is rejected from its fixed header, before the
+announced body is buffered.
+""".
+t_parse_incoming_before_connect(_) ->
+    %% PUBLISH fixed header announcing a 268435455 byte body.
+    %% Only the header is fed: an error here means the body was never buffered.
+    Publish = <<(?PUBLISH bsl 4), 16#FF, 16#FF, 16#FF, 16#7F>>,
+    ?assertMatch(
+        {0,
+            [
+                {frame_error, #{
+                    cause := unexpected_packet_before_connect,
+                    header_type := 'PUBLISH'
+                }}
+            ],
+            _NState},
+        emqx_connection:parse_incoming(Publish, st(#{}, #{conn_state => idle}))
+    ).
+
+%% A zone change re-reads the zone settings but must keep the parser's own
+%% state: a connection that has sent CONNECT must not go back to expecting one.
+t_zone_change_keeps_parser_state(_) ->
+    {ok, St} = handle_msg({event, {zone_changed, default}}, st_after_connect()),
+    Publish = <<(?PUBLISH bsl 4), 3, 0, 1, $t>>,
+    ?assertMatch(
+        {1, [?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>)], _NState},
+        emqx_connection:parse_incoming(Publish, St)
+    ).
+
+%% A chunk may hold a CONNECT and the start of the next packet, so the parser
+%% can be mid-frame when the channel reports the zone change that CONNECT
+%% caused. The in-flight frame completes, and the new zone settings take effect
+%% from the frame after it.
+t_zone_change_mid_frame(_) ->
+    Old = emqx_config:get_zone_conf(default, [mqtt, max_packet_size]),
+    try
+        Connect = iolist_to_binary(emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{}))),
+        %% CONNECT, then the header of a PUBLISH whose body has not arrived.
+        {1, [?CONNECT_PACKET(_)], St0} =
+            emqx_connection:parse_incoming(<<Connect/binary, (?PUBLISH bsl 4), 3>>, st()),
+        %% The new zone allows far smaller packets than the one in flight.
+        ok = emqx_config:put_zone_conf(default, [mqtt, max_packet_size], 2),
+        {ok, St1} = handle_msg({event, {zone_changed, default}}, St0),
+        %% The in-flight frame still completes ...
+        {1, [?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>)], St2} =
+            emqx_connection:parse_incoming(<<0, 1, $t>>, St1),
+        %% ... and the new limit is in force from the next frame on.
+        ?assertMatch(
+            {0, [{frame_error, #{cause := frame_too_large, limit := 2}}], _NState},
+            emqx_connection:parse_incoming(<<(?PUBLISH bsl 4), 3, 0, 1, $t>>, St2)
+        )
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_packet_size], Old)
     end.
 
 t_next_incoming_msgs(_) ->
@@ -698,6 +755,14 @@ make_frame(Packet) ->
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
 
 st() -> st(#{}, #{}).
+
+%% Connection state whose parser has already accepted a CONNECT, so that the
+%% packets after it are parsed as usual.
+st_after_connect() ->
+    Connect = iolist_to_binary(emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{}))),
+    {1, [_], St} = emqx_connection:parse_incoming(Connect, st()),
+    St.
+
 st(InitFields) when is_map(InitFields) ->
     st(InitFields, #{}).
 st(InitFields, ChannelFields) when is_map(InitFields) ->
