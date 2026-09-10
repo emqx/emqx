@@ -99,13 +99,18 @@ child_spec() ->
 %%------------------------------------------------------------------------------
 
 on_config_changed(OldConf, NewConf) ->
-    try
-        gen_server:call(
-            ?SERVER, #on_config_changed{old_conf = OldConf, new_conf = NewConf}, ?TIMEOUT
-        )
-    catch
-        exit:{noproc, _} ->
-            ok
+    case emqx_backup_sync_client:validate_config_update(NewConf) of
+        ok ->
+            try
+                gen_server:call(
+                    ?SERVER, #on_config_changed{old_conf = OldConf, new_conf = NewConf}, ?TIMEOUT
+                )
+            catch
+                exit:{noproc, _} ->
+                    ok
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
 on_health_check() ->
