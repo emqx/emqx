@@ -212,26 +212,17 @@ do_redact_headers(Value) ->
     Value.
 
 check_is_sensitive_header(Key) ->
-    %% Header keys may be stored as iolists (e.g. `[<<"x-api-key">>]`, a shape
-    %% produced by template parsers). `emqx_utils_conv:str/1` JSON-encodes
-    %% non-printable lists, so normalise to a binary first to keep the name intact.
-    Key1 =
-        try iolist_to_binary(Key) of
-            Bin -> Bin
-        catch
-            _:_ -> Key
-        end,
-    Key2 = string:trim(emqx_utils_conv:str(Key1)),
-    is_sensitive_header(string:lowercase(Key2)).
+    is_sensitive_header(normalize_header_name(Key)).
 
 normalize_header_name(Key) ->
+    %% Keep this in sync with emqx_auth_http_utils:transform_header_name/1.
     Key1 =
         try iolist_to_binary(Key) of
             Bin -> Bin
         catch
             _:_ -> Key
         end,
-    list_to_binary(string:lowercase(emqx_utils_conv:str(Key1))).
+    string:lowercase(emqx_utils_conv:str(Key1)).
 
 find_header(Key, Headers) ->
     case maps:find(Key, Headers) of
@@ -250,6 +241,8 @@ find_header(Key, Headers) ->
 find_unambiguous_header([]) ->
     error;
 find_unambiguous_header([Value | Values]) ->
+    %% Raw connector and bridge configurations may preserve multiple casing
+    %% variants. Do not choose one when their stored values disagree.
     case lists:all(fun(V) -> V =:= Value end, Values) of
         true -> {ok, Value};
         false -> error
@@ -333,6 +326,8 @@ do_redact_v(F) ->
     end.
 
 deobfuscate_headers(NewHeaders, OldHeaders) ->
+    %% Case-insensitive lookup applies only to direct entries of this map.
+    %% Nested maps re-enter deobfuscate/3 and retain exact-key matching.
     deobfuscate(
         NewHeaders,
         OldHeaders,
@@ -532,6 +527,17 @@ deobfuscate_test() ->
         deobfuscate(HeaderConf2Obs, HeaderConf2)
     ),
 
+    AtomHeaderConf = #{
+        <<"headers">> => #{authorization => <<"Bearer token">>}
+    },
+    AtomHeaderConfObs = #{
+        <<"headers">> => #{<<"Authorization">> => ?REDACT_VAL}
+    },
+    ?assertEqual(
+        #{<<"headers">> => #{<<"Authorization">> => <<"Bearer token">>}},
+        deobfuscate(AtomHeaderConfObs, AtomHeaderConf)
+    ),
+
     DuplicateHeaders = #{
         <<"headers">> => #{
             <<"Authorization">> => <<"upper-secret">>,
@@ -571,7 +577,7 @@ deobfuscate_test() ->
     HeaderConf3 = #{<<"headers">> => #{<<"authorization">> => <<"Bearer token">>}},
     HeaderConf3Obs = #{<<"headers">> => #{<<" Authorization ">> => ?REDACT_VAL}},
     ?assertEqual(
-        #{<<"headers">> => #{}},
+        HeaderConf3Obs,
         deobfuscate(HeaderConf3Obs, HeaderConf3)
     ),
 
@@ -587,6 +593,12 @@ deobfuscate_test() ->
     ),
 
     ok.
+
+noncanonical_header_name_is_not_redacted_test() ->
+    HeaderConf = #{
+        <<"headers">> => #{<<" Authorization ">> => <<"secret">>}
+    },
+    ?assertEqual(HeaderConf, redact(HeaderConf)).
 
 redact_header_test_() ->
     Types = [string, binary, atom],
