@@ -1757,6 +1757,33 @@ t_post_auth_tns_expression_disabled(_Config) ->
     },
     ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => ClientInfo})).
 
+-doc """
+A client without `client_attrs.tns' connects while the post-auth expression is unset.
+The connect succeeds and the post-authn hook does not raise an exception.
+""".
+t_post_auth_no_tns_client({init, Config}) ->
+    ok = clear_post_auth_tns_expression(),
+    Config;
+t_post_auth_no_tns_client({'end', _Config}) ->
+    ok;
+t_post_auth_no_tns_client(Config) when is_list(Config) ->
+    ?assertEqual(ok, emqx_mt_hookcb:on_post_authn(#{client_info => #{clientid => <<"c1">>}})),
+    ?check_trace(
+        begin
+            ClientId = ?NEW_CLIENTID(),
+            %% No username, so `client_attrs_init' does not set `tns'.
+            Pid = connect(#{clientid => ClientId}),
+            [ChanPid] = emqx_cm:lookup_channels(ClientId),
+            #{clientinfo := ClientInfo} = emqx_cm:get_chan_info(ClientId, ChanPid),
+            ?assertNot(maps:is_key(<<"tns">>, maps:get(client_attrs, ClientInfo, #{}))),
+            ok = emqtt:stop(Pid)
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(["hook_callback_exception"], Trace)),
+            ok
+        end
+    ).
+
 -doc "Expression reads client_attrs.tag and rewrites client_attrs.tns.".
 t_post_auth_tns_expression_reads_client_attrs_tag({init, Config}) ->
     ok = set_post_auth_tns_expression(<<"client_attrs.tag">>),
