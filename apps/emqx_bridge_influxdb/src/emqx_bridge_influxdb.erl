@@ -140,6 +140,11 @@ fields(influxdb_action) ->
 fields(action_parameters) ->
     [
         {write_syntax, fun write_syntax/1},
+        {bucket,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("bucket")
+            })},
         emqx_bridge_influxdb_connector:precision_field()
     ];
 fields(action_resource_opts) ->
@@ -235,22 +240,67 @@ influx_lines(RawLines, Acc) ->
 influx_line([], Acc) ->
     {Acc, []};
 influx_line(Line, Acc) ->
-    {?NON_EMPTY = Measurement, Line1} = measurement(Line),
-    {Tags, Line2} = tags(Line1),
-    {?NON_EMPTY = Fields, Line3} = influx_fields(Line2),
-    {Timestamp, Line4} = timestamp(Line3),
-    {
-        [
-            #{
-                measurement => Measurement,
-                tags => Tags,
-                fields => Fields,
-                timestamp => Timestamp
+    case raw_line_tmpl(Line) of
+        {ok, Tmpl, Rest} ->
+            {[#{line => Tmpl} | Acc], Rest};
+        error ->
+            {?NON_EMPTY = Measurement, Line1} = measurement(Line),
+            {Tags, Line2} = tags(Line1),
+            {?NON_EMPTY = Fields, Line3} = influx_fields(Line2),
+            {Timestamp, Line4} = timestamp(Line3),
+            {
+                [
+                    #{
+                        measurement => Measurement,
+                        tags => Tags,
+                        fields => Fields,
+                        timestamp => Timestamp
+                    }
+                    | Acc
+                ],
+                Line4
             }
-            | Acc
-        ],
-        Line4
-    }.
+    end.
+
+%% A whole line that is exactly one placeholder is treated as a raw line
+%% protocol template. The rendered value is written verbatim, which makes
+%% it possible to write a select result that is already a formatted line.
+raw_line_tmpl(Line) ->
+    {Line0, Rest} = split_line(Line, []),
+    Unescaped = unescape_raw_line(string:trim(Line0), []),
+    case single_placeholder(Unescaped) of
+        true -> {ok, Unescaped, Rest};
+        false -> error
+    end.
+
+split_line([$\n | _] = Line, Acc) ->
+    {lists:reverse(Acc), Line};
+split_line([], Acc) ->
+    {lists:reverse(Acc), []};
+split_line([Ch | Rest], Acc) ->
+    split_line(Rest, [Ch | Acc]).
+
+%% unescape a whole line the same way as other templates, but do not stop at
+%% any separator, e.g. `${payload.line\ 1}` is a single placeholder
+unescape_raw_line([$\\, Char | T], Acc) ->
+    IsEscapeChar = lists:member(Char, ?TAG_FIELD_KEY_ESC_CHARS),
+    Acc1 =
+        case IsEscapeChar of
+            true -> [Char | Acc];
+            false -> [Char, $\\ | Acc]
+        end,
+    unescape_raw_line(T, Acc1);
+unescape_raw_line([Char | T], Acc) ->
+    unescape_raw_line(T, [Char | Acc]);
+unescape_raw_line([], Acc) ->
+    lists:reverse(Acc).
+
+single_placeholder(Line) ->
+    Subject = unicode:characters_to_binary(Line),
+    case re:run(Subject, "^\\$\\{[^{}]*\\}$", [{capture, none}]) of
+        match -> true;
+        nomatch -> false
+    end.
 
 measurement(Line) ->
     unescape(?MEASUREMENT_ESC_CHARS, [?MEASUREMENT_TAG_SEP, ?SEP], Line, []).
