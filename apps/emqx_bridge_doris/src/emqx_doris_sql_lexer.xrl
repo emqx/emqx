@@ -36,11 +36,11 @@ PLACEHOLDER = \$\{[A-Za-z0-9_.]*\}
 %% Combine INTEGER_VALUE, EXPONENT_VALUE and DECIMAL_VALUE without Java predicates.
 %% https://github.com/apache/doris/blob/3390475e02a359380b98cc99c965b65f77827054/fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.g4#L625-L636
 NUMBER = ({INTEGER_VALUE}|{DECIMAL_DIGITS}){EXPONENT}?
-%% Fail closed instead of implementing ANTLR's decimal lookahead/backtracking.
-%% Valid exponents win equal-length matches.
-%% Local conservative approximation of isValidDecimal(), not an upstream token.
+%% Reject numeric prefixes followed by identifier characters. This enforces the
+%% local digit-starting identifier restriction and rejects unsupported suffixes.
+%% NUMBER precedes BAD_NUMBER so valid exponents win equal-length matches.
 %% https://github.com/apache/doris/blob/3390475e02a359380b98cc99c965b65f77827054/fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.g4#L29-L48
-BAD_DECIMAL = {DECIMAL_DIGITS}{EXPONENT}?[A-Za-z_][A-Za-z0-9_]*
+BAD_NUMBER = ({INTEGER_VALUE}|{DECIMAL_DIGITS}){EXPONENT}?{LETTER}({LETTER}|{DIGIT})*
 
 Rules.
 
@@ -53,12 +53,12 @@ Rules.
 \/\* : {error, comments_not_allowed}.
 %% Emit local tokens using the definitions and source references above.
 %% NUMBER merges INTEGER_VALUE, EXPONENT_VALUE and DECIMAL_VALUE.
-%% BAD_DECIMAL rejects unsupported boundaries; IDENTIFIER classifies keywords below.
+%% BAD_NUMBER rejects unsupported boundaries; IDENTIFIER classifies keywords below.
 {PLACEHOLDER} : placeholder(TokenChars, TokenLine).
 {STRING_LITERAL} : {token, {string, TokenLine, to_binary(TokenChars)}}.
 {BACKQUOTED_IDENTIFIER} : {token, {bt_identifier, TokenLine, to_binary(TokenChars)}}.
 {NUMBER} : {token, {number, TokenLine, to_binary(TokenChars)}}.
-{BAD_DECIMAL} : {error, unsupported_decimal_boundary}.
+{BAD_NUMBER} : {error, unsupported_number}.
 {IDENTIFIER} : identifier(TokenChars, TokenLine).
 %% Punctuation.
 %% https://github.com/apache/doris/blob/3390475e02a359380b98cc99c965b65f77827054/fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.g4#L61-L66

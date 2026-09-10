@@ -199,13 +199,13 @@ t_identifier_starts(_Config) ->
             [{<<"`", Name/binary, "`">>, ok} || Name <- Rejected]
     ),
     lists:foreach(
-        fun({Source, Suffix}) ->
+        fun(Source) ->
             ?assertEqual(
-                {ok, [{number, 1, <<"123">>}, {identifier, 1, Suffix}], 1},
-                emqx_doris_sql_lexer:string(Source)
+                {error, {1, emqx_doris_sql_lexer, {user, unsupported_number}}, 1},
+                emqx_doris_sql_lexer:string(binary_to_list(Source))
             )
         end,
-        [{"123d", <<"d">>}, {"123bd", <<"bd">>}]
+        Rejected
     ).
 
 t_generated_byte_rules(_Config) ->
