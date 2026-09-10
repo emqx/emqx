@@ -51,7 +51,7 @@
     config_from_rate_and_burst/2
 ]).
 
--export_type([zone/0, group/0, name/0, id/0, options/0, listener_id/0]).
+-export_type([zone/0, group/0, name/0, id/0, options/0, listener_id/0, client_options/0]).
 
 -type zone() :: atom().
 -type group() :: term().

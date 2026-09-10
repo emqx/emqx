@@ -178,3 +178,40 @@ t_lazy_entry_mixed_put_back(_) ->
         Container1,
         [{limiter1, 1}, {limiter2, 2}, {limiter3, 1}]
     ).
+
+-doc "A close-mode lazy spec whose group is gone denies instead of failing open.".
+t_lazy_entry_close_mode_missing_group(_) ->
+    Container0 = emqx_limiter_client_container:new([
+        {limiter1, {lazy, [{{nonexistent_group, limiter1}, #{not_found_mode => close}}]}}
+    ]),
+    {false, Container1, {limiter_not_found, {nonexistent_group, limiter1}}} =
+        emqx_limiter_client_container:try_consume(Container0, [{limiter1, 1}]),
+    ?assertEqual(Container0, Container1).
+
+-doc "A close-mode lazy spec connects a close-mode client and keeps denying after group deletion.".
+t_lazy_entry_close_mode_materializes(_) ->
+    ok = emqx_limiter:create_group(exclusive, group1, [
+        {limiter1, #{capacity => 2, interval => 60000, burst_capacity => 0}}
+    ]),
+    Container0 = emqx_limiter_client_container:new([
+        {limiter1, {lazy, [{{group1, limiter1}, #{not_found_mode => close}}]}}
+    ]),
+    {true, Container1} =
+        emqx_limiter_client_container:try_consume(Container0, [{limiter1, 2}]),
+    ?assertMatch(#{limiter1 := #{module := _, not_found_mode := close}}, Container1),
+    ok = emqx_limiter:delete_group(group1),
+    {false, _Container2, {limiter_not_found, {group1, limiter1}}} =
+        emqx_limiter_client_container:try_consume(Container1, [{limiter1, 1}]).
+
+-doc "A vanished open-mode limiter in a multi-id spec is skipped; the rest still enforce.".
+t_lazy_entry_skips_vanished_open_limiter(_) ->
+    ok = emqx_limiter:create_group(exclusive, group1, [
+        {limiter1, #{capacity => 2, interval => 60000, burst_capacity => 0}}
+    ]),
+    Container0 = emqx_limiter_client_container:new([
+        {limiter1, {lazy, [{nonexistent_group, limiter1}, {group1, limiter1}]}}
+    ]),
+    {true, Container1} =
+        emqx_limiter_client_container:try_consume(Container0, [{limiter1, 2}]),
+    {false, _Container2, {failed_to_consume_from_limiter, {group1, limiter1}}} =
+        emqx_limiter_client_container:try_consume(Container1, [{limiter1, 1}]).

@@ -223,39 +223,30 @@ create_client_container(Zone, ListenerId, Ns, Names) ->
     ),
     emqx_limiter_client_container:new(Clients).
 
+%% Entries are lazy: the container connects the clients on the first
+%% consume after a finite limit exists (see emqx_limiter_client_container).
+%% Which groups apply is still decided here, at hook time.
 create_limiter(Zone, ListenerId, Ns, Name) ->
-    TenantLimiters = create_tenant_limiters(Zone, Ns, Name),
-    ClientLimiters = create_client_limiters(ListenerId, Ns, Name),
-    case TenantLimiters ++ ClientLimiters of
-        [Client] -> Client;
-        Clients -> emqx_limiter_composite:new(Clients)
-    end.
+    {lazy, tenant_limiter_specs(Zone, Ns, Name) ++ client_limiter_specs(ListenerId, Ns, Name)}.
 
-create_tenant_limiters(_Zone, _Ns, Name) when ?IS_CHANNEL_ONLY_LIMITER(Name) ->
+tenant_limiter_specs(_Zone, _Ns, Name) when ?IS_CHANNEL_ONLY_LIMITER(Name) ->
     [];
-create_tenant_limiters(Zone, Ns, Name) ->
-    ZoneLimiterId = {zone_group(Zone), Name},
-    ZoneLimiterClient = emqx_limiter:connect(ZoneLimiterId),
+tenant_limiter_specs(Zone, Ns, Name) ->
+    ZoneSpec = {zone_group(Zone), Name},
     case emqx_mt_config:get_tenant_limiter_config(Ns) of
         {ok, #{}} ->
-            TenantLimiterId = {tenant_group(Ns), Name},
-            TenantLimiterClient = emqx_limiter:connect(TenantLimiterId, #{not_found_mode => close}),
-            [ZoneLimiterClient, TenantLimiterClient];
+            [ZoneSpec, {{tenant_group(Ns), Name}, #{not_found_mode => close}}];
         _ ->
-            [ZoneLimiterClient]
+            [ZoneSpec]
     end.
 
-create_client_limiters(ListenerId, Ns, Name) ->
+client_limiter_specs(ListenerId, Ns, Name) ->
     case emqx_mt_config:get_client_limiter_config(Ns) of
         {ok, #{}} ->
-            ClientLimiterId = {client_group(Ns), Name},
-            ClientLimiterClient = emqx_limiter:connect(ClientLimiterId, #{not_found_mode => close}),
-            [ClientLimiterClient];
+            [{{client_group(Ns), Name}, #{not_found_mode => close}}];
         _ ->
             %% TODO: Isolate implementation details in `emqx_limiter` API.
-            LimiterId = {channel_group(ListenerId), Name},
-            LimiterClient = emqx_limiter:connect(LimiterId),
-            [LimiterClient]
+            [{channel_group(ListenerId), Name}]
     end.
 
 ensure_group_absent(Group) ->
