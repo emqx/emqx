@@ -183,6 +183,7 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
         {emqx_machine, register_hooks, [on_run_level(ManagedSpecs)]}
     ),
     ClassyApps = start_apps(SystemSpecs, SuiteOpts),
+    ok = classy:start_system(),
     % 6. Start apps following instructions.
     ClassyApps ++ wait_business_apps(WaitStarted).
 
@@ -560,7 +561,7 @@ A safe way to stop applications that imitates behavior of emqx_machine.
 stop(Apps) ->
     optvar:unset(?rest_started),
     try
-        classy:prep_stop()
+        classy:stop_system()
     catch
         _:_ -> ok
     end,
