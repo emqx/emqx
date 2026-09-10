@@ -130,6 +130,11 @@ fields(oidc) ->
                     desc => ?DESC(require_pkce),
                     default => false
                 })},
+            {skip_login_cookie_check,
+                ?HOCON(boolean(), #{
+                    desc => ?DESC(skip_login_cookie_check),
+                    default => false
+                })},
             {preferred_auth_methods,
                 ?HOCON(
                     ?ARRAY(
@@ -236,6 +241,7 @@ start_session(#{} = Config) ->
             %% Note: the oidcc maintains an ETS with the same name of the provider gen_server,
             %% we should use this name in each API calls not the PID,
             %% or it would backoff to sync calls to the gen_server
+            ok = emqx_dashboard_sso_browser_binding:maybe_warn_check_skipped(oidc, Config),
             ClientJwks = init_client_jwks(Config),
             {ok, #{
                 name => ?PROVIDER_SVR_NAME,

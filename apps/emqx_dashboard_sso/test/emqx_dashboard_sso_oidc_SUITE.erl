@@ -585,7 +585,7 @@ t_reject_callback_from_another_browser(TCConfig) ->
 
     %% The cookie is scoped to the SSO endpoints and hidden from scripts.
     ct:pal("set-cookie: ~s", [SetCookie]),
-    ?assertMatch({match, _}, re:run(SetCookie, "^emqx_sso_oidc=")),
+    ?assertMatch({match, _}, re:run(SetCookie, "^emqx_sso_oidc_[0-9a-f]{16}=")),
     ?assertMatch({match, _}, re:run(SetCookie, "Path=/api/v5/sso")),
     ?assertMatch({match, _}, re:run(SetCookie, "HttpOnly")),
     ?assertMatch({match, _}, re:run(SetCookie, "SameSite=Lax")),
@@ -608,6 +608,55 @@ t_reject_callback_from_another_browser(TCConfig) ->
     %% The browser that started the login still completes it.
     ?assertMatch({302, _, _}, simple_login_get(CallbackURL, Cookie)),
     ?assertMatch([_], get_new_dashboard_users(Node)),
+
+    ok.
+
+-doc """
+Two tabs of one browser each start an OIDC login. Both logins complete, the one
+started last first, while the browser sends both cookies on every callback.
+""".
+t_concurrent_logins_in_one_browser(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    ?assertMatch({200, _}, create_backend(Node, oidc_provider_params(), #{})),
+
+    {ok, #{callback_url := CallbackA, cookie := CookieA}} = authorize_flow(Node, Node),
+    {ok, #{callback_url := CallbackB, cookie := CookieB}} = authorize_flow(Node, Node),
+    ?assertNotEqual(CookieA, CookieB),
+    Jar = CookieA ++ "; " ++ CookieB,
+
+    %% The login started last completes first. It deletes only its own cookie.
+    {302, HeadersB, _} = simple_login_get(CallbackB, Jar),
+    {"location", LocationB} = lists:keyfind("location", 1, HeadersB),
+    ?assertMatch({match, _}, re:run(LocationB, "login_meta=")),
+    [NameB | _] = string:split(CookieB, "="),
+    ?assertMatch(
+        [_],
+        [V || {"set-cookie", V} <- HeadersB, string:prefix(V, NameB ++ "=;") =/= nomatch]
+    ),
+
+    %% The login started first still completes with its own cookie.
+    {302, HeadersA, _} = simple_login_get(CallbackA, CookieA),
+    {"location", LocationA} = lists:keyfind("location", 1, HeadersA),
+    ?assertMatch({match, _}, re:run(LocationA, "login_meta=")),
+
+    ok.
+
+-doc """
+With `skip_login_cookie_check` enabled, a callback without the login cookie
+completes the login.
+""".
+t_skip_login_cookie_check(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    Node = node(),
+    Params = (oidc_provider_params())#{<<"skip_login_cookie_check">> => true},
+    ?assertMatch({200, _}, create_backend(Node, Params, #{})),
+    ?assertMatch({200, #{<<"skip_login_cookie_check">> := true}}, get_backend(Node, #{})),
+
+    {ok, #{callback_url := CallbackURL}} = authorize_flow(Node, Node),
+    {302, Headers, _} = simple_login_get(CallbackURL),
+    {"location", Location} = lists:keyfind("location", 1, Headers),
+    ?assertMatch({match, _}, re:run(Location, "login_meta=")),
 
     ok.
 

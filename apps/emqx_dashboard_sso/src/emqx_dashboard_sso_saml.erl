@@ -77,7 +77,8 @@ fields(saml) ->
             {sp_public_key, fun sp_public_key/1},
             {sp_private_key, fun sp_private_key/1},
             {idp_signs_envelopes, fun idp_signs_envelopes/1},
-            {idp_signs_assertions, fun idp_signs_assertions/1}
+            {idp_signs_assertions, fun idp_signs_assertions/1},
+            {skip_login_cookie_check, fun skip_login_cookie_check/1}
         ];
 fields(login) ->
     [
@@ -122,6 +123,11 @@ idp_signs_assertions(type) -> boolean();
 idp_signs_assertions(desc) -> ?DESC(idp_signs_assertions);
 idp_signs_assertions(default) -> true;
 idp_signs_assertions(_) -> undefined.
+
+skip_login_cookie_check(type) -> boolean();
+skip_login_cookie_check(desc) -> ?DESC(skip_login_cookie_check);
+skip_login_cookie_check(default) -> false;
+skip_login_cookie_check(_) -> undefined.
 
 desc(saml) ->
     "saml";
@@ -196,18 +202,28 @@ login(
         end,
     {redirect, Redirect}.
 
-callback(Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = _State) ->
+callback(Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = State) ->
     PostVals = cow_qs:parse_qs(Body),
     RelayState = proplists:get_value(<<"RelayState">>, PostVals),
     %% Check the browser binding first, so an unsolicited cross-site POST never
     %% reaches the XML parser or the replay cache.
-    case emqx_dashboard_sso_browser_binding:verify(saml, Req, RelayState) of
+    case emqx_dashboard_sso_browser_binding:check(saml, State, Req, RelayState) of
         {error, Reason} ->
             ?SLOG(error, #{msg => "saml_login_not_started_by_this_browser", reason => Reason}),
             {error, ?BINDING_ERROR_MESSAGE};
         ok ->
-            do_callback(SP, DashboardAddr, PostVals)
+            clear_binding(RelayState, do_callback(SP, DashboardAddr, PostVals))
     end.
+
+%% The round-trip is over, drop the binding cookie of this login. With the check
+%% skipped, an assertion may arrive without a `RelayState' and has no cookie.
+clear_binding(RelayState, {redirect, Username, {Status, Headers, Body}}) when
+    is_binary(RelayState), RelayState =/= <<>>
+->
+    ClearCookie = emqx_dashboard_sso_browser_binding:clear_cookie_header(saml, RelayState),
+    {redirect, Username, {Status, maps:merge(Headers, ClearCookie), Body}};
+clear_binding(_RelayState, Result) ->
+    Result.
 
 do_callback(SP, DashboardAddr, PostVals) ->
     case do_validate_assertion(SP, fun esaml_util:check_dupe_ets/2, PostVals) of
@@ -283,6 +299,7 @@ do_create(
                 email = "contact@emqx.io"
             }
         }),
+        ok = emqx_dashboard_sso_browser_binding:maybe_warn_check_skipped(saml, Config),
         State = Config,
         {ok, State#{idp_meta => IdpMeta, sp => SP}}
     catch
@@ -399,11 +416,7 @@ gen_redirect_response(DashboardAddr, Username) ->
 
 redirect_response(DashboardAddr, Username, Payload) ->
     Target = code_redirect_target(DashboardAddr, Username, Payload),
-    %% The round-trip is over, drop the binding cookie.
-    ClearCookie = emqx_dashboard_sso_browser_binding:clear_cookie_header(saml),
-    Headers0 = maps:merge(?RESPHEADERS, ClearCookie),
-    Headers = Headers0#{<<"location">> => Target},
-    {302, Headers, ?REDIRECT_BODY}.
+    {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY}.
 
 %%------------------------------------------------------------------------------
 %% Helpers functions

@@ -12,15 +12,24 @@ to the identity provider in a protocol field the provider echoes back (`state`
 for OIDC, `RelayState` for SAML). At the callback both values must match, so a
 callback replayed in another browser is rejected before it can mint a login
 code.
+
+Each login gets its own cookie, named after a hash of its value. Logins started
+in several tabs of one browser therefore keep separate cookies, and each of them
+can complete.
+
+A backend turns the check off with `skip_login_cookie_check`.
 """.
+
+-include_lib("emqx/include/logger.hrl").
 
 -export([
     new_value/0,
+    cookie_name/2,
     set_cookie_header/3,
-    clear_cookie_header/1,
-    cookie_name/1,
-    bound_value/2,
-    verify/3
+    clear_cookie_header/2,
+    verify/3,
+    check/4,
+    maybe_warn_check_skipped/2
 ]).
 
 -export_type([backend/0]).
@@ -32,15 +41,21 @@ code.
 %% this prefix, so the cookie never reaches any other endpoint.
 -define(COOKIE_PATH, <<"/api/v5/sso">>).
 -define(VALUE_LEN, 32).
+%% Hex digits of the value hash in the cookie name. 64 bits keep the concurrent
+%% logins of one browser apart.
+-define(NAME_HASH_LEN, 16).
 
 -doc "Random value to bind one login round-trip to one browser.".
 -spec new_value() -> binary().
 new_value() ->
     emqx_utils_conv:bin(emqx_utils:gen_id(?VALUE_LEN)).
 
--spec cookie_name(backend()) -> binary().
-cookie_name(oidc) -> <<"emqx_sso_oidc">>;
-cookie_name(saml) -> <<"emqx_sso_saml">>.
+-doc "Name of the cookie that binds `Value'. Each login value gets its own name.".
+-spec cookie_name(backend(), binary()) -> binary().
+cookie_name(Backend, Value) ->
+    Hex = binary:encode_hex(crypto:hash(sha256, Value), lowercase),
+    <<Hash:?NAME_HASH_LEN/binary, _/binary>> = Hex,
+    <<(name_prefix(Backend))/binary, Hash/binary>>.
 
 -doc """
 Build the `set-cookie' header that binds `Value' to this browser.
@@ -59,32 +74,23 @@ set_cookie_header(Backend, Value, #{max_age := MaxAge, url := Url}) ->
         same_site => same_site(Backend, Secure),
         max_age => max(1, MaxAge)
     },
-    set_cookie(Backend, Value, Opts).
+    set_cookie(cookie_name(Backend, Value), Value, Opts).
 
--doc "Build the `set-cookie' header that deletes the cookie.".
--spec clear_cookie_header(backend()) -> #{binary() => binary()}.
-clear_cookie_header(Backend) ->
-    set_cookie(Backend, <<>>, #{path => ?COOKIE_PATH, http_only => true, max_age => 0}).
-
--doc "Read the bound value from a minirest request. Returns `undefined' when absent.".
--spec bound_value(backend(), map()) -> binary() | undefined.
-bound_value(Backend, Req) ->
-    Headers = maps:get(headers, Req, #{}),
-    case maps:get(<<"cookie">>, Headers, undefined) of
-        undefined ->
-            undefined;
-        Raw ->
-            find_cookie(cookie_name(Backend), Raw)
-    end.
+-doc "Build the `set-cookie' header that deletes the cookie bound to `Value'.".
+-spec clear_cookie_header(backend(), binary()) -> #{binary() => binary()}.
+clear_cookie_header(Backend, Value) ->
+    Opts = #{path => ?COOKIE_PATH, http_only => true, max_age => 0},
+    set_cookie(cookie_name(Backend, Value), <<>>, Opts).
 
 -doc """
-Check that the callback request carries the cookie set at login start.
+Check that the callback request carries the cookie set when this login started.
 
-`Expected' is the value echoed back by the identity provider.
+`Expected' is the value echoed back by the identity provider. It also names the
+cookie to look for, so the other logins of the same browser do not interfere.
 """.
 -spec verify(backend(), map(), binary() | undefined) -> ok | {error, browser_binding_mismatch}.
 verify(Backend, Req, Expected) when is_binary(Expected), Expected =/= <<>> ->
-    case bound_value(Backend, Req) of
+    case find_cookie(cookie_name(Backend, Expected), Req) of
         undefined ->
             {error, browser_binding_mismatch};
         Value ->
@@ -96,13 +102,47 @@ verify(Backend, Req, Expected) when is_binary(Expected), Expected =/= <<>> ->
 verify(_Backend, _Req, _Expected) ->
     {error, browser_binding_mismatch}.
 
+-doc """
+Check the login cookie as `verify/3` does, unless the backend `Config` sets
+`skip_login_cookie_check`.
+""".
+-spec check(backend(), map(), map(), binary() | undefined) ->
+    ok | {error, browser_binding_mismatch}.
+check(Backend, Config, Req, Expected) ->
+    case skips_check(Config) of
+        true -> ok;
+        false -> verify(Backend, Req, Expected)
+    end.
+
+-doc "Log a warning when an enabled backend skips the login cookie check.".
+-spec maybe_warn_check_skipped(backend(), map()) -> ok.
+maybe_warn_check_skipped(Backend, #{enable := true} = Config) ->
+    case skips_check(Config) of
+        true ->
+            ?SLOG(warning, #{
+                msg => "sso_login_cookie_check_skipped",
+                backend => Backend,
+                reason => "SSO logins are not bound to the browser that started them"
+            }),
+            ok;
+        false ->
+            ok
+    end;
+maybe_warn_check_skipped(_Backend, _Config) ->
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-set_cookie(Backend, Value, Opts) ->
-    Cookie = cow_cookie:setcookie(cookie_name(Backend), Value, Opts),
-    #{<<"set-cookie">> => iolist_to_binary(Cookie)}.
+skips_check(Config) ->
+    maps:get(skip_login_cookie_check, Config, false) =:= true.
+
+name_prefix(oidc) -> <<"emqx_sso_oidc_">>;
+name_prefix(saml) -> <<"emqx_sso_saml_">>.
+
+set_cookie(Name, Value, Opts) ->
+    #{<<"set-cookie">> => iolist_to_binary(cow_cookie:setcookie(Name, Value, Opts))}.
 
 %% The OIDC callback is a top-level GET, which carries a `Lax' cookie. The SAML
 %% assertion consumer service is a cross-site top-level POST, which carries only
@@ -113,7 +153,14 @@ same_site(oidc, _Secure) -> lax;
 same_site(saml, true) -> none;
 same_site(saml, false) -> lax.
 
-find_cookie(Name, Raw) ->
+find_cookie(Name, Req) ->
+    Headers = maps:get(headers, Req, #{}),
+    case maps:get(<<"cookie">>, Headers, undefined) of
+        undefined -> undefined;
+        Raw -> find_cookie_in_header(Name, Raw)
+    end.
+
+find_cookie_in_header(Name, Raw) ->
     try cow_cookie:parse_cookie(Raw) of
         Cookies ->
             case lists:keyfind(Name, 1, Cookies) of

@@ -86,9 +86,11 @@ code_callback(get, #{query_string := QS} = Req) ->
             ?SLOG(info, #{
                 msg => "dashboard_sso_login_successful"
             }),
+            %% A successful callback always carries a binary `state'.
+            #{<<"state">> := State} = QS,
             Headers = maps:merge(
                 ?REDIRECT_HEADERS(Target),
-                emqx_dashboard_sso_browser_binding:clear_cookie_header(?BACKEND)
+                emqx_dashboard_sso_browser_binding:clear_cookie_header(?BACKEND, State)
             ),
             {302, Headers, ?REDIRECT_BODY};
         {error, browser_binding_mismatch} ->
@@ -141,11 +143,11 @@ ensure_sso_state(QS, Req) ->
             ensure_oidc_state(QS, Req, Cfg)
     end.
 
-ensure_oidc_state(#{<<"state">> := State} = QS, Req, Cfg) ->
+ensure_oidc_state(#{<<"state">> := State} = QS, Req, #{config := Config} = Cfg) ->
     %% Check the browser binding before the state is consumed, so that a
     %% callback replayed elsewhere cannot spend the state of a pending login.
     maybe
-        ok ?= emqx_dashboard_sso_browser_binding:verify(?BACKEND, Req, State),
+        ok ?= emqx_dashboard_sso_browser_binding:check(?BACKEND, Config, Req, State),
         {ok, Data} ?= lookup_all_nodes(State),
         delete_all_nodes(State),
         retrieve_token(QS, Cfg, Data)
