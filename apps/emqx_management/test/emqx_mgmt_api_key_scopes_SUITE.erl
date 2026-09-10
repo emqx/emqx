@@ -733,7 +733,7 @@ t_api_update_scopes(_Config) ->
     Name = <<"SCOPES-API-UPDATE">>,
     {ok, Created} = create_app(Name),
     %% POST without `scopes' now materialises the role-default scope list
-    %% (administrator -> the 10 common management scopes). The legacy
+    %% (administrator -> the common management scopes). The legacy
     %% `<<"unset">>' sentinel is reserved for records that pre-date the
     %% scopes feature and was thus upgraded without a scopes field.
     DefaultAdminScopes = lists:sort(?GENERIC_SCOPES),

@@ -437,7 +437,7 @@ maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
 %% list (POST without `scopes', 2-/3-segment bootstrap line). Accepts a
 %% bare role or a serialized namespaced role (`ns:<ns>::<role>').
 %%
-%%   * global administrator / viewer -> `?GENERIC_SCOPES' (10 management
+%%   * global administrator / viewer -> `?GENERIC_SCOPES' (the management
 %%     scopes, no login-only scopes — those are reserved for dashboard
 %%     users).
 %%   * namespaced administrator -> `?NS_ADMIN_COMMON_SCOPES': the subset a
