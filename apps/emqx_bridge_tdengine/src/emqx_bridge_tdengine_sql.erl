@@ -318,6 +318,8 @@ compile_value({time_arithmetic, Base, Ops}) ->
 
 serialize_identifier({identifier, bare, Name}) ->
     Name;
+serialize_identifier({identifier_parts, []}) ->
+    error({invalid_tdengine_identifier, empty});
 serialize_identifier({identifier_parts, Parts}) ->
     case Parts of
         [#tpl_text{text = Text}] -> quote_identifier(Text);
@@ -620,7 +622,7 @@ template_parts_classification_test() ->
         [<<"${a}${b}">>, <<"`${a}${b}`">>, <<"`${table}`">>]
     ),
     ?assertEqual(
-        {error, {invalid_tdengine_insert_template, {error, dynamic_identifier_not_allowed}}},
+        {error, {invalid_tdengine_insert_template, {error, {invalid_tdengine_identifier, empty}}}},
         compile(<<"INSERT INTO `` VALUES (1)">>)
     ).
 
