@@ -211,12 +211,12 @@ t_redact_config(_Config) ->
     ),
     ?assertEqual(
         #{
-            <<"backend">> => <<"saml">>,
+            <<"backend">> => saml,
             <<"sp_private_key">> => <<>>,
             <<"password">> => <<"******">>
         },
         emqx_dashboard_sso_saml:redact_config(#{
-            <<"backend">> => <<"saml">>,
+            <<"backend">> => saml,
             <<"sp_private_key">> => <<>>,
             <<"password">> => <<>>
         })

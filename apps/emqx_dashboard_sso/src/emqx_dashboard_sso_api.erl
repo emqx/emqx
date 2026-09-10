@@ -447,8 +447,6 @@ redact_config(#{backend := saml} = Config) ->
     emqx_dashboard_sso_saml:redact_config(Config);
 redact_config(#{<<"backend">> := saml} = Config) ->
     emqx_dashboard_sso_saml:redact_config(Config);
-redact_config(#{<<"backend">> := <<"saml">>} = Config) ->
-    emqx_dashboard_sso_saml:redact_config(Config);
 redact_config(Config) ->
     emqx_utils:redact(Config).
 
