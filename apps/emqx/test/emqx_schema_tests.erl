@@ -301,6 +301,32 @@ listener_ws_proxy_header_defaults_test() ->
         )
     ).
 
+listener_ws_max_frame_size_test_() ->
+    Sc = #{
+        roots => [mqtt_ws_listener],
+        fields => #{mqtt_ws_listener => emqx_schema:fields("mqtt_ws_listener")}
+    },
+    Check = fun(Websocket) ->
+        #{<<"mqtt_ws_listener">> := #{<<"websocket">> := #{<<"max_frame_size">> := Value}}} =
+            hocon_tconf:check_plain(
+                Sc,
+                #{<<"mqtt_ws_listener">> => #{<<"websocket">> => Websocket}},
+                #{required => false}
+            ),
+        Value
+    end,
+    [
+        ?_assertEqual(infinity, Check(#{})),
+        ?_assertEqual(infinity, Check(#{<<"max_frame_size">> => <<"infinity">>})),
+        ?_assertEqual(1024, Check(#{<<"max_frame_size">> => 1024})),
+        ?_assertEqual(268435455, Check(#{<<"max_frame_size">> => 268435455})),
+        ?_assertThrow(
+            {_, [#{kind := validation_error}]},
+            Check(#{<<"max_frame_size">> => 300 * 1024 * 1024})
+        ),
+        ?_assertThrow({_, [#{kind := validation_error}]}, Check(#{<<"max_frame_size">> => 0}))
+    ].
+
 validate(Schema, Data0) ->
     Sc = #{
         roots => [ssl_opts],
