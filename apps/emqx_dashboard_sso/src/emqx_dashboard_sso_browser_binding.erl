@@ -177,9 +177,10 @@ find_cookie_in_header(Name, Raw) ->
 equals(A, B) ->
     crypto:hash_equals(crypto:hash(sha256, A), crypto:hash(sha256, B)).
 
+%% URI schemes are case-insensitive (RFC 3986, section 3.1), and
+%% `dashboard_addr' is not normalised.
 is_https(Url) ->
     case uri_string:parse(Url) of
-        #{scheme := <<"https">>} -> true;
-        #{scheme := "https"} -> true;
+        #{scheme := Scheme} -> string:equal(Scheme, <<"https">>, true);
         _ -> false
     end.
