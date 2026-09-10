@@ -16,12 +16,12 @@ Terminals
     builtin_expression
     case_kw when_kw then_kw else_kw end_kw is_kw and_kw or_kw not_kw
     identifier placeholder number string bt_identifier
-    '(' ')' ',' '.' ';' '=' '<=>' '>=' '<=' '<>' '!=' '>' '<' '+' '-' '*' '/' '%'.
+    '(' ')' ',' '.' ';' '=' '<=>' '>=' '<=' '<>' '>' '<' '+' '-' '*' '/' '%'.
 Rootsymbol template.
 Left 10 or_kw.
 Left 20 and_kw.
 Right 30 not_kw.
-Nonassoc 40 '=' '<=>' '>=' '<=' '<>' '!=' '>' '<' is_kw.
+Nonassoc 40 '=' '<=>' '>=' '<=' '<>' '>' '<' is_kw.
 Left 100 '+' '-'.
 Left 200 '*' '/' '%'.
 
@@ -65,7 +65,6 @@ expression -> expression '<=>' expression : {binary, '<=>', '$1', '$3'}.
 expression -> expression '>=' expression : {binary, '>=', '$1', '$3'}.
 expression -> expression '<=' expression : {binary, '<=', '$1', '$3'}.
 expression -> expression '<>' expression : {binary, '<>', '$1', '$3'}.
-expression -> expression '!=' expression : {binary, '!=', '$1', '$3'}.
 expression -> expression '>' expression : {binary, '>', '$1', '$3'}.
 expression -> expression '<' expression : {binary, '<', '$1', '$3'}.
 expression -> expression is_kw null : {is_null, '$1', false}.
