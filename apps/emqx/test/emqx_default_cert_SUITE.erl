@@ -223,6 +223,30 @@ t_bundle_has_chain_and_no_ca_file(_TCConfig) ->
     ).
 
 -doc """
+A bundle holding only a `ca' file is completed rather than replaced: the node
+generates the key and chain it is missing and keeps the CA it was given.
+
+This is how an operator says who to trust for peers without also having to issue
+this node an identity, which is the one part a node can decide for itself.
+""".
+t_installed_ca_file_alone_is_completed(_TCConfig) ->
+    Dir = emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
+    ok = filelib:ensure_path(Dir),
+    Ca = ca_pem(),
+    ok = file:write_file(filename:join(Dir, "ca.pem"), Ca),
+
+    Contents = contents(ensure()),
+    ?assertEqual([ca, chain, key], lists:sort(maps:keys(Contents))),
+    %% The CA is the one that was installed, not one this node made up.
+    ?assertEqual(Ca, maps:get(?FILE_KIND_CA, Contents)),
+    %% And the identity it generated is usable and its own.
+    assert_self_consistent(maps:without([?FILE_KIND_CA], Contents)),
+    ?assertMatch(
+        {ok, #{cacertfile := _, certfile := _, keyfile := _}},
+        emqx_tls_lib:ensure_default_certs(#{})
+    ).
+
+-doc """
 A `ca' file an operator installed in the bundle is served as the `cacertfile',
 so a listener that verifies peers gets the trust anchor its bundle came with.
 The generated bundle holds no such file.
@@ -385,7 +409,7 @@ t_waits_for_holder_instead_of_deleting(_TCConfig) ->
             install -> ok
         end,
         ok = emqx_managed_certs:delete_bundle_v1(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
-        ok = emqx_managed_certs:create_bundle(
+        ok = emqx_managed_certs:install_files(
             ?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME, Installed
         ),
         Parent ! {self(), installed}

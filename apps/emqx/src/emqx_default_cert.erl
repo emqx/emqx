@@ -144,7 +144,6 @@ complete_bundle() ->
 %% writing this bundle at the same time.
 do_generate_localhost_bundle() ->
     maybe
-        ok ?= clear_unusable_bundle(),
         {ok, Files} ?= generate(),
         install(Files)
     else
@@ -157,20 +156,8 @@ do_generate_localhost_bundle() ->
             Error
     end.
 
-%% Whatever is stored is incomplete, or there is nothing at all. An incomplete
-%% bundle would block the rename, and this node cannot use it either way.
-clear_unusable_bundle() ->
-    case emqx_managed_certs:delete_bundle_v1(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME) of
-        ok ->
-            ok;
-        {error, enoent} ->
-            ok;
-        {error, _} = Error ->
-            Error
-    end.
-
 install(Files) ->
-    case emqx_managed_certs:create_bundle(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME, Files) of
+    case emqx_managed_certs:install_files(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME, Files) of
         ok ->
             ?SLOG(info, #{
                 msg => "default_tls_certificate_generated",
@@ -178,13 +165,6 @@ install(Files) ->
                 dir => emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME)
             }),
             ok;
-        {error, exists} ->
-            %% Something appeared after the delete above. Accept it only if it
-            %% is a bundle this node can actually use.
-            case complete_bundle() of
-                {ok, _} -> ok;
-                {error, _} -> {error, unusable_bundle_in_place}
-            end;
         {error, _} = Error ->
             Error
     end.
