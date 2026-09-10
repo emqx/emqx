@@ -37,27 +37,28 @@ MQTT-SN `asleep` and `CleanSession` are separate concepts:
 
 * A connected client enters `asleep` by sending `DISCONNECT` with a non-zero Duration. This
   transition is accepted regardless of the `CleanSession` flag.
-* For a new connection, `CleanSession=false` is required to request session recovery. The old
-  sleeping session must still be alive, and recovery is subject to the sleep/session-expiry timer,
-  session queue limits, and the subscription-resume configuration.
+* `CleanSession=false` is required for CONNECT-based session recovery. The old session must still
+  be alive, and recovery is subject to the sleep/session-expiry timer, session queue limits, and
+  the subscription-resume configuration.
 
-On a plaintext UDP listener, `PINGREQ` carries only the Client ID and does not authenticate the
-sender. A sleeping client can therefore be awakened with PINGREQ only through the UDP flow already
-bound to its session. This may work while the flow is stable, but it is not a reliable WAN/NAT
-mechanism: after NAT rebinding or another source-tuple change, the gateway cannot use the Client ID
-to prove ownership of the session. The gateway responds with `DISCONNECT`; the client must establish
-a new transport and send `CONNECT` with `CleanSession=false` to request recovery.
+On plaintext UDP, and on DTLS listeners where the client does not provide a certificate, the
+gateway preserves the legacy MQTT-SN behavior: `PINGREQ(ClientId)` can find and wake the old
+asleep/awake session even when the source IP or port has changed. This is intentionally
+unauthenticated because MQTT-SN PINGREQ contains no password or token; it should only be used where
+that risk is acceptable.
 
-`CleanSession=true` does not prevent a client from entering `asleep`, and a same-flow wake-up may
-continue to use the existing in-memory session. It does not provide a persistence guarantee,
-however. On a new connection, `CleanSession=true` creates a clean session and does not resume the
-old queued messages or subscriptions.
+`CleanSession=true` does not prevent a client from entering `asleep`. A PINGREQ wake does not carry
+the CleanSession flag and may continue to use the existing in-memory session while it is alive. This
+is not a persistence guarantee. A new CONNECT with `CleanSession=true` creates a clean session and
+does not resume the old queued messages or subscriptions.
 
-DTLS does not remove the reconnect requirement. Mutual DTLS authentication (mTLS or a unique PSK)
-can provide an authenticated transport identity for a new DTLS association, but the gateway's
-authentication policy must bind that identity to the MQTT-SN Client ID. Server-authenticated-only
-DTLS does not authenticate the client. The current MQTT-SN gateway does not treat a new DTLS
-association's PINGREQ as a session-resume credential; after a network change, use `CONNECT` with
-`CleanSession=false`.
+For a DTLS listener configured with `verify = verify_peer` and
+`fail_if_no_peer_cert = true`, the gateway records the client's certificate subject DN and CN with
+the session. A PINGREQ from a new DTLS association can resume
+that session only when both values match. A missing client certificate or different subject DN/CN,
+including a plaintext UDP request, is rejected for such a certificate-subject-bound session.
+Server-only DTLS does not authenticate the client and follows the legacy behavior above. Because
+this binding uses DN and CN, a different certificate with the same subject values is accepted. This
+PINGREQ binding does not replace the separate MQTT-SN CONNECT credential-binding requirement.
 
 More documentations: [MQTT-SN Gateway](https://www.emqx.io/docs/en/v5.0/gateway/mqttsn.html)

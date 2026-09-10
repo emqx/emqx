@@ -30,6 +30,7 @@
     connection_expire_interval/2,
     open_session/5,
     open_session/6,
+    resume_session/5,
     insert_channel_info/4,
     set_chan_info/3,
     set_chan_stats/3,
@@ -121,6 +122,21 @@ open_session(
         ConnInfo,
         CreateSessionFun,
         SessionMod
+    ).
+
+resume_session(
+    _Ctx = #{gwname := GwName},
+    ClientInfo,
+    ConnInfo,
+    SessionMod,
+    BeginRequest
+) ->
+    emqx_gateway_cm:resume_session(
+        GwName,
+        ClientInfo,
+        ConnInfo,
+        SessionMod,
+        BeginRequest
     ).
 
 -spec insert_channel_info(

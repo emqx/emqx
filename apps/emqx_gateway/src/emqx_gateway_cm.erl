@@ -9,6 +9,8 @@
 %% they all share a single this Connection-Manager
 -module(emqx_gateway_cm).
 
+-feature(maybe_expr, enable).
+
 -behaviour(gen_server).
 
 -include("emqx_gateway.hrl").
@@ -21,6 +23,7 @@
 -export([
     open_session/5,
     open_session/6,
+    resume_session/5,
     discard_session/2,
     kick_session/2,
     kick_session/3,
@@ -400,6 +403,393 @@ open_session(
         end,
     locker_trans(GwName, ClientId, ResumeStart).
 
+%% @doc Resume an existing session without creating one when no session exists.
+%% The ClientId lock serializes channel selection and the old channel performs
+%% the live resumability check atomically with takeover begin.
+-spec resume_session(
+    gateway_name(),
+    emqx_types:clientinfo(),
+    emqx_types:conninfo(),
+    module(),
+    #{
+        probe := term(),
+        begin_request := term(),
+        end_request := term(),
+        abort_request := term(),
+        takeover_ref := reference()
+    }
+) ->
+    {ok, #{
+        session := term(),
+        present := true,
+        pendings := list(),
+        channel_info := emqx_types:infos(),
+        conninfo := emqx_types:conninfo(),
+        clientinfo := emqx_types:clientinfo()
+    }}
+    | {error, term()}.
+resume_session(
+    GwName,
+    _ClientInfo = #{clientid := ClientId},
+    ConnInfo,
+    SessionMod,
+    #{
+        probe := ProbeRequest,
+        begin_request := BeginRequest,
+        end_request := EndRequest,
+        abort_request := AbortRequest,
+        takeover_ref := TakeoverRef
+    }
+) ->
+    Self = self(),
+    Resume = fun(_) ->
+        resume_session_locked(
+            GwName,
+            ClientId,
+            ConnInfo,
+            SessionMod,
+            ProbeRequest,
+            BeginRequest,
+            EndRequest,
+            AbortRequest,
+            TakeoverRef,
+            Self
+        )
+    end,
+    locker_trans(GwName, ClientId, Resume).
+
+resume_session_locked(
+    GwName,
+    ClientId,
+    ConnInfo,
+    SessionMod,
+    ProbeRequest,
+    BeginRequest,
+    EndRequest,
+    AbortRequest,
+    TakeoverRef,
+    Self
+) ->
+    maybe
+        {ok, Candidate} ?=
+            select_resume_candidate(
+                GwName,
+                ClientId,
+                lookup_channels(GwName, ClientId),
+                ProbeRequest
+            ),
+        ChanPid = maps:get(pid, Candidate),
+        ConnMod = maps:get(conn_mod, Candidate),
+        {ok, TakeoverData} ?=
+            begin_resume_takeover(
+                GwName,
+                ClientId,
+                ChanPid,
+                BeginRequest,
+                AbortRequest,
+                TakeoverRef
+            ),
+        ChanInfo = maps:get(channel_info, TakeoverData),
+        ResumeClientInfo = maps:get(clientinfo, TakeoverData),
+        NConnInfo = maps:merge(maps:get(conninfo, ChanInfo, #{}), ConnInfo),
+        SessionIn = maps:get(session, TakeoverData),
+        {ok, Session} ?=
+            resume_and_register(
+                GwName,
+                ClientId,
+                Self,
+                NConnInfo,
+                SessionMod,
+                ResumeClientInfo,
+                SessionIn,
+                ChanPid,
+                AbortRequest
+            ),
+        case finish_resume_takeover(ConnMod, ChanPid, EndRequest) of
+            Pendings when is_list(Pendings) ->
+                {ok, #{
+                    session => Session,
+                    present => true,
+                    pendings => Pendings,
+                    channel_info => ChanInfo,
+                    conninfo => NConnInfo,
+                    clientinfo => ResumeClientInfo
+                }};
+            {error, TakeoverReason} ->
+                %% The watchdog may have restored the old channel already.
+                %% Remove only the new registry row; force-killing ChanPid
+                %% here would destroy the restored session.
+                cleanup_resume_registration(GwName, ClientId),
+                {error, TakeoverReason}
+        end
+    else
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+select_resume_candidate(GwName, ClientId, ChanPids, ProbeRequest) ->
+    Results = [
+        probe_resume_candidate(GwName, ClientId, ChanPid, ProbeRequest)
+     || ChanPid <- ChanPids
+    ],
+    Eligible = [
+        #{pid := _, conn_mod := _} = Candidate
+     || {eligible, Candidate} <- Results
+    ],
+    Terminal = [Reason || {terminal, Reason} <- Results],
+    Uncertain = [Reason || {uncertain, Reason} <- Results],
+    case {lists:member(not_authorized, Terminal), lists:member(not_resumable, Terminal)} of
+        {true, _} ->
+            {error, not_authorized};
+        {false, true} ->
+            {error, not_resumable};
+        {false, false} ->
+            case {Eligible, Uncertain} of
+                {_, [_ | _]} ->
+                    {error, candidate_unavailable};
+                {[Candidate], []} ->
+                    {ok, Candidate};
+                {[_ | _], []} ->
+                    {error, ambiguous_session_owner};
+                {[], []} ->
+                    {error, not_found}
+            end
+    end.
+
+probe_resume_candidate(GwName, ClientId, ChanPid, ProbeRequest) ->
+    try
+        case get_chann_conn_mod(GwName, ClientId, ChanPid) of
+            undefined ->
+                {stale, not_found};
+            ConnMod when is_atom(ConnMod) ->
+                case
+                    emqx_gateway_cm_proto_v1:call(
+                        GwName,
+                        ClientId,
+                        ChanPid,
+                        ProbeRequest,
+                        ?T_TAKEOVER
+                    )
+                of
+                    {ok, ProbeData} when is_map(ProbeData) ->
+                        case valid_probe_data(ProbeData) of
+                            true ->
+                                {eligible, #{pid => ChanPid, conn_mod => ConnMod}};
+                            false ->
+                                {uncertain, malformed_probe_reply}
+                        end;
+                    {error, not_authorized} ->
+                        {terminal, not_authorized};
+                    {error, not_resumable} ->
+                        {terminal, not_resumable};
+                    {badrpc, Reason} ->
+                        {uncertain, {badrpc, Reason}};
+                    ignored ->
+                        {uncertain, unsupported_resume};
+                    undefined ->
+                        {stale, not_found};
+                    {error, Reason} ->
+                        {uncertain, Reason};
+                    _Reply ->
+                        {uncertain, unexpected_probe_reply}
+                end
+        end
+    catch
+        throw:{badrpc, ProbeRpcReason} ->
+            {uncertain, {badrpc, ProbeRpcReason}};
+        _Class:_Reason ->
+            {uncertain, resume_probe_failed}
+    end.
+
+valid_probe_data(#{channel_info := ChannelInfo, clientinfo := ClientInfo}) when
+    is_map(ChannelInfo),
+    is_map(ClientInfo)
+->
+    true;
+valid_probe_data(_ProbeData) ->
+    false.
+
+resume_and_register(
+    GwName,
+    ClientId,
+    Self,
+    ConnInfo,
+    SessionMod,
+    ClientInfo,
+    SessionIn,
+    ChanPid,
+    AbortRequest
+) ->
+    try
+        Session = SessionMod:resume(ClientInfo, SessionIn),
+        register_channel(GwName, ClientId, Self, ConnInfo),
+        {ok, Session}
+    catch
+        Class:Reason:Stacktrace ->
+            cleanup_resume_registration(GwName, ClientId),
+            abort_resume_takeover(GwName, ClientId, ChanPid, AbortRequest),
+            ?SLOG(error, #{
+                msg => "mqttsn_resume_session_failed",
+                clientid => ClientId,
+                reason => {Class, Reason},
+                stacktrace => Stacktrace
+            }),
+            {error, {resume_failed, Reason}}
+    end.
+
+cleanup_resume_registration(GwName, ClientId) ->
+    try unregister_channel(GwName, ClientId) of
+        ok -> ok
+    catch
+        _:_ -> ok
+    end.
+
+abort_resume_takeover(GwName, ClientId, ChanPid, AbortRequest) ->
+    case resume_takeover_call(GwName, ClientId, ChanPid, AbortRequest) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_abort_failed",
+                reason => Reason,
+                chan_pid => ChanPid
+            }),
+            ok;
+        {badrpc, Reason} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_abort_failed",
+                reason => {badrpc, Reason},
+                chan_pid => ChanPid
+            }),
+            ok;
+        {exception, Class, Reason} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_abort_failed",
+                reason => {Class, Reason},
+                chan_pid => ChanPid
+            }),
+            ok;
+        {ok, Reply} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_abort_unexpected_reply",
+                reply => Reply,
+                chan_pid => ChanPid
+            }),
+            ok;
+        Reply ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_abort_unexpected_reply",
+                reply => Reply,
+                chan_pid => ChanPid
+            }),
+            ok
+    end.
+
+begin_resume_takeover(
+    GwName,
+    ClientId,
+    ChanPid,
+    BeginRequest,
+    AbortRequest,
+    TakeoverRef
+) ->
+    case resume_takeover_call(GwName, ClientId, ChanPid, BeginRequest) of
+        {ok, TakeoverData} ->
+            case valid_takeover_data(ClientId, TakeoverRef, TakeoverData) of
+                true ->
+                    {ok, TakeoverData};
+                false ->
+                    abort_resume_takeover(GwName, ClientId, ChanPid, AbortRequest),
+                    {error, malformed_takeover_reply}
+            end;
+        {badrpc, Reason} ->
+            abort_resume_takeover(GwName, ClientId, ChanPid, AbortRequest),
+            {error, {badrpc, Reason}};
+        {exception, Class, Reason} ->
+            abort_resume_takeover(GwName, ClientId, ChanPid, AbortRequest),
+            {error, {resume_rpc_failed, Class, Reason}};
+        ignored ->
+            abort_resume_takeover(GwName, ClientId, ChanPid, AbortRequest),
+            {error, unsupported_resume};
+        undefined ->
+            abort_resume_takeover(GwName, ClientId, ChanPid, AbortRequest),
+            {error, not_found};
+        {error, Reason} ->
+            abort_resume_takeover(GwName, ClientId, ChanPid, AbortRequest),
+            {error, Reason};
+        _Reply ->
+            abort_resume_takeover(GwName, ClientId, ChanPid, AbortRequest),
+            {error, malformed_takeover_reply}
+    end.
+
+valid_takeover_data(
+    ClientId,
+    TakeoverRef,
+    #{
+        session := Session,
+        channel_info := ChannelInfo,
+        clientinfo := ClientInfo,
+        takeover_ref := TakeoverRef
+    }
+) when
+    Session =/= undefined,
+    is_map(ChannelInfo),
+    is_map(ClientInfo)
+->
+    case maps:get(clientid, ClientInfo, undefined) of
+        ClientId ->
+            SleepDuration = maps:get(asleep_timer_duration, ChannelInfo, undefined),
+            ConnInfo = maps:get(conninfo, ChannelInfo, undefined),
+            is_integer(SleepDuration) andalso SleepDuration > 0 andalso is_map(ConnInfo);
+        _ ->
+            false
+    end;
+valid_takeover_data(_ClientId, _TakeoverRef, _TakeoverData) ->
+    false.
+
+resume_takeover_call(GwName, ClientId, ChanPid, Request) ->
+    try emqx_gateway_cm_proto_v1:call(GwName, ClientId, ChanPid, Request, ?T_TAKEOVER) of
+        Reply -> Reply
+    catch
+        throw:{badrpc, Reason} ->
+            {badrpc, Reason};
+        Class:Reason ->
+            {exception, Class, Reason}
+    end.
+
+-spec finish_resume_takeover(module(), pid(), term()) ->
+    list() | {error, term()}.
+finish_resume_takeover(ConnMod, ChanPid, EndRequest) ->
+    case request_stepdown(EndRequest, ConnMod, ChanPid) of
+        {ok, Pendings} when is_list(Pendings) ->
+            Pendings;
+        {ok, {error, Reason}} ->
+            {error, Reason};
+        ok ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_end_unexpected_reply",
+                reply => ok,
+                chan_pid => ChanPid
+            }),
+            ok = force_kill(ChanPid),
+            [];
+        {ok, Reply} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_end_unexpected_reply",
+                reply => Reply,
+                chan_pid => ChanPid
+            }),
+            ok = force_kill(ChanPid),
+            [];
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_end_failed",
+                reason => Reason,
+                chan_pid => ChanPid
+            }),
+            []
+    end.
+
 %% @private
 create_session(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     try
@@ -559,10 +949,16 @@ do_kick_session(GwName, Action, ClientId, ChanPid) ->
 %% benefits nobody.
 -spec request_stepdown(Action, module(), pid()) ->
     ok
-    | {ok, emqx_session:session() | list(emqx_types:deliver())}
+    | {ok, term()}
     | {error, term()}
 when
-    Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'}.
+    Action ::
+        kick
+        | discard
+        | {takeover, 'begin'}
+        | {takeover, 'end'}
+        | {takeover, 'abort'}
+        | {takeover, 'end', term()}.
 request_stepdown(Action, ConnMod, Pid) ->
     Timeout =
         case Action == kick orelse Action == discard of
