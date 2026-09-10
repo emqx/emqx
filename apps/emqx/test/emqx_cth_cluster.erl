@@ -551,7 +551,7 @@ join_cluster(Node, JoinTo) ->
         notice,
         test_cluster_join,
         #{node => Node, join_to => JoinTo},
-        erpc:call(Node, emqx_cluster, join, [JoinTo, join])
+        do_join_cluster(Node, JoinTo, 100)
     ),
     case Result of
         ok ->
@@ -561,6 +561,22 @@ join_cluster(Node, JoinTo) ->
         Error ->
             ct:pal("Failed to join cluster: ~p", [Error]),
             error({failed_to_join_cluster, #{node => Node, error => Error}})
+    end.
+
+do_join_cluster(Node, JoinTo, Retries) ->
+    case erpc:call(Node, emqx_cluster, join, [JoinTo, join]) of
+        ok ->
+            ok;
+        ignore ->
+            ok;
+        {error, "Node " ++ _} when Retries > 0 ->
+            %% This clause tries to only match ""Node <nodename> has
+            %% not fully booted yet. Please retry after it is
+            %% started." error.
+            timer:sleep(100),
+            do_join_cluster(Node, JoinTo, Retries - 1);
+        Err ->
+            Err
     end.
 
 %%
