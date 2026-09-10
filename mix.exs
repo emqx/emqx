@@ -320,8 +320,13 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:greptimedb),
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.2"}
 
+  # Carry the fix for https://github.com/emqx/emqx/issues/18499 from the fork
+  # branch until emqx/greptimedb-ingester-erlnif publishes a release with it.
+  # This commit is meant to be replaced by the released tag afterwards.
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.13"}
+    do:
+      {:greptimedb_rs,
+       github: "JimMoen/greptimedb-ingester-erlnif", branch: "fix/greptimedb-auto-add-columns"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
