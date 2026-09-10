@@ -227,6 +227,8 @@ compile_expression(false) ->
     [#raw{sql = <<"FALSE">>}];
 compile_expression(default) ->
     [#raw{sql = <<"DEFAULT">>}];
+compile_expression({builtin_expression, SQL}) ->
+    [#raw{sql = SQL}];
 compile_expression({identifier_ref, Name}) ->
     [#raw{sql = serialize_reference_path(Name)}];
 compile_expression({call, Name, Args}) ->

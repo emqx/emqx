@@ -13,6 +13,7 @@ Nonterminals
     expression unary_expression primary args opt_args case_expression opt_operand whens opt_else opt_semicolon.
 Terminals
     insert into values null true false default
+    builtin_expression
     case_kw when_kw then_kw else_kw end_kw is_kw and_kw or_kw not_kw
     identifier placeholder number string bt_identifier
     '(' ')' ',' '.' ';' '=' '<=>' '>=' '<=' '<>' '!=' '>' '<' '+' '-' '*' '/' '%'.
@@ -48,6 +49,9 @@ primary -> number : {number, value('$1')}.
 primary -> null : null.
 primary -> true : true.
 primary -> false : false.
+%% Bare temporal and user expressions from primaryExpression.
+%% https://github.com/apache/doris/blob/3390475e02a359380b98cc99c965b65f77827054/fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisParser.g4#L1479-L1485
+primary -> builtin_expression : {builtin_expression, value('$1')}.
 primary -> name_path : {identifier_ref, '$1'}.
 primary -> name_path '(' opt_args ')' : {call, '$1', '$3'}.
 primary -> '(' expression ')' : {group, '$2'}.

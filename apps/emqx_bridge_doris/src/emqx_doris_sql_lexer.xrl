@@ -108,6 +108,13 @@ identifier(Chars, Line) ->
         <<"true">> -> {token, {true, Line}};
         <<"false">> -> {token, {false, Line}};
         <<"default">> -> {token, {default, Line}};
+        <<"current_date">> -> {token, {builtin_expression, Line, <<"CURRENT_DATE">>}};
+        <<"current_time">> -> {token, {builtin_expression, Line, <<"CURRENT_TIME">>}};
+        <<"current_timestamp">> -> {token, {builtin_expression, Line, <<"CURRENT_TIMESTAMP">>}};
+        <<"localtime">> -> {token, {builtin_expression, Line, <<"LOCALTIME">>}};
+        <<"localtimestamp">> -> {token, {builtin_expression, Line, <<"LOCALTIMESTAMP">>}};
+        <<"current_user">> -> {token, {builtin_expression, Line, <<"CURRENT_USER">>}};
+        <<"session_user">> -> {token, {builtin_expression, Line, <<"SESSION_USER">>}};
         <<"case">> -> {token, {case_kw, Line}};
         <<"when">> -> {token, {when_kw, Line}};
         <<"then">> -> {token, {then_kw, Line}};

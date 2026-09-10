@@ -271,6 +271,12 @@ t_rule_action(Config) when is_list(Config) ->
 t_batch_rule_action(Config) ->
     ActionConfig0 = ?config(action_config, Config),
     ActionConfig = emqx_utils_maps:deep_merge(ActionConfig0, #{
+        <<"parameters">> => #{
+            <<"sql">> => <<
+                "insert into t_mqtt_msg(msgid, topic, qos, payload, arrived)"
+                " values (${id}, ${topic}, ${qos}, ${payload}, CURRENT_TIMESTAMP)"
+            >>
+        },
         <<"resource_opts">> => #{<<"batch_size">> => 2, <<"batch_time">> => 10}
     }),
     BatchConfig = [{action_config, ActionConfig} | proplists:delete(action_config, Config)],

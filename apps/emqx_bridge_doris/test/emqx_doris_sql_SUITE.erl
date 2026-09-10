@@ -595,6 +595,16 @@ t_expression_rendering(_Config) ->
     Cases = [
         {<<"TRUE, FALSE, NULL, DEFAULT, 1., .2, 1.2E-3">>,
             <<"TRUE, FALSE, NULL, DEFAULT, 1., .2, 1.2E-3">>},
+        {
+            <<
+                "current_date, Current_Time, CURRENT_TIMESTAMP, localtime, "
+                "LocalTimestamp, CURRENT_USER, session_user"
+            >>,
+            <<
+                "CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP, LOCALTIME, "
+                "LOCALTIMESTAMP, CURRENT_USER, SESSION_USER"
+            >>
+        },
         {<<"${v} + 2 * 3, (${v} + 2) * 3, 8 - 3 - 1, 8 / (4 / 2), -${v} % +2">>,
             <<"4 + 2 * 3, (4 + 2) * 3, 8 - 3 - 1, 8 / (4 / 2), -(4) % +(2)">>},
         {<<"CASE ${v} WHEN 1 THEN 'one' WHEN 4 THEN 'four' END">>,
