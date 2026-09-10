@@ -295,13 +295,16 @@ group_batch_by_bucket(BatchData, ChannelConfig) ->
         fun(Item = {_Channel, Message}, Acc) ->
             case render_bucket(Message, BucketTmpl) of
                 {ok, Bucket} ->
-                    Client1 = influxdb:update_bucket(Client, Bucket),
-                    maps:update_with(
-                        {ok, Bucket},
-                        fun({C, Items}) -> {C, [Item | Items]} end,
-                        {Client1, [Item]},
-                        Acc
-                    );
+                    %% Rebuild the write path at most once per distinct bucket:
+                    %% reuse the already updated client for repeated buckets.
+                    Key = {ok, Bucket},
+                    case maps:find(Key, Acc) of
+                        {ok, {Client1, Items}} ->
+                            Acc#{Key := {Client1, [Item | Items]}};
+                        error ->
+                            Client1 = influxdb:update_bucket(Client, Bucket),
+                            Acc#{Key => {Client1, [Item]}}
+                    end;
                 undefined ->
                     maps:update_with(
                         static,
@@ -1276,6 +1279,35 @@ render_bucket_test_() ->
                 )
             )}
     ].
+
+group_batch_by_bucket_test_() ->
+    Tmpl = emqx_placeholder:preproc_tmpl(<<"${payload.bucket}">>),
+    ChannelConfig = #{channel_client => client, bucket_tmpl => Tmpl},
+    BatchData =
+        [
+            {c1, #{payload => #{bucket => Bucket}}}
+         || Bucket <- [<<"b1">>, <<"b1">>, <<"b2">>, <<"b1">>, <<>>]
+        ],
+    {setup,
+        fun() ->
+            ok = meck:new(influxdb, [passthrough, no_link]),
+            ok = meck:expect(influxdb, update_bucket, fun(_Client, Bucket) -> Bucket end),
+            group_batch_by_bucket(BatchData, ChannelConfig)
+        end,
+        fun(_Groups) ->
+            meck:unload(influxdb)
+        end,
+        fun(Groups) ->
+            [
+                {"the write path is rebuilt once per distinct bucket",
+                    ?_assertEqual(2, meck:num_calls(influxdb, update_bucket, ['_', '_']))},
+                {"batch items are grouped by rendered bucket; empty/missing falls back",
+                    ?_assertEqual(
+                        [{client, 1}, {<<"b1">>, 3}, {<<"b2">>, 1}],
+                        lists:sort([{C, length(Items)} || {C, Items} <- Groups])
+                    )}
+            ]
+        end}.
 
 data_to_points_test_() ->
     SyntaxLines = [
