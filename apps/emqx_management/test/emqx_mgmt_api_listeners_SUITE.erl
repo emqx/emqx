@@ -16,7 +16,8 @@ all() ->
         {group, with_defaults_in_file},
         {group, without_defaults_in_file},
         {group, max_connections},
-        {group, hardened}
+        {group, hardened},
+        {group, mixed_version_cluster}
     ].
 
 groups() ->
@@ -30,11 +31,17 @@ groups() ->
     HardenedTests = [
         t_resolved_address_hardened_bare_port
     ],
+    MixedVersionClusterTests = [
+        t_list_listeners_mixed_version_cluster
+    ],
     [
-        {with_defaults_in_file, AllTests -- (MaxConnTests ++ HardenedTests)},
-        {without_defaults_in_file, AllTests -- (MaxConnTests ++ ZoneTests ++ HardenedTests)},
+        {with_defaults_in_file,
+            AllTests -- (MaxConnTests ++ HardenedTests ++ MixedVersionClusterTests)},
+        {without_defaults_in_file,
+            AllTests -- (MaxConnTests ++ ZoneTests ++ HardenedTests ++ MixedVersionClusterTests)},
         {max_connections, MaxConnTests},
-        {hardened, HardenedTests}
+        {hardened, HardenedTests},
+        {mixed_version_cluster, MixedVersionClusterTests}
     ].
 
 init_per_suite(Config) ->
@@ -70,7 +77,17 @@ init_per_group(hardened, Config) ->
             %% profile into later groups.
             emqx_common_test_helpers:clear_security_profile(),
             erlang:raise(Class, Reason, Stacktrace)
-    end.
+    end;
+init_per_group(mixed_version_cluster = Group, Config) ->
+    Apps = [emqx, emqx_conf, emqx_management],
+    Nodes = emqx_cth_cluster:start(
+        [
+            {mgmt_api_listeners_current, #{role => core, apps => Apps}},
+            {mgmt_api_listeners_legacy, #{role => core, apps => Apps}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
+    ),
+    [{cluster_nodes, Nodes} | Config].
 
 init_group_apps(Config, CTConfig) ->
     Apps = emqx_cth_suite:start(
@@ -86,6 +103,8 @@ init_group_apps(Config, CTConfig) ->
 end_per_group(hardened, Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_common_test_helpers:clear_security_profile();
+end_per_group(mixed_version_cluster, Config) ->
+    emqx_cth_cluster:stop(?config(cluster_nodes, Config));
 end_per_group(_Group, Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
@@ -232,6 +251,87 @@ t_api_listeners_list_not_ready(Config) when is_list(Config) ->
         ?assertEqual(length(L2), length(L3), Comment)
     after
         emqx_cth_cluster:stop(Nodes)
+    end.
+
+-doc """
+The 6.3 listener handlers accept the legacy response shape returned by a
+6.2 node during a rolling upgrade. Both nodes run the real aggregation and
+RPC paths. The legacy node's real `do_list_listeners/0` response is intercepted
+and stripped of the 6.3-only fields. The current node remains unmocked. The
+legacy node remains in the aggregate, but its node status omits those fields.
+""".
+t_list_listeners_mixed_version_cluster(Config) when is_list(Config) ->
+    [Node, NodeLegacy] = ?config(cluster_nodes, Config),
+    ok = erpc:call(NodeLegacy, fun() ->
+        ok = meck:new(emqx_mgmt_api_listeners, [passthrough, no_link]),
+        ok = meck:expect(emqx_mgmt_api_listeners, do_list_listeners, fun() ->
+            Response = #{<<"listeners">> := Listeners} = meck:passthrough([]),
+            Response#{
+                <<"listeners">> := [
+                    maps:with(
+                        [
+                            <<"id">>,
+                            <<"type">>,
+                            <<"enable">>,
+                            <<"running">>,
+                            <<"max_connections">>,
+                            <<"current_connections">>,
+                            <<"acceptors">>,
+                            <<"bind">>
+                        ],
+                        Listener
+                    )
+                 || Listener <- Listeners
+                ]
+            }
+        end)
+    end),
+    try
+        {200, [ById]} = erpc:call(
+            Node,
+            emqx_mgmt_api_listeners,
+            list_listeners,
+            [get, #{query_string => #{<<"type">> => ssl}}]
+        ),
+        ?assertMatch(
+            #{
+                id := 'ssl:default',
+                number := 2,
+                node_status := [
+                    #{node := NodeLegacy, status := StatusLegacy},
+                    #{node := Node, status := Status}
+                ]
+            } when
+                is_map_key(resolved_address, Status) andalso
+                    is_map_key(resolved_address_from, Status) andalso
+                    not is_map_key(resolved_address, StatusLegacy) andalso
+                    not is_map_key(resolved_address_from, StatusLegacy),
+            ById
+        ),
+        {200, ByTypes} = erpc:call(
+            Node,
+            emqx_mgmt_api_listeners,
+            listener_type_status,
+            [get, #{}]
+        ),
+        [ByType] = [Listener || Listener = #{type := <<"ssl">>} <- ByTypes],
+        ?assertMatch(
+            #{
+                type := <<"ssl">>,
+                ids := ['ssl:default'],
+                node_status := [
+                    #{node := NodeLegacy, status := StatusLegacy},
+                    #{node := Node, status := Status}
+                ]
+            } when
+                is_map_key(resolved_address, Status) andalso
+                    is_map_key(resolved_address_from, Status) andalso
+                    not is_map_key(resolved_address, StatusLegacy) andalso
+                    not is_map_key(resolved_address_from, StatusLegacy),
+            ByType
+        )
+    after
+        _ = catch erpc:call(NodeLegacy, meck, unload, [emqx_mgmt_api_listeners])
     end.
 
 t_clear_certs(Config) when is_list(Config) ->

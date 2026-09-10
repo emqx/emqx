@@ -654,9 +654,7 @@ format_status(Key, Node, Listener, Acc) ->
         <<"max_connections">> := MaxConnections,
         <<"current_connections">> := CurrentConnections,
         <<"acceptors">> := Acceptors,
-        <<"bind">> := Bind,
-        <<"resolved_address">> := ResolvedAddress,
-        <<"resolved_address_from">> := ResolvedAddressFrom
+        <<"bind">> := Bind
     } = Listener,
     {ok, #{name := Name}} = emqx_listeners:parse_listener_id(Id),
     GroupKey = maps:get(Key, Listener),
@@ -667,16 +665,12 @@ format_status(Key, Node, Listener, Acc) ->
     %% or the connection counts, "inconsistent" would fire on every cluster
     %% using node.default_listener_address = nodename, which is by design,
     %% not a fault to surface at the cluster level.
-    NodeStatusEntry = #{
-        node => Node,
-        status => #{
-            running => Running,
-            max_connections => MaxConnections,
-            current_connections => CurrentConnections,
-            resolved_address => ResolvedAddress,
-            resolved_address_from => ResolvedAddressFrom
-        }
-    },
+    NodeStatus = maybe_add_resolved_address(Listener, #{
+        running => Running,
+        max_connections => MaxConnections,
+        current_connections => CurrentConnections
+    }),
+    NodeStatusEntry = #{node => Node, status => NodeStatus},
     case maps:find(GroupKey, Acc) of
         error ->
             Acc#{
@@ -723,6 +717,23 @@ format_status(Key, Node, Listener, Acc) ->
                     }
             }
     end.
+
+%% NOTE
+%% Nodes running a release older than 6.3.0 do not include those fields in the
+%% `list_listeners/1` BPAPI response.
+maybe_add_resolved_address(
+    #{
+        <<"resolved_address">> := ResolvedAddress,
+        <<"resolved_address_from">> := ResolvedAddressFrom
+    },
+    Status
+) ->
+    Status#{
+        resolved_address => ResolvedAddress,
+        resolved_address_from => ResolvedAddressFrom
+    };
+maybe_add_resolved_address(_Listener, Status) ->
+    Status.
 
 max_conn(_Int1, <<"infinity">>) -> <<"infinity">>;
 max_conn(<<"infinity">>, _Int) -> <<"infinity">>;
