@@ -2422,7 +2422,7 @@ connect_with_will(Config, Node, ClientId, WillTopic, WillPayload, WillProps) ->
             {error, Reason}
     end.
 
--define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
+-define(CERTS_PATH(CertName), emqx_common_test_helpers:test_cert(CertName)).
 
 -define(MQTT_SSL_CLIENT_CERTS, [
     {keyfile, ?CERTS_PATH("client-key.pem")},

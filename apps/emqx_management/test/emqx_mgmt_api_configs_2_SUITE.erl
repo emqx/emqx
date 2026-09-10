@@ -53,9 +53,10 @@ t_dashboard(_Config) ->
         <<"bind">> => 18084,
         <<"ssl_options">> =>
             #{
-                <<"keyfile">> => "etc/certs/badkey.pem",
-                <<"cacertfile">> => "etc/certs/badcacert.pem",
-                <<"certfile">> => "etc/certs/badcert.pem"
+                %% Deliberately absent: the case asserts the update is refused.
+                <<"keyfile">> => "/nonexistent/badkey.pem",
+                <<"cacertfile">> => "/nonexistent/badcacert.pem",
+                <<"certfile">> => "/nonexistent/badcert.pem"
             }
     },
     Dashboard2 = Dashboard#{<<"listeners">> => Listeners#{<<"https">> => Https2}},
@@ -66,7 +67,7 @@ t_dashboard(_Config) ->
 
     FilePath = fun(Name) ->
         iolist_to_binary(
-            emqx_common_test_helpers:app_path(emqx, filename:join(["etc", "certs", Name]))
+            emqx_common_test_helpers:test_cert(Name)
         )
     end,
     KeyFile = FilePath("key.pem"),
