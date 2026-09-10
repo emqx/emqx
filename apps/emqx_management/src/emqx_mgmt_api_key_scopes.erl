@@ -193,21 +193,7 @@ split_segments(Path) ->
 %% after splitting so an encoded separator stays within its segment
 %% and never introduces an extra boundary.
 normalize_segments(Segments) ->
-    remove_dot_segments([urldecode(S) || S <- Segments], []).
-
-%% `cow_uri:urldecode/1' raises on a byte that is not valid in a URI
-%% path. Cowboy validates a request path before it dispatches, so such
-%% a byte can only reach here from a value that did not come from the
-%% router — a route template carrying `[...]', for one. Keep the
-%% segment verbatim in that case: it then matches only a template
-%% segment that is literally equal, and the authorisation path returns
-%% a decision instead of raising.
-urldecode(Segment) ->
-    try
-        cow_uri:urldecode(Segment)
-    catch
-        _:_ -> Segment
-    end.
+    remove_dot_segments([cow_uri:urldecode(S) || S <- Segments], []).
 
 remove_dot_segments([], Acc) ->
     lists:reverse(Acc);

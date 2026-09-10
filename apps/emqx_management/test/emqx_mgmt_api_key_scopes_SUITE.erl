@@ -36,7 +36,6 @@ groups() ->
             t_classify_path,
             t_multi_scope_path,
             t_catch_all_template_matches_remainder,
-            t_lookup_tolerates_undecodable_segment,
             t_validate_scopes,
             t_validate_scopes_bad_input,
             t_is_denied_scope,
@@ -268,33 +267,6 @@ t_catch_all_template_matches_remainder(_Config) ->
             ?assertEqual(
                 not_found,
                 emqx_mgmt_api_key_scopes:classify_path(<<"/__other__/x/y">>)
-            )
-        end
-    ).
-
--doc """
-A lookup must return a decision, never raise. Percent-decoding
-rejects bytes that are invalid in a URI path, and route templates
-carrying `[...]' contain such bytes — so a template that misses the
-exact-match lookup reaches the segment matcher. Raising there would
-turn an authorisation check into a 500.
-""".
-t_lookup_tolerates_undecodable_segment(_Config) ->
-    with_scope_cache(
-        #{<<"/clients">> => [?SCOPE_CONNECTIONS]},
-        fun() ->
-            ?assertEqual(
-                undefined,
-                emqx_mgmt_api_key_scopes:path_to_scopes(<<"/plugin_api/:plugin/[...]">>)
-            ),
-            ?assertEqual(
-                undefined,
-                emqx_mgmt_api_key_scopes:path_to_scopes(<<"/a b/%zz">>)
-            ),
-            %% Ordinary paths still resolve.
-            ?assertEqual(
-                [?SCOPE_CONNECTIONS],
-                emqx_mgmt_api_key_scopes:path_to_scopes(<<"/clients">>)
             )
         end
     ).
