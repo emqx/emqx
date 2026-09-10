@@ -290,7 +290,8 @@ render_bucket(Data, Tmpl) ->
 %% written to its own bucket with a single write request.
 %% Batch items are kept as {Channel, Message} pairs, as expected by parse_batch_data/3.
 group_batch_by_bucket(BatchData, ChannelConfig) ->
-    #{channel_client := Client, bucket_tmpl := BucketTmpl} = ChannelConfig,
+    #{channel_client := Client} = ChannelConfig,
+    BucketTmpl = maps:get(bucket_tmpl, ChannelConfig, undefined),
     Groups0 = lists:foldl(
         fun(Item = {_Channel, Message}, Acc) ->
             case render_bucket(Message, BucketTmpl) of
@@ -331,6 +332,9 @@ do_grouped_batch_query(InstId, Channel, Groups, SyntaxLines) ->
                                 points => Points, batch => true, mode => sync, path => path(Client)
                             }
                         ),
+                        emqx_trace:rendered_action_template(
+                            Channel, #{points => Points, is_async => false}
+                        ),
                         do_query(InstId, Channel, Client, Points);
                     {error, Reason} ->
                         ?tp(
@@ -349,7 +353,7 @@ do_grouped_batch_query(InstId, Channel, Groups, SyntaxLines) ->
 %% When a batch is split into multiple bucket groups, each group write replies
 %% asynchronously. The batch reply fun must be called exactly once, after all
 %% group writes are done. An ets table is used to coordinate the replies.
-do_grouped_async_batch_query(InstId, _Channel, Groups, SyntaxLines, ReplyFunAndArgs) ->
+do_grouped_async_batch_query(InstId, Channel, Groups, SyntaxLines, ReplyFunAndArgs) ->
     TID = ets:new(?MODULE, [public, set]),
     true = ets:insert(TID, {remaining, length(Groups)}),
     CoordArgs = #{tid => TID, reply => ReplyFunAndArgs},
@@ -362,6 +366,9 @@ do_grouped_async_batch_query(InstId, _Channel, Groups, SyntaxLines, ReplyFunAndA
                         #{
                             points => Points, batch => true, mode => async, path => path(Client)
                         }
+                    ),
+                    emqx_trace:rendered_action_template(
+                        Channel, #{points => Points, is_async => true}
                     ),
                     WrappedReplyFunAndArgs = {
                         fun ?MODULE:coordinated_reply_callback/2,
@@ -388,34 +395,46 @@ do_grouped_async_batch_query(InstId, _Channel, Groups, SyntaxLines, ReplyFunAndA
     ok.
 
 coordinated_reply_callback(#{tid := TID, reply := ReplyFunAndArgs}, Result) ->
-    Result1 = classify_result(Result),
-    case Result1 of
-        ok ->
-            ok;
-        _ ->
-            %% record the first error atomically: later errors must not
-            %% overwrite an earlier one
-            _ = ets:insert_new(TID, {first_error, Result1}),
+    case coordinated_reply(TID, Result) of
+        {reply, ReplyResult} ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, ReplyResult);
+        noreply ->
             ok
-    end,
-    Remaining = ets:update_counter(TID, remaining, -1, {remaining, 0}),
-    case Remaining of
-        0 ->
-            FirstError =
-                case ets:lookup(TID, first_error) of
-                    [{first_error, Err}] -> Err;
-                    [] -> undefined
-                end,
-            true = ets:delete(TID),
-            case FirstError of
-                undefined ->
-                    emqx_resource:apply_reply_fun(ReplyFunAndArgs, ok);
-                _ ->
-                    emqx_resource:apply_reply_fun(ReplyFunAndArgs, FirstError)
-            end,
-            ok;
-        _ ->
-            ok
+    end.
+
+%% Collect the outcome of one group write. Only errors are remembered, so a
+%% successful group can never shadow a failing one. The group that completes
+%% the batch removes the table and reports the first error (or `ok`).
+coordinated_reply(TID, Result) ->
+    try
+        case classify_result(Result) of
+            {error, _} = Error ->
+                %% record the first error atomically: later errors must not
+                %% overwrite an earlier one
+                _ = ets:insert_new(TID, {first_error, Error});
+            _ ->
+                ok
+        end,
+        case ets:update_counter(TID, remaining, -1) of
+            0 ->
+                FirstError =
+                    case ets:lookup(TID, first_error) of
+                        [{first_error, Err}] -> Err;
+                        [] -> undefined
+                    end,
+                true = ets:delete(TID),
+                case FirstError of
+                    undefined -> {reply, ok};
+                    _ -> {reply, FirstError}
+                end;
+            _ ->
+                noreply
+        end
+    catch
+        error:badarg ->
+            %% The coordination table was already removed, e.g. the owning
+            %% resource worker stopped. There is nothing left to reply to.
+            noreply
     end.
 
 path(Client) ->
@@ -953,8 +972,10 @@ lines_to_points(Data, [#{line := Tmpl} | Rest], PointsAcc, ErrorPointsAcc) ->
                         _ ->
                             lines_to_points(Data, Rest, [RawLine | PointsAcc], ErrorPointsAcc)
                     end;
-                skip ->
-                    lines_to_points(Data, Rest, PointsAcc, ErrorPointsAcc)
+                {error, BadRawLine} ->
+                    lines_to_points(Data, Rest, PointsAcc, [
+                        {error, {non_textual_raw_line, BadRawLine}} | ErrorPointsAcc
+                    ])
             end;
         _ ->
             lines_to_points(Data, Rest, PointsAcc, ErrorPointsAcc)
@@ -1175,14 +1196,15 @@ data_filter(Number) when is_number(Number) -> Number;
 data_filter(Bool) when is_boolean(Bool) -> Bool;
 data_filter(Data) -> bin(Data).
 
-%% a raw line protocol line must be actual text; values that cannot be text
-%% (numbers, booleans, ...) are skipped just like an empty render
+%% a raw line protocol line must be actual text; a value that cannot be
+%% text (a number, boolean, ...) is a conversion error, so the write is not
+%% silently turned into a no-op.
 raw_line_to_bin(<<_/binary>> = Raw) ->
     {ok, Raw};
 raw_line_to_bin(Raw) when is_list(Raw) ->
     {ok, bin(Raw)};
-raw_line_to_bin(_) ->
-    skip.
+raw_line_to_bin(Raw) ->
+    {error, Raw}.
 
 bin(Data) when is_list(Data) ->
     case io_lib:printable_unicode_list(Data) of
@@ -1309,6 +1331,16 @@ group_batch_by_bucket_test_() ->
             ]
         end}.
 
+group_batch_without_bucket_tmpl_test_() ->
+    BatchData = [{c1, #{payload => #{bucket => <<"b1">>}}}],
+    [
+        {"a channel config without bucket_tmpl groups everything to the static client",
+            ?_assertEqual(
+                [{client, BatchData}],
+                group_batch_by_bucket(BatchData, #{channel_client => client})
+            )}
+    ].
+
 data_to_points_test_() ->
     SyntaxLines = [
         #{line => emqx_placeholder:preproc_tmpl(<<"${payload.line}">>)}
@@ -1349,14 +1381,14 @@ data_to_points_test_() ->
                 {ok, []},
                 data_to_points(#{payload => #{line => <<>>}}, SyntaxLines)
             )},
-        {"non-text rendered values are skipped, not crashing",
-            ?_assertEqual(
-                {ok, []},
+        {"non-text rendered values fail the batch instead of silently succeeding",
+            ?_assertMatch(
+                {error, _},
                 data_to_points(#{payload => #{line => true}}, SyntaxLines)
             )},
-        {"integer rendered values are skipped",
-            ?_assertEqual(
-                {ok, []},
+        {"integer rendered values fail the batch instead of silently succeeding",
+            ?_assertMatch(
+                {error, _},
                 data_to_points(#{payload => #{line => 123}}, SyntaxLines)
             )},
         {"raw lines and structured points are mixed",
@@ -1405,6 +1437,65 @@ classify_result_test_() ->
                 classify_result({error, {recoverable_error, boom}})
             )}
     ].
+
+coordinated_reply_callback_test_() ->
+    [
+        {"a failing group is reported even when a success replies first",
+            ?_assertEqual(
+                [{error, {unrecoverable_error, #{code => 500, body => <<"boom">>}}}],
+                run_coordinated([
+                    {ok, 204, [], <<>>},
+                    {ok, 500, [], <<"boom">>}
+                ])
+            )},
+        {"a failing group is reported when it replies first",
+            ?_assertEqual(
+                [{error, {unrecoverable_error, #{code => 500, body => <<"boom">>}}}],
+                run_coordinated([
+                    {ok, 500, [], <<"boom">>},
+                    {ok, 204, [], <<>>}
+                ])
+            )},
+        {"a recoverable connection error is reported",
+            ?_assertEqual(
+                [{error, {recoverable_error, timeout}}],
+                run_coordinated([{ok, 204, [], <<>>}, {error, timeout}])
+            )},
+        {"only ok is replied when every group succeeds",
+            ?_assertEqual(
+                [ok],
+                run_coordinated([{ok, 204, [], <<>>}, {ok, 204, [], <<>>}])
+            )},
+        {"a callback over a removed coordination table is ignored", fun() ->
+            TID = ets:new(?MODULE, [public, set]),
+            true = ets:insert(TID, {remaining, 1}),
+            true = ets:delete(TID),
+            ReplyFunAndArgs = {fun(Result) -> self() ! {unexpected, Result} end, []},
+            ?assertEqual(
+                ok,
+                coordinated_reply_callback(
+                    #{tid => TID, reply => ReplyFunAndArgs},
+                    {ok, 204, [], <<>>}
+                )
+            )
+        end}
+    ].
+
+run_coordinated(Results) ->
+    TID = ets:new(?MODULE, [public, set]),
+    true = ets:insert(TID, {remaining, length(Results)}),
+    Self = self(),
+    ReplyFunAndArgs = {fun(Result) -> Self ! {coordinated_reply, Result} end, []},
+    CoordArgs = #{tid => TID, reply => ReplyFunAndArgs},
+    lists:foreach(fun(Result) -> coordinated_reply_callback(CoordArgs, Result) end, Results),
+    collect_coordinated([]).
+
+collect_coordinated(Acc) ->
+    receive
+        {coordinated_reply, Result} -> collect_coordinated([Result | Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
 
 %% for coverage
 desc_test_() ->
