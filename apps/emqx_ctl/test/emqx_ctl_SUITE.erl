@@ -139,6 +139,35 @@ t_audit_redaction(_) ->
         end
     ).
 
+-doc """
+Commands which only print their usage are not audited, every other command is,
+and the "usage printed" marker of one command does not leak into the next one.
+""".
+t_usage_is_not_audited(_) ->
+    with_ctl_server(
+        fun(_CtlSrv) ->
+            emqx_ctl:register_command(audit, {?MODULE, audit_fun}),
+            emqx_ctl:register_command(cmd3, {?MODULE, cmd3_fun}),
+            emqx_ctl:register_command(cmd5, {?MODULE, cmd5_fun}),
+
+            erase(audit_log),
+            ok = emqx_ctl:run_command(["cmd5"]),
+            ?assertEqual(undefined, get(audit_log)),
+
+            ok = emqx_ctl:run_command(["cmd5", "usage2"]),
+            ?assertEqual(undefined, get(audit_log)),
+
+            %% The marker is cleared, the next command is audited
+            ok = emqx_ctl:run_command(["cmd3", "secret", "value"]),
+            ?assertMatch(#{cmd := cmd3}, get(audit_log)),
+
+            %% A command without arguments which does not print usage is audited
+            erase(audit_log),
+            ok = emqx_ctl:run_command(["cmd3"]),
+            ?assertMatch(#{cmd := cmd3, args := []}, get(audit_log))
+        end
+    ).
+
 %% Verify:
 %% `emqx_*_cli` modules implement `emqx_ctl`
 %% `emqx_ctl` implementations are named `emqx_*_cli`
@@ -249,6 +278,14 @@ cmd4_fun(_Args) ->
 
 cmd4_fun_audit_args(_Args) ->
     ["selected-audit-callback"].
+
+cmd5_fun(["usage2"]) ->
+    emqx_ctl:usage("cmd5", "cmd5 prints usage");
+cmd5_fun(_Args) ->
+    emqx_ctl:usage([{"cmd5", "cmd5 prints usage"}]).
+
+cmd5_fun_audit_args(Args) ->
+    Args.
 
 audit_fun(usage) ->
     ok.
