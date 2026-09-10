@@ -194,6 +194,38 @@ t_http_api_sso_login_pre_auth_source(_) ->
     ),
     ok.
 
+-doc """
+GET /audit returns 403 to namespaced dashboard users (administrator and viewer)
+and namespaced API keys. A global administrator still reads the audit log.
+""".
+t_http_api_rejects_namespaced_principals(_) ->
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    NsAdmin = ns_dashboard_auth_header(<<"audit_ns_admin">>, <<"ns:ns1::administrator">>),
+    NsViewer = ns_dashboard_auth_header(<<"audit_ns_viewer">>, <<"ns:ns1::viewer">>),
+    NsApiKey = ns_api_key_auth_header(<<"audit_ns_key">>, <<"ns:ns1::administrator">>),
+    lists:foreach(
+        fun(AuthHeader) ->
+            ?assertMatch(
+                {403, #{<<"code">> := <<"UNAUTHORIZED_ROLE">>}},
+                emqx_mgmt_api_test_util:simple_request(#{
+                    method => get,
+                    url => AuditPath,
+                    auth_header => AuthHeader
+                })
+            )
+        end,
+        [NsAdmin, NsViewer, NsApiKey]
+    ),
+    ?assertMatch(
+        {200, #{<<"data">> := [_ | _]}},
+        emqx_mgmt_api_test_util:simple_request(#{
+            method => get,
+            url => AuditPath,
+            auth_header => emqx_mgmt_api_test_util:auth_header_()
+        })
+    ),
+    ok.
+
 t_disabled(_) ->
     Enable = [log, audit, enable],
     ?assertEqual(true, emqx:get_config(Enable)),
@@ -584,6 +616,23 @@ kickout_clients() ->
     {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse2 = emqx_utils_json:decode(Clients2),
     ?assertMatch(#{<<"data">> := []}, ClientsResponse2).
+
+ns_dashboard_auth_header(Username, Role) ->
+    Password = <<"public_www1">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, Role, <<"audit test user">>),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+ns_api_key_auth_header(Name, Role) ->
+    ApiKey = <<Name/binary, "_key">>,
+    ApiSecret = <<Name/binary, "_secret">>,
+    ExpiresAt = list_to_binary(
+        calendar:system_time_to_rfc3339(erlang:system_time(second) + 1_000)
+    ),
+    {ok, _} = emqx_mgmt_auth:create_with_key(
+        Name, ApiKey, ApiSecret, true, ExpiresAt, <<"audit test key">>, Role
+    ),
+    emqx_common_test_http:auth_header(binary_to_list(ApiKey), binary_to_list(ApiSecret)).
 
 wait_for_dirty_write_log_done(MaxMs) ->
     Size = mnesia:table_info(emqx_audit, size),
