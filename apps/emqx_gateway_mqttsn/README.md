@@ -41,11 +41,12 @@ asleep/awake session even when the source IP or port has changed. This wake-up i
 unauthenticated because MQTT-SN PINGREQ contains no password or token; it should only be used where
 that risk is acceptable.
 
-For DTLS clients authenticated with a verified client certificate, the gateway records the
-certificate subject DN and CN with the session. A PINGREQ from a new association can resume a
-certificate-bound session only when both values match. A wake-up without a client certificate,
-including plaintext UDP or optional-certificate DTLS, or with different subject values is rejected.
-A reissued certificate with the same DN and CN remains accepted.
+For DTLS clients authenticated with a verified client certificate, the gateway binds the session to
+the peer certificate. A PINGREQ from a new association can resume a certificate-bound session only
+when it presents the same certificate. Source IP and port changes do not affect this comparison.
+A wake-up without a client certificate, including plaintext UDP or optional-certificate DTLS, or
+with a different or reissued certificate is rejected. After certificate rotation, the client must
+use CONNECT and complete the normal authentication and session takeover flow.
 
 Configure the DTLS listener with `verify = verify_peer` and `fail_if_no_peer_cert = true` when every
 client must present a verified certificate. Server-only DTLS follows the legacy ClientId-only

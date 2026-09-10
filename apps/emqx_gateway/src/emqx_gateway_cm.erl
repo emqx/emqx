@@ -414,6 +414,10 @@ open_session(
     clientinfo := emqx_types:clientinfo()
 }.
 
+-type resume_request() :: #{
+    peercert := nossl | undefined | esockd_peercert:peercert()
+}.
+
 -spec resume_session(
     gateway_name(),
     emqx_types:clientinfo(),
@@ -434,25 +438,28 @@ resume_session(
     locker_trans(GwName, ClientId, Resume).
 
 resume_session_locked(GwName, ClientId, ClientInfo, ConnInfo, SessionMod, Self) ->
+    ResumeRequest = #{peercert => maps:get(peercert, ConnInfo, undefined)},
     maybe
         {ok, Candidate} ?= select_resume_candidate(GwName, ClientId),
         ChanPid = maps:get(pid, Candidate),
         ConnMod = maps:get(conn_mod, Candidate),
         OtherPids = maps:get(other_pids, Candidate),
-        {ok, TakeoverData} ?= begin_resume_takeover(ConnMod, ChanPid, ClientInfo),
+        {ok, TakeoverData} ?=
+            begin_resume_takeover(ConnMod, ChanPid, ClientId, ResumeRequest),
         ok = discard_other_channels(GwName, ClientId, OtherPids),
         ChanInfo = maps:get(channel_info, TakeoverData),
-        ResumeClientInfo = maps:get(clientinfo, TakeoverData),
+        OldClientInfo = maps:get(clientinfo, TakeoverData),
         NConnInfo = maps:merge(maps:get(conninfo, ChanInfo, #{}), ConnInfo),
         SessionIn = maps:get(session, TakeoverData),
-        {ok, Session} ?=
+        {ok, Session, ResumeClientInfo} ?=
             resume_and_register(
                 GwName,
                 ClientId,
                 Self,
                 NConnInfo,
                 SessionMod,
-                ResumeClientInfo,
+                ClientInfo,
+                OldClientInfo,
                 SessionIn
             ),
         case finish_resume_takeover(ConnMod, ChanPid) of
@@ -506,10 +513,12 @@ discard_other_channels(GwName, ClientId, ChanPids) ->
     ),
     ok.
 
-begin_resume_takeover(ConnMod, ChanPid, ClientInfo) ->
-    case call_resume_takeover(ConnMod, ChanPid, {takeover, 'begin', ClientInfo}) of
+-spec begin_resume_takeover(module(), pid(), emqx_types:clientid(), resume_request()) ->
+    {ok, map()} | {error, term()}.
+begin_resume_takeover(ConnMod, ChanPid, ClientId, ResumeRequest) ->
+    case call_resume_takeover(ConnMod, ChanPid, {takeover, 'begin', ResumeRequest}) of
         {ok, TakeoverData} ->
-            case valid_takeover_data(maps:get(clientid, ClientInfo), TakeoverData) of
+            case valid_takeover_data(ClientId, TakeoverData) of
                 true ->
                     {ok, TakeoverData};
                 false ->
@@ -564,11 +573,21 @@ valid_takeover_data(_ClientId, _TakeoverData) ->
 is_positive_sleep_duration(Duration) ->
     is_integer(Duration) andalso Duration > 0.
 
-resume_and_register(GwName, ClientId, Self, ConnInfo, SessionMod, ClientInfo, SessionIn) ->
+resume_and_register(
+    GwName,
+    ClientId,
+    Self,
+    ConnInfo,
+    SessionMod,
+    NewClientInfo,
+    OldClientInfo,
+    SessionIn
+) ->
     try
-        Session = SessionMod:resume(ClientInfo, SessionIn),
+        ResumeClientInfo = SessionMod:resume_clientinfo(NewClientInfo, OldClientInfo),
+        Session = SessionMod:resume(ResumeClientInfo, SessionIn),
         register_channel(GwName, ClientId, Self, ConnInfo),
-        {ok, Session}
+        {ok, Session, ResumeClientInfo}
     catch
         Class:Reason:Stacktrace ->
             cleanup_resume_registration(GwName, ClientId),

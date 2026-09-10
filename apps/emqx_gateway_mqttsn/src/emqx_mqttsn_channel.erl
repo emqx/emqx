@@ -438,45 +438,21 @@ ensure_keepalive_timer(Interval, Channel) ->
     Keepalive = emqx_keepalive:init(Interval),
     ensure_timer(keepalive, Channel#channel{keepalive = Keepalive}).
 
-merge_resume_clientinfo(NewClientInfo, OldClientInfo) ->
-    %% Keep session-scoped authorization and topic namespace attributes from
-    %% the authenticated session; transport-specific fields come from the new
-    %% association through the merged ConnInfo.
-    PreservedKeys = [
-        username,
-        password,
-        auth_result,
-        auth_expire_at,
-        is_superuser,
-        mountpoint,
-        dn,
-        cn,
-        client_attrs
-    ],
-    maps:merge(NewClientInfo, maps:with(PreservedKeys, OldClientInfo)).
-
 merge_takeover_pendings(Pendings) ->
     lists:usort(lists:append(Pendings, emqx_utils:drain_deliver())).
 
-peer_identity(ClientInfo) ->
-    case {maps:get(dn, ClientInfo, undefined), maps:get(cn, ClientInfo, undefined)} of
-        {undefined, undefined} -> undefined;
-        Identity -> Identity
-    end.
-
-can_resume_with_peer_identity(undefined, _IncomingIdentity) ->
-    true;
-can_resume_with_peer_identity(Identity, Identity) when Identity =/= undefined ->
-    true;
-can_resume_with_peer_identity(_StoredIdentity, _IncomingIdentity) ->
-    false.
+can_resume_with_peercert(OldPeercert, NewPeercert) when is_binary(OldPeercert) ->
+    OldPeercert =:= NewPeercert;
+can_resume_with_peercert(_UnboundOldPeercert, _NewPeercert) ->
+    %% Keep ClientId-only resume for sessions created without a peer certificate.
+    true.
 
 validate_wakeup(
-    NewClientInfo,
+    #{peercert := NewPeercert},
     #channel{
         takeover = false,
         conn_state = ConnState,
-        clientinfo = OldClientInfo,
+        conninfo = OldConnInfo,
         asleep_timer_duration = SleepDuration
     }
 ) when
@@ -484,18 +460,14 @@ validate_wakeup(
     is_integer(SleepDuration),
     SleepDuration > 0
 ->
-    case
-        can_resume_with_peer_identity(
-            peer_identity(OldClientInfo),
-            peer_identity(NewClientInfo)
-        )
-    of
+    OldPeercert = maps:get(peercert, OldConnInfo, undefined),
+    case can_resume_with_peercert(OldPeercert, NewPeercert) of
         true ->
-            {ok, merge_resume_clientinfo(NewClientInfo, OldClientInfo)};
+            ok;
         false ->
             {error, not_authorized}
     end;
-validate_wakeup(_NewClientInfo, _Channel) ->
+validate_wakeup(_ResumeRequest, _Channel) ->
     {error, not_resumable}.
 
 %%--------------------------------------------------------------------
@@ -1947,16 +1919,17 @@ handle_call(kick, _From, Channel) ->
 handle_call(discard, _From, Channel) ->
     shutdown_and_reply(discarded, ok, Channel);
 handle_call(
-    {takeover, 'begin', NewClientInfo},
+    {takeover, 'begin', ResumeRequest = #{peercert := _}},
     {OwnerPid, _Tag},
     Channel = #channel{
         session = Session,
+        clientinfo = OldClientInfo,
         takeover = false,
         takeover_owner = undefined
     }
 ) when is_pid(OwnerPid) ->
-    case validate_wakeup(NewClientInfo, Channel) of
-        {ok, ResumeClientInfo} ->
+    case validate_wakeup(ResumeRequest, Channel) of
+        ok ->
             MonitorRef = erlang:monitor(process, OwnerPid),
             NChannel = reset_timer(
                 resume_takeover,
@@ -1970,14 +1943,14 @@ handle_call(
                 {ok, #{
                     session => Session,
                     channel_info => info(Channel),
-                    clientinfo => ResumeClientInfo
+                    clientinfo => OldClientInfo
                 }},
                 NChannel
             );
         {error, Reason} ->
             reply({error, Reason}, Channel)
     end;
-handle_call({takeover, 'begin', _NewClientInfo}, _From, Channel) ->
+handle_call({takeover, 'begin', _ResumeRequest}, _From, Channel) ->
     reply({error, not_resumable}, Channel);
 handle_call(
     {takeover, 'end'},

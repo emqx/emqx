@@ -452,7 +452,8 @@ t_asleep_pingreq_dtls_mtls_identity(Config) ->
     ),
     ClientOptsNoCert = dtls_client_opts(Config, []),
     {ok, Socket1} = ssl:connect(?HOST, 1886, ClientOpts1, 1000),
-    {ok, Socket2} = ssl:connect(?HOST, 1886, ClientOptsReissued, 1000),
+    {ok, Socket2} = ssl:connect(?HOST, 1886, ClientOpts1, 1000),
+    {ok, SocketReissued} = ssl:connect(?HOST, 1886, ClientOptsReissued, 1000),
     {ok, Socket3} = ssl:connect(?HOST, 1886, ClientOptsDifferent, 1000),
     {ok, SocketNoCert} = ssl:connect(?HOST, 1885, ClientOptsNoCert, 1000),
     {ok, UdpSocket} = gen_udp:open(0, [binary]),
@@ -462,10 +463,9 @@ t_asleep_pingreq_dtls_mtls_identity(Config) ->
         ok = ssl:send(Socket1, make_subscribe_msg_normal_topic(QoS, TopicName, MsgId)),
         {ok, SubAck} = ssl:recv(Socket1, 0, 1000),
         <<8, ?SN_SUBACK, _Flags:8, TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>> = SubAck,
-        #{clientinfo := #{dn := DN, cn := CN}} =
+        #{conninfo := #{peercert := StoredPeercert}} =
             emqx_gateway_cm:get_chan_info(mqttsn, ClientId),
-        ?assert(is_binary(DN)),
-        ?assert(is_binary(CN)),
+        ?assert(is_binary(StoredPeercert)),
         ok = ssl:send(Socket1, make_disconnect_msg(SleepDuration)),
         ?assertEqual({ok, <<2, ?SN_DISCONNECT>>}, ssl:recv(Socket1, 0, 1000)),
         _ = emqx_broker:publish(emqx_message:make(<<"ct">>, QoS, TopicName, Payload)),
@@ -483,6 +483,9 @@ t_asleep_pingreq_dtls_mtls_identity(Config) ->
         send_pingreq_msg(UdpSocket, ClientId),
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(UdpSocket)),
 
+        ok = ssl:send(SocketReissued, make_pingreq_msg(ClientId)),
+        ?assertEqual({ok, <<2, ?SN_DISCONNECT>>}, ssl:recv(SocketReissued, 0, 1000)),
+
         ok = ssl:send(SocketNoCert, make_pingreq_msg(ClientId)),
         ?assertEqual({ok, <<2, ?SN_DISCONNECT>>}, ssl:recv(SocketNoCert, 0, 1000)),
 
@@ -494,6 +497,7 @@ t_asleep_pingreq_dtls_mtls_identity(Config) ->
     after
         _ = ssl:close(Socket1),
         _ = ssl:close(Socket2),
+        _ = ssl:close(SocketReissued),
         _ = ssl:close(Socket3),
         _ = ssl:close(SocketNoCert),
         gen_udp:close(UdpSocket),
@@ -691,7 +695,8 @@ t_asleep_pingreq_resume_rpc_failure_returns_disconnect(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'begin', _NewClientInfo}, _Timeout) when OldPid0 =:= OldPid ->
+                (OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout) when OldPid0 =:= OldPid ->
+                    ?assertEqual(#{peercert => nossl}, ResumeRequest),
                     exit({nodedown, node(OldPid0)});
                 (Pid, Req, Timeout) ->
                     meck:passthrough([Pid, Req, Timeout])
@@ -859,7 +864,9 @@ t_asleep_pingreq_resume_rejects_legacy_authorized_begin(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'begin', _NewClientInfo}, _Timeout) when OldPid0 =:= OldPid ->
+                (OldPid0, {takeover, 'begin', #{peercert := _}}, _Timeout) when
+                    OldPid0 =:= OldPid
+                ->
                     ignored;
                 (Pid, Req, Timeout) ->
                     meck:passthrough([Pid, Req, Timeout])
@@ -892,9 +899,11 @@ t_asleep_pingreq_resume_recovers_after_lost_begin_reply(_) ->
             emqx_gateway_conn,
             call,
             fun
-                (OldPid0, {takeover, 'begin', _NewClientInfo}, _Timeout) when OldPid0 =:= OldPid ->
+                (OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout) when
+                    OldPid0 =:= OldPid
+                ->
                     Result = meck:passthrough([
-                        OldPid0, {takeover, 'begin', _NewClientInfo}, _Timeout
+                        OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout
                     ]),
                     ?assertMatch({ok, #{session := _, channel_info := _, clientinfo := _}}, Result),
                     exit({timeout, simulated_lost_begin_reply});
