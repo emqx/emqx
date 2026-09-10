@@ -1,9 +1,8 @@
 # Changelog
 
-All notable changes to the emqx_bcast plugin since version `0.1.0` are
-documented here.
+All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
-## Unreleased
+## 0.4.1
 
 ### Fixed
 
@@ -41,6 +40,12 @@ documented here.
   intake queue depth is a hardcoded internal bound.
 - Ledger gauges are sampled concurrently, so a scrape no longer
   serializes over every index shard.
+
+### Documentation
+
+- Corrected `API.md`, `FEATURES.md`, `USAGE.md`, `README.md` and
+  `DEVELOPMENT.md` to match the sharded pull pipeline, and restructured
+  this changelog per released version.
 
 ## 0.4.0
 
