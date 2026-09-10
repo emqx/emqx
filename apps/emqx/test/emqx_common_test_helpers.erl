@@ -33,8 +33,10 @@
     client_ssl/0,
     client_ssl/1,
     client_mtls/0,
-    listener_example_certs/0,
-    listener_example_certs/1,
+    ensure_test_certs/0,
+    test_cert/1,
+    listener_test_certs/0,
+    listener_test_certs/1,
     client_mtls/1,
     ensure_mnesia_stopped/0,
     ensure_quic_listener/2,
@@ -114,14 +116,17 @@
 
 -export([seed_defaults_for_all_roots_namespaced_cluster/2]).
 
--define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
+%% Certificates the suites generate for themselves, kept beside the application in
+%% the build tree so that a listener on a peer node and a client here read the
+%% same files. See `ensure_test_certs/0'.
+-define(TEST_CERTS_DIR, "test-certs").
 -define(SECURITY_PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 -define(DEFAULT_ADDRESS_CONF_KEY, [node, default_listener_address]).
 
 -define(MQTT_SSL_CLIENT_CERTS, [
-    {keyfile, ?CERTS_PATH("client-key.pem")},
-    {cacertfile, ?CERTS_PATH("cacert.pem")},
-    {certfile, ?CERTS_PATH("client-cert.pem")}
+    {keyfile, "client-key.pem"},
+    {cacertfile, "cacert.pem"},
+    {certfile, "client-cert.pem"}
 ]).
 
 -define(TLS_1_3_CIPHERS, [
@@ -431,38 +436,112 @@ client_mtls(TLSVsn) ->
     ssl_verify_fun_allow_any_host() ++ client_certs() ++ ciphers(TLSVsn).
 
 -doc """
-HOCON that points a listener at the shipped example certificates.
+Generates the certificates the test suites use, once, and returns their
+directory.
 
-The listener schema no longer defaults `certfile', `keyfile' and `cacertfile'; a
+A CA, a server certificate for `localhost' and a client certificate, equivalent
+in meaning to the example certificates EMQX used to ship: `CN=RootCA',
+`CN=localhost' with SANs `localhost' / `127.0.0.1' / `::1', and `CN=Client', all
+under `O=EMQ'. Suites assert on what a certificate contains, not on its bytes.
+
+Written beside the application in the build tree rather than into a per-case
+directory, because a cluster test starts its listener on a peer node while the
+client runs here: both read the path this returns. The first caller to finish
+wins and everyone reuses that set, so nodes never end up trusting different CAs.
+""".
+-spec ensure_test_certs() -> file:filename_all().
+ensure_test_certs() ->
+    Dir = test_certs_dir(),
+    case complete_test_certs(Dir) of
+        true -> Dir;
+        false -> generate_test_certs(Dir)
+    end.
+
+-doc "Absolute path of a file written by `ensure_test_certs/0'.".
+-spec test_cert(string()) -> file:filename_all().
+test_cert(Name) ->
+    filename:join(ensure_test_certs(), Name).
+
+test_certs_dir() ->
+    app_path(emqx, ?TEST_CERTS_DIR).
+
+test_cert_names() ->
+    ["cacert.pem", "cert.pem", "key.pem", "client-cert.pem", "client-key.pem"].
+
+complete_test_certs(Dir) ->
+    lists:all(
+        fun(Name) -> filelib:is_regular(filename:join(Dir, Name)) end,
+        test_cert_names()
+    ).
+
+%% Built in a temporary directory and moved into place, so a half-written set is
+%% never visible. Losing the race is fine: the winner's set is complete, and one
+%% complete set is all any of this needs.
+generate_test_certs(Dir) ->
+    Ca = #{cert_pem := CaPem} = emqx_utils_certs:generate_ca(#{cn => "RootCA", org => "EMQ"}),
+    #{cert_pem := ServerPem, key_pem := ServerKey} = emqx_utils_certs:generate_cert(Ca, #{
+        cn => "localhost",
+        org => "EMQ",
+        sans => [{dns, "localhost"}, {ip, {127, 0, 0, 1}}, {ip, {0, 0, 0, 0, 0, 0, 0, 1}}]
+    }),
+    #{cert_pem := ClientPem, key_pem := ClientKey} = emqx_utils_certs:generate_cert(Ca, #{
+        cn => "Client", org => "EMQ"
+    }),
+    TmpDir = Dir ++ "-" ++ integer_to_list(erlang:unique_integer([positive])),
+    ok = filelib:ensure_path(TmpDir),
+    Files = [
+        {"cacert.pem", CaPem},
+        {"cert.pem", ServerPem},
+        {"key.pem", ServerKey},
+        {"client-cert.pem", ClientPem},
+        {"client-key.pem", ClientKey}
+    ],
+    lists:foreach(
+        fun({Name, Pem}) -> ok = file:write_file(filename:join(TmpDir, Name), Pem) end,
+        Files
+    ),
+    case file:rename(TmpDir, Dir) of
+        ok ->
+            Dir;
+        {error, _} ->
+            %% Another node or process installed a set first. Use theirs.
+            _ = file:del_dir_r(TmpDir),
+            true = complete_test_certs(Dir),
+            Dir
+    end.
+
+-doc """
+HOCON that points a listener at the generated test certificates.
+
+The listener schema does not default `certfile', `keyfile' and `cacertfile'; a
 listener naming none of them serves the certificate the node generates for
-itself. Suites whose clients present or verify the example certificates have to
-name them, and this is the configuration that does it.
+itself. A suite whose clients present or verify the test CA has to name these.
 
 `ListenerPath' is the dotted path to the listener, such as
 `"listeners.ssl.default"'.
 """.
--spec listener_example_certs(string()) -> string().
-listener_example_certs(ListenerPath) ->
+-spec listener_test_certs(string()) -> string().
+listener_test_certs(ListenerPath) ->
     lists:flatten([
         [ListenerPath, ".ssl_options.", binary_to_list(Key), " = \"", binary_to_list(File), "\"\n"]
-     || {Key, File} <- maps:to_list(listener_example_certs())
+     || {Key, File} <- maps:to_list(listener_test_certs())
     ]).
 
 -doc """
-The same example certificates as `listener_example_certs/1', as `ssl_options'
-entries, for a suite that builds its listener config as a map.
+The same certificates as `listener_test_certs/1', as `ssl_options' entries, for
+a suite that builds its listener config as a map.
 """.
--spec listener_example_certs() -> #{binary() => binary()}.
-listener_example_certs() ->
+-spec listener_test_certs() -> #{binary() => binary()}.
+listener_test_certs() ->
     #{
-        <<"certfile">> => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
-        <<"keyfile">> => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
-        <<"cacertfile">> => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>
+        <<"certfile">> => iolist_to_binary(test_cert("cert.pem")),
+        <<"keyfile">> => iolist_to_binary(test_cert("key.pem")),
+        <<"cacertfile">> => iolist_to_binary(test_cert("cacert.pem"))
     }.
 
 %% Paths prepended to cert filenames
 client_certs() ->
-    [{Key, app_path(emqx, FilePath)} || {Key, FilePath} <- ?MQTT_SSL_CLIENT_CERTS].
+    [{Key, test_cert(FilePath)} || {Key, FilePath} <- ?MQTT_SSL_CLIENT_CERTS].
 
 client_ssl() ->
     client_ssl(default).

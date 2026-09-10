@@ -39,7 +39,7 @@ init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
         [
             {emqx,
                 ?BASE_CONF ++
-                    emqx_common_test_helpers:listener_example_certs(
+                    emqx_common_test_helpers:listener_test_certs(
                         "listeners.ssl.auth_ext"
                     )}
         ],
