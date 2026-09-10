@@ -142,6 +142,16 @@ t_api_spec_lists_conflict_and_unavailable_responses(_Config) ->
     ?assert(maps:is_key(409, Responses)),
     ?assert(maps:is_key(503, Responses)).
 
+t_api_spec_is_plugin_owned(_Config) ->
+    {Apis, Components} = emqx_sync_request_api:api_spec(),
+    ?assertEqual([], Components),
+    ?assertMatch(
+        [
+            {"/plugin_api/emqx_sync_request/request", #{post := #{description := _}}, request, _}
+        ],
+        Apis
+    ).
+
 t_plugin_config_rejects_invalid_values(Config) ->
     NameVsn = ?config(plugin_name_vsn, Config),
     {200, OriginalConfig} = plugin_config_request(get, NameVsn, #{}),
