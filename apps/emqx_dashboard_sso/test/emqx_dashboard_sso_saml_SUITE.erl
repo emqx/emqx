@@ -35,9 +35,11 @@
 all() ->
     [
         {group, unit},
-        {group, api},
         {group, keycloak_integration},
-        {group, signature_combinations}
+        {group, signature_combinations},
+        %% The API tests create and delete a SAML backend. The testcase cleanup
+        %% stops esaml, so keep them after tests that restart and reuse esaml.
+        {group, api}
     ].
 
 groups() ->
