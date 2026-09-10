@@ -5,11 +5,13 @@ an HTTP API accepts a message and a target set of devices, and the plugin
 delivers it directly to the connected client processes via internal
 channels, bypassing ACL checks. Delivery is gated by the device's MQTT
 subscription: only devices subscribed to the delivery topic receive the
-message. Subscription state is read live from EMQX's own subscription
-tables (`emqx_broker:subscriptions/1`) at delivery time; the plugin keeps
-no mirror. Devices are addressed by `ProductKey` + `DeviceName`, derived
-from the MQTT username (`ProductKey-DeviceName`) via EMQX namespace
-attributes.
+message. Each client's subscription filters are cached in its per-client
+pull-state row (maintained from the session subscribe/unsubscribe hooks,
+re-read from EMQX's own subscription tables `emqx_broker:subscriptions/1`
+on session resume, and used as a fallback when the cache is empty); the
+plugin keeps no global subscription mirror. Devices are addressed by
+`ProductKey` + `DeviceName`, derived from the MQTT username
+(`ProductKey-DeviceName`) via EMQX namespace attributes.
 
 Listener mountpoints and `namespace_as_mountpoint` are not supported:
 with either configured, the topic filters in EMQX's subscription tables
@@ -32,11 +34,14 @@ unmounted delivery topics.
   default 10,000 per call).
 - Payload can be inline (`MessageContent`, Base64) or referenced by a
   pre-registered `MessageId` to avoid re-uploading large payloads.
-- Delivery is asynchronous: all API writes are funnelled to a core node,
-  core persists QoS=1 records and broadcasts a trigger (or full QoS=0 data),
-  and the node serving each device pulls the delivery through the
-  `pull_pool` / `pull_server_pool` pipeline. A `200` response means the
-  request was accepted; online delivery completes asynchronously.
+- Delivery is asynchronous: all API writes are funnelled to a core node.
+  QoS=1 is accepted into a bounded node-local intake queue, so a `200`
+  means in-memory acceptance, not durability; the promoter then commits
+  the message and delivery rows to mria, appends the per-device index and
+  broadcasts a per-node trigger, and the node serving each device claims
+  and delivers the entry through its pull shards. QoS=0/PubBroadcast data
+  is broadcast in full to every node's pull shards. Online delivery
+  completes asynchronously.
 
 ### RegisterMessage
 
@@ -78,20 +83,24 @@ unmounted delivery topics.
 
 ## Delivery Pipeline
 
-1. Validate the request (sizes, device list, QoS, base64).
+1. Validate the request (sizes, device list, QoS, base64, topic template).
 2. All API requests are funnelled to a core node.
-3. QoS=0 / PubBroadcast: core broadcasts full deliver data to every
-   node; each `pull_pool` checks online + subscription and delivers.
-4. QoS=1: core writes message and delivery records in a single
-   transaction, then broadcasts a pure trigger. Each `pull_pool`
-   deduplicates triggers into `buffer3`, pulls from a random core,
-   fills the active delivery buffer, delivers, and tracks pending acks.
+3. QoS=0 / PubBroadcast: the core broadcasts the full delivery data to
+   every node; each node's pull shards check online + subscription and
+   deliver directly.
+4. QoS=1: the request is accepted into the bounded node-local intake
+   queue; the promoter drains it, commits the message and delivery rows in
+   a single mria transaction (the durability point), appends the
+   per-device index to the owning index shard, then broadcasts a pure
+   trigger per (product, template). Each node's pull shards claim their
+   devices' queue entries, deliver to the local channel and track pending
+   acks.
 
-The delivery workers themselves have no queue admission control:
-workers are pooled and pull-side buffering provides backpressure through
-the 50ms/100 batch flush policy. The API layer separately enforces pending
-delivery quotas and returns 429 QuotaExceeded when a QoS=1 BatchPub would
-exceed them.
+The delivery workers themselves have no queue admission control: claim
+and ack work is pooled (pool size = `delivery_pool_size`, 0 = one worker
+per scheduler) and the pull shards bound each flush batch (2 ms / 500
+entries for claims). The API layer separately enforces the intake queue
+bound (429 `Busy`) and the pending-delivery quotas (429 `QuotaExceeded`).
 
 ## Configuration
 
@@ -106,7 +115,7 @@ exceed them.
 | `max_message_size_batch` | `10240` | Max BatchPub payload bytes (binary) |
 | `max_pending_deliveries` | `10000000` | Global cap on pending QoS=1 deliveries; QoS=1 BatchPub requests that would exceed it are rejected with 429 QuotaExceeded |
 | `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); requests targeting a device over the cap are rejected with 429 QuotaExceeded and the over-limit device list |
-| `delivery_pool_size` | `0` | Async workers for each of the three pools; 0 = one per scheduler |
+| `delivery_pool_size` | `0` | Worker count for each delivery pool (the per-node claim pool and the core-side server pool); 0 = one per scheduler |
 
 ## Metrics
 

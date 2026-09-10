@@ -36,7 +36,7 @@ Broadcasts a message to all online devices within a product. Offline devices do 
 | `Action` | String | Yes | `"PubBroadcast"` |
 | `ProductKey` | String | Yes | Target product identifier |
 | `MessageContent` | String | Yes | Base64-encoded payload, max 64 KiB |
-| `TopicFullName` | String | No | Custom broadcast topic. Defaults to the plugin-configured broadcast topic |
+| `TopicFullName` | String | No | Custom broadcast topic. A concrete topic: wildcards and `${...}` placeholders are rejected with `InvalidTopicTemplate`. Defaults to the plugin-configured `broadcast_topic` template |
 
 ```json
 // Request
@@ -197,12 +197,13 @@ GET /api/v5/plugin_api/emqx_bcast/messages?limit=100
 GET /api/v5/plugin_api/emqx_bcast/messages?limit=100&cursor=<cursor>
 ```
 
-`limit` defaults to 100 and must be between 1 and 1000 (a larger value
-returns 400 `InvalidParams`). Messages are returned newest first. When
-more pages remain, the response includes a `Cursor` field; pass it back
-as the `cursor` query parameter to fetch the next page. The last page
-carries no `Cursor`. An invalid or missing cursor starts from the first
-page.
+`limit` defaults to 100 and must be between 1 and 1000 (a value outside
+that range returns 400 `InvalidParams`). Messages are returned newest
+first. When more pages remain, the response includes a `Cursor` field;
+pass it back as the `cursor` query parameter to fetch the next page. The
+last page carries no `Cursor`. An absent or empty cursor starts from the
+first page; a malformed non-empty cursor is a client error and returns
+400 `InvalidParams` rather than silently restarting from the first page.
 
 ```json
 {
@@ -221,8 +222,10 @@ page.
 GET /api/v5/plugin_api/emqx_bcast/messages/:messageId
 ```
 
-Returns the same fields as the list, plus `DeliveryCount` (number of
-deliveries referencing the message). 404 `MessageNotFound` if unknown.
+Returns the same fields as the list, plus `DeliveryCount` (the number of
+still-outstanding delivery records referencing the message, i.e. pending
+deliveries; completed and expired deliveries are not counted). 404
+`MessageNotFound` if unknown.
 
 ### Delete Message
 
@@ -285,8 +288,8 @@ unknown.
 
 | Code | HTTP | Description |
 |------|------|-------------|
-| `InvalidProductKey` | 400 | ProductKey does not exist or is invalid |
-| `InvalidDeviceName` | 400 | DeviceName list contains invalid entries |
+| `InvalidProductKey` | 400 | ProductKey is missing or contains invalid characters (`/`, `+`, `#`, `$`) |
+| `InvalidDeviceName` | 400 | DeviceName list is missing, empty, not a list of strings, or contains invalid entries |
 | `DeviceCountExceeded` | 400 | DeviceName exceeds the configurable limit (default 10,000) |
 | `DuplicateDeviceName` | 400 | DeviceName list contains duplicates |
 | `MessageTooLarge` | 400 | MessageContent exceeds size limit |
@@ -297,9 +300,11 @@ unknown.
 | `InvalidQos` | 400 | Qos value is not 0 or 1 |
 | `MissingAction` | 400 | Request body does not contain an Action field |
 | `UnknownAction` | 400 | Action value is not recognized |
-| `InvalidParams` | 400 | Missing required query parameters on management endpoints |
+| `InvalidParams` | 400 | Invalid query parameters on management endpoints: missing `product_key`/`device_name`, `limit` outside 1..1000, or a malformed `cursor` |
 | `DeliveryNotFound` | 404 | DeliveryId does not exist (management endpoints) |
 | `QuotaExceeded` | 429 | Pending delivery quota exceeded. For per-device over-limit the body includes a `Devices` array listing the devices over their cap |
+| `Busy` | 429 | BatchPub QoS=1 intake queue is full; retry later |
+| `PendingDeliveries` | 409 | Metrics reset refused because at least one node still has queued or in-flight deliveries; the body lists the `BlockedNodes` |
 | `InternalError` | 500 | Internal server error |
 
 ---
