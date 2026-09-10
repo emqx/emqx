@@ -50,6 +50,7 @@
 -define(API_KEY_API(METHOD, FN), ?API(emqx_mgmt_api_api_keys, METHOD, FN)).
 -define(FT_API(METHOD, FN), ?API(emqx_ft_api, METHOD, FN)).
 -define(FT_FS_API(METHOD, FN), ?API(emqx_ft_storage_exporter_fs_api, METHOD, FN)).
+-define(AUDIT_API(METHOD, FN), ?API(emqx_audit_api, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -261,6 +262,13 @@ do_check_rbac(#{?namespace := Namespace}, _, ?FT_FS_API(get, '/file_transfer/fil
     is_binary(Namespace)
 ->
     {error, <<"File Transfer endpoints are not available to namespaced users">>};
+do_check_rbac(#{?namespace := Namespace}, _, ?AUDIT_API(get, audit)) when
+    is_binary(Namespace)
+->
+    %% The audit log is global and records every principal's operations, including
+    %% request bodies and arguments. Reading it would expose activity outside the
+    %% caller's namespace.
+    {error, <<"The audit log is not available to namespaced users">>};
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
