@@ -55,6 +55,7 @@ primary -> builtin_expression : {builtin_expression, value('$1')}.
 primary -> name_path : {identifier_ref, '$1'}.
 primary -> name_path '(' opt_args ')' : {call, '$1', '$3'}.
 primary -> '(' expression ')' : {group, '$2'}.
+primary -> case_expression : '$1'.
 unary_expression -> primary : '$1'.
 unary_expression -> '+' unary_expression : {unary, '+', '$2'}.
 unary_expression -> '-' unary_expression : {unary, '-', '$2'}.
@@ -76,7 +77,6 @@ expression -> expression '-' expression : {binary, '-', '$1', '$3'}.
 expression -> expression '*' expression : {binary, '*', '$1', '$3'}.
 expression -> expression '/' expression : {binary, '/', '$1', '$3'}.
 expression -> expression '%' expression : {binary, '%', '$1', '$3'}.
-primary -> case_expression : '$1'.
 case_expression -> case_kw opt_operand whens opt_else end_kw :
     {case_expression, '$2', '$3', '$4'}.
 opt_operand -> '$empty' : undefined.
