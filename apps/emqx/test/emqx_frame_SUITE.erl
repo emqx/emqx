@@ -47,7 +47,8 @@ groups() ->
             t_parse_after_connect,
             t_parse_no_connect_expected,
             t_update_opts,
-            t_update_opts_mid_frame
+            t_update_opts_mid_frame,
+            t_update_opts_connect_limits
         ]},
         {connect, [parallel], [
             t_serialize_parse_v3_connect,
@@ -429,6 +430,34 @@ t_update_opts(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>),
     PublishBin = serialize_to_binary(Publish, ?MQTT_PROTO_V5),
     ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin, PState3)).
+
+%% The CONNECT limits are zone settings too, so a config change must carry them
+%% onto an existing parse state rather than leave the old ones in place.
+t_update_opts_connect_limits(_) ->
+    PState0 = emqx_frame:initial_parse_state(#{
+        expect_connect => true,
+        max_connect_size => 1024,
+        max_connect_user_properties => 10
+    }),
+    {ok, PState1, _Serialize} = emqx_frame:update_opts(PState0, #{
+        max_connect_size => 32,
+        max_connect_user_properties => 1
+    }),
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{proto_ver = ?MQTT_PROTO_V5}),
+    ConnectBin = serialize_to_binary(Connect, ?MQTT_PROTO_V5),
+    ?assert(byte_size(ConnectBin) < 32),
+    %% The tightened size limit is in force ...
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := 32},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(20)), PState1)
+    ),
+    %% ... and so is the tightened pair limit.
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 1},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(2)), PState1)
+    ),
+    %% A CONNECT within both limits still parses.
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(ConnectBin, PState1)).
 
 %% A frame in flight is parsed under the options it started with. The new
 %% options are held and take effect from the next frame, not dropped.
