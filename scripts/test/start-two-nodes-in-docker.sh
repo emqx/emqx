@@ -165,7 +165,7 @@ mkdir -p tmp
 ## rather than taken from the source tree: EMQX no longer ships an example set.
 CERT_DIR="$(pwd)/tmp/certs"
 if [ ! -f "$CERT_DIR/cacert.pem" ]; then
-    ./scripts/gen-emqx-default-certs.sh "$CERT_DIR"
+    ./scripts/gen-test-certs.sh "$CERT_DIR"
 fi
 
 cat <<EOF > tmp/haproxy.cfg
