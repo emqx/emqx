@@ -602,7 +602,7 @@ t_raw_string_roundtrip(Config) ->
     ok = emqx_mysql:prepare_sql_to_conn(C, [], fun emqx_bridge_doris_impl:prepare_conn/1),
     %% Record native raw behavior separately from the compiler's byte-preserving semantics.
     Native = mysql:query(C, <<"SELECT HEX(R'a\\n'), HEX(r\"a\\n\"), HEX(R'a\\'), HEX(R'')">>),
-    ct:print("Native Doris raw literals: ~p", [Native]),
+    ct:pal("Native Doris raw literals: ~p", [Native]),
     ?assertMatch(
         {ok, _, [[<<"27610A">>, <<"22610A">>, <<"27615C">>, <<"27">>]]}, Native
     ),
