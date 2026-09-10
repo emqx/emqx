@@ -52,7 +52,9 @@ groups() ->
             t_callback_rejects_deflate_xxe_response,
             t_callback_rejects_unsigned_response_by_default,
             t_callback_accepts_unsigned_response_with_explicit_escape_hatch,
-            t_callback_requires_matching_browser_cookie
+            t_callback_requires_matching_browser_cookie,
+            t_callback_concurrent_logins_in_one_browser,
+            t_callback_skip_login_cookie_check
         ]},
         {api, [sequence], [
             t_sso_running_disabled,
@@ -319,6 +321,64 @@ t_callback_requires_matching_browser_cookie(_Config) ->
         ?assertMatch([_], emqx_dashboard_admin:lookup_user(saml, Username))
     after
         _ = emqx_dashboard_admin:remove_user({saml, Username})
+    end.
+
+-doc """
+Two tabs of one browser each start a SAML login. Both logins complete, the one
+started last first, while the browser sends both cookies with each assertion.
+""".
+t_callback_concurrent_logins_in_one_browser(_Config) ->
+    UserA = <<"tab-a-user">>,
+    UserB = <<"tab-b-user">>,
+    State = #{sp := SP} = signature_test_state(false, false),
+    Jar = relay_state_jar([<<"relay-a">>, <<"relay-b">>]),
+    ReqA = #{
+        body => with_relay_state(unsigned_response_body(SP, UserA), <<"relay-a">>),
+        headers => Jar
+    },
+    ReqB = #{
+        body => with_relay_state(unsigned_response_body(SP, UserB), <<"relay-b">>),
+        headers => Jar
+    },
+    try
+        %% The login started last completes first. It deletes only its own cookie.
+        {redirect, UserB, {302, HeadersB, _}} = emqx_dashboard_sso_saml:callback(ReqB, State),
+        NameB = emqx_dashboard_sso_browser_binding:cookie_name(saml, <<"relay-b">>),
+        ?assertMatch(
+            {0, _}, binary:match(maps:get(<<"set-cookie">>, HeadersB), <<NameB/binary, "=;">>)
+        ),
+        %% The login started first still completes.
+        ?assertMatch({redirect, UserA, _}, emqx_dashboard_sso_saml:callback(ReqA, State))
+    after
+        _ = emqx_dashboard_admin:remove_user({saml, UserA}),
+        _ = emqx_dashboard_admin:remove_user({saml, UserB})
+    end.
+
+-doc """
+The login cookie check is on by default. With `skip_login_cookie_check` enabled,
+an assertion without the login cookie completes the login, with or without a
+`RelayState`.
+""".
+t_callback_skip_login_cookie_check(_Config) ->
+    ?assertMatch(#{skip_login_cookie_check := false}, checked_saml_config(#{})),
+    State0 = #{sp := SP} = signature_test_state(false, false),
+    State = State0#{skip_login_cookie_check => true},
+    UserA = <<"skip-cookie-user-a">>,
+    UserB = <<"skip-cookie-user-b">>,
+    %% No cookie, with the `RelayState' the login started with.
+    BodyA = with_relay_state(unsigned_response_body(SP, UserA), ?TEST_RELAY_STATE),
+    %% No cookie and no `RelayState', as in an IdP initiated login.
+    BodyB = unsigned_response_body(SP, UserB),
+    try
+        ?assertMatch(
+            {redirect, UserA, _}, emqx_dashboard_sso_saml:callback(#{body => BodyA}, State)
+        ),
+        ?assertMatch(
+            {redirect, UserB, _}, emqx_dashboard_sso_saml:callback(#{body => BodyB}, State)
+        )
+    after
+        _ = emqx_dashboard_admin:remove_user({saml, UserA}),
+        _ = emqx_dashboard_admin:remove_user({saml, UserB})
     end.
 
 assert_callback_rejects_xxe_response(Config, SAMLEncoding) ->
@@ -654,7 +714,15 @@ xxe_callback_state() ->
 %% @doc A `RelayState' plus the browser binding cookie that carries it, as the
 %% browser which started the login would send them back.
 relay_state_cookie(RelayState) ->
-    #{<<"cookie">> => <<"emqx_sso_saml=", RelayState/binary>>}.
+    relay_state_jar([RelayState]).
+
+%% @doc The cookies of several logins started in one browser.
+relay_state_jar(RelayStates) ->
+    Pairs = [
+        <<(emqx_dashboard_sso_browser_binding:cookie_name(saml, RS))/binary, "=", RS/binary>>
+     || RS <- RelayStates
+    ],
+    #{<<"cookie">> => iolist_to_binary(lists:join(<<"; ">>, Pairs))}.
 
 %% @doc Turn a bare SAMLResponse body into a request bound to this browser.
 bound_callback_req(Body) ->
@@ -672,7 +740,9 @@ with_relay_state(Body, RelayState) ->
 %% @doc The value emqx put in the browser binding cookie of a login response.
 binding_cookie_value(Headers) ->
     SetCookie = maps:get(<<"set-cookie">>, Headers),
-    [<<"emqx_sso_saml=", Value/binary>> | _] = binary:split(SetCookie, <<";">>),
+    [Pair | _] = binary:split(SetCookie, <<";">>),
+    [Name, Value] = binary:split(Pair, <<"=">>),
+    ?assertEqual(emqx_dashboard_sso_browser_binding:cookie_name(saml, Value), Name),
     Value.
 
 %% @doc Build a callback state with the given signature-verification flags,
