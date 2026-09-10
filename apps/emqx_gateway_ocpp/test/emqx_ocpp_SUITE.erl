@@ -578,11 +578,46 @@ t_active_n(_Config) ->
     ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(ocpp, <<"client1">>)),
     ok.
 
+-doc """
+A WebSocket message larger than the listener's `websocket.max_frame_size`
+closes the connection with status code 1009. The default limit applies when
+the option is not set, and an explicit value replaces it.
+""".
+t_ws_max_frame_size(_Config) ->
+    {ok, Client1} = connect("127.0.0.1", 33033, <<"client_frame_default">>),
+    ok = send_text(Client1, binary:copy(<<"a">>, 2097152 + 1)),
+    ?assertEqual(1009, receive_close_code(Client1)),
+    close(Client1),
+    RawCfg = emqx_conf:get_raw([gateway, ocpp], #{}),
+    ListenerCfg = emqx_utils_maps:deep_get([<<"listeners">>, <<"ws">>, <<"default">>], RawCfg),
+    WsCfg = maps:get(<<"websocket">>, ListenerCfg, #{}),
+    {ok, _} = emqx_gateway_conf:update_listener(ocpp, {ws, default}, ListenerCfg#{
+        <<"websocket">> => WsCfg#{<<"max_frame_size">> => 1024}
+    }),
+    try
+        {ok, Client2} = connect("127.0.0.1", 33033, <<"client_frame_explicit">>),
+        ok = send_text(Client2, binary:copy(<<"a">>, 1025)),
+        ?assertEqual(1009, receive_close_code(Client2)),
+        close(Client2)
+    after
+        {ok, _} = emqx_gateway_conf:update_listener(ocpp, {ws, default}, ListenerCfg)
+    end.
+
 %%--------------------------------------------------------------------
 %% ocpp simple client
 
 connect(Host, Port, ClientId) ->
     connect(Host, Port, ClientId, []).
+
+send_text({ConnPid, StreamRef}, Text) ->
+    gun:ws_send(ConnPid, StreamRef, {text, Text}).
+
+receive_close_code({ConnPid, StreamRef}) ->
+    receive
+        {gun_ws, ConnPid, StreamRef, {close, Code, _}} -> Code
+    after 5000 ->
+        ct:fail({no_ws_close, ?drainMailbox()})
+    end.
 
 connect(Host, Port, ClientId, ExtraHeaders) ->
     Timeout = 5000,
