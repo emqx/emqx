@@ -10,6 +10,7 @@
     default_root_keys/0,
     default_table_sets/0,
     normalize_config/1,
+    validate_config_update/1,
     validate_config/1,
     sync_once/1,
     sync_once/2
@@ -362,42 +363,78 @@ http_options(Conf, Timeout) ->
 ssl_options(Conf) ->
     Primary = maps:get(<<"primary">>, Conf),
     SSL = maps:get(<<"ssl">>, Primary, ?DEFAULT_SSL),
-    case maps:get(<<"enable">>, SSL, false) of
-        true -> emqx_tls_lib:to_client_opts(client_ssl_options(SSL));
-        false -> []
+    BaseUrl = maps:get(<<"base_url">>, Primary, <<>>),
+    case {maps:get(<<"enable">>, SSL, false), BaseUrl} of
+        {true, <<"http://", _/binary>>} ->
+            [];
+        {true, _} ->
+            emqx_tls_lib:to_client_opts(client_ssl_options(SSL));
+        {false, _} ->
+            []
     end.
 
 client_ssl_options(SSL) ->
-    #{
-        enable => maps:get(<<"enable">>, SSL, false),
-        verify => to_verify(maps:get(<<"verify">>, SSL, <<"verify_none">>)),
-        server_name_indication => to_sni(
-            maps:get(<<"server_name_indication">>, SSL, <<"disable">>)
-        ),
-        cacertfile => to_string(maps:get(<<"cacertfile">>, SSL, <<>>)),
-        certfile => to_string(maps:get(<<"certfile">>, SSL, <<>>)),
-        keyfile => to_string(maps:get(<<"keyfile">>, SSL, <<>>))
-    }.
+    maps:filter(
+        fun(_Key, Value) -> Value =/= "" end,
+        #{
+            enable => maps:get(<<"enable">>, SSL, false),
+            verify => to_verify(maps:get(<<"verify">>, SSL, <<"verify_none">>)),
+            server_name_indication => to_sni(
+                maps:get(<<"server_name_indication">>, SSL, <<"disable">>)
+            ),
+            cacertfile => to_string(maps:get(<<"cacertfile">>, SSL, <<>>)),
+            certfile => to_string(maps:get(<<"certfile">>, SSL, <<>>)),
+            keyfile => to_string(maps:get(<<"keyfile">>, SSL, <<>>))
+        }
+    ).
+
+-spec validate_config_update(map()) -> ok | {error, term()}.
+validate_config_update(Conf0) ->
+    Conf = normalize_config(Conf0),
+    Sync = maps:get(<<"sync">>, Conf),
+    case
+        validate_sync_duration(
+            <<"sync.interval">>, maps:get(<<"interval">>, Sync)
+        )
+    of
+        ok ->
+            validate_sync_duration(<<"sync.timeout">>, maps:get(<<"timeout">>, Sync));
+        {error, _} = Error ->
+            Error
+    end.
 
 -spec validate_config(map()) -> ok | {error, term()}.
 validate_config(Conf0) ->
     Conf = normalize_config(Conf0),
-    Primary = maps:get(<<"primary">>, Conf),
-    case
-        {
-            maps:get(<<"base_url">>, Primary),
-            maps:get(<<"api_key">>, Primary),
-            maps:get(<<"api_secret">>, Primary)
-        }
-    of
-        {<<>>, _, _} ->
-            {error, missing_primary_base_url};
-        {_, <<>>, _} ->
-            {error, missing_primary_api_key};
-        {_, _, <<>>} ->
-            {error, missing_primary_api_secret};
+    case validate_config_update(Conf) of
+        ok ->
+            Primary = maps:get(<<"primary">>, Conf),
+            case
+                {
+                    maps:get(<<"base_url">>, Primary),
+                    maps:get(<<"api_key">>, Primary),
+                    maps:get(<<"api_secret">>, Primary)
+                }
+            of
+                {<<>>, _, _} ->
+                    {error, missing_primary_base_url};
+                {_, <<>>, _} ->
+                    {error, missing_primary_api_key};
+                {_, _, <<>>} ->
+                    {error, missing_primary_api_secret};
+                _ ->
+                    validate_primary_ssl(Primary)
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+validate_sync_duration(Field, Value) ->
+    case emqx_schema:to_duration_ms(Value) of
+        {ok, Ms} when is_integer(Ms), Ms > 0 ->
+            ok;
         _ ->
-            validate_primary_ssl(Primary)
+            {error, {invalid_sync_duration, Field, Value}}
     end.
 
 validate_primary_ssl(Primary) ->
