@@ -36,7 +36,8 @@ all() ->
         t_del_stale_mfa,
         t_skip_failed_commit,
         t_fast_forward_commit,
-        t_commit_concurrency
+        t_commit_concurrency,
+        t_apply_result_not_logged
     ].
 suite() -> [{timetrap, {minutes, 5}}].
 groups() -> [].
@@ -111,6 +112,37 @@ t_base_test(_Config) ->
                 Status1
             )
     end,
+    ok.
+
+%% Verify that a successful cluster-RPC apply logs only the shape of the result,
+%% never the value, and that a failed apply still logs the error term.
+t_apply_result_not_logged(_Config) ->
+    Marker = <<"UNIQUE_MARKER_423">>,
+    OkReports = emqx_cth_log_capture:capture(debug, fun() ->
+        {M, F, A} = {?MODULE, echo_compiled, [Marker]},
+        ?assertMatch({ok, _, {ok, #{compiled := Marker}}}, multicall(M, F, A))
+    end),
+    ?assertMatch(
+        [#{result := {ok, '_'}}],
+        [R || #{msg := "cluster_rpc_apply_result"} = R <- OkReports]
+    ),
+    %% one line per node applying the committed MFA
+    AppliedReports = [R || #{msg := "cluster_rpc_apply_ok"} = R <- OkReports],
+    ?assertMatch([_, _ | _], AppliedReports),
+    lists:foreach(fun(R) -> ?assertMatch(#{result := {ok, '_'}}, R) end, AppliedReports),
+    ?assertEqual(
+        nomatch, binary:match(iolist_to_binary(io_lib:format("~p", [OkReports])), Marker)
+    ),
+    %% a failure keeps reporting the error term
+    FailReports = emqx_cth_log_capture:capture(debug, fun() ->
+        {M, F, A} = {?MODULE, failed_on_other_node, [self(), erlang:whereis(?NODE1)]},
+        ?assertMatch({ok, _, ok}, multicall(M, F, A, 1, 1000)),
+        ?assertEqual(ok, receive_msg(2, mfa_failed_on_other_node))
+    end),
+    ?assertMatch(
+        [#{result := "MFA return not ok"} | _],
+        [R || #{msg := "cluster_rpc_apply_failed"} = R <- FailReports]
+    ),
     ok.
 
 t_commit_fail_test(_Config) ->
@@ -424,6 +456,22 @@ receive_msg(Count, Msg) when Count > 0 ->
 echo(Pid, Msg, _) ->
     erlang:send(Pid, Msg),
     ok.
+
+%% Returns a value emqx_utils:redact/1 cannot mask, like the compiled runtime
+%% state a config update returns.
+echo_compiled(Value, _) ->
+    {ok, #{compiled => Value}}.
+
+%% Succeeds on the initiating node and fails on the others, telling the test
+%% process each time it fails.
+failed_on_other_node(TestPid, InitPid, _) ->
+    case self() =:= InitPid of
+        true ->
+            ok;
+        false ->
+            erlang:send(TestPid, mfa_failed_on_other_node),
+            "MFA return not ok"
+    end.
 
 format(Fmt, Args, _Opts) ->
     io:format(Fmt, Args).
