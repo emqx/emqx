@@ -1,0 +1,10 @@
+broadcast_topic = "/sys/broadcast/${productKey}"
+batch_topic = "/${productKey}/${deviceName}/user/get"
+msg_ttl = 15d
+cleanup_interval = 60s
+max_device_count = 10000
+max_message_size_broadcast = 65536
+max_message_size_batch = 10240
+max_pending_deliveries = 10000000
+max_pending_deliveries_per_device = 100
+delivery_pool_size = 0
