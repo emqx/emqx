@@ -69,8 +69,8 @@
     timers :: #{atom() => disable | undefined | reference()},
     %%% Takeover
     takeover :: boolean(),
-    %% Reference of the in-progress MQTT-SN resume takeover.
-    resume_takeover_ref :: reference() | undefined,
+    %% Owner and monitor reference of the authorized resume takeover.
+    takeover_owner :: undefined | {pid(), reference()},
     %% Resume
     resuming :: boolean(),
     %% Pending delivers when takeovering
@@ -177,7 +177,7 @@ init(
         register_awaiting_queue = [],
         timers = #{},
         takeover = false,
-        resume_takeover_ref = undefined,
+        takeover_owner = undefined,
         resuming = false,
         pendings = []
     }.
@@ -596,21 +596,12 @@ handle_in(
     }
 ) when is_binary(ClientId), ClientId =/= <<>> ->
     ClientInfo = ClientInfo0#{clientid => ClientId},
-    TakeoverRef = make_ref(),
-    ResumeRequests = #{
-        probe => {mqttsn_wakeup, probe, ClientInfo},
-        begin_request => {takeover, 'begin', {mqttsn_wakeup, TakeoverRef, ClientInfo}},
-        end_request => {takeover, 'end', {mqttsn_wakeup, TakeoverRef}},
-        abort_request => {takeover, 'abort', {mqttsn_wakeup, TakeoverRef}},
-        takeover_ref => TakeoverRef
-    },
     case
         emqx_gateway_ctx:resume_session(
             Ctx,
             ClientInfo,
             ConnInfo,
-            emqx_mqttsn_session,
-            ResumeRequests
+            emqx_mqttsn_session
         )
     of
         {ok, #{
@@ -1956,94 +1947,62 @@ handle_call(kick, _From, Channel) ->
 handle_call(discard, _From, Channel) ->
     shutdown_and_reply(discarded, ok, Channel);
 handle_call(
-    {mqttsn_wakeup, probe, NewClientInfo},
-    _From,
-    Channel
-) ->
-    case validate_wakeup(NewClientInfo, Channel) of
-        {ok, ResumeClientInfo} ->
-            reply(
-                {ok, #{
-                    channel_info => info(Channel),
-                    clientinfo => ResumeClientInfo
-                }},
-                Channel
-            );
-        {error, Reason} ->
-            reply({error, Reason}, Channel)
-    end;
-handle_call(
-    {takeover, 'begin', {mqttsn_wakeup, TakeoverRef, NewClientInfo}},
-    _From,
+    {takeover, 'begin', NewClientInfo},
+    {OwnerPid, _Tag},
     Channel = #channel{
         session = Session,
         takeover = false,
-        resume_takeover_ref = undefined
+        takeover_owner = undefined
     }
-) when is_reference(TakeoverRef) ->
+) when is_pid(OwnerPid) ->
     case validate_wakeup(NewClientInfo, Channel) of
         {ok, ResumeClientInfo} ->
+            MonitorRef = erlang:monitor(process, OwnerPid),
             NChannel = reset_timer(
                 resume_takeover,
                 resume_takeover_timeout(),
                 Channel#channel{
                     takeover = true,
-                    resume_takeover_ref = TakeoverRef
+                    takeover_owner = {OwnerPid, MonitorRef}
                 }
             ),
             reply(
                 {ok, #{
                     session => Session,
                     channel_info => info(Channel),
-                    clientinfo => ResumeClientInfo,
-                    takeover_ref => TakeoverRef
+                    clientinfo => ResumeClientInfo
                 }},
                 NChannel
             );
         {error, Reason} ->
             reply({error, Reason}, Channel)
     end;
-handle_call(
-    {takeover, 'begin', {mqttsn_wakeup, _TakeoverRef, _NewClientInfo}},
-    _From,
-    Channel
-) ->
+handle_call({takeover, 'begin', _NewClientInfo}, _From, Channel) ->
     reply({error, not_resumable}, Channel);
 handle_call(
-    {takeover, 'abort', {mqttsn_wakeup, TakeoverRef}},
-    _From,
+    {takeover, 'end'},
+    {OwnerPid, _Tag},
     Channel = #channel{
         takeover = true,
-        resume_takeover_ref = TakeoverRef
+        takeover_owner = {OwnerPid, MonitorRef},
+        session = Session,
+        pendings = Pendings
     }
 ) ->
-    reply(ok, abort_resume_takeover(Channel));
+    finish_takeover(Session, Pendings, clear_takeover_owner(Channel, MonitorRef));
 handle_call(
-    {takeover, 'abort', {mqttsn_wakeup, _TakeoverRef}},
+    {takeover, 'end'},
     _From,
-    Channel
+    Channel = #channel{takeover_owner = {_OwnerPid, _MonitorRef}}
 ) ->
-    reply({error, stale_takeover}, Channel);
-handle_call(
-    {takeover, 'abort'},
-    _From,
-    Channel = #channel{
-        takeover = true,
-        resume_takeover_ref = undefined
-    }
-) ->
-    reply(ok, abort_resume_takeover(Channel));
-handle_call({takeover, 'abort'}, _From, Channel = #channel{resume_takeover_ref = undefined}) ->
-    reply(ok, Channel);
-handle_call({takeover, 'abort'}, _From, Channel) ->
-    reply({error, stale_takeover}, Channel);
+    reply({error, not_takeover_owner}, Channel);
 handle_call(
     {takeover, 'begin'},
     _From,
     Channel = #channel{
         session = Session,
         takeover = false,
-        resume_takeover_ref = undefined
+        takeover_owner = undefined
     }
 ) ->
     %% In MQTT-SN the meaning of a “clean session” is extended to the Will
@@ -2055,42 +2014,18 @@ handle_call(
 handle_call({takeover, 'begin'}, _From, Channel) ->
     reply({error, not_resumable}, Channel);
 handle_call(
-    {takeover, 'end', {mqttsn_wakeup, TakeoverRef}},
+    {takeover, 'end'},
     _From,
     Channel = #channel{
         takeover = true,
-        resume_takeover_ref = TakeoverRef,
+        takeover_owner = undefined,
         session = Session,
         pendings = Pendings
     }
 ) ->
-    ok = emqx_mqttsn_session:takeover(Session),
-    %% TODO: Should not drain deliver here (side effect)
-    Delivers = emqx_utils:drain_deliver(),
-    AllPendings = lists:append(Delivers, Pendings),
-    shutdown_and_reply(
-        takenover,
-        AllPendings,
-        cancel_timer(resume_takeover, Channel)
-    );
-handle_call(
-    {takeover, 'end', {mqttsn_wakeup, _TakeoverRef}},
-    _From,
-    Channel
-) ->
-    reply({error, stale_takeover}, Channel);
-handle_call(
-    {takeover, 'end'},
-    _From,
-    Channel = #channel{resume_takeover_ref = undefined, session = Session, pendings = Pendings}
-) ->
-    ok = emqx_mqttsn_session:takeover(Session),
-    %% TODO: Should not drain deliver here (side effect)
-    Delivers = emqx_utils:drain_deliver(),
-    AllPendings = lists:append(Delivers, Pendings),
-    shutdown_and_reply(takenover, AllPendings, Channel);
+    finish_takeover(Session, Pendings, Channel);
 handle_call({takeover, 'end'}, _From, Channel) ->
-    reply({error, stale_takeover}, Channel);
+    reply({error, not_resumable}, Channel);
 %handle_call(list_authz_cache, _From, Channel) ->
 %    {reply, emqx_authz_cache:list_authz_cache(), Channel};
 
@@ -2107,24 +2042,40 @@ handle_call(Req, _From, Channel) ->
     }),
     reply(ignored, Channel).
 
-abort_resume_takeover(
+rollback_resume_takeover(
     Channel = #channel{
         takeover = true,
+        takeover_owner = {_, MonitorRef},
         pendings = Pendings,
         session = Session,
         clientinfo = ClientInfo
     }
 ) ->
+    _ = erlang:demonitor(MonitorRef, [flush]),
     NSession = emqx_mqttsn_session:enqueue(ClientInfo, Pendings, Session),
     cancel_timer(
         resume_takeover,
         Channel#channel{
             takeover = false,
-            resume_takeover_ref = undefined,
+            takeover_owner = undefined,
             pendings = [],
             session = NSession
         }
     ).
+
+clear_takeover_owner(
+    Channel = #channel{takeover_owner = {_, MonitorRef}},
+    MonitorRef
+) ->
+    _ = erlang:demonitor(MonitorRef, [flush]),
+    cancel_timer(resume_takeover, Channel#channel{takeover_owner = undefined}).
+
+finish_takeover(Session, Pendings, Channel) ->
+    ok = emqx_mqttsn_session:takeover(Session),
+    %% TODO: Should not drain deliver here (side effect)
+    Delivers = emqx_utils:drain_deliver(),
+    AllPendings = lists:append(Delivers, Pendings),
+    shutdown_and_reply(takenover, AllPendings, Channel).
 %%--------------------------------------------------------------------
 %% Handle Cast
 %%--------------------------------------------------------------------
@@ -2196,6 +2147,14 @@ handle_info(
     Channel = #channel{conn_state = disconnected}
 ) ->
     {ok, Channel};
+handle_info(
+    {'DOWN', MonitorRef, process, OwnerPid, _Reason},
+    Channel = #channel{
+        takeover = true,
+        takeover_owner = {OwnerPid, MonitorRef}
+    }
+) ->
+    {ok, rollback_resume_takeover(Channel)};
 handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
@@ -2481,12 +2440,12 @@ handle_timeout(
 handle_timeout(
     TRef,
     resume_takeover,
-    Channel = #channel{takeover = true, timers = Timers}
+    Channel = #channel{takeover = true, takeover_owner = {_, _}, timers = Timers}
 ) ->
     case maps:get(resume_takeover, Timers, undefined) of
         TRef ->
             ?SLOG(warning, #{msg => "mqttsn_resume_takeover_timeout"}),
-            {ok, abort_resume_takeover(Channel)};
+            {ok, rollback_resume_takeover(Channel)};
         _ ->
             {ok, Channel}
     end;

@@ -33,32 +33,22 @@ gateway.mqttsn {
 
 ## Sleeping clients, NAT, and session resume
 
-MQTT-SN `asleep` and `CleanSession` are separate concepts:
-
-* A connected client enters `asleep` by sending `DISCONNECT` with a non-zero Duration. This
-  transition is accepted regardless of the `CleanSession` flag.
-* `CleanSession=false` is required for CONNECT-based session recovery. The old session must still
-  be alive, and recovery is subject to the sleep/session-expiry timer, session queue limits, and
-  the subscription-resume configuration.
+An MQTT-SN client enters the `asleep` state by sending `DISCONNECT` with a non-zero Duration.
 
 On plaintext UDP, and on DTLS listeners where the client does not provide a certificate, the
 gateway preserves the legacy MQTT-SN behavior: `PINGREQ(ClientId)` can find and wake the old
-asleep/awake session even when the source IP or port has changed. This is intentionally
+asleep/awake session even when the source IP or port has changed. This wake-up is intentionally
 unauthenticated because MQTT-SN PINGREQ contains no password or token; it should only be used where
 that risk is acceptable.
 
-`CleanSession=true` does not prevent a client from entering `asleep`. A PINGREQ wake does not carry
-the CleanSession flag and may continue to use the existing in-memory session while it is alive. This
-is not a persistence guarantee. A new CONNECT with `CleanSession=true` creates a clean session and
-does not resume the old queued messages or subscriptions.
+For DTLS clients authenticated with a verified client certificate, the gateway records the
+certificate subject DN and CN with the session. A PINGREQ from a new association can resume a
+certificate-bound session only when both values match. A wake-up without a client certificate,
+including plaintext UDP or optional-certificate DTLS, or with different subject values is rejected.
+A reissued certificate with the same DN and CN remains accepted.
 
-For a DTLS listener configured with `verify = verify_peer` and
-`fail_if_no_peer_cert = true`, the gateway records the client's certificate subject DN and CN with
-the session. A PINGREQ from a new DTLS association can resume
-that session only when both values match. A missing client certificate or different subject DN/CN,
-including a plaintext UDP request, is rejected for such a certificate-subject-bound session.
-Server-only DTLS does not authenticate the client and follows the legacy behavior above. Because
-this binding uses DN and CN, a different certificate with the same subject values is accepted. This
-PINGREQ binding does not replace the separate MQTT-SN CONNECT credential-binding requirement.
+Configure the DTLS listener with `verify = verify_peer` and `fail_if_no_peer_cert = true` when every
+client must present a verified certificate. Server-only DTLS follows the legacy ClientId-only
+behavior.
 
 More documentations: [MQTT-SN Gateway](https://www.emqx.io/docs/en/v5.0/gateway/mqttsn.html)
