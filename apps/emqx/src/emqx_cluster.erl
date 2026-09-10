@@ -91,7 +91,7 @@ can_i_join(_RequestingNode) ->
 
 -doc "Refuse join requests while this node's boot is not complete.".
 check_boot_complete() ->
-    case is_boot_complete() of
+    case emqx_machine:is_cluster_ready() of
         false ->
             Msg = io_lib:format(
                 "Node ~s has not fully booted yet. Please retry after it is started.",
