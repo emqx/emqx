@@ -27,7 +27,7 @@
     convert_certs/2
 ]).
 
--export([login/2, callback/2]).
+-export([login/2, callback/2, redact_config/1]).
 
 %% Export internal functions for testing
 -ifdef(TEST).
@@ -213,6 +213,15 @@ convert_certs(
     end;
 convert_certs(_Dir, Conf) ->
     Conf.
+
+%% An empty private key is a valid SAML configuration when SP request signing
+%% is disabled. Keep the generic redactor unchanged for other sensitive fields.
+redact_config(#{sp_private_key := <<>>} = Config) ->
+    (emqx_utils:redact(Config))#{sp_private_key := <<>>};
+redact_config(#{<<"sp_private_key">> := <<>>} = Config) ->
+    (emqx_utils:redact(Config))#{<<"sp_private_key">> := <<>>};
+redact_config(Config) ->
+    emqx_utils:redact(Config).
 
 %%------------------------------------------------------------------------------
 %% Internal functions

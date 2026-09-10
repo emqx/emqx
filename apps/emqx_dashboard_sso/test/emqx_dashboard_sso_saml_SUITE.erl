@@ -45,11 +45,13 @@ groups() ->
         {unit, [sequence], [
             t_validate_signature_config,
             t_maybe_load_cert_or_key,
+            t_redact_config,
             t_callback_rejects_xxe_response,
             t_callback_rejects_deflate_xxe_response
         ]},
         {api, [sequence], [
             t_sso_running_disabled,
+            t_saml_get_preserves_empty_private_key,
             t_saml_metadata_not_initialized
         ]},
         {keycloak_integration, [sequence], [
@@ -194,6 +196,45 @@ t_maybe_load_cert_or_key(_Config) ->
 
     ok.
 
+t_redact_config(_Config) ->
+    ?assertEqual(
+        #{
+            backend => saml,
+            sp_private_key => <<>>,
+            password => <<"******">>
+        },
+        emqx_dashboard_sso_saml:redact_config(#{
+            backend => saml,
+            sp_private_key => <<>>,
+            password => <<>>
+        })
+    ),
+    ?assertEqual(
+        #{
+            <<"backend">> => <<"saml">>,
+            <<"sp_private_key">> => <<>>,
+            <<"password">> => <<"******">>
+        },
+        emqx_dashboard_sso_saml:redact_config(#{
+            <<"backend">> => <<"saml">>,
+            <<"sp_private_key">> => <<>>,
+            <<"password">> => <<>>
+        })
+    ),
+    ?assertEqual(
+        #{sp_private_key => <<"******">>},
+        emqx_dashboard_sso_saml:redact_config(#{
+            sp_private_key => <<"private-key">>
+        })
+    ),
+    ?assertEqual(
+        #{<<"sp_private_key">> => <<"******">>},
+        emqx_dashboard_sso_saml:redact_config(#{
+            <<"sp_private_key">> => <<"private-key">>
+        })
+    ),
+    ok.
+
 t_callback_rejects_xxe_response(Config) ->
     assert_callback_rejects_xxe_response(Config, undefined).
 
@@ -223,6 +264,29 @@ t_sso_running_disabled(_Config) ->
     %% SSO running endpoint should show empty when not configured
     {ok, 200, Result} = request(get, uri(["sso", "running"]), []),
     ?assertEqual([], emqx_utils_json:decode(Result, [return_maps])),
+    ok.
+
+t_saml_get_preserves_empty_private_key(_Config) ->
+    Path = uri(["sso", "saml"]),
+    Config = #{
+        <<"backend">> => <<"saml">>,
+        <<"enable">> => false,
+        <<"dashboard_addr">> => <<"https://127.0.0.1:18083">>,
+        <<"idp_metadata_url">> => <<"https://idp.example.com">>,
+        <<"sp_sign_request">> => false,
+        <<"sp_public_key">> => <<>>,
+        <<"sp_private_key">> => <<>>,
+        <<"idp_signs_envelopes">> => true,
+        <<"idp_signs_assertions">> => true
+    },
+    {ok, 200, PutResult} = request(put, Path, Config),
+    PutResponse = emqx_utils_json:decode(PutResult, [return_maps]),
+    ?assertEqual(<<>>, maps:get(<<"sp_private_key">>, PutResponse)),
+    {ok, 200, GetResult} = request(get, Path, []),
+    GetResponse = emqx_utils_json:decode(GetResult, [return_maps]),
+    ?assertEqual(false, maps:get(<<"sp_sign_request">>, GetResponse)),
+    ?assertEqual(<<>>, maps:get(<<"sp_private_key">>, GetResponse)),
+    ?assertEqual(<<>>, maps:get(<<"sp_public_key">>, GetResponse)),
     ok.
 
 t_saml_metadata_not_initialized(_Config) ->

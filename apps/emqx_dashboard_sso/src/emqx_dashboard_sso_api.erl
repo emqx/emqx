@@ -437,11 +437,20 @@ handle_backend_update_result({error, Reason}, _) ->
 
 to_redacted_json(Data) ->
     emqx_utils_maps:jsonable_map(
-        emqx_utils:redact(Data),
+        redact_config(Data),
         fun(K, V) ->
             {K, emqx_utils_maps:binary_string(V)}
         end
     ).
+
+redact_config(#{backend := saml} = Config) ->
+    emqx_dashboard_sso_saml:redact_config(Config);
+redact_config(#{<<"backend">> := saml} = Config) ->
+    emqx_dashboard_sso_saml:redact_config(Config);
+redact_config(#{<<"backend">> := <<"saml">>} = Config) ->
+    emqx_dashboard_sso_saml:redact_config(Config);
+redact_config(Config) ->
+    emqx_utils:redact(Config).
 
 redact_sso_request(#{body := Body} = Request) when is_binary(Body) ->
     redact_sso_request(Request#{body => <<"******">>});
