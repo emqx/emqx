@@ -249,8 +249,8 @@ t_change_pwd(_) ->
     %% viewer can change own password
     ?assertMatch({ok, #{actor := Viewer1}}, change_pwd(Viewer1Token, Viewer1)),
     %% viewer can't change other's password
-    ?assertMatch({error, {unauthorized_role, _}}, change_pwd(Viewer1Token, Viewer2)),
-    ?assertMatch({error, {unauthorized_role, _}}, change_pwd(Viewer1Token, SuperUser)),
+    ?assertMatch({error, {unauthorized_role, _, _}}, change_pwd(Viewer1Token, Viewer2)),
+    ?assertMatch({error, {unauthorized_role, _, _}}, change_pwd(Viewer1Token, SuperUser)),
     %% superuser can change other's password
     ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer1)),
     ?assertMatch({ok, #{actor := SuperUser}}, change_pwd(SuperToken, Viewer2)),
@@ -368,8 +368,8 @@ test_mfa(VerifyFn) ->
     %% viewer can change own MFA
     ?assertMatch({ok, #{actor := Viewer1}}, VerifyFn(Viewer1Token, Viewer1)),
     %% viewer can't change other's MFA
-    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, Viewer2)),
-    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, SuperUser)),
+    ?assertMatch({error, {unauthorized_role, _, _}}, VerifyFn(Viewer1Token, Viewer2)),
+    ?assertMatch({error, {unauthorized_role, _, _}}, VerifyFn(Viewer1Token, SuperUser)),
     %% superuser can change other's MFA
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer1)),
     ?assertMatch({ok, #{actor := SuperUser}}, VerifyFn(SuperToken, Viewer2)),
@@ -379,7 +379,7 @@ test_mfa(VerifyFn) ->
         {ok, #{actor := NamespacedSuperUser}},
         VerifyFn(NamespacedSuperToken, NamespacedSuperUser)
     ),
-    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(NamespacedSuperToken, Viewer1)),
+    ?assertMatch({error, {unauthorized_role, _, _}}, VerifyFn(NamespacedSuperToken, Viewer1)),
     ok.
 
 %%--------------------------------------------------------------------
