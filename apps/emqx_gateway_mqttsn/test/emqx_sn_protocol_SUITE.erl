@@ -633,8 +633,7 @@ t_asleep_pingreq_resume_rejects_malformed_end_reply(_) ->
 
 t_asleep_pingreq_resume_does_not_kill_after_watchdog(_) ->
     ClientId = <<"asleep-resume-watchdog-before-end">>,
-    PreviousTimeout = application:get_env(emqx_gateway_mqttsn, resume_takeover_timeout),
-    ok = application:set_env(emqx_gateway_mqttsn, resume_takeover_timeout, 1),
+    TestPid = self(),
     {ok, Socket1} = gen_udp:open(0, [binary]),
     {ok, Socket2} = gen_udp:open(0, [binary]),
     {ok, Socket3} = gen_udp:open(0, [binary]),
@@ -649,13 +648,24 @@ t_asleep_pingreq_resume_does_not_kill_after_watchdog(_) ->
             emqx_mqttsn_session,
             resume,
             fun(ClientInfo, Session) ->
-                NSession = meck:passthrough([ClientInfo, Session]),
-                timer:sleep(50),
-                NSession
+                TestPid ! {resume_started, self()},
+                receive
+                    resume_continue ->
+                        meck:passthrough([ClientInfo, Session])
+                end
             end
         ),
 
         send_pingreq_msg(Socket2, ClientId),
+        ResumePid =
+            receive
+                {resume_started, Pid} -> Pid
+            after 1000 ->
+                ct:fail(resume_did_not_start)
+            end,
+        TRef = resume_takeover_timer(OldPid),
+        OldPid ! {timeout, TRef, resume_takeover},
+        ResumePid ! resume_continue,
         ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket2)),
         ok = meck:unload(emqx_mqttsn_session),
         ?retry(
@@ -668,12 +678,10 @@ t_asleep_pingreq_resume_does_not_kill_after_watchdog(_) ->
             end
         ),
 
-        ok = application:set_env(emqx_gateway_mqttsn, resume_takeover_timeout, 100),
         send_pingreq_msg(Socket3, ClientId),
         ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket3))
     after
         _ = catch meck:unload(emqx_mqttsn_session),
-        restore_application_env(resume_takeover_timeout, PreviousTimeout),
         _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
         gen_udp:close(Socket1),
         gen_udp:close(Socket2),
@@ -905,7 +913,10 @@ t_asleep_pingreq_resume_recovers_after_lost_begin_reply(_) ->
                     Result = meck:passthrough([
                         OldPid0, {takeover, 'begin', ResumeRequest}, _Timeout
                     ]),
-                    ?assertMatch({ok, #{session := _, channel_info := _, clientinfo := _}}, Result),
+                    ?assertMatch(
+                        {ok, #{session := _, conninfo := _, clientinfo := _}},
+                        Result
+                    ),
                     exit({timeout, simulated_lost_begin_reply});
                 (Pid, Req, Timeout) ->
                     meck:passthrough([Pid, Req, Timeout])
@@ -4703,7 +4714,7 @@ ensure_connected_client(ClientId) ->
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
     Socket.
 
-restore_application_env(Key, undefined) ->
-    application:unset_env(emqx_gateway_mqttsn, Key);
-restore_application_env(Key, {ok, Value}) ->
-    application:set_env(emqx_gateway_mqttsn, Key, Value).
+resume_takeover_timer(Pid) ->
+    Channel = element(11, sys:get_state(Pid)),
+    Timers = element(15, Channel),
+    maps:get(resume_takeover, Timers).

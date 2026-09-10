@@ -407,11 +407,10 @@ open_session(
 %% The ClientId lock serializes the selected channel's begin/resume/end flow.
 -type resume_result() :: #{
     session := term(),
-    present := true,
     pendings := [emqx_types:deliver()],
-    channel_info := emqx_types:infos(),
     conninfo := emqx_types:conninfo(),
-    clientinfo := emqx_types:clientinfo()
+    clientinfo := emqx_types:clientinfo(),
+    asleep_timer_duration := pos_integer()
 }.
 
 -type resume_request() :: #{
@@ -447,9 +446,10 @@ resume_session_locked(GwName, ClientId, ClientInfo, ConnInfo, SessionMod, Self) 
         {ok, TakeoverData} ?=
             begin_resume_takeover(ConnMod, ChanPid, ClientId, ResumeRequest),
         ok = discard_other_channels(GwName, ClientId, OtherPids),
-        ChanInfo = maps:get(channel_info, TakeoverData),
+        OldConnInfo = maps:get(conninfo, TakeoverData),
         OldClientInfo = maps:get(clientinfo, TakeoverData),
-        NConnInfo = maps:merge(maps:get(conninfo, ChanInfo, #{}), ConnInfo),
+        SleepDuration = maps:get(asleep_timer_duration, TakeoverData),
+        NConnInfo = maps:merge(OldConnInfo, ConnInfo),
         SessionIn = maps:get(session, TakeoverData),
         {ok, Session, ResumeClientInfo} ?=
             resume_and_register(
@@ -466,11 +466,10 @@ resume_session_locked(GwName, ClientId, ClientInfo, ConnInfo, SessionMod, Self) 
             {ok, Pendings} ->
                 {ok, #{
                     session => Session,
-                    present => true,
                     pendings => Pendings,
-                    channel_info => ChanInfo,
                     conninfo => NConnInfo,
-                    clientinfo => ResumeClientInfo
+                    clientinfo => ResumeClientInfo,
+                    asleep_timer_duration => SleepDuration
                 }};
             {error, FinishReason} ->
                 %% The old channel may have rolled back after the owner died.
@@ -556,22 +555,19 @@ valid_takeover_data(
     ClientId,
     #{
         session := Session,
-        channel_info := ChannelInfo,
-        clientinfo := ClientInfo
+        conninfo := ConnInfo,
+        clientinfo := #{clientid := ClientId},
+        asleep_timer_duration := SleepDuration
     }
 ) when
     Session =/= undefined,
-    is_map(ChannelInfo),
-    is_map(ClientInfo)
+    is_map(ConnInfo),
+    is_integer(SleepDuration),
+    SleepDuration > 0
 ->
-    maps:get(clientid, ClientInfo, undefined) =:= ClientId andalso
-        is_map(maps:get(conninfo, ChannelInfo, undefined)) andalso
-        is_positive_sleep_duration(maps:get(asleep_timer_duration, ChannelInfo, undefined));
+    true;
 valid_takeover_data(_ClientId, _TakeoverData) ->
     false.
-
-is_positive_sleep_duration(Duration) ->
-    is_integer(Duration) andalso Duration > 0.
 
 resume_and_register(
     GwName,

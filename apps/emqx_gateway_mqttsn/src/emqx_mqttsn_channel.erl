@@ -443,9 +443,13 @@ merge_takeover_pendings(Pendings) ->
 
 can_resume_with_peercert(OldPeercert, NewPeercert) when is_binary(OldPeercert) ->
     OldPeercert =:= NewPeercert;
-can_resume_with_peercert(_UnboundOldPeercert, _NewPeercert) ->
+can_resume_with_peercert(nossl, _NewPeercert) ->
+    true;
+can_resume_with_peercert(undefined, _NewPeercert) ->
     %% Keep ClientId-only resume for sessions created without a peer certificate.
-    true.
+    true;
+can_resume_with_peercert(_UnsupportedOldPeercert, _NewPeercert) ->
+    false.
 
 validate_wakeup(
     #{peercert := NewPeercert},
@@ -579,11 +583,10 @@ handle_in(
         {ok, #{
             session := Session,
             pendings := Pendings,
-            channel_info := OldChannelInfo,
+            asleep_timer_duration := SleepDuration,
             conninfo := NConnInfo,
             clientinfo := NClientInfo
         }} ->
-            SleepDuration = maps:get(asleep_timer_duration, OldChannelInfo, undefined),
             Pendings1 = merge_takeover_pendings(Pendings),
             ResumedChannel0 = Channel#channel{
                 clientinfo = NClientInfo,
@@ -1933,7 +1936,7 @@ handle_call(
             MonitorRef = erlang:monitor(process, OwnerPid),
             NChannel = reset_timer(
                 resume_takeover,
-                resume_takeover_timeout(),
+                ?DEFAULT_RESUME_TAKEOVER_TIMEOUT,
                 Channel#channel{
                     takeover = true,
                     takeover_owner = {OwnerPid, MonitorRef}
@@ -1942,8 +1945,9 @@ handle_call(
             reply(
                 {ok, #{
                     session => Session,
-                    channel_info => info(Channel),
-                    clientinfo => OldClientInfo
+                    conninfo => info(conninfo, Channel),
+                    clientinfo => OldClientInfo,
+                    asleep_timer_duration => info(asleep_timer_duration, Channel)
                 }},
                 NChannel
             );
@@ -2518,20 +2522,6 @@ ensure_asleep_timer(Durtion, Channel) ->
         timer:seconds(Durtion),
         Channel#channel{asleep_timer_duration = Durtion}
     ).
-
-resume_takeover_timeout() ->
-    case
-        application:get_env(
-            emqx_gateway_mqttsn,
-            resume_takeover_timeout,
-            ?DEFAULT_RESUME_TAKEOVER_TIMEOUT
-        )
-    of
-        Timeout when is_integer(Timeout), Timeout > 0 ->
-            Timeout;
-        _ ->
-            ?DEFAULT_RESUME_TAKEOVER_TIMEOUT
-    end.
 
 ensure_register_timer(Channel) ->
     ensure_register_timer(0, Channel).
