@@ -690,6 +690,44 @@ t_schema_coverage(_Config) ->
     _ = emqx_nats_schema:desc(wss_listener),
     ok.
 
+-doc """
+A WebSocket gateway listener hands its `websocket.max_frame_size` to cowboy.
+A larger message closes the connection with status code 1009.
+""".
+t_ws_max_frame_size(_Config) ->
+    {ok, _} = application:ensure_all_started(gun),
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Listener = #{
+        <<"type">> => <<"ws">>,
+        <<"name">> => <<"default">>,
+        <<"bind">> => Port,
+        <<"websocket">> => #{<<"max_frame_size">> => 1024}
+    },
+    {ok, _} = emqx_gateway_conf:load_gateway(nats, nats_conf_list([Listener])),
+    try
+        {ok, ConnPid} = gun:open("127.0.0.1", Port, #{retry => 0}),
+        {ok, _} = gun:await_up(ConnPid, 5000),
+        StreamRef = gun:ws_upgrade(ConnPid, "/", [], #{protocols => [{<<"NATS">>, gun_ws_h}]}),
+        receive
+            {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], _} -> ok
+        after 5000 -> ct:fail(ws_upgrade_timeout)
+        end,
+        ok = gun:ws_send(ConnPid, StreamRef, {text, binary:copy(<<"a">>, 1025)}),
+        ?assertEqual(1009, await_ws_close_code(ConnPid, StreamRef)),
+        gun:close(ConnPid)
+    after
+        _ = emqx_gateway_conf:unload_gateway(nats)
+    end.
+
+%% Skip the frames the gateway sends before it closes the connection.
+await_ws_close_code(ConnPid, StreamRef) ->
+    receive
+        {gun_ws, ConnPid, StreamRef, {close, Code, _}} -> Code;
+        {gun_ws, ConnPid, StreamRef, _Frame} -> await_ws_close_code(ConnPid, StreamRef)
+    after 5000 ->
+        ct:fail(ws_close_timeout)
+    end.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

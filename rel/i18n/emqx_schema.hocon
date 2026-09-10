@@ -1845,7 +1845,12 @@ overload_protection_backoff_hibernation.label:
 """Skip hibernation"""
 
 fields_ws_opts_max_frame_size.desc:
-"""The maximum length of a single MQTT packet."""
+"""The maximum size of a single WebSocket message, in bytes.
+The limit applies to the message after its fragments are joined, and after decompression when <code>compress</code> is enabled.
+When a client sends a larger message, the broker closes the connection with WebSocket status code 1009.<br/>
+When set to <code>infinity</code> (the default), the limit is the zone's <code>mqtt.max_packet_size</code> plus 5 bytes for the MQTT fixed header.
+Set an explicit value when clients send several MQTT packets in one WebSocket message.
+The maximum value is 268435455."""
 
 fields_ws_opts_max_frame_size.label:
 """Max frame size"""

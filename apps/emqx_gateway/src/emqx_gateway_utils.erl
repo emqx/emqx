@@ -65,7 +65,8 @@ Utility functions for EMQX gateway.
     init_gc_state/1,
     stats_timer/1,
     idle_timeout/1,
-    oom_policy/1
+    oom_policy/1,
+    ws_max_frame_size/1
 ]).
 
 -export([
@@ -466,6 +467,19 @@ active_n(Options) ->
 -spec idle_timeout(map()) -> pos_integer().
 idle_timeout(Options) ->
     maps:get(idle_timeout, Options, ?DEFAULT_IDLE_TIMEOUT).
+
+-doc """
+Return the WebSocket message size limit for cowboy from the listener's
+`websocket.max_frame_size`. `infinity` and `0` are legacy values; they select
+the default limit, so cowboy always gets a finite limit.
+""".
+-spec ws_max_frame_size(map()) -> pos_integer().
+ws_max_frame_size(Options) ->
+    case emqx_utils_maps:deep_get([websocket, max_frame_size], Options, infinity) of
+        infinity -> ?DEFAULT_WS_MAX_FRAME_SIZE;
+        0 -> ?DEFAULT_WS_MAX_FRAME_SIZE;
+        MaxFrameSize when is_integer(MaxFrameSize), MaxFrameSize > 0 -> MaxFrameSize
+    end.
 
 -spec ratelimit(map()) -> esockd_rate_limit:config() | undefined.
 ratelimit(Options) ->

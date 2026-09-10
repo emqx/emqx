@@ -14,6 +14,18 @@
 
 -define(ws_conn, emqx_ws_connection).
 
+-define(SMALL_MAX_PACKET_SIZE, 1024).
+%% Cases that set the default zone's `max_packet_size' to ?SMALL_MAX_PACKET_SIZE
+%% and count the handler calls of real `ws:default' listener connections.
+-define(IS_FRAME_SIZE_CASE(TC),
+    (TC =:= t_ws_max_frame_size_derived orelse
+        TC =:= t_ws_max_frame_size_boundary orelse
+        TC =:= t_ws_max_frame_size_fragmented orelse
+        TC =:= t_ws_max_frame_size_compressed orelse
+        TC =:= t_ws_max_frame_size_explicit orelse
+        TC =:= t_ws_zone_changed_sets_max_frame_size)
+).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 %%--------------------------------------------------------------------
@@ -31,6 +43,12 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
+init_per_testcase(TestCase, Config) when ?IS_FRAME_SIZE_CASE(TestCase) ->
+    {ok, _} = application:ensure_all_started(gun),
+    MaxPacketSize = emqx_config:get_zone_conf(default, [mqtt, max_packet_size]),
+    emqx_config:put_zone_conf(default, [mqtt, max_packet_size], ?SMALL_MAX_PACKET_SIZE),
+    ok = meck:new(?ws_conn, [passthrough, no_link]),
+    [{max_packet_size, MaxPacketSize} | Config];
 init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
     TestCase =/= t_ws_sub_protocols_mqtt,
@@ -55,6 +73,13 @@ init_per_testcase(t_ws_non_check_origin, Config) ->
 init_per_testcase(_TestCase, Config) ->
     Config.
 
+end_per_testcase(TestCase, Config) when ?IS_FRAME_SIZE_CASE(TestCase) ->
+    meck:unload(?ws_conn),
+    MaxPacketSize = ?config(max_packet_size, Config),
+    emqx_config:put_zone_conf(default, [mqtt, max_packet_size], MaxPacketSize),
+    set_ws_opts(max_frame_size, infinity),
+    set_ws_opts(compress, false),
+    ok;
 end_per_testcase(TestCase, _Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
     TestCase =/= t_ws_sub_protocols_mqtt,
@@ -510,6 +535,181 @@ t_run_gc(_) ->
     GcSt = emqx_gc:init(#{count => 10, bytes => 100}),
     WsSt = st(#{gc_state => GcSt}),
     ?ws_conn:run_gc({100, 10000}, WsSt).
+
+-doc """
+With `websocket.max_frame_size = infinity`, the listener limits a WebSocket
+message to the zone's `max_packet_size` plus 5 bytes. A message of exactly
+that size reaches the connection handler. A message one byte larger closes
+the connection with status code 1009, and the handler never sees it.
+""".
+t_ws_max_frame_size_derived(_) ->
+    Limit = ?SMALL_MAX_PACKET_SIZE + 5,
+    AtLimit = binary:copy(<<0>>, Limit),
+    Ws1 = ws_open(#{}),
+    ok = ws_send(Ws1, {binary, AtLimit}),
+    ok = meck:wait(?ws_conn, websocket_handle, [{binary, AtLimit}, '_'], 5000),
+    ws_close(Ws1),
+    OverLimit = binary:copy(<<0>>, Limit + 1),
+    Ws2 = ws_open(#{}),
+    ok = ws_send(Ws2, {binary, OverLimit}),
+    ?assertEqual(1009, ws_await_close(Ws2)),
+    ?assertNot(meck:called(?ws_conn, websocket_handle, [{binary, OverLimit}, '_'])),
+    ws_close(Ws2).
+
+-doc """
+A PUBLISH packet whose remaining length equals the zone's `max_packet_size`
+is accepted over WebSocket, as it is over TCP.
+""".
+t_ws_max_frame_size_boundary(_) ->
+    Ws = ws_open(#{}),
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{
+        proto_name = <<"MQTT">>,
+        proto_ver = ?MQTT_PROTO_V4,
+        clientid = <<"ws_max_frame_size_boundary">>
+    }),
+    ok = ws_send(Ws, {binary, emqx_frame:serialize(Connect)}),
+    ?assertEqual({binary, <<32, 2, 0, 0>>}, ws_await_frame(Ws)),
+    %% Remaining length: 2-byte topic length, 1-byte topic, 2-byte packet ID, payload.
+    Payload = binary:copy(<<0>>, ?SMALL_MAX_PACKET_SIZE - 5),
+    Publish = iolist_to_binary(emqx_frame:serialize(?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, Payload))),
+    %% Fixed header: 1 byte type and flags, 2 bytes remaining length.
+    ?assertEqual(?SMALL_MAX_PACKET_SIZE + 3, byte_size(Publish)),
+    ok = ws_send(Ws, {binary, Publish}),
+    ?assertEqual({binary, <<64, 2, 0, 1>>}, ws_await_frame(Ws)),
+    ws_close(Ws).
+
+-doc """
+A fragmented message whose fragments each fit the limit, but whose total size
+exceeds it, closes the connection with status code 1009. The handler never
+sees the message.
+""".
+t_ws_max_frame_size_fragmented(_) ->
+    Sock = raw_ws_open(),
+    Fragment = binary:copy(<<0>>, 600),
+    %% Opcode 2 starts a binary message, opcode 0 continues it.
+    ok = gen_tcp:send(Sock, masked_frame(0, 2, Fragment)),
+    ok = gen_tcp:send(Sock, masked_frame(1, 0, Fragment)),
+    %% Unmasked close frame with status code 1009.
+    ?assertEqual({ok, <<1:1, 0:3, 8:4, 0:1, 2:7, 1009:16>>}, gen_tcp:recv(Sock, 4, 5000)),
+    ?assertNot(meck:called(?ws_conn, websocket_handle, [{binary, '_'}, '_'])),
+    gen_tcp:close(Sock).
+
+-doc """
+A compressed message that is small on the wire but inflates past the limit
+closes the connection with status code 1009. The handler never sees the
+inflated message.
+""".
+t_ws_max_frame_size_compressed(_) ->
+    set_ws_opts(compress, true),
+    {_, _, Headers} = Ws = ws_open(#{compress => true}),
+    ?assertMatch(
+        <<"permessage-deflate", _/binary>>,
+        proplists:get_value(<<"sec-websocket-extensions">>, Headers)
+    ),
+    Payload = binary:copy(<<0>>, 64 * 1024),
+    ?assert(byte_size(zlib:compress(Payload)) < ?SMALL_MAX_PACKET_SIZE),
+    ok = ws_send(Ws, {binary, Payload}),
+    ?assertEqual(1009, ws_await_close(Ws)),
+    ?assertNot(meck:called(?ws_conn, websocket_handle, [{binary, '_'}, '_'])),
+    ws_close(Ws).
+
+-doc """
+An explicit `websocket.max_frame_size` takes precedence over the limit derived
+from the zone's `max_packet_size`.
+""".
+t_ws_max_frame_size_explicit(_) ->
+    set_ws_opts(max_frame_size, 100),
+    Payload = binary:copy(<<0>>, 101),
+    Ws = ws_open(#{}),
+    ok = ws_send(Ws, {binary, Payload}),
+    ?assertEqual(1009, ws_await_close(Ws)),
+    ?assertNot(meck:called(?ws_conn, websocket_handle, [{binary, Payload}, '_'])),
+    ws_close(Ws).
+
+-doc """
+When the client's zone changes after CONNECT, the connection sends cowboy the
+message size limit for the new zone.
+""".
+t_ws_zone_changed_sets_max_frame_size(_) ->
+    ZoneChanged = [{event, {zone_changed, default}}],
+    ?assertMatch(
+        {[{set_options, #{max_frame_size := ?SMALL_MAX_PACKET_SIZE + 5}}], _},
+        ?ws_conn:handle_replies(ZoneChanged, [], st())
+    ),
+    set_ws_opts(max_frame_size, 100),
+    ?assertMatch(
+        {[{set_options, #{max_frame_size := 100}}], _},
+        ?ws_conn:handle_replies(ZoneChanged, [], st())
+    ).
+
+ws_open(UpgradeOpts) ->
+    {ok, ConnPid} = gun:open("127.0.0.1", 8083, #{retry => 0}),
+    {ok, _} = gun:await_up(ConnPid, 5000),
+    StreamRef = gun:ws_upgrade(ConnPid, "/mqtt", [], UpgradeOpts#{
+        protocols => [{<<"mqtt">>, gun_ws_h}]
+    }),
+    receive
+        {gun_upgrade, ConnPid, StreamRef, [<<"websocket">>], Headers} ->
+            {ConnPid, StreamRef, Headers};
+        {gun_response, ConnPid, StreamRef, _, Status, _} ->
+            ct:fail({ws_upgrade_rejected, Status})
+    after 5000 ->
+        ct:fail(ws_upgrade_timeout)
+    end.
+
+ws_send({ConnPid, StreamRef, _Headers}, Frame) ->
+    gun:ws_send(ConnPid, StreamRef, Frame).
+
+ws_await_frame({ConnPid, StreamRef, _Headers}) ->
+    receive
+        {gun_ws, ConnPid, StreamRef, Frame} -> Frame
+    after 5000 ->
+        ct:fail(ws_frame_timeout)
+    end.
+
+ws_await_close(Ws) ->
+    case ws_await_frame(Ws) of
+        {close, Code, _} -> Code;
+        Frame -> ct:fail({unexpected_ws_frame, Frame})
+    end.
+
+ws_close({ConnPid, _StreamRef, _Headers}) ->
+    gun:close(ConnPid).
+
+%% Gun cannot send a fragmented message, so this client does the WebSocket
+%% handshake on a plain TCP socket.
+raw_ws_open() ->
+    {ok, Sock} = gen_tcp:connect("127.0.0.1", 8083, [binary, {active, false}]),
+    ok = gen_tcp:send(Sock, [
+        "GET /mqtt HTTP/1.1\r\n",
+        "Host: 127.0.0.1:8083\r\n",
+        "Upgrade: websocket\r\n",
+        "Connection: Upgrade\r\n",
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n",
+        "Sec-WebSocket-Version: 13\r\n",
+        "Sec-WebSocket-Protocol: mqtt\r\n",
+        "\r\n"
+    ]),
+    ?assertMatch(<<"HTTP/1.1 101 ", _/binary>>, recv_http_head(Sock, <<>>)),
+    Sock.
+
+recv_http_head(Sock, Acc0) ->
+    {ok, Data} = gen_tcp:recv(Sock, 0, 5000),
+    Acc = <<Acc0/binary, Data/binary>>,
+    case binary:match(Acc, <<"\r\n\r\n">>) of
+        nomatch -> recv_http_head(Sock, Acc);
+        _ -> Acc
+    end.
+
+%% A client frame with a zero masking key, so the payload is sent unchanged.
+masked_frame(Fin, Opcode, Payload) when byte_size(Payload) =< 16#ffff ->
+    Len = byte_size(Payload),
+    PayloadLen =
+        case Len =< 125 of
+            true -> <<Len:7>>;
+            false -> <<126:7, Len:16>>
+        end,
+    <<Fin:1, 0:3, Opcode:4, 1:1, PayloadLen/bits, 0:32, Payload/binary>>.
 
 %%--------------------------------------------------------------------
 %% Helper functions
