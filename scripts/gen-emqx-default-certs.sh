@@ -2,7 +2,14 @@
 
 set -euo pipefail
 
-CERT_DIR="${1:-apps/emqx/etc/certs}"
+## Generates a throwaway CA, a server certificate for localhost and a client
+## certificate into the given directory. The directory is required: there is no
+## sensible default, and in particular the source tree is not one.
+if [ $# -ne 1 ] || [ -z "$1" ]; then
+    echo "Usage: $0 <output-dir>" >&2
+    exit 1
+fi
+CERT_DIR="$1"
 
 mkdir -p "$CERT_DIR"
 
