@@ -73,11 +73,15 @@ parse_dashboard_role(Role) ->
 %%                                          point), so allow.
 %%   * scopes = [...]  (list)            -> the path's scopes must
 %%                                          overlap the listed scopes;
-%%                                          unmapped paths fail-open
-%%                                          (allow).
+%%                                          unmapped paths are denied
+%%                                          (fail closed).
 %%
-%% The unmapped-path fail-open is consistent with API key scope
-%% semantics (emqx_mgmt_auth:check_path_in_scopes/2). CT
+%% Public paths are allowed for every user. An unmapped path is allowed
+%% only for a user with no explicit scope list, so a catalog gap cannot
+%% grant a deliberately restricted user an endpoint nobody scoped.
+%%
+%% This differs from API keys: emqx_mgmt_auth:check_path_in_scopes/2
+%% allows unmapped paths even for a key with an explicit scope list. CT
 %% t_all_endpoints_covered_by_scopes guards against accidentally
 %% leaving a non-public path unmapped.
 %%
