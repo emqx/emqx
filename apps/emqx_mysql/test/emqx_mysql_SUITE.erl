@@ -67,7 +67,7 @@ t_sql_renderer(_Config) ->
         "(txt, encoded_text, json_value, binary_value) ",
         "VALUES (${txt}, ${encoded_text}, ${json}, ${binary})"
     >>,
-    {ok, Plan} = emqx_mysql_sql:compile(SQL),
+    {ok, Plan} = emqx_sql_plan:compile(emqx_mysql_sql, SQL),
     Attack = <<"'); DROP TABLE mqtt.emqx_mysql_sql_modes; -- ">>,
     EncodedText = <<"你好", 0, "😀"/utf8>>,
     Data = #{
@@ -76,7 +76,7 @@ t_sql_renderer(_Config) ->
         json => #{<<"key">> => <<"a\\b">>},
         binary => <<16#FF>>
     },
-    {ok, Query} = emqx_mysql_sql:render(Plan, Data, #{undefined_vars_as_null => true}),
+    {ok, Query} = emqx_sql_plan:render(Plan, Data, #{undefined_vars_as_null => true}),
     ok = mysql:query(Conn, Query),
     {ok, Columns, [[Attack, EncodedTextHex, <<"a\\b">>, <<"FF">>]]} = mysql:query(
         Conn,
@@ -95,8 +95,8 @@ t_sql_renderer(_Config) ->
         "VALUES (CASE WHEN ${txt} = 'null' THEN NULL ELSE ${txt} END, "
         "${encoded_text}, ${json}, ${binary})"
     >>,
-    {ok, CasePlan} = emqx_mysql_sql:compile(CaseSQL),
-    {ok, CaseQuery} = emqx_mysql_sql:render(
+    {ok, CasePlan} = emqx_sql_plan:compile(emqx_mysql_sql, CaseSQL),
+    {ok, CaseQuery} = emqx_sql_plan:render(
         CasePlan,
         #{txt => <<"null">>, encoded_text => <<"case">>, json => #{}, binary => <<>>},
         #{undefined_vars_as_null => true}
@@ -126,7 +126,7 @@ t_segmented_batch_template(_Config) ->
     #{query_templates := #{{send_message, batch} := Plan}} =
         emqx_mysql:parse_prepare_sql(#{sql => SQL}),
     BatchValue = <<"batch\\value">>,
-    {ok, BatchSQL} = emqx_mysql_sql:render_batch(
+    {ok, BatchSQL} = emqx_sql_plan:render_batch(
         Plan,
         [#{value => BatchValue}],
         #{undefined_vars_as_null => true}
@@ -140,6 +140,37 @@ t_segmented_batch_template(_Config) ->
         )
     ),
     ok = mysql:query(Conn, [<<"DROP TABLE ">>, Table]),
+    ok = mysql:stop(Conn).
+
+t_escaped_dollar_roundtrip(_Config) ->
+    Conn = connect_mysql(),
+    ok = emqx_mysql:prepare_sql_to_conn(Conn, []),
+    ok = mysql:query(Conn, <<"CREATE TEMPORARY TABLE mqtt.emqx_mysql_dollar (txt TEXT)">>),
+    Cases = [
+        {<<"${$}">>, <<"$">>},
+        {<<"cost: ${$}{amount}">>, <<"cost: ${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"\\${$}{amount}">>, <<"${amount}">>},
+        {<<"\\\\${$}{amount}">>, <<"\\${amount}">>},
+        {<<"${$}{amount}${v}${$}{$}">>, <<"${amount}x${$}">>}
+    ],
+    lists:foreach(
+        fun({Quote, Body, Expected}) ->
+            {ok, Plan} = emqx_sql_plan:compile(
+                emqx_mysql_sql,
+                <<"INSERT INTO mqtt.emqx_mysql_dollar VALUES (", Quote, Body/binary, Quote, ")">>
+            ),
+            {ok, SQL} = emqx_sql_plan:render(Plan, #{v => <<"x">>, amount => 99}, #{}),
+            ok = mysql:query(Conn, SQL),
+            ?assertEqual(
+                {ok, [<<"txt">>], [[Expected]]},
+                mysql:query(Conn, <<"SELECT txt FROM mqtt.emqx_mysql_dollar">>)
+            ),
+            ok = mysql:query(Conn, <<"DELETE FROM mqtt.emqx_mysql_dollar">>)
+        end,
+        [{Q, B, E} || Q <- "'\"", {B, E} <- Cases]
+    ),
     ok = mysql:stop(Conn).
 
 perform_lifecycle_check(ResourceId, InitialConfig) ->

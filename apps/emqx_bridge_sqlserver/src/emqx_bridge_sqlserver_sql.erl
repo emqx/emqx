@@ -5,10 +5,10 @@
 %% @doc Compile and render restricted SQL Server INSERT INTO VALUES templates.
 -module(emqx_bridge_sqlserver_sql).
 
--export([compile/1, render/3, render_batch/3, parse_placeholder/1]).
--export_type([plan/0]).
+-behaviour(emqx_sql_plan).
 
--elvis([{elvis_style, no_match_in_condition, disable}]).
+-export([compile/1, render/3, render_batch/3]).
+-export_type([plan/0]).
 
 -type placeholder() :: emqx_template:placeholder().
 
@@ -82,24 +82,12 @@ render_batch(#sqlserver_plan{insert_prefix = Prefix, plan = Plan}, DataList, Opt
     %% https://learn.microsoft.com/en-us/sql/t-sql/queries/table-value-constructor-transact-sql#limitations
     length(DataList) =< 1000
 ->
-    case render_batch_units(DataList, Plan, Opts, _Index = 1, _Acc = []) of
+    case render_batch_units(DataList, Plan, Opts, 1, []) of
         {ok, Rendered} -> {ok, [Prefix, Rendered]};
         {error, _} = Error -> Error
     end;
 render_batch(_Plan, _DataList, _Opts) ->
     {error, sqlserver_values_row_limit_exceeded}.
-
--spec parse_placeholder(binary()) -> {ok, placeholder()} | {error, invalid_placeholder}.
-parse_placeholder(Source) ->
-    case valid_placeholder_source(Source) of
-        true ->
-            case emqx_template:parse(Source) of
-                [{var, _, _} = Placeholder] -> {ok, Placeholder};
-                _ -> {error, invalid_placeholder}
-            end;
-        false ->
-            {error, invalid_placeholder}
-    end.
 
 %%------------------------------------------------------------------------------
 %% Private funs
@@ -264,13 +252,11 @@ compile_row({row, Expressions}) ->
 compile_expression({var, Placeholder}) ->
     [#value{placeholder = Placeholder}];
 compile_expression({string, Style, Source}) ->
-    Parts = parse_string(Source, Style),
-    case lists:any(fun is_variable_part/1, Parts) of
-        true ->
-            [compile_string_op(Style, Parts)];
-        false ->
-            [#tpl_text{text = Text}] = Parts,
-            [#raw{sql = iolist_to_binary(encode_string(Text, Style))}]
+    case parse_string(Source, Style) of
+        [#tpl_text{text = Text}] ->
+            [#raw{sql = iolist_to_binary(encode_string(Text, Style))}];
+        Parts ->
+            [compile_string_op(Style, Parts)]
     end;
 compile_expression({number, Number}) ->
     [#raw{sql = Number}];
@@ -364,27 +350,13 @@ parse_string_body(<<"${", _/binary>> = Bin, Text, Parts) ->
 parse_string_body(<<Char, Rest/binary>>, Text, Parts) ->
     parse_string_body(Rest, [Char | Text], Parts).
 
-%% Restrict emqx_template's envelope to nonempty dotted paths.
-%% Retain `${}` and `${.}`.
-%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
-valid_placeholder_source(<<"${}">>) ->
-    true;
-valid_placeholder_source(<<"${.}">>) ->
-    true;
-valid_placeholder_source(Source) ->
-    re:run(
-        Source,
-        <<"^\\$\\{\\.?[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*\\}$">>,
-        [{capture, none}]
-    ) =:= match.
-
 take_placeholder(Bin) ->
     case binary:match(Bin, <<"}">>) of
         {End, 1} ->
             Size = End + 1,
             Source = binary:part(Bin, 0, Size),
             Rest = binary:part(Bin, Size, byte_size(Bin) - Size),
-            case parse_placeholder(Source) of
+            case emqx_sql_plan:parse_placeholder(Source) of
                 {ok, Placeholder} -> {Placeholder, Rest};
                 {error, _} -> error({invalid_placeholder, Source})
             end;
@@ -403,9 +375,6 @@ finish_parts(Text, Parts) ->
 
 strip_quotes(Source) ->
     binary:part(Source, 1, byte_size(Source) - 2).
-
-is_variable_part(#tpl_placeholder{}) -> true;
-is_variable_part(_) -> false.
 
 join_ops(_Separator, []) ->
     [];
@@ -495,7 +464,7 @@ assert_no_nul(Text) ->
 
 %% Checks that compilation merges adjacent static SQL around a value placeholder.
 compile_merges_raw_segments_test() ->
-    {ok, Placeholder} = parse_placeholder(<<"${value}">>),
+    {ok, Placeholder} = emqx_sql_plan:parse_placeholder(<<"${value}">>),
     {ok, #sqlserver_plan{plan = [#raw{sql = <<"(1, 2)">>}]}} =
         compile(<<"INSERT INTO t VALUES (1, 2)">>),
     {ok, #sqlserver_plan{plan = Plan}} =
@@ -583,6 +552,41 @@ scalar_template_value_types_test() ->
                 null_opts()
             )
         )
+    ).
+
+template_parts_classification_test() ->
+    lists:foreach(
+        fun(Prefix) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO t VALUES (", Prefix/binary, "'', ", Prefix/binary, "'${a}${b}')">>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO [t] VALUES (", Prefix/binary, "'', ", Prefix/binary, "'xy')">>},
+                rendered_binary(render(Plan, #{a => <<"x">>, b => <<"y">>}, null_opts()))
+            )
+        end,
+        [<<>>, <<"N">>]
+    ).
+
+escaped_dollar_test() ->
+    Cases = [
+        {<<"${$}">>, <<"$">>},
+        {<<"${$}{amount}">>, <<"${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"${$}{amount}${v}${$}{$}">>, <<"${amount}x${$}">>}
+    ],
+    lists:foreach(
+        fun({Prefix, Body, Expected}) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO t VALUES (", Prefix/binary, "'", Body/binary, "')">>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO [t] VALUES (", Prefix/binary, "'", Expected/binary, "')">>},
+                rendered_binary(render(Plan, #{amount => 99, v => <<"x">>}, null_opts()))
+            )
+        end,
+        [{Prefix, Body, Expected} || Prefix <- [<<>>, <<"N">>], {Body, Expected} <- Cases]
     ).
 
 %% Checks missing string values with both undefined-value policies.

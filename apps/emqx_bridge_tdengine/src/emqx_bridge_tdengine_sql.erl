@@ -5,7 +5,9 @@
 %% @doc Compile and render restricted TDengine multi-table INSERT templates.
 -module(emqx_bridge_tdengine_sql).
 
--export([compile/1, render/3, render_batch/3, parse_placeholder/1, parse_identifier_parts/2]).
+-behaviour(emqx_sql_plan).
+
+-export([compile/1, render/3, render_batch/3, parse_identifier_parts/2]).
 -export_type([plan/0]).
 
 -type placeholder() :: emqx_template:placeholder().
@@ -93,18 +95,6 @@ parse_identifier_parts(Source, Style) ->
         {ok, parse_identifier_parts(Source, Style, [], [])}
     catch
         error:Reason -> {error, Reason}
-    end.
-
--spec parse_placeholder(binary()) -> {ok, placeholder()} | {error, invalid_placeholder}.
-parse_placeholder(Source) ->
-    case valid_placeholder_source(Source) of
-        true ->
-            case emqx_template:parse(Source) of
-                [{var, _, _} = Placeholder] -> {ok, Placeholder};
-                _ -> {error, invalid_placeholder}
-            end;
-        false ->
-            {error, invalid_placeholder}
     end.
 
 %%------------------------------------------------------------------------------
@@ -268,9 +258,10 @@ compile_target({target, Database, Component}) ->
     DatabaseOps ++ compile_target_component(Component).
 
 compile_target_component({identifier_parts, Parts} = Identifier) ->
-    case lists:any(fun is_variable_part/1, Parts) of
-        true -> [#identifier{parts = Parts}];
-        false -> [#raw{sql = serialize_identifier(Identifier)}]
+    case Parts of
+        [] -> [#raw{sql = serialize_identifier(Identifier)}];
+        [#tpl_text{}] -> [#raw{sql = serialize_identifier(Identifier)}];
+        _ -> [#identifier{parts = Parts}]
     end;
 compile_target_component({identifier_placeholder, Placeholder}) ->
     [#identifier{parts = [#tpl_placeholder{placeholder = Placeholder}]}];
@@ -300,13 +291,11 @@ compile_row({row, Values}) ->
 compile_value({var, Placeholder}) ->
     [#value{placeholder = Placeholder}];
 compile_value({string, Style, Source}) ->
-    Parts = parse_string(Source, Style),
-    case lists:any(fun is_variable_part/1, Parts) of
-        true ->
-            [#string{parts = Parts}];
-        false ->
-            [#tpl_text{text = Text}] = Parts,
-            [#raw{sql = encode_string(Text)}]
+    case parse_string(Source, Style) of
+        [#tpl_text{text = Text}] ->
+            [#raw{sql = encode_string(Text)}];
+        Parts ->
+            [#string{parts = Parts}]
     end;
 compile_value({number, Number}) ->
     [#raw{sql = Number}];
@@ -329,6 +318,8 @@ compile_value({time_arithmetic, Base, Ops}) ->
 
 serialize_identifier({identifier, bare, Name}) ->
     Name;
+serialize_identifier({identifier_parts, []}) ->
+    error({invalid_tdengine_identifier, empty});
 serialize_identifier({identifier_parts, Parts}) ->
     case Parts of
         [#tpl_text{text = Text}] -> quote_identifier(Text);
@@ -402,27 +393,13 @@ decode_escape($%) -> <<"\\%">>;
 decode_escape($_) -> <<"\\_">>;
 decode_escape(Char) -> Char.
 
-%% Restrict emqx_template's envelope to nonempty dotted paths.
-%% Retain `${}` and `${.}`.
-%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
-valid_placeholder_source(<<"${}">>) ->
-    true;
-valid_placeholder_source(<<"${.}">>) ->
-    true;
-valid_placeholder_source(Source) ->
-    re:run(
-        Source,
-        <<"^\\$\\{\\.?[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*\\}$">>,
-        [{capture, none}]
-    ) =:= match.
-
 take_placeholder(Bin) ->
     case binary:match(Bin, <<"}">>) of
         {End, 1} ->
             Size = End + 1,
             Source = binary:part(Bin, 0, Size),
             Rest = binary:part(Bin, Size, byte_size(Bin) - Size),
-            case parse_placeholder(Source) of
+            case emqx_sql_plan:parse_placeholder(Source) of
                 {ok, Placeholder} -> {Placeholder, Rest};
                 {error, _} -> error({invalid_placeholder, Source})
             end;
@@ -441,9 +418,6 @@ finish_parts(Text, Parts) ->
 
 strip_quotes(Source) ->
     binary:part(Source, 1, byte_size(Source) - 2).
-
-is_variable_part(#tpl_placeholder{}) -> true;
-is_variable_part(_) -> false.
 
 join_ops(_Separator, []) ->
     [];
@@ -580,7 +554,7 @@ assert_no_nul(Text) ->
 
 %% Checks that compilation merges adjacent static SQL around a value placeholder.
 compile_merges_raw_segments_test() ->
-    {ok, Placeholder} = parse_placeholder(<<"${value}">>),
+    {ok, Placeholder} = emqx_sql_plan:parse_placeholder(<<"${value}">>),
     {ok, #tdengine_plan{plan = [#raw{sql = <<"t VALUES (1, 2)">>}]}} =
         compile(<<"INSERT INTO t VALUES (1, 2)">>),
     {ok, #tdengine_plan{plan = Plan}} =
@@ -620,6 +594,57 @@ multi_table_compile_and_render_test() ->
             "`test_client-1` USING s_tab TAGS ('client-1') VALUES (2, 'hello')"
         >>,
         iolist_to_binary(Rendered)
+    ).
+
+template_parts_classification_test() ->
+    lists:foreach(
+        fun(Quote) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO `a``b` VALUES (", Quote, Quote, ", ", Quote, "${a}${b}", Quote, ")">>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO `a``b` VALUES ('', 'xy')">>},
+                rendered_binary(render(Plan, #{a => <<"x">>, b => <<"y">>}, null_opts()))
+            )
+        end,
+        "'\""
+    ),
+    lists:foreach(
+        fun(Target) ->
+            {ok, Plan} = compile(<<"INSERT INTO ", Target/binary, " VALUES (1)">>),
+            ?assertEqual(
+                {ok, <<"INSERT INTO `xy` VALUES (1)">>},
+                rendered_binary(
+                    render(Plan, #{a => <<"x">>, b => <<"y">>, table => <<"xy">>}, null_opts())
+                )
+            )
+        end,
+        [<<"${a}${b}">>, <<"`${a}${b}`">>, <<"`${table}`">>]
+    ),
+    ?assertEqual(
+        {error, {invalid_tdengine_insert_template, {error, {invalid_tdengine_identifier, empty}}}},
+        compile(<<"INSERT INTO `` VALUES (1)">>)
+    ).
+
+escaped_dollar_test() ->
+    Cases = [
+        {<<"${$}">>, <<"$">>},
+        {<<"${$}{amount}">>, <<"${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"${$}{amount}${v}${$}{$}">>, <<"${amount}x${$}">>}
+    ],
+    lists:foreach(
+        fun({Quote, Body, Expected}) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO t VALUES (", Quote, Body/binary, Quote, ")">>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO t VALUES ('", Expected/binary, "')">>},
+                rendered_binary(render(Plan, #{amount => 99, v => <<"x">>}, null_opts()))
+            )
+        end,
+        [{Quote, Body, Expected} || Quote <- "'\"", {Body, Expected} <- Cases]
     ).
 
 %% Checks leading-dot placeholders in dynamic identifiers and values.
