@@ -80,6 +80,11 @@ defmodule CheckBpapiBaselines do
   end
 
   # {api, version} for every proto module present at a tag, with its path.
+  #
+  # A tag object can be listed by `git tag -l` while its commit is absent, which
+  # is what a shallow clone looks like. `ls-tree` then fails, and returning an
+  # empty list here would report the baseline as ok having compared it against
+  # nothing. Every real tag has proto modules, so treat both as errors.
   defp protos_at(tag) do
     case git(["ls-tree", "-r", "--name-only", tag]) do
       {:ok, out} ->
@@ -91,9 +96,13 @@ defmodule CheckBpapiBaselines do
             key -> [{key, path}]
           end
         end)
+        |> case do
+          [] -> die("No proto modules at #{tag}; is the tag's commit present?")
+          protos -> protos
+        end
 
       :error ->
-        []
+        die("Cannot read #{tag}; the tag is listed but its commit is missing")
     end
   end
 
@@ -145,8 +154,10 @@ defmodule CheckBpapiBaselines do
           |> Enum.map(&elem(&1, 0))
           |> Enum.sort()
 
+        checked = protos_at(tag) |> length()
+
         case missing do
-          [] -> {:ok, line, tag}
+          [] -> {:ok, line, tag, checked}
           _ -> {:error, line, tag, missing}
         end
     end
@@ -161,8 +172,8 @@ defmodule CheckBpapiBaselines do
     end
 
     Enum.each(results, fn
-      {:ok, line, tag} ->
-        IO.puts("  #{line}: ok against #{tag}")
+      {:ok, line, tag, checked} ->
+        IO.puts("  #{line}: ok against #{tag}, #{checked} versions compared")
 
       {:skipped, line, why} ->
         IO.puts("  #{line}: skipped, #{why}")
