@@ -101,7 +101,7 @@
     %, password => <<"${Packet.headers.passcode}">>
 }).
 
--define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg, asleep_timer_duration]).
+-define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 
 -define(NEG_QOS_CLIENT_ID, <<"NegQoS-Client">>).
 
@@ -211,8 +211,6 @@ info(session, #channel{session = Session}) ->
     emqx_utils:maybe_apply(fun emqx_mqttsn_session:info/1, Session);
 info(will_msg, #channel{will_msg = WillMsg}) ->
     WillMsg;
-info(asleep_timer_duration, #channel{asleep_timer_duration = Duration}) ->
-    Duration;
 info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(ctx, #channel{ctx = Ctx}) ->
@@ -1927,6 +1925,8 @@ handle_call(
     Channel = #channel{
         session = Session,
         clientinfo = OldClientInfo,
+        conninfo = OldConnInfo,
+        asleep_timer_duration = SleepDuration,
         takeover = false,
         takeover_owner = undefined
     }
@@ -1945,9 +1945,9 @@ handle_call(
             reply(
                 {ok, #{
                     session => Session,
-                    conninfo => info(conninfo, Channel),
+                    conninfo => OldConnInfo,
                     clientinfo => OldClientInfo,
-                    asleep_timer_duration => info(asleep_timer_duration, Channel)
+                    asleep_timer_duration => SleepDuration
                 }},
                 NChannel
             );
