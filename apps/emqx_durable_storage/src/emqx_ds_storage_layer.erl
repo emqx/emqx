@@ -44,7 +44,6 @@
 -export([
     init/1,
     format_status/1,
-    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
@@ -554,53 +553,7 @@ init({ShardId, Options}) ->
             },
             commit_metadata(S),
             ?tp(debug, ds_storage_init_state, #{shard => ShardId, s => S}),
-            {ok, S, {continue, clean_orphans}}
-    end.
-
-handle_continue(
-    clean_orphans,
-    S = #s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema}
-) ->
-    %% Add / drop generation are not transactional.
-    %% This means that the storage may contain "orphaned" column families, i.e.
-    %% column families that do not belong to a live generation. We need to clean
-    %% them, because an attempt to create existing column family is an error,
-    %% therefore `add_generation/2` is not idempotent. Cleaning seems to be safe:
-    %% either it's unfinished `handle_add_generation/2` meaning CFs are empty, or
-    %% it's unfinished `handle_drop_generation/2` meaning CFs was meant to be
-    %% dropped anyway.
-    CFNames = maps:fold(
-        fun
-            (?GEN_KEY(_), #{cf_names := GenCFNames}, Acc) ->
-                GenCFNames ++ Acc;
-            (_Prop, _, Acc) ->
-                Acc
-        end,
-        [],
-        Schema
-    ),
-    OrphanedCFRefs = lists:foldl(fun proplists:delete/2, CFRefs, CFNames),
-    case OrphanedCFRefs of
-        [] ->
-            {noreply, S};
-        [_ | _] ->
-            lists:foreach(
-                fun({CFName, CFHandle}) ->
-                    Result = rocksdb:drop_column_family(DB, CFHandle),
-                    ?tp(
-                        warning,
-                        ds_storage_layer_dropped_orphaned_column_family,
-                        #{
-                            shard => ShardId,
-                            orphan => CFName,
-                            result => Result,
-                            s => format_state(S)
-                        }
-                    )
-                end,
-                OrphanedCFRefs
-            ),
-            {noreply, S#s{cf_refs = CFRefs -- OrphanedCFRefs}}
+            {ok, S}
     end.
 
 format_status(Status) ->
@@ -625,10 +578,12 @@ handle_call(#call_ensure_schema{options = Opts, created_at = CreatedAt}, _From, 
     case S0 of
         #s{} ->
             %% Already exists:
+            report_orphaned_cfs(S0),
             {reply, ok, S0};
         #s_no_schema{shard_id = ShardId, db = DB, cf_refs = CFRefs} ->
             case handle_create_schema(ShardId, DB, CFRefs, Opts, CreatedAt) of
                 {ok, S} ->
+                    report_orphaned_cfs(S),
                     {reply, ok, S};
                 {error, _} = Err ->
                     {reply, Err, S0}
@@ -749,9 +704,10 @@ handle_add_generation(
     Shard1 = update_last_until(Shard0, Since),
     case Schema1 of
         _Updated = #{} ->
-            {GenId, Schema, NewCFRefs} =
-                new_generation(ShardId, DB, Schema1, MaybePrototype, Shard0, Since, Since, DBOpts),
-            CFRefs = NewCFRefs ++ CFRefs0,
+            {GenId, Schema, GenCFRefs} = new_generation(
+                ShardId, DB, CFRefs0, Schema1, MaybePrototype, Shard0, Since, Since, DBOpts
+            ),
+            CFRefs = cf_merge_refs(GenCFRefs, CFRefs0),
             Key = ?GEN_KEY(GenId),
             Generation = open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
             Shard = Shard1#{current_generation := GenId, Key => Generation},
@@ -894,15 +850,17 @@ create_new_shard_schema(
         ptrans => emqx_ds_payload_transform:default_schema(PType)
     },
     DBOpts = filter_layout_db_opts(Options),
-    {_NewGenId, Schema, NewCFRefs} =
-        new_generation(ShardId, DB, Schema0, Prototype, undefined, _Since = 0, CreatedAt, DBOpts),
-    {ok, Schema, NewCFRefs ++ CFRefs};
+    {_NewGenId, Schema, GenCFRefs} = new_generation(
+        ShardId, DB, CFRefs, Schema0, Prototype, undefined, _Since = 0, CreatedAt, DBOpts
+    ),
+    {ok, Schema, cf_merge_refs(GenCFRefs, CFRefs)};
 create_new_shard_schema(_ShardId, _DB, _CFRefs, Options, _CreatedAt) ->
     {error, {bad_options, Options}}.
 
 -spec new_generation(
     dbshard(),
     rocksdb:db_handle(),
+    cf_refs(),
     shard_schema(),
     prototype() | undefined,
     shard() | undefined,
@@ -911,7 +869,7 @@ create_new_shard_schema(_ShardId, _DB, _CFRefs, Options, _CreatedAt) ->
     emqx_ds:db_opts()
 ) ->
     {gen_id(), shard_schema(), cf_refs()}.
-new_generation(ShardId, DB, Schema0, MaybePrototype, Shard0, Since, CreatedAt, DBOpts) ->
+new_generation(ShardId, DB, CFRefs, Schema0, MaybePrototype, Shard0, Since, CreatedAt, DBOpts) ->
     #{current_generation := PrevGenId, prototype := OldPrototype} = Schema0,
     {Mod, ModConf} =
         case MaybePrototype of
@@ -933,7 +891,9 @@ new_generation(ShardId, DB, Schema0, MaybePrototype, Shard0, Since, CreatedAt, D
     end,
     %% Provide a small subset of DB options to the storage layout module.
     GenId = next_generation_id(PrevGenId),
-    {GenData, NewCFRefs} = Mod:create(ShardId, DB, GenId, ModConf, PrevRuntimeData, DBOpts),
+    {GenData, NewCFRefs} = Mod:create(
+        ShardId, DB, CFRefs, GenId, ModConf, PrevRuntimeData, DBOpts
+    ),
     GenSchema = #{
         module => Mod,
         data => GenData,
@@ -947,6 +907,11 @@ new_generation(ShardId, DB, Schema0, MaybePrototype, Shard0, Since, CreatedAt, D
         current_generation => GenId,
         ?GEN_KEY(GenId) => GenSchema
     },
+    ?tp(debug, ds_storage_layer_new_generation, #{
+        shard => ShardId,
+        generation => GenId,
+        cf_names => cf_names(NewCFRefs)
+    }),
     {GenId, Schema, NewCFRefs}.
 
 -spec next_generation_id(gen_id()) -> gen_id().
@@ -1141,6 +1106,35 @@ filter_layout_db_opts(Options) ->
 
 %%--------------------------------------------------------------------------------
 
+list_orphaned_cfs(#s{cf_refs = CFRefs, schema = Schema}) ->
+    %% Add / drop generation are not transactional.
+    %% This means that the storage may contain "orphaned" column families not
+    %% belonging to a live generation.
+    %% * Replay of generation creation can adopt matching column families.
+    %% * Leftovers from an interrupted deletion are reported for observability.
+    CFNames = maps:fold(
+        fun
+            (?GEN_KEY(_), #{cf_names := GenCFNames}, Acc) ->
+                GenCFNames ++ Acc;
+            (_Prop, _, Acc) ->
+                Acc
+        end,
+        [],
+        Schema
+    ),
+    lists:foldl(fun proplists:delete/2, CFRefs, CFNames).
+
+report_orphaned_cfs(S = #s{shard_id = ShardId}) ->
+    case list_orphaned_cfs(S) of
+        [] ->
+            ok;
+        OrphanedCFRefs ->
+            ?tp(warning, ds_storage_layer_orphaned_column_families, #{
+                shard => ShardId,
+                cf_names => cf_names(OrphanedCFRefs)
+            })
+    end.
+
 -spec cf_names(cf_refs()) -> [string()].
 cf_names(CFRefs) ->
     {CFNames, _CFHandles} = lists:unzip(CFRefs),
@@ -1153,6 +1147,10 @@ cf_ref(Name, CFRefs) ->
 -spec cf_handle(_Name :: string(), cf_refs()) -> rocksdb:cf_handle().
 cf_handle(Name, CFRefs) ->
     element(2, cf_ref(Name, CFRefs)).
+
+cf_merge_refs(NewCFRefs, CFRefs) ->
+    NewCFNames = cf_names(NewCFRefs),
+    NewCFRefs ++ [CFRef || {Name, _} = CFRef <- CFRefs, not lists:member(Name, NewCFNames)].
 
 %%--------------------------------------------------------------------------------
 %% Schema access
