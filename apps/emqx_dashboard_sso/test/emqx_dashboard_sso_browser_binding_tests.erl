@@ -64,6 +64,24 @@ saml_cookie_over_http_test() ->
     ?assert(contains(<<"SameSite=Lax">>, Cookie)),
     ?assertNot(contains(<<"Secure">>, Cookie)).
 
+%% URI schemes are case-insensitive. An upper or mixed case `https' address still
+%% gets a `Secure' cookie, and `SameSite=None' for SAML.
+scheme_case_insensitive_test() ->
+    lists:foreach(
+        fun(Url) ->
+            Saml = set_cookie(saml, <<"relay">>, #{max_age => 300, url => Url}),
+            ?assert(contains(<<"SameSite=None">>, Saml)),
+            ?assert(contains(<<"Secure">>, Saml)),
+            Oidc = set_cookie(oidc, <<"s">>, #{max_age => 30, url => Url}),
+            ?assert(contains(<<"Secure">>, Oidc))
+        end,
+        [<<"HTTPS://emqx:18083">>, <<"Https://emqx:18083">>, <<"hTtPs://emqx:18083">>]
+    ),
+    %% An upper case plain HTTP address stays non-secure.
+    Plain = set_cookie(saml, <<"relay">>, #{max_age => 300, url => <<"HTTP://emqx:18083">>}),
+    ?assert(contains(<<"SameSite=Lax">>, Plain)),
+    ?assertNot(contains(<<"Secure">>, Plain)).
+
 max_age_floor_test() ->
     Cookie = set_cookie(oidc, <<"s">>, #{max_age => 0, url => <<"http://emqx:18083">>}),
     ?assert(contains(<<"Max-Age=1">>, Cookie)).
