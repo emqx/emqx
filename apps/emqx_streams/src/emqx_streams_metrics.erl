@@ -4,7 +4,7 @@
 
 -module(emqx_streams_metrics).
 
--include_lib("snabbkaffe/include/trace.hrl").
+-include("emqx_streams_internal.hrl").
 
 -export([
     child_spec/0,
@@ -28,8 +28,6 @@
     print_common_hists/1,
     print_flush_quota_hist/0
 ]).
-
--define(STREAMS_METRICS_WORKER, streams_metrics).
 
 -define(LATENCY_BUCKETS, [
     2,

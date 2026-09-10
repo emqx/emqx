@@ -362,6 +362,7 @@ put_message_queue_config_example() ->
 check_ready(Request, _Meta) ->
     case emqx_mq_controller:status() of
         stopped -> ?SERVICE_UNAVAILABLE(<<"Not enabled">>);
+        stopping -> ?SERVICE_UNAVAILABLE(<<"Not enabled">>);
         starting -> ?SERVICE_UNAVAILABLE(<<"Not ready">>);
         started -> {ok, Request}
     end.

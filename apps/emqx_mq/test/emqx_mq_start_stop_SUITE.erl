@@ -19,6 +19,7 @@
         api_put/2
     ]
 ).
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -58,9 +59,11 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(t_cluster_runtime_enable, Config) ->
     ok = snabbkaffe:stop(),
+    ok = emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config));
 end_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:stop(),
+    ok = emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 mq_initial_config(t_config) ->
@@ -71,6 +74,14 @@ mq_initial_config(t_auto_with_queues) ->
     #{<<"mq">> => #{<<"enable">> => true}};
 mq_initial_config(t_idempotency) ->
     #{<<"mq">> => #{<<"enable">> => true}};
+mq_initial_config(t_reverse_start) ->
+    #{<<"mq">> => #{<<"enable">> => false}};
+mq_initial_config(t_reverse_stop) ->
+    #{<<"mq">> => #{<<"enable">> => true}};
+mq_initial_config(t_reconcile_worker_crash) ->
+    #{<<"mq">> => #{<<"enable">> => false}};
+mq_initial_config(t_restart_during_stop) ->
+    #{<<"mq">> => #{<<"enable">> => true}};
 mq_initial_config(t_cluster_runtime_enable) ->
     #{<<"mq">> => #{<<"enable">> => false}}.
 
@@ -78,7 +89,7 @@ mq_initial_config(t_cluster_runtime_enable) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-%% Verify that enabling MQ at runtime in a cluster reaches readiness on all nodes.
+%% Verify that enabling and disabling MQ at runtime completes on all nodes.
 t_cluster_runtime_enable(Config) ->
     [N1 | _] = Nodes = ?config(cluster_nodes, Config),
 
@@ -98,10 +109,55 @@ t_cluster_runtime_enable(Config) ->
     ?assertEqual(
         [{ok, started} || _ <- Nodes],
         erpc:multicall(Nodes, emqx_mq_controller, status, [])
+    ),
+
+    %% Disable MQ without waiting for database shutdown in the config handler.
+    {ok, _} = erpc:call(
+        N1,
+        emqx_mq_config,
+        update_config,
+        [#{<<"enable">> => false}],
+        5_000
+    ),
+
+    %% A new target must be accepted while shutdown is still in progress.
+    {ok, _} = erpc:call(
+        N1,
+        emqx_mq_config,
+        update_config,
+        [#{<<"enable">> => true}],
+        5_000
+    ),
+
+    TransitionTimeout = 30_000,
+    ?assertEqual(
+        [{ok, started} || _ <- Nodes],
+        erpc:multicall(Nodes, emqx_mq_controller, wait_status, [TransitionTimeout])
+    ),
+
+    %% Disable once more and wait for asynchronous shutdown on all nodes.
+    {ok, _} = erpc:call(
+        N1,
+        emqx_mq_config,
+        update_config,
+        [#{<<"enable">> => false}],
+        5_000
+    ),
+
+    ?assertEqual(
+        [{ok, stopped} || _ <- Nodes],
+        erpc:multicall(Nodes, emqx_mq_controller, wait_status, [TransitionTimeout])
+    ),
+
+    ?assertEqual(
+        [{ok, stopped} || _ <- Nodes],
+        erpc:multicall(Nodes, emqx_mq_controller, status, [])
     ).
 
 %% Verify that MQ subsystem may be started in runtime.
 t_config(_Config) ->
+    #{id := MetricsWorker} = emqx_mq_metrics:child_spec(),
+    #{id := GCScheduler} = emqx_mq_gc:child_spec(),
     %% We started with disabled MQ subsystem, so queue API should be unavailable.
     ?assertMatch(
         {ok, 503, #{<<"code">> := <<"SERVICE_UNAVAILABLE">>, <<"message">> := <<"Not enabled">>}},
@@ -114,6 +170,9 @@ t_config(_Config) ->
         api_put([message_queues, config], #{<<"enable">> => true})
     ),
     started = emqx_mq_controller:wait_status(5000),
+    ?assert(is_pid(whereis(MetricsWorker))),
+    ?assert(is_pid(whereis(GCScheduler))),
+    ok = emqx_mq_controller:start_mqs(),
     %% Verify that queue API is now available.
     ?assertMatch(
         {ok, 200, _},
@@ -126,6 +185,9 @@ t_config(_Config) ->
         api_put([message_queues, config], #{<<"enable">> => false})
     ),
     stopped = emqx_mq_controller:wait_status(5000),
+    ?assertEqual(undefined, whereis(MetricsWorker)),
+    ?assertEqual(undefined, whereis(GCScheduler)),
+    ok = emqx_mq_controller:stop_mqs(),
 
     %% Start MQ subsystem via API again.
     ?assertMatch(
@@ -133,6 +195,8 @@ t_config(_Config) ->
         api_put([message_queues, config], #{<<"enable">> => true})
     ),
     started = emqx_mq_controller:wait_status(5000),
+    ?assert(is_pid(whereis(MetricsWorker))),
+    ?assert(is_pid(whereis(GCScheduler))),
 
     %% Create a queue.
     _ = emqx_mq_test_utils:ensure_mq_created(#{topic_filter => <<"test">>, name => <<"test">>}),
@@ -161,6 +225,119 @@ t_auto_with_queues(_Config) ->
 %% Verify that auto does not start MQ when there are no queues.
 t_auto_no_queues(_Config) ->
     stopped = emqx_mq_controller:wait_status(5000).
+
+%% Verify that disable waits for startup before stopping.
+t_reverse_start(_Config) ->
+    TestPid = self(),
+    ok = meck:new(emqx_mq_message_db, [passthrough, no_history, no_link]),
+    on_exit(fun() -> meck:unload(emqx_mq_message_db) end),
+    ok = meck:expect(emqx_mq_message_db, wait_readiness, fun(infinity) ->
+        TestPid ! {readiness_waiting, self()},
+        receive
+            continue -> ok
+        end
+    end),
+
+    ok = emqx_mq_controller:start_mqs(),
+    Worker =
+        receive
+            {readiness_waiting, Pid} -> Pid
+        after 5_000 ->
+            ct:fail(readiness_not_reached)
+        end,
+    ok = emqx_mq_controller:stop_mqs(),
+    starting = emqx_mq_controller:status(),
+    Worker ! continue,
+    stopped = emqx_mq_controller:wait_status(5_000),
+
+    true = meck:validate(emqx_mq_message_db).
+
+%% Verify that enable changes the target while database shutdown is blocked.
+t_reverse_stop(_Config) ->
+    started = emqx_mq_controller:wait_status(5_000),
+    TestPid = self(),
+    ok = meck:new(emqx_mq_message_db, [passthrough, no_history, no_link]),
+    on_exit(fun() -> meck:unload(emqx_mq_message_db) end),
+    ok = meck:expect(emqx_mq_message_db, close, fun() ->
+        TestPid ! {shutdown_waiting, self()},
+        receive
+            continue -> ok
+        end
+    end),
+
+    ok = emqx_mq_controller:stop_mqs(),
+    Worker =
+        receive
+            {shutdown_waiting, Pid} -> Pid
+        after 5_000 ->
+            ct:fail(shutdown_not_reached)
+        end,
+    ok = emqx_mq_controller:start_mqs(),
+    stopping = emqx_mq_controller:status(),
+    Worker ! continue,
+    started = emqx_mq_controller:wait_status(10_000),
+
+    true = meck:validate(emqx_mq_message_db).
+
+%% Verify that a worker crash starts the operation required by the latest target.
+t_reconcile_worker_crash(_Config) ->
+    TestPid = self(),
+    ok = meck:new(emqx_mq_message_db, [passthrough, no_history, no_link]),
+    on_exit(fun() -> meck:unload(emqx_mq_message_db) end),
+    ok = meck:expect(emqx_mq_message_db, open, fun() ->
+        TestPid ! {open_waiting, self()},
+        receive
+            crash -> meck:exception(error, test_worker_crash)
+        end
+    end),
+
+    ControllerPid = whereis(emqx_mq_controller),
+    ok = emqx_mq_controller:start_mqs(),
+    Worker1 =
+        receive
+            {open_waiting, Pid1} -> Pid1
+        after 5_000 ->
+            ct:fail(open_not_reached)
+        end,
+    Worker1 ! crash,
+    Worker2 =
+        receive
+            {open_waiting, Pid2} -> Pid2
+        after 5_000 ->
+            ct:fail(start_not_retried)
+        end,
+    ?assertNotEqual(Worker1, Worker2),
+    ?assertEqual(ControllerPid, whereis(emqx_mq_controller)),
+
+    ok = emqx_mq_controller:stop_mqs(),
+    Worker2 ! crash,
+    stopped = emqx_mq_controller:wait_status(5_000),
+    ?assertEqual(ControllerPid, whereis(emqx_mq_controller)),
+
+    true = meck:validate(emqx_mq_message_db).
+
+%% Verify that a restarted controller resumes an interrupted shutdown.
+t_restart_during_stop(_Config) ->
+    started = emqx_mq_controller:wait_status(5_000),
+    ok = meck:new(emqx_mq_message_db, [passthrough, no_history, no_link]),
+    on_exit(fun() -> meck:unload(emqx_mq_message_db) end),
+    ok = meck:expect(emqx_mq_message_db, close, fun() -> timer:sleep(infinity) end),
+
+    ControllerPid = whereis(emqx_mq_controller),
+    ?assertWaitEvent(
+        {ok, _} = emqx:update_config([mq], #{<<"enable">> => false}),
+        #{?snk_kind := mq_controller_worker_start, operation := stop, status := stopping},
+        5_000
+    ),
+    stopping = emqx_mq_controller:status(),
+
+    ?assertWaitEvent(
+        exit(ControllerPid, kill),
+        #{?snk_kind := mq_controller_init_cleanup, previous_status := stopping},
+        5_000
+    ),
+
+    true = meck:validate(emqx_mq_message_db).
 
 %% Verify that MQ subsystem start is idempotent and does not break MQ functioning.
 t_idempotency(_Config) ->
@@ -197,11 +374,16 @@ t_idempotency(_Config) ->
     ),
     stopped = emqx_mq_controller:wait_status(5000),
 
-    %% Kill and verify that MQ subsystem is successfully stopped even if it was not started.
+    %% Kill the controller and verify that MQ stays stopped without another stop operation.
     ControllerPid1 = whereis(emqx_mq_controller),
-    ?assertWaitEvent(
-        exit(ControllerPid1, kill),
-        #{?snk_kind := mq_controller_stop_mqs_done},
-        5000
+    exit(ControllerPid1, kill),
+    ?retry(
+        100,
+        50,
+        begin
+            NewControllerPid = whereis(emqx_mq_controller),
+            ?assert(is_pid(NewControllerPid)),
+            ?assertNotEqual(ControllerPid1, NewControllerPid)
+        end
     ),
     stopped = emqx_mq_controller:wait_status(5000).
