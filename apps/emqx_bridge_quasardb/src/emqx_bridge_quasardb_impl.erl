@@ -55,8 +55,7 @@
 -define(health_check_timeout, health_check_timeout).
 
 -define(health_check_table, health_check_table).
--define(insert, insert).
--define(values_template, values_template).
+-define(sql_plan, sql_plan).
 
 -define(undefined, undefined).
 
@@ -77,8 +76,7 @@
 }.
 -type channel_state() :: #{
     ?health_check_table := ?undefined | binary(),
-    ?insert := binary(),
-    ?values_template := emqx_template:t()
+    ?sql_plan := emqx_sql_plan:plan()
 }.
 
 -type query() :: {_Tag :: channel_id(), _Data :: map()}.
@@ -213,7 +211,7 @@ on_query(
     is_map_key(ChanResId, InstalledChannels)
 ->
     #{ChanResId := ChanState} = InstalledChannels,
-    do_query(ConnResId, [Data], ChanState);
+    do_query(ConnResId, {single, Data}, ChanState);
 on_query(_ConnResId, Query, _ConnState) ->
     {error, {unrecoverable_error, {invalid_query, Query}}}.
 
@@ -228,7 +226,7 @@ on_batch_query(
 ->
     #{ChanResId := ChanState} = InstalledChannels,
     Batch = [Data || {_, Data} <- Queries],
-    do_query(ConnResId, Batch, ChanState);
+    do_query(ConnResId, {batch, Batch}, ChanState);
 on_batch_query(_ConnResId, Queries, _ConnectorState) ->
     {error, {unrecoverable_error, {invalid_batch, Queries}}}.
 
@@ -293,44 +291,36 @@ create_action(ActionConfig) ->
         } = Params
     } = ActionConfig,
     HCTable = maps:get(health_check_table, Params, ?undefined),
-    case emqx_utils_sql:get_statement_type(SQL) of
-        insert ->
-            case emqx_utils_sql:split_insert(SQL) of
-                {ok, {Insert, Values}} ->
-                    ValuesTemplate = emqx_template:parse(Values),
-                    ChanState = #{
-                        ?health_check_table => HCTable,
-                        ?insert => Insert,
-                        ?values_template => ValuesTemplate
-                    },
-                    {ok, ChanState};
-                {ok, {_InsertPart, _Values, OnClause}} ->
-                    {error, {unsupported_clause, OnClause}};
-                {error, Reason} ->
-                    {error, {failed_to_parse, Reason}}
-            end;
-        {error, Reason} ->
-            {error, {failed_to_parse_type, Reason}};
-        Type ->
-            {error, {invalid_sql_type, Type}}
+    case emqx_sql_plan:compile(emqx_bridge_quasardb_sql, SQL) of
+        {ok, Plan} ->
+            {ok, #{
+                ?health_check_table => HCTable,
+                ?sql_plan => Plan
+            }};
+        {error, _} = Error ->
+            Error
     end.
 
-do_query(ConnResId, Data, ChanState) ->
-    #{
-        ?insert := Insert,
-        ?values_template := ValuesTemplate
-    } = ChanState,
-    Values0 = lists:map(fun(X) -> render_value(X, ValuesTemplate) end, Data),
-    Values = lists:join(",", Values0),
-    SQL = [Insert, " values ", Values],
-    Res = ecpool:pick_and_do(
-        ConnResId,
-        fun(ConnectionPid) ->
-            odbc:sql_query(ConnectionPid, SQL)
+do_query(ConnResId, Query, #{?sql_plan := Plan}) ->
+    RenderOpts = #{undefined_vars_as_null => true},
+    RenderResult =
+        case Query of
+            {single, Data} -> emqx_sql_plan:render(Plan, Data, RenderOpts);
+            {batch, DataList} -> emqx_sql_plan:render_batch(Plan, DataList, RenderOpts)
         end,
-        handover
-    ),
-    handle_insert_result(Res).
+    case RenderResult of
+        {ok, SQL} ->
+            Res = ecpool:pick_and_do(
+                ConnResId,
+                fun(ConnectionPid) ->
+                    odbc:sql_query(ConnectionPid, SQL)
+                end,
+                handover
+            ),
+            handle_insert_result(Res);
+        {error, Reason} ->
+            {error, {unrecoverable_error, Reason}}
+    end.
 
 maybe_check_table_existence(_ConnResId, #{?health_check_table := ?undefined} = _ChanState) ->
     ?status_connected;
@@ -368,16 +358,6 @@ maybe_check_table_existence(ConnResId, #{?health_check_table := Table} = _ChanSt
         Error ->
             {?status_disconnected, Error}
     end.
-
-render_value(X, ValuesTemplate) ->
-    %% Unknown/undefined values are rendered as null
-    VarTrans = fun
-        (undefined) -> <<"null">>;
-        (B) when is_binary(B) -> B;
-        (Y) -> emqx_utils_conv:bin(Y)
-    end,
-    {Rendered, _} = emqx_template:render(ValuesTemplate, {emqx_jsonish, X}, #{var_trans => VarTrans}),
-    Rendered.
 
 handle_insert_result({error, Msg}) when is_list(Msg) ->
     case re:run(Msg, <<"SQLSTATE IS: 01000">>, [{capture, none}]) of
