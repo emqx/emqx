@@ -66,6 +66,14 @@ jobs:
           ## targets PROFILE=${PROFILE}-test, so beam files land under
           ## _build/${PROFILE}-test/lib, not _build/${PROFILE}/lib.
           ./scripts/check-api-scope-coverage.escript _build/${PROFILE}-test/lib
+      - name: Check for unlisted CT cases
+        if: inputs.build_type == 'test'
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          ## Same lib dir as the scope check above: the suite beams only
+          ## exist in the test profile.
+          ./scripts/check-unlisted-ct-cases.escript _build/${PROFILE}-test/lib
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.profile }}-${{ inputs.build_type }}
