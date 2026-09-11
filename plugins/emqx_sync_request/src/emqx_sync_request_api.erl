@@ -24,163 +24,12 @@
 
 namespace() -> undefined.
 
-%% Keep the OpenAPI description local to the plugin.  The request filter still
-%% uses the HOCON schema below so validation and body translation remain
-%% unchanged, but the schema must not be passed through
-%% emqx_dashboard_swagger:spec/2 because production EMQX 6.x rejects literal
-%% descriptions while generating the spec.
 api_spec() ->
-    {
-        [
-            {
-                "/plugin_api/emqx_sync_request/request",
-                #{
-                    post => #{
-                        summary => <<"Send a synchronous MQTT request">>,
-                        description =>
-                            <<"Publish one MQTT request and wait for the first matching response.">>,
-                        tags => [<<"Plugin">>],
-                        'requestBody' => #{
-                            content => #{
-                                'application/json' => #{schema => sync_request_spec()}
-                            }
-                        },
-                        responses => #{
-                            200 => response_spec(
-                                <<"Synchronous MQTT response.">>, ok_response_spec()
-                            ),
-                            400 => response_spec(
-                                <<"The request is invalid.">>, error_response_spec()
-                            ),
-                            404 => response_spec(
-                                <<"No matching MQTT subscriber was found.">>, error_response_spec()
-                            ),
-                            409 => response_spec(
-                                <<"The request topic has multiple subscribers.">>,
-                                error_response_spec()
-                            ),
-                            429 => response_spec(
-                                <<"The local inflight request limit was reached.">>,
-                                error_response_spec()
-                            ),
-                            503 => response_spec(
-                                <<"The request could not be dispatched.">>, error_response_spec()
-                            ),
-                            504 => response_spec(
-                                <<"The response wait timed out.">>, error_response_spec()
-                            ),
-                            500 => response_spec(
-                                <<"The request failed unexpectedly.">>, error_response_spec()
-                            )
-                        },
-                        log_meta => emqx_dashboard_audit:importance(low)
-                    }
-                },
-                request,
-                #{filter => fun emqx_dashboard_swagger:filter_check_request_and_translate_body/2}
-            }
-        ],
-        []
-    }.
-
-sync_request_spec() ->
-    object_spec(
-        #{
-            timeout => #{
-                type => string,
-                description => <<"HTTP wait timeout, for example 10s.">>,
-                default => <<"10s">>
-            },
-            request => maps:merge(
-                object_spec(request_fields_spec(), [topic, response_topic, request_id, payload]),
-                #{description => <<"MQTT request parameters.">>}
-            )
-        },
-        [request]
-    ).
-
-ok_response_spec() ->
-    object_spec(
-        #{
-            code => #{type => string, description => <<"OK">>, example => <<"OK">>},
-            message => #{type => string, description => <<"OK">>, example => <<"OK">>},
-            response => maps:merge(
-                object_spec(response_fields_spec(), []),
-                #{description => <<"MQTT response message.">>}
-            )
-        },
-        [response]
-    ).
-
-error_response_spec() ->
-    object_spec(
-        #{
-            code => #{
-                type => string,
-                description =>
-                    <<"BAD_REQUEST, NO_SUBSCRIBERS, CONFLICT, TOO_MANY_REQUESTS, SERVICE_UNAVAILABLE, INTERNAL_ERROR, or TIMEOUT.">>
-            },
-            message => #{type => string, description => <<"Human-readable error message.">>}
-        },
-        []
-    ).
-
-response_spec(Description, Schema) ->
-    #{
-        description => Description,
-        content => #{'application/json' => #{schema => Schema}}
-    }.
-
-object_spec(Properties, Required) ->
-    Spec = #{type => object, properties => Properties},
-    case Required of
-        [] -> Spec;
-        _ -> Spec#{required => Required}
-    end.
-
-request_fields_spec() ->
-    #{
-        topic => #{type => string, description => <<"MQTT request topic.">>},
-        response_topic => #{type => string, description => <<"MQTT response topic.">>},
-        request_id => #{
-            type => string,
-            description => <<"Plain MQTT 5 Correlation Data, up to 128 bytes.">>
-        },
-        qos => #{
-            type => integer,
-            minimum => 0,
-            maximum => 2,
-            default => 0,
-            description => <<"MQTT QoS.">>
-        },
-        payload_encoding => #{
-            type => string,
-            enum => [<<"plain">>, <<"base64">>],
-            default => <<"plain">>,
-            description => <<"Request payload encoding.">>
-        },
-        payload => #{type => string, description => <<"MQTT request payload.">>},
-        content_type => #{
-            type => string,
-            description => <<"MQTT 5 Content Type for the request.">>
-        }
-    }.
-
-response_fields_spec() ->
-    #{
-        topic => #{type => string, description => <<"MQTT response topic.">>},
-        request_id => #{type => string, description => <<"The request_id from the HTTP request.">>},
-        payload_encoding => #{
-            type => string,
-            enum => [<<"base64">>],
-            description => <<"Response payload encoding.">>
-        },
-        payload => #{type => string, description => <<"Base64 encoded MQTT response payload.">>},
-        content_type => #{
-            type => string,
-            description => <<"MQTT 5 Content Type from the response.">>
-        }
-    }.
+    emqx_dashboard_swagger:spec(?MODULE, #{
+        check_schema => true,
+        translate_body => true,
+        allow_literal_method_docs => true
+    }).
 
 scopes() -> ?SCOPE_PUBLISH.
 
@@ -194,8 +43,10 @@ schema("/plugin_api/emqx_sync_request/request") ->
     #{
         'operationId' => request,
         post => #{
+            summary => <<"Send a synchronous MQTT request">>,
             description =>
                 <<"Publish one MQTT request and wait for the first matching response.">>,
+            tags => [<<"Plugin">>],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, sync_request), #{}),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, ok_response), #{}),
