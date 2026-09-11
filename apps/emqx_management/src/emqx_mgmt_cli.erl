@@ -1247,12 +1247,12 @@ listeners([]) ->
                     ShutdownCount =
                         case emqx_listeners:shutdown_count(Id, Bind) of
                             {error, _} -> [];
-                            SC -> [{shutdown_count, {counters, lists:sort(SC)}}]
+                            SC -> [{shutdown_count, {counters, 27, lists:sort(SC)}}]
                         end,
                     AcceptStats =
                         case emqx_listeners:accept_stats(Id, Bind) of
                             {error, _} -> [];
-                            AS -> [{accept_stats, {counters, AS}}]
+                            AS -> [{accept_stats, {counters, 20, AS}}]
                         end;
                 false ->
                     CurrentConns = [],
@@ -1875,17 +1875,21 @@ bin(S) -> iolist_to_binary(S).
 %% truncates it instead of just skipping the padding.
 indent_print({Key, {string, Val}}) ->
     emqx_ctl:print("  ~-22s: ~ts~n", [Key, Val]);
-indent_print({Key, {counters, Counters}}) ->
+indent_print({Key, {counters, Width, Counters}}) ->
     emqx_ctl:print("  ~-22s:~n", [Key]),
-    lists:foreach(fun indent_print_counter/1, [C || {_, Count} = C <- Counters, Count =/= 0]);
+    lists:foreach(
+        fun(Counter) -> indent_print_counter(Width, Counter) end,
+        [C || {_, Count} = C <- Counters, Count =/= 0]
+    );
 indent_print({Key, Val}) ->
     emqx_ctl:print("  ~-22s: ~w~n", [Key, Val]).
 
 %% Nested counters are indented two more spaces than their parent. Zero
-%% counters are not printed. The key is padded, not truncated, so a long
-%% shutdown reason pushes its colon right.
-indent_print_counter({Key, Count}) ->
-    emqx_ctl:print("    ~ts: ~w~n", [string:pad(counter_key(Key), 20), Count]).
+%% counters are not printed. Each block has its own key width: 27 fits the
+%% longest shutdown reason (`client_identifier_not_valid`), 20 fits the longest
+%% accept stat (`closed_other_reasons`). A longer key is padded, not truncated.
+indent_print_counter(Width, {Key, Count}) ->
+    emqx_ctl:print("    ~ts: ~w~n", [string:pad(counter_key(Key), Width), Count]).
 
 counter_key(Key) when is_atom(Key) -> atom_to_list(Key);
 counter_key(Key) -> io_lib:format("~0p", [Key]).
