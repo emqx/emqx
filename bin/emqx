@@ -775,7 +775,13 @@ generate_config() {
 
     ## The HOCON CLI writes its two outputs sequentially. Keep both outside the
     ## final namespace until the complete app config and merged VM args are ready.
-    trap 'rm -f -- "$generated_app_config_file" "$generated_vm_args_file" "$staged_vm_args_file"' EXIT
+    ## Capture paths now: errexit can unwind local scope before the EXIT trap runs.
+    local cleanup_command
+    printf -v cleanup_command 'rm -f -- %q %q %q || true' \
+        "$generated_app_config_file" \
+        "$generated_vm_args_file" \
+        "$staged_vm_args_file"
+    trap "$cleanup_command" EXIT
 
     ## Remove staging files older than one hour, preserving files from recent generators.
     ## Note on poratability: `-mmin` and `-maxdepth` are supported by GNU, macOS, and typical
