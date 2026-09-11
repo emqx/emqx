@@ -744,8 +744,9 @@ t_non_insert_batch(TCConfig) when is_list(TCConfig) ->
                 " set payload = ${payload} where msgid = ${id}"
             >>
         },
-        %% A wide batch window makes the burst below coalesce into one batch.
-        <<"resource_opts">> => #{<<"batch_time">> => <<"1s">>}
+        %% A batch window much longer than the publish burst makes every
+        %% request of the burst land in the same batch.
+        <<"resource_opts">> => #{<<"batch_time">> => <<"5s">>}
     }),
     Ids = [integer_to_binary(Id) || Id <- lists:seq(1, BatchSize)],
     seed_rows(Ids),
@@ -755,15 +756,25 @@ t_non_insert_batch(TCConfig) when is_list(TCConfig) ->
     ),
     ?check_trace(
         begin
+            %% Publish from concurrent processes: the rule runs in the
+            %% publishing process, so a serial publisher keeps at most one
+            %% request in flight and the resource worker cannot coalesce it.
+            Self = self(),
+            Publishers = [
+                spawn_link(fun() ->
+                    emqx:publish(emqx_message:make(Topic, batch_payload(Id))),
+                    Self ! {published, self()}
+                end)
+             || Id <- Ids
+            ],
             lists:foreach(
-                fun(Id) ->
-                    Payload = emqx_utils_json:encode(#{
-                        <<"id">> => Id,
-                        <<"payload">> => <<"new-", Id/binary>>
-                    }),
-                    emqx:publish(emqx_message:make(Topic, Payload))
+                fun(Pid) ->
+                    receive
+                        {published, Pid} -> ok
+                    after 10_000 -> error({publish_timeout, Pid})
+                    end
                 end,
-                Ids
+                Publishers
             ),
             ?retry(
                 200,
@@ -776,8 +787,8 @@ t_non_insert_batch(TCConfig) when is_list(TCConfig) ->
             ok
         end,
         fun(Trace) ->
-            %% The burst must have been processed as a batch (of more than one
-            %% request), which is the code path the shipped defaults produce.
+            %% The coalesced burst must be processed as a batch of more than one
+            %% request, which is the code path the shipped defaults produce.
             Batches = [
                 N
              || #{batch_size := N} <- ?of_kind(dameng_connector_query_return, Trace)
@@ -787,6 +798,12 @@ t_non_insert_batch(TCConfig) when is_list(TCConfig) ->
         end
     ),
     ok.
+
+batch_payload(Id) ->
+    emqx_utils_json:encode(#{
+        <<"id">> => Id,
+        <<"payload">> => <<"new-", Id/binary>>
+    }).
 
 %% Every supported column type is written and read back through the rule engine
 %% and the action: the values are converted with `odbc:param_query' according to
