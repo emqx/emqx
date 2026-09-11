@@ -70,6 +70,7 @@ This module provides functions make such transformations.
 
 -export([
     to_rt_listener_configs/4,
+    to_rt_listener_configs/5,
     to_rt_listener_ids/2,
     rt_listener_id/1,
     rt_listener_id/2,
@@ -90,6 +91,7 @@ This module provides functions make such transformations.
 -type listener_name() :: atom().
 
 -type esockd_type() :: tcp | ssl | udp | dtls.
+-type rt_opts() :: #{generate_default_certs => boolean()}.
 -type cowboy_type() :: ws | wss.
 
 -type listener_type() :: esockd_type() | cowboy_type().
@@ -171,6 +173,19 @@ Transform gateway config + module config + runtime context into runtime listener
 """.
 -spec to_rt_listener_configs(gw_name(), map(), map(), term()) -> list(listener_runtime_config()).
 to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx) ->
+    to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx, #{}).
+
+-doc """
+Same as `to_rt_listener_configs/4`, with options.
+
+`generate_default_certs` (default `true`): when `false`, a TLS listener with no
+certificate configured is given the node's default certificate only if that
+bundle already exists; nothing is generated. Use it for the configuration a
+gateway is being updated away from, which is read, not served.
+""".
+-spec to_rt_listener_configs(gw_name(), map(), map(), term(), rt_opts()) ->
+    list(listener_runtime_config()).
+to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx, RtOpts) ->
     GwConfig1 = maps:without([listeners], GwConfig0),
 
     %% Get plain list of all listener configurations of all types
@@ -209,13 +224,13 @@ to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx) ->
                     T when ?IS_ESOCKD_LISTENER(T) ->
                         {esockd, #{
                             type => Type,
-                            socket_opts => esockd_opts(Type, ListenerConfig),
+                            socket_opts => esockd_opts(Type, ListenerConfig, RtOpts),
                             mfa => {CallbackModule, start_link, [CallbackConfig]}
                         }};
                     T when ?IS_COWBOY_LISTENER(T) ->
                         {cowboy, #{
                             type => Type,
-                            ranch_opts => cowboy_ranch_opts(Type, ListenOn, ListenerConfig),
+                            ranch_opts => cowboy_ranch_opts(Type, ListenOn, ListenerConfig, RtOpts),
                             ws_opts => cowboy_ws_opts(
                                 ListenerConfig, CallbackModule, CallbackConfig
                             )
@@ -402,7 +417,7 @@ get_effective_mod_config(Type, ModConfig0) ->
 listener_id(GwName, Type, LisName) ->
     emqx_gateway_utils:listener_id(GwName, Type, LisName).
 
-esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
+esockd_opts(Type, Opts0, RtOpts) when ?IS_ESOCKD_LISTENER(Type) ->
     Opts1 = maps:with(
         [
             acceptors,
@@ -424,13 +439,13 @@ esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
             ssl ->
                 Opts2#{
                     tcp_options => tcp_opts_with_defaults(Opts0),
-                    ssl_options => ssl_opts(ssl_options, Opts0)
+                    ssl_options => ssl_opts(ssl_options, Opts0, RtOpts)
                 };
             udp ->
                 Opts2#{udp_options => udp_opts(Opts0)};
             dtls ->
                 UDPOpts = udp_opts(Opts0),
-                DTLSOpts = ssl_opts(dtls_options, Opts0),
+                DTLSOpts = ssl_opts(dtls_options, Opts0, RtOpts),
                 Opts2#{
                     udp_options => UDPOpts,
                     dtls_options => DTLSOpts
@@ -438,14 +453,14 @@ esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
         end
     ).
 
-cowboy_ranch_opts(Type, ListenOn, Opts) ->
+cowboy_ranch_opts(Type, ListenOn, Opts, RtOpts) ->
     NumAcceptors = maps:get(acceptors, Opts, 4),
     MaxConnections = maps:get(max_connections, Opts, 1024),
     SocketOpts1 =
         case Type of
             wss ->
                 tcp_opts(Opts) ++
-                    proplists:delete(handshake_timeout, ssl_opts(ssl_options, Opts));
+                    proplists:delete(handshake_timeout, ssl_opts(ssl_options, Opts, RtOpts));
             ws ->
                 tcp_opts(Opts)
         end,
@@ -484,9 +499,9 @@ udp_opts(Opts) ->
         )
     ).
 
-ssl_opts(Name, Opts) ->
+ssl_opts(Name, Opts, RtOpts) ->
     SSLConf = maps:get(Name, Opts, #{}),
-    SSLOpts = ssl_server_opts(Name, SSLConf),
+    SSLOpts = ssl_server_opts(Name, SSLConf, RtOpts),
     ensure_dtls_protocol(Name, SSLOpts).
 
 ensure_dtls_protocol(dtls_options, SSLOpts) ->
@@ -494,16 +509,20 @@ ensure_dtls_protocol(dtls_options, SSLOpts) ->
 ensure_dtls_protocol(_, SSLOpts) ->
     SSLOpts.
 
-ssl_server_opts(ssl_options, SSLOpts) ->
-    emqx_tls_lib:to_server_opts(tls, with_default_certs(SSLOpts));
-ssl_server_opts(dtls_options, SSLOpts) ->
-    emqx_tls_lib:to_server_opts(dtls, with_default_certs(SSLOpts)).
+ssl_server_opts(ssl_options, SSLOpts, RtOpts) ->
+    emqx_tls_lib:to_server_opts(tls, with_default_certs(SSLOpts, RtOpts));
+ssl_server_opts(dtls_options, SSLOpts, RtOpts) ->
+    emqx_tls_lib:to_server_opts(dtls, with_default_certs(SSLOpts, RtOpts)).
 
+%% A configuration that is only read (the one a gateway is updated away from)
+%% must not generate a certificate as a side effect of being inspected.
+with_default_certs(SSLOpts, #{generate_default_certs := false}) ->
+    emqx_tls_lib:default_certs_if_present(SSLOpts);
 %% A listener that cannot be given the node's own certificate does not start.
 %% Reported as a bad `listeners' config, which is how this module reports every
 %% other unusable listener option, so the gateway fails to load with a message
 %% naming the cause instead of binding a port it cannot serve on.
-with_default_certs(SSLOpts) ->
+with_default_certs(SSLOpts, _RtOpts) ->
     case emqx_tls_lib:ensure_default_certs(SSLOpts) of
         {ok, SSLOpts1} ->
             SSLOpts1;

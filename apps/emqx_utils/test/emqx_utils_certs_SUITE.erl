@@ -149,6 +149,21 @@ t_rsa_and_ec_key_types(_TCConfig) ->
         [rsa, ec]
     ).
 
+-doc """
+Without a `key_type` the bundle's key is `ec` when the crypto library supports
+`secp256r1` and `rsa` otherwise, and `default_key_type/0` reports which.
+""".
+t_default_key_type(_TCConfig) ->
+    {ExpectedType, ExpectedRecord} =
+        case lists:member(secp256r1, crypto:supports(curves)) of
+            true -> {ec, 'ECPrivateKey'};
+            false -> {rsa, 'RSAPrivateKey'}
+        end,
+    ?assertEqual(ExpectedType, emqx_utils_certs:default_key_type()),
+    #{key := KeyPem} = emqx_utils_certs:self_signed_bundle(#{cn => "localhost", sans => sans()}),
+    [Entry] = public_key:pem_decode(KeyPem),
+    ?assertEqual(ExpectedRecord, element(1, public_key:pem_entry_decode(Entry))).
+
 -doc "A CN with a control character or an MQTT topic-structural character is rejected.".
 t_invalid_cn_raises(_TCConfig) ->
     Invalid = [

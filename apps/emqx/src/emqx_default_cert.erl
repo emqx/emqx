@@ -162,7 +162,8 @@ install(Files) ->
             ?SLOG(info, #{
                 msg => "default_tls_certificate_generated",
                 bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
-                dir => emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME)
+                dir => emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
+                key_type => emqx_utils_certs:default_key_type()
             }),
             ok;
         {error, _} = Error ->

@@ -227,6 +227,19 @@ t_cert_expiry_epoch(_) ->
         emqx_prometheus:cert_expiry_at_from_path(Path)
     ).
 
+-doc """
+A TLS listener with no certificate configured serves the node's default
+certificate, and its expiry is reported like any other listener's.
+""".
+t_cert_expiry_default_cert(_) ->
+    {ok, #{chain := #{path := ChainPath}}} = emqx_default_cert:ensure_localhost_bundle(),
+    Expected = emqx_prometheus:cert_expiry_at_from_path(ChainPath),
+    Listeners = #{ssl => #{default => #{enable => true, ssl_options => #{}}}},
+    ?assertEqual(
+        #{emqx_cert_expiry_at => [{[{listener_type, ssl}, {listener_name, default}], Expected}]},
+        emqx_prometheus:cert_data(Listeners)
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 
