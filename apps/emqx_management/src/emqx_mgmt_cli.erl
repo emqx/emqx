@@ -1877,12 +1877,13 @@ indent_print({Key, {string, Val}}) ->
     emqx_ctl:print("  ~-22s: ~ts~n", [Key, Val]);
 indent_print({Key, {counters, Counters}}) ->
     emqx_ctl:print("  ~-22s:~n", [Key]),
-    lists:foreach(fun indent_print_counter/1, Counters);
+    lists:foreach(fun indent_print_counter/1, [C || {_, Count} = C <- Counters, Count =/= 0]);
 indent_print({Key, Val}) ->
     emqx_ctl:print("  ~-22s: ~w~n", [Key, Val]).
 
-%% Nested counters are indented two more spaces than their parent. The key is
-%% padded, not truncated, so a long shutdown reason pushes its colon right.
+%% Nested counters are indented two more spaces than their parent. Zero
+%% counters are not printed. The key is padded, not truncated, so a long
+%% shutdown reason pushes its colon right.
 indent_print_counter({Key, Count}) ->
     emqx_ctl:print("    ~ts: ~w~n", [string:pad(counter_key(Key), 20), Count]).
 

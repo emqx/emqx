@@ -620,8 +620,9 @@ t_listeners(_Config) ->
     ok.
 
 -doc """
-Check that `listeners` prints the shutdown counts and the accept stats of a
-TCP listener as indented blocks, and that `running` stays the 5th line.
+Check that `listeners` prints the shutdown counts and the non-zero accept
+stats of a TCP listener as indented blocks, and that `running` stays the 5th
+line.
 """.
 t_listeners_accept_stats(_Config) ->
     Id = "tcp:default",
@@ -629,19 +630,6 @@ t_listeners_accept_stats(_Config) ->
     ?assertMatch({match, _}, re:run(lists:nth(5, Block0), <<"^  running +: true$">>)),
     ?assert(lists:member(<<"  shutdown_count        :">>, Block0)),
     Stats0 = accept_stats_lines(Block0),
-    ?assertEqual(
-        [
-            accepted,
-            closed_sys_limit,
-            closed_max_limit,
-            closed_overloaded,
-            closed_rate_limited,
-            closed_early,
-            closed_forbidden,
-            closed_other_reasons
-        ],
-        [K || {K, _} <- Stats0]
-    ),
     %% A connected client is counted as accepted.
     {ok, C} = emqtt:start_link([{clientid, <<"t_listeners_accept_stats">>}]),
     {ok, _} = emqtt:connect(C),
@@ -651,7 +639,7 @@ t_listeners_accept_stats(_Config) ->
         20,
         ?assert(
             proplists:get_value(accepted, accept_stats_lines(listener_block(Id))) >
-                proplists:get_value(accepted, Stats0)
+                proplists:get_value(accepted, Stats0, 0)
         )
     ),
     %% A peer denied by the access rules is counted as forbidden.
@@ -667,7 +655,7 @@ t_listeners_accept_stats(_Config) ->
             20,
             ?assert(
                 proplists:get_value(closed_forbidden, accept_stats_lines(listener_block(Id))) >
-                    proplists:get_value(closed_forbidden, Stats0)
+                    proplists:get_value(closed_forbidden, Stats0, 0)
             )
         )
     after
@@ -1094,11 +1082,12 @@ listener_block(Id) ->
     [_ | Rest] = lists:dropwhile(fun(L) -> L =/= list_to_binary(Id) end, Lines),
     lists:takewhile(fun(L) -> binary:first(L) =:= $\s end, Rest).
 
-%% Return the nested counters printed under `accept_stats`.
+%% Return the nested counters printed under `accept_stats`. Check that they
+%% are non-zero and follow the esockd order.
 accept_stats_lines(Block) ->
     [_ | Rest] = lists:dropwhile(fun(L) -> L =/= <<"  accept_stats          :">> end, Block),
     Nested = lists:takewhile(fun(L) -> binary:part(L, 0, 4) =:= <<"    ">> end, Rest),
-    lists:map(
+    Stats = lists:map(
         fun(L) ->
             {match, [K, V]} = re:run(L, <<"^    (\\w+) *: (\\d+)$">>, [
                 {capture, all_but_first, binary}
@@ -1106,7 +1095,21 @@ accept_stats_lines(Block) ->
             {binary_to_atom(K), binary_to_integer(V)}
         end,
         Nested
-    ).
+    ),
+    Order = [
+        accepted,
+        closed_sys_limit,
+        closed_max_limit,
+        closed_overloaded,
+        closed_rate_limited,
+        closed_early,
+        closed_forbidden,
+        closed_other_reasons
+    ],
+    Keys = [K || {K, _} <- Stats],
+    ?assertEqual([K || K <- Order, lists:member(K, Keys)], Keys),
+    ?assertEqual([], [KV || {_, 0} = KV <- Stats]),
+    Stats.
 
 capture_ctl(Args) ->
     {Result, OutputChunks} =
