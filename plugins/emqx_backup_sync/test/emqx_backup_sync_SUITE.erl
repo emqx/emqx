@@ -2154,10 +2154,25 @@ tls_cert_contents() ->
         keyfile => cert_file("key.pem")
     }.
 
+%% Any valid PEM will do: the cases check that certificate contents round-trip
+%% through a backup, not what they identify. Generated once per run, so every
+%% call for a name returns the same bytes.
 cert_file(Name) ->
-    CertPath = filename:join([code:lib_dir(emqx), "etc", "certs", Name]),
-    {ok, Bin} = file:read_file(CertPath),
-    Bin.
+    Key = {?MODULE, test_certs},
+    Bundle =
+        case persistent_term:get(Key, undefined) of
+            undefined ->
+                B = emqx_utils_certs:self_signed_bundle(#{cn => "localhost"}),
+                persistent_term:put(Key, B),
+                B;
+            B ->
+                B
+        end,
+    maps:get(cert_kind(Name), Bundle).
+
+cert_kind("cacert.pem") -> ca;
+cert_kind("cert.pem") -> cert;
+cert_kind("key.pem") -> key.
 
 assert_primary_rule_exported(Config, PrimaryNode, RootKeys) ->
     OutDir = filename:join(?config(priv_dir, Config), "primary_export_probe"),

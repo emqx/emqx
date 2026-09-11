@@ -1,27 +1,32 @@
-Place your SSL/TLS certificates here.
+This directory is for static, pre-provisioned certificates: files you place
+here yourself before starting EMQX.
 
-Note: The certificates shipped in EMQX installation packages are provided only for
-testing and local deployments. Do not use them in production. Replace them with
-certificates issued and managed for your own production environment.
+EMQX ships no certificates. A TLS listener with no certificate configured
+serves one the node generates for itself on first use.
 
-Files in this directory:
+There are two ways to give a listener your own certificate:
 
-- `cacert.pem`: Root CA certificate(s) used to sign the local test server and client certificates.
-   This is the 'tust' store of arbitrary number of root certificates used to sign TLS *PEER*'s certifcate chain.
-   That is, for client, it should store root CA certificate(s) of trusted server;
-   for server, it should store root CA certificate(s) of trusted clients.
-- `cert.pem`: Server certificate presented by EMQX TLS listeners.
-- `key.pem`: Private key for `cert.pem`.
-- `client-cert.pem`: Client certificate for mutual TLS testing against EMQX listeners.
-   It can also be used as TLS cerificate for EMQX when acting as a TLS client,
-   for example, when trying to connect an external authentication server.
-- `client-key.pem`: Private key for `client-cert.pem`.
+1. Put the files here and name them in the listener's `ssl_options`, using the
+   `${EMQX_ETC_DIR}` variable so the path holds across installations:
 
-The default local test certificates currently use these identities:
+       listeners.ssl.default.ssl_options {
+         certfile   = "${EMQX_ETC_DIR}/certs/<name>.pem"
+         keyfile    = "${EMQX_ETC_DIR}/certs/<name>.key"
+         cacertfile = "${EMQX_ETC_DIR}/certs/<ca>.pem"
+       }
 
-- Root CA: `C=SE, ST=Stockholm, O=EMQ, CN=RootCA`
-- Server certificate: `C=SE, ST=Stockholm, O=EMQ, CN=localhost`
-- Client certificate: `C=SE, ST=Stockholm, O=EMQ, CN=Client`
+2. Use managed certificates instead: upload the files through the Dashboard or
+   the REST API as a named bundle. EMQX stores them under
+   `data/certs2/global/<bundle>/`, replicates them to every node in the
+   cluster, and a listener refers to the bundle by name in `managed_certs`.
+   Nothing needs to be copied to the nodes by hand.
 
-The server certificate includes SAN entries for `localhost`, `127.0.0.1`, and `::1`
-for better compatibility with local TLS clients.
+Common file roles, whichever way they are provided:
+
+- `cacertfile`: the CA certificate(s) used to verify the TLS *peer*. For a
+  listener, the CAs that signed trusted clients' certificates. For EMQX acting
+  as a TLS client, the CAs that signed the servers it connects to.
+- `certfile`: the certificate EMQX presents.
+- `keyfile`: the private key for `certfile`.
+
+Configuration examples under `etc/examples/` show these options in context.

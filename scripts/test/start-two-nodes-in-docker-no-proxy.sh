@@ -79,8 +79,21 @@ else
     PROTO_DIST='inet_tls'
 fi
 
+mkdir -p tmp
+
+## Certificates for the TLS distribution between the nodes: `ssl_dist.conf'
+## names them under etc/certs, and EMQX ships no example set. The nodes read
+## them through a bind mount as uid 1000, so the key files must be readable by
+## others.
+CERT_DIR="$(pwd)/tmp/certs"
+if [ ! -f "$CERT_DIR/cacert.pem" ]; then
+    ./scripts/gen-test-certs.sh "$CERT_DIR"
+fi
+chmod a+r "$CERT_DIR"/*
+
 docker run -d -t --restart=always --name "$NODE1" \
   --net "$NET" \
+  -v "$CERT_DIR:/opt/emqx/etc/certs:ro" \
   "${NODE1_PORTS[@]}" \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
@@ -95,6 +108,7 @@ docker run -d -t --restart=always --name "$NODE1" \
 
 docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
+  -v "$CERT_DIR:/opt/emqx/etc/certs:ro" \
   "${NODE2_PORTS[@]}" \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
