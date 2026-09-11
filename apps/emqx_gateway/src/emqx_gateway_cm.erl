@@ -488,6 +488,13 @@ select_resume_candidate(GwName, ClientId) ->
             {error, not_found};
         ChanPids ->
             [ChanPid | OtherPids] = lists:reverse(ChanPids),
+            length(ChanPids) > 1 andalso
+                begin
+                    ?SLOG(warning, #{
+                        msg => "more_than_one_channel_found",
+                        chan_pids => ChanPids
+                    })
+                end,
             try get_chann_conn_mod(GwName, ClientId, ChanPid) of
                 undefined ->
                     {error, not_found};
@@ -606,7 +613,9 @@ cleanup_resume_registration(GwName, ClientId) ->
 -spec finish_resume_takeover(module(), pid()) ->
     {ok, [emqx_types:deliver()]} | {error, term()}.
 finish_resume_takeover(ConnMod, ChanPid) ->
-    case request_stepdown({takeover, 'end'}, ConnMod, ChanPid) of
+    case call_resume_takeover(ConnMod, ChanPid, {takeover, 'end'}) of
+        Pendings when is_list(Pendings) ->
+            {ok, Pendings};
         {ok, Pendings} when is_list(Pendings) ->
             {ok, Pendings};
         {ok, {error, Reason}} ->
@@ -617,23 +626,28 @@ finish_resume_takeover(ConnMod, ChanPid) ->
                 reply => ok,
                 chan_pid => ChanPid
             }),
-            ok = force_kill(ChanPid),
-            {ok, []};
+            {error, {unexpected_takeover_end_reply, ok}};
         {ok, Reply} ->
             ?SLOG(warning, #{
                 msg => "mqttsn_resume_takeover_end_unexpected_reply",
                 reply => Reply,
                 chan_pid => ChanPid
             }),
-            ok = force_kill(ChanPid),
-            {ok, []};
+            {error, {unexpected_takeover_end_reply, Reply}};
         {error, Reason} ->
             ?SLOG(warning, #{
                 msg => "mqttsn_resume_takeover_end_failed",
                 reason => Reason,
                 chan_pid => ChanPid
             }),
-            {ok, []}
+            {error, Reason};
+        Reply ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_end_unexpected_reply",
+                reply => Reply,
+                chan_pid => ChanPid
+            }),
+            {error, {unexpected_takeover_end_reply, Reply}}
     end.
 
 %% @private

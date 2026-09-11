@@ -614,18 +614,98 @@ t_asleep_pingreq_resume_rejects_malformed_end_reply(_) ->
         ),
 
         send_pingreq_msg(Socket2, ClientId),
-        ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket2)),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket2)),
+        ok = meck:unload(emqx_gateway_conn),
         ?retry(
             50,
             20,
             begin
                 Pids = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
                 ?assertEqual(1, length(Pids)),
-                ?assertNot(lists:member(OldPid, Pids))
+                ?assertEqual([OldPid], Pids),
+                ?assertEqual(true, is_process_alive(OldPid))
             end
-        )
+        ),
+
+        send_pingreq_msg(Socket1, ClientId),
+        ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket1))
     after
         _ = catch meck:unload(emqx_gateway_conn),
+        _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
+        gen_udp:close(Socket1),
+        gen_udp:close(Socket2)
+    end.
+
+t_asleep_pingreq_resume_end_timeout_preserves_pending_deliveries(_) ->
+    QoS = 1,
+    SleepDuration = 5,
+    ClientId = <<"asleep-resume-end-timeout">>,
+    TopicName = <<"asleep/resume/end-timeout">>,
+    Payload = <<"queued-during-end-timeout">>,
+    MsgId = 43,
+    Dup = 0,
+    Retain = 0,
+    WillBit = 0,
+    CleanSession = 0,
+    {ok, Socket1} = gen_udp:open(0, [binary]),
+    {ok, Socket2} = gen_udp:open(0, [binary]),
+    try
+        send_connect_msg(Socket1, ClientId),
+        ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket1)),
+        send_subscribe_msg_normal_topic(Socket1, QoS, TopicName, MsgId),
+        SubAck = receive_response(Socket1),
+        <<8, ?SN_SUBACK, _Flags:8, TopicId:16, MsgId:16, ?SN_RC_ACCEPTED>> = SubAck,
+        send_disconnect_msg(Socket1, SleepDuration),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket1)),
+        [OldPid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+
+        ok = meck:new(emqx_mqttsn_session, [passthrough, no_history]),
+        ok = meck:expect(
+            emqx_mqttsn_session,
+            resume,
+            fun(ClientInfo, Session) ->
+                NSession = meck:passthrough([ClientInfo, Session]),
+                OldPid ! {deliver, TopicName, emqx_message:make(<<"ct">>, QoS, TopicName, Payload)},
+                timer:sleep(50),
+                NSession
+            end
+        ),
+        ok = meck:new(emqx_gateway_conn, [passthrough, no_history]),
+        ok = meck:expect(
+            emqx_gateway_conn,
+            call,
+            fun
+                (OldPid0, {takeover, 'end'}, _Timeout) when OldPid0 =:= OldPid ->
+                    exit({timeout, simulated_end_timeout});
+                (Pid, Req, Timeout) ->
+                    meck:passthrough([Pid, Req, Timeout])
+            end
+        ),
+        send_pingreq_msg(Socket2, ClientId),
+        ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket2)),
+        ok = meck:unload(emqx_gateway_conn),
+        ok = meck:unload(emqx_mqttsn_session),
+        ?retry(
+            50,
+            20,
+            begin
+                [OldPid] = emqx_gateway_cm:lookup_by_clientid(mqttsn, ClientId),
+                #{conn_state := asleep} = emqx_gateway_cm:get_chan_info(mqttsn, ClientId, OldPid)
+            end
+        ),
+
+        send_pingreq_msg(Socket1, ClientId),
+        Published = receive_response(Socket1),
+        PubMsgId = check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload},
+            Published
+        ),
+        send_puback_msg(Socket1, TopicId, PubMsgId),
+        ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket1)),
+        ?assertEqual(udp_receive_timeout, receive_response(Socket1, 100))
+    after
+        _ = catch meck:unload(emqx_gateway_conn),
+        _ = catch meck:unload(emqx_mqttsn_session),
         _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId),
         gen_udp:close(Socket1),
         gen_udp:close(Socket2)

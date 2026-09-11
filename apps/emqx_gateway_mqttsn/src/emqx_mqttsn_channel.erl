@@ -599,7 +599,12 @@ handle_in(
                 ClientId,
                 ResumedChannel
             );
-        {error, _Reason} ->
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_session_failed",
+                clientid => ClientId,
+                reason => Reason
+            }),
             handle_out(disconnect, normal, Channel)
     end;
 handle_in(
