@@ -259,14 +259,18 @@ shutdown_count(_, _, _) ->
 -doc """
 Return the esockd accept-result counters of a listener.
 The counters follow the esockd `?ACCEPT_RESULT_GROUPS` order.
+
+A running listener is looked up by the address it runs on. esockd returns
+no stats for an unknown address instead of raising `not_found`, so a
+derived address that does not match would silently report zeros.
 """.
-accept_stats(Id, ListenOn) ->
+accept_stats(Id, Bind) ->
     {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
-    accept_stats(Type, Name, ListenOn).
+    accept_stats(Type, Name, Bind).
 
 accept_stats(Type, Name, Bind) when Type == tcp; Type == ssl ->
-    ListenOn = emqx_default_address:listen_on(mqtt, Bind),
-    Stats = esockd:get_stats({listener_id(Type, Name), ListenOn}),
+    Id = listener_id(Type, Name),
+    Stats = esockd:get_stats({Id, listen_on(Id, Bind)}),
     [{Key, proplists:get_value(Key, Stats, 0)} || Key <- ?ACCEPT_RESULT_GROUPS];
 accept_stats(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     [];
