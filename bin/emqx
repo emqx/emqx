@@ -761,19 +761,21 @@ generate_config() {
     ## changing the config 'log.rotation.size'
     rm -f "${EMQX_LOG_DIR}"/*.siz
 
-    ## timestamp for each generation
-    local NOW_TIME
-    NOW_TIME="$(date +'%Y.%m.%d.%H.%M.%S')"
+    ## Timestamp and process ID for each generation.
+    local generation_id
+    generation_id="$(date +'%Y.%m.%d.%H.%M.%S').$$"
 
-    CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
-    ARGS_FILE="$CONFIGS_DIR/vm.$NOW_TIME.args"
-    local GENERATED_APP_CONFIG_FILE="$CONF_FILE.$$.generated.tmp"
-    local GENERATED_VM_ARGS_FILE="$ARGS_FILE.$$.generated.tmp"
-    local STAGED_VM_ARGS_FILE="$ARGS_FILE.$$.tmp"
+    CONF_FILE="$CONFIGS_DIR/app.$generation_id.config"
+    ARGS_FILE="$CONFIGS_DIR/vm.$generation_id.args"
+
+    local generated_app_config_file="$CONF_FILE.generated.tmp"
+    local generated_vm_args_file="$ARGS_FILE.generated.tmp"
+    local staged_vm_args_file="$ARGS_FILE.staged.generated.tmp"
+    local publish_status
 
     ## The HOCON CLI writes its two outputs sequentially. Keep both outside the
     ## final namespace until the complete app config and merged VM args are ready.
-    trap 'rm -f -- "$GENERATED_APP_CONFIG_FILE" "$GENERATED_VM_ARGS_FILE" "$STAGED_VM_ARGS_FILE"' EXIT
+    trap 'rm -f -- "$generated_app_config_file" "$generated_vm_args_file" "$staged_vm_args_file"' EXIT
 
     ## Reserve one history slot before staging so a full filesystem can recover.
     prune_generated_configs 2
@@ -792,46 +794,57 @@ generate_config() {
         -c "$EMQX_ETC_DIR"/base.hocon \
         -c "$CONFIGS_DIR"/cluster.hocon \
         -c "$EMQX_ETC_DIR"/emqx.conf \
-        --out-app-config "$GENERATED_APP_CONFIG_FILE" \
-        --out-vm-args "$GENERATED_VM_ARGS_FILE" \
+        --out-app-config "$generated_app_config_file" \
+        --out-vm-args "$generated_vm_args_file" \
         --log-env-overrides
 
     ## Merge hocon generated *.args into the vm.args
-    cp "$EMQX_ETC_DIR/vm.args" "$STAGED_VM_ARGS_FILE"
-    echo "" >> "$STAGED_VM_ARGS_FILE"
-    echo "-pa \"${REL_DIR}/consolidated\"" >> "$STAGED_VM_ARGS_FILE"
+    cp "$EMQX_ETC_DIR/vm.args" "$staged_vm_args_file"
+    echo "" >> "$staged_vm_args_file"
+    echo "-pa \"${REL_DIR}/consolidated\"" >> "$staged_vm_args_file"
+
     ## read lines from generated vm.<time>.args file
     ## drop comment lines, and empty lines using sed
     ## pipe the lines to a while loop
     ## Turn off debug: the generated args contain the '-setcookie' line,
     ## which must not be traced by 'set -x'.
     set +x
-    sed '/^#/d' "$GENERATED_VM_ARGS_FILE" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
+    sed '/^#/d' "$generated_vm_args_file" | sed '/^$/d' | while IFS='' read -r ARG_LINE || [ -n "$ARG_LINE" ]; do
         ## in the loop, split the 'key[:space:]value' pair
         ARG_KEY=$(echo "$ARG_LINE" | awk '{$NF="";print}')
         ARG_VALUE=$(echo "$ARG_LINE" | awk '{print $NF}')
         ## use the key to look up in vm.args file for the value
-        TMP_ARG_VALUE=$($GREP "^$ARG_KEY" "$STAGED_VM_ARGS_FILE" || true | awk '{print $NF}')
+        TMP_ARG_VALUE=$($GREP "^$ARG_KEY" "$staged_vm_args_file" || true | awk '{print $NF}')
         ## compare generated (to override) value to original (to be overridden) value
         if [ "$ARG_VALUE" != "$TMP_ARG_VALUE" ] ; then
             ## if they are different
             if [ -n "$TMP_ARG_VALUE" ]; then
                 ## if the old value is present, replace it with generated value
-                sh -c "$SED_REPLACE 's|^$ARG_KEY.*$|$ARG_LINE|' \"$STAGED_VM_ARGS_FILE\""
+                sh -c "$SED_REPLACE 's|^$ARG_KEY.*$|$ARG_LINE|' \"$staged_vm_args_file\""
             else
                 ## otherwise append generated value to the end
-                echo "$ARG_LINE" >> "$STAGED_VM_ARGS_FILE"
+                echo "$ARG_LINE" >> "$staged_vm_args_file"
             fi
         fi
     done
+
     if [ "$DEBUG" -gt 0 ]; then set -x; fi
-    echo "$name_type $node_name" >> "$STAGED_VM_ARGS_FILE"
-    echo "-mnesia dir '\"$DATA_DIR/mnesia/$NAME\"'" >> "$STAGED_VM_ARGS_FILE"
+    echo "$name_type $node_name" >> "$staged_vm_args_file"
+    echo "-mnesia dir '\"$DATA_DIR/mnesia/$NAME\"'" >> "$staged_vm_args_file"
 
     ## Publish the app config last; its presence marks a complete generation.
-    mv -f "$STAGED_VM_ARGS_FILE" "$ARGS_FILE"
-    mv -f "$GENERATED_APP_CONFIG_FILE" "$CONF_FILE"
-    rm -f -- "$GENERATED_VM_ARGS_FILE"
+    mv -f "$staged_vm_args_file" "$ARGS_FILE" || {
+        publish_status=$?
+        die "failed_to_publish_generated_vm_args: $ARGS_FILE" "$publish_status"
+    }
+    mv -f "$generated_app_config_file" "$CONF_FILE" || {
+        publish_status=$?
+        rm -f -- "$ARGS_FILE" || true
+        die "failed_to_publish_generated_app_config: $CONF_FILE" "$publish_status"
+    }
+    if ! rm -f -- "$generated_vm_args_file"; then
+        logerr "Could not clean up generated config staging files"
+    fi
     trap - EXIT
 
     prune_generated_configs 3
