@@ -777,6 +777,13 @@ generate_config() {
     ## final namespace until the complete app config and merged VM args are ready.
     trap 'rm -f -- "$generated_app_config_file" "$generated_vm_args_file" "$staged_vm_args_file"' EXIT
 
+    ## Remove staging files older than one hour, preserving files from recent generators.
+    ## Note on poratability: `-mmin` and `-maxdepth` are supported by GNU, macOS, and typical
+    ## BusyBox find, but are not specified by POSIX.
+    if ! find "$CONFIGS_DIR" -maxdepth 1 -type f -name '*.generated.tmp' -mmin "+30" -delete; then
+        logerr "Could not delete stale generated config files"
+    fi
+
     ## Reserve one history slot before staging so a full filesystem can recover.
     prune_generated_configs 2
 
