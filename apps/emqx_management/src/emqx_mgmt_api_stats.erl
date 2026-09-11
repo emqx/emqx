@@ -84,6 +84,7 @@ fields(aggregated_data) ->
         stats_schema('delayed.max', "delayed_max"),
         stats_schema('live_connections.count', "live_connections_count"),
         stats_schema('live_connections.max', "live_connections_max"),
+        stats_schema('disconnected_connections.count', "disconnected_connections_count"),
         stats_schema('cluster_sessions.count', "cluster_sessions_count"),
         stats_schema('cluster_sessions.max', "cluster_sessions_max"),
         stats_schema('retained.count', "retained_count"),

@@ -104,6 +104,22 @@ t_get_set_chan_stats(_) ->
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
 
+t_disconnected_connections_stat(_) ->
+    ClientId = <<"disconnected-connections-stat">>,
+    #{conninfo := ConnInfo} = ?ChanInfo,
+    ok = emqx_cm:stats_fun(),
+    Baseline = emqx_stats:getstat('disconnected_connections.count'),
+    ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
+    ok = emqx_cm:stats_fun(),
+    %% A registered channel with a live connection is not disconnected.
+    ?assertEqual(Baseline, emqx_stats:getstat('disconnected_connections.count')),
+    ok = emqx_cm:mark_channel_disconnected(self()),
+    ok = emqx_cm:stats_fun(),
+    ?assertEqual(Baseline + 1, emqx_stats:getstat('disconnected_connections.count')),
+    ok = emqx_cm:unregister_channel(ClientId),
+    ok = emqx_cm:stats_fun(),
+    ?assertEqual(Baseline, emqx_stats:getstat('disconnected_connections.count')).
+
 t_set_chan_stats_logs_session_buffer_high_watermark(_) ->
     ClientId = <<"session-buffer-check">>,
     Stats = [{mqueue_len, 1}, {inflight_cnt, 1}, {total_payload_bytes, 2}],

@@ -71,7 +71,10 @@
         %% Count of connected clients
         'live_connections.count',
         %% Maximum number of connected clients
-        'live_connections.max'
+        'live_connections.max',
+        %% Count of sessions whose client has disconnected but whose
+        %% session expiry interval has not yet elapsed
+        'disconnected_connections.count'
     ]
 ).
 
@@ -170,6 +173,7 @@ names() ->
         emqx_durable_subscriptions_max,
         emqx_live_connections_count,
         emqx_live_connections_max,
+        emqx_disconnected_connections_count,
         emqx_cluster_sessions_count,
         emqx_cluster_sessions_max,
         emqx_sessions_count,

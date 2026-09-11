@@ -946,12 +946,30 @@ do_clean_down(ClientId, ChanPid) ->
     ok = ?tp(debug, emqx_cm_clean_down, #{client_id => ClientId}).
 
 stats_fun() ->
-    lists:foreach(fun update_stats/1, ?CHAN_STATS).
+    lists:foreach(fun update_stats/1, ?CHAN_STATS),
+    update_disconnected_connections_stat(),
+    ok.
 
 update_stats({Tab, Stat, MaxStat}) ->
     case ets:info(Tab, size) of
         undefined -> ok;
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
+    end.
+
+%% A session is "disconnected" once its client has gone away but its
+%% `session_expiry_interval' has not yet elapsed: the connection process is
+%% still alive and its `?CHAN_CONN_TAB' row is still registered, while its
+%% `?CHAN_LIVE_TAB' row has already been removed.  The live table is normally
+%% a subset of the connection table, so the count is the difference of the two
+%% sizes that `update_stats/1' has just read.  The difference is clamped at
+%% zero because during a session takeover the connection row is deleted before
+%% the live row, which would otherwise report a transiently negative value.
+update_disconnected_connections_stat() ->
+    case {ets:info(?CHAN_CONN_TAB, size), ets:info(?CHAN_LIVE_TAB, size)} of
+        {ConnCount, LiveCount} when is_integer(ConnCount), is_integer(LiveCount) ->
+            emqx_stats:setstat('disconnected_connections.count', max(0, ConnCount - LiveCount));
+        _ ->
+            ok
     end.
 
 %% This function is mostly called locally, but also exported for RPC (from older versions).

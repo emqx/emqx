@@ -38,6 +38,9 @@ live_connections_count.label: "Live Connections Count"
 live_connections_max.desc: "Historical maximum number of live connections."
 live_connections_max.label: "Live Connections Max"
 
+disconnected_connections_count.desc: "Number of disconnected session holders: sessions whose client has disconnected but whose session expiry interval has not yet elapsed."
+disconnected_connections_count.label: "Disconnected Connections Count"
+
 cluster_sessions_count.desc: "Number of sessions in the cluster."
 cluster_sessions_count.label: "Cluster Sessions Count"
 
