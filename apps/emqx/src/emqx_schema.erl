@@ -3375,8 +3375,6 @@ do_parse_server(Str, Opts) ->
         false ->
             ok
     end,
-    %% do not split with space, there should be no space allowed between host and port
-    Tokens = string:tokens(Str, ":"),
     Context = #{
         not_expecting_port => NotExpectingPort,
         not_expecting_scheme => NotExpectingScheme,
@@ -3384,7 +3382,84 @@ do_parse_server(Str, Opts) ->
         default_scheme => DefaultScheme,
         opts => Opts
     },
-    check_server_parts(Tokens, Context).
+    case parse_ipv6_server(Str) of
+        {ok, Scheme, Host, Port} ->
+            check_ipv6_server(Scheme, Host, Port, Context);
+        false ->
+            %% do not split with space, there should be no space allowed between host and port
+            Tokens = string:tokens(Str, ":"),
+            check_server_parts(Tokens, Context)
+    end.
+
+%% Match `[scheme://][ipv6]:port' (port optional) using emqx_utils_uri:parse/1.
+%% Return `false' for any other form, so it is handled by check_server_parts/2.
+%% The token parser rejects every bracketed IPv6 address, so this adds new
+%% accepted inputs without changing the result for inputs it accepted before.
+parse_ipv6_server(Str) ->
+    maybe
+        true ?= lists:member($[, Str),
+        URIString =
+            case string:find(Str, "//") of
+                nomatch -> "//" ++ Str;
+                _ -> Str
+            end,
+        URIBin = unicode:characters_to_binary(URIString),
+        true ?= is_binary(URIBin),
+        #{
+            scheme := Scheme,
+            path := <<>>,
+            query := undefined,
+            fragment := undefined,
+            authority := #{host_type := ipv6, userinfo := undefined, host := HostBin, port := Port}
+        } ?= emqx_utils_uri:parse(URIBin),
+        Host = binary_to_list(HostBin),
+        {ok, _} ?= inet:parse_ipv6strict_address(Host),
+        {ok, uri_scheme(Scheme), Host, Port}
+    else
+        _ -> false
+    end.
+
+uri_scheme(undefined) -> undefined;
+uri_scheme(Scheme) -> binary_to_list(Scheme).
+
+check_ipv6_server(Scheme, Host, Port, Context) ->
+    #{
+        not_expecting_scheme := NotExpectingScheme,
+        not_expecting_port := NotExpectingPort,
+        default_port := DefaultPort,
+        default_scheme := DefaultScheme,
+        opts := Opts
+    } = Context,
+    SchemePart = check_server_scheme(Scheme, NotExpectingScheme, DefaultScheme, Opts),
+    PortPart = check_server_port(Port, NotExpectingPort, DefaultPort),
+    maps:merge(#{hostname => Host}, maps:merge(SchemePart, PortPart)).
+
+check_server_scheme(undefined, _NotExpectingScheme, DefaultScheme, _Opts) when
+    is_list(DefaultScheme)
+->
+    #{scheme => DefaultScheme};
+check_server_scheme(undefined, true, _DefaultScheme, _Opts) ->
+    #{};
+check_server_scheme(undefined, false, _DefaultScheme, _Opts) ->
+    throw("missing_scheme");
+check_server_scheme(Scheme, NotExpectingScheme, _DefaultScheme, Opts) ->
+    NotExpectingScheme andalso throw("not_expecting_scheme"),
+    #{scheme => check_scheme(Scheme, Opts)}.
+
+check_server_port(undefined, _NotExpectingPort, DefaultPort) when is_integer(DefaultPort) ->
+    #{port => DefaultPort};
+check_server_port(undefined, true, _DefaultPort) ->
+    #{};
+check_server_port(undefined, false, _DefaultPort) ->
+    throw("missing_port_number");
+check_server_port(Port, NotExpectingPort, _DefaultPort) when is_integer(Port) ->
+    NotExpectingPort andalso throw("not_expecting_port_number"),
+    #{port => check_port_range(Port)}.
+
+check_port_range(Port) when Port > 65535 ->
+    throw("port_number_too_large");
+check_port_range(Port) ->
+    Port.
 
 check_server_parts([Scheme, "//" ++ Hostname, Port], Context) ->
     #{
