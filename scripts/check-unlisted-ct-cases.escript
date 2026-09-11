@@ -18,15 +18,9 @@
 %% that collect case names through module_info/1. A source scan cannot
 %% tell a listed case from an unlisted one in those suites.
 %%
-%% Two things are declared in the suite instead of being reported:
-%%
-%%   -ct_lint_skip_cases([t_helper_that_is_not_a_case]).
-%%
-%% a t_*/1 function that is not a test case at all, and a case that is
-%% disabled on purpose. Write the reason next to the attribute, and
-%% put it above the first function in the module -- the compiler
-%% rejects a user attribute that follows one. It is not an allowlist
-%% for cases that should be listed and are not.
+%% A t_*/1 function that is not a test case, or a case disabled on
+%% purpose, must not carry the t_ prefix. Rename it -- for example to
+%% disabled__t_foo -- and write the reason next to it.
 %%
 %% Usage:
 %%   ./scripts/check-unlisted-ct-cases.escript <lib_dir>
@@ -220,17 +214,11 @@ expand_nested(Mod, Name, Tests, Defs, Path, Acc) ->
 %%--------------------------------------------------------------------
 
 candidates(Mod) ->
-    Skip = skip_cases(Mod),
     [
         F
      || {F, 1} <- Mod:module_info(exports),
-        lists:prefix("t_", atom_to_list(F)),
-        not lists:member(F, Skip)
+        lists:prefix("t_", atom_to_list(F))
     ].
-
-skip_cases(Mod) ->
-    Attrs = Mod:module_info(attributes),
-    lists:append(proplists:get_all_values(ct_lint_skip_cases, Attrs)).
 
 %%--------------------------------------------------------------------
 %% Report
@@ -286,9 +274,9 @@ print_unlisted(Unlisted) ->
     io:format(
         standard_error,
         "~nAdd each case to all/0 or to a group that all/0 runs. "
-        "Delete it if what it tested is gone. A function that is not "
-        "a test case, or a case disabled on purpose, belongs in "
-        "-ct_lint_skip_cases([...]) with the reason next to it.~n",
+        "Delete it if what it tested is gone. Rename a function that "
+        "is not a test case, or a case disabled on purpose, so it does "
+        "not start with t_ (for example disabled__t_foo).~n",
         []
     ).
 
