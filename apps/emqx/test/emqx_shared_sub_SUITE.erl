@@ -1445,12 +1445,15 @@ setup_node(Node, Port) ->
     ok = pair_gen_rpc(node(), MyPort, PeerPort),
     ok = pair_gen_rpc(Node, PeerPort, MyPort),
 
+    %% warm it up, also assert the peer ndoe name
+    Node = emqx_rpc:call(Node, erlang, node, []),
+    %% Join before starting the apps: a join restarts the app stack,
+    %% which would take the peer's listeners down after they came up.
+    ok = rpc:call(Node, mria, join, [node()]),
+
     %% Here we start the node and make it join the cluster
     ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [[], EnvHandler]),
 
-    %% warm it up, also assert the peer ndoe name
-    Node = emqx_rpc:call(Node, erlang, node, []),
-    rpc:call(Node, mria, join, [node()]),
     ok.
 
 get_tcp_mqtt_port(Node) ->
