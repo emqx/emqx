@@ -799,6 +799,10 @@ t_quota_qos1(_) ->
         #{listener => {tcp, low_message_rate}}
     ),
     Pub = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
+    Dropped = 'messages.dropped.quota_exceeded',
+    ParentDropped = 'messages.dropped',
+    Dropped0 = emqx_metrics:val_global(Dropped),
+    ParentDropped0 = emqx_metrics:val_global(ParentDropped),
     %% Quota per connections
     {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_SUCCESS)}, Chann1} =
         emqx_channel:handle_in(Pub, Chann),
@@ -810,6 +814,9 @@ t_quota_qos1(_) ->
     %% Quota in overall
     {ok, {outgoing, ?PUBACK_PACKET(1, ?RC_QUOTA_EXCEEDED)}, _} =
         emqx_channel:handle_in(Pub, Chann3),
+    %% Rate-limited QoS 1 publishes are observable as dropped messages too.
+    ?assertEqual(Dropped0 + 2, emqx_metrics:val_global(Dropped)),
+    ?assertEqual(ParentDropped0 + 2, emqx_metrics:val_global(ParentDropped)),
     ok.
 
 t_quota_qos2(_) ->
@@ -824,6 +831,10 @@ t_quota_qos2(_) ->
     Pub2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
     Pub3 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 3, <<"payload">>),
     Pub4 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 4, <<"payload">>),
+    Dropped = 'messages.dropped.quota_exceeded',
+    ParentDropped = 'messages.dropped',
+    Dropped0 = emqx_metrics:val_global(Dropped),
+    ParentDropped0 = emqx_metrics:val_global(ParentDropped),
     %% Quota per connections
     {ok, {outgoing, ?PUBREC_PACKET(1, ?RC_SUCCESS)}, Chann1} =
         emqx_channel:handle_in(Pub1, Chann),
@@ -835,6 +846,9 @@ t_quota_qos2(_) ->
     %% Quota in overall
     {ok, {outgoing, ?PUBREC_PACKET(4, ?RC_QUOTA_EXCEEDED)}, _} =
         emqx_channel:handle_in(Pub4, Chann3),
+    %% Rate-limited QoS 2 publishes are observable as dropped messages too.
+    ?assertEqual(Dropped0 + 2, emqx_metrics:val_global(Dropped)),
+    ?assertEqual(ParentDropped0 + 2, emqx_metrics:val_global(ParentDropped)),
     ok.
 
 t_quota_bytes(_) ->

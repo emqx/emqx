@@ -778,10 +778,13 @@ handle_publish_error(QoS, Topic, PacketId, RC = ?RC_NOT_AUTHORIZED, Channel) ->
     end;
 handle_publish_error(QoS, _Topic, PacketId, RC = ?RC_QUOTA_EXCEEDED, Channel) ->
     ok = inc_metrics('packets.publish.quota_exceeded', Channel),
+    %% Count the rate-limited message for every QoS, not only QoS 0, so that
+    %% `emqx_messages_dropped_quota_exceeded` answers "how many publishes did
+    %% the rate limiter reject or drop?" regardless of the QoS level.
+    ok = inc_metrics('messages.dropped', Channel),
+    ok = inc_metrics('messages.dropped.quota_exceeded', Channel),
     case QoS of
         ?QOS_0 ->
-            ok = inc_metrics('messages.dropped', Channel),
-            ok = inc_metrics('messages.dropped.quota_exceeded', Channel),
             {ok, Channel};
         ?QOS_1 ->
             handle_out(puback, {PacketId, RC}, Channel);
