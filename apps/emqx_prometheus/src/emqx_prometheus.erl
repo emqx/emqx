@@ -561,6 +561,7 @@ emqx_collect(K = emqx_client_subscribe, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_client_unsubscribe, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_client_disconnected, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_client_disconnected_reason, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_client_accept_result, D) -> counter_metrics(?MG(K, D));
 %%--------------------------------------------------------------------
 %% Metrics - session
 emqx_collect(K = emqx_session_created, D) -> counter_metrics(?MG(K, D));
@@ -909,37 +910,37 @@ gather_authn_ns_data(Namespace) when is_binary(Namespace) ->
     end.
 
 client_metric_data(Mode) ->
-    Acc = listener_shutdown_counts(Mode),
+    Acc = listener_counts(Mode),
     emqx_metric_data(client_metric_meta(), Mode, Acc).
 
-listener_shutdown_counts(Mode) ->
-    Data =
-        lists:flatmap(
-            fun(Listener) ->
-                get_listener_shutdown_counts_with_labels(Listener, Mode)
-            end,
-            emqx_listeners:list()
-        ),
-    #{emqx_client_disconnected_reason => Data}.
+listener_counts(Mode) ->
+    Running = [{Id, Bind} || {Id, #{bind := Bind, running := true}} <- emqx_listeners:list()],
+    #{
+        emqx_client_disconnected_reason =>
+            listeners_points(fun emqx_listeners:shutdown_count/2, reason, Running, Mode),
+        emqx_client_accept_result =>
+            listeners_points(fun emqx_listeners:accept_stats/2, result, Running, Mode)
+    }.
 
-get_listener_shutdown_counts_with_labels({Id, #{bind := Bind, running := true}}, Mode) ->
+listeners_points(GetCounts, LabelName, Listeners, Mode) ->
+    lists:flatmap(
+        fun({Id, Bind}) ->
+            listener_points(GetCounts(Id, Bind), Id, LabelName, Mode)
+        end,
+        Listeners
+    ).
+
+listener_points({error, _}, _Id, _LabelName, _Mode) ->
+    [];
+listener_points(Counts, Id, LabelName, Mode) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
-    AddLabels = fun({Reason, Count}) ->
-        Labels = [
-            {listener_type, Type},
-            {listener_name, Name},
-            {reason, Reason}
-        ],
-        {with_node_label(Mode, Labels), Count}
-    end,
-    case emqx_listeners:shutdown_count(Id, Bind) of
-        {error, _} ->
-            [];
-        Counts ->
-            lists:map(AddLabels, Counts)
-    end;
-get_listener_shutdown_counts_with_labels({_Id, #{running := false}}, _Mode) ->
-    [].
+    [
+        {
+            with_node_label(Mode, [{listener_type, Type}, {listener_name, Name}, {LabelName, Key}]),
+            Count
+        }
+     || {Key, Count} <- Counts
+    ].
 
 %%==========
 %% Durable Storage
@@ -1081,7 +1082,8 @@ client_metric_meta() ->
         {emqx_client_subscribe, counter, 'client.subscribe'},
         {emqx_client_unsubscribe, counter, 'client.unsubscribe'},
         {emqx_client_disconnected, counter, 'client.disconnected'},
-        {emqx_client_disconnected_reason, counter, undefined}
+        {emqx_client_disconnected_reason, counter, undefined},
+        {emqx_client_accept_result, counter, undefined}
     ].
 
 %%==========
