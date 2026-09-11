@@ -26,7 +26,8 @@ connector_schema_test_() ->
                     <<"server">> := <<"127.0.0.1">>,
                     <<"port">> := ?DAMENG_DEFAULT_PORT,
                     <<"driver">> := <<"DM8 ODBC DRIVER">>,
-                    <<"charset">> := <<"utf8">>
+                    <<"charset">> := <<"utf8">>,
+                    <<"ssl_path">> := <<>>
                 },
                 parse_and_check_connector(connector_config(#{}))
             )},
@@ -221,6 +222,78 @@ build_conn_map_server_credentials_test() ->
     }),
     ?assertEqual(<<"SYSDBA">>, maps:get(username, ConnMap)),
     ?assertNot(maps:is_key(password, ConnMap)).
+
+%%------------------------------------------------------------------------------
+%% optional DM SSL connection attributes
+%%------------------------------------------------------------------------------
+
+%% The DM8 ODBC driver performs the TLS handshake itself, so the connector only
+%% passes `SSL_PATH'/`SSL_PWD' through. They must be dropped when unset so that
+%% a connector without them builds exactly the connection string it used before.
+build_conn_map_extra_conn_attrs_test_() ->
+    [
+        {"no SSL attributes are passed through by default",
+            ?_assertEqual(
+                [],
+                maps:get(extra_conn_attrs, conn_map(#{<<"server">> => <<"127.0.0.1">>}))
+            )},
+        {"blank SSL attributes are dropped",
+            ?_assertEqual(
+                [],
+                maps:get(
+                    extra_conn_attrs,
+                    conn_map(#{
+                        <<"server">> => <<"127.0.0.1">>,
+                        <<"ssl_path">> => <<>>,
+                        <<"ssl_pwd">> => <<>>
+                    })
+                )
+            )},
+        {"SSL attributes are appended to the DSN-less connection string",
+            ?_assertEqual(
+                "Driver={DM8 ODBC DRIVER};Server=127.0.0.1:5236;UID=SYSDBA;"
+                "Charset=utf8;SSL_PATH=/opt/dmdbms/bin/client_ssl/SYSDBA;SSL_PWD=Abcd1234",
+                emqx_odbc:build_conn_string(
+                    conn_map(#{
+                        <<"server">> => <<"127.0.0.1">>,
+                        <<"ssl_path">> => <<"/opt/dmdbms/bin/client_ssl/SYSDBA">>,
+                        <<"ssl_pwd">> => <<"Abcd1234">>
+                    })
+                )
+            )},
+        {"SSL attributes may accompany a DSN",
+            ?_assertEqual(
+                "DSN=dm8;SSL_PWD=Abcd1234",
+                emqx_odbc:build_conn_string(
+                    conn_map(#{<<"dsn">> => <<"dm8">>, <<"ssl_pwd">> => <<"Abcd1234">>})
+                )
+            )}
+    ].
+
+%% The schema wraps `ssl_pwd' in a secret; it must be unwrapped only when the
+%% connection string is built.
+build_conn_map_ssl_pwd_secret_test() ->
+    Parsed = parse_and_check_connector(
+        connector_config(#{
+            <<"ssl_path">> => <<"/opt/dmdbms/bin/client_ssl/SYSDBA">>,
+            <<"ssl_pwd">> => <<"Abcd1234">>
+        })
+    ),
+    {ok, ConnMap} = emqx_bridge_dameng_connector:build_conn_map(Parsed),
+    Attrs = maps:get(extra_conn_attrs, ConnMap),
+    ?assertEqual(
+        [{"SSL_PATH", <<"/opt/dmdbms/bin/client_ssl/SYSDBA">>}, {"SSL_PWD", <<"Abcd1234">>}],
+        [{Key, emqx_secret:unwrap(Value)} || {Key, Value} <- Attrs]
+    ),
+    ?assertEqual(
+        "Driver={DM8 ODBC DRIVER};Server=127.0.0.1:5236;UID=SYSDBA;PWD=secretpass;"
+        "Charset=utf8;SSL_PATH=/opt/dmdbms/bin/client_ssl/SYSDBA;SSL_PWD=Abcd1234",
+        emqx_odbc:build_conn_string(ConnMap)
+    ).
+
+conn_map(Config) ->
+    {ok, ConnMap} = emqx_bridge_dameng_connector:build_conn_map(Config),
+    ConnMap.
 
 %%------------------------------------------------------------------------------
 %% validate_dsn_or_server/1

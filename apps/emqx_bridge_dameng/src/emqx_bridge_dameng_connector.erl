@@ -131,6 +131,12 @@ fields(config) ->
                 binary(),
                 #{desc => ?DESC("charset"), default => ?DAMENG_DEFAULT_CHARSET}
             )},
+        {ssl_path,
+            hoconsc:mk(
+                binary(),
+                #{desc => ?DESC("ssl_path"), default => <<>>}
+            )},
+        {ssl_pwd, emqx_connector_schema_lib:password_field(#{desc => ?DESC("ssl_pwd")})},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1}
     ].
 
@@ -332,11 +338,32 @@ build_conn_map(Config0) ->
                         port => Port,
                         driver => maps:get(<<"driver">>, Config, ?DAMENG_DEFAULT_DRIVER),
                         dsn => Dsn,
-                        charset => maps:get(<<"charset">>, Config, ?DAMENG_DEFAULT_CHARSET)
+                        charset => maps:get(<<"charset">>, Config, ?DAMENG_DEFAULT_CHARSET),
+                        extra_conn_attrs => extra_conn_attrs(Config)
                     },
                     credentials(Config, Dsn)
                 )}
     end.
+
+%% The DM8 ODBC driver performs the TLS handshake itself, so the connector only
+%% passes the certificate directory and the private key password through as
+%% connection string attributes; EMQX does not handle certificates or enable TLS
+%% by itself, and a DM8 server that does not require TLS simply ignores them.
+%% They are dropped when unset (or blank), so existing connectors keep the exact
+%% connection string they used before.
+extra_conn_attrs(Config) ->
+    lists:filtermap(
+        fun({Key, BinKey}) ->
+            case maps:get(BinKey, Config, undefined) of
+                undefined -> false;
+                null -> false;
+                <<>> -> false;
+                "" -> false;
+                Value -> {true, {Key, Value}}
+            end
+        end,
+        [{"SSL_PATH", <<"ssl_path">>}, {"SSL_PWD", <<"ssl_pwd">>}]
+    ).
 
 %% A DSN entry already carries the credentials, so they are only overridden when
 %% configured explicitly; otherwise the driver reads them from `odbc.ini'.

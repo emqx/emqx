@@ -141,6 +141,59 @@ build_conn_string_null_password_test() ->
         emqx_odbc:build_conn_string(#{dsn => <<"dm8">>, password => null})
     ).
 
+%% Driver specific attributes (used by the DM8 driver for TLS) are appended
+%% after the built-in ones; a secret value is only revealed here.
+build_conn_string_extra_attrs_test() ->
+    ?assertEqual(
+        "Driver={DM8 ODBC DRIVER};Server=localhost:5237;UID=SYSDBA;"
+        "Charset=utf8;SSL_PATH=/opt/dmdbms/bin/client_ssl/SYSDBA;SSL_PWD=Abcd1234",
+        emqx_odbc:build_conn_string(#{
+            server => <<"localhost">>,
+            port => 5237,
+            driver => <<"DM8 ODBC DRIVER">>,
+            username => <<"SYSDBA">>,
+            charset => <<"utf8">>,
+            extra_conn_attrs => [
+                {"SSL_PATH", <<"/opt/dmdbms/bin/client_ssl/SYSDBA">>},
+                {<<"SSL_PWD">>, emqx_secret:wrap(<<"Abcd1234">>)}
+            ]
+        })
+    ).
+
+build_conn_string_dsn_extra_attrs_test() ->
+    %% Attributes may accompany a DSN: ODBC lets the connection string override
+    %% the values carried by the DSN entry.
+    ?assertEqual(
+        "DSN=dm8;UID=SYSDBA;SSL_PATH=/opt/dmdbms/bin/client_ssl/SYSDBA",
+        emqx_odbc:build_conn_string(#{
+            dsn => <<"dm8">>,
+            username => <<"SYSDBA">>,
+            extra_conn_attrs => [{"SSL_PATH", <<"/opt/dmdbms/bin/client_ssl/SYSDBA">>}]
+        })
+    ).
+
+build_conn_string_extra_attrs_blank_test() ->
+    %% Blank values (including blank secrets) must be dropped, otherwise they
+    %% would override a non-empty value carried by a DSN entry.
+    ?assertEqual(
+        "DSN=dm8",
+        emqx_odbc:build_conn_string(#{
+            dsn => <<"dm8">>,
+            extra_conn_attrs => [
+                {"SSL_PATH", <<>>},
+                {"SSL_PWD", emqx_secret:wrap(<<>>)},
+                {"EMPTY", undefined},
+                {"NULL", null}
+            ]
+        })
+    ).
+
+build_conn_string_extra_attrs_none_test() ->
+    ?assertEqual(
+        "DSN=dm8",
+        emqx_odbc:build_conn_string(#{dsn => <<"dm8">>, extra_conn_attrs => []})
+    ).
+
 %%------------------------------------------------------------------------------
 %% connect/1 validation
 %%------------------------------------------------------------------------------

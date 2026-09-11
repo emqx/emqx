@@ -18,6 +18,8 @@ Connector parameters (see `emqx_bridge_dameng:fields("config_connector")`):
 | `driver` | ODBC driver name (e.g. `DM8 ODBC DRIVER`) or absolute path to the driver library. Ignored when `dsn` is set |
 | `dsn` | Optional DSN for DSN-based connection; when set, `server`, `port`, `driver` and `charset` are ignored |
 | `charset` | Optional `Charset` connection attribute. Ignored when `dsn` is set |
+| `ssl_path` | Optional directory holding the DM8 client SSL certificate files. Sent as the `SSL_PATH` connection attribute; only needed when the DM8 server has `ENABLE_ENCRYPT` enabled. Ignored unless set |
+| `ssl_pwd` | Optional password of the client private key in `ssl_path`. Sent as the `SSL_PWD` connection attribute; only needed when that key is encrypted. Ignored unless set |
 | `pool_size` | Connection pool size, defaults to `8` |
 
 There is intentionally no `database` field: DM8 locates the target instance by
@@ -50,6 +52,33 @@ Binary (`BINARY`, `VARBINARY`, `LONGVARBINARY`), large object
 (`LONGVARCHAR`, `WLONGVARCHAR`/NCLOB) and interval columns are rejected when the
 action is created: `odbc:param_query` cannot bind them without corrupting the
 data. Store such values as an escaped string instead.
+
+## TLS
+
+DM8 encrypts client connections at the transport layer when `ENABLE_ENCRYPT` is
+enabled in the server `dm.ini`. The TLS handshake is performed by the DM8 ODBC
+driver, not by EMQX: the connector only passes the `SSL_PATH` and `SSL_PWD`
+connection attributes from the `ssl_path` and `ssl_pwd` fields. The certificate
+files therefore have to be present on the EMQX node (mounted into the container
+when applicable), and the DM8 `dependencies`/OpenSSL libraries must be loadable
+by the driver.
+
+The certificate requirements depend on the server mode:
+
+| `ENABLE_ENCRYPT` | Meaning | `ssl_path` must contain |
+|---|---|---|
+| `0` | no encryption (default) | nothing; the SSL attributes are ignored |
+| `4` | encryption, no certificate verification | nothing |
+| `5` | client verifies the server + encryption | `ca-cert.pem` |
+| `1` | two-way authentication + encryption | `ca-cert.pem`, `client-cert.pem`, `client-key.pem` |
+| `2` | two-way authentication only | `ca-cert.pem`, `client-cert.pem`, `client-key.pem` |
+
+`ssl_pwd` is only needed when `client-key.pem` is encrypted, and a blank value is
+omitted from the connection string. Whether the server certificate is verified
+is decided by the DM8 server mode and by the files in `ssl_path`; EMQX does not
+verify it. The GmSSL (`3`) and TLCP (`6`) modes are not covered. When the server
+runs with `ENABLE_ENCRYPT=0` these attributes have no effect, so setting them is
+safe even before the server is switched over.
 
 ## Note on ODBC driver configuration
 

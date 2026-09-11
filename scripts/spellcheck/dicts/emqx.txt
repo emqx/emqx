@@ -39,15 +39,19 @@ BPAPI
 BSON
 bytesize
 CA
+ca-cert
 cacert
 cacertfile
 CAs
+cert
 certfile
 CHACHA
 charset
 ci
 CLI
 clickhouse
+client-cert
+client-key
 clientid
 clientids
 clientinfo
@@ -100,6 +104,7 @@ ElasticSearch
 EMQ
 emqx
 EMQX
+ENABLE_ENCRYPT
 enablement
 enqueue
 enqueued
@@ -228,6 +233,7 @@ OTP
 params
 peerhost
 peername
+pem
 PEM
 perf
 PGBouncer
@@ -257,6 +263,7 @@ pubrel
 PUBREL
 pubsub
 pushgateway
+PWD
 qlen
 qmode
 qos
@@ -303,6 +310,9 @@ Sparkplug
 sql
 src
 ssl
+SSL_PATH
+SSL_PWD
+ssl_path
 SSRF
 statsd
 storages
@@ -336,6 +346,7 @@ travis
 trie
 ttl
 TTL
+two-way
 typerefl
 udp
 UDP

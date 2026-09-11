@@ -36,4 +36,16 @@ charset.desc:
 charset.label:
 """Charset"""
 
+ssl_path.desc:
+"""The directory holding the DM8 client SSL certificate files: `ca-cert.pem`, plus `client-cert.pem` and `client-key.pem` when the server uses two-way authentication. It is sent as the `SSL_PATH` ODBC connection attribute and is only needed when `ENABLE_ENCRYPT` is enabled on the DM8 server. The DM8 ODBC driver loads the files and performs the TLS handshake, so the directory must exist on the EMQX node. Ignored unless set."""
+
+ssl_path.label:
+"""SSL Certificate Directory"""
+
+ssl_pwd.desc:
+"""The password of the client private key in `ssl_path`, sent as the `SSL_PWD` ODBC connection attribute. Only needed when that private key is encrypted. The DM8 ODBC driver performs the TLS handshake."""
+
+ssl_pwd.label:
+"""SSL Certificate Password"""
+
 }

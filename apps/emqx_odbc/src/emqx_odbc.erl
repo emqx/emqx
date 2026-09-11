@@ -30,6 +30,13 @@
 %% There is deliberately no `Database' attribute in the DSN-less form: DM8
 %% locates the target instance by host and port and ignores it.
 %%
+%% Driver specific attributes that this module has no dedicated field for are
+%% passed through with `extra_conn_attrs' (see `conn_map()'). They are appended
+%% after the attributes above in both forms, so that a DSN entry can be
+%% overridden from the connector config. This is how the DM8 driver is told to
+%% use TLS (`SSL_PATH'/`SSL_PWD'); the TLS handshake itself is done by the
+%% driver, so no Erlang `ssl' options are involved.
+%%
 %% The `driver' field accepts either a driver name registered in `odbcinst.ini'
 %% (e.g. `DM8 ODBC DRIVER', automatically wrapped in `{}') or a path to the
 %% driver library (e.g. `/opt/dmdbms/bin/libdodbc.so', used as-is).
@@ -73,6 +80,11 @@
 
 %% A description of the target data source in a form that `build_conn_string/1'
 %% understands. Either `dsn' or `driver' plus `server' must be given.
+%%
+%% `extra_conn_attrs' is a list of driver specific `{Key, Value}' connection
+%% attributes appended verbatim (a blank value is omitted). A value may be an
+%% `emqx_secret:t/1' so that secrets are only revealed when the connection
+%% string is built.
 -type conn_map() :: #{
     server => unicode:chardata(),
     port => integer(),
@@ -80,7 +92,10 @@
     password => emqx_secret:t(unicode:chardata()),
     driver => unicode:chardata(),
     dsn => unicode:chardata(),
-    charset => unicode:chardata()
+    charset => unicode:chardata(),
+    extra_conn_attrs => [
+        {unicode:chardata(), unicode:chardata() | emqx_secret:t(unicode:chardata())}
+    ]
 }.
 
 %% Sizes used to bind the types that `odbc:param_query/4' has no native binding
@@ -223,7 +238,8 @@ dsn_conn_string(Dsn, ConnMap) ->
     Parts0 = ["DSN=" ++ str(Dsn)],
     Parts1 = append_opt("UID", maps:get(username, ConnMap, undefined), Parts0),
     Parts2 = append_secret("PWD", maps:get(password, ConnMap, undefined), Parts1),
-    lists:flatten(lists:join(";", Parts2)).
+    Parts3 = append_extra_conn_attrs(ConnMap, Parts2),
+    lists:flatten(lists:join(";", Parts3)).
 
 server_conn_string(ConnMap) ->
     Parts0 =
@@ -235,7 +251,8 @@ server_conn_string(ConnMap) ->
     Parts2 = append_opt("UID", maps:get(username, ConnMap, undefined), Parts1),
     Parts3 = append_secret("PWD", maps:get(password, ConnMap, undefined), Parts2),
     Parts4 = append_opt("Charset", maps:get(charset, ConnMap, undefined), Parts3),
-    lists:flatten(lists:join(";", Parts4)).
+    Parts5 = append_extra_conn_attrs(ConnMap, Parts4),
+    lists:flatten(lists:join(";", Parts5)).
 
 %% Wrap a registered driver name in `{}' unless it is a path to the driver
 %% library. Only an absolute path or a path containing a directory separator is
@@ -302,6 +319,25 @@ append_secret(Key, Secret, Acc) ->
         Value ->
             Acc ++ [Key ++ "=" ++ str(Value)]
     end.
+
+%% Driver specific attributes (for example the DM8 `SSL_PATH'/`SSL_PWD' pair)
+%% are appended verbatim after the built-in ones. A secret is unwrapped only
+%% here, and a blank value is dropped exactly like the built-in attributes.
+append_extra_conn_attrs(ConnMap, Acc) ->
+    lists:foldl(
+        fun({Key, Value}, Parts) ->
+            append_extra(Key, emqx_secret:unwrap(Value), Parts)
+        end,
+        Acc,
+        maps:get(extra_conn_attrs, ConnMap, [])
+    ).
+
+append_extra(_Key, Value, Acc) when
+    Value =:= undefined; Value =:= null; Value =:= <<>>; Value =:= ""
+->
+    Acc;
+append_extra(Key, Value, Acc) ->
+    Acc ++ [str(Key) ++ "=" ++ str(Value)].
 
 %%====================================================================
 %% Type conversion (describe_table type -> param_query type/value)
