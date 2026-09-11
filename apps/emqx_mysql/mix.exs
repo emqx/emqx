@@ -5,10 +5,11 @@ defmodule EMQXMysql.MixProject do
   def project do
     [
       app: :emqx_mysql,
-      version: "6.0.2",
+      version: "6.0.3",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
+      compilers: [:yecc, :leex] ++ Mix.compilers(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",
