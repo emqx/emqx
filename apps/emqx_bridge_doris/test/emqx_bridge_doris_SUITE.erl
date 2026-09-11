@@ -12,6 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include("../src/emqx_bridge_doris.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("mysql/include/protocol.hrl").
@@ -399,7 +400,10 @@ t_batch_values(Config) when is_list(Config) ->
             {_, {ok, _}} = ?wait_async_action(
                 lists:foreach(
                     fun(Msg) ->
-                        ?assertEqual(ok, emqx_bridge_v2:send_message(?ACTION_TYPE, Name, Msg, #{}))
+                        ?assertEqual(
+                            ok,
+                            emqx_bridge_v2:send_message(?global_ns, ?ACTION_TYPE, Name, Msg, #{})
+                        )
                     end,
                     Messages
                 ),
@@ -457,7 +461,9 @@ t_batch_render_failure(Config) ->
     Send = fun(Value) ->
         ?assertEqual(
             ok,
-            emqx_bridge_v2:send_message(?ACTION_TYPE, Name, #{payload => #{v => Value}}, #{})
+            emqx_bridge_v2:send_message(
+                ?global_ns, ?ACTION_TYPE, Name, #{payload => #{v => Value}}, #{}
+            )
         )
     end,
     ?check_trace(
