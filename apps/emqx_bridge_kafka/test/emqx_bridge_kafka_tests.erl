@@ -204,6 +204,64 @@ test_keepalive_validation(Name, Conf) ->
         [?_assertThrow(_, check(C)) || C <- InvalidConfs] ++
         [?_assertThrow(_, check_atom_key(C)) || C <- InvalidConfs].
 
+ipv6_bootstrap_hosts_validation_test_() ->
+    ProducerConf = parse(kafka_producer_new_hocon()),
+    ConsumerConf = parse(kafka_consumer_hocon()),
+    test_ipv6_bootstrap_hosts([<<"kafka">>, <<"myproducer">>], ProducerConf) ++
+        test_ipv6_bootstrap_hosts([<<"kafka_consumer">>, <<"my_consumer">>], ConsumerConf).
+
+test_ipv6_bootstrap_hosts(Name, Conf) ->
+    Path = [<<"bridges">>] ++ Name ++ [<<"bootstrap_hosts">>],
+    ValidConfs = [
+        emqx_utils_maps:deep_force_put(Path, Conf, Hosts)
+     || Hosts <- [<<"[::1]:9092">>, <<"[::1]">>, <<"[fd00::5]:9092,host2:9093">>]
+    ],
+    InvalidConf = emqx_utils_maps:deep_force_put(Path, Conf, <<"::1:9092">>),
+    [?_assertMatch(#{<<"bridges">> := _}, check(C)) || C <- ValidConfs] ++
+        [?_assertMatch(#{bridges := _}, check_atom_key(C)) || C <- ValidConfs] ++
+        [?_assertThrow(_, check(InvalidConf))].
+
+hosts_test_() ->
+    Hosts = fun emqx_bridge_kafka_impl:hosts/1,
+    [
+        ?_assertEqual([{"::1", 9092}], Hosts(<<"[::1]:9092">>)),
+        ?_assertEqual(
+            [{"fd00::5", 9092}, {"host2", 9093}],
+            Hosts(<<"[fd00::5]:9092,host2:9093">>)
+        ),
+        ?_assertEqual(
+            [{"::1", 9092}],
+            Hosts(emqx_schema:parse_servers(<<"[::1]">>, #{default_port => 9092}))
+        )
+    ].
+
+socket_opts_ip_family_test_() ->
+    Conf = parse(kafka_producer_new_hocon()),
+    Path = [<<"bridges">>, <<"kafka">>, <<"myproducer">>, <<"socket_opts">>, <<"ip_family">>],
+    SocketOpts = fun(C) ->
+        #{bridges := #{kafka := #{myproducer := #{socket_opts := Opts}}}} = check_atom_key(C),
+        emqx_bridge_kafka_impl:socket_opts(Opts)
+    end,
+    Families = fun(Opts) -> [F || F <- Opts, F =:= inet orelse F =:= inet6] end,
+    [
+        {"default adds no family option", ?_assertEqual([], Families(SocketOpts(Conf)))},
+        {"auto adds no family option",
+            ?_assertEqual(
+                [], Families(SocketOpts(emqx_utils_maps:deep_force_put(Path, Conf, <<"auto">>)))
+            )},
+        {"ipv4 adds inet",
+            ?_assertEqual(
+                [inet], Families(SocketOpts(emqx_utils_maps:deep_force_put(Path, Conf, <<"ipv4">>)))
+            )},
+        {"ipv6 adds inet6",
+            ?_assertEqual(
+                [inet6],
+                Families(SocketOpts(emqx_utils_maps:deep_force_put(Path, Conf, <<"ipv6">>)))
+            )},
+        {"bad value",
+            ?_assertThrow(_, check(emqx_utils_maps:deep_force_put(Path, Conf, <<"inet6">>)))}
+    ].
+
 %% assert compatibility
 bridge_schema_json_test() ->
     JSON = iolist_to_binary(emqx_dashboard_schema_api:bridge_schema_json()),
