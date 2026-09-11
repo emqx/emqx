@@ -160,6 +160,14 @@ docker run -d -t --restart=always --name "$NODE2" \
   "$IMAGE2"
 
 mkdir -p tmp
+
+## Certificates for haproxy's TLS frontend and the probes below. Generated
+## rather than taken from the source tree: EMQX no longer ships an example set.
+CERT_DIR="$(pwd)/tmp/certs"
+if [ ! -f "$CERT_DIR/cacert.pem" ]; then
+    ./scripts/gen-test-certs.sh "$CERT_DIR"
+fi
+
 cat <<EOF > tmp/haproxy.cfg
 ##----------------------------------------------------------------
 ## global 2021/04/05
@@ -248,7 +256,7 @@ haproxy_cid=$(docker run -d --name haproxy \
                      --ulimit nofile=300000:300000 \
                      --net "$NET" \
                      -v "$(pwd)/tmp/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg" \
-                     -v "$(pwd)/apps/emqx/etc/certs:/usr/local/etc/haproxy/certs" \
+                     -v "$CERT_DIR:/usr/local/etc/haproxy/certs" \
                      -w /usr/local/etc/haproxy \
                      "${HAPROXY_PORTS[@]}" \
                      "${HAPROXY_IMAGE}" \
@@ -277,9 +285,9 @@ wait_for_emqx() {
 ## Probe wss listener by haproxy.
 probe_wss_listener() {
     openssl s_client \
-        -CAfile apps/emqx/etc/certs/cacert.pem \
-        -cert apps/emqx/etc/certs/client-cert.pem \
-        -key apps/emqx/etc/certs/client-key.pem \
+        -CAfile "$CERT_DIR/cacert.pem" \
+        -cert "$CERT_DIR/client-cert.pem" \
+        -key "$CERT_DIR/client-key.pem" \
         -connect localhost:"$haproxy_ssl_port" </dev/null >/dev/null 2>&1
 }
 

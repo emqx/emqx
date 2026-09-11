@@ -146,7 +146,7 @@ ssl_client_opts() ->
     }.
 
 cert_path(Name) ->
-    filename:join(["../../lib/emqx/etc/certs/", Name]).
+    emqx_common_test_helpers:test_cert(Name).
 
 file_content(Filename) ->
     case file:read_file(Filename) of
