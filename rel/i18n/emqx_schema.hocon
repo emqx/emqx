@@ -1595,7 +1595,7 @@ mqtt_max_packet_size.label:
 
 mqtt_max_connect_packet_size.desc:
 """Maximum size of a CONNECT packet. Default: 64 KB.
-A CONNECT packet larger than this is rejected and the connection is closed, before the packet body is read into memory.
+EMQX closes the connection when a CONNECT packet is larger than this. It does so before the packet body is read into memory.
 This limit applies in addition to `max_packet_size`, and the smaller of the two applies to CONNECT.
 Raise it if clients send unusually large credentials or last-will payloads."""
 
@@ -1605,7 +1605,7 @@ mqtt_max_connect_packet_size.label:
 mqtt_max_connect_user_properties.desc:
 """Maximum number of 'User-Property' pairs accepted in a CONNECT packet. Default: 10.
 The limit applies separately to the CONNECT properties and to the will properties.
-A CONNECT carrying more pairs than this is rejected and the connection is closed.
+EMQX closes the connection when a CONNECT carries more pairs than this.
 Set to `infinity` to accept any number."""
 
 mqtt_max_connect_user_properties.label:
