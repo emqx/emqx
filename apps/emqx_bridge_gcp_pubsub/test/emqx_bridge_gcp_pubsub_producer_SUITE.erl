@@ -69,7 +69,8 @@ single_config_tests() ->
         t_get_status_timeout_calling_workers,
         t_on_start_ehttpc_pool_already_started,
         t_attributes,
-        t_bad_attributes
+        t_bad_attributes,
+        t_service_account_json_redacted_round_trip
     ].
 
 only_sync_tests() ->
@@ -1982,4 +1983,39 @@ t_deprecated_connector_resource_opts(Config) ->
             ok
         end
     ),
+    ok.
+
+%% Verifies that the redacted bridge body returned by the v1 HTTP API can be sent back via
+%% update and probe, and that the stored service account JSON is kept.
+t_service_account_json_redacted_round_trip(Config) ->
+    ServiceAccountJSON = ?config(service_account_json, Config),
+    Name = ?config(gcp_pubsub_name, Config),
+    TCConfig = [
+        {bridge_type, ?BRIDGE_V1_TYPE_BIN},
+        {bridge_name, Name},
+        {bridge_config, #{}}
+        | Config
+    ],
+    ?assertMatch({ok, _}, create_bridge_http(Config)),
+    {ok, #{<<"service_account_json">> := <<"******">>} = RedactedParams0} =
+        emqx_bridge_testlib:get_bridge_api(TCConfig),
+    RedactedParams = maps:without(
+        [
+            <<"type">>,
+            <<"name">>,
+            <<"status">>,
+            <<"status_reason">>,
+            <<"node_status">>
+        ],
+        RedactedParams0
+    ),
+    ?assertMatch(
+        {ok, #{<<"service_account_json">> := <<"******">>}},
+        emqx_bridge_testlib:update_bridge_api(TCConfig, RedactedParams)
+    ),
+    ?assertEqual(
+        ServiceAccountJSON,
+        emqx_bridge_gcp_pubsub_utils:persisted_service_account_json(?CONNECTOR_TYPE_BIN, Name)
+    ),
+    ?assertMatch({ok, _}, emqx_bridge_testlib:probe_bridge_api(TCConfig, RedactedParams)),
     ok.
