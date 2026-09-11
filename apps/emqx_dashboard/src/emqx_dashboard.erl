@@ -385,6 +385,7 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
                     " path is not permitted">>
             );
         {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
+            ok = audit_rbac_denied(Req, api_key, Key),
             {403, 'UNAUTHORIZED_ROLE', Msg};
         {error, _} ->
             return_unauthorized(
@@ -415,9 +416,33 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
             {401, 'TOKEN_TIME_OUT', token_timeout_message(HandlerInfo)};
         {error, not_found} ->
             {401, 'BAD_TOKEN', bad_token_message(HandlerInfo)};
-        {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
+        {error, {unauthorized_role, Msg, AdminKey}} when is_binary(Msg) ->
+            ok = audit_rbac_denied(Req, jwt_token, AdminKey),
             {403, 'UNAUTHORIZED_ROLE', Msg}
     end.
+
+%% RBAC denies the request after the caller has been authenticated, so the
+%% actor is known. minirest never reaches its own meta-producing code on a
+%% failed authorization, so write the actor and the path parameters into the
+%% audit meta here. Only the routing bindings are added - no headers, no body.
+%%
+%% `update_log_meta/1' merges into the per-request meta that minirest
+%% initialises before it calls this authorizer. Tests call `authorize/2'
+%% directly, without that meta; `badmap' then means there is no request to
+%% audit, which must not change the authorization result.
+audit_rbac_denied(Req, AuthType, Source) ->
+    _ =
+        try
+            minirest_handler:update_log_meta(#{
+                auth_type => AuthType,
+                source => Source,
+                bindings => cowboy_req:bindings(Req)
+            })
+        catch
+            error:{badmap, undefined} ->
+                ok
+        end,
+    ok.
 
 ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->
     SslOpt1 = maps:from_list(emqx_tls_lib:to_server_opts(tls, SslOpts)),
