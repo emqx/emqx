@@ -52,6 +52,7 @@ stop_child(ChildId) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    EkkaLockerSup = child_spec(ekka_locker_sup, supervisor),
     KernelSup = child_spec(emqx_kernel_sup, supervisor),
     RouterSup = child_spec(emqx_router_sup, supervisor),
     BrokerSup = child_spec(emqx_broker_sup, supervisor),
@@ -60,7 +61,7 @@ init([]) ->
     Limiter = child_spec(emqx_limiter_sup, supervisor),
     AccessControlMetricsSup = child_spec(emqx_access_control_metrics_sup, supervisor),
     Children =
-        [KernelSup] ++
+        [EkkaLockerSup, KernelSup] ++
             [RouterSup || emqx_boot:is_enabled(broker)] ++
             [BrokerSup || emqx_boot:is_enabled(broker)] ++
             [CMSup || emqx_boot:is_enabled(broker)] ++

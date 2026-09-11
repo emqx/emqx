@@ -44,7 +44,7 @@ init_per_suite(Config) ->
     ),
     meck:new(mria, [passthrough, no_link]),
     meck:expect(mria, running_nodes, 0, [?NODE1, {node(), ?NODE2}, {node(), ?NODE3}]),
-    ok = emqx_cluster_rpc:wait_for_cluster_rpc(),
+    ok = emqx_cluster_rpc:wait_for_cluster_rpc_tables(),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->

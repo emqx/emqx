@@ -118,7 +118,7 @@ gc_interval() ->
     emqx_config:get([mq, gc_interval]).
 
 is_responsible() ->
-    case lists:sort(mria_membership:running_core_nodelist()) of
+    case emqx_cluster:running_core_nodelist() of
         [Node | _] when Node == node() ->
             true;
         _ ->
