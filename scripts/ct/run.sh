@@ -46,6 +46,7 @@ IS_CI='no'
 SQLSERVER_ODBC_REQUEST='no'
 SNOWFLAKE_ODBC_REQUEST='no'
 QUASARDB_ODBC_REQUEST='no'
+DAMENG_ODBC_REQUEST='no'
 UP='up --wait'
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -184,6 +185,10 @@ for dep in ${CT_DEPS}; do
             SQLSERVER_ODBC_REQUEST='yes'
             FILES+=( '.ci/docker-compose-file/docker-compose-sqlserver.yaml' )
             ;;
+        dameng)
+            DAMENG_ODBC_REQUEST='yes'
+            FILES+=( '.ci/docker-compose-file/docker-compose-dameng.yaml' )
+            ;;
         opents)
             FILES+=( '.ci/docker-compose-file/docker-compose-opents.yaml' )
             ;;
@@ -306,6 +311,12 @@ else
     INSTALL_QUASARDB_ODBC="echo 'quasardb driver not requested'"
 fi
 
+if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ]; then
+    INSTALL_DAMENG_ODBC="./scripts/install-dameng-odbc.sh"
+else
+    INSTALL_DAMENG_ODBC="echo 'dameng driver not requested'"
+fi
+
 for file in "${FILES[@]}"; do
     DC="$DC -f $file"
 done
@@ -339,15 +350,45 @@ if [ "$STOP" = 'no' ] && [ "$PS" = 'no' ]; then
         LOG='_build/test/logs/docker-compose.log'
         echo "Dumping docker-compose log to $LOG"
         $DC logs --no-color --timestamps > "$LOG"
+        # The log file is not always collected as an artifact, so print the tail
+        # to the job output as well to make container failures diagnosable.
+        $DC logs --no-color --tail 100
         exit 1
     fi
     set -e
+fi
+
+if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$PS" = 'no' ]; then
+    # The DM8 client libraries are taken from the `dameng' container image: the
+    # vendor download is not reachable from GitHub-hosted runners, and the
+    # driver links against sibling libraries from the same directory.
+    # Run as root: the erlang container may be configured to run as the CI user,
+    # which cannot create /opt/dmdbms.
+    DAMENG_CONTAINER="$($DC ps -q dameng)"
+    echo "Copying the DM8 client libraries from $DAMENG_CONTAINER to $ERLANG_CONTAINER"
+    docker exec -u root:root "$DAMENG_CONTAINER" bash -c \
+        'cd /opt/dmdbms/bin && find . -maxdepth 1 -name "*.so*" -print0 | tar -cf - --null -T -' |
+        docker exec -i -u root:root "$ERLANG_CONTAINER" bash -c \
+            'mkdir -p /opt/dmdbms/bin && tar -xf - -C /opt/dmdbms/bin'
+fi
+
+if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$PS" = 'no' ] && [ "$DOCKER_USER" = 'root' ]; then
+    # The block below only runs for a non-root container user; when the
+    # container runs as root the driver registry must be written here.
+    docker exec -i $TTY -u root:root \
+         -e "DM_CONN_HOST=${DM_CONN_HOST:-dameng}" \
+         -e "DM_PORT=${DM_PORT:-5236}" \
+         -e "DM_PASSWORD=${DM_PASSWORD:-SYSDBA001}" \
+         "$ERLANG_CONTAINER" bash -c "$INSTALL_DAMENG_ODBC" || true
 fi
 
 if [ "$DOCKER_USER" != "root" ] && [ "$PS" = 'no' ]; then
     # the user must exist inside the container for `whoami` to work
     docker exec -i $TTY -u root:root \
          -e "SFACCOUNT=${SFACCOUNT:-myorg-myacc}" \
+         -e "DM_CONN_HOST=${DM_CONN_HOST:-dameng}" \
+         -e "DM_PORT=${DM_PORT:-5236}" \
+         -e "DM_PASSWORD=${DM_PASSWORD:-SYSDBA001}" \
          "$ERLANG_CONTAINER" bash -c \
          "useradd --uid $DOCKER_USER -M -d / emqx || true && \
           mkdir -p /.cache /.hex /.mix && \
@@ -358,7 +399,23 @@ if [ "$DOCKER_USER" != "root" ] && [ "$PS" = 'no' ]; then
           chmod 0400 /.erlang.cookie && \
           $INSTALL_SQLSERVER_ODBC && \
           $INSTALL_SNOWFLAKE_ODBC && \
-          $INSTALL_QUASARDB_ODBC" || true
+          $INSTALL_QUASARDB_ODBC && \
+          $INSTALL_DAMENG_ODBC" || true
+fi
+
+if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$PS" = 'no' ]; then
+    # The commands above are intentionally best-effort for the optional ODBC
+    # drivers, so verify the dameng client setup explicitly: the CT suite fails
+    # (instead of skipping) when `--ci` is passed, and a clear error here beats
+    # a confusing connection error later.
+    if ! docker exec "$ERLANG_CONTAINER" test -f /opt/dmdbms/bin/libdodbc.so; then
+        echo "Dameng ODBC driver is missing in $ERLANG_CONTAINER" >&2
+        exit 1
+    fi
+    if ! docker exec "$ERLANG_CONTAINER" grep -q 'DM8 ODBC DRIVER' /etc/odbcinst.ini; then
+        echo "Dameng ODBC driver is not registered in /etc/odbcinst.ini" >&2
+        exit 1
+    fi
 fi
 
 if [ "$ONLY_UP" = 'yes' ]; then

@@ -155,7 +155,7 @@ to_sql_value(Map) when is_map(Map) -> emqx_utils_json:encode(Map).
 %% SQL statements. The value is escaped if necessary.
 -spec to_sql_string(term(), Options) -> unicode:chardata() when
     Options :: #{
-        escaping => mysql | sql | cql | sqlserver,
+        escaping => mysql | sql | sql_std | cql | sqlserver,
         undefined => null | unicode:chardata()
     }.
 to_sql_string(undefined, #{undefined := Str} = Opts) when Str =/= null ->
@@ -173,6 +173,8 @@ to_sql_string(Term, #{escaping := mysql}) ->
     maybe_escape(Term, fun escape_mysql/1);
 to_sql_string(Term, #{escaping := cql}) ->
     maybe_escape(Term, fun escape_cql/1);
+to_sql_string(Term, #{escaping := sql_std}) ->
+    maybe_escape(Term, fun escape_sql_std/1);
 to_sql_string(Term, #{escaping := sqlserver}) ->
     maybe_escape(Term, fun escape_sqlserver/1);
 to_sql_string(Term, #{}) ->
@@ -205,6 +207,14 @@ escape_sql(S) ->
 -spec escape_cql(binary()) -> iodata().
 escape_cql(S) ->
     ES = binary:replace(S, <<"'">>, <<"'">>, [global, {insert_replaced, 1}]),
+    [$', ES, $'].
+
+%% @doc Escape a string for the SQL standard (and for Oracle compatible
+%% dialects such as Dameng DM8): a single quote is escaped by doubling it and
+%% the backslash has no special meaning.
+-spec escape_sql_std(binary()) -> iodata().
+escape_sql_std(S) ->
+    ES = binary:replace(S, <<"'">>, <<"''">>, [global]),
     [$', ES, $'].
 
 -spec escape_mysql(binary()) -> iodata().

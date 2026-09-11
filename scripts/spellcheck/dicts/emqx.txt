@@ -44,6 +44,7 @@ cacertfile
 CAs
 certfile
 CHACHA
+charset
 ci
 CLI
 clickhouse
@@ -70,6 +71,7 @@ CRLs
 ctx
 customizable
 Cygwin
+Dameng
 datagram
 datagrams
 Databricks
@@ -80,6 +82,8 @@ DevOps
 Dialyzer
 Diffie
 dir
+DM8
+dmdbms
 DN
 dns
 DNS
@@ -171,6 +175,7 @@ Keyspace
 keytab
 Kubernetes
 libcoap
+libdodbc
 lifecycle
 localhost
 loopback
@@ -211,6 +216,8 @@ num
 ocpp
 OCPP
 OCSP
+ODBC
+odbcinst
 OID
 opentelemetry
 OpenTelemetry

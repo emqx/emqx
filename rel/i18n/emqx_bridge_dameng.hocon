@@ -1,0 +1,51 @@
+emqx_bridge_dameng {
+
+config_enable.desc:
+"""Enable or disable this connector"""
+
+config_enable.label:
+"""Enable Or Disable Connector"""
+
+desc_config.desc:
+"""Configuration for a Dameng DM8 bridge."""
+
+desc_config.label:
+"""Dameng DM8 Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name."""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The Bridge Type"""
+
+desc_type.label:
+"""Bridge Type"""
+
+sql_template.desc:
+"""SQL Template"""
+
+sql_template.label:
+"""SQL Template"""
+
+action_parameters.desc:
+"""Action specific configuration."""
+
+action_parameters.label:
+"""Action"""
+
+dameng_action.desc:
+"""Configuration for the Dameng DM8 action."""
+
+dameng_action.label:
+"""Dameng DM8 Action Configuration"""
+
+config_connector.desc:
+"""Configuration for a Dameng DM8 connector."""
+
+config_connector.label:
+"""Dameng DM8 Connector Configuration"""
+
+}

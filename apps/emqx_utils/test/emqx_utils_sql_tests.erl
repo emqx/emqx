@@ -25,6 +25,20 @@
 %% Properties
 %%------------------------------------------------------------------------------
 
+sql_std_escape_test_() ->
+    Escape = fun(Term) ->
+        iolist_to_binary(emqx_utils_sql:to_sql_string(Term, #{escaping => sql_std}))
+    end,
+    [
+        ?_assertEqual(<<"'abc'">>, Escape(<<"abc">>)),
+        %% A single quote is doubled; the backslash has no special meaning.
+        ?_assertEqual(<<"'a''b\\c'">>, Escape(<<"a'b\\c">>)),
+        ?_assertEqual(<<"''">>, Escape(<<>>)),
+        ?_assertEqual(<<"NULL">>, Escape(undefined)),
+        ?_assertEqual(<<"5">>, Escape(5)),
+        ?_assertEqual(<<"'1.5'">>, Escape(<<"1.5">>))
+    ].
+
 snowflake_escape_test_() ->
     Props = [prop_snowflake_escape()],
     Opts = [{numtests, 1_000}, {to_file, user}, {max_size, 100}],

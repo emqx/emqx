@@ -1,0 +1,39 @@
+emqx_bridge_dameng_connector {
+
+server.desc:
+"""The IP address or hostname of the Dameng DM8 server, optionally with a port (`host:port`). Required unless `dsn` is set."""
+
+server.label:
+"""Server Host"""
+
+port.desc:
+"""The port of the Dameng DM8 server. It is used when `server` does not contain a port. Ignored when `dsn` is set."""
+
+port.label:
+"""Server Port"""
+
+username.desc:
+"""The username of the Dameng DM8 server. It defaults to `SYSDBA` when no `dsn` is set; with a `dsn`, leave it empty to use the username from the DSN entry."""
+
+username.label:
+"""Username"""
+
+driver.desc:
+"""The ODBC driver registered in `odbcinst.ini`, for example `DM8 ODBC DRIVER`, or the absolute path of the driver library, for example `/opt/dmdbms/bin/libdodbc.so`. Ignored when `dsn` is set."""
+
+driver.label:
+"""ODBC Driver"""
+
+dsn.desc:
+"""The ODBC data source name. When it is set, `server`, `port`, `driver` and `charset` are ignored, and the connection details are taken from the DSN entry in `odbc.ini`. `username` and `password` are only sent when explicitly set, so the credentials from the DSN entry are used by default."""
+
+dsn.label:
+"""ODBC DSN"""
+
+charset.desc:
+"""The charset attribute sent in the ODBC connection string. Ignored when `dsn` is set."""
+
+charset.label:
+"""Charset"""
+
+}

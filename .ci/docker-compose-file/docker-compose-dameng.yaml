@@ -1,0 +1,35 @@
+services:
+  dameng:
+    # DM8 database with the server pre-installed in the image. The vendor
+    # download (download.dameng.com) is not reachable from GitHub-hosted
+    # runners, so the testbed must not install DM8 at run time.
+    #
+    # The digest is pinned for reproducibility; the image is a community image
+    # built from the Dameng Dockerfile (maintainer wangbin@dameng.com).
+    # `latest` is a DM8 V8 (8.1) build; `20251203` is a newer but ~4x larger
+    # alternative.
+    image: xuxuclassmate/dameng:latest@sha256:c4088323442747a45d58bd33ef59e657c9b85f9e7dd956ba60b36d04a35b141d
+    platform: linux/amd64
+    environment:
+      # Password for the SYSDBA account created by the image's startup script.
+      SYSDBA_PWD: ${DM_PASSWORD:-SYSDBA001}
+    healthcheck:
+      # The image starts dmserver asynchronously; make `docker compose up --wait`
+      # wait for the port before the CT is allowed to connect.
+      test:
+        - CMD
+        - bash
+        - -c
+        - exec 3<>/dev/tcp/127.0.0.1/5236
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    networks:
+      - emqx_bridge
+
+# The erlang/emqx node (main docker-compose.yaml) joins the same network and
+# connects to the DM instance at `dameng:5236` via ODBC. The DM8 client
+# libraries are copied from the `dameng` container into the erlang container by
+# scripts/ct/run.sh, which also runs scripts/install-dameng-odbc.sh there to
+# register the driver with unixODBC.
