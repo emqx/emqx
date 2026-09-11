@@ -263,10 +263,7 @@ on_format_query_result(Result) ->
     Query :: {channel_id(), map()},
     state()
 ) ->
-    ok
-    | {ok, list()}
-    | {error, {recoverable_error, term()}}
-    | {error, term()}.
+    query_result().
 on_query(ResourceId, {_ChannelId, _Msg} = Query, State) ->
     do_query(ResourceId, Query, ?SYNC_QUERY_MODE, State).
 
@@ -275,12 +272,9 @@ on_query(ResourceId, {_ChannelId, _Msg} = Query, State) ->
     [{channel_id(), map()}],
     state()
 ) ->
-    ok
-    | {ok, list()}
-    | {error, {recoverable_error, term()}}
-    | {error, term()}.
+    batch_query_result().
 on_batch_query(ResourceId, BatchRequests, State) ->
-    do_query(ResourceId, BatchRequests, ?SYNC_QUERY_MODE, State).
+    do_batch_query(ResourceId, BatchRequests, ?SYNC_QUERY_MODE, State).
 
 on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
     Opts = #{
@@ -597,56 +591,64 @@ norm_name(Name) ->
 %% Query
 %%===================
 
--spec do_query(
-    resource_id(),
-    Query :: {channel_id(), map()} | [{channel_id(), map()}],
-    ApplyMode :: handover,
-    state()
-) ->
-    {ok, list()}
-    | {error, {recoverable_error, term()}}
-    | {error, {unrecoverable_error, term()}}
-    | {error, term()}.
-do_query(ResourceId, Query, ApplyMode, State) ->
+-spec do_query(resource_id(), {channel_id(), map()}, ApplyMode :: handover, state()) ->
+    query_result().
+do_query(ResourceId, {ChannelId, Msg} = Query, ApplyMode, State) ->
     #{pool_name := PoolName, installed_channels := Channels} = State,
     ?TRACE(
         "SINGLE_QUERY_SYNC",
         "dameng_connector_received",
         #{query => Query, connector => ResourceId, state => State}
     ),
-    ChannelId = get_channel_id(Query),
     ChannelState = maps:get(ChannelId, Channels),
-    case maps:get(statement_type, ChannelState) of
-        insert ->
-            Msgs = get_msgs(Query),
-            Result = ecpool:pick_and_do(
-                PoolName,
-                {?MODULE, worker_do_insert, [ChannelState, Msgs, State]},
-                ApplyMode
-            ),
-            handle_result(Result, ResourceId, Query);
-        Type when is_atom(Type) ->
-            case get_msgs(Query) of
-                [Msg] ->
-                    Result = ecpool:pick_and_do(
-                        PoolName,
-                        {?MODULE, worker_do_literal, [ChannelState, Msg, State]},
-                        ApplyMode
-                    ),
-                    handle_result(Result, ResourceId, Query);
-                Msgs ->
-                    %% Batching is enabled by default in the action schema.
-                    %% Non-INSERT statements cannot be combined into a single
-                    %% statement, so a coalesced batch is executed sequentially
-                    %% on one connection and one result is reported per request.
-                    Result = ecpool:pick_and_do(
-                        PoolName,
-                        {?MODULE, worker_do_literal_batch, [ChannelState, Msgs, State]},
-                        ApplyMode
-                    ),
-                    handle_batch_result(Result, ResourceId, Query)
-            end
-    end.
+    Result =
+        case maps:get(statement_type, ChannelState) of
+            insert ->
+                ecpool:pick_and_do(
+                    PoolName,
+                    {?MODULE, worker_do_insert, [ChannelState, [Msg], State]},
+                    ApplyMode
+                );
+            Type when is_atom(Type) ->
+                ecpool:pick_and_do(
+                    PoolName,
+                    {?MODULE, worker_do_literal, [ChannelState, Msg, State]},
+                    ApplyMode
+                )
+        end,
+    handle_result(Result, ResourceId, Query).
+
+%% A coalesced batch of requests; batching is enabled in the action schema by
+%% default. INSERTs are sent as one multi-row statement, while non-INSERT
+%% statements cannot be combined: they are executed sequentially on one
+%% connection and one result is reported per request.
+-spec do_batch_query(resource_id(), [{channel_id(), map()}], ApplyMode :: handover, state()) ->
+    batch_query_result().
+do_batch_query(ResourceId, [{ChannelId, _Msg} | _] = Query, ApplyMode, State) ->
+    #{pool_name := PoolName, installed_channels := Channels} = State,
+    ?TRACE(
+        "BATCH_QUERY_SYNC",
+        "dameng_connector_received",
+        #{query => Query, connector => ResourceId, state => State}
+    ),
+    ChannelState = maps:get(ChannelId, Channels),
+    Msgs = get_msgs(Query),
+    Result =
+        case maps:get(statement_type, ChannelState) of
+            insert ->
+                ecpool:pick_and_do(
+                    PoolName,
+                    {?MODULE, worker_do_insert, [ChannelState, Msgs, State]},
+                    ApplyMode
+                );
+            Type when is_atom(Type) ->
+                ecpool:pick_and_do(
+                    PoolName,
+                    {?MODULE, worker_do_literal_batch, [ChannelState, Msgs, State]},
+                    ApplyMode
+                )
+        end,
+    handle_batch_result(Result, ResourceId, Query).
 
 %% A non-INSERT batch produces one result per request. The resource buffer
 %% worker expands the list into one reply per request, and retries only the
@@ -909,17 +911,8 @@ zip([H1 | T1], [H2 | T2]) -> [{H1, H2} | zip(T1, T2)].
 %% Helpers
 %%===================
 
-get_channel_id([{ChannelId, _Req} | _]) ->
-    ChannelId;
-get_channel_id({ChannelId, _Req}) ->
-    ChannelId.
-
-get_msgs([]) ->
-    [];
-get_msgs([{_Ch, Msg} | Rest]) ->
-    [Msg | get_msgs(Rest)];
-get_msgs({_Ch, Msg}) ->
-    [Msg].
+get_msgs(Msgs) ->
+    [Msg || {_Ch, Msg} <- Msgs].
 
 %% Ensure the `odbcserver' port program shipped with the OTP `odbc' application is
 %% runnable (mode 755), otherwise `odbc:connect/2' may fail even though the driver
