@@ -58,7 +58,6 @@
     reset_config/3,
     data_dir/0,
     etc_file/1,
-    cert_file/1,
     mutable_certs_dir/0
 ]).
 
@@ -347,11 +346,6 @@ data_dir() ->
 %% @doc Returns the directory for user uploaded certificates.
 mutable_certs_dir() ->
     filename:join([data_dir(), certs]).
-
-%% @doc Returns the absolute path for a PEM certificate file
-%% which is installed or provisioned by sysadmin in $EMQX_ETC_DIR/certs.
-cert_file(SubPath) ->
-    filename:join([etc_dir(), "certs", SubPath]).
 
 %% @doc Returns the absolute path for a file in EMQX's etc dir.
 %% i.e. for rpm and deb installation, it's /etc/emqx/

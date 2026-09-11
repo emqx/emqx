@@ -59,7 +59,7 @@
 ]).
 
 -ifdef(TEST).
--export([cert_expiry_at_from_path/1, acl_metric_meta/0]).
+-export([cert_expiry_at_from_path/1, cert_data/1, acl_metric_meta/0]).
 -endif.
 
 %%--------------------------------------------------------------------
@@ -1275,10 +1275,13 @@ gen_point_cert_expiry_at(Type, Name, Path) ->
     {[{listener_type, Type}, {listener_name, Name}], cert_expiry_at_from_path(Path)}.
 
 resolve_listener_certfile(Type, Name, #{enable := true, ssl_options := #{} = SSLOpts0}) ->
+    %% A listener with no certificate configured serves the node's default one;
+    %% report that certificate. Nothing is generated here: a scrape only reads.
+    SSLOpts1 = emqx_tls_lib:default_certs_if_present(SSLOpts0),
     %% `to_server_opts' throws when a `managed_certs' reference cannot be resolved
     %% (e.g. the bundle was deleted out-of-band); one bad listener must not fail the
     %% whole scrape.
-    try emqx_tls_lib:to_server_opts(tls, SSLOpts0) of
+    try emqx_tls_lib:to_server_opts(tls, SSLOpts1) of
         SSLOpts ->
             case lists:keyfind(certfile, 1, SSLOpts) of
                 {certfile, Certfile} ->

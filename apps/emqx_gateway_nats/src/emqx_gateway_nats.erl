@@ -59,7 +59,7 @@ on_gateway_update(
     Config, _Gateway = #{config := OldConfig, name := GwName}, GwState = #{ctx := Ctx}
 ) ->
     OldListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
-        GwName, OldConfig, ?MOD_CFG, Ctx
+        GwName, OldConfig, ?MOD_CFG, Ctx, #{generate_default_certs => false}
     ),
     NewListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
         GwName, Config, ?MOD_CFG, Ctx
