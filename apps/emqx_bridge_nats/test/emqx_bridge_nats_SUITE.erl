@@ -9,7 +9,6 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include("../src/emqx_bridge_nats.hrl").
@@ -43,10 +42,9 @@ groups() ->
             t_auth_nkey,
             t_tls,
             t_tls_first,
-            t_creds_file_materialization,
-            t_credentials_validation_edges,
             t_auth_jwt_creds,
-            t_cluster_credentials_materialization
+            t_credentials_content_validation,
+            t_cluster_credentials_content
         ]}
     ].
 
@@ -793,10 +791,10 @@ t_tls_first(Config) ->
     ).
 
 %%--------------------------------------------------------------------
-%% Credentials materialization and cluster behavior
+%% Inline credentials content
 %%--------------------------------------------------------------------
 
-t_creds_file_materialization(_Config) ->
+t_credentials_content_validation(_Config) ->
     Seed = encode_seed(<<1:256>>),
     Contents = iolist_to_binary([
         "-----BEGIN NATS USER JWT-----\njwt\n------END NATS USER JWT------\n",
@@ -804,117 +802,14 @@ t_creds_file_materialization(_Config) ->
         Seed,
         "\n------END USER NKEY SEED------\n"
     ]),
-    RawConfig = #{
-        <<"authentication">> => #{
-            <<"mechanism">> => <<"jwt">>,
-            <<"credentials_file">> => Contents
-        }
-    },
-    Path = [<<"connectors">>, <<"nats">>, <<"creds_materialization">>],
-    {ok, StoredConfig} = emqx_bridge_nats_connector:pre_config_update(
-        Path, <<"creds_materialization">>, RawConfig, undefined
-    ),
-    StoredAuth = maps:get(<<"authentication">>, StoredConfig),
-    Filename = maps:get(<<"credentials_file">>, StoredAuth),
-    ?assert(is_binary(Filename)),
-    ?assertEqual({ok, Contents}, file:read_file(Filename)),
-    {ok, #file_info{mode = Mode}} = file:read_file_info(Filename),
-    ?assertEqual(8#600, Mode band 8#777),
-    {ok, StoredConfig} = emqx_bridge_nats_connector:pre_config_update(
-        Path, <<"creds_materialization">>, StoredConfig, undefined
-    ),
-    ok = file:delete(Filename).
-
-t_credentials_validation_edges(Config) ->
-    Seed = encode_seed(<<1:256>>),
-    Contents = iolist_to_binary([
-        "-----BEGIN NATS USER JWT-----\njwt\n------END NATS USER JWT------\n",
-        "-----BEGIN USER NKEY SEED-----\n",
-        Seed,
-        "\n------END USER NKEY SEED------\n"
-    ]),
-    Path = [<<"connectors">>, <<"nats">>, <<"credentials_edges">>],
-    {ok, StoredConfig} = emqx_bridge_nats_connector:pre_config_update(
-        Path,
-        <<"credentials_edges">>,
-        #{authentication => #{mechanism => jwt, credentials_file => Contents}},
-        undefined
-    ),
-    #{authentication := #{credentials_file := Filename}} = StoredConfig,
-    ?assert(is_list(Filename) orelse is_binary(Filename)),
-    ?assertEqual({ok, Contents}, file:read_file(Filename)),
-    ok = file:delete(Filename),
+    ?assertEqual(ok, enats_auth:validate_credentials(Contents)),
     InvalidContents = <<
         "-----BEGIN NATS USER JWT-----\njwt\n------END NATS USER JWT------\n",
         "-----BEGIN USER NKEY SEED-----\ninvalid\n------END USER NKEY SEED------\n"
     >>,
-    ?assertMatch(
-        {error, #{reason := invalid_credentials}},
-        emqx_bridge_nats_connector:pre_config_update(
-            Path,
-            <<"credentials_edges">>,
-            #{authentication => #{mechanism => jwt, credentials_file => InvalidContents}},
-            undefined
-        )
-    ),
-    ?assertMatch(
-        {error, #{reason := invalid_credentials}},
-        emqx_bridge_nats_connector:pre_config_update(
-            Path,
-            <<"credentials_edges">>,
-            #{
-                <<"authentication">> => #{
-                    <<"mechanism">> => <<"jwt">>,
-                    <<"credentials_file">> => InvalidContents
-                }
-            },
-            undefined
-        )
-    ),
-    ExistingPath = filename:join(?config(priv_dir, Config), "existing.creds"),
-    ok = file:write_file(ExistingPath, Contents),
-    ?assertEqual(
-        {ok, #{authentication => #{mechanism => jwt, credentials_file => ExistingPath}}},
-        emqx_bridge_nats_connector:pre_config_update(
-            Path,
-            <<"credentials_edges">>,
-            #{authentication => #{mechanism => jwt, credentials_file => ExistingPath}},
-            undefined
-        )
-    ),
-    ok = file:delete(ExistingPath),
-    ?assertEqual(
-        {ok, #{other => value}},
-        emqx_bridge_nats_connector:pre_config_update(
-            Path, <<"credentials_edges">>, #{other => value}, undefined
-        )
-    ).
+    ?assertMatch({error, _}, enats_auth:validate_credentials(InvalidContents)).
 
-t_auth_jwt_creds(Config) ->
-    {Fixture, ConfigFile, Credentials} = jwt_credentials_fixture(Config),
-    #{user_public := UserPublic, user_private := UserPrivate, user_jwt := UserJWT} = Fixture,
-    auth_publish_case(
-        Config,
-        ["-c", ConfigFile],
-        #{
-            <<"mechanism">> => <<"jwt">>,
-            <<"credentials_file">> => Credentials
-        },
-        #{
-            mechanism => jwt,
-            public_key => UserPublic,
-            jwt => fun() -> UserJWT end,
-            sign_fun => enats_auth:nkey_signer(UserPublic, UserPrivate)
-        },
-        #{},
-        #{},
-        fun(ConnectorBody) ->
-            assert_credentials_not_exposed(ConnectorBody),
-            assert_credentials_file_is_gc_safe(Config, Credentials)
-        end
-    ).
-
-t_cluster_credentials_materialization(Config) ->
+t_cluster_credentials_content(Config) ->
     {_Fixture, _NatsConfigFile, Credentials} = jwt_credentials_fixture(Config),
     Name = atom_to_binary(?FUNCTION_NAME),
     ConnectorConfig = #{
@@ -924,7 +819,7 @@ t_cluster_credentials_materialization(Config) ->
         <<"connect_timeout">> => <<"2s">>,
         <<"authentication">> => #{
             <<"mechanism">> => <<"jwt">>,
-            <<"credentials_file">> => Credentials
+            <<"credentials_file_content">> => Credentials
         },
         <<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}
     },
@@ -938,17 +833,37 @@ t_cluster_credentials_materialization(Config) ->
     ),
     [N1, N2] = Nodes,
     try
-        ?assertEqual(
-            emqx_bridge_nats_connector, ?ON(N1, emqx_connector_info:config_transform_module(nats))
-        ),
         {ok, _} = ?ON(N1, emqx_connector:create(?global_ns, nats, Name, ConnectorConfig)),
-        Filename1 = assert_cluster_credentials_file(N1, Name, Credentials),
-        Filename2 = assert_cluster_credentials_file(N2, Name, Credentials),
-        ?assertNotEqual(Filename1, Filename2),
+        assert_cluster_credentials_content(N1, Name),
+        assert_cluster_credentials_content(N2, Name),
         ok
     after
         ok = emqx_cth_cluster:stop(Nodes)
     end.
+
+t_auth_jwt_creds(Config) ->
+    {Fixture, ConfigFile, Credentials} = jwt_credentials_fixture(Config),
+    #{user_public := UserPublic, user_private := UserPrivate, user_jwt := UserJWT} = Fixture,
+    auth_publish_case(
+        Config,
+        ["-c", ConfigFile],
+        #{
+            <<"mechanism">> => <<"jwt">>,
+            <<"credentials_file_content">> => Credentials
+        },
+        #{
+            mechanism => jwt,
+            public_key => UserPublic,
+            jwt => fun() -> UserJWT end,
+            sign_fun => enats_auth:nkey_signer(UserPublic, UserPrivate)
+        },
+        #{},
+        #{},
+        fun(ConnectorBody) ->
+            assert_credentials_not_exposed(ConnectorBody),
+            assert_credentials_content_config(Config)
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Test helpers
@@ -1024,37 +939,34 @@ auth_publish_case(
         stop_nats(Pid)
     end.
 
-assert_credentials_file_is_gc_safe(Config, Contents) ->
-    Name = proplists:get_value(connector_name, Config),
-    Filename = emqx:get_raw_config(
-        [connectors, nats, Name, authentication, credentials_file], undefined
-    ),
-    ?assert(is_binary(Filename) orelse is_list(Filename)),
-    ?assert(Filename =/= Contents),
-    {ok, _} = emqx_tls_certfile_gc:force(),
-    ?assertMatch({ok, _}, file:read_file_info(Filename)),
-    ok.
-
 assert_credentials_not_exposed(ConnectorBody) ->
     ?assertEqual(nomatch, binary:match(ConnectorBody, <<"BEGIN NATS USER JWT">>)),
     ?assertEqual(nomatch, binary:match(ConnectorBody, <<"BEGIN USER NKEY SEED">>)),
     ok.
 
-assert_cluster_credentials_file(Node, Name, Contents) ->
-    Filename = ?ON(
-        Node,
-        emqx:get_raw_config(
-            [connectors, nats, Name, authentication, credentials_file], undefined
-        )
+assert_credentials_content_config(Config) ->
+    Name = proplists:get_value(connector_name, Config),
+    Authentication = emqx:get_raw_config(
+        [connectors, nats, Name, authentication], #{}
     ),
-    ?assert(is_binary(Filename) orelse is_list(Filename)),
-    ?assert(Filename =/= Contents),
-    ?assertEqual({ok, Contents}, ?ON(Node, file:read_file(Filename))),
-    {ok, #file_info{mode = Mode}} = ?ON(Node, file:read_file_info(Filename)),
-    ?assertEqual(8#600, Mode band 8#777),
-    {ok, _} = ?ON(Node, emqx_tls_certfile_gc:force()),
-    ?assertMatch({ok, _}, ?ON(Node, file:read_file_info(Filename))),
-    Filename.
+    ?assertEqual(undefined, maps:get(credentials_file, Authentication, undefined)),
+    ?assert(
+        maps:is_key(credentials_file_content, Authentication) orelse
+            maps:is_key(<<"credentials_file_content">>, Authentication)
+    ),
+    ok.
+
+assert_cluster_credentials_content(Node, Name) ->
+    Authentication = ?ON(
+        Node,
+        emqx:get_raw_config([connectors, nats, Name, authentication], #{})
+    ),
+    ?assertEqual(undefined, maps:get(credentials_file, Authentication, undefined)),
+    ?assert(
+        maps:is_key(credentials_file_content, Authentication) orelse
+            maps:is_key(<<"credentials_file_content">>, Authentication)
+    ),
+    ok.
 
 cluster_app_specs() ->
     [

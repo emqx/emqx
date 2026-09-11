@@ -26,7 +26,6 @@
     on_query/3,
     on_batch_query/3
 ]).
--export([pre_config_update/4]).
 -export([connect/1, publish/3, publish_batch/3]).
 
 %%--------------------------------------------------------------------
@@ -35,9 +34,6 @@
 
 resource_type() -> ?CONNECTOR_TYPE.
 callback_mode() -> always_sync.
-
-pre_config_update(Path, _Name, Config, _OldConfig) ->
-    emqx_bridge_nats_credentials:materialize(Path, Config).
 
 on_start(InstanceId, Config) ->
     case client_options(Config) of
@@ -376,14 +372,11 @@ auth_options(#{mechanism := user_password, username := Username, password := Pas
     #{mechanism => user_password, username => Username, password => secret_provider(Password)};
 auth_options(#{mechanism := nkey, nkey_seed := Seed}) ->
     #{mechanism => nkey_seed, seed => secret_provider(Seed)};
-auth_options(#{mechanism := jwt, credentials_file := Filename}) ->
-    case enats_auth:validate_credentials_file(Filename) of
-        ok ->
-            {ok, Auth} = enats_auth:credentials_file(Filename),
-            Auth;
-        {error, Reason} ->
-            {error, Reason}
-    end;
+auth_options(#{mechanism := jwt, credentials_file_content := Secret}) ->
+    #{
+        mechanism => credentials,
+        provider => fun() -> {ok, emqx_secret:unwrap(Secret)} end
+    };
 auth_options(Authentication) ->
     {error, {invalid_authentication, Authentication}}.
 

@@ -48,10 +48,10 @@ nkey_seed.desc:
 Use the complete NKey seed, not the public key. The seed is resolved lazily for each connection and is not exposed in connector state."""
 nkey_seed.label: "NKey Seed"
 
-credentials_file.desc:
-"""A path to a standard NATS <code>.creds</code> file, or the file contents supplied inline.<br/>
-Inline contents are materialized to a protected file before the connector starts. File contents are validated at startup and read again after reconnect."""
-credentials_file.label: "Credentials File"
+credentials_file_content.desc:
+"""The complete NATS <code>.creds</code> content containing the user JWT and NKey seed.<br/>
+The value is stored as a secret and is resolved only when the connector connects or reconnects."""
+credentials_file_content.label: "Credentials File Content"
 
 tls_handshake.desc:
 """Selects the TLS handshake sequence when <code>ssl.enable = true</code>.<br/>

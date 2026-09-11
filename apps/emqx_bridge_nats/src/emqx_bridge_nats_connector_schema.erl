@@ -132,10 +132,9 @@ fields(auth_jwt) ->
                 jwt,
                 #{required => true, desc => ?DESC("mechanism")}
             )},
-        {credentials_file,
-            hoconsc:mk(
-                binary(),
-                #{required => true, desc => ?DESC("credentials_file")}
+        {credentials_file_content,
+            emqx_schema_secret:mk(
+                #{required => true, desc => ?DESC("credentials_file_content")}
             )}
     ].
 
