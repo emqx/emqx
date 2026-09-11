@@ -296,9 +296,18 @@ oidc_provider_params() ->
 
         <<"ssl">> => #{
             <<"enable">> => true,
-            <<"cacertfile">> => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>
+            <<"cacertfile">> => ci_cert(<<"ca.crt">>)
         }
     }.
+
+%% Dex serves `.ci/docker-compose-file/certs/server.crt', so this is the CA that
+%% signed it.
+ci_cert(Name) ->
+    iolist_to_binary(
+        filename:join([
+            emqx_common_test_helpers:proj_root(), ".ci", "docker-compose-file", "certs", Name
+        ])
+    ).
 
 oidc_provider_params(Issuer) ->
     (oidc_provider_params())#{<<"issuer">> => emqx_utils_conv:bin(Issuer)}.

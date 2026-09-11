@@ -121,8 +121,22 @@ else
     PROTO_DIST='inet_tls'
 fi
 
+mkdir -p tmp
+
+## Certificates for the TLS distribution between the nodes (`ssl_dist.conf'
+## names them under etc/certs), haproxy's TLS frontend, and the probes below.
+## Generated rather than taken from the source tree: EMQX ships no example set.
+## The nodes read them through a bind mount as uid 1000, so the key files must
+## be readable by others.
+CERT_DIR="$(pwd)/tmp/certs"
+if [ ! -f "$CERT_DIR/cacert.pem" ]; then
+    ./scripts/gen-test-certs.sh "$CERT_DIR"
+fi
+chmod a+r "$CERT_DIR"/*
+
 docker run -d -t --restart=always --name "$NODE1" \
   --net "$NET" \
+  -v "$CERT_DIR:/opt/emqx/etc/certs:ro" \
   ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
@@ -142,6 +156,7 @@ docker run -d -t --restart=always --name "$NODE1" \
 
 docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
+  -v "$CERT_DIR:/opt/emqx/etc/certs:ro" \
   ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
@@ -158,15 +173,6 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_DASHBOARD__DEFAULT_PASSWORD="${DASHBOARD_PASSWORD}" \
   -e EMQX_LICENSE__KEY="${LICENSE_KEY2:-evaluation}" \
   "$IMAGE2"
-
-mkdir -p tmp
-
-## Certificates for haproxy's TLS frontend and the probes below. Generated
-## rather than taken from the source tree: EMQX no longer ships an example set.
-CERT_DIR="$(pwd)/tmp/certs"
-if [ ! -f "$CERT_DIR/cacert.pem" ]; then
-    ./scripts/gen-test-certs.sh "$CERT_DIR"
-fi
 
 cat <<EOF > tmp/haproxy.cfg
 ##----------------------------------------------------------------

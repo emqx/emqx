@@ -158,9 +158,9 @@ t_compatibility_ssl_cert(init, Config) ->
             <<"listeners">> => #{
                 <<"https">> => #{
                     bind => 18084,
-                    cacertfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cacert.pem">>),
-                    certfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cert.pem">>),
-                    keyfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/key.pem">>),
+                    cacertfile => emqx_common_test_helpers:test_cert("cacert.pem"),
+                    certfile => emqx_common_test_helpers:test_cert("cert.pem"),
+                    keyfile => emqx_common_test_helpers:test_cert("key.pem"),
                     max_connections => MaxConnection
                 }
             }
@@ -184,15 +184,9 @@ t_normal_ssl_cert(init, Config) ->
                 <<"https">> => #{
                     <<"bind">> => 18084,
                     <<"ssl_options">> => #{
-                        <<"cacertfile">> => naive_env_interpolation(
-                            <<"${EMQX_ETC_DIR}/certs/cacert.pem">>
-                        ),
-                        <<"certfile">> => naive_env_interpolation(
-                            <<"${EMQX_ETC_DIR}/certs/cert.pem">>
-                        ),
-                        <<"keyfile">> => naive_env_interpolation(
-                            <<"${EMQX_ETC_DIR}/certs/key.pem">>
-                        ),
+                        <<"cacertfile">> => emqx_common_test_helpers:test_cert("cacert.pem"),
+                        <<"certfile">> => emqx_common_test_helpers:test_cert("cert.pem"),
+                        <<"keyfile">> => emqx_common_test_helpers:test_cert("key.pem"),
                         <<"depth">> => 5
                     },
                     <<"max_connections">> => MaxConnection
@@ -258,7 +252,7 @@ t_verify_cacertfile(Config) ->
     VerifyPeerConf2 = emqx_utils_maps:deep_put(
         [<<"dashboard">>, <<"listeners">>, <<"https">>, <<"ssl_options">>, <<"cacertfile">>],
         VerifyPeerConf1,
-        naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cacert.pem">>)
+        emqx_common_test_helpers:test_cert("cacert.pem")
     ),
     {ok, _} = emqx:update_config([<<"dashboard">>], maps:get(<<"dashboard">>, VerifyPeerConf2)),
     wait_listener_config_processed_requests(),
@@ -424,11 +418,12 @@ naive_env_interpolation(Str0) ->
     ?assertNot(lists:member($$, Str1)),
     Str1.
 
+%% The generated test certificates, as the listener is configured with them.
 default_ssl_cert() ->
     #{
-        cacertfile => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
-        certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
-        keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>
+        cacertfile => iolist_to_binary(emqx_common_test_helpers:test_cert("cacert.pem")),
+        certfile => iolist_to_binary(emqx_common_test_helpers:test_cert("cert.pem")),
+        keyfile => iolist_to_binary(emqx_common_test_helpers:test_cert("key.pem"))
     }.
 
 %% The certificate this node generated for itself, as the listener resolves it:

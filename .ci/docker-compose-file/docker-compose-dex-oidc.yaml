@@ -34,9 +34,6 @@ services:
     image: public.ecr.aws/docker/library/haproxy:2.4
     volumes:
       - ./dex/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
-      - ../../apps/emqx/etc/certs/cert.pem:/usr/local/etc/haproxy/certs/cert.pem
-      - ../../apps/emqx/etc/certs/key.pem:/usr/local/etc/haproxy/certs/key.pem
-      - ../../apps/emqx/etc/certs/cacert.pem:/usr/local/etc/haproxy/certs/cacert.pem
     networks:
       - emqx_bridge
     working_dir: /usr/local/etc/haproxy
@@ -45,5 +42,4 @@ services:
       - -c
       - |
         set -x
-        cat /usr/local/etc/haproxy/certs/cert.pem /usr/local/etc/haproxy/certs/key.pem > /var/lib/haproxy/emqx.pem
         haproxy -f /usr/local/etc/haproxy/haproxy.cfg

@@ -743,7 +743,7 @@ defmodule EMQXUmbrella.MixProject do
       force: overwrite?
     )
 
-    # required by emqx_auth
+    # Holds only a README: the place operators put their own certificates.
     File.cp_r!(
       "apps/emqx/etc/certs",
       Path.join(etc, "certs")
