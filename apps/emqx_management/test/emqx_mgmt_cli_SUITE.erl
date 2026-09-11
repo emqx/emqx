@@ -674,6 +674,31 @@ t_listeners_accept_stats(_Config) ->
         ok = emqx_listeners:restart_listener('tcp:default')
     end.
 
+-doc """
+Check that `listeners` prints a disabled listener with `running` as the 5th
+line and without the counters, which exist only for a running listener.
+""".
+t_listeners_disabled(_Config) ->
+    Conf = #{<<"bind">> => <<"127.0.0.1:21884">>, <<"enable">> => false},
+    {ok, _} = emqx:update_config([listeners, tcp, cli_disabled], {create, Conf}),
+    try
+        Block = listener_block("tcp:cli_disabled"),
+        ?assertEqual(
+            [
+                <<"  listen_on             : 127.0.0.1:21884">>,
+                <<"  acceptors             : 16">>,
+                <<"  proxy_protocol        : false">>,
+                <<"  enable                : false">>,
+                <<"  running               : false">>,
+                <<"  resolved_address      : 127.0.0.1">>,
+                <<"  resolved_address_from : bind">>
+            ],
+            Block
+        )
+    after
+        emqx:remove_config([listeners, tcp, cli_disabled])
+    end.
+
 t_authz(_Config) ->
     %% authz cache-clean all         # Clears authorization cache on all nodes
     ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", "all"])),
