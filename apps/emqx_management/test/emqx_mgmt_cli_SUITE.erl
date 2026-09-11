@@ -660,7 +660,20 @@ t_listeners_accept_stats(_Config) ->
         )
     after
         ok = emqx_listeners:restart_listener('tcp:default')
-    end.
+    end,
+    %% A kicked client is counted in the shutdown counts.
+    {ok, C2} = emqtt:start_link([{clientid, <<"t_listeners_accept_stats_kick">>}]),
+    unlink(C2),
+    {ok, _} = emqtt:connect(C2),
+    ok = emqx_cm:kick_session(<<"t_listeners_accept_stats_kick">>),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            [_ | _],
+            [N || {kicked, N} <- shutdown_count_lines(listener_block(Id))]
+        )
+    ).
 
 -doc """
 Check that `listeners` prints a disabled listener with `running` as the 5th
@@ -1083,19 +1096,9 @@ listener_block(Id) ->
     lists:takewhile(fun(L) -> binary:first(L) =:= $\s end, Rest).
 
 %% Return the nested counters printed under `accept_stats`. Check that they
-%% are non-zero and follow the esockd order.
+%% are non-zero, follow the esockd order and have their colon in column 24.
 accept_stats_lines(Block) ->
-    [_ | Rest] = lists:dropwhile(fun(L) -> L =/= <<"  accept_stats          :">> end, Block),
-    Nested = lists:takewhile(fun(L) -> binary:part(L, 0, 4) =:= <<"    ">> end, Rest),
-    Stats = lists:map(
-        fun(L) ->
-            {match, [K, V]} = re:run(L, <<"^    (\\w+) *: (\\d+)$">>, [
-                {capture, all_but_first, binary}
-            ]),
-            {binary_to_atom(K), binary_to_integer(V)}
-        end,
-        Nested
-    ),
+    Stats = counter_lines(<<"accept_stats">>, 20, Block),
     Order = [
         accepted,
         closed_sys_limit,
@@ -1108,8 +1111,29 @@ accept_stats_lines(Block) ->
     ],
     Keys = [K || {K, _} <- Stats],
     ?assertEqual([K || K <- Order, lists:member(K, Keys)], Keys),
-    ?assertEqual([], [KV || {_, 0} = KV <- Stats]),
     Stats.
+
+%% Return the nested counters printed under `shutdown_count`. Check that they
+%% are non-zero and have their colon in column 31.
+shutdown_count_lines(Block) ->
+    counter_lines(<<"shutdown_count">>, 27, Block).
+
+counter_lines(Parent, Width, Block) ->
+    Header = iolist_to_binary(["  ", string:pad(Parent, 22), ":"]),
+    [_ | Rest] = lists:dropwhile(fun(L) -> L =/= Header end, Block),
+    Nested = lists:takewhile(fun(L) -> binary:part(L, 0, 4) =:= <<"    ">> end, Rest),
+    Counters = lists:map(
+        fun(L) ->
+            ?assertEqual({4 + Width, 1}, binary:match(L, <<":">>), L),
+            {match, [K, V]} = re:run(L, <<"^    (\\w+) *: (\\d+)$">>, [
+                {capture, all_but_first, binary}
+            ]),
+            {binary_to_atom(K), binary_to_integer(V)}
+        end,
+        Nested
+    ),
+    ?assertEqual([], [KV || {_, 0} = KV <- Counters]),
+    Counters.
 
 capture_ctl(Args) ->
     {Result, OutputChunks} =
