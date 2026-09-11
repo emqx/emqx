@@ -15,8 +15,8 @@ services:
     container_name: authn-server
     volumes:
       - ./dex/config.dev.yaml:/opt/config.dev.yaml:ro
-      - ./certs/server.crt:/etc/dex/cert.pem:ro
-      - ./certs/server.key:/etc/dex/key.pem:ro
+      - ./certs/cert.pem:/etc/dex/cert.pem:ro
+      - ./certs/key.pem:/etc/dex/key.pem:ro
     command: dex serve /opt/config.dev.yaml
     # ports:
     #   - 5556:5556

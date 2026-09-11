@@ -3,9 +3,9 @@ services:
     container_name: redis-tls
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
-      - ./certs/server.crt:/etc/certs/redis.crt
-      - ./certs/server.key:/etc/certs/redis.key
-      - ./certs/ca.crt:/etc/certs/ca.crt
+      - ./certs/cert.pem:/etc/certs/redis.crt
+      - ./certs/key.pem:/etc/certs/redis.key
+      - ./certs/cacert.pem:/etc/certs/ca.crt
       - ./redis/single-tls:/usr/local/etc/redis
     ports:
       - "6380:6380"

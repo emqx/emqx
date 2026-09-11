@@ -249,18 +249,18 @@ t_clear_certs(Config) when is_list(Config) ->
 
     %% create, make sure the cert files are created
     NewConf = emqx_utils_maps:deep_put(
-        [<<"ssl_options">>, <<"certfile">>], ConfTemp, cert_file("certfile")
+        [<<"ssl_options">>, <<"certfile">>], ConfTemp, cert_file("cert.pem")
     ),
     NewConf2 = emqx_utils_maps:deep_put(
-        [<<"ssl_options">>, <<"keyfile">>], NewConf, cert_file("keyfile")
+        [<<"ssl_options">>, <<"keyfile">>], NewConf, cert_file("key.pem")
     ),
     _ = request(post, NewPath, [], NewConf2),
     ListResult1 = list_pem_dir("ssl", "clear"),
     ?assertMatch({ok, [_, _]}, ListResult1),
 
-    %% update
+    %% update, with any other key: a changed key must be written anew
     UpdateConf = emqx_utils_maps:deep_put(
-        [<<"ssl_options">>, <<"keyfile">>], NewConf2, cert_file("keyfile2")
+        [<<"ssl_options">>, <<"keyfile">>], NewConf2, cert_file("client-key.pem")
     ),
     _ = request(put, NewPath, [], UpdateConf),
     _ = emqx_tls_certfile_gc:force(),
@@ -619,13 +619,12 @@ list_pem_dir(Type, Name) ->
     Dir = filename:join([emqx:mutable_certs_dir(), ListenerDir]),
     file:list_dir(Dir).
 
-data_file(Name) ->
-    Dir = code:lib_dir(emqx),
-    {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
-    Bin.
-
+%% Contents of a file from the generated test certificate set. The case
+%% checks that contents given inline end up as files under the managed
+%% certificate directory; which certificate it is does not matter.
 cert_file(Name) ->
-    data_file(filename:join(["certs", Name])).
+    {ok, Bin} = file:read_file(emqx_common_test_helpers:test_cert(Name)),
+    Bin.
 
 default_listeners_hocon_text() ->
     Sc = #{roots => emqx_schema:listeners()},

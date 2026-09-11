@@ -6,11 +6,11 @@ services:
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
     - ./redis/cluster-tls:/usr/local/etc/redis
-    - ./certs/server.crt:/etc/certs/cert.pem
-    - ./certs/server.key:/etc/certs/key.pem
-    - ./certs/ca.crt:/etc/certs/cacert.pem
-    - ./certs/client.pem:/etc/certs/client.pem
-    - ./certs/client.key:/etc/certs/client.key
+    - ./certs/cert.pem:/etc/certs/cert.pem
+    - ./certs/key.pem:/etc/certs/key.pem
+    - ./certs/cacert.pem:/etc/certs/cacert.pem
+    - ./certs/client-cert.pem:/etc/certs/client.pem
+    - ./certs/client-key.pem:/etc/certs/client.key
     command: >
       sh -c 'exec redis-server /usr/local/etc/redis/redis.conf
       --cluster-port 16379

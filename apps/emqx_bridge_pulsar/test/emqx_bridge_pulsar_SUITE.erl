@@ -273,15 +273,15 @@ start_consumer(TestCase, PulsarTopic, TCConfig) ->
     ConsumerClientId = list_to_atom(
         atom_to_list(TestCase) ++ integer_to_list(erlang:unique_integer())
     ),
-    %% The pulsar container serves `.ci/docker-compose-file/certs/server.crt'.
+    %% The pulsar container serves `.ci/docker-compose-file/certs/cert.pem'.
     CertsPath = filename:join([
         emqx_common_test_helpers:proj_root(), ".ci", "docker-compose-file", "certs"
     ]),
     SSLOpts = #{
         enable => IsTLS,
-        keyfile => filename:join([CertsPath, "client.key"]),
-        certfile => filename:join([CertsPath, "client.pem"]),
-        cacertfile => filename:join([CertsPath, "ca.crt"])
+        keyfile => filename:join([CertsPath, "client-key.pem"]),
+        certfile => filename:join([CertsPath, "client-cert.pem"]),
+        cacertfile => filename:join([CertsPath, "cacert.pem"])
     },
     Opts = #{enable_ssl => IsTLS, ssl_opts => emqx_tls_lib:to_client_opts(SSLOpts)},
     {ok, _} = pulsar:ensure_supervised_client(ConsumerClientId, [Server], Opts),

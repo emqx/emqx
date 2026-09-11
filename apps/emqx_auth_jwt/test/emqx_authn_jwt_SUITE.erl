@@ -47,9 +47,18 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    %% The mock JWKS server's certificate, issued for `authn-server': the cases
+    %% choose between passing and failing hostname verification with
+    %% `server_name_indication'. Kept in a persistent term because the option
+    %% builders below have no test case configuration to read from.
+    MockCerts = emqx_common_test_helpers:mock_server_certs(
+        ?config(priv_dir, Config), "authn-server"
+    ),
+    persistent_term:put({?MODULE, mock_certs}, MockCerts),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    persistent_term:erase({?MODULE, mock_certs}),
     ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
@@ -697,9 +706,9 @@ t_jwks_custom_headers(_Config) ->
         <<"pool_size">> => 1,
         <<"refresh_interval">> => 1_000,
         <<"ssl">> => #{
-            <<"keyfile">> => cert_file("client.key"),
-            <<"certfile">> => cert_file("client.crt"),
-            <<"cacertfile">> => cert_file("ca.crt"),
+            <<"keyfile">> => cert_file(client_key),
+            <<"certfile">> => cert_file(client_cert),
+            <<"cacertfile">> => cert_file(ca_cert),
             <<"enable">> => true,
             <<"verify">> => <<"verify_peer">>,
             <<"server_name_indication">> => <<"authn-server">>
@@ -864,9 +873,9 @@ t_jwks_default_ssl_verify_profiles(Config) ->
 
     AuthenticatorConfig = jwks_api_config(#{
         <<"enable">> => true,
-        <<"cacertfile">> => cert_file("ca.crt"),
-        <<"certfile">> => cert_file("client.crt"),
-        <<"keyfile">> => cert_file("client.key"),
+        <<"cacertfile">> => cert_file(ca_cert),
+        <<"certfile">> => cert_file(client_cert),
+        <<"keyfile">> => cert_file(client_key),
         <<"server_name_indication">> => <<"authn-server-unknown-host">>
     }),
     Result = ?wait_async_action(
@@ -1555,8 +1564,20 @@ data_file(Name) ->
     Dir = code:lib_dir(emqx_auth),
     list_to_binary(filename:join([Dir, "test", "data", Name])).
 
-cert_file(Name) ->
-    data_file(filename:join(["certs", Name])).
+%% Paths as binaries: the raw configuration wants binaries. The server side is
+%% the mock server's own certificate; the client certificate is any valid one,
+%% since the mock server does not verify its peer.
+cert_file(ca_cert) -> bin(maps:get(cacertfile, mock_server_certs()));
+cert_file(server_cert) -> bin(maps:get(certfile, mock_server_certs()));
+cert_file(server_key) -> bin(maps:get(keyfile, mock_server_certs()));
+cert_file(client_cert) -> bin(emqx_common_test_helpers:test_cert("client-cert.pem"));
+cert_file(client_key) -> bin(emqx_common_test_helpers:test_cert("client-key.pem")).
+
+mock_server_certs() ->
+    persistent_term:get({?MODULE, mock_certs}).
+
+bin(Path) ->
+    iolist_to_binary(Path).
 
 generate_jws('hmac-based', Payload, Secret) ->
     JWK = jose_jwk:from_oct(Secret),
@@ -1612,9 +1633,9 @@ generate_none_jws(Payload) ->
 
 client_ssl_opts() ->
     #{
-        keyfile => cert_file("client.key"),
-        certfile => cert_file("client.crt"),
-        cacertfile => cert_file("ca.crt"),
+        keyfile => cert_file(client_key),
+        certfile => cert_file(client_cert),
+        cacertfile => cert_file(ca_cert),
         enable => true,
         verify => verify_peer,
         server_name_indication => "authn-server"
@@ -1622,9 +1643,9 @@ client_ssl_opts() ->
 
 server_ssl_opts() ->
     [
-        {keyfile, cert_file("server.key")},
-        {certfile, cert_file("server.crt")},
-        {cacertfile, cert_file("ca.crt")},
+        {keyfile, cert_file(server_key)},
+        {certfile, cert_file(server_cert)},
+        {cacertfile, cert_file(ca_cert)},
         {verify, verify_none}
     ].
 

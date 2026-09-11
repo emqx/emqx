@@ -299,20 +299,6 @@ generate_dummy_jwt() ->
     {_, Token} = jose_jws:compact(Signed),
     Token.
 
-server_ssl_opts() ->
-    [
-        {keyfile, cert_path("server.key")},
-        {certfile, cert_path("server.crt")},
-        {cacertfile, cert_path("ca.crt")},
-        {verify, verify_none},
-        {versions, ['tlsv1.2', 'tlsv1.3']},
-        {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
-    ].
-
-cert_path(FileName) ->
-    Dir = code:lib_dir(emqx_auth),
-    filename:join([Dir, <<"test/data/certs">>, FileName]).
-
 csv_row_to_mocked_row(Headers, Row) ->
     maps:map(
         fun

@@ -1,23 +1,23 @@
-Certificate and Key files for testing
+# Certificates for the docker-compose test services
 
-## Cassandra (v3.x)
+Nothing in this directory is committed. `scripts/ct/gen-compose-certs.sh`
+generates the set, and `scripts/ct/run.sh` runs it before `docker compose up`.
+To prepare the set for a compose stack started some other way, run the script
+by hand from the repository root.
 
-### How to convert server PEM to JKS Format
+The set, named as `scripts/gen-test-certs.sh` names its output everywhere:
 
-1. Convert server.crt and server.key to server.p12
+- `cacert.pem`: the CA. Test suites that verify a service's certificate trust
+  this.
+- `cert.pem`, `key.pem`: the certificate every TLS service presents. Its
+  subject alternative names cover every service hostname on the compose network
+  and `toxiproxy`; the list lives in `gen-compose-certs.sh`.
+- `client-cert.pem`, `client-key.pem`: a client certificate signed by the CA,
+  for services that require one from their clients.
 
-```bash
-openssl pkcs12 -export -in server.crt -inkey server.key -out server.p12 -name "certificate"
-```
+The CA private key is not kept. To change a name or add one, edit the list in
+`gen-compose-certs.sh` and rerun it; a set made by an older version of the
+script is regenerated automatically.
 
-2. Convert server.p12 to server.jks
-
-```bash
-keytool -importkeystore -srckeystore server.p12 -srcstoretype pkcs12 -destkeystore server.jks
-```
-
-### How to convert CA PEM certificate to truststore.jks
-
-```
-keytool -import -file ca.pem -keystore truststore.jks
-```
+Kafka and Cassandra do not use this set: their `ssl_cert_gen` service builds
+Java keystores into `/tmp/emqx-ci/emqx-shared-secret` at start.
