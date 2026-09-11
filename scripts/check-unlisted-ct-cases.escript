@@ -31,34 +31,15 @@
 
 main([LibDir]) ->
     CodeDirs = code_dirs(LibDir),
-    case CodeDirs of
-        [] ->
-            io:format(
-                standard_error,
-                "ERROR: no ebin/test dirs under ~s~n",
-                [LibDir]
-            ),
-            maybe_hint_test_profile(LibDir),
-            halt(1);
-        _ ->
-            ok
-    end,
     code:add_pathsa(CodeDirs),
-    Suites = find_suites(CodeDirs),
-    case Suites of
+    case find_suites(CodeDirs) of
         [] ->
-            io:format(
-                standard_error,
-                "ERROR: no *_SUITE.beam under ~s~n",
-                [LibDir]
-            ),
-            maybe_hint_test_profile(LibDir),
+            io:format(standard_error, "ERROR: no CT suites found under ~s~n", [LibDir]),
             halt(1);
-        _ ->
-            ok
-    end,
-    {Unlisted, Errors} = lists:foldl(fun check_suite/2, {[], []}, Suites),
-    report(length(Suites), lists:reverse(Unlisted), lists:reverse(Errors));
+        Suites ->
+            {Unlisted, Errors} = lists:foldl(fun check_suite/2, {[], []}, Suites),
+            report(length(Suites), lists:reverse(Unlisted), lists:reverse(Errors))
+    end;
 main(_) ->
     io:format(
         standard_error,
@@ -279,31 +260,3 @@ print_unlisted(Unlisted) ->
         "not start with t_ (for example disabled__t_foo).~n",
         []
     ).
-
-%% `make test-compile` targets PROFILE=${PROFILE}-test, so the beams
-%% land under _build/${PROFILE}-test/lib. Point at that path if the
-%% caller passed the release one -- saves a round trip when CI is
-%% misconfigured.
-maybe_hint_test_profile(LibDir) ->
-    case re:run(LibDir, "_build/([^/]+)/lib$", [{capture, all_but_first, list}]) of
-        {match, [Profile]} ->
-            case lists:suffix("-test", Profile) of
-                true ->
-                    ok;
-                false ->
-                    TestDir = "_build/" ++ Profile ++ "-test/lib",
-                    case code_dirs(TestDir) of
-                        [] ->
-                            ok;
-                        _ ->
-                            io:format(
-                                standard_error,
-                                "HINT: did you mean ~s? "
-                                "(test builds use the ${PROFILE}-test profile)~n",
-                                [TestDir]
-                            )
-                    end
-            end;
-        _ ->
-            ok
-    end.

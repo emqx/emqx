@@ -73,16 +73,7 @@ jobs:
         run: |
           ## Same lib dir as the scope check above: the suite beams only
           ## exist in the test profile.
-          OUTPUT="$(./scripts/check-unlisted-ct-cases.escript _build/${PROFILE}-test/lib)"
-          echo "$OUTPUT"
-          ## Assert the check evaluated something. A check that silently
-          ## looks at no suite passes without testing anything, which is
-          ## the failure mode it exists to catch.
-          COUNT="$(echo "$OUTPUT" | sed -n 's/^OK: \([0-9]\{1,\}\) CT suite(s).*/\1/p')"
-          if [ -z "$COUNT" ] || [ "$COUNT" -eq 0 ]; then
-            echo "ERROR: the check reported no evaluated CT suites" >&2
-            exit 1
-          fi
+          ./scripts/check-unlisted-ct-cases.escript _build/${PROFILE}-test/lib
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.profile }}-${{ inputs.build_type }}
