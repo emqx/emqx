@@ -198,18 +198,20 @@ is_batching(TCConfig) ->
 
 maybe_mock_snowflake(Config) when is_list(Config) ->
     maybe_mock_snowflake(maps:from_list(Config));
-maybe_mock_snowflake(#{mock := true}) ->
-    mock_snowflake();
+maybe_mock_snowflake(#{mock := true, priv_dir := PrivDir}) ->
+    mock_snowflake(PrivDir);
 maybe_mock_snowflake(#{mock := false}) ->
     [].
 
-mock_snowflake() ->
+mock_snowflake(PrivDir) ->
     TId = ets:new(snowflake, [public, ordered_set]),
     Mod = ?CONN_MOD_STREAM,
     ok = meck:new(Mod, [passthrough, no_history]),
     ok = meck:new(?CHAN_CLIENT_MOD, [passthrough, no_history]),
     on_exit(fun() -> meck:unload() end),
-    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/", server_ssl_opts()),
+    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(
+        random, "/", server_ssl_opts(PrivDir)
+    ),
     on_exit(fun() ->
         persistent_term:erase({?CONN_MOD_STREAM, streaming_port})
     end),
@@ -265,19 +267,17 @@ generate_dummy_jwt() ->
     {_, Token} = jose_jws:compact(Signed),
     Token.
 
-server_ssl_opts() ->
+server_ssl_opts(PrivDir) ->
+    #{cacertfile := CaCertFile, certfile := CertFile, keyfile := KeyFile} =
+        emqx_common_test_helpers:mock_server_certs(PrivDir, "localhost"),
     [
-        {keyfile, cert_path("server.key")},
-        {certfile, cert_path("server.crt")},
-        {cacertfile, cert_path("ca.crt")},
+        {keyfile, KeyFile},
+        {certfile, CertFile},
+        {cacertfile, CaCertFile},
         {verify, verify_none},
         {versions, ['tlsv1.2', 'tlsv1.3']},
         {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
     ].
-
-cert_path(FileName) ->
-    Dir = code:lib_dir(emqx_auth),
-    filename:join([Dir, <<"test/data/certs">>, FileName]).
 
 streaming_record_to_mocked_row(Record0) ->
     maps:fold(

@@ -14,9 +14,9 @@ services:
     #   - "5672:5672"
     #   - "5671:5671"
     volumes:
-      - ./certs/ca.crt:/opt/certs/ca.crt
-      - ./certs/server.crt:/opt/certs/server.crt
-      - ./certs/server.key:/opt/certs/server.key
+      - ./certs/cacert.pem:/opt/certs/ca.crt
+      - ./certs/cert.pem:/opt/certs/server.crt
+      - ./certs/key.pem:/opt/certs/server.key
       - ./rabbitmq/20-tls.conf:/etc/rabbitmq/conf.d/20-tls.conf
     networks:
       - emqx_bridge

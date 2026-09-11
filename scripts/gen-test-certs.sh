@@ -5,6 +5,9 @@ set -euo pipefail
 ## Generates a throwaway CA, a server certificate for localhost and a client
 ## certificate into the given directory. The directory is required: there is no
 ## sensible default, and in particular the source tree is not one.
+##
+## EXTRA_DNS_SANS, space separated, adds DNS names to the server certificate
+## for callers whose server answers to more names than localhost.
 if [ $# -ne 1 ] || [ -z "$1" ]; then
     echo "Usage: $0 <output-dir>" >&2
     exit 1
@@ -95,6 +98,11 @@ DNS.1 = localhost
 IP.1 = 127.0.0.1
 IP.2 = ::1
 EOF
+i=2
+for name in ${EXTRA_DNS_SANS:-}; do
+    echo "DNS.$i = $name" >> "$tmpdir/openssl.cnf"
+    i=$((i + 1))
+done
 
 cat > "$tmpdir/client.req.cnf" <<'EOF'
 [ req ]
@@ -115,7 +123,16 @@ keyUsage = critical, digitalSignature, nonRepudiation, keyEncipherment
 extendedKeyUsage = clientAuth
 EOF
 
-openssl genrsa -out "$tmpdir/ca.key" 2048 >/dev/null 2>&1
+## `openssl genrsa' writes PKCS#8 from OpenSSL 3 on. Keep the PKCS#1 form
+## (`RSA PRIVATE KEY'), which every consumer of these files reads.
+gen_rsa_key() {
+    openssl genrsa -out "$1" 2048 >/dev/null 2>&1
+    if openssl rsa -help 2>&1 | grep -q -- '-traditional'; then
+        openssl rsa -in "$1" -out "$1" -traditional >/dev/null 2>&1
+    fi
+}
+
+gen_rsa_key "$tmpdir/ca.key"
 openssl req -x509 -new -nodes \
     -key "$tmpdir/ca.key" \
     -sha256 \
@@ -124,7 +141,7 @@ openssl req -x509 -new -nodes \
     -config "$tmpdir/ca.cnf" \
     >/dev/null 2>&1
 
-openssl genrsa -out "$CERT_DIR/key.pem" 2048 >/dev/null 2>&1
+gen_rsa_key "$CERT_DIR/key.pem"
 openssl req -new \
     -key "$CERT_DIR/key.pem" \
     -out "$tmpdir/server.csr" \
@@ -138,7 +155,7 @@ openssl ca -batch \
     -notext \
     >/dev/null 2>&1
 
-openssl genrsa -out "$CERT_DIR/client-key.pem" 2048 >/dev/null 2>&1
+gen_rsa_key "$CERT_DIR/client-key.pem"
 openssl req -new \
     -key "$CERT_DIR/client-key.pem" \
     -out "$tmpdir/client.csr" \

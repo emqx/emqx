@@ -10,6 +10,8 @@ export EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-latest}"
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" || exit
 
 docker rm -f "$NODE1_CONTAINER_NAME" "$NODE2_CONTAINER_NAME" "$INFLUXDB_CONTAINER_NAME"
+## InfluxDB serves TLS with a generated certificate; nothing is committed.
+../../gen-test-certs.sh certs
 docker-compose up -d
 
 wait_limit=60

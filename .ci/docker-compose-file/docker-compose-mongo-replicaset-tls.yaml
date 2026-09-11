@@ -13,8 +13,8 @@ services:
       - 27011:27017
     restart: always
     volumes:
-      - ./certs/server.crt:/etc/certs/cert.pem
-      - ./certs/server.key:/etc/certs/key.pem
+      - ./certs/cert.pem:/etc/certs/cert.pem
+      - ./certs/key.pem:/etc/certs/key.pem
     command:
       - /bin/bash
       - -c
@@ -36,8 +36,8 @@ services:
       - 27012:27017
     restart: always
     volumes:
-      - ./certs/server.crt:/etc/certs/cert.pem
-      - ./certs/server.key:/etc/certs/key.pem
+      - ./certs/cert.pem:/etc/certs/cert.pem
+      - ./certs/key.pem:/etc/certs/key.pem
     command:
       - /bin/bash
       - -c
@@ -59,8 +59,8 @@ services:
       - 27013:27017
     restart: always
     volumes:
-      - ./certs/server.crt:/etc/certs/cert.pem
-      - ./certs/server.key:/etc/certs/key.pem
+      - ./certs/cert.pem:/etc/certs/cert.pem
+      - ./certs/key.pem:/etc/certs/key.pem
     command:
       - /bin/bash
       - -c
@@ -78,7 +78,7 @@ services:
       - mongo2
       - mongo3
     volumes:
-      - ./certs/ca.crt:/etc/certs/cacert.pem
+      - ./certs/cacert.pem:/etc/certs/cacert.pem
     command:
       - /bin/bash
       - -c
