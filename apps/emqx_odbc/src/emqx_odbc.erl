@@ -235,7 +235,7 @@ build_conn_string(ConnMap) ->
     end.
 
 dsn_conn_string(Dsn, ConnMap) ->
-    Parts0 = ["DSN=" ++ str(Dsn)],
+    Parts0 = ["DSN=" ++ conn_value(Dsn)],
     Parts1 = append_opt("UID", maps:get(username, ConnMap, undefined), Parts0),
     Parts2 = append_secret("PWD", maps:get(password, ConnMap, undefined), Parts1),
     Parts3 = append_extra_conn_attrs(ConnMap, Parts2),
@@ -247,7 +247,7 @@ server_conn_string(ConnMap) ->
             undefined -> [];
             Driver -> ["Driver=" ++ driver_str(Driver)]
         end,
-    Parts1 = Parts0 ++ ["Server=" ++ str(server_with_port(ConnMap))],
+    Parts1 = Parts0 ++ ["Server=" ++ conn_value(server_with_port(ConnMap))],
     Parts2 = append_opt("UID", maps:get(username, ConnMap, undefined), Parts1),
     Parts3 = append_secret("PWD", maps:get(password, ConnMap, undefined), Parts2),
     Parts4 = append_opt("Charset", maps:get(charset, ConnMap, undefined), Parts3),
@@ -262,8 +262,30 @@ driver_str(Driver) ->
     Path = str(Driver),
     case is_driver_path(Path) of
         true -> Path;
-        false -> "{" ++ Path ++ "}"
+        false -> "{" ++ escape_braces(Path) ++ "}"
     end.
+
+%% ODBC connection string attributes are separated by `;'. A value that
+%% contains a delimiter, a brace or leading/trailing whitespace is enclosed in
+%% braces, and a closing brace inside a braced value is doubled: this is the
+%% connection string syntax that both unixODBC (`__get_attr' in
+%% `SQLDriverConnect.c') and the ODBC drivers parse. Without it, a credential
+%% such as `p;w' would be split into two attributes.
+conn_value(Value) ->
+    Str = str(Value),
+    case needs_braces(Str) of
+        true -> "{" ++ escape_braces(Str) ++ "}";
+        false -> Str
+    end.
+
+needs_braces([]) ->
+    false;
+needs_braces(Str) ->
+    lists:any(fun(C) -> C =:= $; orelse C =:= ${ orelse C =:= $} end, Str) orelse
+        hd(Str) =:= $\s orelse lists:last(Str) =:= $\s.
+
+escape_braces(Str) ->
+    lists:flatten(string:replace(Str, "}", "}}", all)).
 
 is_driver_path([$/ | _]) -> true;
 is_driver_path([$\\ | _]) -> true;
@@ -306,7 +328,7 @@ append_opt(_Key, Value, Acc) when
 ->
     Acc;
 append_opt(Key, Value, Acc) ->
-    Acc ++ [Key ++ "=" ++ str(Value)].
+    Acc ++ [Key ++ "=" ++ conn_value(Value)].
 
 append_secret(_Key, undefined, Acc) ->
     Acc;
@@ -317,7 +339,7 @@ append_secret(Key, Secret, Acc) ->
         Value when Value =:= undefined; Value =:= null; Value =:= <<>>; Value =:= "" ->
             Acc;
         Value ->
-            Acc ++ [Key ++ "=" ++ str(Value)]
+            Acc ++ [Key ++ "=" ++ conn_value(Value)]
     end.
 
 %% Driver specific attributes (for example the DM8 `SSL_PATH'/`SSL_PWD' pair)
@@ -337,7 +359,7 @@ append_extra(_Key, Value, Acc) when
 ->
     Acc;
 append_extra(Key, Value, Acc) ->
-    Acc ++ [str(Key) ++ "=" ++ str(Value)].
+    Acc ++ [str(Key) ++ "=" ++ conn_value(Value)].
 
 %%====================================================================
 %% Type conversion (describe_table type -> param_query type/value)
@@ -754,12 +776,16 @@ to_timestamp(S) when is_list(S) ->
 to_timestamp(Other) ->
     {error, {unrecoverable_error, {invalid_timestamp, Other}}}.
 
-%% Accepts `YYYY-MM-DD[ HH:MM:SS[.SSS]]'.
+%% Accepts `YYYY-MM-DD[ HH:MM:SS]'.
+%%
+%% Fractional seconds are rejected: the `sql_timestamp' binding used by
+%% `odbc:param_query/4' takes a `{{Y, M, D}, {H, Mi, S}}' datetime with no
+%% sub-second field, so accepting them would silently truncate the value.
 parse_timestamp(Bin) ->
     case
         re:run(
             Bin,
-            <<"^(\\d{4})-(\\d{2})-(\\d{2})(?:[ T](\\d{2}):(\\d{2}):(\\d{2})(?:\\.\\d+)?)?$">>,
+            <<"^(\\d{4})-(\\d{2})-(\\d{2})(?:[ T](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d+)?)?$">>,
             [{capture, all_but_first, binary}]
         )
     of
@@ -767,6 +793,8 @@ parse_timestamp(Bin) ->
             {ok, {{b2i(Y), b2i(M), b2i(D)}, {0, 0, 0}}};
         {match, [Y, M, D, H, Mi, S]} ->
             {ok, {{b2i(Y), b2i(M), b2i(D)}, {b2i(H), b2i(Mi), b2i(S)}}};
+        {match, [_Y, _M, _D, _H, _Mi, _S, _Fraction]} ->
+            error;
         nomatch ->
             error
     end.

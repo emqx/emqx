@@ -486,7 +486,13 @@ trim_identifier_quotes(Col) ->
     Col.
 
 extract_table(InsertPart) ->
-    case re:run(InsertPart, "insert\\s+into\\s+([^\\s\\(]+)", [{capture, all_but_first, binary}]) of
+    %% `get_statement_type/1' and `split_insert/1' accept `INSERT INTO' in any
+    %% case, so the table name must be extracted case-insensitively as well.
+    case
+        re:run(InsertPart, "insert\\s+into\\s+([^\\s\\(]+)", [
+            caseless, {capture, all_but_first, binary}
+        ])
+    of
         {match, [Table]} ->
             {ok, Table};
         nomatch ->
@@ -736,6 +742,10 @@ render_literal_parts([], _Msg, _UndefinedAsNull) ->
     [].
 
 quote_literal(undefined, true) ->
+    <<"NULL">>;
+quote_literal(null, _UndefinedAsNull) ->
+    %% A JSON `null' is an explicit value, not a missing variable: write SQL
+    %% NULL like the parameter path does (`emqx_odbc:to_odbc_value(null, _)').
     <<"NULL">>;
 quote_literal(Value, _UndefinedAsNull) ->
     emqx_utils_sql:to_sql_string(Value, #{escaping => sql_std}).

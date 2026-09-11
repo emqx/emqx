@@ -194,6 +194,33 @@ build_conn_string_extra_attrs_none_test() ->
         emqx_odbc:build_conn_string(#{dsn => <<"dm8">>, extra_conn_attrs => []})
     ).
 
+%% A credential or a driver specific value may contain the `;' delimiter or a
+%% brace. Such a value must be braced (and its closing braces doubled),
+%% otherwise it would change the attribute boundaries of the connection string.
+build_conn_string_escapes_delimiters_test() ->
+    ?assertEqual(
+        "Driver={DM8 ODBC DRIVER};Server=localhost:5236;UID={sy;dba};"
+        "PWD={p}};w};SSL_PWD={ x }",
+        emqx_odbc:build_conn_string(#{
+            server => <<"localhost">>,
+            port => 5236,
+            driver => <<"DM8 ODBC DRIVER">>,
+            username => <<"sy;dba">>,
+            password => emqx_secret:wrap(<<"p};w">>),
+            extra_conn_attrs => [{"SSL_PWD", <<" x ">>}]
+        })
+    ).
+
+build_conn_string_escapes_registered_driver_brace_test() ->
+    ?assertEqual(
+        "Driver={My}}Driver};Server=localhost:5236",
+        emqx_odbc:build_conn_string(#{
+            server => <<"localhost">>,
+            port => 5236,
+            driver => <<"My}Driver">>
+        })
+    ).
+
 %%------------------------------------------------------------------------------
 %% connect/1 validation
 %%------------------------------------------------------------------------------
@@ -329,6 +356,12 @@ to_odbc_value_test_() ->
         ?_assertEqual(
             {ok, {{2026, 1, 2}, {0, 0, 0}}},
             emqx_odbc:to_odbc_value(<<"2026-01-02">>, sql_timestamp)
+        ),
+        %% `sql_timestamp' has no sub-second field, so fractional seconds are
+        %% rejected instead of being silently truncated.
+        ?_assertEqual(
+            {error, {unrecoverable_error, {invalid_timestamp, <<"2026-01-02 12:34:56.123">>}}},
+            emqx_odbc:to_odbc_value(<<"2026-01-02 12:34:56.123">>, sql_timestamp)
         ),
         ?_assertEqual({ok, <<"hello">>}, emqx_odbc:to_odbc_value(<<"hello">>, {sql_varchar, 20})),
         %% Wide char columns are sent as UTF-16LE binaries; `odbc' appends the

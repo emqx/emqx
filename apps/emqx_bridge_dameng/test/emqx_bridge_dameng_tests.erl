@@ -571,6 +571,35 @@ on_add_channel_installs_supported_columns_test() ->
         meck:unload(ecpool)
     end.
 
+on_add_channel_uppercase_insert_test() ->
+    %% Regression: `extract_table/1' matched `insert into' case sensitively, so
+    %% an upper case template was rejected as `table_not_found' even though
+    %% `get_statement_type/1' and `split_insert/1' accept any case.
+    Self = self(),
+    meck:new(ecpool, [passthrough]),
+    meck:expect(ecpool, pick_and_do, fun(_Pool, {_Mod, worker_describe, [Table, _T]}, _Mode) ->
+        Self ! {described, Table},
+        {ok, [{<<"ID">>, sql_integer}, {<<"TOPIC">>, {sql_varchar, 100}}]}
+    end),
+    try
+        State = #{pool_name => <<"p">>, installed_channels => #{}, resource_opts => #{}},
+        ChannelConfig = #{
+            parameters => #{
+                sql => <<"INSERT INTO T_MQTT_MSG(id, topic) VALUES ( ${id}, ${topic} )">>
+            }
+        },
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_dameng_connector:on_add_channel(<<"i">>, State, <<"c">>, ChannelConfig)
+        ),
+        receive
+            {described, Table} -> ?assertEqual(<<"T_MQTT_MSG">>, Table)
+        after 1000 -> error(describe_not_called)
+        end
+    after
+        meck:unload(ecpool)
+    end.
+
 %%------------------------------------------------------------------------------
 %% worker_do_literal/4 (non-insert statements)
 %%------------------------------------------------------------------------------
@@ -632,6 +661,37 @@ worker_do_literal_quoting_test() ->
         ),
         ?assertEqual(
             {sql, <<"update t set s = 'a''b\\c', n = 5">>},
+            receive
+                {sql, _} = SQL -> SQL
+            after 1000 -> timeout
+            end
+        )
+    after
+        meck:unload(emqx_odbc)
+    end.
+
+%% A JSON `null' is an explicit value and must be written as SQL NULL, exactly
+%% like the parameter path (`emqx_odbc:to_odbc_value(null, _)').
+worker_do_literal_null_test() ->
+    meck:new(emqx_odbc, [passthrough]),
+    Self = self(),
+    meck:expect(emqx_odbc, sql_query, fun(_Conn, SQL, _Timeout) ->
+        Self ! {sql, SQL},
+        {updated, 1}
+    end),
+    try
+        ChannelState = #{
+            values_tokens => emqx_placeholder:preproc_tmpl(<<"update t set s = ${s}">>),
+            channel_conf => #{}
+        },
+        ?assertEqual(
+            ok,
+            emqx_bridge_dameng_connector:worker_do_literal(
+                self(), ChannelState, #{s => null}, #{resource_opts => #{}}
+            )
+        ),
+        ?assertEqual(
+            {sql, <<"update t set s = NULL">>},
             receive
                 {sql, _} = SQL -> SQL
             after 1000 -> timeout
