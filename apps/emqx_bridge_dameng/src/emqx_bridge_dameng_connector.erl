@@ -57,6 +57,7 @@
     do_get_status/1,
     worker_do_insert/4,
     worker_do_literal/4,
+    worker_do_literal_batch/4,
     worker_describe/3,
     parse_server/2,
     parse_sql_template/1,
@@ -633,10 +634,38 @@ do_query(ResourceId, Query, ApplyMode, State) ->
                         ApplyMode
                     ),
                     handle_result(Result, ResourceId, Query);
-                _ ->
-                    {error, {unrecoverable_error, {invalid_request, only_insert_supports_batch}}}
+                Msgs ->
+                    %% Batching is enabled by default in the action schema.
+                    %% Non-INSERT statements cannot be combined into a single
+                    %% statement, so a coalesced batch is executed sequentially
+                    %% on one connection and one result is reported per request.
+                    Result = ecpool:pick_and_do(
+                        PoolName,
+                        {?MODULE, worker_do_literal_batch, [ChannelState, Msgs, State]},
+                        ApplyMode
+                    ),
+                    handle_batch_result(Result, ResourceId, Query)
             end
     end.
+
+%% A non-INSERT batch produces one result per request. The resource buffer
+%% worker expands the list into one reply per request, and retries only the
+%% requests whose own result is a recoverable error.
+handle_batch_result(Results, ResourceId, Query) when is_list(Results) ->
+    ?tp(dameng_connector_query_return, #{
+        batch_size => length(Results),
+        results => Results
+    }),
+    lists:foreach(
+        fun
+            ({error, _} = Error) -> _ = handle_result(Error, ResourceId, Query);
+            (_) -> ok
+        end,
+        Results
+    ),
+    Results;
+handle_batch_result(Result, ResourceId, Query) ->
+    handle_result(Result, ResourceId, Query).
 
 handle_result({error, {recoverable_error, _} = Reason} = Result, _ResourceId, _Query) ->
     %% Recoverable errors (e.g. a flapping connection) are already logged with
@@ -666,7 +695,7 @@ handle_result(Result, _, _) ->
 worker_do_insert(Conn, ChannelState, Msgs, #{resource_opts := ResourceOpts} = _State) ->
     #{param_sql := ParamSQL, values_tokens := Tokens, column_types := ColTypes} = ChannelState,
     UndefinedAsNull = get_undefined_as_null(ChannelState),
-    try
+    with_classified_errors(fun() ->
         case build_param_params(Tokens, Msgs, ColTypes, UndefinedAsNull) of
             {ok, Params} ->
                 case emqx_odbc:param_query(Conn, ParamSQL, Params, ?REQUEST_TTL(ResourceOpts)) of
@@ -682,11 +711,7 @@ worker_do_insert(Conn, ChannelState, Msgs, #{resource_opts := ResourceOpts} = _S
             {error, Err1} ->
                 {error, Err1}
         end
-    catch
-        _Type:Reason:St ->
-            ?SLOG(error, #{msg => "invalid_request", reason => Reason, stacktrace => St}),
-            {error, {unrecoverable_error, {invalid_request, Reason}}}
-    end.
+    end).
 
 %%===================
 %% Non-insert (select/update/delete) via literal SQL
@@ -695,9 +720,9 @@ worker_do_insert(Conn, ChannelState, Msgs, #{resource_opts := ResourceOpts} = _S
 worker_do_literal(Conn, ChannelState, Msg, #{resource_opts := ResourceOpts}) ->
     #{values_tokens := Tokens} = ChannelState,
     UndefinedAsNull = get_undefined_as_null(ChannelState),
-    case render_literal(Tokens, Msg, UndefinedAsNull) of
-        {ok, SQL} ->
-            try
+    with_classified_errors(fun() ->
+        case render_literal(Tokens, Msg, UndefinedAsNull) of
+            {ok, SQL} ->
                 case emqx_odbc:sql_query(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
                     {selected, _Cols, Rows} ->
                         {ok, Rows};
@@ -707,14 +732,46 @@ worker_do_literal(Conn, ChannelState, Msg, #{resource_opts := ResourceOpts}) ->
                         ok;
                     {error, ErrStr} ->
                         {error, classify_odbc_error(ErrStr)}
-                end
-            catch
-                _Type:Reason:St ->
-                    ?SLOG(error, #{msg => "invalid_request", reason => Reason, stacktrace => St}),
-                    {error, {unrecoverable_error, {invalid_request, Reason}}}
-            end;
-        {error, Reason} ->
-            {error, Reason}
+                end;
+            {error, Reason} ->
+                {error, Reason}
+        end
+    end).
+
+%% A batch of non-INSERT requests is executed as a sequence on the same
+%% connection: every request keeps its own result, so a failure only affects
+%% the request that caused it.
+worker_do_literal_batch(Conn, ChannelState, Msgs, State) ->
+    [worker_do_literal(Conn, ChannelState, Msg, State) || Msg <- Msgs].
+
+%% `odbc:param_query/4' and `odbc:sql_query/3' exit with `timeout' when the
+%% request TTL elapses (see `odbc:call/3'), so a caught exception must go
+%% through the same classification as a driver error returned normally:
+%% otherwise a transient timeout would be reported as an unrecoverable
+%% `invalid_request' and the buffered messages would be dropped instead of
+%% retried.
+with_classified_errors(Fun) ->
+    try
+        Fun()
+    catch
+        Class:Reason:St ->
+            case emqx_odbc:classify_error(Reason) of
+                {recoverable_error, _} = Error ->
+                    ?SLOG(info, #{
+                        msg => "dameng_connector_recoverable_error",
+                        class => Class,
+                        error => Reason
+                    }),
+                    {error, Error};
+                {unrecoverable_error, _} = Error ->
+                    ?SLOG(error, #{
+                        msg => "invalid_request",
+                        class => Class,
+                        reason => Reason,
+                        stacktrace => St
+                    }),
+                    {error, Error}
+            end
     end.
 
 %% The literal path interpolates values into the statement, so they must be
@@ -773,13 +830,29 @@ classify_odbc_error(ErrStr) ->
 build_param_params(_Tokens, [], _ColTypes, _UndefinedAsNull) ->
     {error, {unrecoverable_error, {invalid_request, empty_batch}}};
 build_param_params(Tokens, Msgs, ColTypes, UndefinedAsNull) ->
-    %% Render each message to a list of raw values (one per token/column).
+    %% Render each message to a list of values (one per token/column). The
+    %% sentinels are kept for the `undefined_vars_as_null' policy and the DB
+    %% null binding, while structured values are converted with the usual
+    %% template semantics (see `param_value/1').
     RowVals = [
-        emqx_placeholder:proc_tmpl(Tokens, Msg, #{return => rawlist, var_trans => fun(V) -> V end})
+        emqx_placeholder:proc_tmpl(Tokens, Msg, #{
+            return => rawlist, var_trans => fun param_value/1
+        })
      || Msg <- Msgs
     ],
     PerColumn = transpose(RowVals),
     build_column_params(zip(ColTypes, PerColumn), UndefinedAsNull).
+
+%% Values bound as parameters are converted like the rest of EMQX converts
+%% template values: maps and non-string lists (a JSON array decodes to a list
+%% of binaries or numbers) become JSON text instead of being bound as Erlang
+%% terms. Scalars are kept as they are so that the typed conversion in
+%% `emqx_odbc:to_odbc_value/3' can still coerce them (`null' must stay the DB
+%% null, and a datetime tuple is bound as a timestamp).
+param_value(undefined) -> undefined;
+param_value(null) -> null;
+param_value(Value) when is_map(Value); is_list(Value) -> emqx_utils_conv:bin(Value);
+param_value(Value) -> Value.
 
 build_column_params([], _UndefinedAsNull) ->
     {ok, []};

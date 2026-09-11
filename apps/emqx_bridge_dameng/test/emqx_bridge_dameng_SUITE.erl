@@ -307,6 +307,34 @@ connect_and_get_payload() ->
         Rows
     end).
 
+connect_and_get_id_payload_pairs() ->
+    SQL = <<"select msgid, payload from ", ?DM_TABLE/binary>>,
+    with_conn(fun(Conn) ->
+        {selected, _, Rows} = emqx_odbc:sql_query(Conn, SQL, 2_000),
+        Rows
+    end).
+
+%% Seed one row per id so that every statement of a batch has a visible effect.
+seed_rows(Ids) ->
+    with_conn(fun(Conn) ->
+        lists:foreach(
+            fun(Id) ->
+                {updated, _} = emqx_odbc:sql_query(
+                    Conn,
+                    <<
+                        "insert into ",
+                        ?DM_TABLE/binary,
+                        " (msgid, topic, qos, payload) values ('",
+                        Id/binary,
+                        "', 't/1', 0, 'old')"
+                    >>,
+                    2_000
+                )
+            end,
+            Ids
+        )
+    end).
+
 %% Read back the typed columns; the table is cleared around every test case, so
 %% a single row is expected.
 connect_and_get_typed_row() ->
@@ -693,6 +721,68 @@ t_non_insert_statement(TCConfig) ->
                 [#{result := ok}],
                 ?of_kind(dameng_connector_query_return, Trace)
             ),
+            ok
+        end
+    ),
+    ok.
+
+%% Batching is enabled in the action by default, and non-INSERT statements
+%% cannot be combined into a single statement: a coalesced burst of UPDATEs must
+%% be executed sequentially instead of the whole batch being rejected.
+t_non_insert_batch() ->
+    [{matrix, true}].
+t_non_insert_batch(matrix) ->
+    [[?sync, ?with_batch]];
+t_non_insert_batch(TCConfig) when is_list(TCConfig) ->
+    BatchSize = 10,
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"sql">> => <<
+                "update ",
+                ?DM_TABLE/binary,
+                " set payload = ${payload} where msgid = ${id}"
+            >>
+        },
+        %% A wide batch window makes the burst below coalesce into one batch.
+        <<"resource_opts">> => #{<<"batch_time">> => <<"1s">>}
+    }),
+    Ids = [integer_to_binary(Id) || Id <- lists:seq(1, BatchSize)],
+    seed_rows(Ids),
+    #{topic := Topic} = simple_create_rule_api(
+        <<"select payload.id as id, payload.payload as payload from \"${t}\" ">>,
+        TCConfig
+    ),
+    ?check_trace(
+        begin
+            lists:foreach(
+                fun(Id) ->
+                    Payload = emqx_utils_json:encode(#{
+                        <<"id">> => Id,
+                        <<"payload">> => <<"new-", Id/binary>>
+                    }),
+                    emqx:publish(emqx_message:make(Topic, Payload))
+                end,
+                Ids
+            ),
+            ?retry(
+                200,
+                30,
+                ?assertEqual(
+                    lists:sort([{Id, <<"new-", Id/binary>>} || Id <- Ids]),
+                    lists:sort(connect_and_get_id_payload_pairs())
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            %% The burst must have been processed as a batch (of more than one
+            %% request), which is the code path the shipped defaults produce.
+            Batches = [
+                N
+             || #{batch_size := N} <- ?of_kind(dameng_connector_query_return, Trace)
+            ],
+            ?assert(lists:any(fun(N) -> N >= 2 end, Batches)),
             ok
         end
     ),
