@@ -328,6 +328,8 @@ mkdir -p /tmp/emqx-ci/emqx-shared-secret /tmp/emqx-ci-temp-secrets
 source /tmp/emqx-ci-temp-secrets/passwords.env
 
 if [ "$STOP" = 'no' ] && [ "$PS" = 'no' ]; then
+    # the certificates the TLS services mount from .ci/docker-compose-file/certs
+    ./scripts/ct/gen-compose-certs.sh
     # some left-over log file has to be deleted before a new docker-compose up
     rm -f '.ci/docker-compose-file/redis/*.log'
     set +e

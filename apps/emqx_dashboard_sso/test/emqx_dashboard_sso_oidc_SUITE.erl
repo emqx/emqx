@@ -296,11 +296,11 @@ oidc_provider_params() ->
 
         <<"ssl">> => #{
             <<"enable">> => true,
-            <<"cacertfile">> => ci_cert(<<"ca.crt">>)
+            <<"cacertfile">> => ci_cert(<<"cacert.pem">>)
         }
     }.
 
-%% Dex serves `.ci/docker-compose-file/certs/server.crt', so this is the CA that
+%% Dex serves `.ci/docker-compose-file/certs/cert.pem', so this is the CA that
 %% signed it.
 ci_cert(Name) ->
     iolist_to_binary(

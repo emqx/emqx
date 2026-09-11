@@ -6,9 +6,9 @@ services:
     environment:
       MONGO_INITDB_DATABASE: mqtt
     volumes:
-      - ./certs/server.crt:/etc/certs/cert.pem
-      - ./certs/server.key:/etc/certs/key.pem
-      - ./certs/ca.crt:/etc/certs/cacert.pem
+      - ./certs/cert.pem:/etc/certs/cert.pem
+      - ./certs/key.pem:/etc/certs/key.pem
+      - ./certs/cacert.pem:/etc/certs/cacert.pem
     networks:
       - emqx_bridge
     ports:

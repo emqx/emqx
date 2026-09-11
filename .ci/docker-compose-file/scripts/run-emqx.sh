@@ -138,6 +138,9 @@ is_cluster_up() {
     is_node_listening node2.emqx.io
 }
 
+# the certificates haproxy mounts from .ci/docker-compose-file/certs
+./scripts/ct/gen-compose-certs.sh
+
 # _EMQX_DOCKER_IMAGE_TAG is shared with docker-compose file
 export _EMQX_DOCKER_IMAGE_TAG="${emqx_image_tag}"
 docker-compose \

@@ -799,9 +799,9 @@ t_ssl_clear(_) ->
     SvrName = <<"ssl_test">>,
     SSLConf = #{
         <<"enable">> => true,
-        <<"cacertfile">> => cert_file("cafile"),
-        <<"certfile">> => cert_file("certfile"),
-        <<"keyfile">> => cert_file("keyfile"),
+        <<"cacertfile">> => cert_file("cacert.pem"),
+        <<"certfile">> => cert_file("cert.pem"),
+        <<"keyfile">> => cert_file("key.pem"),
         <<"verify">> => <<"verify_peer">>
     },
     AddConf = #{
@@ -819,7 +819,8 @@ t_ssl_clear(_) ->
     ?assertMatch({ok, [_, _, _]}, ListResult1),
     {ok, ResultList1} = ListResult1,
 
-    UpdateConf = AddConf#{<<"ssl">> => SSLConf#{<<"keyfile">> => cert_file("keyfile2")}},
+    %% Any other key: the case checks that a changed key is written anew.
+    UpdateConf = AddConf#{<<"ssl">> => SSLConf#{<<"keyfile">> => cert_file("client-key.pem")}},
     emqx_exhook_mgr:update_config([exhook, servers], {update, SvrName, UpdateConf}),
     {ok, _} = emqx_tls_certfile_gc:force(),
     ListResult2 = list_pem_dir(SvrName),
@@ -989,13 +990,12 @@ list_pem_dir(Name) ->
     Dir = filename:join([emqx:mutable_certs_dir(), "exhook", Name]),
     file:list_dir(Dir).
 
-data_file(Name) ->
-    Dir = code:lib_dir(emqx_exhook),
-    {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
-    Bin.
-
+%% Contents of a file from the generated test certificate set. The case
+%% checks that contents given inline end up as files under the managed
+%% certificate directory; which certificate it is does not matter.
 cert_file(Name) ->
-    data_file(filename:join(["certs", Name])).
+    {ok, Bin} = file:read_file(emqx_common_test_helpers:test_cert(Name)),
+    Bin.
 
 shuffle(List) ->
     Sorted = lists:sort(lists:map(fun(L) -> {rand:uniform(), L} end, List)),
