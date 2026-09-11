@@ -799,10 +799,20 @@ forbidden_summary_ref(Spec) ->
 enforce_method_desc_policy(Spec, Options) ->
     case allow_literal_method_docs(Options) of
         true ->
-            ok;
+            enforce_method_desc_policy_with_literals(Spec);
         false ->
             enforce_method_desc_policy(Spec)
     end.
+
+enforce_method_desc_policy_with_literals(#{tags := _, summary := _}) ->
+    ok;
+enforce_method_desc_policy_with_literals(#{tags := _} = Spec) ->
+    case desc_struct(Spec) of
+        undefined -> missing_i18n_ref(missing_operation_description);
+        _ -> ok
+    end;
+enforce_method_desc_policy_with_literals(_Spec) ->
+    ok.
 
 enforce_method_desc_policy(#{tags := _, summary := ?DESC(_, _)}) ->
     ok;
