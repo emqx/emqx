@@ -713,7 +713,7 @@ check_config() {
 
 # Keep only the most recent generated config files and remove their counterparts.
 prune_generated_configs() {
-    local max_history=3
+    local max_history="${1:-3}"
     local app_files=("$CONFIGS_DIR"/app.*.config)
     local app_file
     local vm_args_files
@@ -775,6 +775,9 @@ generate_config() {
     ## final namespace until the complete app config and merged VM args are ready.
     trap 'rm -f -- "$GENERATED_APP_CONFIG_FILE" "$GENERATED_VM_ARGS_FILE" "$STAGED_VM_ARGS_FILE"' EXIT
 
+    ## Reserve one history slot before staging so a full filesystem can recover.
+    prune_generated_configs 2
+
     ## This command populates two staging files.
     ## It takes input sources and overlays values in below order:
     ##   - etc/base.hocon
@@ -831,7 +834,7 @@ generate_config() {
     rm -f -- "$GENERATED_VM_ARGS_FILE"
     trap - EXIT
 
-    prune_generated_configs
+    prune_generated_configs 3
 }
 
 # check if a PID is defunct
