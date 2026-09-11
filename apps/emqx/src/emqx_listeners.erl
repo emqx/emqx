@@ -8,6 +8,7 @@
 -include("emqx_schema.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("esockd/include/esockd.hrl").
 
 %% APIs
 -export([
@@ -22,6 +23,7 @@
     id_example/0,
     default_max_conn/0,
     shutdown_count/2,
+    accept_stats/2,
     tcp_opts/1,
     ip_port/1,
     clamp_active_n/1
@@ -252,6 +254,23 @@ shutdown_count(Type, Name, Bind) when Type == tcp; Type == ssl ->
 shutdown_count(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
     [];
 shutdown_count(_, _, _) ->
+    {error, not_support}.
+
+-doc """
+Return the esockd accept-result counters of a listener.
+The counters follow the esockd `?ACCEPT_RESULT_GROUPS` order.
+""".
+accept_stats(Id, ListenOn) ->
+    {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
+    accept_stats(Type, Name, ListenOn).
+
+accept_stats(Type, Name, Bind) when Type == tcp; Type == ssl ->
+    ListenOn = emqx_default_address:listen_on(mqtt, Bind),
+    Stats = esockd:get_stats({listener_id(Type, Name), ListenOn}),
+    [{Key, proplists:get_value(Key, Stats, 0)} || Key <- ?ACCEPT_RESULT_GROUPS];
+accept_stats(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
+    [];
+accept_stats(_, _, _) ->
     {error, not_support}.
 
 %% @doc Start all listeners.

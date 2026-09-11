@@ -1247,12 +1247,18 @@ listeners([]) ->
                     ShutdownCount =
                         case emqx_listeners:shutdown_count(Id, Bind) of
                             {error, _} -> [];
-                            SC -> [{shutdown_count, SC}]
+                            SC -> [{shutdown_count, {counters, lists:sort(SC)}}]
+                        end,
+                    AcceptStats =
+                        case emqx_listeners:accept_stats(Id, Bind) of
+                            {error, _} -> [];
+                            AS -> [{accept_stats, {counters, AS}}]
                         end;
                 false ->
                     CurrentConns = [],
                     MaxConn = [],
-                    ShutdownCount = []
+                    ShutdownCount = [],
+                    AcceptStats = []
             end,
             %% `running` must stay the 5th line after the listener id: some
             %% scripts (e.g. .ci/docker-compose-file/scripts/run-emqx.sh,
@@ -1268,7 +1274,7 @@ listeners([]) ->
                     {running, Running},
                     {resolved_address, {string, ResolvedAddress}},
                     {resolved_address_from, {string, ResolvedAddressFrom}}
-                ] ++ CurrentConns ++ MaxConn ++ ShutdownCount,
+                ] ++ CurrentConns ++ MaxConn ++ ShutdownCount ++ AcceptStats,
             emqx_ctl:print("~ts~n", [Id]),
             lists:foreach(fun indent_print/1, Info)
         end,
@@ -1869,8 +1875,19 @@ bin(S) -> iolist_to_binary(S).
 %% truncates it instead of just skipping the padding.
 indent_print({Key, {string, Val}}) ->
     emqx_ctl:print("  ~-22s: ~ts~n", [Key, Val]);
+indent_print({Key, {counters, Counters}}) ->
+    emqx_ctl:print("  ~-22s:~n", [Key]),
+    lists:foreach(fun indent_print_counter/1, Counters);
 indent_print({Key, Val}) ->
     emqx_ctl:print("  ~-22s: ~w~n", [Key, Val]).
+
+%% Nested counters are indented two more spaces than their parent. The key is
+%% padded, not truncated, so a long shutdown reason pushes its colon right.
+indent_print_counter({Key, Count}) ->
+    emqx_ctl:print("    ~ts: ~w~n", [string:pad(counter_key(Key), 20), Count]).
+
+counter_key(Key) when is_atom(Key) -> atom_to_list(Key);
+counter_key(Key) -> io_lib:format("~0p", [Key]).
 
 for_node(Fun, Node) ->
     try list_to_existing_atom(Node) of

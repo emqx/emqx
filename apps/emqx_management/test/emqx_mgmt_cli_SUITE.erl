@@ -619,6 +619,61 @@ t_listeners(_Config) ->
     %% listeners restart <Identifier> # Restart a listener
     ok.
 
+-doc """
+Check that `listeners` prints the shutdown counts and the accept stats of a
+TCP listener as indented blocks, and that `running` stays the 5th line.
+""".
+t_listeners_accept_stats(_Config) ->
+    Id = "tcp:default",
+    Block0 = listener_block(Id),
+    ?assertMatch({match, _}, re:run(lists:nth(5, Block0), <<"^  running +: true$">>)),
+    ?assert(lists:member(<<"  shutdown_count        :">>, Block0)),
+    Stats0 = accept_stats_lines(Block0),
+    ?assertEqual(
+        [
+            accepted,
+            closed_sys_limit,
+            closed_max_limit,
+            closed_overloaded,
+            closed_rate_limited,
+            closed_early,
+            closed_forbidden,
+            closed_other_reasons
+        ],
+        [K || {K, _} <- Stats0]
+    ),
+    %% A connected client is counted as accepted.
+    {ok, C} = emqtt:start_link([{clientid, <<"t_listeners_accept_stats">>}]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqtt:disconnect(C),
+    ?retry(
+        100,
+        20,
+        ?assert(
+            proplists:get_value(accepted, accept_stats_lines(listener_block(Id))) >
+                proplists:get_value(accepted, Stats0)
+        )
+    ),
+    %% A peer denied by the access rules is counted as forbidden.
+    [ListenerRef] = [Ref || {{'tcp:default', _} = Ref, _} <- esockd:listeners()],
+    {'tcp:default', {_, Port}} = ListenerRef,
+    ok = esockd:deny(ListenerRef, "127.0.0.1"),
+    try
+        {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, Port, [binary, {active, false}]),
+        ?assertMatch({error, _}, gen_tcp:recv(Sock, 0, 5000)),
+        ok = gen_tcp:close(Sock),
+        ?retry(
+            100,
+            20,
+            ?assert(
+                proplists:get_value(closed_forbidden, accept_stats_lines(listener_block(Id))) >
+                    proplists:get_value(closed_forbidden, Stats0)
+            )
+        )
+    after
+        ok = emqx_listeners:restart_listener('tcp:default')
+    end.
+
 t_authz(_Config) ->
     %% authz cache-clean all         # Clears authorization cache on all nodes
     ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", "all"])),
@@ -1006,6 +1061,27 @@ dump_client_stats(File, Batch, Sleep) ->
         "--sleep",
         str(Sleep)
     ]).
+
+%% Return the lines printed for one listener, without the listener id line.
+listener_block(Id) ->
+    {ok, Output} = capture_ctl(["listeners"]),
+    Lines = binary:split(Output, <<"\n">>, [global, trim_all]),
+    [_ | Rest] = lists:dropwhile(fun(L) -> L =/= list_to_binary(Id) end, Lines),
+    lists:takewhile(fun(L) -> binary:first(L) =:= $\s end, Rest).
+
+%% Return the nested counters printed under `accept_stats`.
+accept_stats_lines(Block) ->
+    [_ | Rest] = lists:dropwhile(fun(L) -> L =/= <<"  accept_stats          :">> end, Block),
+    Nested = lists:takewhile(fun(L) -> binary:part(L, 0, 4) =:= <<"    ">> end, Rest),
+    lists:map(
+        fun(L) ->
+            {match, [K, V]} = re:run(L, <<"^    (\\w+) *: (\\d+)$">>, [
+                {capture, all_but_first, binary}
+            ]),
+            {binary_to_atom(K), binary_to_integer(V)}
+        end,
+        Nested
+    ).
 
 capture_ctl(Args) ->
     {Result, OutputChunks} =
