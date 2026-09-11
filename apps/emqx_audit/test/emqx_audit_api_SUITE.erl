@@ -20,6 +20,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 all() ->
     [
@@ -365,6 +366,111 @@ t_license_key_redacted(_) ->
     ?assertEqual(nomatch, binary:match(AuditBody, <<"default">>), AuditBody),
     ?assertNotEqual(nomatch, binary:match(AuditBody, <<"******">>), AuditBody),
     ok.
+
+%% An authenticated dashboard user denied by RBAC is named in the audit record.
+%% The 403 record carries the username in `source' and the path parameters in
+%% `http_request.bindings'.
+t_rbac_denied_dashboard_user(_) ->
+    StartAt = erlang:system_time(microsecond),
+    Username = <<"audit_rbac_viewer">>,
+    Password = <<"public_www1">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_VIEWER, <<"viewer">>),
+    {ok, ?ROLE_VIEWER, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    ClientId = <<"audit-rbac-denied-dashboard">>,
+    ?assertMatch({ok, 403, _}, delete_client(ClientId, bearer_header(Token))),
+    ?assertMatch(
+        #{
+            <<"from">> := <<"dashboard">>,
+            <<"source">> := Username,
+            <<"source_ip">> := <<"127.0.0.1">>,
+            <<"operation_id">> := <<"/clients/:clientid">>,
+            <<"operation_type">> := <<"clients">>,
+            <<"http_status_code">> := 403,
+            <<"operation_result">> := <<"failure">>,
+            <<"http_request">> := #{
+                <<"method">> := <<"delete">>,
+                <<"bindings">> := #{<<"clientid">> := ClientId}
+            }
+        },
+        latest_audit_record("http_status_code=403", StartAt)
+    ),
+    ok.
+
+%% An API key denied by RBAC is named in the audit record. The 403 record
+%% carries the API key in `source', `rest_api' in `from', and the path
+%% parameters in `http_request.bindings'.
+t_rbac_denied_api_key(_) ->
+    StartAt = erlang:system_time(microsecond),
+    Name = <<"audit_rbac_viewer_key">>,
+    Key = <<"audit_rbac_viewer_key">>,
+    Secret = <<"audit_rbac_viewer_secret">>,
+    ExpiredAt = erlang:system_time(second) + 3600,
+    {ok, _} = emqx_mgmt_auth:create(
+        Name, Key, Secret, true, ExpiredAt, <<"audit rbac test key">>, ?ROLE_API_VIEWER
+    ),
+    ClientId = <<"audit-rbac-denied-api-key">>,
+    AuthHeader = emqx_common_test_http:auth_header(
+        binary_to_list(Key), binary_to_list(Secret)
+    ),
+    ?assertMatch({ok, 403, _}, delete_client(ClientId, AuthHeader)),
+    ?assertMatch(
+        #{
+            <<"from">> := <<"rest_api">>,
+            <<"source">> := Key,
+            <<"operation_id">> := <<"/clients/:clientid">>,
+            <<"http_status_code">> := 403,
+            <<"operation_result">> := <<"failure">>,
+            <<"http_request">> := #{
+                <<"method">> := <<"delete">>,
+                <<"bindings">> := #{<<"clientid">> := ClientId}
+            }
+        },
+        latest_audit_record("http_status_code=403", StartAt)
+    ),
+    ok.
+
+%% An unauthenticated request is still recorded without an actor. A bad bearer
+%% token is rejected with 401 before any identity is established, so the record
+%% keeps an empty `source' and does not carry the path parameters.
+t_unauthenticated_request_has_no_actor(_) ->
+    StartAt = erlang:system_time(microsecond),
+    ClientId = <<"audit-bad-token">>,
+    ?assertMatch({ok, 401, _}, delete_client(ClientId, bearer_header(<<"not-a-token">>))),
+    Record = latest_audit_record("http_status_code=401", StartAt),
+    ?assertMatch(
+        #{
+            <<"from">> := <<"dashboard">>,
+            <<"source">> := <<"">>,
+            <<"http_status_code">> := 401,
+            <<"operation_result">> := <<"failure">>,
+            <<"http_request">> := #{<<"method">> := <<"delete">>}
+        },
+        Record
+    ),
+    #{<<"http_request">> := HttpRequest} = Record,
+    ?assertEqual(false, maps:is_key(<<"bindings">>, HttpRequest), HttpRequest),
+    ok.
+
+bearer_header(Token) ->
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+delete_client(ClientId, AuthHeader) ->
+    Path = emqx_mgmt_api_test_util:api_path(["clients", binary_to_list(ClientId)]),
+    emqx_mgmt_api_test_util:request_api(
+        delete, Path, "", AuthHeader, [], #{compatible_mode => true}
+    ).
+
+%% Fetch the newest audit record matching `Filter', created no earlier than
+%% `StartAt' (microseconds).
+latest_audit_record(Filter, StartAt) ->
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Query = lists:flatten(
+        io_lib:format("~s&gte_created_at=~B&limit=1", [Filter, StartAt])
+    ),
+    Res = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 5000),
+    #{<<"data">> := [Record]} = emqx_utils_json:decode(Res, [return_maps]),
+    Record.
 
 wait_for_matching_audit_entry(_AuditPath, _Query, _AuthHeader, RemainMs) when RemainMs =< 0 ->
     ct:fail(audit_entry_not_found_in_time);

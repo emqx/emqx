@@ -270,6 +270,8 @@ audit_log_fun() ->
 
 %% dialyzer complains about the `unauthorized_role' clause...
 -dialyzer({no_match, [authorize/2, api_key_authorize/4]}).
+%% ...and about the helper that only those clauses call.
+-dialyzer({nowarn_function, [audit_rbac_denied/3]}).
 
 -endif.
 
@@ -286,7 +288,8 @@ authorize(Req, HandlerInfo) ->
                     {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
                 {error, not_found} ->
                     {401, 'BAD_TOKEN', <<"Get a token by POST /login">>};
-                {error, unauthorized_role} ->
+                {error, {unauthorized_role, Username}} ->
+                    ok = audit_rbac_denied(Req, jwt_token, Username),
                     {403, 'UNAUTHORIZED_ROLE',
                         <<"You don't have permission to access this resource">>}
             end;
@@ -296,6 +299,29 @@ authorize(Req, HandlerInfo) ->
                 <<"Support authorization: basic/bearer ">>
             )
     end.
+
+%% RBAC denies the request after the caller has been authenticated, so the
+%% actor is known. minirest never reaches its own meta-producing code on a
+%% failed authorization, so write the actor and the path parameters into the
+%% audit meta here. Only the routing bindings are added - no headers, no body.
+%%
+%% `update_log_meta/1' merges into the per-request meta that minirest
+%% initialises before it calls this authorizer. Tests call `authorize/2'
+%% directly, without that meta; `badmap' then means there is no request to
+%% audit, which must not change the authorization result.
+audit_rbac_denied(Req, AuthType, Source) ->
+    _ =
+        try
+            minirest_handler:update_log_meta(#{
+                auth_type => AuthType,
+                source => Source,
+                bindings => cowboy_req:bindings(Req)
+            })
+        catch
+            error:{badmap, undefined} ->
+                ok
+        end,
+    ok.
 
 return_unauthorized(Code, Message) ->
     {401,
@@ -330,6 +356,7 @@ api_key_authorize(Req, HandlerInfo, Key, Secret) ->
                     " path is not permitted">>
             );
         {error, unauthorized_role} ->
+            ok = audit_rbac_denied(Req, api_key, Key),
             {403, 'UNAUTHORIZED_ROLE', ?API_KEY_NOT_ALLOW_MSG};
         {error, _} ->
             return_unauthorized(
