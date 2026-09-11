@@ -169,8 +169,8 @@ t_post_users_response_includes_scopes(_Config) ->
     ?assertEqual(?ROLE_SUPERUSER, maps:get(<<"role">>, Resp)).
 
 %% Response from POST /users without an explicit `scopes' field
-%% materialises the role-default scope list (administrator -> 10 common
-%% + 4 login-only = 14 scopes). The legacy `<<"unset">>' sentinel is
+%% materialises the role-default scope list (administrator -> every common
+%% scope plus the 4 login-only scopes). The legacy `<<"unset">>' sentinel is
 %% reserved for records that survived an upgrade without scopes
 %% (pre-#17235); fresh POSTs never produce that state.
 t_post_users_response_role_default_scopes_when_not_set(_Config) ->
@@ -186,7 +186,7 @@ t_post_users_response_role_default_scopes_when_not_set(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    %% Response carries the materialised admin defaults (10 common + 4 login-only).
+    %% Response carries the materialised admin defaults (all common + 4 login-only).
     CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
     LoginOnlyNames = [N || #{name := N} <- emqx_scope_catalog:admin_only_scope_catalog()],
     ExpectedScopes = lists:sort(CommonNames ++ LoginOnlyNames),
@@ -196,7 +196,7 @@ t_post_users_response_role_default_scopes_when_not_set(_Config) ->
     EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(<<"no_scopes">>),
     ?assertEqual(ExpectedScopes, lists:sort(EffectiveScopes)).
 
-%% Viewer default = the 10 common scopes, no login-only ones.
+%% Viewer default = the common scopes, no login-only ones.
 t_post_users_response_viewer_default_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -210,7 +210,7 @@ t_post_users_response_viewer_default_scopes(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     Resp = emqx_utils_json:decode(RespBody),
-    %% Response carries the materialised viewer defaults (10 common, no login-only).
+    %% Response carries the materialised viewer defaults (common only, no login-only).
     CommonNames = [N || #{name := N} <- emqx_scope_catalog:common_scope_catalog()],
     ExpectedScopes = lists:sort(CommonNames),
     ?assertEqual(ExpectedScopes, lists:sort(maps:get(<<"scopes">>, Resp))),
@@ -570,7 +570,7 @@ t_ns_admin_can_hold_allowed_scopes(_Config) ->
 
 %% POST a namespaced administrator without an explicit `scopes'
 %% field — must materialise the restricted role defaults
-%% (7 common + 2 login-only), not the global-admin full set.
+%% (`?NS_ADMIN_ALLOWED_SCOPES'), not the global-admin full set.
 t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     add_admin(<<"admin">>),
     Token = jwt(<<"admin">>, test_password()),
@@ -584,7 +584,7 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
         post, api_path(["users"]), auth_header(Token), Body
     ),
     EffectiveScopes = emqx_dashboard_admin:effective_scopes_of(?NS_CONTROL_USER),
-    %% Must have the restricted subset (7 common).
+    %% Must have the restricted common subset.
     ?assert(lists:member(?SCOPE_CONNECTIONS, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_MONITORING, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_DATA_INTEGRATION, EffectiveScopes)),
@@ -595,6 +595,9 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     %% groups for namespaced callers.
     ?assert(lists:member(?SCOPE_CLUSTER_OPERATIONS, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_LICENSE, EffectiveScopes)),
+    %% The plugin API gateway, which namespaced callers reached
+    %% through `system' before the `plugin_api' scope existed.
+    ?assert(lists:member(?SCOPE_PLUGIN_API, EffectiveScopes)),
     %% Must have the two allowed login-only scopes.
     ?assert(lists:member(?SCOPE_USER_MGMT, EffectiveScopes)),
     ?assert(lists:member(?SCOPE_API_KEY_MGMT, EffectiveScopes)),
@@ -605,8 +608,10 @@ t_ns_admin_gets_restricted_role_default_scopes(_Config) ->
     %% Must NOT have mfa, sso login-only scopes.
     ?assertNot(lists:member(?SCOPE_MFA_MGMT, EffectiveScopes)),
     ?assertNot(lists:member(?SCOPE_SSO_MGMT, EffectiveScopes)),
-    %% Exact count: 9 scopes (7 common + 2 login-only).
-    ?assertEqual(9, length(EffectiveScopes)).
+    %% The default is exactly the ns-admin allowlist: no more, no less.
+    ?assertEqual(
+        lists:sort(?NS_ADMIN_ALLOWED_SCOPES), lists:sort(EffectiveScopes)
+    ).
 
 %% PUT a namespaced administrator with only the description field
 %% updated (role + scopes unchanged).  The persisted scopes are the
