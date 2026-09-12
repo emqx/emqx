@@ -15,6 +15,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_prometheus/include/emqx_prometheus.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 -define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
@@ -153,9 +154,95 @@ parse_prometheus_labels(Labels) ->
         binary:split(Labels, <<",">>, [global])
     ).
 
+announce_prometheus_version(Node, Version) ->
+    APIs0 = ?ON(Node, emqx_bpapi:supported_apis(Node)),
+    APIs = [{emqx_prometheus, Version} | lists:keydelete(emqx_prometheus, 1, APIs0)],
+    {atomic, ok} = ?ON(
+        Node,
+        mria:transaction(emqx_common_shard, fun emqx_bpapi:announce_fun/2, [Node, APIs])
+    ),
+    ok.
+
+wait_prometheus_version(Nodes, Version) ->
+    lists:foreach(
+        fun(Node) ->
+            ?retry(
+                100,
+                20,
+                ?assertEqual(Version, ?ON(Node, emqx_bpapi:supported_version(emqx_prometheus)))
+            )
+        end,
+        Nodes
+    ).
+
+%% Parse only the `emqx_client_accept_result` lines: `parse_prometheus/1`
+%% cannot parse every line of the `node` mode output.
+accept_result_points(Mode) ->
+    QueryString = uri_string:compose_query([{"mode", atom_to_binary(Mode)}]),
+    URL = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
+    {200, Response} = emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => URL,
+        extra_headers => [],
+        query_params => QueryString,
+        auth_header => {"no", "auth"}
+    }),
+    Lines = binary:split(iolist_to_binary(Response), <<"\n">>, [global, trim_all]),
+    maps:from_list([
+        {Labels, Value}
+     || <<"emqx_client_accept_result{", _/binary>> = Line <- Lines,
+        {_Name, Labels, Value} <- [parse_prometheus_line(Line)]
+    ]).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
+
+-doc """
+While a node announces `emqx_prometheus` BPAPI version 3, as a node of an older
+release does, nodes leave `emqx_client_accept_result` out of the data they send
+to each other, so the older node can still aggregate it. The `node` mode keeps
+the metric. The metric returns in all modes after every node supports version 4.
+""".
+t_listener_accept_result_mixed_version(TCConfig) ->
+    [N1, N2] = Nodes = mk_cluster(?FUNCTION_NAME, #{n => 2}, TCConfig),
+    ok = announce_prometheus_version(N2, 3),
+    wait_prometheus_version(Nodes, 3),
+    %% This is what a node of an older release receives.
+    {_, #{emqx_client_data := ClientData}} = ?ON(
+        N1, emqx_prometheus:fetch_from_local_node(?PROM_DATA_MODE__ALL_NODES_AGGREGATED)
+    ),
+    ?assertNot(is_map_key(emqx_client_accept_result, ClientData)),
+    ?assertEqual(#{}, accept_result_points(?PROM_DATA_MODE__ALL_NODES_AGGREGATED)),
+    ?assertEqual(#{}, accept_result_points(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED)),
+    ?assertNotEqual(#{}, accept_result_points(?PROM_DATA_MODE__NODE)),
+    ok = announce_prometheus_version(N2, 4),
+    wait_prometheus_version(Nodes, 4),
+    ?assertNotEqual(#{}, accept_result_points(?PROM_DATA_MODE__ALL_NODES_AGGREGATED)),
+    ?assertNotEqual(#{}, accept_result_points(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED)),
+    ok.
+
+-doc """
+The aggregated and unaggregated modes skip metrics that a node of a newer
+release returns and this node does not know, instead of failing the scrape.
+""".
+t_aggregate_skips_unknown_metrics(TCConfig) ->
+    [_N1, N2] = mk_cluster(?FUNCTION_NAME, #{n => 2}, TCConfig),
+    ?ON(N2, begin
+        ok = meck:new(emqx_prometheus, [passthrough, no_link]),
+        ok = meck:expect(emqx_prometheus, fetch_from_local_node, fun(Mode) ->
+            {Node, #{emqx_client_data := ClientData} = Data} = meck:passthrough([Mode]),
+            {Node, Data#{
+                emqx_future_data => #{emqx_future_metric => [{[], 1}]},
+                emqx_client_data := ClientData#{emqx_client_future_metric => [{[], 1}]}
+            }}
+        end)
+    end),
+    {200, Aggregated} = get_prometheus_stats(?PROM_DATA_MODE__ALL_NODES_AGGREGATED),
+    {200, Unaggregated} = get_prometheus_stats(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED),
+    ?assertNot(is_map_key(<<"emqx_client_future_metric">>, Aggregated)),
+    ?assertNot(is_map_key(<<"emqx_client_future_metric">>, Unaggregated)),
+    ok.
 
 t_mria_shard_lag_cache(TCConfig) ->
     Opts = #{
