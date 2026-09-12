@@ -5559,7 +5559,10 @@ case133_mountpoint_peerhost_placeholder(_Config) ->
         options = #{uri_query => #{<<"ep">> => <<"ep133">>, <<"lt">> => <<"60">>}}
     },
     {ok, Channel1} = emqx_lwm2m_channel:enrich_clientinfo(Msg, Channel0),
-    #{mountpoint := Mountpoint} = emqx_lwm2m_channel:info(clientinfo, Channel1),
+    ClientInfo = emqx_lwm2m_channel:info(clientinfo, Channel1),
+    %% The mountpoint placeholders are evaluated during authentication, the
+    %% same step `auth_connect/2' runs in the real flow.
+    {ok, #{mountpoint := Mountpoint}} = emqx_gateway_ctx:authenticate(Ctx, ClientInfo),
     ?assertEqual(<<"lwm2m/127.0.0.1/ep133/">>, Mountpoint).
 
 case134_auto_observe_empty_list(_Config) ->
