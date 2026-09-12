@@ -288,6 +288,8 @@ do_create(
         idp_signs_assertions := IdpSignsAssertions
     } = Config
 ) ->
+    %% Before `esaml_sp:setup/1', which dialyzer cannot see past.
+    ok = maybe_warn_login_cookie_check_skipped(Config),
     {ok, _} = application:ensure_all_started(esaml),
     try
         %% Load IdP metadata and extract certificate fingerprint
@@ -315,7 +317,6 @@ do_create(
                 email = "contact@emqx.io"
             }
         }),
-        ok = maybe_warn_login_cookie_check_skipped(Config),
         State = Config,
         {ok, State#{idp_meta => IdpMeta, sp => SP}}
     catch
