@@ -3088,9 +3088,6 @@ receive_response(Socket, Timeout) ->
             Bin;
         {mqttc, From, Data2} ->
             ?LOG("receive_response() ignore mqttc From=~p, Data2=~p~n", [From, Data2]),
-            receive_response(Socket);
-        Other ->
-            ?LOG("receive_response() Other message: ~p", [{unexpected_udp_data, Other}]),
             receive_response(Socket)
     after Timeout ->
         udp_receive_timeout
