@@ -208,8 +208,7 @@ callback(Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = S
     %% Check the browser binding first, so an unsolicited cross-site POST never
     %% reaches the XML parser or the replay cache.
     case emqx_dashboard_sso_browser_binding:check(saml, State, Req, RelayState) of
-        {error, Reason} ->
-            ?SLOG(error, #{msg => "saml_login_not_started_by_this_browser", reason => Reason}),
+        {error, browser_binding_mismatch} ->
             {error, ?BINDING_ERROR_MESSAGE};
         ok ->
             clear_binding(RelayState, do_callback(SP, DashboardAddr, PostVals))
