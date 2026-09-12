@@ -78,7 +78,7 @@ kick_session(GwName, Action, ClientId, ChanPid) ->
     emqx_gateway_cm:gateway_name(),
     emqx_types:clientid(),
     pid()
-) -> atom() | {badrpc, _}.
+) -> atom() | undefined | {badrpc, _}.
 get_chann_conn_mod(GwName, ClientId, ChanPid) ->
     rpc:call(
         node(ChanPid),

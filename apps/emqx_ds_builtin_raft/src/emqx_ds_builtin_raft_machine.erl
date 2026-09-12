@@ -388,7 +388,7 @@ apply(
         _ ->
             %% Leader mismatch:
             State = State0,
-            Result = ?err_unrec({not_the_leader, #{got => From, expect => Leader}}),
+            Result = ?err_rec({not_the_leader, #{got => From, expect => Leader}}),
             Effects = []
     end,
     {State, Result, Effects};

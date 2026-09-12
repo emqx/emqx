@@ -40,7 +40,9 @@
 
 -export([
     listener_id/2,
+    validate_listener_name/1,
     parse_listener_id/1,
+    parse_listener_id_without_atom/1,
     esockd_access_rules/1
 ]).
 
@@ -105,6 +107,7 @@
 -define(MIN_TCP_BUFFER, 5).
 
 -define(ROOT_KEY, listeners).
+-define(MAX_LISTENER_NAME_BYTES, 64).
 -define(CONF_KEY_PATH, [?ROOT_KEY, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
 -define(MARK_DEL, ?TOMBSTONE_CONFIG_CHANGE_REQ).
@@ -652,7 +655,12 @@ resume_cowboy_listener(Id, Retries) ->
 pre_config_update([?ROOT_KEY, Type, Name], {create, NewConf}, V) when
     V =:= undefined orelse V =:= ?TOMBSTONE_VALUE
 ->
-    {ok, convert_certs(Type, Name, NewConf)};
+    case validate_listener_name(Name) of
+        ok ->
+            {ok, convert_certs(Type, Name, NewConf)};
+        {error, _} = Error ->
+            Error
+    end;
 pre_config_update([?ROOT_KEY, _Type, _Name], {create, _NewConf}, _RawConf) ->
     {error, already_exist};
 pre_config_update([?ROOT_KEY, _Type, _Name], {update, _Request}, undefined) ->
@@ -668,8 +676,13 @@ pre_config_update([?ROOT_KEY, _Type, _Name], ?MARK_DEL, _RawConf) ->
     {ok, ?TOMBSTONE_VALUE};
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
-pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
-    {ok, convert_certs(NewConf)}.
+pre_config_update([?ROOT_KEY], NewConf, OldConf) ->
+    case validate_new_listener_ids(NewConf, OldConf) of
+        ok ->
+            {ok, convert_certs(NewConf)};
+        {error, _} = Error ->
+            Error
+    end.
 
 post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
     OldConf =:= undefined orelse OldConf =:= ?TOMBSTONE_TYPE
@@ -998,16 +1011,60 @@ do_format_bind_ip(Bin) when is_binary(Bin) ->
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).
 
+-spec validate_listener_name(unicode:chardata() | atom()) ->
+    ok
+    | {error, {listener_name_invalid_chars | listener_name_too_long, binary()}}.
+validate_listener_name(Name) ->
+    NameBin = listener_id_part_to_binary(Name),
+    case byte_size(NameBin) =< ?MAX_LISTENER_NAME_BYTES of
+        false ->
+            Message = iolist_to_binary(
+                io_lib:format(
+                    "Listener name must not exceed ~B bytes", [?MAX_LISTENER_NAME_BYTES]
+                )
+            ),
+            {error, {listener_name_too_long, Message}};
+        true ->
+            case emqx_utils:is_restricted_str(NameBin) of
+                true ->
+                    ok;
+                false ->
+                    ErrMsg = <<
+                        "Listener name must start with a letter or digit "
+                        "and contain only letters, digits, '-' and '_'"
+                    >>,
+                    {error, {listener_name_invalid_chars, ErrMsg}}
+            end
+    end.
+
+listener_id_part_to_binary(Value) when is_binary(Value) ->
+    Value;
+listener_id_part_to_binary(Value) when is_atom(Value) ->
+    atom_to_binary(Value, utf8);
+listener_id_part_to_binary(Value) when is_list(Value) ->
+    unicode:characters_to_binary(Value).
+
 -spec parse_listener_id(listener_id()) -> {ok, #{type => atom(), name => atom()}} | {error, term()}.
 parse_listener_id(Id) ->
-    case string:split(str(Id), ":", leading) of
+    case parse_listener_id_without_atom(Id) of
+        {ok, #{type := Type, name := Name}} ->
+            {ok, #{type => binary_to_existing_atom(Type), name => binary_to_atom(Name)}};
+        {error, _} = Error ->
+            Error
+    end.
+
+-spec parse_listener_id_without_atom(listener_id() | unicode:chardata()) ->
+    {ok, #{type => binary(), name => binary()}} | {error, {invalid_listener_id, binary()}}.
+parse_listener_id_without_atom(Id) ->
+    IdBin = listener_id_part_to_binary(Id),
+    case binary:split(IdBin, <<":">>) of
         [Type, Name] ->
-            case lists:member(Type, ?TYPES_STRING) of
-                true -> {ok, #{type => list_to_existing_atom(Type), name => list_to_atom(Name)}};
-                false -> {error, {invalid_listener_id, Id}}
+            case lists:member(binary_to_list(Type), ?TYPES_STRING) of
+                true -> {ok, #{type => Type, name => Name}};
+                false -> {error, {invalid_listener_id, <<"Unsupported listener type">>}}
             end;
         _ ->
-            {error, {invalid_listener_id, Id}}
+            {error, {invalid_listener_id, <<"Invalid listener ID format, expected type:name">>}}
     end.
 
 zone(Opts) ->
@@ -1019,6 +1076,20 @@ diff_confs(NewConfs, OldConfs) ->
         flatten_confs(OldConfs),
         fun({Type, Name, _}) -> {Type, Name} end
     ).
+
+validate_new_listener_ids(NewConf, OldConf) ->
+    #{added := Added} = diff_confs(NewConf, OldConf),
+    validate_listener_ids(Added).
+
+validate_listener_ids([]) ->
+    ok;
+validate_listener_ids([{_Type, Name, _Conf} | Rest]) ->
+    case validate_listener_name(Name) of
+        ok ->
+            validate_listener_ids(Rest);
+        {error, _} = Error ->
+            Error
+    end.
 
 flatten_confs(Confs) ->
     lists:flatmap(
@@ -1120,7 +1191,9 @@ parse_bind(#{<<"bind">> := Bind}) ->
 
 %% The relative dir for ssl files.
 certs_dir(Type, Name) ->
-    iolist_to_binary(filename:join(["listeners", Type, Name])).
+    TypePath = binary_to_list(listener_id_part_to_binary(Type)),
+    NamePath = binary_to_list(listener_id_part_to_binary(Name)),
+    iolist_to_binary(filename:join(["listeners", TypePath, NamePath])).
 
 convert_certs(ListenerConf) ->
     maps:fold(

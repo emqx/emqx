@@ -30,11 +30,14 @@
 -define(DATABASE, <<"mqtt">>).
 -define(USERNAME, <<"root">>).
 -define(PASSWORD, <<"public">>).
+-define(MYSQL_POOL_SIZE, 4).
+-define(UNSAFE_SQL_MODES, [<<"ANSI_QUOTES">>, <<"NO_BACKSLASH_ESCAPES">>]).
 
 -define(async, async).
 -define(sync, sync).
 -define(tcp, tcp).
 -define(tls, tls).
+-define(tcp_nbe, tcp_nbe).
 -define(with_batch, with_batch).
 -define(without_batch, without_batch).
 
@@ -93,6 +96,16 @@ init_per_group(?tls, TCConfig) ->
         {mysql_port, MysqlPort},
         {enable_tls, true},
         {proxy_name, "mysql_tls"}
+        | TCConfig
+    ];
+init_per_group(?tcp_nbe, TCConfig) ->
+    MysqlHost = os:getenv("MYSQL_NBE_HOST", "toxiproxy"),
+    MysqlPort = list_to_integer(os:getenv("MYSQL_NBE_PORT", "3308")),
+    [
+        {mysql_host, MysqlHost},
+        {mysql_port, MysqlPort},
+        {enable_tls, false},
+        {proxy_name, "mysql_nbe"}
         | TCConfig
     ];
 init_per_group(?async, TCConfig) ->
@@ -172,7 +185,7 @@ connector_config(Overrides) ->
         <<"database">> => ?DATABASE,
         <<"username">> => ?USERNAME,
         <<"password">> => ?PASSWORD,
-        <<"pool_size">> => 4,
+        <<"pool_size">> => ?MYSQL_POOL_SIZE,
         <<"ssl">> => #{<<"enable">> => false},
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
@@ -338,16 +351,41 @@ action_res_id(TCConfig) ->
     ).
 
 unprepare(TCConfig, Key) ->
+    [ok = mysql:unprepare(Conn, Key) || Conn <- pool_connections(TCConfig)].
+
+pool_connections(TCConfig) ->
     ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
     {ok, _, #{state := #{connector_state := #{pool_name := PoolName}}}} =
         emqx_resource:get_instance(ConnResId),
     [
         begin
             {ok, Conn} = ecpool_worker:client(Worker),
-            ok = mysql:unprepare(Conn, Key)
+            Conn
         end
      || {_Name, Worker} <- ecpool:workers(PoolName)
     ].
+
+assert_pool_session_modes(TCConfig) ->
+    Connections = pool_connections(TCConfig),
+    ?assertEqual(?MYSQL_POOL_SIZE, length(Connections)),
+    lists:foreach(
+        fun(Conn) -> ?assertEqual([], connection_session_modes(Conn)) end,
+        Connections
+    ),
+    Connections.
+
+connection_session_modes(Conn) ->
+    {ok, _, [[Modes]]} = mysql:query(Conn, <<"SELECT @@SESSION.sql_mode">>),
+    decode_sql_modes(Modes).
+
+direct_session_modes(TCConfig) ->
+    {ok, _, [[Modes]]} = query_direct_mysql(TCConfig, <<"SELECT @@SESSION.sql_mode">>),
+    decode_sql_modes(Modes).
+
+decode_sql_modes(<<>>) ->
+    [];
+decode_sql_modes(Modes) ->
+    lists:sort(binary:split(Modes, <<",">>, [global])).
 
 unique_payload() ->
     integer_to_binary(erlang:unique_integer()).
@@ -881,7 +919,7 @@ t_placeholders_in_on_clause_are_forbidden(TCConfig) when is_list(TCConfig) ->
                 match,
                 re:run(
                     Msg,
-                    <<"Placeholders are only allowed in VALUES part">>,
+                    <<"dynamic_on_duplicate_key_update_not_allowed">>,
                     [global, {capture, none}]
                 )
             ),
@@ -893,7 +931,7 @@ t_placeholders_in_on_clause_are_forbidden(TCConfig) when is_list(TCConfig) ->
                 match,
                 re:run(
                     Msg2,
-                    <<"Placeholders are only allowed in VALUES part">>,
+                    <<"dynamic_on_duplicate_key_update_not_allowed">>,
                     [global, {capture, none}]
                 )
             ),
@@ -957,6 +995,176 @@ t_nested_payload_template_2(TCConfig) ->
         ?assert(length(Results) >= MsgCnt)
     end),
     ok.
+
+-doc """
+Regression test for SQL injection through a placeholder placed inside a `/* ... */`
+block comment in the VALUES part.
+
+Only the batch renderer interpolates `${...}` into SQL text; the single (non-batch)
+path replaces it with a `?` parameter and is not affected.  A block comment ends at
+`*/`, so a value containing `*/` terminates the comment early and the rest of the
+value is parsed as SQL by the server.
+
+Vulnerable rendering of
+`INSERT INTO mqtt_users(username, arrived) VALUES ('regular_user', NOW() /* ${payload} */)`
+with payload `"*/),(CHAR(97,100,109,105,110),NOW())#"` produces:
+
+    INSERT INTO mqtt_users(username, arrived)
+    VALUES ('regular_user', NOW() /* '*/),(CHAR(97,100,109,105,110),NOW())#' */)
+
+The `*/` inside the value closes the template comment, the injected
+`(CHAR(97,100,109,105,110),NOW())` becomes a second row with username `admin`, and the
+trailing `#` comments out the renderer-added `' */)`.  `CHAR(97,100,109,105,110)` is
+used instead of `'admin'` because the renderer escapes single quotes in values.
+The test asserts that the action rejects the template before rendering values.
+""".
+t_sql_injection_through_comment_placeholder() ->
+    [{matrix, true}].
+t_sql_injection_through_comment_placeholder(matrix) ->
+    [[?tcp, ?sync, ?with_batch]];
+t_sql_injection_through_comment_placeholder(TCConfig) when is_list(TCConfig) ->
+    ok = query_direct_mysql(TCConfig, <<"DROP TABLE IF EXISTS mqtt_users">>),
+    ok = query_direct_mysql(TCConfig, <<
+        "CREATE TABLE mqtt_users (username varchar(255) NOT NULL, arrived datetime NOT NULL) "
+        "DEFAULT CHARSET=utf8MB4"
+    >>),
+    on_exit(fun() -> query_direct_mysql(TCConfig, <<"DROP TABLE IF EXISTS mqtt_users">>) end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    SQL = <<
+        "INSERT INTO mqtt_users(username, arrived) "
+        "VALUES ('regular_user', NOW() /* ${payload} */)"
+    >>,
+    {400, #{<<"message">> := Msg}} = probe_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"sql">> => SQL}
+    }),
+    ?assertEqual(
+        match,
+        re:run(Msg, <<"failed_to_prepare_statement">>, [{capture, none}]),
+        #{error_msg => Msg}
+    ),
+    ok.
+
+-doc """
+Regression test for SQL injection through a placeholder occupying a full value
+position in the VALUES part when the server runs with `NO_BACKSLASH_ESCAPES`.
+
+Only the batch renderer interpolates `${...}` into SQL text; the single (non-batch)
+path replaces it with a `?` parameter and is not affected.  The renderer escapes
+backslash to `\\` and single quote to `\\'`.  With `NO_BACKSLASH_ESCAPES`, the
+backslash is an ordinary character, so `\\')` ends the string literal and the
+rest of the value is parsed as SQL by the server.
+
+The test runs against the dedicated `mysql-nbe` instance, started with
+`--sql-mode=NO_BACKSLASH_ESCAPES,ANSI_QUOTES` (see
+`.ci/docker-compose-file/docker-compose-mysql-tcp.yaml`).
+
+The template fixes the `username` column to `'regular_user'` and binds `${payload}`
+to the `note` column, so a plain payload can never produce an `admin` row.
+Vulnerable rendering of
+`INSERT INTO mqtt_users(username, note, arrived) VALUES ('regular_user', ${payload}, NOW())`
+with payload `"\\', NOW()),(CHAR(97,100,109,105,110),CHAR(112,119,110),NOW()) -- "`
+produces:
+
+    INSERT INTO mqtt_users(username, note, arrived)
+    VALUES ('regular_user', '\\', NOW()),
+           (CHAR(97,100,109,105,110),CHAR(112,119,110),NOW()) -- ', NOW())
+
+With `NO_BACKSLASH_ESCAPES`, `'\\'` is a two-character string; the first row is
+completed by the template's trailing `, NOW())`, and the injected tuple becomes a
+second row with username `admin`.  The trailing `-- ` comments out the
+renderer-added `'`.  `CHAR(...)` is used instead of quoted strings because the
+renderer escapes single quotes in values.  This test asserts that no `admin` row
+can appear; it fails while the renderer is vulnerable.
+""".
+t_sql_injection_through_no_backslash() ->
+    [{matrix, true}].
+t_sql_injection_through_no_backslash(matrix) ->
+    [[?tcp_nbe, ?sync, ?with_batch]];
+t_sql_injection_through_no_backslash(TCConfig) when is_list(TCConfig) ->
+    ok = query_direct_mysql(TCConfig, <<"DROP TABLE IF EXISTS mqtt_users">>),
+    ok = query_direct_mysql(TCConfig, <<
+        "CREATE TABLE mqtt_users ("
+        "username varchar(255) NOT NULL, note varchar(255) NOT NULL, arrived datetime NOT NULL) "
+        "DEFAULT CHARSET=utf8MB4"
+    >>),
+    on_exit(fun() -> query_direct_mysql(TCConfig, <<"DROP TABLE IF EXISTS mqtt_users">>) end),
+    ?assertEqual(?UNSAFE_SQL_MODES, direct_session_modes(TCConfig)),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    SQL = <<
+        "INSERT INTO mqtt_users(username, note, arrived) "
+        "VALUES ('regular_user', ${payload}, NOW())"
+    >>,
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"sql">> => SQL}
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    %% The renderer escapes `\` to `\\` and `'` to `\'`. With NO_BACKSLASH_ESCAPES
+    %% the backslash is an ordinary character, so the escaped quote terminates the
+    %% string and the rest of the value is parsed as SQL by the server.
+    %% The payload injects a second VALUES row whose `username` is 'admin'; the
+    %% template's trailing `, NOW())` completes the first row, and `-- ` comments
+    %% out the renderer-added `'`.  `CHAR(97,100,109,105,110)` is 'admin' and
+    %% `CHAR(112,119,110)` is 'pwn' without quotes.
+    Payload = <<"\\', NOW()),(CHAR(97,100,109,105,110),CHAR(112,119,110),NOW()) -- ">>,
+    {_, {ok, _}} = ?wait_async_action(
+        emqtt:publish(C, RuleTopic, Payload),
+        #{?snk_kind := mysql_connector_query_return},
+        10_000
+    ),
+    ?assertEqual(
+        {ok, [<<"username">>, <<"note">>], [[<<"regular_user">>, Payload]]},
+        query_direct_mysql(TCConfig, <<"SELECT username, note FROM mqtt_users">>)
+    ),
+    ?assertEqual(
+        {ok, [<<"username">>], []},
+        query_direct_mysql(TCConfig, <<"SELECT username FROM mqtt_users WHERE username = 'admin'">>)
+    ),
+    ok.
+
+t_nbe_session_mode() ->
+    [{matrix, true}].
+t_nbe_session_mode(matrix) ->
+    [[?tcp_nbe, ?sync, ?with_batch]];
+t_nbe_session_mode(TCConfig) when is_list(TCConfig) ->
+    ?assertEqual(?UNSAFE_SQL_MODES, direct_session_modes(TCConfig)),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    _ = assert_pool_session_modes(TCConfig),
+    ok.
+
+t_nbe_session_mode_after_reconnect() ->
+    [{matrix, true}].
+t_nbe_session_mode_after_reconnect(matrix) ->
+    [[?tcp_nbe, ?sync, ?with_batch]];
+t_nbe_session_mode_after_reconnect(TCConfig) when is_list(TCConfig) ->
+    ?assertEqual(?UNSAFE_SQL_MODES, direct_session_modes(TCConfig)),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    OldConnections = assert_pool_session_modes(TCConfig),
+    ProxyName = ?config(proxy_name, TCConfig),
+    ProxyHost = ?config(proxy_host, TCConfig),
+    ProxyPort = ?config(proxy_port, TCConfig),
+    emqx_common_test_helpers:enable_failure(down, ProxyName, ProxyHost, ProxyPort),
+    ?retry(
+        100,
+        50,
+        ?assert(lists:all(fun(Conn) -> not is_process_alive(Conn) end, OldConnections))
+    ),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    ?retry(
+        500,
+        20,
+        begin
+            NewConnections = assert_pool_session_modes(TCConfig),
+            ?assert(
+                lists:all(
+                    fun(Conn) -> not lists:member(Conn, OldConnections) end,
+                    NewConnections
+                )
+            )
+        end
+    ).
 
 t_table_removed(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
@@ -1037,7 +1245,7 @@ t_update_with_invalid_prepare(TCConfig) ->
                 "INSERT INTO mqtt_test(payload, arrivedx) "
                 "VALUES (${payload}, FROM_UNIXTIME(${timestamp}/1000))"
             >>,
-        reconnect_cb => {emqx_mysql, prepare_sql_to_conn},
+        reconnect_cb => {emqx_mysql, prepare_sql_to_conn_on_reconnect},
         get_sig_fn => fun emqx_mysql:get_reconnect_callback_signature/1,
         check_expected_error_fn => fun(Error) ->
             case re:run(Error, <<"Unknown column">>, [{capture, none}]) of

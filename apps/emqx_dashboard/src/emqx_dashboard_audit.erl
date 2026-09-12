@@ -149,11 +149,8 @@ http_request(Meta) ->
         case maps:with([method, headers, bindings, body, namespace], Meta) of
             #{body := Body} = Request when is_binary(Body) ->
                 Request#{body => <<"******">>};
-            #{body := _} = Request ->
-                case is_sensitive_body_operation(Meta) of
-                    true -> Request#{body => <<"******">>};
-                    false -> Request
-                end;
+            #{body := Body} = Request ->
+                Request#{body => redact_request_body(Meta, Body)};
             Request ->
                 Request
         end,
@@ -171,10 +168,36 @@ maybe_put(Key, Value, Map) -> Map#{Key => Value}.
 non_empty_map(Map) when is_map(Map), map_size(Map) > 0 -> Map;
 non_empty_map(_) -> undefined.
 
-%% Endpoints whose request body carries a secret under a key name that
-%% the generic key-name based redaction does not cover.
-is_sensitive_body_operation(#{operation_id := <<"/license">>}) -> true;
-is_sensitive_body_operation(_) -> false.
+%% Some endpoints carry credentials under names that the generic redactor
+%% cannot safely infer. Redact by the credential-bearing operation boundary
+%% before the generic key-name redaction runs.
+redact_request_body(#{operation_id := <<"/license">>}, _Body) ->
+    <<"******">>;
+redact_request_body(#{operation_id := <<"/sso/mfa/", _/binary>>}, Body) ->
+    redact_sso_mfa_body(Body);
+redact_request_body(_Meta, Body) ->
+    Body.
+
+redact_sso_mfa_body(Body) when is_map(Body) ->
+    maps:map(
+        fun(Key, Value) ->
+            case is_sso_mfa_audit_safe_key(Key) of
+                true -> Value;
+                false -> <<"******">>
+            end
+        end,
+        Body
+    );
+redact_sso_mfa_body(_Body) ->
+    <<"******">>.
+
+is_sso_mfa_audit_safe_key(username) -> true;
+is_sso_mfa_audit_safe_key("username") -> true;
+is_sso_mfa_audit_safe_key(<<"username">>) -> true;
+is_sso_mfa_audit_safe_key(backend) -> true;
+is_sso_mfa_audit_safe_key("backend") -> true;
+is_sso_mfa_audit_safe_key(<<"backend">>) -> true;
+is_sso_mfa_audit_safe_key(_) -> false.
 
 operation_result(302, _) -> success;
 operation_result(Code, _) when Code >= 300 -> failure;

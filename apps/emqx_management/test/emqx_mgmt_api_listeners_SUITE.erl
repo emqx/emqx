@@ -186,6 +186,140 @@ t_list_listeners(Config) when is_list(Config) ->
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     ok.
 
+t_listener_id_length(Config) when is_list(Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["listeners"]),
+    OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:default"]),
+    OriginListener = request(get, OriginPath, [], []),
+    OriginListener1 = maps:remove(<<"id">>, OriginListener),
+    Port = integer_to_binary(?PORT),
+    AllowedName = binary:copy(<<"a">>, 64),
+    AllowedId = <<"tcp:", AllowedName/binary>>,
+    AllowedPath = emqx_mgmt_api_test_util:api_path(["listeners", AllowedId]),
+    AllowedConf = OriginListener1#{
+        <<"name">> => AllowedName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    Created = request(post, Path, [], AllowedConf),
+    ?assertEqual(AllowedId, maps:get(<<"id">>, Created)),
+    AllowedGet = request(get, AllowedPath, [], []),
+    ?assertEqual(AllowedId, maps:get(<<"id">>, AllowedGet)),
+    ?assertEqual([], delete(AllowedPath)),
+
+    UnicodeName = binary:copy(<<"你"/utf8>>, 20),
+    UnicodeConf = OriginListener1#{
+        <<"name">> => UnicodeName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    UnicodeResult = request(post, Path, [], UnicodeConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, UnicodeResult),
+    {error, {_, _, UnicodeBody}} = UnicodeResult,
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> :=
+                <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>
+        },
+        emqx_utils_json:decode(UnicodeBody)
+    ),
+
+    InvalidName = <<"_leading_underscore">>,
+    InvalidConf = OriginListener1#{
+        <<"name">> => InvalidName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    InvalidResult = request(post, Path, [], InvalidConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, InvalidResult),
+    {error, {{_, 400, _}, _, InvalidBody}} = InvalidResult,
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> :=
+                <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>
+        },
+        emqx_utils_json:decode(InvalidBody)
+    ),
+
+    UniqueSuffix = integer_to_binary(erlang:unique_integer([positive])),
+    ColonName = <<"tcp:invalid_", UniqueSuffix/binary>>,
+    ColonId = <<"tcp:", ColonName/binary>>,
+    ?assertError(badarg, binary_to_existing_atom(ColonId)),
+    ColonConf = OriginListener1#{
+        <<"name">> => ColonName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    ColonResult = request(post, Path, [], ColonConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, ColonResult),
+    ?assertError(badarg, binary_to_existing_atom(ColonId)),
+    ?assertError(badarg, binary_to_existing_atom(ColonName)),
+    DeprecatedColonPath = emqx_mgmt_api_test_util:api_path(["listeners", ColonId]),
+    DeprecatedColonConf = ColonConf#{<<"id">> => ColonId},
+    DeprecatedColonResult = request(
+        post,
+        DeprecatedColonPath,
+        [],
+        DeprecatedColonConf,
+        #{return_all => true}
+    ),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, DeprecatedColonResult),
+    ?assertError(badarg, binary_to_existing_atom(ColonId)),
+    ?assertError(badarg, binary_to_existing_atom(ColonName)),
+
+    TooLongName = binary:copy(<<"b">>, 65),
+    TooLongConf = OriginListener1#{
+        <<"name">> => TooLongName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    Result = request(post, Path, [], TooLongConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, Result),
+    {error, {{_, 400, _}, _, Body}} = Result,
+    #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message} =
+        emqx_utils_json:decode(Body),
+    ?assertEqual(<<"Listener name must not exceed 64 bytes">>, Message),
+    TooLongId = <<"tcp:", TooLongName/binary>>,
+    DeprecatedPath = emqx_mgmt_api_test_util:api_path(["listeners", TooLongId]),
+    DeprecatedConf = TooLongConf#{<<"id">> => TooLongId},
+    DeprecatedResult = request(post, DeprecatedPath, [], DeprecatedConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, DeprecatedResult),
+    ok.
+
+t_legacy_listener_id_update(Config) when is_list(Config) ->
+    assert_legacy_listener_id_update(binary:copy(<<"legacy">>, 11)).
+
+t_existing_id_atom_does_not_create_name_atom(Config) when is_list(Config) ->
+    UniqueSuffix = integer_to_binary(erlang:unique_integer([positive])),
+    Name = <<"missing_", UniqueSuffix/binary>>,
+    Id = <<"tcp:", Name/binary>>,
+    _ = binary_to_atom(Id),
+    ?assertError(badarg, binary_to_existing_atom(Name)),
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", Id]),
+    Result = request(delete, Path, [], [], #{return_all => true}),
+    ?assertMatch({error, {{_, 404, _}, _, _}}, Result),
+    ?assertError(badarg, binary_to_existing_atom(Name)),
+    ok.
+
+assert_legacy_listener_id_update(Name) ->
+    NameAtom = binary_to_atom(Name),
+    Id = <<"tcp:", Name/binary>>,
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", Id]),
+    %% Seed the configuration as if loaded from a pre-upgrade installation.
+    Raw = #{<<"enable">> => false, <<"bind">> => ?PORT},
+    emqx_config:put_raw([listeners, tcp, NameAtom], Raw),
+    emqx_config:put([listeners, tcp, NameAtom], #{
+        enable => false, bind => maps:get(<<"bind">>, Raw)
+    }),
+    try
+        Existing = request(get, Path, [], []),
+        Updated = request(put, Path, [], Existing#{<<"max_connections">> => 123}),
+        ?assertMatch(#{<<"max_connections">> := 123}, Updated)
+    after
+        ?assertEqual([], delete(Path))
+    end,
+    ?assertMatch(
+        {error, {_, 400, _}},
+        request(post, Path, [], Raw#{<<"id">> => Id, <<"type">> => <<"tcp">>})
+    ),
+    ok.
+
 t_tcp_crud_listeners_by_id(Config) when is_list(Config) ->
     ListenerId = <<"tcp:default">>,
     NewListenerId = <<"tcp:new">>,

@@ -15,7 +15,7 @@
 
 %% behavior callbacks:
 -export([
-    create/6,
+    create/7,
     open/5,
     drop/5,
     prepare_tx/7,
@@ -109,7 +109,7 @@
 %% behavior callbacks
 %%================================================================================
 
-create(_ShardId, DBHandle, GenId, Schema0, SPrev, _DBOpts) ->
+create(_ShardId, DBHandle, CFRefs, GenId, Schema0, SPrev, _DBOpts) ->
     Defaults = #{
         wildcard_hash_bytes => 8,
         timestamp_bytes => 8,
@@ -119,8 +119,8 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev, _DBOpts) ->
     Schema = maps:merge(Defaults, Schema0),
     DataCFName = data_cf(GenId),
     TrieCFName = trie_cf(GenId),
-    {ok, DataCFHandle} = rocksdb:create_column_family(DBHandle, DataCFName, []),
-    {ok, TrieCFHandle} = rocksdb:create_column_family(DBHandle, TrieCFName, []),
+    DataCFHandle = ensure_column_family(DBHandle, CFRefs, DataCFName),
+    TrieCFHandle = ensure_column_family(DBHandle, CFRefs, TrieCFName),
     case SPrev of
         #s{trie = TriePrev} ->
             ok = emqx_ds_gen_skipstream_lts:copy_previous_trie(DBHandle, TrieCFHandle, TriePrev),
@@ -130,6 +130,18 @@ create(_ShardId, DBHandle, GenId, Schema0, SPrev, _DBOpts) ->
             ok
     end,
     {Schema, [{DataCFName, DataCFHandle}, {TrieCFName, TrieCFHandle}]}.
+
+ensure_column_family(DBHandle, CFRefs, CFName) ->
+    %% See if the column family has already been created.
+    %% If "add generation" operation was interrupted before finishing, one or
+    %% both column families may already be present in the DB.
+    case lists:keyfind(CFName, 1, CFRefs) of
+        false ->
+            {ok, CFHandle} = rocksdb:create_column_family(DBHandle, CFName, []),
+            CFHandle;
+        {CFName, CFHandle} ->
+            CFHandle
+    end.
 
 open(
     ShardId,

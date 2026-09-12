@@ -37,7 +37,7 @@ init_per_group(Profile, Config) when Profile =:= legacy; Profile =:= hardened ->
 end_per_group(_Profile, _Config) ->
     emqx_common_test_helpers:clear_security_profile().
 
-t_asleep_pingreq_reroutes_across_nodes_and_retires_old_proxy(Config) ->
+t_asleep_pingreq_resumes_across_nodes(Config) ->
     QoS = 1,
     SleepDuration = 5,
     ClientId = <<"cluster-asleep-proxy-reroute">>,
@@ -50,11 +50,11 @@ t_asleep_pingreq_reroutes_across_nodes_and_retires_old_proxy(Config) ->
     WillBit = 0,
     CleanSession = 0,
     {Nodes, Port1, Port2} = start_mqttsn_cluster(Config),
-    [Node1, _Node2] = Nodes,
+    [Node1, Node2] = Nodes,
     {ok, Socket1} = gen_udp:open(0, [binary]),
     {ok, Socket2} = gen_udp:open(0, [binary]),
     try
-        send_connect_msg(Socket1, Port1, ClientId),
+        send_connect_msg(Socket1, Port1, ClientId, CleanSession),
         ?assertEqual(<<3, ?SN_CONNACK, ?SN_RC_ACCEPTED>>, receive_response(Socket1)),
 
         send_subscribe_msg_normal_topic(Socket1, Port1, QoS, TopicName, MsgId),
@@ -91,30 +91,39 @@ t_asleep_pingreq_reroutes_across_nodes_and_retires_old_proxy(Config) ->
         ?retry(
             50,
             20,
-            #{conn_state := asleep} = erpc:call(Node1, emqx_gateway_cm, get_chan_info, [
-                mqttsn, ClientId
-            ])
+            #{conn_state := asleep} = local_chan_info(Node2, ClientId)
         ),
-
-        %% If the old node1 proxy was not retired, this stale datagram
-        %% has no ClientId but is still routed to ClientId's old channel.
+        %% A stale datagram from the old node1 proxy must not affect the
+        %% current node2 channel.
         send_disconnect_msg(Socket1, Port1, undefined),
         _ = receive_response(Socket1, 500),
 
-        publish(Node1, QoS, TopicName, Payload2),
+        publish(Node2, QoS, TopicName, Payload2),
         timer:sleep(100),
 
         send_pingreq_msg(Socket2, Port2, ClientId),
-        PubMsgId2 = receive_publish(
-            Socket2, Dup, QoS, Retain, WillBit, CleanSession, TopicId, Payload2
+        UdpData2 = receive_response(Socket2),
+        PubMsgId2 = emqx_sn_protocol_SUITE:check_publish_msg_on_udp(
+            {Dup, QoS, Retain, WillBit, CleanSession, ?SN_NORMAL_TOPIC, TopicId, Payload2},
+            UdpData2
         ),
         send_puback_msg(Socket2, Port2, TopicId, PubMsgId2),
+        send_pingreq_msg(Socket2, Port2, ClientId),
         ?assertEqual(<<2, ?SN_PINGRESP>>, receive_response(Socket2))
     after
         _ = catch erpc:call(Node1, emqx_gateway_cm, kick_session, [mqttsn, ClientId]),
         gen_udp:close(Socket1),
         gen_udp:close(Socket2),
         emqx_cth_cluster:stop(Nodes)
+    end.
+
+local_chan_info(Node, ClientId) ->
+    Pids = erpc:call(Node, emqx_gateway_cm_registry, lookup_channels, [mqttsn, ClientId]),
+    case [Pid || Pid <- Pids, node(Pid) =:= Node] of
+        [Pid | _] ->
+            erpc:call(Node, emqx_gateway_cm, get_chan_info, [mqttsn, ClientId, Pid]);
+        [] ->
+            undefined
     end.
 
 start_mqttsn_cluster(Config) ->
@@ -192,7 +201,10 @@ receive_publish(Socket, Dup, QoS, Retain, WillBit, CleanSession, TopicId, Payloa
     ).
 
 send_connect_msg(Socket, Port, ClientId) ->
-    Packet = emqx_sn_protocol_SUITE:make_connect_msg(ClientId, 1),
+    send_connect_msg(Socket, Port, ClientId, 1).
+
+send_connect_msg(Socket, Port, ClientId, CleanSession) ->
+    Packet = emqx_sn_protocol_SUITE:make_connect_msg(ClientId, CleanSession),
     ok = gen_udp:send(Socket, ?HOST, Port, Packet).
 
 send_subscribe_msg_normal_topic(Socket, Port, QoS, Topic, MsgId) ->

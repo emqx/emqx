@@ -80,6 +80,97 @@ t_default_conf(Config) ->
     ),
     ok.
 
+t_listener_id_length(_Config) ->
+    InvalidNameReason =
+        {listener_name_invalid_chars,
+            <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>},
+    InvalidNameError = {error, InvalidNameReason},
+    TooLongReason =
+        {listener_name_too_long, <<"Listener name must not exceed 64 bytes">>},
+    TooLongError = {error, TooLongReason},
+    UnsupportedTypeError = {error, {invalid_listener_id, <<"Unsupported listener type">>}},
+    InvalidFormatError =
+        {error, {invalid_listener_id, <<"Invalid listener ID format, expected type:name">>}},
+    lists:foreach(
+        fun(NameBin) ->
+            lists:foreach(
+                fun(Value) ->
+                    ?assertEqual(InvalidNameError, emqx_listeners:validate_listener_name(Value))
+                end,
+                [NameBin, binary_to_atom(NameBin)]
+            )
+        end,
+        [<<"é"/utf8>>, <<"😀"/utf8>>, <<"你"/utf8>>]
+    ),
+    ?assertEqual(ok, emqx_listeners:validate_listener_name(binary:copy(<<"a">>, 64))),
+    UnicodeName = binary:copy(<<"你"/utf8>>, 20),
+    UnicodeNameAtom = binary_to_atom(UnicodeName, utf8),
+    ?assertEqual(InvalidNameError, emqx_listeners:validate_listener_name(UnicodeName)),
+    ?assertEqual(InvalidNameError, emqx_listeners:validate_listener_name(UnicodeNameAtom)),
+    UnicodeTooLongName = binary:copy(<<"你"/utf8>>, 22),
+    ?assertEqual(
+        TooLongError,
+        emqx_listeners:validate_listener_name(UnicodeTooLongName)
+    ),
+    ?assertEqual(
+        TooLongError,
+        emqx_listeners:validate_listener_name(binary_to_atom(UnicodeTooLongName, utf8))
+    ),
+    ?assertEqual(
+        TooLongError,
+        emqx_listeners:validate_listener_name(binary:copy(<<"a">>, 65))
+    ),
+    Raw = emqx:get_raw_config(?LISTENERS),
+    NonAsciiConf = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"é"/utf8>>], Raw, #{<<"bind">> => <<"127.0.0.1:0">>}
+    ),
+    ?assertEqual(
+        {error, {pre_config_update, emqx_listeners, InvalidNameReason}},
+        emqx:update_config(?LISTENERS, NonAsciiConf)
+    ),
+    Name = binary:copy(<<"b">>, 65),
+    Tcp = maps:get(<<"tcp">>, Raw),
+    RawWithLongListener = Raw#{
+        <<"tcp">> => Tcp#{Name => #{<<"bind">> => <<"127.0.0.1:0">>}}
+    },
+    ?assertEqual(
+        {error, {pre_config_update, emqx_listeners, TooLongReason}},
+        emqx:update_config(?LISTENERS, RawWithLongListener)
+    ),
+    ?assertEqual(
+        {error, {pre_config_update, emqx_listeners, TooLongReason}},
+        emqx:update_config(
+            [listeners, tcp, Name],
+            {create, #{<<"bind">> => <<"127.0.0.1:0">>}}
+        )
+    ),
+    ?assertEqual(Raw, emqx:get_raw_config(?LISTENERS)),
+    ?assertEqual(InvalidNameError, emqx_listeners:validate_listener_name(<<"name/with/slash">>)),
+    ?assertEqual(InvalidNameError, emqx_listeners:validate_listener_name(<<"name#with#hash">>)),
+    ?assertEqual(
+        InvalidNameError, emqx_listeners:validate_listener_name(<<"name:with:delimiter">>)
+    ),
+    ?assertEqual(
+        InvalidNameError, emqx_listeners:validate_listener_name(<<"name\\with\\escape">>)
+    ),
+    ?assertEqual(ok, emqx_listeners:validate_listener_name(<<"name-with_under">>)),
+    ?assertEqual(
+        InvalidNameError, emqx_listeners:validate_listener_name(<<"_leading_underscore">>)
+    ),
+    ?assertEqual(
+        UnsupportedTypeError,
+        emqx_listeners:parse_listener_id_without_atom(<<"unknown:name">>)
+    ),
+    ?assertEqual(
+        InvalidFormatError,
+        emqx_listeners:parse_listener_id_without_atom(<<"missing-delimiter">>)
+    ),
+    ?assertEqual(
+        InvalidFormatError,
+        emqx_listeners:parse_listener_id(<<"missing-delimiter">>)
+    ),
+    ok.
+
 t_update_conf(_Conf) ->
     Raw = emqx:get_raw_config(?LISTENERS),
     Raw1 = emqx_utils_maps:deep_put(

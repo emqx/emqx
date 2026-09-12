@@ -8,6 +8,7 @@
 -export_type([context/0]).
 
 -include("emqx_gateway.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% @doc The running context for a Connection/Channel process.
 %%
@@ -32,6 +33,7 @@
     connection_expire_interval/2,
     open_session/5,
     open_session/6,
+    resume_session/4,
     insert_channel_info/4,
     set_chan_info/3,
     set_chan_stats/3,
@@ -60,12 +62,11 @@
 -spec authenticate(context(), emqx_types:clientinfo()) ->
     {ok, emqx_types:clientinfo()}
     | {error, any()}.
-authenticate(_Ctx, ClientInfo0) ->
+authenticate(#{gwname := GwName}, ClientInfo0) ->
     ClientInfo = ClientInfo0#{zone => default},
     case emqx_access_control:authenticate(ClientInfo) of
         {ok, AuthResult} ->
-            ClientInfo1 = merge_auth_result(ClientInfo, AuthResult),
-            {ok, eval_mountpoint(ClientInfo1)};
+            handle_auth_result(GwName, ClientInfo, AuthResult);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -123,6 +124,19 @@ open_session(
         ClientInfo,
         ConnInfo,
         CreateSessionFun,
+        SessionMod
+    ).
+
+resume_session(
+    _Ctx = #{gwname := GwName},
+    ClientInfo,
+    ConnInfo,
+    SessionMod
+) ->
+    emqx_gateway_cm:resume_session(
+        GwName,
+        ClientInfo,
+        ConnInfo,
         SessionMod
     ).
 
@@ -196,6 +210,25 @@ eval_mountpoint(ClientInfo = #{mountpoint := undefined}) ->
 eval_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
     MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
     ClientInfo#{mountpoint := MountPoint1}.
+
+handle_auth_result(GwName, ClientInfo, AuthResult0) ->
+    AuthResult = maybe_drop_clientid_override(GwName, ClientInfo, AuthResult0),
+    ClientInfo1 = merge_auth_result(ClientInfo, AuthResult),
+    {ok, eval_mountpoint(ClientInfo1)}.
+
+maybe_drop_clientid_override(GwName, ClientInfo, AuthResult) ->
+    case maps:take(clientid_override, AuthResult) of
+        {ClientIdOverride, AuthResult1} ->
+            ?SLOG(warning, #{
+                msg => "gateway_authn_clientid_override_not_supported",
+                gateway => GwName,
+                clientid => maps:get(clientid, ClientInfo, undefined),
+                clientid_override => ClientIdOverride
+            }),
+            AuthResult1;
+        error ->
+            AuthResult
+    end.
 
 merge_auth_result(ClientInfo, AuthResult0) when is_map(ClientInfo) andalso is_map(AuthResult0) ->
     IsSuperuser = maps:get(is_superuser, AuthResult0, false),

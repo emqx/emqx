@@ -1343,8 +1343,8 @@ client_msgs_schema(OpId, Desc, ContExample, RespSchema) ->
                     emqx_dashboard_swagger:schema_with_example(RespSchema, #{
                         <<"data">> => [message_example(OpId)],
                         <<"meta">> => #{
-                            <<"count">> => 100,
-                            <<"last">> => ContExample
+                            <<"start">> => ContExample,
+                            <<"position">> => <<"end_of_data">>
                         }
                     }),
                 400 =>
@@ -1623,8 +1623,9 @@ list_client_msgs(MsgType, ClientId, QString) ->
     case emqx_mgmt_api:parse_cont_pager_params(QString, pos_decoder(MsgType)) of
         false ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"position_limit_invalid">>}};
-        PagerParams = #{} ->
-            case emqx_mgmt:list_client_msgs(MsgType, ClientId, PagerParams) of
+        PagerParams = #{limit := Limit} ->
+            FetchPagerParams = PagerParams#{limit := Limit + 1},
+            case emqx_mgmt:list_client_msgs(MsgType, ClientId, FetchPagerParams) of
                 {error, not_found} ->
                     {404, ?CLIENTID_NOT_FOUND_OBJ};
                 {error, shutdown} ->
@@ -1636,10 +1637,18 @@ list_client_msgs(MsgType, ClientId, QString) ->
                     }};
                 {error, Reason} ->
                     ?INTERNAL_ERROR(Reason);
-                {Msgs, Meta = #{}} when is_list(Msgs) ->
+                {Msgs0, Meta0 = #{}} when is_list(Msgs0) ->
+                    {Msgs, Meta} = take_client_msgs_page(MsgType, Msgs0, Limit, Meta0),
                     format_msgs_resp(MsgType, Msgs, Meta, QString)
             end
     end.
+
+take_client_msgs_page(MsgType, Msgs0, Limit, Meta0) when length(Msgs0) > Limit ->
+    {Msgs, _Lookahead} = lists:split(Limit, Msgs0),
+    LastMsg = lists:last(Msgs),
+    {Msgs, Meta0#{position := msg_position(MsgType, LastMsg)}};
+take_client_msgs_page(_MsgType, Msgs, _Limit, Meta) ->
+    {Msgs, Meta#{position := end_of_data}}.
 
 pos_decoder(mqueue_msgs) -> fun decode_mqueue_pos/1;
 pos_decoder(inflight_msgs) -> fun decode_msg_pos/1.
@@ -1649,6 +1658,8 @@ encode_msgs_meta(_MsgType, #{start := StartPos, position := Pos}) ->
 
 encode_pos(none) ->
     none;
+encode_pos(end_of_data) ->
+    end_of_data;
 encode_pos({MsgPos, PrioPos}) ->
     MsgPosBin = integer_to_binary(MsgPos),
     PrioPosBin =

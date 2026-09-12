@@ -108,6 +108,12 @@ ct: $(REBAR) merge-config render-test-env
 	@env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(MIX) ct --cover-export-name $(CT_COVER_EXPORT_PREFIX)-ct
 
 ## only check bpapi for enterprise profile because it's a super-set.
+## Compares each committed BPAPI baseline against the newest released tag on its
+## line. Needs git tags, not a build; CI runs it in the sanity-checks job.
+.PHONY: check-bpapi-baselines
+check-bpapi-baselines:
+	./scripts/check-bpapi-baselines.exs
+
 .PHONY: static_checks
 static_checks: $(ELIXIR_COMMON_DEPS)
 	@# the cluster-rpc check reads plugin beams from the shared build tree

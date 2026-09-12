@@ -217,6 +217,24 @@ redact_dashboard_secret_fields_test() ->
         })
     ).
 
+redact_sso_mfa_secret_fields_test() ->
+    ?assertEqual(
+        #{
+            setup_token => <<"******">>,
+            <<"verify_token">> => <<"******">>,
+            "totp_code" => "******",
+            username => <<"alice">>,
+            backend => <<"ldap">>
+        },
+        redact(#{
+            setup_token => <<"setup-token">>,
+            <<"verify_token">> => <<"verify-token">>,
+            "totp_code" => "123456",
+            username => <<"alice">>,
+            backend => <<"ldap">>
+        })
+    ).
+
 deobfuscate_file_path_secrets_test_() ->
     Original1 = #{foo => #{bar => #{headers => #{"authorization" => "file://a"}}}},
     Original2 = #{foo => #{bar => #{headers => #{"authorization" => "a"}}}},

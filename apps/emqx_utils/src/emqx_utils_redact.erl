@@ -111,6 +111,9 @@ is_sensitive_key(<<"sentinel_password">>) -> true;
 is_sensitive_key(service_account_json) -> true;
 is_sensitive_key("service_account_json") -> true;
 is_sensitive_key(<<"service_account_json">>) -> true;
+is_sensitive_key(setup_token) -> true;
+is_sensitive_key("setup_token") -> true;
+is_sensitive_key(<<"setup_token">>) -> true;
 is_sensitive_key(sp_private_key) -> true;
 is_sensitive_key(<<"sp_private_key">>) -> true;
 is_sensitive_key(token) -> true;
@@ -119,6 +122,12 @@ is_sensitive_key(<<"token">>) -> true;
 is_sensitive_key(client_secret) -> true;
 is_sensitive_key("client_secret") -> true;
 is_sensitive_key(<<"client_secret">>) -> true;
+is_sensitive_key(totp_code) -> true;
+is_sensitive_key("totp_code") -> true;
+is_sensitive_key(<<"totp_code">>) -> true;
+is_sensitive_key(verify_token) -> true;
+is_sensitive_key("verify_token") -> true;
+is_sensitive_key(<<"verify_token">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
@@ -206,17 +215,41 @@ do_redact_headers(Value) ->
     Value.
 
 check_is_sensitive_header(Key) ->
-    %% Header keys may be stored as iolists (e.g. `[<<"x-api-key">>]`, a shape
-    %% produced by template parsers). `emqx_utils_conv:str/1` JSON-encodes
-    %% non-printable lists, so normalise to a binary first to keep the name intact.
+    is_sensitive_header(normalize_header_name(Key)).
+
+normalize_header_name(Key) ->
+    %% Keep this in sync with emqx_auth_http_utils:transform_header_name/1.
     Key1 =
         try iolist_to_binary(Key) of
             Bin -> Bin
         catch
             _:_ -> Key
         end,
-    Key2 = string:trim(emqx_utils_conv:str(Key1)),
-    is_sensitive_header(string:lowercase(Key2)).
+    string:lowercase(emqx_utils_conv:str(Key1)).
+
+find_header(Key, Headers) ->
+    case maps:find(Key, Headers) of
+        {ok, _} = Found ->
+            Found;
+        error ->
+            NormalizedKey = normalize_header_name(Key),
+            MatchingValues = [
+                Value
+             || {OldKey, Value} <- maps:to_list(Headers),
+                normalize_header_name(OldKey) =:= NormalizedKey
+            ],
+            find_unambiguous_header(MatchingValues)
+    end.
+
+find_unambiguous_header([]) ->
+    error;
+find_unambiguous_header([Value | Values]) ->
+    %% Raw connector and bridge configurations may preserve multiple casing
+    %% variants. Do not choose one when their stored values disagree.
+    case lists:all(fun(V) -> V =:= Value end, Values) of
+        true -> {ok, Value};
+        false -> error
+    end.
 
 is_sensitive_header("authorization") ->
     true;
@@ -295,13 +328,26 @@ do_redact_v(F) ->
             ?REDACT_VAL
     end.
 
+deobfuscate_headers(NewHeaders, OldHeaders) ->
+    %% Case-insensitive lookup applies only to direct entries of this map.
+    %% Nested maps re-enter deobfuscate/3 and retain exact-key matching.
+    deobfuscate(
+        NewHeaders,
+        OldHeaders,
+        fun check_is_sensitive_header/1,
+        fun find_header/2
+    ).
+
 deobfuscate(NewConf, OldConf) ->
     deobfuscate(NewConf, OldConf, fun(_) -> false end).
 
 deobfuscate(NewConf, OldConf, IsSensitiveFun) ->
+    deobfuscate(NewConf, OldConf, IsSensitiveFun, fun maps:find/2).
+
+deobfuscate(NewConf, OldConf, IsSensitiveFun, FindOldValue) ->
     maps:fold(
         fun(K, V, Acc) ->
-            case maps:find(K, OldConf) of
+            case FindOldValue(K, OldConf) of
                 error ->
                     case is_redacted(K, V, IsSensitiveFun) of
                         %% don't put redacted value into new config
@@ -309,7 +355,7 @@ deobfuscate(NewConf, OldConf, IsSensitiveFun) ->
                         false -> Acc#{K => V}
                     end;
                 {ok, OldV} when is_map(V), is_map(OldV), ?IS_KEY_HEADERS(K) ->
-                    Acc#{K => deobfuscate(V, OldV, fun check_is_sensitive_header/1)};
+                    Acc#{K => deobfuscate_headers(V, OldV)};
                 {ok, OldV} when is_map(V), is_map(OldV), ?IS_KEY_CLIENT_JWKS(K) ->
                     Acc#{K => deobfuscate(V, OldV, fun is_client_jwks_file_key/1)};
                 {ok, OldV} when is_map(V), is_map(OldV) ->
@@ -477,7 +523,85 @@ deobfuscate_test() ->
     HeaderConf1Obs = #{<<"headers">> => #{<<"Authorization">> => ?REDACT_VAL}},
     ?assertEqual(HeaderConf1, deobfuscate(HeaderConf1Obs, HeaderConf1)),
 
+    HeaderConf2 = #{<<"headers">> => #{<<"authorization">> => <<"Bearer token">>}},
+    HeaderConf2Obs = #{<<"headers">> => #{<<"Authorization">> => ?REDACT_VAL}},
+    ?assertEqual(
+        #{<<"headers">> => #{<<"Authorization">> => <<"Bearer token">>}},
+        deobfuscate(HeaderConf2Obs, HeaderConf2)
+    ),
+
+    AtomHeaderConf = #{
+        <<"headers">> => #{authorization => <<"Bearer token">>}
+    },
+    AtomHeaderConfObs = #{
+        <<"headers">> => #{<<"Authorization">> => ?REDACT_VAL}
+    },
+    ?assertEqual(
+        #{<<"headers">> => #{<<"Authorization">> => <<"Bearer token">>}},
+        deobfuscate(AtomHeaderConfObs, AtomHeaderConf)
+    ),
+
+    DuplicateHeaders = #{
+        <<"headers">> => #{
+            <<"Authorization">> => <<"upper-secret">>,
+            <<"authorization">> => <<"lower-secret">>
+        }
+    },
+    DuplicateHeadersObs = #{
+        <<"headers">> => #{
+            <<"Authorization">> => ?REDACT_VAL,
+            <<"authorization">> => ?REDACT_VAL
+        }
+    },
+    ?assertEqual(DuplicateHeaders, deobfuscate(DuplicateHeadersObs, DuplicateHeaders)),
+
+    AmbiguousHeadersObs = #{
+        <<"headers">> => #{<<"AUTHORIZATION">> => ?REDACT_VAL}
+    },
+    ?assertEqual(
+        #{<<"headers">> => #{}},
+        deobfuscate(AmbiguousHeadersObs, DuplicateHeaders)
+    ),
+
+    EqualDuplicateHeaders = #{
+        <<"headers">> => #{
+            <<"Authorization">> => <<"same-secret">>,
+            <<"authorization">> => <<"same-secret">>
+        }
+    },
+    EqualDuplicateHeadersObs = #{
+        <<"headers">> => #{<<"AUTHORIZATION">> => ?REDACT_VAL}
+    },
+    ?assertEqual(
+        #{<<"headers">> => #{<<"AUTHORIZATION">> => <<"same-secret">>}},
+        deobfuscate(EqualDuplicateHeadersObs, EqualDuplicateHeaders)
+    ),
+
+    HeaderConf3 = #{<<"headers">> => #{<<"authorization">> => <<"Bearer token">>}},
+    HeaderConf3Obs = #{<<"headers">> => #{<<" Authorization ">> => ?REDACT_VAL}},
+    ?assertEqual(
+        HeaderConf3Obs,
+        deobfuscate(HeaderConf3Obs, HeaderConf3)
+    ),
+
+    NestedHeaderConf = #{
+        <<"headers">> => #{<<"X-Meta">> => #{<<"Token">> => <<"old-token">>}}
+    },
+    NestedHeaderConfObs = #{
+        <<"headers">> => #{<<"x-meta">> => #{<<"token">> => ?REDACT_VAL}}
+    },
+    ?assertEqual(
+        #{<<"headers">> => #{<<"x-meta">> => #{}}},
+        deobfuscate(NestedHeaderConfObs, NestedHeaderConf)
+    ),
+
     ok.
+
+noncanonical_header_name_is_not_redacted_test() ->
+    HeaderConf = #{
+        <<"headers">> => #{<<" Authorization ">> => <<"secret">>}
+    },
+    ?assertEqual(HeaderConf, redact(HeaderConf)).
 
 redact_header_test_() ->
     Types = [string, binary, atom],

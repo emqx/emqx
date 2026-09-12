@@ -5,10 +5,11 @@ defmodule EMQXBridgeClickhouse.MixProject do
   def project do
     [
       app: :emqx_bridge_clickhouse,
-      version: "6.3.0",
+      version: "6.3.1",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
+      compilers: [:yecc, :leex] ++ Mix.compilers(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.14",

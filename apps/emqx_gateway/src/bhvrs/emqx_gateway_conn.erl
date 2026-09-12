@@ -646,7 +646,17 @@ handle_msg(
 ) ->
     Ctx = ChannMod:info(ctx, Channel),
     ClientId = ChannMod:info(clientid, Channel),
-    emqx_gateway_ctx:set_chan_info(Ctx, ClientId, info(State)),
+    Info = info(State),
+    case emqx_gateway_ctx:set_chan_info(Ctx, ClientId, Info) of
+        true ->
+            ok;
+        false ->
+            %% Normally the `connected` event creates the channel-info row and
+            %% subsequent events update it. A channel resumed directly from a
+            %% wake-up packet is registered before its first event, but its
+            %% channel-info row has not been created yet.
+            ok = emqx_gateway_ctx:insert_channel_info(Ctx, ClientId, Info, stats(State))
+    end,
     emqx_gateway_ctx:set_chan_stats(Ctx, ClientId, stats(State)),
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->

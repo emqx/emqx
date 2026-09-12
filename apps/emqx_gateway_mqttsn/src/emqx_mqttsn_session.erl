@@ -32,6 +32,7 @@
     obtain_next_pkt_id/1,
     takeover/1,
     resume/2,
+    resume_clientinfo/2,
     enqueue/3
 ]).
 
@@ -107,6 +108,27 @@ takeover(_Session = #{session := Sess}) ->
 
 resume(ClientInfo, Session = #{session := Sess}) ->
     Session#{session := emqx_session_mem:resume(ClientInfo, Sess)}.
+
+-spec resume_clientinfo(
+    emqx_types:clientinfo(),
+    emqx_types:clientinfo()
+) -> emqx_types:clientinfo().
+resume_clientinfo(NewClientInfo, OldClientInfo) ->
+    %% Keep session-scoped authorization and topic namespace attributes from
+    %% the authenticated session; transport-specific fields come from the new
+    %% association.
+    PreservedKeys = [
+        username,
+        password,
+        auth_result,
+        auth_expire_at,
+        is_superuser,
+        mountpoint,
+        dn,
+        cn,
+        client_attrs
+    ],
+    maps:merge(NewClientInfo, maps:with(PreservedKeys, OldClientInfo)).
 
 replay(ClientInfo, Session = #{session := Sess}) ->
     {ok, Replies, NSess} = emqx_session_mem:replay(ClientInfo, Sess),
