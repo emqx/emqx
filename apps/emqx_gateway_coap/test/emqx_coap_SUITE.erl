@@ -193,6 +193,7 @@ t_connection(_) ->
     ok.
 
 t_mountpoint_after_authn(_) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
     ok = meck:expect(
         emqx_access_control,
         authenticate,
@@ -224,6 +225,7 @@ t_mountpoint_after_authn(_) ->
         end,
         do(Action)
     after
+        meck:unload(emqx_access_control),
         {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
     end,
     ok.

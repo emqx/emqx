@@ -919,7 +919,7 @@ t_placeholders_in_on_clause_are_forbidden(TCConfig) when is_list(TCConfig) ->
                 match,
                 re:run(
                     Msg,
-                    <<"Placeholders are only allowed in VALUES part">>,
+                    <<"dynamic_on_duplicate_key_update_not_allowed">>,
                     [global, {capture, none}]
                 )
             ),
@@ -931,7 +931,7 @@ t_placeholders_in_on_clause_are_forbidden(TCConfig) when is_list(TCConfig) ->
                 match,
                 re:run(
                     Msg2,
-                    <<"Placeholders are only allowed in VALUES part">>,
+                    <<"dynamic_on_duplicate_key_update_not_allowed">>,
                     [global, {capture, none}]
                 )
             ),
