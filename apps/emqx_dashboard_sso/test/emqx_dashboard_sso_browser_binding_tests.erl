@@ -10,7 +10,7 @@
 -define(MISMATCH, {error, browser_binding_mismatch}).
 
 set_cookie(Backend, Value, Opts) ->
-    #{<<"set-cookie">> := Cookie} = ?MOD:set_cookie_header(Backend, Value, Opts),
+    #{<<"set-cookie">> := Cookie} = ?MOD:set_cookie_headers(Backend, Value, Opts),
     Cookie.
 
 %% The `name=value' pair a browser sends back for the cookie bound to `Value'.
@@ -87,7 +87,7 @@ max_age_floor_test() ->
     ?assert(contains(<<"Max-Age=1">>, Cookie)).
 
 clear_cookie_test() ->
-    #{<<"set-cookie">> := Cookie} = ?MOD:clear_cookie_header(oidc, <<"v1">>),
+    #{<<"set-cookie">> := Cookie} = ?MOD:clear_cookie_headers(oidc, <<"v1">>),
     Name = ?MOD:cookie_name(oidc, <<"v1">>),
     ?assertMatch({0, _}, binary:match(Cookie, <<Name/binary, "=;">>)),
     ?assert(contains(<<"Path=/api/v5/sso">>, Cookie)),
