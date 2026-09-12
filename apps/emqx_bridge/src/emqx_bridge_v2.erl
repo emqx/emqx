@@ -85,6 +85,7 @@
 
 -export([
     parse_id/1,
+    get_resource_ids/3,
     get_channels_for_connector/1
 ]).
 
@@ -1055,6 +1056,16 @@ id(BridgeType, BridgeName, ConnectorName) ->
 
 source_id(BridgeType, BridgeName, ConnectorName) ->
     id_with_root_name(?ROOT_KEY_SOURCES, BridgeType, BridgeName, ConnectorName).
+
+get_resource_ids(ConfRootKey, Type, Name) ->
+    try
+        ChannelResId = id_with_root_name(ConfRootKey, Type, Name),
+        ConnResId = extract_connector_id_from_bridge_v2_id(ChannelResId),
+        {ok, {ConnResId, ChannelResId}}
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
 
 id_with_root_name(RootName, BridgeType, BridgeName) ->
     case lookup_conf(RootName, BridgeType, BridgeName) of
