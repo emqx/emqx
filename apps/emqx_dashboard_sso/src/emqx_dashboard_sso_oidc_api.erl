@@ -96,10 +96,6 @@ code_callback(get, #{query_string := QS} = Req) ->
         {error, browser_binding_mismatch} ->
             %% Keep the server side state: the browser that started this login
             %% may still complete it.
-            ?SLOG(info, #{
-                msg => "dashboard_sso_login_rejected",
-                reason => browser_binding_mismatch
-            }),
             {403, #{code => ?FORBIDDEN, message => ?BROWSER_BINDING_MESSAGE}};
         {error, invalid_query_string_param} ->
             {400, #{code => ?BAD_REQUEST, message => <<"Invalid query string">>}};
