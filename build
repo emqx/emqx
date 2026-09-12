@@ -66,11 +66,15 @@ fi
 
 SYSTEM="$(./scripts/get-distro.sh)"
 
-if [[ $SYSTEM == "el7" ]];
-then
-    log_red "WARNING: No QUIC support for Centos 7"
-    export BUILD_WITHOUT_QUIC=1
-fi
+case "$SYSTEM" in
+    el7|amzn2)
+        # Both ship OpenSSL 1.x. quicer 0.4.x needs OpenSSL 3 to build
+        # from source, and the el7-named prebuilt (which amzn2 also
+        # resolves to) is not reliable.
+        log_red "WARNING: No QUIC support for $SYSTEM"
+        export BUILD_WITHOUT_QUIC=1
+        ;;
+esac
 
 ARCH="$(uname -m)"
 case "$ARCH" in

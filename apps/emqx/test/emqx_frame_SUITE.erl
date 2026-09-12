@@ -118,6 +118,7 @@ groups() ->
             t_serialize_parse_pingresp
         ]},
         {disconnect, [parallel], [
+            t_parse_disconnect,
             t_serialize_parse_disconnect,
             t_serialize_parse_disconnect_v5
         ]},

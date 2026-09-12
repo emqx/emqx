@@ -445,6 +445,81 @@ t_listeners_status_default_address(_) ->
         {204, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def")
     end).
 
+t_listener_id_too_long(_) ->
+    {204, _} = request(put, "/gateways/stomp", #{}),
+    ?assertMatch(
+        {400, #{
+            code := <<"BAD_REQUEST">>,
+            message :=
+                <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>
+        }},
+        request(post, "/gateways/stomp/listeners", #{
+            name => <<"你好"/utf8>>, type => <<"tcp">>, bind => <<"127.0.0.1:61613">>
+        })
+    ),
+    ?assertMatch(
+        {400, #{
+            code := <<"BAD_REQUEST">>,
+            message :=
+                <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>
+        }},
+        request(post, "/gateways/stomp/listeners", #{
+            name => <<"name/with/slash">>, type => <<"tcp">>, bind => <<"127.0.0.1:61613">>
+        })
+    ),
+    ?assertMatch(
+        {400, #{
+            code := <<"BAD_REQUEST">>,
+            message :=
+                <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>
+        }},
+        request(post, "/gateways/stomp/listeners", #{
+            name => <<"_leading_underscore">>,
+            type => <<"tcp">>,
+            bind => <<"127.0.0.1:61613">>
+        })
+    ),
+    AllowedName = binary:copy(<<"a">>, 64),
+    AllowedConf = #{
+        name => AllowedName,
+        type => <<"tcp">>,
+        bind => <<"127.0.0.1:61613">>
+    },
+    {201, _} = request(post, "/gateways/stomp/listeners", AllowedConf),
+    AllowedId = atom_to_list(emqx_gateway_utils:listener_id(stomp, tcp, AllowedName)),
+    {204, _} = request(delete, "/gateways/stomp/listeners/" ++ AllowedId),
+
+    ListenerName = binary:copy(<<"a">>, 65),
+    ListenerConf = #{
+        name => ListenerName,
+        type => <<"tcp">>,
+        bind => <<"127.0.0.1:61613">>
+    },
+    {400, #{code := <<"BAD_REQUEST">>, message := Message}} = request(
+        post, "/gateways/stomp/listeners", ListenerConf
+    ),
+    ?assertEqual(<<"Listener name must not exceed 64 bytes">>, Message),
+    {200, []} = request(get, "/gateways/stomp/listeners"),
+    ok.
+
+t_gateway_listener_id_too_long(_) ->
+    ListenerName = binary:copy(<<"a">>, 65),
+    GatewayConf = #{
+        listeners => [
+            #{
+                name => ListenerName,
+                type => <<"tcp">>,
+                bind => <<"127.0.0.1:61613">>
+            }
+        ]
+    },
+    {400, #{code := <<"BAD_REQUEST">>, message := Message}} = request(
+        put, "/gateways/stomp", GatewayConf
+    ),
+    ?assertEqual(<<"Listener name must not exceed 64 bytes">>, Message),
+    ?assertEqual(undefined, emqx_gateway:lookup(stomp)),
+    ok.
+
 t_listeners_max_conns(_) ->
     {204, _} = request(put, "/gateways/stomp", #{}),
     {200, []} = request(get, "/gateways/stomp/listeners"),

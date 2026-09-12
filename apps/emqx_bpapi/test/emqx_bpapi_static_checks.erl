@@ -442,17 +442,19 @@ dump() ->
     RootDir = project_root_dir(),
     BuildProfile = os:getenv("BPAPI_BUILD_PROFILE", "check"),
     TryRelDir = filename:join([RootDir, "_build", BuildProfile, "lib"]),
-    case {filelib:wildcard(RootDir ++ "/*_plt"), filelib:wildcard(TryRelDir)} of
-        {[PLT | _], [RelDir | _]} ->
+    PLT = plt_file(RootDir),
+    case {filelib:is_regular(PLT), filelib:wildcard(TryRelDir)} of
+        {true, [RelDir | _]} ->
             dump(#{
                 plt => PLT,
                 reldir => RelDir
             });
-        {[], _} ->
+        {false, _} ->
             logger:error(
-                "No usable PLT files found in \"~s\", abort ~n"
+                "No PLT for the running OTP at \"~s\", abort ~n"
+                "Found: ~p~n"
                 "Try running `rebar3 as check dialyzer` at least once first",
-                [RootDir]
+                [PLT, filelib:wildcard(RootDir ++ "/*_plt")]
             ),
             error(run_failed);
         {_, []} ->
@@ -462,6 +464,26 @@ dump() ->
                 [TryRelDir]
             ),
             error(run_failed)
+    end.
+
+%% The PLT `mix emqx.dialyzer' writes for the OTP running now. A checkout can
+%% hold several, one per OTP it has been built with, and a PLT that describes
+%% other code answers `none' for every lookup: the dump then either crashes in
+%% `enrich/2' or, worse, records the wrong signatures.
+-spec plt_file(file:filename()) -> file:filename().
+plt_file(RootDir) ->
+    filename:join(RootDir, "emqx_dialyzer_" ++ otp_version() ++ "_plt").
+
+%% Mirrors `EMQXUmbrella.MixProject.otp_release/0', which names the file.
+-spec otp_version() -> string().
+otp_version() ->
+    Major = erlang:system_info(otp_release),
+    File = filename:join([code:root_dir(), "releases", Major, "OTP_VERSION"]),
+    case file:read_file(File) of
+        {ok, Bin} ->
+            hd(string:split(string:trim(binary_to_list(Bin)), "**"));
+        {error, _} ->
+            Major
     end.
 
 %% Collect the local BPAPI modules to a dump file

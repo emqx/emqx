@@ -131,16 +131,29 @@ t_cli_status_reports_node_local_status(_Config) ->
 t_api_spec_lists_conflict_and_unavailable_responses(_Config) ->
     #{
         post := Post = #{
+            summary := <<"Send a synchronous MQTT request">>,
             description :=
                 <<"Publish one MQTT request and wait for the first matching response.">>,
+            tags := [<<"Plugin">>],
             responses := Responses
         }
     } =
         emqx_sync_request_api:schema("/plugin_api/emqx_sync_request/request"),
-    ?assertNot(maps:is_key(summary, Post)),
-    ?assertNot(maps:is_key(tags, Post)),
+    ?assertEqual(<<"Send a synchronous MQTT request">>, maps:get(summary, Post)),
+    ?assertEqual([<<"Plugin">>], maps:get(tags, Post)),
     ?assert(maps:is_key(409, Responses)),
     ?assert(maps:is_key(503, Responses)).
+
+t_api_spec_allows_plugin_literal_docs(_Config) ->
+    {Apis, Components} = emqx_sync_request_api:api_spec(),
+    ?assert(Components =/= []),
+    ?assertMatch(
+        [
+            {"/plugin_api/emqx_sync_request/request",
+                #{post := #{summary := <<"Send a synchronous MQTT request">>}}, request, _}
+        ],
+        Apis
+    ).
 
 t_plugin_config_rejects_invalid_values(Config) ->
     NameVsn = ?config(plugin_name_vsn, Config),

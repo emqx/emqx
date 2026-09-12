@@ -55,7 +55,11 @@
     t_ee_ns_admin_legacy_publish_only_scopes_stay_set,
     %% Namespaced-key scope allowlist parity with the dashboard user rule (#412)
     t_ee_ns_key_create_rejects_out_of_allowlist_scopes,
-    t_ee_ns_key_update_rejects_out_of_allowlist_scopes
+    t_ee_ns_key_update_rejects_out_of_allowlist_scopes,
+    %% Role change to publisher validates against the persisted scopes
+    %% when the body omits `scopes' (H7)
+    t_ee_publisher_role_change_with_persisted_admin_scopes_is_rejected,
+    t_ee_publisher_role_change_with_compatible_persisted_scopes_succeeds
 ]).
 
 -define(APP, emqx_app).
@@ -80,6 +84,8 @@ groups() ->
         {parallel, [parallel], ?EE_CASES},
         {sequence, [], [
             t_bootstrap_file,
+            t_bootstrap_file_override,
+            t_bootstrap_file_dup_override,
             t_bootstrap_file_with_role,
             t_bootstrap_file_with_scopes,
             t_bootstrap_file_with_scopes_invalid,

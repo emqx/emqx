@@ -201,9 +201,9 @@ schema("/listeners/:id/restart") ->
 fields(listener_id) ->
     [
         {id,
-            ?HOCON(atom(), #{
+            ?HOCON(binary(), #{
                 desc => ?DESC(listener_id),
-                example => 'tcp:demo',
+                example => <<"tcp:demo">>,
                 validator => fun validate_id/1,
                 required => true,
                 in => path
@@ -350,7 +350,7 @@ listeners_info(Opts) ->
                     {running,
                         ?HOCON(boolean(), #{desc => ?DESC("listener_status"), required => false})},
                     {id,
-                        ?HOCON(atom(), #{
+                        ?HOCON(binary(), #{
                             desc => ?DESC("listener_id"),
                             required => true,
                             validator => fun validate_id/1
@@ -394,7 +394,7 @@ listeners_ref(Type, #{bind := Bind}) ->
     Type ++ Suffix.
 
 validate_id(Id) ->
-    case emqx_listeners:parse_listener_id(Id) of
+    case emqx_listeners:parse_listener_id_without_atom(Id) of
         {error, Reason} -> {error, Reason};
         {ok, _} -> ok
     end.
@@ -422,13 +422,20 @@ list_listeners(get, #{query_string := Query}) ->
 list_listeners(post, #{body := Body}) ->
     create_listener(name, Body).
 
+crud_listeners_by_id(Method, #{bindings := #{id := Id0} = Bindings} = Request) when
+    Method =/= post, is_binary(Id0)
+->
+    case existing_listener_id(Id0) of
+        {ok, Id} -> crud_listeners_by_id(Method, Request#{bindings := Bindings#{id => Id}});
+        {error, not_found} -> {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}}
+    end;
 crud_listeners_by_id(get, #{bindings := #{id := Id}}) ->
     case find_listeners_by_id(Id) of
         [] -> {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
         [L] -> {200, L}
     end;
 crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
-    case parse_listener_conf(id, Body0) of
+    case parse_listener_conf(existing_id, Body0) of
         {Id, Type, Name, Conf} ->
             case get_raw(Type, Name) of
                 undefined ->
@@ -476,24 +483,77 @@ crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
 %% is applied. Keep this list in sync with the fields injected there: a
 %% GET-then-PUT round trip sends every field back, and one left off this list
 %% either fails validation or gets persisted as junk.
-parse_listener_conf(id, Conf0) ->
-    Conf1 = maps:without(
+without_read_only_fields(Conf) ->
+    maps:without(
         [
             <<"running">>,
             <<"current_connections">>,
             <<"resolved_address">>,
             <<"resolved_address_from">>
         ],
-        Conf0
-    ),
+        Conf
+    ).
+
+%% Existing IDs may predate the creation restrictions.
+existing_listener_id(Id) when is_binary(Id) ->
+    case emqx_listeners:parse_listener_id_without_atom(Id) of
+        {ok, #{type := TypeBin, name := NameBin}} ->
+            try
+                Type = binary_to_existing_atom(TypeBin),
+                Name = binary_to_existing_atom(NameBin),
+                case get_raw(Type, Name) of
+                    undefined -> {error, not_found};
+                    _ -> {ok, emqx_listeners:listener_id(Type, Name)}
+                end
+            catch
+                error:badarg -> {error, not_found};
+                error:system_limit -> {error, not_found}
+            end;
+        {error, _} ->
+            {error, not_found}
+    end.
+
+parse_listener_conf(id, #{<<"id">> := Id} = Conf) ->
+    case emqx_listeners:parse_listener_id_without_atom(Id) of
+        {ok, #{name := Name}} ->
+            case emqx_listeners:validate_listener_name(Name) of
+                ok -> parse_listener_conf(new_id, Conf);
+                {error, _} = Error -> Error
+            end;
+        {error, _} = Error ->
+            Error
+    end;
+parse_listener_conf(id, _Conf) ->
+    {error, listener_config_invalid};
+parse_listener_conf(new_id, Conf0) ->
+    Conf1 = without_read_only_fields(Conf0),
     {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
     TypeAtom = binary_to_existing_atom(TypeBin),
     case maps:take(<<"id">>, Conf2) of
         {IdBin, Conf3} ->
             {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
             case Type =:= TypeAtom of
-                true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf3};
+                true -> {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
                 false -> {error, listener_type_inconsistent}
+            end;
+        _ ->
+            {error, listener_config_invalid}
+    end;
+parse_listener_conf(existing_id, Conf0) ->
+    Conf1 = without_read_only_fields(Conf0),
+    {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
+    TypeAtom = binary_to_existing_atom(TypeBin),
+    case maps:take(<<"id">>, Conf2) of
+        {IdBin, Conf3} ->
+            case existing_listener_id(IdBin) of
+                {ok, Id} ->
+                    {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
+                    case Type =:= TypeAtom of
+                        true -> {Id, TypeAtom, Name, Conf3};
+                        false -> {error, listener_type_inconsistent}
+                    end;
+                {error, _} = Error ->
+                    Error
             end;
         _ ->
             {error, listener_config_invalid}
@@ -513,7 +573,12 @@ parse_listener_conf(name, Conf0) ->
     case maps:take(<<"name">>, Conf2) of
         {Name, Conf3} ->
             IdBin = <<TypeBin/binary, $:, Name/binary>>,
-            {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
+            case emqx_listeners:validate_listener_name(Name) of
+                ok ->
+                    {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
+                {error, _} = Error ->
+                    Error
+            end;
         _ ->
             {error, listener_config_invalid}
     end.
@@ -534,6 +599,13 @@ restart_listeners_by_id(Method, Body = #{bindings := Bindings}) ->
         Body#{bindings := maps:put(action, restart, Bindings)}
     ).
 
+action_listeners_by_id(post, #{bindings := #{id := Id0} = Bindings} = Request) when
+    is_binary(Id0)
+->
+    case existing_listener_id(Id0) of
+        {ok, Id} -> action_listeners_by_id(post, Request#{bindings := Bindings#{id => Id}});
+        {error, not_found} -> {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}}
+    end;
 action_listeners_by_id(post, #{bindings := #{id := Id, action := Action}}) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
     case get_raw(Type, Name) of
@@ -556,6 +628,7 @@ enabled(start) -> #{<<"enable">> => true};
 enabled(stop) -> #{<<"enable">> => false};
 enabled(restart) -> #{<<"enable">> => true}.
 
+err_msg({_Reason, Message}) when is_binary(Message) -> Message;
 err_msg(Atom) when is_atom(Atom) -> atom_to_binary(Atom);
 err_msg(Reason) -> list_to_binary(err_msg_str(Reason)).
 
