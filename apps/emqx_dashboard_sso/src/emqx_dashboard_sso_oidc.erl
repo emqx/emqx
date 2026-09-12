@@ -241,7 +241,7 @@ start_session(#{} = Config) ->
             %% Note: the oidcc maintains an ETS with the same name of the provider gen_server,
             %% we should use this name in each API calls not the PID,
             %% or it would backoff to sync calls to the gen_server
-            ok = emqx_dashboard_sso_browser_binding:maybe_warn_check_skipped(oidc, Config),
+            ok = maybe_warn_login_cookie_check_skipped(Config),
             ClientJwks = init_client_jwks(Config),
             {ok, #{
                 name => ?PROVIDER_SVR_NAME,
@@ -345,6 +345,23 @@ convert_certs(_Dir, Conf) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+% `skip_login_cookie_check' turns a security check off on purpose. Say so when
+% the backend starts.
+maybe_warn_login_cookie_check_skipped(#{enable := true} = Config) ->
+    case emqx_dashboard_sso_browser_binding:is_check_skipped(Config) of
+        true ->
+            ?SLOG(warning, #{
+                msg => "sso_login_cookie_check_skipped",
+                backend => oidc,
+                reason => "SSO logins are not bound to the browser that started them"
+            }),
+            ok;
+        false ->
+            ok
+    end;
+maybe_warn_login_cookie_check_skipped(_Config) ->
+    ok.
 
 validate_issuer_url(Value) ->
     maybe
