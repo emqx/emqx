@@ -420,10 +420,10 @@ emqx_collect(K = emqx_connections_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_connections_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_live_connections_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_live_connections_max, D) -> gauge_metrics(?MG(K, D));
-emqx_collect(K = emqx_disconnected_connections_count, D) -> gauge_metrics(?MG(K, D));
 %% sessions
 emqx_collect(K = emqx_sessions_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_sessions_max, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_disconnected_sessions_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_channels_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_channels_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_cluster_sessions_count, D) -> gauge_metrics(?MG(K, D));
@@ -666,10 +666,10 @@ stats_metric_meta() ->
         {emqx_connections_max, gauge, 'connections.max'},
         {emqx_live_connections_count, gauge, 'live_connections.count'},
         {emqx_live_connections_max, gauge, 'live_connections.max'},
-        {emqx_disconnected_connections_count, gauge, 'disconnected_connections.count'},
         %% sessions
         {emqx_sessions_count, gauge, 'sessions.count'},
         {emqx_sessions_max, gauge, 'sessions.max'},
+        {emqx_disconnected_sessions_count, gauge, 'disconnected_sessions.count'},
         {emqx_channels_count, gauge, 'channels.count'},
         {emqx_channels_max, gauge, 'channels.max'},
         %% pub/sub stats
