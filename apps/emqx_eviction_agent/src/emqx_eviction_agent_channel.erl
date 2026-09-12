@@ -347,7 +347,7 @@ info(Channel) ->
         conninfo => maps:get(conninfo, Channel, undefined),
         clientinfo => maps:get(clientinfo, Channel, undefined),
         session => emqx_utils:maybe_apply(
-            fun emqx_session:info/1,
+            fun emqx_session:cached_info/1,
             maps:get(session, Channel, undefined)
         ),
         conn_state => disconnected

@@ -42,6 +42,7 @@
 
 -export([
     info/1,
+    cached_info/1,
     info/2,
     stats/1
 ]).
@@ -231,8 +232,18 @@ start_link(Transport, Socket, Options) ->
 -spec info(pid() | state()) -> emqx_types:infos().
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
-info(State = #state{channel = Channel}) ->
-    ChanInfo = emqx_channel:info(Channel),
+info(State) ->
+    with_sockinfo(fun emqx_channel:info/1, State).
+
+-doc """
+Attributes cached in the `emqx_channel_info` table, see `emqx_channel:cached_info/1`.
+""".
+-spec cached_info(state()) -> emqx_types:infos().
+cached_info(State) ->
+    with_sockinfo(fun emqx_channel:cached_info/1, State).
+
+with_sockinfo(ChanInfoFun, State = #state{channel = Channel}) ->
+    ChanInfo = ChanInfoFun(Channel),
     SockInfo = maps:from_list(info(?INFO_KEYS, State)),
     ChanInfo#{sockinfo => SockInfo}.
 
@@ -650,11 +661,11 @@ handle_msg(
             {get_parser_state(Parser), Serialize, Channel}
         ),
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    emqx_cm:insert_channel_info(ClientId, cached_info(State), stats(State)),
     {ok, ensure_stats_timer(State)};
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_info(ClientId, info(State)),
+    emqx_cm:set_chan_info(ClientId, cached_info(State)),
     {ok, State};
 handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
     State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
@@ -668,7 +679,7 @@ handle_msg({event, _Other}, State = #state{channel = Channel}) ->
         undefined ->
             ok;
         ClientId ->
-            emqx_cm:set_chan_info(ClientId, info(State)),
+            emqx_cm:set_chan_info(ClientId, cached_info(State)),
             maybe_set_chan_stats(ClientId, State)
     end,
     {ok, State};

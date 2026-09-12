@@ -78,6 +78,7 @@ groups() ->
             t_v5_receive_maximum_in_connack,
             t_v5_receive_maximum_clamped_min,
             t_v5_receive_maximum_clamped_max,
+            t_chan_info_cache_omits_large_attrs,
             t_sock_closed_reason_normal,
             t_sock_closed_force_closed_by_client
         ]},
@@ -446,6 +447,56 @@ assert_receive_maximum(MaxAwaitingRel, ServerReceiveMaximum, Config) ->
     {ok, C} = emqtt:start_link(v5_conn_props(ClientReceiveMaximum, Config)),
     {ok, Props} = emqtt:connect(C),
     ?assertMatch(#{'Receive-Maximum' := ServerReceiveMaximum}, Props),
+    ok = emqtt:disconnect(C).
+
+-doc """
+The `emqx_channel_info` cache omits the will message, the CONNECT properties and the
+subscriptions map; the channel process still returns them from `info/1`.
+""".
+t_chan_info_cache_omits_large_attrs(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"TopicA">>,
+    {ok, C} = emqtt:start_link([
+        {clientid, ClientId},
+        {properties, #{'User-Property' => [{<<"k">>, <<"v">>}]}},
+        {will_topic, <<"will">>},
+        {will_payload, <<"bye">>}
+        | Config
+    ]),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
+    ?WAIT(
+        ?assertEqual(
+            1, proplists:get_value(subscriptions_cnt, emqx_cm:get_chan_stats(ClientId))
+        ),
+        2
+    ),
+    #{conninfo := ConnInfo, session := SessionInfo} = Info = emqx_cm:get_chan_info(ClientId),
+    ?assertNot(maps:is_key(will_msg, Info)),
+    ?assertNot(maps:is_key(conn_props, ConnInfo)),
+    ?assertNot(maps:is_key(subscriptions, SessionInfo)),
+    ?assertMatch(
+        #{topic := <<"will">>, payload := <<"bye">>},
+        emqx_cth_broker:connection_info({channel, will_msg}, ClientId)
+    ),
+    ?assertMatch(
+        #{conn_props := #{'User-Property' := [{<<"k">>, <<"v">>}]}},
+        emqx_cth_broker:connection_info({channel, conninfo}, ClientId)
+    ),
+    ?assertMatch(
+        #{subscriptions := #{Topic := #{qos := 1}}},
+        emqx_cth_broker:connection_info({channel, session}, ClientId)
+    ),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    ConnMod = emqx_cm:do_get_chann_conn_mod(ClientId, ChanPid),
+    ?assertMatch(
+        #{
+            will_msg := #{topic := <<"will">>},
+            conninfo := #{conn_props := #{'User-Property' := _}},
+            session := #{subscriptions := #{Topic := _}}
+        },
+        ConnMod:info(ChanPid)
+    ),
     ok = emqtt:disconnect(C).
 
 %%--------------------------------------------------------------------

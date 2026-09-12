@@ -25,6 +25,7 @@
 -export([
     info/1,
     info/2,
+    cached_info/1,
     get_mqtt_conf/2,
     get_mqtt_conf/3,
     set_conn_state/2,
@@ -184,10 +185,26 @@
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
 
-%% @doc Get infos of the channel.
+-doc "Get all attributes of the channel.".
 -spec info(channel()) -> emqx_types:infos().
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
+
+-doc """
+Channel attributes cached in the `emqx_channel_info` ETS table.
+
+The cache omits `will_msg`, `conninfo.conn_props` and `session.subscriptions`.
+They are the largest attributes, they grow with client input, and no reader of the
+table uses them. Read them from the channel process with `info/1` or `info/2`.
+""".
+-spec cached_info(channel()) -> emqx_types:infos().
+cached_info(#channel{conninfo = ConnInfo, session = Session} = Channel) ->
+    #{
+        conninfo => maps:remove(conn_props, ConnInfo),
+        conn_state => info(conn_state, Channel),
+        clientinfo => info(clientinfo, Channel),
+        session => emqx_utils:maybe_apply(fun emqx_session:cached_info/1, Session)
+    }.
 
 -spec info(list(atom()) | atom() | tuple(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
@@ -1815,7 +1832,7 @@ handle_cast(
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
-    ChanInfo1 = info(NChannel),
+    ChanInfo1 = cached_info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
     reset_timer(keepalive, NChannel);
 handle_cast(Req, Channel) ->
