@@ -260,6 +260,23 @@ convert_certs(_Dir, Conf) ->
 
 bin(X) -> iolist_to_binary(X).
 
+% `skip_login_cookie_check' turns a security check off on purpose. Say so when
+% the backend starts.
+maybe_warn_login_cookie_check_skipped(#{enable := true} = Config) ->
+    case emqx_dashboard_sso_browser_binding:is_check_skipped(Config) of
+        true ->
+            ?SLOG(warning, #{
+                msg => "sso_login_cookie_check_skipped",
+                backend => saml,
+                reason => "SSO logins are not bound to the browser that started them"
+            }),
+            ok;
+        false ->
+            ok
+    end;
+maybe_warn_login_cookie_check_skipped(_Config) ->
+    ok.
+
 do_create(
     #{
         dashboard_addr := DashboardAddr,
@@ -298,7 +315,7 @@ do_create(
                 email = "contact@emqx.io"
             }
         }),
-        ok = emqx_dashboard_sso_browser_binding:maybe_warn_check_skipped(saml, Config),
+        ok = maybe_warn_login_cookie_check_skipped(Config),
         State = Config,
         {ok, State#{idp_meta => IdpMeta, sp => SP}}
     catch

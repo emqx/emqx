@@ -20,8 +20,6 @@ can complete.
 A backend turns the check off with `skip_login_cookie_check`.
 """.
 
--include_lib("emqx/include/logger.hrl").
-
 -export([
     new_value/0,
     cookie_name/2,
@@ -29,7 +27,7 @@ A backend turns the check off with `skip_login_cookie_check`.
     clear_cookie_headers/2,
     verify/3,
     check/4,
-    maybe_warn_check_skipped/2
+    is_check_skipped/1
 ]).
 
 -export_type([backend/0]).
@@ -109,34 +107,19 @@ Check the login cookie as `verify/3` does, unless the backend `Config` sets
 -spec check(backend(), map(), map(), binary() | undefined) ->
     ok | {error, browser_binding_mismatch}.
 check(Backend, Config, Req, Expected) ->
-    case skips_check(Config) of
+    case is_check_skipped(Config) of
         true -> ok;
         false -> verify(Backend, Req, Expected)
     end.
 
--doc "Log a warning when an enabled backend skips the login cookie check.".
--spec maybe_warn_check_skipped(backend(), map()) -> ok.
-maybe_warn_check_skipped(Backend, #{enable := true} = Config) ->
-    case skips_check(Config) of
-        true ->
-            ?SLOG(warning, #{
-                msg => "sso_login_cookie_check_skipped",
-                backend => Backend,
-                reason => "SSO logins are not bound to the browser that started them"
-            }),
-            ok;
-        false ->
-            ok
-    end;
-maybe_warn_check_skipped(_Backend, _Config) ->
-    ok.
+-doc "Whether the backend `Config` turns the login cookie check off.".
+-spec is_check_skipped(map()) -> boolean().
+is_check_skipped(Config) ->
+    maps:get(skip_login_cookie_check, Config, false) =:= true.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-
-skips_check(Config) ->
-    maps:get(skip_login_cookie_check, Config, false) =:= true.
 
 name_prefix(oidc) -> <<"emqx_sso_oidc_">>;
 name_prefix(saml) -> <<"emqx_sso_saml_">>.

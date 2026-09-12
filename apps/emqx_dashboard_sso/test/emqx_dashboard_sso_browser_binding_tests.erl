@@ -117,6 +117,16 @@ concurrent_logins_test() ->
     ?assertEqual(ok, ?MOD:verify(oidc, req(Jar), <<"tab-b">>)),
     ?assertEqual(?MISMATCH, ?MOD:verify(oidc, req(Jar), <<"tab-c">>)).
 
+check_test() ->
+    Skip = #{skip_login_cookie_check => true},
+    ?assertNot(?MOD:is_check_skipped(#{})),
+    ?assert(?MOD:is_check_skipped(Skip)),
+    %% With the check skipped, a callback without the cookie passes.
+    ?assertEqual(ok, ?MOD:check(oidc, Skip, #{}, <<"v1">>)),
+    %% Otherwise `check/4' is `verify/3'.
+    ?assertEqual(?MISMATCH, ?MOD:check(oidc, #{}, #{}, <<"v1">>)),
+    ?assertEqual(ok, ?MOD:check(oidc, #{}, req(pair(oidc, <<"v1">>)), <<"v1">>)).
+
 malformed_cookie_header_test() ->
     ?assertEqual(?MISMATCH, ?MOD:verify(oidc, req(<<"=v1">>), <<"v1">>)),
     ?assertEqual(?MISMATCH, ?MOD:verify(oidc, req(<<>>), <<"v1">>)).
