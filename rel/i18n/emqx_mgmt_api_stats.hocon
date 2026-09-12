@@ -56,6 +56,9 @@ sessions_count.label: "Sessions Count"
 sessions_max.desc: "Historical maximum number of sessions."
 sessions_max.label: "Sessions Max"
 
+disconnected_sessions_count.desc: "Number of disconnected sessions: sessions whose client has disconnected but whose session expiry interval has not yet elapsed."
+disconnected_sessions_count.label: "Disconnected Sessions Count"
+
 suboptions_count.desc: "Number of current subscriptions."
 suboptions_count.label: "Subscriptions Count"
 

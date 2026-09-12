@@ -90,6 +90,7 @@ fields(aggregated_data) ->
         stats_schema('retained.max', "retained_max"),
         stats_schema('sessions.count', "sessions_count"),
         stats_schema('sessions.max', "sessions_max"),
+        stats_schema('disconnected_sessions.count', "disconnected_sessions_count"),
         stats_schema('suboptions.count', "suboptions_count"),
         stats_schema('suboptions.max', "suboptions_max"),
         stats_schema('subscribers.count', "subscribers_count"),
