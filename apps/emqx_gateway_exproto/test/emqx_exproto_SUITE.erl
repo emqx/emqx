@@ -76,6 +76,7 @@ groups() ->
     ],
     MainCases = [
         t_keepalive_timeout,
+        t_idle_timeout,
         t_mountpoint_echo,
         t_raw_publish,
         t_auth_deny,
@@ -691,17 +692,14 @@ t_idle_timeout(Cfg) ->
     %% need to create udp client by sending something
     case SockType of
         udp ->
-            %% nothing to do
-            ok = meck:new(emqx_exproto_gcli, [passthrough, no_history]),
-            ok = meck:expect(
-                emqx_exproto_gcli,
-                async_call,
-                fun(FunName, _Req, _GClient) ->
-                    self() ! {hreply, FunName, ok},
-                    ok
-                end
-            ),
-            %% send request, but nobody can respond to it
+            %% Swallow the gRPC requests instead of forwarding them to
+            %% the echo server: the datagram creates the connection,
+            %% but nothing ever authenticates it, so it must idle out.
+            GCliMod = emqx_exproto_v_1_connection_unary_handler_client,
+            ok = meck:new(GCliMod, [passthrough, no_history]),
+            EmptySucc = fun(_Req, _Options) -> {ok, #{}, []} end,
+            ok = meck:expect(GCliMod, on_socket_created, EmptySucc),
+            ok = meck:expect(GCliMod, on_received_bytes, EmptySucc),
             ClientId = <<"idle_test_client1">>,
             Client = #{
                 proto_name => <<"demo">>,
@@ -712,17 +710,26 @@ t_idle_timeout(Cfg) ->
             Password = <<"123456">>,
             ConnBin = frame_connect(Client, Password),
             send(Sock, ConnBin),
-            ?assertMatch(
-                {ok, #{reason := {shutdown, idle_timeout}}},
-                ?block_until(#{?snk_kind := conn_process_terminated}, 10000)
-            ),
-            ok = meck:unload(emqx_exproto_gcli);
+            assert_idle_timeout_shutdown(),
+            ok = meck:unload(GCliMod);
         _ ->
-            ?assertMatch(
-                {ok, #{reason := {shutdown, idle_timeout}}},
-                ?block_until(#{?snk_kind := conn_process_terminated}, 10000)
-            )
+            assert_idle_timeout_shutdown()
     end.
+
+%% Match on the reason as well as the kind: a connection torn down by
+%% an earlier case in this sequence can still emit
+%% conn_process_terminated inside this case's trace.
+assert_idle_timeout_shutdown() ->
+    ?assertMatch(
+        {ok, _},
+        ?block_until(
+            #{
+                ?snk_kind := conn_process_terminated,
+                reason := {shutdown, idle_timeout}
+            },
+            10000
+        )
+    ).
 
 %%--------------------------------------------------------------------
 %% Utils

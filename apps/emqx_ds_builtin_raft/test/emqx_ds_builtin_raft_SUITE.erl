@@ -1042,7 +1042,10 @@ t_drop_generation(Config) ->
         end
     ).
 
-t_crash_restart_recover(init, Config) ->
+%% Disabled: the name has no t_ prefix, so all/0 does not collect it.
+%% Before enabling it again: 1. Use TTV layout instead of MQTT wrapper.
+%% 2. It should be a property-based test?
+disabled__t_crash_restart_recover(init, Config) ->
     Apps = [appspec(ra), appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Specs = emqx_cth_cluster:mk_nodespecs(
         [
@@ -1054,10 +1057,10 @@ t_crash_restart_recover(init, Config) ->
     ),
     Nodes = emqx_cth_cluster:start(Specs),
     [{nodes, Nodes}, {nodespecs, Specs} | Config];
-t_crash_restart_recover('end', Config) ->
+disabled__t_crash_restart_recover('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(nodes, Config)).
 
-t_crash_restart_recover(Config) ->
+disabled__t_crash_restart_recover(Config) ->
     %% This testcase verifies that in the event of abrupt site failure message data is
     %% correctly preserved.
     Nodes = [N1, N2, N3] = ?config(nodes, Config),
@@ -1370,12 +1373,7 @@ consume_shard(Node, DB, Shard, TopicFilter, StartTime) ->
 suite() -> [{timetrap, {seconds, 120}}].
 
 all() ->
-    Broken = [
-        %% 1. Use TTV layout instead of MQTT wrapper. 2. It
-        %% should be a property-based test?
-        t_crash_restart_recover
-    ],
-    emqx_common_test_helpers:all(?MODULE) -- Broken.
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(TCName, Config0) ->
     Config1 = [{work_dir, emqx_cth_suite:work_dir(TCName, Config0)} | Config0],

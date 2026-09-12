@@ -69,6 +69,8 @@
     timers :: #{atom() => disable | undefined | reference()},
     %%% Takeover
     takeover :: boolean(),
+    %% Owner and monitor reference of the authorized resume takeover.
+    takeover_owner :: undefined | {pid(), reference()},
     %% Resume
     resuming :: boolean(),
     %% Pending delivers when takeovering
@@ -112,6 +114,10 @@
 -define(REGISTER_TIMEOUT, 5000).
 %% 2h
 -define(DEFAULT_SESSION_EXPIRY, 7200000).
+
+%% Keep a channel in takeover mode long enough for the new owner to finish
+%% session registration, but recover it if the takeover caller disappears.
+-define(DEFAULT_RESUME_TAKEOVER_TIMEOUT, 30000).
 
 -define(RAND_CLIENTID_BYTES, 16).
 
@@ -171,6 +177,7 @@ init(
         register_awaiting_queue = [],
         timers = #{},
         takeover = false,
+        takeover_owner = undefined,
         resuming = false,
         pendings = []
     }.
@@ -182,7 +189,10 @@ set_peercert_infos(NoSSL, ClientInfo) when
     ClientInfo;
 set_peercert_infos(Peercert, ClientInfo) ->
     {DN, CN} = {esockd_peercert:subject(Peercert), esockd_peercert:common_name(Peercert)},
-    ClientInfo#{dn => DN, cn => CN}.
+    ClientInfo#{
+        dn => DN,
+        cn => CN
+    }.
 
 -spec info(channel()) -> emqx_types:infos().
 info(Channel) ->
@@ -389,7 +399,7 @@ process_connect(
                 Channel#channel{session = Session}
             );
         {ok, #{session := Session, present := true, pendings := Pendings}} ->
-            Pendings1 = lists:usort(lists:append(Pendings, emqx_utils:drain_deliver())),
+            Pendings1 = merge_takeover_pendings(Pendings),
             NChannel = Channel#channel{
                 session = Session,
                 resuming = true,
@@ -415,6 +425,42 @@ ensure_keepalive_timer(0, Channel) ->
 ensure_keepalive_timer(Interval, Channel) ->
     Keepalive = emqx_keepalive:init(Interval),
     ensure_timer(keepalive, Channel#channel{keepalive = Keepalive}).
+
+merge_takeover_pendings(Pendings) ->
+    lists:usort(lists:append(Pendings, emqx_utils:drain_deliver())).
+
+can_resume_with_peercert(OldPeercert, NewPeercert) when is_binary(OldPeercert) ->
+    OldPeercert =:= NewPeercert;
+can_resume_with_peercert(nossl, _NewPeercert) ->
+    true;
+can_resume_with_peercert(undefined, _NewPeercert) ->
+    %% Keep ClientId-only resume for sessions created without a peer certificate.
+    true;
+can_resume_with_peercert(_UnsupportedOldPeercert, _NewPeercert) ->
+    false.
+
+validate_wakeup(
+    #{peercert := NewPeercert},
+    #channel{
+        takeover = false,
+        conn_state = ConnState,
+        conninfo = OldConnInfo,
+        asleep_timer_duration = SleepDuration
+    }
+) when
+    (ConnState =:= asleep orelse ConnState =:= awake),
+    is_integer(SleepDuration),
+    SleepDuration > 0
+->
+    OldPeercert = maps:get(peercert, OldConnInfo, undefined),
+    case can_resume_with_peercert(OldPeercert, NewPeercert) of
+        true ->
+            ok;
+        false ->
+            {error, not_authorized}
+    end;
+validate_wakeup(_ResumeRequest, _Channel) ->
+    {error, not_resumable}.
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
@@ -503,6 +549,53 @@ handle_in(
             }),
             PubAck = ?SN_PUBACK_MSG(TopicId, MsgId, RC),
             shutdown(normal, PubAck, Channel)
+    end;
+handle_in(
+    ?SN_PINGREQ_MSG(ClientId),
+    Channel = #channel{
+        ctx = Ctx,
+        conninfo = ConnInfo,
+        clientinfo = ClientInfo0,
+        conn_state = idle
+    }
+) when is_binary(ClientId), ClientId =/= <<>> ->
+    ClientInfo = ClientInfo0#{clientid => ClientId},
+    case
+        emqx_gateway_ctx:resume_session(
+            Ctx,
+            ClientInfo,
+            ConnInfo,
+            emqx_mqttsn_session
+        )
+    of
+        {ok, #{
+            session := Session,
+            pendings := Pendings,
+            asleep_timer_duration := SleepDuration,
+            conninfo := NConnInfo,
+            clientinfo := NClientInfo
+        }} ->
+            Pendings1 = merge_takeover_pendings(Pendings),
+            ResumedChannel0 = Channel#channel{
+                clientinfo = NClientInfo,
+                conninfo = NConnInfo,
+                session = Session,
+                pendings = Pendings1,
+                asleep_timer_duration = SleepDuration,
+                conn_state = asleep
+            },
+            ResumedChannel = schedule_connection_expire(ResumedChannel0),
+            awake(
+                ClientId,
+                ResumedChannel
+            );
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_session_failed",
+                clientid => ClientId,
+                reason => Reason
+            }),
+            handle_out(disconnect, normal, Channel)
     end;
 handle_in(
     Pkt = #mqtt_sn_message{type = Type},
@@ -1453,7 +1546,8 @@ awake(
     Channel = #channel{
         conn_state = ConnState,
         session = Session,
-        clientinfo = ClientInfo = #{clientid := ClientId}
+        clientinfo = ClientInfo = #{clientid := ClientId},
+        pendings = Pendings
     }
 ) when
     ConnState == asleep; ConnState == awake
@@ -1463,8 +1557,8 @@ awake(
         clientid => ClientId,
         previous_state => ConnState
     }),
-    {ok, Publishes, NSession} = emqx_mqttsn_session:replay(ClientInfo, Session),
-    Channel1 = cancel_timer(expire_asleep, Channel),
+    {Publishes, NSession} = replay_with_pendings(ClientInfo, Pendings, Session),
+    Channel1 = cancel_timer(expire_asleep, Channel#channel{pendings = []}),
     {Replies0, NChannel0} = outgoing_deliver_and_register(
         do_deliver(
             Publishes,
@@ -1477,6 +1571,15 @@ awake(
 
     {Replies2, NChannel} = goto_asleep_if_buffered_msgs_sent(NChannel0),
     {ok, Replies1 ++ Replies2, NChannel}.
+
+replay_with_pendings(ClientInfo, Pendings, Session) ->
+    {ok, Publishes, Session1} = emqx_mqttsn_session:replay(ClientInfo, Session),
+    case emqx_mqttsn_session:deliver(ClientInfo, Pendings, Session1) of
+        {ok, Session2} ->
+            {Publishes, Session2};
+        {ok, More, Session2} ->
+            {lists:append(Publishes, More), Session2}
+    end.
 
 goto_asleep_if_buffered_msgs_sent(
     Channel = #channel{
@@ -1811,26 +1914,90 @@ handle_call(kick, _From, Channel) ->
     shutdown_and_reply(kicked, ok, NChannel);
 handle_call(discard, _From, Channel) ->
     shutdown_and_reply(discarded, ok, Channel);
-handle_call({takeover, 'begin'}, _From, Channel = #channel{session = Session}) ->
+handle_call(
+    {takeover, 'begin', ResumeRequest = #{peercert := _}},
+    {OwnerPid, _Tag},
+    Channel = #channel{
+        session = Session,
+        clientinfo = OldClientInfo,
+        conninfo = OldConnInfo,
+        asleep_timer_duration = SleepDuration,
+        takeover = false,
+        takeover_owner = undefined
+    }
+) when is_pid(OwnerPid) ->
+    case validate_wakeup(ResumeRequest, Channel) of
+        ok ->
+            MonitorRef = erlang:monitor(process, OwnerPid),
+            NChannel = reset_timer(
+                resume_takeover,
+                ?DEFAULT_RESUME_TAKEOVER_TIMEOUT,
+                Channel#channel{
+                    takeover = true,
+                    takeover_owner = {OwnerPid, MonitorRef}
+                }
+            ),
+            reply(
+                {ok, #{
+                    session => Session,
+                    conninfo => OldConnInfo,
+                    clientinfo => OldClientInfo,
+                    asleep_timer_duration => SleepDuration
+                }},
+                NChannel
+            );
+        {error, Reason} ->
+            reply({error, Reason}, Channel)
+    end;
+handle_call({takeover, 'begin', _ResumeRequest}, _From, Channel) ->
+    reply({error, not_resumable}, Channel);
+handle_call(
+    {takeover, 'end'},
+    {OwnerPid, _Tag},
+    Channel = #channel{
+        takeover = true,
+        takeover_owner = {OwnerPid, MonitorRef},
+        session = Session,
+        pendings = Pendings
+    }
+) ->
+    finish_takeover(Session, Pendings, clear_takeover_owner(Channel, MonitorRef));
+handle_call(
+    {takeover, 'end'},
+    _From,
+    Channel = #channel{takeover_owner = {_OwnerPid, _MonitorRef}}
+) ->
+    reply({error, not_takeover_owner}, Channel);
+handle_call(
+    {takeover, 'begin'},
+    _From,
+    Channel = #channel{
+        session = Session,
+        takeover = false,
+        takeover_owner = undefined
+    }
+) ->
     %% In MQTT-SN the meaning of a “clean session” is extended to the Will
     %% feature, i.e. not only the subscriptions are persistent, but also the
     %% Will topic and the Will message. [6.3]
     %%
     %% FIXME: We need to reply WillMsg and Session
     reply(Session, Channel#channel{takeover = true});
+handle_call({takeover, 'begin'}, _From, Channel) ->
+    reply({error, not_resumable}, Channel);
 handle_call(
     {takeover, 'end'},
     _From,
     Channel = #channel{
+        takeover = true,
+        takeover_owner = undefined,
         session = Session,
         pendings = Pendings
     }
 ) ->
-    ok = emqx_mqttsn_session:takeover(Session),
-    %% TODO: Should not drain deliver here (side effect)
-    Delivers = emqx_utils:drain_deliver(),
-    AllPendings = lists:append(Delivers, Pendings),
-    shutdown_and_reply(takenover, AllPendings, Channel);
+    finish_takeover(Session, Pendings, Channel);
+handle_call({takeover, 'end'}, _From, Channel) ->
+    reply({error, not_resumable}, Channel);
 %handle_call(list_authz_cache, _From, Channel) ->
 %    {reply, emqx_authz_cache:list_authz_cache(), Channel};
 
@@ -1847,6 +2014,40 @@ handle_call(Req, _From, Channel) ->
     }),
     reply(ignored, Channel).
 
+rollback_resume_takeover(
+    Channel = #channel{
+        takeover = true,
+        takeover_owner = {_, MonitorRef},
+        pendings = Pendings,
+        session = Session,
+        clientinfo = ClientInfo
+    }
+) ->
+    _ = erlang:demonitor(MonitorRef, [flush]),
+    NSession = emqx_mqttsn_session:enqueue(ClientInfo, Pendings, Session),
+    cancel_timer(
+        resume_takeover,
+        Channel#channel{
+            takeover = false,
+            takeover_owner = undefined,
+            pendings = [],
+            session = NSession
+        }
+    ).
+
+clear_takeover_owner(
+    Channel = #channel{takeover_owner = {_, MonitorRef}},
+    MonitorRef
+) ->
+    _ = erlang:demonitor(MonitorRef, [flush]),
+    cancel_timer(resume_takeover, Channel#channel{takeover_owner = undefined}).
+
+finish_takeover(Session, Pendings, Channel) ->
+    ok = emqx_mqttsn_session:takeover(Session),
+    %% TODO: Should not drain deliver here (side effect)
+    Delivers = emqx_utils:drain_deliver(),
+    AllPendings = lists:append(Delivers, Pendings),
+    shutdown_and_reply(takenover, AllPendings, Channel).
 %%--------------------------------------------------------------------
 %% Handle Cast
 %%--------------------------------------------------------------------
@@ -1918,6 +2119,14 @@ handle_info(
     Channel = #channel{conn_state = disconnected}
 ) ->
     {ok, Channel};
+handle_info(
+    {'DOWN', MonitorRef, process, OwnerPid, _Reason},
+    Channel = #channel{
+        takeover = true,
+        takeover_owner = {OwnerPid, MonitorRef}
+    }
+) ->
+    {ok, rollback_resume_takeover(Channel)};
 handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
     {ok, Channel};
@@ -2199,6 +2408,29 @@ handle_timeout(
                     }
             }),
             handle_out(disconnect, ?SN_RC2_REACHED_MAX_RETRY, Channel)
+    end;
+handle_timeout(
+    TRef,
+    resume_takeover,
+    Channel = #channel{takeover = true, takeover_owner = {_, _}, timers = Timers}
+) ->
+    case maps:get(resume_takeover, Timers, undefined) of
+        TRef ->
+            ?SLOG(warning, #{msg => "mqttsn_resume_takeover_timeout"}),
+            {ok, rollback_resume_takeover(Channel)};
+        _ ->
+            {ok, Channel}
+    end;
+handle_timeout(
+    TRef,
+    resume_takeover,
+    Channel = #channel{timers = Timers}
+) ->
+    case maps:get(resume_takeover, Timers, undefined) of
+        TRef ->
+            {ok, clean_timer(resume_takeover, Channel)};
+        _ ->
+            {ok, Channel}
     end;
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
