@@ -11,6 +11,8 @@
 -behaviour(prometheus_collector).
 
 -behaviour(emqx_prometheus_cluster).
+-export([supports_listener_accept_result/0]).
+
 -export([
     fetch_cluster_consistented_data/0,
     aggre_or_zip_init_acc/0,
@@ -915,12 +917,30 @@ client_metric_data(Mode) ->
 
 listener_counts(Mode) ->
     Running = [{Id, Bind} || {Id, #{bind := Bind, running := true}} <- emqx_listeners:list()],
-    #{
+    Counts = #{
         emqx_client_disconnected_reason =>
-            listeners_points(fun emqx_listeners:shutdown_count/2, reason, Running, Mode),
-        emqx_client_accept_result =>
-            listeners_points(fun emqx_listeners:accept_stats/2, result, Running, Mode)
-    }.
+            listeners_points(fun emqx_listeners:shutdown_count/2, reason, Running, Mode)
+    },
+    case include_accept_result(Mode) of
+        true ->
+            Counts#{
+                emqx_client_accept_result =>
+                    listeners_points(fun emqx_listeners:accept_stats/2, result, Running, Mode)
+            };
+        false ->
+            Counts
+    end.
+
+%% A node older than `emqx_prometheus' BPAPI version 4 crashes when it
+%% aggregates a metric it does not know. Send accept results to other nodes
+%% only when every node supports version 4. The `node' mode is local only.
+include_accept_result(?PROM_DATA_MODE__NODE) ->
+    true;
+include_accept_result(_Mode) ->
+    emqx_bpapi:supported_version(emqx_prometheus) >= 4.
+
+%% RPC target (`emqx_prometheus_proto_v4')
+supports_listener_accept_result() -> true.
 
 listeners_points(GetCounts, LabelName, Listeners, Mode) ->
     lists:flatmap(
