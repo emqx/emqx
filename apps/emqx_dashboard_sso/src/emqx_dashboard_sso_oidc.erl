@@ -130,6 +130,11 @@ fields(oidc) ->
                     desc => ?DESC(require_pkce),
                     default => false
                 })},
+            {skip_login_cookie_check,
+                ?HOCON(boolean(), #{
+                    desc => ?DESC(skip_login_cookie_check),
+                    default => false
+                })},
             {preferred_auth_methods,
                 ?HOCON(
                     ?ARRAY(
@@ -236,6 +241,7 @@ start_session(#{} = Config) ->
             %% Note: the oidcc maintains an ETS with the same name of the provider gen_server,
             %% we should use this name in each API calls not the PID,
             %% or it would backoff to sync calls to the gen_server
+            ok = maybe_warn_login_cookie_check_skipped(Config),
             ClientJwks = init_client_jwks(Config),
             {ok, #{
                 name => ?PROVIDER_SVR_NAME,
@@ -271,16 +277,18 @@ login(
             clientid := ClientId,
             secret := Secret,
             scopes := Scopes,
+            session_expiry := SessionExpiry,
             require_pkce := RequirePKCE,
             preferred_auth_methods := AuthMethods
         }
     } = Cfg
 ) ->
     Nonce = emqx_dashboard_sso_oidc_session:random_bin(),
+    CallbackUrl = emqx_dashboard_sso_oidc_api:make_callback_url(Cfg),
     Opts = maybe_require_pkce(RequirePKCE, #{
         scopes => Scopes,
         nonce => Nonce,
-        redirect_uri => emqx_dashboard_sso_oidc_api:make_callback_url(Cfg)
+        redirect_uri => CallbackUrl
     }),
 
     Data = maps:with([nonce, require_pkce, pkce_verifier], Opts),
@@ -300,7 +308,13 @@ login(
             of
                 {ok, [Base, Delimiter, Params]} ->
                     RedirectUri = <<Base/binary, Delimiter/binary, Params/binary>>,
-                    Redirect = {302, ?REDIRECT_HEADERS(RedirectUri), ?REDIRECT_BODY},
+                    %% The cookie binds `State' to this browser. The callback
+                    %% rejects a `state' that arrives without it.
+                    Cookie = emqx_dashboard_sso_browser_binding:set_cookie_headers(
+                        oidc, State, #{max_age => SessionExpiry, url => CallbackUrl}
+                    ),
+                    Headers = maps:merge(?REDIRECT_HEADERS(RedirectUri), Cookie),
+                    Redirect = {302, Headers, ?REDIRECT_BODY},
                     {redirect, Redirect};
                 {error, _Reason} = Error ->
                     Error
@@ -331,6 +345,23 @@ convert_certs(_Dir, Conf) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+% `skip_login_cookie_check' turns a security check off on purpose. Say so when
+% the backend starts.
+maybe_warn_login_cookie_check_skipped(#{enable := true} = Config) ->
+    case emqx_dashboard_sso_browser_binding:is_check_skipped(Config) of
+        true ->
+            ?SLOG(warning, #{
+                msg => "sso_login_cookie_check_skipped",
+                backend => oidc,
+                reason => "SSO logins are not bound to the browser that started them"
+            }),
+            ok;
+        false ->
+            ok
+    end;
+maybe_warn_login_cookie_check_skipped(_Config) ->
+    ok.
 
 validate_issuer_url(Value) ->
     maybe
