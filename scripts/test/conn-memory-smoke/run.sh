@@ -13,7 +13,7 @@ IMAGE_TAG="${1:-${_EMQX_DOCKER_IMAGE_TAG:-}}"
 
 ## Measured on dev-63 at f6ac260d00 with 20,000 idle MQTT v5 clients using
 ## the default socket backend: 298-301 state words and 3,896 bytes after
-## hibernation. Re-measure with the memory_probe expression below.
+## hibernation. Re-measure with emqx_session_tool:connection_memory/0.
 MAX_STATE_WORDS=360
 MAX_HIBERNATED_MEMORY_BYTES=4600
 CLIENT_COUNT=200
@@ -59,6 +59,12 @@ cleanup
 
 eval_emqx() {
   docker exec "${CONTAINER}" emqx eval "$1" 2>/dev/null | tr -d '[:space:]'
+}
+
+map_integer() {
+  local key="$1"
+  local map="$2"
+  sed -n "s/.*${key}=>\([0-9][0-9]*\).*/\1/p" <<<"${map}"
 }
 
 count_severe_logs() {
@@ -133,12 +139,7 @@ fi
 
 hibernated=0
 for _ in $(seq 1 10); do
-  hibernated="$(eval_emqx '
-    length([
-      P
-     || P <- emqx_cm:all_channels(),
-        process_info(P, current_function) =:= {current_function, {erlang, hibernate, 3}}
-    ]).')"
+  hibernated="$(eval_emqx 'emqx_session_tool:hibernated_count().')"
   if [ "${hibernated}" -ge "${MIN_HIBERNATED_COUNT}" ]; then
     break
   fi
@@ -149,69 +150,27 @@ if [ "${hibernated}" -lt "${MIN_HIBERNATED_COUNT}" ]; then
   exit 1
 fi
 
-## Keep memory reads ahead of sys:get_state/1 because that system message wakes
-## a hibernated channel. The memory budget applies to the maximum, not the average.
-memory_probe='Pids = emqx_cm:all_channels(),
-Hibernated = [
-    P
- || P <- Pids,
-    process_info(P, current_function) =:= {current_function, {erlang, hibernate, 3}}
-],
-Snapshots = [
-    {P, proplists:get_value(memory, process_info(P, [memory]))}
- || P <- Hibernated
-],
-MemoryBytes = [M || {_, M} <- Snapshots],
-StateWords = erts_debug:flat_size(sys:get_state(hd(Hibernated))),
-{length(Pids), length(Hibernated), StateWords,
- lists:min(MemoryBytes), lists:max(MemoryBytes)}.'
-measurement="$(eval_emqx "${memory_probe}")"
+measurement="$(eval_emqx 'emqx_session_tool:connection_memory().')"
+measured_connections="$(map_integer connections "${measurement}")"
+measured_hibernated="$(map_integer hibernated "${measurement}")"
+state_words="$(map_integer state_words "${measurement}")"
+min_memory_bytes="$(map_integer min_memory_bytes "${measurement}")"
+max_memory_bytes="$(map_integer max_memory_bytes "${measurement}")"
 
-if [[ ! "${measurement}" =~ ^\{([0-9]+),([0-9]+),([0-9]+),([0-9]+),([0-9]+)\}$ ]]; then
+if [ -z "${measured_connections}" ] || [ -z "${measured_hibernated}" ] || \
+   [ -z "${state_words}" ] || [ -z "${min_memory_bytes}" ] || \
+   [ -z "${max_memory_bytes}" ]; then
   echo "Could not parse memory probe result: '${measurement}'"
   exit 1
 fi
-measured_connections="${BASH_REMATCH[1]}"
-measured_hibernated="${BASH_REMATCH[2]}"
-state_words="${BASH_REMATCH[3]}"
-min_memory_bytes="${BASH_REMATCH[4]}"
-max_memory_bytes="${BASH_REMATCH[5]}"
 
 echo "memory probe: connections=${measured_connections}, hibernated=${measured_hibernated}, state=${state_words} words (budget <=${MAX_STATE_WORDS}), memory=${min_memory_bytes}-${max_memory_bytes} bytes (budget <=${MAX_HIBERNATED_MEMORY_BYTES})"
 
 if [ "${state_words}" -gt "${MAX_STATE_WORDS}" ] || \
    [ "${max_memory_bytes}" -gt "${MAX_HIBERNATED_MEMORY_BYTES}" ]; then
   echo "Per-connection memory budget exceeded; channel breakdown follows:"
-  docker exec "${CONTAINER}" emqx eval '
-    Pids = emqx_cm:all_channels(),
-    Hibernated = [
-        P
-     || P <- Pids,
-        process_info(P, current_function) =:= {current_function, {erlang, hibernate, 3}}
-    ],
-    WithMemory = [
-        {proplists:get_value(memory, process_info(P, [memory])), P}
-     || P <- Hibernated
-    ],
-    {_, P} = lists:last(lists:sort(WithMemory)),
-    Info = process_info(P, [memory, heap_size, total_heap_size, stack_size,
-                            message_queue_len, current_function, status, dictionary]),
-    State = sys:get_state(P),
-    Size = fun(Term) -> erts_debug:flat_size(Term) end,
-    Deep = fun(Depth, Recur, Term) when is_tuple(Term), Depth > 0 ->
-                   [{I, Size(element(I, Term)), Recur(Depth - 1, Recur, element(I, Term))}
-                    || I <- lists:seq(1, tuple_size(Term)), Size(element(I, Term)) > 8];
-              (Depth, Recur, Term) when is_map(Term), Depth > 0 ->
-                   [{K, Size(V), Recur(Depth - 1, Recur, V)}
-                    || {K, V} <- maps:to_list(Term), Size(V) > 8];
-              (_, _, _) -> []
-           end,
-    Dictionary = proplists:get_value(dictionary, Info),
-    #{process_info => [{K, V} || {K, V} <- Info, K =/= dictionary],
-      dictionary_keys_and_words => [{K, Size(V)} || {K, V} <- Dictionary],
-      state_words => Size(State),
-      state_tuple_size => tuple_size(State),
-      state_breakdown => Deep(3, Deep, State)}.' || true
+  docker exec "${CONTAINER}" emqx eval \
+    'emqx_session_tool:connection_memory_breakdown().' || true
   exit 1
 fi
 
