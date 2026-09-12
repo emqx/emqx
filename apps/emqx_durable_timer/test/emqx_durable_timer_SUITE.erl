@@ -913,6 +913,59 @@ db_dump(Node) ->
 
 suite() -> [{timetrap, {minutes, 1}}].
 
+%% A callback that raises is reported with its exception, and the timer is
+%% consumed rather than retried. The worker survives the failure and keeps
+%% firing later timers.
+t_080_callback_failure({init, Config}) ->
+    Cluster = cluster(?FUNCTION_NAME, Config, 1, #{}),
+    [{cluster, Cluster} | Config];
+t_080_callback_failure({stop, Config}) ->
+    Config;
+t_080_callback_failure(Config) ->
+    Cluster = proplists:get_value(cluster, Config),
+    Type = emqx_durable_test_timer:durable_timer_type(),
+    Raising = emqx_durable_test_timer:raising_value(),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            [Node] = emqx_cth_cluster:start(Cluster),
+            ?assertMatch(ok, ?ON(Node, emqx_durable_test_timer:init())),
+            ?wait_async_action(
+                ?assertMatch(
+                    ok,
+                    ?ON(Node, emqx_durable_test_timer:apply_after(<<"boom">>, Raising, 0))
+                ),
+                #{?snk_kind := ?tp_callback_failed, key := <<"boom">>},
+                infinity
+            ),
+            %% the worker is still there and still firing
+            ?wait_async_action(
+                ?assertMatch(
+                    ok,
+                    ?ON(Node, emqx_durable_test_timer:apply_after(<<"after">>, <<>>, 0))
+                ),
+                #{?snk_kind := ?tp_fire, key := <<"after">>},
+                infinity
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        type := Type,
+                        key := <<"boom">>,
+                        exception := error,
+                        reason := deliberate_callback_failure,
+                        stacktrace := [_ | _]
+                    }
+                    | _
+                ],
+                ?of_kind(?tp_callback_failed, Trace)
+            )
+        end
+    ).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
