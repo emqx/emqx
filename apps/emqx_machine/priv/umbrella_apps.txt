@@ -28,6 +28,7 @@ emqx_bridge_clickhouse
 emqx_bridge_cockroachdb
 emqx_bridge_confluent
 emqx_bridge_couchbase
+emqx_bridge_dameng
 emqx_bridge_datalayers
 emqx_bridge_disk_log
 emqx_bridge_doris
@@ -105,6 +106,7 @@ emqx_mq
 emqx_mt
 emqx_mysql
 emqx_node_rebalance
+emqx_odbc
 emqx_opentelemetry
 emqx_oracle
 emqx_plugins

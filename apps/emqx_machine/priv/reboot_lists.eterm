@@ -160,6 +160,8 @@
             emqx_cluster_link,
             emqx_ds_builtin_raft,
             emqx_auth_cinfo,
-            emqx_a2a_registry
+            emqx_a2a_registry,
+            emqx_odbc,
+            emqx_bridge_dameng
         ]
 }.
