@@ -52,10 +52,14 @@ groups() ->
             t_get_rules_for_topic_2,
             t_get_rules_for_topic_missing_index_table,
             t_get_rules_with_same_event,
+            t_get_rules_ordered_by_ts,
             t_get_rule_ids_by_action,
+            t_get_rule_ids_by_action_reference_ingress_bridge,
             t_ensure_action_removed
         ]},
         {runtime, [], [
+            t_function_clause_errors,
+            t_json_payload_decoding,
             t_match_atom_and_binary,
             t_sqlselect_0,
             t_sqlselect_00,
@@ -104,6 +108,7 @@ groups() ->
             t_sqlparse_undefined_variable,
             t_sqlparse_new_map,
             t_sqlparse_invalid_json,
+            t_sqlparse_both_string_types_in_from,
             t_sqlselect_as_put,
             t_sqlselect_client_attr,
             t_republish_namespaced_rule,
@@ -457,6 +462,9 @@ t_kv_store(_) ->
     undefined = emqx_rule_funcs:kv_store_get(<<"abc">>).
 
 t_function_clause_errors(_Config) ->
+    %% upper/1 rejects a missing column itself, so the SQL runtime
+    %% reports the BIF's own throw rather than wrapping a
+    %% function_clause error of its own.
     SQL0 = <<"select upper(xxxx) from \"t/a\"">>,
     Payload = <<"{}">>,
     ?assertMatch(
@@ -464,9 +472,8 @@ t_function_clause_errors(_Config) ->
             {select_and_transform_error,
                 {throw,
                     #{
-                        arguments := [undefined],
-                        reason := bad_sql_function_argument,
-                        function_name := upper
+                        reason := badarg,
+                        function := upper
                     },
                     _Stack}}},
         emqx_rule_sqltester:test(
@@ -482,9 +489,8 @@ t_function_clause_errors(_Config) ->
             {doeach_error,
                 {throw,
                     #{
-                        arguments := [undefined],
-                        reason := bad_sql_function_argument,
-                        function_name := upper
+                        reason := badarg,
+                        function := upper
                     },
                     _Stack0}},
             _Stack1
@@ -502,9 +508,8 @@ t_function_clause_errors(_Config) ->
             {select_and_collect_error,
                 {throw,
                     #{
-                        arguments := [undefined],
-                        reason := bad_sql_function_argument,
-                        function_name := upper
+                        reason := badarg,
+                        function := upper
                     },
                     _Stack}}},
         emqx_rule_sqltester:test(

@@ -544,11 +544,7 @@ enrich_clientinfo(
 ) ->
     {ok, NPacket, NClientInfo} = emqx_utils:pipeline(
         [
-            fun maybe_assign_clientid/2,
-            %% Mountpoint is evaluated again after successful authentication in
-            %% emqx_gateway_ctx:authenticate/2, because authentication results
-            %% may add client attributes used by mountpoint templates.
-            fun fix_mountpoint/2
+            fun maybe_assign_clientid/2
         ],
         Packet,
         ClientInfo
@@ -678,14 +674,6 @@ process_connect(
 
 maybe_assign_clientid(#frame{vin = Vin}, ClientInfo) ->
     {ok, ClientInfo#{clientid => Vin, username => Vin}}.
-
-fix_mountpoint(_Packet, #{mountpoint := undefined}) ->
-    ok;
-fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    %% TODO: Enrich the variable replacement????
-    %%       i.e: ${ClientInfo.auth_result.productKey}
-    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
-    {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
 %%--------------------------------------------------------------------
 %% Ensure disconnected

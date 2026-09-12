@@ -55,7 +55,11 @@
     t_ee_ns_admin_legacy_publish_only_scopes_stay_set,
     %% Namespaced-key scope allowlist parity with the dashboard user rule (#412)
     t_ee_ns_key_create_rejects_out_of_allowlist_scopes,
-    t_ee_ns_key_update_rejects_out_of_allowlist_scopes
+    t_ee_ns_key_update_rejects_out_of_allowlist_scopes,
+    %% Role change to publisher validates against the persisted scopes
+    %% when the body omits `scopes' (H7)
+    t_ee_publisher_role_change_with_persisted_admin_scopes_is_rejected,
+    t_ee_publisher_role_change_with_compatible_persisted_scopes_succeeds
 ]).
 
 -define(APP, emqx_app).
@@ -78,6 +82,8 @@ groups() ->
         {parallel, [parallel], ?EE_CASES},
         {sequence, [], [
             t_bootstrap_file,
+            t_bootstrap_file_override,
+            t_bootstrap_file_dup_override,
             t_bootstrap_file_with_role,
             t_bootstrap_file_with_scopes,
             t_bootstrap_file_with_scopes_invalid,
@@ -226,7 +232,7 @@ t_bootstrap_file_override(_) ->
         ]},
         emqx_mgmt_auth:trans(MatchFun, [<<"test-1">>])
     ),
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"duplicated-secret-1">>)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, <<"test-1">>, <<"duplicated-secret-1">>)),
 
     ?assertMatch(
         {ok, [
@@ -237,7 +243,7 @@ t_bootstrap_file_override(_) ->
         ]},
         emqx_mgmt_auth:trans(MatchFun, [<<"test-2">>])
     ),
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"duplicated-secret-2">>)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, <<"test-2">>, <<"duplicated-secret-2">>)),
     ok.
 
 t_bootstrap_file_dup_override(_) ->
@@ -262,19 +268,12 @@ t_bootstrap_file_dup_override(_) ->
     MatchFun = fun(ApiKey) -> mnesia:match_object(#?APP{api_key = ApiKey, _ = '_'}) end,
 
     ?assertEqual({ok, ok}, emqx_mgmt_auth:trans(WriteFun, [SameAppWithDiffName])),
-    %% as erlang term order
-    ?assertMatch(
-        {ok, [
-            #?APP{
-                name = <<"name-1">>,
-                api_key = <<"test-1">>
-            },
-            #?APP{
-                name = <<"from_bootstrap_file_18926f94712af04e">>,
-                api_key = <<"test-1">>
-            }
-        ]},
-        emqx_mgmt_auth:trans(MatchFun, [TestApiKey])
+    %% Both records share the api key. mnesia:match_object/1 does not
+    %% promise an order, so compare the names as a sorted list.
+    {ok, Dups} = emqx_mgmt_auth:trans(MatchFun, [TestApiKey]),
+    ?assertEqual(
+        [<<"from_bootstrap_file_18926f94712af04e">>, <<"name-1">>],
+        lists:sort([Name || #?APP{name = Name} <- Dups])
     ),
 
     update_file(File),
@@ -293,7 +292,7 @@ t_bootstrap_file_dup_override(_) ->
     ),
 
     %% the last apikey in bootstrap file will override the all in mnesia and the previous one(s) in bootstrap file
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
 
     ok.
 
