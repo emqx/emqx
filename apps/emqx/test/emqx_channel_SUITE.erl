@@ -105,10 +105,31 @@ internal_subscribe_test_profile(_) ->
 %%--------------------------------------------------------------------
 
 t_chan_info(_) ->
+    WillMsg = emqx_message:make(<<"clientid">>, <<"will">>, <<"payload">>),
+    Channel = channel(#{
+        will_msg => WillMsg,
+        session => session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}})
+    }),
     #{
         conn_state := connected,
-        clientinfo := ClientInfo
-    } = emqx_channel:info(channel()),
+        clientinfo := ClientInfo,
+        conninfo := ConnInfo,
+        session := SessionInfo
+    } = Info = emqx_channel:cached_info(Channel),
+    %% The cached info omits the attributes that grow with client input.
+    ?assertNot(maps:is_key(will_msg, Info)),
+    ?assertNot(maps:is_key(conn_props, ConnInfo)),
+    ?assertNot(maps:is_key(subscriptions, SessionInfo)),
+    ?assertMatch(#{id := _, created_at := _, impl := emqx_session_mem}, SessionInfo),
+    %% The full info still has them.
+    ?assertMatch(
+        #{
+            will_msg := #{topic := <<"will">>},
+            conninfo := #{conn_props := #{}},
+            session := #{subscriptions := #{<<"t">> := _}}
+        },
+        emqx_channel:info(Channel)
+    ),
     ?assertMatch(
         #{
             zone := default,
