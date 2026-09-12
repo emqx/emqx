@@ -5632,9 +5632,19 @@ case133_mountpoint_peerhost_placeholder(_Config) ->
     {ok, Channel1} = emqx_lwm2m_channel:enrich_clientinfo(Msg, Channel0),
     ClientInfo = emqx_lwm2m_channel:info(clientinfo, Channel1),
     %% The mountpoint placeholders are evaluated during authentication, the
-    %% same step `auth_connect/2' runs in the real flow.
-    {ok, #{mountpoint := Mountpoint}} = emqx_gateway_ctx:authenticate(Ctx, ClientInfo),
-    ?assertEqual(<<"lwm2m/127.0.0.1/ep133/">>, Mountpoint).
+    %% same step `auth_connect/2' runs in the real flow. Let authentication
+    %% succeed: the hardened security profile rejects this anonymous client,
+    %% and this case checks placeholder evaluation, not authentication.
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    try
+        ok = meck:expect(
+            emqx_access_control, authenticate, fun(_) -> {ok, #{is_superuser => false}} end
+        ),
+        {ok, #{mountpoint := Mountpoint}} = emqx_gateway_ctx:authenticate(Ctx, ClientInfo),
+        ?assertEqual(<<"lwm2m/127.0.0.1/ep133/">>, Mountpoint)
+    after
+        meck:unload(emqx_access_control)
+    end.
 
 case134_auto_observe_empty_list(_Config) ->
     ok = emqx_conf_cli:load_config(
