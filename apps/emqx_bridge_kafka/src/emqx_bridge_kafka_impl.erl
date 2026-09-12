@@ -47,6 +47,17 @@ socket_opts_loop([], Acc) ->
 socket_opts_loop([{tcp_keepalive, KeepAlive} | Rest], Acc) ->
     Acc1 = tcp_keepalive(KeepAlive) ++ Acc,
     socket_opts_loop(Rest, Acc1);
+socket_opts_loop([{ip_family, IpFamily} | Rest], Acc) ->
+    %% kafka_protocol connects with one address family only when the
+    %% options include `inet' or `inet6'. Otherwise, it tries IPv4 first
+    %% and falls back to IPv6 for hostnames.
+    Acc1 =
+        case IpFamily of
+            auto -> Acc;
+            ipv4 -> [inet | Acc];
+            ipv6 -> [inet6 | Acc]
+        end,
+    socket_opts_loop(Rest, Acc1);
 socket_opts_loop([{T, Bytes} | Rest], Acc) when
     T =:= sndbuf orelse T =:= recbuf orelse T =:= buffer
 ->

@@ -56,6 +56,49 @@ test_keepalive_validation(Kind, Conf) ->
     [?_assertMatch(#{}, Check(C)) || C <- ValidConfs] ++
         [?_assertThrow(_, Check(C)) || C <- InvalidConfs].
 
+ipv6_bootstrap_hosts_validation_test_() ->
+    ProducerConf = emqx_bridge_kafka_testlib:action_connector_config(#{}),
+    ConsumerConf = emqx_bridge_kafka_testlib:source_connector_config(#{}),
+    test_ipv6_bootstrap_hosts(fun check_action_connector/1, ProducerConf) ++
+        test_ipv6_bootstrap_hosts(fun check_source_connector/1, ConsumerConf).
+
+test_ipv6_bootstrap_hosts(Check, Conf) ->
+    WithHosts = fun(Hosts) -> Conf#{<<"bootstrap_hosts">> => Hosts} end,
+    ValidHosts = [<<"[::1]:9092">>, <<"[::1]">>, <<"[fd00::5]:9092,host2:9093">>],
+    [?_assertMatch(#{<<"bootstrap_hosts">> := H}, Check(WithHosts(H))) || H <- ValidHosts] ++
+        [?_assertThrow(_, Check(WithHosts(<<"::1:9092">>)))].
+
+hosts_test_() ->
+    Hosts = fun emqx_bridge_kafka_impl:hosts/1,
+    [
+        ?_assertEqual([{"::1", 9092}], Hosts(<<"[::1]:9092">>)),
+        ?_assertEqual(
+            [{"fd00::5", 9092}, {"host2", 9093}],
+            Hosts(<<"[fd00::5]:9092,host2:9093">>)
+        ),
+        ?_assertEqual(
+            [{"::1", 9092}],
+            Hosts(emqx_schema:parse_servers(<<"[::1]">>, #{default_port => 9092}))
+        )
+    ].
+
+socket_opts_ip_family_test_() ->
+    Conf = emqx_bridge_kafka_testlib:action_connector_config(#{}),
+    WithFamily = fun(Family) ->
+        emqx_utils_maps:deep_force_put([<<"socket_opts">>, <<"ip_family">>], Conf, Family)
+    end,
+    Families = fun(C) ->
+        #{socket_opts := Opts} = check_action_connector_atom_key(C),
+        [F || F <- emqx_bridge_kafka_impl:socket_opts(Opts), F =:= inet orelse F =:= inet6]
+    end,
+    [
+        {"default adds no family option", ?_assertEqual([], Families(Conf))},
+        {"auto adds no family option", ?_assertEqual([], Families(WithFamily(<<"auto">>)))},
+        {"ipv4 adds inet", ?_assertEqual([inet], Families(WithFamily(<<"ipv4">>)))},
+        {"ipv6 adds inet6", ?_assertEqual([inet6], Families(WithFamily(<<"ipv6">>)))},
+        {"bad value", ?_assertThrow(_, check_action_connector(WithFamily(<<"inet6">>)))}
+    ].
+
 %% `max_batch_age' and `max_retries' accept `infinity' (the default) or a
 %% duration / non-negative integer, and are rejected otherwise.
 producer_max_batch_age_max_retries_schema_test_() ->
@@ -185,6 +228,14 @@ check_action_connector(Conf) ->
 
 check_source_connector(Conf) ->
     emqx_bridge_v2_testlib:parse_and_check_connector(kafka_consumer, <<"x">>, Conf).
+
+check_action_connector_atom_key(Conf) ->
+    RawConf = #{<<"connectors">> => #{<<"kafka_producer">> => #{<<"myproducer">> => Conf}}},
+    #{connectors := #{kafka_producer := #{myproducer := Checked}}} =
+        hocon_tconf:check_plain(
+            emqx_connector_schema, RawConf, #{atom_key => true, required => false}
+        ),
+    Checked.
 
 %%===========================================================================
 %% Data section
