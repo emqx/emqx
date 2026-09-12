@@ -169,8 +169,14 @@ do add proto versions. Freeze after every cut.
 
 Review the diff rather than taking the regeneration on trust. A freeze may add
 `{API, Version}` keys, and may drop keys already listed in
-`?FORCE_DELETED_APIS`. It must never *change* one — that is a frozen API being
-edited, and the point of the check.
+`?FORCE_DELETED_APIS`.
+
+A key that *changes* is a frozen API being edited, which is the thing the check
+exists to catch. Stop and find out why. The one exception is a key already in
+`?DIVERGED_APIS`: two lines gave it the same number with different contents, no
+single definition can match both, and the freeze records what this line holds.
+The 6.3 freeze changed `{emqx_mgmt_data_backup, 2}` for exactly that reason.
+Nothing else may change.
 
 ## A release cut on one branch freezes the branches upstream of it
 
