@@ -194,19 +194,34 @@ build_conn_string_extra_attrs_none_test() ->
         emqx_odbc:build_conn_string(#{dsn => <<"dm8">>, extra_conn_attrs => []})
     ).
 
-%% A credential or a driver specific value may contain the `;' delimiter or a
-%% brace. Such a value must be braced (and its closing braces doubled),
-%% otherwise it would change the attribute boundaries of the connection string.
-build_conn_string_escapes_delimiters_test() ->
+%% A value containing the `;' delimiter must be braced (and its closing braces
+%% doubled), otherwise it would change the attribute boundaries.
+build_conn_string_escapes_delimiter_test() ->
     ?assertEqual(
         "Driver={DM8 ODBC DRIVER};Server=localhost:5236;UID={sy;dba};"
-        "PWD={p}};w};SSL_PWD={ x }",
+        "PWD={p}};w}",
         emqx_odbc:build_conn_string(#{
             server => <<"localhost">>,
             port => 5236,
             driver => <<"DM8 ODBC DRIVER">>,
             username => <<"sy;dba">>,
-            password => emqx_secret:wrap(<<"p};w">>),
+            password => emqx_secret:wrap(<<"p};w">>)
+        })
+    ).
+
+%% Regression (verified against DM8 8.1): the DM8 ODBC driver does not strip
+%% the `{}' quoting, so a value that only contains a closing brace or
+%% surrounding whitespace must be passed literally.
+build_conn_string_keeps_literal_braces_test() ->
+    ?assertEqual(
+        "Driver={DM8 ODBC DRIVER};Server=localhost:5236;UID=user};"
+        "PWD=Abcd}1Ef2;SSL_PWD= x ",
+        emqx_odbc:build_conn_string(#{
+            server => <<"localhost">>,
+            port => 5236,
+            driver => <<"DM8 ODBC DRIVER">>,
+            username => <<"user}">>,
+            password => emqx_secret:wrap(<<"Abcd}1Ef2">>),
             extra_conn_attrs => [{"SSL_PWD", <<" x ">>}]
         })
     ).

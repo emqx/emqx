@@ -25,6 +25,12 @@ Connector parameters (see `emqx_bridge_dameng:fields("config_connector")`):
 There is intentionally no `database` field: DM8 locates the target instance by
 `host`/`port`, and its ODBC driver ignores the `Database` connection attribute.
 
+The DM8 ODBC driver reads the values of a DSN-less connection string literally:
+it does not support the ODBC `{...}` quoting for values containing the `;`
+delimiter (verified against DM8 8.1). A `username` or `password` containing `;`
+therefore cannot be used with `server`; configure a `dsn` instead, so that the
+credentials come from `odbc.ini`.
+
 Action parameters:
 
 | Field | Description |

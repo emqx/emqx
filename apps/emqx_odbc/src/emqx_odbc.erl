@@ -265,24 +265,20 @@ driver_str(Driver) ->
         false -> "{" ++ escape_braces(Path) ++ "}"
     end.
 
-%% ODBC connection string attributes are separated by `;'. A value that
-%% contains a delimiter, a brace or leading/trailing whitespace is enclosed in
-%% braces, and a closing brace inside a braced value is doubled: this is the
-%% connection string syntax that both unixODBC (`__get_attr' in
-%% `SQLDriverConnect.c') and the ODBC drivers parse. Without it, a credential
-%% such as `p;w' would be split into two attributes.
+%% ODBC connection string attributes are separated by `;', so a value that
+%% contains the delimiter is enclosed in braces and every closing brace inside
+%% it is doubled: this is the ODBC connection string syntax. Note that braces
+%% are only used for values that actually contain a delimiter, because not
+%% every driver strips them again: the DM8 ODBC driver (verified against DM8
+%% 8.1) reads a braced value literally, so a value such as `Abcd}1Ef2' must be
+%% left as it is. A credential containing `;' cannot be expressed in a
+%% DSN-less connection string for such a driver and has to come from a DSN.
 conn_value(Value) ->
     Str = str(Value),
-    case needs_braces(Str) of
+    case lists:member($;, Str) of
         true -> "{" ++ escape_braces(Str) ++ "}";
         false -> Str
     end.
-
-needs_braces([]) ->
-    false;
-needs_braces(Str) ->
-    lists:any(fun(C) -> C =:= $; orelse C =:= ${ orelse C =:= $} end, Str) orelse
-        hd(Str) =:= $\s orelse lists:last(Str) =:= $\s.
 
 escape_braces(Str) ->
     lists:flatten(string:replace(Str, "}", "}}", all)).
