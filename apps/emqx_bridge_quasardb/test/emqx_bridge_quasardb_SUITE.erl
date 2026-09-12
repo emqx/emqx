@@ -263,6 +263,43 @@ execute_select(SQL, TCConfig) ->
         {ok, Rows}
     end.
 
+render_sql(Template, Data) ->
+    {ok, Plan} = emqx_sql_plan:compile(emqx_bridge_quasardb_sql, Template),
+    {ok, SQL} = emqx_sql_plan:render(Plan, Data, #{undefined_vars_as_null => true}),
+    SQL.
+
+render_static_sql(Template) ->
+    SQL = iolist_to_binary(render_sql(Template, #{})),
+    ?assertEqual(Template, SQL),
+    SQL.
+
+number_results(TCConfig) ->
+    {ok, Rows} = execute_select(
+        <<"select id, number_val from lexer_conformance where id >= 100 and id <= 102">>,
+        TCConfig
+    ),
+    maps:from_list([
+        {maps:get(<<"id">>, Row), maps:get(<<"number_val">>, Row)}
+     || Row <- Rows
+    ]).
+
+timestamp_results(TCConfig) ->
+    {ok, Rows} = execute_select(
+        <<"select id, timestamp_val from lexer_conformance where id >= 200 and id <= 202">>,
+        TCConfig
+    ),
+    maps:from_list([
+        {Id, Timestamp}
+     || #{<<"id">> := Id, <<"timestamp_val">> := Timestamp} <- Rows
+    ]).
+
+inserted_ids(Condition, TCConfig) ->
+    {ok, Rows} = execute_select(
+        [<<"select id from lexer_conformance where ">>, Condition],
+        TCConfig
+    ),
+    lists:sort([maps:get(<<"id">>, Row) || Row <- Rows]).
+
 create_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
@@ -400,9 +437,9 @@ t_value_types(TCConfig) ->
     C = start_client(),
     Payload = json_encode(#{
         <<"int">> => 123,
-        <<"double">> => 4.0,
-        <<"blob">> => <<"DEADBEEF">>,
-        <<"str">> => <<"hello world">>,
+        <<"double">> => 1.23456789012345,
+        <<"blob">> => <<"DEAD'\\BEEF">>,
+        <<"str">> => <<"hello 'world' \\ payload">>,
         <<"ts">> => <<"2026-03-09T11:38:55">>,
         <<"sym">> => <<"CADR">>
     }),
@@ -413,15 +450,264 @@ t_value_types(TCConfig) ->
         ?assertMatch(
             {ok, [
                 #{
-                    <<"blob_val">> := "DEADBEEF",
-                    <<"double_val">> := 4.0,
+                    <<"blob_val">> := "DEAD'\\BEEF",
+                    <<"double_val">> := 1.23456789012345,
                     <<"int_val">> := "123",
-                    <<"str_val">> := "hello world",
+                    <<"str_val">> := "hello 'world' \\ payload",
                     <<"sym_val">> := "CADR",
                     <<"ts_val">> := {_Date, _Time}
                 }
             ]},
             execute_select(<<"select * from dummy_table2">>, TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+Pins the SQL literal rules used by the renderer to the QuasarDB version in the
+integration test service.
+This is must-have to reason about lexical scopes because QuasarDB is not
+open-source and does not provide formal lexical scoping rules.
+""".
+t_lexer_conformance(TCConfig) ->
+    on_exit(fun() -> execute_sql(<<"drop table lexer_conformance">>, TCConfig) end),
+    ok = handle_empty_res(
+        execute_sql(
+            <<
+                "create table if not exists lexer_conformance "
+                "(id int64, payload blob, number_val double, timestamp_val timestamp)"
+            >>,
+            TCConfig
+        )
+    ),
+    AllNonNulBytes = list_to_binary(lists:seq(1, 255)),
+    ByteSQL = render_sql(
+        <<
+            "INSERT INTO lexer_conformance ($timestamp, id, payload) "
+            "VALUES (now(), 1, '${payload}')"
+        >>,
+        #{payload => AllNonNulBytes}
+    ),
+    ?assertEqual(
+        ok,
+        handle_empty_res(execute_sql(ByteSQL, TCConfig))
+    ),
+    ?assertEqual(
+        {ok, [#{<<"payload">> => str(AllNonNulBytes)}]},
+        execute_select(<<"select payload from lexer_conformance where id = 1">>, TCConfig)
+    ),
+    StaticSQLTemplate = <<
+        "INSERT INTO lexer_conformance ($timestamp, id, payload) "
+        "VALUES (now(), 2, 'quote:\\' slash:\\\\ arbitrary:\\q lf:",
+        10,
+        " cr:",
+        13,
+        "')"
+    >>,
+    StaticSQL = render_sql(StaticSQLTemplate, #{}),
+    ?assertEqual(
+        <<
+            "INSERT INTO lexer_conformance ($timestamp, id, payload) "
+            "VALUES (now(), 2, 'quote:\\' slash:\\\\ arbitrary:q lf:",
+            10,
+            " cr:",
+            13,
+            "')"
+        >>,
+        iolist_to_binary(StaticSQL)
+    ),
+    ?assertEqual(
+        ok,
+        handle_empty_res(execute_sql(StaticSQL, TCConfig))
+    ),
+    ?assertEqual(
+        {ok, [#{<<"payload">> => "quote:' slash:\\ arbitrary:q lf:\n cr:\r"}]},
+        execute_select(<<"select payload from lexer_conformance where id = 2">>, TCConfig)
+    ),
+    RawEscapeSQL = <<
+        "INSERT INTO lexer_conformance ($timestamp, id, payload) "
+        "VALUES (now(), 3, 'quote:\\' slash:\\\\ arbitrary:\\q lf:",
+        10,
+        " cr:",
+        13,
+        "')"
+    >>,
+    ?assertEqual(
+        ok,
+        handle_empty_res(execute_sql(RawEscapeSQL, TCConfig))
+    ),
+    ?assertEqual(
+        {ok, [#{<<"payload">> => "quote:' slash:\\ arbitrary:q lf:\n cr:\r"}]},
+        execute_select(<<"select payload from lexer_conformance where id = 3">>, TCConfig)
+    ),
+
+    NumberForms = [
+        {100, <<"+7">>},
+        {101, <<"-.5">>},
+        {102, <<"1.e2">>}
+    ],
+    lists:foreach(
+        fun({Id, Number}) ->
+            SQL = render_static_sql(<<
+                "INSERT INTO lexer_conformance ($timestamp, id, number_val) VALUES "
+                "(now(), ",
+                (integer_to_binary(Id))/binary,
+                ", ",
+                Number/binary,
+                ")"
+            >>),
+            ?assertEqual(ok, handle_empty_res(execute_sql(SQL, TCConfig)))
+        end,
+        NumberForms
+    ),
+    ?assertEqual(
+        #{"100" => 7.0, "101" => -0.5, "102" => 100.0},
+        number_results(TCConfig)
+    ),
+    TimestampForms = [
+        {200, <<"2018">>},
+        {201, <<"2018-01-01T03:00Z">>},
+        {202, <<"2018-01-01T03:00:00.123456789Z">>},
+        {203, <<"NoW()">>},
+        {204, <<"EpOcH()">>},
+        {205, <<"EnD_Of_TiMe()">>},
+        {210, <<"2018-01-01T03:00:00.1Z">>},
+        {211, <<"2018-01-01T03:00:00.12Z">>},
+        {212, <<"2018-01-01T03:00:00.123Z">>},
+        {213, <<"2018-01-01T03:00:00.1234Z">>},
+        {214, <<"2018-01-01T03:00:00.12345Z">>},
+        {215, <<"2018-01-01T03:00:00.123456Z">>},
+        {216, <<"2018-01-01T03:00:00.1234567Z">>},
+        {217, <<"2018-01-01T03:00:00.12345678Z">>}
+    ],
+    lists:foreach(
+        fun({Id, Timestamp}) ->
+            SQL = render_static_sql(<<
+                "INSERT INTO lexer_conformance ($timestamp, id, timestamp_val) VALUES "
+                "(now(), ",
+                (integer_to_binary(Id))/binary,
+                ", ",
+                Timestamp/binary,
+                ")"
+            >>),
+            ?assertEqual(ok, handle_empty_res(execute_sql(SQL, TCConfig)))
+        end,
+        TimestampForms
+    ),
+    ?assertEqual(
+        #{
+            "200" => {{2018, 1, 1}, {0, 0, 0}},
+            "201" => {{2018, 1, 1}, {3, 0, 0}},
+            "202" => {{2018, 1, 1}, {3, 0, 0}}
+        },
+        timestamp_results(TCConfig)
+    ),
+    ?assertEqual(
+        [
+            "200",
+            "201",
+            "202",
+            "203",
+            "204",
+            "205",
+            "210",
+            "211",
+            "212",
+            "213",
+            "214",
+            "215",
+            "216",
+            "217"
+        ],
+        inserted_ids(<<"id >= 200 and id <= 217">>, TCConfig)
+    ),
+
+    RejectedSQLs = [
+        <<
+            "INSERT INTO lexer_conformance ($timestamp, id, payload) "
+            "VALUES (now(), 4, 'standard''quote')"
+        >>,
+        <<
+            "INSERT INTO lexer_conformance ($timestamp, id, number_val) "
+            "VALUES (now(), 5, 1e+)"
+        >>,
+        <<
+            "INSERT INTO lexer_conformance ($timestamp, id, timestamp_val) "
+            "VALUES (now(), 6, 2018-01)"
+        >>,
+        <<
+            "INSERT INTO lexer_conformance ($timestamp, id, timestamp_val) "
+            "VALUES (now(), 7, 2018-01-01T03:00:00+01:00)"
+        >>,
+        <<
+            "INSERT INTO lexer_conformance ($timestamp, id, timestamp_val) "
+            "VALUES (now(), 8, 2018-01-01T03:00:00.Z)"
+        >>,
+        <<
+            "INSERT INTO lexer_conformance ($timestamp, id, timestamp_val) "
+            "VALUES (now(), 9, 2018-01-01T03:00:00.1234567890Z)"
+        >>
+    ],
+    lists:foreach(
+        fun(SQL) ->
+            ?assertMatch(
+                {error, _},
+                emqx_sql_plan:compile(emqx_bridge_quasardb_sql, SQL)
+            ),
+            ?assertMatch(
+                {error, _},
+                handle_empty_res(execute_sql(SQL, TCConfig))
+            )
+        end,
+        RejectedSQLs
+    ),
+    ok.
+
+-doc "Verifies that QuasarDB keywords remain valid in bare identifier positions.".
+t_keyword_identifiers(TCConfig) ->
+    on_exit(fun() -> execute_sql(<<"drop table \"VaLuEs\"">>, TCConfig) end),
+    ok = handle_empty_res(
+        execute_sql(
+            ~b"""
+        create table if not exists "VaLuEs" (
+          "InSeRt" int64,
+          "NuLl" blob,
+          "NoW" blob,
+          "EpOcH" blob
+        )
+        """,
+            TCConfig
+        )
+    ),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"sql">> =>
+                ~b"""
+                insert into VaLuEs($timestamp, InSeRt, NuLl, NoW, EpOcH)
+                values (now(), 1, 'null', 'now', 'epoch')
+                """
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    emqtt:publish(C, RuleTopic, <<"{}">>),
+    ?retry(
+        200,
+        10,
+        ?assertEqual(
+            {ok, [
+                #{
+                    <<"InSeRt">> => "1",
+                    <<"NuLl">> => "null",
+                    <<"NoW">> => "now",
+                    <<"EpOcH">> => "epoch"
+                }
+            ]},
+            execute_select(
+                <<"select \"InSeRt\", \"NuLl\", \"NoW\", \"EpOcH\" from \"VaLuEs\"">>,
+                TCConfig
+            )
         )
     ),
     ok.
@@ -455,11 +741,70 @@ t_undefined_value(TCConfig) ->
             execute_select(<<"select 1 from dummy_table where qos = null">>, TCConfig)
         )
     ),
-    %% Obviously, since we have to manually quote strings, this null gets stored as a
-    %% string...
     ?assertMatch(
-        {ok, [#{<<"payload">> := "null"}]},
-        execute_select(<<"select payload from dummy_table">>, TCConfig)
+        {ok, [#{<<"1">> := "1"}]},
+        execute_select(<<"select 1 from dummy_table where payload = null">>, TCConfig)
+    ),
+    ok.
+
+-doc """
+Verifies that MQTT-controlled text cannot change the INSERT structure.
+""".
+t_sql_injection() ->
+    [{matrix, true}].
+t_sql_injection(matrix) ->
+    [
+        [Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_sql_injection(TCConfig) when is_list(TCConfig) ->
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"sql">> =>
+                ~b"""
+                  insert into dummy_table($timestamp, qos, payload)
+                  values (now(), 1, '${payload}')
+                """
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Attack = <<"regular'), (now(), 999, 'owned\\tail">>,
+    emqtt:publish(C, RuleTopic, Attack),
+    ?retry(
+        200,
+        10,
+        ?assertEqual(
+            {ok, [#{<<"qos">> => "1", <<"payload">> => str(Attack)}]},
+            execute_select(<<"select qos, payload from dummy_table">>, TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+Verifies that a NUL value fails before QuasarDB can truncate the SQL query.
+""".
+t_nul_value(TCConfig) ->
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    emqtt:publish(C, RuleTopic, <<"before", 0, "after">>),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {200, #{
+                <<"metrics">> := #{
+                    <<"matched">> := 1,
+                    <<"failed">> := 1,
+                    <<"success">> := 0
+                }
+            }},
+            get_action_metrics_api(TCConfig)
+        )
     ),
     ok.
 
@@ -534,7 +879,6 @@ t_bad_values(TCConfig) ->
 
 -doc """
 Exercises the code paths where the provided action SQL is somehow invalid.
-
   - Not an insert statement.
   - Insert statement with an `ON` clause.
   - Something else entirely.
@@ -546,7 +890,7 @@ t_bad_sql_types(TCConfig) ->
     ?assertMatch(
         {201, #{
             <<"status">> := <<"disconnected">>,
-            <<"status_reason">> := <<"{invalid_sql_type,update}">>
+            <<"status_reason">> := <<"{invalid_quasardb_insert_template,", _/binary>>
         }},
         create_action_api(TCConfig, #{
             <<"parameters">> => #{
@@ -558,7 +902,7 @@ t_bad_sql_types(TCConfig) ->
     ?assertMatch(
         {201, #{
             <<"status">> := <<"disconnected">>,
-            <<"status_reason">> := <<"{invalid_sql_type,delete}">>
+            <<"status_reason">> := <<"{invalid_quasardb_insert_template,", _/binary>>
         }},
         create_action_api(TCConfig, #{
             <<"parameters">> => #{
@@ -572,7 +916,7 @@ t_bad_sql_types(TCConfig) ->
     ?assertMatch(
         {201, #{
             <<"status">> := <<"disconnected">>,
-            <<"status_reason">> := <<"{unsupported_clause,", _/binary>>
+            <<"status_reason">> := <<"{invalid_quasardb_insert_template,", _/binary>>
         }},
         create_action_api(TCConfig, #{
             <<"parameters">> => #{
@@ -586,7 +930,7 @@ t_bad_sql_types(TCConfig) ->
     ?assertMatch(
         {201, #{
             <<"status">> := <<"disconnected">>,
-            <<"status_reason">> := <<"{failed_to_parse_type,unknown}">>
+            <<"status_reason">> := <<"{invalid_quasardb_insert_template,", _/binary>>
         }},
         create_action_api(TCConfig, #{
             <<"parameters">> => #{
@@ -598,7 +942,7 @@ t_bad_sql_types(TCConfig) ->
     ?assertMatch(
         {201, #{
             <<"status">> := <<"disconnected">>,
-            <<"status_reason">> := <<"{failed_to_parse_type,unknown}">>
+            <<"status_reason">> := <<"{invalid_quasardb_insert_template,", _/binary>>
         }},
         create_action_api(TCConfig, #{
             <<"parameters">> => #{
@@ -610,7 +954,7 @@ t_bad_sql_types(TCConfig) ->
     ?assertMatch(
         {201, #{
             <<"status">> := <<"disconnected">>,
-            <<"status_reason">> := <<"{failed_to_parse,", _/binary>>
+            <<"status_reason">> := <<"{invalid_quasardb_insert_template,", _/binary>>
         }},
         create_action_api(TCConfig, #{
             <<"parameters">> => #{
