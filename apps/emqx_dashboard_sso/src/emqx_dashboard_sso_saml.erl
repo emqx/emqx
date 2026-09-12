@@ -173,7 +173,7 @@ login(
     %% The IdP echoes `RelayState' back on the assertion consumer POST. Sending
     %% the same value in a cookie binds the round-trip to this browser.
     RelayState = emqx_dashboard_sso_browser_binding:new_value(),
-    Cookie = emqx_dashboard_sso_browser_binding:set_cookie_header(
+    Cookie = emqx_dashboard_sso_browser_binding:set_cookie_headers(
         saml, RelayState, #{max_age => ?BINDING_MAX_AGE, url => DashboardAddr}
     ),
     RespHeaders = maps:merge(?RESPHEADERS, Cookie),
@@ -219,7 +219,7 @@ callback(Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = S
 clear_binding(RelayState, {redirect, Username, {Status, Headers, Body}}) when
     is_binary(RelayState), RelayState =/= <<>>
 ->
-    ClearCookie = emqx_dashboard_sso_browser_binding:clear_cookie_header(saml, RelayState),
+    ClearCookie = emqx_dashboard_sso_browser_binding:clear_cookie_headers(saml, RelayState),
     {redirect, Username, {Status, maps:merge(Headers, ClearCookie), Body}};
 clear_binding(_RelayState, Result) ->
     Result.

@@ -90,7 +90,7 @@ code_callback(get, #{query_string := QS} = Req) ->
             #{<<"state">> := State} = QS,
             Headers = maps:merge(
                 ?REDIRECT_HEADERS(Target),
-                emqx_dashboard_sso_browser_binding:clear_cookie_header(?BACKEND, State)
+                emqx_dashboard_sso_browser_binding:clear_cookie_headers(?BACKEND, State)
             ),
             {302, Headers, ?REDIRECT_BODY};
         {error, browser_binding_mismatch} ->

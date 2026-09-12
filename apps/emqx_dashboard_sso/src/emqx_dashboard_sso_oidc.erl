@@ -310,7 +310,7 @@ login(
                     RedirectUri = <<Base/binary, Delimiter/binary, Params/binary>>,
                     %% The cookie binds `State' to this browser. The callback
                     %% rejects a `state' that arrives without it.
-                    Cookie = emqx_dashboard_sso_browser_binding:set_cookie_header(
+                    Cookie = emqx_dashboard_sso_browser_binding:set_cookie_headers(
                         oidc, State, #{max_age => SessionExpiry, url => CallbackUrl}
                     ),
                     Headers = maps:merge(?REDIRECT_HEADERS(RedirectUri), Cookie),

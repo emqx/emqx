@@ -25,8 +25,8 @@ A backend turns the check off with `skip_login_cookie_check`.
 -export([
     new_value/0,
     cookie_name/2,
-    set_cookie_header/3,
-    clear_cookie_header/2,
+    set_cookie_headers/3,
+    clear_cookie_headers/2,
     verify/3,
     check/4,
     maybe_warn_check_skipped/2
@@ -58,14 +58,14 @@ cookie_name(Backend, Value) ->
     <<(name_prefix(Backend))/binary, Hash/binary>>.
 
 -doc """
-Build the `set-cookie' header that binds `Value' to this browser.
+Build the response headers that bind `Value' to this browser.
 
 `url' is the address the callback arrives at, that is the configured
 `dashboard_addr'. An `https' address gets a `Secure' cookie.
 """.
--spec set_cookie_header(backend(), binary(), #{max_age := pos_integer(), url := binary()}) ->
+-spec set_cookie_headers(backend(), binary(), #{max_age := pos_integer(), url := binary()}) ->
     #{binary() => binary()}.
-set_cookie_header(Backend, Value, #{max_age := MaxAge, url := Url}) ->
+set_cookie_headers(Backend, Value, #{max_age := MaxAge, url := Url}) ->
     Secure = is_https(Url),
     Opts = #{
         path => ?COOKIE_PATH,
@@ -76,9 +76,9 @@ set_cookie_header(Backend, Value, #{max_age := MaxAge, url := Url}) ->
     },
     set_cookie(cookie_name(Backend, Value), Value, Opts).
 
--doc "Build the `set-cookie' header that deletes the cookie bound to `Value'.".
--spec clear_cookie_header(backend(), binary()) -> #{binary() => binary()}.
-clear_cookie_header(Backend, Value) ->
+-doc "Build the response headers that delete the cookie bound to `Value'.".
+-spec clear_cookie_headers(backend(), binary()) -> #{binary() => binary()}.
+clear_cookie_headers(Backend, Value) ->
     Opts = #{path => ?COOKIE_PATH, http_only => true, max_age => 0},
     set_cookie(cookie_name(Backend, Value), <<>>, Opts).
 
