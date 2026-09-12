@@ -47,13 +47,17 @@ groups() ->
             t_parse_after_connect,
             t_parse_no_connect_expected,
             t_update_opts,
-            t_update_opts_mid_frame
+            t_update_opts_mid_frame,
+            t_update_opts_connect_limits
         ]},
         {connect, [parallel], [
             t_serialize_parse_v3_connect,
             t_serialize_parse_v4_connect,
             t_serialize_parse_v5_connect,
             t_parse_many_user_properties_is_linear,
+            t_parse_connect_packet_too_large,
+            t_parse_connect_too_many_user_properties,
+            t_parse_connect_user_properties_unlimited_by_default,
             t_parse_duplicate_connect_property_strict,
             t_parse_duplicate_connect_property_lenient,
             t_parse_repeated_user_property_strict,
@@ -427,6 +431,34 @@ t_update_opts(_) ->
     PublishBin = serialize_to_binary(Publish, ?MQTT_PROTO_V5),
     ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin, PState3)).
 
+%% The CONNECT limits are zone settings too, so a config change must carry them
+%% onto an existing parse state rather than leave the old ones in place.
+t_update_opts_connect_limits(_) ->
+    PState0 = emqx_frame:initial_parse_state(#{
+        expect_connect => true,
+        max_connect_size => 1024,
+        max_connect_user_properties => 10
+    }),
+    {ok, PState1, _Serialize} = emqx_frame:update_opts(PState0, #{
+        max_connect_size => 32,
+        max_connect_user_properties => 1
+    }),
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{proto_ver = ?MQTT_PROTO_V5}),
+    ConnectBin = serialize_to_binary(Connect, ?MQTT_PROTO_V5),
+    ?assert(byte_size(ConnectBin) < 32),
+    %% The tightened size limit is in force ...
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := 32},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(20)), PState1)
+    ),
+    %% ... and so is the tightened pair limit.
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 1},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(2)), PState1)
+    ),
+    %% A CONNECT within both limits still parses.
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(ConnectBin, PState1)).
+
 %% A frame in flight is parsed under the options it started with. The new
 %% options are held and take effect from the next frame, not dropped.
 t_update_opts_mid_frame(_) ->
@@ -564,6 +596,113 @@ t_parse_many_user_properties_is_linear(_) ->
     %% not a microbenchmark. The old quadratic path took seconds here.
     ?assert(Elapsed < 2000, #{elapsed_ms => Elapsed}),
     ok.
+
+-doc """
+A CONNECT larger than `max_connect_size' is rejected from the fixed header,
+before any body byte is buffered. The limit applies only to CONNECT.
+""".
+t_parse_connect_packet_too_large(_) ->
+    Limit = 512,
+    PState = emqx_frame:initial_parse_state(#{max_connect_size => Limit}),
+    Frame = make_v5_connect_frame(user_properties(200)),
+    ?assert(byte_size(Frame) > Limit),
+    %% Feed only the fixed header and the remaining-length bytes: an error here
+    %% means the body was never buffered.
+    <<Header:3/binary, _/binary>> = Frame,
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse(Header, PState)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse(Frame, PState)
+    ),
+    %% The whole-frame parser applies the same limit.
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse_complete(Frame, PState)
+    ),
+    %% A CONNECT within the limit still parses.
+    Small = make_v5_connect_frame(user_properties(1)),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(Small, PState)),
+    %% The limit does not apply to other packet types.
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, payload(2048)),
+    PublishBin = serialize_to_binary(Publish),
+    ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin, PState)).
+
+-doc """
+A CONNECT carrying more 'User-Property' pairs than `max_connect_user_properties'
+is rejected. The limit applies to the CONNECT properties and to the will
+properties separately.
+""".
+t_parse_connect_too_many_user_properties(_) ->
+    PState = emqx_frame:initial_parse_state(#{max_connect_user_properties => 2}),
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(2)), PState)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 2},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(3)), PState)
+    ),
+    %% Will properties are held to the same limit.
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(make_v5_connect_with_will_frame(<<>>, user_properties(2)), PState)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 2},
+        emqx_frame:parse(make_v5_connect_with_will_frame(<<>>, user_properties(3)), PState)
+    ),
+    %% Each block is counted on its own, not summed.
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(
+            make_v5_connect_with_will_frame(user_properties(2), user_properties(2)), PState
+        )
+    ).
+
+-doc """
+The default parse state does not limit the number of 'User-Property' pairs, so
+`emqx_frame:parse/1' and the round-trip tests are unaffected.
+""".
+t_parse_connect_user_properties_unlimited_by_default(_) ->
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(1000)))
+    ).
+
+%% N user properties on the wire, each with an empty key and an indexed value.
+user_properties(N) ->
+    iolist_to_binary([
+        begin
+            V = integer_to_binary(I),
+            <<16#26, 0:16, (byte_size(V)):16, V/binary>>
+        end
+     || I <- lists:seq(1, N)
+    ]).
+
+%% Build a raw MQTT v5 CONNECT frame with the will flag set, carrying the given
+%% raw CONNECT properties and will properties.
+make_v5_connect_with_will_frame(ConnPropsBin, WillPropsBin) ->
+    ConnPropsSection = <<(encode_vbi(byte_size(ConnPropsBin)))/binary, ConnPropsBin/binary>>,
+    WillPropsSection = <<(encode_vbi(byte_size(WillPropsBin)))/binary, WillPropsBin/binary>>,
+    %% username=0, password=0, will_retain=0, will_qos=0, will_flag=1, clean_start=1
+    Flags = <<2#00000110>>,
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, Flags/binary, 60:16, ConnPropsSection/binary>>,
+    Body = <<
+        VarHeader/binary,
+        %% empty client id
+        0:16,
+        WillPropsSection/binary,
+        %% will topic
+        4:16,
+        "will",
+        %% will payload
+        2:16,
+        "hi"
+    >>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
 
 %% Encode an unsigned integer as an MQTT variable byte integer.
 encode_vbi(N) when N < 16#80 ->

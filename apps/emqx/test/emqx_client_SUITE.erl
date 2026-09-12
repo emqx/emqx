@@ -110,13 +110,18 @@ groups() ->
             t_congestion_qos0_no_send_timeout,
             t_congestion_decongested,
             t_first_packet_not_connect,
+            t_connect_packet_too_large,
+            t_connect_too_many_user_properties,
             t_frame_error_shutdown_count_idle,
+            t_shutdown_count_connect_packet_too_large,
+            t_shutdown_count_too_many_user_properties,
             t_frame_error_shutdown_count_connected,
             t_frame_error_shutdown_count_is_bounded,
             t_sock_closed_incomplete_qos2_transmission
         ]},
         {socket, [], [
             t_connection_stats,
+            t_publish_larger_than_connect_limit,
             t_connect_silent_idle_timeout,
             t_connect_idle_timeout,
             t_sock_keepalive,
@@ -1069,6 +1074,23 @@ h_sock_closed_on_kick_shutdown(_ClientInfo, _Reason, _ConnInfo, Socket) ->
     ok = socket_close(Socket),
     ok = timer:sleep(5).
 
+-doc """
+`mqtt.max_connect_packet_size` bounds the CONNECT packet only. A PUBLISH larger
+than that limit, but within `mqtt.max_packet_size`, still round-trips.
+""".
+t_publish_larger_than_connect_limit(Config) ->
+    ConnectLimit = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    MaxPacketSize = emqx_config:get_zone_conf(default, [mqtt, max_packet_size]),
+    Payload = binary:copy(<<"x">>, ConnectLimit * 2),
+    ?assert(byte_size(Payload) < MaxPacketSize),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    {ok, Client} = emqtt:start_link([{clientid, Topic} | socket_emqtt_opts(Config)]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Client, Topic, ?QOS_1),
+    {ok, _} = emqtt:publish(Client, Topic, Payload, ?QOS_1),
+    ?assertReceive({publish, #{topic := Topic, payload := Payload}}, 5000),
+    ok = emqtt:disconnect(Client).
+
 t_connection_stats(_) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, Client} = emqtt:start_link([{port, 1883}, {clientid, ClientId}]),
@@ -1585,6 +1607,57 @@ loop_slow_consumer(active, Socket, Recvlen, Interval) ->
             closed
     end.
 
+-doc """
+A CONNECT larger than `mqtt.max_connect_packet_size` is refused and the
+connection is closed, without a CONNACK.
+""".
+t_connect_packet_too_large(Config) ->
+    Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    ok = socket_send(Socket, oversized_connect(Limit)),
+    ?assertEqual(ok, wait_socket_closed(Socket)).
+
+-doc """
+A CONNECT carrying more user properties than
+`mqtt.max_connect_user_properties` is refused and the connection is closed.
+""".
+t_connect_too_many_user_properties(Config) ->
+    Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_user_properties]),
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    ok = socket_send(Socket, connect_with_user_properties(Limit + 1)),
+    ?assertEqual(ok, wait_socket_closed(Socket)).
+
+wait_socket_closed(Socket) ->
+    receive
+        {tcp_closed, RawSocket} when RawSocket =:= element(2, Socket) -> ok;
+        {ssl_closed, RawSocket} when RawSocket =:= element(2, Socket) -> ok
+    after 5000 ->
+        ct:fail("Expected socket to be closed")
+    end.
+
+%% A well-formed MQTT v5 CONNECT whose size exceeds `Limit`, padded with user
+%% properties. Sent in full so that the whole-frame transport also sees it.
+oversized_connect(Limit) ->
+    connect_with_user_properties((Limit div 8) + 1).
+
+connect_with_user_properties(N) ->
+    Props = iolist_to_binary([
+        begin
+            V = integer_to_binary(I),
+            <<16#26, 0:16, (byte_size(V)):16, V/binary>>
+        end
+     || I <- lists:seq(1, N)
+    ]),
+    PropsSection = <<(encode_vbi(byte_size(Props)))/binary, Props/binary>>,
+    VarHeader = <<4:16, "MQTT", 5:8, 2:8, 60:16, PropsSection/binary>>,
+    Body = <<VarHeader/binary, 0:16>>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
+
+encode_vbi(N) when N < 16#80 ->
+    <<N>>;
+encode_vbi(N) ->
+    <<1:1, (N rem 16#80):7, (encode_vbi(N div 16#80))/binary>>.
+
 t_first_packet_not_connect(Config) ->
     Socket = socket_connect(Config, [{active, true}, binary]),
     %% Use a complete non-CONNECT MQTT packet to avoid packet=mqtt transport
@@ -1596,6 +1669,33 @@ t_first_packet_not_connect(Config) ->
     after 5000 ->
         ct:fail("Expected socket to be closed")
     end.
+
+-doc """
+An oversized CONNECT shuts the connection down under its own counter, so an
+operator can tell a client hitting `mqtt.max_connect_packet_size` from a client
+sending garbage.
+""".
+t_shutdown_count_connect_packet_too_large(Config) ->
+    Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    %% No parser trace to assert on here: with `parse_unit = frame' the
+    %% transport refuses the frame before the parser sees it.
+    {ExitReason, _Reports} = assert_shutdown_counted(
+        Config, Socket, oversized_connect(Limit), connect_packet_too_large
+    ),
+    ?assertMatch({shutdown, #{cause := connect_packet_too_large, limit := Limit}}, ExitReason).
+
+-doc """
+A CONNECT with too many user properties shuts the connection down under its own
+counter.
+""".
+t_shutdown_count_too_many_user_properties(Config) ->
+    Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_user_properties]),
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    ExitReason = assert_frame_error_shutdown(
+        Config, Socket, connect_with_user_properties(Limit + 1), too_many_user_properties
+    ),
+    ?assertMatch({shutdown, #{cause := too_many_user_properties, limit := Limit}}, ExitReason).
 
 -doc """
 A non-MQTT first packet shuts the connection down under the fixed
@@ -1694,6 +1794,19 @@ send_malformed_when_connected(Config, Malformed) ->
 %% Send `Malformed' and assert the connection exits with a reason the connection
 %% supervisor attributes to `Cause'. Returns the exit reason.
 assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
+    {ExitReason, Reports} = assert_shutdown_counted(Config, Socket, Malformed, Cause),
+    %% The shutdown counter only names a kind, so the specific cause and the
+    %% offending bytes must stay reachable through `emqx_trace'.
+    ?assertMatch(
+        [#{reason := #{cause := _}, input_bytes := Malformed, at_state := _} | _],
+        [R1 || #{msg := "frame_parse_error"} = R1 <- Reports]
+    ),
+    ExitReason.
+
+%% Send `Malformed', wait for the connection to terminate, and assert the
+%% shutdown was attributed to `Cause' and counted. Returns the exit reason and
+%% the captured log reports.
+assert_shutdown_counted(Config, Socket, Malformed, Cause) ->
     CountBefore = shutdown_count(Config, Cause),
     Self = self(),
     Reports = emqx_cth_log_capture:capture(debug, fun() ->
@@ -1706,12 +1819,6 @@ assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
             {exit_reason, R0} -> R0
         after 0 -> ct:fail(no_terminate_event)
         end,
-    %% The shutdown counter only names a kind, so the specific cause and the
-    %% offending bytes must stay reachable through `emqx_trace'.
-    ?assertMatch(
-        [#{reason := #{cause := _}, input_bytes := Malformed, at_state := _} | _],
-        [R1 || #{msg := "frame_parse_error"} = R1 <- Reports]
-    ),
     %% esockd attributes a shutdown to a cause when the reason is either a plain
     %% atom or a map tagged with `shutdown_count'; anything else is reported as
     %% an unidentified shutdown at error level and left uncounted.
@@ -1723,7 +1830,7 @@ assert_frame_error_shutdown(Config, Socket, Malformed, Cause) ->
     %% Counter only moves on the info-level branch, so this also proves no
     %% error-level supervisor report was emitted.
     ?WAIT(?assertEqual(CountBefore + 1, shutdown_count(Config, Cause)), 5),
-    ExitReason.
+    {ExitReason, Reports}.
 
 shutdown_count(Config, Cause) ->
     proplists:get_value(Cause, shutdown_counts(Config), 0).

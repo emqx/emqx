@@ -1448,11 +1448,18 @@ A counter name must come from a bounded set. Errors reported as an atom are
 already such a set, fixed by the parser, so the atom names its own counter.
 Errors reported as a map carry detail derived from the offending packet, so they
 share `Default'; the specific cause remains in the shutdown reason and in the
-trace. Oversized frames keep their own counter in every connection state, being
-a distinct operational signal rather than a malformed packet.
+trace.
+
+The causes listed below are the exception: each names a configured limit the
+client went over, not a property of the packet's content, so the set of names
+stays bounded and each is a distinct operational signal rather than a malformed
+packet. An operator reading the counters can tell "clients are hitting a limit
+you set" from "clients are sending garbage".
 """.
 frame_error_kind(Reason, _Default) when is_atom(Reason) -> Reason;
 frame_error_kind(#{cause := frame_too_large}, _Default) -> frame_too_large;
+frame_error_kind(#{cause := connect_packet_too_large}, _Default) -> connect_packet_too_large;
+frame_error_kind(#{cause := too_many_user_properties}, _Default) -> too_many_user_properties;
 frame_error_kind(_Reason, Default) -> Default.
 
 %%--------------------------------------------------------------------

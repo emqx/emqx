@@ -733,15 +733,22 @@ do_post_zone_config_update(true, OldZones, NewZones) ->
             )
     end.
 
+%% Zone settings that `choose_packet_opts/1' bakes into the listener socket
+%% options, and so require the listener to be updated when they change.
+-define(PACKET_OPT_KEYS, [max_packet_size, max_connect_packet_size]).
+
 find_zones_with_relevant_changes([], _OldZones, _NewZones, Acc) ->
     Acc;
 find_zones_with_relevant_changes([Zone | Zones], OldZones, NewZones, Acc) ->
-    OldConfig = emqx_utils_maps:deep_get([Zone, mqtt, max_packet_size], OldZones, none),
-    NewConfig = emqx_utils_maps:deep_get([Zone, mqtt, max_packet_size], NewZones, none),
-    case OldConfig =:= NewConfig of
-        true ->
-            find_zones_with_relevant_changes(Zones, OldZones, NewZones, Acc);
+    Read = fun(Config, Key) -> emqx_utils_maps:deep_get([Zone, mqtt, Key], Config, none) end,
+    Changed = lists:any(
+        fun(Key) -> Read(OldZones, Key) =/= Read(NewZones, Key) end,
+        ?PACKET_OPT_KEYS
+    ),
+    case Changed of
         false ->
+            find_zones_with_relevant_changes(Zones, OldZones, NewZones, Acc);
+        true ->
             find_zones_with_relevant_changes(Zones, OldZones, NewZones, [Zone | Acc])
     end.
 
@@ -955,7 +962,14 @@ choose_packet_opts(Opts) ->
     HasPacketParser = is_packet_parser_available(mqtt),
     case ParseUnit of
         frame when HasPacketParser ->
-            PacketSize = emqx_config:get_zone_conf(zone(Opts), [mqtt, max_packet_size]),
+            %% Accept with the CONNECT limit, so the kernel does not buffer a
+            %% whole `max_packet_size' frame for a client that has not connected
+            %% yet. `emqx_connection' raises it once the client is connected.
+            Zone = zone(Opts),
+            PacketSize = min(
+                emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+                emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size])
+            ),
             [{packet, mqtt}, {packet_size, PacketSize}, {mode, binary}];
         frame ->
             %% NOTE: Silently ignoring the setting if BEAM does not provide `mqtt` parser.

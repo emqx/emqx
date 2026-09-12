@@ -649,6 +649,7 @@ handle_msg(
             maps:get(conn_pid, QSS),
             {get_parser_state(Parser), Serialize, Channel}
         ),
+    ok = raise_packet_size_limit(State),
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
     {ok, ensure_stats_timer(State)};
@@ -902,6 +903,19 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
     maps:merge(Hints, Reason);
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
+
+%% The listener accepts with `packet_size' set to the CONNECT limit. Now that the
+%% client is connected, raise it to `max_packet_size' so ordinary packets are not
+%% held to the CONNECT limit. Only the whole-frame parser reads `packet_size'.
+raise_packet_size_limit(#state{
+    parser = {frame, _}, transport = Transport, socket = Socket, conf = Conf
+}) ->
+    #conf{zone = Zone} = Conf,
+    MaxSize = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+    _ = Transport:setopts(Socket, [{packet_size, MaxSize}]),
+    ok;
+raise_packet_size_limit(_State) ->
+    ok.
 
 init_parser(Transport, Socket, FrameOpts) ->
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
@@ -1315,15 +1329,12 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
             handle_info({sock_error, Reason}, State)
     end;
 handle_info({sock_error, Reason}, State) ->
-    %% Do not log warning for econnreset
-    maybe_log_first_packet_non_mqtt(Reason, State),
-    case ?IS_NORMAL_SOCKET_ERROR(Reason) orelse Reason =:= econnreset of
-        true ->
-            ok;
+    case connect_too_large_error(Reason, State) of
+        {true, FrameError} ->
+            handle_incoming(FrameError, close_socket(State));
         false ->
-            ?SLOG(warning, #{msg => "socket_error", reason => Reason})
-    end,
-    handle_info({sock_closed, Reason}, close_socket(State));
+            handle_sock_error(Reason, State)
+    end;
 %% handle QUIC control stream events
 handle_info({quic, Event, Handle, Prop}, State) when is_atom(Event) ->
     case emqx_quic_stream:Event(Handle, Prop, State) of
@@ -1334,6 +1345,54 @@ handle_info({quic, Event, Handle, Prop}, State) when is_atom(Event) ->
     end;
 handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).
+
+handle_sock_error(Reason, State) ->
+    %% Do not log warning for econnreset
+    maybe_log_first_packet_non_mqtt(Reason, State),
+    case ?IS_NORMAL_SOCKET_ERROR(Reason) orelse Reason =:= econnreset of
+        true ->
+            ok;
+        false ->
+            ?SLOG(warning, #{msg => "socket_error", reason => Reason})
+    end,
+    handle_info({sock_closed, Reason}, close_socket(State)).
+
+-doc """
+Recognise a first frame the transport refused for being over `packet_size'.
+
+Before CONNECT, the whole-frame transports are set up with `packet_size' equal
+to `max_connect_packet_size', so they reject an oversized CONNECT before the
+parser sees a byte of it. `gen_tcp' reports `emsgsize'; `ssl' reports
+`{invalid_packet, Data}', carrying the client's bytes. Report both the way the
+stream parser reports the same packet, so the shutdown counter does not depend
+on the transport, and the client's bytes stay out of the exit reason.
+
+Only the error tag is kept: whether the refused frame really was a CONNECT is
+not knowable here, and neither is it in the stream parser's case.
+""".
+connect_too_large_error(Reason, #state{parser = {frame, _}, channel = Channel, conf = Conf}) ->
+    case transport_frame_too_large(Reason) andalso emqx_channel:info(conn_state, Channel) of
+        idle ->
+            #conf{zone = Zone} = Conf,
+            Limit = emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
+            {true,
+                {frame_error, #{
+                    cause => connect_packet_too_large,
+                    limit => Limit,
+                    transport_error => transport_error_tag(Reason)
+                }}};
+        _ ->
+            false
+    end;
+connect_too_large_error(_Reason, _State) ->
+    false.
+
+transport_frame_too_large(emsgsize) -> true;
+transport_frame_too_large({invalid_packet, _Data}) -> true;
+transport_frame_too_large(_) -> false.
+
+transport_error_tag({invalid_packet, _Data}) -> invalid_packet;
+transport_error_tag(Reason) -> Reason.
 
 maybe_log_first_packet_non_mqtt(emsgsize, #state{channel = Channel}) ->
     case emqx_channel:info(conn_state, Channel) of
@@ -1549,6 +1608,10 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
         %% zone will **not** take effect after the override.
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+        max_connect_size => emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
+        max_connect_user_properties => emqx_config:get_zone_conf(
+            Zone, [mqtt, max_connect_user_properties]
+        ),
         %% Any packet received before CONNECT is rejected by the parser.
         expect_connect => true
     },
