@@ -5,16 +5,17 @@
 -module(emqx_session_tool).
 
 -moduledoc """
-Operator-facing diagnostics for finding the top-K sessions by a session
-gauge or counter (e.g. `mqueue_len', `total_payload_bytes',
-`mqueue_dropped', `inflight_cnt').
+Operator-facing diagnostics for inspecting live sessions.
 
-Intended use is from the remote console on a live cluster to locate the
-small set of clients with a backlog or that are dropping messages, in
-deployments with tens of thousands of connections, without paging through
-the full client list.
+The top-K scanner finds sessions by a session gauge or counter (e.g.
+`mqueue_len', `total_payload_bytes', `mqueue_dropped', `inflight_cnt').
 
-Safe to run on a live cluster:
+The top-K scanner is intended for use from the remote console on a live
+cluster to locate the small set of clients with a backlog or that are dropping
+messages, in deployments with tens of thousands of connections, without
+paging through the full client list.
+
+The top-K scanner is safe to run on a live cluster:
 * Streams the `emqx_channel_info' ets table in chunks (via
   `emqx_utils_stream:ets/1'); never builds a whole-table list.
 * Keeps only a fixed-size (top-K) ordered set while scanning; output is
@@ -23,6 +24,11 @@ Safe to run on a live cluster:
 * Reads the metric from the cached per-channel stats already stored in
   the registry; it never messages a channel process, so the scan adds no
   load to the connection processes themselves.
+
+The connection-memory diagnostics have different trade-offs: they inspect
+the local channel processes and `connection_memory/0' sends one
+`sys:get_state/1' request, which wakes the selected hibernated channel. They
+are intended for bounded diagnostics and smoke checks, not frequent polling.
 
 Freshness: the value read for each session is the last stats snapshot the
 connection process published. Connections refresh their cached stats on
@@ -47,7 +53,10 @@ with `engine => mem | persistent_ds' once supported).
     scan/1,
     cluster_top_by/1,
     cluster_top_by/2,
-    available_metrics/0
+    available_metrics/0,
+    hibernated_count/0,
+    connection_memory/0,
+    connection_memory_breakdown/0
 ]).
 
 %% Incremental scan engine (for a caller that owns the cursor/state).
@@ -166,6 +175,123 @@ with `engine => mem | persistent_ds' once supported).
     awaiting_rel_cnt,
     awaiting_rel_max
 ]).
+
+%%--------------------------------------------------------------------
+%% Connection memory diagnostics
+%%--------------------------------------------------------------------
+
+-doc "Return the number of local channel processes currently hibernated.".
+-spec hibernated_count() -> non_neg_integer().
+hibernated_count() ->
+    length(hibernated_channels(emqx_cm:all_channels())).
+
+-doc """
+Summarize the live state size of one idle local channel and the process memory
+range across all local hibernated channels.
+
+Memory is read before `sys:get_state/1' wakes the selected channel. When no
+channel is hibernated, the size and memory values are `undefined'.
+""".
+-spec connection_memory() ->
+    #{
+        connections := non_neg_integer(),
+        hibernated := non_neg_integer(),
+        state_words := non_neg_integer() | undefined,
+        min_memory_bytes := non_neg_integer() | undefined,
+        max_memory_bytes := non_neg_integer() | undefined
+    }.
+connection_memory() ->
+    Pids = emqx_cm:all_channels(),
+    Snapshots = hibernated_memory(Pids),
+    Base = #{
+        connections => length(Pids),
+        hibernated => length(Snapshots)
+    },
+    case Snapshots of
+        [] ->
+            Base#{
+                state_words => undefined,
+                min_memory_bytes => undefined,
+                max_memory_bytes => undefined
+            };
+        [{Pid, _} | _] ->
+            MemoryBytes = [Memory || {_, Memory} <- Snapshots],
+            Base#{
+                state_words => erts_debug:flat_size(sys:get_state(Pid)),
+                min_memory_bytes => lists:min(MemoryBytes),
+                max_memory_bytes => lists:max(MemoryBytes)
+            }
+    end.
+
+-doc """
+Return an actionable process and state-size breakdown for the largest local
+hibernated channel. Returns `#{error => no_hibernated_channels}' when there is
+no eligible channel. The selected channel is woken by `sys:get_state/1'.
+""".
+-spec connection_memory_breakdown() -> map().
+connection_memory_breakdown() ->
+    case hibernated_memory(emqx_cm:all_channels()) of
+        [] ->
+            #{error => no_hibernated_channels};
+        Snapshots ->
+            {Memory, Pid} = lists:max([{Bytes, P} || {P, Bytes} <- Snapshots]),
+            Info = process_info(Pid, [
+                memory,
+                heap_size,
+                total_heap_size,
+                stack_size,
+                message_queue_len,
+                current_function,
+                status,
+                dictionary
+            ]),
+            State = sys:get_state(Pid),
+            Dictionary = proplists:get_value(dictionary, Info, []),
+            #{
+                pid => Pid,
+                hibernated_memory_bytes => Memory,
+                process_info => [{K, V} || {K, V} <- Info, K =/= dictionary],
+                dictionary_keys_and_words => [
+                    {K, erts_debug:flat_size(V)}
+                 || {K, V} <- Dictionary
+                ],
+                state_words => erts_debug:flat_size(State),
+                state_tuple_size => tuple_size(State),
+                state_breakdown => deep_size(State, 3)
+            }
+    end.
+
+hibernated_memory(Pids) ->
+    [
+        {Pid, Memory}
+     || Pid <- hibernated_channels(Pids),
+        {memory, Memory} <- [process_info(Pid, memory)]
+    ].
+
+hibernated_channels(Pids) ->
+    [Pid || Pid <- Pids, is_hibernated(Pid)].
+
+is_hibernated(Pid) ->
+    process_info(Pid, current_function) =:=
+        {current_function, {erlang, hibernate, 3}}.
+
+deep_size(Term, Depth) when is_tuple(Term), Depth > 0 ->
+    [
+        {Index, Size, deep_size(Value, Depth - 1)}
+     || Index <- lists:seq(1, tuple_size(Term)),
+        Value <- [element(Index, Term)],
+        Size <- [erts_debug:flat_size(Value)],
+        Size > 8
+    ];
+deep_size(Term, Depth) when is_map(Term), Depth > 0 ->
+    [
+        {Key, Size, deep_size(Value, Depth - 1)}
+     || {Key, Value} <- maps:to_list(Term),
+        Size <- [erts_debug:flat_size(Value)],
+        Size > 8
+    ];
+deep_size(_Term, _Depth) ->
+    [].
 
 %%--------------------------------------------------------------------
 %% Single-node scan
