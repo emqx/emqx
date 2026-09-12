@@ -14,8 +14,8 @@ callback replayed in another browser is rejected before it can mint a login
 code.
 
 Each login gets its own cookie, named after a hash of its value. Logins started
-in several tabs of one browser therefore keep separate cookies, and each of them
-can complete.
+in several tabs of one browser therefore keep separate cookies, and each callback
+succeeds.
 
 A backend turns the check off with `skip_login_cookie_check`.
 """.
@@ -127,11 +127,13 @@ name_prefix(saml) -> <<"emqx_sso_saml_">>.
 set_cookie(Name, Value, Opts) ->
     #{<<"set-cookie">> => iolist_to_binary(cow_cookie:setcookie(Name, Value, Opts))}.
 
-%% The OIDC callback is a top-level GET, which carries a `Lax' cookie. The SAML
-%% assertion consumer service is a cross-site top-level POST, which carries only
-%% a `None' cookie, and browsers accept `SameSite=None' only together with
-%% `Secure'. Over plain HTTP no attribute makes the browser send the cookie on
-%% that POST, so SAML login needs an `https' dashboard address.
+%% A top-level navigation loads a URL into the whole tab, as opposed to an
+%% `<img>', a `fetch' or an iframe. On a cross-site top-level navigation,
+%% browsers send a `Lax' cookie with GET but not with POST. The OIDC callback is
+%% such a GET, so `Lax' is enough. The SAML assertion consumer service is such a
+%% POST, which carries only a `None' cookie, and browsers accept `SameSite=None'
+%% only together with `Secure'. Over plain HTTP no attribute makes the browser
+%% send the cookie on that POST, so SAML login needs an `https' dashboard address.
 same_site(oidc, _Secure) -> lax;
 same_site(saml, true) -> none;
 same_site(saml, false) -> lax.
