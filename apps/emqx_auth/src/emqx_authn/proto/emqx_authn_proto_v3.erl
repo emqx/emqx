@@ -16,7 +16,7 @@
 -define(TIMEOUT, 5000).
 
 introduced_in() ->
-    "6.4.0".
+    "7.0.0".
 
 %% We do not actually need to call this function.
 %% It's enough to check the BPAPI version support.
