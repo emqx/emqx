@@ -107,8 +107,11 @@ do_aggre_cluster(LogicSumKs, [{ok, {_NodeName, NodeMetric}} | Rest], AccIn) ->
         LogicSumKs,
         Rest,
         maps:fold(
-            fun(K, V, AccIn0) ->
-                AccIn0#{K => aggre_metric(LogicSumKs, V, ?MG(K, AccIn0))}
+            fun
+                (K, V, AccIn0) when is_map_key(K, AccIn0) ->
+                    AccIn0#{K => aggre_metric(LogicSumKs, V, ?MG(K, AccIn0))};
+                (_K, _V, AccIn0) ->
+                    AccIn0
             end,
             AccIn,
             NodeMetric
@@ -126,7 +129,7 @@ aggre_metric(LogicSumKs, NodeMetrics, AccIn0) ->
             AccIn#{K => NAccL}
         end,
         AccIn0,
-        maps:keys(NodeMetrics)
+        known_keys(NodeMetrics, AccIn0)
     ).
 
 do_aggre_metric(K, LogicSumKs, NodeMetrics, AccL) ->
@@ -195,10 +198,13 @@ zip_cluster([{ok, {_NodeName, NodeMetric}} | Rest], AccIn) ->
     zip_cluster(
         Rest,
         maps:fold(
-            fun(K, V, AccIn0) ->
-                AccIn0#{
-                    K => do_zip_cluster(V, ?MG(K, AccIn0))
-                }
+            fun
+                (K, V, AccIn0) when is_map_key(K, AccIn0) ->
+                    AccIn0#{
+                        K => do_zip_cluster(V, ?MG(K, AccIn0))
+                    };
+                (_K, _V, AccIn0) ->
+                    AccIn0
             end,
             AccIn,
             NodeMetric
@@ -215,8 +221,13 @@ do_zip_cluster(NodeMetrics, AccIn0) ->
             AccIn#{K => NAccL}
         end,
         AccIn0,
-        maps:keys(NodeMetrics)
+        known_keys(NodeMetrics, AccIn0)
     ).
+
+%% A node of a newer release can return metrics this node does not know.
+%% Skip them, so one such node does not fail the whole scrape.
+known_keys(NodeMetrics, Acc) ->
+    [K || K <- maps:keys(NodeMetrics), is_map_key(K, Acc)].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
