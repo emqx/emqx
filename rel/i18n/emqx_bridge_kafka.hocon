@@ -280,6 +280,15 @@ socket_nodelay.desc:
 socket_nodelay.label:
 """No Delay"""
 
+socket_ip_family.desc: """~
+The IP address family used to connect to Kafka brokers.
+- <code>auto</code>: Connect to an IP address with its own family. For a hostname, try IPv4 first, then IPv6 if IPv4 fails.
+- <code>ipv4</code>: Connect over IPv4 only.
+- <code>ipv6</code>: Connect over IPv6 only. Use this when the brokers are reachable only over IPv6.~"""
+
+socket_ip_family.label:
+"""IP Family"""
+
 authentication.desc: """~
 Authentication configs.
 - <code>none</code>: No authentication.

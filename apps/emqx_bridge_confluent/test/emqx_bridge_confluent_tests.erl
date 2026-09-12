@@ -141,6 +141,21 @@ confluent_producer_connector_test_() ->
                 ),
                 check_connector(BaseConf)
             )},
+        {"ipv6 bootstrap hosts and ip_family",
+            ?_assertMatch(
+                ?ok_connector_config(
+                    #{
+                        <<"bootstrap_hosts">> := <<"[fd00::5]:9092,[::1]">>,
+                        <<"socket_opts">> := #{<<"ip_family">> := ipv6}
+                    }
+                ),
+                check_connector(
+                    Override(#{
+                        <<"bootstrap_hosts">> => <<"[fd00::5]:9092,[::1]">>,
+                        <<"socket_opts">> => #{<<"ip_family">> => <<"ipv6">>}
+                    })
+                )
+            )},
         {"ssl disabled",
             ?_assertThrow(
                 ?connector_validation_error("Expected: true" ++ _, <<"false">>),
