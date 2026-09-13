@@ -1,13 +1,12 @@
 # Subject alternative names of the server certificate `scripts/ct/gen-compose-certs.sh`
 # generates: every hostname a TLS service answers to on the compose network, plus
 # `toxiproxy`, which fronts several of them. One name per line; `#` starts a comment.
-# Add the hostname of a new TLS service here.
+# Add the hostname of a new TLS service here. A name with an underscore is not a
+# valid DNS label and no client verifies one; services whose container name has an
+# underscore (datalayers_tls, influxdb_tls, nats_tls, ...) are reached through
+# `toxiproxy`.
 authn-server
-datalayers_tls
 haproxy
-influxdb_tcp_v3
-influxdb_tls
-influxdb_tls_v3
 jaeger.emqx.net
 ldap
 minio-tls
@@ -17,13 +16,6 @@ mongo2
 mongo3
 mysql-tls
 nats
-nats_jwt
-nats_noauth
-nats_tls
-nats_tls_jwt
-nats_tls_noauth
-nats_tls_token
-nats_token
 node1.emqx.io
 node2.emqx.io
 otel-collector-tls.emqx.net
