@@ -5,7 +5,7 @@ defmodule EMQXBridgeAwsTimestream.MixProject do
   def project do
     [
       app: :emqx_bridge_aws_timestream,
-      version: "6.3.0",
+      version: "7.0.0",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler

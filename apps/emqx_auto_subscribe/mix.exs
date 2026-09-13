@@ -5,7 +5,7 @@ defmodule EMQXAutoSubscribe.MixProject do
   def project do
     [
       app: :emqx_auto_subscribe,
-      version: "6.3.1",
+      version: "7.0.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
