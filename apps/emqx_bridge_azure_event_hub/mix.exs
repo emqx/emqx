@@ -5,7 +5,7 @@ defmodule EMQXBridgeAzureEventHub.MixProject do
   def project do
     [
       app: :emqx_bridge_azure_event_hub,
-      version: "6.3.0",
+      version: "7.0.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
