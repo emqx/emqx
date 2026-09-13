@@ -32,10 +32,11 @@ groups() ->
         {index_agnostic, [sequence], [
             t_disable_then_start,
             t_start_stop_on_setting_change,
-            %% N.B. `t_takeover` and `t_resume` are skipped until iteration resumption is
-            %% implemented as an improvement.  See the docs for `t_resume_and_resubscribe`
-            %% t_takeover,
-            %% t_resume,
+            %% N.B. `disabled__t_takeover` and `disabled__t_resume` are skipped until
+            %% iteration resumption is implemented as an improvement.  See the docs for
+            %% `t_resume_and_resubscribe`.
+            %% disabled__t_takeover,
+            %% disabled__t_resume,
             t_resume_and_resubscribe,
             t_extsub_ignore_non_mqtt,
             t_extsub_no_leak_wildcard_multi_batch,
@@ -48,10 +49,11 @@ groups() ->
             t_retain_available_true_honors_retainer_enable
         ]},
         {index_agnostic_ds, [sequence], [
-            %% N.B. `t_takeover` and `t_resume` are skipped until iteration resumption is
-            %% implemented as an improvement.  See the docs for `t_resume_and_resubscribe`
-            %% t_takeover,
-            %% t_resume,
+            %% N.B. `disabled__t_takeover` and `disabled__t_resume` are skipped until
+            %% iteration resumption is implemented as an improvement.  See the docs for
+            %% `t_resume_and_resubscribe`.
+            %% disabled__t_takeover,
+            %% disabled__t_resume,
             t_resume_and_resubscribe
         ]}
     ].
@@ -63,8 +65,6 @@ index_related_tests() ->
             t_disable_then_start,
             t_disabled,
             t_start_stop_on_setting_change,
-            t_takeover,
-            t_resume,
             t_extsub_ignore_non_mqtt,
             t_extsub_no_leak_wildcard_multi_batch,
             t_extsub_no_leak_wildcard_single_batch,
@@ -1278,10 +1278,10 @@ t_update_config(_) ->
     NewConf = emqx_utils_maps:deep_put([<<"backend">>, <<"storage_type">>], OldConf, <<"disc">>),
     update_retainer_config(NewConf).
 
-t_takeover(TCConfig) ->
+disabled__t_takeover(TCConfig) ->
     test_takeover_or_resume(takeover, TCConfig).
 
-t_resume(TCConfig) ->
+disabled__t_resume(TCConfig) ->
     test_takeover_or_resume(resume, TCConfig).
 
 %% Note: current implementation (and the implementation prior to using `emqx_extsub`) does
@@ -1386,8 +1386,8 @@ This matches the previous retainer implementation (pre-6.1.0), which did not hoo
 `session.resumed`, which `extsub` does.
 
 When resuming iteration during resume/takeover is implemented as an improvement, this test
-case will become invalid and can be dropped, and then `t_resume` and `t_takeover` can be
-un-skipped again.
+case will become invalid and can be dropped. Then `disabled__t_resume` and
+`disabled__t_takeover` can be renamed and enabled.
 """.
 t_resume_and_resubscribe(_TCConfig) ->
     Topic = <<"t/1">>,

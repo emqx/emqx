@@ -29,6 +29,7 @@
 -type authn_result() :: #{
     is_superuser => boolean(),
     client_attrs => #{binary() => binary()},
+    clientid_override => binary(),
     expire_at => non_neg_integer(),
     %% Authentication may return ACL rules that will reside in client info
     %% for the later use in authorizers. See emqx_authz_client_info module.

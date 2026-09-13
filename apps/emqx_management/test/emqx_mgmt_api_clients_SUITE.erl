@@ -1471,18 +1471,18 @@ payloads_bytes(Count) ->
     lists:sum([byte_size(integer_to_binary(Seq)) || Seq <- lists:seq(1, Count)]).
 
 test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
-    Qs0 = io_lib:format("payload=~s", [PayloadEncoding]),
+    Qs0 = io_lib:format("payload=~s&limit=~p", [PayloadEncoding, Count]),
 
-    {Msgs, StartPos, Pos} = ?retry(500, 10, begin
+    {Msgs, StartPos, FinalMsgPos} = ?retry(500, 10, begin
         {ok, MsgsResp} = emqx_mgmt_api_test_util:request_api(get, Path, Qs0, AuthHeader),
         #{<<"meta">> := Meta, <<"data">> := Msgs} = emqx_utils_json:decode(MsgsResp),
-        #{<<"start">> := StartPos, <<"position">> := Pos} = Meta,
+        #{<<"start">> := StartPos, <<"position">> := Position} = Meta,
 
         ?assertEqual(StartPos, msg_pos(hd(Msgs), IsMqueue)),
-        ?assertEqual(Pos, msg_pos(lists:last(Msgs), IsMqueue)),
+        ?assertEqual(<<"end_of_data">>, Position),
         ?assertEqual(length(Msgs), Count),
 
-        {Msgs, StartPos, Pos}
+        {Msgs, StartPos, msg_pos(lists:last(Msgs), IsMqueue)}
     end),
 
     lists:foreach(
@@ -1510,7 +1510,12 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     %% so we cover both cases:
     %% - when total payload size exceeds the limit,
     %% - when the first message payload already exceeds the limit but is still returned in the response.
-    QsPayloadLimit = io_lib:format("payload=~s&max_payload_bytes=1", [PayloadEncoding]),
+    %% Use a small page limit so that intermediate requests exercise both source-page
+    %% lookahead and max_payload_bytes truncation.
+    PayloadPageLimit = 2,
+    QsPayloadLimit = io_lib:format("payload=~s&max_payload_bytes=1&limit=~p", [
+        PayloadEncoding, PayloadPageLimit
+    ]),
     {ok, LimitedMsgsResp} = emqx_mgmt_api_test_util:request_api(
         get, Path, QsPayloadLimit, AuthHeader
     ),
@@ -1524,11 +1529,13 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     %% returned message, not at the last message walked before the cut, so that paging
     %% skips no message.
     ?assertEqual(TruncatedPos, msg_pos(hd(FirstMsgOnly), IsMqueue)),
+    ?assertNotEqual(<<"end_of_data">>, TruncatedPos),
     %% Page through the remaining messages one message per page.
     lists:foldl(
         fun(Seq, PosIn) ->
             PageQs = io_lib:format(
-                "payload=~s&max_payload_bytes=1&position=~s", [PayloadEncoding, PosIn]
+                "payload=~s&max_payload_bytes=1&limit=~p&position=~s",
+                [PayloadEncoding, PayloadPageLimit, PosIn]
             ),
             {ok, PageResp} = emqx_mgmt_api_test_util:request_api(get, Path, PageQs, AuthHeader),
             #{<<"meta">> := #{<<"position">> := PosOut}, <<"data">> := PageMsgs} =
@@ -1538,7 +1545,12 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
                 integer_to_binary(Seq),
                 decode_payload(maps:get(<<"payload">>, hd(PageMsgs)), PayloadEncoding)
             ),
-            ?assertEqual(PosOut, msg_pos(hd(PageMsgs), IsMqueue)),
+            ExpectedPos =
+                case Seq =:= Count of
+                    true -> <<"end_of_data">>;
+                    false -> msg_pos(hd(PageMsgs), IsMqueue)
+                end,
+            ?assertEqual(ExpectedPos, PosOut),
             PosOut
         end,
         TruncatedPos,
@@ -1555,6 +1567,7 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
                 <<"data">> := MsgsPage
             } = emqx_utils_json:decode(MsgsRespPage),
 
+            ?assertNotEqual(<<"end_of_data">>, NextPos),
             ?assertEqual(NextPos, msg_pos(lists:last(MsgsPage), IsMqueue)),
             %% Start position is the same in every response and points to the first msg
             ?assertEqual(StartPos, ThisStart),
@@ -1578,11 +1591,12 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     LastPartialPage = Count div 19 + 1,
     LastQs = io_lib:format("payload=~s&position=~s&limit=~p", [PayloadEncoding, LastPos, Limit]),
     {ok, MsgsRespLastP} = emqx_mgmt_api_test_util:request_api(get, Path, LastQs, AuthHeader),
-    #{<<"meta">> := #{<<"position">> := LastPartialPos}, <<"data">> := MsgsLastPage} = emqx_utils_json:decode(
+    #{<<"meta">> := #{<<"position">> := <<"end_of_data">>}, <<"data">> := MsgsLastPage} = emqx_utils_json:decode(
         MsgsRespLastP
     ),
-    %% The same as the position of all messages returned in one request
-    ?assertEqual(Pos, LastPartialPos),
+    ExpectedLastPageSize = Count rem Limit,
+    ?assertEqual(ExpectedLastPageSize, length(MsgsLastPage)),
+    ?assert(length(MsgsLastPage) =< Limit),
 
     ?assertEqual(
         integer_to_binary(LastPartialPage * Limit - Limit + 1),
@@ -1592,15 +1606,16 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
         integer_to_binary(Count),
         decode_payload(maps:get(<<"payload">>, lists:last(MsgsLastPage)), PayloadEncoding)
     ),
+    ?assertEqual(FinalMsgPos, msg_pos(lists:last(MsgsLastPage), IsMqueue)),
 
     ExceedQs = io_lib:format("payload=~s&position=~s&limit=~p", [
-        PayloadEncoding, LastPartialPos, Limit
+        PayloadEncoding, FinalMsgPos, Limit
     ]),
     {ok, MsgsEmptyResp} = emqx_mgmt_api_test_util:request_api(get, Path, ExceedQs, AuthHeader),
     ?assertMatch(
         #{
             <<"data">> := [],
-            <<"meta">> := #{<<"position">> := LastPartialPos, <<"start">> := StartPos}
+            <<"meta">> := #{<<"position">> := <<"end_of_data">>, <<"start">> := StartPos}
         },
         emqx_utils_json:decode(MsgsEmptyResp)
     ),

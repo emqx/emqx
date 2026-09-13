@@ -674,20 +674,29 @@ is_success(ok) -> true;
 is_success({ok, _}) -> true;
 is_success(_) -> false.
 
+-doc """
+Report the shape of a successful result, never its value.
+The value can carry compiled runtime state, such as the HTTP authenticator
+header templates, which holds secrets emqx_utils:redact/1 does not cover.
+""".
+summarize_ok(ok) -> ok;
+summarize_ok({ok, _}) -> {ok, '_'}.
+
 log_and_alarm(IsSuccess, Res, #{kind := ?KIND_INITIATE} = Meta) ->
     %% no alarm or error log in case of failure at originating a new cluster-call
     %% because nothing is committed
     case IsSuccess of
         true ->
-            ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_result", result => emqx_utils:redact(Res)});
+            ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_result", result => summarize_ok(Res)});
         false ->
             ?SLOG(warning, Meta#{
                 msg => "cluster_rpc_failed_to_init_transaction", result => emqx_utils:redact(Res)
             })
     end;
 log_and_alarm(true, Res, Meta) ->
-    ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_ok", result => emqx_utils:redact(Res)}),
-    do_alarm(deactivate, Res, Meta);
+    Summary = summarize_ok(Res),
+    ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_ok", result => Summary}),
+    do_alarm(deactivate, Summary, Meta);
 log_and_alarm(false, Res, Meta) ->
     ?SLOG(error, Meta#{msg => "cluster_rpc_apply_failed", result => emqx_utils:redact(Res)}),
     do_alarm(activate, Res, Meta).
