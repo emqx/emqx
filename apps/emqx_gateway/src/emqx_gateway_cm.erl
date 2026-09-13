@@ -9,6 +9,8 @@
 %% they all share a single this Connection-Manager
 -module(emqx_gateway_cm).
 
+-feature(maybe_expr, enable).
+
 -behaviour(gen_server).
 
 -include("emqx_gateway.hrl").
@@ -21,6 +23,7 @@
 -export([
     open_session/5,
     open_session/6,
+    resume_session/4,
     discard_session/2,
     kick_session/2,
     kick_session/3,
@@ -400,6 +403,253 @@ open_session(
         end,
     locker_trans(GwName, ClientId, ResumeStart).
 
+%% @doc Resume an existing session without creating one when no session exists.
+%% The ClientId lock serializes the selected channel's begin/resume/end flow.
+-type resume_result() :: #{
+    session := term(),
+    pendings := [emqx_types:deliver()],
+    conninfo := emqx_types:conninfo(),
+    clientinfo := emqx_types:clientinfo(),
+    asleep_timer_duration := pos_integer()
+}.
+
+-type resume_request() :: #{
+    peercert := nossl | undefined | esockd_peercert:peercert()
+}.
+
+-spec resume_session(
+    gateway_name(),
+    emqx_types:clientinfo(),
+    emqx_types:conninfo(),
+    module()
+) ->
+    {ok, resume_result()} | {error, term()}.
+resume_session(
+    GwName,
+    ClientInfo = #{clientid := ClientId},
+    ConnInfo,
+    SessionMod
+) ->
+    Self = self(),
+    Resume = fun(_) ->
+        resume_session_locked(GwName, ClientId, ClientInfo, ConnInfo, SessionMod, Self)
+    end,
+    locker_trans(GwName, ClientId, Resume).
+
+resume_session_locked(GwName, ClientId, ClientInfo, ConnInfo, SessionMod, Self) ->
+    ResumeRequest = #{peercert => maps:get(peercert, ConnInfo, undefined)},
+    maybe
+        {ok, Candidate} ?= select_resume_candidate(GwName, ClientId),
+        ChanPid = maps:get(pid, Candidate),
+        ConnMod = maps:get(conn_mod, Candidate),
+        OtherPids = maps:get(other_pids, Candidate),
+        {ok, TakeoverData} ?=
+            begin_resume_takeover(ConnMod, ChanPid, ClientId, ResumeRequest),
+        ok = discard_other_channels(GwName, ClientId, OtherPids),
+        OldConnInfo = maps:get(conninfo, TakeoverData),
+        OldClientInfo = maps:get(clientinfo, TakeoverData),
+        SleepDuration = maps:get(asleep_timer_duration, TakeoverData),
+        NConnInfo = maps:merge(OldConnInfo, ConnInfo),
+        SessionIn = maps:get(session, TakeoverData),
+        {ok, Session, ResumeClientInfo} ?=
+            resume_and_register(
+                GwName,
+                ClientId,
+                Self,
+                NConnInfo,
+                SessionMod,
+                ClientInfo,
+                OldClientInfo,
+                SessionIn
+            ),
+        case finish_resume_takeover(ConnMod, ChanPid) of
+            {ok, Pendings} ->
+                {ok, #{
+                    session => Session,
+                    pendings => Pendings,
+                    conninfo => NConnInfo,
+                    clientinfo => ResumeClientInfo,
+                    asleep_timer_duration => SleepDuration
+                }};
+            {error, FinishReason} ->
+                %% The old channel may have rolled back after the owner died.
+                %% Remove only the new registry row in that case.
+                cleanup_resume_registration(GwName, ClientId),
+                {error, FinishReason}
+        end
+    else
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+select_resume_candidate(GwName, ClientId) ->
+    case lookup_channels(GwName, ClientId) of
+        [] ->
+            {error, not_found};
+        ChanPids ->
+            [ChanPid | OtherPids] = lists:reverse(ChanPids),
+            length(ChanPids) > 1 andalso
+                begin
+                    ?SLOG(warning, #{
+                        msg => "more_than_one_channel_found",
+                        chan_pids => ChanPids
+                    })
+                end,
+            try get_chann_conn_mod(GwName, ClientId, ChanPid) of
+                undefined ->
+                    {error, not_found};
+                ConnMod when is_atom(ConnMod) ->
+                    {ok, #{pid => ChanPid, conn_mod => ConnMod, other_pids => OtherPids}}
+            catch
+                throw:{badrpc, Reason} ->
+                    {error, {badrpc, Reason}};
+                Class:Reason ->
+                    {error, {candidate_lookup_failed, Class, Reason}}
+            end
+    end.
+
+discard_other_channels(_GwName, _ClientId, []) ->
+    ok;
+discard_other_channels(GwName, ClientId, ChanPids) ->
+    lists:foreach(
+        fun(ChanPid) ->
+            _ = discard_session(GwName, ClientId, ChanPid)
+        end,
+        ChanPids
+    ),
+    ok.
+
+-spec begin_resume_takeover(module(), pid(), emqx_types:clientid(), resume_request()) ->
+    {ok, map()} | {error, term()}.
+begin_resume_takeover(ConnMod, ChanPid, ClientId, ResumeRequest) ->
+    case call_resume_takeover(ConnMod, ChanPid, {takeover, 'begin', ResumeRequest}) of
+        {ok, TakeoverData} ->
+            case valid_takeover_data(ClientId, TakeoverData) of
+                true ->
+                    {ok, TakeoverData};
+                false ->
+                    {error, malformed_takeover_reply}
+            end;
+        ignored ->
+            {error, unsupported_resume};
+        undefined ->
+            {error, not_found};
+        {error, Reason} ->
+            {error, Reason};
+        Reply ->
+            {error, {unexpected_takeover_reply, Reply}}
+    end.
+
+call_resume_takeover(ConnMod, ChanPid, Request) ->
+    try apply(ConnMod, call, [ChanPid, Request, ?T_TAKEOVER]) of
+        Reply -> Reply
+    catch
+        _:noproc ->
+            {error, noproc};
+        _:{noproc, _} ->
+            {error, noproc};
+        _:Reason = {shutdown, _} ->
+            {error, Reason};
+        _:Reason = {{shutdown, _}, _} ->
+            {error, Reason};
+        _:{timeout, {gen_server, call, _}} ->
+            {error, timeout};
+        Class:Reason ->
+            {error, {resume_takeover_call_failed, Class, Reason}}
+    end.
+
+valid_takeover_data(
+    ClientId,
+    #{
+        session := Session,
+        conninfo := ConnInfo,
+        clientinfo := #{clientid := ClientId},
+        asleep_timer_duration := SleepDuration
+    }
+) when
+    Session =/= undefined,
+    is_map(ConnInfo),
+    is_integer(SleepDuration),
+    SleepDuration > 0
+->
+    true;
+valid_takeover_data(_ClientId, _TakeoverData) ->
+    false.
+
+resume_and_register(
+    GwName,
+    ClientId,
+    Self,
+    ConnInfo,
+    SessionMod,
+    NewClientInfo,
+    OldClientInfo,
+    SessionIn
+) ->
+    try
+        ResumeClientInfo = SessionMod:resume_clientinfo(NewClientInfo, OldClientInfo),
+        Session = SessionMod:resume(ResumeClientInfo, SessionIn),
+        register_channel(GwName, ClientId, Self, ConnInfo),
+        {ok, Session, ResumeClientInfo}
+    catch
+        Class:Reason:Stacktrace ->
+            cleanup_resume_registration(GwName, ClientId),
+            ?SLOG(error, #{
+                msg => "mqttsn_resume_session_failed",
+                clientid => ClientId,
+                reason => {Class, Reason},
+                stacktrace => Stacktrace
+            }),
+            {error, {resume_failed, Reason}}
+    end.
+
+cleanup_resume_registration(GwName, ClientId) ->
+    try unregister_channel(GwName, ClientId) of
+        ok -> ok
+    catch
+        _:_ -> ok
+    end.
+
+-spec finish_resume_takeover(module(), pid()) ->
+    {ok, [emqx_types:deliver()]} | {error, term()}.
+finish_resume_takeover(ConnMod, ChanPid) ->
+    case call_resume_takeover(ConnMod, ChanPid, {takeover, 'end'}) of
+        Pendings when is_list(Pendings) ->
+            {ok, Pendings};
+        {ok, Pendings} when is_list(Pendings) ->
+            {ok, Pendings};
+        {ok, {error, Reason}} ->
+            {error, Reason};
+        ok ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_end_unexpected_reply",
+                reply => ok,
+                chan_pid => ChanPid
+            }),
+            {error, {unexpected_takeover_end_reply, ok}};
+        {ok, Reply} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_end_unexpected_reply",
+                reply => Reply,
+                chan_pid => ChanPid
+            }),
+            {error, {unexpected_takeover_end_reply, Reply}};
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_end_failed",
+                reason => Reason,
+                chan_pid => ChanPid
+            }),
+            {error, Reason};
+        Reply ->
+            ?SLOG(warning, #{
+                msg => "mqttsn_resume_takeover_end_unexpected_reply",
+                reply => Reply,
+                chan_pid => ChanPid
+            }),
+            {error, {unexpected_takeover_end_reply, Reply}}
+    end.
+
 %% @private
 create_session(GwName, ClientInfo, ConnInfo, CreateSessionFun, SessionMod) ->
     try
@@ -562,10 +812,14 @@ do_kick_session(GwName, Action, ClientId, ChanPid) ->
 %% benefits nobody.
 -spec request_stepdown(Action, module(), pid()) ->
     ok
-    | {ok, emqx_session:session() | list(emqx_types:deliver())}
+    | {ok, term()}
     | {error, term()}
 when
-    Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'}.
+    Action ::
+        kick
+        | discard
+        | {takeover, 'begin'}
+        | {takeover, 'end'}.
 request_stepdown(Action, ConnMod, Pid) ->
     Timeout =
         case Action == kick orelse Action == discard of
@@ -645,7 +899,8 @@ with_channel(GwName, ClientId, Fun) ->
 lookup_channels(GwName, ClientId) ->
     emqx_gateway_cm_registry:lookup_channels(GwName, ClientId).
 
--spec do_get_chann_conn_mod(gateway_name(), emqx_types:clientid(), pid()) -> atom().
+-spec do_get_chann_conn_mod(gateway_name(), emqx_types:clientid(), pid()) ->
+    atom() | undefined.
 do_get_chann_conn_mod(GwName, ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
     try
@@ -655,7 +910,8 @@ do_get_chann_conn_mod(GwName, ClientId, ChanPid) ->
         error:badarg -> undefined
     end.
 
--spec get_chann_conn_mod(gateway_name(), emqx_types:clientid(), pid()) -> atom().
+-spec get_chann_conn_mod(gateway_name(), emqx_types:clientid(), pid()) ->
+    atom() | undefined.
 get_chann_conn_mod(GwName, ClientId, ChanPid) ->
     wrap_rpc(emqx_gateway_cm_proto_v1:get_chann_conn_mod(GwName, ClientId, ChanPid)).
 

@@ -171,6 +171,47 @@ t_create_authenticator_redacts_secrets(_) ->
     ),
     ok.
 
+t_http_authenticator_preserves_redacted_header_across_case_change(_) ->
+    Secret = <<"abcd1234">>,
+    Redacted = emqx_utils_redact:redacted_value(),
+    AuthenticatorID = "password_based:http",
+    Config0 = (emqx_authn_test_lib:http_example())#{
+        method => <<"get">>,
+        headers => #{<<"Authorization">> => Secret}
+    },
+    {ok, 200, _} = request(
+        post,
+        uri([?CONF_NS]),
+        Config0
+    ),
+
+    {ok, 200, GetBody0} = request(
+        get,
+        uri([?CONF_NS, AuthenticatorID])
+    ),
+    #{<<"headers">> := Headers0} = emqx_utils_json:decode(GetBody0),
+    ?assertEqual(Redacted, maps:get(<<"authorization">>, Headers0)),
+
+    Config1 = Config0#{
+        headers => #{<<"Authorization">> => Redacted}
+    },
+    {ok, 204, _} = request(
+        put,
+        uri([?CONF_NS, AuthenticatorID]),
+        Config1
+    ),
+
+    {ok, 200, GetBody1} = request(
+        get,
+        uri([?CONF_NS, AuthenticatorID])
+    ),
+    #{<<"headers">> := Headers1} = emqx_utils_json:decode(GetBody1),
+    ?assertEqual(Redacted, maps:get(<<"authorization">>, Headers1)),
+
+    [#{<<"headers">> := RawHeaders}] = emqx:get_raw_config([authentication]),
+    ?assertEqual(Secret, maps:get(<<"Authorization">>, RawHeaders)),
+    ok.
+
 t_authenticator_position(_) ->
     test_authenticator_position([]).
 

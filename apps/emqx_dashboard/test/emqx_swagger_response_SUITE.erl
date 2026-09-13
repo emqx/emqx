@@ -544,10 +544,22 @@ t_api_spec(_Config) ->
     emqx_dashboard_swagger:spec(?MODULE),
     ok.
 
+t_literal_method_docs_option(_Config) ->
+    {Apis, _Components} = emqx_dashboard_swagger:spec(
+        ?MODULE,
+        #{allow_literal_method_docs => true}
+    ),
+    {"/literal_docs", #{post := Operation}, literal_docs, _} = lists:keyfind(
+        "/literal_docs", 1, Apis
+    ),
+    ?assertEqual(<<"Literal operation summary">>, maps:get(summary, Operation)),
+    ?assertEqual(<<"Literal operation description">>, maps:get(description, Operation)).
+
 api_spec() -> emqx_dashboard_swagger:spec(?MODULE).
 
 paths() ->
     [
+        "/literal_docs",
         "/simple/bin",
         "/object",
         "/nest/object",
@@ -560,6 +572,16 @@ paths() ->
         "/ref/hocon/schema/function"
     ].
 
+schema("/literal_docs") ->
+    #{
+        'operationId' => literal_docs,
+        post => #{
+            summary => <<"Literal operation summary">>,
+            description => <<"Literal operation description">>,
+            tags => [<<"Literal">>],
+            responses => #{200 => <<"OK">>}
+        }
+    };
 schema("/simple/bin") ->
     to_schema(<<"binary ok">>);
 schema("/object") ->

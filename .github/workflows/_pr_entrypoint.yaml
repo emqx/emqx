@@ -99,6 +99,9 @@ jobs:
       - name: Check apps version
         run: |
           ./scripts/apps-version-check.exs
+      - name: Check BPAPI baselines
+        run: |
+          ./scripts/check-bpapi-baselines.exs
       - name: Check API module scopes
         run: |
           ./scripts/check-api-scopes.sh
