@@ -452,6 +452,47 @@ t_batch(TCConfig) ->
     end).
 
 -doc """
+Regression test for https://github.com/emqx/emqx/issues/18499.
+
+`init_per_testcase/2` creates the `mqtt` table with only the `(ts, clientid,
+payload)` columns, while the default write syntax also emits `float_value` and
+`bool` (and a `<clientid>_int_value` field). Those fields are not present in the
+existing table, so they used to be dropped silently. They must instead be added
+by GreptimeDB together with the data.
+""".
+t_new_fields_added_to_existing_table() ->
+    [{matrix, true}].
+t_new_fields_added_to_existing_table(matrix) ->
+    [
+        [?tcp, Sync, ?without_batch]
+     || Sync <- [?sync, ?async]
+    ];
+t_new_fields_added_to_existing_table(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    C = start_client(#{clientid => ClientId}),
+    Payload = json_encode(#{
+        int_key => 42,
+        uint_key => 7,
+        float_key => 24.5,
+        bool => true
+    }),
+    emqtt:publish(C, Topic, Payload),
+    ?retry(
+        200,
+        10,
+        begin
+            Row = query_by_clientid(ClientId, TCConfig),
+            ?assertMatch(#{<<"payload">> := Payload}, Row),
+            %% These two columns were not part of the pre-created table.
+            ?assertMatch(#{<<"float_value">> := 24.5, <<"bool">> := true}, Row)
+        end
+    ),
+    ok.
+
+-doc """
 Verifies case where batch resolves to multiple tables, and all succeed.
 """.
 t_multiple_tables_success() ->
