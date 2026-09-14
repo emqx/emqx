@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 % Bridge defaults
 -define(TOPIC, "TopicTest").
@@ -30,13 +31,19 @@ all() ->
         {group, async},
         {group, sync},
         {group, async_producer},
-        {group, acl}
+        {group, acl},
+        {group, topic_not_found}
     ].
 
 groups() ->
     TCs =
         emqx_common_test_helpers:all(?MODULE) --
-            [t_acl_deny, t_async_producer_cleans_completed_requests],
+            [
+                t_acl_deny,
+                t_async_producer_cleans_completed_requests,
+                t_topic_not_found_static_topic,
+                t_topic_not_found_templated_topic
+            ],
     BatchingGroups = [{group, with_batch}, {group, without_batch}],
     [
         {async, BatchingGroups},
@@ -44,7 +51,8 @@ groups() ->
         {with_batch, TCs},
         {without_batch, TCs},
         {async_producer, [t_async_producer_cleans_completed_requests]},
-        {acl, [t_acl_deny]}
+        {acl, [t_acl_deny]},
+        {topic_not_found, [t_topic_not_found_static_topic, t_topic_not_found_templated_topic]}
     ].
 
 init_per_group(async, Config) ->
@@ -63,11 +71,21 @@ init_per_group(async_producer, Config0) ->
 init_per_group(acl, Config0) ->
     Config = [{batch_size, 1}, {query_mode, sync} | Config0],
     common_init(Config);
+init_per_group(topic_not_found, Config0) ->
+    %% Async, so a held message does not block the caller.
+    Config = [{batch_size, 1}, {query_mode, async} | Config0],
+    common_init(Config);
 init_per_group(_Group, Config) ->
     Config.
 
+%% Every group that runs common_init/1 must stop the apps, or the next group's
+%% common_init/1 fails the clean-state check.
 end_per_group(Group, Config) when
-    Group =:= with_batch; Group =:= without_batch; Group =:= async_producer
+    Group =:= with_batch;
+    Group =:= without_batch;
+    Group =:= async_producer;
+    Group =:= acl;
+    Group =:= topic_not_found
 ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
@@ -241,6 +259,29 @@ delete_bridge(Config) ->
     BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
     Name = ?GET_CONFIG(rocketmq_name, Config),
     emqx_bridge:remove(BridgeType, Name).
+
+create_bridge_with(Config, Overrides) ->
+    BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
+    Name = ?GET_CONFIG(rocketmq_name, Config),
+    RocketMQConf = ?GET_CONFIG(rocketmq_config, Config),
+    emqx_bridge:create(BridgeType, Name, emqx_utils_maps:deep_merge(RocketMQConf, Overrides)).
+
+%% Make the name server answer every route request with "no route", as it does for a topic
+%% that does not exist on a broker without auto-create. The CI broker auto-creates topics,
+%% so this cannot be provoked with a real topic name.
+mock_topic_not_found() ->
+    ok = meck:new(rocketmq_client, [passthrough, no_link, no_history]),
+    emqx_common_test_helpers:on_exit(fun() -> catch meck:unload(rocketmq_client) end),
+    ok = meck:expect(rocketmq_client, get_routeinfo_by_topic, fun(_Pid, Topic) ->
+        Header = #{
+            <<"code">> => 17,
+            <<"remark">> => <<"No topic route info in name server for the topic: ", Topic/binary>>
+        },
+        {ok, {Header, undefined}}
+    end).
+
+unmock_topic_not_found() ->
+    ok = meck:unload(rocketmq_client).
 
 create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
@@ -513,6 +554,112 @@ t_acl_deny(Config0) ->
             ok
         end
     ),
+    ok.
+
+%% When the action topic has no placeholders and the name server has no route for it, the
+%% action reports `disconnected` with a message that names the topic, and a message routed to it
+%% is held in the buffer rather than dropped. Once the topic exists, the next health check
+%% reconnects the action and the held message is delivered.
+t_topic_not_found_static_topic(Config) ->
+    ok = mock_topic_not_found(),
+    BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
+    Name = ?GET_CONFIG(rocketmq_name, Config),
+    ?assertMatch(
+        {ok, _},
+        create_bridge_with(Config, #{
+            <<"topic">> => <<"Topic2">>,
+            <<"resource_opts">> => #{
+                <<"health_check_interval">> => <<"1s">>,
+                <<"request_ttl">> => <<"60s">>
+            }
+        })
+    ),
+    ?retry(
+        200,
+        50,
+        ?assertMatch(
+            #{status := disconnected, error := <<"Topic \"Topic2\" not found", _/binary>>},
+            emqx_bridge_v2:health_check(BridgeType, Name)
+        )
+    ),
+    _ = send_message(Config, #{payload => ?PAYLOAD}),
+    %% The message is held, not dropped or failed.
+    ?retry(
+        200,
+        50,
+        ?assertMatch(
+            #{counters := #{matched := 1, dropped := 0, failed := 0, success := 0}},
+            emqx_bridge_v2:get_metrics(BridgeType, Name)
+        )
+    ),
+    %% The topic now exists (the broker auto-creates it): the action recovers and the held
+    %% message is delivered.
+    ok = unmock_topic_not_found(),
+    ?retry(
+        200,
+        50,
+        ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
+    ),
+    ?retry(
+        200,
+        100,
+        ?assertMatch(
+            #{counters := #{matched := 1, dropped := 0, failed := 0, success := 1}},
+            emqx_bridge_v2:get_metrics(BridgeType, Name)
+        )
+    ),
+    ok.
+
+%% When the action topic is a template, a rendered topic that has no route cannot be checked
+%% ahead of time. The message is dropped with an `unrecoverable_error` that names the topic, the
+%% error is not a `case_clause`, and the action stays connected.
+t_topic_not_found_templated_topic(Config) ->
+    ok = mock_topic_not_found(),
+    BridgeType = ?GET_CONFIG(rocketmq_bridge_type, Config),
+    Name = ?GET_CONFIG(rocketmq_name, Config),
+    ?assertMatch(
+        {ok, _},
+        create_bridge_with(Config, #{<<"topic">> => <<"Missing${payload}">>})
+    ),
+    ?retry(
+        200,
+        50,
+        ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
+    ),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                send_message(Config, #{payload => <<"T1">>}),
+                #{?snk_kind := rocketmq_connector_query_return},
+                10_000
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        error :=
+                            {unrecoverable_error,
+                                {topic_not_found, #{
+                                    topic := <<"MissingT1">>, remark := <<_/binary>>
+                                }}}
+                    }
+                ],
+                ?of_kind(rocketmq_connector_query_return, Trace)
+            ),
+            ok
+        end
+    ),
+    ?retry(
+        200,
+        50,
+        ?assertMatch(
+            #{counters := #{matched := 1, failed := 1, success := 0}},
+            emqx_bridge_v2:get_metrics(BridgeType, Name)
+        )
+    ),
+    ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name)),
     ok.
 
 unique_atom(Prefix) ->
