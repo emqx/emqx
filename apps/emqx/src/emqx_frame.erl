@@ -42,6 +42,8 @@
 -type options() :: #{
     strict_mode => boolean(),
     max_size => 1..?MAX_PACKET_SIZE,
+    max_connect_size => 1..?MAX_PACKET_SIZE,
+    max_connect_user_properties => non_neg_integer() | infinity,
     version => emqx_types:proto_ver(),
     expect_connect => boolean()
 }.
@@ -49,6 +51,11 @@
 -record(options, {
     strict_mode :: boolean(),
     max_size :: 1..?MAX_PACKET_SIZE,
+    %% Size limit for a CONNECT packet, on top of `max_size'.
+    max_connect_size :: 1..?MAX_PACKET_SIZE,
+    %% Limit on the number of 'User-Property' pairs in a CONNECT packet.
+    %% Applies to the CONNECT properties and the will properties separately.
+    max_connect_user_properties :: non_neg_integer() | infinity,
     version :: emqx_types:proto_ver(),
     %% When true, the next packet must be a CONNECT.
     expect_connect :: boolean()
@@ -73,6 +80,8 @@
 -define(DEFAULT_OPTIONS, #{
     strict_mode => true,
     max_size => ?MAX_PACKET_SIZE,
+    max_connect_size => ?MAX_PACKET_SIZE,
+    max_connect_user_properties => infinity,
     version => ?MQTT_PROTO_V4,
     expect_connect => false
 }).
@@ -149,7 +158,13 @@ version(#update{inner = Inner}) -> version(Inner).
 merge_opts(Options, NewOpts) ->
     Options#options{
         strict_mode = maps:get(strict_mode, NewOpts, Options#options.strict_mode),
-        max_size = maps:get(max_size, NewOpts, Options#options.max_size)
+        max_size = maps:get(max_size, NewOpts, Options#options.max_size),
+        max_connect_size = maps:get(
+            max_connect_size, NewOpts, Options#options.max_connect_size
+        ),
+        max_connect_user_properties = maps:get(
+            max_connect_user_properties, NewOpts, Options#options.max_connect_user_properties
+        )
     }.
 
 %%--------------------------------------------------------------------
@@ -166,6 +181,8 @@ initial_parse_state(Options) when is_map(Options) ->
     #options{
         strict_mode = maps:get(strict_mode, Effective),
         max_size = maps:get(max_size, Effective),
+        max_connect_size = maps:get(max_connect_size, Effective),
+        max_connect_user_properties = maps:get(max_connect_user_properties, Effective),
         version = maps:get(version, Effective),
         expect_connect = maps:get(expect_connect, Effective)
     }.
@@ -234,7 +251,8 @@ parse_complete(
         <<0:8>> ->
             parse_bodyless_packet(Header);
         _ ->
-            {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            {RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            ok = validate_frame_len(RemLen, Header, Options),
             parse_packet_complete(Rest2, Header, Options)
     end.
 
@@ -344,13 +362,28 @@ parse_remaining_len(
     Header,
     Multiplier,
     Value,
-    Options = #options{max_size = MaxSize}
+    Options
 ) ->
     FrameLen = Value + Len * Multiplier,
-    case FrameLen > MaxSize of
-        true -> ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
-        false -> parse_body_frame(Rest, Header, FrameLen, <<>>, Options)
-    end.
+    ok = validate_frame_len(FrameLen, Header, Options),
+    parse_body_frame(Rest, Header, FrameLen, <<>>, Options).
+
+%% A CONNECT packet is held to `max_connect_size' as well as `max_size', so that
+%% an unauthenticated client cannot make the broker buffer a whole `max_size'
+%% body. Both limits are checked from the fixed header, before any body byte is
+%% read.
+validate_frame_len(
+    FrameLen,
+    #mqtt_packet_header{type = ?CONNECT},
+    #options{max_connect_size = MaxConnectSize}
+) when FrameLen > MaxConnectSize ->
+    ?PARSE_ERR(#{
+        cause => connect_packet_too_large, limit => MaxConnectSize, received => FrameLen
+    });
+validate_frame_len(FrameLen, _Header, #options{max_size = MaxSize}) when FrameLen > MaxSize ->
+    ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
+validate_frame_len(_FrameLen, _Header, _Options) ->
+    ok.
 
 -compile({inline, [parse_bodyless_packet/1]}).
 
@@ -422,7 +455,7 @@ parse_connect(Frame, Options = #options{strict_mode = StrictMode}) ->
     _ = validate_proto_name(ProtoName),
     {IsBridge, ProtoVer, Rest2} = parse_connect_proto_ver(Rest0),
     try
-        do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, StrictMode)
+        do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, Options)
     catch
         throw:{?FRAME_PARSE_ERROR, ReasonM} when is_map(ReasonM) ->
             ?PARSE_ERR(
@@ -469,7 +502,7 @@ do_parse_connect(
         KeepAlive:16/big,
         Rest/binary
     >>,
-    StrictMode
+    Options = #options{strict_mode = StrictMode, max_connect_user_properties = MaxUserProps}
 ) ->
     WillFlag = bool(WillFlagB),
     WillRetain = bool(WillRetainB),
@@ -487,7 +520,7 @@ do_parse_connect(
         UsernameFlag,
         PasswordFlag
     ),
-    {Properties, Rest3} = parse_properties(Rest, ProtoVer, StrictMode),
+    {Properties, Rest3} = parse_properties(Rest, ProtoVer, StrictMode, MaxUserProps),
     %% `strict_mode` here only rejects an invalid UTF-8 client ID. The length limit is
     %% applied later by emqx_packet:check_client_id/2 against `max_clientid_len`, for all
     %% MQTT versions alike (no separate MQTT 3.1 23-byte check). See emqx/emqx#18674.
@@ -506,7 +539,7 @@ do_parse_connect(
         properties = Properties,
         clientid = ClientId
     },
-    {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4, StrictMode),
+    {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4, Options),
     {Username, Rest6} = parse_optional(
         Rest5,
         fun(Bin) ->
@@ -530,7 +563,7 @@ do_parse_connect(
                 unexpected_trailing_bytes => byte_size(Rest7)
             })
     end;
-do_parse_connect(_ProtoName, _IsBridge, _ProtoVer, Bin, _StrictMode) ->
+do_parse_connect(_ProtoName, _IsBridge, _ProtoVer, Bin, _Options) ->
     %% sent less than 24 bytes
     ?PARSE_ERR(#{cause => malformed_connect, header_bytes => Bin}).
 
@@ -681,9 +714,9 @@ parse_will_message(
         proto_ver = Ver
     },
     Bin,
-    StrictMode
+    #options{strict_mode = StrictMode, max_connect_user_properties = MaxUserProps}
 ) ->
-    {Props, Rest} = parse_properties(Bin, Ver, StrictMode),
+    {Props, Rest} = parse_properties(Bin, Ver, StrictMode, MaxUserProps),
     {Topic, Rest1} = parse_utf8_string(Rest, StrictMode, _Cause = invalid_topic),
     {Payload, Rest2} = parse_will_payload(Rest1),
     {
@@ -694,7 +727,7 @@ parse_will_message(
         },
         Rest2
     };
-parse_will_message(Packet, Bin, _StrictMode) ->
+parse_will_message(Packet, Bin, _Options) ->
     {Packet, Bin}.
 
 -compile({inline, [parse_packet_id/1]}).
@@ -709,18 +742,25 @@ parse_connect_proto_ver(Bin) ->
     %% sent less than 1 bytes or empty
     ?PARSE_ERR(#{cause => malformed_connect, header_bytes => Bin}).
 
-parse_properties(Bin, Ver, _StrictMode) when Ver =/= ?MQTT_PROTO_V5 ->
+parse_properties(Bin, Ver, StrictMode) ->
+    parse_properties(Bin, Ver, StrictMode, infinity).
+
+%% `MaxUserProps' caps the number of 'User-Property' pairs in this properties
+%% block. Only the CONNECT and will properties pass a limit; every other packet
+%% type parses with `infinity'.
+parse_properties(Bin, Ver, _StrictMode, _MaxUserProps) when Ver =/= ?MQTT_PROTO_V5 ->
     {#{}, Bin};
 %% TODO: version mess?
-parse_properties(<<>>, ?MQTT_PROTO_V5, _StrictMode) ->
+parse_properties(<<>>, ?MQTT_PROTO_V5, _StrictMode, _MaxUserProps) ->
     {#{}, <<>>};
-parse_properties(<<0, Rest/binary>>, ?MQTT_PROTO_V5, _StrictMode) ->
+parse_properties(<<0, Rest/binary>>, ?MQTT_PROTO_V5, _StrictMode, _MaxUserProps) ->
     {#{}, Rest};
-parse_properties(Bin, ?MQTT_PROTO_V5, StrictMode) ->
+parse_properties(Bin, ?MQTT_PROTO_V5, StrictMode, MaxUserProps) ->
     {Len, Rest} = parse_variable_byte_integer(Bin),
     case Rest of
         <<PropsBin:Len/binary, Rest1/binary>> ->
-            {finalize_user_property(parse_property(PropsBin, #{}, StrictMode)), Rest1};
+            Props = parse_property(PropsBin, #{}, StrictMode, MaxUserProps, 0),
+            {finalize_user_property(Props), Rest1};
         _ ->
             ?PARSE_ERR(#{
                 cause => user_property_not_enough_bytes,
@@ -729,93 +769,241 @@ parse_properties(Bin, ?MQTT_PROTO_V5, StrictMode) ->
             })
     end.
 
-parse_property(<<>>, Props, _StrictMode) ->
+parse_property(<<>>, Props, _StrictMode, _MaxUserProps, _NUserProps) ->
     Props;
-parse_property(<<16#01, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Payload-Format-Indicator', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#02, Val:32/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Message-Expiry-Interval', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#03, Bin/binary>>, Props, StrictMode) ->
+parse_property(<<16#01, Val, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Payload-Format-Indicator', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#02, Val:32/big, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Message-Expiry-Interval', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#03, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_content_type),
-    parse_property(Rest, put_prop('Content-Type', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#08, Bin/binary>>, Props, StrictMode) ->
+    parse_property(
+        Rest, put_prop('Content-Type', Val, Props, StrictMode), StrictMode, MaxUserProps, NUserProps
+    );
+parse_property(<<16#08, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_response_topic),
-    parse_property(Rest, put_prop('Response-Topic', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#09, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Correlation-Data', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#0B, Bin/binary>>, Props, StrictMode) ->
+    parse_property(
+        Rest,
+        put_prop('Response-Topic', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(
+    <<16#09, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps
+) ->
+    parse_property(
+        Bin,
+        put_prop('Correlation-Data', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#0B, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     {Val, Rest} = parse_variable_byte_integer(Bin),
-    parse_property(Rest, put_prop('Subscription-Identifier', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#11, Val:32/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Session-Expiry-Interval', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#12, Bin/binary>>, Props, StrictMode) ->
+    parse_property(
+        Rest,
+        put_prop('Subscription-Identifier', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#11, Val:32/big, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Session-Expiry-Interval', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#12, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_assigned_client_id),
     parse_property(
-        Rest, put_prop('Assigned-Client-Identifier', Val, Props, StrictMode), StrictMode
+        Rest,
+        put_prop('Assigned-Client-Identifier', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
     );
-parse_property(<<16#13, Val:16, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Server-Keep-Alive', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#15, Bin/binary>>, Props, StrictMode) ->
+parse_property(<<16#13, Val:16, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Server-Keep-Alive', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#15, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_authn_method),
-    parse_property(Rest, put_prop('Authentication-Method', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#16, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Authentication-Data', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#17, Val, Bin/binary>>, Props, StrictMode) ->
     parse_property(
-        Bin, put_prop('Request-Problem-Information', Val, Props, StrictMode), StrictMode
+        Rest,
+        put_prop('Authentication-Method', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
     );
-parse_property(<<16#18, Val:32, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Will-Delay-Interval', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#19, Val, Bin/binary>>, Props, StrictMode) ->
+parse_property(
+    <<16#16, Len:16/big, Val:Len/binary, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps
+) ->
     parse_property(
-        Bin, put_prop('Request-Response-Information', Val, Props, StrictMode), StrictMode
+        Bin,
+        put_prop('Authentication-Data', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
     );
-parse_property(<<16#1A, Bin/binary>>, Props, StrictMode) ->
+parse_property(<<16#17, Val, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Request-Problem-Information', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#18, Val:32, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Will-Delay-Interval', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#19, Val, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Request-Response-Information', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#1A, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_response_info),
-    parse_property(Rest, put_prop('Response-Information', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#1C, Bin/binary>>, Props, StrictMode) ->
+    parse_property(
+        Rest,
+        put_prop('Response-Information', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#1C, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_server_reference),
-    parse_property(Rest, put_prop('Server-Reference', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#1F, Bin/binary>>, Props, StrictMode) ->
+    parse_property(
+        Rest,
+        put_prop('Server-Reference', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#1F, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     {Val, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_reason_string),
-    parse_property(Rest, put_prop('Reason-String', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#21, Val:16/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Receive-Maximum', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#22, Val:16/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Topic-Alias-Maximum', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#23, Val:16/big, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Topic-Alias', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#24, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Maximum-QoS', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#25, Val, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Retain-Available', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#26, Bin/binary>>, Props, StrictMode) ->
+    parse_property(
+        Rest,
+        put_prop('Reason-String', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#21, Val:16/big, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Receive-Maximum', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#22, Val:16/big, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Topic-Alias-Maximum', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#23, Val:16/big, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin, put_prop('Topic-Alias', Val, Props, StrictMode), StrictMode, MaxUserProps, NUserProps
+    );
+parse_property(<<16#24, Val, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin, put_prop('Maximum-QoS', Val, Props, StrictMode), StrictMode, MaxUserProps, NUserProps
+    );
+parse_property(<<16#25, Val, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Retain-Available', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<16#26, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    ok = validate_user_property_count(NUserProps, MaxUserProps),
     {Pair, Rest} = parse_utf8_pair(Bin, StrictMode),
+    N = NUserProps + 1,
     %% Accumulate in reverse order to keep this O(1) per entry; the list is
-    %% reversed back to wire order in parse_properties/3 once parsing finishes.
+    %% reversed back to wire order in parse_properties/4 once parsing finishes.
     case Props of
         #{'User-Property' := UserProps} ->
-            parse_property(Rest, Props#{'User-Property' := [Pair | UserProps]}, StrictMode);
+            NProps = Props#{'User-Property' := [Pair | UserProps]},
+            parse_property(Rest, NProps, StrictMode, MaxUserProps, N);
         #{} ->
-            parse_property(Rest, Props#{'User-Property' => [Pair]}, StrictMode)
+            parse_property(Rest, Props#{'User-Property' => [Pair]}, StrictMode, MaxUserProps, N)
     end;
-parse_property(<<16#27, Val:32, Bin/binary>>, Props, StrictMode) ->
-    parse_property(Bin, put_prop('Maximum-Packet-Size', Val, Props, StrictMode), StrictMode);
-parse_property(<<16#28, Val, Bin/binary>>, Props, StrictMode) ->
+parse_property(<<16#27, Val:32, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     parse_property(
-        Bin, put_prop('Wildcard-Subscription-Available', Val, Props, StrictMode), StrictMode
+        Bin,
+        put_prop('Maximum-Packet-Size', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
     );
-parse_property(<<16#29, Val, Bin/binary>>, Props, StrictMode) ->
+parse_property(<<16#28, Val, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     parse_property(
-        Bin, put_prop('Subscription-Identifier-Available', Val, Props, StrictMode), StrictMode
+        Bin,
+        put_prop('Wildcard-Subscription-Available', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
     );
-parse_property(<<16#2A, Val, Bin/binary>>, Props, StrictMode) ->
+parse_property(<<16#29, Val, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
     parse_property(
-        Bin, put_prop('Shared-Subscription-Available', Val, Props, StrictMode), StrictMode
+        Bin,
+        put_prop('Subscription-Identifier-Available', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
     );
-parse_property(<<Property:8, _Rest/binary>>, _Props, _StrictMode) ->
+parse_property(<<16#2A, Val, Bin/binary>>, Props, StrictMode, MaxUserProps, NUserProps) ->
+    parse_property(
+        Bin,
+        put_prop('Shared-Subscription-Available', Val, Props, StrictMode),
+        StrictMode,
+        MaxUserProps,
+        NUserProps
+    );
+parse_property(<<Property:8, _Rest/binary>>, _Props, _StrictMode, _MaxUserProps, _NUserProps) ->
     ?PARSE_ERR(#{cause => invalid_property_code, property_code => Property}).
 %% TODO: invalid property in specific packet.
+
+%% Reject the pair before it is parsed, so that an oversized properties block
+%% cannot be turned into a list of terms first and rejected afterwards.
+validate_user_property_count(_N, infinity) ->
+    ok;
+validate_user_property_count(N, Max) when N < Max ->
+    ok;
+validate_user_property_count(_N, Max) ->
+    ?PARSE_ERR(#{cause => too_many_user_properties, limit => Max}).
 
 -doc """
 Insert a non-repeatable property into the properties map.
@@ -830,7 +1018,7 @@ put_prop(Key, Val, Props, _StrictMode) ->
     Props#{Key => Val}.
 
 -doc """
-Restore wire order for the 'User-Property' list, which parse_property/3
+Restore wire order for the 'User-Property' list, which parse_property/5
 accumulates in reverse to keep per-entry cost constant.
 """.
 finalize_user_property(#{'User-Property' := UserProps} = Props) ->
