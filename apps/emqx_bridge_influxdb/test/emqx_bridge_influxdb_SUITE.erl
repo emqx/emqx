@@ -519,6 +519,13 @@ pad_zero(BinTs) ->
     NewNano = lists:reverse(NanoNum) ++ Padding ++ "Z",
     iolist_to_binary(string:join(lists:reverse([NewNano | Rest]), ".")).
 
+%% the v3 query helper does not produce `_value_type`
+dynamic_bucket_expected(Value, TCConfig) ->
+    case get_config(api_type, TCConfig, ?api_v2) of
+        ?api_v3 -> Value;
+        _ -> {Value, <<"long">>}
+    end.
+
 assert_persisted_data(ClientId, Expected, PersistedData) ->
     ClientIdIntKey = <<ClientId/binary, "_int_value">>,
     maps:foreach(
@@ -565,7 +572,17 @@ clear_table(RuleTopic, TCConfig) ->
         query_v3(Opts, TCConfig)
     end.
 
-create_bucket(TCConfig) ->
+ensure_dynamic_database(TCConfig) ->
+    case get_config(api_type, TCConfig, ?api_v2) of
+        ?api_v3 -> ensure_v3_database(TCConfig);
+        _ -> ensure_v2_bucket(TCConfig)
+    end.
+
+%% v2 buckets are created through the v2 API. v1 uses the same server and the
+%% same bucket through the v1 compatibility API, but its live test also needs a
+%% DBRP mapping and a v1 auth scoped to the new bucket. The v1 bucket override
+%% shares the `database` option handling with v3, which is covered below.
+ensure_v2_bucket(TCConfig) ->
     {Host, Port} = server_tuple(TCConfig),
     BaseURI = iolist_to_binary([
         "http://",
@@ -627,6 +644,42 @@ create_bucket(TCConfig) ->
                     0
                 ),
             ok
+    end.
+
+ensure_v3_database(TCConfig) ->
+    {Host, Port} = server_tuple(TCConfig),
+    BaseURI = iolist_to_binary([
+        "http://",
+        Host,
+        ":",
+        integer_to_binary(Port)
+    ]),
+    Body = emqx_utils_json:encode(#{<<"db">> => <<"mqtt2">>}),
+    Headers = [
+        {"Authorization", authn_header_value(TCConfig)},
+        {"Content-Type", "application/json"}
+    ],
+    case
+        ehttpc:request(
+            ?HELPER_POOL,
+            post,
+            {<<BaseURI/binary, "/api/v3/configure/database">>, Headers, Body},
+            10_000,
+            0
+        )
+    of
+        {ok, 200, _} ->
+            ok;
+        {ok, 200, _, _} ->
+            ok;
+        {ok, 409, _} ->
+            %% already exists
+            ok;
+        {ok, 409, _, _} ->
+            %% already exists
+            ok;
+        Other ->
+            error({failed_to_create_v3_database, Other})
     end.
 
 proxy_name(TCConfig) ->
@@ -1318,11 +1371,13 @@ t_dynamic_bucket() ->
     [{matrix, true}].
 t_dynamic_bucket(matrix) ->
     [
-        [?api_v2, ?tcp, Sync, Batch]
-     || Sync <- [?sync, ?async], Batch <- [?without_batch, ?with_batch]
+        [APIType, ?tcp, Sync, Batch]
+     || APIType <- [?api_v2, ?api_v3],
+        Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
     ];
 t_dynamic_bucket(TCConfig) when is_list(TCConfig) ->
-    create_bucket(TCConfig),
+    ensure_dynamic_database(TCConfig),
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{
         <<"parameters">> => #{
@@ -1344,8 +1399,12 @@ t_dynamic_bucket(TCConfig) when is_list(TCConfig) ->
     ?retry(200, 10, begin
         PersistedData0 = query_in_bucket(<<"mqtt2">>, RuleTopic, ClientId0, TCConfig),
         PersistedData1 = query_in_bucket(<<"mqtt">>, RuleTopic, ClientId1, TCConfig),
-        assert_persisted_data(ClientId0, #{foo => {<<"123">>, <<"long">>}}, PersistedData0),
-        assert_persisted_data(ClientId1, #{foo => {<<"456">>, <<"long">>}}, PersistedData1),
+        assert_persisted_data(
+            ClientId0, #{foo => dynamic_bucket_expected(<<"123">>, TCConfig)}, PersistedData0
+        ),
+        assert_persisted_data(
+            ClientId1, #{foo => dynamic_bucket_expected(<<"456">>, TCConfig)}, PersistedData1
+        ),
         ok
     end),
     ok.
