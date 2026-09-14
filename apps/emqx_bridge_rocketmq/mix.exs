@@ -23,7 +23,7 @@ defmodule EMQXBridgeRocketmq.MixProject do
 
   def deps() do
     [
-      {:rocketmq, github: "emqx/rocketmq-client-erl", tag: "v0.7.2"},
+      {:rocketmq, github: "emqx/rocketmq-client-erl", ref: "5dbd64e5053df1423c603476b18a38f295eda46c"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
