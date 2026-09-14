@@ -21,7 +21,8 @@
 
 -export([
     initial_parse_state/0,
-    initial_parse_state/1
+    initial_parse_state/1,
+    expect_connect/0
 ]).
 
 -export([
@@ -80,6 +81,10 @@
     version => ?MQTT_PROTO_V4
 }).
 
+%% Process dictionary key. When set, the next packet parsed in this process
+%% must be a CONNECT.
+-define(PD_EXPECT_CONNECT, '$emqx_frame_expect_connect').
+
 -define(PARSE_ERR(Reason), ?THROW_FRAME_ERROR(Reason)).
 -define(SERIALIZE_ERR(Reason), ?THROW_SERIALIZE_ERROR(Reason)).
 
@@ -118,6 +123,15 @@ initial_parse_state() ->
 initial_parse_state(Options) when is_map(Options) ->
     ?NONE(maps:merge(?DEFAULT_OPTIONS, Options)).
 
+%% Require the next packet parsed in the calling process to be a CONNECT.
+%% The connection process calls this when it builds its parser. Any other
+%% packet type is then rejected from its fixed header, before its body is
+%% buffered. The requirement is cleared when a CONNECT is parsed.
+-spec expect_connect() -> ok.
+expect_connect() ->
+    _ = erlang:put(?PD_EXPECT_CONNECT, true),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Parse MQTT Frame
 %%--------------------------------------------------------------------
@@ -133,6 +147,7 @@ parse(
     <<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
     ?NONE(Options = #{strict_mode := StrictMode})
 ) ->
+    ok = validate_connect_first(Type),
     %% Validate header if strict mode.
     StrictMode andalso validate_header(Type, Dup, QoS, Retain),
     Header = #mqtt_packet_header{
@@ -160,6 +175,21 @@ parse(Bin, {
 }) when is_binary(Bin) ->
     NewBody = append_body(Body, Bin),
     parse_frame(NewBody, Header, Length, Options).
+
+%% Reject any packet received before CONNECT, while only the fixed header is
+%% read, so that no body byte is buffered for an unauthenticated connection.
+validate_connect_first(?CONNECT) ->
+    ok;
+validate_connect_first(Type) ->
+    case erlang:get(?PD_EXPECT_CONNECT) of
+        undefined ->
+            ok;
+        true ->
+            ?PARSE_ERR(#{
+                cause => unexpected_packet_before_connect,
+                header_type => emqx_packet:type_name(Type)
+            })
+    end.
 
 parse_remaining_len(<<>>, Header, Options) ->
     {more, {{len, #{hdr => Header, len => {1, 0}}}, Options}};
@@ -244,6 +274,7 @@ parse_frame(Body, Header, Length, Options) ->
                 {Variable, Payload} ->
                     {ok, packet(Header, Variable, Payload), Rest, ?NONE(Options)};
                 Variable = #mqtt_packet_connect{proto_ver = Ver} ->
+                    _ = erlang:erase(?PD_EXPECT_CONNECT),
                     {ok, packet(Header, Variable), Rest, ?NONE(Options#{version := Ver})};
                 Variable ->
                     {ok, packet(Header, Variable), Rest, ?NONE(Options)}

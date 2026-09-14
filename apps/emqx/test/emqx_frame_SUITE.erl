@@ -27,6 +27,9 @@
     ?assertThrow({?FRAME_PARSE_ERROR, Reason}, Expr)
 ).
 
+%% Same process dictionary key as in emqx_frame.
+-define(PD_EXPECT_CONNECT, '$emqx_frame_expect_connect').
+
 all() ->
     [
         {group, parse},
@@ -49,7 +52,10 @@ groups() ->
             t_parse_cont,
             t_parse_frame_too_large,
             t_parse_frame_malformed_variable_byte_integer,
-            t_parse_malformed_utf8_string
+            t_parse_malformed_utf8_string,
+            t_parse_non_connect_before_connect,
+            t_parse_after_connect,
+            t_parse_no_connect_expected
         ]},
         {connect, [parallel], [
             t_serialize_parse_v3_connect,
@@ -131,6 +137,50 @@ init_per_group(_Group, Config) ->
 
 end_per_group(_Group, _Config) ->
     ok.
+
+%% A non-CONNECT first packet is rejected from the fixed header alone, before
+%% any body byte is buffered, when the process expects CONNECT first.
+t_parse_non_connect_before_connect(_) ->
+    with_expect_connect(fun() ->
+        ParseState = emqx_frame:initial_parse_state(),
+        lists:foreach(
+            fun({FirstByte, TypeName}) ->
+                %% Only the fixed header byte is fed, nothing can be buffered yet.
+                ?ASSERT_FRAME_THROW(
+                    #{
+                        cause := unexpected_packet_before_connect,
+                        header_type := TypeName
+                    },
+                    emqx_frame:parse(<<FirstByte>>, ParseState)
+                ),
+                %% A 256 MB remaining length is rejected without buffering a body.
+                ?ASSERT_FRAME_THROW(
+                    #{cause := unexpected_packet_before_connect},
+                    emqx_frame:parse(<<FirstByte, 16#FF, 16#FF, 16#FF, 16#7F>>, ParseState)
+                )
+            end,
+            first_bytes()
+        )
+    end).
+
+%% Once CONNECT is parsed, the packets after it are parsed as usual.
+t_parse_after_connect(_) ->
+    with_expect_connect(fun() ->
+        Connect = ?CONNECT_PACKET(#mqtt_packet_connect{}),
+        Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>),
+        {ok, Connect, <<>>, ParseState1} =
+            emqx_frame:parse(serialize_to_binary(Connect), emqx_frame:initial_parse_state()),
+        ?assertMatch(
+            {ok, Publish, <<>>, _},
+            emqx_frame:parse(serialize_to_binary(Publish), ParseState1)
+        )
+    end).
+
+%% A process that did not call emqx_frame:expect_connect/0 parses a standalone
+%% PUBLISH from a fresh parse state.
+t_parse_no_connect_expected(_) ->
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>),
+    ?assertMatch({ok, Publish, <<>>, _}, emqx_frame:parse(serialize_to_binary(Publish))).
 
 t_parse_cont(_) ->
     Packet = ?CONNECT_PACKET(#mqtt_packet_connect{}),
@@ -915,3 +965,23 @@ parse_to_packet(Bin, Opts) ->
     Packet.
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
+
+%% Run Fun with the test process expecting CONNECT first, then clear it.
+with_expect_connect(Fun) ->
+    ok = emqx_frame:expect_connect(),
+    try
+        Fun()
+    after
+        erlang:erase(?PD_EXPECT_CONNECT)
+    end.
+
+%% Fixed header first bytes of the packet types a client may send.
+first_bytes() ->
+    [
+        {?PUBLISH bsl 4, 'PUBLISH'},
+        {(?SUBSCRIBE bsl 4) bor 2, 'SUBSCRIBE'},
+        {(?UNSUBSCRIBE bsl 4) bor 2, 'UNSUBSCRIBE'},
+        {?PINGREQ bsl 4, 'PINGREQ'},
+        {?DISCONNECT bsl 4, 'DISCONNECT'},
+        {?AUTH bsl 4, 'AUTH'}
+    ].

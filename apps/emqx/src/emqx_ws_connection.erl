@@ -321,6 +321,8 @@ do_websocket_init(Req, Opts) ->
                 max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
             },
             ParseState = emqx_frame:initial_parse_state(FrameOpts),
+            %% Any packet received before CONNECT is rejected by the parser.
+            ok = emqx_frame:expect_connect(),
             Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
             Channel = emqx_channel:init(ConnInfo, Opts),
             GcState = get_force_gc(Zone),
