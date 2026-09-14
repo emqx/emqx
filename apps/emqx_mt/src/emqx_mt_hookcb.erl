@@ -179,7 +179,10 @@ validate_not_tombstoned(#{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Tns}}) ->
             {stop, {error, server_unavailable}};
         false ->
             ok
-    end.
+    end;
+validate_not_tombstoned(_ClientInfo) ->
+    %% not a multi-tenant client
+    ok.
 
 %% Invoked on the `client.post_authn' hook. If the operator has configured
 %% `multi_tenancy.post_auth_tns_expression', evaluate it against the merged

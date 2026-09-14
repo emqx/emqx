@@ -22,11 +22,15 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--type entry() :: emqx_limiter_client:t() | {lazy, [emqx_limiter:id()]}.
+%% A lazy spec names a limiter to connect on first use, optionally with
+%% client options (`not_found_mode => close` denies instead of failing
+%% open when the limiter's group is gone).
+-type lazy_spec() :: emqx_limiter:id() | {emqx_limiter:id(), emqx_limiter:client_options()}.
+-type entry() :: emqx_limiter_client:t() | {lazy, [lazy_spec()]}.
 -type t() :: #{emqx_limiter:name() => entry()}.
 -type reason() :: emqx_limiter_client:reason().
 
--export_type([t/0, entry/0, reason/0]).
+-export_type([t/0, entry/0, lazy_spec/0, reason/0]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -49,12 +53,14 @@ try_consume_from_clients(Container, [], _Consumed) ->
     {true, Container};
 try_consume_from_clients(Container, [{Name, Amount} | Rest], Consumed) ->
     case Container of
-        #{Name := {lazy, LimiterIds}} ->
-            case materialize(LimiterIds) of
+        #{Name := {lazy, Specs}} ->
+            case materialize(Specs) of
                 unlimited ->
                     try_consume_from_clients(Container, Rest, Consumed);
                 {ok, Client} ->
-                    try_consume_from_client(Container, Client, Name, Amount, Rest, Consumed)
+                    try_consume_from_client(Container, Client, Name, Amount, Rest, Consumed);
+                {error, Reason} ->
+                    {false, put_back_to_clients(Container, Consumed), Reason}
             end;
         #{Name := Client} ->
             try_consume_from_client(Container, Client, Name, Amount, Rest, Consumed);
@@ -72,32 +78,66 @@ try_consume_from_client(Container, Client, Name, Amount, Rest, Consumed) ->
             {false, put_back_to_clients(Container#{Name => NewClient}, Consumed), Reason}
     end.
 
-materialize(LimiterIds) ->
-    case lists:all(fun is_unlimited/1, LimiterIds) of
-        true ->
+%% Decide what a lazy entry becomes on consume. While every limiter of the
+%% entry is unlimited it stays lazy. A limiter whose group or name is gone
+%% is treated as unlimited (fail open), consistent with how connected
+%% clients handle a vanished limiter, unless its spec asks for
+%% `not_found_mode => close`: then the consume is denied.
+materialize(Specs) ->
+    case classify(Specs, unlimited) of
+        unlimited ->
             unlimited;
-        false ->
-            {ok, connect_clients(LimiterIds)}
+        limited ->
+            {ok, connect_clients(Specs)};
+        {error, _} = Error ->
+            Error
     end.
 
-%% A limiter whose group or name is gone is treated as unlimited (fail open),
-%% consistent with how connected clients handle a vanished limiter.
-is_unlimited({Group, Name}) ->
-    case emqx_limiter_registry:find_group(Group) of
-        undefined ->
-            true;
-        {_Module, LimiterOptions} ->
-            case lists:keyfind(Name, 1, LimiterOptions) of
-                {_, #{capacity := infinity}} -> true;
-                {_, _} -> false;
-                false -> true
+classify([], Acc) ->
+    Acc;
+classify([Spec | Rest], Acc) ->
+    {LimiterId, ClientOpts} = spec(Spec),
+    case limiter_state(LimiterId) of
+        unlimited ->
+            classify(Rest, Acc);
+        limited ->
+            classify(Rest, limited);
+        missing ->
+            case maps:get(not_found_mode, ClientOpts, open) of
+                close -> {error, {limiter_not_found, LimiterId}};
+                open -> classify(Rest, Acc)
             end
     end.
 
-connect_clients([LimiterId]) ->
-    emqx_limiter:connect(LimiterId);
-connect_clients(LimiterIds) ->
-    emqx_limiter_composite:new([emqx_limiter:connect(Id) || Id <- LimiterIds]).
+limiter_state({Group, Name}) ->
+    case emqx_limiter_registry:find_group(Group) of
+        undefined ->
+            missing;
+        {_Module, LimiterOptions} ->
+            case lists:keyfind(Name, 1, LimiterOptions) of
+                {_, #{capacity := infinity}} -> unlimited;
+                {_, _} -> limited;
+                false -> missing
+            end
+    end.
+
+%% Vanished open-mode limiters are skipped: they count as unlimited.
+connect_clients(Specs) ->
+    Clients = [
+        emqx_limiter:connect(LimiterId, ClientOpts)
+     || Spec <- Specs,
+        {LimiterId, ClientOpts} <- [spec(Spec)],
+        limiter_state(LimiterId) =/= missing
+    ],
+    case Clients of
+        [Client] -> Client;
+        _ -> emqx_limiter_composite:new(Clients)
+    end.
+
+spec({LimiterId, ClientOpts}) when is_map(ClientOpts) ->
+    {LimiterId, ClientOpts};
+spec(LimiterId) ->
+    {LimiterId, #{}}.
 
 put_back_to_clients(Container, []) ->
     Container;
