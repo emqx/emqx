@@ -11,7 +11,9 @@ services:
   setup:
     image: public.ecr.aws/elastic/elasticsearch:${ELASTIC_TAG}
     volumes:
-      - ./elastic:/usr/share/elasticsearch/config/certs
+      - ./certs/cacert.pem:/usr/share/elasticsearch/config/certs/ca/ca.crt:ro
+      - ./certs/cert.pem:/usr/share/elasticsearch/config/certs/es01/es01.crt:ro
+      - ./certs/key.pem:/usr/share/elasticsearch/config/certs/es01/es01.key:ro
     user: "0"
     environment:
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-}
@@ -23,10 +25,6 @@ services:
           echo "Run via scripts/ct/run.sh or source /tmp/emqx-ci-temp-secrets/passwords.env first.";
           exit 1;
         fi;
-        echo "Setting file permissions"
-        chown -R root:root config/certs;
-        find . -type d -exec chmod 750 \{\} \;;
-        find . -type f -exec chmod 640 \{\} \;;
         echo "Waiting for Elasticsearch availability";
         until curl -s --cacert config/certs/ca/ca.crt https://es01:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
         echo "Setting kibana_system password";
@@ -47,7 +45,9 @@ services:
     container_name: elasticsearch
     hostname: elasticsearch
     volumes:
-      - ./elastic:/usr/share/elasticsearch/config/certs
+      - ./certs/cacert.pem:/usr/share/elasticsearch/config/certs/ca/ca.crt:ro
+      - ./certs/cert.pem:/usr/share/elasticsearch/config/certs/es01/es01.crt:ro
+      - ./certs/key.pem:/usr/share/elasticsearch/config/certs/es01/es01.key:ro
       - esdata01:/usr/share/elasticsearch/data
     # ports:
     #   - 9200:9200
