@@ -182,13 +182,13 @@ validate_connect_first(?CONNECT) ->
     ok;
 validate_connect_first(Type) ->
     case erlang:get(?PD_EXPECT_CONNECT) of
-        undefined ->
-            ok;
         true ->
             ?PARSE_ERR(#{
                 cause => unexpected_packet_before_connect,
                 header_type => emqx_packet:type_name(Type)
-            })
+            });
+        _ ->
+            ok
     end.
 
 parse_remaining_len(<<>>, Header, Options) ->
