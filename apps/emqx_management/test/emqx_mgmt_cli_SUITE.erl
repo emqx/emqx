@@ -619,6 +619,87 @@ t_listeners(_Config) ->
     %% listeners restart <Identifier> # Restart a listener
     ok.
 
+-doc """
+Check that `listeners` prints the shutdown counts and the non-zero accept
+stats of a TCP listener as indented blocks, and that `running` stays the 5th
+line.
+""".
+t_listeners_accept_stats(_Config) ->
+    Id = "tcp:default",
+    Block0 = listener_block(Id),
+    ?assertMatch({match, _}, re:run(lists:nth(5, Block0), <<"^  running +: true$">>)),
+    ?assert(lists:member(<<"  shutdown_count        :">>, Block0)),
+    Stats0 = accept_stats_lines(Block0),
+    %% A connected client is counted as accepted.
+    {ok, C} = emqtt:start_link([{clientid, <<"t_listeners_accept_stats">>}]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqtt:disconnect(C),
+    ?retry(
+        100,
+        20,
+        ?assert(
+            proplists:get_value(accepted, accept_stats_lines(listener_block(Id))) >
+                proplists:get_value(accepted, Stats0, 0)
+        )
+    ),
+    %% A peer denied by the access rules is counted as forbidden.
+    [ListenerRef] = [Ref || {{'tcp:default', _} = Ref, _} <- esockd:listeners()],
+    {'tcp:default', {_, Port}} = ListenerRef,
+    ok = esockd:deny(ListenerRef, "127.0.0.1"),
+    try
+        {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, Port, [binary, {active, false}]),
+        ?assertMatch({error, _}, gen_tcp:recv(Sock, 0, 5000)),
+        ok = gen_tcp:close(Sock),
+        ?retry(
+            100,
+            20,
+            ?assert(
+                proplists:get_value(closed_forbidden, accept_stats_lines(listener_block(Id))) >
+                    proplists:get_value(closed_forbidden, Stats0, 0)
+            )
+        )
+    after
+        ok = emqx_listeners:restart_listener('tcp:default')
+    end,
+    %% A kicked client is counted in the shutdown counts.
+    {ok, C2} = emqtt:start_link([{clientid, <<"t_listeners_accept_stats_kick">>}]),
+    unlink(C2),
+    {ok, _} = emqtt:connect(C2),
+    ok = emqx_cm:kick_session(<<"t_listeners_accept_stats_kick">>),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            [_ | _],
+            [N || {kicked, N} <- shutdown_count_lines(listener_block(Id))]
+        )
+    ).
+
+-doc """
+Check that `listeners` prints a disabled listener with `running` as the 5th
+line and without the counters, which exist only for a running listener.
+""".
+t_listeners_disabled(_Config) ->
+    Conf = #{<<"bind">> => <<"127.0.0.1:21884">>, <<"enable">> => false},
+    {ok, _} = emqx:update_config([listeners, tcp, cli_disabled], {create, Conf}),
+    try
+        Block = listener_block("tcp:cli_disabled"),
+        ?assertEqual(
+            [
+                <<"  listen_on             : 127.0.0.1:21884">>,
+                <<"  acceptors             : 16">>,
+                <<"  proxy_protocol        : false">>,
+                <<"  enable                : false">>,
+                <<"  running               : false">>,
+                <<"  resolved_address      : 127.0.0.1">>,
+                <<"  resolved_address_from : bind">>
+            ],
+            Block
+        )
+    after
+        emqx:remove_config([listeners, tcp, cli_disabled])
+    end.
+
 t_authz(_Config) ->
     %% authz cache-clean all         # Clears authorization cache on all nodes
     ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", "all"])),
@@ -1006,6 +1087,53 @@ dump_client_stats(File, Batch, Sleep) ->
         "--sleep",
         str(Sleep)
     ]).
+
+%% Return the lines printed for one listener, without the listener id line.
+listener_block(Id) ->
+    {ok, Output} = capture_ctl(["listeners"]),
+    Lines = binary:split(Output, <<"\n">>, [global, trim_all]),
+    [_ | Rest] = lists:dropwhile(fun(L) -> L =/= list_to_binary(Id) end, Lines),
+    lists:takewhile(fun(L) -> binary:first(L) =:= $\s end, Rest).
+
+%% Return the nested counters printed under `accept_stats`. Check that they
+%% are non-zero, follow the esockd order and have their colon in column 24.
+accept_stats_lines(Block) ->
+    Stats = counter_lines(<<"accept_stats">>, 20, Block),
+    Order = [
+        accepted,
+        closed_sys_limit,
+        closed_max_limit,
+        closed_overloaded,
+        closed_rate_limited,
+        closed_early,
+        closed_forbidden,
+        closed_other_reasons
+    ],
+    Keys = [K || {K, _} <- Stats],
+    ?assertEqual([K || K <- Order, lists:member(K, Keys)], Keys),
+    Stats.
+
+%% Return the nested counters printed under `shutdown_count`. Check that they
+%% are non-zero and have their colon in column 31.
+shutdown_count_lines(Block) ->
+    counter_lines(<<"shutdown_count">>, 27, Block).
+
+counter_lines(Parent, Width, Block) ->
+    Header = iolist_to_binary(["  ", string:pad(Parent, 22), ":"]),
+    [_ | Rest] = lists:dropwhile(fun(L) -> L =/= Header end, Block),
+    Nested = lists:takewhile(fun(L) -> binary:part(L, 0, 4) =:= <<"    ">> end, Rest),
+    Counters = lists:map(
+        fun(L) ->
+            ?assertEqual({4 + Width, 1}, binary:match(L, <<":">>), L),
+            {match, [K, V]} = re:run(L, <<"^    (\\w+) *: (\\d+)$">>, [
+                {capture, all_but_first, binary}
+            ]),
+            {binary_to_atom(K), binary_to_integer(V)}
+        end,
+        Nested
+    ),
+    ?assertEqual([], [KV || {_, 0} = KV <- Counters]),
+    Counters.
 
 capture_ctl(Args) ->
     {Result, OutputChunks} =
