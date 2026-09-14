@@ -532,25 +532,21 @@ get_plugins() ->
     {node(), emqx_plugins:list(?normal, #{health_check => true})}.
 
 upload_install(post, #{name := NameVsn, bin := Bin}) ->
-    case emqx_plugins:describe(NameVsn, #{}) of
-        {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
-            case emqx_plugins:is_package_present(NameVsn) of
-                false ->
-                    install_package_on_nodes(NameVsn, Bin);
-                {true, TarGzs} ->
-                    %% TODO
-                    %% What if a tar file is present but is not unpacked, i.e.
-                    %% the plugin is not fully installed?
-                    {400, #{
-                        code => 'ALREADY_INSTALLED',
-                        message => iolist_to_binary(io_lib:format("~p already installed", [TarGzs]))
-                    }}
-            end;
-        {ok, _} ->
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
             {400, #{
                 code => 'ALREADY_INSTALLED',
                 message => iolist_to_binary(io_lib:format("~p is already installed", [NameVsn]))
-            }}
+            }};
+        _IncompleteOrAbsent ->
+            %% The plugin is not installed on this node: either nothing is
+            %% there, or the install dir only holds leftovers of a previous
+            %% attempt (an orphan `.tar.gz', a half-unpacked directory, or an
+            %% unreadable `release.json').  None of that is an installation,
+            %% so the upload is treated as a fresh install attempt: it must
+            %% pass the allow gate in `install_package_on_nodes/2', which also
+            %% purges the leftovers before unpacking the uploaded package.
+            install_package_on_nodes(NameVsn, Bin)
     end;
 upload_install(post, #{}) ->
     {400, #{
@@ -610,15 +606,26 @@ do_install_package_on_nodes(NameVsn, Bin) ->
                 end,
                 Filtered
             ),
-            Reason =
-                case hd(Filtered) of
-                    {error, #{msg := Reason0}} -> Reason0;
-                    {error, #{reason := Reason0}} -> Reason0
-                end,
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
-                message => iolist_to_binary([bin(Reason), ": ", NameVsn])
+                message => install_error_message(NameVsn, hd(Filtered))
             }}
+    end.
+
+%% The error of the first node that failed to install the package.  Errors
+%% carrying a hint (e.g. how to proceed when the plugin is in use) show it to
+%% the user.
+install_error_message(NameVsn, {error, Error}) ->
+    Reason =
+        case Error of
+            #{msg := Msg} -> Msg;
+            #{reason := Reason0} -> Reason0
+        end,
+    case Error of
+        #{hint := Hint} ->
+            iolist_to_binary([bin(Reason), ": ", NameVsn, ". ", bin(Hint)]);
+        _ ->
+            iolist_to_binary([bin(Reason), ": ", NameVsn])
     end.
 
 plugin(get, #{bindings := #{name := NameVsn}}) ->
@@ -766,7 +773,12 @@ install_package_v4(NameVsn, Bin) ->
         {error, #{reason := plugin_not_found}} = NotFound ->
             NotFound;
         {error, Reason} = Error ->
-            ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
+            %% Keep the specific error in the log: the generic `msg' below
+            %% replaces it.
+            ?SLOG(error, Reason#{
+                msg => "failed_to_install_plugin",
+                reason_msg => maps:get(msg, Reason, undefined)
+            }),
             _ = emqx_plugins:delete_package(NameVsn),
             Error;
         Result ->
