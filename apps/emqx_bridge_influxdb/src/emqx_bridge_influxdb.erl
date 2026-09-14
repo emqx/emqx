@@ -297,7 +297,7 @@ unescape_raw_line([], Acc) ->
 
 single_placeholder(Line) ->
     Subject = unicode:characters_to_binary(Line),
-    case re:run(Subject, "^\\$\\{[^{}]*\\}$", [{capture, none}]) of
+    case re:run(Subject, "^\\$\\{[^{}]+\\}$", [{capture, none}]) of
         match -> true;
         nomatch -> false
     end.
