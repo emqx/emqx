@@ -41,13 +41,16 @@
 -type options() :: #{
     strict_mode => boolean(),
     max_size => 1..?MAX_PACKET_SIZE,
-    version => emqx_types:proto_ver()
+    version => emqx_types:proto_ver(),
+    expect_connect => boolean()
 }.
 
 -record(options, {
     strict_mode :: boolean(),
     max_size :: 1..?MAX_PACKET_SIZE,
-    version :: emqx_types:proto_ver()
+    version :: emqx_types:proto_ver(),
+    %% When true, the next packet must be a CONNECT.
+    expect_connect :: boolean()
 }).
 
 -record(remlen, {hdr, len, mult, opts :: #options{}}).
@@ -67,7 +70,8 @@
 -define(DEFAULT_OPTIONS, #{
     strict_mode => false,
     max_size => ?MAX_PACKET_SIZE,
-    version => ?MQTT_PROTO_V4
+    version => ?MQTT_PROTO_V4,
+    expect_connect => false
 }).
 
 -define(PARSE_ERR(Reason), ?THROW_FRAME_ERROR(Reason)).
@@ -80,22 +84,26 @@
 describe_state({frame, Options = #options{}}) ->
     #{
         state => frame,
-        proto_ver => Options#options.version
+        proto_ver => Options#options.version,
+        expect_connect => Options#options.expect_connect
     };
 describe_state(Options = #options{}) ->
     #{
         state => clean,
-        proto_ver => Options#options.version
+        proto_ver => Options#options.version,
+        expect_connect => Options#options.expect_connect
     };
 describe_state(#remlen{opts = Options}) ->
     #{
         state => parsing_varint_length,
-        proto_ver => Options#options.version
+        proto_ver => Options#options.version,
+        expect_connect => Options#options.expect_connect
     };
 describe_state(#body{hdr = Hdr, need = Need, acc = Acc, opts = Options}) ->
     #{
         state => parsing_body,
         proto_ver => Options#options.version,
+        expect_connect => Options#options.expect_connect,
         parsed_header => Hdr,
         expected_bytes_remain => Need,
         received_bytes => iolist_size(Acc)
@@ -115,7 +123,8 @@ initial_parse_state(Options) when is_map(Options) ->
     #options{
         strict_mode = maps:get(strict_mode, Effective),
         max_size = maps:get(max_size, Effective),
-        version = maps:get(version, Effective)
+        version = maps:get(version, Effective),
+        expect_connect = maps:get(expect_connect, Effective)
     }.
 
 %%--------------------------------------------------------------------
@@ -131,6 +140,7 @@ parse(
     <<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>,
     Options = #options{strict_mode = StrictMode}
 ) ->
+    ok = validate_connect_first(Type, Options),
     %% Validate header if strict mode.
     StrictMode andalso validate_header(Type, Dup, QoS, Retain),
     Header = #mqtt_packet_header{
@@ -160,6 +170,7 @@ parse_complete(
     <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>>,
     Options = #options{strict_mode = StrictMode}
 ) ->
+    ok = validate_connect_first(Type, Options),
     %% Validate header if strict mode.
     StrictMode andalso validate_header(Type, Dup, QoS, Retain),
     Header = #mqtt_packet_header{
@@ -175,6 +186,18 @@ parse_complete(
             {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
             parse_packet_complete(Rest2, Header, Options)
     end.
+
+%% Reject any packet received before CONNECT, while only the fixed header is
+%% read, so that no body byte is buffered for an unauthenticated connection.
+validate_connect_first(?CONNECT, _Options) ->
+    ok;
+validate_connect_first(_Type, #options{expect_connect = false}) ->
+    ok;
+validate_connect_first(Type, _Options) ->
+    ?PARSE_ERR(#{
+        cause => unexpected_packet_before_connect,
+        header_type => emqx_packet:type_name(Type)
+    }).
 
 -spec guess_first_packet_protocol(binary()) -> map().
 guess_first_packet_protocol(<<Type:4, _Flags:4, _/binary>> = Data) ->
@@ -327,7 +350,7 @@ packet(Header, Variable, Payload) ->
 parse_packet_complete(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
-    NOptions = update_parse_state(Variable#mqtt_packet_connect.proto_ver, Options),
+    NOptions = connect_parsed(Variable#mqtt_packet_connect.proto_ver, Options),
     [Packet, NOptions];
 parse_packet_complete(Frame, Header, Options) ->
     parse_packet(Frame, Header, Options).
@@ -336,7 +359,7 @@ parse_packet_complete(Frame, Header, Options) ->
 parse_packet(Frame, Header = #mqtt_packet_header{type = ?CONNECT}, Options, Rest) ->
     Variable = parse_connect(Frame, Options),
     Packet = packet(Header, Variable),
-    {Packet, Rest, update_parse_state(Variable#mqtt_packet_connect.proto_ver, Options)};
+    {Packet, Rest, connect_parsed(Variable#mqtt_packet_connect.proto_ver, Options)};
 parse_packet(Frame, Header, Options, Rest) ->
     Packet = parse_packet(Frame, Header, Options),
     {Packet, Rest, Options}.
@@ -373,6 +396,12 @@ parse_connect(Frame, Options = #options{strict_mode = StrictMode}) ->
     parse_state_initial().
 update_parse_state(ProtoVer, Options) ->
     Options#options{version = ProtoVer}.
+
+%% CONNECT is parsed: record the protocol version and stop requiring CONNECT.
+-spec connect_parsed(emqx_types:proto_ver(), parse_state_initial()) ->
+    parse_state_initial().
+connect_parsed(ProtoVer, Options) ->
+    Options#options{version = ProtoVer, expect_connect = false}.
 
 do_parse_connect(
     ProtoName,

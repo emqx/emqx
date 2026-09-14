@@ -336,7 +336,9 @@ init_state(
     ActiveN = get_active_n(Type, Listener),
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
+        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+        %% Any packet received before CONNECT is rejected by the parser.
+        expect_connect => true
     },
     Parser = init_parser(FrameOpts),
     Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
