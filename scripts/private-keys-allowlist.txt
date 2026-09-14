@@ -1,4 +1,4 @@
-# Files that may hold a private key. `scripts/check-private-keys.sh` fails on
+# Files that may hold a private key. `scripts/check-private-keys.py` fails on
 # any other file with a PEM private key block or a keystore extension, and on
 # an entry here that no longer holds one.
 #

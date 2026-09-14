@@ -98,7 +98,7 @@ jobs:
           ./scripts/check-nl-at-eof.sh
       - name: Check committed private keys
         run: |
-          ./scripts/check-private-keys.sh
+          ./scripts/check-private-keys.py
       - name: Check apps version
         run: |
           ./scripts/apps-version-check.exs
