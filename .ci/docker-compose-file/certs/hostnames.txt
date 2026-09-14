@@ -7,7 +7,6 @@
 # `toxiproxy`.
 authn-server
 elasticsearch
-es01
 haproxy
 jaeger.emqx.net
 ldap
