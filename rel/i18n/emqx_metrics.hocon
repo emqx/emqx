@@ -168,7 +168,7 @@ emqx_metrics {
         desc: "Number of messages dropped due to receive maximum being reached"
     }
     messages_rejected_quota_exceeded {
-        desc: "Number of messages rejected due to quota being exceeded"
+        desc: "Number of QoS 1 and QoS 2 messages rejected due to quota being exceeded"
     }
     messages_forward {
         desc: "Number of messages forwarded to other nodes"
