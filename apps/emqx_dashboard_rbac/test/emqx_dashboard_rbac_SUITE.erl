@@ -186,8 +186,8 @@ t_change_pwd(_) ->
     %% viewer can change own password
     ?assertEqual({ok, Viewer1}, change_pwd(Viewer1Token, Viewer1)),
     %% viewer can't change other's password
-    ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, Viewer2)),
-    ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, SuperUser)),
+    ?assertEqual({error, {unauthorized_role, Viewer1}}, change_pwd(Viewer1Token, Viewer2)),
+    ?assertEqual({error, {unauthorized_role, Viewer1}}, change_pwd(Viewer1Token, SuperUser)),
     %% superuser can change other's password
     ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, Viewer1)),
     ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, Viewer2)),
