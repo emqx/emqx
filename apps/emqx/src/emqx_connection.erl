@@ -1388,11 +1388,19 @@ init_zone_specific_state(Zone, Opts, #state{} = State0) ->
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
-                init_parser_and_serializer(FrameOpts0, State0);
+                %% Before CONNECT: the parser rejects any other packet type.
+                init_parser_and_serializer(FrameOpts0#{expect_connect => true}, State0);
             Parser1 ->
                 case emqx_frame:describe_state(Parser1) of
-                    #{state := Clean, proto_ver := ProtoVer} when Clean == frame; Clean == clean ->
-                        FrameOpts = FrameOpts0#{version => ProtoVer},
+                    #{state := Clean, proto_ver := ProtoVer} = Desc when
+                        Clean == frame; Clean == clean
+                    ->
+                        %% Keep the pre-CONNECT check across a zone change: a client that
+                        %% has not sent CONNECT yet must still send CONNECT first.
+                        ExpectConnect = maps:get(expect_connect, Desc, false),
+                        FrameOpts = FrameOpts0#{
+                            version => ProtoVer, expect_connect => ExpectConnect
+                        },
                         init_parser_and_serializer(FrameOpts, State0);
                     _ ->
                         %% Keep state
