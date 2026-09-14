@@ -171,9 +171,9 @@ node_info() ->
         process_available => erlang:system_info(process_limit),
         process_used => erlang:system_info(process_count),
         max_fds => esockd:ulimit(),
-        connections => ets:info(?CHAN_TAB, size),
-        live_connections => ets:info(?CHAN_LIVE_TAB, size),
-        cluster_sessions => ets:info(?CHAN_REG_TAB, size),
+        connections => node_stat('connections.count'),
+        live_connections => node_stat('live_connections.count'),
+        cluster_sessions => node_stat('cluster_sessions.count'),
         node_status => 'running',
         uptime => proplists:get_value(uptime, BrokerInfo),
         version => iolist_to_binary(proplists:get_value(version, BrokerInfo)),
@@ -184,6 +184,21 @@ node_info() ->
         log_path => log_path(),
         sys_path => iolist_to_binary(code:root_dir())
     }.
+
+%% @doc Read a stat cached by `emqx_stats', which refreshes it every second.
+%%
+%% Preferred over `ets:info(Tab, size)' for the channel tables: those are
+%% `ordered_set' with `write_concurrency', so their decentralized size counters
+%% make every size read a snapshot operation.  A value at most one second stale
+%% is accurate enough for the node info API.
+node_stat(Name) ->
+    try
+        emqx_stats:getstat(Name)
+    catch
+        error:badarg ->
+            %% The stats table may not exist yet during cluster join.
+            0
+    end.
 
 log_path() ->
     RootDir = code:root_dir(),

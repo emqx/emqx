@@ -423,6 +423,7 @@ emqx_collect(K = emqx_live_connections_max, D) -> gauge_metrics(?MG(K, D));
 %% sessions
 emqx_collect(K = emqx_sessions_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_sessions_max, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_disconnected_sessions_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_channels_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_channels_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_cluster_sessions_count, D) -> gauge_metrics(?MG(K, D));
@@ -536,6 +537,7 @@ emqx_collect(K = emqx_messages_dropped_expired, D) -> counter_metrics(?MG(K, D))
 emqx_collect(K = emqx_messages_dropped_no_subscribers, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped_quota_exceeded, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped_receive_maximum, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_messages_rejected_quota_exceeded, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_forward, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_retained, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_delayed, D) -> counter_metrics(?MG(K, D));
@@ -668,6 +670,7 @@ stats_metric_meta() ->
         %% sessions
         {emqx_sessions_count, gauge, 'sessions.count'},
         {emqx_sessions_max, gauge, 'sessions.max'},
+        {emqx_disconnected_sessions_count, gauge, 'disconnected_sessions.count'},
         {emqx_channels_count, gauge, 'channels.count'},
         {emqx_channels_max, gauge, 'channels.max'},
         %% pub/sub stats
@@ -1043,6 +1046,7 @@ message_metric_meta() ->
         {emqx_messages_dropped_no_subscribers, counter, 'messages.dropped.no_subscribers'},
         {emqx_messages_dropped_quota_exceeded, counter, 'messages.dropped.quota_exceeded'},
         {emqx_messages_dropped_receive_maximum, counter, 'messages.dropped.receive_maximum'},
+        {emqx_messages_rejected_quota_exceeded, counter, 'messages.rejected.quota_exceeded'},
         {emqx_messages_forward, counter, 'messages.forward'},
         {emqx_messages_retained, counter, 'messages.retained'},
         {emqx_messages_delayed, counter, 'messages.delayed'},
