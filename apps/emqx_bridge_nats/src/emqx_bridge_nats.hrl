@@ -1,0 +1,4 @@
+-define(CONNECTOR_TYPE, nats).
+-define(CONNECTOR_TYPE_BIN, <<"nats">>).
+-define(ACTION_TYPE, nats).
+-define(ACTION_TYPE_BIN, <<"nats">>).
