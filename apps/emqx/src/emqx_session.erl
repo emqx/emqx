@@ -54,6 +54,7 @@
 -export([
     info/1,
     info/2,
+    cached_info/1,
     stats/1
 ]).
 
@@ -171,6 +172,17 @@
     created_at,
     is_persistent,
     subscriptions,
+    upgrade_qos,
+    retry_interval,
+    await_rel_timeout,
+    impl
+]).
+
+%% `?INFO_KEYS` without `subscriptions`, see `cached_info/1`.
+-define(CACHED_INFO_KEYS, [
+    id,
+    created_at,
+    is_persistent,
     upgrade_qos,
     retry_interval,
     await_rel_timeout,
@@ -670,6 +682,16 @@ run_terminate_hooks(ClientInfo, Reason, Session) ->
 -spec info(t()) -> emqx_types:infos().
 info(Session) ->
     maps:from_list(info(?INFO_KEYS, Session)).
+
+-doc """
+Session attributes cached in the `emqx_channel_info` ETS table.
+
+Same as `info/1` without `subscriptions`: building and copying that map costs
+O(number of subscriptions) on every cache refresh, and no reader of the table uses it.
+""".
+-spec cached_info(t()) -> emqx_types:infos().
+cached_info(Session) ->
+    maps:from_list(info(?CACHED_INFO_KEYS, Session)).
 
 -spec info
     ([atom()], t()) -> [{atom(), _Value}];
