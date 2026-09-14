@@ -65,7 +65,10 @@ parse(Hocon) ->
     Conf.
 
 check(Conf) when is_map(Conf) ->
-    hocon_tconf:check_plain(emqx_bridge_schema, Conf).
+    check(Conf, #{}).
+
+check(Conf, Opts) when is_map(Conf) ->
+    hocon_tconf:check_plain(emqx_bridge_schema, Conf, Opts).
 
 -define(validation_error(Reason, Value),
     {emqx_bridge_schema, [
@@ -143,6 +146,47 @@ producer_attributes_validator_test_() ->
                             }
                         ]
                     })
+                )
+            )}
+    ].
+
+%% The redacted value passes validation only when the caller marks the input as possibly
+%% obfuscated.  The HTTP API handler then restores the stored value.
+service_account_json_redacted_test_() ->
+    emqx_utils:interactive_load(emqx_bridge_enterprise),
+    BaseConf = parse(gcp_pubsub_producer_hocon()),
+    RedactedConf = emqx_utils_maps:deep_put(
+        [<<"bridges">>, <<"gcp_pubsub">>, <<"my_producer">>, <<"service_account_json">>],
+        BaseConf,
+        <<"******">>
+    ),
+    [
+        {"redacted value is not json",
+            ?_assertThrow(
+                ?validation_error("not a json", <<"******">>),
+                check(RedactedConf)
+            )},
+        {"redacted value tolerated when maybe obfuscated",
+            ?_assertMatch(
+                ?ok_config(#{<<"service_account_json">> := <<"******">>}),
+                check(RedactedConf, #{maybe_obfuscated => true})
+            )},
+        {"invalid json still rejected when maybe obfuscated",
+            ?_assertThrow(
+                %% the error value is redacted because the field is sensitive
+                ?validation_error("not a json", _),
+                check(
+                    emqx_utils_maps:deep_put(
+                        [
+                            <<"bridges">>,
+                            <<"gcp_pubsub">>,
+                            <<"my_producer">>,
+                            <<"service_account_json">>
+                        ],
+                        BaseConf,
+                        <<"*****">>
+                    ),
+                    #{maybe_obfuscated => true}
                 )
             )}
     ].
