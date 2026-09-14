@@ -374,19 +374,16 @@ ssl_options(Conf) ->
     end.
 
 client_ssl_options(SSL) ->
-    maps:filter(
-        fun(_Key, Value) -> Value =/= "" end,
-        #{
-            enable => maps:get(<<"enable">>, SSL, false),
-            verify => to_verify(maps:get(<<"verify">>, SSL, <<"verify_none">>)),
-            server_name_indication => to_sni(
-                maps:get(<<"server_name_indication">>, SSL, <<"disable">>)
-            ),
-            cacertfile => to_string(maps:get(<<"cacertfile">>, SSL, <<>>)),
-            certfile => to_string(maps:get(<<"certfile">>, SSL, <<>>)),
-            keyfile => to_string(maps:get(<<"keyfile">>, SSL, <<>>))
-        }
-    ).
+    #{
+        enable => maps:get(<<"enable">>, SSL, false),
+        verify => to_verify(maps:get(<<"verify">>, SSL, <<"verify_none">>)),
+        server_name_indication => to_sni(
+            maps:get(<<"server_name_indication">>, SSL, <<"disable">>)
+        ),
+        cacertfile => to_optional_string(maps:get(<<"cacertfile">>, SSL, <<>>)),
+        certfile => to_optional_string(maps:get(<<"certfile">>, SSL, <<>>)),
+        keyfile => to_optional_string(maps:get(<<"keyfile">>, SSL, <<>>))
+    }.
 
 -spec validate_config_update(map()) -> ok | {error, term()}.
 validate_config_update(Conf0) ->
@@ -417,11 +414,11 @@ validate_config(Conf0) ->
                 }
             of
                 {<<>>, _, _} ->
-                    {error, missing_primary_base_url};
+                    invalid_config(<<"primary.base_url">>, <<>>);
                 {_, <<>>, _} ->
-                    {error, missing_primary_api_key};
+                    invalid_config(<<"primary.api_key">>, <<>>);
                 {_, _, <<>>} ->
-                    {error, missing_primary_api_secret};
+                    invalid_config(<<"primary.api_secret">>, <<>>);
                 _ ->
                     validate_primary_ssl(Primary)
             end;
@@ -434,7 +431,7 @@ validate_sync_duration(Field, Value) ->
         {ok, Ms} when is_integer(Ms), Ms > 0 ->
             ok;
         _ ->
-            {error, {invalid_sync_duration, Field, Value}}
+            invalid_config(Field, Value)
     end.
 
 validate_primary_ssl(Primary) ->
@@ -444,11 +441,14 @@ validate_primary_ssl(Primary) ->
             Verify = maps:get(<<"verify">>, SSL, <<"verify_none">>),
             case valid_verify(Verify) of
                 true -> ok;
-                false -> {error, {bad_primary_ssl_verify, Verify}}
+                false -> invalid_config(<<"primary.ssl.verify">>, Verify)
             end;
         false ->
             ok
     end.
+
+invalid_config(Field, Value) ->
+    {error, #{cause => invalid_config, field => Field, value => Value}}.
 
 valid_verify(<<"verify_none">>) -> true;
 valid_verify(<<"verify_peer">>) -> true;
@@ -521,6 +521,9 @@ to_verify(<<"verify_peer">>) -> verify_peer.
 to_sni(<<"disable">>) -> disable;
 to_sni(disable) -> disable;
 to_sni(Value) -> to_string(Value).
+
+to_optional_string(<<>>) -> undefined;
+to_optional_string(Value) -> to_string(Value).
 
 to_string(<<>>) -> "";
 to_string(Bin) when is_binary(Bin) -> unicode:characters_to_list(Bin);
