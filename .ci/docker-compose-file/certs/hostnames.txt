@@ -6,6 +6,7 @@
 # underscore (datalayers_tls, influxdb_tls, nats_tls, ...) are reached through
 # `toxiproxy`.
 authn-server
+elasticsearch
 haproxy
 jaeger.emqx.net
 ldap
