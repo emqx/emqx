@@ -9,9 +9,9 @@ services:
       MYSQL_USER: user
       MYSQL_PASSWORD: public
     volumes:
-      - ./certs/ca.crt:/etc/certs/ca-cert.pem
-      - ./certs/server.crt:/etc/certs/server-cert.pem
-      - ./certs/server.key:/etc/certs/server-key.pem
+      - ./certs/cacert.pem:/etc/certs/ca-cert.pem
+      - ./certs/cert.pem:/etc/certs/server-cert.pem
+      - ./certs/key.pem:/etc/certs/server-key.pem
     ports:
       - "3307:3306"
     networks:

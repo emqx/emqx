@@ -17,10 +17,8 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: mqtt
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: abcdefg
     volumes:
-      - "${PWD}/certs/server_combined.pem:/etc/influxdb/cert.pem"
-      - "${PWD}/certs/server.key:/etc/influxdb/key.pem"
-#      - "../../../.ci/docker-compose-file/certs/server.crt:/etc/influxdb/cert.pem"
-#      - "../../../.ci/docker-compose-file/certs/server.key:/etc/influxdb/key.pem"
+      - "${PWD}/certs/cert.pem:/etc/influxdb/cert.pem"
+      - "${PWD}/certs/key.pem:/etc/influxdb/key.pem"
       - "../../../.ci/docker-compose-file/influxdb/setup-v1.sh:/docker-entrypoint-initdb.d/setup-v1.sh"
     restart: always
     command:

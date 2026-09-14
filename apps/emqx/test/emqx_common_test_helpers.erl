@@ -35,6 +35,7 @@
     client_mtls/0,
     ensure_test_certs/0,
     test_cert/1,
+    mock_server_certs/2,
     listener_test_certs/0,
     listener_test_certs/1,
     client_mtls/1,
@@ -461,6 +462,43 @@ ensure_test_certs() ->
 -spec test_cert(string()) -> file:filename_all().
 test_cert(Name) ->
     filename:join(ensure_test_certs(), Name).
+
+-doc """
+Writes a self-signed certificate for a mock TLS server into a new directory
+under `Dir' and returns the paths as a map with the keys `cacertfile',
+`certfile' and `keyfile'. Every call gets its own directory: `ssl' caches PEM
+files by path with a one-second mtime resolution, so a path reused for a new
+certificate within a second can serve the old one.
+
+`CN' is the name the certificate is issued for. It has no subject alternative
+names, so a client's hostname check falls back to the CN; a suite that wants
+verification against some other name to fail gets that by choosing the CN.
+The CA and the certificate use RSA keys, so suites that pin `ECDHE-RSA-*'
+cipher suites keep working and every TLS client accepts the chain.
+""".
+-spec mock_server_certs(file:name(), string()) ->
+    #{cacertfile := file:filename(), certfile := file:filename(), keyfile := file:filename()}.
+mock_server_certs(Dir, CN) ->
+    #{cert_pem := CaPem} =
+        Ca = emqx_utils_certs:generate_ca(#{
+            cn => "Mock Server CA", org => "EMQ", key_type => rsa
+        }),
+    #{cert_pem := CertPem, key_pem := KeyPem} = emqx_utils_certs:generate_cert(Ca, #{
+        cn => CN, org => "EMQ", key_type => rsa
+    }),
+    SetDir = filename:join(
+        Dir, "mock-certs-" ++ integer_to_list(erlang:unique_integer([positive]))
+    ),
+    ok = filelib:ensure_path(SetDir),
+    Paths = #{
+        cacertfile => filename:join(SetDir, "cacert.pem"),
+        certfile => filename:join(SetDir, "cert.pem"),
+        keyfile => filename:join(SetDir, "key.pem")
+    },
+    ok = file:write_file(maps:get(cacertfile, Paths), CaPem),
+    ok = file:write_file(maps:get(certfile, Paths), CertPem),
+    ok = file:write_file(maps:get(keyfile, Paths), KeyPem),
+    Paths.
 
 test_certs_dir() ->
     app_path(emqx, ?TEST_CERTS_DIR).

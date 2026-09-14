@@ -178,10 +178,17 @@ to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx) ->
 -doc """
 Same as `to_rt_listener_configs/4`, with options.
 
-`generate_default_certs` (default `true`): when `false`, a TLS listener with no
-certificate configured is given the node's default certificate only if that
-bundle already exists; nothing is generated. Use it for the configuration a
-gateway is being updated away from, which is read, not served.
+`generate_default_certs` (default `true`) decides what a TLS listener with no
+certificate configured gets:
+
+- `true`: the node's default certificate, generated first if this node has
+  none yet.
+- `false`: the node's default certificate if it already exists, otherwise
+  nothing. Nothing is generated.
+
+Pass `false` when the configuration is only read and not served, such as the
+old configuration during a gateway update. Reading it must have no side
+effect.
 """.
 -spec to_rt_listener_configs(gw_name(), map(), map(), term(), rt_opts()) ->
     list(listener_runtime_config()).
