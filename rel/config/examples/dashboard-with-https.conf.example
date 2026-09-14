@@ -17,19 +17,23 @@ dashboard {
         bind = "0.0.0.0:18084" ## or just a port number, e.g. 18084
 
         ssl_options {
+            ## Leave certfile and keyfile unset to serve the certificate this node
+            ## generates for itself. To serve your own, put the files under etc/certs
+            ## and name them here.
+
             ## PEM format certificates chain.
             ## Server certificate as the first one,
             ## followed by its immediate issuer certificate
             ## then the issuer's issuer certificate, and so on.
             ## Root CA certificate is optional.
             ## The path prefix (only prefix) can be an environment variable.
-            certfile = "${EMQX_ETC_DIR}/certs/cert.pem"
+            # certfile = "${EMQX_ETC_DIR}/certs/<name>.pem"
 
             ## PEM format private key
-            keyfile = "${EMQX_ETC_DIR}/certs/key.pem"
+            # keyfile = "${EMQX_ETC_DIR}/certs/<name>.key"
 
             ## Optional. When need to verify client certificates, list trusted client's root CA certificates in this file
-            # cacertfile = "${EMQX_ETC_DIR}/certs/cacert.pem"
+            # cacertfile = "${EMQX_ETC_DIR}/certs/<ca>.pem"
 
             ## Optional. Force client to send their certificate chain during TLS handshake.
             # fail_if_no_peer_cert = true

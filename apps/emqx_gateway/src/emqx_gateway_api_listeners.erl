@@ -797,9 +797,6 @@ examples_listener() ->
                                     <<"tlsv1.1">>,
                                     <<"tlsv1">>
                                 ],
-                                cacertfile => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
-                                certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
-                                keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
@@ -843,9 +840,6 @@ examples_listener() ->
                         dtls_options =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
-                                cacertfile => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
-                                certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
-                                keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
@@ -870,9 +864,6 @@ examples_listener() ->
                         dtls_options =>
                             #{
                                 versions => [<<"dtlsv1.2">>, <<"dtlsv1">>],
-                                cacertfile => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
-                                certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
-                                keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 user_lookup_fun => <<"emqx_tls_psk:lookup">>,
                                 ciphers =>
@@ -973,9 +964,6 @@ examples_listener() ->
                                     <<"tlsv1.1">>,
                                     <<"tlsv1">>
                                 ],
-                                cacertfile => <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
-                                certfile => <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
-                                keyfile => <<"${EMQX_ETC_DIR}/certs/key.pem">>,
                                 verify => <<"verify_none">>,
                                 fail_if_no_peer_cert => false
                             },
