@@ -422,3 +422,10 @@ t_legacy_service_account_json_redact(TCConfig) ->
         get_connector_api(TCConfig)
     ),
     ok.
+
+%% Verifies that the redacted connector body returned by the HTTP API can be sent back via
+%% update and probe, and that the stored service account JSON is kept.
+t_service_account_json_redacted_round_trip(TCConfig) ->
+    ?assertMatch({201, _}, create_connector_api(TCConfig, #{})),
+    ok = emqx_bridge_gcp_pubsub_utils:assert_redacted_service_account_json_round_trip(TCConfig),
+    ok.

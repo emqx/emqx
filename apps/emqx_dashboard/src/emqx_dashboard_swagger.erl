@@ -23,7 +23,9 @@
 -export([
     filter_check_request/2,
     filter_check_request_and_translate_body_atom_keys/2,
+    filter_check_request/3,
     filter_check_request_and_translate_body/2,
+    filter_check_request_and_translate_body/3,
     gen_api_schema_json_iodata/3
 ]).
 
@@ -321,10 +323,23 @@ compose_filters(Filter1, Filter2) ->
 %%------------------------------------------------------------------------------
 
 filter_check_request_and_translate_body(Request, RequestMeta) ->
-    translate_req(Request, RequestMeta, fun check_and_translate/3).
+    filter_check_request_and_translate_body(Request, RequestMeta, _Opts = #{}).
+
+filter_check_request_and_translate_body(Request, RequestMeta, Opts) ->
+    translate_req(Request, RequestMeta, with_extra_opts(fun check_and_translate/3, Opts)).
 
 filter_check_request(Request, RequestMeta) ->
-    translate_req(Request, RequestMeta, fun check_only/3).
+    filter_check_request(Request, RequestMeta, _Opts = #{}).
+
+filter_check_request(Request, RequestMeta, Opts) ->
+    translate_req(Request, RequestMeta, with_extra_opts(fun check_only/3, Opts)).
+
+with_extra_opts(CheckFun, Opts1) when map_size(Opts1) =:= 0 ->
+    CheckFun;
+with_extra_opts(CheckFun, Opts1) ->
+    fun(Schema, Map, Opts0) ->
+        CheckFun(Schema, Map, maps:merge(Opts0, Opts1))
+    end.
 
 filter_check_request_and_translate_body_atom_keys(Request, RequestMeta) ->
     CheckFun = fun(Schema, Map, Opts0) ->

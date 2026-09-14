@@ -580,7 +580,11 @@ schema("/bridges_probe") ->
 
 '/bridges_probe'(post, Request) ->
     RequestMeta = #{module => ?MODULE, method => post, path => "/bridges_probe"},
-    case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
+    case
+        emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta, #{
+            maybe_obfuscated => true
+        })
+    of
         {ok, #{body := #{<<"type">> := BridgeType} = Params}} ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
             Params2 = maps:remove(<<"type">>, Params1),
