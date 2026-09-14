@@ -313,13 +313,20 @@ api_key(get, Req) ->
     Apps = [App || App <- emqx_mgmt_auth:list(), namespace_accessible(CallerNs, App)],
     {200, [emqx_mgmt_auth:format(App) || App <- Apps]};
 api_key(post, #{body := App} = Req) ->
-    #{
-        <<"name">> := Name,
-        <<"desc">> := Desc0,
-        <<"enable">> := Enable
-    } = App,
+    %% `name' is mandatory in the request schema, `desc' and `enable' are
+    %% optional and are simply absent from the checked body when the client
+    %% omits them, so they must be defaulted here rather than being
+    %% pattern-matched. The Dashboard sends `desc' as `""' and `enable' as `true'.
+    %%
+    %% Note: this request body is a plain field list, so request validation
+    %% drops unknown fields instead of rejecting them: a misspelled field such
+    %% as `description' creates the key with an empty note instead of failing
+    %% with 400. That is the framework-wide behaviour of list-form request
+    %% bodies and is deliberately kept here.
+    #{<<"name">> := Name} = App,
     ExpiredAt = ensure_expired_at(App),
-    Desc = unicode:characters_to_binary(Desc0, unicode),
+    Desc = unicode:characters_to_binary(maps:get(<<"desc">>, App, <<>>), unicode),
+    Enable = maps:get(<<"enable">>, App, true),
     Role0 = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
     Namespace = maps:get(<<"namespace">>, App, undefined),
     CallerNs = emqx_dashboard:get_namespace(Req),
