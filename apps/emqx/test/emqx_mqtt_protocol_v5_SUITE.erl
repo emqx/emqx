@@ -437,6 +437,29 @@ t_connect_idle_timeout(Config) ->
         ?block_until(#{?snk_kind := terminate, reason := {shutdown, idle_timeout}}, IdleTimeout)
     ).
 
+t_publish_before_connect(init, Config) ->
+    ok = snabbkaffe:start_trace(),
+    Config;
+t_publish_before_connect('end', _Config) ->
+    snabbkaffe:stop(),
+    ok.
+
+%% A PUBLISH as the first packet closes the connection without a CONNACK,
+%% before the announced body arrives.
+t_publish_before_connect(_Config) ->
+    SockOpts = [binary, {active, true}, {nodelay, true}],
+    {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, 1883, SockOpts, 5000),
+    ClientSockname = esockd:format(element(2, inet:sockname(Sock))),
+    %% PUBLISH fixed header announcing a 100000 byte body, below
+    %% max_packet_size. The body is never sent.
+    ok = gen_tcp:send(Sock, <<(?PUBLISH bsl 4), 16#A0, 16#8D, 16#06>>),
+    ?assertReceive({tcp_closed, Sock}, 5000),
+    ?assertNotReceive({tcp, Sock, _}),
+    ?assertMatch(
+        {ok, #{reason := {shutdown, #{cause := unexpected_packet_before_connect}}}},
+        ?block_until(#{?snk_kind := terminate, ?snk_meta := #{peername := ClientSockname}}, 5000)
+    ).
+
 t_connect_emit_stats_timeout(init, Config) ->
     NewIdleTimeout = 1000,
     emqx_config:put_zone_conf(default, [mqtt, idle_timeout], NewIdleTimeout),
