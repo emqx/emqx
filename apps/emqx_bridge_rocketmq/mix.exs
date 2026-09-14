@@ -23,8 +23,7 @@ defmodule EMQXBridgeRocketmq.MixProject do
 
   def deps() do
     [
-      {:rocketmq,
-       github: "emqx/rocketmq-client-erl", branch: "260914-topic-not-found-and-reconnect"},
+      {:rocketmq, github: "emqx/rocketmq-client-erl", tag: "v0.7.3"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
