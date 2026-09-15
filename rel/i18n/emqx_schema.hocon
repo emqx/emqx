@@ -1393,6 +1393,16 @@ mqtt_max_packet_size.desc:
 mqtt_max_packet_size.label:
 """Max Packet Size"""
 
+mqtt_max_connect_user_properties.desc:
+"""Maximum number of 'User-Property' pairs accepted in a CONNECT packet.
+The limit applies separately to the CONNECT properties and to the will properties.
+EMQX rejects a CONNECT carrying more pairs than this and closes the connection.
+Set to `infinity` to accept any number.
+Note: changing this config at runtime may only take effect for newly established connections after the change."""
+
+mqtt_max_connect_user_properties.label:
+"""Max CONNECT User Properties"""
+
 common_ssl_opts_schema_reuse_sessions.desc:
 """Enable TLS session reuse.<br/>
 Has no effect when TLS version is configured (or negotiated) to 1.3"""

@@ -52,6 +52,7 @@
 -type options() :: #{
     strict_mode => boolean(),
     max_size => 1..?MAX_PACKET_SIZE,
+    max_connect_user_properties => non_neg_integer() | infinity,
     version => emqx_types:proto_ver()
 }.
 
@@ -84,6 +85,9 @@
 %% Process dictionary key. When set, the next packet parsed in this process
 %% must be a CONNECT.
 -define(PD_EXPECT_CONNECT, '$emqx_frame_expect_connect').
+
+-define(USER_PROPERTY_COUNT, '$emqx_user_property_count').
+-define(USER_PROPERTY_LIMIT, '$emqx_user_property_limit').
 
 -define(PARSE_ERR(Reason), ?THROW_FRAME_ERROR(Reason)).
 -define(SERIALIZE_ERR(Reason), ?THROW_SERIALIZE_ERROR(Reason)).
@@ -306,7 +310,7 @@ parse_connect(FrameBin, Options = #{strict_mode := StrictMode}) ->
     {IsBridge, ProtoVer, Rest2} = parse_connect_proto_ver(Rest0),
     NOptions = Options#{version => ProtoVer},
     try
-        do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, StrictMode)
+        do_parse_connect(ProtoName, IsBridge, ProtoVer, Rest2, Options)
     catch
         throw:{?FRAME_PARSE_ERROR, ReasonM} when is_map(ReasonM) ->
             ?PARSE_ERR(
@@ -342,8 +346,9 @@ do_parse_connect(
         KeepAlive:16/big,
         Rest/binary
     >>,
-    StrictMode
+    Options = #{strict_mode := StrictMode}
 ) ->
+    MaxUserProperties = maps:get(max_connect_user_properties, Options, infinity),
     _ = validate_connect_reserved(Reserved),
     _ = validate_connect_will(
         WillFlag = bool(WillFlagB),
@@ -356,7 +361,9 @@ do_parse_connect(
         UsernameFlag = bool(UsernameFlagB),
         PasswordFlag = bool(PasswordFlagB)
     ),
-    {Properties, Rest3} = parse_properties(Rest, ProtoVer, StrictMode),
+    {Properties, Rest3} = parse_properties(
+        Rest, ProtoVer, StrictMode, MaxUserProperties
+    ),
     {ClientId, Rest4} = parse_utf8_string_with_cause(Rest3, StrictMode, invalid_clientid),
     ConnPacket = #mqtt_packet_connect{
         proto_name = ProtoName,
@@ -372,7 +379,7 @@ do_parse_connect(
         properties = Properties,
         clientid = ClientId
     },
-    {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4, StrictMode),
+    {ConnPacket1, Rest5} = parse_will_message(ConnPacket, Rest4, Options),
     {Username, Rest6} = parse_optional(
         Rest5,
         fun(Bin) ->
@@ -396,7 +403,7 @@ do_parse_connect(
                 unexpected_trailing_bytes => size(Rest7)
             })
     end;
-do_parse_connect(_ProtoName, _IsBridge, _ProtoVer, Bin, _StrictMode) ->
+do_parse_connect(_ProtoName, _IsBridge, _ProtoVer, Bin, _Options) ->
     %% sent less than 24 bytes
     ?PARSE_ERR(#{cause => malformed_connect, header_bytes => Bin}).
 
@@ -547,9 +554,10 @@ parse_will_message(
         proto_ver = Ver
     },
     Bin,
-    StrictMode
+    Options = #{strict_mode := StrictMode}
 ) ->
-    {Props, Rest} = parse_properties(Bin, Ver, StrictMode),
+    MaxUserProperties = maps:get(max_connect_user_properties, Options, infinity),
+    {Props, Rest} = parse_properties(Bin, Ver, StrictMode, MaxUserProperties),
     {Topic, Rest1} = parse_utf8_string_with_cause(Rest, StrictMode, invalid_topic),
     {Payload, Rest2} = parse_will_payload(Rest1),
     {
@@ -560,7 +568,7 @@ parse_will_message(
         },
         Rest2
     };
-parse_will_message(Packet, Bin, _StrictMode) ->
+parse_will_message(Packet, Bin, _Options) ->
     {Packet, Bin}.
 
 -compile({inline, [parse_packet_id/1]}).
@@ -575,18 +583,29 @@ parse_connect_proto_ver(Bin) ->
     %% sent less than 1 bytes or empty
     ?PARSE_ERR(#{cause => malformed_connect, header_bytes => Bin}).
 
-parse_properties(Bin, Ver, _StrictMode) when Ver =/= ?MQTT_PROTO_V5 ->
+parse_properties(Bin, Ver, StrictMode) ->
+    parse_properties(Bin, Ver, StrictMode, infinity).
+
+%% `MaxUserProperties' caps the number of 'User-Property' pairs in this
+%% properties block. Only CONNECT and will properties pass a finite limit.
+parse_properties(Bin, Ver, _StrictMode, _MaxUserProperties) when Ver =/= ?MQTT_PROTO_V5 ->
     {#{}, Bin};
 %% TODO: version mess?
-parse_properties(<<>>, ?MQTT_PROTO_V5, _StrictMode) ->
+parse_properties(<<>>, ?MQTT_PROTO_V5, _StrictMode, _MaxUserProperties) ->
     {#{}, <<>>};
-parse_properties(<<0, Rest/binary>>, ?MQTT_PROTO_V5, _StrictMode) ->
+parse_properties(<<0, Rest/binary>>, ?MQTT_PROTO_V5, _StrictMode, _MaxUserProperties) ->
     {#{}, Rest};
-parse_properties(Bin, ?MQTT_PROTO_V5, StrictMode) ->
+parse_properties(Bin, ?MQTT_PROTO_V5, StrictMode, MaxUserProperties) ->
     {Len, Rest} = parse_variable_byte_integer(Bin),
     case Rest of
         <<PropsBin:Len/binary, Rest1/binary>> ->
-            {finalize_user_property(parse_property(PropsBin, #{}, StrictMode)), Rest1};
+            InitialProps = #{
+                ?USER_PROPERTY_COUNT => 0,
+                ?USER_PROPERTY_LIMIT => MaxUserProperties
+            },
+            ParsedProps = parse_property(PropsBin, InitialProps, StrictMode),
+            Props = maps:without([?USER_PROPERTY_COUNT, ?USER_PROPERTY_LIMIT], ParsedProps),
+            {finalize_user_property(Props), Rest1};
         _ ->
             ?PARSE_ERR(#{
                 cause => user_property_not_enough_bytes,
@@ -649,7 +668,8 @@ parse_property(<<16#24, Val, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Maximum-QoS' => Val}, StrictMode);
 parse_property(<<16#25, Val, Bin/binary>>, Props, StrictMode) ->
     parse_property(Bin, Props#{'Retain-Available' => Val}, StrictMode);
-parse_property(<<16#26, Bin/binary>>, Props, StrictMode) ->
+parse_property(<<16#26, Bin/binary>>, Props0, StrictMode) ->
+    Props = count_user_property(Props0),
     {Pair, Rest} = parse_utf8_pair(Bin, StrictMode),
     %% Accumulate in reverse order to keep this O(1) per entry; the list is
     %% reversed back to wire order in parse_properties/3 once parsing finishes.
@@ -670,6 +690,21 @@ parse_property(<<16#2A, Val, Bin/binary>>, Props, StrictMode) ->
 parse_property(<<Property:8, _Rest/binary>>, _Props, _StrictMode) ->
     ?PARSE_ERR(#{cause => invalid_property_code, property_code => Property}).
 %% TODO: invalid property in specific packet.
+
+%% Check the limit before parsing the next pair, so a malformed excess pair
+%% cannot replace the count-limit error or allocate another pair.
+count_user_property(
+    #{?USER_PROPERTY_COUNT := Count, ?USER_PROPERTY_LIMIT := Max} = Props
+) ->
+    ok = validate_user_property_count(Count, Max),
+    Props#{?USER_PROPERTY_COUNT := Count + 1}.
+
+validate_user_property_count(_Count, infinity) ->
+    ok;
+validate_user_property_count(Count, Max) when Count < Max ->
+    ok;
+validate_user_property_count(_Count, Max) ->
+    ?PARSE_ERR(#{cause => too_many_user_properties, limit => Max}).
 
 %% Restore wire order for the 'User-Property' list, which parse_property/3
 %% accumulates in reverse to keep per-entry cost constant.

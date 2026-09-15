@@ -354,11 +354,14 @@ init_state(
     LimiterTypes = [?LIMITER_BYTES_IN, ?LIMITER_MESSAGE_IN],
     Limiter = emqx_limiter_container:get_limiter_by_types(Listener, LimiterTypes, LimiterCfg),
 
+    MaxConnectUserProperties = max_connect_user_properties(Zone),
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
-    ParseState = emqx_frame:initial_parse_state(FrameOpts),
+    ParseState = emqx_frame:initial_parse_state(
+        FrameOpts#{max_connect_user_properties => MaxConnectUserProperties}
+    ),
     %% Any packet received before CONNECT is rejected by the parser.
     ok = emqx_frame:expect_connect(),
     Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
@@ -396,6 +399,13 @@ init_state(
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
         extra = []
     }.
+
+max_connect_user_properties(Zone) ->
+    emqx_config:get_zone_conf(
+        Zone,
+        [mqtt, max_connect_user_properties],
+        ?DEFAULT_MAX_CONNECT_USER_PROPERTIES
+    ).
 
 run_loop(
     Parent,
