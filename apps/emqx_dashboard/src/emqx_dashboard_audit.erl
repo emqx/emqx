@@ -173,6 +173,8 @@ non_empty_map(_) -> undefined.
 %% before the generic key-name redaction runs.
 redact_request_body(#{operation_id := <<"/license">>}, _Body) ->
     <<"******">>;
+redact_request_body(#{operation_id := <<"/login/verify">>}, _Body) ->
+    <<"******">>;
 redact_request_body(#{operation_id := <<"/sso/mfa/", _/binary>>}, Body) ->
     redact_sso_mfa_body(Body);
 redact_request_body(_Meta, Body) ->

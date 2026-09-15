@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_audit.hrl").
 
 all() ->
     [
@@ -525,6 +526,104 @@ t_sso_mfa_body_redacted_by_position(_) ->
     ok.
 
 -doc """
+SCRAM verification request bodies contain authentication material and are
+redacted as a whole before the event reaches either persistence sink.
+""".
+t_scram_verify_body_redacted(_) ->
+    Now = erlang:monotonic_time(),
+    Meta = #{
+        method => post,
+        code => 200,
+        operation_id => <<"/login/verify">>,
+        headers => #{},
+        bindings => #{},
+        body => #{
+            <<"challenge_id">> => <<"scram-challenge-id">>,
+            <<"combined_nonce">> => <<"client-and-server-nonce">>,
+            <<"client_proof">> => <<"client-proof">>,
+            <<"mfa_token">> => <<"123456">>
+        },
+        req_start => Now,
+        req_end => Now
+    },
+    Req = #{headers => #{}, peer => {{127, 0, 0, 1}, 18083}},
+    #{http_request := #{body := <<"******">>}} =
+        emqx_dashboard_audit:log_meta(60, Meta, Req),
+    #{http_request := #{body := <<"******">>}} =
+        emqx_dashboard_audit:log_meta(60, Meta#{body => [<<"not-a-map">>]}, Req),
+    ok.
+
+-doc """
+A successful SCRAM login must redact the submitted client proof before the
+audit event is stored. Neither the raw Mnesia record nor GET /audit may retain
+any field from the verification request body.
+""".
+t_scram_client_proof_redacted(_) ->
+    Username = <<"scram_audit_user">>,
+    Password = <<"scramAuditP@ss1">>,
+    ClientNonce = <<"auditClientNonce1234567890">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, Password, ?ROLE_SUPERUSER, <<"SCRAM audit test user">>
+    ),
+    try
+        StartAt = erlang:system_time(microsecond),
+        {ok, 200, Challenge} = request_api_without_auth(
+            post,
+            emqx_mgmt_api_test_util:api_path(["login", "challenge"]),
+            #{username => Username, client_nonce => ClientNonce}
+        ),
+        ChallengeId = maps:get(<<"challenge_id">>, Challenge),
+        ServerNonce = maps:get(<<"server_nonce">>, Challenge),
+        CombinedNonce = <<ClientNonce/binary, ServerNonce/binary>>,
+        Proof = emqx_dashboard_scram:client_proof(
+            Username,
+            ClientNonce,
+            ServerNonce,
+            base64:decode(maps:get(<<"salt">>, Challenge)),
+            maps:get(<<"iterations">>, Challenge),
+            Password
+        ),
+        EncodedProof = base64:encode(Proof),
+        {ok, 200, #{<<"token">> := _}} = request_api_without_auth(
+            post,
+            emqx_mgmt_api_test_util:api_path(["login", "verify"]),
+            #{
+                challenge_id => ChallengeId,
+                combined_nonce => CombinedNonce,
+                client_proof => EncodedProof
+            }
+        ),
+        AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+        AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+        Query = lists:flatten(
+            io_lib:format(
+                "from=dashboard&source=~ts&operation_id=/login/verify&gte_created_at=~B&limit=1",
+                [Username, StartAt]
+            )
+        ),
+        Response = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+        #{
+            <<"data">> := [
+                #{
+                    <<"source">> := Username,
+                    <<"operation_id">> := <<"/login/verify">>,
+                    <<"operation_type">> := <<"login">>,
+                    <<"operation_result">> := <<"success">>,
+                    <<"http_status_code">> := 200,
+                    <<"http_method">> := <<"post">>,
+                    <<"http_request">> := #{<<"body">> := ApiBody}
+                }
+            ]
+        } = emqx_utils_json:decode(Response),
+        assert_scram_audit_body(ApiBody, EncodedProof, ChallengeId, CombinedNonce),
+        #?AUDIT{http_request = #{body := StoredBody}} =
+            find_stored_audit_entry(Username, StartAt),
+        assert_scram_audit_body(StoredBody, EncodedProof, ChallengeId, CombinedNonce)
+    after
+        _ = emqx_dashboard_admin:remove_user(Username)
+    end.
+
+-doc """
 The three public SSO MFA endpoints must not persist their temporary tokens or
 TOTP codes in the audit record returned by GET /audit.
 """.
@@ -641,6 +740,32 @@ kickout_clients() ->
     {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse2 = emqx_utils_json:decode(Clients2),
     ?assertMatch(#{<<"data">> := []}, ClientsResponse2).
+
+request_api_without_auth(Method, Url, Body) ->
+    FlatUrl = binary_to_list(iolist_to_binary(Url)),
+    case emqx_common_test_http:request_api(Method, FlatUrl, [], no_auth_header, Body) of
+        {ok, Code, ResponseBody} ->
+            {ok, Code, emqx_utils_json:decode(ResponseBody)};
+        Error ->
+            Error
+    end.
+
+assert_scram_audit_body(Body, EncodedProof, ChallengeId, CombinedNonce) ->
+    ?assertEqual(nomatch, binary:match(Body, EncodedProof), Body),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"******">>), Body),
+    ?assertEqual(nomatch, binary:match(Body, ChallengeId), Body),
+    ?assertEqual(nomatch, binary:match(Body, CombinedNonce), Body),
+    ok.
+
+find_stored_audit_entry(Username, StartAt) ->
+    Records = mnesia:dirty_match_object(
+        ?AUDIT,
+        #?AUDIT{source = Username, operation_id = <<"/login/verify">>, _ = '_'}
+    ),
+    case [Record || #?AUDIT{created_at = CreatedAt} = Record <- Records, CreatedAt >= StartAt] of
+        [Record | _] -> Record;
+        [] -> ct:fail(scram_audit_entry_not_found_in_mnesia)
+    end.
 
 wait_for_dirty_write_log_done(MaxMs) ->
     Size = mnesia:table_info(emqx_audit, size),
