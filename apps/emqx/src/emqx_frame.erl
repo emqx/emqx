@@ -697,9 +697,7 @@ count_user_property(
     #{?USER_PROPERTY_COUNT := Count, ?USER_PROPERTY_LIMIT := Max} = Props
 ) ->
     ok = validate_user_property_count(Count, Max),
-    Props#{?USER_PROPERTY_COUNT := Count + 1};
-count_user_property(Props) ->
-    Props.
+    Props#{?USER_PROPERTY_COUNT := Count + 1}.
 
 validate_user_property_count(_Count, infinity) ->
     ok;
