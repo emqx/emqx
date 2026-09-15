@@ -468,12 +468,21 @@ t_install_running_plugin_broken_metadata(_Config) ->
     %% the metadata of the running plugin becomes unreadable
     ok = file:write_file(emqx_plugins_fs:info_file_path(NameVsn), <<"not json">>),
     ?assertMatch({error, _}, emqx_plugins:describe(NameVsn, #{})),
+    %% the package that is installed now
+    TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
+    {ok, InstalledPackage} = file:read_file(TarFile),
+    {ok, InstalledChecksum} = file:read_file(TarFile ++ ".md5sum"),
     ok = allow_installation(NameVsn),
-    {ok, {{_, 400, _}, _, Body}} = install_plugin(PackagePath),
+    %% an upload which is refused must not destroy it: it may be the only
+    %% local copy the broken installation can be repaired from
+    RefusedPackage = create_modified_package(PackagePath),
+    {ok, {{_, 400, _}, _, Body}} = install_plugin(RefusedPackage),
     #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
     ?assertNotEqual(nomatch, binary:match(Msg, <<"plugin_is_in_use">>)),
     %% the message tells the user how to get out of the situation
     ?assertNotEqual(nomatch, binary:match(Msg, <<"stop the plugin first">>)),
+    ?assertEqual({ok, InstalledPackage}, file:read_file(TarFile)),
+    ?assertEqual({ok, InstalledChecksum}, file:read_file(TarFile ++ ".md5sum")),
     %% the running plugin is still running, from the same files
     ?assertEqual(running, emqx_plugins_apps:running_status(NameVsn)),
     emqx_plugins_test_helpers:assert_files_exist(AppFiles),
@@ -483,6 +492,32 @@ t_install_running_plugin_broken_metadata(_Config) ->
     ?assertNotEqual(running, emqx_plugins_apps:running_status(NameVsn)),
     ok = install_plugin(PackagePath),
     ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    ok.
+
+%% A package which does not contain the applications its own metadata
+%% declares must be rejected instead of being reported as installed (the next
+%% state check would classify it as incomplete again).
+t_install_incomplete_package_returns_error(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    %% a beam file which the application resource file declares is missing
+    IncompletePackage = strip_declared_beam(PackagePath),
+    ok = allow_installation(NameVsn),
+    {ok, {{_, 400, _}, _, Body}} = install_plugin(IncompletePackage),
+    #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
+    ?assertNotEqual(nomatch, binary:match(Msg, <<"incomplete_plugin_package">>)),
+    %% the message tells the user what to do
+    ?assertNotEqual(nomatch, binary:match(Msg, <<"rebuild or reinstall">>)),
+    %% nothing of the refused package has been installed
+    ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
     ok.
 
 t_install_plugin_matching_exisiting_name(_Config) ->
@@ -725,6 +760,61 @@ get_demo_plugin_package() ->
     ),
     true = filelib:is_regular(Pkg),
     Pkg.
+
+%% The same plugin package with different bytes: a file is added, the name-vsn
+%% stays the same, so an upload of it can only be told apart from the installed
+%% package by comparing the bytes.
+create_modified_package(PackagePath) ->
+    {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ModifiedPath = filename:join([upload_scratch_dir(), NameVsn ++ ?PACKAGE_SUFFIX]),
+    ok = filelib:ensure_dir(ModifiedPath),
+    ok = erl_tar:create(
+        ModifiedPath,
+        [{filename:join(NameVsn, "REVIEW_EXTRA.md"), <<"different bytes">>} | Content],
+        [compressed]
+    ),
+    ModifiedPath.
+
+%% The same plugin package with one beam file removed: the application resource
+%% file still declares the module.
+strip_declared_beam(PackagePath) ->
+    {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    AppFile = find_app_file(Content),
+    [Module | _] = declared_modules(AppFile, Content),
+    MissingBeam = filename:join(filename:dirname(AppFile), atom_to_list(Module) ++ ".beam"),
+    StrippedPath = filename:join([
+        upload_scratch_dir(), "incomplete", NameVsn ++ ?PACKAGE_SUFFIX
+    ]),
+    ok = filelib:ensure_dir(StrippedPath),
+    ok = erl_tar:create(
+        StrippedPath,
+        [{File, Bin} || {File, Bin} <- Content, File =/= MissingBeam],
+        [compressed]
+    ),
+    StrippedPath.
+
+%% A directory for the packages the tests upload: outside of the directories of
+%% the plugins themselves, so that they do not look like installations.
+upload_scratch_dir() ->
+    filename:join([emqx_plugins_fs:install_dir(), "upload"]).
+
+find_app_file(Content) ->
+    [AppFile | _] = [
+        File
+     || {File, _Bin} <- Content,
+        filename:extension(File) =:= ".app"
+    ],
+    AppFile.
+
+declared_modules(AppFile, Content) ->
+    AppFileBin = proplists:get_value(AppFile, Content),
+    TmpFile = filename:join([upload_scratch_dir(), "declared_modules.app"]),
+    ok = filelib:ensure_dir(TmpFile),
+    ok = file:write_file(TmpFile, AppFileBin),
+    {ok, [{application, _AppName, Props}]} = file:consult(TmpFile),
+    proplists:get_value(modules, Props).
 
 create_renamed_package(PackagePath, NewNameVsn) ->
     {ok, Content} = erl_tar:extract(PackagePath, [compressed, memory]),

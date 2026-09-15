@@ -61,6 +61,8 @@ with_rand_install_dir(F) ->
     OriginalInstallDir = emqx_plugins_fs:install_dir(),
     ok = filelib:ensure_dir(filename:join([TmpDir, "foo"])),
     ok = emqx_plugins:put_config_internal(install_dir, TmpDir),
+    %% the plugin's configuration status is read from the config
+    ok = emqx_plugins:put_config_internal(states, []),
     try
         F(TmpDir)
     after
@@ -345,6 +347,240 @@ ensure_stopped_without_readable_metadata_test() ->
         unmeck_emqx()
     end.
 
+%% An installation which is complete on disk is not made incomplete by an
+%% application that is loaded from another version of the same plugin: the
+%% runtime state must not decide whether the files of a complete installation
+%% may be replaced.  On this branch the installation validator only reads the
+%% metadata, so this pins the behaviour instead of fixing it; it is the
+%% regression which the dev-60 port needed (`plugin_app_loaded_outside_package'
+%% used to be classified as an incomplete extraction there).
+install_state_ignores_other_version_loaded_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                V1 = "other_vsn-0.1.0",
+                V2 = "other_vsn-0.2.0",
+                ok = install_plugin_files(V1, []),
+                ok = install_plugin_files(V2, []),
+                ok = start_plugin_app(V1),
+                try
+                    ?assert(emqx_plugins_fs:is_extraction_complete(V2)),
+                    ?assertEqual(installed, emqx_plugins:install_state(V2)),
+                    V2Files = installed_plugin_files(V2),
+                    %% the complete installation is kept, not purged
+                    ?assertEqual(
+                        ok,
+                        emqx_plugins_fs:ensure_installed_from_tar(V2, fun() ->
+                            emqx_plugins:validate_installation(V2)
+                        end)
+                    ),
+                    assert_files_exist(V2Files)
+                after
+                    ok = stop_plugin_app(V1)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% Classifying an installation must not install its configuration schema: the
+%% state is inspected before an upload is authorized, so a rejected upload must
+%% not change how the plugin's configuration is decoded.
+install_state_does_not_load_config_schema_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "schema_add-0.1.0",
+                ok = install_plugin_files(NameVsn, []),
+                ok = write_file(avsc_file_path(NameVsn), <<"{}">>),
+                ?assert(emqx_plugins_fs:is_extraction_complete(NameVsn)),
+                ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+                ?assertNot(meck:called(emqx_plugins_serde, add_schema, '_'))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% Same, for the error path: an unreadable installation must not make the
+%% classification delete the schema of a plugin that is still running.
+install_state_does_not_delete_config_schema_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "schema_delete-0.1.0",
+                ok = install_plugin_files(NameVsn, []),
+                ok = start_plugin_app(NameVsn),
+                try
+                    %% the application file of the running plugin disappears
+                    ok = file:delete(app_file_path(NameVsn)),
+                    ?assertEqual(incomplete, emqx_plugins:install_state(NameVsn)),
+                    ?assertNot(meck:called(emqx_plugins_serde, delete_schema, '_'))
+                after
+                    ok = stop_plugin_app(NameVsn)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% The leftovers of a failed installation can not always be removed: that is
+%% an error to report, not a `badmatch' crash while a configured plugin is
+%% being recovered.
+reinstall_reports_purge_failure_test() ->
+    meck_emqx(),
+    meck:new(emqx_plugins_fs, [passthrough]),
+    try
+        %% a read-only directory or a permission error, as the file system
+        %% reports it (the test must not depend on the user it runs as)
+        meck:expect(emqx_plugins_fs, purge_installed, fun(_NameVsn) -> {error, eacces} end),
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "unpurgeable-0.1.0",
+                ok = write_file(emqx_plugins_fs:info_file_path(NameVsn), <<"not json">>),
+                ?assertEqual(incomplete, emqx_plugins:install_state(NameVsn)),
+                ?assertMatch(
+                    {error, #{msg := "failed_to_purge_plugin_dir"}},
+                    emqx_plugins:ensure_installed(NameVsn)
+                )
+            end
+        )
+    after
+        meck:unload(emqx_plugins_fs),
+        unmeck_emqx()
+    end.
+
+%% An application which can not be unloaded is still running from the
+%% installation that is about to be replaced, so the replacement has to be
+%% refused instead of deleting its files.
+prepare_replacement_reports_unload_failure_test() ->
+    meck_emqx(),
+    meck:new(emqx_plugins_apps, [passthrough]),
+    try
+        meck:expect(emqx_plugins_apps, running_apps_from, fun(_Dir) -> [] end),
+        meck:expect(
+            emqx_plugins_apps,
+            stop_and_unload_loaded,
+            fun(_Dir) -> {error, "can not unload"} end
+        ),
+        ?assertMatch(
+            {error, #{msg := "failed_to_unload_plugin_apps"}},
+            emqx_plugins_fs:prepare_replacement("unloadable-0.1.0")
+        )
+    after
+        meck:unload(emqx_plugins_apps),
+        unmeck_emqx()
+    end.
+
+%% A package which does not contain the applications its own metadata declares
+%% must not be reported as installed: the next state check would classify the
+%% fresh installation as incomplete again.
+install_from_local_tar_rejects_incomplete_package_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "incomplete_pkg-0.1.0",
+                ok = emqx_plugins_fs:write_tar(
+                    NameVsn, plugin_package_missing_beam(NameVsn, missing_mod)
+                ),
+                ?assertMatch(
+                    {error, #{msg := "incomplete_plugin_package"}},
+                    emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
+                ),
+                %% nothing of the half installed package is left behind
+                ?assertNot(emqx_plugins_fs:is_extraction_complete(NameVsn)),
+                ?assertEqual({error, enoent}, file:read_file_info(app_file_path(NameVsn)))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A failed installation attempt must leave the package which was installed
+%% before it as it was: it may be the only local copy the installation can be
+%% repaired from.
+restore_package_puts_back_the_replaced_package_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "package-0.1.0",
+                TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
+                Md5File = TarFile ++ ".md5sum",
+                ok = emqx_plugins:write_package(NameVsn, <<"installed package">>),
+                {ok, InstalledChecksum} = file:read_file(Md5File),
+                Backup = emqx_plugins:backup_package(NameVsn),
+                %% a new upload overwrites the installed package ...
+                ok = emqx_plugins:write_package(NameVsn, <<"rejected package">>),
+                ?assertEqual({ok, <<"rejected package">>}, file:read_file(TarFile)),
+                %% ... and is put back when the installation attempt fails
+                ok = emqx_plugins:restore_package(NameVsn, Backup),
+                ?assertEqual({ok, <<"installed package">>}, file:read_file(TarFile)),
+                ?assertEqual({ok, InstalledChecksum}, file:read_file(Md5File))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A hand copied package has no checksum, and a package which did not exist
+%% before the failed attempt must not be left behind.
+restore_package_restores_each_file_separately_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "orphan_package-0.1.0",
+                TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
+                Md5File = TarFile ++ ".md5sum",
+                %% a package which was not there before is deleted
+                Backup = emqx_plugins:backup_package(NameVsn),
+                ok = emqx_plugins:write_package(NameVsn, <<"failed package">>),
+                ok = emqx_plugins:restore_package(NameVsn, Backup),
+                ?assertEqual(false, emqx_plugins:is_package_present(NameVsn)),
+                ?assertEqual({error, enoent}, file:read_file(Md5File)),
+                %% a package copied by hand is kept without a checksum
+                ok = write_file(TarFile, <<"hand copied package">>),
+                Backup1 = emqx_plugins:backup_package(NameVsn),
+                ok = emqx_plugins:write_package(NameVsn, <<"failed package">>),
+                ok = emqx_plugins:restore_package(NameVsn, Backup1),
+                ?assertEqual({ok, <<"hand copied package">>}, file:read_file(TarFile)),
+                ?assertEqual({error, enoent}, file:read_file(Md5File))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
+%% A module which is not an atom can not name a beam file: the application is
+%% not extracted, instead of crashing the state check with a `badarg'.
+is_extraction_complete_rejects_non_atom_modules_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                NameVsn = "bad_modules-0.1.0",
+                ok = write_file(emqx_plugins_fs:info_file_path(NameVsn), release_json(NameVsn)),
+                ok = write_file(
+                    app_file_path(NameVsn),
+                    app_file(app_name(NameVsn), ["not_an_atom"])
+                ),
+                %% the state check must not crash on the malformed
+                %% application resource file
+                ?assertEqual(incomplete, emqx_plugins:install_state(NameVsn)),
+                ?assertEqual(incomplete, emqx_plugins_fs:install_state(NameVsn))
+            end
+        )
+    after
+        unmeck_emqx()
+    end.
+
 %% A simplified version of `emqx_plugins:validate_installation/1': the info
 %% file must be there and must be readable.
 validator(NameVsn) ->
@@ -400,11 +636,32 @@ plugin_app_dir(NameVsn) ->
 plugin_app_ebin_dir(NameVsn) ->
     filename:join(plugin_app_dir(NameVsn), "ebin").
 
+plugin_app_priv_dir(NameVsn) ->
+    filename:join(plugin_app_dir(NameVsn), "priv").
+
+avsc_file_path(NameVsn) ->
+    filename:join(plugin_app_priv_dir(NameVsn), "config_schema.avsc").
+
 app_file_path(NameVsn) ->
     filename:join(plugin_app_ebin_dir(NameVsn), atom_to_list(app_name(NameVsn)) ++ ".app").
 
 beam_file_path(NameVsn, Module) ->
     filename:join(plugin_app_ebin_dir(NameVsn), atom_to_list(Module) ++ ".beam").
+
+%% The files an unpack of `NameVsn' writes: they must all survive a refused
+%% replacement.
+installed_plugin_files(NameVsn) ->
+    {ok, [{application, _AppName, Props}]} = file:consult(app_file_path(NameVsn)),
+    Modules = proplists:get_value(modules, Props, []),
+    [
+        emqx_plugins_fs:info_file_path(NameVsn),
+        app_file_path(NameVsn)
+        | [beam_file_path(NameVsn, Module) || Module <- Modules]
+    ].
+
+assert_files_exist(Files) ->
+    Missing = [File || File <- Files, not filelib:is_regular(File)],
+    ?assertEqual([], Missing).
 
 %% Create what a completed unpack of `NameVsn' leaves on disk: the metadata,
 %% the application resource file and one beam file per declared module.
@@ -438,6 +695,18 @@ plugin_package_with_modules(NameVsn, Modules, ExtraFiles) ->
         ] ++ [{filename:join(NameVsn, Name), Bin} || {Name, Bin} <- ExtraFiles],
     tar_of(Files).
 
+%% A package whose application file declares a module whose beam file is not
+%% part of the package.
+plugin_package_missing_beam(NameVsn, Module) ->
+    EbinRelDir = filename:join([NameVsn, NameVsn, "ebin"]),
+    tar_of([
+        {filename:join(NameVsn, "release.json"), release_json(NameVsn)},
+        {
+            filename:join(EbinRelDir, atom_to_list(app_name(NameVsn)) ++ ".app"),
+            app_file(app_name(NameVsn), [Module])
+        }
+    ]).
+
 tar_of(Files) ->
     TmpFile = filename:join(emqx_plugins_fs:install_dir(), "tmp-test-package.tar.gz"),
     ok = erl_tar:create(TmpFile, Files, [compressed]),
@@ -470,6 +739,11 @@ meck_emqx() ->
         fun(Path, Values, _Opts) ->
             emqx_config:put(Path, Values)
         end
+    ),
+    meck:expect(
+        emqx_plugins_serde,
+        add_schema,
+        fun(_NameVsn, _AvscBin) -> ok end
     ),
     meck:expect(
         emqx_plugins_serde,
