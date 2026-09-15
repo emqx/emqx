@@ -50,6 +50,7 @@ groups() ->
             t_serialize_parse_v4_connect,
             t_serialize_parse_v5_connect,
             t_parse_many_user_properties_is_linear,
+            t_parse_connect_user_property_limit,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
             t_serialize_parse_connect_with_malformed_will,
@@ -475,6 +476,124 @@ t_parse_many_user_properties_is_linear(_) ->
     %% not a microbenchmark. The old quadratic path took seconds here.
     ?assert(Elapsed < 2000, #{elapsed_ms => Elapsed}),
     ok.
+
+-doc """
+CONNECT and will properties have independent user-property limits. The parser
+checks the limit before parsing an excess pair. Other packet types stay
+unlimited, and no CONNECT byte limit is introduced.
+""".
+t_parse_connect_user_property_limit(_) ->
+    Zero = emqx_frame:initial_parse_state(#{max_connect_user_properties => 0}),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(make_v5_connect_frame(<<>>), Zero)),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 0},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(1)), Zero)
+    ),
+
+    Limit = 2,
+    Limited = emqx_frame:initial_parse_state(#{max_connect_user_properties => Limit}),
+    Exact = make_v5_connect_frame(user_properties(Limit)),
+    Excess = make_v5_connect_frame(user_properties(Limit + 1)),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(Exact, Limited)),
+    ?assertMatch([_Packet, _Options], emqx_frame:parse_complete(Exact, Limited)),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(Excess, Limited)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse_complete(Excess, Limited)
+    ),
+
+    %% Will properties use a separate counter.
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(
+            make_v5_connect_with_will_frame(
+                user_properties(Limit), user_properties(Limit)
+            ),
+            Limited
+        )
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(
+            make_v5_connect_with_will_frame(<<>>, user_properties(Limit + 1)),
+            Limited
+        )
+    ),
+
+    %% The count error wins before a malformed excess pair is decoded.
+    MalformedExcess = <<(user_properties(Limit))/binary, 16#26, 0>>,
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(make_v5_connect_frame(MalformedExcess), Limited)
+    ),
+
+    ManyProps = user_property_pairs(20),
+    Infinity = emqx_frame:initial_parse_state(#{max_connect_user_properties => infinity}),
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(20)), Infinity)
+    ),
+    %% The standalone parser keeps its historical unlimited default.
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(20)))
+    ),
+
+    %% The CONNECT-only option does not bound PUBLISH or SUBSCRIBE properties.
+    NonConnectOpts = #{version => ?MQTT_PROTO_V5, max_connect_user_properties => 0},
+    Props = #{'User-Property' => ManyProps},
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, Props, <<"payload">>),
+    ?assertEqual(Publish, parse_serialize(Publish, NonConnectOpts)),
+    TopicFilters = [{<<"t">>, #{rh => 0, qos => ?QOS_0, rap => 0, nl => 0}}],
+    Subscribe = ?SUBSCRIBE_PACKET(1, Props, TopicFilters),
+    ?assertEqual(Subscribe, parse_serialize(Subscribe, NonConnectOpts)),
+
+    %% A CONNECT larger than 64 KB still follows the existing max_packet_size.
+    LargeConnect = make_large_v5_connect_frame(40_000),
+    ?assert(byte_size(LargeConnect) > 65_536),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(LargeConnect, Limited)).
+
+user_property_pairs(N) ->
+    [{<<>>, integer_to_binary(I)} || I <- lists:seq(1, N)].
+
+%% N duplicate-key user properties on the wire, each with an indexed value.
+user_properties(N) ->
+    iolist_to_binary([
+        begin
+            Value = integer_to_binary(I),
+            <<16#26, 0:16, (byte_size(Value)):16, Value/binary>>
+        end
+     || I <- lists:seq(1, N)
+    ]).
+
+make_v5_connect_frame(PropsBin) ->
+    PropsSection = <<(encode_vbi(byte_size(PropsBin)))/binary, PropsBin/binary>>,
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2:8, 60:16, PropsSection/binary>>,
+    Body = <<VarHeader/binary, 0:16>>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
+
+make_v5_connect_with_will_frame(ConnPropsBin, WillPropsBin) ->
+    ConnProps = <<(encode_vbi(byte_size(ConnPropsBin)))/binary, ConnPropsBin/binary>>,
+    WillProps = <<(encode_vbi(byte_size(WillPropsBin)))/binary, WillPropsBin/binary>>,
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2#00000110:8, 60:16, ConnProps/binary>>,
+    Body = <<VarHeader/binary, 0:16, WillProps/binary, 4:16, "will", 2:16, "hi">>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
+
+make_large_v5_connect_frame(CredentialSize) ->
+    Credential = binary:copy(<<"x">>, CredentialSize),
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2#11000010:8, 60:16, 0>>,
+    Body = <<
+        VarHeader/binary,
+        0:16,
+        CredentialSize:16,
+        Credential/binary,
+        CredentialSize:16,
+        Credential/binary
+    >>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
 
 %% Encode an unsigned integer as an MQTT variable byte integer.
 encode_vbi(N) when N < 16#80 ->
