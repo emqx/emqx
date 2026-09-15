@@ -53,6 +53,7 @@ init_per_suite(Config) ->
                 config => ?CONF_DEFAULT,
                 schema_mod => emqx_conf_schema
             }},
+            emqx_plugins,
             emqx_modules,
             emqx_license,
             emqx_audit,
@@ -361,6 +362,49 @@ t_cli_redaction(_Config) ->
         emqx_utils_json:decode(Res)
     ),
     {ok, _} = emqx_mgmt_auth:delete(iolist_to_binary(Name)),
+    ok.
+
+-doc """
+`emqx ctl plugins' arguments are not secrets: the audit record must keep the
+plugin name-vsn and the `--cluster' flag instead of masking them (emqx#18717).
+""".
+t_cli_plugins_redaction(_Config) ->
+    NameVsn = "audit_redaction_plugin-1.0.0",
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    ok = emqx_ctl:run_command(["plugins", "install", NameVsn]),
+    {ok, Res} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{
+                    <<"operation_type">> := <<"plugins">>,
+                    <<"args">> := [
+                        <<"install">>,
+                        <<"audit_redaction_plugin-1.0.0">>
+                    ]
+                }
+            ]
+        },
+        emqx_utils_json:decode(Res)
+    ),
+    ok = emqx_ctl:run_command(["plugins", "install", NameVsn, "--cluster"]),
+    {ok, Res2} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{
+                    <<"operation_type">> := <<"plugins">>,
+                    <<"args">> := [
+                        <<"install">>,
+                        <<"audit_redaction_plugin-1.0.0">>,
+                        <<"--cluster">>
+                    ]
+                }
+            ]
+        },
+        emqx_utils_json:decode(Res2)
+    ),
     ok.
 
 t_max_size(_Config) ->

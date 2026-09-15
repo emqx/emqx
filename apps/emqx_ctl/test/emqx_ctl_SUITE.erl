@@ -141,7 +141,8 @@ t_audit_redaction(_) ->
 
 %% Verify:
 %% `emqx_*_cli` modules implement `emqx_ctl`
-%% `emqx_ctl` implementations are named `emqx_*_cli`
+%% `emqx_ctl` implementations are named `emqx_*_cli`, or are helper modules
+%% which declare the behaviour (e.g. `emqx_plugins_cli_utils`)
 %% Registered commands have callbacks for audit logging
 t_cli_provider_contract(_) ->
     with_ctl_server(
@@ -158,15 +159,19 @@ t_cli_provider_contract(_) ->
             ],
             %% Pin successful discovery
             ?assert(length(CliModules) >= 10),
-            ?assertEqual(CliModules, CtlModules),
-            lists:foreach(fun(Module) -> ok = Module:load() end, CliModules),
+            %% Every name-matched CLI module must declare the behaviour; the
+            %% behaviour also covers CLI handler modules whose names do not end
+            %% in `_cli'.
+            ?assertEqual([], CliModules -- CtlModules),
+            CliHandlerModules = lists:usort(CliModules ++ CtlModules),
+            lists:foreach(fun(Module) -> ok = Module:load() end, CliHandlerModules),
             Commands = [
                 Command
              || {Cmd, _Module, _Fun} = Command <- emqx_ctl:get_commands(),
                 Cmd =/= audit
             ],
             HandlerModules = lists:usort([Module || {_Cmd, Module, _Fun} <- Commands]),
-            ?assertEqual([], CliModules -- HandlerModules),
+            ?assertEqual([], CliHandlerModules -- HandlerModules),
             ?assertEqual(
                 [],
                 [
@@ -176,7 +181,9 @@ t_cli_provider_contract(_) ->
                 ]
             ),
             ?assert(has_audit_args_callback(emqx_ctl, eval_erl)),
-            lists:foreach(fun(Module) -> ok = Module:unload() end, lists:reverse(CliModules)),
+            lists:foreach(
+                fun(Module) -> ok = Module:unload() end, lists:reverse(CliHandlerModules)
+            ),
             %% Syncronize, wait till unload's are processed
             _ = sys:get_state(emqx_ctl),
             ?assertEqual([], emqx_ctl:get_commands())

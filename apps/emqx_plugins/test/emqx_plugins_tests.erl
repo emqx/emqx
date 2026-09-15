@@ -267,3 +267,90 @@ map_plugin_api_result_case_insensitive_test() ->
     ?assertEqual(<<"c">>, iolist_to_binary(maps:get(<<"Content-Type">>, RespHeaders))),
     %% custom header with x-plugin- prefix passes (prefix matched case-insensitively)
     ?assertEqual(<<"d">>, iolist_to_binary(maps:get(<<"X-Plugin-Foo">>, RespHeaders))).
+
+%%--------------------------------------------------------------------
+%% CLI audit logging (emqx#18717)
+%%--------------------------------------------------------------------
+
+%% None of the `emqx ctl plugins' arguments are sensitive, so the audit args
+%% callback must keep them verbatim. Before the fix, `emqx_plugins_cli_utils'
+%% did not export the callback at all and `emqx_ctl' masked every argument.
+plugins_audit_args_preserves_arguments_test() ->
+    Sha256 = "sha256:" ++ lists:duplicate(64, $a),
+    ArgsList = [
+        [],
+        ["list"],
+        ["install", "my_plugin-1.0.0"],
+        ["install", "my_plugin-1.0.0", "--cluster"],
+        ["uninstall", "my_plugin-1.0.0"],
+        ["allow", "my_plugin-1.0.0", Sha256],
+        ["enable", "my_plugin-1.0.0", "before", "other_plugin-0.1.0"]
+    ],
+    lists:foreach(
+        fun(Args) ->
+            ?assertEqual(Args, emqx_plugins_cli_utils:plugins_audit_args(Args))
+        end,
+        ArgsList
+    ),
+    %% `emqx_ctl' discovers the callback by name and arity; without the
+    %% export it silently falls back to masking every argument again.
+    ?assert(erlang:function_exported(emqx_plugins_cli_utils, plugins_audit_args, 1)).
+
+%% `plugins install <Name-Vsn> --cluster' must reach the cluster install
+%% path rather than falling through to the usage clause (the `--cluster'
+%% branch was accidentally dropped when the CLI moved out of emqx_mgmt_cli).
+plugins_cli_install_cluster_dispatches_test() ->
+    catch meck:unload(emqx_plugins),
+    catch meck:unload(emqx_ctl),
+    ok = meck:new(emqx_plugins, [passthrough]),
+    ok = meck:new(emqx_ctl, [passthrough]),
+    try
+        Parent = self(),
+        ok = meck:expect(emqx_plugins, is_allowed_installation, fun(_NameVsn) -> false end),
+        ok = meck:expect(emqx_ctl, print, fun(Fmt, Args) ->
+            Parent ! {printed, lists:flatten(io_lib:format(Fmt, Args))},
+            ok
+        end),
+        ok = emqx_plugins_cli_utils:plugins(["install", "my_plugin-1.0.0", "--cluster"]),
+        %% Only the cluster install path prints `ensure_installed_cluster' as
+        %% the action; the usage fallback would print the command list.
+        receive
+            {printed, Output} ->
+                ?assertNotEqual(nomatch, string:find(Output, "ensure_installed_cluster"), Output)
+        after 1000 ->
+            error(cluster_install_not_dispatched)
+        end
+    after
+        meck:unload(emqx_ctl),
+        meck:unload(emqx_plugins)
+    end.
+
+%% A failed cluster install must stay observable: `emqx_ctl' derives the
+%% audit level and the CLI exit code from the handler result, so
+%% `ensure_installed_cluster/2' must not collapse failures into `ok'.
+ensure_installed_cluster_reports_failure_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                catch meck:unload(emqx_plugins),
+                ok = meck:new(emqx_plugins, [passthrough]),
+                try
+                    ok = meck:expect(
+                        emqx_plugins, is_allowed_installation, fun(_NameVsn) -> true end
+                    ),
+                    LogFun = fun(_Fmt, _Args) -> ok end,
+                    ?assertMatch(
+                        {error, _},
+                        emqx_plugins_cli_utils:ensure_installed_cluster(
+                            "no_such_plugin-1.0.0", LogFun
+                        )
+                    )
+                after
+                    meck:unload(emqx_plugins)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.

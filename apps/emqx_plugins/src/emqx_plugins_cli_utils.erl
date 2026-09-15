@@ -4,8 +4,10 @@
 
 -module(emqx_plugins_cli_utils).
 
+-behaviour(emqx_ctl).
+
 -export([load/0, unload/0]).
--export([plugins/1]).
+-export([plugins/1, plugins_audit_args/1]).
 
 -export([
     list/1,
@@ -59,6 +61,8 @@ plugins(["disallow", NameVsn]) ->
     disallow_installation(NameVsn, fun emqx_ctl:print/2);
 plugins(["install", NameVsn]) ->
     ensure_installed(NameVsn, fun emqx_ctl:print/2);
+plugins(["install", NameVsn, "--cluster"]) ->
+    ensure_installed_cluster(NameVsn, fun emqx_ctl:print/2);
 plugins(["uninstall", NameVsn]) ->
     ensure_uninstalled(NameVsn, fun emqx_ctl:print/2);
 plugins(["start", NameVsn]) ->
@@ -91,9 +95,10 @@ plugins(_) ->
                 "The hardened security profile requires sha256:HEX."},
             {"plugins disallow  Name-Vsn",
                 "Disallows installation of a plugin in the cluster from Dashboard or API"},
-            {"plugins install   Name-Vsn",
+            {"plugins install   Name-Vsn [--cluster]",
                 "Install a plugin package placed\n"
-                "in plugin's install_dir"},
+                "in plugin's install_dir.\n"
+                "Use --cluster to install on all running nodes"},
             {"plugins uninstall Name-Vsn",
                 "Uninstall a plugin. NOTE: it deletes\n"
                 "all files in install_dir/Name-Vsn"},
@@ -111,6 +116,12 @@ plugins(_) ->
                 "     plugins enable bar-0.2.0 before foo-0.1.0"}
         ]
     ).
+
+%% `plugins' arguments are all non-sensitive: plugin name-vsn, boot position,
+%% and the package sha256 digest (published next to the package) are meant to
+%% be public. Keep them verbatim in the audit log instead of masking everything.
+plugins_audit_args(Args) ->
+    Args.
 
 parse_sha256_hex(Hex) when length(Hex) =:= 64 ->
     case re:run(Hex, "^[0-9a-f]{64}$", [{capture, none}]) of
@@ -316,6 +327,9 @@ ensure_installed_cluster(NameVsn, LogFun) ->
         true ->
             Result = do_ensure_installed_cluster(NameVsn, LogFun),
             maybe_forget_grant(NameVsn, Result),
+            %% Return the outcome: `emqx_ctl' derives both the audit level and
+            %% the CLI exit code from it, so a failed cluster install must not
+            %% be reported as a success.
             Result;
         false ->
             ?PRINT({error, not_allowed}, LogFun)
