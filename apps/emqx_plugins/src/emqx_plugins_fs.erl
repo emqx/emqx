@@ -19,13 +19,15 @@
     get_tar/1,
     write_tar/2,
     delete_tar/1,
-    is_tar_present/1
+    is_tar_present/1,
+    backup_package/1,
+    restore_package/2
 ]).
 
 %% Unpack plugin tar/delete unpacked content
 -export([
     ensure_installed_from_tar/2,
-    install_state/2,
+    install_state/1,
     is_extraction_complete/1,
     is_in_use/1,
     prepare_replacement/1,
@@ -71,7 +73,11 @@
 %% What the plugin's install directory currently holds
 -type install_state() :: installed | incomplete | absent.
 
--export_type([install_state/0]).
+%% The package file (and its checksum) as it is on disk, kept so that a failed
+%% replacement can put it back.  Each file is `none' when it was not there.
+-type package_backup() :: #{tar := none | binary(), md5sum := none | binary()}.
+
+-export_type([install_state/0, package_backup/0]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -181,6 +187,55 @@ write_tar(NameVsn, Content) ->
     MD5 = emqx_utils:bin_to_hexstr(crypto:hash(md5, Content), lower),
     ok = file:write_file(md5sum_file_path(NameVsn), MD5).
 
+%% @doc Snapshot the package file (and its checksum) as it is on disk, so that
+%% it can be put back when a replacement of the installation fails.
+%%
+%% A package file which is not there is part of the snapshot as `none' (the
+%% restore deletes it again); a file which is there but can not be read is a
+%% failure instead, see `read_package_file/1'.
+-spec backup_package(name_vsn()) -> {ok, package_backup()} | {error, map()}.
+backup_package(NameVsn) ->
+    maybe
+        {ok, Tar} ?= read_package_file(tar_file_path(NameVsn)),
+        {ok, Md5sum} ?= read_package_file(md5sum_file_path(NameVsn)),
+        {ok, #{tar => Tar, md5sum => Md5sum}}
+    end.
+
+%% @doc Put the package file (and its checksum) back as it was before a failed
+%% installation attempt: a file which was not there is deleted.
+-spec restore_package(name_vsn(), package_backup()) -> ok | {error, term()}.
+restore_package(NameVsn, #{tar := Tar, md5sum := Md5sum}) ->
+    maybe
+        ok ?= restore_file(tar_file_path(NameVsn), Tar),
+        ok ?= restore_file(md5sum_file_path(NameVsn), Md5sum)
+    end.
+
+restore_file(Path, none) ->
+    delete_file_if_exists(Path);
+restore_file(Path, Content) ->
+    maybe
+        ok ?= filelib:ensure_dir(Path),
+        ok ?= file:write_file(Path, Content)
+    end.
+
+%% A missing file is part of the snapshot as `none': the restore then deletes
+%% it.  Any other error is reported instead of recorded as `none', because the
+%% restore would delete the package (or the checksum) it was meant to preserve.
+read_package_file(Path) ->
+    case file:read_file(Path) of
+        {ok, Content} ->
+            {ok, Content};
+        {error, enoent} ->
+            {ok, none};
+        {error, Reason} ->
+            {error, #{
+                msg => "failed_to_backup_plugin_package",
+                path => Path,
+                reason => Reason,
+                hint => <<"check the permissions of the plugins install directory">>
+            }}
+    end.
+
 %%--------------------------------------------------------------------
 %% Plugin package extraction
 %%--------------------------------------------------------------------
@@ -191,7 +246,7 @@ install_from_local_tar(NameVsn, InstallValidator) ->
         {ok, TarContent} ->
             case write_tar_file_content(install_dir(), TarContent) of
                 ok ->
-                    case InstallValidator() of
+                    case validate_unpacked(NameVsn, InstallValidator) of
                         ok ->
                             ok;
                         {error, Reason} ->
@@ -220,9 +275,41 @@ install_from_local_tar(NameVsn, InstallValidator) ->
             }}
     end.
 
+%% The freshly unpacked content must be a usable installation: it has to pass
+%% the caller's validation (metadata, ...) and to contain every application the
+%% package declares.  Without the completeness check a package which does not
+%% contain the files its own metadata declares would be reported as installed,
+%% and the next state check would classify it as incomplete again.
+validate_unpacked(NameVsn, InstallValidator) ->
+    maybe
+        ok ?= InstallValidator(),
+        case apps_not_extracted(NameVsn) of
+            {ok, []} ->
+                ok;
+            {ok, MissingApps} ->
+                {error, #{
+                    msg => "incomplete_plugin_package",
+                    name_vsn => NameVsn,
+                    missing_apps => MissingApps,
+                    hint => iolist_to_binary([
+                        "the package does not contain the applications declared by its"
+                        " release.json (",
+                        lists:join(", ", MissingApps),
+                        "): rebuild or reinstall a corrected plugin package"
+                    ])
+                }};
+            error ->
+                {error, #{
+                    msg => "bad_plugin_package_metadata",
+                    name_vsn => NameVsn,
+                    reason => metadata_not_readable
+                }}
+        end
+    end.
+
 -spec ensure_installed_from_tar(name_vsn(), fun(() -> ok | {error, term()})) -> ok | {error, map()}.
 ensure_installed_from_tar(NameVsn, InstallValidator) ->
-    case install_state(NameVsn, InstallValidator) of
+    case install_state(NameVsn) of
         installed ->
             ok;
         absent ->
@@ -231,27 +318,28 @@ ensure_installed_from_tar(NameVsn, InstallValidator) ->
             recover_incomplete_installation(NameVsn, InstallValidator)
     end.
 
-%% @doc Classify what the plugin's install directory currently holds.
+%% @doc Classify what the plugin's install directory holds on disk.
 %%
 %% `installed' means that the metadata is readable *and* that every application
 %% declared by the package has been extracted.  A directory holding only the
 %% leftovers of an interrupted or failed installation (no readable
 %% `release.json', or a manifest without the application files it declares) is
 %% `incomplete'; `absent' means that there is no directory at all.
--spec install_state(name_vsn(), fun(() -> ok | {error, term()})) -> install_state().
-install_state(NameVsn, InstallValidator) ->
+%%
+%% Only what is on disk is inspected: validation which depends on the runtime
+%% state (an application loaded from another package) or which changes the
+%% runtime state (installing or deleting a config schema) must not decide
+%% whether an installation exists, or a refused replacement could destroy a
+%% complete installation.
+-spec install_state(name_vsn()) -> install_state().
+install_state(NameVsn) ->
     case is_installed(NameVsn) of
         false ->
             absent;
         true ->
-            case InstallValidator() of
-                ok ->
-                    case is_extraction_complete(NameVsn) of
-                        true -> installed;
-                        false -> incomplete
-                    end;
-                {error, _Reason} ->
-                    incomplete
+            case is_extraction_complete(NameVsn) of
+                true -> installed;
+                false -> incomplete
             end
     end.
 
@@ -293,6 +381,11 @@ is_in_use(NameVsn) ->
 %% from replaced or missing code.  The applications that are merely loaded are
 %% unloaded, so that the package which is unpacked afterwards is loaded cleanly
 %% instead of the old modules staying in the code server.
+%%
+%% NOTE: the check and the replacement that follows it are not atomic.  A
+%% plugin started concurrently, after the running applications have been read
+%% but before the install directory is replaced, can still lose its files.
+%% Serializing the plugin lifecycle operations is left to the callers.
 -spec prepare_replacement(name_vsn()) -> ok | {error, map()}.
 prepare_replacement(NameVsn) ->
     PluginDir = plugin_dir(NameVsn),
@@ -302,11 +395,20 @@ prepare_replacement(NameVsn) ->
                 {ok, _} ->
                     ok;
                 {error, Reason} ->
+                    %% The applications are still loaded from the directory
+                    %% which is about to be purged: the code they run would be
+                    %% replaced or deleted.
                     ?SLOG(warning, #{
                         msg => "failed_to_unload_plugin_apps",
                         name_vsn => NameVsn,
                         reason => Reason
-                    })
+                    }),
+                    {error, #{
+                        msg => "failed_to_unload_plugin_apps",
+                        name_vsn => NameVsn,
+                        reason => Reason,
+                        hint => <<"stop the plugin first">>
+                    }}
             end;
         Running ->
             ?SLOG(warning, #{
@@ -560,18 +662,26 @@ app_dir(AppName, Apps) ->
 %% Check that the files of the given application are all on disk: its resource
 %% file must be there, and so must the beam files it declares.
 is_app_extracted(NameVsn, AppNameVsn) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
-    EbinDir = filename:join([plugin_dir(NameVsn), bin(AppNameVsn), "ebin"]),
-    case app_modules(EbinDir, AppName) of
-        {ok, Modules} ->
-            lists:all(
-                fun(Module) ->
-                    Beam = atom_to_list(Module) ++ ".beam",
-                    filelib:is_regular(filename:join(EbinDir, Beam))
-                end,
-                Modules
-            );
-        error ->
+    try
+        {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
+        EbinDir = filename:join([plugin_dir(NameVsn), bin(AppNameVsn), "ebin"]),
+        case app_modules(EbinDir, AppName) of
+            {ok, Modules} ->
+                lists:all(
+                    fun(Module) ->
+                        Beam = atom_to_list(Module) ++ ".beam",
+                        filelib:is_regular(filename:join(EbinDir, Beam))
+                    end,
+                    Modules
+                );
+            error ->
+                false
+        end
+    catch
+        _:_ ->
+            %% A declared application whose name-vsn can not be parsed (or a
+            %% directory which can not be built from it) is not an extracted
+            %% application.
             false
     end.
 
@@ -580,8 +690,14 @@ app_modules(EbinDir, AppName) ->
     case file:consult(AppFile) of
         {ok, [{application, _AppName, Props}]} when is_list(Props) ->
             case proplists:get_value(modules, Props, []) of
-                Modules when is_list(Modules) -> {ok, Modules};
-                _ -> error
+                %% A module which is not an atom can not name a beam file.
+                Modules when is_list(Modules) ->
+                    case lists:all(fun erlang:is_atom/1, Modules) of
+                        true -> {ok, Modules};
+                        false -> error
+                    end;
+                _ ->
+                    error
             end;
         _ ->
             error

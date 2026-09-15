@@ -768,21 +768,61 @@ install_package(FileName, Bin) ->
     install_package_v4(NameVsn, Bin).
 
 install_package_v4(NameVsn, Bin) ->
-    ok = emqx_plugins:write_package(NameVsn, Bin),
-    case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
-        {error, #{reason := plugin_not_found}} = NotFound ->
-            NotFound;
-        {error, Reason} = Error ->
-            %% Keep the specific error in the log: the generic `msg' below
-            %% replaces it.
-            ?SLOG(error, Reason#{
-                msg => "failed_to_install_plugin",
-                reason_msg => maps:get(msg, Reason, undefined)
-            }),
-            _ = emqx_plugins:delete_package(NameVsn),
-            Error;
-        Result ->
-            Result
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
+            %% The installation is already complete, and a complete
+            %% installation is not unpacked again (`ensure_installed_from_tar/2'
+            %% returns without touching the package), so writing the upload
+            %% would pair the new package with the files of the previous one.
+            %% Keep both as they are: a cluster install runs this callback on
+            %% every node, including the ones which hold the installation
+            %% already (the node which answers the request refuses the upload,
+            %% see `upload_install/2').
+            emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
+        _IncompleteOrAbsent ->
+            install_replacing_package(NameVsn, Bin)
+    end.
+
+%% Replace the package of an absent or incomplete installation with the
+%% uploaded one.
+%%
+%% The package which is replaced is snapshotted before anything is written: an
+%% installation attempt which is refused (for example because the plugin is
+%% still running) or which fails must not destroy the only local copy of the
+%% installed package, it may be the only way to repair the installation later.
+%% When the snapshot itself can not be taken, the upload is refused instead of
+%% overwriting a package which could not be put back.
+install_replacing_package(NameVsn, Bin) ->
+    maybe
+        {ok, PreviousPackage} ?= emqx_plugins:backup_package(NameVsn),
+        ok = emqx_plugins:write_package(NameVsn, Bin),
+        case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
+            {error, #{reason := plugin_not_found}} = NotFound ->
+                NotFound;
+            {error, Reason} = Error ->
+                %% Keep the specific error in the log: the generic `msg' below
+                %% replaces it.
+                ?SLOG(error, Reason#{
+                    msg => "failed_to_install_plugin",
+                    reason_msg => maps:get(msg, Reason, undefined)
+                }),
+                restore_previous_package(NameVsn, PreviousPackage),
+                Error;
+            Result ->
+                Result
+        end
+    end.
+
+restore_previous_package(NameVsn, PreviousPackage) ->
+    case emqx_plugins:restore_package(NameVsn, PreviousPackage) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_restore_plugin_package",
+                name_vsn => NameVsn,
+                reason => Reason
+            })
     end.
 
 %% For RPC plugin get
