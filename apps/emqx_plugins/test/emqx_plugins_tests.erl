@@ -324,3 +324,33 @@ plugins_cli_install_cluster_dispatches_test() ->
         meck:unload(emqx_ctl),
         meck:unload(emqx_plugins)
     end.
+
+%% A failed cluster install must stay observable: `emqx_ctl' derives the
+%% audit level and the CLI exit code from the handler result, so
+%% `ensure_installed_cluster/2' must not collapse failures into `ok'.
+ensure_installed_cluster_reports_failure_test() ->
+    meck_emqx(),
+    try
+        with_rand_install_dir(
+            fun(_Dir) ->
+                catch meck:unload(emqx_plugins),
+                ok = meck:new(emqx_plugins, [passthrough]),
+                try
+                    ok = meck:expect(
+                        emqx_plugins, is_allowed_installation, fun(_NameVsn) -> true end
+                    ),
+                    LogFun = fun(_Fmt, _Args) -> ok end,
+                    ?assertMatch(
+                        {error, _},
+                        emqx_plugins_cli_utils:ensure_installed_cluster(
+                            "no_such_plugin-1.0.0", LogFun
+                        )
+                    )
+                after
+                    meck:unload(emqx_plugins)
+                end
+            end
+        )
+    after
+        unmeck_emqx()
+    end.

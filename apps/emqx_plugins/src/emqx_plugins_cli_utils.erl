@@ -327,11 +327,10 @@ ensure_installed_cluster(NameVsn, LogFun) ->
         true ->
             Result = do_ensure_installed_cluster(NameVsn, LogFun),
             maybe_forget_grant(NameVsn, Result),
-            %% `do_ensure_installed_cluster/2' already printed the result.
-            %% Like `ensure_installed/2', return `ok' so the shell exit code
-            %% does not depend on the install outcome; failures are reported
-            %% in the printed JSON.
-            ok;
+            %% Return the outcome: `emqx_ctl' derives both the audit level and
+            %% the CLI exit code from it, so a failed cluster install must not
+            %% be reported as a success.
+            Result;
         false ->
             ?PRINT({error, not_allowed}, LogFun)
     end.
