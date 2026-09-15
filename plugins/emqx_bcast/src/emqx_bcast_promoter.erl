@@ -74,7 +74,7 @@ handle_info(drain, State = #{failures := Failures, pending := Pending}) ->
             erlang:send_after(?DRAIN_BACKOFF_MS, self(), drain),
             {noreply, State#{failures => 0, pending => undefined}};
         _ ->
-            case process_batch(Batch, Failures) of
+            case process_batch_guarded(Batch, Failures) of
                 {done, F} ->
                     erlang:send_after(0, self(), drain),
                     {noreply, State#{failures => F, pending => undefined}};
@@ -98,7 +98,7 @@ worker_loop(Failures) ->
     end.
 
 worker_process(Batch, Failures) ->
-    case process_batch(Batch, Failures) of
+    case process_batch_guarded(Batch, Failures) of
         {done, F} ->
             worker_loop(F);
         {retry, F} ->
@@ -118,6 +118,53 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Promotion pipeline
 %%--------------------------------------------------------------------
+
+%% A crash inside batch processing must not kill the worker: the intake
+%% take is atomic (dequeue-then-process), so an uncaught crash would
+%% silently lose the whole batch - and the worker link would take the
+%% promoter gen_server (and its pending batch) down with it. Contain the
+%% crash as a bounded retry of the SAME batch (idempotent:
+%% already_promoted + append dedup); after the consecutive-failure
+%% budget the batch is dropped loudly with its admissions released.
+process_batch_guarded(Batch, Failures) ->
+    try process_batch(Batch, Failures) of
+        Result ->
+            Result
+    catch
+        Error:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "bcast_promoter_batch_crashed",
+                exception => Error,
+                reason => Reason,
+                stacktrace => Stacktrace,
+                batch_size => length(Batch)
+            }),
+            emqx_bcast_metrics:qos1_promote_error(),
+            case Failures >= ?MAX_CONSECUTIVE_FAILURES of
+                true ->
+                    drop_batch([Entry || {_Seq, Entry} <- Batch], {Error, Reason}),
+                    {done, 0};
+                false ->
+                    {retry, Failures + 1}
+            end
+    end.
+
+%% A persistently failing batch must not block the queue forever. Drop it
+%% loudly (the queue is crash-volatile by contract; this is a bug path).
+drop_batch(Entries, Reason) ->
+    ?SLOG(error, #{
+        msg => "bcast_promoter_dropped_batch",
+        reason => Reason,
+        batch_size => length(Entries)
+    }),
+    lists:foreach(
+        fun(E) ->
+            _ = emqx_bcast_index_owner:release_admit(
+                maps:get(product_key, E), maps:get(devices, E)
+            )
+        end,
+        Entries
+    ).
 
 process_batch(Batch, Failures) ->
     Entries = [Entry || {_Seq, Entry} <- Batch],
@@ -174,22 +221,7 @@ process_batch(Batch, Failures) ->
             emqx_bcast_metrics:qos1_promote_error(),
             case Failures >= ?MAX_CONSECUTIVE_FAILURES of
                 true ->
-                    %% A persistently failing batch must not block the
-                    %% queue forever. Drop it loudly (the queue is
-                    %% crash-volatile by contract; this is a bug path).
-                    ?SLOG(error, #{
-                        msg => "bcast_promoter_dropped_batch",
-                        reason => Reason,
-                        batch_size => length(Batch)
-                    }),
-                    lists:foreach(
-                        fun(E) ->
-                            _ = emqx_bcast_index_owner:release_admit(
-                                maps:get(product_key, E), maps:get(devices, E)
-                            )
-                        end,
-                        Entries
-                    ),
+                    drop_batch(Entries, Reason),
                     {done, 0};
                 false ->
                     {retry, Failures + 1}

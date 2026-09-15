@@ -62,7 +62,7 @@ init([]) ->
 %% queue never grows unboundedly.
 -spec enqueue(entry()) -> {ok, non_neg_integer()} | full.
 enqueue(Entry) ->
-    MaxDepth = emqx_bcast_config:get(intake_queue_depth, 20000),
+    MaxDepth = ?INTAKE_QUEUE_DEPTH,
     case queue_size() >= MaxDepth of
         true ->
             emqx_bcast_metrics:intake_rejected(),
