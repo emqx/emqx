@@ -32,8 +32,8 @@
 %%
 %% Routing:
 %%   * per-device index state + per-delivery ack counter -> shard_of({PK, DN})
-%%     (the ack counter is a 3-tuple mnesia table, decremented inside the
-%%     flush transaction that also persists the per-device acked markers)
+%%     (the ack counter is a 3-tuple mnesia table, decremented by lock-free
+%%     dirty writes alongside the per-device acked markers, marker first)
 %%   * management delete of delivery rows -> did_shard_of(DeliveryId)
 %% The global pending counter lives in one shared ETS row
 %% (bcast_quota_ets) updated with atomic update_counter from every shard.
@@ -59,6 +59,7 @@
     reserve_global_local/2,
     release_global_local/1,
     quota_update_local/1,
+    quota_update_remote/2,
     device_deliveries/1,
     device_delivery_entries/1,
     pending_count/0,
@@ -131,6 +132,14 @@
 %% instead of one cleanup run holding the tables for minutes.
 -define(CLEANUP_BUDGET, 10000).
 
+%% Upper bound on deliveries healed (all target devices acked but the atomic
+%% counter never reached zero) by a single rebuild drive. The healed ids ride
+%% the activation RPCs as a skip set so later shards do not resurrect them;
+%% normally the set is empty (it only captures a crash-window drift), so the
+%% cap solely guards a systemic drift from inflating the activation payload.
+%% Deliveries beyond the cap are left for a later drive or TTL.
+-define(MAX_HEAL_PER_DRIVE, 10000).
+
 %% Fresh index entries whose mnesia rows are not (yet) visible on this
 %% node are skipped by claims instead of dropped: a concurrent promotion on
 %% the peer core may still be replicating its transaction. Entries older
@@ -156,8 +165,8 @@
 
 %% Ack-counter decrement batching cadence: counted acks accumulate
 %% per-delivery acked device lists in the shard's ack_buf and are applied
-%% in chunked transactions per tick (marker persistence + counter
-%% decrement) instead of one rlog write per ack. The old
+%% per tick with two lock-free dirty writes (marker persistence, then
+%% counter decrement) instead of one rlog write per ack. The old
 %% one-rlog-write-per-ack path saturated mria's rlog and aborted the
 %% completion transaction under load, leaking the bcast_msg /
 %% bcast_msg_meta / bcast_msg_meta_counter rows.
@@ -244,6 +253,10 @@ init([Shard]) ->
         orphan_cursor => 0,
         %% shard 0 only: cumulative local quota delta already shipped to owner
         quota_last_synced => 0,
+        %% shard 0 only: drive epoch of the last baseline sync applied from the
+        %% owner; reconcile deltas from an older epoch are rejected after a
+        %% recount (see quota_update_remote/2)
+        quota_epoch => 0,
         %% batched ack-counter decrements pending flush: #{Did => [DeviceName]}
         ack_buf => #{},
         %% flush timer ref; undefined when idle (nothing buffered)
@@ -328,34 +341,69 @@ quota_local_update(Delta) ->
 %% per-batch hot-path RPCs). Returns the new baseline: on RPC failure it
 %% returns the OLD baseline so the unsent delta is retried next tick (a lost
 %% sync would otherwise skew the owner row low forever).
--spec quota_sync(non_neg_integer()) -> non_neg_integer().
-quota_sync(LastSynced) ->
+-spec quota_sync(non_neg_integer(), non_neg_integer()) ->
+    {non_neg_integer(), non_neg_integer()}.
+quota_sync(LastSynced, Epoch) ->
     case owner_node() =:= node() of
         true ->
             %% Owner writes the authoritative row directly on the hot path
             %% (quota_update/1), so the local shadow is never used here.
-            local_quota_total();
+            {local_quota_total(), Epoch};
         false ->
             Current = local_quota_total(),
             Delta = Current - LastSynced,
             case Delta of
                 0 ->
-                    Current;
+                    {Current, Epoch};
                 _ ->
                     case
                         emqx_rpc:call(
                             ?MODULE,
                             owner_node(),
                             ?MODULE,
-                            quota_update_local,
-                            [Delta],
+                            quota_update_remote,
+                            [Delta, Epoch],
                             ?SYNC_TIMEOUT_MS
                         )
                     of
-                        ok -> Current;
-                        {badrpc, _Reason} -> LastSynced
+                        ok ->
+                            {Current, Epoch};
+                        %% The owner recounted the authoritative row after this
+                        %% delta was computed, so the delta is already in that
+                        %% recount. Adopt the new epoch and drop it instead of
+                        %% double-counting it; deltas accumulated after the
+                        %% recount are then shipped under the new epoch.
+                        {stale, OwnerEpoch} ->
+                            {Current, OwnerEpoch};
+                        {badrpc, _Reason} ->
+                            {LastSynced, Epoch}
                     end
             end
+    end.
+
+%% Remote reconcile target (runs on the owner node). Applies the delta only
+%% while the sender's epoch matches the owner's current drive epoch. A delta
+%% computed before a recount carries the old epoch and is rejected with the
+%% owner's epoch so the sender can adopt it and drop the already-counted
+%% delta.
+quota_update_remote(Delta, Epoch) ->
+    case quota_epoch() of
+        Epoch ->
+            quota_update_local(Delta),
+            ok;
+        OwnerEpoch ->
+            {stale, OwnerEpoch}
+    end.
+
+%% Current drive epoch of the authoritative quota row (owner-local). A missing
+%% row (fresh table, no drive yet) reads as 0, which every default epoch
+%% matches.
+quota_epoch() ->
+    try ets:lookup_element(?TAB_QUOTA_ETS, epoch, 2) of
+        N when is_integer(N) -> N;
+        _ -> 0
+    catch
+        _:_ -> 0
     end.
 
 %% Current cumulative local quota delta (this node's shadow row).
@@ -1027,8 +1075,9 @@ handle_call({ack_index, Acks}, _From, State = #{active := true}) ->
                     case R of
                         {counted, _RemQueued} ->
                             %% Batch the ack in ack_buf; the flush applies
-                            %% marker + counter decrement in one chunked
-                            %% transaction instead of one rlog write per ack.
+                            %% the marker and the counter decrement as two
+                            %% lock-free dirty writes instead of one rlog
+                            %% write per ack.
                             buffer_ack_decrement(Ack, St2);
                         not_found ->
                             St2
@@ -1119,6 +1168,11 @@ handle_call({activate, Proj}, _From, State) ->
     %% every shard the same sorted projection.
     {Reply, State1} = run_activation(Proj, State),
     {reply, Reply, State1};
+handle_call({activate, Proj, Completed}, _From, State) ->
+    %% Drive variant: hand back the ids completed so far so the leader's
+    %% later shards skip deliveries already reconciled in this drive.
+    {Reply, State1, Completed1} = run_activation(Proj, State, Completed),
+    {reply, {activated, Reply, Completed1}, State1};
 handle_call({shard_status}, _From, State) ->
     {reply, {maps:get(active, State), total_pending(State)}, State};
 handle_call({reset_local}, _From, State = #{shard := 0}) ->
@@ -1181,12 +1235,13 @@ handle_cast({activate_shard, Shard}, State = #{active := true, shard := 0}) when
     {noreply, State};
 handle_cast({activate_shard, _Shard}, State) ->
     {noreply, State};
-handle_cast({quota_baseline_sync}, State = #{shard := 0}) ->
-    %% Post-drive recount: the leader recomputed the authoritative quota
-    %% row from live shard pendings, which already includes every entry
-    %% whose delta is still unshipped in this node's local shadow. Advance
-    %% the baseline so the reconcile loop does not re-ship them.
-    {noreply, State#{quota_last_synced => local_quota_total()}};
+handle_cast({quota_baseline_sync, Epoch}, State = #{shard := 0}) ->
+    %% Post-drive recount: the leader recomputed the authoritative quota row
+    %% from live shard pendings, which already includes every entry whose
+    %% delta is still unshipped in this node's local shadow. Advance the
+    %% baseline and adopt the drive epoch so the reconcile loop neither
+    %% re-ships those deltas nor gets them accepted twice.
+    {noreply, State#{quota_last_synced => local_quota_total(), quota_epoch => Epoch}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -1226,11 +1281,13 @@ handle_info(maybe_activate, State = #{active := false, shard := Shard}) when
     {noreply, State};
 handle_info(maybe_activate, State) ->
     {noreply, State};
-handle_info(quota_sync, State = #{shard := 0, quota_last_synced := Last}) ->
+handle_info(
+    quota_sync, State = #{shard := 0, quota_last_synced := Last, quota_epoch := Epoch}
+) ->
     %% Ship this node's local quota delta increment to the owner, then re-arm.
-    NewLast = quota_sync(Last),
+    {NewLast, NewEpoch} = quota_sync(Last, Epoch),
     erlang:send_after(?QUOTA_SYNC_MS, self(), quota_sync),
-    {noreply, State#{quota_last_synced => NewLast}};
+    {noreply, State#{quota_last_synced => NewLast, quota_epoch => NewEpoch}};
 handle_info(maybe_gc, State) ->
     {noreply, maybe_fullsweep(State)};
 handle_info(ack_flush, State) ->
@@ -1350,38 +1407,42 @@ drive_activation(State, Mode) ->
     %% projection instead of each shard scanning + sorting the whole table
     %% for itself (4x transient heap + 4x sort at takeover).
     Proj = scan_sorted_deliveries_projection(),
-    {Counts, State0} = lists:mapfoldl(
-        fun(Shard, St) -> drive_one_shard(Shard, Proj, Mode, MyShard, St) end,
-        State,
+    {Counts, {State0, Completed0}} = lists:mapfoldl(
+        fun(Shard, {St, Done}) ->
+            {Res, St1, Done1} = drive_one_shard(Shard, Proj, Mode, MyShard, St, Done),
+            {Res, {St1, Done1}}
+        end,
+        {State, #{}},
         lists:seq(0, ?SHARD_COUNT - 1)
     ),
+    ok = maybe_log_heal_cap(Completed0),
     case [Error || {error, _} = Error <- Counts] of
         [] ->
-            recount_quota(Counts),
-            sync_quota_baselines(),
+            Epoch = recount_quota(Counts),
+            sync_quota_baselines(Epoch),
             {ok, State0};
         [Error | _] ->
             {Error, State0}
     end.
 
-drive_one_shard(Shard, Proj, _Mode, Shard, State) ->
+drive_one_shard(Shard, Proj, _Mode, Shard, State, Completed) ->
     %% Self: always (re)build our own partition. The drive runs because
     %% this shard is dormant (boot / restart); force mode also rebuilds.
-    case activate_partition(Proj, State) of
-        {{error, _} = Error, _State1} -> {Error, State};
-        {Count, State1} -> {Count, State1}
+    case activate_partition(Proj, State, Completed) of
+        {{error, _} = Error, _State1, _Completed1} -> {Error, State, Completed};
+        {Count, State1, Completed1} -> {Count, State1, Completed1}
     end;
-drive_one_shard(Shard, Proj, ensure, _MyShard, State) ->
+drive_one_shard(Shard, Proj, ensure, _MyShard, State, Completed) ->
     case probe_shard(Shard) of
         {active, Pending} ->
-            {Pending, State};
+            {Pending, State, Completed};
         dormant ->
-            activate_sibling(Shard, Proj, State);
+            activate_sibling(Shard, Proj, State, Completed);
         {error, _} = Error ->
-            {Error, State}
+            {Error, State, Completed}
     end;
-drive_one_shard(Shard, Proj, force, _MyShard, State) ->
-    activate_sibling(Shard, Proj, State).
+drive_one_shard(Shard, Proj, force, _MyShard, State, Completed) ->
+    activate_sibling(Shard, Proj, State, Completed).
 
 probe_shard(Shard) ->
     try route(Shard, {shard_status}, ?SYNC_TIMEOUT_MS) of
@@ -1392,18 +1453,21 @@ probe_shard(Shard) ->
         _:_ -> {error, sibling_unavailable}
     end.
 
-activate_sibling(Shard, Proj, State) ->
+activate_sibling(Shard, Proj, State, Completed) ->
     Result =
-        try route(Shard, {activate, Proj}, ?SYNC_TIMEOUT_MS) of
-            {error, _} = Err -> Err;
-            Cnt when is_integer(Cnt) -> Cnt;
-            _ -> {error, sibling_unavailable}
+        try route(Shard, {activate, Proj, Completed}, ?SYNC_TIMEOUT_MS) of
+            {error, _} = Err ->
+                Err;
+            {activated, Cnt, Done1} when is_integer(Cnt), is_map(Done1) ->
+                {Cnt, Done1};
+            _ ->
+                {error, sibling_unavailable}
         catch
             _:_ -> {error, sibling_unavailable}
         end,
     case Result of
-        {error, _} = Error -> {Error, State};
-        Count when is_integer(Count) -> {Count, State}
+        {error, _} = Error -> {Error, State, Completed};
+        {Count, Completed1} when is_integer(Count) -> {Count, State, Completed1}
     end.
 
 %% Set the authoritative quota row to the true global pending: the sum of
@@ -1414,20 +1478,25 @@ recount_quota(Counts) ->
     Total = lists:sum(Counts),
     ensure_quota_table(),
     true = ets:insert(?TAB_QUOTA_ETS, {global, Total}),
-    ok.
+    %% Bump the drive epoch so reconcile deltas computed before this recount
+    %% are rejected instead of being added on top of Total (they are already
+    %% included in Total). Returns the new epoch for the baseline sync.
+    Epoch = quota_epoch() + 1,
+    true = ets:insert(?TAB_QUOTA_ETS, {epoch, Epoch}),
+    Epoch.
 
 %% The recount already includes every entry whose quota delta is still
 %% sitting unshipped in a node's local shadow: advance each node's
 %% reconcile baseline to its current shadow total so those deltas are not
 %% shipped again on top of the recount.
-sync_quota_baselines() ->
+sync_quota_baselines(Epoch) ->
     lists:foreach(
         fun(Node) ->
             case Node =:= node() of
                 true ->
-                    gen_server:cast(shard_name(0), {quota_baseline_sync});
+                    gen_server:cast(shard_name(0), {quota_baseline_sync, Epoch});
                 false ->
-                    emqx_rpc:cast(Node, ?MODULE, local_cast, [0, {quota_baseline_sync}])
+                    emqx_rpc:cast(Node, ?MODULE, local_cast, [0, {quota_baseline_sync, Epoch}])
             end
         end,
         emqx_bcast:core_nodes()
@@ -1478,12 +1547,23 @@ scan_sorted_deliveries_projection() ->
 %% counted per entry here: the leader recounts the authoritative row from
 %% live shard pendings after the drive. Returns {Count, NewState}.
 run_activation(Proj, State) ->
-    case activate_partition(Proj, State) of
-        {{error, _} = Error, _State1} -> {Error, State};
-        {Count, State1} -> {Count, State1#{active => true}}
+    case activate_partition(Proj, State, #{}) of
+        {{error, _} = Error, _State1, _Completed1} -> {Error, State};
+        {Count, State1, _Completed1} -> {Count, State1#{active => true}}
     end.
 
-activate_partition(Proj, State) ->
+%% Drive variant: threads the set of deliveries already completed earlier in
+%% this drive. Their acked markers were deleted by complete_delivery/1, so a
+%% later shard must skip them instead of re-indexing them as pending (which
+%% would be claimed, dropped after the replication lag, and counted by the
+%% closing quota recount).
+run_activation(Proj, State, Completed) ->
+    case activate_partition(Proj, State, Completed) of
+        {{error, _} = Error, _State1, _Completed1} -> {Error, State, Completed};
+        {Count, State1, Completed1} -> {Count, State1#{active => true}, Completed1}
+    end.
+
+activate_partition(Proj, State, Completed) ->
     try
         %% Flush buffered ack decrements BEFORE the reset: dropping ack_buf
         %% with the reset would strand the meta counter above zero and leak
@@ -1495,70 +1575,105 @@ activate_partition(Proj, State) ->
             0 -> backfill_meta_from_projection(Proj);
             _ -> ok
         end,
-        State2 = lists:foldl(
+        {State2, Completed1} = lists:foldl(
             fun(
                 {DeliveryId, _MsgId, ProductKey, _TopicTemplate, _TargetAckCount, _Counter,
                     DeviceNames, _CreatedAt},
-                St
+                {St, Done}
             ) ->
-                MyDNs = [
-                    DN
-                 || DN <- DeviceNames,
-                    shard_of({ProductKey, DN}) =:= Shard
-                ],
-                case MyDNs of
-                    [] ->
-                        St;
-                    _ ->
-                        %% Skip devices whose ack was already counted: the
-                        %% marker was persisted by the ack flush. Without the
-                        %% filter a rebuild resurrects them as pending, the
-                        %% redelivered duplicate ack decrements the completion
-                        %% counter a second time, and the delivery completes
-                        %% early while never-acked devices keep no index
-                        %% entry. Deliveries committed by builds without the
-                        %% markers have none; their already-acked devices are
-                        %% redelivered once (at-least-once).
-                        Acked = acked_device_set(DeliveryId),
-                        case lists:all(fun(DN) -> maps:is_key(DN, Acked) end, DeviceNames) of
-                            true ->
-                                %% Every target device has a persisted ack marker,
-                                %% so the delivery is finished even though its
-                                %% remaining-ack counter is still positive: the ack
-                                %% flush writes the marker before it decrements the
-                                %% counter, so a shard that died between the two
-                                %% writes left the counter that many acks too high,
-                                %% and no ack is left to drive it to zero.
-                                %%
-                                %% Reconciling from the markers is race-free because
-                                %% markers only ever grow - once every device has
-                                %% one, every ack is durable. Rewriting the counter
-                                %% to the marker-derived remaining instead would
-                                %% double-count the acks of a flush that is between
-                                %% its two writes right now, and could complete the
-                                %% delivery early.
-                                complete_delivery(DeliveryId),
-                                St;
-                            false ->
-                                lists:foldl(
-                                    fun(DN, St2) ->
-                                        case maps:is_key(DN, Acked) of
-                                            true ->
-                                                St2;
-                                            false ->
-                                                {St3, _Delta} = append_entry(
-                                                    St2, {ProductKey, DN}, DeliveryId
-                                                ),
-                                                St3
+                case maps:is_key(DeliveryId, Done) of
+                    true ->
+                        %% Completed earlier in this drive: its acked markers
+                        %% are already deleted, so indexing it again here would
+                        %% resurrect it as pending (claimed, then dropped after
+                        %% the replication lag) and bump the closing quota
+                        %% recount. Skip it.
+                        {St, Done};
+                    false ->
+                        MyDNs = [
+                            DN
+                         || DN <- DeviceNames,
+                            shard_of({ProductKey, DN}) =:= Shard
+                        ],
+                        case MyDNs of
+                            [] ->
+                                {St, Done};
+                            _ ->
+                                %% Skip devices whose ack was already counted: the
+                                %% marker was persisted by the ack flush. Without the
+                                %% filter a rebuild resurrects them as pending, the
+                                %% redelivered duplicate ack decrements the completion
+                                %% counter a second time, and the delivery completes
+                                %% early while never-acked devices keep no index
+                                %% entry. Deliveries committed by builds without the
+                                %% markers have none; their already-acked devices are
+                                %% redelivered once (at-least-once).
+                                Acked = acked_device_set(DeliveryId),
+                                AllAcked =
+                                    lists:all(fun(DN) -> maps:is_key(DN, Acked) end, DeviceNames),
+                                case AllAcked of
+                                    false ->
+                                        %% Not fully acked: rebuild only the
+                                        %% un-acked devices.
+                                        ToAdd = [
+                                            DN
+                                         || DN <- MyDNs,
+                                            not maps:is_key(DN, Acked)
+                                        ],
+                                        {
+                                            append_delivery_entries(
+                                                St, ProductKey, DeliveryId, ToAdd
+                                            ),
+                                            Done
+                                        };
+                                    true when map_size(Done) >= ?MAX_HEAL_PER_DRIVE ->
+                                        %% All target devices acked but the
+                                        %% per-drive heal budget is spent: leave
+                                        %% the delivery for a later drive or TTL
+                                        %% instead of letting the skip set that
+                                        %% rides the activation RPCs grow without
+                                        %% bound.
+                                        {St, Done};
+                                    true ->
+                                        %% Every target device has a persisted ack
+                                        %% marker, so the delivery is finished even
+                                        %% though its remaining-ack counter is still
+                                        %% positive: the ack flush writes the marker
+                                        %% before it decrements the counter, so a
+                                        %% shard that died between the two writes left
+                                        %% the counter that many acks too high, and no
+                                        %% ack is left to drive it to zero.
+                                        %%
+                                        %% Reconciling from the markers is race-free
+                                        %% because markers only ever grow - once every
+                                        %% device has one, every ack is durable.
+                                        %% Rewriting the counter to the marker-derived
+                                        %% remaining instead would double-count the
+                                        %% acks of a flush that is between its two
+                                        %% writes right now, and could complete the
+                                        %% delivery early. Record the id so every later
+                                        %% shard in this drive skips it.
+                                        case complete_delivery(DeliveryId) of
+                                            ok ->
+                                                {St, maps:put(DeliveryId, true, Done)};
+                                            {error, _} ->
+                                                %% Completion aborted after its
+                                                %% retries: keep every entry
+                                                %% indexed so the ack path retries
+                                                %% instead of leaking the rows
+                                                %% until TTL.
+                                                {
+                                                    append_delivery_entries(
+                                                        St, ProductKey, DeliveryId, MyDNs
+                                                    ),
+                                                    Done
+                                                }
                                         end
-                                    end,
-                                    St,
-                                    MyDNs
-                                )
+                                end
                         end
                 end
             end,
-            State1,
+            {State1, Completed},
             Proj
         ),
         Count = maps:size(maps:get(dids, State2)),
@@ -1567,10 +1682,34 @@ activate_partition(Proj, State) ->
             shard => Shard,
             pending => Count
         }),
-        {Count, State2}
+        {Count, State2, Completed1}
     catch
-        Error:Reason -> {{error, {Error, Reason}}, State}
+        Error:Reason -> {{error, {Error, Reason}}, State, Completed}
     end.
+
+%% Re-index the given devices for DeliveryId: the un-acked ones on a normal
+%% rebuild, or every target device when a completion transaction aborted.
+append_delivery_entries(St, ProductKey, DeliveryId, DNs) ->
+    lists:foldl(
+        fun(DN, St2) ->
+            {St3, _Delta} = append_entry(St2, {ProductKey, DN}, DeliveryId),
+            St3
+        end,
+        St,
+        DNs
+    ).
+
+%% Warn once per drive when the heal budget is spent, so a systemic ack-counter
+%% drift is visible instead of silently deferred to TTL.
+maybe_log_heal_cap(Completed) when map_size(Completed) >= ?MAX_HEAL_PER_DRIVE ->
+    ?SLOG(warning, #{
+        msg => "bcast_rebuild_heal_cap_reached",
+        healed => map_size(Completed),
+        cap => ?MAX_HEAL_PER_DRIVE
+    }),
+    ok;
+maybe_log_heal_cap(_Completed) ->
+    ok.
 
 %% Ask the activation leader (quota owner's shard 0) for a targeted rebuild
 %% of this shard's partition. Fire-and-forget: the activation flips this
@@ -1681,8 +1820,12 @@ backfill_meta_from_projection(Proj) ->
         [{#bcast_msg_meta_counter{delivery_id = '$1', _ = '_'}, [], ['$1']}]
     ),
     CntSet = maps:from_keys(ExistingCnt, true),
+    TargetByDid = maps:from_list([
+        {DeliveryId, TargetAckCount}
+     || {DeliveryId, _MsgId, _PK, _Tpl, TargetAckCount, _Counter, _DNs, _CreatedAt} <- Proj
+    ]),
     MissingCnt = [
-        {Did, Cnt}
+        {Did, backfill_remaining(Did, Cnt, TargetByDid)}
      || {Did, Cnt} <- ExistingMeta,
         not maps:is_key(Did, CntSet)
     ],
@@ -1717,6 +1860,21 @@ backfill_meta_from_projection(Proj) ->
         chunks(MissingCnt, 100)
     ),
     ok.
+
+%% bcast_msg_meta.counter is the remaining-ack count, but since 0.4.0 it is
+%% only ever written with the full target and never decremented (the atomic
+%% bcast_msg_meta_counter is authoritative). When persisted ack markers exist,
+%% derive the remaining from them; keep the conservative minimum so a delivery
+%% whose counter row was lost can never be completed early. Rows with no
+%% markers predate the marker table and their META.counter was maintained.
+backfill_remaining(Did, MetaCounter, TargetByDid) ->
+    case maps:size(acked_device_set(Did)) of
+        0 ->
+            max(0, MetaCounter);
+        Acked ->
+            Target = maps:get(Did, TargetByDid, MetaCounter),
+            min(max(0, MetaCounter), max(0, Target - Acked))
+    end.
 
 %% Device-name set of the persisted ack markers of a delivery (one dirty
 %% read per delivery, only for deliveries that own at least one device of
@@ -2392,14 +2550,14 @@ queued_remaining(State, Key) ->
     Count - Inflight > 0.
 
 %% Counted acks accumulate per-delivery acked device lists in ack_buf and
-%% are applied in bulk by flush_ack_decrements/1: one transaction per flush
-%% tick (chunked by delivery). Duplicate suppression is done in
-%% ack_one_index/2 (counting an ack removes its dids entry), so the flush
-%% only ever sees first acks. The transaction keeps the markers and the
-%% counter in sync: a crash mid-flush aborts everything, so they can never
-%% drift apart (a drift resurrects an already-acked device on the next
-%% rebuild, and its replayed ack would decrement the counter a second time
-%% and delete the delivery before the remaining devices acked).
+%% are applied in bulk by flush_ack_decrements/1 with two lock-free dirty
+%% writes per delivery: the marker first, then the counter decrement.
+%% Duplicate suppression is done in ack_one_index/2 (counting an ack
+%% removes its dids entry), so the flush only ever sees first acks. A
+%% crash between the two writes can only leave the counter too high: an
+%% already-acked device is never resurrected on the next rebuild, and a
+%% replayed ack cannot decrement a live delivery twice. Such a delivery is
+%% reconciled by the next index rebuild, otherwise by TTL expiry.
 %% bcast_msg_meta remains the info row used by claim and management queries.
 buffer_ack_decrement({_PK, DN, Did}, State) ->
     Buf0 = maps:get(ack_buf, State, #{}),
@@ -2466,6 +2624,9 @@ apply_ack_decrement(Did, DNs) ->
             %% late or is reclaimed by TTL, but an acked device is never
             %% resurrected and a replayed ack can never decrement a live
             %% delivery twice. The reverse order would allow exactly that.
+            %% Both writes are dirty ops on mria-replicated tables; mria
+            %% applies them to every core in submission order, so a core
+            %% crash cannot surface the decrement without the marker.
             mnesia:dirty_write(#bcast_msg_acked{delivery_id = Did, device_names = DNs}),
             case mnesia:dirty_update_counter(?TAB_MSG_META_CNT, Did, -Applied) of
                 New when New =< 0 ->
@@ -2519,7 +2680,7 @@ complete_delivery(Did) ->
                 delivery_id => Did,
                 reason => Reason
             }),
-            ok
+            {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
@@ -2826,12 +2987,13 @@ delete_message_rows_local(ApiId, DeliveryIds) ->
             fun() ->
                 lists:foreach(
                     fun(Did) ->
-                        %% Lock order meta -> counter -> rec, matching
-                        %% complete_delivery/1.
+                        %% Lock order acked -> meta -> counter -> rec,
+                        %% matching complete_delivery/1 and every other
+                        %% delete path.
+                        mnesia:delete({?TAB_MSG_ACKED, Did}),
                         mnesia:delete({?TAB_MSG_META, Did}),
                         mnesia:delete({?TAB_MSG_META_CNT, Did}),
-                        mnesia:delete({?TAB_MSG_REC, Did}),
-                        mnesia:delete({?TAB_MSG_ACKED, Did})
+                        mnesia:delete({?TAB_MSG_REC, Did})
                     end,
                     DeliveryIds
                 ),
@@ -2956,6 +3118,10 @@ delete_one_expired_delivery_tx({DeliveryId, _MsgId, _ProductKey, _DeviceNames}) 
                     ok
             end;
         [#bcast_msg_meta{}] ->
+            %% Off the ack hot path: delete the counter transactionally here
+            %% (so the replicas drop it too). complete_delivery/1 runs on the
+            %% ack path and deletes it dirty after commit instead; an abort
+            %% here leaves the whole delivery for the next cleanup tick.
             mnesia:delete({?TAB_MSG_META, DeliveryId}),
             mnesia:delete({?TAB_MSG_META_CNT, DeliveryId}),
             case mnesia:wread({?TAB_MSG_REC, DeliveryId}) of
