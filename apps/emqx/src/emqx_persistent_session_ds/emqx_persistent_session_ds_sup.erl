@@ -63,7 +63,7 @@ init(top) ->
             type => worker,
             start => {emqx_persistent_message, start_link, []},
             restart => transient,
-            shutdown => 100
+            shutdown => 1000
         }
     ],
     {ok, {SupFlags, Children}};
