@@ -468,10 +468,10 @@ t_max_connect_user_properties(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     ConfFile = prepare_conf_file(
         ?FUNCTION_NAME,
-        iolist_to_binary([
-            "mqtt.max_connect_user_properties = 0\n",
-            "zones.myzone.mqtt.max_connect_user_properties = infinity\n"
-        ]),
+        ~"""
+        mqtt.max_connect_user_properties = 0
+        zones.myzone.mqtt.max_connect_user_properties = infinity
+        """,
         Config
     ),
     application:set_env(emqx, config_files, [ConfFile]),
@@ -583,7 +583,7 @@ zone_global_defaults() ->
                 keepalive_check_interval => 30000,
                 max_awaiting_rel => 100,
                 max_clientid_len => 65535,
-                max_connect_user_properties => 10,
+                max_connect_user_properties => 100,
                 max_inflight => 32,
                 max_mqueue_len => 1000,
                 max_packet_size => 1048576,

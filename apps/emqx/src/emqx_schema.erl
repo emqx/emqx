@@ -4083,7 +4083,7 @@ mqtt_general() ->
             sc(
                 hoconsc:union([infinity, non_neg_integer()]),
                 #{
-                    default => 10,
+                    default => 100,
                     desc => ?DESC(mqtt_max_connect_user_properties)
                 }
             )},

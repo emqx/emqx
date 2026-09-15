@@ -334,16 +334,16 @@ init_state(
     },
 
     ActiveN = get_active_n(Type, Listener),
-    MaxConnectUserProperties = emqx_config:get_zone_conf(
-        Zone, [mqtt, max_connect_user_properties]
-    ),
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+        max_connect_user_properties => emqx_config:get_zone_conf(
+            Zone, [mqtt, max_connect_user_properties]
+        ),
         %% Any packet received before CONNECT is rejected by the parser.
         expect_connect => true
     },
-    Parser = init_parser(FrameOpts#{max_connect_user_properties => MaxConnectUserProperties}),
+    Parser = init_parser(FrameOpts),
     Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
     %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),

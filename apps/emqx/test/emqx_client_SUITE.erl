@@ -163,7 +163,7 @@ end_per_testcase(_Case, _Config) ->
     emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], disabled),
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     emqx_config:put_zone_conf(default, [mqtt, clientid_override], disabled),
-    emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], 10),
+    emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], 100),
     emqx_config:put_listener_conf(tcp, default, [tcp_options, keepalive], "none"),
     ok.
 
