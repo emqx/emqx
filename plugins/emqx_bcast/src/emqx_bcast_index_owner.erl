@@ -156,10 +156,10 @@
 
 %% Ack-counter decrement batching cadence: counted acks accumulate
 %% per-delivery acked device lists in the shard's ack_buf and are applied
-%% as one chunked flush transaction per tick (marker persistence, first-ack
-%% dedup and counter decrement atomically) instead of one rlog write per
-%% ack (~25k/s -> ~20 tx/s). The per-ack writes saturated mria's rlog and
-%% aborted the completion transaction under load, leaking the bcast_msg /
+%% in chunked transactions per tick (marker persistence + counter
+%% decrement) instead of one rlog write per ack. The old
+%% one-rlog-write-per-ack path saturated mria's rlog and aborted the
+%% completion transaction under load, leaking the bcast_msg /
 %% bcast_msg_meta / bcast_msg_meta_counter rows.
 -define(ACK_DEC_FLUSH_MS, 50).
 
@@ -244,7 +244,7 @@ init([Shard]) ->
         orphan_cursor => 0,
         %% shard 0 only: cumulative local quota delta already shipped to owner
         quota_last_synced => 0,
-        %% batched ack-counter decrements pending flush: #{Did => N}
+        %% batched ack-counter decrements pending flush: #{Did => [DeviceName]}
         ack_buf => #{},
         %% flush timer ref; undefined when idle (nothing buffered)
         ack_flush_ref => undefined
@@ -1697,15 +1697,16 @@ backfill_meta_from_projection(Proj) ->
     ),
     ok.
 
-%% Device-name set of the persisted acked markers of a delivery (one
-%% dirty read per delivery, only for deliveries that own at least one
-%% device of the shard being rebuilt).
+%% Device-name set of the persisted ack markers of a delivery (one dirty
+%% read per delivery, only for deliveries that own at least one device of
+%% the shard being rebuilt). The table holds one row per flush tick, each
+%% carrying that tick's device names.
 acked_device_set(Did) ->
     maps:from_keys(
-        [
-            DN
-         || #bcast_msg_acked{device_name = DN} <- mnesia:dirty_read(?TAB_MSG_ACKED, Did)
-        ],
+        lists:append([
+            DNs
+         || #bcast_msg_acked{device_names = DNs} <- mnesia:dirty_read(?TAB_MSG_ACKED, Did)
+        ]),
         true
     ).
 
@@ -2370,16 +2371,15 @@ queued_remaining(State, Key) ->
     Count - Inflight > 0.
 
 %% Counted acks accumulate per-delivery acked device lists in ack_buf and
-%% are applied in bulk by flush_ack_decrements/1: one transaction per
-%% flush tick (chunked by delivery) instead of one rlog write per ack (the
-%% per-ack writes saturated mria's rlog and aborted the completion
-%% transaction under load). The transaction applies marker persistence,
-%% first-ack dedup and the counter decrement ATOMICALLY: a crash mid-flush
-%% aborts everything, so the counter and the markers can never drift apart
-%% (a drift resurrects an already-acked device on the next rebuild, and
-%% its replayed ack would decrement the counter a second time and delete
-%% the delivery before the remaining devices acked). bcast_msg_meta
-%% remains the info row used by claim and management queries.
+%% are applied in bulk by flush_ack_decrements/1: one transaction per flush
+%% tick (chunked by delivery). Duplicate suppression is done in
+%% ack_one_index/2 (counting an ack removes its dids entry), so the flush
+%% only ever sees first acks. The transaction keeps the markers and the
+%% counter in sync: a crash mid-flush aborts everything, so they can never
+%% drift apart (a drift resurrects an already-acked device on the next
+%% rebuild, and its replayed ack would decrement the counter a second time
+%% and delete the delivery before the remaining devices acked).
+%% bcast_msg_meta remains the info row used by claim and management queries.
 buffer_ack_decrement({_PK, DN, Did}, State) ->
     Buf0 = maps:get(ack_buf, State, #{}),
     Buf1 = maps:update_with(Did, fun(DNs) -> [DN | DNs] end, [DN], Buf0),
@@ -2405,88 +2405,99 @@ flush_ack_decrements(State = #{ack_buf := Buf}) ->
             State#{ack_buf => #{}}
     end.
 
+%% Apply every buffered ack decrement with lock-free dirty operations.
+%%
+%% A transaction here is what made the ack path collapse: the per-delivery
+%% counter row is shared by every device shard (and replicated to every
+%% core), so a transactional decrement serialized on that one row's write
+%% lock. Under fanout that produced continuous lock conflicts, and
+%% mnesia_tm restarted the whole chunk with a timer:sleep/1 backoff - all
+%% inside the shard process, blocking claims, appends and acks behind it.
+%% The dirty counter update is atomic and replicated without locks, which
+%% is how the ack path worked before the persistent markers were added.
 apply_ack_buffer(Buf) ->
-    lists:foreach(
-        fun(Chunk) ->
-            case
-                mnesia:transaction(
-                    fun() ->
-                        lists:foreach(
-                            fun(Did) ->
-                                apply_ack_decrement_tx(Did, maps:get(Did, Buf))
-                            end,
-                            Chunk
-                        )
-                    end,
-                    20
-                )
-            of
-                {atomic, _} ->
-                    ok;
-                {aborted, Reason} ->
-                    %% Nothing was applied; the ack-in-flight TTL sweep on
-                    %% the pull side re-delivers, so the acks come back.
-                    ?SLOG(warning, #{
-                        msg => "bcast_ack_flush_tx_aborted",
-                        reason => Reason,
-                        deliveries => length(Chunk)
-                    })
-            end
-        end,
-        chunks(maps:keys(Buf), 50)
+    maps:foreach(
+        fun(Did, DNs) -> apply_ack_decrement(Did, DNs) end,
+        Buf
     ).
 
-apply_ack_decrement_tx(Did, DNs) ->
-    Markers = mnesia:read(?TAB_MSG_ACKED, Did),
-    Applied = lists:foldl(
-        fun(DN, N) ->
-            case lists:keymember(DN, #bcast_msg_acked.device_name, Markers) of
-                true ->
-                    %% Replayed ack of an already-counted device: never
-                    %% decrement twice.
-                    N;
-                false ->
-                    mnesia:write(#bcast_msg_acked{delivery_id = Did, device_name = DN}),
-                    N + 1
-            end
-        end,
-        0,
-        DNs
-    ),
+apply_ack_decrement(Did, DNs) ->
+    %% Duplicate suppression already happened in ack_one_index/2: counting an
+    %% ack removes its dids entry, so a replayed PUBACK returns not_found and
+    %% never reaches ack_buf. A rebuild additionally skips devices whose
+    %% marker is persisted (acked_device_set/1), so a replayed ack after a
+    %% restart is not_found too. Every DN here is therefore a first ack.
+    %%
+    %% Markers are persisted as ONE row per delivery per flush tick carrying
+    %% this tick's device names, not one row per device: at bs=1000 a
+    %% per-device marker would write 1000 replicated rows (and delete 1000
+    %% on completion) for every delivery, making the ack cost scale with the
+    %% fanout throughput instead of the flush tick count.
+    Applied = length(DNs),
     case Applied of
         0 ->
             ok;
         _ ->
-            case mnesia:wread({?TAB_MSG_META_CNT, Did}) of
-                [] ->
-                    %% The delivery completed (or was deleted) between the
-                    %% ack and this flush; drop the markers just written.
-                    mnesia:delete({?TAB_MSG_ACKED, Did});
-                [#bcast_msg_meta_counter{counter = Cnt}] when Cnt =< Applied ->
-                    complete_delivery_tx(Did);
-                [#bcast_msg_meta_counter{counter = Cnt}] ->
-                    mnesia:write(#bcast_msg_meta_counter{
-                        delivery_id = Did, counter = Cnt - Applied
-                    })
+            %% Marker FIRST, then the counter. The marker is the durable
+            %% record consulted by index rebuilds, so writing it before the
+            %% counter means a crash between the two dirty operations can
+            %% only leave the counter too high: such a delivery completes
+            %% late or is reclaimed by TTL, but an acked device is never
+            %% resurrected and a replayed ack can never decrement a live
+            %% delivery twice. The reverse order would allow exactly that.
+            mnesia:dirty_write(#bcast_msg_acked{delivery_id = Did, device_names = DNs}),
+            case mnesia:dirty_update_counter(?TAB_MSG_META_CNT, Did, -Applied) of
+                New when New =< 0 ->
+                    %% Counter reached zero, or the row is already gone (the
+                    %% delivery completed or was deleted between the ack and
+                    %% this flush): drop the completion rows, and with them
+                    %% the marker just written.
+                    complete_delivery(Did);
+                _ ->
+                    ok
             end
     end.
 
-%% Completion deletes all four row sets inside the same transaction as the
-%% final decrement, so no fallback scan can observe a zero counter with
-%% live delivery rows.
-complete_delivery_tx(Did) ->
-    mnesia:delete({?TAB_MSG_META_CNT, Did}),
-    mnesia:delete({?TAB_MSG_ACKED, Did}),
-    case mnesia:wread({?TAB_MSG_META, Did}) of
-        [#bcast_msg_meta{}] ->
-            mnesia:delete({?TAB_MSG_META, Did}),
-            case mnesia:wread({?TAB_MSG_REC, Did}) of
-                [#bcast_msg{}] ->
-                    mnesia:delete({?TAB_MSG_REC, Did});
-                [] ->
-                    ok
-            end;
-        [] ->
+%% Completion runs once per delivery, not once per ack, so deleting the
+%% info rows transactionally (the replicas must drop them too) is off the
+%% hot path.
+complete_delivery(Did) ->
+    %% Order matters: delete the transactional rows first and release the
+    %% dirty counter row last. If the transaction aborts, the counter row is
+    %% still there - sitting at (or below) zero - which is exactly what
+    %% cleanup_completed_deliveries/0 scans for, so the periodic sweep
+    %% retries the completion instead of leaking the delivery rows. Deleting
+    %% the counter first would lose that trail.
+    case
+        mnesia:transaction(
+            fun() ->
+                mnesia:delete({?TAB_MSG_ACKED, Did}),
+                case mnesia:wread({?TAB_MSG_META, Did}) of
+                    [#bcast_msg_meta{}] ->
+                        mnesia:delete({?TAB_MSG_META, Did}),
+                        case mnesia:wread({?TAB_MSG_REC, Did}) of
+                            [#bcast_msg{}] ->
+                                mnesia:delete({?TAB_MSG_REC, Did}),
+                                ok;
+                            [] ->
+                                ok
+                        end;
+                    [] ->
+                        ok
+                end
+            end,
+            20
+        )
+    of
+        {atomic, _} ->
+            _ = mnesia:dirty_delete({?TAB_MSG_META_CNT, Did}),
+            ok;
+        {aborted, Reason} ->
+            ?SLOG(warning, #{
+                msg => "bcast_ack_completion_tx_aborted",
+                delivery_id => Did,
+                reason => Reason
+            }),
             ok
     end.
 
@@ -3023,7 +3034,7 @@ delete_completed_deliveries_batched(Dids) ->
     ).
 
 %% The counter was already deleted dirty by cleanup_completed_deliveries/0;
-%% delete only meta -> rec here (lock order matching complete_delivery_tx/1).
+%% delete only meta -> rec here (lock order matching complete_delivery/1).
 delete_one_completed_delivery_tx(Did) ->
     mnesia:delete({?TAB_MSG_ACKED, Did}),
     case mnesia:wread({?TAB_MSG_META, Did}) of

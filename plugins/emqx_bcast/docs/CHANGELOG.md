@@ -6,6 +6,15 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
 
 ### Fixed
 
+- Reworked the QoS1 ack flush so its cost scales with the flush tick count
+  instead of the fanout device count: it no longer re-reads and scans a
+  delivery's whole ack-marker set on every flush (O(acked) per flush,
+  O(n^2) over a delivery's ack lifetime), and the markers are now
+  persisted as one row per delivery per flush tick carrying that tick's
+  device names instead of one replicated row per acked device (a bs=1000
+  delivery used to write 1000 rows and delete 1000 on completion).
+  Duplicate suppression still happens when the ack is counted, and index
+  rebuilds union the per-tick rows.
 - The default `config.hocon` now ships every field declared in the config
   schema, including the legacy `msg_warn_threshold`, `force_upgrade_qos`
   and `delivery_queue_max`. A fresh install previously served a config
@@ -19,9 +28,18 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
   per-device FIFO stays deterministic across restarts.
 - Ack-in-flight marks expire after 30s when the core-applied confirmation
   is lost, instead of holding the per-device window closed forever.
-- Ack markers, completion dedup and the remaining-ack counter are applied
-  in one transaction, closing a window where a duplicate ack could
-  double-decrement the counter.
+- The ack flush now writes the acked markers and decrements the
+  per-delivery remaining-ack counter with lock-free dirty operations
+  instead of a transaction. That counter row is shared by every device
+  shard and replicated to every core, so the transaction serialized all of
+  them on a single write lock and mnesia restarted the shard with a 1ms
+  sleep on each conflict - which collapsed fanout throughput while every
+  other shard operation queued behind it. The marker is written before the
+  counter, so a crash between the two can only leave the counter too high
+  (that delivery completes late or is reclaimed by TTL); it can never
+  resurrect an already-acked device or let a replayed ack decrement a live
+  delivery twice. Completion (once per delivery) still deletes the
+  remaining rows transactionally.
 - A pool restart releases the restart guard on every shard, including
   shards with no in-flight marks (previously those stayed in
   `pools_restarting` until the 30s watchdog, stalling flush and blocking

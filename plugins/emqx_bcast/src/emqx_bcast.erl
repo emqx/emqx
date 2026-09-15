@@ -195,7 +195,9 @@ migrate_legacy_tables() ->
         {?TAB_MSG, bcast_message, record_info(fields, bcast_message), fun fix_legacy_message/1},
         {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg), fun fix_legacy_delivery/1},
         {?TAB_MSG_IDX, bcast_msg_index, record_info(fields, bcast_msg_index),
-            fun fix_legacy_index/1}
+            fun fix_legacy_index/1},
+        {?TAB_MSG_ACKED, bcast_msg_acked, record_info(fields, bcast_msg_acked),
+            fun fix_legacy_acked/1}
     ],
     lists:foreach(
         fun({Tab, RecordName, ExpectedAttrs, FixFun}) ->
@@ -254,6 +256,14 @@ fix_legacy_index({bcast_msg_index, Key, Deliveries, _OldCount}) when is_list(Del
     Entries = normalize_legacy_index_entries(Deliveries),
     {bcast_msg_index, Key, Entries, length(Entries)};
 fix_legacy_index(Record) ->
+    Record.
+
+%% 0.4.1 dev builds stored one ack marker row per device
+%% ({bcast_msg_acked, Did, DeviceName}); the table now stores one row per
+%% delivery per flush tick ({bcast_msg_acked, Did, [DeviceName]}).
+fix_legacy_acked({bcast_msg_acked, Did, DN}) when is_binary(DN) ->
+    {bcast_msg_acked, Did, [DN]};
+fix_legacy_acked(Record) ->
     Record.
 
 normalize_legacy_index_entries([{DeliveryId, _State} = Entry | Rest]) when is_binary(DeliveryId) ->

@@ -862,15 +862,14 @@ t_counted_ack_counter_and_marker_atomic(_Config) ->
     [] = mnesia:dirty_read(bcast_msg_acked, DeliveryId),
     [] = mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId).
 
--doc "Deterministic reproduction of the crash window between the counter\n"
-"decrement and the acked-marker persistence: mock mnesia:dirty_update_counter\n"
-"so that the index shard is killed right after the decrement lands and\n"
-"before the marker write runs. On code with the window the restart + rebuild\n"
-"resurrects the already-acked device, and its replayed ack decrements the\n"
-"counter a second time, completing the delivery while the remaining device\n"
-"never acked. On fixed code the flush is one transaction: the hook never\n"
-"fires (there is no dirty decrement call) and the accounting stays\n"
-"consistent end to end.".
+-doc "Crash window between the acked-marker write and the counter decrement:\n"
+"mock mnesia:dirty_update_counter so that the index shard is killed right\n"
+"after the decrement lands (both dirty writes of the flush are then done).\n"
+"The restart re-drives a rebuild from the projection plus the markers. The\n"
+"marker is written BEFORE the counter precisely so that this crash can never\n"
+"resurrect the already-acked device nor let its replayed ack decrement the\n"
+"counter a second time: the counter can only be left too high, which delays\n"
+"completion instead of completing the delivery early.".
 t_counted_ack_crash_window_between_decrement_and_marker(_Config) ->
     PK = <<"PWIN">>,
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"crash window">>),
@@ -913,27 +912,14 @@ t_counted_ack_crash_window_between_decrement_and_marker(_Config) ->
     ShardDied = erase(shard_died),
     case ShardDied of
         true ->
-            %% The shard crashed with the counter decremented but the marker
-            %% unpersisted. Its restart re-drives a rebuild, which resurrects
-            %% A (no marker to consult), and the replayed ack of A must not be
-            %% counted again.
-            ?assert(
-                wait_until(
-                    fun() ->
-                        emqx_bcast_storage:get_device_deliveries({PK, A}) =:=
-                            {ok, [DeliveryId]}
-                    end,
-                    100
-                )
-            ),
-            %% the resurrected entry is indistinguishable from a fresh one,
-            %% so the replayed ack is accepted; give the flush time to run
-            counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+            %% The shard died after the decrement. The marker for A was
+            %% written first, so the rebuild must not bring A back: it has no
+            %% pending entry, its replayed ack is rejected, and the counter
+            %% still owes exactly B's ack.
+            ok = emqx_bcast_index_owner:rebuild_index(),
+            ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
+            not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
             timer:sleep(300),
-            %% Correct behavior: the replay is deduped and the delivery
-            %% survives. On buggy code the second decrement completes the
-            %% delivery early and deletes its durable rows while B never
-            %% acked.
             ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
             [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
                 bcast_msg_meta_counter, DeliveryId
@@ -943,7 +929,8 @@ t_counted_ack_crash_window_between_decrement_and_marker(_Config) ->
                 emqx_bcast_storage:get_device_deliveries({PK, B})
             );
         false ->
-            %% No window: the flush transaction landed atomically.
+            %% The hook never fired (the shard was already gone when the ack
+            %% was buffered). The accounting contract is the same.
             ?assert(
                 wait_until(
                     fun() -> mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= [] end,
@@ -966,6 +953,65 @@ t_counted_ack_crash_window_between_decrement_and_marker(_Config) ->
     ?assert(
         wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)
     ).
+
+-doc "The ack flush is lock-free: one dirty marker write plus one dirty counter\n"
+"decrement per delivery, and no mnesia transaction. A transaction there would\n"
+"make every device shard take an exclusive write lock on the single\n"
+"per-delivery counter row, and mnesia_tm restarts the whole shard with a\n"
+"timer:sleep/1 backoff on each conflict - the fanout collapse this pins down.\n"
+"The hook only fails when the transaction is issued by an index shard, so\n"
+"unrelated mnesia traffic on the node cannot make this test flaky.".
+t_ack_flush_uses_no_transaction(_Config) ->
+    PK = <<"PNOTX">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"no transaction">>),
+    A = <<"DNOTX_A">>,
+    B = <<"DNOTX_B">>,
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    TestProc = self(),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        %% Only one of the two devices is acked, so no completion runs and an
+        %% index shard has no legitimate transaction in the window.
+        meck:expect(mnesia, transaction, fun(Fun, Retries) ->
+            case in_index_shard() of
+                true -> TestProc ! ack_flush_used_transaction;
+                false -> ok
+            end,
+            meck:passthrough([Fun, Retries])
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        ?assert(
+            wait_until(
+                fun() -> mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= [] end,
+                100
+            )
+        )
+    after
+        meck:unload(mnesia)
+    end,
+    receive
+        ack_flush_used_transaction -> ?assert(false)
+    after 0 -> ok
+    end,
+    %% The flush still landed: marker plus a counter that only owes B.
+    [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
+        bcast_msg_meta_counter, DeliveryId
+    ),
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    ?assert(
+        wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)
+    ).
+
+in_index_shard() ->
+    case erlang:process_info(self(), registered_name) of
+        {registered_name, Name} ->
+            lists:prefix("emqx_bcast_index_owner", atom_to_list(Name));
+        _ ->
+            false
+    end.
 
 -doc "cleanup_expired removes deliveries past their expiry.".
 t_cleanup_expired_delivery(_Config) ->
@@ -2052,10 +2098,12 @@ t_metrics_acked_redelivery_generation_overcount(_Config) ->
 
 %%--- pull state helpers (single per-client state row per shard) ---
 acked_devices(Did) ->
-    lists:sort([
-        DN
-     || #bcast_msg_acked{device_name = DN} <- mnesia:dirty_read(bcast_msg_acked, Did)
-    ]).
+    lists:sort(
+        lists:append([
+            DNs
+         || #bcast_msg_acked{device_names = DNs} <- mnesia:dirty_read(bcast_msg_acked, Did)
+        ])
+    ).
 
 state_tab(PK, DN) ->
     emqx_bcast_pull_shard:tab(emqx_bcast_pull_shard:shard_of(PK, DN), bcast_client_state).

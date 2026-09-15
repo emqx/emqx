@@ -138,16 +138,19 @@
     counter :: non_neg_integer()
 }).
 
-%% Persistent per-device ack markers for incomplete deliveries. Written
-%% (batched, once per shard flush tick) when a device's ack is counted, and
-%% consulted on index rebuilds so an already-acked device is not
+%% Persistent ack markers for incomplete deliveries: one bag row per
+%% delivery per shard flush tick, carrying the device names acked in that
+%% tick. Consulted on index rebuilds so an already-acked device is not
 %% resurrected as pending (a resurrected entry would deliver a duplicate
 %% whose ack then decrements the completion counter a second time).
+%% One row per tick instead of one row per device matters at fanout scale:
+%% a bs=1000 delivery written per-device would produce 1000 replicated
+%% rows (and 1000 deletes on completion) instead of one per flush tick.
 %% Bag table keyed by delivery_id; all rows of a delivery are deleted with
 %% the delivery row on completion, expiry or management delete.
 -record(bcast_msg_acked, {
     delivery_id :: binary(),
-    device_name :: binary()
+    device_names = [] :: [binary()]
 }).
 
 -record(bcast_msg_index, {
