@@ -146,15 +146,17 @@ do_disallow_installation(NameVsn, LogFun) ->
     ?PRINT(Result, LogFun).
 
 ensure_installed(NameVsn, LogFun) ->
-    case emqx_plugins:describe(NameVsn, #{}) of
-        {ok, _} ->
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
             ?PRINT(
                 {error, #{
                     msg => "plugin_already_installed", name_vsn => NameVsn
                 }},
                 LogFun
             );
-        {error, _} ->
+        _IncompleteOrAbsent ->
+            %% Nothing usable is installed: leftovers of an interrupted
+            %% installation are replaced by the package.
             ?PRINT(emqx_plugins:ensure_installed(NameVsn, ?fresh_install), LogFun)
     end.
 
