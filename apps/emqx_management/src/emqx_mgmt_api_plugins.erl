@@ -768,6 +768,13 @@ install_package(FileName, Bin) ->
     install_package_v4(NameVsn, Bin).
 
 install_package_v4(NameVsn, Bin) ->
+    %% The installation is replaced from the package file, so the upload is
+    %% written over the package which is installed now.  Keep that package: an
+    %% installation attempt which is refused (for example because the plugin is
+    %% still running) or which fails must not destroy the only local copy of
+    %% the installed package, it may be the only way to repair the
+    %% installation later.
+    PreviousPackage = emqx_plugins:backup_package(NameVsn),
     ok = emqx_plugins:write_package(NameVsn, Bin),
     case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := plugin_not_found}} = NotFound ->
@@ -779,10 +786,22 @@ install_package_v4(NameVsn, Bin) ->
                 msg => "failed_to_install_plugin",
                 reason_msg => maps:get(msg, Reason, undefined)
             }),
-            _ = emqx_plugins:delete_package(NameVsn),
+            restore_previous_package(NameVsn, PreviousPackage),
             Error;
         Result ->
             Result
+    end.
+
+restore_previous_package(NameVsn, PreviousPackage) ->
+    case emqx_plugins:restore_package(NameVsn, PreviousPackage) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_restore_plugin_package",
+                name_vsn => NameVsn,
+                reason => Reason
+            })
     end.
 
 %% For RPC plugin get
