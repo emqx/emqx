@@ -263,13 +263,18 @@ init_connection(
     Opts = #{listener := {Type, Listener}, zone := Zone}
 ) ->
     MQTTPiggyback = get_ws_opt(Type, Listener, mqtt_piggyback),
+    MaxConnectUserProperties = emqx_config:get_zone_conf(
+        Zone, [mqtt, max_connect_user_properties]
+    ),
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
         %% Any packet received before CONNECT is rejected by the parser.
         expect_connect => true
     },
-    ParseState = emqx_frame:initial_parse_state(FrameOpts),
+    ParseState = emqx_frame:initial_parse_state(
+        FrameOpts#{max_connect_user_properties => MaxConnectUserProperties}
+    ),
     Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
     Channel = emqx_channel:init(ConnInfo, Opts),
     GcState = get_force_gc(Zone),
