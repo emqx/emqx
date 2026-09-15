@@ -188,7 +188,7 @@ t_handle_msg(_) ->
     ?assertMatch(
         {stop, {shutdown, discarded}, _St}, handle_msg({'$gen_call', From, discard}, st())
     ),
-    ?assertMatch({ok, [], _St}, handle_msg({tcp, From, <<"for_testing">>}, st())),
+    ?assertMatch({ok, [], _St}, handle_msg({tcp, From, <<"for_testing">>}, st_after_connect())),
     ?assertMatch({ok, _St}, handle_msg(for_testing, st())).
 
 t_handle_msg_incoming(_) ->
@@ -287,7 +287,30 @@ t_handle_timeout(_) ->
 
 t_parse_incoming(_) ->
     ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<>>, st())),
-    ?assertMatch({[], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, st())).
+    ?assertMatch(
+        {[], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, st_after_connect())
+    ).
+
+-doc """
+A non-CONNECT first packet is rejected from its fixed header, before the
+announced body is buffered.
+""".
+t_parse_incoming_before_connect(_) ->
+    %% PUBLISH fixed header announcing a 268435455 byte body.
+    %% Only the header is fed: an error here means the body was never buffered.
+    Publish = <<(?PUBLISH bsl 4), 16#FF, 16#FF, 16#FF, 16#7F>>,
+    ?assertMatch(
+        {
+            [
+                {frame_error, #{
+                    cause := unexpected_packet_before_connect,
+                    header_type := 'PUBLISH'
+                }}
+            ],
+            _NState
+        },
+        emqx_connection:parse_incoming(Publish, st(#{}, #{conn_state => idle}))
+    ).
 
 t_next_incoming_msgs(_) ->
     ?assertEqual(
@@ -576,6 +599,14 @@ make_frame(Packet) ->
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
 
 st() -> st(#{}, #{}).
+
+%% Connection state whose parser has already accepted a CONNECT, so that the
+%% packets after it are parsed as usual.
+st_after_connect() ->
+    Connect = iolist_to_binary(emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{}))),
+    {[_], St} = emqx_connection:parse_incoming(Connect, st()),
+    St.
+
 st(InitFields) when is_map(InitFields) ->
     st(InitFields, #{}).
 st(InitFields, ChannelFields) when is_map(InitFields) ->
