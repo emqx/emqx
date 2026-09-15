@@ -189,6 +189,9 @@ fi
 COMMAND="${1:-}"
 GREP='grep --color=never'
 
+EXIT_CLEANUP_FILES=()
+trap 'rm -f -- "${EXIT_CLEANUP_FILES[@]}" || true' EXIT
+
 if [ -z "$COMMAND" ]; then
     usage 'help'
     exit 1
@@ -489,7 +492,7 @@ relx_nodetool() {
 
 call_hocon() {
     call_nodetool hocon "$@" \
-        || die "call_hocon_failed: $*" $?
+        || die "HOCON command failed: $*" $?
 }
 
 check_emqx_process() {
@@ -775,13 +778,11 @@ generate_config() {
 
     ## The HOCON CLI writes its two outputs sequentially. Keep both outside the
     ## final namespace until the complete app config and merged VM args are ready.
-    ## Capture paths now: errexit can unwind local scope before the EXIT trap runs.
-    local cleanup_command
-    printf -v cleanup_command 'rm -f -- %q %q %q || true' \
-        "$generated_app_config_file" \
-        "$generated_vm_args_file" \
+    EXIT_CLEANUP_FILES+=(
+        "$generated_app_config_file"
+        "$generated_vm_args_file"
         "$staged_vm_args_file"
-    trap "$cleanup_command" EXIT
+    )
 
     ## Remove staging files older than one hour, preserving files from recent generators.
     ## Note on poratability: `-mmin` and `-maxdepth` are supported by GNU, macOS, and typical
@@ -848,18 +849,16 @@ generate_config() {
     ## Publish the app config last; its presence marks a complete generation.
     mv -f "$staged_vm_args_file" "$ARGS_FILE" || {
         publish_status=$?
-        die "failed_to_publish_generated_vm_args: $ARGS_FILE" "$publish_status"
+        die "Failed to publish generated VM arguments: $ARGS_FILE" "$publish_status"
     }
     mv -f "$generated_app_config_file" "$CONF_FILE" || {
         publish_status=$?
         rm -f -- "$ARGS_FILE" || true
-        die "failed_to_publish_generated_app_config: $CONF_FILE" "$publish_status"
+        die "Failed to publish generated application configuration: $CONF_FILE" "$publish_status"
     }
     if ! rm -f -- "$generated_vm_args_file"; then
         logerr "Could not clean up generated config staging files"
     fi
-    trap - EXIT
-
     prune_generated_configs 3
 }
 
