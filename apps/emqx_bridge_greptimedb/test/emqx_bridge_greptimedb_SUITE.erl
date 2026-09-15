@@ -368,6 +368,9 @@ t_async_write_after_health_check(_TCConfig) ->
     ],
     {ok, Client} = greptimedb:start_client(Options),
     try
+        %% grpcbox adds the channel's subchannel after start_client returns.
+        %% Until then, a health check fails with no_endpoints.
+        ?retry(100, 50, true = greptimedb:is_alive(Client)),
         Ref = make_ref(),
         TestPid = self(),
         [{_, PoolWorker}] = ecpool:workers(Pool),

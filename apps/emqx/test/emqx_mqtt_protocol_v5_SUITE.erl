@@ -66,7 +66,14 @@ init_per_group(tcp, Config) ->
             work_dir => emqx_cth_suite:work_dir(Config)
         }
     ),
-    [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+    [
+        {conn_type, tcp},
+        {port, 2883},
+        {conn_fun, connect},
+        {group_apps, Apps},
+        {parse_unit, chunk}
+        | Config
+    ];
 init_per_group(tcp_beam_framing, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.tcp.test { enable = true, bind = 2884, parse_unit = frame }"}],
@@ -440,6 +447,51 @@ t_connect_silent_idle_timeout(Config) ->
         {ok, #{reason := {shutdown, idle_timeout}}},
         ?block_until(#{?snk_kind := terminate}, IdleTimeout)
     ).
+
+t_publish_before_connect(init, Config) ->
+    ok = snabbkaffe:start_trace(),
+    Config;
+t_publish_before_connect('end', _Config) ->
+    snabbkaffe:stop(),
+    ok.
+
+-doc """
+A PUBLISH as the first packet closes the connection without a CONNACK.
+On a streaming listener the connection closes before the announced body
+arrives.
+""".
+t_publish_before_connect(Config) ->
+    {Port, Bytes} = publish_before_connect_bytes(Config),
+    SockOpts = [binary, {active, true}, {nodelay, true}],
+    {ok, Sock} = gen_tcp:connect({127, 0, 0, 1}, Port, SockOpts, 5000),
+    ClientSockname = esockd:format(element(2, inet:sockname(Sock))),
+    ok = gen_tcp:send(Sock, Bytes),
+    ?assertReceive({tcp_closed, Sock}, 5000),
+    ?assertNotReceive({tcp, Sock, _}),
+    ?assertMatch(
+        {ok, #{reason := {shutdown, #{cause := unexpected_packet_before_connect}}}},
+        ?block_until(#{?snk_kind := terminate, ?snk_meta := #{peername := ClientSockname}}, 5000)
+    ).
+
+%% The TCP port to connect to and the first bytes to send. A streaming listener
+%% gets only a PUBLISH fixed header that announces a 100000 byte body, below
+%% max_packet_size, and the body is never sent. A listener with
+%% `parse_unit = frame` passes only whole frames to the parser, so it gets a
+%% complete PUBLISH.
+publish_before_connect_bytes(Config) ->
+    Header = <<(?PUBLISH bsl 4), 16#A0, 16#8D, 16#06>>,
+    Publish = iolist_to_binary(
+        emqx_frame:serialize(?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>))
+    ),
+    case {?config(conn_type, Config), proplists:get_value(parse_unit, Config)} of
+        {tcp, chunk} ->
+            {?config(port, Config), Header};
+        {tcp, _} ->
+            {?config(port, Config), Publish};
+        {_, _} ->
+            %% The default listener on port 1883 has `parse_unit = frame`.
+            {1883, Publish}
+    end.
 
 t_connect_idle_timeout(init, Config) ->
     IdleTimeout = 2000,
