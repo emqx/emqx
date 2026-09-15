@@ -458,6 +458,17 @@ parse_sql_template_multiple_statements_test() ->
         })
     ).
 
+parse_sql_template_insert_select_test() ->
+    %% `INSERT ... SELECT' has no VALUES part, so it is not a supported template.
+    ?assertEqual(
+        {error,
+            {unrecoverable_error,
+                {invalid_request, <<"Not an INSERT statement or incorrect SQL syntax">>}}},
+        emqx_bridge_dameng_connector:parse_sql_template(#{
+            sql => <<"INSERT INTO t(id) SELECT id FROM other_table">>
+        })
+    ).
+
 parse_sql_template_vars_mismatch_test() ->
     ?assertMatch(
         {error, {unrecoverable_error, {invalid_request, columns_vars_mismatch}}},
