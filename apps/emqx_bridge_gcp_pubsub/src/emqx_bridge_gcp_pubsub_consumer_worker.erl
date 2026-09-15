@@ -12,7 +12,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% `ecpool_worker' API
--export([connect/1, health_check/1, clear_optvar/1]).
+-export([connect/1, health_check/2, clear_optvar/1]).
 
 %% `gen_server' API
 -export([
@@ -89,7 +89,6 @@
 -define(ensure_subscription, ensure_subscription).
 -define(patch_subscription, patch_subscription).
 
--define(HEALTH_CHECK_TIMEOUT, 10_000).
 -define(OPTVAR_SUB_OK(PID), {?MODULE, subscription_ok, PID}).
 
 -record(register_stream_ref, {stream_ref :: reference(), pid :: pid()}).
@@ -172,9 +171,9 @@ get_subscription(WorkerPid) ->
 %% `ecpool' health check
 %%-------------------------------------------------------------------------------------------------
 
--spec health_check(integer()) -> subscription_ok | topic_not_found | timeout.
-health_check(WorkerId) ->
-    case optvar:read(?OPTVAR_SUB_OK(WorkerId), ?HEALTH_CHECK_TIMEOUT) of
+-spec health_check(integer(), timeout()) -> subscription_ok | topic_not_found | timeout.
+health_check(WorkerId, HCTimeout) ->
+    case optvar:read(?OPTVAR_SUB_OK(WorkerId), HCTimeout) of
         {ok, Status} ->
             Status;
         timeout ->
