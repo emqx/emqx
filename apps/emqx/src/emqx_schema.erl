@@ -3737,7 +3737,7 @@ mqtt_general() ->
             )},
         {"max_connect_user_properties",
             sc(
-                hoconsc:union([infinity, non_neg_integer()]),
+                hoconsc:union([non_neg_integer(), infinity]),
                 #{
                     default => ?DEFAULT_MAX_CONNECT_USER_PROPERTIES,
                     desc => ?DESC(mqtt_max_connect_user_properties)
