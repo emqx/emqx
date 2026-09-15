@@ -157,6 +157,21 @@ t_config_surface_matches_schema(_Config) ->
         init_test_config()
     end.
 
+-doc "Every field declared in config_schema.avsc must also be present in the "
+"shipped default config.hocon. A fresh install serves config.hocon as the "
+"plugin config, and the dashboard's avro conversion requires every schema "
+"field to be present (it does not fall back to the schema default for a "
+"missing field), so an omitted field breaks the plugin config page.".
+t_default_config_covers_schema(_Config) ->
+    Priv = code:priv_dir(emqx_bcast),
+    {ok, SchemaBin} = file:read_file(filename:join(Priv, "config_schema.avsc")),
+    Schema = emqx_utils_json:decode(SchemaBin),
+    SchemaFields = [maps:get(<<"name">>, F) || F <- maps:get(<<"fields">>, Schema)],
+    {ok, HoconBin} = file:read_file(filename:join(Priv, "config.hocon")),
+    {ok, DefaultConfig} = hocon:binary(HoconBin),
+    Missing = [Field || Field <- SchemaFields, not maps:is_key(Field, DefaultConfig)],
+    ?assertEqual([], Missing).
+
 -doc "Out-of-range per-device quota values are clamped to [10, 200]; a "
 "warning tells the operator the configured value was overridden "
 "instead of silently rewriting it.".
