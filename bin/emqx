@@ -190,7 +190,14 @@ COMMAND="${1:-}"
 GREP='grep --color=never'
 
 EXIT_CLEANUP_FILES=()
-trap 'rm -f -- "${EXIT_CLEANUP_FILES[@]}" || true' EXIT
+
+on_exit_cleanup() {
+    # Beware macOS Bash 3.2: pass at least one file and keep the array nonempty under set -u.
+    if [ "${#EXIT_CLEANUP_FILES[@]}" -eq 0 ]; then
+        trap 'rm -f -- "${EXIT_CLEANUP_FILES[@]}" || true' EXIT
+    fi
+    EXIT_CLEANUP_FILES+=("$@")
+}
 
 if [ -z "$COMMAND" ]; then
     usage 'help'
@@ -771,18 +778,17 @@ generate_config() {
     CONF_FILE="$CONFIGS_DIR/app.$generation_id.config"
     ARGS_FILE="$CONFIGS_DIR/vm.$generation_id.args"
 
+    ## The HOCON CLI writes its two outputs sequentially. Keep both outside the
+    ## final namespace until the complete app config and merged VM args are ready.
     local generated_app_config_file="$CONF_FILE.generated.tmp"
     local generated_vm_args_file="$ARGS_FILE.generated.tmp"
     local staged_vm_args_file="$ARGS_FILE.staged.generated.tmp"
     local publish_status
 
-    ## The HOCON CLI writes its two outputs sequentially. Keep both outside the
-    ## final namespace until the complete app config and merged VM args are ready.
-    EXIT_CLEANUP_FILES+=(
-        "$generated_app_config_file"
-        "$generated_vm_args_file"
+    on_exit_cleanup \
+        "$generated_app_config_file" \
+        "$generated_vm_args_file" \
         "$staged_vm_args_file"
-    )
 
     ## Remove staging files older than one hour, preserving files from recent generators.
     ## Note on poratability: `-mmin` and `-maxdepth` are supported by GNU, macOS, and typical
