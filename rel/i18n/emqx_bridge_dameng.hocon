@@ -25,7 +25,7 @@ desc_type.label:
 """Bridge Type"""
 
 sql_template.desc:
-"""SQL Template"""
+"""An INSERT SQL template with an explicit target column list and `${...}` placeholders in VALUES. Only INSERT statements are supported. Message values are bound as query parameters for both single and batched writes; do not manually escape or quote placeholders."""
 
 sql_template.label:
 """SQL Template"""

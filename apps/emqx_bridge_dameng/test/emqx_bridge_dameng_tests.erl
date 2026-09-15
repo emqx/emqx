@@ -9,6 +9,8 @@
 
 -include_lib("emqx_bridge_dameng/include/emqx_bridge_dameng.hrl").
 
+-define(INSERT_ONLY, <<"Only INSERT statements are supported">>).
+
 -define(DEFAULT_INSERT, <<
     "insert into t_mqtt_msg(msgid, topic, qos, payload) "
     "values ( ${id}, ${topic}, ${qos}, ${payload} )"
@@ -82,6 +84,34 @@ action_schema_test_() ->
                     <<"resource_opts">> => #{}
                 })
             )}
+    ].
+
+action_schema_rejects_non_insert_test_() ->
+    [
+        ?_assertException(
+            throw,
+            {emqx_bridge_v2_schema, [#{kind := validation_error, reason := ?INSERT_ONLY}]},
+            emqx_bridge_v2_testlib:parse_and_check(action, <<"dameng">>, <<"act">>, #{
+                <<"connector">> => <<"conn">>,
+                <<"parameters">> => #{<<"sql">> => SQL}
+            })
+        )
+     || SQL <- non_insert_templates()
+    ].
+
+sql_schema_validation_test_() ->
+    [
+        {Name, fun() ->
+            Schema = proplists:get_value(sql, emqx_bridge_dameng:fields(Field)),
+            Validate = maps:get(validator, Schema),
+            ?assertEqual(ok, Validate(?DEFAULT_INSERT)),
+            ?assertEqual({error, ?INSERT_ONLY}, Validate(<<"SELECT 1">>)),
+            ?assertEqual(
+                {error, insert_must_specify_columns},
+                Validate(<<"INSERT INTO t VALUES (${id})">>)
+            )
+        end}
+     || {Name, Field} <- [{"action SQL", action_parameters}, {"legacy SQL", "config"}]
     ].
 
 parse_and_check_connector(InnerConfig) ->
@@ -375,12 +405,56 @@ parse_sql_template_on_clause_test() ->
         })
     ).
 
-parse_sql_template_select_test() ->
-    %% Non-insert statements follow the literal path.
-    ?assertMatch(
-        {ok, #{statement_type := select}},
+parse_sql_template_rejects_non_insert_test_() ->
+    [
+        ?_assertEqual(
+            {error, {unrecoverable_error, {invalid_request, ?INSERT_ONLY}}},
+            emqx_bridge_dameng_connector:parse_sql_template(#{sql => SQL})
+        )
+     || SQL <- non_insert_templates()
+    ].
+
+non_insert_templates() ->
+    [
+        <<"select id from t where id = ${id}">>,
+        <<" UPDATE t SET id = ${id}">>,
+        <<"\nDeLeTe FROM t WHERE id = ${id}">>,
+        <<"MERGE INTO t USING s ON t.id = s.id">>,
+        <<"DROP TABLE t">>,
+        <<"CREATE TABLE t(id INT)">>,
+        <<"INSERTED INTO t(id) VALUES (${id})">>,
+        <<"WITH t AS (SELECT 1) SELECT * FROM t">>,
+        <<"unknown">>,
+        <<>>,
+        <<" \t\n">>
+    ].
+
+parse_sql_template_insert_case_test_() ->
+    [
+        ?_assertMatch(
+            {ok, #{statement_type := insert, insert_columns := [<<"id">>]}},
+            emqx_bridge_dameng_connector:parse_sql_template(#{sql => SQL})
+        )
+     || SQL <- [
+            <<"insert into t(id) values (${id})">>,
+            <<"INSERT INTO t(id) VALUES (${id})">>,
+            <<" \t\nInSeRt InTo t(id) VaLuEs (${id})">>
+        ]
+    ].
+
+parse_sql_template_missing_test() ->
+    ?assertEqual(
+        {error, {unrecoverable_error, {invalid_request, missing_sql}}},
+        emqx_bridge_dameng_connector:parse_sql_template(#{})
+    ).
+
+parse_sql_template_multiple_statements_test() ->
+    ?assertEqual(
+        {error,
+            {unrecoverable_error,
+                {invalid_request, <<"Not an INSERT statement or incorrect SQL syntax">>}}},
         emqx_bridge_dameng_connector:parse_sql_template(#{
-            sql => <<"select id, topic from t_mqtt_msg where id = ${id}">>
+            sql => <<"INSERT INTO t(id) VALUES (${id}); DELETE FROM t">>
         })
     ).
 
@@ -622,233 +696,136 @@ on_add_channel_uppercase_insert_test() ->
     end.
 
 %%------------------------------------------------------------------------------
-%% worker_do_literal/4 (non-insert statements)
+%% INSERT-only execution and parameter binding
 %%------------------------------------------------------------------------------
 
-worker_do_literal_selected_test() ->
-    meck:new(emqx_odbc, [passthrough]),
-    meck:expect(emqx_odbc, sql_query, fun(_Conn, _SQL, _Timeout) ->
-        {selected, [<<"ID">>], [{1}, {2}]}
-    end),
-    try
-        ChannelState = literal_channel_state(),
-        ?assertEqual(
-            {ok, [{1}, {2}]},
-            emqx_bridge_dameng_connector:worker_do_literal(
-                self(), ChannelState, #{id => 1}, #{resource_opts => #{}}
-            )
-        )
-    after
-        meck:unload(emqx_odbc)
-    end.
-
-worker_do_literal_updated_test() ->
-    meck:new(emqx_odbc, [passthrough]),
-    meck:expect(emqx_odbc, sql_query, fun(_Conn, _SQL, _Timeout) ->
-        {updated, 3}
-    end),
-    try
-        %% A write that affected rows is a plain success, like the insert path.
-        ?assertEqual(
-            ok,
-            emqx_bridge_dameng_connector:worker_do_literal(
-                self(), literal_channel_state(), #{id => 1}, #{resource_opts => #{}}
-            )
-        )
-    after
-        meck:unload(emqx_odbc)
-    end.
-
-%% DM8 is Oracle compatible: a single quote is escaped by doubling it and the
-%% backslash has no special meaning.
-worker_do_literal_quoting_test() ->
-    meck:new(emqx_odbc, [passthrough]),
-    Self = self(),
-    meck:expect(emqx_odbc, sql_query, fun(_Conn, SQL, _Timeout) ->
-        Self ! {sql, SQL},
-        {updated, 1}
-    end),
-    try
-        ChannelState = #{
-            values_tokens =>
-                emqx_placeholder:preproc_tmpl(<<"update t set s = ${s}, n = ${n}">>),
-            channel_conf => #{}
-        },
-        ?assertEqual(
-            ok,
-            emqx_bridge_dameng_connector:worker_do_literal(
-                self(), ChannelState, #{s => <<"a'b\\c">>, n => 5}, #{resource_opts => #{}}
-            )
-        ),
-        ?assertEqual(
-            {sql, <<"update t set s = 'a''b\\c', n = 5">>},
-            receive
-                {sql, _} = SQL -> SQL
-            after 1000 -> timeout
-            end
-        )
-    after
-        meck:unload(emqx_odbc)
-    end.
-
-%% A JSON `null' is an explicit value and must be written as SQL NULL, exactly
-%% like the parameter path (`emqx_odbc:to_odbc_value(null, _)').
-worker_do_literal_null_test() ->
-    meck:new(emqx_odbc, [passthrough]),
-    Self = self(),
-    meck:expect(emqx_odbc, sql_query, fun(_Conn, SQL, _Timeout) ->
-        Self ! {sql, SQL},
-        {updated, 1}
-    end),
-    try
-        ChannelState = #{
-            values_tokens => emqx_placeholder:preproc_tmpl(<<"update t set s = ${s}">>),
-            channel_conf => #{}
-        },
-        ?assertEqual(
-            ok,
-            emqx_bridge_dameng_connector:worker_do_literal(
-                self(), ChannelState, #{s => null}, #{resource_opts => #{}}
-            )
-        ),
-        ?assertEqual(
-            {sql, <<"update t set s = NULL">>},
-            receive
-                {sql, _} = SQL -> SQL
-            after 1000 -> timeout
-            end
-        )
-    after
-        meck:unload(emqx_odbc)
-    end.
-
-worker_do_literal_undefined_test() ->
-    ChannelState = #{
-        values_tokens => emqx_placeholder:preproc_tmpl(<<"update t set s = ${s}">>),
-        channel_conf => #{}
-    },
-    ?assertEqual(
-        {error, {unrecoverable_error, undefined_var}},
-        emqx_bridge_dameng_connector:worker_do_literal(
-            self(), ChannelState, #{}, #{resource_opts => #{}}
-        )
-    ).
-
-worker_do_literal_error_test() ->
-    meck:new(emqx_odbc, [passthrough]),
-    meck:expect(emqx_odbc, sql_query, fun(_Conn, _SQL, _Timeout) ->
-        {error, <<"SQLSTATE IS: 42S02 table not found">>}
-    end),
-    try
-        ?assertEqual(
-            {error, {unrecoverable_error, {invalid_request, <<"table_not_found">>}}},
-            emqx_bridge_dameng_connector:worker_do_literal(
-                self(), literal_channel_state(), #{id => 1}, #{resource_opts => #{}}
-            )
-        )
-    after
-        meck:unload(emqx_odbc)
-    end.
-
-literal_channel_state() ->
-    #{
-        values_tokens => emqx_placeholder:preproc_tmpl(<<"select id from t where id = ${id}">>),
-        channel_conf => #{}
-    }.
-
-%% A coalesced batch of non-INSERT requests is executed sequentially, in the
-%% order of the batch, and returns one result per request.
-worker_do_literal_batch_test() ->
-    meck:new(emqx_odbc, [passthrough]),
-    Self = self(),
-    meck:expect(emqx_odbc, sql_query, fun(_Conn, SQL, _Timeout) ->
-        Self ! {sql, SQL},
-        {updated, 1}
-    end),
-    try
-        ChannelState = #{
-            values_tokens =>
-                emqx_placeholder:preproc_tmpl(<<"update t set s = ${s} where id = ${id}">>),
-            channel_conf => #{}
-        },
-        ?assertEqual(
-            [ok, ok],
-            emqx_bridge_dameng_connector:worker_do_literal_batch(
-                self(),
-                ChannelState,
-                [#{s => <<"a">>, id => 1}, #{s => <<"b'c">>, id => 2}],
-                #{resource_opts => #{}}
-            )
-        ),
-        ?assertEqual(
-            [
-                <<"update t set s = 'a' where id = 1">>,
-                <<"update t set s = 'b''c' where id = 2">>
-            ],
-            [
-                receive
-                    {sql, SQL} -> SQL
-                after 1000 -> timeout
-                end
-             || _ <- [1, 2]
-            ]
-        )
-    after
-        meck:unload(emqx_odbc)
-    end.
-
-worker_do_literal_batch_keeps_one_result_per_request_test() ->
-    meck:new(emqx_odbc, [passthrough]),
-    meck:expect(emqx_odbc, sql_query, fun(_Conn, _SQL, _Timeout) -> {updated, 1} end),
-    try
-        ChannelState = #{
-            values_tokens => emqx_placeholder:preproc_tmpl(<<"update t set s = ${s}">>),
-            channel_conf => #{}
-        },
-        %% Only the request missing `s' fails; the other one is still executed.
-        ?assertEqual(
-            [ok, {error, {unrecoverable_error, undefined_var}}],
-            emqx_bridge_dameng_connector:worker_do_literal_batch(
-                self(),
-                ChannelState,
-                [#{s => <<"a">>}, #{}],
-                #{resource_opts => #{}}
-            )
-        )
-    after
-        meck:unload(emqx_odbc)
-    end.
-
-%% A coalesced batch of non-INSERT requests must reach the batch worker and come
-%% back as one result per request (the resource buffer worker expands the list).
-on_batch_query_runs_non_insert_batch_test() ->
+on_add_channel_rejects_non_insert_test() ->
     meck:new(ecpool, [passthrough]),
-    Self = self(),
-    meck:expect(ecpool, pick_and_do, fun(_Pool, {_Mod, Fun, [_Ch, Msgs, _State]}, _Mode) ->
-        Self ! {worker, Fun},
-        ?assertEqual(2, length(Msgs)),
-        [ok, ok]
-    end),
     try
-        ChannelState = #{statement_type => update, values_tokens => [], channel_conf => #{}},
-        State = #{
-            pool_name => <<"p">>,
-            installed_channels => #{<<"c">> => ChannelState},
-            resource_opts => #{}
-        },
-        ?assertEqual(
-            [ok, ok],
-            emqx_bridge_dameng_connector:on_batch_query(
-                <<"res">>, [{<<"c">>, #{}}, {<<"c">>, #{}}], State
-            )
+        State = #{pool_name => <<"p">>, installed_channels => #{}, resource_opts => #{}},
+        lists:foreach(
+            fun(SQL) ->
+                ?assertEqual(
+                    {error, {unrecoverable_error, {invalid_request, ?INSERT_ONLY}}},
+                    emqx_bridge_dameng_connector:on_add_channel(
+                        <<"i">>, State, <<"c">>, #{parameters => #{sql => SQL}}
+                    )
+                )
+            end,
+            non_insert_templates()
         ),
-        receive
-            {worker, Fun} -> ?assertEqual(worker_do_literal_batch, Fun)
-        after 1000 -> error(no_worker_started)
-        end
+        ?assertNot(meck:called(ecpool, pick_and_do, '_'))
     after
         meck:unload(ecpool)
     end.
+
+legacy_non_insert_execution_is_rejected_test() ->
+    meck:new(ecpool, [passthrough]),
+    meck:new(emqx_odbc, [passthrough]),
+    try
+        lists:foreach(
+            fun(Type) ->
+                Ch = #{statement_type => Type, values_tokens => [], channel_conf => #{}},
+                State = #{pool_name => <<"p">>, installed_channels => #{<<"c">> => Ch}},
+                Error = {error, {unrecoverable_error, {invalid_request, ?INSERT_ONLY}}},
+                ?assertEqual(
+                    Error,
+                    emqx_bridge_dameng_connector:on_query(
+                        <<"r">>, {<<"c">>, #{}}, State
+                    )
+                ),
+                ?assertEqual(
+                    Error,
+                    emqx_bridge_dameng_connector:on_batch_query(
+                        <<"r">>, [{<<"c">>, #{}}, {<<"c">>, #{}}], State
+                    )
+                ),
+                ?assertEqual(
+                    Error,
+                    emqx_bridge_dameng_connector:worker_do_literal(
+                        self(), Ch, #{}, State
+                    )
+                ),
+                ?assertEqual(
+                    Error,
+                    emqx_bridge_dameng_connector:worker_do_literal_batch(
+                        self(), Ch, [#{}, #{}], State
+                    )
+                )
+            end,
+            [select, update, delete]
+        ),
+        ?assertNot(meck:called(ecpool, pick_and_do, '_')),
+        ?assertNot(meck:called(emqx_odbc, sql_query, '_')),
+        ?assertNot(meck:called(emqx_odbc, param_query, '_'))
+    after
+        meck:unload([ecpool, emqx_odbc])
+    end.
+
+insert_execution_binds_values_test() ->
+    Ch = insert_channel_state(),
+    Payloads = [<<"a'b\\c">>, <<"'); DELETE FROM t; --">>, <<"${id} /* comment */">>],
+    Msgs = [#{id => N, payload => P} || {N, P} <- lists:zip([1, 2, 3], Payloads)],
+    State = #{
+        pool_name => <<"p">>,
+        installed_channels => #{<<"c">> => Ch},
+        resource_opts => #{request_ttl => 4321}
+    },
+    meck:new(ecpool, [passthrough]),
+    meck:new(emqx_odbc, [passthrough]),
+    meck:expect(ecpool, pick_and_do, fun(<<"p">>, {Mod, Fun, Args}, handover) ->
+        ?assertEqual(emqx_bridge_dameng_connector, Mod),
+        ?assertEqual(worker_do_insert, Fun),
+        apply(Mod, Fun, [self() | Args])
+    end),
+    meck:expect(emqx_odbc, param_query, fun(_Conn, SQL, Params, Timeout) ->
+        ?assertEqual(<<"insert into t(id, payload) values (?, ?)">>, SQL),
+        ?assertEqual(4321, Timeout),
+        ?assertMatch([{sql_integer, _}, {{sql_varchar, 200}, _}], Params),
+        {updated, length(element(2, hd(Params)))}
+    end),
+    try
+        lists:foreach(
+            fun(Msg) ->
+                ?assertEqual(
+                    ok,
+                    emqx_bridge_dameng_connector:on_query(
+                        <<"r">>, {<<"c">>, Msg}, State
+                    )
+                )
+            end,
+            Msgs
+        ),
+        ?assertEqual(
+            ok,
+            emqx_bridge_dameng_connector:on_batch_query(
+                <<"r">>, [{<<"c">>, Msg} || Msg <- Msgs], State
+            )
+        ),
+        Bound = [
+            Params
+         || {_, {emqx_odbc, param_query, [_, _, Params, _]}, _} <-
+                meck:history(emqx_odbc)
+        ],
+        ?assertEqual(
+            [
+                [{sql_integer, [N]}, {{sql_varchar, 200}, [P]}]
+             || {N, P} <- lists:zip([1, 2, 3], Payloads)
+            ] ++
+                [[{sql_integer, [1, 2, 3]}, {{sql_varchar, 200}, Payloads}]],
+            Bound
+        ),
+        ?assertNot(meck:called(emqx_odbc, sql_query, '_')),
+        ?assert(meck:validate([ecpool, emqx_odbc]))
+    after
+        meck:unload([ecpool, emqx_odbc])
+    end.
+
+insert_channel_state() ->
+    {ok, Ch} = emqx_bridge_dameng_connector:parse_sql_template(#{
+        sql => <<"insert into t(id, payload) values (${id}, ${payload})">>
+    }),
+    Ch#{column_types => [sql_integer, {sql_varchar, 200}]}.
 
 %% `odbc' exits with `timeout' when the request TTL elapses (`odbc:call/3');
 %% that is a transient failure and must stay recoverable so the buffered
@@ -874,30 +851,78 @@ worker_do_insert_timeout_is_recoverable_test() ->
         meck:unload(emqx_odbc)
     end.
 
-worker_do_literal_timeout_is_recoverable_test() ->
+worker_do_insert_driver_error_test_() ->
+    [
+        {binary_to_list(DriverError), fun() ->
+            meck:new(emqx_odbc, [passthrough]),
+            meck:expect(emqx_odbc, param_query, fun(_, _, _, _) -> {error, DriverError} end),
+            try
+                ?assertEqual(
+                    {error, Expected},
+                    emqx_bridge_dameng_connector:worker_do_insert(
+                        self(),
+                        insert_channel_state(),
+                        [#{id => 1, payload => <<"p">>}],
+                        #{resource_opts => #{}}
+                    )
+                )
+            after
+                meck:unload(emqx_odbc)
+            end
+        end}
+     || {DriverError, Expected} <- [
+            {<<"SQLSTATE IS: 42S02 table not found">>,
+                {unrecoverable_error, {invalid_request, <<"table_not_found">>}}},
+            {<<"SQLSTATE IS: 08S01 connection broken">>,
+                {recoverable_error, <<"connection_closed">>}}
+        ]
+    ].
+
+worker_do_insert_null_policy_test() ->
+    Ch = insert_channel_state(),
+    State = #{resource_opts => #{}},
     meck:new(emqx_odbc, [passthrough]),
-    meck:expect(emqx_odbc, sql_query, fun(_Conn, _SQL, _Timeout) -> exit(timeout) end),
+    meck:expect(emqx_odbc, param_query, fun(_, _, Params, _) ->
+        ?assertEqual([{sql_integer, [1]}, {{sql_varchar, 200}, [null]}], Params),
+        {updated, 1}
+    end),
     try
+        %% Explicit JSON null is a value, even when missing variables are errors.
         ?assertEqual(
-            {error, {recoverable_error, <<"timeout">>}},
-            emqx_bridge_dameng_connector:worker_do_literal(
-                self(), literal_channel_state(), #{id => 1}, #{resource_opts => #{}}
+            ok,
+            emqx_bridge_dameng_connector:worker_do_insert(
+                self(), Ch, [#{id => 1, payload => null}], State
             )
-        )
+        ),
+        ?assertEqual(
+            {error, {unrecoverable_error, undefined_var}},
+            emqx_bridge_dameng_connector:worker_do_insert(self(), Ch, [#{id => 1}], State)
+        ),
+        ?assertEqual(1, meck:num_calls(emqx_odbc, param_query, '_')),
+        NullableCh = Ch#{channel_conf => #{undefined_vars_as_null => true}},
+        ?assertEqual(
+            ok,
+            emqx_bridge_dameng_connector:worker_do_insert(
+                self(), NullableCh, [#{id => 1}], State
+            )
+        ),
+        ?assertEqual(2, meck:num_calls(emqx_odbc, param_query, '_')),
+        ?assert(meck:validate(emqx_odbc))
     after
         meck:unload(emqx_odbc)
     end.
 
-%% Any other exception is a bug in the request handling, not a transient
-%% failure: it must stay unrecoverable.
-worker_do_literal_crash_is_unrecoverable_test() ->
+worker_do_insert_crash_is_unrecoverable_test() ->
     meck:new(emqx_odbc, [passthrough]),
-    meck:expect(emqx_odbc, sql_query, fun(_Conn, _SQL, _Timeout) -> error(boom) end),
+    meck:expect(emqx_odbc, param_query, fun(_, _, _, _) -> error(boom) end),
     try
         ?assertEqual(
             {error, {unrecoverable_error, {invalid_request, boom}}},
-            emqx_bridge_dameng_connector:worker_do_literal(
-                self(), literal_channel_state(), #{id => 1}, #{resource_opts => #{}}
+            emqx_bridge_dameng_connector:worker_do_insert(
+                self(),
+                insert_channel_state(),
+                [#{id => 1, payload => <<"p">>}],
+                #{resource_opts => #{}}
             )
         )
     after

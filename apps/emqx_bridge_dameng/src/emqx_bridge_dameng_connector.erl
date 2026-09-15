@@ -399,15 +399,8 @@ parse_sql_template(#{sql := SQL} = Params) ->
     case emqx_utils_sql:get_statement_type(SQL) of
         insert ->
             parse_insert_template(SQL, Params);
-        Type when is_atom(Type) ->
-            {ok, #{
-                sql_template => SQL,
-                statement_type => Type,
-                values_tokens => emqx_placeholder:preproc_tmpl(SQL),
-                channel_conf => Params
-            }};
-        {error, Reason} ->
-            {error, {unrecoverable_error, {invalid_request, Reason}}}
+        _ ->
+            unsupported_statement()
     end;
 parse_sql_template(_) ->
     {error, {unrecoverable_error, {invalid_request, missing_sql}}}.
@@ -498,8 +491,6 @@ extract_table(InsertPart) ->
 %% describe (only once at channel creation)
 %%===================
 
-resolve_column_types(_PoolName, #{statement_type := Type}, _ResourceOpts) when Type =/= insert ->
-    {ok, []};
 resolve_column_types(
     PoolName, #{insert_part := InsertPart, insert_columns := Columns}, ResourceOpts
 ) ->
@@ -601,27 +592,11 @@ do_query(ResourceId, {ChannelId, Msg} = Query, ApplyMode, State) ->
         #{query => Query, connector => ResourceId, state => State}
     ),
     ChannelState = maps:get(ChannelId, Channels),
-    Result =
-        case maps:get(statement_type, ChannelState) of
-            insert ->
-                ecpool:pick_and_do(
-                    PoolName,
-                    {?MODULE, worker_do_insert, [ChannelState, [Msg], State]},
-                    ApplyMode
-                );
-            Type when is_atom(Type) ->
-                ecpool:pick_and_do(
-                    PoolName,
-                    {?MODULE, worker_do_literal, [ChannelState, Msg, State]},
-                    ApplyMode
-                )
-        end,
+    Result = execute_insert(PoolName, ChannelState, [Msg], ApplyMode, State),
     handle_result(Result, ResourceId, Query).
 
-%% A coalesced batch of requests; batching is enabled in the action schema by
-%% default. INSERTs are sent as one multi-row statement, while non-INSERT
-%% statements cannot be combined: they are executed sequentially on one
-%% connection and one result is reported per request.
+%% A coalesced batch uses the same parameterized INSERT as a single request,
+%% with one bound value per message for each target column.
 -spec do_batch_query(resource_id(), [{channel_id(), map()}], ApplyMode :: handover, state()) ->
     batch_query_result().
 do_batch_query(ResourceId, [{ChannelId, _Msg} | _] = Query, ApplyMode, State) ->
@@ -633,41 +608,22 @@ do_batch_query(ResourceId, [{ChannelId, _Msg} | _] = Query, ApplyMode, State) ->
     ),
     ChannelState = maps:get(ChannelId, Channels),
     Msgs = get_msgs(Query),
-    Result =
-        case maps:get(statement_type, ChannelState) of
-            insert ->
-                ecpool:pick_and_do(
-                    PoolName,
-                    {?MODULE, worker_do_insert, [ChannelState, Msgs, State]},
-                    ApplyMode
-                );
-            Type when is_atom(Type) ->
-                ecpool:pick_and_do(
-                    PoolName,
-                    {?MODULE, worker_do_literal_batch, [ChannelState, Msgs, State]},
-                    ApplyMode
-                )
-        end,
-    handle_batch_result(Result, ResourceId, Query).
-
-%% A non-INSERT batch produces one result per request. The resource buffer
-%% worker expands the list into one reply per request, and retries only the
-%% requests whose own result is a recoverable error.
-handle_batch_result(Results, ResourceId, Query) when is_list(Results) ->
-    ?tp(dameng_connector_query_return, #{
-        batch_size => length(Results),
-        results => Results
-    }),
-    lists:foreach(
-        fun
-            ({error, _} = Error) -> _ = handle_result(Error, ResourceId, Query);
-            (_) -> ok
-        end,
-        Results
-    ),
-    Results;
-handle_batch_result(Result, ResourceId, Query) ->
+    Result = execute_insert(PoolName, ChannelState, Msgs, ApplyMode, State),
     handle_result(Result, ResourceId, Query).
+
+execute_insert(PoolName, #{statement_type := insert} = ChannelState, Msgs, ApplyMode, State) ->
+    ecpool:pick_and_do(
+        PoolName,
+        {?MODULE, worker_do_insert, [ChannelState, Msgs, State]},
+        ApplyMode
+    );
+execute_insert(_PoolName, _ChannelState, _Msgs, _ApplyMode, _State) ->
+    %% A channel installed by an older version may still contain a non-INSERT
+    %% template. Reject it before handing any work to the connection pool.
+    unsupported_statement().
+
+unsupported_statement() ->
+    {error, {unrecoverable_error, {invalid_request, <<"Only INSERT statements are supported">>}}}.
 
 handle_result({error, {recoverable_error, _} = Reason} = Result, _ResourceId, _Query) ->
     %% Recoverable errors (e.g. a flapping connection) are already logged with
@@ -715,38 +671,15 @@ worker_do_insert(Conn, ChannelState, Msgs, #{resource_opts := ResourceOpts} = _S
         end
     end).
 
-%%===================
-%% Non-insert (select/update/delete) via literal SQL
-%%===================
+%% Keep these exported worker entry points for calls queued before an upgrade.
+%% Literal interpolation is no longer supported; they must never execute SQL.
+worker_do_literal(_Conn, _ChannelState, _Msg, _State) ->
+    unsupported_statement().
 
-worker_do_literal(Conn, ChannelState, Msg, #{resource_opts := ResourceOpts}) ->
-    #{values_tokens := Tokens} = ChannelState,
-    UndefinedAsNull = get_undefined_as_null(ChannelState),
-    with_classified_errors(fun() ->
-        case render_literal(Tokens, Msg, UndefinedAsNull) of
-            {ok, SQL} ->
-                case emqx_odbc:sql_query(Conn, SQL, ?REQUEST_TTL(ResourceOpts)) of
-                    {selected, _Cols, Rows} ->
-                        {ok, Rows};
-                    {updated, _N} ->
-                        %% Consistent with the insert path: a write that affected
-                        %% rows is a plain success.
-                        ok;
-                    {error, ErrStr} ->
-                        {error, classify_odbc_error(ErrStr)}
-                end;
-            {error, Reason} ->
-                {error, Reason}
-        end
-    end).
+worker_do_literal_batch(_Conn, _ChannelState, _Msgs, _State) ->
+    unsupported_statement().
 
-%% A batch of non-INSERT requests is executed as a sequence on the same
-%% connection: every request keeps its own result, so a failure only affects
-%% the request that caused it.
-worker_do_literal_batch(Conn, ChannelState, Msgs, State) ->
-    [worker_do_literal(Conn, ChannelState, Msg, State) || Msg <- Msgs].
-
-%% `odbc:param_query/4' and `odbc:sql_query/3' exit with `timeout' when the
+%% `odbc:param_query/4' exits with `timeout' when the
 %% request TTL elapses (see `odbc:call/3'), so a caught exception must go
 %% through the same classification as a driver error returned normally:
 %% otherwise a transient timeout would be reported as an unrecoverable
@@ -775,39 +708,6 @@ with_classified_errors(Fun) ->
                     {error, Error}
             end
     end.
-
-%% The literal path interpolates values into the statement, so they must be
-%% quoted for DM8: it is Oracle compatible, which escapes a single quote by
-%% doubling it and gives no special meaning to the backslash. (The SQL Server
-%% helper `emqx_placeholder:proc_sqlserver_param_str/2' used before this change
-%% backslash-escapes quotes and backslashes, which corrupts values containing a
-%% backslash and can produce a syntax error for values containing a quote.)
-render_literal(Tokens, Msg, UndefinedAsNull) ->
-    Vars = [Var || {var, Var} <- Tokens],
-    Values = [emqx_placeholder:lookup_var(Var, Msg) || Var <- Vars],
-    case {UndefinedAsNull, lists:member(undefined, Values)} of
-        {false, true} ->
-            {error, {unrecoverable_error, undefined_var}};
-        _ ->
-            {ok, iolist_to_binary(render_literal_parts(Tokens, Msg, UndefinedAsNull))}
-    end.
-
-render_literal_parts([{str, Str} | Rest], Msg, UndefinedAsNull) ->
-    [Str | render_literal_parts(Rest, Msg, UndefinedAsNull)];
-render_literal_parts([{var, Var} | Rest], Msg, UndefinedAsNull) ->
-    Value = emqx_placeholder:lookup_var(Var, Msg),
-    [quote_literal(Value, UndefinedAsNull) | render_literal_parts(Rest, Msg, UndefinedAsNull)];
-render_literal_parts([], _Msg, _UndefinedAsNull) ->
-    [].
-
-quote_literal(undefined, true) ->
-    <<"NULL">>;
-quote_literal(null, _UndefinedAsNull) ->
-    %% A JSON `null' is an explicit value, not a missing variable: write SQL
-    %% NULL like the parameter path does (`emqx_odbc:to_odbc_value(null, _)').
-    <<"NULL">>;
-quote_literal(Value, _UndefinedAsNull) ->
-    emqx_utils_sql:to_sql_string(Value, #{escaping => sql_std}).
 
 %% Classify a driver error and make sure a recoverable (connection level)
 %% failure is visible in the logs together with the raw driver message.

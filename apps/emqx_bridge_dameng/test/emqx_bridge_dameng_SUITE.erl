@@ -314,7 +314,7 @@ connect_and_get_id_payload_pairs() ->
         Rows
     end).
 
-%% Seed one row per id so that every statement of a batch has a visible effect.
+%% Seed sentinel rows to verify that rejected action templates cannot change data.
 seed_rows(Ids) ->
     with_conn(fun(Conn) ->
         lists:foreach(
@@ -683,89 +683,119 @@ t_missing_data(TCConfig) ->
     ),
     ok.
 
-%% Non-INSERT statements (here an UPDATE) go through the literal SQL path
-%% instead of `param_query'.
-t_non_insert_statement(TCConfig) ->
+%% Reject unsupported templates at the API boundary in all query/batch modes.
+%% A failed update must leave the original INSERT action usable.
+t_non_insert_template() ->
+    [{matrix, true}].
+t_non_insert_template(matrix) ->
+    [[Sync, Batch] || Sync <- [?sync, ?async], Batch <- [?without_batch, ?with_batch]];
+t_non_insert_template(TCConfig) when is_list(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
-    {201, _} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{
-            <<"sql">> => <<"update ", ?DM_TABLE/binary, " set payload = ${payload}">>
-        }
-    }),
-    %% Seed one row so that the UPDATE has a target and the result is visible.
-    with_conn(fun(Conn) ->
-        {updated, _} = emqx_odbc:sql_query(
-            Conn,
-            <<
-                "insert into ",
-                ?DM_TABLE/binary,
-                " (msgid, topic, qos, payload) values ('1', 't/1', 0, 'old')"
-            >>,
-            2_000
-        )
-    end),
-    #{topic := Topic} = simple_create_rule_api(<<"select * from \"${t}\" ">>, TCConfig),
-    C = start_client(),
-    ?check_trace(
-        begin
-            ?wait_async_action(
-                emqtt:publish(C, Topic, <<"updated">>),
-                #{?snk_kind := dameng_connector_query_return},
-                10_000
+    seed_rows([<<"sentinel">>]),
+    SQLs = [
+        <<"SELECT * FROM ", ?DM_TABLE/binary>>,
+        <<"update ", ?DM_TABLE/binary, " set payload = ${payload}">>,
+        <<" \nDeLeTe FROM ", ?DM_TABLE/binary>>,
+        <<"DROP TABLE ", ?DM_TABLE/binary>>,
+        <<"MERGE INTO ", ?DM_TABLE/binary, " USING other_table ON 1 = 1">>,
+        <<>>
+    ],
+    lists:foreach(
+        fun(SQL) ->
+            assert_insert_only_error(
+                create_action_api(TCConfig, #{
+                    <<"parameters">> => #{<<"sql">> => SQL}
+                })
             ),
-            ?retry(200, 10, ?assertEqual([{<<"updated">>}], connect_and_get_payload())),
-            ok
+            ?assertMatch({404, _}, get_action_api(TCConfig))
         end,
-        fun(Trace) ->
-            ?assertMatch(
-                [#{result := ok}],
-                ?of_kind(dameng_connector_query_return, Trace)
+        SQLs
+    ),
+    {201, _} = create_action_api(TCConfig, #{}),
+    {200, #{<<"parameters">> := OriginalParams}} = get_action_api(TCConfig),
+    lists:foreach(
+        fun(SQL) ->
+            assert_insert_only_error(
+                emqx_bridge_v2_testlib:update_bridge_api2(TCConfig, #{
+                    <<"parameters">> => #{<<"sql">> => SQL}
+                })
             ),
-            ok
-        end
+            ?assertMatch(
+                {200, #{<<"parameters">> := OriginalParams}},
+                get_action_api(TCConfig)
+            )
+        end,
+        SQLs
+    ),
+    ?assertEqual([{<<"sentinel">>, <<"old">>}], connect_and_get_id_payload_pairs()),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    emqx:publish(emqx_message:make(Topic, <<"still works">>)),
+    ?retry(200, 30, ?assertEqual(2, connect_and_get_count())),
+    ?assertEqual(
+        lists:sort([{<<"old">>}, {<<"still works">>}]),
+        lists:sort(connect_and_get_payload())
     ),
     ok.
 
-%% Batching is enabled in the action by default, and non-INSERT statements
-%% cannot be combined into a single statement: a coalesced burst of UPDATEs must
-%% be executed sequentially instead of the whole batch being rejected.
-t_non_insert_batch() ->
+assert_insert_only_error(Result) ->
+    ?assertMatch({400, #{<<"code">> := <<"BAD_REQUEST">>}}, Result),
+    {400, #{<<"message">> := Message}} = Result,
+    ?assertNotEqual(
+        nomatch,
+        binary:match(validation_reason(Message), <<"Only INSERT statements are supported">>)
+    ).
+
+%% The REST API renders a schema validation failure either as plain text or as
+%% the validation error object (`kind'/`path'/`reason'/`value').
+validation_reason(Message) when is_binary(Message) ->
+    case emqx_utils_json:safe_decode(Message, [maps]) of
+        {ok, Decoded} -> validation_reason(Decoded);
+        {error, _} -> Message
+    end;
+validation_reason(#{<<"reason">> := Reason}) when is_binary(Reason) ->
+    Reason;
+validation_reason(Other) ->
+    emqx_utils_json:encode(Other).
+
+%% Exercise the actual driver: SQL-looking values must round-trip unchanged.
+%% Trace bound row counts to prove the batch modes really send several rows.
+t_insert_parameter_binding() ->
     [{matrix, true}].
-t_non_insert_batch(matrix) ->
-    [[?sync, ?with_batch]];
-t_non_insert_batch(TCConfig) when is_list(TCConfig) ->
-    BatchSize = 10,
+t_insert_parameter_binding(matrix) ->
+    [[Sync, Batch] || Sync <- [?sync, ?async], Batch <- [?without_batch, ?with_batch]];
+t_insert_parameter_binding(TCConfig) when is_list(TCConfig) ->
+    BatchSize = get_config(batch_size, TCConfig),
+    Payloads = [
+        <<"a'b\\c">>,
+        <<"'); DELETE FROM SYSDBA.T_MQTT_MSG; --">>,
+        <<"${payload} /* not SQL */">>,
+        <<"达梦 café ' \\"/utf8>>
+    ],
+    meck:new(emqx_odbc, [passthrough, no_link]),
+    on_exit(fun() -> meck:unload(emqx_odbc) end),
+    meck:expect(emqx_odbc, param_query, fun(Conn, SQL, [{_, Values} | _] = Params, Timeout) ->
+        ?tp(dameng_test_param_query, #{row_count => length(Values)}),
+        meck:passthrough([Conn, SQL, Params, Timeout])
+    end),
     {201, _} = create_connector_api(TCConfig, #{}),
-    {201, _} = create_action_api(TCConfig, #{
-        <<"parameters">> => #{
-            <<"sql">> => <<
-                "update ",
-                ?DM_TABLE/binary,
-                " set payload = ${payload} where msgid = ${id}"
-            >>
-        },
-        %% A batch window much longer than the publish burst makes every
-        %% request of the burst land in the same batch.
-        <<"resource_opts">> => #{<<"batch_time">> => <<"5s">>}
-    }),
-    Ids = [integer_to_binary(Id) || Id <- lists:seq(1, BatchSize)],
-    seed_rows(Ids),
-    #{topic := Topic} = simple_create_rule_api(
-        <<"select payload.id as id, payload.payload as payload from \"${t}\" ">>,
-        TCConfig
-    ),
+    Overrides =
+        case BatchSize of
+            1 -> #{};
+            _ -> #{<<"resource_opts">> => #{<<"batch_time">> => <<"1s">>}}
+        end,
+    {201, _} = create_action_api(TCConfig, Overrides),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
     ?check_trace(
         begin
-            %% Publish from concurrent processes: the rule runs in the
-            %% publishing process, so a serial publisher keeps at most one
-            %% request in flight and the resource worker cannot coalesce it.
-            Self = self(),
+            %% Synchronous rules run in the publisher, so use concurrent
+            %% publishers to allow the resource worker to aggregate a batch.
+            Parent = self(),
             Publishers = [
                 spawn_link(fun() ->
-                    emqx:publish(emqx_message:make(Topic, batch_payload(Id))),
-                    Self ! {published, self()}
+                    emqx:publish(emqx_message:make(Topic, Payload)),
+                    Parent ! {published, self()}
                 end)
-             || Id <- Ids
+             || Payload <- Payloads
             ],
             lists:foreach(
                 fun(Pid) ->
@@ -776,34 +806,22 @@ t_non_insert_batch(TCConfig) when is_list(TCConfig) ->
                 end,
                 Publishers
             ),
-            ?retry(
-                200,
-                30,
-                ?assertEqual(
-                    lists:sort([{Id, <<"new-", Id/binary>>} || Id <- Ids]),
-                    lists:sort(connect_and_get_id_payload_pairs())
-                )
-            ),
-            ok
+            ?retry(200, 30, ?assertEqual(length(Payloads), connect_and_get_count())),
+            ?assertEqual(
+                lists:sort([{Payload} || Payload <- Payloads]),
+                lists:sort(connect_and_get_payload())
+            )
         end,
         fun(Trace) ->
-            %% The coalesced burst must be processed as a batch of more than one
-            %% request, which is the code path the shipped defaults produce.
-            Batches = [
-                N
-             || #{batch_size := N} <- ?of_kind(dameng_connector_query_return, Trace)
-            ],
-            ?assert(lists:any(fun(N) -> N >= 2 end, Batches)),
-            ok
+            RowCounts = [N || #{row_count := N} <- ?of_kind(dameng_test_param_query, Trace)],
+            ?assertEqual(length(Payloads), lists:sum(RowCounts)),
+            case BatchSize of
+                1 -> ?assertEqual(lists:duplicate(length(Payloads), 1), RowCounts);
+                _ -> ?assert(lists:any(fun(N) -> N > 1 end, RowCounts))
+            end
         end
     ),
     ok.
-
-batch_payload(Id) ->
-    emqx_utils_json:encode(#{
-        <<"id">> => Id,
-        <<"payload">> => <<"new-", Id/binary>>
-    }).
 
 %% Every supported column type is written and read back through the rule engine
 %% and the action: the values are converted with `odbc:param_query' according to

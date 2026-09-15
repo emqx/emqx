@@ -22,7 +22,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    validate_sql/1
 ]).
 
 -define(CONNECTOR_TYPE, dameng).
@@ -119,11 +120,7 @@ fields(connector_resource_opts) ->
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {sql,
-            mk(
-                binary(),
-                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
-            )},
+        {sql, sql_template(binary())},
         {resource_opts,
             mk(
                 ref(?MODULE, "creation_opts"),
@@ -151,11 +148,7 @@ fields(dameng_action) ->
     );
 fields(action_parameters) ->
     [
-        {sql,
-            mk(
-                emqx_schema:template(),
-                #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
-            )},
+        {sql, sql_template(emqx_schema:template())},
         emqx_bridge_v2_schema:undefined_as_null_field()
     ];
 fields(action_resource_opts) ->
@@ -198,6 +191,21 @@ desc(_) ->
     undefined.
 
 %% -------------------------------------------------------------------------------------------------
+
+sql_template(Type) ->
+    mk(Type, #{
+        desc => ?DESC("sql_template"),
+        default => ?DEFAULT_SQL,
+        format => <<"sql">>,
+        validator => fun ?MODULE:validate_sql/1
+    }).
+
+%% Share template validation with channel creation, without querying the database.
+validate_sql(SQL) ->
+    case emqx_bridge_dameng_connector:parse_sql_template(#{sql => SQL}) of
+        {ok, _} -> ok;
+        {error, {unrecoverable_error, {invalid_request, Reason}}} -> {error, Reason}
+    end.
 
 type_field(Type) ->
     {type, mk(enum([Type]), #{required => true, desc => ?DESC("desc_type")})}.

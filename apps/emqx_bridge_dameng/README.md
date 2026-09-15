@@ -35,8 +35,18 @@ Action parameters:
 
 | Field | Description |
 |------|-------------|
-| `sql` | SQL template. `INSERT` statements must list the target columns explicitly |
+| `sql` | `INSERT` template with an explicit target column list and `${...}` placeholders in `VALUES`. Other statement types are rejected |
 | `undefined_vars_as_null` | Write `null` for variables missing from the message instead of failing the request, defaults to `false` |
+
+Only `INSERT` action templates are supported in this release. `SELECT`,
+`UPDATE`, `DELETE`, and other statement types are rejected when configuring an
+action. Both single-message and batched writes use `odbc:param_query`: message
+values are bound separately from the SQL statement to prevent SQL injection
+through those values. Do not manually escape or quote placeholders.
+
+This restriction applies to the action template. The connector still uses a
+fixed `SELECT 1` for health checks, and the rule engine uses its own SQL to
+select and transform MQTT messages.
 
 ## Supported column types
 
@@ -57,7 +67,8 @@ Values are validated before they are bound:
 Binary (`BINARY`, `VARBINARY`, `LONGVARBINARY`), large object
 (`LONGVARCHAR`, `WLONGVARCHAR`/NCLOB) and interval columns are rejected when the
 action is created: `odbc:param_query` cannot bind them without corrupting the
-data. Store such values as an escaped string instead.
+data. Encode such values as text (for example, Base64 for binary data) and bind
+them to a supported character column.
 
 ## TLS
 
