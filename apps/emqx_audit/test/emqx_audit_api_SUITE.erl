@@ -363,7 +363,9 @@ t_rbac_denied_dashboard_user(_) ->
     Username = <<"audit_rbac_viewer">>,
     Password = <<"public_www1">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_VIEWER, <<"viewer">>),
-    {ok, ?ROLE_VIEWER, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {ok, #{role := ?ROLE_VIEWER, token := Token}} = emqx_dashboard_admin:sign_token(
+        Username, Password
+    ),
     ClientId = <<"audit-rbac-denied-dashboard">>,
     ?assertMatch({ok, 403, _}, delete_client(ClientId, bearer_header(Token))),
     ?assertMatch(

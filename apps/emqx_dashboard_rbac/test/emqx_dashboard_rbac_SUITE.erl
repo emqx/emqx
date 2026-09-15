@@ -228,8 +228,8 @@ test_mfa(VerifyFn) ->
     %% viewer can change own password
     ?assertEqual({ok, Viewer1}, VerifyFn(Viewer1Token, Viewer1)),
     %% viewer can't change other's password
-    ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, Viewer2)),
-    ?assertEqual({error, unauthorized_role}, VerifyFn(Viewer1Token, SuperUser)),
+    ?assertEqual({error, {unauthorized_role, Viewer1}}, VerifyFn(Viewer1Token, Viewer2)),
+    ?assertEqual({error, {unauthorized_role, Viewer1}}, VerifyFn(Viewer1Token, SuperUser)),
     %% superuser can change other's password
     ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, Viewer1)),
     ?assertEqual({ok, SuperUser}, VerifyFn(SuperToken, Viewer2)),
