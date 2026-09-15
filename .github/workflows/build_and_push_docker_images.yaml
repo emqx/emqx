@@ -18,10 +18,17 @@ on:
         required: false
         type: boolean
         default: false
+      pr_build:
+        description: Use public Debian bases for PR validation (ignored when publishing)
+        required: false
+        type: boolean
+        default: false
     secrets:
       DOCKER_HUB_USER:
+        description: Docker Hub username, required for DHI builds and publishing
         required: false
       DOCKER_HUB_TOKEN:
+        description: Token with DHI pull access (and push access when publishing); unused for PR builds
         required: false
       AWS_ACCESS_KEY_ID:
         required: false
@@ -79,13 +86,31 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref }}
 
+      - name: Enable Docker containerd image store
+        run: bash scripts/enable-docker-containerd.sh
+
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      # Pulling DHI base images requires authentication even for publish=false.
+      # Docker Hub and dhi.io have separate registry credentials on the runner.
+      - name: Login to dhi.io
+        if: inputs.publish || !inputs.pr_build
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: dhi.io
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Build docker image
         env:
           DOCKER_PUSH: false
           DOCKER_BUILD_NOCACHE: true
           DOCKER_LOAD: true
+          # Fork PRs have no registry secrets. Override both DHI stages for PR
+          # validation; release builds use env.sh's hardened defaults and run
+          # all the tests below against the image that will be published.
+          RUN_FROM: ${{ inputs.pr_build && !inputs.publish && 'debian:13-slim' || '' }}
+          DEPS_FROM: ${{ inputs.pr_build && !inputs.publish && 'debian:13-slim' || '' }}
         run: |
           ./build ${PROFILE} docker
           echo "Built tags:"
@@ -118,15 +143,25 @@ jobs:
           docker compose rm -fsv
 
       - name: test node_dump
+        timeout-minutes: 5
         run: |
-          CID=$(docker run -d -P $_EMQX_DOCKER_IMAGE_TAG)
-          docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
-          docker exec -t -u root $CID node_dump
-          docker rm -f $CID
+          CID=$(docker run -d "$_EMQX_DOCKER_IMAGE_TAG")
+          trap 'docker rm -f "$CID"' EXIT
+          docker exec "$CID" curl --fail --silent --show-error \
+            --retry 30 --retry-delay 1 --retry-connrefused --max-time 5 \
+            http://127.0.0.1:18083/status
+          # Test the shipped nonroot image; node_dump tolerates missing netstat.
+          docker exec "$CID" node_dump
 
       - name: Export docker image
+        env:
+          REQUIRE_DHI: ${{ inputs.publish || !inputs.pr_build }}
         run: |
           docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > $PROFILE-docker-${{ matrix.arch }}.tar.gz
+          ARGS=()
+          if [ "$REQUIRE_DHI" = "true" ]; then ARGS+=(--require-dhi); fi
+          python3 scripts/verify-docker-attestations.py \
+            "$PROFILE-docker-${{ matrix.arch }}.tar.gz" --platform "linux/${{ matrix.arch }}" "${ARGS[@]}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -148,12 +183,6 @@ jobs:
       run:
         shell: bash
 
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
-
     env:
       PROFILE: ${{ inputs.profile }}
 
@@ -161,6 +190,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.ref }}
+
+      - name: Enable Docker containerd image store
+        run: bash scripts/enable-docker-containerd.sh
+
+      - name: Start staging registry
+        run: docker run -d --name image-staging-registry -p 5000:5000 registry:2
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
         with:
@@ -193,10 +228,15 @@ jobs:
               --owner "$OWNER"
               --profile "$PROFILE"
               --variant base
+              --require-attestations
           )
           if [ "$LATEST" = "true" ]; then ARGS+=(--latest); fi
           if [ "$PUBLISH" = "true" ]; then ARGS+=(--publish); fi
           ./scripts/publish-docker-multi-arch.sh "${ARGS[@]}"
+
+      - name: Stop staging registry
+        if: always()
+        run: docker rm -f image-staging-registry
 
   upload:
     runs-on: ubuntu-22.04
@@ -221,7 +261,7 @@ jobs:
       - name: Extract version from docker image
         run: |
           FILENAME="${{ matrix.profile }}-docker-${{ matrix.arch }}.tar.gz"
-          IMAGE_TAG=$(tar -xzOf "$FILENAME" manifest.json | grep -o '"[^"]*:[^"]*"' | head -1 | tr -d '"')
+          IMAGE_TAG=$(tar -xzOf "$FILENAME" manifest.json | jq -er '.[0].RepoTags[0]')
           PKG_VSN=$(echo "$IMAGE_TAG" | sed 's/.*://')
           echo "PKG_VSN=$PKG_VSN" | tee -a $GITHUB_ENV
           echo "FILENAME=$FILENAME" | tee -a $GITHUB_ENV

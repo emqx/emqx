@@ -4,5 +4,6 @@ export OTP_VSN=28.4.1-4
 export ELIXIR_VSN=1.19.1
 export EMQX_BUILDER=ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VSN}:${ELIXIR_VSN}-${OTP_VSN}-ubuntu24.04
 export EMQX_DOCKER_BUILD_FROM=ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VSN}:${ELIXIR_VSN}-${OTP_VSN}-debian13
-export EMQX_DOCKER_RUN_FROM=debian:13-slim
+export EMQX_DOCKER_RUN_FROM=dhi.io/debian-base:trixie
+export EMQX_DOCKER_DEPS_FROM=dhi.io/debian-base:trixie-dev
 export QUICER_DOWNLOAD_FROM_RELEASE=1

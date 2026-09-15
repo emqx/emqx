@@ -1,5 +1,6 @@
 ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/6.1-8:1.19.1-28.4.1-4-debian13
-ARG RUN_FROM=debian:13-slim
+ARG RUN_FROM=dhi.io/debian-base:trixie
+ARG DEPS_FROM=dhi.io/debian-base:trixie-dev
 ARG SOURCE_TYPE=src # tgz
 
 # Fetch a self-contained `curl` binary from stunnel/static-curl. Debian's stock
@@ -29,7 +30,8 @@ RUN set -eu; \
 FROM ${BUILD_FROM} AS builder_src
 ONBUILD COPY . /emqx
 
-FROM ${RUN_FROM} AS builder_tgz
+FROM ${DEPS_FROM} AS builder_tgz
+USER 0:0
 ARG PROFILE=emqx-enterprise
 ARG PKG_VSN
 ARG SUFFIX
@@ -63,8 +65,25 @@ RUN mkdir -p /emqx-rel/emqx && \
     fi && \
     rm -rf /emqx-rel/emqx/dynlibs
 
-FROM $RUN_FROM
+FROM ${RUN_FROM} AS runtime_base
+
+# DHI runtime images have no package manager. Install runtime dependencies in
+# the matching dev image, then export only their files and package metadata.
+FROM ${DEPS_FROM} AS runtime_deps
+USER 0:0
 ARG EXTRA_DEPS=''
+COPY --from=runtime_base /var/lib/dpkg/ /runtime-rootfs/var/lib/dpkg/
+COPY deploy/docker/export-runtime-deps.sh /usr/local/bin/
+RUN set -eu; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update; \
+    set -- bsdutils hostname grep sed mawk procps libc-bin libstdc++6 libssl3t64 \
+        $(echo "${EXTRA_DEPS}" | tr ',' ' '); \
+    apt-get install -y --no-install-recommends "$@"; \
+    bash /usr/local/bin/export-runtime-deps.sh /runtime-rootfs "$@"
+
+FROM runtime_base
+USER 0:0
 
 # Elixir complains if runs without UTF-8
 ENV LC_ALL=C.UTF-8
@@ -72,24 +91,20 @@ ENV LANG=C.UTF-8
 
 COPY deploy/docker/docker-entrypoint.sh /usr/bin/
 COPY --from=curl_static /usr/local/bin/curl /usr/bin/curl
+COPY --from=runtime_deps /runtime-rootfs/ /
 
+# Keep the existing volume ownership contract without installing user-management
+# tools. The hardened base has a shell but starts as nonroot (UID 65532).
 RUN set -eu; \
-    export DEBIAN_FRONTEND=noninteractive; \
-    apt-get update; \
-    apt-get upgrade -y; \
-    apt-get install -y --no-install-recommends ca-certificates procps $(echo "${EXTRA_DEPS}" | tr ',' ' '); \
-    if dpkg-query -s libgnutls30t64 >/dev/null 2>&1; then \
-        apt-get remove --purge -y libgnutls30t64; \
-        apt-get autoremove --purge -y; \
-    fi; \
-    apt-get clean; \
-    rm -rf /var/lib/apt/lists/*; \
-    groupadd -r -g 1000 emqx; \
-    useradd -r -m -u 1000 -g emqx emqx;
+    printf 'emqx:x:1000:1000::/home/emqx:/bin/bash\n' >> /etc/passwd; \
+    printf 'emqx:x:1000:\n' >> /etc/group; \
+    mkdir -p /home/emqx; \
+    chown 1000:1000 /home/emqx; \
+    ldconfig
 
 COPY --from=builder --chown=emqx:emqx /emqx-rel /opt/
 
-RUN ln -s /opt/emqx/bin/* /usr/local/bin/
+RUN mkdir -p /usr/local/bin && ln -s /opt/emqx/bin/* /usr/local/bin/
 
 WORKDIR /opt/emqx
 

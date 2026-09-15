@@ -299,6 +299,17 @@ docker_cleanup() {
 
 ## Build the default docker image based on debian 13
 make_docker() {
+    if [ "${DOCKER_LOAD:-true}" = true ]; then
+        local docker_driver_status
+        docker_driver_status=$(docker info --format '{{json .DriverStatus}}')
+        case "$docker_driver_status" in
+            *io.containerd.snapshotter.v1*) ;;
+            *)
+                log_red "Loading image attestations requires Docker's containerd image store. Enable it, or build with DOCKER_LOAD=false DOCKER_PUSH=true."
+                return 1
+                ;;
+        esac
+    fi
     # shellcheck disable=SC1091
     source ./env.sh
     local BUILD_FROM="${BUILD_FROM:-${EMQX_DOCKER_BUILD_FROM}}"
@@ -307,6 +318,7 @@ make_docker() {
     # shellcheck disable=SC2155
     local ELIXIR_VSN="$(docker run --rm "${BUILD_FROM}" elixir --short-version)"
     local RUN_FROM="${RUN_FROM:-${EMQX_DOCKER_RUN_FROM}}"
+    local DEPS_FROM="${DEPS_FROM:-${EMQX_DOCKER_DEPS_FROM}}"
     local EMQX_DOCKERFILE="${EMQX_DOCKERFILE:-deploy/docker/Dockerfile}"
     local EMQX_SOURCE_TYPE="${EMQX_SOURCE_TYPE:-src}"
     local SUFFIX="${DOCKER_IMAGE_SUFFIX:-}"
@@ -323,15 +335,17 @@ make_docker() {
     local PRODUCT_URL='https://emqx.com/en/products/emqx'
     local PRODUCT_DESCRIPTION='Official docker image for EMQX Enterprise, an enterprise MQTT platform at scale.'
     local DOCUMENTATION_URL='https://docs.emqx.com/en/emqx/latest/'
-    ## extra_deps is a comma separated list of debian 12 package names
+    ## extra_deps is a comma separated list of Debian runtime package names
     local EXTRA_DEPS='libsasl2-2,libsasl2-modules-gssapi-mit'
     local ISO_8601_DATE GIT_REVISION
     ISO_8601_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     GIT_REVISION="$(git rev-parse HEAD 2>/dev/null || echo "$PKG_VSN")"
-    export BUILDX_NO_DEFAULT_ATTESTATIONS=1
     local DOCKER_BUILDX_ARGS=(
+       --provenance=mode=max \
+       --sbom=true \
        --build-arg BUILD_FROM="${BUILD_FROM}" \
        --build-arg RUN_FROM="${RUN_FROM}" \
+       --build-arg DEPS_FROM="${DEPS_FROM}" \
        --build-arg SOURCE_TYPE="${EMQX_SOURCE_TYPE}" \
        --build-arg PROFILE="${PROFILE}" \
        --build-arg SUFFIX="${SUFFIX}" \

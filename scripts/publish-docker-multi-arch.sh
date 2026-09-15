@@ -8,14 +8,14 @@
 ##       --amd64 <tarball> --arm64 <tarball> \
 ##       --owner <github-owner> --profile <emqx-profile> \
 ##       --variant base|sf \
-##       [--latest] [--publish]
+##       [--latest] [--publish] [--require-attestations]
 ##
 ## Without --publish the buildx command is printed instead of executed
 ## (the load/tag/push to the local registry still happen).
 ##
 ## $LOCAL_BASE may be set in the environment to override the staging-registry
 ## prefix (default: localhost:5000/${owner}/${profile}, matching the
-## registry:2 sidecar in the workflow).
+## local staging registry in the workflow).
 ##
 ## For unit-testing the tag policy:
 ##   publish-docker-multi-arch.sh --print-tags \
@@ -33,6 +33,7 @@ PROFILE=
 VARIANT=
 LATEST=false
 PUBLISH=false
+REQUIRE_ATTESTATIONS=false
 PRINT_TAGS_ONLY=false
 VERSION_OVERRIDE=
 
@@ -45,6 +46,7 @@ while [ $# -gt 0 ]; do
         --variant)     VARIANT=$2; shift 2;;
         --latest)      LATEST=true; shift;;
         --publish)     PUBLISH=true; shift;;
+        --require-attestations) REQUIRE_ATTESTATIONS=true; shift;;
         --print-tags)  PRINT_TAGS_ONLY=true; shift;;
         --version)     VERSION_OVERRIDE=$2; shift 2;;
         *) echo "error: unknown argument: $1" >&2; exit 1;;
@@ -117,12 +119,33 @@ fi
 
 LOCAL_BASE="${LOCAL_BASE:-localhost:5000/${OWNER}/${PROFILE}}"
 
+verify_pushed_index() {
+    local archive=$1 ref=$2 expected actual
+    expected=$(tar -xzOf "$archive" index.json | jq -er '.manifests | if length == 1 then .[0].digest else error("Expected one saved image index") end')
+    actual=$(docker buildx imagetools inspect --format '{{.Manifest.Digest}}' "$ref")
+    if [ "$expected" != "$actual" ]; then
+        echo "error: image index changed during load/tag/push of $ref; use Docker's containerd image store to preserve attestations" >&2
+        exit 1
+    fi
+}
+
+if [ "$REQUIRE_ATTESTATIONS" = "true" ]; then
+    SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+    python3 "$SCRIPT_DIR/verify-docker-attestations.py" "$AMD64_TARBALL" --platform linux/amd64
+    python3 "$SCRIPT_DIR/verify-docker-attestations.py" "$ARM64_TARBALL" --platform linux/arm64
+fi
+
 AMD64_LOADED=$(docker load < "$AMD64_TARBALL" | grep "Loaded image:" | sed 's/Loaded image: //')
 echo "Loaded amd64 image: $AMD64_LOADED"
 VERSION="${AMD64_LOADED##*:}"
 AMD64_REF="${LOCAL_BASE}:${VERSION}-amd64"
 docker tag "$AMD64_LOADED" "$AMD64_REF"
 docker push "$AMD64_REF"
+if [ "$REQUIRE_ATTESTATIONS" = "true" ]; then
+    # Compare indices, not just the runnable manifest: dropping attestations
+    # during load/tag/push must fail before assembling the release manifest.
+    verify_pushed_index "$AMD64_TARBALL" "$AMD64_REF"
+fi
 
 ARM64_LOADED=$(docker load < "$ARM64_TARBALL" | grep "Loaded image:" | sed 's/Loaded image: //')
 echo "Loaded arm64 image: $ARM64_LOADED"
@@ -130,6 +153,9 @@ ARM64_VERSION="${ARM64_LOADED##*:}"
 ARM64_REF="${LOCAL_BASE}:${ARM64_VERSION}-arm64"
 docker tag "$ARM64_LOADED" "$ARM64_REF"
 docker push "$ARM64_REF"
+if [ "$REQUIRE_ATTESTATIONS" = "true" ]; then
+    verify_pushed_index "$ARM64_TARBALL" "$ARM64_REF"
+fi
 
 if [ "$VERSION" != "$ARM64_VERSION" ]; then
     echo "error: amd64 version ($VERSION) does not match arm64 version ($ARM64_VERSION)" >&2
