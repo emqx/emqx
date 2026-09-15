@@ -316,11 +316,14 @@ do_websocket_init(Req, Opts) ->
                 LimiterCfg
             ),
             MQTTPiggyback = get_ws_opts(Type, Listener, mqtt_piggyback),
+            MaxConnectUserProperties = max_connect_user_properties(Zone),
             FrameOpts = #{
                 strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
                 max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
             },
-            ParseState = emqx_frame:initial_parse_state(FrameOpts),
+            ParseState = emqx_frame:initial_parse_state(
+                FrameOpts#{max_connect_user_properties => MaxConnectUserProperties}
+            ),
             %% Any packet received before CONNECT is rejected by the parser.
             ok = emqx_frame:expect_connect(),
             Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
@@ -356,6 +359,13 @@ do_websocket_init(Req, Opts) ->
         {denny, Reason} ->
             {stop, Reason}
     end.
+
+max_connect_user_properties(Zone) ->
+    emqx_config:get_zone_conf(
+        Zone,
+        [mqtt, max_connect_user_properties],
+        ?DEFAULT_MAX_CONNECT_USER_PROPERTIES
+    ).
 
 tune_heap_size(Channel) ->
     case
