@@ -775,6 +775,7 @@ generate_config() {
     local generated_vm_args_file="$ARGS_FILE.generated.tmp"
     local staged_vm_args_file="$ARGS_FILE.staged.generated.tmp"
     local publish_status
+    local sync_status
 
     ## The HOCON CLI writes its two outputs sequentially. Keep both outside the
     ## final namespace until the complete app config and merged VM args are ready.
@@ -845,6 +846,14 @@ generate_config() {
     if [ "$DEBUG" -gt 0 ]; then set -x; fi
     echo "$name_type $node_name" >> "$staged_vm_args_file"
     echo "-mnesia dir '\"$DATA_DIR/mnesia/$NAME\"'" >> "$staged_vm_args_file"
+
+    ## Flush both completed outputs before publishing either filename.
+    ## Requires a sync implementation supporting file operands (GNU or BusyBox
+    ## with FEATURE_SYNC_FANCY); a global sync cannot report per-file failures.
+    sync -- "$generated_app_config_file" "$staged_vm_args_file" || {
+        sync_status=$?
+        die "Failed to sync generated configuration files" "$sync_status"
+    }
 
     ## Publish the app config last; its presence marks a complete generation.
     mv -f "$staged_vm_args_file" "$ARGS_FILE" || {
