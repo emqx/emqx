@@ -113,7 +113,7 @@ end_per_testcase(_Case, _Config) ->
     emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], disabled),
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     emqx_config:put_zone_conf(default, [mqtt, clientid_override], disabled),
-    emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], 10),
+    emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], 100),
     ok.
 
 %%--------------------------------------------------------------------
@@ -593,8 +593,8 @@ on_hook(_ClientInfo, ConnInfo, 'client.connected' = HP, Pid) ->
 %% Missing zone configuration uses the schema default after a hot patch.
 t_hot_patch_connect_user_property_limit_config(_) ->
     MissingZone = max_connect_user_properties_hot_patch_test,
-    ?assertEqual(10, emqx_connection:max_connect_user_properties(MissingZone)),
-    ?assertEqual(10, emqx_ws_connection:max_connect_user_properties(MissingZone)).
+    ?assertEqual(100, emqx_connection:max_connect_user_properties(MissingZone)),
+    ?assertEqual(100, emqx_ws_connection:max_connect_user_properties(MissingZone)).
 
 %% The configured user-property limit is applied to new TCP, TLS, and WebSocket
 %% connections. CONNECT and will property blocks are counted separately. Limit
