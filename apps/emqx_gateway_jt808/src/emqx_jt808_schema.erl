@@ -9,7 +9,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 -behaviour(hocon_schema).
--export([roots/0, namespace/0, fields/1, desc/1]).
+-export([roots/0, namespace/0, fields/1, desc/1, validate_auth_url/1]).
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
 
@@ -94,7 +94,10 @@ fields_reg_auth_required(Required) ->
         {registry,
             sc(binary(), #{
                 desc => ?DESC(registry_url),
-                validator => [?NOT_EMPTY("the value of the field 'registry' cannot be empty")],
+                validator => [
+                    ?NOT_EMPTY("the value of the field 'registry' cannot be empty"),
+                    fun ?MODULE:validate_auth_url/1
+                ],
                 required => Required
             })},
         {authentication,
@@ -103,12 +106,30 @@ fields_reg_auth_required(Required) ->
                 #{
                     desc => ?DESC(authentication_url),
                     validator => [
-                        ?NOT_EMPTY("the value of the field 'authentication' cannot be empty")
+                        ?NOT_EMPTY("the value of the field 'authentication' cannot be empty"),
+                        fun ?MODULE:validate_auth_url/1
                     ],
                     required => Required
                 }
             )}
     ].
+
+validate_auth_url(Url) when is_binary(Url) ->
+    case emqx_utils_uri:parse(Url) of
+        #{
+            scheme := Scheme,
+            authority := #{host := Host, userinfo := undefined},
+            fragment := undefined
+        } when Scheme =:= <<"http">>; Scheme =:= <<"https">> ->
+            case emqx_utils_ssrf:check_host(Host) of
+                ok -> ok;
+                {error, Error} -> {error, emqx_utils_ssrf:format_error(Error)}
+            end;
+        _ ->
+            {error, "Invalid url, expected http(s)://host[:port][/path]"}
+    end;
+validate_auth_url(_) ->
+    {error, "Invalid url, expected http(s)://host[:port][/path]"}.
 
 jt808_frame_max_length(type) ->
     non_neg_integer();
