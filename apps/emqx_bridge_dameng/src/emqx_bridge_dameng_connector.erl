@@ -106,7 +106,7 @@ fields(config) ->
         {server, server()},
         {port,
             hoconsc:mk(
-                integer(),
+                emqx_schema:port_number(),
                 #{desc => ?DESC("port"), default => ?DAMENG_DEFAULT_PORT}
             )},
         {username,

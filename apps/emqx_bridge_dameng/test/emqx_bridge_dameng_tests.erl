@@ -69,6 +69,23 @@ connector_schema_test_() ->
                 throw,
                 {_, [_ | _]},
                 parse_and_check_connector(connector_config(#{<<"server">> => <<"127.0.0.1:33x">>}))
+            )},
+        {"the port must be within 1..65535",
+            ?_assertException(
+                throw,
+                {_, [_ | _]},
+                parse_and_check_connector(connector_config(#{<<"port">> => 0}))
+            )},
+        {"an out of range port is rejected",
+            ?_assertException(
+                throw,
+                {_, [_ | _]},
+                parse_and_check_connector(connector_config(#{<<"port">> => 70000}))
+            )},
+        {"the largest valid port is accepted",
+            ?_assertMatch(
+                #{<<"port">> := 65535},
+                parse_and_check_connector(connector_config(#{<<"port">> => 65535}))
             )}
     ].
 

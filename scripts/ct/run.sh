@@ -381,7 +381,7 @@ if [ "$STOP" = 'no' ] && [ "$PS" = 'no' ]; then
     set -e
 fi
 
-if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$PS" = 'no' ]; then
+if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ] && [ "$PS" = 'no' ]; then
     # The DM8 client libraries are taken from the `dameng' container image: the
     # vendor download is not reachable from GitHub-hosted runners, and the
     # driver links against sibling libraries from the same directory.
@@ -395,7 +395,7 @@ if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$PS" = 'no' ]; then
             'mkdir -p /opt/dmdbms/bin && tar -xf - -C /opt/dmdbms/bin'
 fi
 
-if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$PS" = 'no' ] && [ "$DOCKER_USER" = 'root' ]; then
+if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ] && [ "$PS" = 'no' ] && [ "$DOCKER_USER" = 'root' ]; then
     # The block below only runs for a non-root container user; when the
     # container runs as root the driver registry must be written here.
     docker exec -i $TTY -u root:root \
@@ -428,7 +428,7 @@ if [ "$DOCKER_USER" != "root" ] && [ "$PS" = 'no' ]; then
           $INSTALL_DAMENG_ODBC" || true
 fi
 
-if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$PS" = 'no' ]; then
+if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ] && [ "$PS" = 'no' ]; then
     # The commands above are intentionally best-effort for the optional ODBC
     # drivers, so verify the dameng client setup explicitly: the CT suite fails
     # (instead of skipping) when `--ci` is passed, and a clear error here beats
