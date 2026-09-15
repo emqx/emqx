@@ -111,6 +111,8 @@ known_features() ->
                 emqx_connector_jwt,
                 emqx_connector_aggregator,
                 emqx_bridge,
+                %% shared ODBC layer used by the ODBC based bridges
+                emqx_odbc,
                 emqx_rule_engine,
                 emqx_postgresql,
                 emqx_mysql,
