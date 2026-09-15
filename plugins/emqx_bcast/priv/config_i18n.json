@@ -76,23 +76,23 @@
   "zh": "消息告警阈值"
  },
  "$msg_warn_threshold_desc": {
-  "en": "Warning threshold for pending message count.",
-  "zh": "待处理消息数的告警阈值。"
+  "en": "Legacy field kept for schema compatibility; not enforced by the current implementation.",
+  "zh": "为兼容 schema 保留的 legacy 字段,当前实现不生效。"
  },
  "$force_upgrade_qos_label": {
   "en": "Force Upgrade QoS",
   "zh": "强制升级 QoS"
  },
  "$force_upgrade_qos_desc": {
-  "en": "When true, QoS 1 messages are always published at QoS 1 regardless of the device subscription QoS. When false, the effective QoS is min(publish QoS, subscription QoS) and downgraded QoS 0 deliveries are completed immediately.",
-  "zh": "为 true 时,QoS 1 消息始终以 QoS 1 下发,忽略设备订阅 QoS;为 false 时,实际 QoS 取 min(发布 QoS, 订阅 QoS),降级为 QoS 0 的投递立即完成。"
+  "en": "Legacy field kept for schema compatibility; not enforced by the current implementation.",
+  "zh": "为兼容 schema 保留的 legacy 字段,当前实现不生效。"
  },
  "$delivery_pool_size_label": {
   "en": "Delivery Pool Size",
   "zh": "投递池大小"
  },
  "$delivery_pool_size_desc": {
-  "en": "Number of async workers for each of the three pools (pull, ack and pull-server). 0 means one worker per scheduler.",
-  "zh": "三个池(pull、ack、pull-server)各自异步 worker 数量。0 表示每个调度器一个 worker。"
+  "en": "Number of workers for each delivery pool (the per-node claim pool and the core-side server pool). 0 means one worker per scheduler. Ack workers are bounded separately by the scheduler count.",
+  "zh": "两个投递池(每节点 claim 池与 core 侧 server 池)各自的 worker 数量。0 表示每个调度器一个 worker;ack worker 由调度器数量单独限流。"
  }
 }

@@ -39,9 +39,10 @@ unmounted delivery topics.
   means in-memory acceptance, not durability; the promoter then commits
   the message and delivery rows to mria, appends the per-device index and
   broadcasts a per-node trigger, and the node serving each device claims
-  and delivers the entry through its pull shards. QoS=0/PubBroadcast data
-  is broadcast in full to every node's pull shards. Online delivery
-  completes asynchronously.
+  and delivers the entry through its pull shards. QoS=0 BatchPub data is
+  sent only to the nodes hosting the target devices; PubBroadcast (no
+  device list) is broadcast in full to every node's pull shards. Online
+  delivery completes asynchronously.
 
 ### RegisterMessage
 
@@ -85,9 +86,10 @@ unmounted delivery topics.
 
 1. Validate the request (sizes, device list, QoS, base64, topic template).
 2. All API requests are funnelled to a core node.
-3. QoS=0 / PubBroadcast: the core broadcasts the full delivery data to
-   every node; each node's pull shards check online + subscription and
-   deliver directly.
+3. QoS=0 / PubBroadcast: the core resolves the target nodes (the union of
+   nodes hosting the BatchPub device list; every node for PubBroadcast)
+   and sends the full delivery data to those nodes only; each node's pull
+   shards check online + subscription and deliver directly.
 4. QoS=1: the request is accepted into the bounded node-local intake
    queue; the promoter drains it, commits the message and delivery rows in
    a single mria transaction (the durability point), appends the
@@ -97,10 +99,12 @@ unmounted delivery topics.
    acks.
 
 The delivery workers themselves have no queue admission control: claim
-and ack work is pooled (pool size = `delivery_pool_size`, 0 = one worker
-per scheduler) and the pull shards bound each flush batch (2 ms / 500
-entries for claims). The API layer separately enforces the intake queue
-bound (429 `Busy`) and the pending-delivery quotas (429 `QuotaExceeded`).
+work runs in the per-node claim pool and the core-side server pool (both
+sized by `delivery_pool_size`, 0 = one worker per scheduler); ack workers
+are spawned directly and bounded by `ack_cap` (one per scheduler). The
+pull shards bound each flush batch (2 ms / 500 entries for claims). The
+API layer separately enforces the intake queue bound (429 `Busy`) and the
+pending-delivery quotas (429 `QuotaExceeded`).
 
 ## Configuration
 

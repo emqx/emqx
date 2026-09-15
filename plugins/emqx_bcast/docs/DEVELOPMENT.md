@@ -34,7 +34,7 @@ HTTP POST /pub
 emqx_bcast_intake.erl     -- bounded node-local ETS acceptance queue (the 200 path)
 emqx_bcast_promoter.erl   -- drains intake, commits to mria, appends index, broadcasts trigger
 emqx_bcast_storage.erl    -- mria message/delivery tables, promotion tx, management queries, cleanup
-emqx_bcast_id.erl         -- UUID v4 <-> emqx_guid mapping, content-hash message ids
+emqx_bcast_id.erl         -- emqx_guid <-> API UUID mapping, content-hash derived message ids
 ```
 
 Delivery and accounting:

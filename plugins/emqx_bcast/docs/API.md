@@ -23,7 +23,7 @@ curl -u "<api_key>:<api_secret>" -X POST "http://<host>:18083/api/v5/plugin_api/
 { "Success": false, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "Code": "ErrorCode", "ErrorMessage": "human-readable description" }
 ```
 
-`RequestId` and `MessageId` are UUID v4 format.
+`RequestId` is UUID v4. `MessageId` is a UUID string: v4 for PubBroadcast, QoS=0 BatchPub and RegisterMessage; for BatchPub QoS=1 with new inline `MessageContent` it is derived from the payload's SHA-256 (a valid UUID string, not necessarily v4), and reused content returns the same id.
 
 ---
 
@@ -86,7 +86,7 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 | QoS | Online Devices | Offline Devices | Storage | ACK Tracking |
 |-----|---------------|-----------------|---------|-------------|
 | 0 | Deliver | Skip | None | None |
-| 1 | Deliver + wait PUBACK | Store, replay on reconnect | TTL = `msg_ttl` (default 15 days) | Counter ≥ target_ack_count then delete |
+| 1 | Deliver + wait PUBACK | Store, replay on reconnect | TTL = `msg_ttl` (default 15 days) | Deleted when the remaining-ack counter reaches 0 |
 
 ```json
 // Request (inline MessageContent)
@@ -294,7 +294,7 @@ unknown.
 | `DuplicateDeviceName` | 400 | DeviceName list contains duplicates |
 | `MessageTooLarge` | 400 | MessageContent exceeds size limit |
 | `InvalidBase64` | 400 | MessageContent Base64 decoding failed |
-| `InvalidTopicTemplate` | 400 | TopicTemplateName format is invalid |
+| `InvalidTopicTemplate` | 400 | TopicShortName, TopicTemplateName or a PubBroadcast TopicFullName is malformed (wildcards, separators or unknown placeholders) |
 | `MessageNotFound` | 400/404 | MessageId does not exist (400 for refresh or reuse on `POST /pub`; 404 on management endpoints) |
 | `MessageIdContentConflict` | 400 | Both MessageContent and MessageId provided, or neither |
 | `InvalidQos` | 400 | Qos value is not 0 or 1 |
