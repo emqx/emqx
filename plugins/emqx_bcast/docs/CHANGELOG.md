@@ -24,6 +24,11 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
   `bcast_msg_acked` markers), so a rebuilt index cannot resurrect a device
   and redeliver a duplicate whose ack would decrement the completion
   counter a second time.
+- An index rebuild also reconciles a delivery whose remaining-ack counter
+  drifted above zero: as soon as every target device has a persisted
+  marker the delivery is completed. A shard that died between the marker
+  write and the counter decrement is therefore repaired by the next
+  rebuild instead of leaking its rows until TTL expiry.
 - Rebuild ordering is tie-broken by `msg_id` within the same second, so
   per-device FIFO stays deterministic across restarts.
 - Ack-in-flight marks expire after 30s when the core-applied confirmation
@@ -35,11 +40,12 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
   them on a single write lock and mnesia restarted the shard with a 1ms
   sleep on each conflict - which collapsed fanout throughput while every
   other shard operation queued behind it. The marker is written before the
-  counter, so a crash between the two can only leave the counter too high
-  (that delivery completes late or is reclaimed by TTL); it can never
-  resurrect an already-acked device or let a replayed ack decrement a live
-  delivery twice. Completion (once per delivery) still deletes the
-  remaining rows transactionally.
+  counter, so a crash between the two can only leave the counter too high;
+  it can never resurrect an already-acked device or let a replayed ack
+  decrement a live delivery twice. Such a delivery is reconciled by the
+  next index rebuild, which completes it as soon as every target device
+  has a persisted marker, and otherwise by TTL expiry. Completion (once
+  per delivery) still deletes the remaining rows transactionally.
 - A pool restart releases the restart guard on every shard, including
   shards with no in-flight marks (previously those stayed in
   `pools_restarting` until the 30s watchdog, stalling flush and blocking

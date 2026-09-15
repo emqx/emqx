@@ -1520,21 +1520,42 @@ activate_partition(Proj, State) ->
                         %% markers have none; their already-acked devices are
                         %% redelivered once (at-least-once).
                         Acked = acked_device_set(DeliveryId),
-                        lists:foldl(
-                            fun(DN, St2) ->
-                                case maps:is_key(DN, Acked) of
-                                    true ->
-                                        St2;
-                                    false ->
-                                        {St3, _Delta} = append_entry(
-                                            St2, {ProductKey, DN}, DeliveryId
-                                        ),
-                                        St3
-                                end
-                            end,
-                            St,
-                            MyDNs
-                        )
+                        case lists:all(fun(DN) -> maps:is_key(DN, Acked) end, DeviceNames) of
+                            true ->
+                                %% Every target device has a persisted ack marker,
+                                %% so the delivery is finished even though its
+                                %% remaining-ack counter is still positive: the ack
+                                %% flush writes the marker before it decrements the
+                                %% counter, so a shard that died between the two
+                                %% writes left the counter that many acks too high,
+                                %% and no ack is left to drive it to zero.
+                                %%
+                                %% Reconciling from the markers is race-free because
+                                %% markers only ever grow - once every device has
+                                %% one, every ack is durable. Rewriting the counter
+                                %% to the marker-derived remaining instead would
+                                %% double-count the acks of a flush that is between
+                                %% its two writes right now, and could complete the
+                                %% delivery early.
+                                complete_delivery(DeliveryId),
+                                St;
+                            false ->
+                                lists:foldl(
+                                    fun(DN, St2) ->
+                                        case maps:is_key(DN, Acked) of
+                                            true ->
+                                                St2;
+                                            false ->
+                                                {St3, _Delta} = append_entry(
+                                                    St2, {ProductKey, DN}, DeliveryId
+                                                ),
+                                                St3
+                                        end
+                                    end,
+                                    St,
+                                    MyDNs
+                                )
+                        end
                 end
             end,
             State1,
