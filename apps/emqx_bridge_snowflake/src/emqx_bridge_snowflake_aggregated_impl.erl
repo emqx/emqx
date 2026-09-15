@@ -223,6 +223,7 @@ on_start(ConnResId, ConnConfig) ->
     Authn = mk_odbc_authn_opt(ConnConfig),
     PoolOpts = lists:flatten([
         Authn,
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
         {dsn, DSN},
         {account, Account},
