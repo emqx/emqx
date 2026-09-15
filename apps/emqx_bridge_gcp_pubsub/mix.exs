@@ -5,8 +5,9 @@ defmodule EMQXBridgeGcpPubsub.MixProject do
   def project do
     [
       app: :emqx_bridge_gcp_pubsub,
-      version: "6.3.0",
+      version: "6.3.1",
       build_path: "../../_build",
+      compilers: Mix.compilers(),
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
@@ -24,11 +25,13 @@ defmodule EMQXBridgeGcpPubsub.MixProject do
       env: [
         emqx_action_info_modules: [
           :emqx_bridge_gcp_pubsub_producer_action_info,
-          :emqx_bridge_gcp_pubsub_consumer_action_info
+          :emqx_bridge_gcp_pubsub_consumer_action_info,
+          :emqx_bridge_gcp_pubsub_consumer_grpc_action_info
         ],
         emqx_connector_info_modules: [
           :emqx_bridge_gcp_pubsub_producer_connector_info,
-          :emqx_bridge_gcp_pubsub_consumer_connector_info
+          :emqx_bridge_gcp_pubsub_consumer_connector_info,
+          :emqx_bridge_gcp_pubsub_consumer_grpc_connector_info
         ]
       ]
     ]
@@ -41,6 +44,7 @@ defmodule EMQXBridgeGcpPubsub.MixProject do
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false},
       {:emqx_bridge_http, in_umbrella: true},
+      {:emqx_gcp_protos, in_umbrella: true},
       :ehttpc
     ])
   end

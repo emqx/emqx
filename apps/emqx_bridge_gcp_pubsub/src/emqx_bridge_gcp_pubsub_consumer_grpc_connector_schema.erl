@@ -1,0 +1,139 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+-module(emqx_bridge_gcp_pubsub_consumer_grpc_connector_schema).
+
+-behaviour(hocon_schema).
+-behaviour(emqx_connector_examples).
+
+%% `hocon_schema' API
+-export([
+    namespace/0,
+    roots/0,
+    fields/1,
+    desc/1
+]).
+
+%% `emqx_connector_examples' API
+-export([
+    connector_examples/1
+]).
+
+%% API
+-export([]).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
+-include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
+-include("emqx_bridge_gcp_pubsub_consumer_grpc.hrl").
+
+%%------------------------------------------------------------------------------
+%% `hocon_schema' API
+%%------------------------------------------------------------------------------
+
+namespace() ->
+    "connector_gcp_pubsub_consumer_grpc".
+
+roots() ->
+    [].
+
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, fields(connector_config));
+fields("config_connector") ->
+    emqx_connector_schema:common_fields() ++ fields(connector_config);
+fields(connector_config) ->
+    [
+        {url,
+            emqx_schema:servers_sc(
+                #{
+                    default => "https://pubsub.googleapis.com:443",
+                    desc => ?DESC("url")
+                },
+                ?PARSE_SERVER_OPTS
+            )},
+        emqx_bridge_gcp_pubsub_schema_lib:authentication_field(),
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"10s">>, desc => ?DESC("connect_timeout")
+            })},
+        {pool_size,
+            mk(pos_integer(), #{
+                default => 1,
+                importance => ?IMPORTANCE_HIDDEN,
+                desc => ?DESC("pool_size")
+            })}
+    ] ++
+        emqx_connector_schema_lib:ssl_fields(#{enable_by_default => true}) ++
+        emqx_connector_schema:resource_opts().
+
+desc("config_connector") ->
+    ?DESC("config_connector");
+desc(_Name) ->
+    undefined.
+
+%%------------------------------------------------------------------------------
+%% `emqx_connector_examples' API
+%%------------------------------------------------------------------------------
+
+connector_examples(Method) ->
+    [
+        #{
+            <<"gcp_pubsub_consumer_grpc">> => #{
+                summary => <<"GCP PubSub Consumer (gRPC) Connector">>,
+                value => connector_example(Method)
+            }
+        }
+    ].
+
+connector_example(get) ->
+    maps:merge(
+        connector_example(put),
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        }
+    );
+connector_example(post) ->
+    maps:merge(
+        connector_example(put),
+        #{
+            type => atom_to_binary(?CONNECTOR_TYPE),
+            name => <<"my_connector">>
+        }
+    );
+connector_example(put) ->
+    #{
+        enable => true,
+        description => <<"My connector">>,
+        url => ~"https://pubsub.googleapis.com:443",
+        connect_timeout => ~"15s",
+        ssl => #{enable => true},
+        resource_opts => #{
+            health_check_interval => <<"45s">>,
+            start_after_created => true,
+            start_timeout => <<"5s">>
+        }
+    }.
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------
+
+mk(Type, Meta) -> hoconsc:mk(Type, Meta).
+%% ref(Struct) -> hoconsc:ref(?MODULE, Struct).

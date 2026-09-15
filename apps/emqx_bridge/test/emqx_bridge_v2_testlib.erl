@@ -1652,6 +1652,7 @@ t_consume(Config, Opts) ->
             ?tpal("creating connector and source"),
             ?assertMatch({201, _}, create_connector_api2(Config, #{})),
             ?assertMatch({201, _}, create_source_api(Config, SourceOverrides)),
+            ?tpal("waiting for source to subscribe"),
             ?assertMatch({ok, _}, Receive0(SRef0)),
             ?tpal("adding hookpoint"),
             ok = add_source_hookpoint(Config),

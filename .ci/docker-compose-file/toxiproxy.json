@@ -235,6 +235,12 @@
     "enabled": true
   },
   {
+    "name": "gcp_emulator_pubsub_no_proxy",
+    "listen": "0.0.0.0:8187",
+    "upstream": "gcp_emulator_pubsub:8085",
+    "enabled": true
+  },
+  {
     "name": "gcp_emulator_bigtable",
     "listen": "0.0.0.0:8186",
     "upstream": "gcp-emulator-bigtable:8086",
