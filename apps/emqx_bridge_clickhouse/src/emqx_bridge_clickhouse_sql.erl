@@ -5,10 +5,10 @@
 %% @doc Compile and render restricted ClickHouse INSERT templates.
 -module(emqx_bridge_clickhouse_sql).
 
--export([compile/1, render/3, render_batch/3, parse_placeholder/1]).
--export_type([plan/0]).
+-behaviour(emqx_sql_plan).
 
--elvis([{elvis_style, no_match_in_condition, disable}]).
+-export([compile/1, render/3, render_batch/3]).
+-export_type([plan/0]).
 
 -type placeholder() :: emqx_template:placeholder().
 
@@ -97,18 +97,6 @@ render_batch(
 ) ->
     render_batch_insert(Prefix, Plan, DataList, Opts, ?JSON_BATCH_SEPARATOR).
 
--spec parse_placeholder(binary()) -> {ok, placeholder()} | {error, invalid_placeholder}.
-parse_placeholder(Source) ->
-    case valid_placeholder_source(Source) of
-        true ->
-            case emqx_template:parse(Source) of
-                [{var, _, _} = Placeholder] -> {ok, Placeholder};
-                _ -> {error, invalid_placeholder}
-            end;
-        false ->
-            {error, invalid_placeholder}
-    end.
-
 %%------------------------------------------------------------------------------
 %% Private funs
 %%------------------------------------------------------------------------------
@@ -120,7 +108,7 @@ render_insert(Prefix, Template, Data, Opts) ->
     end.
 
 render_batch_insert(Prefix, Plan, DataList, Opts, Separator) ->
-    case render_batch_units(DataList, Plan, Opts, _Index = 1, _Acc = [], Separator) of
+    case render_batch_units(DataList, Plan, Opts, 1, [], Separator) of
         {ok, Rendered} -> {ok, [Prefix, Rendered]};
         {error, _} = Error -> Error
     end.
@@ -626,27 +614,13 @@ hex_digit(Char) when Char >= $A, Char =< $F -> Char - $A + 10;
 hex_digit(Char) when Char >= $a, Char =< $f -> Char - $a + 10;
 hex_digit(Char) -> error({invalid_hex_digit, Char}).
 
-%% Restrict emqx_template's envelope to nonempty dotted paths.
-%% Retain `${}` and `${.}`.
-%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
-valid_placeholder_source(<<"${}">>) ->
-    true;
-valid_placeholder_source(<<"${.}">>) ->
-    true;
-valid_placeholder_source(Source) ->
-    re:run(
-        Source,
-        <<"^\\$\\{\\.?[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*\\}$">>,
-        [{capture, none}]
-    ) =:= match.
-
 take_placeholder(Bin) ->
     case binary:match(Bin, <<"}">>) of
         {End, 1} ->
             Size = End + 1,
             Source = binary:part(Bin, 0, Size),
             Rest = binary:part(Bin, Size, byte_size(Bin) - Size),
-            case parse_placeholder(Source) of
+            case emqx_sql_plan:parse_placeholder(Source) of
                 {ok, Placeholder} -> {Placeholder, Rest};
                 {error, _} -> error({invalid_placeholder, Source})
             end;
@@ -889,7 +863,7 @@ parse_insert_sql_template_test() ->
     ).
 
 test_placeholder(Name) ->
-    {ok, Placeholder} = parse_placeholder(<<"${", Name/binary, "}">>),
+    {ok, Placeholder} = emqx_sql_plan:parse_placeholder(<<"${", Name/binary, "}">>),
     Placeholder.
 
 test_tpl_placeholder(Name) ->
@@ -934,6 +908,32 @@ values_compile_and_render_test() ->
     ?assertEqual(
         {ok, <<"INSERT INTO `mqtt_test` (`key`, `data`, `arrived`) VALUES (1, 'hello', 2)">>},
         rendered_binary(render(Plan, #{key => 1, data => <<"hello">>, timestamp => 2}, null_opts()))
+    ).
+
+escaped_dollar_test() ->
+    Cases = [
+        {<<"${$}">>, <<"$">>},
+        {<<"${$}{amount}">>, <<"${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"${$}{amount}${v}${$}{$}">>, <<"${amount}x${$}">>}
+    ],
+    Formats = [
+        {<<"VALUES ('">>, <<"')">>},
+        {<<"FORMAT Values ('">>, <<"')">>},
+        {<<"FORMAT JSONCompactEachRow [\"">>, <<"\"]">>}
+    ],
+    lists:foreach(
+        fun({{Prefix, Suffix}, {Body, Expected}}) ->
+            {ok, Plan} = compile(
+                <<"INSERT INTO t ", Prefix/binary, Body/binary, Suffix/binary>>
+            ),
+            ?assertEqual(
+                {ok, <<"INSERT INTO `t` ", Prefix/binary, Expected/binary, Suffix/binary>>},
+                rendered_binary(render(Plan, #{amount => 99, v => <<"x">>}, null_opts()))
+            )
+        end,
+        [{Format, Case} || Format <- Formats, Case <- Cases]
     ).
 
 %% Checks rendering of CASE, logical operators, comparisons, and conditional functions.

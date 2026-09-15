@@ -5,10 +5,10 @@
 %% @doc Compile and render restricted MySQL INSERT INTO VALUES templates.
 -module(emqx_mysql_sql).
 
--export([compile/1, render/3, render_batch/3, parse_placeholder/1]).
--export_type([plan/0]).
+-behaviour(emqx_sql_plan).
 
--elvis([{elvis_style, no_match_in_condition, disable}]).
+-export([compile/1, render/3, render_batch/3]).
+-export_type([plan/0]).
 
 -type placeholder() :: emqx_template:placeholder().
 
@@ -72,21 +72,9 @@ render(#mysql_plan{insert_prefix = Prefix, row_plan = Plan, suffix = Suffix}, Da
 render_batch(
     #mysql_plan{insert_prefix = Prefix, row_plan = Plan, suffix = Suffix}, DataList, Opts
 ) ->
-    case render_batch_units(DataList, Plan, Opts, _Index = 1, _Acc = []) of
+    case render_batch_units(DataList, Plan, Opts, 1, []) of
         {ok, Rendered} -> {ok, [Prefix, Rendered, Suffix]};
         {error, _} = Error -> Error
-    end.
-
--spec parse_placeholder(binary()) -> {ok, placeholder()} | {error, invalid_placeholder}.
-parse_placeholder(Source) ->
-    case valid_placeholder_source(Source) of
-        true ->
-            case emqx_template:parse(Source) of
-                [{var, _, _} = Placeholder] -> {ok, Placeholder};
-                _ -> {error, invalid_placeholder}
-            end;
-        false ->
-            {error, invalid_placeholder}
     end.
 
 %%------------------------------------------------------------------------------
@@ -328,36 +316,30 @@ compile_case_else(Expression) ->
 parse_sql_string(Source) ->
     Delimiter = binary:first(Source),
     Body = binary:part(Source, 1, byte_size(Source) - 2),
-    parse_sql_string_body(Body, Delimiter, Source, [], [], false).
+    parse_sql_string_body(Body, Delimiter, [], []).
 
-%% Arguments are
-%% * the remaining body
-%% * quote delimiter
-%% * original token
-%% * reversed text acc
-%% * reversed compiled parts
-%% * IsDynamic flag
-%% IsDynamic starts as false. When no placeholder is found, return the original token.
-%% The first placeholder switches IsDynamic to true and starts accumulating compiled parts.
-parse_sql_string_body(_Body = <<>>, _Delimiter, Source, _Text, _Parts, _IsDynamic = false) ->
-    {static, Source};
-parse_sql_string_body(<<>>, Delimiter, _Source, Text, Parts, _IsDynamic = true) ->
-    ok = assert_safe_string_split(Text),
-    {dynamic, lists:reverse(flush_string_text(Text, Delimiter, Parts))};
-parse_sql_string_body(<<"${$}", Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic) ->
-    parse_sql_string_body(Rest, Delimiter, Source, [$$ | Text], Parts, IsDynamic);
-parse_sql_string_body(
-    <<"${", _/binary>> = Bin, Delimiter, Source, Text, Parts, _IsDynamic
-) ->
+parse_sql_string_body(<<>>, Delimiter, Text, Parts) ->
+    case lists:reverse(flush_string_text(Text, Delimiter, Parts)) of
+        [] ->
+            {static, <<Delimiter, Delimiter>>};
+        [#string_raw{sql = SQL}] ->
+            {static, SQL};
+        FinalParts ->
+            ok = assert_safe_string_split(Text),
+            {dynamic, FinalParts}
+    end;
+parse_sql_string_body(<<"${$}", Rest/binary>>, Delimiter, Text, Parts) ->
+    parse_sql_string_body(Rest, Delimiter, [$$ | Text], Parts);
+parse_sql_string_body(<<"${", _/binary>> = Bin, Delimiter, Text, Parts) ->
     ok = assert_safe_string_split(Text),
     {Placeholder, Rest} = take_placeholder(Bin),
     PartsNext = [
         #string_placeholder{placeholder = Placeholder}
         | flush_string_text(Text, Delimiter, Parts)
     ],
-    parse_sql_string_body(Rest, Delimiter, Source, [], PartsNext, true);
-parse_sql_string_body(<<Char, Rest/binary>>, Delimiter, Source, Text, Parts, IsDynamic) ->
-    parse_sql_string_body(Rest, Delimiter, Source, [Char | Text], Parts, IsDynamic).
+    parse_sql_string_body(Rest, Delimiter, [], PartsNext);
+parse_sql_string_body(<<Char, Rest/binary>>, Delimiter, Text, Parts) ->
+    parse_sql_string_body(Rest, Delimiter, [Char | Text], Parts).
 
 flush_string_text([], _Delimiter, Parts) ->
     Parts;
@@ -398,27 +380,13 @@ merge_render_ops(Ops) ->
         )
     ).
 
-%% Restrict emqx_template's envelope to nonempty dotted paths.
-%% Retain `${}` and `${.}`.
-%% See emqx_template:parse/1 in apps/emqx_utils/src/emqx_template.erl.
-valid_placeholder_source(<<"${}">>) ->
-    true;
-valid_placeholder_source(<<"${.}">>) ->
-    true;
-valid_placeholder_source(Source) ->
-    re:run(
-        Source,
-        <<"^\\$\\{\\.?[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*\\}$">>,
-        [{capture, none}]
-    ) =:= match.
-
 take_placeholder(Bin) ->
     case binary:match(Bin, <<"}">>) of
         {End, 1} ->
             Size = End + 1,
             Source = binary:part(Bin, 0, Size),
             Rest = binary:part(Bin, Size, byte_size(Bin) - Size),
-            case parse_placeholder(Source) of
+            case emqx_sql_plan:parse_placeholder(Source) of
                 {ok, Placeholder} -> {Placeholder, Rest};
                 {error, _} -> error({invalid_placeholder, Source})
             end;
@@ -632,6 +600,63 @@ double_quoted_string_test() ->
     ?assertEqual(
         {ok, <<"INSERT INTO `a``b` (`c``d`) VALUES ('changed')">>},
         rendered_binary(render(BacktickPlan, #{value => <<"changed">>}, null_opts()))
+    ).
+
+escaped_dollar_static_test() ->
+    Cases = [
+        {<<>>, <<>>},
+        {<<"plain\\n\\q">>, <<"plain\\n\\q">>},
+        {<<"${$}">>, <<"$">>},
+        {<<"cost: ${$}{amount}">>, <<"cost: ${amount}">>},
+        {<<"${$}${$}{amount}${$}">>, <<"$${amount}$">>},
+        {<<"${$}{$}">>, <<"${$}">>},
+        {<<"\\${$}{amount}">>, <<"\\${amount}">>},
+        {<<"\\\\${$}{amount}">>, <<"\\\\${amount}">>},
+        {<<"${$}\\\\">>, <<"$\\\\">>}
+    ],
+    lists:foreach(
+        fun({Quote, Body, Expected}) ->
+            Prefix = <<"INSERT INTO `t` VALUES ">>,
+            {ok, Plan} = compile(<<Prefix/binary, "(", Quote, Body/binary, Quote, ")">>),
+            Row = <<"(", Quote, Expected/binary, Quote, ")">>,
+            ?assertMatch(#mysql_plan{row_plan = [#raw{sql = Row}]}, Plan),
+            lists:foreach(
+                fun(Data) ->
+                    ?assertEqual(
+                        {ok, <<Prefix/binary, Row/binary>>},
+                        rendered_binary(render(Plan, Data, #{}))
+                    )
+                end,
+                [#{}, #{amount => {must_not_resolve}}]
+            ),
+            ?assertEqual(
+                {ok, <<Prefix/binary, Row/binary, ", ", Row/binary>>},
+                rendered_binary(render_batch(Plan, [#{}, #{amount => 99}], #{}))
+            )
+        end,
+        [{Q, B, E} || Q <- "'\"", {B, E} <- Cases ++ [{<<Q, Q>>, <<Q, Q>>}]]
+    ),
+    {ok, UpdatePlan} = compile(
+        <<"INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE c = 'cost: ${$}{amount}'">>
+    ),
+    ?assertEqual(
+        {ok, <<"INSERT INTO `t` VALUES (1) ON DUPLICATE KEY UPDATE c = 'cost: ${amount}'">>},
+        rendered_binary(render(UpdatePlan, #{amount => 99}, #{}))
+    ).
+
+escaped_dollar_dynamic_test() ->
+    lists:foreach(
+        fun(Quote) ->
+            SQL = <<"INSERT INTO t VALUES (", Quote, "${$}{amount}${v}${$}{$}", Quote, ")">>,
+            {ok, Plan} = compile(SQL),
+            ?assertEqual(
+                {ok,
+                    <<"INSERT INTO `t` VALUES (CONCAT(", Quote, "${amount}", Quote, ", 'x', ",
+                        Quote, "${$}", Quote, "))">>},
+                rendered_binary(render(Plan, #{v => <<"x">>, amount => {must_not_resolve}}, #{}))
+            )
+        end,
+        "'\""
     ).
 
 %% Checks escaped-quote boundaries and rejection of placeholders preceded by an invalid escape.

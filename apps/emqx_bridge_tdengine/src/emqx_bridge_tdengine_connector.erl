@@ -225,7 +225,7 @@ on_query(InstanceId, {ChannelId, Data}, #{channels := Channels} = State) ->
     case maps:find(ChannelId, Channels) of
         {ok, #{sql_plan := Plan, opts := Opts} = ChannelState} ->
             RenderOpts = render_opts(maps:get(channel_conf, ChannelState, #{})),
-            case emqx_bridge_tdengine_sql:render(Plan, Data, RenderOpts) of
+            case emqx_sql_plan:render(Plan, Data, RenderOpts) of
                 {ok, Query} ->
                     emqx_trace:rendered_action_template(ChannelId, #{query => Query}),
                     do_query_job(InstanceId, {?MODULE, execute, [Query, Opts]}, State);
@@ -376,7 +376,7 @@ execute(Conn, Query, Opts) ->
 
 do_batch_insert(Conn, Plan, BatchReqs, Opts, TraceRenderedCTX, ChannelConf) ->
     DataList = [Data || {_, Data} <- BatchReqs],
-    case emqx_bridge_tdengine_sql:render_batch(Plan, DataList, render_opts(ChannelConf)) of
+    case emqx_sql_plan:render_batch(Plan, DataList, render_opts(ChannelConf)) of
         {ok, SQL} ->
             try
                 emqx_trace:rendered_action_template_with_ctx(
@@ -399,7 +399,7 @@ connect(Opts) ->
     tdengine:start_link(NOpts).
 
 parse_prepare_sql(SQL) ->
-    case emqx_bridge_tdengine_sql:compile(SQL) of
+    case emqx_sql_plan:compile(emqx_bridge_tdengine_sql, SQL) of
         {ok, Plan} -> {ok, #{sql_plan => Plan}};
         {error, Reason} -> {error, Reason}
     end.

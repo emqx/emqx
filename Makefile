@@ -12,8 +12,8 @@ include env.sh
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= e1.10.5-beta.1
-export EMQX_EE_DASHBOARD_VERSION ?= e1.10.4
+export EMQX_DASHBOARD_VERSION ?= e1.10.5-beta.3
+export EMQX_EE_DASHBOARD_VERSION ?= e1.10.5-beta.2
 
 .PHONY: print-dashboard-version
 print-dashboard-version:
@@ -24,7 +24,9 @@ print-ee-dashboard-version:
 	@echo $(EMQX_EE_DASHBOARD_VERSION)
 
 export EMQX_REL_FORM ?= tgz
-export QUICER_TLS_VER ?= sys
+# 'auto' resolves to 'sys' (link system libcrypto) when the build host has
+# OpenSSL >= 3.0, and to quicer's bundled quictls otherwise.
+export QUICER_TLS_VER ?= auto
 
 -include default-profile.mk
 PROFILE ?= emqx-enterprise

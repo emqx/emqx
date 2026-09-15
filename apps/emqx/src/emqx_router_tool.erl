@@ -131,11 +131,15 @@ false positives caused by an unsubscribe (or a not-yet-synced subscribe)
 racing the scan.
 
 `scanned' is the number of distinct local topics inspected.
+
+`Opts' is validated before the walk starts. Raises
+`error({invalid_scan_opts, Reason})' when it is not a map, when it holds
+a key other than `chunk' and `sleep_ms', when `chunk' is not a positive
+integer, or when `sleep_ms' is not a non-negative integer.
 """.
 -spec scan_missing_routes(scan_opts()) -> scan_result().
 scan_missing_routes(Opts) ->
-    Chunk = maps:get(chunk, Opts, ?DEFAULT_CHUNK),
-    SleepMs = maps:get(sleep_ms, Opts, ?DEFAULT_SLEEP_MS),
+    #{chunk := Chunk, sleep_ms := SleepMs} = validate_scan_opts(Opts),
     Node = node(),
     Schema = safe_get_schema_vsn(),
     %% Pass 1: walk emqx_suboption; collect topics whose route is absent.
@@ -148,6 +152,31 @@ scan_missing_routes(Opts) ->
         scanned => Scanned,
         missing => Missing
     }.
+
+validate_scan_opts(Opts) when is_map(Opts) ->
+    ok = validate_known_keys(Opts),
+    #{
+        chunk => validate_chunk(maps:get(chunk, Opts, ?DEFAULT_CHUNK)),
+        sleep_ms => validate_sleep_ms(maps:get(sleep_ms, Opts, ?DEFAULT_SLEEP_MS))
+    };
+validate_scan_opts(Opts) ->
+    error({invalid_scan_opts, {not_a_map, Opts}}).
+
+validate_known_keys(Opts) ->
+    case lists:sort(maps:keys(maps:without([chunk, sleep_ms], Opts))) of
+        [] -> ok;
+        Unknown -> error({invalid_scan_opts, {unknown_keys, Unknown}})
+    end.
+
+validate_chunk(Chunk) when is_integer(Chunk), Chunk > 0 ->
+    Chunk;
+validate_chunk(Chunk) ->
+    error({invalid_scan_opts, {chunk, Chunk}}).
+
+validate_sleep_ms(SleepMs) when is_integer(SleepMs), SleepMs >= 0 ->
+    SleepMs;
+validate_sleep_ms(SleepMs) ->
+    error({invalid_scan_opts, {sleep_ms, SleepMs}}).
 
 walk_subopts(Node, Chunk, SleepMs) ->
     First = ets:first(?SUBOPTION),
@@ -209,6 +238,9 @@ local node via emqx_router:add_route/2 (the worker-serialized public API).
 
 Returns the scan totals plus a `repaired' list pairing each topic with
 the result of its add_route call.
+
+`Opts' is validated by scan_missing_routes/1 and raises the same
+`error({invalid_scan_opts, Reason})' on bad input.
 """.
 -spec reconcile_missing_routes(scan_opts()) -> reconcile_result().
 reconcile_missing_routes(Opts) ->

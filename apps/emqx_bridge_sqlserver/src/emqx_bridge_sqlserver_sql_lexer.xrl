@@ -83,7 +83,7 @@ to_binary(Chars) ->
 
 placeholder(Chars, Line) ->
     Bin = to_binary(Chars),
-    case emqx_bridge_sqlserver_sql:parse_placeholder(Bin) of
+    case emqx_sql_plan:parse_placeholder(Bin) of
         {ok, Placeholder} -> {token, {placeholder, Line, Placeholder}};
         {error, _} -> {error, {invalid_placeholder, Line, Bin}}
     end.

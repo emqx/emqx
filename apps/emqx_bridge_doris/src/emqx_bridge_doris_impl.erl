@@ -32,7 +32,7 @@
 ]).
 
 %% API
--export([]).
+-export([prepare_conn/1]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -97,7 +97,15 @@ on_get_channels(ConnResId) ->
 ) ->
     {ok, connector_state()}.
 on_add_channel(ConnResId, ConnState, ChanResId, ActionConfig) ->
-    emqx_bridge_mysql_connector:on_add_channel(ConnResId, ConnState, ChanResId, ActionConfig).
+    emqx_bridge_mysql_connector:on_add_channel(
+        ConnResId,
+        ConnState,
+        ChanResId,
+        ActionConfig#{
+            prepare_conn_fn => fun ?MODULE:prepare_conn/1,
+            sql_compiler => emqx_doris_sql
+        }
+    ).
 
 -spec on_remove_channel(
     connector_resource_id(),
@@ -144,6 +152,13 @@ on_batch_query(ConnResId, Queries, ConnState) ->
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+-spec prepare_conn(pid()) -> ok | {error, term()}.
+prepare_conn(Conn) ->
+    maybe
+        ok ?= mysql:query(Conn, <<"SET enable_nereids_planner = true">>),
+        ok ?= mysql:query(Conn, <<"SET enable_fallback_to_original_planner = false">>)
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
