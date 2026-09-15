@@ -4207,6 +4207,16 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_max_packet_size)
                 }
             )},
+        {"max_connect_packet_size",
+            sc(
+                bytesize(),
+                #{
+                    default => <<"256MB">>,
+                    validator => fun ?MODULE:validate_max_packet_size/1,
+                    converter => fun ?MODULE:convert_max_packet_size/2,
+                    desc => ?DESC(mqtt_max_connect_packet_size)
+                }
+            )},
         {"max_clientid_len",
             sc(
                 %% MQTT-v3.1.1-[MQTT-3.1.3-5], MQTT-v5.0-[MQTT-3.1.3-5]

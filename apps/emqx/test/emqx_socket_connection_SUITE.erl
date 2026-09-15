@@ -117,7 +117,8 @@ t_data_ready_handles_rearmed_select(_) ->
     ok = meck_esockd_socket([no_history]),
     ok = meck:new(socket, [unstick, passthrough, no_history]),
     SelectInfo = {select_info, recv, make_ref()},
-    ok = meck:expect(socket, recv, fun(sock, 0, [], nowait) ->
+    %% Before CONNECT the connection requests a small length, not 0.
+    ok = meck:expect(socket, recv, fun(sock, _Len, [], nowait) ->
         {select, SelectInfo}
     end),
     try

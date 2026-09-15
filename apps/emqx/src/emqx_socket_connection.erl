@@ -77,6 +77,12 @@
     parser/0
 ]).
 
+%% Read size before CONNECT when the packet length is not known yet. It covers
+%% the fixed header (at most 5 bytes) and the prefix that
+%% `emqx_frame:guess_first_packet_protocol/1' reports for a non-MQTT first
+%% packet.
+-define(PRE_CONNECT_RECV_LEN, 32).
+
 -record(conf, {
     %% Listener Type and Name
     listener :: {Type :: atom(), Name :: atom()},
@@ -89,7 +95,9 @@
     %% Forced GC thresholds, `false` if disabled
     force_gc = false :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
     %% Forced shutdown policy
-    force_shutdown :: undefined | emqx_types:oom_policy()
+    force_shutdown :: undefined | emqx_types:oom_policy(),
+    %% Largest read before CONNECT is parsed, see `recv_len/2'
+    pre_connect_recv_max = ?PRE_CONNECT_RECV_LEN :: pos_integer()
 }).
 
 -record(thresholds, {
@@ -390,11 +398,14 @@ run_loop(
     emqx_connection_util:label_process(Listener, emqx_channel:info(conninfo, Channel)),
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
     _ = set_tcp_keepalive(Listener),
-    %% Not possible to get {select, {Info, Partial}} because length is 0
-    case sock_async_recv(Socket, 0) of
+    case sock_async_recv(Socket, recv_len(0, State)) of
         {ok, Data} ->
             NState = start_idle_timer(State),
             handle_recv({recv_more, Data}, Parent, NState);
+        {select, {_SelectInfo, Data}} ->
+            %% Fewer bytes than requested; a select is armed for the rest.
+            NState = start_idle_timer(State),
+            handle_recv({recv, Data}, Parent, NState);
         {select, _SelectInfo} ->
             NState = start_idle_timer(State),
             hibernate(Parent, NState);
@@ -469,6 +480,31 @@ sock_async_recv(Socket, some_more) ->
     socket:recv(Socket, 0, [], nowait);
 sock_async_recv(Socket, Len) ->
     socket:recv(Socket, Len, [], nowait).
+
+%% Length to request from the socket. Before CONNECT is parsed, reads are kept
+%% small: the socket NIF allocates the requested length when a read is posted
+%% and holds it while the read waits for data, and a length of 0 means the
+%% listener `buffer' (`{otp, rcvbuf}'). So every connection that has not sent
+%% CONNECT would otherwise hold a `buffer'-sized binary. After CONNECT, reads
+%% are as before.
+-compile({inline, [recv_len/2]}).
+recv_len(More, #state{parser = Parser, conf = Conf}) ->
+    case emqx_frame:expect_connect(Parser) of
+        true ->
+            Len = pre_connect_recv_len(More, Conf),
+            ?tp(socket_recv_before_connect, #{len => Len}),
+            Len;
+        false ->
+            More
+    end.
+
+%% A length the parser knows, from the fixed header, is read up to the listener
+%% `buffer' rather than in full, so an announced body is not allocated before it
+%% arrives. An unknown length is read `?PRE_CONNECT_RECV_LEN' bytes at a time.
+pre_connect_recv_len(N, #conf{pre_connect_recv_max = Max}) when is_integer(N), N > 0 ->
+    min(N, Max);
+pre_connect_recv_len(_SomeMore, _Conf) ->
+    ?PRE_CONNECT_RECV_LEN.
 
 sock_setopts(Socket, [{Opt, Value} | Rest]) ->
     case socket:setopt(Socket, Opt, Value) of
@@ -843,7 +879,7 @@ handle_data(
 -compile({inline, [request_more_data/3]}).
 request_more_data(Socket, More, State) ->
     %% TODO: `{otp, select_read}`.
-    case sock_async_recv(Socket, More) of
+    case sock_async_recv(Socket, recv_len(More, State)) of
         {ok, DataMore} ->
             {ok, {recv_more, DataMore}, State};
         {select, {_Info, DataMore}} ->
@@ -870,12 +906,12 @@ request_more_data(Socket, More, State) ->
 %% Call async receive after '$socket' receive notification is received
 %% Getting `{select, Info}` is _expected_ under some circumstances: readiness
 %% notification is not a guarantee that a subsequent nonblocking recv will succeed.
-%% Getting `{select, {Info, Partial}}` is not expected because length is 0,
-%% but keep the clause for consistency with other async receive paths.
+%% Getting `{select, {Info, Partial}}` is expected only before CONNECT, when the
+%% requested length is not 0 (see `recv_len/2').
 -dialyzer({nowarn_function, handle_data_ready/2}).
 -compile({inline, [handle_data_ready/2]}).
 handle_data_ready(Socket, State) ->
-    case sock_async_recv(Socket, 0) of
+    case sock_async_recv(Socket, recv_len(0, State)) of
         {ok, Data} ->
             handle_data(Data, true, State);
         {select, {_Info, Data}} ->
@@ -1540,6 +1576,7 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
         %% zone will **not** take effect after the override.
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+        max_connect_size => emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
         %% Any packet received before CONNECT is rejected by the parser.
         expect_connect => true
     },
@@ -1563,7 +1600,8 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf0} = State0) ->
         active_n = get_active_n(Conf0),
         hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
         force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
-        force_gc = GcThresholds
+        force_gc = GcThresholds,
+        pre_connect_recv_max = get_pre_connect_recv_max(Conf0)
     },
     State0#state{
         parser = Parser,
@@ -1576,6 +1614,10 @@ init_parser_and_serializer(FrameOpts0) ->
     Parser0 = init_parser(FrameOpts0),
     Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
     {Parser0, Serialize0}.
+
+get_pre_connect_recv_max(#conf{listener = {Type, Listener}}) ->
+    Buffer = emqx_config:get_listener_conf(Type, Listener, [tcp_options, buffer]),
+    max(Buffer, ?PRE_CONNECT_RECV_LEN).
 
 get_active_n(#conf{listener = {Type, Listener}}) ->
     emqx_listeners:clamp_active_n(
