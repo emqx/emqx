@@ -486,12 +486,14 @@ t_write_timeout(matrix) ->
 t_write_timeout(TCConfig) when is_list(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{
         <<"resource_opts">> => #{
+            <<"health_check_timeout">> => <<"1s">>,
             <<"health_check_interval">> => <<"100ms">>
         }
     }),
     {201, _} = create_action_api(TCConfig, #{
         <<"resource_opts">> => #{
             <<"resume_interval">> => <<"100ms">>,
+            <<"health_check_timeout">> => <<"5s">>,
             <<"health_check_interval">> => <<"100ms">>,
             <<"request_ttl">> => <<"500ms">>
         }
@@ -945,7 +947,12 @@ t_bad_float_param(TCConfig) ->
 t_reconnect_on_connector_health_check_timeout(TCConfig) ->
     {201, _} = create_connector_api(
         TCConfig,
-        #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"750ms">>}}
+        #{
+            <<"resource_opts">> => #{
+                <<"health_check_timeout">> => <<"1s">>,
+                <<"health_check_interval">> => <<"750ms">>
+            }
+        }
     ),
     ?assertMatch(
         {200, #{<<"status">> := <<"connected">>}},
@@ -959,8 +966,12 @@ t_reconnect_on_connector_health_check_timeout(TCConfig) ->
             ?assertMatch(
                 {200, #{
                     <<"status">> := <<"disconnected">>,
-                    <<"status_reason">> := <<"health_check_timeout">>
-                }},
+                    <<"status_reason">> := Reason
+                }} when
+                    %% race: one reason is if the resource_pool pmap call returns first,
+                    %% the other if the resource manager kills the health check first.
+                    Reason == <<"health_check_timeout">> orelse
+                        Reason == <<"resource_health_check_timed_out">>,
                 get_connector_api(TCConfig)
             )
         )
