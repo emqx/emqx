@@ -24,14 +24,18 @@ listeners.quic.my_quick_listener_name {
     ciphers = "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,TLS_CHACHA20_POLY1305_SHA256"
 
     ssl_options {
-        ## Trusted PEM format CA certificates bundle file
-        cacertfile = "data/certs/cacert.pem"
+        ## Leave certfile and keyfile unset to serve the certificate this node
+        ## generates for itself. To serve your own, put the files under etc/certs
+        ## and name them here.
+
+        ## Trusted PEM format CA certificates bundle file, used to verify clients
+        # cacertfile = "${EMQX_ETC_DIR}/certs/<ca>.pem"
 
         ## PEM format certificates chain file
-        certfile = "data/certs/cert.pem"
+        # certfile = "${EMQX_ETC_DIR}/certs/<name>.pem"
 
         ## PEM format private key file
-        keyfile = "data/certs/key.pem"
+        # keyfile = "${EMQX_ETC_DIR}/certs/<name>.key"
 
         ## Enable or disable peer verification
         verify = verify_none ## to verify_peer to enable

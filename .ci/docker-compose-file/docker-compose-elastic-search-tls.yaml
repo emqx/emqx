@@ -1,46 +1,13 @@
 # hint: run the following if the container fails to start locally
 # sysctl -w vm.max_map_count=262144
 #
-# ELASTIC_PASSWORD and KIBANA_PASSWORD are generated at runtime by
-# scripts/ct/render-env.sh and exported into this process via
-# /tmp/emqx-ci-temp-secrets/passwords.env. The file under
-# /tmp/emqx-ci-temp-secrets/ is also bind-mounted into the erlang
-# container so the test suite can read the same value via
+# ELASTIC_PASSWORD is generated at runtime by scripts/ct/render-env.sh and
+# exported into this process via /tmp/emqx-ci-temp-secrets/passwords.env.
+# The file under /tmp/emqx-ci-temp-secrets/ is also bind-mounted into the
+# erlang container so the test suite can read the same value via
 # file:///tmp/emqx-ci-temp-secrets/elastic_password.
 services:
-  setup:
-    image: public.ecr.aws/elastic/elasticsearch:${ELASTIC_TAG}
-    volumes:
-      - ./certs/cacert.pem:/usr/share/elasticsearch/config/certs/ca.crt:ro
-      - ./certs/cert.pem:/usr/share/elasticsearch/config/certs/server.crt:ro
-      - ./certs/key.pem:/usr/share/elasticsearch/config/certs/server.key:ro
-    user: "0"
-    environment:
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-}
-      - KIBANA_PASSWORD=${KIBANA_PASSWORD:-}
-    command: >
-      bash -c '
-        if [ x$$ELASTIC_PASSWORD == x ] || [ x$$KIBANA_PASSWORD == x ]; then
-          echo "ELASTIC_PASSWORD/KIBANA_PASSWORD not set.";
-          echo "Run via scripts/ct/run.sh or source /tmp/emqx-ci-temp-secrets/passwords.env first.";
-          exit 1;
-        fi;
-        echo "Waiting for Elasticsearch availability";
-        until curl -s --cacert config/certs/ca.crt https://elasticsearch:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
-        echo "Setting kibana_system password";
-        until curl -s -X POST --cacert config/certs/ca.crt -u "elastic:$$ELASTIC_PASSWORD" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/kibana_system/_password -d "{\"password\":\"$$KIBANA_PASSWORD\"}" | grep -q "^{}"; do sleep 10; done;
-        echo "All done!";
-      '
-    healthcheck:
-      test: ["CMD-SHELL", "[ -f config/certs/ca.crt ]"]
-      interval: 1s
-      timeout: 5s
-      retries: 120
-
   elasticsearch:
-    depends_on:
-      setup:
-        condition: service_healthy
     image: public.ecr.aws/elastic/elasticsearch:${ELASTIC_TAG}
     container_name: elasticsearch
     hostname: elasticsearch
@@ -53,7 +20,7 @@ services:
     #   - 9200:9200
     environment:
       - node.name=elasticsearch
-      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD is not set, run via scripts/ct/run.sh or source /tmp/emqx-ci-temp-secrets/passwords.env}
       - bootstrap.memory_lock=true
       - discovery.type=single-node
       - xpack.security.enabled=true
