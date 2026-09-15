@@ -52,7 +52,7 @@
 
 -spec verify(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
     {ok, emqx_dashboard_rbac:actor_context()}
-    | {error, token_timeout | not_found | {unauthorized_role, binary()}}.
+    | {error, token_timeout | not_found | {unauthorized_role, binary(), dashboard_username()}}.
 verify(Req, HandlerInfo, Token) ->
     do_verify(Req, HandlerInfo, Token).
 
@@ -114,7 +114,7 @@ sign(#?ADMIN{username = Username} = User) ->
 
 -spec do_verify(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
     {ok, emqx_dashboard_rbac:actor_context()}
-    | {error, token_timeout | not_found | {unauthorized_role, binary()}}.
+    | {error, token_timeout | not_found | {unauthorized_role, binary(), dashboard_username()}}.
 do_verify(Req, HandlerInfo, Token) ->
     case lookup(Token) of
         {ok, JWT = #?ADMIN_JWT{exptime = ExpTime, extra = _Extra, username = _Username}} ->
@@ -297,11 +297,17 @@ check_rbac(Req, HandlerInfo, JWT) ->
                     ok = save_new_jwt(JWT),
                     {ok, ActorContextFinal};
                 false ->
-                    {error,
-                        {unauthorized_role, <<"Login user scope does not permit this endpoint">>}}
+                    {error, {
+                        unauthorized_role,
+                        <<"Login user scope does not permit this endpoint">>,
+                        AdminKey
+                    }}
             end;
         {error, Reason} when is_binary(Reason) ->
-            {error, {unauthorized_role, Reason}}
+            %% The token is valid, so the caller is authenticated. Return the
+            %% admin key so the audit record can name who was denied.
+            #?ADMIN_JWT{extra = Extra, username = Username} = JWT,
+            {error, {unauthorized_role, Reason, full_admin_key(Username, Extra)}}
     end.
 
 full_admin_key(Username, #{backend := ?BACKEND_LOCAL}) ->
