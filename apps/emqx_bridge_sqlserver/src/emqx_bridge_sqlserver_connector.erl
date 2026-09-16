@@ -382,11 +382,15 @@ on_format_query_result({ok, Rows}) ->
 on_format_query_result(Result) ->
     Result.
 
-on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
+on_get_status(_InstanceId, ConnState) ->
+    #{
+        pool_name := PoolName,
+        resource_opts := #{health_check_timeout := HCTimeout}
+    } = ConnState,
     Opts = #{
         check_fn => {?MODULE, do_get_status, []},
         on_success_fn => fun() -> on_get_status_continue(ConnState) end,
-        timeout => 5_000
+        timeout => HCTimeout
     },
     emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 

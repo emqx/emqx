@@ -1292,7 +1292,12 @@ t_timeout_disconnected_then_recover(Config) ->
             %% 0) Bridge is initially healthy.
             {201, _} = create_connector_api(
                 Config,
-                #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"500ms">>}}
+                #{
+                    <<"resource_opts">> => #{
+                        <<"health_check_timeout">> => <<"1s">>,
+                        <<"health_check_interval">> => <<"500ms">>
+                    }
+                }
             ),
             {201, _} = create_action_api(Config, #{}),
             ?retry(
