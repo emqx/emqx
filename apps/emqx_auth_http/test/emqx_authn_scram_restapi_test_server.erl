@@ -18,7 +18,8 @@
     start_link/2,
     start_link/3,
     stop/0,
-    set_handler/1
+    set_handler/1,
+    oauth2_token_path/0
 ]).
 
 %%------------------------------------------------------------------------------
@@ -38,6 +39,11 @@ set_handler(F) when is_function(F, 2) ->
     true = ets:insert(?MODULE, {handler, F}),
     ok.
 
+%% OAuth2 token endpoint served in addition to the configured path,
+%% so that OAuth2 test cases can reuse the same server and port.
+oauth2_token_path() ->
+    <<"/auth/token">>.
+
 %%------------------------------------------------------------------------------
 %% supervisor API
 %%------------------------------------------------------------------------------
@@ -45,7 +51,7 @@ set_handler(F) when is_function(F, 2) ->
 init([Port, Path, SSLOpts]) ->
     Dispatch = cowboy_router:compile(
         [
-            {'_', [{Path, ?MODULE, []}]}
+            {'_', [{Path, ?MODULE, []}, {oauth2_token_path(), ?MODULE, []}]}
         ]
     ),
 

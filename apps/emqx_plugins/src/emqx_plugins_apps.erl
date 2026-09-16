@@ -18,7 +18,10 @@
     load/2,
     unload/1,
     stop/1,
-    running_status/1
+    stop_and_unload_loaded/1,
+    running_status/1,
+    loaded_apps_from/1,
+    running_apps_from/1
 ]).
 
 %% Triggering app's callbacks
@@ -45,6 +48,60 @@ running_status(NameVsn) ->
     RunningApps = running_apps(),
     LoadedApps = loaded_apps(),
     app_running_status(AppName, AppVsn, RunningApps, LoadedApps).
+
+%% @doc The applications loaded on this node that run code from `Dir'.
+%%
+%% This tells apart the leftovers of an interrupted installation from an
+%% installation whose code is in use: it only looks at the loaded applications,
+%% so it keeps working when the plugin's `release.json' is missing or
+%% unreadable.  Unlike `running_status/1', it does not assume that the name of
+%% the plugin is the name of one of its applications.
+-spec loaded_apps_from(file:filename()) -> [module()].
+loaded_apps_from(Dir) ->
+    apps_in_dir(application:loaded_applications(), Dir).
+
+%% @doc The applications running on this node that run code from `Dir'.
+-spec running_apps_from(file:filename()) -> [module()].
+running_apps_from(Dir) ->
+    apps_in_dir(application:which_applications(), Dir).
+
+apps_in_dir(Applications, Dir) ->
+    DirParts = filename:split(filename:join([Dir])),
+    [
+        AppName
+     || {AppName, _Description, _Vsn} <- Applications,
+        app_loaded_from(AppName, DirParts)
+    ].
+
+%% @doc Stop and unload the applications that run code from `Dir'.
+%%
+%% This is the way out for a plugin whose `release.json' can not be read: its
+%% applications are found on disk instead of in its metadata, so that the
+%% installation can still be stopped and replaced.
+-spec stop_and_unload_loaded(file:filename()) -> {ok, [module()]} | {error, term()}.
+stop_and_unload_loaded(Dir) ->
+    case loaded_apps_from(Dir) of
+        [] ->
+            {ok, []};
+        AppNames ->
+            case stop_apps_by_name(AppNames) of
+                ok ->
+                    ok = unload_apps_by_name(AppNames),
+                    {ok, AppNames};
+                {error, _} = Error ->
+                    Error
+            end
+    end.
+
+app_loaded_from(AppName, DirParts) ->
+    case code:lib_dir(AppName) of
+        {error, _} ->
+            false;
+        AppDir ->
+            %% Compare path components: a plugin directory must not match a
+            %% sibling whose name merely starts with the same characters.
+            lists:prefix(DirParts, filename:split(AppDir))
+    end.
 
 -spec start(emqx_plugins_info:t()) -> ok | {error, term()}.
 start(#{rel_apps := Apps}) ->
@@ -76,21 +133,7 @@ start(#{rel_apps := Apps}) ->
 -spec stop(emqx_plugins_info:t()) -> ok | {error, term()}.
 stop(#{rel_apps := Apps}) ->
     %% load plugin apps and beam code
-    AppsToStop = lists:filtermap(fun parse_name_vsn_for_stopping/1, Apps),
-    case stop_apps(AppsToStop) of
-        {ok, []} ->
-            %% all apps stopped
-            ok;
-        {ok, Left} ->
-            ?SLOG(info, #{
-                msg => "unable_to_stop_plugin_apps",
-                apps => Left,
-                reason => "running_apps_still_depends_on_this_apps"
-            }),
-            ok;
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    stop_apps_by_name(lists:filtermap(fun parse_name_vsn_for_stopping/1, Apps)).
 
 -spec load(emqx_plugins_info:t(), file:filename()) -> ok | {error, term()}.
 load(#{rel_apps := Apps}, LibDir) ->
@@ -119,14 +162,30 @@ validate(#{rel_apps := Apps}, LibDir) ->
 
 -spec unload(emqx_plugins_info:t()) -> ok | {error, term()}.
 unload(#{rel_apps := Apps}) ->
-    RunningApps = running_apps(),
-    LoadedApps = loaded_apps(),
-    AppsForUnload = lists:filtermap(fun parse_name_vsn_for_stopping/1, Apps),
+    unload_apps_by_name(lists:filtermap(fun parse_name_vsn_for_stopping/1, Apps)).
+
+stop_apps_by_name(AppNames) ->
+    case stop_apps(AppNames) of
+        {ok, []} ->
+            %% all apps stopped
+            ok;
+        {ok, Left} ->
+            ?SLOG(info, #{
+                msg => "unable_to_stop_plugin_apps",
+                apps => Left,
+                reason => "running_apps_still_depends_on_this_apps"
+            }),
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+unload_apps_by_name(AppNames) ->
     ?SLOG(info, #{
         msg => "emqx_plugins_unloading_apps",
-        apps => AppsForUnload
+        apps => AppNames
     }),
-    unload_apps(AppsForUnload, RunningApps, LoadedApps).
+    unload_apps(AppNames, running_apps(), loaded_apps()).
 
 %%--------------------------------------------------------------------
 %% API for triggering app's callbacks
