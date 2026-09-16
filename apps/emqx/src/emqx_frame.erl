@@ -87,22 +87,26 @@
 describe_state({frame, Options = #options{}}) ->
     #{
         state => frame,
-        proto_ver => Options#options.version
+        proto_ver => Options#options.version,
+        expect_connect => Options#options.expect_connect
     };
 describe_state(Options = #options{}) ->
     #{
         state => clean,
-        proto_ver => Options#options.version
+        proto_ver => Options#options.version,
+        expect_connect => Options#options.expect_connect
     };
 describe_state(#remlen{opts = Options}) ->
     #{
         state => parsing_varint_length,
-        proto_ver => Options#options.version
+        proto_ver => Options#options.version,
+        expect_connect => Options#options.expect_connect
     };
 describe_state(#body{hdr = Hdr, need = Need, acc = Acc, opts = Options}) ->
     #{
         state => parsing_body,
         proto_ver => Options#options.version,
+        expect_connect => Options#options.expect_connect,
         parsed_header => Hdr,
         expected_bytes_remain => Need,
         received_bytes => iolist_size(Acc)
