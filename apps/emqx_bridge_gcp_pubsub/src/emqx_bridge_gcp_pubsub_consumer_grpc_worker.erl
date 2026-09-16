@@ -158,6 +158,10 @@ init(Opts) ->
 terminate(_Reason, _State, Data) ->
     #{?pool := Pool, ?idx := Idx} = Data,
     gproc_pool:disconnect_worker(Pool, {Pool, Idx}),
+    maybe
+        #handle{stream = Stream} ?= maps:get(?handle, Data),
+        grpc_client:close_async(Stream)
+    end,
     ok.
 
 %% `?s_update_subscription`
