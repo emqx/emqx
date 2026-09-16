@@ -29,7 +29,7 @@
     serialize/3
 ]).
 
--export([describe_state/1, update_opts/2]).
+-export([describe_state/1, update_opts/2, expect_connect/1, is_clean/1]).
 
 -export_type([
     options/0,
@@ -42,6 +42,7 @@
 -type options() :: #{
     strict_mode => boolean(),
     max_size => 1..?MAX_PACKET_SIZE,
+    max_connect_size => 1..?MAX_PACKET_SIZE,
     version => emqx_types:proto_ver(),
     expect_connect => boolean()
 }.
@@ -49,6 +50,8 @@
 -record(options, {
     strict_mode :: boolean(),
     max_size :: 1..?MAX_PACKET_SIZE,
+    %% Size limit for a CONNECT packet, on top of `max_size'.
+    max_connect_size :: 1..?MAX_PACKET_SIZE,
     version :: emqx_types:proto_ver(),
     %% When true, the next packet must be a CONNECT.
     expect_connect :: boolean()
@@ -73,6 +76,7 @@
 -define(DEFAULT_OPTIONS, #{
     strict_mode => true,
     max_size => ?MAX_PACKET_SIZE,
+    max_connect_size => ?MAX_PACKET_SIZE,
     version => ?MQTT_PROTO_V4,
     expect_connect => false
 }).
@@ -150,10 +154,23 @@ version(#remlen{opts = #options{version = Version}}) -> Version;
 version(#body{opts = #options{version = Version}}) -> Version;
 version(#update{inner = Inner}) -> version(Inner).
 
+%% @doc Whether the next packet must still be a CONNECT.
+-spec expect_connect(parse_state()) -> boolean().
+expect_connect(#options{expect_connect = Expect}) -> Expect;
+expect_connect(#remlen{opts = Options}) -> expect_connect(Options);
+expect_connect(#body{opts = Options}) -> expect_connect(Options);
+expect_connect(#update{inner = Inner}) -> expect_connect(Inner).
+
+%% @doc Whether the parser is between packets, holding no bytes of a partial one.
+-spec is_clean(parse_state()) -> boolean().
+is_clean(#options{}) -> true;
+is_clean(_ParseState) -> false.
+
 merge_opts(Options, NewOpts) ->
     Options#options{
         strict_mode = maps:get(strict_mode, NewOpts, Options#options.strict_mode),
-        max_size = maps:get(max_size, NewOpts, Options#options.max_size)
+        max_size = maps:get(max_size, NewOpts, Options#options.max_size),
+        max_connect_size = maps:get(max_connect_size, NewOpts, Options#options.max_connect_size)
     }.
 
 %%--------------------------------------------------------------------
@@ -170,6 +187,7 @@ initial_parse_state(Options) when is_map(Options) ->
     #options{
         strict_mode = maps:get(strict_mode, Effective),
         max_size = maps:get(max_size, Effective),
+        max_connect_size = maps:get(max_connect_size, Effective),
         version = maps:get(version, Effective),
         expect_connect = maps:get(expect_connect, Effective)
     }.
@@ -238,7 +256,8 @@ parse_complete(
         <<0:8>> ->
             parse_bodyless_packet(Header);
         _ ->
-            {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            {RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            ok = validate_frame_len(RemLen, Header, Options),
             parse_packet_complete(Rest2, Header, Options)
     end.
 
@@ -348,13 +367,28 @@ parse_remaining_len(
     Header,
     Multiplier,
     Value,
-    Options = #options{max_size = MaxSize}
+    Options
 ) ->
     FrameLen = Value + Len * Multiplier,
-    case FrameLen > MaxSize of
-        true -> ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
-        false -> parse_body_frame(Rest, Header, FrameLen, <<>>, Options)
-    end.
+    ok = validate_frame_len(FrameLen, Header, Options),
+    parse_body_frame(Rest, Header, FrameLen, <<>>, Options).
+
+%% A CONNECT packet is held to `max_connect_size' as well as `max_size', so that
+%% an unauthenticated client cannot make the broker buffer a whole `max_size'
+%% body. Both limits are checked from the fixed header, before any body byte is
+%% read.
+validate_frame_len(
+    FrameLen,
+    #mqtt_packet_header{type = ?CONNECT},
+    #options{max_connect_size = MaxConnectSize}
+) when FrameLen > MaxConnectSize ->
+    ?PARSE_ERR(#{
+        cause => connect_packet_too_large, limit => MaxConnectSize, received => FrameLen
+    });
+validate_frame_len(FrameLen, _Header, #options{max_size = MaxSize}) when FrameLen > MaxSize ->
+    ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
+validate_frame_len(_FrameLen, _Header, _Options) ->
+    ok.
 
 -compile({inline, [parse_bodyless_packet/1]}).
 

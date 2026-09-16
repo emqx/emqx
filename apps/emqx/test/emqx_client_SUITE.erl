@@ -54,7 +54,11 @@ groups() ->
             {group, mqttv5},
             {group, others},
             {group, socket},
-            {group, misbehaving}
+            {group, misbehaving},
+            {group, socket_backend}
+        ]},
+        {socket_backend, [], [
+            t_socket_recv_small_before_connect
         ]},
         {mqttv3, [], [
             t_basic,
@@ -110,6 +114,9 @@ groups() ->
             t_congestion_qos0_no_send_timeout,
             t_congestion_decongested,
             t_first_packet_not_connect,
+            t_first_packet_header_only_not_connect,
+            t_connect_packet_too_large,
+            t_connect_split_then_frame,
             t_frame_error_shutdown_count_idle,
             t_frame_error_shutdown_count_connected,
             t_frame_error_shutdown_count_is_bounded,
@@ -151,7 +158,7 @@ init_per_group(gen_tcp_listener, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{group_apps, Apps}, {listener_type, tcp} | Config];
+    [{group_apps, Apps}, {listener_type, tcp}, {tcp_backend, gen_tcp} | Config];
 init_per_group(ssl_listener, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -169,7 +176,7 @@ init_per_group(socket_listener, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{group_apps, Apps}, {listener_type, tcp} | Config];
+    [{group_apps, Apps}, {listener_type, tcp}, {tcp_backend, socket} | Config];
 init_per_group(mqttv3, Config) ->
     [{proto_ver, v3} | Config];
 init_per_group(mqttv4, Config) ->
@@ -1578,6 +1585,131 @@ t_first_packet_not_connect(Config) ->
     receive
         {tcp_closed, RawSocket} when RawSocket =:= element(2, Socket) -> ok;
         {ssl_closed, RawSocket} when RawSocket =:= element(2, Socket) -> ok
+    after 5000 ->
+        ct:fail("Expected socket to be closed")
+    end.
+
+-doc """
+A first packet that is not CONNECT is refused from its fixed header, before the
+announced body arrives. On a whole-frame listener the socket reads raw bytes
+until CONNECT, so the transport does not wait for that body either.
+""".
+t_first_packet_header_only_not_connect(Config) ->
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    %% PUBLISH fixed header announcing a body just under 1MB, sent without it.
+    ok = socket_send(Socket, <<?PUBLISH:4, 0:4, 16#ff, 16#ff, 16#3f>>),
+    ?assertEqual(ok, wait_socket_closed(Socket)).
+
+-doc """
+A CONNECT larger than `mqtt.max_connect_packet_size' is refused from its fixed
+header, under its own shutdown counter, on every listener type.
+""".
+t_connect_packet_too_large(Config) ->
+    Limit = 1024,
+    Old = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
+    emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], Limit),
+    try
+        Socket = socket_connect(Config, [{active, true}, binary]),
+        %% CONNECT fixed header announcing a 2048-byte body, sent without it.
+        Header = <<?CONNECT:4, 0:4, 16#80, 16#10>>,
+        ExitReason = assert_frame_error_shutdown(
+            Config, Socket, Header, connect_packet_too_large
+        ),
+        ?assertMatch({shutdown, #{cause := connect_packet_too_large, limit := Limit}}, ExitReason)
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_packet_size], Old)
+    end.
+
+-doc """
+A client that sends CONNECT in pieces, with the first byte of the next packet
+in the same write as the end of CONNECT, is served normally. On a whole-frame
+listener the connection switches to `{packet, mqtt}' once CONNECT is parsed and
+no partial packet is held; `gen_tcp' always switches, `ssl' only where OTP
+accepts `{packet, mqtt}' in `ssl:setopts/2'.
+""".
+t_connect_split_then_frame(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Connect = iolist_to_binary(
+        emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{clientid = ClientId}))
+    ),
+    Ping = iolist_to_binary(emqx_frame:serialize(?PACKET(?PINGREQ))),
+    <<Connect1:3/binary, Connect2/binary>> = Connect,
+    <<Ping1:1/binary, Ping2/binary>> = Ping,
+    Socket = socket_connect(Config, [{active, true}, binary]),
+    %% The pauses only make separate reads likely; the result does not depend
+    %% on how the transport coalesces the writes.
+    ok = socket_send(Socket, Connect1),
+    ct:sleep(50),
+    ok = socket_send(Socket, <<Connect2/binary, Ping1/binary>>),
+    ct:sleep(50),
+    ok = socket_send(Socket, Ping2),
+    %% CONNACK (accepted), then PINGRESP.
+    ?assertEqual(<<16#20, 2, 0, 0, 16#D0, 0>>, recv_bytes(Socket, 6, <<>>)),
+    case {?config(listener_type, Config), ?config(tcp_backend, Config)} of
+        {tcp, socket} ->
+            %% The `socket' backend has no whole-frame mode.
+            ok;
+        {ListenerType, _} ->
+            [ChanPid] = emqx_cm:lookup_channels(ClientId),
+            #{parser := Parser, transport := Transport, socket := ServerSocket} =
+                emqx_connection:get_state(ChanPid),
+            {ok, [{packet, Packet}]} = Transport:getopts(ServerSocket, [packet]),
+            case Parser of
+                {frame, _} -> ?assertEqual(mqtt, Packet);
+                _Stream -> ?assertEqual(raw, Packet)
+            end,
+            ListenerType =:= tcp andalso ?assertMatch({frame, _}, Parser)
+    end,
+    ok = socket_close(Socket).
+
+-doc """
+Before CONNECT, the `socket' backend requests small reads: 32 bytes while the
+packet length is unknown, and at most the listener `buffer' (4KB here) of a
+length the fixed header announced, so a body is not allocated before it arrives.
+""".
+t_socket_recv_small_before_connect(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Props = #{'User-Property' => [{<<"k">>, binary:copy(<<"v">>, 6000)}]},
+    Connect = iolist_to_binary(
+        emqx_frame:serialize(
+            ?CONNECT_PACKET(#mqtt_packet_connect{
+                clientid = ClientId, proto_ver = ?MQTT_PROTO_V5, properties = Props
+            }),
+            ?MQTT_PROTO_V5
+        )
+    ),
+    ?check_trace(
+        begin
+            Socket = socket_connect(Config, [{active, true}, binary]),
+            ok = socket_send(Socket, Connect),
+            %% CONNACK
+            ?assertMatch(<<16#20, _/binary>>, recv_bytes(Socket, 2, <<>>)),
+            ok = socket_close(Socket)
+        end,
+        fun(Trace) ->
+            Lens = ?projection(len, ?of_kind(socket_recv_before_connect, Trace)),
+            ?assertMatch([32 | _], Lens),
+            ?assert(lists:max(Lens) =< 4096, #{lens => Lens}),
+            ?assert(lists:member(4096, Lens), #{lens => Lens})
+        end
+    ).
+
+recv_bytes(_Socket, N, Acc) when byte_size(Acc) >= N ->
+    Acc;
+recv_bytes(Socket, N, Acc) ->
+    RawSocket = element(2, Socket),
+    receive
+        {Tag, RawSocket, Data} when Tag =:= tcp; Tag =:= ssl ->
+            recv_bytes(Socket, N, <<Acc/binary, Data/binary>>)
+    after 5000 ->
+        ct:fail({timeout_receiving, N, Acc})
+    end.
+
+wait_socket_closed(Socket) ->
+    RawSocket = element(2, Socket),
+    receive
+        {tcp_closed, RawSocket} -> ok;
+        {ssl_closed, RawSocket} -> ok
     after 5000 ->
         ct:fail("Expected socket to be closed")
     end.

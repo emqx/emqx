@@ -47,13 +47,16 @@ groups() ->
             t_parse_after_connect,
             t_parse_no_connect_expected,
             t_update_opts,
-            t_update_opts_mid_frame
+            t_update_opts_mid_frame,
+            t_update_opts_connect_size,
+            t_expect_connect_and_is_clean
         ]},
         {connect, [parallel], [
             t_serialize_parse_v3_connect,
             t_serialize_parse_v4_connect,
             t_serialize_parse_v5_connect,
             t_parse_many_user_properties_is_linear,
+            t_parse_connect_packet_too_large,
             t_parse_duplicate_connect_property_strict,
             t_parse_duplicate_connect_property_lenient,
             t_parse_repeated_user_property_strict,
@@ -565,6 +568,87 @@ t_parse_many_user_properties_is_linear(_) ->
     %% not a microbenchmark. The old quadratic path took seconds here.
     ?assert(Elapsed < 2000, #{elapsed_ms => Elapsed}),
     ok.
+
+-doc """
+A CONNECT larger than `max_connect_size' is rejected from the fixed header,
+before any body byte is buffered. The limit applies only to CONNECT.
+""".
+t_parse_connect_packet_too_large(_) ->
+    Limit = 512,
+    PState = emqx_frame:initial_parse_state(#{max_connect_size => Limit}),
+    Frame = make_v5_connect_frame(user_properties(200)),
+    ?assert(byte_size(Frame) > Limit),
+    %% Feed only the fixed header and the remaining-length bytes: an error here
+    %% means the body was never buffered.
+    <<Header:3/binary, _/binary>> = Frame,
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse(Header, PState)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse(Frame, PState)
+    ),
+    %% The whole-frame parser applies the same limit.
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse_complete(Frame, PState)
+    ),
+    %% A CONNECT within the limit still parses.
+    Small = make_v5_connect_frame(user_properties(1)),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(Small, PState)),
+    %% The limit does not apply to other packet types.
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, binary:copy(<<"x">>, 2048)),
+    PublishBin = iolist_to_binary(emqx_frame:serialize(Publish)),
+    ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin, PState)).
+
+-doc """
+The CONNECT size limit is a zone setting too, so a config change must carry it
+onto an existing parse state rather than leave the old one in place.
+""".
+t_update_opts_connect_size(_) ->
+    PState0 = emqx_frame:initial_parse_state(#{expect_connect => true, max_connect_size => 1024}),
+    {ok, PState1, _Serialize} = emqx_frame:update_opts(PState0, #{max_connect_size => 32}),
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := 32},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(20)), PState1)
+    ),
+    %% A CONNECT within the limit still parses.
+    Small = make_v5_connect_frame(<<>>),
+    ?assert(byte_size(Small) < 32),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(Small, PState1)).
+
+-doc """
+`expect_connect/1' holds until a CONNECT is parsed, and `is_clean/1' is true
+only between packets. The connection modules read both to decide how to read
+the socket.
+""".
+t_expect_connect_and_is_clean(_) ->
+    PState0 = emqx_frame:initial_parse_state(#{expect_connect => true}),
+    ?assert(emqx_frame:expect_connect(PState0)),
+    ?assert(emqx_frame:is_clean(PState0)),
+    %% Fixed header and remaining length only: CONNECT is not parsed yet.
+    <<Head:2/binary, Tail/binary>> = make_v5_connect_frame(<<>>),
+    {_More, PState1} = emqx_frame:parse(Head, PState0),
+    ?assert(emqx_frame:expect_connect(PState1)),
+    ?assertNot(emqx_frame:is_clean(PState1)),
+    {_Connect, <<>>, PState2} = emqx_frame:parse(Tail, PState1),
+    ?assertNot(emqx_frame:expect_connect(PState2)),
+    ?assert(emqx_frame:is_clean(PState2)),
+    %% First byte of a PINGREQ: a partial packet is held.
+    {_SomeMore, PState3} = emqx_frame:parse(<<?PINGREQ:4, 0:4>>, PState2),
+    ?assertNot(emqx_frame:expect_connect(PState3)),
+    ?assertNot(emqx_frame:is_clean(PState3)).
+
+%% N user properties on the wire, each with an empty key and an indexed value.
+user_properties(N) ->
+    iolist_to_binary([
+        begin
+            V = integer_to_binary(I),
+            <<16#26, 0:16, (byte_size(V)):16, V/binary>>
+        end
+     || I <- lists:seq(1, N)
+    ]).
 
 %% Encode an unsigned integer as an MQTT variable byte integer.
 encode_vbi(N) when N < 16#80 ->

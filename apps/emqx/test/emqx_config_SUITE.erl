@@ -575,6 +575,7 @@ zone_global_defaults() ->
                 keepalive_check_interval => 30000,
                 max_awaiting_rel => 100,
                 max_clientid_len => 65535,
+                max_connect_packet_size => 268435455,
                 max_inflight => 32,
                 max_mqueue_len => 1000,
                 max_packet_size => 1048576,

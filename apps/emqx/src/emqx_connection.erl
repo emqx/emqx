@@ -100,7 +100,10 @@
     %% Forced GC thresholds, `false` if disabled
     force_gc :: false | {_EachNMessages :: pos_integer(), _EachNBytes :: pos_integer()},
     %% Forced shutdown policy
-    force_shutdown :: emqx_types:oom_policy()
+    force_shutdown :: emqx_types:oom_policy(),
+    %% The listener frames with `{packet, mqtt}', but the socket reads
+    %% `{packet, raw}' until CONNECT is parsed. See `init_parser/3'.
+    frame_after_connect = false :: boolean()
 }).
 
 -record(thresholds, {
@@ -903,15 +906,28 @@ enrich_reason(Reason, Hints) when is_map(Reason) ->
 enrich_reason(Reason, Hints) ->
     Hints#{reason => Reason}.
 
+%% A listener with `parse_unit = frame' accepts with `{packet, mqtt}'. Until
+%% CONNECT is parsed, the socket reads `{packet, raw}' and the stream parser
+%% sees every byte, so it rejects a first packet that is not CONNECT, or a
+%% CONNECT over the size limit, from its fixed header. With `{packet, mqtt}' the
+%% transport would buffer the whole announced body first. `activate_socket/1'
+%% switches back to `{packet, mqtt}' and the whole-frame parser after CONNECT.
+%% Returns the parser and whether that switch is pending.
 init_parser(Transport, Socket, FrameOpts) ->
+    Parser = emqx_frame:initial_parse_state(FrameOpts),
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
     case lists:keyfind(packet, 1, SocketOpts) of
         {packet, mqtt} ->
-            %% Enable whole-frame packet parser.
-            {frame, emqx_frame:initial_parse_state(FrameOpts)};
+            case Transport:setopts(Socket, [{packet, raw}]) of
+                ok ->
+                    {Parser, true};
+                {error, _Reason} ->
+                    %% The socket is most likely closed; the first activation
+                    %% reports it. The stream parser also reads whole frames.
+                    {Parser, false}
+            end;
         _Otherwise ->
-            %% Go with regular streaming parser.
-            emqx_frame:initial_parse_state(FrameOpts)
+            {Parser, false}
     end.
 
 update_state_on_parse_error(
@@ -1382,20 +1398,49 @@ handle_cast(Req, State) ->
 -compile({inline, [activate_socket/1]}).
 activate_socket(
     #state{
-        transport = Transport,
         sockstate = SockState,
-        socket = Socket,
-        conf = #conf{active_n = ActiveN}
+        conf = #conf{active_n = ActiveN, frame_after_connect = false}
     } = State
 ) when
     SockState =/= closed
 ->
-    case Transport:setopts(Socket, [{active, ActiveN}]) of
-        ok -> {ok, State#state{sockstate = activate_sockstate(SockState)}};
-        Error -> Error
+    set_active(ActiveN, State);
+activate_socket(#state{sockstate = SockState, parser = Parser} = State) when
+    SockState =/= closed
+->
+    %% Raw until CONNECT: deliver one chunk at a time, so that no raw chunk
+    %% queued behind the one that completes CONNECT carries bytes the transport
+    %% would have framed. Switch once CONNECT is parsed and no partial packet
+    %% is held, so the transport frames from a packet boundary.
+    case emqx_frame:expect_connect(Parser) orelse not emqx_frame:is_clean(Parser) of
+        true -> set_active(1, State);
+        false -> switch_to_frame(State)
     end;
 activate_socket(State) ->
     {ok, State}.
+
+switch_to_frame(
+    #state{transport = Transport, socket = Socket, parser = Parser, conf = Conf} = State
+) ->
+    #conf{active_n = ActiveN} = Conf,
+    NConf = Conf#conf{frame_after_connect = false},
+    case Transport:setopts(Socket, [{packet, mqtt}, {active, ActiveN}]) of
+        ok ->
+            ?tp(debug, connection_switched_to_frame_parser, #{}),
+            NState = State#state{parser = {frame, Parser}, conf = NConf},
+            {ok, NState#state{sockstate = activate_sockstate(NState#state.sockstate)}};
+        {error, Reason} ->
+            %% `ssl' in stock OTP rejects `{packet, mqtt}' in `setopts'. The stream
+            %% parser keeps reading this connection.
+            ?tp(debug, connection_kept_stream_parser, #{reason => Reason}),
+            set_active(ActiveN, State#state{conf = NConf})
+    end.
+
+set_active(N, #state{transport = Transport, socket = Socket, sockstate = SockState} = State) ->
+    case Transport:setopts(Socket, [{active, N}]) of
+        ok -> {ok, State#state{sockstate = activate_sockstate(SockState)}};
+        Error -> Error
+    end.
 
 activate_sockstate(congested) ->
     congested;
@@ -1548,16 +1593,17 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
         %% zone will **not** take effect after the override.
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+        max_connect_size => emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
         %% Any packet received before CONNECT is rejected by the parser.
         expect_connect => true
     },
-    {Parser, Serialize} =
+    {Parser, Serialize, FrameAfterConnect} =
         case State0#state.parser of
             undefined ->
                 init_parser_and_serializer(FrameOpts0, State0);
             Parser1 ->
                 {ok, Parser2, Serialize2} = emqx_frame:update_opts(Parser1, FrameOpts0),
-                {Parser2, Serialize2}
+                {Parser2, Serialize2, Conf#conf.frame_after_connect}
         end,
     GcThresholds =
         case emqx_config:get_zone_conf(Zone, [force_gc]) of
@@ -1572,7 +1618,8 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         sendq_watermark = get_high_watermark(Type, Listener),
         hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
         force_shutdown = emqx_config:get_zone_conf(Zone, [force_shutdown]),
-        force_gc = GcThresholds
+        force_gc = GcThresholds,
+        frame_after_connect = FrameAfterConnect
     },
     State0#state{
         parser = Parser,
@@ -1586,9 +1633,9 @@ init_parser_and_serializer(FrameOpts0, State0) ->
         transport = Transport,
         socket = Socket
     } = State0,
-    Parser0 = init_parser(Transport, Socket, FrameOpts0),
+    {Parser0, FrameAfterConnect} = init_parser(Transport, Socket, FrameOpts0),
     Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
-    {Parser0, Serialize0}.
+    {Parser0, Serialize0, FrameAfterConnect}.
 
 %%--------------------------------------------------------------------
 %% For CT tests

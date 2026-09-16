@@ -1570,6 +1570,15 @@ Note: changing this config at runtime may only take effect for newly established
 mqtt_max_packet_size.label:
 """Max Packet Size"""
 
+mqtt_max_connect_packet_size.desc:
+"""Maximum size of a CONNECT packet. Default: 256 MB, which leaves `max_packet_size` as the only limit.
+EMQX closes the connection when a CONNECT packet is larger than this. It does so before the packet body is read into memory.
+This limit applies in addition to `max_packet_size`, and the smaller of the two applies to CONNECT.
+Lower it to bound what a client that has not connected yet can make the broker buffer."""
+
+mqtt_max_connect_packet_size.label:
+"""Max CONNECT Packet Size"""
+
 common_ssl_opts_schema_reuse_sessions.desc:
 """Enable TLS 1.2 session resumption for TLS client.
 It has no effect when TLS version is configured (or negotiated) to 1.3."""
