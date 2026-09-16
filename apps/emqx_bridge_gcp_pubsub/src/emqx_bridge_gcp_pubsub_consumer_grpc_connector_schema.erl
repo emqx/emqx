@@ -54,6 +54,7 @@ fields(connector_config) ->
             emqx_schema:servers_sc(
                 #{
                     default => "https://pubsub.googleapis.com:443",
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC("url")
                 },
                 ?PARSE_SERVER_OPTS

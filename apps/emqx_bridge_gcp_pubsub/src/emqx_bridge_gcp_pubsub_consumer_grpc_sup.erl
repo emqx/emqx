@@ -139,7 +139,7 @@ init({?connector, Opts}) ->
         period => 5
     },
     URL = str(URL0),
-    %% TODO: handle url error more gracefully (or in the schema)
+    %% schema validation ensures URL is accepted by grpc_client_sup
     {ok, ClientSpec} = grpc_client_sup:spec(?grpc_client_pool(ConnResId), URL, GRPCOpts),
     SourcesSpec = sources_sup_spec(Opts),
     Children = [ClientSpec, SourcesSpec],

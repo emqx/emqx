@@ -16,7 +16,7 @@
 -define(TOP_SUP, emqx_bridge_gcp_pubsub_sup).
 -define(SOURCE_SUP, emqx_bridge_gcp_pubsub_consumer_grpc_sup).
 
--define(PARSE_SERVER_OPTS, #{supported_schemes => ["http", "https"]}).
+-define(PARSE_SERVER_OPTS, #{single_server => true, supported_schemes => ["http", "https"]}).
 
 -define(ack_deadline, ack_deadline).
 -define(auth_ctx, auth_ctx).
