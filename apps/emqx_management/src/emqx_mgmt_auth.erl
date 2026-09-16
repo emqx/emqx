@@ -145,24 +145,36 @@ read(Name) ->
     end.
 
 update(Name, Enable, ExpiredAt, Desc, Role) ->
-    case valid_role(Role) of
+    case validate_update_role(Role) of
         ok ->
             trans(fun ?MODULE:do_update/5, [Name, Enable, ExpiredAt, Desc, Role]);
         Error ->
             Error
     end.
 
+%% An absent role means the caller did not ask for a role change, so there is nothing
+%% to validate: `do_update/5' keeps the stored one, like it does for `desc' and `enable'.
+validate_update_role(undefined) -> ok;
+validate_update_role(Role) -> valid_role(Role).
+
 do_update(Name, Enable, ExpiredAt, Desc, Role) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
-        [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
+        [App0 = #?APP{enable = Enable0, expired_at = ExpiredAt0, extra = Extra0}] ->
             #{desc := Desc0} = Extra = normalize_extra(Extra0),
+            %% A field left out of the request is `undefined' and keeps its stored value,
+            %% so a partial update cannot silently change more than it was asked to.
             App =
                 App0#?APP{
-                    expired_at = ExpiredAt,
+                    expired_at = ensure_not_undefined(ExpiredAt, ExpiredAt0),
                     enable = ensure_not_undefined(Enable, Enable0),
-                    extra = Extra#{desc := ensure_not_undefined(Desc, Desc0), role := Role}
+                    extra = Extra#{
+                        desc := ensure_not_undefined(Desc, Desc0),
+                        %% `get_role/1' also covers records whose `extra' is a pre-v5.4.0
+                        %% plain desc binary, which `normalize_extra/1' has just upgraded.
+                        role := ensure_not_undefined(Role, get_role(Extra))
+                    }
                 },
             ok = mnesia:write(App),
             to_map(App)

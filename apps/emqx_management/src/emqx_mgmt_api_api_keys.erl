@@ -134,8 +134,12 @@ fields(app) ->
                 #{
                     desc => "No longer valid datetime",
                     example => <<"2021-12-05T02:01:34.186Z">>,
-                    required => false,
-                    default => infinity
+                    %% No `default' on purpose, matching `role' below: a schema default is
+                    %% filled into the request body before it reaches the handler, which
+                    %% would make an omitted `expired_at' indistinguishable from an
+                    %% explicit one and let a partial update silently rewrite the key's
+                    %% expiry. A key created without it still never expires.
+                    required => false
                 }
             )},
         {created_at,
@@ -193,7 +197,7 @@ api_key(post, #{body := App}) ->
         <<"desc">> := Desc0,
         <<"enable">> := Enable
     } = App,
-    ExpiredAt = ensure_expired_at(App),
+    ExpiredAt = new_expired_at(App),
     Desc = unicode:characters_to_binary(Desc0, unicode),
     Role = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
     %% create api_key with random api_key and api_secret from Dashboard
@@ -221,9 +225,13 @@ api_key_by_name(delete, #{bindings := #{name := Name}}) ->
     end;
 api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
     Enable = maps:get(<<"enable">>, Body, undefined),
-    ExpiredAt = ensure_expired_at(Body),
+    ExpiredAt = update_expired_at(Body),
     Desc = maps:get(<<"desc">>, Body, undefined),
-    Role = maps:get(<<"role">>, Body, ?ROLE_API_DEFAULT),
+    %% `undefined' means the request body carried no role; the update path then keeps
+    %% the stored one. `role' deliberately has no schema default: the request body is
+    %% filled with schema defaults before it reaches this handler, which would make
+    %% "omitted" indistinguishable from an explicit value and silently escalate the key.
+    Role = maps:get(<<"role">>, Body, undefined),
     case emqx_mgmt_auth:update(Name, Enable, ExpiredAt, Desc, Role) of
         {ok, App} ->
             {200, emqx_mgmt_auth:format(App)};
@@ -236,8 +244,21 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
             }}
     end.
 
-ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
-ensure_expired_at(_) -> infinity.
+%% A key created without `expired_at' never expires: `infinity' is the documented
+%% default of the field, and the create path has no previous value to keep.
+new_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
+new_expired_at(_) -> infinity.
+
+%% An update that does not mention `expired_at' must not extend the lifetime of the
+%% key, so an omitted field stays `undefined' and keeps the stored value, just like
+%% `desc', `enable' and `role'. `infinity' is an explicit request to clear the expiry
+%% and must therefore be passed through rather than treated as absent.
+update_expired_at(#{<<"expired_at">> := ExpiredAt}) when
+    is_integer(ExpiredAt); ExpiredAt =:= infinity
+->
+    ExpiredAt;
+update_expired_at(_) ->
+    undefined.
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
@@ -246,7 +267,7 @@ app_extend_fields() ->
         {role,
             hoconsc:mk(binary(), #{
                 desc => ?DESC(role),
-                default => ?ROLE_API_DEFAULT,
+                required => false,
                 example => ?ROLE_API_DEFAULT,
                 validator => fun emqx_dashboard_rbac:valid_api_role/1
             })}
