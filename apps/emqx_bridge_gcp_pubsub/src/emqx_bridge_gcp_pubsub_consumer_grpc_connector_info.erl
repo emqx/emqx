@@ -49,16 +49,12 @@ config_schema() ->
         hoconsc:mk(
             hoconsc:map(
                 name,
-                hoconsc:ref(
-                    ?SCHEMA_MOD,
-                    "config_connector"
-                )
+                hoconsc:ref(?SCHEMA_MOD, "config_connector")
             ),
             #{
-                desc => ?DESC(
-                    emqx_bridge_gcp_pubsub_consumer_grpc_connector_schema, "config_connector"
-                ),
-                required => false
+                desc => ?DESC(?SCHEMA_MOD, "config_connector"),
+                required => false,
+                validator => fun ?SCHEMA_MOD:validator_root/1
             }
         )}.
 

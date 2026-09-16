@@ -20,7 +20,9 @@
 ]).
 
 %% API
--export([]).
+-export([
+    validator_root/1
+]).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -131,6 +133,23 @@ connector_example(put) ->
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+validator_root(#{~"connect_timeout" := V} = RawConf) when not is_map(V) ->
+    %% focusing on a single value
+    #{~"url" := URL, ~"ssl" := #{~"enable" := SSLEnabled}} = RawConf,
+    case uri_string:parse(URL) of
+        #{scheme := "https"} when not SSLEnabled ->
+            {error,
+                {invalid_ssl_opts, <<"the TLS option must be enabled when the URL uses https">>}};
+        #{scheme := "http"} when SSLEnabled ->
+            {error,
+                {invalid_ssl_opts, <<"the TLS option must be not enabled when the URL uses http">>}};
+        _ ->
+            ok
+    end;
+validator_root(_) ->
+    %% root with all connectors of this type.
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Internal fns

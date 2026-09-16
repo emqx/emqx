@@ -49,36 +49,47 @@ url_test_() ->
             end,
         fmt(~"${u} (${v})", #{u => URL, v => IsValid})
     end,
-    CheckSchema = fun(URL) -> connector_config(#{~"url" => URL}) end,
+    CheckSchema = fun(Case) ->
+        #{url := URL} = Case,
+        SSLEnabled = maps:get(ssl, Case, true),
+        connector_config(#{~"url" => URL, ~"ssl" => #{~"enable" => SSLEnabled}})
+    end,
     Cases = [
+        %% empty url
+        #{url => ~"", valid => false},
         #{url => ~"just-host", valid => false},
         #{url => ~"no-scheme:443", valid => false},
-        #{url => ~"http://no-port", valid => false},
+        #{url => ~"http://no-port", valid => false, ssl => false},
         #{url => ~"https://no-port", valid => false},
         %% no commas
         #{url => ~"https://server1:443,", valid => false},
         %% single server
         #{url => ~"https://server1:443,https://server2:443", valid => false},
         #{url => ~"pulsar://bad-scheme:443", valid => false},
-        #{url => ~"http://plain-http:8080", valid => true},
-        #{url => ~"https://uses-tls:8181", valid => true}
+        #{url => ~"http://plain-http:8080", valid => true, ssl => false},
+        #{url => ~"https://uses-tls:8181", valid => true},
+        %% ssl config inconsistent with scheme
+        #{url => ~"http://plain-http:8080", valid => false, ssl => true},
+        #{url => ~"https://uses-tls:8181", valid => false, ssl => false}
     ],
     CheckSpec = fun(URL) -> grpc_client_sup:spec(~"child name", URL, _Opts = #{}) end,
     Test =
         fun
-            (#{valid := false, url := URL}) ->
+            (#{valid := false} = Case) ->
                 ?_assertThrow(
                     {_SchemaMod, [
                         #{
                             kind := validation_error,
-                            path := "connectors.gcp_pubsub_consumer_grpc.x.url"
+                            path := Path
                         }
-                    ]},
-                    CheckSchema(URL)
+                    ]} when
+                        Path == "connectors.gcp_pubsub_consumer_grpc.x.url" orelse
+                            Path == "connectors.gcp_pubsub_consumer_grpc.x",
+                    CheckSchema(Case)
                 );
-            (#{url := URL}) ->
+            (#{url := URL} = Case) ->
                 ?_test(begin
-                    ?assertMatch(#{}, CheckSchema(URL)),
+                    ?assertMatch(#{}, CheckSchema(Case)),
                     ?assertMatch({ok, _}, CheckSpec(URL))
                 end)
         end,
