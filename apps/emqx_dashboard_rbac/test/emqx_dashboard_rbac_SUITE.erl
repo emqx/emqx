@@ -563,6 +563,56 @@ t_check_login_user_scopes_monitoring_grants_alarms(_) ->
         emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/clients">>)
     ).
 
+%% A user holding only non-privilege scopes cannot reach the user
+%% endpoints at all, not even its own record. `PUT /users/<self>' is the
+%% one write that could widen the caller's own scope list, so the scope
+%% check must gate it; only the self change_pwd / mfa endpoints are
+%% exempt (see t_check_login_user_scopes_self_user_endpoints_bypass).
+t_check_login_user_scopes_monitoring_cannot_reach_own_user_record(_) ->
+    Username = <<"login_user_scopes_mon_self">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(
+        Username, [?SCOPE_MONITORING]
+    ),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(Username, <<"/users">>)
+    ),
+    ?assertEqual(
+        false,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary>>
+        )
+    ),
+    %% The self-service endpoints stay reachable.
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary, "/change_pwd">>
+        )
+    ).
+
+%% The counterpart: user_management does reach the caller's own record,
+%% so a holder can rewrite its own scope list. That is by design —
+%% user_management is a privilege scope and its holder can already
+%% provision another user with any scopes.
+t_check_login_user_scopes_user_mgmt_reaches_own_user_record(_) ->
+    Username = <<"login_user_scopes_um_self">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
+    ),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(
+        Username, [?SCOPE_USER_MGMT]
+    ),
+    ?assertEqual(
+        true,
+        emqx_dashboard_rbac:check_login_user_scopes(
+            Username, <<"/users/", Username/binary>>
+        )
+    ).
+
 %% A generic scope on a login user must NOT grant access to login-only
 %% paths (/users/:username/mfa requires mfa_management).
 t_check_login_user_scopes_generic_does_not_grant_login_only_paths(_) ->
