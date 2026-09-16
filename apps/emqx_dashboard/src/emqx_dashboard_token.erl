@@ -289,8 +289,12 @@ check_rbac(Req, JWT) ->
             %% emqx_mgmt_auth:check_path_in_scopes/2 and must not
             %% trip on this.
             case emqx_dashboard_rbac:check_login_user_scopes(AdminKey, Req) of
-                true -> save_new_jwt(JWT);
-                false -> {error, unauthorized_role}
+                true ->
+                    save_new_jwt(JWT);
+                false ->
+                    %% The caller is authenticated, so name it, as the
+                    %% role check below does.
+                    {error, {unauthorized_role, Username}}
             end;
         _ ->
             %% The token is valid, so the caller is authenticated. Return the
