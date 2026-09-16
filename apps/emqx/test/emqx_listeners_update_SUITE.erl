@@ -145,6 +145,35 @@ t_listener_id_length(_Config) ->
         )
     ),
     ?assertEqual(Raw, emqx:get_raw_config(?LISTENERS)),
+    ReplicatedName = binary:copy(<<"c">>, 65),
+    ?assertMatch(
+        {ok, _},
+        emqx:update_config(
+            [listeners, tcp, ReplicatedName],
+            {create, #{<<"bind">> => <<"127.0.0.1:0">>, <<"enable">> => false}},
+            #{},
+            #{kind => ?KIND_REPLICATE}
+        )
+    ),
+    ?assertMatch(
+        #{<<"bind">> := <<"127.0.0.1:0">>},
+        emqx:get_raw_config([listeners, tcp, ReplicatedName])
+    ),
+    ReplicatedRootName = binary:copy(<<"d">>, 65),
+    ReplicatedRootConf = emqx_utils_maps:deep_put(
+        [<<"tcp">>, ReplicatedRootName],
+        emqx:get_raw_config(?LISTENERS),
+        #{<<"bind">> => <<"127.0.0.1:0">>, <<"enable">> => false}
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx:update_config(
+            ?LISTENERS,
+            ReplicatedRootConf,
+            #{},
+            #{kind => ?KIND_REPLICATE}
+        )
+    ),
     ?assertEqual(InvalidNameError, emqx_listeners:validate_listener_name(<<"name/with/slash">>)),
     ?assertEqual(InvalidNameError, emqx_listeners:validate_listener_name(<<"name#with#hash">>)),
     ?assertEqual(
@@ -156,6 +185,12 @@ t_listener_id_length(_Config) ->
     ?assertEqual(ok, emqx_listeners:validate_listener_name(<<"name-with_under">>)),
     ?assertEqual(
         InvalidNameError, emqx_listeners:validate_listener_name(<<"_leading_underscore">>)
+    ),
+    ?assertEqual(
+        InvalidNameError,
+        emqx_listeners:validate_legacy_listener_name(
+            <<(binary:copy(<<"a">>, 65))/binary, "/invalid">>
+        )
     ),
     ?assertEqual(
         UnsupportedTypeError,

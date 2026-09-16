@@ -173,7 +173,8 @@
     persistent => boolean(),
     override_to => local | cluster,
     lazy_evaluator => fun((function()) -> term()),
-    namespace => binary()
+    namespace => binary(),
+    source => import
 }.
 -type update_args() :: {update_cmd(), Opts :: update_opts()}.
 -type update_stage() :: pre_config_update | post_config_update.

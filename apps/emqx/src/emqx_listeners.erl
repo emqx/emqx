@@ -6,6 +6,7 @@
 -module(emqx_listeners).
 
 -include("emqx_schema.hrl").
+-include("emqx.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -41,6 +42,7 @@
 -export([
     listener_id/2,
     validate_listener_name/1,
+    validate_legacy_listener_name/1,
     parse_listener_id/1,
     parse_listener_id_without_atom/1,
     esockd_access_rules/1
@@ -48,7 +50,7 @@
 
 -export([is_packet_parser_available/1]).
 
--export([pre_config_update/3, post_config_update/5]).
+-export([pre_config_update/3, pre_config_update/4, post_config_update/5]).
 -export([post_zone_config_update/2, update_listener_for_zone_changes/3]).
 -export([reconcile_cert_source/2]).
 
@@ -652,6 +654,24 @@ resume_cowboy_listener(Id, Retries) ->
     end.
 
 %% Update the listeners at runtime
+pre_config_update([?ROOT_KEY, Type, Name], {create, NewConf}, V, #{
+    kind := ?KIND_REPLICATE
+}) when
+    V =:= undefined orelse V =:= ?TOMBSTONE_VALUE
+->
+    case validate_legacy_listener_name(Name) of
+        ok ->
+            {ok, convert_certs(Type, Name, NewConf)};
+        {error, _} = Error ->
+            Error
+    end;
+pre_config_update([?ROOT_KEY], NewConf, OldConf, #{source := import}) ->
+    pre_config_update_root(NewConf, OldConf, legacy);
+pre_config_update([?ROOT_KEY], NewConf, OldConf, #{kind := ?KIND_REPLICATE}) ->
+    pre_config_update_root(NewConf, OldConf, legacy);
+pre_config_update(Path, UpdateReq, RawConf, _ExtraContext) ->
+    pre_config_update(Path, UpdateReq, RawConf).
+
 pre_config_update([?ROOT_KEY, Type, Name], {create, NewConf}, V) when
     V =:= undefined orelse V =:= ?TOMBSTONE_VALUE
 ->
@@ -677,7 +697,10 @@ pre_config_update([?ROOT_KEY, _Type, _Name], ?MARK_DEL, _RawConf) ->
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
 pre_config_update([?ROOT_KEY], NewConf, OldConf) ->
-    case validate_new_listener_ids(NewConf, OldConf) of
+    pre_config_update_root(NewConf, OldConf, strict).
+
+pre_config_update_root(NewConf, OldConf, ValidationMode) ->
+    case validate_new_listener_ids(NewConf, OldConf, ValidationMode) of
         ok ->
             {ok, convert_certs(NewConf)};
         {error, _} = Error ->
@@ -1025,16 +1048,24 @@ validate_listener_name(Name) ->
             ),
             {error, {listener_name_too_long, Message}};
         true ->
-            case emqx_utils:is_restricted_str(NameBin) of
-                true ->
-                    ok;
-                false ->
-                    ErrMsg = <<
-                        "Listener name must start with a letter or digit "
-                        "and contain only letters, digits, '-' and '_'"
-                    >>,
-                    {error, {listener_name_invalid_chars, ErrMsg}}
-            end
+            validate_listener_name_chars(NameBin)
+    end.
+
+-spec validate_legacy_listener_name(unicode:chardata() | atom()) ->
+    ok | {error, {listener_name_invalid_chars, binary()}}.
+validate_legacy_listener_name(Name) ->
+    validate_listener_name_chars(listener_id_part_to_binary(Name)).
+
+validate_listener_name_chars(NameBin) ->
+    case emqx_utils:is_restricted_str(NameBin) of
+        true ->
+            ok;
+        false ->
+            ErrMsg = <<
+                "Listener name must start with a letter or digit "
+                "and contain only letters, digits, '-' and '_'"
+            >>,
+            {error, {listener_name_invalid_chars, ErrMsg}}
     end.
 
 listener_id_part_to_binary(Value) when is_binary(Value) ->
@@ -1077,19 +1108,24 @@ diff_confs(NewConfs, OldConfs) ->
         fun({Type, Name, _}) -> {Type, Name} end
     ).
 
-validate_new_listener_ids(NewConf, OldConf) ->
+validate_new_listener_ids(NewConf, OldConf, ValidationMode) ->
     #{added := Added} = diff_confs(NewConf, OldConf),
-    validate_listener_ids(Added).
+    validate_listener_ids(Added, ValidationMode).
 
-validate_listener_ids([]) ->
+validate_listener_ids([], _ValidationMode) ->
     ok;
-validate_listener_ids([{_Type, Name, _Conf} | Rest]) ->
-    case validate_listener_name(Name) of
+validate_listener_ids([{_Type, Name, _Conf} | Rest], ValidationMode) ->
+    case validate_listener_name(Name, ValidationMode) of
         ok ->
-            validate_listener_ids(Rest);
+            validate_listener_ids(Rest, ValidationMode);
         {error, _} = Error ->
             Error
     end.
+
+validate_listener_name(Name, strict) ->
+    validate_listener_name(Name);
+validate_listener_name(Name, legacy) ->
+    validate_legacy_listener_name(Name).
 
 flatten_confs(Confs) ->
     lists:flatmap(

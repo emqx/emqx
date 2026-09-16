@@ -24,7 +24,7 @@
 -define(CONF_ROOT_KEY, listeners).
 -define(path(_Type_, _Name_), [?CONF_ROOT_KEY, _Type_, _Name_]).
 -define(OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
--define(IMPORT_OPTS, #{override_to => cluster}).
+-define(IMPORT_OPTS, #{override_to => cluster, source => import}).
 
 action(Type, Name, Action, Conf) ->
     wrap(emqx_conf:update(?path(Type, Name), {action, Action, Conf}, ?OPTS)).

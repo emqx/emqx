@@ -356,6 +356,15 @@ t_listener_id_length_validation(_) ->
         emqx_gateway_conf:pre_config_update(
             [gateway],
             RawWithLongListener,
+            #{<<"stomp">> => EmptyGateway},
+            #{kind => replicate}
+        )
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            RawWithLongListener,
             RawWithLongListener
         )
     ),
@@ -379,6 +388,15 @@ t_listener_id_length_validation(_) ->
     ?assertEqual(
         {error, {pre_config_update, emqx_gateway_conf, element(2, InvalidError)}},
         emqx:update_config([gateway], Raw0#{<<"stomp">> => InvalidListenerConfig})
+    ),
+    ?assertEqual(
+        InvalidError,
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            {add_listener, <<"stomp">>, {<<"tcp">>, InvalidName}, #{}},
+            #{<<"stomp">> => EmptyGateway},
+            #{kind => replicate}
+        )
     ),
     ok.
 

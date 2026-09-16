@@ -127,7 +127,8 @@
 -type extra_context() :: #{
     %% Should be interpreted as `?KIND_INITIATE` if key is absent.
     kind => ?KIND_INITIATE | ?KIND_REPLICATE,
-    namespace := ?global_ns | namespace()
+    namespace := ?global_ns | namespace(),
+    source => import
 }.
 
 -record(conf_info, {
@@ -459,7 +460,7 @@ call_pre_config_update(Ctx) ->
     end.
 
 call_proper_pre_config_update(#{handlers := #{?MOD := Module}, callback := Callback} = Ctx) ->
-    Arity = get_function_arity(Module, Callback, [3, 4]),
+    Arity = get_function_arity(Module, Callback, pre_config_update_arities(Ctx)),
     case apply_pre_config_update(Module, Callback, Arity, Ctx) of
         ok ->
             {ok, maps:get(update_req, Ctx)};
@@ -470,6 +471,13 @@ call_proper_pre_config_update(#{handlers := #{?MOD := Module}, callback := Callb
     end;
 call_proper_pre_config_update(#{update_req := UpdateReq}) ->
     {ok, UpdateReq}.
+
+pre_config_update_arities(#{cluster_rpc_opts := #{kind := ?KIND_REPLICATE}}) ->
+    [4, 3];
+pre_config_update_arities(#{update_args := {{update, _}, #{source := import}}}) ->
+    [4, 3];
+pre_config_update_arities(_Ctx) ->
+    [3, 4].
 
 apply_pre_config_update(Module, Callback, 3, #{
     conf_key_path := ConfKeyPath,
@@ -482,9 +490,11 @@ apply_pre_config_update(Module, Callback, 4, #{
     update_req := UpdateReq,
     namespace := Namespace,
     old_raw_conf := OldRawConf,
-    cluster_rpc_opts := ClusterRPCOpts
+    cluster_rpc_opts := ClusterRPCOpts,
+    update_args := {{update, _}, UpdateOpts}
 }) ->
-    ExtraContext = maps:merge(ClusterRPCOpts, #{namespace => Namespace}),
+    ExtraContext0 = maps:merge(ClusterRPCOpts, #{namespace => Namespace}),
+    ExtraContext = maps:merge(ExtraContext0, maps:with([source], UpdateOpts)),
     Module:Callback(ConfKeyPath, UpdateReq, OldRawConf, ExtraContext);
 apply_pre_config_update(_Module, _Callback, false, #{
     update_req := UpdateReq,

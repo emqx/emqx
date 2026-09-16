@@ -27,6 +27,64 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+t_replicates_legacy_listener_names_during_rolling_upgrade(Config) ->
+    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+    AppSpecs = rolling_upgrade_app_specs(),
+    ClusterSpec = [
+        {legacy_listener1, #{role => core, apps => AppSpecs}},
+        {legacy_listener2, #{role => core, apps => AppSpecs}}
+    ],
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        ClusterSpec,
+        #{work_dir => WorkDir, start_apps_timeout => 60_000}
+    ),
+    [N1, N2] = Nodes = [maps:get(name, Spec) || Spec <- NodeSpecs],
+    on_exit(fun() -> emqx_cth_cluster:stop(Nodes) end),
+    Nodes = emqx_cth_cluster:start(NodeSpecs),
+    wait_clustered(Nodes),
+
+    Name = binary:copy(<<"l">>, 65),
+    ListenerConf = #{<<"bind">> => <<"127.0.0.1:0">>, <<"enable">> => false},
+    N1Listeners0 = ?ON(N1, emqx:get_raw_config([listeners])),
+    N1Listeners = emqx_utils_maps:deep_put([<<"tcp">>, Name], N1Listeners0, ListenerConf),
+    ?assertMatch(
+        {ok, _},
+        ?ON(
+            N1,
+            emqx:update_config([listeners], N1Listeners, #{}, #{kind => replicate})
+        )
+    ),
+    ?assertEqual(undefined, ?ON(N2, emqx:get_raw_config([listeners, tcp, Name], undefined))),
+    ?assertMatch(
+        {ok, _},
+        ?ON(N1, emqx_conf:update([listeners], N1Listeners, #{override_to => cluster}))
+    ),
+    ?assertMatch(
+        #{<<"bind">> := <<"127.0.0.1:0">>},
+        ?ON(N2, emqx:get_raw_config([listeners, tcp, Name]))
+    ),
+
+    GatewayConf = #{
+        <<"stomp">> => #{
+            <<"enable">> => false,
+            <<"listeners">> => #{<<"tcp">> => #{Name => ListenerConf}}
+        }
+    },
+    ?assertMatch(
+        {ok, _},
+        ?ON(N1, emqx:update_config([gateway], GatewayConf, #{}, #{kind => replicate}))
+    ),
+    ?assertEqual(undefined, ?ON(N2, emqx:get_raw_config([gateway, stomp], undefined))),
+    ?assertMatch(
+        {ok, _},
+        ?ON(N1, emqx_conf:update([gateway], GatewayConf, #{override_to => cluster}))
+    ),
+    ?assertMatch(
+        #{<<"bind">> := <<"127.0.0.1:0">>},
+        ?ON(N2, emqx:get_raw_config([gateway, stomp, listeners, tcp, Name]))
+    ),
+    ok.
+
 t_status_after_import_then_join_ignores_raw_only_diffs(Config) ->
     WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
     AppSpecs = import_join_app_specs(),
@@ -99,6 +157,26 @@ import_join_app_specs() ->
         {emqx_conf, #{config => #{}}},
         emqx_management,
         emqx_rule_engine
+    ].
+
+rolling_upgrade_app_specs() ->
+    [
+        {emqx, #{
+            override_env => [{boot_modules, [listeners]}],
+            config => #{
+                listeners => #{
+                    tcp => #{default => <<"marked_for_deletion">>},
+                    ssl => #{default => <<"marked_for_deletion">>},
+                    ws => #{default => <<"marked_for_deletion">>},
+                    wss => #{default => <<"marked_for_deletion">>}
+                }
+            }
+        }},
+        {emqx_conf, #{config => #{}}},
+        emqx_auth,
+        emqx_auth_mnesia,
+        emqx_gateway,
+        emqx_gateway_stomp
     ].
 
 make_rule_engine_backup(Config) ->

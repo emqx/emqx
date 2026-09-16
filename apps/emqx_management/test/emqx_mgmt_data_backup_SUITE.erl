@@ -352,6 +352,66 @@ t_cluster_hocon_export_import(Config) ->
     ),
     ok.
 
+t_import_legacy_overlong_listener_names(Config) ->
+    ok = emqx_conf:add_handler([listeners, '?', '?'], emqx_listeners),
+    ok = emqx_conf:add_handler([listeners], emqx_listeners),
+    on_exit(fun() ->
+        ok = emqx_conf:remove_handler([listeners, '?', '?']),
+        ok = emqx_conf:remove_handler([listeners])
+    end),
+    Name = binary:copy(<<"legacy">>, 11),
+    66 = byte_size(Name),
+    BaseName = "export-legacy-overlong-listeners",
+    BackupFileName = filename:join(?config(priv_dir, Config), BaseName ++ ".tar.gz"),
+    RawConf = #{
+        <<"listeners">> => #{
+            <<"tcp">> => #{
+                Name => #{<<"bind">> => <<"127.0.0.1:0">>, <<"enable">> => false}
+            }
+        },
+        <<"gateway">> => #{
+            <<"stomp">> => #{
+                <<"enable">> => false,
+                <<"listeners">> => #{
+                    <<"tcp">> => #{
+                        Name => #{<<"bind">> => <<"127.0.0.1:0">>}
+                    }
+                }
+            }
+        }
+    },
+    ClusterHocon = unicode:characters_to_binary(hocon_pp:do(RawConf, #{})),
+    ok = erl_tar:create(
+        BackupFileName,
+        [
+            {BaseName ++ "/cluster.hocon", ClusterHocon},
+            {BaseName ++ "/META.hocon", backup_meta_bin()}
+        ],
+        [compressed]
+    ),
+    ?assertEqual(
+        {ok, #{db_errors => #{}, config_errors => #{}}},
+        emqx_mgmt_data_backup:import_local(BackupFileName)
+    ),
+    ?assertMatch(
+        #{<<"bind">> := <<"127.0.0.1:0">>},
+        emqx:get_raw_config([listeners, tcp, Name])
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_mgmt_listeners_conf:update(tcp, Name, #{<<"max_connections">> => 10})
+    ),
+    ?assertMatch({ok, _}, emqx_mgmt_listeners_conf:ensure_remove(tcp, Name)),
+    ListenerId = <<"stomp:tcp:", Name/binary>>,
+    ?assertMatch({ok, #{name := Name}}, emqx_gateway_conf:listener(ListenerId)),
+    ?assertMatch(
+        {ok, _},
+        emqx_gateway_conf:update_listener(stomp, {tcp, Name}, #{<<"max_connections">> => 10})
+    ),
+    ?assertEqual(ok, emqx_gateway_conf:remove_listener(stomp, {tcp, Name})),
+    ?assertEqual({error, not_found}, emqx_gateway_conf:listener(ListenerId)),
+    ok.
+
 -doc """
 Rejects an archive whose member path contains `..' and would extract outside the
 backup directory.
