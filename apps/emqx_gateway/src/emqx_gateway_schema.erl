@@ -15,6 +15,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
+-include("emqx_gateway.hrl").
 
 -type ip_port() :: tuple() | integer().
 -type duration() :: non_neg_integer().
@@ -344,9 +345,10 @@ ws_opts(Override) when is_map(Override) ->
             )},
         {"max_frame_size",
             sc(
-                hoconsc:union([infinity, integer()]),
+                hoconsc:union([infinity, non_neg_integer()]),
                 #{
-                    default => infinity,
+                    default => ?DEFAULT_WS_MAX_FRAME_SIZE,
+                    validator => fun emqx_schema:validate_ws_max_frame_size/1,
                     desc => ?DESC(fields_ws_opts_max_frame_size)
                 }
             )},

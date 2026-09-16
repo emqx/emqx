@@ -35,4 +35,8 @@
 
 -define(GATEWAY_SUP_NAME, emqx_gateway_sup).
 
+%% Default limit of a single WebSocket message on gateway listeners.
+%% It fits the default NATS `max_payload_size' (1MB) plus the command line.
+-define(DEFAULT_WS_MAX_FRAME_SIZE, 2097152).
+
 -endif.
