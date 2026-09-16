@@ -73,6 +73,7 @@
 -type template() :: {unicode:chardata(), emqx_template:str()} | emqx_sql_plan:plan().
 -type state() ::
     #{
+        health_check_timeout := timeout(),
         pool_name := binary(),
         prepares := ok | {error, _},
         templates := #{{atom(), batch | prepstmt} => template()},
@@ -150,7 +151,15 @@ on_start(
             {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
             {pool_size, PoolSize}
         ]),
-    State = parse_prepare_sql(Config),
+    State0 = parse_prepare_sql(Config),
+    HCTimeout =
+        case Config of
+            #{resource_opts := #{health_check_timeout := HCTimeout0}} ->
+                HCTimeout0;
+            #{} ->
+                emqx_resource_pool:health_check_timeout()
+        end,
+    State = State0#{health_check_timeout => HCTimeout},
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
             {ok, init_prepare(State#{pool_name => InstId})};
@@ -248,14 +257,19 @@ mysql_function(prepared_query) ->
 mysql_function(_) ->
     mysql_function(prepared_query).
 
-on_get_status(_InstId, #{pool_name := PoolName} = State) ->
+on_get_status(_InstId, ConnState) ->
+    #{
+        pool_name := PoolName,
+        health_check_timeout := HCTimeout
+    } = ConnState,
     Opts = #{
+        timeout => HCTimeout,
         check_fn => fun ?MODULE:do_get_status/1,
         is_success_fn => fun
             ({ok, _, _}) -> false;
             (_) -> true
         end,
-        on_success_fn => fun() -> do_on_get_status_prepares(State) end
+        on_success_fn => fun() -> do_on_get_status_prepares(ConnState) end
     },
     emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 

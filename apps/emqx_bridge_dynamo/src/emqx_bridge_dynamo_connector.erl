@@ -87,7 +87,8 @@ do_start(
     InstanceId,
     #{
         url := Url,
-        pool_size := PoolSize
+        pool_size := PoolSize,
+        resource_opts := #{health_check_timeout := HCTimeout}
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -122,6 +123,7 @@ do_start(
         {pool_size, PoolSize}
     ],
     State = #{
+        health_check_timeout => HCTimeout,
         pool_name => InstanceId,
         installed_channels => #{}
     },
@@ -210,20 +212,18 @@ on_format_query_result({ok, Result}) ->
 on_format_query_result(Result) ->
     Result.
 
-health_check_timeout() ->
-    2500.
-
-on_get_status(_InstanceId, #{pool_name := PoolName}) ->
+on_get_status(_InstanceId, ConnState) ->
+    #{
+        pool_name := PoolName,
+        health_check_timeout := HCTimeout
+    } = ConnState,
     Opts = #{
-        check_fn =>
-            {emqx_bridge_dynamo_connector_client, is_connected, [
-                health_check_timeout()
-            ]},
+        check_fn => {emqx_bridge_dynamo_connector_client, is_connected, [HCTimeout]},
         is_success_fn => fun
             (true) -> false;
             (_) -> true
         end,
-        timeout => health_check_timeout()
+        timeout => HCTimeout
     },
     emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
