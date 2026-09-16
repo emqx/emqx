@@ -844,7 +844,7 @@ do_grpc_open_impl(Def, Metadata, Opts) ->
     try
         grpc_client:open(Def, Metadata, Opts)
     catch
-        exit:{noproc, _} ->
+        exit:noproc ->
             %% race: client died just as we called it
             {error, grpc_client_restarting};
         Class:Reason:Stacktrace ->
