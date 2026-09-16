@@ -136,6 +136,10 @@
 
 -define(WAIT_FOR_RESOURCE_DELAY, 100).
 -define(T_OPERATION, 5000).
+%% Manual resource health checks (tests only) wait longer than a connector's own
+%% health check deadline, which can be 5 s, so a slow check reports its status
+%% instead of timing out in the caller.
+-define(T_MANUAL_HEALTH_CHECK, 6000).
 %% Typical supervisor shutdown time is 5s
 %% we allow the remove operation to run slightly longer time.
 -define(T_OPERATION_REMOVE, (?T_OPERATION + 1000)).
@@ -490,7 +494,7 @@ list_group(Group) ->
 %% process.  Avoid doing manual health checks outside tests.
 -spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(ResId) ->
-    safe_call(ResId, #manual_resource_health_check{}, ?T_OPERATION).
+    safe_call(ResId, #manual_resource_health_check{}, ?T_MANUAL_HEALTH_CHECK).
 
 %% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
 %% process.  Avoid doing manual health checks outside tests.

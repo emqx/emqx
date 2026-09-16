@@ -1411,8 +1411,9 @@ mqtt_max_packet_size.label:
 mqtt_max_connect_user_properties.desc:
 """Maximum number of 'User-Property' pairs accepted in a CONNECT packet.
 The limit applies separately to the CONNECT properties and to the will properties.
-EMQX closes the connection when a CONNECT carries more pairs than this.
-Set to `infinity` to accept any number."""
+EMQX rejects a CONNECT carrying more pairs than this and closes the connection.
+Set to `infinity` to accept any number.
+Note: changing this config at runtime may only take effect for newly established connections after the change."""
 
 mqtt_max_connect_user_properties.label:
 """Max CONNECT User Properties"""
