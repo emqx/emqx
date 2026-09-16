@@ -35,6 +35,34 @@ emqx_mgmt_api_certs {
         label: "Upload File"
     }
 
+    global_ca_merge {
+        desc: """~
+            Add CA certificates to the `ca` file of an existing global namespace bundle.
+            Certificates already in the file are skipped.
+            The current file content is kept, and the new certificates are appended to it.
+            Other files in the bundle are not changed.~"""
+        label: "Add CA Certificates"
+    }
+
+    ca_merge_in {
+        desc: """~
+            One or more PEM-encoded X.509 certificates.
+            The request fails when it holds any other PEM entry, such as a private key.~"""
+        label: "CA Certificates"
+    }
+
+    ca_merge_added {
+        desc: """~
+            Number of certificates added to the `ca` file.~"""
+        label: "Added"
+    }
+
+    ca_merge_total {
+        desc: """~
+            Number of certificates in the `ca` file after the update.~"""
+        label: "Total"
+    }
+
     global_bundle_delete {
         desc: """~
             Delete a global namespace bundle, or a single file in it when the `kind` query parameter is set.
