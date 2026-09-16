@@ -292,20 +292,25 @@ field(role) ->
     {role,
         mk(binary(), #{desc => ?DESC(role), default => ?ROLE_DEFAULT, example => ?ROLE_DEFAULT})};
 field(scopes_request) ->
+    %% Accept the same shapes the response emits, so a read-modify-write can
+    %% round-trip the value verbatim: an explicit array of scope names, or the
+    %% `unset' sentinel (parsed to the atom `unset', also tolerated as the
+    %% binary <<"unset">>). A list whose set equals the role default and the
+    %% `unset' sentinel are both treated as "no explicit scopes" on write.
     {scopes,
-        mk(hoconsc:array(binary()), #{
+        mk(hoconsc:union([unset, hoconsc:array(binary())]), #{
             desc => ?DESC(user_scopes_request),
             required => false,
             example => [?SCOPE_USER_MGMT, ?SCOPE_MFA_MGMT]
         })};
 field(scopes_response) ->
     %% Response shape: `scopes' MAY be the binary sentinel <<"unset">> in
-    %% addition to the array-of-binaries form. This sentinel surfaces only
-    %% for legacy records that survived an upgrade from a release where
-    %% the dashboard-user scopes feature did not exist (#17235). The POST
-    %% and SSO-provisioning paths both materialize role-default scopes at
-    %% creation time, so no fresh user will ever appear with
-    %% `scopes => <<"unset">>'.
+    %% addition to the array-of-binaries form. It means the record carries no
+    %% explicit `scopes' field, so the runtime falls back to the role default.
+    %% A record reaches that state in three ways: it survived an upgrade from
+    %% a release without the dashboard-user scopes feature (#17235), a write
+    %% supplied an unset-equivalent `scopes' value, or it is the bootstrapped
+    %% default administrator.
     {scopes,
         mk(hoconsc:union([unset, hoconsc:array(binary())]), #{
             desc => ?DESC(user_scopes_response),
@@ -384,9 +389,9 @@ users(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
     %% Materialize role defaults when the client omitted `scopes' entirely.
-    %% Explicit `[]' (deny-all) and explicit lists pass through unchanged.
-    %% After this PR `<<"unset">>' in a GET response is reserved for legacy
-    %% records that survived an upgrade; no creation path stores `undefined'.
+    %% An unset-equivalent value creates the user with no explicit scopes.
+    %% Explicit `[]' (deny-all) and other explicit lists pass through
+    %% unchanged. See `create_scope_intent/2'.
     RawScopes = maps:get(<<"scopes">>, Params, undefined),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
         true ->
@@ -399,18 +404,43 @@ users(post, #{body := Params}) ->
 %% circuits to the appropriate HTTP response, keeping users(post,...)
 %% within elvis's nesting cap.
 create_user(Username, Password, Role, Desc, RawScopes) ->
-    Scopes = effective_scopes_on_create(Role, RawScopes),
-    case validate_login_user_scopes(Role, RawScopes, Scopes) of
-        ok ->
-            do_create_user(Username, Password, Role, Desc, Scopes);
+    case create_scope_intent(Role, RawScopes) of
+        {ok, Intent} ->
+            do_create_user(Username, Password, Role, Desc, Intent);
         {error, Msg} ->
             {400, ?BAD_REQUEST, Msg}
     end.
 
-do_create_user(Username, Password, Role, Desc, Scopes) ->
+%% Resolve the storage intent for POST and run validation. Returns
+%% `{ok, unset | {set, [binary()]}}' or `{error, Msg}'.
+%%
+%%   * field omitted -> materialize the role default and store it;
+%%     validation runs with `RawScopes = undefined' so the privilege-scope
+%%     mutex is not applied to the role-default mix.
+%%   * `unset' sentinel, or a list whose set equals the role default ->
+%%     create the user with no explicit scopes (GET returns "unset").
+%%   * any other list -> validate and store it verbatim.
+create_scope_intent(Role, undefined) ->
+    Scopes = emqx_dashboard_admin:role_default_scopes(Role),
+    case validate_login_user_scopes(Role, undefined, Scopes) of
+        ok -> {ok, {set, Scopes}};
+        Error -> Error
+    end;
+create_scope_intent(Role, RawScopes) ->
+    case write_scope_intent(Role, RawScopes) of
+        unset ->
+            {ok, unset};
+        {set, Scopes} ->
+            case validate_login_user_scopes(Role, Scopes, Scopes) of
+                ok -> {ok, {set, Scopes}};
+                Error -> Error
+            end
+    end.
+
+do_create_user(Username, Password, Role, Desc, Intent) ->
     case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
         {ok, Result} ->
-            finalise_create_user(Username, Scopes, Result);
+            finalise_create_user(Username, Intent, Result);
         {error, Reason} ->
             ?SLOG(info, #{
                 msg => "create_dashboard_user_failed",
@@ -420,8 +450,8 @@ do_create_user(Username, Password, Role, Desc, Scopes) ->
             {400, ?BAD_REQUEST, Reason}
     end.
 
-finalise_create_user(Username, Scopes, Result) ->
-    case maybe_set_user_scopes(Username, Scopes) of
+finalise_create_user(Username, Intent, Result) ->
+    case apply_scope_intent(Username, Intent) of
         ok ->
             ?SLOG(info, #{
                 msg => "create_dashboard_user_success",
@@ -441,11 +471,12 @@ finalise_create_user(Username, Scopes, Result) ->
 user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
     Desc = maps:get(<<"description">>, Params),
-    Scopes = maps:get(<<"scopes">>, Params, undefined),
+    RawScopes = maps:get(<<"scopes">>, Params, undefined),
     Username = username(Req, Username0),
-    case is_default_admin_modification(Username, Role, Scopes) of
+    Intent = write_scope_intent(Role, RawScopes),
+    case is_default_admin_modification(Username, Role, Intent) of
         ok ->
-            update_user(Username, Role, Desc, Scopes);
+            update_user(Username, Role, Desc, Intent);
         {error, Msg} ->
             {400, ?NOT_ALLOWED, Msg}
     end;
@@ -471,19 +502,26 @@ user(delete, #{bindings := #{username := Username0}} = Req) ->
 
 %% The default administrator (configured via `dashboard.default_username')
 %% is a break-glass account. Reject any modification that would weaken
-%% it: role changes away from administrator, and explicit scope lists
-%% (the role's implicit defaults must always apply). Empty
-%% `dashboard.default_username' means no default user is in effect, so
-%% the protection is a no-op.
-is_default_admin_modification(Username, Role, Scopes) ->
+%% it: role changes away from administrator, and a genuinely different
+%% explicit scope list (the role's implicit defaults must always apply).
+%% `Intent' is the normalized write intent from `write_scope_intent/2':
+%% `keep' (field omitted) and `unset' (the `unset' sentinel, or a list
+%% whose set equals the role default) both mean "no explicit scopes" and
+%% are accepted, so a read-modify-write of the default admin succeeds.
+%% Only `{set, _}' — a list that differs from the role default — is
+%% rejected. Empty `dashboard.default_username' means no default user is
+%% in effect, so the protection is a no-op.
+is_default_admin_modification(Username, Role, Intent) ->
     case is_default_admin(Username) of
         false ->
             ok;
         true ->
-            case {Role, Scopes} of
-                {?ROLE_SUPERUSER, undefined} ->
+            case {Role, Intent} of
+                {?ROLE_SUPERUSER, keep} ->
                     ok;
-                {?ROLE_SUPERUSER, _} ->
+                {?ROLE_SUPERUSER, unset} ->
+                    ok;
+                {?ROLE_SUPERUSER, {set, _}} ->
                     {error, <<
                         "The default administrator cannot have an explicit "
                         "scope list; it always holds the full catalog."
@@ -638,27 +676,41 @@ register_unsuccessful_login(_, _) ->
 %%     mfa_management is intentionally allowed for any role — non-
 %%     admin holders can self-exempt their own MFA but cannot manage
 %%     other users' MFA (handler-level enforcement).
-%% @doc Resolve the role-default scopes that should be materialized into
-%% the persisted record when the caller did not explicitly supply a
-%% scope list (POST without `scopes', SSO auto-provisioning).
+%% @doc Normalize a `scopes' request value to a storage intent:
+%%   * `keep'      - field omitted (`undefined'): leave the persisted scopes
+%%                   unchanged (a PUT that only edits another field).
+%%   * `unset'     - the `unset' sentinel (atom or binary <<"unset">>), or a
+%%                   list whose set equals the role default: store NO explicit
+%%                   `scopes' field, so `scopes_of/1' stays `undefined' and
+%%                   GET keeps returning "unset".
+%%   * `{set, L}'  - store the explicit list `L' verbatim.
 %%
-%% After this PR, `undefined' is never written into mnesia by any
-%% creation path; the `<<"unset">>' state in the GET response is only
-%% possible for records that survived an upgrade from a release where
-%% the dashboard-user scopes feature did not exist (#17235).
+%% The role-default comparison is order-insensitive, so a read-modify-write
+%% that sends GET's expanded list back never freezes the role's implicit set
+%% into an explicit list. A non-list, non-sentinel value falls through to
+%% `{set, Other}' so the downstream validation rejects it with a 400.
 %%
-%%   * administrator -> `?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES'
-%%   * viewer        -> `?GENERIC_SCOPES'
-%%
-%% Explicit `[]' (deny-all) and explicit lists pass through unchanged.
-effective_scopes_on_create(Role, undefined) ->
-    emqx_dashboard_admin:role_default_scopes(Role);
-effective_scopes_on_create(_Role, Scopes) when is_list(Scopes) ->
-    Scopes;
-effective_scopes_on_create(_Role, Other) ->
-    %% Any non-list, non-undefined value is left as-is; downstream
-    %% validation will reject it with the appropriate 400.
-    Other.
+%% Mirrors `emqx_mgmt_auth:write_scope_intent/2', which does the same for
+%% API key scopes against the API key role defaults.
+write_scope_intent(_Role, undefined) ->
+    keep;
+write_scope_intent(_Role, unset) ->
+    unset;
+write_scope_intent(_Role, <<"unset">>) ->
+    unset;
+write_scope_intent(Role, Scopes) when is_list(Scopes) ->
+    case is_role_default_scopes(Role, Scopes) of
+        true -> unset;
+        false -> {set, Scopes}
+    end;
+write_scope_intent(_Role, Other) ->
+    {set, Other}.
+
+%% Order-insensitive comparison of a write scope list against the role's
+%% implicit default. The dashboard may send the scopes in any order.
+is_role_default_scopes(Role, Scopes) ->
+    Default = emqx_dashboard_admin:role_default_scopes(Role),
+    lists:usort(Scopes) =:= lists:usort(Default).
 
 %% `RawScopes' is the value the client supplied (before role-default /
 %% persisted-scope materialisation); `EffectiveScopes' is the
@@ -723,38 +775,43 @@ validate_role_scope_compat(_NonAdminRole, Scopes) ->
 %% create_user/5 above, also kept as a helper to stay within elvis's
 %% nesting cap.
 %%
-%% Validation runs against the *effective* scope list — the request
-%% body's `scopes' field when present, otherwise the persisted scopes —
-%% so a role demotion can never silently keep stale admin-only scopes
-%% just because the client omitted the `scopes' field.
-update_user(Username, Role, Desc, RawScopes) ->
-    EffectiveScopes = effective_request_scopes(Username, RawScopes),
-    case validate_login_user_scopes(Role, RawScopes, EffectiveScopes) of
+%% `Intent' is the normalized write intent from `write_scope_intent/2'.
+update_user(Username, Role, Desc, Intent) ->
+    case validate_update_scopes(Role, Username, Intent) of
         ok ->
-            do_update_user(Username, Role, Desc, RawScopes);
+            do_update_user(Username, Role, Desc, Intent);
         {error, Msg} ->
             {400, ?BAD_REQUEST, Msg}
     end.
 
-%% Fall back to persisted scopes only when the body did not supply a
-%% `scopes' field. An explicit list (including `[]') is taken verbatim.
-effective_request_scopes(_Username, Scopes) when is_list(Scopes) ->
-    Scopes;
-effective_request_scopes(Username, undefined) ->
-    emqx_dashboard_admin:scopes_of(Username).
+%% Validate the effective scope list for a PUT:
+%%   * `keep'      - validate the *persisted* scopes against the (possibly
+%%                   changed) role, so a role demotion can never silently
+%%                   keep stale admin-only scopes when the client omitted
+%%                   the `scopes' field.
+%%   * `unset'     - clears to the role default, which is valid by
+%%                   construction; nothing to check.
+%%   * `{set, L}'  - validate the explicit list `L'.
+validate_update_scopes(_Role, _Username, unset) ->
+    ok;
+validate_update_scopes(Role, Username, keep) ->
+    Persisted = emqx_dashboard_admin:scopes_of(Username),
+    validate_login_user_scopes(Role, undefined, Persisted);
+validate_update_scopes(Role, _Username, {set, Scopes}) ->
+    validate_login_user_scopes(Role, Scopes, Scopes).
 
-do_update_user(Username, Role, Desc, Scopes) ->
+do_update_user(Username, Role, Desc, Intent) ->
     case emqx_dashboard_admin:update_user(Username, Role, Desc) of
         {ok, Result} ->
-            finalise_update_user(Username, Scopes, Result);
+            finalise_update_user(Username, Intent, Result);
         {error, <<"username_not_found">> = Reason} ->
             {404, ?USER_NOT_FOUND, Reason};
         {error, Reason} ->
             {400, ?BAD_REQUEST, Reason}
     end.
 
-finalise_update_user(Username, Scopes, Result) ->
-    case maybe_set_user_scopes(Username, Scopes) of
+finalise_update_user(Username, Intent, Result) ->
+    case apply_scope_intent(Username, Intent) of
         ok ->
             {200, filter_result(reload_external_user(Username, Result))};
         {error, <<"username_not_found">> = Reason} ->
@@ -775,8 +832,9 @@ reload_external_user(Username, Fallback) ->
         _ -> Fallback
     end.
 
-%% Persist scopes to the admin record's extra map. Skip when scopes is
-%% absent (no body field) — keeps the existing extra.scopes value.
+%% Persist the resolved scope intent. `keep' leaves the existing
+%% extra.scopes value alone, `unset' removes the field, `{set, L}' writes
+%% `L'.
 %%
 %% Returns {error, Reason} when the user record is missing (e.g. concurrent
 %% deletion between add_user/update_user and this call). Callers must
@@ -786,22 +844,24 @@ reload_external_user(Username, Fallback) ->
 %% ignore any `scopes' input rather than persist a value that would
 %% never be checked.
 -if(?EMQX_RELEASE_EDITION == ee).
-maybe_set_user_scopes(_Username, undefined) ->
+apply_scope_intent(_Username, keep) ->
     ok;
-maybe_set_user_scopes(Username, Scopes) when is_list(Scopes) ->
-    case emqx_dashboard_admin:set_user_scopes(Username, Scopes) of
-        {ok, ok} ->
-            ok;
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "set_user_scopes_failed",
-                username => Username,
-                reason => Reason
-            }),
-            {error, Reason}
-    end.
+apply_scope_intent(Username, unset) ->
+    handle_scope_write(Username, emqx_dashboard_admin:clear_user_scopes(Username));
+apply_scope_intent(Username, {set, Scopes}) ->
+    handle_scope_write(Username, emqx_dashboard_admin:set_user_scopes(Username, Scopes)).
+
+handle_scope_write(_Username, {ok, ok}) ->
+    ok;
+handle_scope_write(Username, {error, Reason}) ->
+    ?SLOG(warning, #{
+        msg => "set_user_scopes_failed",
+        username => Username,
+        reason => Reason
+    }),
+    {error, Reason}.
 -else.
-maybe_set_user_scopes(_Username, _Scopes) ->
+apply_scope_intent(_Username, _Intent) ->
     ok.
 -endif.
 

@@ -48,6 +48,7 @@
     effective_scopes_of_admin/1,
     role_default_scopes/1,
     set_user_scopes/2,
+    clear_user_scopes/1,
     all_users/0,
     admin_users/0,
     check/2,
@@ -153,7 +154,7 @@ do_add_user(Username, Password, Role, Desc) ->
 %%
 %%   * `undefined' (default, 4-arg version) - no scopes key is written; the
 %%     caller is expected to materialise scopes afterwards (e.g. the API POST
-%%     handler does `maybe_set_user_scopes/2' with role-default scopes).
+%%     handler does `apply_scope_intent/2' with role-default scopes).
 %%     This keeps the read-modify-write path of `emqx_dashboard_api' unchanged.
 %%
 %%   * `[binary(), ...]' (5-arg version) - the listed scopes are written
@@ -471,6 +472,18 @@ role_default_scopes(_) ->
 set_user_scopes(Username, Scopes) when is_list(Scopes) ->
     Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
         update_extra(Username, fun(Extra) -> Extra#{scopes => Scopes} end)
+    end),
+    return(Res).
+
+%% @doc Clear a user's explicit scope list back to the "unset" state: remove
+%% the `scopes' field from the extra map so `scopes_of/1' returns `undefined'
+%% and the runtime falls back to the role default. The write paths call this
+%% for an unset-equivalent request so a read-modify-write never freezes the
+%% implicit role default into an explicit list.
+-spec clear_user_scopes(dashboard_username()) -> {ok, ok} | {error, term()}.
+clear_user_scopes(Username) ->
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        update_extra(Username, fun(Extra) -> maps:remove(scopes, Extra) end)
     end),
     return(Res).
 
@@ -1031,10 +1044,7 @@ ensure_default_admin_scopes_unset(Username) ->
         undefined ->
             ok;
         _Explicit ->
-            Res = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
-                update_extra(Username, fun(Extra) -> maps:remove(scopes, Extra) end)
-            end),
-            _ = return(Res),
+            _ = clear_user_scopes(Username),
             ok
     end.
 
