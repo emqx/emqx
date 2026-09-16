@@ -32,7 +32,8 @@
 -export([
     stop_auth_resources/2,
     maybe_initialize_auth_resources/2,
-    get_authorization_token/1
+    get_authorization_token/1,
+    get_authorization_token_safe/1
 ]).
 
 %% Only for tests.
@@ -734,20 +735,30 @@ get_authorization_header(#{} = AuthConfig) ->
     JWT = get_authorization_token(AuthConfig),
     [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}].
 
-get_authorization_token(#{type := attached_service_account} = AuthConfig) ->
+get_authorization_token(AuthCtx) ->
+    {ok, JWT} = get_authorization_token_safe(AuthCtx),
+    JWT.
+
+-spec get_authorization_token_safe(auth_state()) ->
+    {ok, binary()}
+    | {error, {get_sa_token_failed, term()} | no_wif_token}.
+get_authorization_token_safe(#{type := attached_service_account} = AuthConfig) ->
     #{
         sa_server_ref := ServerRef,
         sa_token_table := Tab,
         resource_id := ResId
     } = AuthConfig,
-    {ok, JWT} = get_or_refresh_attached_sa_token(ServerRef, Tab, ResId),
-    JWT;
-get_authorization_token(#{type := service_account_json, jwt_config := JWTConfig}) ->
+    get_or_refresh_attached_sa_token(ServerRef, Tab, ResId);
+get_authorization_token_safe(#{type := service_account_json, jwt_config := JWTConfig}) ->
     JWT = emqx_connector_jwt:ensure_jwt(JWTConfig),
-    JWT;
-get_authorization_token(#{type := wif, resource_id := ResourceId, token_table := Tab}) ->
-    [?TOKEN_ROW(_, JWT)] = ets:lookup(Tab, ResourceId),
-    JWT.
+    {ok, JWT};
+get_authorization_token_safe(#{type := wif, resource_id := ResourceId, token_table := Tab}) ->
+    case ets:lookup(Tab, ResourceId) of
+        [?TOKEN_ROW(_, JWT)] ->
+            {ok, JWT};
+        [] ->
+            {error, no_wif_token}
+    end.
 
 -spec do_send_requests_sync(
     state(),

@@ -272,8 +272,8 @@ handle_enter_update_subscription(Data0) ->
 do_update_subscription(Data0) ->
     Opts = grpc_opts(Data0),
     Req = update_subscription_req(Data0),
-    Metadata = grpc_meta(Data0),
     maybe
+        {ok, Metadata} ?= grpc_meta(Data0),
         {ok, Stream} ?= do_update_subscription_impl(Metadata, Opts),
         ok ?= grpc_send(Stream, Req, fin, Opts),
         Handle0 = grpc_client:async_install_receiver(Stream, #{mode => once}),
@@ -374,6 +374,12 @@ handle_update_subscription_error(Error, Data0) ->
                 Data1,
                 [?state_timeout(_Now = 0, #retry_subscription{})]
             );
+        {error, {failed_to_get_token, _} = Reason} ->
+            set_health(SourceResId, {?status_disconnected, Reason}),
+            ?keep_state_actions(
+                Data0,
+                [?state_timeout(?RETRY_SUB_TIMEOUT, #retry_subscription{})]
+            );
         _ ->
             ?keep_state_actions(
                 Data0,
@@ -394,8 +400,8 @@ handle_enter_create_subscription(Data0) ->
 do_create_subscription(Data0) ->
     Opts = grpc_opts(Data0),
     Req = create_subscription_req(Data0),
-    Metadata = grpc_meta(Data0),
     maybe
+        {ok, Metadata} ?= grpc_meta(Data0),
         {ok, Stream} ?= do_create_subscription_impl(Metadata, Opts),
         ok ?= grpc_send(Stream, Req, fin, Opts),
         Handle0 = grpc_client:async_install_receiver(Stream, #{mode => once}),
@@ -502,6 +508,12 @@ handle_create_subscription_error(Error, Data0) ->
                 Data1,
                 [?state_timeout(_Now = 0, #retry_subscription{})]
             );
+        {error, {failed_to_get_token, _} = Reason} ->
+            set_health(SourceResId, {?status_disconnected, Reason}),
+            ?keep_state_actions(
+                Data0,
+                [?state_timeout(?RETRY_SUB_TIMEOUT, #retry_subscription{})]
+            );
         _ ->
             ?keep_state_actions(
                 Data0,
@@ -525,8 +537,8 @@ do_pull(Data0) ->
     Opts0 = grpc_opts(Data0),
     Opts = Opts0#{timeout => infinity},
     Req = streaming_pull_req(Data0),
-    Metadata = grpc_meta(Data0),
     maybe
+        {ok, Metadata} ?= grpc_meta(Data0),
         {ok, Stream} ?= do_streaming_pull_impl(Metadata, Opts),
         Data1 = pull_recv_async_active(Stream, Data0),
         ok ?= grpc_send(Stream, Req, Opts),
@@ -581,6 +593,12 @@ handle_pull_error(Reason, Data0) ->
             ?keep_state_actions(
                 Data1,
                 [?state_timeout(_Now = 0, #retry_pull{})]
+            );
+        {error, {failed_to_get_token, _} = Reason1} ->
+            set_health(SourceResId, {?status_disconnected, Reason1}),
+            ?keep_state_actions(
+                Data0,
+                [?state_timeout(?RETRY_PULL_TIMEOUT, #retry_pull{})]
             );
         _ ->
             {_, Data1} = maps_swap(?handle, ?undefined, Data0),
@@ -775,12 +793,18 @@ client_id(Data) ->
     NodeBin = atom_to_binary(node(), utf8),
     <<NodeBin/binary, ":", IdxBin/binary, ":", SourceResId/binary>>.
 
-grpc_meta(State) ->
-    #{?auth_ctx := #{auth_config := AuthConfig}} = State,
-    Token = emqx_bridge_gcp_pubsub_client:get_authorization_token(AuthConfig),
-    #{
-        ~"authorization" => <<"Bearer ", Token/binary>>
-    }.
+-spec grpc_meta(data()) -> {ok, map()} | {error, {failed_to_get_token, any()}}.
+grpc_meta(Data) ->
+    #{?auth_ctx := #{auth_config := AuthCtx}} = Data,
+    maybe
+        {ok, Token} ?=
+            emqx_bridge_gcp_pubsub_client:get_authorization_token_safe(AuthCtx),
+        Meta = #{~"authorization" => <<"Bearer ", Token/binary>>},
+        {ok, Meta}
+    else
+        {error, Reason} ->
+            {error, {failed_to_get_token, Reason}}
+    end.
 
 grpc_opts(Data) ->
     #{
