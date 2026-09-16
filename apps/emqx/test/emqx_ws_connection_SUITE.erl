@@ -471,13 +471,7 @@ t_parse_incoming_before_connect(_) ->
     St0 = st(#{channel => channel(#{conn_state => idle})}),
     {Packets, _St} = ?ws_conn:parse_incoming(Publish, [], St0),
     ?assertMatch(
-        [
-            {incoming,
-                {frame_error, #{
-                    cause := unexpected_packet_before_connect,
-                    header_type := 'PUBLISH'
-                }}}
-        ],
+        [{frame_error, #{cause := unexpected_packet_before_connect, header_type := 'PUBLISH'}}],
         Packets
     ).
 
