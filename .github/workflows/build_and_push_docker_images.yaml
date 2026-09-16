@@ -119,11 +119,19 @@ jobs:
           echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
 
-      - name: Verify that size of docker image is less than 170 MB
+      # Tight limit: /opt/emqx is the part of the image that EMQX controls.
+      - name: Verify that size of /opt/emqx is less than 215 MB
         run: |
-          SIZE=$(docker save $_EMQX_DOCKER_IMAGE_TAG | gzip -c | wc -c)
+          SIZE=$(docker run --rm --entrypoint du "$_EMQX_DOCKER_IMAGE_TAG" -sb /opt/emqx | cut -f1)
+          echo "/opt/emqx size: ${SIZE}"
+          test "${SIZE}" -lt 215000000
+
+      # Loose limit: the base image layers change size without EMQX changes.
+      - name: Verify that size of exported docker image is less than 210 MB
+        run: |
+          SIZE=$(docker save "$_EMQX_DOCKER_IMAGE_TAG" | gzip -c | wc -c)
           echo "Image size: ${SIZE}"
-          test "${SIZE}" -lt 170000000
+          test "${SIZE}" -lt 210000000
 
       - name: smoke test
         timeout-minutes: 5
