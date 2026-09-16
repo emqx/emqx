@@ -277,6 +277,214 @@ t_install_plugin_sha256_mismatch(_Config) ->
     ok = disallow_installation(NameVsn),
     ok.
 
+%% A tarball sitting in the install dir without having been unpacked (e.g.
+%% copied by hand, or left behind by a CLI install that the allow gate
+%% refused) is not an installed plugin.  Uploading it must not short-circuit
+%% to ALREADY_INSTALLED before the allow gate: without a grant the upload is
+%% rejected with the actionable 403, and with a grant it installs.
+t_install_orphan_package_requires_allow(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    %% Simulate the orphan tarball: bytes present, nothing unpacked.
+    {ok, Bin} = file:read_file(PackagePath),
+    ok = emqx_plugins:write_package(NameVsn, Bin),
+    ?assertMatch({error, #{msg := "bad_info_file"}}, emqx_plugins:describe(NameVsn, #{})),
+    ?assertMatch({true, [_]}, emqx_plugins:is_package_present(NameVsn)),
+    %% Not allowed yet: the upload must ask for `plugins allow', not claim
+    %% that the package is already installed.
+    {ok, {{_, 403, _}, _, Body}} = install_plugin(PackagePath),
+    #{<<"code">> := <<"FORBIDDEN">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
+    ?assertNotEqual(nomatch, binary:match(Msg, <<"plugins allow">>)),
+    %% The rejected upload left no installation behind, and did not consume
+    %% the orphan tarball.
+    ?assertMatch({error, #{msg := "bad_info_file"}}, emqx_plugins:describe(NameVsn, #{})),
+    ?assertMatch({true, [_]}, emqx_plugins:is_package_present(NameVsn)),
+    %% Once allowed, the very same upload installs the package.
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    ?assertMatch(#{<<"name">> := <<"my_emqx_plugin">>}, describe_plugin(NameVsn)),
+    {ok, []} = uninstall_plugin(NameVsn),
+    ok.
+
+%% A plugin directory left behind by an interrupted installation (here: the
+%% directory is there, but it has no `release.json') is not an installation
+%% either.  The upload must go through the allow gate, and once allowed it must
+%% purge the leftovers and unpack the package into a clean directory, instead
+%% of failing after having deleted the uploaded package.
+t_install_over_leftover_install_dir(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    %% Simulate the leftovers of an interrupted unpack.
+    StaleFile = filename:join(emqx_plugins_fs:plugin_dir(NameVsn), "stale.txt"),
+    ok = filelib:ensure_dir(StaleFile),
+    ok = file:write_file(StaleFile, <<"stale">>),
+    ?assertMatch(
+        {error, #{msg := "bad_info_file", reason := {enoent, _}}},
+        emqx_plugins:describe(NameVsn, #{})
+    ),
+    %% Not allowed yet: the upload must ask for `plugins allow'.
+    {ok, {{_, 403, _}, _, Body}} = install_plugin(PackagePath),
+    #{<<"code">> := <<"FORBIDDEN">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
+    ?assertNotEqual(nomatch, binary:match(Msg, <<"plugins allow">>)),
+    %% The rejected upload has no side effect on the leftovers.
+    ?assertMatch({error, #{msg := "bad_info_file"}}, emqx_plugins:describe(NameVsn, #{})),
+    ?assert(filelib:is_regular(StaleFile)),
+    %% Once allowed, the leftovers are purged and the package is installed.
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    ?assertMatch(#{<<"name">> := <<"my_emqx_plugin">>}, describe_plugin(NameVsn)),
+    ?assertEqual({error, enoent}, file:read_file_info(StaleFile)),
+    {ok, []} = uninstall_plugin(NameVsn),
+    ok.
+
+%% Same as above, but the leftover directory even has an unreadable
+%% `release.json', so that `describe/2' fails with something else than
+%% `enoent'.  The upload must not crash (it used to return 500) and must
+%% repair the installation once allowed.
+t_install_over_broken_install_dir(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    InfoFile = emqx_plugins_fs:info_file_path(NameVsn),
+    ok = filelib:ensure_dir(InfoFile),
+    BrokenInfo = emqx_utils_json:encode(#{
+        name => <<"other_plugin">>,
+        rel_vsn => <<"1.0.0">>,
+        rel_apps => [<<"other_plugin-1.0.0">>],
+        description => <<"stale">>
+    }),
+    ok = file:write_file(InfoFile, BrokenInfo),
+    ?assertMatch({error, #{msg := "name_vsn_mismatch"}}, emqx_plugins:describe(NameVsn, #{})),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    ?assertMatch(#{<<"name">> := <<"my_emqx_plugin">>}, describe_plugin(NameVsn)),
+    {ok, []} = uninstall_plugin(NameVsn),
+    ok.
+
+%% A complete installation is still an installation: uploading the same package
+%% again is refused with ALREADY_INSTALLED and the installed files are kept.
+t_install_over_complete_install_dir(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    %% the applications declared by the package have all been unpacked
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    AppFiles = emqx_plugins_test_helpers:plugin_app_files(NameVsn),
+    ?assertMatch([_ | _], AppFiles),
+    {ok, {{_, 400, _}, _, Body}} = install_plugin(PackagePath),
+    #{<<"code">> := <<"ALREADY_INSTALLED">>} = emqx_utils_json:decode(Body),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    emqx_plugins_test_helpers:assert_files_exist(AppFiles),
+    {ok, []} = uninstall_plugin(NameVsn),
+    ok.
+
+%% An unpack can stop right after `release.json' has been written, so the
+%% directory holds a readable manifest without the applications it declares.
+%% That is not an installation: the upload must go through the allow gate and
+%% unpack the package instead of replying ALREADY_INSTALLED.
+t_install_over_manifest_only_install_dir(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    %% keep `release.json' only, as if the unpack had been interrupted there
+    ok = erl_tar:extract(PackagePath, [compressed, {cwd, emqx_plugins_fs:install_dir()}]),
+    ok = emqx_plugins_test_helpers:delete_plugin_app_dirs(NameVsn),
+    ?assertMatch({ok, _}, emqx_plugins:describe(NameVsn, #{})),
+    ?assertEqual([], emqx_plugins_test_helpers:plugin_app_files(NameVsn)),
+    %% Not allowed yet: the upload must ask for `plugins allow', not claim
+    %% that the package is already installed.
+    {ok, {{_, 403, _}, _, Body}} = install_plugin(PackagePath),
+    #{<<"code">> := <<"FORBIDDEN">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
+    ?assertNotEqual(nomatch, binary:match(Msg, <<"plugins allow">>)),
+    %% Once allowed, the very same upload unpacks the package.
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    ?assertMatch(#{<<"name">> := <<"my_emqx_plugin">>}, describe_plugin(NameVsn)),
+    ?assertMatch([_ | _], emqx_plugins_test_helpers:plugin_app_files(NameVsn)),
+    {ok, []} = uninstall_plugin(NameVsn),
+    ok.
+
+%% The files of a plugin whose applications are running must not be replaced by
+%% an upload, even when its metadata has become unreadable: the upload is
+%% refused and the running plugin is left untouched.
+t_install_running_plugin_broken_metadata(_Config) ->
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    on_exit(fun() ->
+        %% restore the metadata, otherwise the plugin can not be stopped
+        _ = emqx_plugins_test_helpers:restore_info_file_from_package(PackagePath, NameVsn),
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = disallow_installation(NameVsn)
+    end),
+    ok = allow_installation(NameVsn),
+    ok = install_plugin(PackagePath),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assertEqual(running, emqx_plugins_apps:running_status(NameVsn)),
+    AppFiles = emqx_plugins_test_helpers:plugin_app_files(NameVsn),
+    ?assertMatch([_ | _], AppFiles),
+    %% the metadata of the running plugin becomes unreadable
+    ok = file:write_file(emqx_plugins_fs:info_file_path(NameVsn), <<"not json">>),
+    ?assertMatch({error, _}, emqx_plugins:describe(NameVsn, #{})),
+    ok = allow_installation(NameVsn),
+    {ok, {{_, 400, _}, _, Body}} = install_plugin(PackagePath),
+    #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
+    ?assertNotEqual(nomatch, binary:match(Msg, <<"plugin_is_in_use">>)),
+    %% the message tells the user how to get out of the situation
+    ?assertNotEqual(nomatch, binary:match(Msg, <<"stop the plugin first">>)),
+    %% the running plugin is still running, from the same files
+    ?assertEqual(running, emqx_plugins_apps:running_status(NameVsn)),
+    emqx_plugins_test_helpers:assert_files_exist(AppFiles),
+    %% the plugin can be stopped even though its metadata is unreadable, and
+    %% the upload then replaces the broken installation
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ?assertNotEqual(running, emqx_plugins_apps:running_status(NameVsn)),
+    ok = install_plugin(PackagePath),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    ok.
+
 t_install_plugin_matching_exisiting_name(_Config) ->
     PackagePath = get_demo_plugin_package(),
     NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),

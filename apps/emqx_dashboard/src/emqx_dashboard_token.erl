@@ -46,7 +46,7 @@
 -spec verify(_, Token :: binary()) ->
     Result ::
         {ok, binary()}
-        | {error, token_timeout | not_found | unauthorized_role}.
+        | {error, token_timeout | not_found | {unauthorized_role, Username :: binary()}}.
 verify(Req, Token) ->
     do_verify(Req, Token).
 
@@ -108,7 +108,7 @@ sign(#?ADMIN{username = Username} = User) ->
 -spec do_verify(_, Token :: binary()) ->
     Result ::
         {ok, binary()}
-        | {error, token_timeout | not_found | unauthorized_role}.
+        | {error, token_timeout | not_found | {unauthorized_role, Username :: binary()}}.
 do_verify(Req, Token) ->
     case lookup(Token) of
         {ok, JWT = #?ADMIN_JWT{exptime = ExpTime, extra = _Extra, username = _Username}} ->
@@ -293,7 +293,9 @@ check_rbac(Req, JWT) ->
                 false -> {error, unauthorized_role}
             end;
         _ ->
-            {error, unauthorized_role}
+            %% The token is valid, so the caller is authenticated. Return the
+            %% username so the audit record can name who was denied.
+            {error, {unauthorized_role, Username}}
     end.
 
 full_admin_key(Username, #{backend := ?BACKEND_LOCAL}) ->

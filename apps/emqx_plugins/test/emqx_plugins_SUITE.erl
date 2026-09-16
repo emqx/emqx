@@ -343,6 +343,12 @@ t_start_restart_and_stop(Config) ->
     %% stop all
     ok = emqx_plugins:ensure_stopped(),
     ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    %% `bar-2' is not a usable installation: it declares an application that was
+    %% never unpacked, and there is no package to unpack it from.  Starting it
+    %% has purged those leftovers, so re-create the fake metadata in order to be
+    %% able to disable it again.
+    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(Bar2))),
+    ok = write_info_file(Config, Bar2, FakeInfo),
     ok = ensure_state(Bar2, rear, false),
 
     %% wait for plugin application to remove hooks
@@ -727,6 +733,112 @@ t_tar_vsn_content_mismatch(Config) ->
     ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir("foo-0.2"))),
     %% the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
+    ok.
+
+%% An interrupted or failed installation can leave a plugin directory behind
+%% that has no readable `release.json'.  Such leftovers do not count as an
+%% installation: installing again must purge them and unpack the package from
+%% scratch.
+t_install_recovers_from_leftover_dir({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    %% simulate an interrupted unpack: the package file is there, and so is the
+    %% plugin directory, but the directory has no `release.json'
+    ok = erl_tar:extract(Package, [compressed, {cwd, emqx_plugins_fs:install_dir()}]),
+    ok = file:delete(emqx_plugins_fs:info_file_path(NameVsn)),
+    StaleFile = filename:join(emqx_plugins_fs:plugin_dir(NameVsn), "stale.txt"),
+    ok = file:write_file(StaleFile, <<"stale">>),
+    [{name_vsn, NameVsn}, {stale_file, StaleFile} | Config];
+t_install_recovers_from_leftover_dir({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:delete_package(NameVsn),
+    ok;
+t_install_recovers_from_leftover_dir(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    StaleFile = ?config(stale_file, Config),
+    %% the package file is still around, as in the bug report
+    ?assert(filelib:is_regular(emqx_plugins_fs:tar_file_path(NameVsn))),
+    ?assertMatch(
+        {error, #{msg := "bad_info_file", reason := {enoent, _}}},
+        emqx_plugins:describe(NameVsn, #{})
+    ),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch({ok, #{name := <<"my_emqx_plugin">>}}, emqx_plugins:describe(NameVsn, #{})),
+    %% the leftovers of the interrupted installation are gone
+    ?assertEqual({error, enoent}, file:read_file_info(StaleFile)),
+    ok.
+
+%% An unpack can stop right after `release.json' has been written, so the
+%% directory holds a perfectly readable manifest without the applications it
+%% declares.  That is not an installation either: the application files must be
+%% unpacked from the package.
+t_install_recovers_from_incomplete_install({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = erl_tar:extract(Package, [compressed, {cwd, emqx_plugins_fs:install_dir()}]),
+    %% keep `release.json' only, as if the unpack had been interrupted there
+    ok = emqx_plugins_test_helpers:delete_plugin_app_dirs(NameVsn),
+    [{name_vsn, NameVsn} | Config];
+t_install_recovers_from_incomplete_install({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:delete_package(NameVsn),
+    ok;
+t_install_recovers_from_incomplete_install(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    %% the metadata is readable, but the applications it declares are not there
+    ?assertMatch({ok, _}, emqx_plugins:describe(NameVsn, #{})),
+    ?assertEqual([], emqx_plugins_test_helpers:plugin_app_files(NameVsn)),
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertMatch({ok, #{name := <<"my_emqx_plugin">>}}, emqx_plugins:describe(NameVsn, #{})),
+    ?assertMatch([_ | _], emqx_plugins_test_helpers:plugin_app_files(NameVsn)),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+    ok.
+
+%% A failed metadata read must not make the recovery delete the files of a
+%% plugin whose applications are still loaded: the plugin would keep running
+%% from replaced or missing code.
+t_install_refuses_in_use_plugin({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ?assert(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    %% the metadata of the running plugin stops being readable
+    ok = file:write_file(emqx_plugins_fs:info_file_path(NameVsn), <<"not json">>),
+    [{name_vsn, NameVsn}, {package, Package} | Config];
+t_install_refuses_in_use_plugin({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    %% restore the metadata, otherwise the plugin can not be stopped
+    _ = emqx_plugins_test_helpers:restore_info_file_from_package(?config(package, Config), NameVsn),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    _ = emqx_plugins:delete_package(NameVsn),
+    ok;
+t_install_refuses_in_use_plugin(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ?assertMatch({error, _}, emqx_plugins:describe(NameVsn, #{})),
+    ?assertEqual(running, emqx_plugins_apps:running_status(NameVsn)),
+    AppFiles = emqx_plugins_test_helpers:plugin_app_files(NameVsn),
+    ?assertMatch([_ | _], AppFiles),
+    ?assertMatch(
+        {error, #{msg := "plugin_is_in_use"}},
+        emqx_plugins:ensure_installed(NameVsn, ?fresh_install)
+    ),
+    %% the running plugin has been left alone
+    ?assertEqual(running, emqx_plugins_apps:running_status(NameVsn)),
+    emqx_plugins_test_helpers:assert_files_exist(AppFiles),
+    %% the plugin can still be stopped: its applications are found in the
+    %% install directory even though `release.json' is unreadable
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ?assertNot(is_app_running(?EMQX_PLUGIN_APP_NAME)),
+    %% and then the installation is replaced by the package
+    ok = emqx_plugins:ensure_installed(NameVsn, ?fresh_install),
+    ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
     ok.
 
 t_bad_info_json({init, Config}) ->
