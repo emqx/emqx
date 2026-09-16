@@ -343,6 +343,7 @@ create_channel(ConnResId, ChanResId, ChanConfig, ConnState) ->
         hookpoints := Hookpoints,
         parameters := #{
             ack_deadline := AckDeadline,
+            max_outstanding_messages := MaxOutstandingMsgs,
             topic := Topic
         },
         resource_opts := #{
@@ -356,6 +357,7 @@ create_channel(ConnResId, ChanResId, ChanConfig, ConnState) ->
         client_pool => ClientPool,
         conn_res_id => ConnResId,
         hookpoints => Hookpoints,
+        max_outstanding_messages => MaxOutstandingMsgs,
         namespace => Namespace,
         request_ttl => RequestTTL,
         source_name => SourceName,

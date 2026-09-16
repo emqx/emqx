@@ -178,7 +178,8 @@ source_config(Overrides) ->
         ~"tags" => [~"some", ~"tags"],
         ~"parameters" => #{
             ~"ack_deadline" => ~"10s",
-            ~"topic" => ~"please override"
+            ~"topic" => ~"please override",
+            ~"max_outstanding_messages" => 100
         },
         ~"resource_opts" =>
             emqx_utils_maps:deep_merge(

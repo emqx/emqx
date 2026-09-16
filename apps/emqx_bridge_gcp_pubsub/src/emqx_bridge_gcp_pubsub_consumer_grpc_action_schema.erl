@@ -97,6 +97,14 @@ fields(source_parameters) ->
                         end
                     end
                 }
+            )},
+        {max_outstanding_messages,
+            mk(
+                non_neg_integer(),
+                #{
+                    default => 100,
+                    desc => ?DESC("max_outstanding_messages")
+                }
             )}
     ].
 

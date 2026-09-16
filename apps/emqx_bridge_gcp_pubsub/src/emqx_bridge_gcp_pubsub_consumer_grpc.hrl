@@ -25,6 +25,7 @@
 -define(handle, handle).
 -define(hookpoints, hookpoints).
 -define(idx, idx).
+-define(max_outstanding_messages, max_outstanding_messages).
 -define(namespace, namespace).
 -define(pending_acks, pending_acks).
 -define(pool, pool).

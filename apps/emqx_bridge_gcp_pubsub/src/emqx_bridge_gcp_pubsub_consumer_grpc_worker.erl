@@ -53,6 +53,7 @@
     ?handle := ?undefined | handle(),
     ?hookpoints := [_],
     ?idx := pos_integer(),
+    ?max_outstanding_messages := non_neg_integer(),
     ?namespace := emqx_config:maybe_namespace(),
     ?pool := _,
     ?request_ttl := timeout(),
@@ -112,6 +113,7 @@ init(Opts) ->
         client_pool := ClientPool,
         hookpoints := Hookpoints,
         idx := Idx,
+        max_outstanding_messages := MaxOutstandingMsgs,
         namespace := Namespace,
         pool := Pool,
         request_ttl := RequestTTL,
@@ -145,6 +147,7 @@ init(Opts) ->
         ?handle => ?undefined,
         ?hookpoints => Hookpoints,
         ?idx => Idx,
+        ?max_outstanding_messages => MaxOutstandingMsgs,
         ?namespace => Namespace,
         ?pending_acks => [],
         ?pool => Pool,
@@ -778,11 +781,13 @@ create_subscription_req(Data) ->
 streaming_pull_req(Data) ->
     #{
         ?subscription_resource := SubscriptionResource,
-        ?ack_deadline := AckDeadline
+        ?ack_deadline := AckDeadline,
+        ?max_outstanding_messages := MaxOutstandingMsgs
     } = Data,
     #{
         subscription => SubscriptionResource,
         stream_ack_deadline_seconds => AckDeadline,
+        max_outstanding_messages => MaxOutstandingMsgs,
         client_id => client_id(Data)
     }.
 
