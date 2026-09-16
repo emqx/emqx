@@ -83,7 +83,7 @@
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
 -callback pre_config_update(
-    [atom()], emqx_config:update_request(), emqx_config:raw_config(), emqx_config:cluster_rpc_opts()
+    [atom()], emqx_config:update_request(), emqx_config:raw_config(), extra_context()
 ) ->
     ok | {ok, emqx_config:update_request()} | {error, term()}.
 
