@@ -28,6 +28,7 @@
 -export([
     '/certs/global/list'/2,
     '/certs/global/name/:name'/2,
+    '/certs/global/name/:name/ca'/2,
     '/certs/ns/:namespace/list'/2,
     '/certs/ns/:namespace/name/:name'/2,
     '/certs/pem_cache_clean'/2
@@ -57,6 +58,7 @@ paths() ->
     [
         "/certs/global/list",
         "/certs/global/name/:name",
+        "/certs/global/name/:name/ca",
         "/certs/ns/:namespace/list",
         "/certs/ns/:namespace/name/:name",
         "/certs/pem_cache_clean"
@@ -117,6 +119,25 @@ schema("/certs/global/name/:name") ->
                 #{
                     204 => <<"">>,
                     400 => bad_request(?DESC("bad_request")),
+                    500 => internal_error(?DESC("internal_error"))
+                }
+        }
+    };
+schema("/certs/global/name/:name/ca") ->
+    #{
+        'operationId' => '/certs/global/name/:name/ca',
+        post => #{
+            tags => ?TAGS,
+            description => ?DESC("global_ca_merge"),
+            parameters => [param_path_bundle_name()],
+            'requestBody' => hoconsc:mk(ref(ca_in), #{
+                converter => fun upload_files_request_body_converter/2
+            }),
+            responses =>
+                #{
+                    200 => ref(ca_merge_out),
+                    400 => bad_request(?DESC("bad_request")),
+                    404 => not_found(?DESC("bundle_not_found")),
                     500 => internal_error(?DESC("internal_error"))
                 }
         }
@@ -211,6 +232,13 @@ fields(files_in) ->
     [
         {Kind, mk(binary(), #{required => false})}
      || Kind <- Kinds
+    ];
+fields(ca_in) ->
+    [{?FILE_KIND_CA, mk(binary(), #{required => true, desc => ?DESC("ca_merge_in")})}];
+fields(ca_merge_out) ->
+    [
+        {added, mk(non_neg_integer(), #{desc => ?DESC("ca_merge_added")})},
+        {total, mk(non_neg_integer(), #{desc => ?DESC("ca_merge_total")})}
     ];
 fields(bundle_out) ->
     [{name, mk(binary(), #{})}];
@@ -314,6 +342,10 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
         _ ->
             handle_delete_bundle(?global_ns, BundleName)
     end.
+
+'/certs/global/name/:name/ca'(post, #{bindings := #{name := BundleName}} = Req) ->
+    #{body := #{?FILE_KIND_CA := PEM}} = Req,
+    handle_merge_ca_certs(?global_ns, BundleName, PEM).
 
 '/certs/ns/:namespace/list'(get, #{bindings := #{namespace := Namespace}} = _Req) ->
     handle_list_bundles(Namespace).
@@ -483,6 +515,22 @@ handle_upload_files(Namespace, BundleName, Files) ->
                 {error, Errors} ->
                     ?INTERNAL_ERROR(Errors)
             end
+    end.
+
+handle_merge_ca_certs(Namespace, BundleName, PEM) ->
+    case emqx_managed_certs:merge_ca_certs(Namespace, BundleName, PEM) of
+        {ok, Result} ->
+            ?OK(Result);
+        {error, bundle_not_found} ->
+            ?NOT_FOUND(<<"Bundle not found">>);
+        {error, bad_namespace} ->
+            ?BAD_REQUEST(bad_namespace_msg());
+        {error, {bad_ca_certs, Msg}} ->
+            ?BAD_REQUEST(Msg);
+        {error, {read_ca_file, Reason}} ->
+            ?INTERNAL_ERROR(emqx_utils:explain_posix(Reason));
+        {error, Errors} ->
+            ?INTERNAL_ERROR(Errors)
     end.
 
 ns_bundle_filter(Req, #{method := post} = _Meta) ->

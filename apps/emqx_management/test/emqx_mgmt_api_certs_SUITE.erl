@@ -175,8 +175,10 @@ bearer_auth_header(Token) ->
     {"Authorization", iolist_to_binary(["Bearer ", Token])}.
 
 create_superuser() ->
+    create_superuser(<<"superuser">>).
+
+create_superuser(Username) ->
     emqx_common_test_http:create_default_app(),
-    Username = <<"superuser">>,
     Password = <<"secretP@ss1">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
     {200, #{<<"token">> := Token}} = login(#{<<"username">> => Username, <<"password">> => Password}),
@@ -323,6 +325,51 @@ upload_files_multipart_ns(Ns, BundleName, Files) ->
         method => post
     }),
     emqx_mgmt_api_test_util:simplify_decode_result(Res).
+
+merge_ca_global(BundleName, Contents) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName, "ca"]),
+    simple_request(#{
+        method => post,
+        url => URL,
+        body => #{?FILE_KIND_CA => Contents}
+    }).
+
+merge_ca_multipart_global(BundleName, Contents) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName, "ca"]),
+    Res = emqx_mgmt_api_test_util:upload_request(#{
+        url => URL,
+        files => [{?FILE_KIND_CA_BIN, <<"unused_ca_filename.pem">>, Contents}],
+        mime_type => <<"application/octet-stream">>,
+        other_params => [],
+        auth_token => get_auth_header(),
+        method => post
+    }),
+    emqx_mgmt_api_test_util:simplify_decode_result(Res).
+
+cert_ders(PEM) ->
+    [Der || {'Certificate', Der, _} <- public_key:pem_decode(PEM)].
+
+read_file(Path) ->
+    {ok, Contents} = file:read_file(Path),
+    Contents.
+
+create_user_and_login(GlobalAdminHeader, Username, Role) ->
+    Password = <<"superSecureP@ss">>,
+    ?assertMatch(
+        {200, _},
+        create_user_api(
+            #{
+                <<"username">> => Username,
+                <<"password">> => Password,
+                <<"role">> => Role,
+                <<"description">> => <<"test user">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    {200, #{<<"token">> := Token}} =
+        login(#{<<"username">> => Username, <<"password">> => Password}),
+    bearer_auth_header(Token).
 
 clean_pem_cache_api() ->
     URL = emqx_mgmt_api_test_util:api_path(["certs", "pem_cache_clean"]),
@@ -1110,6 +1157,127 @@ t_namespaced_admin_crud(TCConfig) when is_list(TCConfig) ->
     ?assertMatch({403, _}, delete_bundle_global(Bundle1)),
     ?assertMatch({403, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA1)),
 
+    ok.
+
+-doc """
+Verifies that the CA merge API appends new CA certificates to the `ca` file of a global
+bundle, skips certificates the file already holds, and leaves the other files alone.
+""".
+t_merge_ca_certs() ->
+    [{matrix, true}].
+t_merge_ca_certs(matrix) ->
+    [[?local], [?cluster]];
+t_merge_ca_certs(TCConfig) when is_list(TCConfig) ->
+    #{cert_key := CertKeyRoot1, cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA3} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA4} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := Cert1, key_pem := Key1} = gen_cert(#{key => ec, issuer => CertKeyRoot1}),
+    Bundle1 = <<"bundle1">>,
+
+    %% The bundle must exist.
+    ?assertMatch({404, _}, merge_ca_global(Bundle1, CA1)),
+    ?assertMatch({200, []}, list_bundles_global()),
+
+    Files1 = [
+        {?FILE_KIND_CA_BIN, <<"ca.pem">>, CA1},
+        {?FILE_KIND_CHAIN_BIN, <<"chain.pem">>, Cert1},
+        {?FILE_KIND_KEY_BIN, <<"key.pem">>, Key1}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle1, Files1)),
+    {200, #{
+        <<"ca">> := #{<<"path">> := PathCA},
+        <<"chain">> := #{<<"path">> := PathChain},
+        <<"key">> := #{<<"path">> := PathKey}
+    }} = list_files_global(Bundle1),
+
+    %% A new certificate is appended; the existing bytes are kept.
+    ?assertEqual(
+        {200, #{<<"added">> => 1, <<"total">> => 2}},
+        merge_ca_global(Bundle1, CA2)
+    ),
+    Merged1 = read_file(PathCA),
+    ?assertMatch(<<CA1:(byte_size(CA1))/binary, _/binary>>, Merged1),
+    ?assertEqual(cert_ders(CA1) ++ cert_ders(CA2), cert_ders(Merged1)),
+    ?assertEqual(md5(Cert1), read_md5(PathChain)),
+    ?assertEqual(md5(Key1), read_md5(PathKey)),
+    assert_same_bundles(?global_ns, TCConfig),
+
+    %% Certificates already present are skipped, and the file is not rewritten.
+    ?assertEqual(
+        {200, #{<<"added">> => 0, <<"total">> => 2}},
+        merge_ca_global(Bundle1, <<CA2/binary, CA1/binary>>)
+    ),
+    ?assertEqual(Merged1, read_file(PathCA)),
+
+    %% Duplicates within one request are added once; multipart works too.
+    ?assertEqual(
+        {200, #{<<"added">> => 2, <<"total">> => 4}},
+        merge_ca_multipart_global(Bundle1, <<CA3/binary, CA1/binary, CA4/binary, CA3/binary>>)
+    ),
+    Merged2 = read_file(PathCA),
+    ?assertEqual(
+        cert_ders(CA1) ++ cert_ders(CA2) ++ cert_ders(CA3) ++ cert_ders(CA4),
+        cert_ders(Merged2)
+    ),
+    assert_same_bundles(?global_ns, TCConfig),
+
+    %% Invalid input is rejected and changes nothing.
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, Key1)),
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, <<CA1/binary, Key1/binary>>)),
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, <<"not a certificate">>)),
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, <<"">>)),
+    BadCert = <<"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n">>,
+    ?assertMatch({400, _}, merge_ca_global(Bundle1, BadCert)),
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", Bundle1, "ca"]),
+    ?assertMatch({400, _}, simple_request(#{method => post, url => URL, body => #{}})),
+    ?assertEqual(Merged2, read_file(PathCA)),
+
+    %% A bundle without a `ca` file gets one.
+    Bundle2 = <<"bundle2">>,
+    ?assertMatch({204, _}, upload_file_global(Bundle2, ?FILE_KIND_CHAIN, Cert1)),
+    ?assertEqual(
+        {200, #{<<"added">> => 1, <<"total">> => 1}},
+        merge_ca_global(Bundle2, CA1)
+    ),
+    {200, #{<<"ca">> := #{<<"path">> := PathCA2}}} = list_files_global(Bundle2),
+    ?assertEqual(cert_ders(CA1), cert_ders(read_file(PathCA2))),
+    assert_same_bundles(?global_ns, TCConfig),
+    ok.
+
+-doc """
+Verifies that only a global administrator may call the CA merge API.
+""".
+t_merge_ca_certs_rbac() ->
+    [{matrix, true}].
+t_merge_ca_certs_rbac(matrix) ->
+    [[?local]];
+t_merge_ca_certs_rbac(TCConfig) when is_list(TCConfig) ->
+    GlobalAdminHeader = create_superuser(<<"superuser_ca_merge">>),
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2} = gen_cert(#{key => ec, issuer => root}),
+    Bundle1 = <<"bundle1">>,
+    ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA1)),
+    {200, #{<<"ca">> := #{<<"path">> := PathCA}}} = list_files_global(Bundle1),
+
+    Ns1 = <<"ns1">>,
+    NsAdminHeader = create_user_and_login(
+        GlobalAdminHeader,
+        <<"nsadmin">>,
+        <<"ns:", Ns1/binary, "::", ?ROLE_SUPERUSER/binary>>
+    ),
+    put_auth_header(NsAdminHeader),
+    ?assertMatch({403, _}, merge_ca_global(Bundle1, CA2)),
+    ?assertMatch({403, _}, merge_ca_multipart_global(Bundle1, CA2)),
+
+    ViewerHeader = create_user_and_login(GlobalAdminHeader, <<"viewer1">>, ?ROLE_VIEWER),
+    put_auth_header(ViewerHeader),
+    ?assertMatch({403, _}, merge_ca_global(Bundle1, CA2)),
+
+    ?assertEqual(md5(CA1), read_md5(PathCA)),
+
+    put_auth_header(GlobalAdminHeader),
+    ?assertMatch({200, #{<<"added">> := 1}}, merge_ca_global(Bundle1, CA2)),
     ok.
 
 -doc """
