@@ -15,6 +15,9 @@
     ?assertThrow({?FRAME_PARSE_ERROR, Reason}, Expr)
 ).
 
+%% Same process dictionary key as in emqx_frame.
+-define(PD_EXPECT_CONNECT, '$emqx_frame_expect_connect').
+
 all() ->
     [
         {group, parse},
@@ -38,13 +41,19 @@ groups() ->
             t_parse_frame_too_large,
             t_parse_frame_malformed_variable_byte_integer,
             t_parse_malformed_utf8_string,
-            t_parse_bad_v5_publish_packet
+            t_parse_bad_v5_publish_packet,
+            t_parse_non_connect_before_connect,
+            t_parse_complete_non_connect_before_connect,
+            t_parse_after_connect,
+            t_parse_no_connect_expected
         ]},
         {connect, [parallel], [
             t_serialize_parse_v3_connect,
             t_serialize_parse_v4_connect,
             t_serialize_parse_v5_connect,
             t_parse_many_user_properties_is_linear,
+            t_parse_connect_user_property_limit,
+            t_hot_patch_connect_user_property_limit,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
             t_serialize_parse_connect_with_malformed_will,
@@ -121,6 +130,95 @@ init_per_group(_Group, Config) ->
 
 end_per_group(_Group, _Config) ->
     ok.
+
+-doc """
+A non-CONNECT first packet is rejected from the fixed header alone, before any
+body byte is buffered, when the process expects CONNECT first.
+""".
+t_parse_non_connect_before_connect(_) ->
+    with_expect_connect(fun() ->
+        ParseState = emqx_frame:initial_parse_state(),
+        lists:foreach(
+            fun({FirstByte, TypeName}) ->
+                %% Only the fixed header byte is fed, nothing can be buffered yet.
+                ?ASSERT_FRAME_THROW(
+                    #{
+                        cause := unexpected_packet_before_connect,
+                        header_type := TypeName
+                    },
+                    emqx_frame:parse(<<FirstByte>>, ParseState)
+                ),
+                %% A 256 MB remaining length is rejected without buffering a body.
+                ?ASSERT_FRAME_THROW(
+                    #{cause := unexpected_packet_before_connect},
+                    emqx_frame:parse(<<FirstByte, 16#FF, 16#FF, 16#FF, 16#7F>>, ParseState)
+                )
+            end,
+            first_bytes()
+        )
+    end).
+
+-doc """
+The whole-frame parser applies the same check as the stream parser.
+""".
+t_parse_complete_non_connect_before_connect(_) ->
+    with_expect_connect(fun() ->
+        ParseState = emqx_frame:initial_parse_state(),
+        lists:foreach(
+            fun({FirstByte, TypeName}) ->
+                ?ASSERT_FRAME_THROW(
+                    #{
+                        cause := unexpected_packet_before_connect,
+                        header_type := TypeName
+                    },
+                    emqx_frame:parse_complete(<<FirstByte, 0>>, ParseState)
+                )
+            end,
+            first_bytes()
+        )
+    end).
+
+-doc """
+Parsing a CONNECT clears the requirement, and the packets after it are parsed
+as usual.
+""".
+t_parse_after_connect(_) ->
+    ParseState = emqx_frame:initial_parse_state(),
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{}),
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>),
+    %% Stream parser.
+    with_expect_connect(fun() ->
+        {Connect, <<>>, ParseState1} =
+            emqx_frame:parse(serialize_to_binary(Connect), ParseState),
+        ?assertEqual(undefined, erlang:get(?PD_EXPECT_CONNECT)),
+        ?assertMatch(
+            {Publish, <<>>, _},
+            emqx_frame:parse(serialize_to_binary(Publish), ParseState1)
+        )
+    end),
+    %% Whole-frame parser.
+    with_expect_connect(fun() ->
+        [Connect, ParseState2] =
+            emqx_frame:parse_complete(serialize_to_binary(Connect), ParseState),
+        ?assertEqual(undefined, erlang:get(?PD_EXPECT_CONNECT)),
+        ?assertMatch(
+            Publish,
+            emqx_frame:parse_complete(serialize_to_binary(Publish), ParseState2)
+        )
+    end).
+
+-doc """
+A process that did not call `emqx_frame:expect_connect/0` does not require
+CONNECT to come first. A connection opened before a hot patch is in this state.
+""".
+t_parse_no_connect_expected(_) ->
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>),
+    PublishBin = serialize_to_binary(Publish),
+    ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin)),
+    ?assertMatch(
+        {Publish, <<>>, _},
+        emqx_frame:parse(PublishBin, emqx_frame:initial_parse_state(#{}))
+    ).
 
 t_parse_cont(_) ->
     Packet = ?CONNECT_PACKET(#mqtt_packet_connect{}),
@@ -303,6 +401,160 @@ t_parse_many_user_properties_is_linear(_) ->
     %% not a microbenchmark. The old quadratic path took seconds here.
     ?assert(Elapsed < 2000, #{elapsed_ms => Elapsed}),
     ok.
+
+-doc """
+CONNECT and will properties have independent user-property limits. The parser
+checks the limit before parsing an excess pair. Other packet types stay
+unlimited, and no CONNECT byte limit is introduced. The limit is kept in the
+process dictionary. The last `initial_parse_state/1` call that has the option
+sets it.
+""".
+t_parse_connect_user_property_limit(_) ->
+    %% A process that never set a limit keeps the historical unlimited default.
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(20)))
+    ),
+
+    Zero = emqx_frame:initial_parse_state(#{max_connect_user_properties => 0}),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(make_v5_connect_frame(<<>>), Zero)),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 0},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(1)), Zero)
+    ),
+
+    Limit = 2,
+    Limited = emqx_frame:initial_parse_state(#{max_connect_user_properties => Limit}),
+    Exact = make_v5_connect_frame(user_properties(Limit)),
+    Excess = make_v5_connect_frame(user_properties(Limit + 1)),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(Exact, Limited)),
+    ?assertMatch([_Packet, _Options], emqx_frame:parse_complete(Exact, Limited)),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(Excess, Limited)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse_complete(Excess, Limited)
+    ),
+
+    %% Will properties use a separate counter.
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(
+            make_v5_connect_with_will_frame(
+                user_properties(Limit), user_properties(Limit)
+            ),
+            Limited
+        )
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(
+            make_v5_connect_with_will_frame(<<>>, user_properties(Limit + 1)),
+            Limited
+        )
+    ),
+
+    %% The count error wins before a malformed excess pair is decoded.
+    MalformedExcess = <<(user_properties(Limit))/binary, 16#26, 0>>,
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(make_v5_connect_frame(MalformedExcess), Limited)
+    ),
+
+    %% A parse state built without the option keeps the limit of the process.
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := Limit},
+        emqx_frame:parse(Excess, emqx_frame:initial_parse_state(#{}))
+    ),
+
+    ManyProps = user_property_pairs(20),
+    Infinity = emqx_frame:initial_parse_state(#{max_connect_user_properties => infinity}),
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(20)), Infinity)
+    ),
+
+    %% The CONNECT-only option does not bound PUBLISH or SUBSCRIBE properties.
+    NonConnectOpts = #{version => ?MQTT_PROTO_V5, max_connect_user_properties => 0},
+    Props = #{'User-Property' => ManyProps},
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, Props, <<"payload">>),
+    ?assertEqual(Publish, parse_serialize(Publish, NonConnectOpts)),
+    TopicFilters = [{<<"t">>, #{rh => 0, qos => ?QOS_0, rap => 0, nl => 0}}],
+    Subscribe = ?SUBSCRIBE_PACKET(1, Props, TopicFilters),
+    ?assertEqual(Subscribe, parse_serialize(Subscribe, NonConnectOpts)),
+
+    %% A CONNECT larger than 64 KB still follows the existing max_packet_size.
+    LargeConnect = make_large_v5_connect_frame(40_000),
+    ?assert(byte_size(LargeConnect) > 65_536),
+    LargeConnectState = emqx_frame:initial_parse_state(#{max_connect_user_properties => Limit}),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(LargeConnect, LargeConnectState)).
+
+-doc """
+A connection opened before a hot patch keeps its parse state, and its process
+has neither the expect-CONNECT flag nor a user-property limit. That state still
+parses any packet type, and a CONNECT with any number of user properties. The
+new options do not change the shape of the parse state.
+""".
+t_hot_patch_connect_user_property_limit(_) ->
+    %% The parse state that 5.9 releases before this change create.
+    LegacyState = {options, false, ?MAX_PACKET_SIZE, ?MQTT_PROTO_V4},
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"payload">>),
+    ?assertEqual(
+        {Publish, <<>>, LegacyState},
+        emqx_frame:parse(serialize_to_binary(Publish), LegacyState)
+    ),
+    ?assertMatch(
+        {_Packet, <<>>, _},
+        emqx_frame:parse(
+            make_v5_connect_with_will_frame(user_properties(20), user_properties(20)),
+            LegacyState
+        )
+    ),
+    ?assertEqual(
+        LegacyState,
+        emqx_frame:initial_parse_state(#{max_connect_user_properties => 2})
+    ).
+
+user_property_pairs(N) ->
+    [{<<>>, integer_to_binary(I)} || I <- lists:seq(1, N)].
+
+%% N duplicate-key user properties on the wire, each with an indexed value.
+user_properties(N) ->
+    iolist_to_binary([
+        begin
+            Value = integer_to_binary(I),
+            <<16#26, 0:16, (byte_size(Value)):16, Value/binary>>
+        end
+     || I <- lists:seq(1, N)
+    ]).
+
+make_v5_connect_frame(PropsBin) ->
+    PropsSection = <<(encode_vbi(byte_size(PropsBin)))/binary, PropsBin/binary>>,
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2:8, 60:16, PropsSection/binary>>,
+    Body = <<VarHeader/binary, 0:16>>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
+
+make_v5_connect_with_will_frame(ConnPropsBin, WillPropsBin) ->
+    ConnProps = <<(encode_vbi(byte_size(ConnPropsBin)))/binary, ConnPropsBin/binary>>,
+    WillProps = <<(encode_vbi(byte_size(WillPropsBin)))/binary, WillPropsBin/binary>>,
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2#00000110:8, 60:16, ConnProps/binary>>,
+    Body = <<VarHeader/binary, 0:16, WillProps/binary, 4:16, "will", 2:16, "hi">>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
+
+make_large_v5_connect_frame(CredentialSize) ->
+    Credential = binary:copy(<<"x">>, CredentialSize),
+    VarHeader = <<4:16, "MQTT", ?MQTT_PROTO_V5:8, 2#11000010:8, 60:16, 0>>,
+    Body = <<
+        VarHeader/binary,
+        0:16,
+        CredentialSize:16,
+        Credential/binary,
+        CredentialSize:16,
+        Credential/binary
+    >>,
+    <<16#10, (encode_vbi(byte_size(Body)))/binary, Body/binary>>.
 
 %% Encode an unsigned integer as an MQTT variable byte integer.
 encode_vbi(N) when N < 16#80 ->
@@ -969,3 +1221,23 @@ parse_to_packet(Bin, Opts) ->
     Packet.
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
+
+%% Fixed header first bytes of the packet types a client may send.
+first_bytes() ->
+    [
+        {?PUBLISH bsl 4, 'PUBLISH'},
+        {(?SUBSCRIBE bsl 4) bor 2, 'SUBSCRIBE'},
+        {(?UNSUBSCRIBE bsl 4) bor 2, 'UNSUBSCRIBE'},
+        {?PINGREQ bsl 4, 'PINGREQ'},
+        {?DISCONNECT bsl 4, 'DISCONNECT'},
+        {?AUTH bsl 4, 'AUTH'}
+    ].
+
+%% Run Fun with the test process expecting CONNECT first, then clear it.
+with_expect_connect(Fun) ->
+    ok = emqx_frame:expect_connect(),
+    try
+        Fun()
+    after
+        erlang:erase(?PD_EXPECT_CONNECT)
+    end.
