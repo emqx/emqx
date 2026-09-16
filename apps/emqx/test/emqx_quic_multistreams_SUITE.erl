@@ -10,19 +10,57 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("quicer/include/quicer.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 suite() ->
-    [{timetrap, {seconds, 30}}].
+    [{timetrap, {seconds, 60}}].
 
 all() ->
     [
+        t_connect,
         {group, mstream},
         {group, shutdown},
         {group, misc},
+        t_malformed_packet,
+        t_wrong_stream_connect,
+        t_zero_rtt_pubsub,
+        t_zero_rtt_large_payload,
+        t_zero_rtt_stream_continue,
+        t_keepalive_data_only_timeout,
+        t_keepalive_data_stream_active,
+        t_stream_finish,
+        t_stream_reset,
+        t_stream_stop,
+        t_manual_ack_qos1,
+        t_manual_ack_qos2,
+        t_session_resume_qos1,
+        t_session_resume_qos2,
+        t_mqtt_v5_basic,
+        t_mqtt_v5_session,
+        t_mqtt_v5_publish_properties,
+        t_mqtt_v5_no_local,
+        t_mqtt_v5_invalid_packets,
+        t_mqtt_v5_batch_subscribe,
+        t_mqtt_v5_subscribe_max_qos,
+        t_mqtt_v5_max_qos_allowed,
+        t_mqtt_v5_publish_packet_too_large,
+        t_mqtt_v5_shared_qos2_abort,
+        t_mqtt_v5_connack_client_id_unavailable,
+        t_mqtt_v5_connect_will_message,
+        t_mqtt_v5_connect_will_retain,
+        t_mqtt_v5_connect_packet_too_large,
+        t_mqtt_v5_max_qos_will_rejection,
+        t_mqtt_v5_connack_unavailable_no_will,
+        t_mqtt_v5_emit_stats_timeout,
+        t_mqtt_v5_deliver_packet_too_large,
+        t_mqtt_v5_subscribe_topic_alias,
+        t_broker_connected_client_count_persistent,
+        t_broker_connected_client_count_anonymous,
+        t_broker_connected_client_count_transient_takeover,
+        t_broker_connected_client_stats,
+        t_source_bind,
+        t_source_rebind,
         t_listener_with_lowlevel_settings,
         t_listener_inval_settings
     ].
@@ -30,7 +68,6 @@ all() ->
 groups() ->
     [
         {mstream, [], [{group, profiles}]},
-
         {profiles, [], [
             {group, profile_low_latency},
             {group, profile_max_throughput}
@@ -60,55 +97,21 @@ groups() ->
             {group, sub_qos1},
             {group, sub_qos2}
         ]},
-        {sub_qos0, [{group, qos}]},
-        {sub_qos1, [{group, qos}]},
-        {sub_qos2, [{group, qos}]},
-        {qos, [
-            t_multi_streams_sub,
-            t_multi_streams_pub_5x100,
-            t_multi_streams_pub_parallel,
-            t_multi_streams_pub_parallel_no_blocking,
-            t_multi_streams_sub_pub_async,
-            t_multi_streams_sub_pub_sync,
-            t_multi_streams_unsub,
-            t_multi_streams_corr_topic,
-            t_multi_streams_unsub_via_other,
-            t_multi_streams_dup_sub,
-            t_multi_streams_packet_boundary,
-            t_multi_streams_packet_malform,
-            t_multi_streams_kill_sub_stream,
-            t_multi_streams_packet_too_large,
-            t_multi_streams_sub_0_rtt,
-            t_multi_streams_sub_0_rtt_large_payload,
-            t_multi_streams_sub_0_rtt_stream_data_cont,
-            t_conn_change_client_addr
-        ]},
-
-        {shutdown, [
+        {sub_qos0, [], [{group, qos}]},
+        {sub_qos1, [], [{group, qos}]},
+        {sub_qos2, [], [{group, qos}]},
+        {qos, [], qos_cases()},
+        {shutdown, [], [
             {group, graceful_shutdown},
             {group, abort_recv_shutdown},
             {group, abort_send_shutdown},
             {group, abort_send_recv_shutdown}
         ]},
-
-        {graceful_shutdown, [
-            {group, ctrl_stream_shutdown},
-            {group, data_stream_shutdown}
-        ]},
-        {abort_recv_shutdown, [
-            {group, ctrl_stream_shutdown},
-            {group, data_stream_shutdown}
-        ]},
-        {abort_send_shutdown, [
-            {group, ctrl_stream_shutdown},
-            {group, data_stream_shutdown}
-        ]},
-        {abort_send_recv_shutdown, [
-            {group, ctrl_stream_shutdown},
-            {group, data_stream_shutdown}
-        ]},
-
-        {ctrl_stream_shutdown, [
+        {graceful_shutdown, [], shutdown_groups()},
+        {abort_recv_shutdown, [], shutdown_groups()},
+        {abort_send_shutdown, [], shutdown_groups()},
+        {abort_send_recv_shutdown, [], shutdown_groups()},
+        {ctrl_stream_shutdown, [], [
             t_multi_streams_shutdown_ctrl_stream,
             t_multi_streams_shutdown_ctrl_stream_then_reconnect,
             t_multi_streams_remote_shutdown,
@@ -116,51 +119,56 @@ groups() ->
             t_multi_streams_emqx_ctrl_exit_normal,
             t_multi_streams_remote_shutdown_with_reconnect
         ]},
-
-        {data_stream_shutdown, [
+        {data_stream_shutdown, [], [
             t_multi_streams_shutdown_pub_data_stream,
             t_multi_streams_shutdown_sub_data_stream
         ]},
-        {misc, [
+        {misc, [], [
             t_conn_silent_close,
             t_client_conn_bump_streams,
             t_olp_true,
             t_olp_reject,
             t_conn_resume,
-            t_conn_without_ctrl_stream
+            t_conn_without_ctrl_stream,
+            t_data_stream_race_ctrl_stream
         ]}
     ].
 
+qos_cases() ->
+    [
+        t_multi_streams_sub,
+        t_multi_streams_pub_5x100,
+        t_multi_streams_pub_parallel,
+        t_multi_streams_pub_parallel_no_blocking,
+        t_multi_streams_sub_pub_async,
+        t_multi_streams_sub_pub_sync,
+        t_multi_streams_unsub,
+        t_multi_streams_corr_topic,
+        t_multi_streams_unsub_via_other,
+        t_multi_streams_dup_sub,
+        t_multi_streams_packet_boundary,
+        t_multi_streams_packet_malform,
+        t_multi_streams_kill_sub_stream,
+        t_multi_streams_packet_too_large,
+        t_multi_streams_sub_0_rtt,
+        t_multi_streams_sub_0_rtt_large_payload,
+        t_multi_streams_sub_0_rtt_stream_data_cont,
+        t_conn_change_client_addr
+    ].
+
+shutdown_groups() ->
+    [
+        {group, ctrl_stream_shutdown},
+        {group, data_stream_shutdown}
+    ].
+
 init_per_suite(Config) ->
-    Apps = start_emqx(Config),
-    [{port, 14567}, {pub_qos, 0}, {sub_qos, 0}, {apps, Apps} | Config].
+    Port = emqx_common_test_helpers:select_free_port(quic),
+    Apps = start_emqx(Config, Port),
+    [{port, Port}, {apps, Apps} | Config].
 
 end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
-
-start_emqx(Config) ->
-    emqx_cth_suite:start(
-        [mk_emqx_spec()],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ).
-
-stop_emqx(Config) ->
-    emqx_cth_suite:stop(?config(apps, Config)).
-
-restart_emqx(Config) ->
-    ok = stop_emqx(Config),
-    emqx_cth_suite:start(
-        [mk_emqx_spec()],
-        #{work_dir => emqx_cth_suite:work_dir(Config), work_dir_dirty => true}
-    ).
-
-mk_emqx_spec() ->
-    {emqx,
-        %% Turn off force_shutdown policy.
-        "force_shutdown.enable = false"
-        "\n listeners.quic.default {"
-        "\n   enable = true, bind = 14567, acceptors = 16, idle_timeout_ms = 15000"
-        "\n }"}.
 
 init_per_group(pub_qos0, Config) ->
     [{pub_qos, 0} | Config];
@@ -174,2070 +182,729 @@ init_per_group(pub_qos2, Config) ->
     [{pub_qos, 2} | Config];
 init_per_group(sub_qos2, Config) ->
     [{sub_qos, 2} | Config];
-init_per_group(abort_send_shutdown, Config) ->
-    [{stream_shutdown_flag, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_SEND} | Config];
-init_per_group(abort_recv_shutdown, Config) ->
-    [{stream_shutdown_flag, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE} | Config];
-init_per_group(abort_send_recv_shutdown, Config) ->
-    [{stream_shutdown_flag, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT} | Config];
-init_per_group(graceful_shutdown, Config) ->
-    [{stream_shutdown_flag, ?QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL} | Config];
-init_per_group(profile_max_throughput, Config) ->
-    quicer:reg_open(quic_execution_profile_type_max_throughput),
-    Config;
-init_per_group(profile_low_latency, Config) ->
-    quicer:reg_open(quic_execution_profile_low_latency),
-    Config;
 init_per_group(_, Config) ->
     Config.
 
 end_per_group(_, Config) ->
     Config.
 
-t_quic_sock(Config) ->
-    Port = 4567,
-    SslOpts = [
-        {cert, certfile(Config)},
-        {key, keyfile(Config)},
-        {idle_timeout_ms, 10000},
-        % QUIC_SERVER_RESUME_AND_ZERORTT
-        {server_resumption_level, 2},
-        {peer_bidi_stream_count, 10},
-        {alpn, ["mqtt"]}
-    ],
-    Server = quic_server:start_link(Port, SslOpts),
-    timer:sleep(500),
-    {ok, Sock} = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [{alpn, ["mqtt"]}, {active, false}],
-        3000
-    ),
-    send_and_recv_with(Sock),
-    ok = emqtt_quic:close(Sock),
-    quic_server:stop(Server).
+t_connect(Config) ->
+    run_scenario("connect", Config, []).
 
-t_quic_sock_fail(_Config) ->
-    Port = 4567,
-    Error1 =
-        {error,
-            {transport_down, #{
-                error => 2,
-                status => connection_refused
-            }}},
-    Error2 = {error, {transport_down, #{error => 1, status => unreachable}}},
-    case
-        emqtt_quic:connect(
-            "localhost",
-            Port,
-            [{alpn, ["mqtt"]}, {active, false}],
-            3000
-        )
-    of
-        Error1 ->
-            ok;
-        Error2 ->
-            ok;
-        Other ->
-            ct:fail("unexpected return ~p", [Other])
-    end.
+t_multistream_pubsub(Config) ->
+    run_scenario("multistream", Config, qos_args(Config)).
 
-t_0_rtt(Config) ->
-    Port = 4568,
-    SslOpts = [
-        {cert, certfile(Config)},
-        {key, keyfile(Config)},
-        {idle_timeout_ms, 10000},
-        % QUIC_SERVER_RESUME_AND_ZERORTT
-        {server_resumption_level, 2},
-        {peer_bidi_stream_count, 10},
-        {alpn, ["mqtt"]}
-    ],
-    Server = quic_server:start_link(Port, SslOpts),
-    timer:sleep(500),
-    {ok, {quic, Conn, _Stream} = Sock} = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [
-            {alpn, ["mqtt"]},
-            {active, false},
-            {quic_event_mask, 1}
-        ],
-        3000
-    ),
-    send_and_recv_with(Sock),
-    ok = emqtt_quic:close(Sock),
-    NST =
-        receive
-            {quic, nst_received, Conn, Ticket} ->
-                Ticket
-        end,
-    {ok, Sock2} = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [
-            {alpn, ["mqtt"]},
-            {active, false},
-            {nst, NST}
-        ],
-        3000
-    ),
-    send_and_recv_with(Sock2),
-    ok = emqtt_quic:close(Sock2),
-    quic_server:stop(Server).
+t_unsubscribe(Config) ->
+    run_scenario("unsubscribe", Config, qos_args(Config)).
 
-t_0_rtt_fail(Config) ->
-    Port = 4569,
-    SslOpts = [
-        {cert, certfile(Config)},
-        {key, keyfile(Config)},
-        {idle_timeout_ms, 10000},
-        % QUIC_SERVER_RESUME_AND_ZERORTT
-        {server_resumption_level, 2},
-        {peer_bidi_stream_count, 10},
-        {alpn, ["mqtt"]}
-    ],
-    Server = quic_server:start_link(Port, SslOpts),
-    timer:sleep(500),
-    {ok, {quic, Conn, _Stream} = Sock} = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [
-            {alpn, ["mqtt"]},
-            {active, false},
-            {quic_event_mask, 1}
-        ],
-        3000
-    ),
-    send_and_recv_with(Sock),
-    ok = emqtt_quic:close(Sock),
-    <<_Head:16, Left/binary>> =
-        receive
-            {quic, nst_received, Conn, Ticket} when is_binary(Ticket) ->
-                Ticket
-        end,
+t_malformed_packet(Config) ->
+    run_scenario("malformed", Config, ["--malformed-hex", "00000000000000000000"]).
 
-    Error = {error, {not_found, invalid_parameter}},
-    Error = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [
-            {alpn, ["mqtt"]},
-            {active, false},
-            {nst, Left}
-        ],
-        3000
-    ),
-    quic_server:stop(Server).
+t_wrong_stream_connect(Config) ->
+    run_scenario("wrong-stream-connect", Config, []).
 
-t_multi_streams_sub(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    case emqtt:publish(C, Topic, <<"qos 2 1">>, PubQos) of
-        ok when PubQos == 0 -> ok;
-        {ok, _} -> ok
-    end,
-    receive
-        {publish, #{
-            client_pid := C,
-            payload := <<"qos 2 1">>,
-            qos := RecQos,
-            topic := Topic
-        }} ->
-            ok;
-        Other ->
-            ct:fail("unexpected recv ~p", [Other])
-    after 100 ->
-        ct:fail("not received")
-    end,
-    ok = emqtt:disconnect(C).
+t_zero_rtt_pubsub(Config) ->
+    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-pubsub", []).
 
-t_multi_streams_pub_5x100(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
+t_zero_rtt_large_payload(Config) ->
+    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-large-payload", ["--timeout-ms", "30000"]).
 
-    PubVias = lists:map(
-        fun(_N) ->
-            {ok, Via} = emqtt:start_data_stream(C, []),
-            Via
-        end,
-        lists:seq(1, 5)
-    ),
-    CtrlVia = proplists:get_value(socket, emqtt:info(C)),
-    [
-        begin
-            case emqtt:publish_via(C, PVia, Topic, #{}, <<"stream data ", N>>, [{qos, PubQos}]) of
-                ok when PubQos == 0 -> ok;
-                {ok, _} -> ok
-            end,
-            0 == (N rem 10) andalso timer:sleep(10)
-        end
-     || %% also publish on control stream
-        N <- lists:seq(1, 100),
-        PVia <- [CtrlVia | PubVias]
-    ],
-    ?assert(timeout =/= recv_pub(600)),
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_pub_parallel(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    PktId2 = calc_pkt_id(RecQos, 2),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, [SubQos]} = emqtt:subscribe(C, #{}, [{Topic, [{qos, SubQos}]}]),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        <<"stream data 1">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        <<"stream data 2">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    PubRecvs = recv_pub(2),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data", _/binary>>,
-                qos := RecQos,
-                topic := Topic
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId2,
-                payload := <<"stream data", _/binary>>,
-                qos := RecQos,
-                topic := Topic
-            }}
-        ],
-        PubRecvs
-    ),
-    Payloads = [P || {publish, #{payload := P}} <- PubRecvs],
-    ?assert(
-        [<<"stream data 1">>, <<"stream data 2">>] == Payloads orelse
-            [<<"stream data 2">>, <<"stream data 1">>] == Payloads
-    ),
-    ok = emqtt:disconnect(C).
-
-%% @doc test two pub streams, one send incomplete MQTT packet() can not block another.
-t_multi_streams_pub_parallel_no_blocking(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId2 = calc_pkt_id(RecQos, 1),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, [SubQos]} = emqtt:subscribe(C, #{}, [{Topic, [{qos, SubQos}]}]),
-    Drop = <<"stream data 1">>,
-    meck:new(emqtt_quic, [passthrough, no_history]),
-    meck:expect(emqtt_quic, send, fun(Sock, IoList) ->
-        case lists:last(IoList) == Drop of
-            true ->
-                ct:pal("meck droping ~p", [Drop]),
-                meck:passthrough([Sock, IoList -- [Drop]]);
-            false ->
-                meck:passthrough([Sock, IoList])
-        end
-    end),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        Drop,
-        [{qos, PubQos}],
-        undefined
-    ),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        <<"stream data 2">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId2,
-                payload := <<"stream data 2">>,
-                qos := RecQos,
-                topic := Topic
-            }}
-        ],
-        PubRecvs
-    ),
-    meck:unload(emqtt_quic),
-    ?assertEqual(timeout, recv_pub(1)),
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_packet_boundary(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    PktId2 = calc_pkt_id(RecQos, 2),
-    PktId3 = calc_pkt_id(RecQos, 3),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-
-    %% make quicer to batch job
-    quicer:reg_open(quic_execution_profile_type_max_throughput),
-
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, [SubQos]} = emqtt:subscribe(C, #{}, [{Topic, [{qos, SubQos}]}]),
-
-    {ok, PubVia} = emqtt:start_data_stream(C, []),
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        <<"stream data 1">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        <<"stream data 2">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    ThisFunB = atom_to_binary(?FUNCTION_NAME),
-    LargePart3 = iolist_to_binary([
-        <<N:64, ThisFunB/binary>>
-     || N <- lists:seq(1, 20000)
-    ]),
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        LargePart3,
-        [{qos, PubQos}],
-        undefined
-    ),
-    PubRecvs = recv_pub(3, [], 1000),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data 1">>,
-                qos := RecQos,
-                topic := Topic
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId2,
-                payload := <<"stream data 2">>,
-                qos := RecQos,
-                topic := Topic
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId3,
-                payload := _LargePart3_TO_BE_CHECKED,
-                qos := RecQos,
-                topic := Topic
-            }}
-        ],
-        PubRecvs
-    ),
-    {publish, #{payload := LargePart3Recv}} = lists:last(PubRecvs),
-    CommonLen = binary:longest_common_prefix([LargePart3Recv, LargePart3]),
-    Size3 = byte_size(LargePart3),
-    case Size3 - CommonLen of
-        0 ->
-            ok;
-        Left ->
-            ct:fail(
-                "unmatched large payload: offset: ~p ~n send: ~p ~n recv ~p",
-                [
-                    CommonLen,
-                    binary:part(LargePart3, {CommonLen, Left}),
-                    binary:part(LargePart3Recv, {CommonLen, Left})
-                ]
-            )
-    end,
-    ok = emqtt:disconnect(C).
-
-%% @doc test that one malformed stream will not close the entire connection
-t_multi_streams_packet_malform(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    PktId2 = calc_pkt_id(RecQos, 2),
-    PktId3 = calc_pkt_id(RecQos, 3),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-
-    %% make quicer to batch job
-    quicer:reg_open(quic_execution_profile_type_max_throughput),
-
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, [SubQos]} = emqtt:subscribe(C, #{}, [{Topic, [{qos, SubQos}]}]),
-
-    {ok, PubVia} = emqtt:start_data_stream(C, []),
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        <<"stream data 1">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-
-    {ok, {quic, _Conn, MalformStream}} = emqtt:start_data_stream(C, []),
-    {ok, _} = quicer:send(MalformStream, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0>>),
-
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        <<"stream data 2">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    LargePart3 = binary:copy(atom_to_binary(?FUNCTION_NAME), 2000),
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        LargePart3,
-        [{qos, PubQos}],
-        undefined
-    ),
-    PubRecvs = recv_pub(3),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data 1">>,
-                qos := RecQos,
-                topic := Topic
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId2,
-                payload := <<"stream data 2">>,
-                qos := RecQos,
-                topic := Topic
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId3,
-                payload := LargePart3,
-                qos := RecQos,
-                topic := Topic
-            }}
-        ],
-        PubRecvs
-    ),
-
-    case quicer:send(MalformStream, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0>>) of
-        {ok, 10} -> ok;
-        {error, cancelled} -> ok;
-        {error, stm_send_error, aborted} -> ok;
-        {error, closed} -> ok
-    end,
-
-    ?assert(is_list(emqtt:info(C))),
-    {error, closed} =
-        snabbkaffe:retry(
-            10000,
-            10,
-            fun() ->
-                {error, closed} = quicer:send(
-                    MalformStream, <<1, 2, 3, 4, 5, 6, 7, 8, 9, 0>>
-                )
-            end
-        ),
-    ?assert(is_list(emqtt:info(C))),
-
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_packet_too_large(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    PktId2 = calc_pkt_id(RecQos, 2),
-    PktId3 = calc_pkt_id(RecQos, 3),
-
-    OldMax = emqx_config:get_zone_conf(default, [mqtt, max_packet_size]),
-    emqx_config:put_zone_conf(default, [mqtt, max_packet_size], 1000),
-
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, [SubQos]} = emqtt:subscribe(C, #{}, [{Topic, [{qos, SubQos}]}]),
-
-    {ok, PubVia} = emqtt:start_data_stream(C, []),
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        <<"stream data 1">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        <<"stream data 2">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-
-    PubRecvs = recv_pub(2),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data 1">>,
-                qos := RecQos,
-                topic := Topic
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId2,
-                payload := <<"stream data 2">>,
-                qos := RecQos,
-                topic := Topic
-            }}
-        ],
-        PubRecvs
-    ),
-
-    {ok, PubVia2} = emqtt:start_data_stream(C, []),
-    ok = emqtt:publish_async(
-        C,
-        PubVia2,
-        Topic,
-        binary:copy(<<"too large">>, 200),
-        [{qos, PubQos}],
-        undefined
-    ),
-    ?assert(is_list(emqtt:info(C))),
-
-    timeout = recv_pub(1),
-
-    %% send large payload on stream 1
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        binary:copy(<<"too large">>, 200),
-        [{qos, PubQos}],
-        undefined
-    ),
-    timeout = recv_pub(1),
-    ?assert(is_list(emqtt:info(C))),
-
-    %% Connection could be kept but data stream are closed!
-    {error, closed} = quicer:send(via_stream(PubVia), <<1>>),
-    {error, closed} = quicer:send(via_stream(PubVia2), <<1>>),
-    %% We could send data over new stream
-    {ok, PubVia3} = emqtt:start_data_stream(C, []),
-    ok = emqtt:publish_async(
-        C,
-        PubVia3,
-        Topic,
-        <<"stream data 3">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    [
-        {publish, #{
-            client_pid := C,
-            packet_id := PktId3,
-            payload := <<"stream data 3">>,
-            qos := RecQos,
-            topic := Topic
-        }}
-    ] = recv_pub(1),
-
-    ?assert(is_list(emqtt:info(C))),
-
-    emqx_config:put_zone_conf(default, [mqtt, max_packet_size], OldMax),
-    ok = emqtt:disconnect(C).
-
-t_conn_change_client_addr(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, [SubQos]} = emqtt:subscribe(C, #{}, [{Topic, [{qos, SubQos}]}]),
-
-    {ok, {quic, Conn, _} = PubVia} = emqtt:start_data_stream(C, []),
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        <<"stream data 1">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := _PktId1,
-                payload := <<"stream data 1">>,
-                qos := RecQos
-            }}
-        ],
-        recv_pub(1)
-    ),
-    NewPort = select_port(),
-    {ok, OldAddr} = quicer:sockname(Conn),
-    ?assertEqual(
-        ok, quicer:setopt(Conn, local_address, "127.0.0.1:" ++ integer_to_list(NewPort))
-    ),
-
-    ?retry(
-        _Delay = 50,
-        _attempt = 20,
-        fun() ->
-            {ok, NewAddr} = quicer:sockname(Conn),
-            ?assertNotEqual(OldAddr, NewAddr)
-        end
-    ),
-    ?assert(is_list(emqtt:info(C))),
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_sub_pub_async(Config) ->
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    Topic2 = <<Topic/binary, "_two">>,
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        <<"stream data 1">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic2,
-        <<"stream data 2">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    PubRecvs = recv_pub(2),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data", _/binary>>,
-                qos := RecQos
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data", _/binary>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-    Payloads = [P || {publish, #{payload := P}} <- PubRecvs],
-    ?assert(
-        [<<"stream data 1">>, <<"stream data 2">>] == Payloads orelse
-            [<<"stream data 2">>, <<"stream data 1">>] == Payloads
-    ),
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_sub_pub_sync(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SVia1}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<"stream data 3">>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 ->
-            Via1 = undefined,
-            ok;
-        {ok, #{reason_code := 0, via := Via1}} ->
-            ok
-    end,
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic2, #{}, <<"stream data 4">>, [
-            {qos, PubQos}
-        ])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := Via2}} ->
-            ?assert(Via1 =/= Via2),
-            ok
-    end,
-    ct:pal("SVia1: ~p, SVia2: ~p", [SVia1, SVia2]),
-    PubRecvs = recv_pub(2),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data 3">>,
-                qos := RecQos,
-                via := SVia1
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data 4">>,
-                qos := RecQos,
-                via := SVia2
-            }}
-        ],
-        lists:sort(PubRecvs)
-    ),
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_dup_sub(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SVia1}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-
-    #{data_stream_socks := [{quic, _Conn, SubStream} | _]} = proplists:get_value(
-        extra, emqtt:info(C)
-    ),
-    ?assertEqual(2, length(emqx_broker:subscribers(Topic))),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<"stream data 3">>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 ->
-            ok;
-        {ok, #{reason_code := 0, via := _Via1}} ->
-            ok
-    end,
-    PubRecvs = recv_pub(2),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data 3">>,
-                qos := RecQos
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data 3">>,
-                qos := RecQos
-            }}
-        ],
-        lists:sort(PubRecvs)
-    ),
-
-    RecvVias = [Via || {publish, #{via := Via}} <- PubRecvs],
-
-    ct:pal("~p, ~p, ~n recv from: ~p~n", [SVia1, SVia2, PubRecvs]),
-    %% Can recv in any order
-    ?assert([SVia1, SVia2] == RecvVias orelse [SVia2, SVia1] == RecvVias),
-
-    %% Shutdown one stream
-    quicer:async_shutdown_stream(SubStream, ?QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 500),
-    timer:sleep(100),
-
-    ?assertEqual(1, length(emqx_broker:subscribers(Topic))),
-
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_corr_topic(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    PktId2 = calc_pkt_id(RecQos, 2),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SubVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 ->
-            ok;
-        {ok, #{reason_code := 0, via := _Via}} ->
-            ok
-    end,
-
-    #{data_stream_socks := [PubVia | _]} = proplists:get_value(extra, emqtt:info(C)),
-    ?assert(PubVia =/= SubVia),
-
-    case emqtt:publish_via(C, PubVia, Topic, #{}, <<6, 7, 8, 9>>, [{qos, PubQos}]) of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := PubVia}} -> ok
-    end,
-    PubRecvs = recv_pub(2),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId2,
-                payload := <<6, 7, 8, 9>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_unsub(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SubVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 ->
-            ok;
-        {ok, #{reason_code := 0, via := _PVia}} ->
-            ok
-    end,
-
-    #{data_stream_socks := [PubVia | _]} = proplists:get_value(extra, emqtt:info(C)),
-    ?assert(PubVia =/= SubVia),
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-
-    emqtt:unsubscribe_via(C, SubVia, Topic),
-    ?retry(
-        _Sleep2 = 100,
-        _Attempts2 = 50,
-        [] = emqx_router:lookup_routes(Topic)
-    ),
-
-    case emqtt:publish_via(C, PubVia, Topic, #{}, <<6, 7, 8, 9>>, [{qos, PubQos}]) of
-        ok when PubQos == 0 ->
-            ok;
-        {ok, #{reason_code := 16, via := PubVia, reason_code_name := no_matching_subscribers}} ->
-            ok
-    end,
-
-    timeout = recv_pub(1),
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_kill_sub_stream(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := _SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := _SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-    [TopicStreamOwner] = emqx_broker:subscribers(Topic),
-    exit(TopicStreamOwner, kill),
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 ->
-            ok;
-        {ok, #{reason_code := Code, via := _PVia}} when Code == 0 orelse Code == 16 ->
-            ok
-    end,
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic2, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 ->
-            ok;
-        {ok, #{reason_code := 0, via := _PVia2}} ->
-            ok
-    end,
-
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                topic := Topic2,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        recv_pub(1)
-    ),
-    ?assertEqual(timeout, recv_pub(1)),
-    ok.
-
-t_multi_streams_unsub_via_other(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    PktId2 = calc_pkt_id(RecQos, 2),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := _SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia}} -> ok
-    end,
-
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-
-    #{data_stream_socks := [PubVia | _]} = proplists:get_value(extra, emqtt:info(C)),
-
-    %% Unsub topic1 via stream2 should fail with error code 17: "No subscription existed"
-    {ok, #{via := SVia2}, [17]} = emqtt:unsubscribe_via(C, SVia2, Topic),
-
-    case emqtt:publish_via(C, PubVia, Topic, #{}, <<6, 7, 8, 9>>, [{qos, PubQos}]) of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia2}} -> ok
-    end,
-
-    PubRecvs2 = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId2,
-                payload := <<6, 7, 8, 9>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs2
-    ),
-    ok = emqtt:disconnect(C).
-
-t_multi_streams_shutdown_pub_data_stream(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    ?assert(SVia =/= SVia2),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia}} -> ok
-    end,
-
-    PubRecvs = recv_pub(1),
-    #{data_stream_socks := [PubVia | _]} = proplists:get_value(extra, emqtt:info(C)),
-    {quic, _Conn, DataStream} = PubVia,
-    quicer:shutdown_stream(DataStream, ?config(stream_shutdown_flag, Config), 500, 100),
-    timer:sleep(500),
-    %% Still alive
-    ?assert(is_list(emqtt:info(C))),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-    emqtt:stop(C).
-
-t_multi_streams_shutdown_sub_data_stream(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    ?assert(SVia =/= SVia2),
-    {quic, _Conn, DataStream} = SVia2,
-    quicer:shutdown_stream(DataStream, ?QUIC_STREAM_SHUTDOWN_FLAG_ABORT_RECEIVE, 500, 100),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia}} -> ok
-    end,
-
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-
-    #{data_stream_socks := [_PubVia | _]} = proplists:get_value(extra, emqtt:info(C)),
-    timer:sleep(500),
-    %% Still alive
-    ?assert(is_list(emqtt:info(C))),
-    emqtt:stop(C).
-
-t_multi_streams_shutdown_ctrl_stream(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    unlink(C),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := _SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := _SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia}} -> ok
-    end,
-
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-
-    {quic, _Conn, Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
-    Flag = ?config(stream_shutdown_flag, Config),
-    AppErrorCode =
-        case Flag of
-            ?QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL -> 0;
-            _ -> 500
-        end,
-    quicer:shutdown_stream(Ctrlstream, Flag, AppErrorCode, 1000),
-    timer:sleep(500),
-    %% Client should be closed
-    ?assertMatch({'EXIT', {noproc, {gen_statem, call, [_, info, infinity]}}}, catch emqtt:info(C)).
-
-t_multi_streams_shutdown_ctrl_stream_then_reconnect(Config) ->
-    erlang:process_flag(trap_exit, true),
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {reconnect, true},
-        {clean_start, false},
-        {clientid, atom_to_binary(?FUNCTION_NAME)},
-        %% speedup test
-        {connect_timeout, 5}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    ?assert(SVia2 =/= SVia),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia}} -> ok
-    end,
-
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-
-    {quic, _Conn, Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
-    quicer:shutdown_stream(Ctrlstream, ?config(stream_shutdown_flag, Config), 500, 100),
-    timer:sleep(200),
-    %% Client should not be closed
-    ?assert(is_list(emqtt:info(C))),
-    emqtt:stop(C).
-
-t_multi_streams_emqx_ctrl_kill(Config) ->
-    erlang:process_flag(trap_exit, true),
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {reconnect, false},
-        %% speedup test
-        {connect_timeout, 5}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    ?assert(SVia2 =/= SVia),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia}} -> ok
-    end,
-
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-
-    ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{ClientId, TransPid}] = ets:lookup(?CHAN_TAB, ClientId),
-    exit(TransPid, kill),
-
-    %% Client should be closed
-    assert_client_die(C).
-
-t_multi_streams_emqx_ctrl_exit_normal(Config) ->
-    erlang:process_flag(trap_exit, true),
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {reconnect, false},
-        %% speedup test
-        {connect_timeout, 5}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    ?assert(SVia2 =/= SVia),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia}} -> ok
-    end,
-
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-
-    ClientId = proplists:get_value(clientid, emqtt:info(C)),
-    [{ClientId, TransPid}] = ets:lookup(?CHAN_TAB, ClientId),
-
-    emqx_connection:stop(TransPid),
-    %% Client exit normal.
-    assert_client_die(C).
-
-t_multi_streams_remote_shutdown(Config) ->
-    erlang:process_flag(trap_exit, true),
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {reconnect, false},
-        {clientid, atom_to_binary(?FUNCTION_NAME)},
-        %% speedup test
-        {connect_timeout, 5}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    ?assert(SVia2 =/= SVia),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia}} -> ok
-    end,
-
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-
-    {quic, _Conn, _Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
-
-    ok = stop_emqx(Config),
-    try
-        %% Client should be closed
-        assert_client_die(C, 100, 200)
-    after
-        restart_emqx(Config)
-    end.
-
-t_multi_streams_remote_shutdown_with_reconnect(Config) ->
-    erlang:process_flag(trap_exit, true),
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Topic2 = <<Topic/binary, "two">>,
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {reconnect, true},
-        {clean_start, false},
-        {clientid, atom_to_binary(?FUNCTION_NAME)},
-        %% speedup test
-        {connect_timeout, 5}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, #{via := SVia}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, #{via := SVia2}, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-
-    ?assert(SVia2 =/= SVia),
-
-    case
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, PubQos}])
-    of
-        ok when PubQos == 0 -> ok;
-        {ok, #{reason_code := 0, via := _PVia}} -> ok
-    end,
-
-    PubRecvs = recv_pub(1),
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<1, 2, 3, 4, 5>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-
-    {quic, _Conn, _Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
-
-    _Apps = restart_emqx(Config),
-
-    ?assert(is_list(emqtt:info(C))),
-    emqtt:stop(C).
-
-t_conn_silent_close(Config) ->
-    erlang:process_flag(trap_exit, true),
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {connect_timeout, 5}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    %% quic idle timeout + 1s
-    timer:sleep(16000),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    ?assertException(
-        exit,
-        noproc,
-        emqtt:publish_via(C, {new_data_stream, []}, Topic, #{}, <<1, 2, 3, 4, 5>>, [{qos, 1}])
-    ).
-
-t_client_conn_bump_streams(Config) ->
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {connect_timeout, 5}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    {quic, Conn, _Stream} = proplists:get_value(socket, emqtt:info(C)),
-    ok = quicer:setopt(Conn, settings, #{peer_unidi_stream_count => 20}).
-
-t_olp_true(Config) ->
-    meck:new(emqx_olp, [passthrough, no_history]),
-    ok = meck:expect(emqx_olp, is_overloaded, fun() -> true end),
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {connect_timeout, 5}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    ok = meck:unload(emqx_olp).
-
-t_olp_reject(Config) ->
-    erlang:process_flag(trap_exit, true),
-    emqx_config:put_zone_conf(default, [overload_protection, enable], true),
-    meck:new(emqx_olp, [passthrough, no_history]),
-    ok = meck:expect(emqx_olp, is_overloaded, fun() -> true end),
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {connect_timeout, 5}
-        | Config
-    ]),
-    ?assertEqual(
-        {error,
-            {transport_down, #{
-                error => 11,
-                status =>
-                    user_canceled
-            }}},
-        emqtt:quic_connect(C)
-    ),
-    ok = meck:unload(emqx_olp),
-    emqx_config:put_zone_conf(default, [overload_protection, enable], false).
+t_zero_rtt_stream_continue(Config) ->
+    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-stream-continue", []).
 
 t_conn_resume(Config) ->
-    erlang:process_flag(trap_exit, true),
-    {ok, C0} = emqtt:start_link([
-        {proto_ver, v5},
-        {connect_timeout, 5}
-        | Config
-    ]),
+    run_scenario("conn-resume", Config, []).
 
-    {ok, _} = emqtt:quic_connect(C0),
-    #{nst := NST} = proplists:get_value(extra, emqtt:info(C0)),
-    emqtt:disconnect(C0),
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {connect_timeout, 5},
-        {nst, NST}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    Cid = proplists:get_value(clientid, emqtt:info(C)),
-    ct:pal("~p~n", [emqx_cm:get_chan_info(Cid)]).
+t_data_stream_race_control_stream(Config) ->
+    run_scenario("data-stream-race-control-stream", Config, []).
 
-t_conn_without_ctrl_stream(Config) ->
-    erlang:process_flag(trap_exit, true),
-    {ok, Conn} = quicer:connect(
-        {127, 0, 0, 1},
-        ?config(port, Config),
-        [{alpn, ["mqtt"]}, {verify, none}],
-        3000
-    ),
-    receive
-        {quic, transport_shutdown, Conn, _} -> ok
+t_keepalive_data_only_timeout(Config) ->
+    run_scenario("keepalive-data-only-timeout", Config, [
+        "--keep-alive",
+        "1",
+        "--timeout-ms",
+        "10000"
+    ]).
+
+t_keepalive_data_stream_active(Config) ->
+    run_scenario("keepalive-data-stream-active", Config, [
+        "--keep-alive",
+        "1",
+        "--timeout-ms",
+        "10000"
+    ]).
+
+t_stream_finish(Config) ->
+    run_scenario("stream-finish", Config, []).
+
+t_stream_reset(Config) ->
+    run_scenario("stream-reset", Config, []).
+
+t_stream_stop(Config) ->
+    run_scenario("stream-stop", Config, []).
+
+t_manual_ack_qos1(Config) ->
+    run_scenario("manual-ack-qos1", Config, []).
+
+t_manual_ack_qos2(Config) ->
+    run_scenario("manual-ack-qos2", Config, []).
+
+t_session_resume_qos1(Config) ->
+    run_scenario("session-resume-qos1", Config, []).
+
+t_session_resume_qos2(Config) ->
+    maybe_skip_unsupported_qos2_resume(Config).
+
+t_mqtt_v5_basic(Config) ->
+    %% Covers the former QUIC executions of t_basic_test, t_basic_large_packets,
+    %% t_subscribe_actions, t_unsubscribe, and t_pingreq.
+    run_scenario("mqtt-v5-basic", Config, ["--timeout-ms", "30000"]).
+
+t_mqtt_v5_session(Config) ->
+    %% Covers clean start, live/stale takeover, duplicate client ids, Session
+    %% Present, assigned client ids, and reconnecting an unresponsive old client.
+    run_scenario("mqtt-v5-session", Config, ["--timeout-ms", "30000"]).
+
+t_mqtt_v5_publish_properties(Config) ->
+    %% Covers RAP, payload format, PUBLISH properties, and overlapping subscriptions.
+    run_scenario("mqtt-v5-publish-properties", Config, []).
+
+t_mqtt_v5_no_local(Config) ->
+    %% Covers both single and mixed-traffic No Local behavior.
+    run_scenario("mqtt-v5-no-local", Config, []).
+
+t_mqtt_v5_invalid_packets(Config) ->
+    %% Covers wildcard topic names, invalid response topics, Topic Alias zero and
+    %% reuse, and No Local on a shared subscription.
+    run_scenario("mqtt-v5-invalid-packets", Config, []).
+
+t_mqtt_v5_batch_subscribe(Config) ->
+    emqx_config:put_zone_conf(default, [authorization, enable], true),
+    ok = meck:new(emqx_access_control, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
+    try
+        run_scenario("mqtt-v5-batch-subscribe", Config, [])
+    after
+        emqx_config:put_zone_conf(default, [authorization, enable], false),
+        meck:unload(emqx_access_control)
     end.
 
-t_data_stream_race_ctrl_stream(Config) ->
-    erlang:process_flag(trap_exit, true),
-    {ok, C0} = emqtt:start_link([
-        {proto_ver, v5},
-        {connect_timeout, 5}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C0),
-    #{nst := NST} = proplists:get_value(extra, emqtt:info(C0)),
-    emqtt:disconnect(C0),
-    {ok, C} = emqtt:start_link([
-        {proto_ver, v5},
-        {connect_timeout, 5},
-        {nst, NST}
-        | Config
-    ]),
-    {ok, _} = emqtt:quic_connect(C),
-    Cid = proplists:get_value(clientid, emqtt:info(C)),
-    ct:pal("~p~n", [emqx_cm:get_chan_info(Cid)]).
-
-t_multi_streams_sub_0_rtt(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    {ok, C0} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C0),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C0, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    ok = emqtt:open_quic_connection(C),
-    ok = emqtt:quic_mqtt_connect(C),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        #{},
-        <<"qos 2 1">>,
-        [{qos, PubQos}],
-        infinity,
-        fun(_) -> ok end
+t_mqtt_v5_subscribe_max_qos(Config) ->
+    OldMQTT = emqx_config:get_zone_conf(default, [mqtt]),
+    #{mqtt := MQTTConf} = check_zone_config(
+        "mqtt {"
+        "\n max_qos_allowed = 2"
+        "\n subscription_max_qos_rules = ["
+        "\n   { topic { equals = \"t\" }, qos = 1 }"
+        "\n   { topic { matches = \"glob/+/#\" }, qos = 0 }"
+        "\n ] }"
     ),
-    {ok, _} = emqtt:quic_connect(C),
-    receive
-        {publish, #{
-            client_pid := C0,
-            payload := <<"qos 2 1">>,
-            qos := RecQos,
+    emqx_config:put_zone_conf(default, [mqtt], MQTTConf),
+    try
+        run_scenario("mqtt-v5-subscribe-max-qos", Config, [])
+    after
+        emqx_config:put_zone_conf(default, [mqtt], OldMQTT)
+    end.
+
+t_mqtt_v5_max_qos_allowed(Config) ->
+    OldMax = emqx_config:get_zone_conf(default, [mqtt, max_qos_allowed]),
+    try
+        lists:foreach(
+            fun(MaxQoS) ->
+                emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], MaxQoS),
+                run_scenario("mqtt-v5-max-qos", Config, [
+                    "--sub-qos", integer_to_list(MaxQoS)
+                ])
+            end,
+            [0, 1, 2]
+        )
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_qos_allowed], OldMax)
+    end.
+
+t_mqtt_v5_publish_packet_too_large(Config) ->
+    OldMax = emqx_config:get_zone_conf(default, [mqtt, max_packet_size]),
+    emqx_config:put_zone_conf(default, [mqtt, max_packet_size], 1024),
+    try
+        run_scenario("mqtt-v5-publish-too-large", Config, [])
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_packet_size], OldMax)
+    end.
+
+t_mqtt_v5_shared_qos2_abort(Config) ->
+    emqx_config:put([broker, shared_dispatch_ack_enabled], true),
+    try
+        run_scenario("mqtt-v5-shared-qos2-abort", Config, [])
+    after
+        emqx_config:put([broker, shared_dispatch_ack_enabled], false)
+    end.
+
+t_mqtt_v5_connack_client_id_unavailable(Config) ->
+    ClientId = unique_name("connack-unavailable"),
+    ClientIdBin = list_to_binary(ClientId),
+    DeadPid = spawn(fun() -> exit(normal) end),
+    true = ets:insert(?CHAN_CONN_TAB, #chan_conn{
+        pid = DeadPid,
+        mod = emqx_connection,
+        clientid = ClientIdBin
+    }),
+    ok = emqx_cm_registry:register_channel({ClientIdBin, DeadPid}),
+    try
+        run_scenario_as("mqtt-v5-connack-unavailable", Config, ClientId, [])
+    after
+        ok = emqx_cm_registry:unregister_channel({ClientIdBin, DeadPid}),
+        true = ets:delete(?CHAN_CONN_TAB, DeadPid)
+    end.
+
+t_mqtt_v5_connect_will_message(_Config) ->
+    skip_flowsdk_will_connect().
+
+t_mqtt_v5_connect_will_retain(_Config) ->
+    skip_flowsdk_will_connect().
+
+t_mqtt_v5_connect_packet_too_large(_Config) ->
+    skip_flowsdk_will_connect().
+
+t_mqtt_v5_max_qos_will_rejection(_Config) ->
+    skip_flowsdk_will_connect().
+
+t_mqtt_v5_connack_unavailable_no_will(_Config) ->
+    skip_flowsdk_will_connect().
+
+skip_flowsdk_will_connect() ->
+    {skip,
+        "FlowSDK QuicMqttEngine CONNECT currently drops MqttClientOptions::will; "
+        "send_raw_on cannot replace the engine's automatically queued CONNECT"}.
+
+t_mqtt_v5_emit_stats_timeout(Config) ->
+    OldIdleTimeout = emqx_config:get_zone_conf(default, [mqtt, idle_timeout]),
+    emqx_config:put_zone_conf(default, [mqtt, idle_timeout], 1000),
+    ClientId = unique_name("stats-timer"),
+    ClientIdBin = list_to_binary(ClientId),
+    Client = start_async_scenario(Config, "mqtt-v5-stats-timer", ClientId, [
+        "--keep-alive",
+        "60",
+        "--hold-ms",
+        "4000"
+    ]),
+    try
+        wait_async_client_ready(Client),
+        [ClientPid] = emqx_cm:lookup_channels(ClientIdBin),
+        ?assertMatch(
+            TRef when is_reference(TRef),
+            emqx_connection:info(stats_timer, sys:get_state(ClientPid))
+        ),
+        ?retry(
+            100,
+            30,
+            ?assertEqual(
+                undefined,
+                emqx_connection:info(stats_timer, sys:get_state(ClientPid))
+            )
+        ),
+        wait_async_client(Client)
+    after
+        emqx_config:put_zone_conf(default, [mqtt, idle_timeout], OldIdleTimeout)
+    end.
+
+t_mqtt_v5_deliver_packet_too_large(Config) ->
+    ClientId = unique_name("deliver-too-large"),
+    ClientIdBin = list_to_binary(ClientId),
+    Client =
+        #{
             topic := Topic
-        }} ->
-            ok;
-        Other ->
-            ct:fail("unexpected recv ~p", [Other])
-    after 100 ->
-        ct:fail("not received")
-    end,
-    ok = emqtt:disconnect(C),
-    ok = emqtt:disconnect(C0).
+        } = start_async_scenario(Config, "mqtt-v5-receive-too-large", ClientId, [
+            "--maximum-packet-size",
+            "1024",
+            "--hold-ms",
+            "4000"
+        ]),
+    wait_async_client_ready(Client),
+    Payload = binary:copy(<<"X">>, 1024),
+    Message = emqx_message:make(<<?MODULE_STRING>>, 1, list_to_binary(Topic), Payload),
+    ?assertMatch([{_, _, {ok, 1}}], emqx_broker:publish(Message)),
+    [ChanPid] = emqx_cm:lookup_channels(ClientIdBin),
+    ConnMod = emqx_cm:do_get_chann_conn_mod(ClientIdBin, ChanPid),
+    ?retry(
+        100,
+        30,
+        ?assertMatch(
+            #{'send_msg.dropped.too_large' := 1},
+            maps:from_list(ConnMod:stats(ChanPid))
+        )
+    ),
+    wait_async_client(Client).
 
-t_multi_streams_sub_0_rtt_large_payload(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Payload = binary:copy(<<"qos 2 1">>, 1600),
-    {ok, C0} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C0),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C0, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
+t_mqtt_v5_subscribe_topic_alias(Config) ->
+    run_scenario("subscribe-topic-alias", Config, [
+        "--topic-alias-maximum",
+        "1"
+    ]).
+
+t_broker_connected_client_count_persistent(Config) ->
+    reset_connected_clients(),
+    ClientId = unique_name("broker-persistent"),
+    ClientIdBin = list_to_binary(ClientId),
+    Baseline = emqx_cm:get_connected_client_count(),
+    Client1 = start_async_client(Config, ClientId, [
+        "--clean-start",
+        "false",
+        "--session-expiry-interval",
+        "30",
+        "--hold-ms",
+        "1500"
     ]),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    ok = emqtt:open_quic_connection(C),
-    ok = emqtt:quic_mqtt_connect(C),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        #{},
-        Payload,
-        [{qos, PubQos}],
-        infinity,
-        fun(_) -> ok end
-    ),
-    {ok, _} = emqtt:quic_connect(C),
-    receive
-        {publish, #{
-            client_pid := C0,
-            payload := Payload,
-            qos := RecQos,
-            topic := Topic
-        }} ->
-            ok;
-        Other ->
-            ct:fail("unexpected recv ~p", [Other])
-    after 100 ->
-        ct:fail("not received")
-    end,
-    ok = emqtt:disconnect(C),
-    ok = emqtt:disconnect(C0).
+    wait_async_client_ready(Client1),
+    ?retry(100, 20, ?assertEqual(Baseline + 1, emqx_cm:get_connected_client_count())),
+    wait_async_client(Client1),
+    ?retry(100, 30, ?assertEqual(Baseline, emqx_cm:get_connected_client_count())),
 
-%% @doc verify data stream can continue after 0-RTT handshake
-t_multi_streams_sub_0_rtt_stream_data_cont(Config) ->
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    Payload = binary:copy(<<"qos 2 1">>, 1600),
-    {ok, C0} = emqtt:start_link([{proto_ver, v5} | Config]),
-    {ok, _} = emqtt:quic_connect(C0),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C0, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
+    Client2 = start_async_client(Config, ClientId, [
+        "--clean-start",
+        "false",
+        "--session-expiry-interval",
+        "30",
+        "--hold-ms",
+        "5000"
     ]),
-    {ok, C} = emqtt:start_link([{proto_ver, v5} | Config]),
-    ok = emqtt:open_quic_connection(C),
-    ok = emqtt:quic_mqtt_connect(C),
-    {ok, PubVia} = emqtt:start_data_stream(C, []),
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        #{},
-        Payload,
-        [{qos, PubQos}],
-        infinity,
-        fun(_) -> ok end
-    ),
-    {ok, _} = emqtt:quic_connect(C),
-    receive
-        {publish, #{
-            client_pid := C0,
-            payload := Payload,
-            qos := RecQos,
-            topic := Topic
-        }} ->
-            ok;
-        Other ->
-            ct:fail("unexpected recv ~p", [Other])
-    after 100 ->
-        ct:fail("not received")
-    end,
-    Payload2 = <<"2nd part", Payload/binary>>,
-    ok = emqtt:publish_async(
-        C,
-        PubVia,
-        Topic,
-        #{},
-        Payload2,
-        [{qos, PubQos}],
-        infinity,
-        fun(_) -> ok end
-    ),
-    receive
-        {publish, #{
-            client_pid := C0,
-            payload := Payload2,
-            qos := RecQos,
-            topic := Topic
-        }} ->
-            ok;
-        Other2 ->
-            ct:fail("unexpected recv ~p", [Other2])
-    after 100 ->
-        ct:fail("not received")
-    end,
-    ok = emqtt:disconnect(C),
-    ok = emqtt:disconnect(C0).
-
-t_listener_inval_settings(_Config) ->
-    LPort = select_port(),
-    %% too small
-    LowLevelTunings = #{stream_recv_buffer_default => 1024},
-    ?assertThrow(
-        {error, {failed_to_start, _}},
-        emqx_common_test_helpers:ensure_quic_listener(?FUNCTION_NAME, LPort, LowLevelTunings)
-    ).
-
-t_listener_with_lowlevel_settings(_Config) ->
-    LPort = select_port(),
-    LowLevelTunings = #{
-        max_bytes_per_key => 274877906,
-        %% In conf schema we use handshake_idle_timeout
-        handshake_idle_timeout_ms => 2000,
-        %% In conf schema we use idle_timeout
-        idle_timeout_ms => 20000,
-        %% not use since we are server
-        %% tls_client_max_send_buffer,
-        tls_server_max_send_buffer => 10240,
-        stream_recv_window_default => 16384 * 2,
-        %% there is one debug assertion: stream_recv_window_default > stream_recv_buffer_default
-        stream_recv_buffer_default => 16384,
-        conn_flow_control_window => 1024,
-        max_stateless_operations => 16,
-        initial_window_packets => 1300,
-        send_idle_timeout_ms => 12000,
-        initial_rtt_ms => 300,
-        max_ack_delay_ms => 6000,
-        disconnect_timeout_ms => 60000,
-        %% In conf schema,  we use keep_alive_interval
-        keep_alive_interval_ms => 12000,
-        %% over written by conn opts
-        peer_bidi_stream_count => 100,
-        %% over written by conn opts
-        peer_unidi_stream_count => 100,
-        retry_memory_limit => 640,
-        load_balancing_mode => 1,
-        max_operations_per_drain => 32,
-        send_buffering_enabled => 1,
-        pacing_enabled => 0,
-        migration_enabled => 0,
-        datagram_receive_enabled => 1,
-        server_resumption_level => 0,
-        minimum_mtu => 1250,
-        maximum_mtu => 1600,
-        mtu_discovery_search_complete_timeout_us => 500000000,
-        mtu_discovery_missing_probe_count => 6,
-        max_binding_stateless_operations => 200,
-        stateless_operation_expiration_ms => 200
-    },
-    ?assertEqual(
-        ok, emqx_common_test_helpers:ensure_quic_listener(?FUNCTION_NAME, LPort, LowLevelTunings)
-    ),
-    timer:sleep(1000),
-    {ok, C} = emqtt:start_link([{proto_ver, v5}, {port, LPort}]),
-    {ok, _} = emqtt:quic_connect(C),
-    {ok, _, _} = emqtt:subscribe(C, <<"test/1/2">>, qos2),
-    {ok, _, [_SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {<<"test/1/3">>, [{qos, 2}]}
+    wait_async_client_ready(Client2),
+    Client3 = start_async_client(Config, ClientId, [
+        "--clean-start",
+        "false",
+        "--session-expiry-interval",
+        "30",
+        "--hold-ms",
+        "5000"
     ]),
-    ok = emqtt:disconnect(C).
+    wait_async_client_ready(Client3),
+    ?retry(100, 30, ?assertEqual(Baseline + 1, emqx_cm:get_connected_client_count())),
+    [ChanPid] = emqx_cm:lookup_channels(ClientIdBin),
+    exit(ChanPid, kill),
+    ?retry(100, 30, ?assertEqual(Baseline, emqx_cm:get_connected_client_count())),
+    stop_async_client(Client2),
+    stop_async_client(Client3).
+
+t_broker_connected_client_count_anonymous(Config) ->
+    reset_connected_clients(),
+    Baseline = emqx_cm:get_connected_client_count(),
+    BaselineChannels = emqx_cm:all_channels(),
+    Client1 = start_async_client(Config, "", ["--hold-ms", "5000"]),
+    wait_async_client_ready(Client1),
+    Client2 = start_async_client(Config, "", ["--hold-ms", "5000"]),
+    wait_async_client_ready(Client2),
+    ?retry(100, 30, ?assertEqual(Baseline + 2, emqx_cm:get_connected_client_count())),
+    [First | Rest] = emqx_cm:all_channels() -- BaselineChannels,
+    exit(First, kill),
+    ?retry(100, 30, ?assertEqual(Baseline + 1, emqx_cm:get_connected_client_count())),
+    lists:foreach(fun(Pid) -> exit(Pid, kill) end, Rest),
+    ?retry(100, 30, ?assertEqual(Baseline, emqx_cm:get_connected_client_count())),
+    stop_async_client(Client1),
+    stop_async_client(Client2).
+
+t_broker_connected_client_count_transient_takeover(Config) ->
+    reset_connected_clients(),
+    ClientId = unique_name("broker-transient"),
+    Baseline = emqx_cm:get_connected_client_count(),
+    Clients = [
+        start_async_client(Config, ClientId, ["--hold-ms", "1000"])
+     || _ <- lists:seq(1, 20)
+    ],
+    ?retry(
+        100,
+        50,
+        begin
+            Count = emqx_cm:get_connected_client_count(),
+            ?assert(Count >= Baseline),
+            ?assert(Count =< Baseline + 1),
+            ?assert(emqx_stats:getstat('live_connections.max') >= 1)
+        end
+    ),
+    lists:foreach(fun wait_async_client_allow_failure/1, Clients),
+    ?retry(100, 50, ?assertEqual(Baseline, emqx_cm:get_connected_client_count())).
+
+t_broker_connected_client_stats(Config) ->
+    reset_connected_clients(),
+    Baseline = emqx_cm:get_connected_client_count(),
+    ok = supervisor:terminate_child(emqx_kernel_sup, emqx_stats),
+    {ok, _} = supervisor:restart_child(emqx_kernel_sup, emqx_stats),
+    emqx_cm:stats_fun(),
+    ?assertEqual(Baseline, emqx_stats:getstat('live_connections.count')),
+    ClientId = unique_name("broker-stats"),
+    Client = start_async_client(Config, ClientId, ["--hold-ms", "5000"]),
+    wait_async_client_ready(Client),
+    emqx_cm:stats_fun(),
+    ?retry(100, 20, ?assertEqual(Baseline + 1, emqx_stats:getstat('live_connections.count'))),
+    ?assert(emqx_stats:getstat('live_connections.max') >= Baseline + 1),
+    [ChanPid] = emqx_cm:lookup_channels(list_to_binary(ClientId)),
+    exit(ChanPid, kill),
+    ?retry(100, 30, ?assertEqual(Baseline, emqx_cm:get_connected_client_count())),
+    emqx_cm:stats_fun(),
+    ?retry(100, 20, ?assertEqual(Baseline, emqx_stats:getstat('live_connections.count'))),
+    stop_async_client(Client).
+
+reset_connected_clients() ->
+    lists:foreach(fun(Pid) -> exit(Pid, kill) end, emqx_cm:all_channels()),
+    ?retry(100, 250, ?assertEqual(0, emqx_cm:get_connected_client_count())).
+
+t_source_bind(Config) ->
+    run_scenario("source-bind", Config, ["--local-bind-addr", "127.0.0.1:0"]).
+
+t_source_rebind(Config) ->
+    maybe_skip_unsupported_source_rebind(Config).
+
+t_quic_sock(_Config) ->
+    maybe_skip_missing_runner_scenario("raw emqtt_quic socket send/recv against test QUIC server").
+
+t_quic_sock_fail(_Config) ->
+    maybe_skip_missing_runner_scenario("raw emqtt_quic socket connection failure").
+
+t_0_rtt(Config) ->
+    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-pubsub", []).
+
+t_0_rtt_fail(Config) ->
+    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-invalid-ticket", []).
 
 t_keep_alive(Config) ->
-    process_flag(trap_exit, true),
-
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    Topic2 = <<Topic/binary, "_two">>,
-    %% GIVEN: keepalive is 2s
-    {ok, C} = emqtt:start_link([{proto_ver, v5}, {force_ping, false}, {keepalive, 2} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
-
-    %% WHEN: we have active data on data stream only
-    %% but keep client ctrl stream quiet with meck
-    meck:new(emqtt, [no_link, passthrough, no_history]),
-    meck:expect(emqtt, connected, fun
-        (info, {timeout, _TRef, keepalive}, State) ->
-            {keep_state, State};
-        (Arg1, Arg2, Arg3) ->
-            meck:passthrough([Arg1, Arg2, Arg3])
-    end),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        <<"stream data 1">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic2,
-        <<"stream data 2">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    PubRecvs = recv_pub(2),
-
-    ?assertMatch(
-        [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data", _/binary>>,
-                qos := RecQos
-            }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data", _/binary>>,
-                qos := RecQos
-            }}
-        ],
-        PubRecvs
-    ),
-    Payloads = [P || {publish, #{payload := P}} <- PubRecvs],
-    ?assert(
-        [<<"stream data 1">>, <<"stream data 2">>] == Payloads orelse
-            [<<"stream data 2">>, <<"stream data 1">>] == Payloads
-    ),
-
-    %% THEN: after 4s, idle timeout , client should get disconnected.
-    receive
-        {disconnected, ?RC_KEEP_ALIVE_TIMEOUT, _} ->
-            meck:unload(emqtt),
-            ok
-    after 4000 ->
-        meck:unload(emqtt),
-        ct:fail("Didnt shutdown ~p", [process_info(self(), messages)])
-    end.
+    run_scenario("keepalive-data-only-timeout", Config, [
+        "--keep-alive",
+        "1",
+        "--timeout-ms",
+        "10000"
+    ]).
 
 t_keep_alive_idle_ctrl_stream(Config) ->
-    process_flag(trap_exit, true),
+    run_scenario("keepalive-data-stream-active", Config, [
+        "--keep-alive",
+        "1",
+        "--timeout-ms",
+        "10000"
+    ]).
 
-    Topic = atom_to_binary(?FUNCTION_NAME),
-    PubQos = ?config(pub_qos, Config),
-    SubQos = ?config(sub_qos, Config),
-    RecQos = calc_qos(PubQos, SubQos),
-    PktId1 = calc_pkt_id(RecQos, 1),
-    Topic2 = <<Topic/binary, "_two">>,
-    %% GIVEN: keepalive is 2s
-    {ok, C} = emqtt:start_link([{proto_ver, v5}, {force_ping, false}, {keepalive, 2} | Config]),
-    {ok, _} = emqtt:quic_connect(C),
+t_multi_streams_sub(Config) ->
+    run_scenario("pubsub", Config, qos_args(Config)).
 
-    %% WHEN: we have active data on data stream only
-    %% but keep ctrl stream quiet with meck
-    meck:new(emqtt, [no_link, passthrough, no_history]),
-    meck:expect(emqtt, connected, fun
-        (info, {timeout, _TRef, keepalive}, State) ->
-            {keep_state, State};
-        (Arg1, Arg2, Arg3) ->
-            meck:passthrough([Arg1, Arg2, Arg3])
-    end),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, SubQos}]}
-    ]),
-    {ok, _, [SubQos]} = emqtt:subscribe_via(C, {new_data_stream, []}, #{}, [
-        {Topic2, [{qos, SubQos}]}
-    ]),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        <<"stream data 1">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic2,
-        <<"stream data 2">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    PubRecvs = recv_pub(2),
+t_multi_streams_pub_5x100(Config) ->
+    run_scenario(
+        "multistream-pub-5x100",
+        Config,
+        qos_args(Config) ++ ["--timeout-ms", "30000"]
+    ).
 
-    ?assertMatch(
+t_multi_streams_pub_parallel(Config) ->
+    run_scenario("parallel-publish", Config, qos_args(Config)).
+
+t_multi_streams_pub_parallel_no_blocking(Config) ->
+    run_scenario("parallel-no-blocking", Config, qos_args(Config)).
+
+t_multi_streams_sub_pub_async(Config) ->
+    run_scenario("multistream", Config, qos_args(Config)).
+
+t_multi_streams_sub_pub_sync(Config) ->
+    run_scenario("multistream", Config, qos_args(Config)).
+
+t_multi_streams_unsub(Config) ->
+    run_scenario("unsubscribe", Config, qos_args(Config)).
+
+t_multi_streams_corr_topic(Config) ->
+    run_scenario("correlation-topic", Config, qos_args(Config)).
+
+t_multi_streams_unsub_via_other(Config) ->
+    run_scenario("unsubscribe-via-other", Config, qos_args(Config)).
+
+t_multi_streams_dup_sub(Config) ->
+    run_scenario("duplicate-subscribe", Config, qos_args(Config)).
+
+t_multi_streams_packet_boundary(Config) ->
+    run_scenario("packet-boundary", Config, qos_args(Config) ++ ["--timeout-ms", "30000"]).
+
+t_multi_streams_packet_malform(Config) ->
+    run_scenario("malformed", Config, ["--malformed-hex", "00000000000000000000"]).
+
+t_multi_streams_kill_sub_stream(Config) ->
+    run_scenario("stream-reset", Config, qos_args(Config)).
+
+t_multi_streams_packet_too_large(Config) ->
+    OldMax = emqx_config:get_zone_conf(default, [mqtt, max_packet_size]),
+    emqx_config:put_zone_conf(default, [mqtt, max_packet_size], 1000),
+    try
+        run_scenario("packet-too-large", Config, qos_args(Config))
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_packet_size], OldMax)
+    end.
+
+t_multi_streams_sub_0_rtt(Config) ->
+    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-pubsub", []).
+
+t_multi_streams_sub_0_rtt_large_payload(Config) ->
+    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-large-payload", ["--timeout-ms", "30000"]).
+
+t_multi_streams_sub_0_rtt_stream_data_cont(Config) ->
+    maybe_skip_unsupported_zero_rtt(Config, "zero-rtt-stream-continue", []).
+
+t_conn_change_client_addr(Config) ->
+    maybe_skip_unsupported_source_rebind(Config).
+
+t_multi_streams_shutdown_pub_data_stream(Config) ->
+    run_scenario("stream-finish", Config, qos_args(Config)).
+
+t_multi_streams_shutdown_sub_data_stream(Config) ->
+    run_scenario("stream-stop", Config, qos_args(Config)).
+
+t_multi_streams_shutdown_ctrl_stream(_Config) ->
+    maybe_skip_missing_runner_scenario("client control stream shutdown flags").
+
+t_multi_streams_shutdown_ctrl_stream_then_reconnect(_Config) ->
+    maybe_skip_missing_runner_scenario("control stream shutdown followed by reconnect").
+
+t_multi_streams_remote_shutdown(_Config) ->
+    maybe_skip_missing_runner_scenario("broker stop while QUIC client is connected").
+
+t_multi_streams_emqx_ctrl_kill(_Config) ->
+    maybe_skip_missing_runner_scenario("server-side control stream process kill").
+
+t_multi_streams_emqx_ctrl_exit_normal(_Config) ->
+    maybe_skip_missing_runner_scenario("server-side control stream normal exit").
+
+t_multi_streams_remote_shutdown_with_reconnect(_Config) ->
+    maybe_skip_missing_runner_scenario("broker restart with client reconnect and subscriptions").
+
+t_conn_silent_close(Config) ->
+    run_scenario("silent-close", Config, ["--keep-alive", "1", "--timeout-ms", "10000"]).
+
+t_client_conn_bump_streams(_Config) ->
+    maybe_skip_missing_runner_scenario("client-side connection stream-count setting change").
+
+t_olp_true(_Config) ->
+    maybe_skip_missing_runner_scenario(
+        "overload protection pass-through on accepted QUIC connection"
+    ).
+
+t_olp_reject(_Config) ->
+    maybe_skip_missing_runner_scenario("overload protection rejecting QUIC connection").
+
+t_conn_without_ctrl_stream(Config) ->
+    run_scenario("wrong-stream-connect", Config, []).
+
+t_data_stream_race_ctrl_stream(Config) ->
+    run_scenario("data-stream-race-control-stream", Config, []).
+
+t_listener_inval_settings(_Config) ->
+    maybe_skip_missing_runner_scenario("invalid low-level QUIC listener settings").
+
+t_listener_with_lowlevel_settings(_Config) ->
+    maybe_skip_missing_runner_scenario("valid low-level QUIC listener settings with MQTT traffic").
+
+maybe_skip_unsupported_zero_rtt(_Config, _Scenario, _ExtraArgs) ->
+    {skip, "EMQX QUIC listener disables TLS early data/0-RTT"}.
+
+maybe_skip_unsupported_qos2_resume(_Config) ->
+    {skip, "EMQX rejects resumed QoS2 PUBREL for this QUIC runner scenario with 0x92"}.
+
+maybe_skip_unsupported_source_rebind(_Config) ->
+    {skip, "EMQX/quicer path does not complete source-address rebind migration in this setup"}.
+
+maybe_skip_missing_runner_scenario(Reason) ->
+    {skip, "FlowSDK runner scenario missing: " ++ Reason}.
+
+check_zone_config(ConfString) ->
+    Fields = [{zone, hoconsc:mk(hoconsc:ref(emqx_schema, "zone"))}],
+    Schema = #{roots => Fields},
+    {ok, RawConf} = hocon:binary(unicode:characters_to_binary(ConfString)),
+    {_, Conf} = emqx_config:check_config(Schema, #{<<"zone">> => RawConf}),
+    maps:get(zone, Conf).
+
+start_emqx(Config, Port) ->
+    emqx_cth_suite:start(
         [
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data", _/binary>>,
-                qos := RecQos
+            {mria, #{
+                override_env => [{db_backend, mnesia}],
+                before_start => fun use_mria_mnesia_backend/0
             }},
-            {publish, #{
-                client_pid := C,
-                packet_id := PktId1,
-                payload := <<"stream data", _/binary>>,
-                qos := RecQos
-            }}
+            mk_emqx_spec(Port)
         ],
-        PubRecvs
-    ),
-    Payloads = [P || {publish, #{payload := P}} <- PubRecvs],
-    ?assert(
-        [<<"stream data 1">>, <<"stream data 2">>] == Payloads orelse
-            [<<"stream data 2">>, <<"stream data 1">>] == Payloads
-    ),
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ).
 
-    %% WHEN: keep data stream still active
-    timer:sleep(1000),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic,
-        <<"stream data 1">>,
-        [{qos, PubQos}],
-        undefined
-    ),
-    ok = emqtt:publish_async(
-        C,
-        {new_data_stream, []},
-        Topic2,
-        <<"stream data 2">>,
-        [{qos, PubQos}],
-        undefined
-    ),
+use_mria_mnesia_backend() ->
+    persistent_term:put({mria, db_backend}, mnesia).
 
-    %% THEN: after 4s, client should NOT get disconnected,
-    %%       because data stream is active.
-    receive
-        {disconnected, ?RC_KEEP_ALIVE_TIMEOUT, _} ->
-            meck:unload(emqtt),
-            ct:fail("Should not disconnect")
-        %% 4s - 1s
-    after 3000 ->
-        meck:unload(emqtt),
-        ok
+mk_emqx_spec(Port) ->
+    {emqx,
+        "force_shutdown.enable = false"
+        "\n listeners.quic.default {"
+        "\n   enable = true"
+        "\n   bind = " ++ integer_to_list(Port) ++
+            "\n   acceptors = 16"
+            "\n   idle_timeout = 15s"
+            "\n   datagram_receive_enabled = true"
+            "\n   ssl_options.verify = verify_none"
+            "\n }"}.
+
+set_qos(PubQos, SubQos, Config) ->
+    [{pub_qos, PubQos}, {sub_qos, SubQos} | Config].
+
+qos_args(Config) ->
+    [
+        "--pub-qos",
+        integer_to_list(proplists:get_value(pub_qos, Config, 1)),
+        "--sub-qos",
+        integer_to_list(proplists:get_value(sub_qos, Config, 1))
+    ].
+
+run_scenario(Scenario, Config, ExtraArgs) ->
+    ClientId = unique_name(Scenario),
+    run_scenario_as(Scenario, Config, ClientId, ExtraArgs).
+
+run_scenario_as(Scenario, Config, ClientId, ExtraArgs) ->
+    Exe = ensure_runner(),
+    Topic = "ct/quic/" ++ ClientId,
+    TimeoutArgs =
+        case lists:member("--timeout-ms", ExtraArgs) of
+            true -> [];
+            false -> ["--timeout-ms", "15000"]
+        end,
+    Args =
+        [
+            "--scenario",
+            Scenario,
+            "--host",
+            "127.0.0.1",
+            "--server-name",
+            "localhost",
+            "--port",
+            integer_to_list(?config(port, Config)),
+            "--client-id",
+            ClientId,
+            "--topic",
+            Topic,
+            "--insecure"
+        ] ++ TimeoutArgs ++ ExtraArgs,
+    case run_executable(Exe, Args) of
+        {ok, Output} ->
+            ct:pal("mqtt_quic_test ~s output:~n~s", [Scenario, Output]),
+            ok;
+        {error, ExitStatus, Output} ->
+            ct:fail("mqtt_quic_test ~s failed with status ~p:~n~s", [
+                Scenario,
+                ExitStatus,
+                Output
+            ])
     end.
 
-%%--------------------------------------------------------------------
-%% Helper functions
-%%--------------------------------------------------------------------
-send_and_recv_with(Sock) ->
-    {ok, {IP, _}} = emqtt_quic:sockname(Sock),
-    ?assert(lists:member(tuple_size(IP), [4, 8])),
-    ok = emqtt_quic:send(Sock, <<"ping">>),
-    emqtt_quic:setopts(Sock, [{active, false}]),
-    {ok, <<"pong">>} = emqtt_quic:recv(Sock, 0),
-    ok = emqtt_quic:setopts(Sock, [{active, 100}]),
-    {ok, Stats} = emqtt_quic:getstat(Sock, [send_cnt, recv_cnt]),
-    %% connection level counters, not stream level
-    [{send_cnt, _}, {recv_cnt, _}] = Stats.
+start_async_client(Config, ClientId, ExtraArgs) ->
+    start_async_scenario(Config, "connect", ClientId, ExtraArgs).
 
-certfile(Config) ->
-    filename:join([test_dir(Config), "certs", "test.crt"]).
+start_async_scenario(Config, Scenario, ClientId, ExtraArgs) ->
+    Exe = ensure_runner(),
+    ReadyFile = filename:join(
+        ?config(priv_dir, Config),
+        unique_name("mqtt-quic-ready")
+    ),
+    Topic = "ct/quic/" ++ unique_name("async"),
+    Args =
+        [
+            "--scenario",
+            Scenario,
+            "--host",
+            "127.0.0.1",
+            "--server-name",
+            "localhost",
+            "--port",
+            integer_to_list(?config(port, Config)),
+            "--client-id",
+            ClientId,
+            "--topic",
+            Topic,
+            "--ready-file",
+            ReadyFile,
+            "--timeout-ms",
+            "15000",
+            "--insecure"
+        ] ++ ExtraArgs,
+    Port = open_port({spawn_executable, Exe}, [
+        binary,
+        exit_status,
+        stderr_to_stdout,
+        use_stdio,
+        {args, Args}
+    ]),
+    #{port => Port, ready_file => ReadyFile, topic => Topic, client_id => ClientId}.
 
-keyfile(Config) ->
-    filename:join([test_dir(Config), "certs", "test.key"]).
+wait_async_client_ready(#{port := Port, ready_file := ReadyFile}) ->
+    wait_async_client_ready(Port, ReadyFile, 150, []).
 
-test_dir(Config) ->
-    filename:dirname(filename:dirname(proplists:get_value(data_dir, Config))).
-
-recv_pub(Count) ->
-    recv_pub(Count, [], 100).
-
-recv_pub(Count, Tout) ->
-    recv_pub(Count, [], Tout).
-
-recv_pub(0, Acc, _Tout) ->
-    lists:reverse(Acc);
-recv_pub(Count, Acc, Tout) ->
-    receive
-        {publish, _Prop} = Pub ->
-            recv_pub(Count - 1, [Pub | Acc], Tout)
-    after Tout ->
-        timeout
-    end.
-
-all_tc() ->
-    code:add_patha(filename:join(code:lib_dir(emqx), "ebin/")),
-    emqx_common_test_helpers:all(?MODULE).
-
--spec calc_qos(0 | 1 | 2, 0 | 1 | 2) -> 0 | 1 | 2.
-calc_qos(PubQos, SubQos) ->
-    if
-        PubQos > SubQos ->
-            SubQos;
-        SubQos > PubQos ->
-            PubQos;
+wait_async_client_ready(_Port, _ReadyFile, 0, Acc) ->
+    ct:fail("mqtt_quic_test did not become ready:~n~s", [port_output(Acc)]);
+wait_async_client_ready(Port, ReadyFile, Attempts, Acc) ->
+    case filelib:is_regular(ReadyFile) of
         true ->
-            PubQos
-    end.
--spec calc_pkt_id(0 | 1 | 2, non_neg_integer()) -> undefined | non_neg_integer().
-calc_pkt_id(0, _Id) ->
-    undefined;
-calc_pkt_id(1, Id) ->
-    Id;
-calc_pkt_id(2, Id) ->
-    Id.
-
-%% select a random port picked by OS
--spec select_port() -> inet:port_number().
-select_port() ->
-    emqx_common_test_helpers:select_free_port(quic).
-
--spec via_stream({quic, quicer:connection_handle(), quicer:stream_handle()}) ->
-    quicer:stream_handle().
-via_stream({quic, _Conn, Stream}) ->
-    Stream.
-
-assert_client_die(C) ->
-    assert_client_die(C, 100, 10).
-assert_client_die(C, _, 0) ->
-    ct:fail("Client ~p did not die: stacktrace: ~p", [C, process_info(C, current_stacktrace)]);
-assert_client_die(C, Delay, Retries) ->
-    try emqtt:info(C) of
-        Info when is_list(Info) ->
-            timer:sleep(Delay),
-            assert_client_die(C, Delay, Retries - 1)
-    catch
-        exit:Error ->
-            ct:comment("client die with ~p", [Error])
+            ok;
+        false ->
+            receive
+                {Port, {data, Data}} ->
+                    wait_async_client_ready(Port, ReadyFile, Attempts, [Data | Acc]);
+                {Port, {exit_status, ExitStatus}} ->
+                    ct:fail("mqtt_quic_test exited before ready (~p):~n~s", [
+                        ExitStatus,
+                        port_output(Acc)
+                    ])
+            after 100 ->
+                wait_async_client_ready(Port, ReadyFile, Attempts - 1, Acc)
+            end
     end.
 
-%% BUILD_WITHOUT_QUIC
--else.
+wait_async_client(#{port := Port, ready_file := ReadyFile}) ->
+    try
+        case collect_port(Port, []) of
+            {ok, _Output} ->
+                ok;
+            {error, ExitStatus, Output} ->
+                ct:fail("async mqtt_quic_test failed (~p):~n~s", [ExitStatus, Output])
+        end
+    after
+        file:delete(ReadyFile)
+    end.
+
+wait_async_client_allow_failure(#{port := Port, ready_file := ReadyFile}) ->
+    _ = collect_port(Port, []),
+    file:delete(ReadyFile),
+    ok.
+
+stop_async_client(#{port := Port, ready_file := ReadyFile}) ->
+    catch port_close(Port),
+    file:delete(ReadyFile),
+    ok.
+
+port_output(Acc) ->
+    unicode:characters_to_list(iolist_to_binary(lists:reverse(Acc))).
+
+unique_name(Scenario) ->
+    "ct-" ++ Scenario ++ "-" ++ integer_to_list(erlang:unique_integer([positive])).
+
+ensure_runner() ->
+    emqx_mqtt_quic_test_runner:ensure().
+
+run_executable(Exe, Args) ->
+    Port = open_port({spawn_executable, Exe}, [
+        binary,
+        exit_status,
+        stderr_to_stdout,
+        use_stdio,
+        {args, Args}
+    ]),
+    collect_port(Port, []).
+
+collect_port(Port, Acc) ->
+    receive
+        {Port, {data, Data}} ->
+            collect_port(Port, [Data | Acc]);
+        {Port, {exit_status, 0}} ->
+            {ok, unicode:characters_to_list(iolist_to_binary(lists:reverse(Acc)))};
+        {Port, {exit_status, ExitStatus}} ->
+            {error, ExitStatus, unicode:characters_to_list(iolist_to_binary(lists:reverse(Acc)))}
+    after 60000 ->
+        port_close(Port),
+        {error, timeout, unicode:characters_to_list(iolist_to_binary(lists:reverse(Acc)))}
+    end.
+
 -endif.
