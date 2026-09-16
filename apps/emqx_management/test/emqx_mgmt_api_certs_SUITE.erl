@@ -327,7 +327,7 @@ upload_files_multipart_ns(Ns, BundleName, Files) ->
     emqx_mgmt_api_test_util:simplify_decode_result(Res).
 
 merge_ca_global(BundleName, Contents) ->
-    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName, "ca"]),
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName, "trusts"]),
     simple_request(#{
         method => post,
         url => URL,
@@ -335,7 +335,7 @@ merge_ca_global(BundleName, Contents) ->
     }).
 
 merge_ca_multipart_global(BundleName, Contents) ->
-    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName, "ca"]),
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName, "trusts"]),
     Res = emqx_mgmt_api_test_util:upload_request(#{
         url => URL,
         files => [{?FILE_KIND_CA_BIN, <<"unused_ca_filename.pem">>, Contents}],
@@ -1229,7 +1229,7 @@ t_merge_ca_certs(TCConfig) when is_list(TCConfig) ->
     ?assertMatch({400, _}, merge_ca_global(Bundle1, <<"">>)),
     BadCert = <<"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n">>,
     ?assertMatch({400, _}, merge_ca_global(Bundle1, BadCert)),
-    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", Bundle1, "ca"]),
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", Bundle1, "trusts"]),
     ?assertMatch({400, _}, simple_request(#{method => post, url => URL, body => #{}})),
     ?assertEqual(Merged2, read_file(PathCA)),
 
