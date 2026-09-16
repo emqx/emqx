@@ -138,7 +138,14 @@ on_start(
         [{codecs, []} || Codecs /= undefined]
     ]),
     State1 = parse_sql_template(Config, <<"send_message">>),
-    State2 = State1#{installed_channels => #{}},
+    HCTimeout =
+        case Config of
+            #{resource_opts := #{health_check_timeout := HCTimeout0}} ->
+                HCTimeout0;
+            #{} ->
+                emqx_resource_pool:health_check_timeout()
+        end,
+    State2 = State1#{installed_channels => #{}, health_check_timeout => HCTimeout},
     ok = emqx_resource:allocate_resource(InstId, ?MODULE, ?conn_pool, InstId),
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
@@ -513,8 +520,13 @@ apply_mode(execute_batch, State) ->
 apply_mode(_Type, _State) ->
     no_handover.
 
-on_get_status(_InstId, #{pool_name := PoolName} = ConnState) ->
+on_get_status(_InstId, ConnState) ->
+    #{
+        pool_name := PoolName,
+        health_check_timeout := HCTimeout
+    } = ConnState,
     Opts = #{
+        timeout => HCTimeout,
         check_fn => fun ?MODULE:do_get_status/1,
         is_success_fn => fun
             ({ok, _, _}) -> false;

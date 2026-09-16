@@ -785,6 +785,30 @@ t_file_transfer_endpoints_reject_namespaced_actors(_) ->
             [global_admin_actor_context(), global_viewer_actor_context()]
     ).
 
+-doc """
+The audit log is global and records operations from every namespace, so
+`GET /audit` must reject all namespaced actors (login users and API keys, any
+role) while remaining available to global administrators and viewers.
+""".
+t_audit_log_rejects_namespaced_actors(_) ->
+    Req = #{},
+    HandlerInfo = #{method => get, module => emqx_audit_api, function => audit},
+    Expected = {error, <<"The audit log is not available to namespaced users">>},
+    lists:foreach(
+        fun(ActorContext) ->
+            ?assertEqual(
+                Expected,
+                emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, ActorContext)
+            )
+        end,
+        namespaced_actor_contexts()
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_dashboard_rbac:check_rbac(Req, HandlerInfo, global_admin_actor_context())
+    ),
+    assert_global_viewer_rbac(Req, HandlerInfo).
+
 t_tracing_config_update_rejects_namespaced_actors(_) ->
     Req = #{},
     HandlerInfo = #{method => put, module => emqx_mgmt_api_trace, function => config},

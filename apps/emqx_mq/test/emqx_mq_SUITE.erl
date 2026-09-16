@@ -714,7 +714,7 @@ t_progress_restoration_from_removed_gen(_Config) ->
     ok = wait_for_consumer_stop(MQ, 100),
 
     %% Add some messages to the new generation and delete the old one (where the consumer stopped)
-    SlabInfo = emqx_mq_message_db:regular_db_slab_info(),
+    {ok, SlabInfo} = emqx_mq_message_db:regular_db_slab_info(),
     ok = emqx_mq_message_db:add_regular_db_generation(),
     emqx_mq_test_utils:populate(20, #{
         topic_prefix => <<"t/">>,
