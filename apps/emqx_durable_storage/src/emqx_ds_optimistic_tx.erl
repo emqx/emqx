@@ -396,6 +396,7 @@ init(Parent, DB, Shard, CBM) ->
     %% Async init:
     maybe
         {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
+        emqx_ds_leaderboard:register_leader(DB, Shard, self()),
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp + 1, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),

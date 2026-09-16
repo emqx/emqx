@@ -416,7 +416,7 @@ sync_once_with_lock(Conf, CancelRef) ->
     end.
 
 running_core_nodes() ->
-    try mria_membership:running_core_nodelist() of
+    try emqx_cluster:running_core_nodelist() of
         Nodes when is_list(Nodes) -> Nodes
     catch
         _:_ -> []
