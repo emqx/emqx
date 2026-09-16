@@ -1552,37 +1552,25 @@ collect_coordinated(Acc) ->
     end.
 
 empty_points_skip_test_() ->
-    {setup,
-        fun() ->
-            ok = meck:new(influxdb, [passthrough, no_link]),
-            ok = meck:expect(influxdb, write, fun(_Client, _Points) -> ok end),
-            ok = meck:expect(influxdb, write_async, fun(_Client, _Points, _Reply) ->
-                {ok, self()}
-            end),
-            ok
-        end,
-        fun(_) ->
-            meck:unload(influxdb)
-        end,
-        fun(_) ->
-            [
-                {"an empty point list is not written synchronously", fun() ->
-                    meck:reset(influxdb),
-                    ?assertEqual(ok, do_query(inst, chan, client, [])),
-                    ?assertEqual(0, meck:num_calls(influxdb, write, ['_', '_']))
-                end},
-                {"an empty point list is not written asynchronously and is acked once", fun() ->
-                    meck:reset(influxdb),
-                    ?assertEqual(
-                        ok,
-                        run_async_reply(fun(ReplyFunAndArgs) ->
-                            do_async_query(inst, chan, client, [], ReplyFunAndArgs)
-                        end)
-                    ),
-                    ?assertEqual(0, meck:num_calls(influxdb, write_async, ['_', '_', '_']))
-                end}
-            ]
-        end}.
+    with_influxdb_mock(fun(_) ->
+        [
+            {"an empty point list is not written synchronously", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(ok, do_query(inst, chan, client, [])),
+                ?assertEqual(0, meck:num_calls(influxdb, write, ['_', '_']))
+            end},
+            {"an empty point list is not written asynchronously and is acked once", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(
+                    ok,
+                    run_async_reply(fun(ReplyFunAndArgs) ->
+                        do_async_query(inst, chan, client, [], ReplyFunAndArgs)
+                    end)
+                ),
+                ?assertEqual(0, meck:num_calls(influxdb, write_async, ['_', '_', '_']))
+            end}
+        ]
+    end).
 
 grouped_preparse_test_() ->
     Syntax = [structured_syntax()],
@@ -1592,50 +1580,37 @@ grouped_preparse_test_() ->
     ClientB = #{path => <<"b">>},
     ValidGroups = [{ClientA, [{c1, OkData}]}],
     MixedGroups = [{ClientA, [{c1, OkData}]}, {ClientB, [{c2, BadData}]}],
-    {setup,
-        fun() ->
-            ok = meck:new(influxdb, [passthrough, no_link]),
-            ok = meck:expect(influxdb, write, fun(_Client, _Points) -> ok end),
-            ok = meck:expect(influxdb, write_async, fun(_Client, _Points, _Reply) ->
-                {ok, self()}
-            end),
-            ok
-        end,
-        fun(_) ->
-            meck:unload(influxdb)
-        end,
-        fun(_) ->
-            [
-                {"sync: a later group parse failure prevents every write", fun() ->
-                    meck:reset(influxdb),
-                    ?assertMatch(
-                        {error, {unrecoverable_error, points_trans_failed}},
-                        do_grouped_batch_query(inst, chan, MixedGroups, Syntax)
-                    ),
-                    ?assertEqual(0, meck:num_calls(influxdb, write, ['_', '_']))
-                end},
-                {"async: a later group parse failure replies one error and issues no write",
-                    fun() ->
-                        meck:reset(influxdb),
-                        ?assertMatch(
-                            {error, {unrecoverable_error, points_trans_failed}},
-                            run_async_reply(fun(ReplyFunAndArgs) ->
-                                do_grouped_async_batch_query(
-                                    inst, chan, MixedGroups, Syntax, ReplyFunAndArgs
-                                )
-                            end)
-                        ),
-                        ?assertEqual(
-                            0, meck:num_calls(influxdb, write_async, ['_', '_', '_'])
+    with_influxdb_mock(fun(_) ->
+        [
+            {"sync: a later group parse failure prevents every write", fun() ->
+                meck:reset(influxdb),
+                ?assertMatch(
+                    {error, {unrecoverable_error, points_trans_failed}},
+                    do_grouped_batch_query(inst, chan, MixedGroups, Syntax)
+                ),
+                ?assertEqual(0, meck:num_calls(influxdb, write, ['_', '_']))
+            end},
+            {"async: a later group parse failure replies one error and issues no write", fun() ->
+                meck:reset(influxdb),
+                ?assertMatch(
+                    {error, {unrecoverable_error, points_trans_failed}},
+                    run_async_reply(fun(ReplyFunAndArgs) ->
+                        do_grouped_async_batch_query(
+                            inst, chan, MixedGroups, Syntax, ReplyFunAndArgs
                         )
-                    end},
-                {"sync: a fully valid batch is still written", fun() ->
-                    meck:reset(influxdb),
-                    ?assertEqual(ok, do_grouped_batch_query(inst, chan, ValidGroups, Syntax)),
-                    ?assertEqual(1, meck:num_calls(influxdb, write, ['_', '_']))
-                end}
-            ]
-        end}.
+                    end)
+                ),
+                ?assertEqual(
+                    0, meck:num_calls(influxdb, write_async, ['_', '_', '_'])
+                )
+            end},
+            {"sync: a fully valid batch is still written", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(ok, do_grouped_batch_query(inst, chan, ValidGroups, Syntax)),
+                ?assertEqual(1, meck:num_calls(influxdb, write, ['_', '_']))
+            end}
+        ]
+    end).
 
 grouped_empty_points_skip_test_() ->
     EmptySyntax = [#{line => emqx_placeholder:preproc_tmpl(<<"${payload.missing}">>)}],
@@ -1643,6 +1618,29 @@ grouped_empty_points_skip_test_() ->
         {#{path => <<"a">>}, [{c1, #{payload => #{}}}]},
         {#{path => <<"b">>}, [{c2, #{payload => #{}}}]}
     ],
+    with_influxdb_mock(fun(_) ->
+        [
+            {"sync: groups that render no points are a no-op", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(ok, do_grouped_batch_query(inst, chan, Groups, EmptySyntax)),
+                ?assertEqual(0, meck:num_calls(influxdb, write, ['_', '_']))
+            end},
+            {"async: groups that render no points reply ok once", fun() ->
+                meck:reset(influxdb),
+                ?assertEqual(
+                    ok,
+                    run_async_reply(fun(ReplyFunAndArgs) ->
+                        do_grouped_async_batch_query(
+                            inst, chan, Groups, EmptySyntax, ReplyFunAndArgs
+                        )
+                    end)
+                ),
+                ?assertEqual(0, meck:num_calls(influxdb, write_async, ['_', '_', '_']))
+            end}
+        ]
+    end).
+
+with_influxdb_mock(TestFun) ->
     {setup,
         fun() ->
             ok = meck:new(influxdb, [passthrough, no_link]),
@@ -1655,27 +1653,7 @@ grouped_empty_points_skip_test_() ->
         fun(_) ->
             meck:unload(influxdb)
         end,
-        fun(_) ->
-            [
-                {"sync: groups that render no points are a no-op", fun() ->
-                    meck:reset(influxdb),
-                    ?assertEqual(ok, do_grouped_batch_query(inst, chan, Groups, EmptySyntax)),
-                    ?assertEqual(0, meck:num_calls(influxdb, write, ['_', '_']))
-                end},
-                {"async: groups that render no points reply ok once", fun() ->
-                    meck:reset(influxdb),
-                    ?assertEqual(
-                        ok,
-                        run_async_reply(fun(ReplyFunAndArgs) ->
-                            do_grouped_async_batch_query(
-                                inst, chan, Groups, EmptySyntax, ReplyFunAndArgs
-                            )
-                        end)
-                    ),
-                    ?assertEqual(0, meck:num_calls(influxdb, write_async, ['_', '_', '_']))
-                end}
-            ]
-        end}.
+        TestFun}.
 
 structured_syntax() ->
     #{
