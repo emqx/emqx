@@ -198,16 +198,20 @@
 
 -spec create_tables() -> [atom()].
 create_tables() ->
-    ok = mria:create_table(?CONFIG_TAB, [
-        {type, ordered_set},
-        {rlog_shard, ?COMMON_SHARD},
-        {storage, disc_copies},
-        {record_name, ?CONFIG_TAB},
-        {attributes, record_info(fields, ?CONFIG_TAB)}
-    ]),
-    Tables = [?CONFIG_TAB],
-    ok = mria:wait_for_tables(Tables),
-    Tables.
+    maybe
+        ok ?= mria:create_table(?CONFIG_TAB, [
+                                              {type, ordered_set},
+                                              {rlog_shard, ?COMMON_SHARD},
+                                              {storage, disc_copies},
+                                              {record_name, ?CONFIG_TAB},
+                                              {attributes, record_info(fields, ?CONFIG_TAB)}
+                                             ]),
+        Tables = [?CONFIG_TAB],
+        ok = mria:wait_for_tables(Tables),
+        Tables
+    else
+        {error, stopping} -> []
+    end.
 
 %% @doc For the given path, get root value enclosed in a single-key map.
 -spec get_root(emqx_utils_maps:config_key_path()) -> map().

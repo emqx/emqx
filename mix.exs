@@ -82,6 +82,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:esockd),
       common_dep(:rocksdb),
       common_dep(:mria),
+      common_dep(:classy), # FIXME: remove
       common_dep(:gen_rpc),
       common_dep(:grpc),
       common_dep(:minirest),
@@ -178,7 +179,11 @@ defmodule EMQXUmbrella.MixProject do
 
   # FIXME! use a proper tag
   def common_dep(:mria),
-    do: {:mria, github: "emqx/mria", tag: "dev/fallback-hooks", override: true}
+    #do: {:mria, github: "emqx/mria", tag: "dev/fallback-hooks", override: true}
+    do: {:mria, path: "/home/me/Documents/work/mria"}
+
+  def common_dep(:classy),
+    do: {:classy, path: "/home/me/Documents/work/classy", override: true}
 
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.5", override: true}

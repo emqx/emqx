@@ -101,8 +101,14 @@ register_hooks(OnRunLevel) ->
     _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 50),
     _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 100),
     %% Staged application start:
-    _ = classy:run_level(OnRunLevel, 100),
-    _ = classy:run_level(fun ?MODULE:set_readiness/2, 0),
+    _ = classy:on_run_level(OnRunLevel, 100),
+    _ = classy:on_run_level(fun ?MODULE:set_readiness/2, 0),
+    %% Fallback, allows to connect to legacy nodes:
+    _ = classy:fallback_get_cluster(fun mria_classy_migration:fallback_get_cluster/1),
+    _ = classy:fallback_get_meta(fun mria_classy_migration:fallback_get_meta/2, 0),
+    _ = classy:fallback_get_peer_nodes(fun mria_classy_migration:fallback_get_peer_nodes/1),
+    %% Fallback, allows core nodes that restarted after upgrading to classy to reform the cluster:
+    _ = classy:extra_sync_targets(fun mria_classy_migration:extra_sync_targets/1),
     %% Mria:
     %%
     %% Register mria callbacks that help to check compatibility of the
@@ -149,14 +155,8 @@ maybe_migrate_cluster() ->
                 undefined
         end,
     %% Use hash of the mnesia schema cookie as the initial cluster ID:
-    MaybeCluster =
-        case mria_mnesia:schema_cookie() of
-            {ok, Cookie} ->
-                mria_app:cookie_to_cluster_id(Cookie);
-            undefined ->
-                undefined
-        end,
-    ?SLOG(notice, #{msg => "migrate_old_cluster", site => MaybeSite, cluster => MaybeCluster}),
+    MaybeCluster = mria_classy_migration:maybe_cluster_id(),
+    ?SLOG(notice, #{msg => "initialize_emqx_cluster", site => MaybeSite, cluster => MaybeCluster}),
     classy_node:maybe_init_the_site(MaybeSite, MaybeCluster).
 
 graceful_shutdown() ->
