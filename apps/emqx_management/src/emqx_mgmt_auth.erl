@@ -171,8 +171,9 @@ do_update(Name, Enable, ExpiredAt, Desc, Role) ->
                     enable = ensure_not_undefined(Enable, Enable0),
                     extra = Extra#{
                         desc := ensure_not_undefined(Desc, Desc0),
-                        %% `get_role/1' also covers records whose `extra' is a pre-v5.4.0
-                        %% plain desc binary, which `normalize_extra/1' has just upgraded.
+                        %% `get_role/1' rather than `maps:get/2' reads the stored role and,
+                        %% like `find_by_api_key/1', falls back to the default role for
+                        %% records whose `extra' map carries no `role' key.
                         role := ensure_not_undefined(Role, get_role(Extra))
                     }
                 },
@@ -195,6 +196,11 @@ format(App = #{expired_at := ExpiredAt, created_at := CreateAt}) ->
         created_at => format_epoch(CreateAt)
     }).
 
+%% `undefined' is how releases before 5.0.0 encoded "never expires" (`is_expired/1'
+%% and `authorize/4' still treat it that way), so format it like `infinity' instead of
+%% crashing on records carried over from such a release or restored from a backup.
+format_epoch(undefined) ->
+    <<"infinity">>;
 format_epoch(infinity) ->
     <<"infinity">>;
 format_epoch(Epoch) ->

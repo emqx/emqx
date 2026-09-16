@@ -49,7 +49,7 @@ schema("/api_key") ->
             description => ?DESC(create_new_api_key),
             tags => ?TAGS,
             security => [#{'bearerAuth' => []}],
-            'requestBody' => delete([created_at, api_key, api_secret], fields(app)),
+            'requestBody' => delete([created_at, api_key, api_secret], fields(app_create)),
             responses => #{
                 200 => hoconsc:ref(app),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
@@ -158,6 +158,21 @@ fields(app) ->
         {enable, hoconsc:mk(boolean(), #{desc => "Enable/Disable", required => false})},
         {expired, hoconsc:mk(boolean(), #{desc => "Expired", required => false})}
     ] ++ app_extend_fields();
+%% The `POST' request body documents the values the create path applies to a field the
+%% caller left out, so `expired_at' (and `role' in the enterprise edition) keep their
+%% `default' here.
+%%
+%% It must not be shared with the update path: a declared `default' is filled into the
+%% request body *before* the handler sees it, so on an update an omitted field would
+%% overwrite the stored value with the default. That is exactly what used to escalate a
+%% `viewer' key to `administrator' and made an expiring key immortal. `PUT' therefore
+%% uses `fields(app)', which declares no defaults.
+fields(app_create) ->
+    Defaults = create_defaults(),
+    [
+        {Field, maybe_add_default(Schema, maps:find(Field, Defaults))}
+     || {Field, Schema} <- fields(app)
+    ];
 fields(name) ->
     [
         {name,
@@ -171,6 +186,21 @@ fields(name) ->
                 }
             )}
     ].
+
+%% Values the create path applies to an omitted field. `role' only exists in the
+%% enterprise edition, so it is contributed the same way `app_extend_fields/0' does it,
+%% which also keeps this module free of an unreachable clause in the community edition.
+create_defaults() ->
+    maps:merge(#{expired_at => infinity}, app_extend_create_defaults()).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+app_extend_create_defaults() -> #{role => ?ROLE_API_DEFAULT}.
+-else.
+app_extend_create_defaults() -> #{}.
+-endif.
+
+maybe_add_default(Schema, {ok, Default}) -> Schema#{default => Default};
+maybe_add_default(Schema, error) -> Schema.
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
 
@@ -244,9 +274,10 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body}) ->
             }}
     end.
 
-%% A key created without `expired_at' never expires: `infinity' is the documented
-%% default of the field, and the create path has no previous value to keep.
+%% The create path has no previous value to keep, so a key created without `expired_at'
+%% simply never expires.
 new_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
+new_expired_at(#{<<"expired_at">> := infinity}) -> infinity;
 new_expired_at(_) -> infinity.
 
 %% An update that does not mention `expired_at' must not extend the lifetime of the

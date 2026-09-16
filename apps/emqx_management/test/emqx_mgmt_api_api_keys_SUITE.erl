@@ -58,6 +58,7 @@ groups() ->
         {parallel, [parallel], [
             t_create,
             t_update,
+            t_update_legacy_undefined_expiry,
             t_delete,
             t_authorize,
             t_create_unexpired_app
@@ -396,6 +397,31 @@ t_update(_Config) ->
     ?assertEqual(<<"infinity">>, maps:get(<<"expired_at">>, Update3)),
 
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, update_app(<<"Not-Exist">>, Change)),
+    ok.
+
+%% Releases before 5.0.0 stored `expired_at = undefined' to mean "never expires", and
+%% such records survive an upgrade (and a backup restore) unchanged. They must not take
+%% the API down: both reading and a partial update have to keep working.
+t_update_legacy_undefined_expiry(_Config) ->
+    Name = <<"EMQX-API-LEGACY-EXPIRY-KEY">>,
+    {ok, _} = create_app(Name),
+    ok = set_stored_expired_at(Name, undefined),
+
+    {ok, #{<<"expired_at">> := <<"infinity">>}} = read_app(Name),
+    {ok, #{<<"expired_at">> := <<"infinity">>}} = update_app(Name, #{enable => false}),
+    {ok, #{<<"expired_at">> := <<"infinity">>}} = read_app(Name),
+    ok.
+
+%% Overwrite the stored expiry directly to emulate a record written by an old release.
+%% Only the `expired_at' slot is touched, so the stored `extra' payload survives as-is.
+set_stored_expired_at(Name, ExpiredAt) ->
+    {ok, ok} = emqx_mgmt_auth:trans(
+        fun() ->
+            [App0] = mnesia:read(?APP, Name, write),
+            mnesia:write(App0#?APP{expired_at = ExpiredAt})
+        end,
+        []
+    ),
     ok.
 
 -if(?EMQX_RELEASE_EDITION == ee).
