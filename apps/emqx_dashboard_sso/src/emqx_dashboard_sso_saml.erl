@@ -45,6 +45,11 @@
 
 -define(DIR, <<"saml_sp_certs">>).
 
+%% The AuthnRequest round-trip is a browser redirect out to the IdP and a POST
+%% back. Five minutes covers an interactive login at the IdP.
+-define(BINDING_MAX_AGE, 300).
+-define(BINDING_ERROR_MESSAGE, <<"Access denied, this SSO login was not started by this browser">>).
+
 %% Internet Explorer has a maximum URL length of 2083 characters,
 %% with a maximum path length of 2048 characters.
 %% See: https://support.microsoft.com/en-us/topic/maximum-url-length
@@ -72,7 +77,8 @@ fields(saml) ->
             {sp_public_key, fun sp_public_key/1},
             {sp_private_key, fun sp_private_key/1},
             {idp_signs_envelopes, fun idp_signs_envelopes/1},
-            {idp_signs_assertions, fun idp_signs_assertions/1}
+            {idp_signs_assertions, fun idp_signs_assertions/1},
+            {skip_login_cookie_check, fun skip_login_cookie_check/1}
         ];
 fields(login) ->
     [
@@ -118,6 +124,11 @@ idp_signs_assertions(desc) -> ?DESC(idp_signs_assertions);
 idp_signs_assertions(default) -> true;
 idp_signs_assertions(_) -> undefined.
 
+skip_login_cookie_check(type) -> boolean();
+skip_login_cookie_check(desc) -> ?DESC(skip_login_cookie_check);
+skip_login_cookie_check(default) -> false;
+skip_login_cookie_check(_) -> undefined.
+
 desc(saml) ->
     "saml";
 desc(_) ->
@@ -152,9 +163,20 @@ destroy(_State) ->
 
 login(
     #{headers := Headers} = _Req,
-    #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State
+    #{
+        sp := SP,
+        idp_meta := #esaml_idp_metadata{login_location = IDP},
+        dashboard_addr := DashboardAddr
+    } = _State
 ) ->
     SignedXml = esaml_sp:generate_authn_request(IDP, SP),
+    %% The IdP echoes `RelayState' back on the assertion consumer POST. Sending
+    %% the same value in a cookie binds the round-trip to this browser.
+    RelayState = emqx_dashboard_sso_browser_binding:new_value(),
+    Cookie = emqx_dashboard_sso_browser_binding:set_cookie_headers(
+        saml, RelayState, #{max_age => ?BINDING_MAX_AGE, url => DashboardAddr}
+    ),
+    RespHeaders = maps:merge(?RESPHEADERS, Cookie),
     %% Build redirect target
     %% For HTTP-Redirect with signing: encode_http_redirect/5 strips XML signature
     %% and adds SigAlg + Signature to URL params
@@ -162,27 +184,49 @@ login(
         case SP#esaml_sp.sp_sign_requests of
             true ->
                 esaml_binding:encode_http_redirect(
-                    IDP, SignedXml, <<>>, SP#esaml_sp.key, rsa_sha256
+                    IDP, SignedXml, RelayState, SP#esaml_sp.key, rsa_sha256
                 );
             false ->
-                esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>)
+                esaml_binding:encode_http_redirect(IDP, SignedXml, RelayState)
         end,
     %% Choose binding based on browser and URL length
     Redirect =
         case is_msie(Headers) andalso (byte_size(Target) > ?IE_MAX_URL_PATH_LENGTH) of
             true ->
                 %% IE has URL length limits, use HTTP-POST binding (enveloped signature)
-                Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
-                {200, ?RESPHEADERS, Html};
+                Html = esaml_binding:encode_http_post(IDP, SignedXml, RelayState),
+                {200, RespHeaders, Html};
             false ->
                 %% Use HTTP-Redirect binding
-                {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY}
+                {302, maps:merge(RespHeaders, #{<<"location">> => Target}), ?REDIRECT_BODY}
         end,
     {redirect, Redirect}.
 
-callback(_Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = _State) ->
-    case do_validate_assertion(SP, fun esaml_util:check_dupe_ets/2, Body) of
-        {ok, Assertion, _RelayState} ->
+callback(Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = State) ->
+    PostVals = cow_qs:parse_qs(Body),
+    RelayState = proplists:get_value(<<"RelayState">>, PostVals),
+    %% Check the browser binding first, so an unsolicited cross-site POST never
+    %% reaches the XML parser or the replay cache.
+    case emqx_dashboard_sso_browser_binding:check(saml, State, Req, RelayState) of
+        {error, browser_binding_mismatch} ->
+            {error, ?BINDING_ERROR_MESSAGE};
+        ok ->
+            clear_binding(RelayState, do_callback(SP, DashboardAddr, PostVals))
+    end.
+
+%% The round-trip is over, drop the binding cookie of this login. With the check
+%% skipped, an assertion may arrive without a `RelayState' and has no cookie.
+clear_binding(RelayState, {redirect, Username, {Status, Headers, Body}}) when
+    is_binary(RelayState), RelayState =/= <<>>
+->
+    ClearCookie = emqx_dashboard_sso_browser_binding:clear_cookie_headers(saml, RelayState),
+    {redirect, Username, {Status, maps:merge(Headers, ClearCookie), Body}};
+clear_binding(_RelayState, Result) ->
+    Result.
+
+do_callback(SP, DashboardAddr, PostVals) ->
+    case do_validate_assertion(SP, fun esaml_util:check_dupe_ets/2, PostVals) of
+        {ok, Assertion} ->
             Subject = Assertion#esaml_assertion.subject,
             Username = iolist_to_binary(Subject#esaml_subject.name),
             gen_redirect_response(DashboardAddr, Username);
@@ -216,6 +260,23 @@ convert_certs(_Dir, Conf) ->
 
 bin(X) -> iolist_to_binary(X).
 
+% `skip_login_cookie_check' turns a security check off on purpose. Say so when
+% the backend starts.
+maybe_warn_login_cookie_check_skipped(#{enable := true} = Config) ->
+    case emqx_dashboard_sso_browser_binding:is_check_skipped(Config) of
+        true ->
+            ?SLOG(warning, #{
+                msg => "sso_login_cookie_check_skipped",
+                backend => saml,
+                reason => "SSO logins are not bound to the browser that started them"
+            }),
+            ok;
+        false ->
+            ok
+    end;
+maybe_warn_login_cookie_check_skipped(_Config) ->
+    ok.
+
 do_create(
     #{
         dashboard_addr := DashboardAddr,
@@ -227,6 +288,8 @@ do_create(
         idp_signs_assertions := IdpSignsAssertions
     } = Config
 ) ->
+    %% Before `esaml_sp:setup/1', which dialyzer cannot see past.
+    ok = maybe_warn_login_cookie_check_skipped(Config),
     {ok, _} = application:ensure_all_started(esaml),
     try
         %% Load IdP metadata and extract certificate fingerprint
@@ -327,17 +390,12 @@ validate_signature_config(IdpSignsEnvelopes, IdpSignsAssertions, TrustedFingerpr
             ok
     end.
 
-do_validate_assertion(SP, DuplicateFun, Body) ->
-    PostVals = cow_qs:parse_qs(Body),
+do_validate_assertion(SP, DuplicateFun, PostVals) ->
     SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
     SAMLResponse = proplists:get_value(<<"SAMLResponse">>, PostVals),
-    RelayState = proplists:get_value(<<"RelayState">>, PostVals),
     try
         Xml = esaml_binding:decode_response(SAMLEncoding, SAMLResponse),
-        case esaml_sp:validate_assertion(Xml, DuplicateFun, SP) of
-            {ok, A} -> {ok, A, RelayState};
-            {error, E} -> {error, E}
-        end
+        esaml_sp:validate_assertion(Xml, DuplicateFun, SP)
     catch
         exit:Reason ->
             {error, {bad_decode, Reason}}
@@ -351,9 +409,7 @@ gen_redirect_response(DashboardAddr, Username) ->
                 username => Username,
                 backend => saml
             },
-            Target = code_redirect_target(DashboardAddr, Username, Payload),
-            Response = {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY},
-            {redirect, Username, Response};
+            {redirect, Username, redirect_response(DashboardAddr, Username, Payload)};
         {mfa_setup, SetupToken, _QRInfo} ->
             Payload = #{
                 action => <<"mfa_setup">>,
@@ -362,9 +418,7 @@ gen_redirect_response(DashboardAddr, Username) ->
                 username => Username,
                 backend => saml
             },
-            Target = code_redirect_target(DashboardAddr, Username, Payload),
-            Response = {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY},
-            {redirect, Username, Response};
+            {redirect, Username, redirect_response(DashboardAddr, Username, Payload)};
         {mfa_verify, VerifyToken} ->
             Payload = #{
                 action => <<"mfa_verify">>,
@@ -372,12 +426,14 @@ gen_redirect_response(DashboardAddr, Username) ->
                 username => Username,
                 backend => saml
             },
-            Target = code_redirect_target(DashboardAddr, Username, Payload),
-            Response = {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY},
-            {redirect, Username, Response};
+            {redirect, Username, redirect_response(DashboardAddr, Username, Payload)};
         {error, Reason} ->
             {error, Reason}
     end.
+
+redirect_response(DashboardAddr, Username, Payload) ->
+    Target = code_redirect_target(DashboardAddr, Username, Payload),
+    {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY}.
 
 %%------------------------------------------------------------------------------
 %% Helpers functions

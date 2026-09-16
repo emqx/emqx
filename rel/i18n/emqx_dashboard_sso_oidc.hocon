@@ -67,6 +67,9 @@ session_expiry.desc:
 require_pkce.desc:
 """Whether to require PKCE when getting the token."""
 
+skip_login_cookie_check.desc:
+"""Enable at your own risk. When `true`, EMQX does not check the login cookie at the SSO callback, so a login is no longer bound to the browser that started it. Enable it only when browsers cannot keep that cookie and SSO login fails, for example when users open the Dashboard at an address other than `dashboard_addr`. Defaults to `false`."""
+
 client_jwks.desc:
 """Set JWK or JWKS here to enable the `private_key_jwt` authorization or the `DPoP` extension."""
 
