@@ -44,8 +44,11 @@ jobs:
         run: |
           export LICENSE_KEY1='default' # for old version
           export LICENSE_KEY2='evaluation' # for new version
+          ## The two images do not ship the same CA, and the new one requires a
+          ## client certificate, so give both nodes one PKI to verify against.
+          ./scripts/test/gen-dist-tls-pki.sh tmp/dist-tls
           ## -d 2 means only put node 2 (latest version) behind haproxy
-          ./scripts/test/start-two-nodes-in-docker.sh -d 2 -P $EMQX_IMAGE_OLD_VERSION_TAG $_EMQX_DOCKER_IMAGE_TAG
+          ./scripts/test/start-two-nodes-in-docker.sh -d 2 -P -S tmp/dist-tls $EMQX_IMAGE_OLD_VERSION_TAG $_EMQX_DOCKER_IMAGE_TAG
           HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' haproxy)
           EMQX_SMOKE_PASSWORD='CiSm0kePass1' ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
           ## -c menas 'cleanup'

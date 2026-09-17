@@ -20,6 +20,7 @@ DASHBOARD_PASSWORD="${EMQX_SMOKE_PASSWORD:-CiSm0kePass1}"
 IPV6=0
 DASHBOARD_NODES='both'
 USE_NET=''
+SHARED_DIST_TLS_DIR=''
 
 cleanup() {
     docker rm -f haproxy >/dev/null 2>&1 || true
@@ -47,9 +48,13 @@ show_help() {
     echo "       when starting two different versions of EMQX."
     echo "  -n: <docker_net_name>"
     echo "      use existing docker network, do not create a network for this test"
+    echo "  -S: <dir>"
+    echo "      mount <dir> read-only at /mnt/dist-tls in both nodes and use its"
+    echo "      ssl_dist.conf as the Erlang distribution TLS option file. Needed"
+    echo "      when the two images do not ship the same CA (mixed versions)."
 }
 
-while getopts "hc6Pd:n:" opt
+while getopts "hc6Pd:n:S:" opt
 do
     case $opt in
         # -P option is treated similarly to docker run -P:
@@ -60,6 +65,7 @@ do
         6) IPV6=1;;
         d) DASHBOARD_NODES="$OPTARG";;
         n) USE_NET="$OPTARG";;
+        S) SHARED_DIST_TLS_DIR="$OPTARG";;
         *) ;;
     esac
 done
@@ -105,6 +111,26 @@ while IFS= read -r _emqx_var; do
     esac
 done < <(compgen -e)
 
+# A shared PKI for the Erlang distribution over TLS, mounted in both nodes.
+# Two images of different versions do not necessarily ship the same CA, so a
+# mixed-version test needs one CA that both nodes trust.
+DIST_TLS_ARGS=()
+if [ -n "${SHARED_DIST_TLS_DIR}" ]; then
+    if [ ! -d "${SHARED_DIST_TLS_DIR}" ]; then
+        echo "ERROR: ${SHARED_DIST_TLS_DIR} not found" >&2
+        exit 1
+    fi
+    SHARED_DIST_TLS_DIR="$(cd "${SHARED_DIST_TLS_DIR}" && pwd)"
+    if [ ! -f "${SHARED_DIST_TLS_DIR}/ssl_dist.conf" ]; then
+        echo "ERROR: ${SHARED_DIST_TLS_DIR}/ssl_dist.conf not found" >&2
+        exit 1
+    fi
+    DIST_TLS_ARGS=(
+        -v "${SHARED_DIST_TLS_DIR}:/mnt/dist-tls:ro"
+        -e EMQX_SSL_DIST_OPTFILE=/mnt/dist-tls/ssl_dist.conf
+    )
+fi
+
 if [ -z "${USE_NET}" ]; then
     if [ ${IPV6} = 1 ]; then
         docker network create --ipv6 --subnet 2001:0DB8::/112 "$NET"
@@ -138,6 +164,7 @@ docker run -d -t --restart=always --name "$NODE1" \
   --net "$NET" \
   -v "$CERT_DIR:/opt/emqx/etc/certs:ro" \
   ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
+  ${DIST_TLS_ARGS[@]+"${DIST_TLS_ARGS[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
@@ -158,6 +185,7 @@ docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
   -v "$CERT_DIR:/opt/emqx/etc/certs:ro" \
   ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
+  ${DIST_TLS_ARGS[@]+"${DIST_TLS_ARGS[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
