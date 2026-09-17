@@ -236,7 +236,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.3", override: true}
 
   def common_dep(:minirest),
-    do: {:minirest, github: "emqx/minirest", tag: "1.5.1", override: true}
+    do: {:minirest, github: "emqx/minirest", tag: "1.5.2", override: true}
 
   # maybe forbid to fetch quicer
   def common_dep(:emqtt),
@@ -319,7 +319,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:parquer, github: "emqx/parquer", tag: "0.1.8", manager: :rebar3}
 
   def common_dep(:greptimedb),
-    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.2"}
+    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.3"}
 
   def common_dep(:greptimedb_rs),
     do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.13"}

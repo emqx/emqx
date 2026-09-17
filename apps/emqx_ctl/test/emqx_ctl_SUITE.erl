@@ -139,9 +139,39 @@ t_audit_redaction(_) ->
         end
     ).
 
+-doc """
+Commands which only print their usage are not audited, every other command is,
+and the "usage printed" marker of one command does not leak into the next one.
+""".
+t_usage_is_not_audited(_) ->
+    with_ctl_server(
+        fun(_CtlSrv) ->
+            emqx_ctl:register_command(audit, {?MODULE, audit_fun}),
+            emqx_ctl:register_command(cmd3, {?MODULE, cmd3_fun}),
+            emqx_ctl:register_command(cmd5, {?MODULE, cmd5_fun}),
+
+            erase(audit_log),
+            ok = emqx_ctl:run_command(["cmd5"]),
+            ?assertEqual(undefined, get(audit_log)),
+
+            ok = emqx_ctl:run_command(["cmd5", "usage2"]),
+            ?assertEqual(undefined, get(audit_log)),
+
+            %% The marker is cleared, the next command is audited
+            ok = emqx_ctl:run_command(["cmd3", "secret", "value"]),
+            ?assertMatch(#{cmd := cmd3}, get(audit_log)),
+
+            %% A command without arguments which does not print usage is audited
+            erase(audit_log),
+            ok = emqx_ctl:run_command(["cmd3"]),
+            ?assertMatch(#{cmd := cmd3, args := []}, get(audit_log))
+        end
+    ).
+
 %% Verify:
 %% `emqx_*_cli` modules implement `emqx_ctl`
-%% `emqx_ctl` implementations are named `emqx_*_cli`
+%% `emqx_ctl` implementations are named `emqx_*_cli`, or are helper modules
+%% which declare the behaviour (e.g. `emqx_plugins_cli_utils`)
 %% Registered commands have callbacks for audit logging
 t_cli_provider_contract(_) ->
     with_ctl_server(
@@ -158,15 +188,19 @@ t_cli_provider_contract(_) ->
             ],
             %% Pin successful discovery
             ?assert(length(CliModules) >= 10),
-            ?assertEqual(CliModules, CtlModules),
-            lists:foreach(fun(Module) -> ok = Module:load() end, CliModules),
+            %% Every name-matched CLI module must declare the behaviour; the
+            %% behaviour also covers CLI handler modules whose names do not end
+            %% in `_cli'.
+            ?assertEqual([], CliModules -- CtlModules),
+            CliHandlerModules = lists:usort(CliModules ++ CtlModules),
+            lists:foreach(fun(Module) -> ok = Module:load() end, CliHandlerModules),
             Commands = [
                 Command
              || {Cmd, _Module, _Fun} = Command <- emqx_ctl:get_commands(),
                 Cmd =/= audit
             ],
             HandlerModules = lists:usort([Module || {_Cmd, Module, _Fun} <- Commands]),
-            ?assertEqual([], CliModules -- HandlerModules),
+            ?assertEqual([], CliHandlerModules -- HandlerModules),
             ?assertEqual(
                 [],
                 [
@@ -176,7 +210,9 @@ t_cli_provider_contract(_) ->
                 ]
             ),
             ?assert(has_audit_args_callback(emqx_ctl, eval_erl)),
-            lists:foreach(fun(Module) -> ok = Module:unload() end, lists:reverse(CliModules)),
+            lists:foreach(
+                fun(Module) -> ok = Module:unload() end, lists:reverse(CliHandlerModules)
+            ),
             %% Syncronize, wait till unload's are processed
             _ = sys:get_state(emqx_ctl),
             ?assertEqual([], emqx_ctl:get_commands())
@@ -249,6 +285,14 @@ cmd4_fun(_Args) ->
 
 cmd4_fun_audit_args(_Args) ->
     ["selected-audit-callback"].
+
+cmd5_fun(["usage2"]) ->
+    emqx_ctl:usage("cmd5", "cmd5 prints usage");
+cmd5_fun(_Args) ->
+    emqx_ctl:usage([{"cmd5", "cmd5 prints usage"}]).
+
+cmd5_fun_audit_args(Args) ->
+    Args.
 
 audit_fun(usage) ->
     ok.

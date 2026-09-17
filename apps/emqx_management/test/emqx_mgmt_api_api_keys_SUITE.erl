@@ -80,7 +80,15 @@ groups() ->
     [
         {legacy, [], [{group, parallel}]},
         {hardened, [], [{group, parallel}]},
-        {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
+        {parallel, [parallel], [
+            t_create,
+            t_update,
+            t_delete,
+            t_authorize,
+            t_create_unexpired_app,
+            t_create_optional_fields,
+            t_update_optional_fields
+        ]},
         {parallel, [parallel], ?EE_CASES},
         {sequence, [], [
             t_bootstrap_file,
@@ -896,6 +904,85 @@ t_create(_Config) ->
     ?assertEqual(true, maps:get(<<"enable">>, App1)),
     ?assertEqual(false, maps:is_key(<<"api_secret">>, App1)),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, read_app(<<"EMQX-API-KEY-NO-EXIST">>)),
+    ok.
+
+%% Creating a key without the optional `desc'/`enable' fields must not crash
+%% the handler into HTTP 500 (#18713): the note defaults to an empty string
+%% and the key is created enabled. The Dashboard always sends both
+%% (`desc => ""', `enable => true'), but the REST API and the documented
+%% examples may omit them.
+t_create_optional_fields(_Config) ->
+    Name = <<"EMQX-API-KEY-OPTIONAL">>,
+    {ok, Create} = post_app(#{name => Name}),
+    ?assertMatch(
+        #{
+            <<"name">> := Name,
+            <<"desc">> := <<>>,
+            <<"enable">> := true,
+            <<"expired_at">> := <<"infinity">>
+        },
+        Create
+    ),
+    {ok, Read} = read_app(Name),
+    ?assertEqual(<<>>, maps:get(<<"desc">>, Read)),
+    ?assertEqual(true, maps:get(<<"enable">>, Read)),
+    {ok, _} = delete_app(Name),
+
+    %% `enable' may be omitted on its own: the note is kept as sent and the
+    %% key is still created enabled.
+    HalfName = <<"EMQX-API-KEY-NO-ENABLE">>,
+    {ok, Half} = post_app(#{name => HalfName, desc => <<"Kept"/utf8>>}),
+    ?assertMatch(
+        #{<<"name">> := HalfName, <<"desc">> := <<"Kept"/utf8>>, <<"enable">> := true},
+        Half
+    ),
+    {ok, _} = delete_app(HalfName),
+
+    %% The exact request from the issue: the note was spelled `description'
+    %% (the name users read off the Dashboard form's validation prop), which is
+    %% not part of the API key schema and is silently ignored by request
+    %% validation. It must not 500; the key is created with an empty note.
+    TypoName = <<"EMQX-API-KEY-DESCRIPTION">>,
+    {ok, Typo} = post_app(#{
+        name => TypoName,
+        description => <<"test"/utf8>>,
+        role => ?ROLE_API_VIEWER,
+        enable => true
+    }),
+    ?assertMatch(#{<<"name">> := TypoName, <<"desc">> := <<>>}, Typo),
+    {ok, _} = delete_app(TypoName),
+
+    %% JSON `null' is the other common way clients express "field omitted":
+    %% the schema drops nulls, so both fields must fall back to the same
+    %% defaults as when they are absent.
+    NullName = <<"EMQX-API-KEY-NULL">>,
+    {ok, Null} = post_app(#{name => NullName, desc => null, enable => null}),
+    ?assertMatch(
+        #{<<"name">> := NullName, <<"desc">> := <<>>, <<"enable">> := true},
+        Null
+    ),
+    {ok, _} = delete_app(NullName),
+
+    %% `name' is still mandatory — a missing one is rejected by the schema
+    %% (400) and never reaches the handler.
+    ok = assert_400(post_app(#{desc => <<"no name">>, enable => true})),
+    ok.
+
+%% PUT is a partial update for `desc'/`enable': an absent `desc' must not
+%% clear the note and an absent `enable' must not re-enable a disabled key.
+%% (`expired_at' is re-applied from its schema default on every PUT; that is
+%% pre-existing behaviour, pinned by t_update.)
+t_update_optional_fields(_Config) ->
+    Name = <<"EMQX-API-UPDATE-OPTIONAL">>,
+    {ok, _} = create_app(Name),
+    {ok, Disabled} = update_app(Name, #{enable => false}),
+    ?assertEqual(false, maps:get(<<"enable">>, Disabled)),
+    ?assertEqual(<<"Note"/utf8>>, maps:get(<<"desc">>, Disabled)),
+    %% Neither field supplied: the note and the disabled state survive.
+    {ok, Untouched} = update_app(Name, #{}),
+    ?assertEqual(false, maps:get(<<"enable">>, Untouched)),
+    ?assertEqual(<<"Note"/utf8>>, maps:get(<<"desc">>, Untouched)),
+    {ok, _} = delete_app(Name),
     ok.
 
 %% Bootstrap file: publisher role lenient policy — non-publish
@@ -2055,8 +2142,6 @@ create_app(Name) ->
     create_app(Name, #{}).
 
 create_app(Name, Extra) ->
-    AuthHeader = emqx_common_test_http:default_user_auth_header(),
-    Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     ExpiredAt = to_rfc3339(erlang:system_time(second) + 1000),
     App = Extra#{
         name => Name,
@@ -2064,15 +2149,16 @@ create_app(Name, Extra) ->
         desc => <<"Note"/utf8>>,
         enable => true
     },
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, App) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
-        Error -> Error
-    end.
+    post_app(App).
 
 create_unexpired_app(Name, Params) ->
+    post_app(maps:merge(#{name => Name, desc => <<"Note"/utf8>>, enable => true}, Params)).
+
+%% POST a body verbatim, without filling in the optional `desc'/`enable'
+%% defaults, so tests can exercise the "field omitted" paths.
+post_app(App) ->
     AuthHeader = emqx_common_test_http:default_user_auth_header(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
-    App = maps:merge(#{name => Name, desc => <<"Note"/utf8>>, enable => true}, Params),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, App) of
         {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
         Error -> Error
