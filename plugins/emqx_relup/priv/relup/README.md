@@ -10,20 +10,8 @@ are arbitrary; `<from>-to-<to>.relup` is the convention.
 
 | From | To | Changes |
 |---|---|---|
-| 5.10.4 | 5.10.5 | [5.10.4-5.10.5](#5104-5105) |
 
-## Changes
-
-### 5.10.4-5.10.5
-
-- Restart `esaml` so hot-upgraded nodes pick up SAML XXE protection.
-- Load dashboard/data-backup modules and re-announce `emqx` BPAPI so backup-file download authorization changes take effect for API-key callers.
-- Load plugin management modules so stale plugin packages are logged on startup/request and hidden from HTTP API responses and operations.
-- Load the PostgreSQL connector module so disabled-prepared-statement batch execution and table-existence checks use the serialized worker path.
-- Restart `jamdb_oracle`, load Oracle connector modules, then restart running Oracle connector resources so prepare/status checks and large text binds use the updated driver and callback code.
-- Load central redaction helpers and CoAP/LwM2M modules so sensitive registration fields are not written to structured logs or replayed in registration/update reports.
-- Load DynamoDB connector modules, then restart running DynamoDB connector resources so they use explicit per-request AWS configuration and IAM-role credential refresh.
-- Stop Redis resources, restart `eredis`, reload `emqx_redis`, then start Redis resources so Sentinel managers are recreated with isolated manager names.
+No hop is supported. Hot upgrade from 5.10.4 to 5.10.5 is not supported: upgrade that hop with a node restart.
 
 ## Schema
 
