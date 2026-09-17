@@ -167,7 +167,7 @@ jobs:
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: success() && !inputs.publish
       with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
+        name: package-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
         path: _packages/${{ matrix.profile }}/
         retention-days: 7
 
@@ -212,7 +212,7 @@ jobs:
         openssl dgst -sha256 "$pkg_name" | cut -d ' ' -f 2 > "$pkg_name.sha256"
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
+        name: package-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
         path: |
           *.zip
           *.zip.sha256
@@ -273,7 +273,7 @@ jobs:
           --pkgtype pkg
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}
+        name: package-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}
         path: _packages/${{ matrix.profile }}/
         retention-days: 7
 
@@ -359,7 +359,7 @@ jobs:
       if: success()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: "${{ matrix.profile }}-${{ matrix.arch }}-snap"
+        name: "package-${{ matrix.profile }}-${{ matrix.arch }}-snap"
         path: "${{ steps.snapcraft.outputs.snap }}"
 
   publish_artifacts:
@@ -378,7 +378,10 @@ jobs:
     steps:
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        pattern: "${{ matrix.profile }}-*"
+        # Only package artifacts. A broader `<profile>-*` pattern also matched artifacts from other
+        # workflows in the same run (docker images, release and test builds, schema dump) and
+        # published them to S3 and to the GitHub release.
+        pattern: "package-${{ matrix.profile }}-*"
         path: packages/${{ matrix.profile }}
         merge-multiple: true
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
