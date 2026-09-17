@@ -5,18 +5,17 @@ Release notes link to https://www.emqx.com/downloads/... instead of attaching
 the packages to the GitHub release, so download statistics stay visible.
 
 This script is pure enumeration: it never touches the network. It reads the
-checked-out tree -- the release version (./pkg-vsn.sh <profile> --release), the
-platform matrix (scripts/rel/build_matrix.py), and the plugin versions -- and
-expands them into URLs, so it can run at any point in the release cycle without
-secrets. It uses only the Python standard library.
+checked-out tree -- the release version (./pkg-vsn.sh emqx-enterprise
+--release), the platform matrix (scripts/rel/build_matrix.py), and the plugin
+versions -- and expands them into URLs, so it can run at any point in the
+release cycle without secrets. It uses only the Python standard library.
 
 Two families of URLs are printed:
   - EMQX packages, served from the emqx.com download CDN under
-    /downloads/<edition>/<version>/ (edition: enterprise or broker).
-  - Plugin packages (emqx-enterprise only), under
-    /downloads/emqx-plugins/e<version>/. Each plugin under plugins/ ships a
-    VERSION file that gives its package version. Release lines without a
-    plugins/ directory print no plugin links.
+    /downloads/enterprise/<version>/.
+  - Plugin packages, under /downloads/emqx-plugins/e<version>/. Each plugin
+    under plugins/ ships a VERSION file that gives its package version.
+    Release lines without a plugins/ directory print no plugin links.
 
 With --s3, the URLs point at the public S3 bucket the release workflow uploads
 to (see .github/workflows/build_packages.yaml) instead of the CDN. These serve
@@ -24,26 +23,25 @@ the same objects, and are useful to check what was published before a CDN
 cache invalidation lands.
 
 v5 naming notes:
-  - Release tags carry a prefix: e<version> for emqx-enterprise and
-    v<version> for emqx. S3 directories are named after the tag. The CDN uses
-    the bare version for packages and the tag for the plugin directory.
+  - Release tags carry an `e' prefix (e5.8.12). S3 directories are named after
+    the tag. The CDN uses the bare version for packages and the tag for the
+    plugin directory.
   - The linux matrix also builds one Elixir release
-    (<profile>-<version>-elixir-ubuntu22.04-amd64.tar.gz). It is not an offered
-    download, so it is omitted here.
+    (emqx-enterprise-<version>-elixir-ubuntu22.04-amd64.tar.gz). It is not an
+    offered download, so it is omitted here.
 
 Output is a plain list of URLs; --md prints markdown tables instead.
 
 Usage:
-  print-download-links.py [version] [--md] [--profile <profile>] [--s3]
+  print-download-links.py [version] [--md] [--profile emqx-enterprise] [--s3]
 
-The version defaults to ./pkg-vsn.sh <profile> --release when omitted. The tag
-form (e5.8.12, v5.8.9) is accepted too.
+The version defaults to ./pkg-vsn.sh emqx-enterprise --release when omitted.
+The tag form (e5.8.12) is accepted too.
 
 Examples:
   print-download-links.py
   print-download-links.py 5.8.12 --md
   print-download-links.py e5.8.12 --s3
-  print-download-links.py 5.8.9 --profile emqx --md
 """
 
 import argparse
@@ -56,28 +54,16 @@ import build_matrix  # noqa: E402 (sibling module, path set above)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Only emqx-enterprise is released. Values: CDN edition directory and S3
+# top-level directory. The S3 directory mirrors the `aws s3 cp` target in
+# build_packages.yaml and the `s3dir` output in release.yaml.
+EDITIONS = {"emqx-enterprise": "enterprise"}
+S3_DIRS = {"emqx-enterprise": "emqx-ee"}
+TAG_PREFIX = "e"
+
 CDN_BASE_URL = "https://www.emqx.com/downloads"
 S3_BASE_URL = "https://packages.emqx.io"
 PLUGINS_DIR = "emqx-plugins"
-
-# Per profile: git tag prefix, CDN edition directory, S3 top-level directory,
-# and whether plugin packages are published. The S3 directories mirror the
-# `aws s3 cp` targets in build_packages.yaml and the `s3dir` output in
-# release.yaml.
-PROFILES = {
-    "emqx-enterprise": {
-        "tag_prefix": "e",
-        "cdn_dir": "enterprise",
-        "s3_dir": "emqx-ee",
-        "plugins": True,
-    },
-    "emqx": {
-        "tag_prefix": "v",
-        "cdn_dir": "broker",
-        "s3_dir": "emqx-ce",
-        "plugins": False,
-    },
-}
 
 
 def linux_pkg_ext(os_token):
@@ -92,6 +78,7 @@ def linux_pkg_ext(os_token):
 
 def release_version(profile):
     """The release version of the checked-out tree, via ./pkg-vsn.sh <profile> --release."""
+    # pkg-vsn.sh takes the profile as its first argument on v5.
     return subprocess.run(
         [str(REPO_ROOT / "pkg-vsn.sh"), profile, "--release"],
         check=True,
@@ -103,13 +90,13 @@ def release_version(profile):
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         add_help=True,
-        usage="%(prog)s [version] [--md] [--profile <profile>] [--s3]",
+        usage="%(prog)s [version] [--md] [--profile emqx-enterprise] [--s3]",
     )
     parser.add_argument(
         "version_pos",
         nargs="?",
         metavar="version",
-        help="release version; defaults to ./pkg-vsn.sh <profile> --release",
+        help="release version; defaults to ./pkg-vsn.sh emqx-enterprise --release",
     )
     parser.add_argument("--version", dest="version_opt")
     parser.add_argument(
@@ -118,7 +105,7 @@ def parse_args(argv):
         help="print markdown tables instead of a plain URL list",
     )
     parser.add_argument(
-        "--profile", default="emqx-enterprise", choices=list(PROFILES)
+        "--profile", default="emqx-enterprise", choices=list(EDITIONS)
     )
     parser.add_argument(
         "--s3",
@@ -128,10 +115,9 @@ def parse_args(argv):
     args = parser.parse_args(argv)
 
     version = args.version_opt or args.version_pos or release_version(args.profile)
-    # Accept the tag form (e5.8.12, v5.8.9) as well as the bare version.
-    prefix = PROFILES[args.profile]["tag_prefix"]
-    if version.startswith(prefix) and version[len(prefix):][:1].isdigit():
-        version = version[len(prefix):]
+    # Accept the tag form (e5.8.12) as well as the bare version.
+    if version.startswith(TAG_PREFIX) and version[len(TAG_PREFIX):][:1].isdigit():
+        version = version[len(TAG_PREFIX):]
     args.version = version
     return args
 
@@ -269,16 +255,15 @@ def emit_markdown(matrix, plugins, urls):
 
 def main(argv):
     args = parse_args(argv)
-    conf = PROFILES[args.profile]
-    tag = f"{conf['tag_prefix']}{args.version}"
+    tag = f"{TAG_PREFIX}{args.version}"
     if args.s3:
-        base_url = f"{S3_BASE_URL}/{conf['s3_dir']}/{tag}"
+        base_url = f"{S3_BASE_URL}/{S3_DIRS[args.profile]}/{tag}"
         plugins_base_url = f"{S3_BASE_URL}/{PLUGINS_DIR}/{tag}"
     else:
-        base_url = f"{CDN_BASE_URL}/{conf['cdn_dir']}/{args.version}"
+        base_url = f"{CDN_BASE_URL}/{EDITIONS[args.profile]}/{args.version}"
         plugins_base_url = f"{CDN_BASE_URL}/{PLUGINS_DIR}/{tag}"
     urls = UrlBuilder(base_url, plugins_base_url, args.profile, args.version)
-    plugins = plugin_rows(REPO_ROOT) if conf["plugins"] else []
+    plugins = plugin_rows(REPO_ROOT)
 
     matrix = build_matrix.matrix()
     if args.md:
