@@ -146,6 +146,14 @@ connector_config(Overrides) ->
     },
     emqx_utils_maps:deep_merge(Base, Overrides).
 
+%% again, it's better to avoid tests such as these that manually construct configs and
+%% connector states........
+action_resource_opts_atom_keys() ->
+    RawOpts = emqx_bridge_v2_testlib:common_action_resource_opts(),
+    Schema = #{roots => [{x, hoconsc:mk(hoconsc:ref(emqx_resource_schema, "creation_opts"))}]},
+    {ok, #{x := #{} = ResourceOpts}} = emqx_hocon:check(Schema, #{~"x" => RawOpts}),
+    ResourceOpts.
+
 %%------------------------------------------------------------------------------
 %% parse_server/2
 %%------------------------------------------------------------------------------
@@ -660,7 +668,8 @@ on_add_channel_rejects_unsupported_column_type_test() ->
         ChannelConfig = #{
             parameters => #{
                 sql => <<"insert into t(id, blob_col) values ( ${id}, ${blob} )">>
-            }
+            },
+            resource_opts => action_resource_opts_atom_keys()
         },
         ?assertMatch(
             {error,
@@ -680,7 +689,8 @@ on_add_channel_installs_supported_columns_test() ->
     try
         State = #{pool_name => <<"p">>, installed_channels => #{}, resource_opts => #{}},
         ChannelConfig = #{
-            parameters => #{sql => <<"insert into t(id, topic) values ( ${id}, ${topic} )">>}
+            parameters => #{sql => <<"insert into t(id, topic) values ( ${id}, ${topic} )">>},
+            resource_opts => action_resource_opts_atom_keys()
         },
         {ok, NewState} = emqx_bridge_dameng_connector:on_add_channel(
             <<"i">>, State, <<"c">>, ChannelConfig
@@ -709,7 +719,8 @@ on_add_channel_uppercase_insert_test() ->
         ChannelConfig = #{
             parameters => #{
                 sql => <<"INSERT INTO T_MQTT_MSG(id, topic) VALUES ( ${id}, ${topic} )">>
-            }
+            },
+            resource_opts => action_resource_opts_atom_keys()
         },
         ?assertMatch(
             {ok, _},
@@ -736,7 +747,10 @@ on_add_channel_rejects_non_insert_test() ->
                 ?assertEqual(
                     {error, {unrecoverable_error, {invalid_request, ?INSERT_ONLY}}},
                     emqx_bridge_dameng_connector:on_add_channel(
-                        <<"i">>, State, <<"c">>, #{parameters => #{sql => SQL}}
+                        <<"i">>, State, <<"c">>, #{
+                            parameters => #{sql => SQL},
+                            resource_opts => action_resource_opts_atom_keys()
+                        }
                     )
                 )
             end,
@@ -958,7 +972,7 @@ worker_do_insert_crash_is_unrecoverable_test() ->
     end.
 
 %%------------------------------------------------------------------------------
-%% do_get_status/1 (health check)
+%% do_get_status/2 (health check)
 %%------------------------------------------------------------------------------
 
 do_get_status_accepts_dameng_select_1_test() ->
@@ -969,8 +983,9 @@ do_get_status_accepts_dameng_select_1_test() ->
     meck:expect(emqx_odbc, sql_query, fun(_Conn, _SQL, _Timeout) ->
         {selected, ["1"], [{1}]}
     end),
+    Timeout = 15_000,
     try
-        ?assertEqual(ok, emqx_bridge_dameng_connector:do_get_status(self()))
+        ?assertEqual(ok, emqx_bridge_dameng_connector:do_get_status(self(), Timeout))
     after
         meck:unload(emqx_odbc)
     end.
@@ -981,10 +996,11 @@ do_get_status_rejects_bad_shape_test() ->
         {selected, [], []}
     end),
     meck:expect(emqx_odbc, disconnect, fun(_Conn) -> ok end),
+    Timeout = 15_000,
     try
         ?assertMatch(
             {error, #{cause := "unexpected_SELECT_1_result"}},
-            emqx_bridge_dameng_connector:do_get_status(self())
+            emqx_bridge_dameng_connector:do_get_status(self(), Timeout)
         )
     after
         meck:unload(emqx_odbc)

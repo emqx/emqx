@@ -54,7 +54,7 @@
 
 %% Internal exports used to execute code with ecpool worker
 -export([
-    do_get_status/1,
+    do_get_status/2,
     worker_do_insert/4,
     worker_do_literal/4,
     worker_do_literal_batch/4,
@@ -218,9 +218,9 @@ on_stop(InstanceId, _State) ->
     }),
     emqx_resource_pool:stop(InstanceId).
 
-on_add_channel(_InstId, OldState, ChannelId, #{parameters := Params} = _ChannelConfig) ->
+on_add_channel(_InstId, OldState, ChannelId, #{parameters := Params} = ChannelConfig) ->
     #{installed_channels := InstalledChannels, pool_name := PoolName} = OldState,
-    ResourceOpts = maps:get(resource_opts, OldState, #{}),
+    ResourceOpts = maps:get(resource_opts, ChannelConfig),
     case parse_sql_template(Params) of
         {ok, ChannelState0} ->
             case resolve_column_types(PoolName, ChannelState0, ResourceOpts) of
@@ -276,11 +276,15 @@ on_query(ResourceId, {_ChannelId, _Msg} = Query, State) ->
 on_batch_query(ResourceId, BatchRequests, State) ->
     do_batch_query(ResourceId, BatchRequests, ?SYNC_QUERY_MODE, State).
 
-on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
+on_get_status(_InstanceId, ConnState) ->
+    #{
+        resource_opts := #{health_check_timeout := HCTimeout},
+        pool_name := PoolName
+    } = ConnState,
     Opts = #{
-        check_fn => {?MODULE, do_get_status, []},
+        check_fn => {?MODULE, do_get_status, [HCTimeout]},
         on_success_fn => fun() -> on_get_status_continue(ConnState) end,
-        timeout => 5_000
+        timeout => HCTimeout
     },
     emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
@@ -300,9 +304,9 @@ connect(Options) ->
 disconnect(Conn) ->
     emqx_odbc:disconnect(Conn).
 
--spec do_get_status(term()) -> ok | {error, term()}.
-do_get_status(Conn) ->
-    case emqx_odbc:sql_query(Conn, <<"SELECT 1">>, 5_000) of
+-spec do_get_status(term(), timeout()) -> ok | {error, term()}.
+do_get_status(Conn, HCTimeout) ->
+    case emqx_odbc:sql_query(Conn, <<"SELECT 1">>, HCTimeout) of
         {selected, _Cols, [{1}]} ->
             ok;
         Other ->
