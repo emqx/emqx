@@ -958,7 +958,7 @@ worker_do_insert_crash_is_unrecoverable_test() ->
     end.
 
 %%------------------------------------------------------------------------------
-%% do_get_status/1 (health check)
+%% do_get_status/2 (health check)
 %%------------------------------------------------------------------------------
 
 do_get_status_accepts_dameng_select_1_test() ->
@@ -969,8 +969,9 @@ do_get_status_accepts_dameng_select_1_test() ->
     meck:expect(emqx_odbc, sql_query, fun(_Conn, _SQL, _Timeout) ->
         {selected, ["1"], [{1}]}
     end),
+    Timeout = 15_000,
     try
-        ?assertEqual(ok, emqx_bridge_dameng_connector:do_get_status(self()))
+        ?assertEqual(ok, emqx_bridge_dameng_connector:do_get_status(self(), Timeout))
     after
         meck:unload(emqx_odbc)
     end.
@@ -981,10 +982,11 @@ do_get_status_rejects_bad_shape_test() ->
         {selected, [], []}
     end),
     meck:expect(emqx_odbc, disconnect, fun(_Conn) -> ok end),
+    Timeout = 15_000,
     try
         ?assertMatch(
             {error, #{cause := "unexpected_SELECT_1_result"}},
-            emqx_bridge_dameng_connector:do_get_status(self())
+            emqx_bridge_dameng_connector:do_get_status(self(), Timeout)
         )
     after
         meck:unload(emqx_odbc)
