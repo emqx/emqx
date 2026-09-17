@@ -73,7 +73,8 @@
     get_metrics_from_local_node/2,
     lookup_from_local_node_v6/3,
     get_metrics_from_local_node_v6/3,
-    summary_from_local_node_v7/1
+    summary_from_local_node_v7/1,
+    wait_for_ready_local_node_v7/3
 ]).
 
 -define(BPAPI_NAME, emqx_bridge).
@@ -1374,6 +1375,17 @@ summary_from_local_node_v7(ConfRootKey) ->
         end,
         emqx_bridge_v2:list(ConfRootKey)
     ).
+
+%% RPC Target
+wait_for_ready_local_node_v7(ConfRootKey, Type, Name) ->
+    try
+        {ok, {ConnResId, ChannelResId}} =
+            emqx_bridge_v2:get_resource_ids(ConfRootKey, Type, Name),
+        emqx_resource_manager:channel_health_check(ConnResId, ChannelResId)
+    catch
+        exit:{timeout, _} ->
+            {error, timeout}
+    end.
 
 %% resource
 format_resource(
