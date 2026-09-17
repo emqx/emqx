@@ -158,6 +158,5 @@ jobs:
       - name: run emqx
         timeout-minutes: 5
         run: .ci/docker-compose-file/scripts/run-emqx.sh $CI_EMQX_DOCKER_IMAGE_TAG --db-backend rlog
-      - run: |
-          docker exec -t -u root node1.emqx.io bash -c 'apt-get -y update && apt-get -y install net-tools'
-          docker exec -t -u root node1.emqx.io node_dump
+      - name: test node_dump
+        run: docker exec node1.emqx.io node_dump

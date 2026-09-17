@@ -1692,12 +1692,22 @@ A CONNECT with too many user properties shuts the connection down under its own
 counter.
 """.
 t_shutdown_count_too_many_user_properties(Config) ->
-    Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_user_properties]),
-    Socket = socket_connect(Config, [{active, true}, binary]),
-    ExitReason = assert_frame_error_shutdown(
-        Config, Socket, connect_with_user_properties(Limit + 1), too_many_user_properties
-    ),
-    ?assertMatch({shutdown, #{cause := too_many_user_properties, limit := Limit}}, ExitReason).
+    %% A small limit keeps the rejected CONNECT short enough for the parse error
+    %% report to carry all of its bytes, whatever the default limit is.
+    Limit = 2,
+    Default = emqx_config:get_zone_conf(default, [mqtt, max_connect_user_properties]),
+    emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], Limit),
+    try
+        Socket = socket_connect(Config, [{active, true}, binary]),
+        ExitReason = assert_frame_error_shutdown(
+            Config, Socket, connect_with_user_properties(Limit + 1), too_many_user_properties
+        ),
+        ?assertMatch(
+            {shutdown, #{cause := too_many_user_properties, limit := Limit}}, ExitReason
+        )
+    after
+        emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], Default)
+    end.
 
 -doc """
 A non-MQTT first packet shuts the connection down under the fixed
