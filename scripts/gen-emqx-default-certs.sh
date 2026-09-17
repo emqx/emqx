@@ -3,6 +3,10 @@
 set -euo pipefail
 
 CERT_DIR="${1:-apps/emqx/etc/certs}"
+# Optional extra DNS subject alternative names for the server certificate,
+# comma separated. The default certificate only covers loopback names, which is
+# not enough for e.g. a cluster whose nodes are named node1.example.com.
+EXTRA_DNS_SANS="${2:-}"
 
 mkdir -p "$CERT_DIR"
 
@@ -85,6 +89,19 @@ subjectAltName = @alt_names
 
 [ alt_names ]
 DNS.1 = localhost
+EOF
+
+if [ -n "${EXTRA_DNS_SANS}" ]; then
+    i=2
+    read -ra _extra_sans <<< "${EXTRA_DNS_SANS//,/ }"
+    for san in "${_extra_sans[@]}"; do
+        [ -n "${san}" ] || continue
+        echo "DNS.${i} = ${san}" >> "$tmpdir/openssl.cnf"
+        i=$((i + 1))
+    done
+fi
+
+cat >> "$tmpdir/openssl.cnf" <<'EOF'
 IP.1 = 127.0.0.1
 IP.2 = ::1
 EOF

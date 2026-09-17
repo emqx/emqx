@@ -61,9 +61,9 @@ node_etc_dir.label:
 cluster_proto_dist.desc:
 """The Erlang distribution protocol for the cluster.<br/>
 - inet_tcp: IPv4 TCP <br/>
-- inet_tls: IPv4 TLS, works together with <code>etc/ssl_dist.conf</code> <br/>
+- inet_tls: IPv4 TLS. Reads <code>etc/ssl_dist.conf</code>, which verifies the peer certificate on both sides and requires every node to present a certificate issued by a trusted CA. Set <code>EMQX_SSL_DIST_OPTFILE</code> to read a different option file. <br/>
 - inet6_tcp: IPv6 TCP <br/>
-- inet6_tls: IPv6 TLS, works together with <code>etc/ssl_dist.conf</code>"""
+- inet6_tls: IPv6 TLS, same as <code>inet_tls</code> over IPv6"""
 
 cluster_proto_dist.label:
 """Cluster Protocol Distribution"""
