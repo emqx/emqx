@@ -25,6 +25,7 @@
 -import(emqx_config_SUITE, [prepare_conf_file/3]).
 
 -define(READONLY_ROOT_KEYS, [rpc, node]).
+-define(SENTINEL, <<"sec431-sentinel">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -244,6 +245,29 @@ t_reload_etc_emqx_conf_not_persistent(Config) ->
         )
     ),
     ok.
+
+%% `emqx ctl conf show' deliberately keeps printing cleartext secrets: it is a local
+%% shell command with no privilege boundary, and its output must stay replayable via
+%% `emqx ctl conf load'. This test pins that decision down.
+t_conf_show_keeps_cleartext(_Config) ->
+    {ok, _} = put_sentinel(),
+    try
+        AllBin = iolist_to_binary(hocon_pp:do(emqx_conf_cli:get_config(), #{})),
+        ?assertNotEqual(nomatch, binary:match(AllBin, ?SENTINEL)),
+        KeyBin = iolist_to_binary(hocon_pp:do(emqx_conf_cli:get_config(<<"sysmon">>), #{})),
+        ?assertNotEqual(nomatch, binary:match(KeyBin, ?SENTINEL)),
+        ok = emqx_conf_cli:conf(["show"]),
+        ok = emqx_conf_cli:conf(["show", "sysmon"]),
+        ok
+    after
+        emqx_conf:remove([sysmon, top, db_password], #{override_to => cluster})
+    end.
+
+%% A sentinel in a `sensitive => true' field, used to tell cleartext from redacted.
+put_sentinel() ->
+    emqx_conf:update([sysmon, top, db_password], ?SENTINEL, #{
+        rawconf_with_defaults => true, override_to => cluster
+    }).
 
 base_conf() ->
     #{
