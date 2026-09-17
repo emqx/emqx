@@ -218,9 +218,9 @@ on_stop(InstanceId, _State) ->
     }),
     emqx_resource_pool:stop(InstanceId).
 
-on_add_channel(_InstId, OldState, ChannelId, #{parameters := Params} = _ChannelConfig) ->
+on_add_channel(_InstId, OldState, ChannelId, #{parameters := Params} = ChannelConfig) ->
     #{installed_channels := InstalledChannels, pool_name := PoolName} = OldState,
-    ResourceOpts = maps:get(resource_opts, OldState, #{}),
+    ResourceOpts = maps:get(resource_opts, ChannelConfig),
     case parse_sql_template(Params) of
         {ok, ChannelState0} ->
             case resolve_column_types(PoolName, ChannelState0, ResourceOpts) of
