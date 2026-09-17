@@ -591,10 +591,8 @@ handle_pull_error(Reason, Data0) ->
             Msg = append_error_detail(~"Permission denied", Details),
             set_health(SourceResId, {?status_disconnected, {unhealthy_target, Msg}}),
             {_, Data1} = maps_swap(?handle, ?undefined, Data0),
-            ?keep_state_actions(
-                Data1,
-                [?state_timeout(?RETRY_PULL_TIMEOUT, #retry_pull{})]
-            );
+            %% start over
+            ?next_state(?s_update_subscription, Data1);
         {error, {grpc_client_down, _}} ->
             {_, Data1} = maps_swap(?handle, ?undefined, Data0),
             ?keep_state_actions(
