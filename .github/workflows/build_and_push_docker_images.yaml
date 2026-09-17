@@ -323,7 +323,9 @@ jobs:
           ./build ${PROFILE} docker
 
   upload:
-    runs-on: ubuntu-22.04
+    # Export each image on a runner of the same architecture. `docker pull` of a multi-arch
+    # tag on an amd64 runner fetched the amd64 image for the arm64 tarball too.
+    runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     if: inputs.publish || github.repository_owner != 'emqx'
 
     needs:
@@ -349,12 +351,27 @@ jobs:
           name: "${{ matrix.profile }}-docker-image-tag"
 
       - name: export docker image to .tar.gz
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
           set -xeuo pipefail
 
           export _EMQX_DOCKER_IMAGE_TAG=$(cat docker-image-tag)
-          docker pull "${_EMQX_DOCKER_IMAGE_TAG}"
+          docker pull --platform "linux/${ARCH}" "${_EMQX_DOCKER_IMAGE_TAG}"
           docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > "$FILENAME"
+
+      - name: check architecture of the exported image
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          CONFIG="$(tar -xzOf "$FILENAME" manifest.json | python3 -c 'import json, sys; print(json.load(sys.stdin)[0]["Config"])')"
+          GOT="$(tar -xzOf "$FILENAME" "$CONFIG" | python3 -c 'import json, sys; print(json.load(sys.stdin)["architecture"])')"
+          if [ "$GOT" != "$ARCH" ]; then
+              echo "::error::$FILENAME contains a $GOT image, expected $ARCH"
+              exit 1
+          fi
+          echo "$FILENAME contains a $GOT image"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
