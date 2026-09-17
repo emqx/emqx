@@ -684,9 +684,12 @@ process_connect(
             RandVal = rand:uniform(?TOKEN_MAXIMUM),
             Token = erlang:list_to_binary(erlang:integer_to_list(RandVal)),
             NResult = Result#{events => [{event, connected}]},
+            %% The token is a credential: wrap it so that it cannot leak through
+            %% the packet debug logs. `emqx_coap_frame:serialize_pkt/2' unwraps it.
+            SensitiveToken = emqx_secret:wrap(Token),
             iter(
                 Iter,
-                reply({ok, created}, Token, Msg, NResult),
+                reply({ok, created}, SensitiveToken, Msg, NResult),
                 Channel#channel{token = Token}
             );
         {error, Reason} ->

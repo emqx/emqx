@@ -79,7 +79,14 @@ serialize_pkt(
     Head =
         <<?VERSION:2, (encode_type(Type)):2, TKL:4, Class:3, Code:5, MsgId:16, Token:TKL/binary>>,
     FlatOpts = flatten_options(Options),
-    encode_option_list(FlatOpts, 0, Head, Payload).
+    encode_option_list(FlatOpts, 0, Head, unwrap_payload(Payload)).
+
+%% Payloads carrying credentials are wrapped in `emqx_secret' by the channel so
+%% that they cannot leak through debug logs; unwrap them for the wire. Plain
+%% payloads pass through `emqx_secret:unwrap/1' unchanged.
+-spec unwrap_payload(binary() | emqx_secret:t(binary())) -> binary().
+unwrap_payload(Payload) ->
+    emqx_secret:unwrap(Payload).
 
 -spec encode_type(message_type()) -> 0..3.
 encode_type(con) -> 0;
@@ -478,7 +485,54 @@ class_code_to_method({5, 05}) -> {error, proxying_not_supported};
 class_code_to_method(_) -> undefined.
 
 format(Msg) ->
-    io_lib:format("~p", [emqx_utils:redact(Msg)]).
+    io_lib:format("~p", [emqx_utils:redact(redact_for_log(Msg))]).
+
+redact_for_log(Msg = #coap_message{payload = Payload}) ->
+    Msg#coap_message{
+        options = redact_options(Msg#coap_message.options),
+        payload = redact_payload(Payload)
+    };
+redact_for_log(Msg) ->
+    Msg.
+
+%% Secrets are wrapped in `emqx_secret' where they are produced; render them
+%% redacted instead of exposing the wrapped value.
+redact_payload(Payload) ->
+    case is_wrapped_secret(Payload) of
+        true -> <<"******">>;
+        false -> Payload
+    end.
+
+is_wrapped_secret(Fun) when is_function(Fun, 0) ->
+    case erlang:fun_info(Fun, module) of
+        {module, emqx_secret} -> true;
+        _ -> false
+    end;
+is_wrapped_secret(_) ->
+    false.
+
+%% Credentials may be sent with the short query aliases (`t', `p'). Keep the
+%% original query keys, redact only the values so that the log still shows the
+%% request as it was sent.
+redact_options(#{uri_query := Query} = Options) when is_map(Query) ->
+    Options#{uri_query => redact_query(Query)};
+redact_options(Options) ->
+    Options.
+
+redact_query(Query) ->
+    maps:map(
+        fun(Key, Value) ->
+            case is_sensitive_query_key(Key) of
+                true -> <<"******">>;
+                false -> Value
+            end
+        end,
+        Query
+    ).
+
+is_sensitive_query_key(Key) ->
+    LongKey = proplists:get_value(Key, ?QUERY_PARAMS_MAPPING, Key),
+    emqx_utils_redact:is_sensitive_key(LongKey).
 
 type(_) ->
     coap.
