@@ -196,6 +196,53 @@ t_http_authenticator_preserves_redacted_header_across_case_change(_) ->
     ?assertEqual(Secret, maps:get(<<"Authorization">>, RawHeaders)),
     ok.
 
+t_oauth2_client_secret_redacted(_) ->
+    Secret = <<"oauth2-topsecret">>,
+    Redacted = emqx_utils_redact:redacted_value(),
+    Config0 = (emqx_authn_test_lib:http_example())#{
+        oauth2 => #{
+            enable => true,
+            grant_type => <<"client_credentials">>,
+            token_endpoint => <<"http://127.0.0.1:1/token">>,
+            client_id => <<"cid">>,
+            client_secret => Secret
+        }
+    },
+    {ok, 200, PostBody} = request(post, uri([?CONF_NS]), Config0),
+    ?assertEqual(Redacted, oauth2_client_secret(emqx_utils_json:decode(PostBody))),
+    ?assertEqual(nomatch, binary:match(PostBody, Secret)),
+
+    {ok, 200, ListBody} = request(get, uri([?CONF_NS])),
+    [ListConf | _] = emqx_utils_json:decode(ListBody),
+    ?assertEqual(Redacted, oauth2_client_secret(ListConf)),
+    ?assertEqual(nomatch, binary:match(ListBody, Secret)),
+
+    ID = "password_based:http",
+    {ok, 200, GetBody} = request(get, uri([?CONF_NS, ID])),
+    GetConf = emqx_utils_json:decode(GetBody),
+    ?assertEqual(Redacted, oauth2_client_secret(GetConf)),
+    ?assertEqual(nomatch, binary:match(GetBody, Secret)),
+
+    %% The mask only happens at the API boundary; storage keeps the real secret.
+    [#{<<"oauth2">> := #{<<"client_secret">> := RawSecret}}] =
+        emqx:get_raw_config([authentication]),
+    ?assertEqual(Secret, RawSecret),
+
+    %% Re-submitting the redacted GET body must restore the stored secret.
+    PutConf = maps:remove(<<"id">>, GetConf),
+    {ok, 204, _} = request(put, uri([?CONF_NS, ID]), PutConf),
+    {ok, 200, GetBody1} = request(get, uri([?CONF_NS, ID])),
+    GetConf1 = emqx_utils_json:decode(GetBody1),
+    ?assertEqual(Redacted, oauth2_client_secret(GetConf1)),
+    ?assertEqual(nomatch, binary:match(GetBody1, Secret)),
+    [#{<<"oauth2">> := #{<<"client_secret">> := RawSecret1}}] =
+        emqx:get_raw_config([authentication]),
+    ?assertEqual(Secret, RawSecret1),
+    ok.
+
+oauth2_client_secret(Conf) ->
+    maps:get(<<"client_secret">>, maps:get(<<"oauth2">>, Conf)).
+
 t_authenticator_position(_) ->
     test_authenticator_position([]).
 
