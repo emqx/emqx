@@ -178,8 +178,14 @@ tenant_limiter_names() ->
 tenant_limiter_options(Config) ->
     lists:map(
         fun(Name) ->
-            #{rate := Rate, burst := Burst} = maps:get(Name, Config),
-            {Name, emqx_limiter:config_from_rate_and_burst(Rate, Burst)}
+            case maps:get(Name, Config, undefined) of
+                undefined ->
+                    %% can happen when importing an older backup which lacks limiter keys
+                    %% introduced in later versions.
+                    {Name, emqx_limiter:config_unlimited()};
+                #{rate := Rate, burst := Burst} ->
+                    {Name, emqx_limiter:config_from_rate_and_burst(Rate, Burst)}
+            end
         end,
         tenant_limiter_names()
     ).
@@ -187,8 +193,14 @@ tenant_limiter_options(Config) ->
 client_limiter_options(Config) ->
     lists:map(
         fun(Name) ->
-            #{rate := Rate, burst := Burst} = maps:get(Name, Config),
-            {Name, emqx_limiter:config_from_rate_and_burst(Rate, Burst)}
+            case maps:get(Name, Config, undefined) of
+                undefined ->
+                    %% can happen when importing an older backup which lacks limiter keys
+                    %% introduced in later versions.  default to disabled.
+                    {Name, emqx_limiter:config_unlimited()};
+                #{rate := Rate, burst := Burst} ->
+                    {Name, emqx_limiter:config_from_rate_and_burst(Rate, Burst)}
+            end
         end,
         client_limiter_names()
     ).
