@@ -335,7 +335,7 @@ feedvar(Override, ConnParams, ConnInfo, ClientInfo) ->
     end,
     maps:map(
         fun(_K, V) ->
-            Tokens = emqx_placeholder:preproc_tmpl(V),
+            Tokens = emqx_placeholder:preproc_tmpl(emqx_secret:unwrap(V)),
             case
                 emqx_placeholder:proc_tmpl(Tokens, Envs, #{return => rawlist, var_trans => Trans})
             of
