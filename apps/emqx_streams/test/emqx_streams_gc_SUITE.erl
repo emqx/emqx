@@ -40,6 +40,7 @@ init_per_testcase(TestCase, Config) ->
     [{suite_apps, Apps} | Config].
 
 end_per_testcase(_TestCase, Config) ->
+    ok = emqx_common_test_helpers:call_janitor(),
     ok = snabbkaffe:stop(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
@@ -108,6 +109,40 @@ t_gc(_Config) ->
 %% Verify that the GC successfully completes when there are no streams
 t_gc_noop(_Config) ->
     ?assertWaitEvent(emqx_streams_gc:gc(), #{?snk_kind := streams_gc_done}, 10_000).
+
+%% Verify that regular stream GC is skipped when slab information is incomplete.
+t_gc_regular_list_slabs_error(_Config) ->
+    {ok, SlabInfo0} = emqx_streams_message_db:regular_db_slab_info(),
+    [{{Shard, _Generation}, _} | _] = maps:to_list(SlabInfo0),
+    ok = meck:new(emqx_ds, [passthrough, no_link]),
+    ok = emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_ds) end),
+    ok = meck:expect(
+        emqx_ds,
+        list_slabs,
+        fun
+            (?STREAMS_MESSAGE_REGULAR_DB, #{}) ->
+                {#{}, [{Shard, {error, recoverable, test_error}}]};
+            (DB, Opts) ->
+                meck:passthrough([DB, Opts])
+        end
+    ),
+    ?check_trace(
+        ?assertWaitEvent(
+            emqx_streams_gc:gc(),
+            #{?snk_kind := streams_gc_worker_terminated, reason := normal},
+            1000
+        ),
+        fun(Trace) ->
+            ?assertMatch(
+                [#{reason := list_slabs_failed, errors := _}],
+                ?of_kind(streams_gc_regular_streams_skipped, Trace)
+            ),
+            ?assertMatch([_], ?of_kind(streams_gc_done, Trace)),
+            ?assertEqual([], ?of_kind(mq_gc_regular, Trace))
+        end
+    ),
+    ?assert(not meck:called(emqx_ds, add_generation, [?STREAMS_MESSAGE_REGULAR_DB])),
+    ?assert(not meck:called(emqx_ds, drop_slab, [?STREAMS_MESSAGE_REGULAR_DB, '_'])).
 
 %% Verify that the GC collects data of regular streams limited by count or byte size
 t_limited_regular(_Config) ->

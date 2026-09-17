@@ -4096,6 +4096,14 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_max_packet_size)
                 }
             )},
+        {"max_connect_user_properties",
+            sc(
+                hoconsc:union([infinity, non_neg_integer()]),
+                #{
+                    default => 100,
+                    desc => ?DESC(mqtt_max_connect_user_properties)
+                }
+            )},
         {"max_clientid_len",
             sc(
                 %% MQTT-v3.1.1-[MQTT-3.1.3-5], MQTT-v5.0-[MQTT-3.1.3-5]
