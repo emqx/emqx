@@ -1704,6 +1704,9 @@ t_ee_publisher_update_rejects_explicit_non_publish(_Config) ->
     assert_400_publisher_only(
         update_app(Name, #{role => ?ROLE_API_PUBLISHER, scopes => [?SCOPE_CONNECTIONS]})
     ),
+    %% Without `role' in the body, the scopes are checked against the stored role.
+    assert_400_publisher_only(update_app(Name, #{scopes => [?SCOPE_CONNECTIONS]})),
+    ?assertMatch({ok, #{<<"role">> := ?ROLE_API_PUBLISHER}}, read_app(Name)),
     ?assertMatch(
         {ok, _},
         update_app(Name, #{role => ?ROLE_API_PUBLISHER, scopes => [?SCOPE_PUBLISH]})
