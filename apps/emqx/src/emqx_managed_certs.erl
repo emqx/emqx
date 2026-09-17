@@ -243,9 +243,9 @@ Adds CA certificates to the `ca` file of an existing bundle on all nodes.
 already in the file are skipped. The current file content is kept byte for byte
 and the new certificates are appended to it.
 
-The node that runs this function reads the current file. A cluster-wide lock
-per bundle makes concurrent calls run one after another, so no call loses the
-certificates another call added.
+The node that runs this function reads the current file, and sends the merged
+file to all nodes with `add_managed_files/3`, like any other upload. Concurrent
+writes to the same file are not serialized: the last one wins.
 """.
 -spec merge_ca_certs(maybe_namespace(), bundle_name(), binary()) ->
     {ok, #{added := non_neg_integer(), total := non_neg_integer()}}
@@ -258,10 +258,7 @@ merge_ca_certs(Namespace, BundleName, PEM) ->
     maybe
         ok ?= check_namespace(Namespace),
         {ok, NewCerts} ?= decode_ca_certs(PEM),
-        LockId = {{?MODULE, merge_ca_certs, Namespace, BundleName}, self()},
-        global:trans(LockId, fun() ->
-            do_merge_ca_certs(Namespace, BundleName, NewCerts)
-        end)
+        do_merge_ca_certs(Namespace, BundleName, NewCerts)
     end.
 
 do_merge_ca_certs(Namespace, BundleName, NewCerts) ->
