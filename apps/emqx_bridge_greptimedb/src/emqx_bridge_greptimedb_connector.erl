@@ -673,12 +673,16 @@ parse_timestamp([TsBin]) ->
 
 continue_lines_to_points(Data, DbName, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
     case line_to_point(Data, DbName, Item) of
-        {_, [#{fields := Fields}]} when map_size(Fields) =:= 0 ->
+        {ok, {_, [#{fields := Fields}]}} when map_size(Fields) =:= 0 ->
             %% greptimedb client doesn't like empty field maps...
             ErrorPointsAcc1 = [{error, no_fields} | ErrorPointsAcc],
             lines_to_points(Data, DbName, Rest, ResultPointsAcc, ErrorPointsAcc1);
-        Point ->
-            lines_to_points(Data, DbName, Rest, [Point | ResultPointsAcc], ErrorPointsAcc)
+        {ok, Point} ->
+            lines_to_points(Data, DbName, Rest, [Point | ResultPointsAcc], ErrorPointsAcc);
+        {error, Reason} ->
+            lines_to_points(Data, DbName, Rest, ResultPointsAcc, [
+                {error, Reason} | ErrorPointsAcc
+            ])
     end.
 
 line_to_point(
@@ -692,17 +696,26 @@ line_to_point(
         precision := {_, ToPrecision} = Precision
     } = Item
 ) ->
-    {_, EncodedTags} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Tags),
-    {_, EncodedFields} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Fields),
-    TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
-    Metric = #{dbname => DbName, table => TableName, timeunit => ToPrecision},
-    {Metric, [
-        maps:without([precision, measurement], Item#{
-            tags => EncodedTags,
-            fields => EncodedFields,
-            timestamp => maybe_convert_time_unit(Ts, Precision)
-        })
-    ]}.
+    case config_to_data(Data, Tags) of
+        {ok, EncodedTags} ->
+            case config_to_data(Data, Fields) of
+                {ok, EncodedFields} ->
+                    TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
+                    Metric = #{dbname => DbName, table => TableName, timeunit => ToPrecision},
+                    {ok,
+                        {Metric, [
+                            maps:without([precision, measurement], Item#{
+                                tags => EncodedTags,
+                                fields => EncodedFields,
+                                timestamp => maybe_convert_time_unit(Ts, Precision)
+                            })
+                        ]}};
+                {error, _} = Error ->
+                    Error
+            end;
+        {error, _} = Error ->
+            Error
+    end.
 
 maybe_convert_time_unit(Ts, {FromPrecision, ToPrecision}) ->
     erlang:convert_time_unit(Ts, time_unit(FromPrecision), time_unit(ToPrecision)).
@@ -712,61 +725,80 @@ time_unit(ms) -> millisecond;
 time_unit(us) -> microsecond;
 time_unit(ns) -> nanosecond.
 
-maps_config_to_data(K, V, {Data, Res}) ->
+config_to_data(Data, Config) ->
+    maps:fold(
+        fun(K, V, Acc) -> maps_config_to_data(K, V, Data, Acc) end,
+        {ok, #{}},
+        Config
+    ).
+
+maps_config_to_data(_K, _V, _Data, {error, _} = Error) ->
+    Error;
+maps_config_to_data(K, V, Data, {ok, Res}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
     NV = proc_quoted(V, Data, VTransOptions),
     case {NK0, NV} of
         {[undefined], _} ->
-            {Data, Res};
+            {ok, Res};
         %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
         {_, [undefined | _]} ->
-            {Data, Res};
+            {ok, Res};
         _ ->
             NK = list_to_binary(NK0),
-            {Data, Res#{NK => value_type(NV)}}
+            case value_type(NV) of
+                {ok, Value} ->
+                    {ok, Res#{NK => Value}};
+                {error, _} = Error ->
+                    Error
+            end
     end.
 
 value_type([Int, <<"i">>]) when
     is_integer(Int)
 ->
-    greptimedb_values:int64_value(Int);
+    {ok, greptimedb_values:int64_value(Int)};
+value_type([Invalid, <<"i">>]) ->
+    {error, {invalid_integer_value, Invalid}};
 value_type([UInt, <<"u">>]) when
     is_integer(UInt)
 ->
-    greptimedb_values:uint64_value(UInt);
+    {ok, greptimedb_values:uint64_value(UInt)};
+value_type([Invalid, <<"u">>]) ->
+    {error, {invalid_unsigned_integer_value, Invalid}};
 value_type([<<"t">>]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([<<"T">>]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([true]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([<<"TRUE">>]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([<<"True">>]) ->
-    greptimedb_values:boolean_value(true);
+    {ok, greptimedb_values:boolean_value(true)};
 value_type([<<"f">>]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([<<"F">>]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([false]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([<<"FALSE">>]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([<<"False">>]) ->
-    greptimedb_values:boolean_value(false);
+    {ok, greptimedb_values:boolean_value(false)};
 value_type([Float]) when is_float(Float) ->
-    Float;
+    {ok, Float};
 value_type(Val0) ->
-    Val =
-        case unicode:characters_to_binary(Val0, utf8) of
-            Val1 when is_binary(Val1) ->
-                [Val1];
-            _Error ->
-                throw({unrecoverable_error, {non_utf8_string_value, Val0}})
-        end,
-    greptimedb_values:string_value(Val).
+    try unicode:characters_to_binary(Val0, utf8) of
+        Val1 when is_binary(Val1) ->
+            {ok, greptimedb_values:string_value([Val1])};
+        _Error ->
+            {error, {non_utf8_string_value, Val0}}
+    catch
+        error:badarg ->
+            {error, {non_utf8_string_value, Val0}}
+    end.
 
 key_filter(undefined) -> undefined;
 key_filter(Value) -> emqx_utils_conv:bin(Value).
@@ -824,6 +856,55 @@ is_auth_key_test_() ->
         ?_assertNot(is_auth_key(<<"Something">>)),
         ?_assertNot(is_auth_key(89))
     ].
+
+integer_point_validation_test() ->
+    Lines = emqx_bridge_influxdb:to_influx_lines(
+        <<"rtc,channel=${channel} e2e_delay=${m.e2e_delay}i">>
+    ),
+    SyntaxLines = to_config(Lines, ms),
+    Data0 = #{
+        <<"channel">> => <<"repro-channel">>,
+        <<"timestamp">> => 1_789_360_000_000
+    },
+    ValidData = Data0#{<<"m">> => #{<<"e2e_delay">> => 470}},
+    InvalidData = Data0#{<<"m">> => #{<<"e2e_delay">> => 470.5}},
+    {ok, [{_, [#{fields := Fields}]}]} =
+        data_to_points(ValidData, <<"public">>, SyntaxLines),
+    ?assertEqual(
+        #{value_data => {i64_value, 470}},
+        maps:get(<<"e2e_delay">>, Fields)
+    ),
+    ?assertEqual(
+        {error, [{error, {invalid_integer_value, 470.5}}]},
+        data_to_points(InvalidData, <<"public">>, SyntaxLines)
+    ),
+    ?assertEqual(
+        {error, points_trans_failed},
+        parse_batch_data(
+            <<"connector:test">>,
+            <<"public">>,
+            [{channel, ValidData}, {channel, InvalidData}],
+            SyntaxLines
+        )
+    ),
+    State = #{
+        channels => #{channel => #{write_syntax => SyntaxLines}},
+        client => unused,
+        dbname => <<"public">>
+    },
+    ?assertEqual(
+        {error, {unrecoverable_error, points_trans_failed}},
+        on_batch_query_async(
+            <<"connector:test">>,
+            [{channel, ValidData}, {channel, InvalidData}],
+            {fun(_) -> ok end, []},
+            State
+        )
+    ),
+    ?assertEqual(
+        {error, {non_utf8_string_value, [470.5, <<"x">>]}},
+        value_type([470.5, <<"x">>])
+    ).
 
 %% for coverage
 desc_test_() ->
