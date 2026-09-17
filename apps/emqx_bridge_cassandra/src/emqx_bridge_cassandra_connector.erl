@@ -470,8 +470,9 @@ prepare_cql_to_conn(Conn, #{prepare_key := PrepareKey, prepare_cql := PrepareCQL
             Error
     end.
 
-handle_result({error, disconnected}) ->
-    {error, {recoverable_error, disconnected}};
+handle_result({error, {disconnected, Reason}}) ->
+    %% from ecpool_worker:client/1
+    {error, {recoverable_error, Reason}};
 handle_result({error, ecpool_empty}) ->
     {error, {recoverable_error, ecpool_empty}};
 handle_result({error, Error}) ->

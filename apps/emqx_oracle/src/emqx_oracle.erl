@@ -703,8 +703,9 @@ handle_result({error, {recoverable_error, _Error}} = Res) ->
     Res;
 handle_result({error, {unrecoverable_error, _Error}} = Res) ->
     Res;
-handle_result({error, disconnected}) ->
-    {error, {recoverable_error, disconnected}};
+handle_result({error, {disconnected, Reason}}) ->
+    %% from ecpool_worker:client/1
+    {error, {recoverable_error, Reason}};
 handle_result({error, {noproc, _}}) ->
     %% See Note [jamdb oracle race condition]
     {error, {recoverable_error, worker_restarting}};

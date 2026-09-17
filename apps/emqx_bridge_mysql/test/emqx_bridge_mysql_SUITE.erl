@@ -563,7 +563,8 @@ t_write_failure(TCConfig) when is_list(TCConfig) ->
             case Error of
                 {resource_error, _} ->
                     ok;
-                {recoverable_error, disconnected} ->
+                {recoverable_error, #{reason := _, time_since_observed_ms := _}} ->
+                    %% from ecpool_worker:client/1
                     ok;
                 _ ->
                     ct:fail("unexpected error: ~p", [Error])
