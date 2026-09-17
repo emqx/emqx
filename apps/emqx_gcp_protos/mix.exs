@@ -26,7 +26,8 @@ defmodule EMQXBridgeGCPProtos.MixProject do
         generate_server?: false,
         generate_client?: false,
         proto_dirs: [
-          "scripts/protos/google/bigtable/v2"
+          "scripts/protos/google/bigtable/v2",
+          "scripts/protos/google/pubsub/v1"
         ],
         out_dir: "src/generated"
       },
@@ -38,7 +39,9 @@ defmodule EMQXBridgeGCPProtos.MixProject do
         :emqx_gcp_protos_gen_request_stats_pb,
         :emqx_gcp_protos_gen_response_params_pb,
         :emqx_gcp_protos_gen_session_pb,
-        :emqx_gcp_protos_gen_types_pb
+        :emqx_gcp_protos_gen_types_pb,
+        :emqx_gcp_protos_gen_pubsub_pb,
+        :emqx_gcp_protos_gen_schema_pb
       ],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler
       extra_dirs: extra_dirs(),

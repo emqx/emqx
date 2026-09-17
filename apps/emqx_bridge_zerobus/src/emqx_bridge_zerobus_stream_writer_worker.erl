@@ -756,7 +756,7 @@ do_create_stream_impl(Metadata, Opts) ->
             Opts
         )
     catch
-        exit:{noproc, _} ->
+        exit:noproc ->
             %% race: client died just as we called it
             {error, grpc_client_restarting};
         Class:Reason:Stacktrace ->

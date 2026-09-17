@@ -183,7 +183,7 @@
 -callback on_stop(resource_id(), resource_state()) -> term().
 
 %% when calling emqx_resource:get_callback_mode/1
--callback callback_mode() -> callback_mode() | undefined.
+-callback callback_mode() -> callback_mode() | no_queries.
 
 %% when calling emqx_resource:get_callback_mode/1
 -callback callback_mode(resource_state()) -> callback_mode().

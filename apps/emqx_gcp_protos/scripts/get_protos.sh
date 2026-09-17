@@ -23,6 +23,8 @@ PATHS=(
   type
   # bigtable
   bigtable/v2
+  # pubsub
+  pubsub/v1
 )
 
 for path in "${PATHS[@]}"; do
