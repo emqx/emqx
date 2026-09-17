@@ -304,7 +304,16 @@ fields(socket_opts) ->
                 default => <<"none">>,
                 desc => ?DESC(emqx_schema, socket_tcp_keepalive),
                 validator => fun emqx_schema:validate_tcp_keepalive/1
-            })}
+            })},
+        {ip_family,
+            mk(
+                enum([auto, ipv4, ipv6]),
+                #{
+                    default => auto,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(socket_ip_family)
+                }
+            )}
     ];
 fields(v1_producer_kafka_opts) ->
     OldSchemaFields =
