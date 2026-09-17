@@ -1261,6 +1261,34 @@ t_merge_ca_certs(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
+Verifies that sending two files for one file kind is refused with a message, and that the
+message does not carry the uploaded file back to the caller.
+""".
+t_multipart_repeated_kind() ->
+    [{matrix, true}].
+t_multipart_repeated_kind(matrix) ->
+    [[?local]];
+t_multipart_repeated_kind(TCConfig) when is_list(TCConfig) ->
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2, key_pem := Key1} = gen_cert(#{key => ec, issuer => root}),
+    Bundle1 = <<"bundle1">>,
+    Files = [
+        {?FILE_KIND_CA_BIN, <<"ca1.pem">>, CA1},
+        {?FILE_KIND_CA_BIN, <<"ca2.pem">>, CA2}
+    ],
+    {400, #{<<"message">> := Msg}} = upload_files_multipart_global(Bundle1, Files),
+    ?assertMatch({_, _}, binary:match(Msg, <<"send exactly one file">>)),
+    ?assertEqual(nomatch, binary:match(Msg, <<"BEGIN CERTIFICATE">>)),
+
+    KeyFiles = [
+        {?FILE_KIND_KEY_BIN, <<"key1.pem">>, Key1},
+        {?FILE_KIND_KEY_BIN, <<"key2.pem">>, Key1}
+    ],
+    {400, #{<<"message">> := KeyMsg}} = upload_files_multipart_global(Bundle1, KeyFiles),
+    ?assertEqual(nomatch, binary:match(KeyMsg, <<"PRIVATE KEY">>)),
+    ok.
+
+-doc """
 Verifies that only a global administrator may call the CA merge API.
 """.
 t_merge_ca_certs_rbac() ->

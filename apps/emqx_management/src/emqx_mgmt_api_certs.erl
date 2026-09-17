@@ -331,8 +331,7 @@ upload_files_request_body_converter(#{} = Input, _HoconOpts) ->
             %% multipart/form-data
             lists:foldl(
                 fun({Type, Data0}, Acc) ->
-                    [{_Filename, Contents}] = maps:to_list(maps:remove(type, Data0)),
-                    Acc#{Type => Contents}
+                    Acc#{Type => multipart_contents(Type, Data0)}
                 end,
                 #{},
                 InputList
@@ -342,6 +341,16 @@ upload_files_request_body_converter(#{} = Input, _HoconOpts) ->
     end;
 upload_files_request_body_converter(Input, _HoconOpts) ->
     Input.
+
+%% Throwing here makes `hocon' report the message as the validation error. Returning the
+%% value instead would put the uploaded file, a private key among them, in the response.
+multipart_contents(Type, Data) ->
+    case maps:to_list(maps:remove(type, Data)) of
+        [{_Filename, Contents}] ->
+            Contents;
+        _ ->
+            throw(<<"send exactly one file for `", (bin(Type))/binary, "`">>)
+    end.
 
 upload_files_request_body_validator(#{} = Input) when map_size(Input) == 0 ->
     {error, <<"must include at least one file kind">>};
