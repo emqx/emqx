@@ -237,4 +237,16 @@ do_t_merge_ca_certs() ->
         {error, bad_namespace},
         emqx_managed_certs:merge_ca_certs(<<"..">>, Bundle, CA1)
     ),
+    ?assertEqual(
+        {error, bad_namespace},
+        emqx_managed_certs:delete_ca_cert(<<"..">>, Bundle, <<0:256>>)
+    ),
+    ?assertEqual(
+        {error, bundle_not_found},
+        emqx_managed_certs:delete_ca_cert(?global_ns, <<"no_such_bundle">>, <<0:256>>)
+    ),
+    ?assertEqual(
+        {error, cert_not_found},
+        emqx_managed_certs:delete_ca_cert(?global_ns, Bundle, <<0:256>>)
+    ),
     ok.

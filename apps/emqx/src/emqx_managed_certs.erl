@@ -11,6 +11,7 @@
     delete_managed_file/3,
     add_managed_files/3,
     merge_ca_certs/3,
+    delete_ca_cert/3,
     install_files/3,
     find_references/2
 ]).
@@ -259,6 +260,56 @@ merge_ca_certs(Namespace, BundleName, PEM) ->
         ok ?= check_namespace(Namespace),
         {ok, NewCerts} ?= decode_ca_certs(PEM),
         do_merge_ca_certs(Namespace, BundleName, NewCerts)
+    end.
+
+-doc """
+Removes one CA certificate from the `ca` file of a bundle on all nodes.
+
+`Fingerprint` is the SHA-256 digest of the DER-encoded certificate, as raw
+bytes. The other entries of the file are kept in order.
+
+When no certificate is left, the `ca` file is deleted: a file that holds no
+certificate is not a valid `cacertfile`. This is refused while a configuration
+refers to the bundle, like deleting the `ca` file directly.
+""".
+-spec delete_ca_cert(maybe_namespace(), bundle_name(), binary()) ->
+    {ok, #{total := non_neg_integer()}}
+    | {error, bad_namespace}
+    | {error, bundle_not_found}
+    | {error, cert_not_found}
+    | {error, {referenced, [{maybe_namespace(), [binary()]}]}}
+    | {error, {read_ca_file, file:posix()}}
+    | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
+delete_ca_cert(Namespace, BundleName, Fingerprint) ->
+    maybe
+        ok ?= check_namespace(Namespace),
+        true ?= filelib:is_dir(dir(Namespace, BundleName)) orelse {error, bundle_not_found},
+        {ok, Existing} ?= read_ca_file(filename(Namespace, BundleName, ?FILE_KIND_CA)),
+        Entries = public_key:pem_decode(Existing),
+        Remaining = [E || E <- Entries, not is_cert_with_fingerprint(E, Fingerprint)],
+        true ?= length(Remaining) < length(Entries) orelse {error, cert_not_found},
+        ok ?= write_remaining_ca_entries(Namespace, BundleName, Remaining),
+        {ok, #{total => length([E || {'Certificate', _, _} = E <- Remaining])}}
+    end.
+
+is_cert_with_fingerprint({'Certificate', Der, _}, Fingerprint) ->
+    crypto:hash(sha256, Der) =:= Fingerprint;
+is_cert_with_fingerprint(_Entry, _Fingerprint) ->
+    false.
+
+write_remaining_ca_entries(Namespace, BundleName, Remaining) ->
+    case [E || {'Certificate', _, _} = E <- Remaining] of
+        [] ->
+            delete_unreferenced_ca_file(Namespace, BundleName);
+        [_ | _] ->
+            Contents = public_key:pem_encode(Remaining),
+            add_managed_files(Namespace, BundleName, #{?FILE_KIND_CA => Contents})
+    end.
+
+delete_unreferenced_ca_file(Namespace, BundleName) ->
+    case find_references(Namespace, BundleName) of
+        [] -> delete_managed_file(Namespace, BundleName, ?FILE_KIND_CA);
+        [_ | _] = Refs -> {error, {referenced, Refs}}
     end.
 
 do_merge_ca_certs(Namespace, BundleName, NewCerts) ->
