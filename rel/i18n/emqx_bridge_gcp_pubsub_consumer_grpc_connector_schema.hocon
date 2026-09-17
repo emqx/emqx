@@ -1,0 +1,22 @@
+emqx_bridge_gcp_pubsub_consumer_grpc_connector_schema {
+  config_connector {
+    label: """GCP PubSub Consumer (gRPC) Client Configuration"""
+    desc: """Configuration for a GCP PubSub Consumer (gRPC) Client."""
+  }
+
+  url {
+    label: "URL"
+    desc: """URL including scheme and port to the GCP PubSub gRPC endpoint.  Unless running tests with emulator, this should not need to be explicitly set."""
+  }
+
+  connect_timeout {
+    label: "Connect Timeout"
+    desc: """Timeout when connecting to GCP PubSub."""
+  }
+
+  pool_size {
+    label: "Pool Size"
+    desc: """Connection pool size."""
+  }
+
+}

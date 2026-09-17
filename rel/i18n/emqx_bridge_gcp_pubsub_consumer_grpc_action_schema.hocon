@@ -1,0 +1,20 @@
+emqx_bridge_gcp_pubsub_consumer_grpc_action_schema {
+  gcp_pubsub_consumer_grpc {
+    label: """Stream data from GCP PubSub (gRPC)"""
+    desc:
+    """Source that processes incoming messages from GCP PubSub using gRPC."""
+  }
+
+  source_parameters {
+    label: """GCP PubSub Consumer (gRPC) Source Parameters"""
+    desc:
+    """Set of parameters for the source."""
+  }
+
+  max_outstanding_messages {
+    label: """Max Outstanding Messages"""
+    desc:
+    """Flow control settings for the maximum number of outstanding messages.  When there are `max_outstanding_messages` currently sent to the client that have not yet been processed and acked, the server stops sending more messages.  The sending of messages resumes once the number of outstanding messages is less than this value.  If the value is 0, there is no limit to the number of outstanding messages."""
+  }
+
+}
