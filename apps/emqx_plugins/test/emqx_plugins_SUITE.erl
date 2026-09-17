@@ -54,7 +54,8 @@ groups() ->
             group_t_copy_plugin_to_a_new_node_single_node,
             group_t_cluster_leave,
             group_t_cluster_force_sync_vsn,
-            group_t_cluster_install
+            group_t_cluster_install,
+            group_t_cluster_install_serialized
         ]},
         {create_tar_copy_plugin, [sequence], [group_t_copy_plugin_to_a_new_node]}
     ].
@@ -1018,8 +1019,10 @@ remove_tar_entry(NameVsn, Filename) ->
     ),
     erl_tar:create(Tar, NewTarContent, [compressed]).
 
-%% test that we even cleanup content that doesn't match the expected name-vsn
-%% pattern
+%% The entries of the package do not match the name-vsn the package is
+%% installed as: the package is refused before a single byte is written, so the
+%% (leftover) directory of the other plugin it names is not touched either.  It
+%% is not this package's business to clean up another plugin's directory.
 t_tar_vsn_content_mismatch({init, Config}) ->
     WorkDir = proplists:get_value(install_dir, Config),
     NameVsn = "bad_tar-0.2",
@@ -1033,16 +1036,21 @@ t_tar_vsn_content_mismatch({init, Config}) ->
 t_tar_vsn_content_mismatch({'end', Config}) ->
     NameVsn = ?config(name_vsn, Config),
     ok = emqx_plugins:delete_package(NameVsn),
+    _ = emqx_plugins:purge("foo-0.2"),
     ok;
 t_tar_vsn_content_mismatch(Config) ->
     TarGz = ?config(tar_gz, Config),
     NameVsn = ?config(name_vsn, Config),
     ?assert(filelib:is_regular(TarGz)),
-    %% failed to install, it also cleans up content of the bad .tar.gz file even
-    %% if in other directory
-    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
+    ?assertMatch(
+        {error, #{msg := "plugin_package_entry_outside_root"}},
+        emqx_plugins:ensure_installed(NameVsn)
+    ),
     ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir("foo-0.2"))),
+    %% the leftover directory of the other plugin is left exactly as it was
+    FooDir = emqx_plugins_fs:plugin_dir("foo-0.2"),
+    ?assert(filelib:is_dir(FooDir)),
+    ?assertEqual([], filelib:wildcard(filename:join(FooDir, "**"))),
     %% the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
     ok.
@@ -1249,6 +1257,86 @@ t_elixir_plugin(Config) ->
     ),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
+    ok.
+
+%% Real packages (the template, its legacy release and the Elixir plugin) are
+%% unpacked through the staging directory.  The package root of all of them is
+%% their name-vsn (the legacy release even repeats entries), so none of them may
+%% be refused, and neither a staging directory nor a ghost plugin may be left
+%% behind.
+t_install_real_packages_are_staged({init, Config}) ->
+    ShDir = emqx_plugins_fs:install_dir(),
+    Overrides = [
+        #{
+            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
+            vsn => ?EMQX_PLUGIN_TEMPLATE_VSN,
+            tag => ?EMQX_PLUGIN_TEMPLATE_TAG
+        },
+        #{
+            release_name => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
+            vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN,
+            tag => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG
+        }
+        | [
+            Legacy#{git_url => ?EMQX_PLUGIN_TEMPLATE_URL}
+         || Legacy <- ?EMQX_PLUGIN_TEMPLATES_LEGACY
+        ]
+    ],
+    Packages = [
+        get_demo_plugin_package(Opts#{shdir => ShDir})
+     || Opts <- Overrides
+    ],
+    %% `list_name_vsn/0' returns the names as strings (the install directory is
+    %% a hocon string), the package helper as binaries
+    NameVsns = [
+        bin(filename:basename(Package, ?PACKAGE_SUFFIX))
+     || #{package := Package} <- Packages
+    ],
+    [{packages, Packages}, {name_vsns, NameVsns} | Config];
+t_install_real_packages_are_staged({'end', _Config}) ->
+    ok;
+t_install_real_packages_are_staged(Config) ->
+    Packages = ?config(packages, Config),
+    NameVsns = ?config(name_vsns, Config),
+    lists:foreach(
+        fun(#{package := Package}) ->
+            NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+            ok = emqx_plugins:ensure_installed(NameVsn),
+            ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+            %% `release.json' is the first level of the package: a package which
+            %% put it anywhere else would have been refused
+            ?assert(filelib:is_regular(emqx_plugins_fs:info_file_path(NameVsn))),
+            ?assertEqual([], staging_attempts(NameVsn)),
+            ?assert(lists:member(bin(NameVsn), NameVsns))
+        end,
+        Packages
+    ),
+    %% no `release.json' below the install dir belongs to a staged package
+    InstallDirDepth = length(filename:split(emqx_plugins_fs:install_dir())),
+    ?assertEqual(
+        [],
+        [
+            File
+         || File <- filelib:wildcard(
+                to_list(filename:join(emqx_plugins_fs:install_dir(), "**"))
+            ),
+            filename:basename(File) =:= "release.json",
+            length(filename:split(File)) =/= InstallDirDepth + 2
+        ]
+    ),
+    %% and the staging directory is never listed as a plugin
+    ?assertEqual(
+        lists:sort(NameVsns),
+        lists:sort([bin(NameVsn) || NameVsn <- emqx_plugins_fs:list_name_vsn()])
+    ),
+    lists:foreach(
+        fun(#{package := Package}) ->
+            ok = emqx_plugins:ensure_uninstalled(filename:basename(Package, ?PACKAGE_SUFFIX))
+        end,
+        Packages
+    ),
     ok.
 
 t_load_config_from_cli({init, Config}) ->
@@ -1844,6 +1932,16 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
+%% The installation attempts of `NameVsn' still on disk: `[]' means that the
+%% attempt cleaned up after itself.
+staging_attempts(NameVsn) ->
+    %% `filename:join/1' returns a binary as soon as one part is a binary, and
+    %% `filelib:wildcard/1' only takes a string.
+    filelib:wildcard(to_list(filename:join([emqx_plugins_fs:staging_root(), NameVsn, "*"]))).
+
+to_list(Path) when is_binary(Path) -> unicode:characters_to_list(Path);
+to_list(Path) -> Path.
+
 %%--------------------------------------------------------------------
 %% allow_installation TTL + sha256 binding
 %%--------------------------------------------------------------------
@@ -2063,6 +2161,18 @@ group_t_cluster_install(Config) ->
     ?assertEqual([], erpc:call(N1, emqx_plugins, list, [])),
     ?assertEqual([], erpc:call(N2, emqx_plugins, list, [])),
 
+    %% A directory of another plugin, to show that the installation of one
+    %% plugin never touches the directory of another one.
+    Markers = [
+        ?ON(Node, begin
+            Marker = filename:join([emqx_plugins_fs:install_dir(), "sibling-1.0", "marker.txt"]),
+            ok = filelib:ensure_dir(Marker),
+            ok = file:write_file(Marker, <<"keep me">>),
+            Marker
+        end)
+     || Node <- [N1, N2]
+    ],
+
     %% Install on both nodes via RPC (simulates --cluster)
     Results = emqx_plugins_proto_v5:install_package([N1, N2], NameVsn, TarBin),
     ?assertMatch([{ok, ok}, {ok, ok}], lists:sort(Results)),
@@ -2077,7 +2187,209 @@ group_t_cluster_install(Config) ->
         erpc:call(N2, emqx_plugins, list, [])
     ),
 
+    %% The synchronized package went through the staging directory on both
+    %% nodes: no attempt is left behind ...
+    lists:foreach(
+        fun(Node) ->
+            ?assertEqual(
+                [],
+                ?ON(
+                    Node,
+                    filelib:wildcard(
+                        to_list(
+                            filename:join([emqx_plugins_fs:staging_root(), NameVsn, "*"])
+                        )
+                    )
+                )
+            )
+        end,
+        [N1, N2]
+    ),
+    %% ... and the directory of the other plugin is untouched
+    ?assertEqual(
+        [{ok, <<"keep me">>}, {ok, <<"keep me">>}],
+        [
+            ?ON(Node, file:read_file(Marker))
+         || {Node, Marker} <- lists:zip([N1, N2], Markers)
+        ]
+    ),
+
     %% Cleanup
     ok = erpc:call(N1, emqx_plugins, ensure_uninstalled, [NameVsn]),
     ok = erpc:call(N2, emqx_plugins, ensure_uninstalled, [NameVsn]),
     ok.
+
+%%--------------------------------------------------------------------
+%% Phase 3: the installation lock is cluster wide
+%%--------------------------------------------------------------------
+
+%% The installation lock is held on the cluster's coordinator and is not keyed
+%% on the plugin: while one node is between publishing its staged tree and
+%% validating it, an installation on another node waits for the same lock
+%% instead of publishing its own tree.
+group_t_cluster_install_serialized({init, Config}) ->
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {group_t_cluster_install_serialized1, #{
+                role => core, apps => [emqx, emqx_conf, emqx_ctl]
+            }},
+            {group_t_cluster_install_serialized2, #{
+                role => core, apps => [emqx, emqx_conf, emqx_ctl]
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    InstallRelDir = "plugins_cluster_install_serialized",
+    InstallDirs = [filename:join(WD, InstallRelDir) || #{work_dir := WD} <- Specs],
+    ok = lists:foreach(fun filelib:ensure_path/1, InstallDirs),
+    [{ok, _}, {ok, _}] = erpc:multicall(Nodes, emqx_cth_suite, start_app, [
+        emqx_plugins,
+        #{config => #{plugins => #{install_dir => InstallRelDir}}}
+    ]),
+    [{nodes, Nodes} | Config];
+group_t_cluster_install_serialized({'end', Config}) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config));
+group_t_cluster_install_serialized(Config) ->
+    [N1, N2] = ?config(nodes, Config),
+    NameVsn = "serialized-1.0.0",
+    Package = serialized_test_package(NameVsn, ?config(priv_dir, Config)),
+    TestPid = self(),
+
+    Coordinator = ?ON(N1, mria_membership:coordinator()),
+    ?assert(lists:member(Coordinator, [N1, N2])),
+    %% Both nodes have to agree on who hands out the lock.
+    ?assertEqual(Coordinator, ?ON(N2, mria_membership:coordinator())),
+    [Other] = [N || N <- [N1, N2], N =/= Coordinator],
+
+    %% One installation is stopped inside its validator: it has published its
+    %% tree and still holds the cluster wide lock.
+    Holder = ?ON(Coordinator, begin
+        ok = emqx_plugins_fs:write_tar(NameVsn, Package),
+        spawn(fun() ->
+            Result = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                TestPid ! {entered, self()},
+                receive
+                    release -> ok
+                end,
+                ok
+            end),
+            TestPid ! {result, self(), Result}
+        end)
+    end),
+    receive
+        {entered, Holder} -> ok
+    after 10_000 -> error(installation_on_the_coordinator_did_not_start)
+    end,
+
+    %% An installation on the other node must wait for that lock: it is queued
+    %% on the coordinator's serializer and does not reach its validator while
+    %% the first installation holds the lock.
+    Waiter = ?ON(Other, begin
+        ok = emqx_plugins_fs:write_tar(NameVsn, Package),
+        spawn(fun() ->
+            Result = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                TestPid ! {entered, self()},
+                ok
+            end),
+            TestPid ! {result, self(), Result}
+        end)
+    end),
+    ok = wait_until_queued(Coordinator, Waiter),
+    %% The waiter is queued and the holder only releases the lock below, so
+    %% within this window the waiter can not have been granted: it must not be
+    %% in its validator.
+    receive
+        {entered, Waiter} ->
+            error(installation_ran_while_another_one_held_the_cluster_lock)
+    after 200 ->
+        ok
+    end,
+
+    Holder ! release,
+    receive
+        {result, Holder, ok} -> ok
+    after 10_000 -> error(installation_on_the_coordinator_failed)
+    end,
+    receive
+        {entered, Waiter} -> ok
+    after 10_000 -> error(installation_on_the_other_node_never_started)
+    end,
+    receive
+        {result, Waiter, ok} -> ok
+    after 10_000 -> error(installation_on_the_other_node_failed)
+    end,
+
+    %% Both nodes hold a complete installation, and neither left a staging
+    %% attempt behind.
+    lists:foreach(
+        fun(Node) ->
+            ?assert(?ON(Node, emqx_plugins_fs:is_extraction_complete(NameVsn))),
+            ?assertEqual(
+                [],
+                ?ON(
+                    Node,
+                    filelib:wildcard(
+                        to_list(
+                            filename:join([emqx_plugins_fs:staging_root(), NameVsn, "*"])
+                        )
+                    )
+                )
+            )
+        end,
+        [N1, N2]
+    ),
+    ok.
+
+%% A minimal but complete plugin package, as a binary.
+serialized_test_package(NameVsn, PrivDir) ->
+    {Name, Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    NameBin = atom_to_binary(Name, utf8),
+    VsnBin = list_to_binary(Vsn),
+    ReleaseJson = emqx_utils_json:encode(#{
+        name => NameBin,
+        rel_vsn => VsnBin,
+        rel_apps => [<<NameBin/binary, "-", VsnBin/binary>>],
+        description => <<"test plugin">>
+    }),
+    AppFile = iolist_to_binary(
+        io_lib:format("~p.~n", [
+            {application, Name, [
+                {description, "test plugin app"},
+                {vsn, Vsn},
+                {modules, []},
+                {registered, []},
+                {applications, [kernel, stdlib]}
+            ]}
+        ])
+    ),
+    Files = [
+        {filename:join(NameVsn, "release.json"), ReleaseJson},
+        {
+            filename:join([NameVsn, NameVsn, "ebin", atom_to_list(Name) ++ ".app"]),
+            AppFile
+        }
+    ],
+    Path = filename:join(PrivDir, NameVsn ++ ".tar.gz"),
+    ok = erl_tar:create(Path, Files, [compressed]),
+    {ok, Bin} = file:read_file(Path),
+    ok = file:delete(Path),
+    Bin.
+
+%% Wait until the coordinator's serializer has the given caller in its queue.
+%% This only synchronizes the test: what the caller does is asserted through the
+%% messages it sends.
+wait_until_queued(Node, Pid) ->
+    wait_until_queued(Node, Pid, 200).
+
+wait_until_queued(_Node, Pid, 0) ->
+    error({caller_not_queued, Pid});
+wait_until_queued(Node, Pid, Attempts) ->
+    Status = ?ON(Node, emqx_plugins_install_serializer:lock_status()),
+    case lists:member(Pid, maps:get(waiting, Status)) of
+        true ->
+            ok;
+        false ->
+            timer:sleep(50),
+            wait_until_queued(Node, Pid, Attempts - 1)
+    end.

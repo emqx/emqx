@@ -606,7 +606,7 @@ do_install_package_on_nodes(NameVsn, Bin) ->
         {[], []} ->
             {204};
         {NodeErrors, []} when NodeErrors =/= [] ->
-            case lists:any(fun({_Node, Error}) -> is_rpc_error(Error) end, NodeErrors) of
+            case lists:any(fun({_Node, Error}) -> is_server_error(Error) end, NodeErrors) of
                 true ->
                     ?SLOG(error, #{
                         msg => "plugin_install_failed",
@@ -640,8 +640,13 @@ do_install_package_on_nodes(NameVsn, Bin) ->
             }}
     end.
 
-is_rpc_error({badrpc, _}) -> true;
-is_rpc_error(_) -> false.
+%% Whether an upload failed for a reason which is not the package: the node
+%% could not be reached, or the cluster wide installation lock was not
+%% available.  Those are reported as server errors; anything else is a package
+%% the caller has to fix.
+is_server_error({badrpc, _}) -> true;
+is_server_error({error, #{msg := "failed_to_acquire_plugin_install_lock"}}) -> true;
+is_server_error(_) -> false.
 
 plugin(get, #{bindings := #{name := NameVsn}}) ->
     Nodes = emqx:running_nodes(),
