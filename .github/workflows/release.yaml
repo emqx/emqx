@@ -67,13 +67,9 @@ jobs:
           BUCKET=${{ secrets.AWS_S3_BUCKET }}
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
           aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ env.ref_name }} packages
-      - uses: emqx/upload-assets@974befcf0e72a1811360a81c798855efb66b0551 # 0.5.2
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          asset_paths: '["packages/*"]'
-          tag_name: "${{ env.ref_name }}"
-          skip_existing: true
+      # Packages are not attached to the GitHub release. The release notes link
+      # to the emqx.com downloads instead; generate them with
+      # scripts/rel/print-download-links.py --md.
       - name: update to emqx.io
         if: github.event_name == 'release' || inputs.publish_release_artifacts
         run: |
