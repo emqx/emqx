@@ -556,7 +556,7 @@ wait_port_free(Port, Timeout) ->
 spy_create_stream(TCConfig) ->
     Tab = get_config(mocked_call_tab, TCConfig),
     fun(Msg, Req, Meta) ->
-        ct:pal("msg: ~p;\n  req: ~p", [Msg, Req]),
+        ct:pal("[~p] msg: ~p;\n  req: ~p", [self(), Msg, Req]),
         #{payload := {create_stream = Type, Req1}} = Msg,
         ets:insert(Tab, {now_ns(), #{type => Type, req => Req1, meta => Meta}}),
         ct:pal("grpc server ~p acking create stream", [self()]),
@@ -852,25 +852,6 @@ update_protobuf_to_bundle(TCConfig) ->
         description => ~"my bundle with many files and mesage types",
         root_proto_path => <<"a.proto">>
     }).
-
-find_async_receivers(TCConfig) ->
-    #{
-        resource_namespace := Namespace,
-        type := ActionType,
-        name := ActionName,
-        connector_type := ConnType,
-        connector_name := ConnName
-    } = emqx_bridge_v2_testlib:get_common_values(TCConfig),
-    PoolSize = emqx:get_namespaced_config(
-        Namespace, [connectors, ConnType, ConnName, transport, pool_size]
-    ),
-    {ok, {ConnResId, ActionResId}} =
-        emqx_bridge_v2:get_resource_ids(Namespace, actions, ActionType, ActionName),
-    Pool = emqx_bridge_zerobus_action_sup:async_receiver_pool(ConnResId, ActionResId),
-    [
-        emqx_bridge_zerobus_async_receiver_worker:where(Pool, Idx)
-     || Idx <- lists:seq(1, PoolSize)
-    ].
 
 find_stream_writers(TCConfig) ->
     #{
@@ -1658,49 +1639,6 @@ t_grpc_sync_ingest_timeout(TCConfig) when is_list(TCConfig) ->
     end).
 
 -doc """
-Verifies async receive recovery.  It should consult the stream registered by its
-corresponding writer and start pulling again as it restarts.
-
-  1) A couple messages as published, so we have some existing state.
-  2) Async receiver dies (for whatever reason) and restarts.
-  3) It picks up the stream and starts pulling.
-  4) Another message is published via the same stream.  The receiver should get the ack.
-""".
-t_async_receiver_recover() ->
-    [{matrix, true}, {mock_only, true}].
-t_async_receiver_recover(matrix) ->
-    [[?grpc, ?proto, ?sync, ?not_batching]];
-t_async_receiver_recover(TCConfig) when is_list(TCConfig) ->
-    {201, _} = create_connector_api(TCConfig, #{
-        ~"transport" => #{~"pool_size" => 1}
-    }),
-    {201, _} = create_action_api(TCConfig, #{}),
-    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
-    C = start_client(),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            begin
-                emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}]),
-                emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}])
-            end,
-            #{?snk_kind := "zerobus_writer_acked", seq := 1},
-            5_000
-        ),
-    [AsyncWorker] = find_async_receivers(TCConfig),
-    MRef = monitor(process, AsyncWorker),
-    exit(AsyncWorker, kill),
-    receive
-        {'DOWN', MRef, _, _, _} -> ok
-    end,
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}]),
-            #{?snk_kind := "zerobus_writer_acked", seq := 2},
-            5_000
-        ),
-    ok.
-
--doc """
 Verifies retries when using REST transport.
 
 This functionality is identical to the one in the HTTP connector.
@@ -2231,13 +2169,13 @@ t_ingest_with_lost_stream(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
-Verifies the receiver ignores server messages other than ingest batch response.
+Verifies that server messages other than ingest batch response are ignored.
 """.
-t_receiver_ignores_unknown_server_msgs() ->
+t_ignores_unknown_server_msgs() ->
     [{matrix, true}, {mock_only, true}].
-t_receiver_ignores_unknown_server_msgs(matrix) ->
+t_ignores_unknown_server_msgs(matrix) ->
     [[?grpc, ?json, ?async, ?not_batching]];
-t_receiver_ignores_unknown_server_msgs(TCConfig) when is_list(TCConfig) ->
+t_ignores_unknown_server_msgs(TCConfig) when is_list(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{
         ~"transport" => #{~"pool_size" => 1}
     }),
@@ -2272,13 +2210,6 @@ t_receiver_ignores_unknown_server_msgs(TCConfig) when is_list(TCConfig) ->
                 #{payload => {ingest_record_response, #{}}}
             ]),
             ct:sleep(200),
-            %% call each receiver to sync
-            lists:foreach(
-                fun(Pid) ->
-                    gen_server:call(Pid, xxx)
-                end,
-                find_async_receivers(TCConfig)
-            ),
             ok
         end,
         fun(Trace) ->
@@ -2330,188 +2261,6 @@ t_rest_escape_table_identifier(TCConfig) ->
             }}
         ],
         ets:tab2list(Tab)
-    ),
-    ok.
-
--doc """
-Verifies the behavior when the receiver process is dead just at the moment the writer
-tries to call it with `follow_stream`.
-
-It should not crash the writer, and the caller simply has no new information to update the
-acked seqs and proceeds normally.  The receiver, upon restarting, will read the ETS table
-and recover as if it was called with `follow_stream`.
-""".
-t_receiver_dead_before_follow_stream() ->
-    [{matrix, true}, {mock_only, true}].
-t_receiver_dead_before_follow_stream(matrix) ->
-    [[?grpc, ?json, ?async, ?not_batching]];
-t_receiver_dead_before_follow_stream(TCConfig) when is_list(TCConfig) ->
-    {201, _} = create_connector_api(TCConfig, #{
-        ~"transport" => #{~"pool_size" => 1}
-    }),
-    TestPid = self(),
-    mocked_grpc_server_agent_update(fun(St) ->
-        St#{
-            create_stream => [
-                %% we'll stall the response until the receiver is dead
-                {ask, TestPid},
-                default
-            ]
-        }
-    end),
-    {201, _} = create_action_api(TCConfig, #{
-        ~"resource_opts" => #{~"request_ttl" => ~"15s"}
-    }),
-    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
-    C = start_client(),
-
-    %% suspend supervisor so receiver stays down
-    [Writer] = find_stream_writers(TCConfig),
-    WriterMRef = monitor(process, Writer),
-    ActionSup = find_action_sup(TCConfig),
-    ct:pal("suspending supervisor"),
-    sys:suspend(ActionSup),
-    ct:pal("killing receiver"),
-    lists:foreach(
-        fun(Receiver) ->
-            MRef = monitor(process, Receiver),
-            exit(Receiver, kill),
-            receive
-                {'DOWN', MRef, _, _, _} -> ok
-            end
-        end,
-        find_async_receivers(TCConfig)
-    ),
-    %% now let the creation continue.
-    ct:pal("will resume open stream"),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            receive
-                {create_stream, Alias, _Ctx} ->
-                    ct:pal("resuming open stream"),
-                    Alias ! {Alias, default},
-                    ok
-            after 5_000 -> ct:fail("wasn't asked what to do")
-            end,
-            #{?snk_kind := "zerobus_receiver_dead_follow_stream"},
-            5_000
-        ),
-    %% publish a few messages while receiver is still down
-    ct:pal("publishing stuff"),
-    emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}]),
-    emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}]),
-    emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}]),
-    %% writer shouldn't die.
-    ?assertNotReceive({'DOWN', WriterMRef, _, _, _}),
-    %% now unfreeze the supervisor; receiver should be restarted and resume.
-    ct:pal("resuming supervisor"),
-    sys:resume(ActionSup),
-    ct:pal("resumed supervisor"),
-    ?retry(
-        500,
-        10,
-        ?assertMatch(
-            {200, #{
-                ~"status" := ~"connected"
-            }},
-            get_action_api(TCConfig)
-        )
-    ),
-    ?retry(
-        700,
-        10,
-        ?assertMatch(
-            {200, #{
-                ~"metrics" := #{
-                    ~"matched" := 3,
-                    ~"success" := 3,
-                    ~"failed" := 0
-                }
-            }},
-            get_action_metrics_api(TCConfig)
-        )
-    ),
-    ok.
-
--doc """
-Verifies the behavior when the receiver process is restarted but the registered stream is
-tied to a dead writer.
-
-It should not crash the receiver, which awaits as if starting a fresh action.  The writer,
-upon restarting, will reopen the stream and call the receiver with `follow_stream`.
-""".
-t_writer_dead_before_receiver_recover() ->
-    [{matrix, true}, {mock_only, true}].
-t_writer_dead_before_receiver_recover(matrix) ->
-    [[?grpc, ?json, ?async, ?not_batching]];
-t_writer_dead_before_receiver_recover(TCConfig) when is_list(TCConfig) ->
-    {201, _} = create_connector_api(TCConfig, #{
-        ~"transport" => #{~"pool_size" => 1}
-    }),
-    {201, _} = create_action_api(TCConfig, #{
-        ~"resource_opts" => #{~"request_ttl" => ~"15s"}
-    }),
-    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
-    C = start_client(),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            begin
-                emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}]),
-                emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}])
-            end,
-            #{?snk_kind := "zerobus_writer_acked", seq := 1, n_restarts := 0},
-            5_000
-        ),
-
-    %% now we kill both workers, and make writer hang before it can open the stream until
-    %% the receiver tries to recover.
-    ?force_ordering(
-        #{?snk_kind := ~"zerobus_receiver_recv_no_stream"},
-        #{?snk_kind := "zerobus_writer_init_will_clear_old_stream"}
-    ),
-    lists:foreach(
-        fun(Receiver) ->
-            MRef = monitor(process, Receiver),
-            exit(Receiver, kill),
-            receive
-                {'DOWN', MRef, _, _, _} -> ok
-            end
-        end,
-        find_async_receivers(TCConfig) ++ find_stream_writers(TCConfig)
-    ),
-    %% publish more stuff now
-    {_, {ok, _}} =
-        ?wait_async_action(
-            begin
-                emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}]),
-                emqtt:publish(C, RuleTopic, sample_payload(), [{qos, 1}])
-            end,
-            #{?snk_kind := "zerobus_writer_acked", seq := 1, n_restarts := 1},
-            5_000
-        ),
-    ?retry(
-        500,
-        10,
-        ?assertMatch(
-            {200, #{
-                ~"status" := ~"connected"
-            }},
-            get_action_api(TCConfig)
-        )
-    ),
-    ?retry(
-        700,
-        10,
-        ?assertMatch(
-            {200, #{
-                ~"metrics" := #{
-                    ~"matched" := 4,
-                    ~"success" := 4,
-                    ~"failed" := 0
-                }
-            }},
-            get_action_metrics_api(TCConfig)
-        )
     ),
     ok.
 
@@ -2884,7 +2633,7 @@ t_follow_stream_before_processing_ack(TCConfig) when is_list(TCConfig) ->
             lists:foreach(
                 fun(Writer) ->
                     emqx_bridge_zerobus_stream_writer_worker:acked(
-                        Writer, _NRestarts = 0, _LastAckedSeq = 100
+                        Writer, _NRestarts = 0
                     )
                 end,
                 find_stream_writers(TCConfig)

@@ -397,6 +397,7 @@ systopic_metrics() ->
         <<"messages/dropped/no_subscribers">>,
         <<"messages/dropped/quota_exceeded">>,
         <<"messages/dropped/receive_maximum">>,
+        <<"messages/rejected/quota_exceeded">>,
         <<"messages/forward">>,
         <<"messages/delayed">>,
         <<"messages/delivered">>,

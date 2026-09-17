@@ -13,18 +13,14 @@
 
 -define(PARSE_SERVER_OPTS, #{supported_schemes => ["http", "https"]}).
 
--define(META_TAB, emqx_bridge_zerobus_meta).
--define(META_STREAM_KEY(ACTIONRESID, IDX), {ACTIONRESID, IDX, stream}).
--define(META_ROW(KEY, VAL), {KEY, VAL}).
-
 -define(acked, acked).
 -define(action_res_id, action_res_id).
+-define(atomics_ref, atomics_ref).
 -define(callers, callers).
 -define(catalog, catalog).
 -define(client_pool, client_pool).
 -define(continue, continue).
 -define(descriptor, descriptor).
--define(helper, helper).
 -define(idx, idx).
 -define(last_acked_seq, last_acked_seq).
 -define(last_seen_seq, last_seen_seq).
@@ -34,7 +30,7 @@
 -define(pool, pool).
 -define(proto, proto).
 -define(record, record).
--define(recv_pool, recv_pool).
+-define(recv_handle, recv_handle).
 -define(reopen, reopen).
 -define(request_ttl, request_ttl).
 -define(schema, schema).

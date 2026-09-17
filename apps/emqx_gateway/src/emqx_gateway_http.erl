@@ -488,6 +488,10 @@ reason2msg(
     );
 reason2msg({bad_ssl_config, Reason}) ->
     fmtstr("Bad TLS configuration: ~0p", [Reason]);
+reason2msg({listener_name_invalid_chars, Message}) ->
+    Message;
+reason2msg({listener_name_too_long, Message}) ->
+    Message;
 reason2msg(
     {#{roots := [{gateway, _}]}, [_ | _]} = Error
 ) ->

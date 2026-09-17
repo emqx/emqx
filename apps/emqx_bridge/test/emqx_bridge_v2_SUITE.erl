@@ -405,12 +405,11 @@ id(Type, Name, ConnName) ->
         connector_name => ConnName
     }).
 
+%% Contents of a file from the generated test certificate set. The case
+%% checks that contents given inline end up as files under the managed
+%% certificate directory; which certificate it is does not matter.
 cert_file(Name) ->
-    data_file(filename:join(["certs", Name])).
-
-data_file(Name) ->
-    Dir = code:lib_dir(emqx_bridge),
-    {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
+    {ok, Bin} = file:read_file(emqx_common_test_helpers:test_cert(Name)),
     Bin.
 
 setup_fake_telemetry_data() ->
@@ -2050,10 +2049,10 @@ t_update_ssl_conf(_TCConfig) ->
     EnableSSLConf = #{
         <<"ssl">> =>
             #{
-                <<"cacertfile">> => cert_file("cafile"),
-                <<"certfile">> => cert_file("certfile"),
+                <<"cacertfile">> => cert_file("cacert.pem"),
+                <<"certfile">> => cert_file("cert.pem"),
                 <<"enable">> => true,
-                <<"keyfile">> => cert_file("keyfile"),
+                <<"keyfile">> => cert_file("key.pem"),
                 <<"verify">> => <<"verify_peer">>
             }
     },

@@ -279,6 +279,62 @@ t_persistent_topics(_Config) ->
         request_json(get, ["topics"], [{"node", atom_to_list(node())}])
     ).
 
+-doc """
+A durable shared subscription must be distinguishable from a normal durable
+subscription to the same underlying topic: its `topic` must carry the
+`$share/<group>/` prefix, same as an in-memory shared subscription already does.
+Regression test for https://github.com/emqx/emqx/issues/18648.
+""".
+t_persistent_shared_topics(_Config) ->
+    PersistentOpts = #{
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 300}
+    },
+    Group = <<"g1">>,
+    RealTopic = <<"t_persistent_shared_topics/a">>,
+    ShareTopic = <<"$share/", Group/binary, "/", RealTopic/binary>>,
+    SessionIdPlain = <<"t_persistent_shared_topics_plain">>,
+    ClientShared = client(<<"t_persistent_shared_topics_shared">>, PersistentOpts),
+    ClientPlain = client(SessionIdPlain, PersistentOpts),
+    {ok, _, [1]} = emqtt:subscribe(ClientShared, ShareTopic, qos1),
+    {ok, _, [1]} = emqtt:subscribe(ClientPlain, RealTopic, qos1),
+
+    %% NOTE: `topic`/`node` filters exclude persistent routes entirely (see
+    %% `mk_topic_stream/1`), so list unfiltered and pick out this test's rows.
+    #{<<"data">> := Data} = request_json(get, ["topics"], [{"limit", "1000"}]),
+    Matching = [Row || Row = #{<<"topic">> := T} <- Data, T =:= RealTopic orelse T =:= ShareTopic],
+    ?assertEqual(
+        lists:sort([
+            #{<<"topic">> => ShareTopic},
+            #{<<"topic">> => RealTopic, <<"session">> => SessionIdPlain}
+        ]),
+        lists:sort(Matching)
+    ),
+
+    {ok, _, _} = emqtt:unsubscribe(ClientShared, ShareTopic),
+    {ok, _, _} = emqtt:unsubscribe(ClientPlain, RealTopic),
+    ok = emqtt:stop(ClientShared),
+    ok = emqtt:stop(ClientPlain),
+    %% Unsubscribing only detaches the borrower; the durable queue backing a
+    %% shared subscription (and its route) outlives it until explicitly destroyed.
+    _ = emqx_ds_shared_sub:destroy(Group, RealTopic).
+
+-doc """
+A durable route written in the pre-fix shape (a bare opaque binary `dest`,
+group not carried) must still be listed without crashing the API, e.g. when
+read from a node that has not yet been upgraded during a rolling upgrade.
+""".
+t_persistent_shared_topics_legacy_dest(_Config) ->
+    Topic = <<"t_persistent_shared_topics_legacy_dest/a">>,
+    LegacyDest = <<"legacy-opaque-shared-sub-id">>,
+    ok = emqx_persistent_session_ds_router:do_add_route(Topic, LegacyDest),
+    #{<<"data">> := Data} = request_json(get, ["topics"], [{"limit", "1000"}]),
+    ?assertEqual(
+        [#{<<"topic">> => Topic, <<"session">> => LegacyDest}],
+        [Row || Row = #{<<"topic">> := T} <- Data, T =:= Topic]
+    ),
+    ok = emqx_persistent_session_ds_router:do_delete_route(Topic, LegacyDest).
+
 %% Utilities
 
 client(Name) ->

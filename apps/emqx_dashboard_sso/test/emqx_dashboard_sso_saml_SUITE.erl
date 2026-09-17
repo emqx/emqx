@@ -20,9 +20,6 @@
 -define(KEYCLOAK_TEST_USER, "testuser").
 -define(KEYCLOAK_TEST_PASSWORD, "testpassword").
 
-%% SP certificate paths (for SP signing tests)
--define(SP_CERT_DIR, ".ci/docker-compose-file/keycloak/sp_certs").
-
 -define(BASE_URL, "http://127.0.0.1:18083").
 -define(SAML_HTTP_REDIRECT_BINDING,
     <<"urn:oasis:names:tc:SAML:2.0:bindings:URL-Encoding:DEFLATE">>
@@ -553,10 +550,11 @@ t_sig_combo_no_signatures(_Config) ->
         test_name => "SP=false, Envelope=false, Assertion=false (INSECURE)"
     }).
 
-t_sig_combo_sp_sign_both_idp(_Config) ->
+t_sig_combo_sp_sign_both_idp(TCConfig) ->
     ct:pal("=== E2E Signature Combo: SP=true, Envelope=true, Assertion=true (Full Security) ==="),
 
-    {SpPublicKey, SpPrivateKey} = get_sp_cert_paths(),
+    {SpPublicKey, SpPrivateKey} = sp_signing_key_pair(TCConfig),
+    ok = register_sp_certificate_with_keycloak(<<"emqx-sp-full-security">>, SpPublicKey),
 
     Config = make_saml_config(#{
         sp_entity_id => <<"emqx-sp-full-security">>,
@@ -717,28 +715,64 @@ make_saml_config(Overrides) ->
     },
     maps:merge(Defaults, Overrides).
 
-%% @doc Get SP certificate paths
-get_sp_cert_paths() ->
-    BaseDir = get_project_root(),
-    SpPublicKey = filename:join([BaseDir, ?SP_CERT_DIR, "sp_public.pem"]),
-    SpPrivateKey = filename:join([BaseDir, ?SP_CERT_DIR, "sp_private.pem"]),
-    {list_to_binary(SpPublicKey), list_to_binary(SpPrivateKey)}.
+%% The SP's signing key pair, made for this run: an RSA certificate and key.
+sp_signing_key_pair(TCConfig) ->
+    #{certfile := CertFile, keyfile := KeyFile} = emqx_common_test_helpers:mock_server_certs(
+        ?config(priv_dir, TCConfig), "emqx-sp"
+    ),
+    {iolist_to_binary(CertFile), iolist_to_binary(KeyFile)}.
 
-%% @doc Get project root directory
-get_project_root() ->
-    {ok, Cwd} = file:get_cwd(),
-    find_project_root(Cwd).
+%% Keycloak verifies the SP's request signature for a client whose
+%% `saml.client.signature' is on, against the certificate stored in that
+%% client. Store this run's certificate there through the admin API.
+register_sp_certificate_with_keycloak(ClientId, CertFile) ->
+    {ok, Pem} = file:read_file(CertFile),
+    [{'Certificate', Der, not_encrypted}] = public_key:pem_decode(Pem),
+    Token = keycloak_admin_token(),
+    [#{<<"id">> := Id, <<"attributes">> := Attrs} = Client] =
+        keycloak_admin_get(Token, "/clients?clientId=" ++ binary_to_list(ClientId)),
+    Updated = Client#{
+        <<"attributes">> => Attrs#{<<"saml.signing.certificate">> => base64:encode(Der)}
+    },
+    keycloak_admin_put(Token, "/clients/" ++ binary_to_list(Id), Updated).
 
-find_project_root("/") ->
-    {ok, Cwd} = file:get_cwd(),
-    Cwd;
-find_project_root(Dir) ->
-    %% Look for the .ci directory which only exists at the umbrella project root
-    CiDir = filename:join(Dir, ".ci"),
-    case filelib:is_dir(CiDir) of
-        true -> Dir;
-        false -> find_project_root(filename:dirname(Dir))
-    end.
+keycloak_base_url() ->
+    "http://" ++ ?KEYCLOAK_HOST ++ ":" ++ integer_to_list(?KEYCLOAK_HTTP_PORT).
+
+%% `realm_admin' from `realm-export.json': a user of the `emqx' realm holding
+%% `realm-management' client roles, so the realm's own token endpoint serves.
+%% The master realm would refuse: it requires HTTPS from the compose network's
+%% addresses, which fall outside the private ranges.
+keycloak_admin_token() ->
+    Url = keycloak_base_url() ++ "/realms/" ++ ?KEYCLOAK_REALM ++ "/protocol/openid-connect/token",
+    Body = "client_id=admin-cli&grant_type=password&username=realm_admin&password=realm_admin_pass",
+    {ok, {{_, 200, _}, _, RespBody}} = httpc:request(
+        post,
+        {Url, [], "application/x-www-form-urlencoded", Body},
+        [{timeout, 10000}],
+        [{body_format, binary}]
+    ),
+    #{<<"access_token">> := Token} = emqx_utils_json:decode(RespBody),
+    binary_to_list(Token).
+
+keycloak_admin_get(Token, Path) ->
+    Url = keycloak_base_url() ++ "/admin/realms/" ++ ?KEYCLOAK_REALM ++ Path,
+    Headers = [{"authorization", "Bearer " ++ Token}],
+    {ok, {{_, 200, _}, _, RespBody}} = httpc:request(
+        get, {Url, Headers}, [{timeout, 10000}], [{body_format, binary}]
+    ),
+    emqx_utils_json:decode(RespBody).
+
+keycloak_admin_put(Token, Path, Body) ->
+    Url = keycloak_base_url() ++ "/admin/realms/" ++ ?KEYCLOAK_REALM ++ Path,
+    Headers = [{"authorization", "Bearer " ++ Token}],
+    {ok, {{_, 204, _}, _, _}} = httpc:request(
+        put,
+        {Url, Headers, "application/json", emqx_utils_json:encode(Body)},
+        [{timeout, 10000}],
+        [{body_format, binary}]
+    ),
+    ok.
 
 %% @doc Cleanup SAML module state
 cleanup_saml_module() ->

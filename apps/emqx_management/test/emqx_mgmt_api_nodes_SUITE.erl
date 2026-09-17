@@ -113,11 +113,11 @@ t_node_info_non_default_profile_and_preset(_) ->
     os:putenv("EMQX_FEATURES", "ESSENTIAL"),
     emqx_machine_features:clear_features(),
     try
-        emqx_common_test_helpers:with_security_profile(hardened, fun() ->
+        emqx_common_test_helpers:with_security_profile(legacy, fun() ->
             {ok, NodeInfo} = emqx_mgmt_api_test_util:request_api(get, NodePath),
             ?assertMatch(
                 #{
-                    <<"security_profile">> := <<"hardened">>,
+                    <<"security_profile">> := <<"legacy">>,
                     <<"feature_preset">> := <<"essential">>
                 },
                 emqx_utils_json:decode(NodeInfo)
@@ -129,7 +129,7 @@ t_node_info_non_default_profile_and_preset(_) ->
     end,
     {ok, NodeInfo1} = emqx_mgmt_api_test_util:request_api(get, NodePath),
     ?assertMatch(
-        #{<<"security_profile">> := <<"legacy">>, <<"feature_preset">> := <<"full">>},
+        #{<<"security_profile">> := <<"hardened">>, <<"feature_preset">> := <<"full">>},
         emqx_utils_json:decode(NodeInfo1)
     ).
 
@@ -193,7 +193,9 @@ t_multiple_nodes_api(Config) ->
         {200, Node11} = rpc:call(Node1, emqx_mgmt_api_nodes, node, [
             get, #{bindings => #{node => Node1}}
         ]),
-        ?assertMatch(#{node := Node1, security_profile := legacy, feature_preset := full}, Node11),
+        ?assertMatch(
+            #{node := Node1, security_profile := hardened, feature_preset := full}, Node11
+        ),
         %% A stopped node never reports its profile or preset.
         ok = emqx_cth_cluster:stop_node(Node2),
         {200, [RunningInfo, StoppedInfo]} = ?retry(
@@ -205,7 +207,7 @@ t_multiple_nodes_api(Config) ->
             end
         ),
         ?assertMatch(
-            #{node := Node1, security_profile := legacy, feature_preset := full},
+            #{node := Node1, security_profile := hardened, feature_preset := full},
             RunningInfo
         ),
         ?assertMatch(#{node := Node2, node_status := stopped}, StoppedInfo),

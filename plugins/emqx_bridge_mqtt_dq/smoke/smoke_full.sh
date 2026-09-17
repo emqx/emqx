@@ -16,7 +16,9 @@ PLUGIN="$PLUGIN_APP-$PLUGIN_VSN"
 CLUSTER_HOCON="$ROOT_DIR/_build/$PROFILE/rel/emqx/data/configs/cluster.hocon"
 BASE_URL="${BASE_URL:-http://127.0.0.1:18083}"
 EMQX_BIN="$ROOT_DIR/_build/$PROFILE/rel/emqx/bin/emqx"
-TLS_CERT_DIR="$ROOT_DIR/_build/$PROFILE/rel/emqx/etc/certs"
+# EMQX ships no example certificates; generate a throwaway set for the bridge to trust.
+TLS_CERT_DIR="$ROOT_DIR/tmp/mqtt_dq_smoke_certs"
+[ -f "$TLS_CERT_DIR/cacert.pem" ] || "$ROOT_DIR/scripts/gen-test-certs.sh" "$TLS_CERT_DIR"
 LOGIN_USERNAME="${LOGIN_USERNAME:-smoke_admin}"
 LOGIN_PASSWORD="${LOGIN_PASSWORD:-smoke_pass}"
 

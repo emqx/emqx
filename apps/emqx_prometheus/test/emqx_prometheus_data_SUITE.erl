@@ -342,6 +342,8 @@ metric_meta(<<"emqx_cluster_nodes_stopped">>) -> ?meta(0, 1, 1);
 metric_meta(<<"emqx_conf_sync_txid">>) -> ?meta(0, 1, 1);
 %% END
 metric_meta(<<"emqx_cert_expiry_at">>) -> ?meta(2, 2, 2);
+%% labels `listener_type`, `listener_name` and `result`
+metric_meta(<<"emqx_client_accept_result">>) -> ?meta(3, 3, 4);
 metric_meta(<<"emqx_license_max_sessions">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_license_expiry_at">>) -> ?meta(0, 0, 0);
 metric_meta(<<"emqx_license_issued_at">>) -> ?meta(0, 0, 0);

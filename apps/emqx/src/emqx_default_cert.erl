@@ -38,7 +38,7 @@ private key.
 -include("emqx_config.hrl").
 -include("logger.hrl").
 
--export([ensure_localhost_bundle/0]).
+-export([ensure_localhost_bundle/0, localhost_bundle/0]).
 
 %% Internal export: run under the lock by `emqx_utils_proc:singleton/4'.
 -export([generate_localhost_bundle/0]).
@@ -49,6 +49,20 @@ private key.
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+-doc """
+Returns the `localhost' bundle's files if this node already has a complete one,
+without generating it.
+
+Use this where a certificate is being read rather than served — inspecting the
+configuration a listener used to run with, for instance. Generating there would
+create a key as a side effect of looking at one.
+""".
+-spec localhost_bundle() ->
+    {ok, #{emqx_managed_certs:file_kind() => #{path := file:filename_all()}}}
+    | {error, term()}.
+localhost_bundle() ->
+    complete_bundle().
 
 -doc """
 Returns the `localhost' bundle's files, generating the bundle first if this
@@ -130,7 +144,6 @@ complete_bundle() ->
 %% writing this bundle at the same time.
 do_generate_localhost_bundle() ->
     maybe
-        ok ?= clear_unusable_bundle(),
         {ok, Files} ?= generate(),
         install(Files)
     else
@@ -143,34 +156,16 @@ do_generate_localhost_bundle() ->
             Error
     end.
 
-%% Whatever is stored is incomplete, or there is nothing at all. An incomplete
-%% bundle would block the rename, and this node cannot use it either way.
-clear_unusable_bundle() ->
-    case emqx_managed_certs:delete_bundle_v1(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME) of
-        ok ->
-            ok;
-        {error, enoent} ->
-            ok;
-        {error, _} = Error ->
-            Error
-    end.
-
 install(Files) ->
-    case emqx_managed_certs:create_bundle(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME, Files) of
+    case emqx_managed_certs:install_files(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME, Files) of
         ok ->
             ?SLOG(info, #{
                 msg => "default_tls_certificate_generated",
                 bundle => ?NODE_DEFAULT_CERT_BUNDLE_NAME,
-                dir => emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME)
+                dir => emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
+                key_type => emqx_utils_certs:default_key_type()
             }),
             ok;
-        {error, exists} ->
-            %% Something appeared after the delete above. Accept it only if it
-            %% is a bundle this node can actually use.
-            case complete_bundle() of
-                {ok, _} -> ok;
-                {error, _} -> {error, unusable_bundle_in_place}
-            end;
         {error, _} = Error ->
             Error
     end.

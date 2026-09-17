@@ -499,7 +499,7 @@ nats_conf(TcpPort, SslPort) ->
     lists:flatten(io_lib:format(?CONF_FMT, [TcpPort, SslPort, Ca, Cert, Key])).
 
 cert_path(Name) ->
-    filename:join([code:lib_dir(emqx), "etc", "certs", Name]).
+    emqx_common_test_helpers:test_cert(Name).
 
 tcp_client_opts(Config) ->
     #{host => "tcp://localhost", port => ?config(tcp_port, Config)}.

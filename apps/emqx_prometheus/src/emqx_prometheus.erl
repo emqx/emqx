@@ -11,6 +11,8 @@
 -behaviour(prometheus_collector).
 
 -behaviour(emqx_prometheus_cluster).
+-export([supports_listener_accept_result/0]).
+
 -export([
     fetch_cluster_consistented_data/0,
     aggre_or_zip_init_acc/0,
@@ -59,7 +61,7 @@
 ]).
 
 -ifdef(TEST).
--export([cert_expiry_at_from_path/1, acl_metric_meta/0]).
+-export([cert_expiry_at_from_path/1, cert_data/1, acl_metric_meta/0]).
 -endif.
 
 %%--------------------------------------------------------------------
@@ -423,6 +425,7 @@ emqx_collect(K = emqx_live_connections_max, D) -> gauge_metrics(?MG(K, D));
 %% sessions
 emqx_collect(K = emqx_sessions_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_sessions_max, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_disconnected_sessions_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_channels_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_channels_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_cluster_sessions_count, D) -> gauge_metrics(?MG(K, D));
@@ -536,6 +539,7 @@ emqx_collect(K = emqx_messages_dropped_expired, D) -> counter_metrics(?MG(K, D))
 emqx_collect(K = emqx_messages_dropped_no_subscribers, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped_quota_exceeded, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_dropped_receive_maximum, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_messages_rejected_quota_exceeded, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_forward, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_retained, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_messages_delayed, D) -> counter_metrics(?MG(K, D));
@@ -561,6 +565,7 @@ emqx_collect(K = emqx_client_subscribe, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_client_unsubscribe, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_client_disconnected, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_client_disconnected_reason, D) -> counter_metrics(?MG(K, D));
+emqx_collect(K = emqx_client_accept_result, D) -> counter_metrics(?MG(K, D));
 %%--------------------------------------------------------------------
 %% Metrics - session
 emqx_collect(K = emqx_session_created, D) -> counter_metrics(?MG(K, D));
@@ -668,6 +673,7 @@ stats_metric_meta() ->
         %% sessions
         {emqx_sessions_count, gauge, 'sessions.count'},
         {emqx_sessions_max, gauge, 'sessions.max'},
+        {emqx_disconnected_sessions_count, gauge, 'disconnected_sessions.count'},
         {emqx_channels_count, gauge, 'channels.count'},
         {emqx_channels_max, gauge, 'channels.max'},
         %% pub/sub stats
@@ -909,37 +915,55 @@ gather_authn_ns_data(Namespace) when is_binary(Namespace) ->
     end.
 
 client_metric_data(Mode) ->
-    Acc = listener_shutdown_counts(Mode),
+    Acc = listener_counts(Mode),
     emqx_metric_data(client_metric_meta(), Mode, Acc).
 
-listener_shutdown_counts(Mode) ->
-    Data =
-        lists:flatmap(
-            fun(Listener) ->
-                get_listener_shutdown_counts_with_labels(Listener, Mode)
-            end,
-            emqx_listeners:list()
-        ),
-    #{emqx_client_disconnected_reason => Data}.
+listener_counts(Mode) ->
+    Running = [{Id, Bind} || {Id, #{bind := Bind, running := true}} <- emqx_listeners:list()],
+    Counts = #{
+        emqx_client_disconnected_reason =>
+            listeners_points(fun emqx_listeners:shutdown_count/2, reason, Running, Mode)
+    },
+    case include_accept_result(Mode) of
+        true ->
+            Counts#{
+                emqx_client_accept_result =>
+                    listeners_points(fun emqx_listeners:accept_stats/2, result, Running, Mode)
+            };
+        false ->
+            Counts
+    end.
 
-get_listener_shutdown_counts_with_labels({Id, #{bind := Bind, running := true}}, Mode) ->
+%% A node older than `emqx_prometheus' BPAPI version 4 crashes when it
+%% aggregates a metric it does not know. Send accept results to other nodes
+%% only when every node supports version 4. The `node' mode is local only.
+include_accept_result(?PROM_DATA_MODE__NODE) ->
+    true;
+include_accept_result(_Mode) ->
+    emqx_bpapi:supported_version(emqx_prometheus) >= 4.
+
+%% RPC target (`emqx_prometheus_proto_v4')
+supports_listener_accept_result() -> true.
+
+listeners_points(GetCounts, LabelName, Listeners, Mode) ->
+    lists:flatmap(
+        fun({Id, Bind}) ->
+            listener_points(GetCounts(Id, Bind), Id, LabelName, Mode)
+        end,
+        Listeners
+    ).
+
+listener_points({error, _}, _Id, _LabelName, _Mode) ->
+    [];
+listener_points(Counts, Id, LabelName, Mode) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
-    AddLabels = fun({Reason, Count}) ->
-        Labels = [
-            {listener_type, Type},
-            {listener_name, Name},
-            {reason, Reason}
-        ],
-        {with_node_label(Mode, Labels), Count}
-    end,
-    case emqx_listeners:shutdown_count(Id, Bind) of
-        {error, _} ->
-            [];
-        Counts ->
-            lists:map(AddLabels, Counts)
-    end;
-get_listener_shutdown_counts_with_labels({_Id, #{running := false}}, _Mode) ->
-    [].
+    [
+        {
+            with_node_label(Mode, [{listener_type, Type}, {listener_name, Name}, {LabelName, Key}]),
+            Count
+        }
+     || {Key, Count} <- Counts
+    ].
 
 %%==========
 %% Durable Storage
@@ -1043,6 +1067,7 @@ message_metric_meta() ->
         {emqx_messages_dropped_no_subscribers, counter, 'messages.dropped.no_subscribers'},
         {emqx_messages_dropped_quota_exceeded, counter, 'messages.dropped.quota_exceeded'},
         {emqx_messages_dropped_receive_maximum, counter, 'messages.dropped.receive_maximum'},
+        {emqx_messages_rejected_quota_exceeded, counter, 'messages.rejected.quota_exceeded'},
         {emqx_messages_forward, counter, 'messages.forward'},
         {emqx_messages_retained, counter, 'messages.retained'},
         {emqx_messages_delayed, counter, 'messages.delayed'},
@@ -1081,7 +1106,8 @@ client_metric_meta() ->
         {emqx_client_subscribe, counter, 'client.subscribe'},
         {emqx_client_unsubscribe, counter, 'client.unsubscribe'},
         {emqx_client_disconnected, counter, 'client.disconnected'},
-        {emqx_client_disconnected_reason, counter, undefined}
+        {emqx_client_disconnected_reason, counter, undefined},
+        {emqx_client_accept_result, counter, undefined}
     ].
 
 %%==========
@@ -1275,10 +1301,13 @@ gen_point_cert_expiry_at(Type, Name, Path) ->
     {[{listener_type, Type}, {listener_name, Name}], cert_expiry_at_from_path(Path)}.
 
 resolve_listener_certfile(Type, Name, #{enable := true, ssl_options := #{} = SSLOpts0}) ->
+    %% A listener with no certificate configured serves the node's default one;
+    %% report that certificate. Nothing is generated here: a scrape only reads.
+    SSLOpts1 = emqx_tls_lib:default_certs_if_present(SSLOpts0),
     %% `to_server_opts' throws when a `managed_certs' reference cannot be resolved
     %% (e.g. the bundle was deleted out-of-band); one bad listener must not fail the
     %% whole scrape.
-    try emqx_tls_lib:to_server_opts(tls, SSLOpts0) of
+    try emqx_tls_lib:to_server_opts(tls, SSLOpts1) of
         SSLOpts ->
             case lists:keyfind(certfile, 1, SSLOpts) of
                 {certfile, Certfile} ->

@@ -213,6 +213,44 @@ t_connection(_) ->
     do(Action),
     ok.
 
+t_mountpoint_after_authn(_) ->
+    ok = meck:new(emqx_access_control, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{client_attrs => #{<<"tenant">> => <<"tenant-1">>}}}
+        end
+    ),
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(
+        coap,
+        OldConf#{<<"mountpoint">> => <<"coap/${client_attrs.tenant}/">>}
+    ),
+    try
+        Action = fun(Channel) ->
+            Token = connection(Channel),
+            timer:sleep(100),
+            ?assertNotEqual(
+                [],
+                emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+            ),
+            #{clientinfo := ClientInfo} = emqx_gateway_cm:get_chan_info(coap, <<"client1">>),
+            ?assertEqual(<<"coap/tenant-1/">>, maps:get(mountpoint, ClientInfo)),
+            ?assertMatch(
+                {ok, changed, _},
+                send_heartbeat(Channel, Token)
+            ),
+            disconnection(Channel, Token),
+            ok
+        end,
+        do(Action)
+    after
+        meck:unload(emqx_access_control),
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end,
+    ok.
+
 t_connection_with_short_param_name(_) ->
     Action = fun(Channel) ->
         %% connection

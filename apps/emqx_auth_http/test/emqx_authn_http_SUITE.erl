@@ -25,6 +25,7 @@
     password => <<"plain">>,
     peerhost => {127, 0, 0, 1},
     peerport => 12345,
+    peername => {{127, 0, 0, 1}, 12345},
     listener => 'tcp:default',
     protocol => mqtt,
     cert_subject => <<"cert_subject_data">>,
@@ -1200,10 +1201,13 @@ t_precondition_check_cert_cn(init, TCConfig) ->
     {ok, _} = emqx:update_config(
         [listeners, ssl, default],
         {update, #{
-            <<"ssl_options">> => #{
-                <<"verify">> => verify_peer,
-                <<"fail_if_no_peer_cert">> => true
-            }
+            <<"ssl_options">> => maps:merge(
+                #{
+                    <<"verify">> => verify_peer,
+                    <<"fail_if_no_peer_cert">> => true
+                },
+                emqx_common_test_helpers:listener_test_certs()
+            )
         }}
     ),
     TCConfig;
@@ -1349,7 +1353,7 @@ t_zone_override(TCConfig) ->
                     }
                 };
             [quic] ->
-                CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+                CertsPath = emqx_common_test_helpers:ensure_test_certs(),
                 QuicLConfig = #{
                     <<"bind">> => <<"127.0.0.1:14567">>,
                     <<"ssl_options">> => #{
@@ -1409,8 +1413,7 @@ t_zone_override(TCConfig) ->
 %%------------------------------------------------------------------------------
 
 cert_path(FileName) ->
-    Dir = code:lib_dir(emqx),
-    filename:join([Dir, <<"etc/certs">>, FileName]).
+    emqx_common_test_helpers:test_cert(FileName).
 
 %%------------------------------------------------------------------------------
 %% Templated host (one-off request) tests
@@ -1706,8 +1709,7 @@ inline_ssl_certs() ->
     }.
 
 pem(Name) ->
-    Path = filename:join([code:lib_dir(emqx), etc, certs, Name]),
-    {ok, Pem} = file:read_file(Path),
+    {ok, Pem} = file:read_file(emqx_common_test_helpers:test_cert(Name)),
     Pem.
 
 assert_ssl_certs_are_saved(SSL, SavedSSL) ->
@@ -1909,6 +1911,7 @@ samples() ->
                     <<"clientid">> := <<"clienta">>,
                     <<"peerhost">> := <<"127.0.0.1">>,
                     <<"peerport">> := <<"12345">>,
+                    <<"peername">> := <<"127.0.0.1:12345">>,
                     <<"cert_subject">> := <<"cert_subject_data">>,
                     <<"cert_common_name">> := <<"cert_common_name_data">>,
                     <<"cert_pem">> := CertPem,
@@ -1936,6 +1939,7 @@ samples() ->
                     <<"password">> => ?PH_PASSWORD,
                     <<"peerhost">> => ?PH_PEERHOST,
                     <<"peerport">> => ?PH_PEERPORT,
+                    <<"peername">> => ?PH_PEERNAME,
                     <<"cert_subject">> => ?PH_CERT_SUBJECT,
                     <<"cert_common_name">> => ?PH_CERT_CN_NAME,
                     <<"cert_pem">> => ?PH_CERT_PEM,

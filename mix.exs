@@ -175,7 +175,7 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "1.0.2", override: true}
-  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.3", override: true}
+  def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.17.5", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.5", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
@@ -192,7 +192,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:grpc),
     do:
       {:grpc,
-       github: "emqx/grpc-erl", tag: "0.7.10", override: true, system_env: emqx_app_system_env()}
+       github: "emqx/grpc-erl", tag: "0.8.0", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
     do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-3", override: true}
@@ -322,7 +322,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.2"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.12"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.13"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
@@ -743,7 +743,7 @@ defmodule EMQXUmbrella.MixProject do
       force: overwrite?
     )
 
-    # required by emqx_auth
+    # Holds only a README: the place operators put their own certificates.
     File.cp_r!(
       "apps/emqx/etc/certs",
       Path.join(etc, "certs")
@@ -1159,7 +1159,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict with emqx and emqtt
       do: [
         {:quicer,
-         github: "emqx/quic", tag: "0.4.9", override: true, system_env: quicer_build_env()}
+         github: "emqx/quic", tag: "0.4.11", override: true, system_env: quicer_build_env()}
       ],
       else: []
   end

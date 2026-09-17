@@ -76,6 +76,7 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_cockroachdb_connector_info,
         emqx_bridge_confluent_producer_connector_info,
         emqx_bridge_couchbase_connector_info,
+        emqx_bridge_dameng_connector_info,
         emqx_bridge_datalayers_connector_info,
         emqx_bridge_disk_log_connector_info,
         emqx_bridge_doris_connector_info,

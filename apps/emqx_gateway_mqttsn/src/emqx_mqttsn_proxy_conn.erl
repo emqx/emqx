@@ -20,9 +20,6 @@
     close/3
 ]).
 
--define(GATEWAY, mqttsn).
--define(CHAN_INFO_TIMEOUT, 5000).
-
 %%--------------------------------------------------------------------
 %% Callbacks
 %%--------------------------------------------------------------------
@@ -31,41 +28,23 @@ initialize(Opts) ->
     FrameOpts = emqx_gateway_utils:frame_options(Opts),
     #{
         parse_state => emqx_mqttsn_frame:initial_parse_state(FrameOpts),
-        cid => undefined,
-        packet_type => undefined
+        cid => undefined
     }.
 
-find_or_create(CId, Transport, Peer, Opts) ->
-    find_or_create(CId, Transport, Peer, Opts, #{}).
-
-find_or_create(ClientId, _Transport, _Peer, _Opts, #{reusable_channel := {ClientId, Pid}}) when
-    is_binary(ClientId), is_pid(Pid)
-->
-    {ok, Pid};
-find_or_create(ClientId, Transport, Peer, Opts, State) when is_binary(ClientId) ->
-    ReusableStates =
-        case maps:get(packet_type, State, undefined) of
-            connect -> [asleep, awake];
-            pingreq -> [asleep, awake];
-            _Other -> [connected, asleep, awake]
-        end,
-    case find_reusable_channel(ClientId, ReusableStates) of
-        {ok, Pid} ->
-            {ok, Pid};
-        false ->
-            emqx_gateway_conn:start_link(Transport, Peer, Opts)
-    end;
-find_or_create(_CId, Transport, Peer, Opts, _State) ->
+find_or_create(_CId, Transport, Peer, Opts) ->
     emqx_gateway_conn:start_link(Transport, Peer, Opts).
+
+find_or_create(CId, Transport, Peer, Opts, _State) ->
+    find_or_create(CId, Transport, Peer, Opts).
 
 get_connection_id(_Transport, Peer, State, Data) ->
     {ParseState, BoundCId} = split_state(State),
     case parse_incoming(Data, [], ParseState) of
         {[Packet | _] = Packets, NParseState} ->
-            {CId, NBoundCId, PacketType, ReusableChannel} = choose_cid(Packet, BoundCId, Peer),
-            {ok, CId, Packets, merge_state(NParseState, NBoundCId, PacketType, ReusableChannel)};
+            {CId, NBoundCId} = choose_cid(Packet, BoundCId, Peer),
+            {ok, proxy_connection_id(CId, Peer), Packets, merge_state(NParseState, NBoundCId)};
         {[], NParseState} ->
-            {ok, peer_id(Peer), [], merge_state(NParseState, BoundCId, undefined, undefined)}
+            {ok, proxy_connection_id(peer_id(Peer), Peer), [], merge_state(NParseState, BoundCId)}
     end.
 
 dispatch(Pid, _State, Packet) ->
@@ -93,38 +72,6 @@ close(Pid, ProxyId, _State) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-find_reusable_channel(ClientId, ReusableStates) ->
-    Pids = emqx_gateway_cm_registry:lookup_channels(?GATEWAY, ClientId),
-    case
-        lists:search(
-            fun(Pid) ->
-                lists:member(channel_conn_state(ClientId, Pid), ReusableStates)
-            end,
-            lists:reverse(Pids)
-        )
-    of
-        {value, Pid} -> {ok, Pid};
-        false -> false
-    end.
-
-channel_conn_state(ClientId, Pid) ->
-    %% Registry and info ETS are updated separately. If the pid is visible before
-    %% its info snapshot, do not call the live process from UDP proxy routing.
-    %% Treat it as not reusable; CONNECT can take over later, and PINGREQ can retry.
-    case safe_gateway_chan_info(ClientId, Pid) of
-        #{conn_state := ConnState} ->
-            ConnState;
-        _ ->
-            undefined
-    end.
-
-safe_gateway_chan_info(ClientId, Pid) ->
-    try emqx_gateway_cm:get_chan_info(?GATEWAY, ClientId, Pid, ?CHAN_INFO_TIMEOUT) of
-        Info -> Info
-    catch
-        _:_ -> undefined
-    end.
-
 split_state(#{parse_state := ParseState, cid := BoundCId}) ->
     {ParseState, BoundCId};
 split_state(#{parse_state := ParseState}) ->
@@ -132,18 +79,12 @@ split_state(#{parse_state := ParseState}) ->
 split_state(ParseState) ->
     {ParseState, undefined}.
 
-merge_state(ParseState, BoundCId, PacketType, undefined) ->
-    %% Rebuild state on each datagram so a reusable_channel hint is single-use.
-    #{parse_state => ParseState, cid => BoundCId, packet_type => PacketType};
-merge_state(ParseState, BoundCId, PacketType, ReusableChannel) ->
-    (merge_state(ParseState, BoundCId, PacketType, undefined))#{
-        reusable_channel => ReusableChannel
-    }.
+merge_state(ParseState, BoundCId) ->
+    #{parse_state => ParseState, cid => BoundCId}.
 
 choose_cid(Packet, BoundCId, Peer) ->
     {ReqCId, PacketType} = packet_cid(Packet),
-    {CId, NBoundCId, ReusableChannel} = select_cid(PacketType, ReqCId, BoundCId, Peer),
-    {CId, NBoundCId, PacketType, ReusableChannel}.
+    select_cid(PacketType, ReqCId, BoundCId, Peer).
 
 packet_cid(?SN_CONNECT_MSG(_Flags, _ProtoId, _Duration, ClientId)) ->
     {normalize_clientid(ClientId), connect};
@@ -160,26 +101,25 @@ normalize_clientid(_ClientId) ->
     undefined.
 
 select_cid(_PacketType, undefined, undefined, Peer) ->
-    {peer_id(Peer), undefined, undefined};
+    {peer_id(Peer), undefined};
 select_cid(_PacketType, undefined, BoundCId, _Peer) ->
-    {BoundCId, BoundCId, undefined};
-select_cid(pingreq, ReqCId, BoundCId, Peer) ->
-    select_pingreq_cid(ReqCId, BoundCId, Peer);
-select_cid(_PacketType, ReqCId, _BoundCId, _Peer) ->
-    {ReqCId, ReqCId, undefined}.
-
-select_pingreq_cid(ReqCId, ReqCId, _Peer) ->
-    {ReqCId, ReqCId, undefined};
-select_pingreq_cid(ReqCId, _BoundCId, Peer) ->
-    case find_reusable_channel(ReqCId, [asleep, awake]) of
-        {ok, Pid} ->
-            {ReqCId, ReqCId, {ReqCId, Pid}};
-        false ->
-            {peer_id(Peer), undefined, undefined}
-    end.
+    {BoundCId, BoundCId};
+select_cid(connect, ReqCId, _BoundCId, _Peer) ->
+    {ReqCId, ReqCId};
+select_cid(pingreq, _ReqCId, undefined, Peer) ->
+    {peer_id(Peer), undefined};
+select_cid(pingreq, _ReqCId, BoundCId, _Peer) ->
+    {BoundCId, BoundCId};
+select_cid(_PacketType, _ReqCId, BoundCId, _Peer) ->
+    {BoundCId, BoundCId}.
 
 peer_id(Peer) ->
     {peer, Peer}.
+
+proxy_connection_id({peer, _} = CId, _Peer) ->
+    CId;
+proxy_connection_id(CId, Peer) ->
+    {mqttsn_udp_proxy, Peer, CId}.
 
 parse_incoming(<<>>, Packets, State) ->
     {Packets, State};

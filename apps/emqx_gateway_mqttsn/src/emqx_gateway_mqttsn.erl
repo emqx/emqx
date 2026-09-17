@@ -71,7 +71,7 @@ on_gateway_update(
         OldConfig1 = maps:without([broadcast, predefined], OldConfig),
         ModConfig = mod_cfg(),
         OldListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
-            GwName, OldConfig1, ModConfig, Ctx
+            GwName, OldConfig1, ModConfig, Ctx, #{generate_default_certs => false}
         ),
         NewListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
             GwName, Config1, ModConfig, Ctx

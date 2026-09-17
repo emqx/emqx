@@ -1841,7 +1841,8 @@ t_allow_ttl_expires({'end', _Config}) ->
     ok;
 t_allow_ttl_expires(_Config) ->
     NameVsn = <<"foo-1.0.0">>,
-    ok = emqx_plugins:allow_installation(NameVsn),
+    Sha = binary:encode_hex(crypto:hash(sha256, <<"hello world">>), lowercase),
+    ok = emqx_plugins:allow_installation(NameVsn, Sha),
     ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
     timer:sleep(150),
     ?assertNot(emqx_plugins:is_allowed_installation(NameVsn)),
@@ -1894,9 +1895,11 @@ t_allow_sha256_undefined_accepts_any({'end', _Config}) ->
     ok;
 t_allow_sha256_undefined_accepts_any(_Config) ->
     NameVsn = <<"foo-1.0.0">>,
-    ok = emqx_plugins:allow_installation(NameVsn),
-    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"any bytes">>)),
-    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"other bytes">>)),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ok = emqx_plugins:allow_installation(NameVsn),
+        ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"any bytes">>)),
+        ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, <<"other bytes">>))
+    end),
     ok.
 
 %% Under the hardened profile an unbound grant is refused at grant time and a
@@ -1954,10 +1957,12 @@ t_allow_hardened_rpc_refuses_unbound(_Config) ->
         ?assert(emqx_plugins:is_allowed_installation(NameVsn))
     end),
     %% Legacy peers still accept the unbound grant.
-    ?assertEqual(
-        [{ok, ok}],
-        emqx_plugins_proto_v3:allow_installation([node()], NameVsn)
-    ),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual(
+            [{ok, ok}],
+            emqx_plugins_proto_v3:allow_installation([node()], NameVsn)
+        )
+    end),
     ok.
 
 %% Verification rejects an unbound grant while the profile requires a binding,
@@ -1970,8 +1975,10 @@ t_allow_hardened_rejects_preexisting_unbound_grant({'end', _Config}) ->
 t_allow_hardened_rejects_preexisting_unbound_grant(_Config) ->
     NameVsn = <<"foo-1.0.0">>,
     Bin = <<"hello world">>,
-    ok = emqx_plugins:allow_installation(NameVsn),
-    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ok = emqx_plugins:allow_installation(NameVsn),
+        ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin))
+    end),
     emqx_common_test_helpers:with_security_profile(hardened, fun() ->
         %% The entry still exists; only the byte check refuses it.
         ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
@@ -1979,7 +1986,9 @@ t_allow_hardened_rejects_preexisting_unbound_grant(_Config) ->
             {error, sha256_required}, emqx_plugins:is_allowed_installation(NameVsn, Bin)
         )
     end),
-    ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin)),
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual(ok, emqx_plugins:is_allowed_installation(NameVsn, Bin))
+    end),
     ok.
 
 %% The CLI refuses an unbound `plugins allow' under hardened with an actionable
@@ -2039,16 +2048,19 @@ t_cli_install_requires_allow(Config) ->
     ),
     ?assertMatch({error, _}, emqx_plugins:describe(NameVsn)),
     ?assertNot(is_app_loaded(?EMQX_PLUGIN_APP_NAME)),
-    %% Grant retained when the install itself fails.
     MissingNameVsn = "missing-plugin-1.0.0",
-    ok = emqx_plugins:allow_installation(MissingNameVsn),
+    MissingSha = binary:encode_hex(crypto:hash(sha256, <<"missing">>), lowercase),
+    ok = emqx_plugins:allow_installation(MissingNameVsn, MissingSha),
     ?assert(emqx_plugins:is_allowed_installation(MissingNameVsn)),
     [FailedJson] = emqx_plugins_cli_utils:ensure_installed(MissingNameVsn, LogFun),
     Failed = emqx_utils_json:decode(FailedJson, [return_maps]),
     ?assertMatch(#{<<"result">> := <<"not_ok">>}, Failed),
     ?assert(emqx_plugins:is_allowed_installation(MissingNameVsn)),
     %% With a grant the install succeeds and consumes the grant.
-    ok = emqx_plugins:allow_installation(NameVsn),
+    TarGz = filename:join(emqx_plugins_fs:install_dir(), NameVsn ++ ".tar.gz"),
+    {ok, TarBin} = file:read_file(TarGz),
+    Sha = binary:encode_hex(crypto:hash(sha256, TarBin), lowercase),
+    ok = emqx_plugins:allow_installation(NameVsn, Sha),
     ?assert(emqx_plugins:is_allowed_installation(NameVsn)),
     [OkJson] = emqx_plugins_cli_utils:ensure_installed(NameVsn, LogFun),
     Ok = emqx_utils_json:decode(OkJson, [return_maps]),

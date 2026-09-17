@@ -1553,6 +1553,42 @@ t_subscribe_topic_alias(Config) ->
 
     ok = emqtt:disconnect(Client1).
 
+-doc """
+A client whose `Topic Alias Maximum` is absent or 0 is never sent a topic alias
+[MQTT-3.1.2-27].
+""".
+t_subscribe_no_topic_alias(Config) ->
+    %% Client omits `Topic Alias Maximum`, so it defaults to 0.
+    ok = check_no_topic_alias_sent(#{}, Config),
+    %% Client sends `Topic Alias Maximum` = 0 explicitly.
+    ok = check_no_topic_alias_sent(#{'Topic-Alias-Maximum' => 0}, Config).
+
+check_no_topic_alias_sent(ConnProps, Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(1, ?TOPICS),
+    {ok, Client} = emqtt:start_link([
+        {proto_ver, v5},
+        {properties, ConnProps}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client),
+    {ok, _, [0]} = emqtt:subscribe(Client, Topic, qos0),
+    %% Publish twice: an alias is only assigned on the first delivery to a topic,
+    %% and reused (with an empty topic name) on the following ones.
+    lists:foreach(
+        fun(N) ->
+            Payload = integer_to_binary(N),
+            ok = emqtt:publish(Client, Topic, #{}, Payload, [{qos, ?QOS_0}]),
+            [Msg] = receive_messages(1),
+            ?assertEqual(Payload, maps:get(payload, Msg)),
+            %% [MQTT-3.1.2-27]
+            ?assertEqual(#{}, maps:get(properties, Msg, #{})),
+            ?assertEqual(Topic, maps:get(topic, Msg))
+        end,
+        [1, 2]
+    ),
+    ok = emqtt:disconnect(Client).
+
 t_subscribe_no_local(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = nth(1, ?TOPICS),

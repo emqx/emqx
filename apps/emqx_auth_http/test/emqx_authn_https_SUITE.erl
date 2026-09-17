@@ -61,9 +61,17 @@ init_per_testcase(_Case, TCConfig) ->
         ?GLOBAL
     ),
     HTTPSPort = emqx_common_test_helpers:select_free_port(tcp),
-    {ok, _} = emqx_utils_http_test_server:start_link(HTTPSPort, ?HTTPS_PATH, server_ssl_opts()),
+    %% Issued for `authn-server', not for the address the client connects to:
+    %% the cases below choose between passing and failing hostname verification
+    %% with `server_name_indication'.
+    MockCerts = emqx_common_test_helpers:mock_server_certs(
+        ?config(priv_dir, TCConfig), "authn-server"
+    ),
+    {ok, _} = emqx_utils_http_test_server:start_link(
+        HTTPSPort, ?HTTPS_PATH, server_ssl_opts(MockCerts)
+    ),
     ok = emqx_utils_http_test_server:set_handler(fun cowboy_handler/2),
-    [{https_port, HTTPSPort} | TCConfig].
+    [{https_port, HTTPSPort}, {mock_certs, MockCerts} | TCConfig].
 
 end_per_testcase(_Case, _TCConfig) ->
     ok = emqx_utils_http_test_server:stop().
@@ -215,10 +223,15 @@ create_https_auth_with_ssl_opts(TCConfig, SpecificSSLOpts) ->
     emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}).
 
 raw_https_auth_config(TCConfig, SpecificSSLOpts) ->
-    SSLOpts = maps:merge(
-        emqx_authn_test_lib:client_ssl_cert_opts(),
-        #{<<"enable">> => <<"true">>}
-    ),
+    %% Trust the mock server's CA. The client certificate is any valid one:
+    %% the mock server does not verify its peer.
+    #{cacertfile := CaCertFile} = ?config(mock_certs, TCConfig),
+    SSLOpts = #{
+        <<"enable">> => <<"true">>,
+        <<"keyfile">> => bin(emqx_common_test_helpers:test_cert("client-key.pem")),
+        <<"certfile">> => bin(emqx_common_test_helpers:test_cert("client-cert.pem")),
+        <<"cacertfile">> => bin(CaCertFile)
+    },
     HTTPSPortBin = integer_to_binary(?config(https_port, TCConfig)),
     #{
         <<"mechanism">> => <<"password_based">>,
@@ -232,9 +245,8 @@ raw_https_auth_config(TCConfig, SpecificSSLOpts) ->
         <<"ssl">> => maps:merge(SSLOpts, SpecificSSLOpts)
     }.
 
-cert_path(FileName) ->
-    Dir = code:lib_dir(emqx_auth),
-    filename:join([Dir, <<"test/data/certs">>, FileName]).
+bin(Path) ->
+    iolist_to_binary(Path).
 
 cowboy_handler(Req0, State) ->
     Req = cowboy_req:reply(
@@ -245,11 +257,11 @@ cowboy_handler(Req0, State) ->
     ),
     {ok, Req, State}.
 
-server_ssl_opts() ->
+server_ssl_opts(#{cacertfile := CaCertFile, certfile := CertFile, keyfile := KeyFile}) ->
     [
-        {keyfile, cert_path("server.key")},
-        {certfile, cert_path("server.crt")},
-        {cacertfile, cert_path("ca.crt")},
+        {keyfile, KeyFile},
+        {certfile, CertFile},
+        {cacertfile, CaCertFile},
         {verify, verify_none},
         {versions, ['tlsv1.2', 'tlsv1.3']},
         {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}

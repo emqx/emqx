@@ -196,6 +196,10 @@ init_per_testcase(_CaseName, Conf) ->
 }).
 -define(CONF_STOMP_LISTENER_1, #{<<"bind">> => <<"61613">>}).
 -define(CONF_STOMP_LISTENER_2, #{<<"bind">> => <<"61614">>}).
+-define(CONF_STOMP_LISTENER_SSL_NO_CERTS, #{
+    <<"bind">> => <<"61614">>,
+    <<"ssl_options">> => #{}
+}).
 -define(CONF_STOMP_LISTENER_SSL, #{
     <<"bind">> => <<"61614">>,
     <<"ssl_options">> =>
@@ -214,7 +218,7 @@ init_per_testcase(_CaseName, Conf) ->
             <<"keyfile">> => ?SVR_KEY2
         }
 }).
--define(CERTS_PATH(CertName), filename:join(["../../lib/emqx/etc/certs/", CertName])).
+-define(CERTS_PATH(CertName), emqx_common_test_helpers:test_cert(CertName)).
 -define(CONF_STOMP_LISTENER_SSL_PATH, #{
     <<"bind">> => <<"61614">>,
     <<"ssl_options">> =>
@@ -234,6 +238,20 @@ init_per_testcase(_CaseName, Conf) ->
     <<"backend">> => <<"built_in_database">>,
     <<"user_id_type">> => <<"username">>
 }).
+
+-doc """
+Removing a TLS listener that served the node's default certificate reads the
+old configuration without regenerating a bundle that was deleted out-of-band.
+""".
+t_remove_listener_does_not_regenerate_default_cert(_) ->
+    StompConf = compose_ssl_listener(?CONF_STOMP_BAISC_1, ?CONF_STOMP_LISTENER_SSL_NO_CERTS),
+    {ok, _} = emqx_gateway_conf:load_gateway(<<"stomp">>, StompConf),
+    ?assertMatch({ok, _}, emqx_default_cert:localhost_bundle()),
+    ok = file:del_dir_r(emqx_managed_certs:dir(global, <<"localhost">>)),
+    ?assertMatch({error, no_bundle}, emqx_default_cert:localhost_bundle()),
+    ok = emqx_gateway_conf:remove_listener(<<"stomp">>, {<<"ssl">>, <<"default">>}),
+    ?assertMatch({error, no_bundle}, emqx_default_cert:localhost_bundle()),
+    ok = emqx_gateway_conf:unload_gateway(<<"stomp">>).
 
 t_load_unload_gateway(_) ->
     StompConf1 = compose(
@@ -311,6 +329,75 @@ t_load_unload_gateway(_) ->
     %% reset
     ?assertMatch({ok, _}, emqx:update_config([gateway], Raw0)),
     ?assertEqual(undefined, emqx_gateway:lookup('stomp')),
+    ok.
+
+t_listener_id_length_validation(_) ->
+    Name = binary:copy(<<"a">>, 65),
+    Error =
+        {error, {listener_name_too_long, <<"Listener name must not exceed 64 bytes">>}},
+    EmptyGateway = #{<<"listeners">> => #{}},
+    ListenerConfig = #{
+        <<"listeners">> => #{<<"tcp">> => #{Name => #{}}}
+    },
+    ?assertEqual(
+        Error,
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            {load_gateway, <<"stomp">>, ListenerConfig},
+            #{}
+        )
+    ),
+    ?assertEqual(
+        Error,
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            {add_listener, <<"stomp">>, {<<"tcp">>, Name}, #{}},
+            #{<<"stomp">> => EmptyGateway}
+        )
+    ),
+    RawWithLongListener = #{<<"stomp">> => ListenerConfig},
+    ?assertEqual(
+        Error,
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            RawWithLongListener,
+            #{<<"stomp">> => EmptyGateway}
+        )
+    ),
+    Raw0 = emqx:get_raw_config([gateway]),
+    ?assertEqual(
+        {error, {pre_config_update, emqx_gateway_conf, element(2, Error)}},
+        emqx:update_config([gateway], Raw0#{<<"stomp">> => ListenerConfig})
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            RawWithLongListener,
+            RawWithLongListener
+        )
+    ),
+    ?assert(is_atom(emqx_gateway_utils:listener_id(stomp, tcp, Name))),
+    InvalidName = <<"_invalid">>,
+    InvalidError =
+        {error,
+            {listener_name_invalid_chars,
+                <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>}},
+    InvalidListenerConfig = #{
+        <<"listeners">> => #{<<"tcp">> => #{InvalidName => #{}}}
+    },
+    ?assertEqual(
+        InvalidError,
+        emqx_gateway_conf:pre_config_update(
+            [gateway],
+            {add_listener, <<"stomp">>, {<<"tcp">>, InvalidName}, #{}},
+            #{<<"stomp">> => EmptyGateway}
+        )
+    ),
+    ?assertEqual(
+        {error, {pre_config_update, emqx_gateway_conf, element(2, InvalidError)}},
+        emqx:update_config([gateway], Raw0#{<<"stomp">> => InvalidListenerConfig})
+    ),
     ok.
 
 t_authn_create_failure_log_redacts_secret(_) ->

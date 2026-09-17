@@ -622,6 +622,7 @@ reserved_idx('client.banned') -> 106;
 reserved_idx('flapping.detected.clientid') -> 107;
 reserved_idx('flapping.detected.username') -> 108;
 reserved_idx('flapping.detected.peerhost') -> 109;
+reserved_idx('messages.rejected.quota_exceeded') -> 110;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
@@ -709,6 +710,7 @@ message_metrics() ->
         {counter, 'messages.dropped.no_subscribers', ?DESC("messages_dropped_no_subscribers")},
         {counter, 'messages.dropped.quota_exceeded', ?DESC("messages_dropped_quota_exceeded")},
         {counter, 'messages.dropped.receive_maximum', ?DESC("messages_dropped_receive_maximum")},
+        {counter, 'messages.rejected.quota_exceeded', ?DESC("messages_rejected_quota_exceeded")},
         {counter, 'messages.forward', ?DESC("messages_forward")},
         {counter, 'messages.delayed', ?DESC("messages_delayed")},
         {counter, 'messages.delivered', ?DESC("messages_delivered")},

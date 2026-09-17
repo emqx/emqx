@@ -35,6 +35,7 @@
 all() ->
     [
         t_bad_create,
+        t_start_timeout,
         t_create,
         t_update,
         t_get,
@@ -110,6 +111,53 @@ t_bad_create(_) ->
         ?assertMatch([], emqx_resource_manager:list_group(?RESOURCE_GROUP))
     ),
     ok.
+
+t_start_timeout({init, Config}) ->
+    Config;
+t_start_timeout({'end', _Config}) ->
+    ok;
+t_start_timeout(_) ->
+    Path = uri(["sso", "ldap"]),
+    ok = meck:new(emqx_resource, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_resource, start, fun(_ResourceId, _Opts) -> timeout end),
+    try
+        Config = ldap_config(#{<<"enable">> => true}),
+        {ok, 400, ErrorBody} = request(put, Path, Config),
+        ?assertNotEqual(nomatch, binary:match(ErrorBody, <<"timeout">>)),
+        State = emqx_dashboard_sso_manager:lookup_state(ldap),
+        ?assertMatch(
+            #{resource_id := _}, State
+        ),
+        ResourceId = maps:get(resource_id, State),
+        ?assertMatch([_], emqx_resource_manager:list_group(?RESOURCE_GROUP)),
+        ?assertMatch(
+            {ok, 400, _},
+            request(put, Path, Config#{<<"filter">> => ?LDAP_FILTER_WITH_GROUP})
+        ),
+        ?assertMatch(
+            #{resource_id := ResourceId}, emqx_dashboard_sso_manager:lookup_state(ldap)
+        ),
+        ok = emqx_dashboard_sso_manager:delete(ldap),
+        ?retry(
+            _Interval = 100,
+            _NAttempts = 10,
+            ?assertMatch([], emqx_resource_manager:list_group(?RESOURCE_GROUP))
+        )
+    after
+        case emqx:get_config(?MOD_KEY_PATH, undefined) of
+            undefined ->
+                ok;
+            null ->
+                ok;
+            _ ->
+                catch emqx_dashboard_sso_manager:delete(ldap)
+        end,
+        lists:foreach(
+            fun(ResId) -> catch emqx_resource:remove_local(ResId) end,
+            emqx_resource_manager:list_group(?RESOURCE_GROUP)
+        ),
+        catch meck:unload(emqx_resource)
+    end.
 
 t_create({init, Config}) ->
     Config;

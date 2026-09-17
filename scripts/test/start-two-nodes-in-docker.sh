@@ -16,6 +16,7 @@ NET='emqx.io'
 NODE1="node1.$NET"
 NODE2="node2.$NET"
 COOKIE='this-is-a-secret'
+DASHBOARD_PASSWORD="${EMQX_SMOKE_PASSWORD:-CiSm0kePass1}"
 IPV6=0
 DASHBOARD_NODES='both'
 USE_NET=''
@@ -120,8 +121,22 @@ else
     PROTO_DIST='inet_tls'
 fi
 
+mkdir -p tmp
+
+## Certificates for the TLS distribution between the nodes (`ssl_dist.conf'
+## names them under etc/certs), haproxy's TLS frontend, and the probes below.
+## Generated rather than taken from the source tree: EMQX ships no example set.
+## The nodes read them through a bind mount as uid 1000, so the key files must
+## be readable by others.
+CERT_DIR="$(pwd)/tmp/certs"
+if [ ! -f "$CERT_DIR/cacert.pem" ]; then
+    ./scripts/gen-test-certs.sh "$CERT_DIR"
+fi
+chmod a+r "$CERT_DIR"/*
+
 docker run -d -t --restart=always --name "$NODE1" \
   --net "$NET" \
+  -v "$CERT_DIR:/opt/emqx/etc/certs:ro" \
   ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
@@ -133,11 +148,15 @@ docker run -d -t --restart=always --name "$NODE1" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
+  -e EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
+  -e EMQX_LISTENERS__WS__DEFAULT__ENABLE_AUTHN=false \
+  -e EMQX_DASHBOARD__DEFAULT_PASSWORD="${DASHBOARD_PASSWORD}" \
   -e EMQX_LICENSE__KEY="${LICENSE_KEY1:-evaluation}" \
   "$IMAGE1"
 
 docker run -d -t --restart=always --name "$NODE2" \
   --net "$NET" \
+  -v "$CERT_DIR:/opt/emqx/etc/certs:ro" \
   ${EXTRA_EMQX_ENV[@]+"${EXTRA_EMQX_ENV[@]}"} \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
@@ -149,10 +168,12 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
   -e EMQX_listeners__ws__default__proxy_protocol=true \
+  -e EMQX_LISTENERS__TCP__DEFAULT__ENABLE_AUTHN=false \
+  -e EMQX_LISTENERS__WS__DEFAULT__ENABLE_AUTHN=false \
+  -e EMQX_DASHBOARD__DEFAULT_PASSWORD="${DASHBOARD_PASSWORD}" \
   -e EMQX_LICENSE__KEY="${LICENSE_KEY2:-evaluation}" \
   "$IMAGE2"
 
-mkdir -p tmp
 cat <<EOF > tmp/haproxy.cfg
 ##----------------------------------------------------------------
 ## global 2021/04/05
@@ -241,7 +262,7 @@ haproxy_cid=$(docker run -d --name haproxy \
                      --ulimit nofile=300000:300000 \
                      --net "$NET" \
                      -v "$(pwd)/tmp/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg" \
-                     -v "$(pwd)/apps/emqx/etc/certs:/usr/local/etc/haproxy/certs" \
+                     -v "$CERT_DIR:/usr/local/etc/haproxy/certs" \
                      -w /usr/local/etc/haproxy \
                      "${HAPROXY_PORTS[@]}" \
                      "${HAPROXY_IMAGE}" \
@@ -270,9 +291,9 @@ wait_for_emqx() {
 ## Probe wss listener by haproxy.
 probe_wss_listener() {
     openssl s_client \
-        -CAfile apps/emqx/etc/certs/cacert.pem \
-        -cert apps/emqx/etc/certs/client-cert.pem \
-        -key apps/emqx/etc/certs/client-key.pem \
+        -CAfile "$CERT_DIR/cacert.pem" \
+        -cert "$CERT_DIR/client-cert.pem" \
+        -key "$CERT_DIR/client-key.pem" \
         -connect localhost:"$haproxy_ssl_port" </dev/null >/dev/null 2>&1
 }
 

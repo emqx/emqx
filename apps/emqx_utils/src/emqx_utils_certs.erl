@@ -19,8 +19,9 @@ Key parameters:
 * The default key type is `ec`, using `secp256r1`: smaller keys and
   faster handshakes than RSA, and universally supported by TLS
   clients. `rsa` (2048 bits) is also available for callers that need
-  it. Both are the current minimum widely accepted for a server
-  certificate.
+  it, and is what the default falls back to on a crypto library
+  without `secp256r1` (see `default_key_type/0`). Both are the current
+  minimum widely accepted for a server certificate.
 * Certificates are valid for 3650 days (about ten years) starting one
   day in the past, so a small clock skew between the generating node
   and a client does not make the certificate look not-yet-valid.
@@ -37,7 +38,8 @@ This module has no callers. It is a pure cryptography library.
 -export([
     generate_ca/1,
     generate_cert/2,
-    self_signed_bundle/1
+    self_signed_bundle/1,
+    default_key_type/0
 ]).
 
 -export_type([pem_pair/0, cert_bundle/0, san/0, key_type/0]).
@@ -67,13 +69,13 @@ This module has no callers. It is a pure cryptography library.
 Generates a root CA certificate and its private key.
 
 Options: `cn` (required) becomes the subject common name; `org` is the
-subject organization name (defaults to `"EMQX"`); `key_type` is `ec`
-(default) or `rsa`. `cn` must not contain control characters or any of
+subject organization name (defaults to `"EMQX"`); `key_type` is `ec` or
+`rsa` (default: `default_key_type/0`). `cn` must not contain control characters or any of
 `#`, `+`, `/`; violating this raises an error.
 """.
 -spec generate_ca(#{cn := string(), org => string(), key_type => key_type()}) -> pem_pair().
 generate_ca(#{cn := _} = Opts) ->
-    Key = gen_key(maps:get(key_type, Opts, ec)),
+    Key = gen_key(maps:get(key_type, Opts, default_key_type())),
     Subject = subject(Opts),
     TBS = tbs_certificate(Subject, Subject, Key, Key, ca_extensions()),
     Der = public_key:pkix_sign(TBS, Key),
@@ -84,8 +86,8 @@ Generates a certificate signed by the given CA.
 
 Options: `cn` (required) becomes the subject common name; `org` is the
 subject organization name (defaults to `"EMQX"`); `sans` is the list of
-subject alternative names (defaults to `[]`); `key_type` is `ec`
-(default) or `rsa`. `cn` must not contain control characters or any of
+subject alternative names (defaults to `[]`); `key_type` is `ec` or
+`rsa` (default: `default_key_type/0`). `cn` must not contain control characters or any of
 `#`, `+`, `/`; violating this raises an error.
 """.
 -spec generate_cert(pem_pair(), #{
@@ -98,7 +100,7 @@ generate_cert(#{cert_pem := CaCertPem, key_pem := CaKeyPem}, Opts) ->
     SANs = maps:get(sans, Opts, []),
     CaKey = pem_to_key(CaKeyPem),
     Issuer = cert_subject(CaCertPem),
-    Key = gen_key(maps:get(key_type, Opts, ec)),
+    Key = gen_key(maps:get(key_type, Opts, default_key_type())),
     TBS = tbs_certificate(subject(Opts), Issuer, Key, CaKey, leaf_extensions(Key, SANs)),
     Der = public_key:pkix_sign(TBS, CaKey),
     #{cert_pem => cert_to_pem(Der), key_pem => key_to_pem(Key)}.
@@ -127,13 +129,32 @@ self_signed_bundle(Opts) ->
     }.
 
 %%--------------------------------------------------------------------
+-doc """
+The key type used when the caller does not choose one: `ec` when the crypto
+library supports `secp256r1`, otherwise `rsa`. A caller that asks for `ec`
+explicitly gets `{curve_unsupported, secp256r1}` on such a library instead.
+""".
+-spec default_key_type() -> key_type().
+default_key_type() ->
+    case curve_supported(?CURVE) of
+        true -> ec;
+        false -> rsa
+    end.
+
+%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
 gen_key(rsa) ->
     public_key:generate_key({rsa, ?RSA_KEY_SIZE, 65537});
 gen_key(ec) ->
+    %% `public_key' raises a bare `badarg' for a curve the crypto library
+    %% lacks; name the curve so the log says what is missing.
+    curve_supported(?CURVE) orelse error({curve_unsupported, ?CURVE}),
     public_key:generate_key({namedCurve, ?CURVE}).
+
+curve_supported(Curve) ->
+    lists:member(Curve, crypto:supports(curves)).
 
 tbs_certificate(Subject, Issuer, SubjectKey, SignerKey, Extensions) ->
     #'OTPTBSCertificate'{

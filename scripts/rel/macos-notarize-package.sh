@@ -13,6 +13,13 @@ if [ "${APPLE_SIGN_BINARIES:-0}" == 0 ]; then
     exit 0
 fi
 
+case "${APPLE_NOTARIZE_PACKAGE:-1}" in
+    0|false|False|FALSE|no|No|NO)
+        echo "Apple package notarization is disabled, exiting"
+        exit 0
+        ;;
+esac
+
 if [[ "${APPLE_ID:-0}" == 0 || "${APPLE_ID_PASSWORD:-0}" == 0 || "${APPLE_TEAM_ID:-0}" == 0 ]]; then
     echo "Apple ID is not configured, skipping notarization."
     exit 0
@@ -25,7 +32,7 @@ fi
 
 ZIP_PACKAGE_PATH="${1}"
 
-echo 'Submitting the package for notarization to Apple (normally takes 1-2 minutes)'
+echo 'Submitting the package for notarization to Apple'
 notarytool_output="$(xcrun notarytool submit \
                                            --apple-id "${APPLE_ID}" \
                                            --password "${APPLE_ID_PASSWORD}" \
@@ -43,4 +50,3 @@ echo "$notarytool_output" | grep -q 'status: Accepted' || {
         --team-id "${APPLE_TEAM_ID}" "$submission_id"
     exit 1;
 }
-

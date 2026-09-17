@@ -273,7 +273,10 @@ start_consumer(TestCase, PulsarTopic, TCConfig) ->
     ConsumerClientId = list_to_atom(
         atom_to_list(TestCase) ++ integer_to_list(erlang:unique_integer())
     ),
-    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+    %% The pulsar container serves `.ci/docker-compose-file/certs/cert.pem'.
+    CertsPath = filename:join([
+        emqx_common_test_helpers:proj_root(), ".ci", "docker-compose-file", "certs"
+    ]),
     SSLOpts = #{
         enable => IsTLS,
         keyfile => filename:join([CertsPath, "client-key.pem"]),

@@ -156,10 +156,13 @@
             emqx_bridge_quasardb,
             emqx_bridge_bigtable,
             emqx_bridge_zerobus,
+            emqx_gcp_protos,
             emqx_auth_kerberos,
             emqx_cluster_link,
             emqx_ds_builtin_raft,
             emqx_auth_cinfo,
-            emqx_a2a_registry
+            emqx_a2a_registry,
+            emqx_odbc,
+            emqx_bridge_dameng
         ]
 }.

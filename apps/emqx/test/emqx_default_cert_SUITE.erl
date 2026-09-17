@@ -25,6 +25,32 @@ all() ->
 emqx_app_spec() ->
     {emqx, #{override_env => [{boot_modules, [broker]}]}}.
 
+init_per_testcase(t_listener_without_cert_serves_default = TCName, TCConfig) ->
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Config =
+        "listeners.tcp.default.enable = false\n"
+        "listeners.ws.default.enable = false\n"
+        "listeners.wss.default.enable = false\n"
+        "listeners.ssl.default.bind = \"127.0.0.1:" ++ integer_to_list(Port) ++ "\"\n",
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{config => Config}}],
+        #{work_dir => emqx_cth_suite:work_dir(TCName, TCConfig)}
+    ),
+    [{apps, Apps}, {port, Port} | TCConfig];
+init_per_testcase(t_enabling_a_listener_generates_the_bundle = TCName, TCConfig) ->
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    %% Every TLS listener starts disabled, so nothing needs the bundle at boot.
+    Config =
+        "listeners.tcp.default.enable = false\n"
+        "listeners.ws.default.enable = false\n"
+        "listeners.wss.default.enable = false\n"
+        "listeners.ssl.default.enable = false\n"
+        "listeners.ssl.default.bind = \"127.0.0.1:" ++ integer_to_list(Port) ++ "\"\n",
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{config => Config}}],
+        #{work_dir => emqx_cth_suite:work_dir(TCName, TCConfig)}
+    ),
+    [{apps, Apps}, {port, Port} | TCConfig];
 init_per_testcase(t_bundles_are_per_node = TCName, TCConfig) ->
     Nodes = emqx_cth_cluster:start(
         [
@@ -196,6 +222,78 @@ t_bundle_has_chain_and_no_ca_file(_TCConfig) ->
         extension(?'id-ce-basicConstraints', CaCert)
     ).
 
+-doc """
+A bundle holding only a `ca' file is completed rather than replaced: the node
+generates the key and chain it is missing and keeps the CA it was given.
+
+This is how an operator says who to trust for peers without also having to issue
+this node an identity, which is the one part a node can decide for itself.
+""".
+t_installed_ca_file_alone_is_completed(_TCConfig) ->
+    Dir = emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
+    ok = filelib:ensure_path(Dir),
+    Ca = ca_pem(),
+    ok = file:write_file(filename:join(Dir, "ca.pem"), Ca),
+
+    Contents = contents(ensure()),
+    ?assertEqual([ca, chain, key], lists:sort(maps:keys(Contents))),
+    %% The CA is the one that was installed, not one this node made up.
+    ?assertEqual(Ca, maps:get(?FILE_KIND_CA, Contents)),
+    %% And the identity it generated is usable and its own.
+    assert_self_consistent(maps:without([?FILE_KIND_CA], Contents)),
+    ?assertMatch(
+        {ok, #{cacertfile := _, certfile := _, keyfile := _}},
+        emqx_tls_lib:ensure_default_certs(#{})
+    ).
+
+-doc """
+A `ca' file an operator installed in the bundle is served as the `cacertfile',
+so a listener that verifies peers gets the trust anchor its bundle came with.
+The generated bundle holds no such file.
+""".
+t_installed_ca_file_is_used(_TCConfig) ->
+    _ = ensure(),
+    CaPath = install_bundle_ca_file(ca_pem()),
+    ?assertMatch(
+        {ok, #{cacertfile := CaPath}},
+        emqx_tls_lib:ensure_default_certs(#{})
+    ).
+
+-doc """
+A `cacertfile' the configuration names wins over one in the bundle: the bundle
+only fills a slot nothing else does.
+""".
+t_configured_cacertfile_wins_over_bundle(_TCConfig) ->
+    _ = ensure(),
+    _ = install_bundle_ca_file(ca_pem()),
+    ?assertMatch(
+        {ok, #{cacertfile := <<"/configured/ca.pem">>}},
+        emqx_tls_lib:ensure_default_certs(#{cacertfile => <<"/configured/ca.pem">>})
+    ).
+
+-doc """
+A `ca' file holding no certificate is ignored. `ssl' refuses to start a listener
+whose `cacertfile' decodes to nothing, so passing it on would take the listener
+down instead of leaving it without a trust anchor.
+""".
+t_installed_ca_file_without_certificate_is_ignored(_TCConfig) ->
+    _ = ensure(),
+    _ = install_bundle_ca_file(<<>>),
+    {ok, Opts} = emqx_tls_lib:ensure_default_certs(#{}),
+    ?assertNot(maps:is_key(cacertfile, Opts)).
+
+%% Stands in for a bundle an operator installed themselves, which may carry a CA
+%% the generated one does not.
+install_bundle_ca_file(Contents) ->
+    Dir = emqx_managed_certs:dir(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
+    Path = filename:join(Dir, "ca.pem"),
+    ok = file:write_file(Path, Contents),
+    unicode:characters_to_binary(Path).
+
+ca_pem() ->
+    #{cert_pem := Pem} = emqx_utils_certs:generate_ca(#{cn => "test-ca"}),
+    Pem.
+
 -doc "The bundle holds no CA private key: the signing key is discarded at generation time.".
 t_no_ca_key_in_bundle(_TCConfig) ->
     #{?FILE_KIND_CHAIN := ChainPem} = contents(ensure()),
@@ -311,7 +409,7 @@ t_waits_for_holder_instead_of_deleting(_TCConfig) ->
             install -> ok
         end,
         ok = emqx_managed_certs:delete_bundle_v1(?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME),
-        ok = emqx_managed_certs:create_bundle(
+        ok = emqx_managed_certs:install_files(
             ?global_ns, ?NODE_DEFAULT_CERT_BUNDLE_NAME, Installed
         ),
         Parent ! {self(), installed}
@@ -371,6 +469,46 @@ t_caller_gives_up_on_a_wedged_generator(_TCConfig) ->
     end,
     ?assertMatch({error, _}, emqx_default_cert:ensure_localhost_bundle()),
     exit(Wedged, kill).
+
+-doc """
+An MQTT TLS listener with no certificate configured serves the node's default
+bundle. The whole chain end to end: the schema leaves the listener without a
+certificate, the fallback notices and points it at the default bundle, and the
+bundle is generated on the way.
+""".
+t_listener_without_cert_serves_default(TCConfig) ->
+    Port = ?config(port, TCConfig),
+    {ok, Sock} = ssl:connect("127.0.0.1", Port, [{verify, verify_none}], 5_000),
+    {ok, Der} = ssl:peercert(Sock),
+    ok = ssl:close(Sock),
+    ?assertEqual(<<"localhost">>, common_name(public_key:pkix_decode_cert(Der, otp))),
+    %% It is this node's own bundle that was served, not something else.
+    #{?FILE_KIND_CHAIN := ChainPem} = contents(bundle_files()),
+    {LeafDer, _CaDer} = chain_entries(ChainPem),
+    ?assertEqual(LeafDer, Der).
+
+-doc """
+A listener that starts disabled generates nothing, and generates the bundle when
+it is enabled at runtime -- how the Dashboard and the REST API turn one on. The
+certificate is created when a server first needs it, not only at boot.
+""".
+t_enabling_a_listener_generates_the_bundle(TCConfig) ->
+    Port = ?config(port, TCConfig),
+    %% Nothing has needed a certificate yet.
+    ?assertEqual(#{}, bundle_files()),
+
+    {ok, _} = emqx:update_config(
+        [listeners, ssl, default], {update, #{<<"enable">> => true}}
+    ),
+    ?assertMatch(#{?FILE_KIND_KEY := _, ?FILE_KIND_CHAIN := _}, bundle_files()),
+
+    %% And the listener that was just enabled serves it.
+    {ok, Sock} = ssl:connect("127.0.0.1", Port, [{verify, verify_none}], 5_000),
+    {ok, Der} = ssl:peercert(Sock),
+    ok = ssl:close(Sock),
+    #{?FILE_KIND_CHAIN := ChainPem} = contents(bundle_files()),
+    {LeafDer, _CaDer} = chain_entries(ChainPem),
+    ?assertEqual(LeafDer, Der).
 
 -doc """
 Each node generates and keeps its own bundle: the default certificate is a

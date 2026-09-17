@@ -253,9 +253,9 @@ ssl_options(true) ->
     ]),
     #{
         enable => true,
-        cacertfile => filename:join([CertsDir, "ca.crt"]),
-        certfile => filename:join([CertsDir, "client.pem"]),
-        keyfile => filename:join([CertsDir, "client.key"])
+        cacertfile => filename:join([CertsDir, "cacert.pem"]),
+        certfile => filename:join([CertsDir, "client-cert.pem"]),
+        keyfile => filename:join([CertsDir, "client-key.pem"])
     };
 ssl_options(false) ->
     #{

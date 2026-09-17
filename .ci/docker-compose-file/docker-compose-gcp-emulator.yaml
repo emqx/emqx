@@ -1,7 +1,7 @@
 services:
   gcp_emulator_pubsub:
     container_name: gcp_emulator_pubsub
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:576.0.0-emulators
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:582.0.0-emulators
     restart: always
     expose:
       - "8085"

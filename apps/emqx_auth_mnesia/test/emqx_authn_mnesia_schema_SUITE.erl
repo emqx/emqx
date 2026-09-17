@@ -145,4 +145,25 @@ t_hardened(_Config) ->
             }
         ],
         emqx:get_config([authentication])
+    ),
+
+    %% Pre-7.0 shape: hash algorithm set, no autogenerate_password field.
+    {ok, _} = emqx:update_config([authentication], [
+        #{
+            <<"mechanism">> => <<"password_based">>,
+            <<"backend">> => <<"built_in_database">>,
+            <<"password_hash_algorithm">> => #{
+                <<"name">> => <<"sha256">>,
+                <<"salt_position">> => <<"suffix">>
+            }
+        }
+    ]),
+    ?assertMatch(
+        [
+            #{
+                autogenerate_password := false,
+                password_hash_algorithm := #{name := sha256, salt_position := suffix}
+            }
+        ],
+        emqx:get_config([authentication])
     ).

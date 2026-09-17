@@ -8,6 +8,7 @@
 -include("emqx_schema.hrl").
 -include("logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("esockd/include/esockd.hrl").
 
 %% APIs
 -export([
@@ -22,8 +23,10 @@
     id_example/0,
     default_max_conn/0,
     shutdown_count/2,
+    accept_stats/2,
     tcp_opts/1,
-    ip_port/1
+    ip_port/1,
+    clamp_active_n/1
 ]).
 
 -export([
@@ -39,7 +42,9 @@
 
 -export([
     listener_id/2,
+    validate_listener_name/1,
     parse_listener_id/1,
+    parse_listener_id_without_atom/1,
     esockd_access_rules/1
 ]).
 
@@ -47,7 +52,6 @@
 
 -export([pre_config_update/3, post_config_update/5]).
 -export([post_zone_config_update/2, update_listener_for_zone_changes/3]).
--export([reconcile_cert_source/2]).
 
 -export([format_bind/1, format_bind_ip/1]).
 
@@ -87,7 +91,24 @@
 -define(ESOCKD_LISTENER(T), (T == tcp orelse T == ssl)).
 -define(COWBOY_LISTENER(T), (T == ws orelse T == wss)).
 
+%% `tcp_options.active_n' and `tcp_options.buffer' are clamped at the point of
+%% use. Out-of-range values are not rejected, so existing configs keep working.
+%%
+%% `active_n': `emqx_connection' passes it as `{active, N}', and N = 0 leaves
+%% the socket passive forever. `emqx_socket_connection' uses it only as the
+%% `#deliver{}' batch size and as the number of sent packets between OOM checks.
+%% The cap bounds how many packets either backend handles between OOM checks.
+-define(MIN_ACTIVE_N, 1).
+-define(MAX_ACTIVE_N, 1000).
+%% `buffer': the inet driver floors it at 1 byte (INET_BUFFER_MIN), while the
+%% `socket' module rejects `{otp, rcvbuf}' = 0 and esockd then drops the
+%% accepted connection. Floor it at the largest MQTT fixed header (1 type byte
+%% + up to 4 remaining-length bytes) on both backends, so a single read can
+%% hold a complete fixed header.
+-define(MIN_TCP_BUFFER, 5).
+
 -define(ROOT_KEY, listeners).
+-define(MAX_LISTENER_NAME_BYTES, 64).
 -define(CONF_KEY_PATH, [?ROOT_KEY, '?', '?']).
 -define(TYPES_STRING, ["tcp", "ssl", "ws", "wss", "quic"]).
 -define(MARK_DEL, ?TOMBSTONE_CONFIG_CHANGE_REQ).
@@ -238,6 +259,27 @@ shutdown_count(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
 shutdown_count(_, _, _) ->
     {error, not_support}.
 
+-doc """
+Return the esockd accept-result counters of a listener.
+The counters follow the esockd `?ACCEPT_RESULT_GROUPS` order.
+
+A running listener is looked up by the address it runs on. esockd returns
+no stats for an unknown address instead of raising `not_found`, so a
+derived address that does not match would silently report zeros.
+""".
+accept_stats(Id, Bind) ->
+    {ok, #{type := Type, name := Name}} = parse_listener_id(Id),
+    accept_stats(Type, Name, Bind).
+
+accept_stats(Type, Name, Bind) when Type == tcp; Type == ssl ->
+    Id = listener_id(Type, Name),
+    Stats = esockd:get_stats({Id, listen_on(Id, Bind)}),
+    [{Key, proplists:get_value(Key, Stats, 0)} || Key <- ?ACCEPT_RESULT_GROUPS];
+accept_stats(Type, _Name, _ListenOn) when Type =:= ws; Type =:= wss ->
+    [];
+accept_stats(_, _, _) ->
+    {error, not_support}.
+
 %% @doc Start all listeners.
 -spec start() -> ok.
 start() ->
@@ -282,7 +324,7 @@ start_listener(Type, Name, #{bind := Bind0, enable := true} = Conf0) ->
     Conf = Conf0#{bind := Bind},
     ListenerId = listener_id(Type, Name),
     ok = emqx_limiter:create_listener_limiters(ListenerId, Conf),
-    case do_start_listener(Type, Name, ListenerId, Conf) of
+    case start_listener_with_certs(Type, Name, ListenerId, Conf) of
         {ok, {skipped, Reason}} when
             Reason =:= quic_app_missing
         ->
@@ -327,6 +369,14 @@ start_listener(Type, Name, #{enable := false}) ->
     ),
     ok.
 
+%% A listener that needs the node's own certificate and cannot be given one does
+%% not start: the failure is reported the way every other start failure is.
+start_listener_with_certs(Type, Name, ListenerId, Conf) ->
+    case ensure_default_certs(Conf) of
+        {ok, ConfWithCerts} -> do_start_listener(Type, Name, ListenerId, ConfWithCerts);
+        {error, _} = Error -> Error
+    end.
+
 %% @doc Restart all listeners
 -spec restart() -> ok.
 restart() ->
@@ -366,14 +416,18 @@ update_listener(Type, Name, OldConf, NewConf) ->
     end.
 
 do_update_running_listener(Type, Name, OldConf, NewConf) ->
-    case do_update_listener(Type, Name, OldConf, NewConf) of
-        ok ->
-            ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
-            ok;
-        {skip, Error} when Type =:= quic ->
-            {error, {rollbacked, Error}};
-        {error, _Reason} ->
-            restart_listener(Type, Name, OldConf, NewConf)
+    maybe
+        {ok, NewConfWithCerts} ?= ensure_default_certs(NewConf),
+        OldConfWithCerts = default_certs_if_present(OldConf),
+        case do_update_listener(Type, Name, OldConfWithCerts, NewConfWithCerts) of
+            ok ->
+                ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
+                ok;
+            {skip, Error} when Type =:= quic ->
+                {error, {rollbacked, Error}};
+            {error, _Reason} ->
+                restart_listener(Type, Name, OldConf, NewConf)
+        end
     end.
 
 restart_listener(Type, Name, OldConf, NewConf) ->
@@ -635,24 +689,33 @@ resume_cowboy_listener(Id, Retries) ->
 pre_config_update([?ROOT_KEY, Type, Name], {create, NewConf}, V) when
     V =:= undefined orelse V =:= ?TOMBSTONE_VALUE
 ->
-    {ok, convert_certs(Type, Name, NewConf)};
+    case validate_listener_name(Name) of
+        ok ->
+            {ok, convert_certs(Type, Name, NewConf)};
+        {error, _} = Error ->
+            Error
+    end;
 pre_config_update([?ROOT_KEY, _Type, _Name], {create, _NewConf}, _RawConf) ->
     {error, already_exist};
 pre_config_update([?ROOT_KEY, _Type, _Name], {update, _Request}, undefined) ->
     {error, not_found};
 pre_config_update([?ROOT_KEY, Type, Name], {update, Request}, RawConf) ->
     RawConf1 = emqx_utils_maps:deep_merge(RawConf, Request),
-    RawConf2 = reconcile_cert_source(Request, RawConf1),
-    ok = assert_zone_exists(RawConf2),
-    {ok, convert_certs(Type, Name, RawConf2)};
+    ok = assert_zone_exists(RawConf1),
+    {ok, convert_certs(Type, Name, RawConf1)};
 pre_config_update([?ROOT_KEY, _Type, _Name], {action, _Action, Updated}, RawConf) ->
     {ok, emqx_utils_maps:deep_merge(RawConf, Updated)};
 pre_config_update([?ROOT_KEY, _Type, _Name], ?MARK_DEL, _RawConf) ->
     {ok, ?TOMBSTONE_VALUE};
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
-pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
-    {ok, convert_certs(NewConf)}.
+pre_config_update([?ROOT_KEY], NewConf, OldConf) ->
+    case validate_new_listener_ids(NewConf, OldConf) of
+        ok ->
+            {ok, convert_certs(NewConf)};
+        {error, _} = Error ->
+            Error
+    end.
 
 post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
     OldConf =:= undefined orelse OldConf =:= ?TOMBSTONE_TYPE
@@ -706,15 +769,22 @@ do_post_zone_config_update(true, OldZones, NewZones) ->
             )
     end.
 
+%% Zone settings that `choose_packet_opts/1' bakes into the listener socket
+%% options, and so require the listener to be updated when they change.
+-define(PACKET_OPT_KEYS, [max_packet_size, max_connect_packet_size]).
+
 find_zones_with_relevant_changes([], _OldZones, _NewZones, Acc) ->
     Acc;
 find_zones_with_relevant_changes([Zone | Zones], OldZones, NewZones, Acc) ->
-    OldConfig = emqx_utils_maps:deep_get([Zone, mqtt, max_packet_size], OldZones, none),
-    NewConfig = emqx_utils_maps:deep_get([Zone, mqtt, max_packet_size], NewZones, none),
-    case OldConfig =:= NewConfig of
-        true ->
-            find_zones_with_relevant_changes(Zones, OldZones, NewZones, Acc);
+    Read = fun(Config, Key) -> emqx_utils_maps:deep_get([Zone, mqtt, Key], Config, none) end,
+    Changed = lists:any(
+        fun(Key) -> Read(OldZones, Key) =/= Read(NewZones, Key) end,
+        ?PACKET_OPT_KEYS
+    ),
+    case Changed of
         false ->
+            find_zones_with_relevant_changes(Zones, OldZones, NewZones, Acc);
+        true ->
             find_zones_with_relevant_changes(Zones, OldZones, NewZones, [Zone | Acc])
     end.
 
@@ -928,7 +998,14 @@ choose_packet_opts(Opts) ->
     HasPacketParser = is_packet_parser_available(mqtt),
     case ParseUnit of
         frame when HasPacketParser ->
-            PacketSize = emqx_config:get_zone_conf(zone(Opts), [mqtt, max_packet_size]),
+            %% Accept with the CONNECT limit, so the kernel does not buffer a
+            %% whole `max_packet_size' frame for a client that has not connected
+            %% yet. `emqx_connection' raises it once the client is connected.
+            Zone = zone(Opts),
+            PacketSize = min(
+                emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+                emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size])
+            ),
             [{packet, mqtt}, {packet_size, PacketSize}, {mode, binary}];
         frame ->
             %% NOTE: Silently ignoring the setting if BEAM does not provide `mqtt` parser.
@@ -1068,16 +1145,60 @@ do_format_bind_ip(Bin) when is_binary(Bin) ->
 listener_id(Type, ListenerName) ->
     list_to_atom(lists:append([str(Type), ":", str(ListenerName)])).
 
+-spec validate_listener_name(unicode:chardata() | atom()) ->
+    ok
+    | {error, {listener_name_invalid_chars | listener_name_too_long, binary()}}.
+validate_listener_name(Name) ->
+    NameBin = listener_id_part_to_binary(Name),
+    case byte_size(NameBin) =< ?MAX_LISTENER_NAME_BYTES of
+        false ->
+            Message = iolist_to_binary(
+                io_lib:format(
+                    "Listener name must not exceed ~B bytes", [?MAX_LISTENER_NAME_BYTES]
+                )
+            ),
+            {error, {listener_name_too_long, Message}};
+        true ->
+            case emqx_utils:is_restricted_str(NameBin) of
+                true ->
+                    ok;
+                false ->
+                    ErrMsg = <<
+                        "Listener name must start with a letter or digit "
+                        "and contain only letters, digits, '-' and '_'"
+                    >>,
+                    {error, {listener_name_invalid_chars, ErrMsg}}
+            end
+    end.
+
+listener_id_part_to_binary(Value) when is_binary(Value) ->
+    Value;
+listener_id_part_to_binary(Value) when is_atom(Value) ->
+    atom_to_binary(Value, utf8);
+listener_id_part_to_binary(Value) when is_list(Value) ->
+    unicode:characters_to_binary(Value).
+
 -spec parse_listener_id(listener_id()) -> {ok, #{type => atom(), name => atom()}} | {error, term()}.
 parse_listener_id(Id) ->
-    case string:split(str(Id), ":", leading) of
+    case parse_listener_id_without_atom(Id) of
+        {ok, #{type := Type, name := Name}} ->
+            {ok, #{type => binary_to_existing_atom(Type), name => binary_to_atom(Name)}};
+        {error, _} = Error ->
+            Error
+    end.
+
+-spec parse_listener_id_without_atom(listener_id() | unicode:chardata()) ->
+    {ok, #{type => binary(), name => binary()}} | {error, {invalid_listener_id, binary()}}.
+parse_listener_id_without_atom(Id) ->
+    IdBin = listener_id_part_to_binary(Id),
+    case binary:split(IdBin, <<":">>) of
         [Type, Name] ->
-            case lists:member(Type, ?TYPES_STRING) of
-                true -> {ok, #{type => list_to_existing_atom(Type), name => list_to_atom(Name)}};
-                false -> {error, {invalid_listener_id, Id}}
+            case lists:member(binary_to_list(Type), ?TYPES_STRING) of
+                true -> {ok, #{type => Type, name => Name}};
+                false -> {error, {invalid_listener_id, <<"Unsupported listener type">>}}
             end;
         _ ->
-            {error, {invalid_listener_id, Id}}
+            {error, {invalid_listener_id, <<"Invalid listener ID format, expected type:name">>}}
     end.
 
 zone(Opts) ->
@@ -1089,6 +1210,20 @@ diff_confs(NewConfs, OldConfs) ->
         flatten_confs(OldConfs),
         fun({Type, Name, _}) -> {Type, Name} end
     ).
+
+validate_new_listener_ids(NewConf, OldConf) ->
+    #{added := Added} = diff_confs(NewConf, OldConf),
+    validate_listener_ids(Added).
+
+validate_listener_ids([]) ->
+    ok;
+validate_listener_ids([{_Type, Name, _Conf} | Rest]) ->
+    case validate_listener_name(Name) of
+        ok ->
+            validate_listener_ids(Rest);
+        {error, _} = Error ->
+            Error
+    end.
 
 flatten_confs(Confs) ->
     lists:flatmap(
@@ -1111,6 +1246,33 @@ enable_authn(Opts) ->
 
 ssl_opts(Opts) ->
     emqx_tls_lib:to_server_opts(tls, maps:get(ssl_options, Opts, #{})).
+
+-doc """
+Points a listener with no certificate of its own at the node's default bundle,
+generating it if this node has none.
+
+Done here, where a listener is actually started or updated, rather than in
+`ssl_opts/1': that is also called to compare two configurations, and
+`to_server_opts/2' is called by other applications to read a listener's
+certificate. Neither of those should mint one as a side effect.
+
+Applied to both sides of an update so the comparison that decides whether the
+transport has to be torn down stays symmetric.
+""".
+ensure_default_certs(#{ssl_options := SSLOpts} = Conf) ->
+    case emqx_tls_lib:ensure_default_certs(SSLOpts) of
+        {ok, SSLOpts1} -> {ok, Conf#{ssl_options => SSLOpts1}};
+        {error, _} = Error -> Error
+    end;
+ensure_default_certs(Conf) ->
+    {ok, Conf}.
+
+%% The config a listener is being updated away from is only compared against and
+%% rolled back to, never served.  Resolving it must not generate a certificate.
+default_certs_if_present(#{ssl_options := SSLOpts} = Conf) ->
+    Conf#{ssl_options => emqx_tls_lib:default_certs_if_present(SSLOpts)};
+default_certs_if_present(Conf) ->
+    Conf.
 
 tcp_opts(Opts) ->
     TcpOpts = maps:to_list(maps:get(tcp_options, Opts, #{})),
@@ -1135,8 +1297,15 @@ tcp_opt({nolinger, Bool}) ->
             %% but also be able to revert it on the fly
             {linger, {false, 0}}
     end;
+tcp_opt({buffer, Bytes}) when is_integer(Bytes) andalso Bytes < ?MIN_TCP_BUFFER ->
+    {buffer, ?MIN_TCP_BUFFER};
 tcp_opt(Opt) ->
     Opt.
+
+%% Used by emqx_connection, emqx_socket_connection and emqx_ws_connection.
+-spec clamp_active_n(integer()) -> pos_integer().
+clamp_active_n(N) when is_integer(N) ->
+    max(?MIN_ACTIVE_N, min(?MAX_ACTIVE_N, N)).
 
 foreach_listeners(Do) ->
     lists:foreach(
@@ -1183,7 +1352,9 @@ parse_bind(#{<<"bind">> := Bind}) ->
 
 %% The relative dir for ssl files.
 certs_dir(Type, Name) ->
-    iolist_to_binary(filename:join(["listeners", Type, Name])).
+    TypePath = binary_to_list(listener_id_part_to_binary(Type)),
+    NamePath = binary_to_list(listener_id_part_to_binary(Name)),
+    iolist_to_binary(filename:join(["listeners", TypePath, NamePath])).
 
 convert_certs(ListenerConf) ->
     maps:fold(
@@ -1202,49 +1373,6 @@ convert_certs(ListenerConf) ->
         #{},
         ListenerConf
     ).
-
--doc """
-Enforce that a listener uses a single certificate source.
-
-`managed_certs' and file-based certificates (`certfile'/`keyfile') are mutually
-exclusive certificate sources.  Configuration updates are applied via `deep_merge',
-which can only add or override keys, never drop them.  Without this reconciliation an
-update that switches a listener from a managed certificate bundle back to file-based
-certificates would keep the stale `managed_certs' reference and fail to resolve a
-(possibly already deleted) bundle.
-
-When `Request' supplies file-based certificate material and does not itself reference
-`managed_certs', drop any residual `managed_certs' from `MergedConf' so the result
-uses only the requested certificate source.  A `managed_certs' explicitly set to JSON
-`null' (how the Dashboard clears it) or to an empty list is a request to stop using
-managed certificates, so the residual reference is dropped as well.  Both arguments
-are raw (binary-keyed) configs.
-""".
-reconcile_cert_source(Request, MergedConf) ->
-    case get_ssl_options(Request) of
-        RequestSSL when is_map(RequestSSL) ->
-            RequestSetsFileCerts =
-                maps:is_key(<<"certfile">>, RequestSSL) orelse
-                    maps:is_key(<<"keyfile">>, RequestSSL),
-            DropManaged =
-                case maps:get(<<"managed_certs">>, RequestSSL, undefined) of
-                    undefined -> RequestSetsFileCerts;
-                    null -> true;
-                    [] -> true;
-                    _ -> false
-                end,
-            case DropManaged of
-                true -> drop_managed_certs(MergedConf);
-                false -> MergedConf
-            end;
-        _ ->
-            MergedConf
-    end.
-
-drop_managed_certs(#{<<"ssl_options">> := SSL} = Conf) when is_map(SSL) ->
-    Conf#{<<"ssl_options">> => maps:remove(<<"managed_certs">>, SSL)};
-drop_managed_certs(Conf) ->
-    Conf.
 
 convert_certs(Type, Name, Conf) ->
     CertsDir = certs_dir(Type, Name),

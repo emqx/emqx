@@ -57,7 +57,8 @@ init_per_suite(Config) ->
             emqx_license,
             emqx_audit,
             emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard()
+            emqx_mgmt_api_test_util:emqx_dashboard(),
+            emqx_dashboard_sso
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -150,6 +151,44 @@ t_http_api_sso_source(_) ->
                     <<"operation_id">> := <<"/configs/global_zone">>,
                     <<"source">> := <<"saml:jackson-http@example.com">>
                 }
+            ]
+        },
+        emqx_utils_json:decode(Res)
+    ),
+    ok.
+
+-doc """
+GET /audit must not 500 when a page includes a record whose `source' is the
+bare SSO backend atom (e.g. `oidc'), which `POST /sso/login/:backend' sets
+as `log_source' during pre-authentication, before any user identity is
+known. Regression test for emqx/emqx#18711.
+""".
+t_http_api_sso_login_pre_auth_source(_) ->
+    StartAt = erlang:system_time(microsecond),
+    LoginPath = emqx_mgmt_api_test_util:api_path(["sso", "login", "oidc"]),
+    ?assertMatch(
+        {ok, 404, _},
+        emqx_mgmt_api_test_util:request_api_with_body(
+            post, LoginPath, #{<<"backend">> => <<"oidc">>}
+        )
+    ),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Query =
+        lists:flatten(
+            io_lib:format(
+                "from=dashboard&gte_created_at=~B&limit=1",
+                [StartAt]
+            )
+        ),
+    %% Before the fix, this GET fails with 500 because `format/1' passes the
+    %% bare atom `source' to `emqx_dashboard_admin:format_username/1', which
+    %% has no clause for it.
+    Res = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+    ?assertMatch(
+        #{
+            <<"data">> := [
+                #{<<"source">> := <<"oidc">>}
             ]
         },
         emqx_utils_json:decode(Res)
@@ -452,6 +491,106 @@ t_malformed_event_does_not_crash(_) ->
     ?assertEqual(true, emqx:get_config([log, audit, enable])),
     ?assertMatch({ok, _}, logger_config:get(logger, emqx_audit)),
     ?assertEqual(ok, ?AUDIT(info, #{from => bogus_from, cmd => bogus})),
+    ok.
+
+-doc """
+SSO MFA audit bodies retain only the non-secret identity fields. Unknown
+credential fields under the SSO MFA operation namespace must be redacted by
+position, so adding a new MFA credential cannot reintroduce an audit leak.
+""".
+t_sso_mfa_body_redacted_by_position(_) ->
+    Now = erlang:monotonic_time(),
+    Meta = #{
+        method => post,
+        code => 200,
+        operation_id => <<"/sso/mfa/future_challenge">>,
+        headers => #{},
+        bindings => #{},
+        body => #{
+            <<"username">> => <<"mfa-audit-user">>,
+            <<"backend">> => <<"ldap">>,
+            <<"future_credential">> => <<"file://credential">>,
+            <<"nested_credential">> => #{<<"value">> => <<"must-not-survive">>}
+        },
+        req_start => Now,
+        req_end => Now
+    },
+    Req = #{headers => #{}, peer => {{127, 0, 0, 1}, 18083}},
+    #{http_request := #{body := Body}} = emqx_dashboard_audit:log_meta(60, Meta, Req),
+    ?assertEqual(<<"mfa-audit-user">>, maps:get(<<"username">>, Body)),
+    ?assertEqual(<<"ldap">>, maps:get(<<"backend">>, Body)),
+    ?assertEqual(<<"******">>, maps:get(<<"future_credential">>, Body)),
+    ?assertEqual(<<"******">>, maps:get(<<"nested_credential">>, Body)),
+    ok.
+
+-doc """
+The three public SSO MFA endpoints must not persist their temporary tokens or
+TOTP codes in the audit record returned by GET /audit.
+""".
+t_sso_mfa_credentials_redacted(_) ->
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Cases = [
+        {
+            <<"/sso/mfa/setup_info">>,
+            ["sso", "mfa", "setup_info"],
+            #{
+                <<"setup_token">> => <<"setup-token-audit-probe">>,
+                <<"username">> => <<"mfa-audit-setup-user">>,
+                <<"backend">> => <<"ldap">>
+            },
+            [<<"setup-token-audit-probe">>]
+        },
+        {
+            <<"/sso/mfa/setup">>,
+            ["sso", "mfa", "setup"],
+            #{
+                <<"setup_token">> => <<"setup-token-audit-probe-2">>,
+                <<"totp_code">> => <<"123456">>,
+                <<"username">> => <<"mfa-audit-setup-user-2">>,
+                <<"backend">> => <<"ldap">>
+            },
+            [<<"setup-token-audit-probe-2">>, <<"123456">>]
+        },
+        {
+            <<"/sso/mfa/verify">>,
+            ["sso", "mfa", "verify"],
+            #{
+                <<"verify_token">> => <<"verify-token-audit-probe">>,
+                <<"totp_code">> => <<"654321">>,
+                <<"username">> => <<"mfa-audit-verify-user">>,
+                <<"backend">> => <<"ldap">>
+            },
+            [<<"verify-token-audit-probe">>, <<"654321">>]
+        }
+    ],
+    lists:foreach(
+        fun({OperationId, Parts, Body, Secrets}) ->
+            StartAt = erlang:system_time(microsecond),
+            {ok, 401, _} = emqx_mgmt_api_test_util:request_api_with_body(
+                post,
+                emqx_mgmt_api_test_util:api_path(Parts),
+                Body
+            ),
+            Query = lists:flatten(
+                io_lib:format(
+                    "operation_id=~ts&gte_created_at=~B&limit=1",
+                    [OperationId, StartAt]
+                )
+            ),
+            Res = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+            #{<<"data">> := [#{<<"http_request">> := #{<<"body">> := AuditBody}}]} =
+                emqx_utils_json:decode(Res),
+            lists:foreach(
+                fun(Secret) ->
+                    ?assertEqual(nomatch, binary:match(AuditBody, Secret), AuditBody)
+                end,
+                Secrets
+            ),
+            ?assertNotEqual(nomatch, binary:match(AuditBody, <<"******">>), AuditBody)
+        end,
+        Cases
+    ),
     ok.
 
 t_kickout_clients_without_log(_) ->

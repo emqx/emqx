@@ -47,7 +47,15 @@ t_status_after_import_then_join_ignores_raw_only_diffs(Config) ->
     [N1] = emqx_cth_cluster:start([N1Spec]),
     BackupFile = make_rule_engine_backup(Config),
     ImportRes = {ok, #{db_errors => #{}, config_errors => #{}}},
-    ?assertEqual(ImportRes, ?ON(N1, emqx_mgmt_data_backup:import_local(BackupFile))),
+    ?assertEqual(
+        ImportRes,
+        ?ON(
+            N1,
+            emqx_mgmt_data_backup:import_local(BackupFile, #{
+                allow_security_profile_mismatch => true
+            })
+        )
+    ),
     wait_imported_rule(N1),
 
     [N2] = emqx_cth_cluster:start([N2Spec]),

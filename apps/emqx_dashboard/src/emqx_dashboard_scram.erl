@@ -48,7 +48,7 @@ from_pwdhash(<<"$1$", Rest/binary>>) ->
             {error, malformed}
     end;
 from_pwdhash(<<_:36/binary>>) ->
-    %% The pre-6.4 Dashboard hash cannot be used as SCRAM SaltedPassword.
+    %% The legacy Dashboard hash cannot be used as SCRAM SaltedPassword.
     {error, unsupported};
 from_pwdhash(_) ->
     {error, malformed}.

@@ -24,6 +24,9 @@
 ]).
 -export([scopes/0]).
 
+%% Exported for tests.
+-export([reconcile_cert_source/2]).
+
 -import(emqx_dashboard_swagger, [error_codes/2, error_codes/1]).
 
 -import(emqx_mgmt_listeners_conf, [
@@ -201,9 +204,9 @@ schema("/listeners/:id/restart") ->
 fields(listener_id) ->
     [
         {id,
-            ?HOCON(atom(), #{
+            ?HOCON(binary(), #{
                 desc => ?DESC(listener_id),
-                example => 'tcp:demo',
+                example => <<"tcp:demo">>,
                 validator => fun validate_id/1,
                 required => true,
                 in => path
@@ -350,7 +353,7 @@ listeners_info(Opts) ->
                     {running,
                         ?HOCON(boolean(), #{desc => ?DESC("listener_status"), required => false})},
                     {id,
-                        ?HOCON(atom(), #{
+                        ?HOCON(binary(), #{
                             desc => ?DESC("listener_id"),
                             required => true,
                             validator => fun validate_id/1
@@ -394,7 +397,7 @@ listeners_ref(Type, #{bind := Bind}) ->
     Type ++ Suffix.
 
 validate_id(Id) ->
-    case emqx_listeners:parse_listener_id(Id) of
+    case emqx_listeners:parse_listener_id_without_atom(Id) of
         {error, Reason} -> {error, Reason};
         {ok, _} -> ok
     end.
@@ -422,13 +425,20 @@ list_listeners(get, #{query_string := Query}) ->
 list_listeners(post, #{body := Body}) ->
     create_listener(name, Body).
 
+crud_listeners_by_id(Method, #{bindings := #{id := Id0} = Bindings} = Request) when
+    Method =/= post, is_binary(Id0)
+->
+    case existing_listener_id(Id0) of
+        {ok, Id} -> crud_listeners_by_id(Method, Request#{bindings := Bindings#{id => Id}});
+        {error, not_found} -> {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}}
+    end;
 crud_listeners_by_id(get, #{bindings := #{id := Id}}) ->
     case find_listeners_by_id(Id) of
         [] -> {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
         [L] -> {200, L}
     end;
 crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
-    case parse_listener_conf(id, Body0) of
+    case parse_listener_conf(existing_id, Body0) of
         {Id, Type, Name, Conf} ->
             case get_raw(Type, Name) of
                 undefined ->
@@ -439,10 +449,7 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
                     %% overwrite stored secrets.
                     Conf1 = emqx_utils:deobfuscate(Conf, PrevConf),
                     MergeConf0 = emqx_utils_maps:deep_merge(PrevConf, Conf1),
-                    %% The merge above cannot drop keys, so a switch away from a managed
-                    %% certificate bundle would retain the stale `managed_certs'.  Let the
-                    %% raw request decide the certificate source.
-                    MergeConf = emqx_listeners:reconcile_cert_source(Conf1, MergeConf0),
+                    MergeConf = reconcile_cert_source(Conf1, MergeConf0),
                     case update(Type, Name, MergeConf) of
                         {ok, #{raw_config := _RawConf}} ->
                             crud_listeners_by_id(get, #{bindings => #{id => Id}});
@@ -476,24 +483,77 @@ crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
 %% is applied. Keep this list in sync with the fields injected there: a
 %% GET-then-PUT round trip sends every field back, and one left off this list
 %% either fails validation or gets persisted as junk.
-parse_listener_conf(id, Conf0) ->
-    Conf1 = maps:without(
+without_read_only_fields(Conf) ->
+    maps:without(
         [
             <<"running">>,
             <<"current_connections">>,
             <<"resolved_address">>,
             <<"resolved_address_from">>
         ],
-        Conf0
-    ),
+        Conf
+    ).
+
+%% Existing IDs may predate the creation restrictions.
+existing_listener_id(Id) when is_binary(Id) ->
+    case emqx_listeners:parse_listener_id_without_atom(Id) of
+        {ok, #{type := TypeBin, name := NameBin}} ->
+            try
+                Type = binary_to_existing_atom(TypeBin),
+                Name = binary_to_existing_atom(NameBin),
+                case get_raw(Type, Name) of
+                    undefined -> {error, not_found};
+                    _ -> {ok, emqx_listeners:listener_id(Type, Name)}
+                end
+            catch
+                error:badarg -> {error, not_found};
+                error:system_limit -> {error, not_found}
+            end;
+        {error, _} ->
+            {error, not_found}
+    end.
+
+parse_listener_conf(id, #{<<"id">> := Id} = Conf) ->
+    case emqx_listeners:parse_listener_id_without_atom(Id) of
+        {ok, #{name := Name}} ->
+            case emqx_listeners:validate_listener_name(Name) of
+                ok -> parse_listener_conf(new_id, Conf);
+                {error, _} = Error -> Error
+            end;
+        {error, _} = Error ->
+            Error
+    end;
+parse_listener_conf(id, _Conf) ->
+    {error, listener_config_invalid};
+parse_listener_conf(new_id, Conf0) ->
+    Conf1 = without_read_only_fields(Conf0),
     {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
     TypeAtom = binary_to_existing_atom(TypeBin),
     case maps:take(<<"id">>, Conf2) of
         {IdBin, Conf3} ->
             {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
             case Type =:= TypeAtom of
-                true -> {binary_to_existing_atom(IdBin), TypeAtom, Name, Conf3};
+                true -> {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
                 false -> {error, listener_type_inconsistent}
+            end;
+        _ ->
+            {error, listener_config_invalid}
+    end;
+parse_listener_conf(existing_id, Conf0) ->
+    Conf1 = without_read_only_fields(Conf0),
+    {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
+    TypeAtom = binary_to_existing_atom(TypeBin),
+    case maps:take(<<"id">>, Conf2) of
+        {IdBin, Conf3} ->
+            case existing_listener_id(IdBin) of
+                {ok, Id} ->
+                    {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
+                    case Type =:= TypeAtom of
+                        true -> {Id, TypeAtom, Name, Conf3};
+                        false -> {error, listener_type_inconsistent}
+                    end;
+                {error, _} = Error ->
+                    Error
             end;
         _ ->
             {error, listener_config_invalid}
@@ -513,7 +573,12 @@ parse_listener_conf(name, Conf0) ->
     case maps:take(<<"name">>, Conf2) of
         {Name, Conf3} ->
             IdBin = <<TypeBin/binary, $:, Name/binary>>,
-            {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
+            case emqx_listeners:validate_listener_name(Name) of
+                ok ->
+                    {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
+                {error, _} = Error ->
+                    Error
+            end;
         _ ->
             {error, listener_config_invalid}
     end.
@@ -534,6 +599,13 @@ restart_listeners_by_id(Method, Body = #{bindings := Bindings}) ->
         Body#{bindings := maps:put(action, restart, Bindings)}
     ).
 
+action_listeners_by_id(post, #{bindings := #{id := Id0} = Bindings} = Request) when
+    is_binary(Id0)
+->
+    case existing_listener_id(Id0) of
+        {ok, Id} -> action_listeners_by_id(post, Request#{bindings := Bindings#{id => Id}});
+        {error, not_found} -> {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}}
+    end;
 action_listeners_by_id(post, #{bindings := #{id := Id, action := Action}}) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
     case get_raw(Type, Name) of
@@ -556,6 +628,7 @@ enabled(start) -> #{<<"enable">> => true};
 enabled(stop) -> #{<<"enable">> => false};
 enabled(restart) -> #{<<"enable">> => true}.
 
+err_msg({_Reason, Message}) when is_binary(Message) -> Message;
 err_msg(Atom) when is_atom(Atom) -> atom_to_binary(Atom);
 err_msg(Reason) -> list_to_binary(err_msg_str(Reason)).
 
@@ -604,6 +677,59 @@ listener_status_by_id([NodeL | Rest], Acc) ->
         Listeners
     ),
     listener_status_by_id(Rest, Acc1).
+
+-doc """
+Keeps the certificate source an update request asks for.
+
+A `PUT' body is deep-merged over the stored configuration, and a deep merge
+cannot drop keys: a request that switches a listener to file certificates, or
+that clears `managed_certs' outright, would keep the stale bundle reference.
+Removing the key here would not last either, because
+`emqx_listeners:pre_config_update/3' merges this against the stored config once
+more and would bring it back.
+
+A request may spell the clear as `null' (what the Dashboard sends), as an empty
+string, or as an empty array. Whichever it uses, this writes `null', which is
+the only one that works as the marker: it survives both merges and the schema
+check drops it, leaving the checked configuration a listener runs with free of a
+bundle. An empty string written here would survive the schema check instead --
+`hocon' passes it through unchecked and unconverted -- and reach the listener as
+a bundle reference. Normalising an empty string on the way in is what keeps a
+request that sends one out of that trap.
+
+Both arguments are raw (binary-keyed) configs.
+""".
+reconcile_cert_source(Request, MergedConf) ->
+    case clears_managed_certs(request_ssl_options(Request)) of
+        true -> clear_managed_certs(MergedConf);
+        false -> MergedConf
+    end.
+
+%% Whether the request names a certificate source that is not a managed bundle:
+%% file certificates, or an explicit clear. An empty array never reaches here
+%% through the API -- the schema validator rejects it -- but it means the same
+%% thing to a direct caller.
+clears_managed_certs(#{} = RequestSSL) ->
+    case maps:get(<<"managed_certs">>, RequestSSL, undefined) of
+        undefined ->
+            maps:is_key(<<"certfile">>, RequestSSL) orelse
+                maps:is_key(<<"keyfile">>, RequestSSL);
+        Cleared when Cleared =:= null; Cleared =:= <<>>; Cleared =:= [] ->
+            true;
+        %% A bundle, either as a single object or as an array of them.
+        _Bundles ->
+            false
+    end;
+clears_managed_certs(_NotAMap) ->
+    false.
+
+clear_managed_certs(#{<<"ssl_options">> := SSL} = Conf) when is_map(SSL) ->
+    Conf#{<<"ssl_options">> => SSL#{<<"managed_certs">> => null}};
+clear_managed_certs(Conf) ->
+    Conf.
+
+request_ssl_options(#{<<"ssl_options">> := SSL}) -> SSL;
+request_ssl_options(_Request) -> undefined.
 
 listener_type_filter(Type0, Listeners) ->
     lists:map(
@@ -654,9 +780,7 @@ format_status(Key, Node, Listener, Acc) ->
         <<"max_connections">> := MaxConnections,
         <<"current_connections">> := CurrentConnections,
         <<"acceptors">> := Acceptors,
-        <<"bind">> := Bind,
-        <<"resolved_address">> := ResolvedAddress,
-        <<"resolved_address_from">> := ResolvedAddressFrom
+        <<"bind">> := Bind
     } = Listener,
     {ok, #{name := Name}} = emqx_listeners:parse_listener_id(Id),
     GroupKey = maps:get(Key, Listener),
@@ -667,16 +791,12 @@ format_status(Key, Node, Listener, Acc) ->
     %% or the connection counts, "inconsistent" would fire on every cluster
     %% using node.default_listener_address = nodename, which is by design,
     %% not a fault to surface at the cluster level.
-    NodeStatusEntry = #{
-        node => Node,
-        status => #{
-            running => Running,
-            max_connections => MaxConnections,
-            current_connections => CurrentConnections,
-            resolved_address => ResolvedAddress,
-            resolved_address_from => ResolvedAddressFrom
-        }
-    },
+    NodeStatus = maybe_add_resolved_address(Listener, #{
+        running => Running,
+        max_connections => MaxConnections,
+        current_connections => CurrentConnections
+    }),
+    NodeStatusEntry = #{node => Node, status => NodeStatus},
     case maps:find(GroupKey, Acc) of
         error ->
             Acc#{
@@ -723,6 +843,23 @@ format_status(Key, Node, Listener, Acc) ->
                     }
             }
     end.
+
+%% NOTE
+%% Nodes running a release older than 6.3.0 do not include those fields in the
+%% `list_listeners/1` BPAPI response.
+maybe_add_resolved_address(
+    #{
+        <<"resolved_address">> := ResolvedAddress,
+        <<"resolved_address_from">> := ResolvedAddressFrom
+    },
+    Status
+) ->
+    Status#{
+        resolved_address => ResolvedAddress,
+        resolved_address_from => ResolvedAddressFrom
+    };
+maybe_add_resolved_address(_Listener, Status) ->
+    Status.
 
 max_conn(_Int1, <<"infinity">>) -> <<"infinity">>;
 max_conn(<<"infinity">>, _Int) -> <<"infinity">>;

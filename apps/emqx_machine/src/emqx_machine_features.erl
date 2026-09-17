@@ -111,13 +111,16 @@ known_features() ->
                 emqx_connector_jwt,
                 emqx_connector_aggregator,
                 emqx_bridge,
+                %% shared ODBC layer used by the ODBC based bridges
+                emqx_odbc,
                 emqx_rule_engine,
                 emqx_postgresql,
                 emqx_mysql,
                 emqx_oracle,
                 emqx_redis,
                 emqx_s3,
-                emqx_mongodb
+                emqx_mongodb,
+                emqx_gcp_protos
             ] ++ data_integration_dynamic_apps(),
             deps => [schema_registry]
         },

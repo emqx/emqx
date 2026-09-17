@@ -111,7 +111,8 @@
     translate_body => boolean() | {true, atom_keys},
     schema_converter => fun((hocon_schema:schema(), Module :: atom()) -> map()),
     i18n_lang => atom() | string() | binary(),
-    filter => filter()
+    filter => filter(),
+    allow_literal_method_docs => boolean()
 }.
 
 -type route_path() :: string() | binary().
@@ -641,15 +642,15 @@ to_spec(Meta, Params, RequestBody, Responses) ->
     maps:put('requestBody', RequestBody, Spec).
 
 generate_method_desc(Spec = #{desc := _Desc}, Options) ->
-    enforce_method_desc_policy(Spec),
+    enforce_method_desc_policy(Spec, Options),
     Spec1 = trans_description(maps:remove(desc, Spec), Spec, Options),
     trans_tags(trans_summary(Spec1, Spec, Options));
 generate_method_desc(Spec = #{description := _Desc}, Options) ->
-    enforce_method_desc_policy(Spec),
+    enforce_method_desc_policy(Spec, Options),
     Spec1 = trans_description(Spec, Spec, Options),
     trans_tags(trans_summary(Spec1, Spec, Options));
 generate_method_desc(Spec, Options) ->
-    enforce_method_desc_policy(Spec),
+    enforce_method_desc_policy(Spec, Options),
     trans_tags(trans_summary(Spec, Spec, Options)).
 
 trans_summary(Spec = #{summary := ?DESC(_, _) = Struct}, _Hocon, Options) ->
@@ -659,8 +660,13 @@ trans_summary(Spec = #{summary := ?DESC(_, _) = Struct}, _Hocon, Options) ->
     Summary = resolve_i18n(<<"label">>, Struct, Options),
     Spec#{summary => Summary};
 trans_summary(Spec = #{summary := _}, Hocon, Options) ->
-    forbidden_summary_ref(Spec),
-    trans_summary(maps:remove(summary, Spec), Hocon, Options);
+    case allow_literal_method_docs(Options) of
+        true ->
+            Spec;
+        false ->
+            forbidden_summary_ref(Spec),
+            trans_summary(maps:remove(summary, Spec), Hocon, Options)
+    end;
 trans_summary(Spec, Hocon, Options) ->
     case desc_struct(Hocon) of
         ?DESC(_, _) = Struct ->
@@ -760,7 +766,10 @@ trans_description(Spec, Hocon, Options) ->
             ?DESC(_, _) = Struct ->
                 resolve_i18n(<<"desc">>, Struct, Options);
             Text ->
-                missing_i18n_ref(Text)
+                case allow_literal_method_docs(Options) of
+                    true -> to_bin(Text);
+                    false -> missing_i18n_ref(Text)
+                end
         end,
     case Desc =:= undefined of
         true ->
@@ -803,6 +812,24 @@ forbidden_summary_ref(Spec) ->
 %%    A raw binary description is forbidden because it leaves the operation
 %%    without a summary, and Redoc would fall back to truncating the
 %%    description as the title.
+enforce_method_desc_policy(Spec, Options) ->
+    case allow_literal_method_docs(Options) of
+        true ->
+            enforce_method_desc_policy_with_literals(Spec);
+        false ->
+            enforce_method_desc_policy(Spec)
+    end.
+
+enforce_method_desc_policy_with_literals(#{tags := _, summary := _}) ->
+    ok;
+enforce_method_desc_policy_with_literals(#{tags := _} = Spec) ->
+    case desc_struct(Spec) of
+        undefined -> missing_i18n_ref(missing_operation_description);
+        _ -> ok
+    end;
+enforce_method_desc_policy_with_literals(_Spec) ->
+    ok.
+
 enforce_method_desc_policy(#{tags := _, summary := ?DESC(_, _)}) ->
     ok;
 enforce_method_desc_policy(#{tags := _, summary := _} = Spec) ->
@@ -815,6 +842,9 @@ enforce_method_desc_policy(#{tags := _} = Spec) ->
     end;
 enforce_method_desc_policy(_Spec) ->
     ok.
+
+allow_literal_method_docs(Options) ->
+    maps:get(allow_literal_method_docs, Options, false).
 
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
     Lang = get_lang(Options),

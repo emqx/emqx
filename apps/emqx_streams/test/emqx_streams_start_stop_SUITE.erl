@@ -19,6 +19,7 @@
         api_put/2
     ]
 ).
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -59,9 +60,11 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(t_cluster_runtime_enable, Config) ->
     ok = snabbkaffe:stop(),
+    ok = emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config));
 end_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:stop(),
+    ok = emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 streams_initial_config(t_config) ->
@@ -72,6 +75,14 @@ streams_initial_config(t_auto_with_streams) ->
     #{<<"streams">> => #{<<"enable">> => true}};
 streams_initial_config(t_idempotency) ->
     #{<<"streams">> => #{<<"enable">> => true}};
+streams_initial_config(t_reverse_start) ->
+    #{<<"streams">> => #{<<"enable">> => false}};
+streams_initial_config(t_reverse_stop) ->
+    #{<<"streams">> => #{<<"enable">> => true}};
+streams_initial_config(t_reconcile_worker_crash) ->
+    #{<<"streams">> => #{<<"enable">> => false}};
+streams_initial_config(t_restart_during_stop) ->
+    #{<<"streams">> => #{<<"enable">> => true}};
 streams_initial_config(t_cluster_runtime_enable) ->
     #{<<"streams">> => #{<<"enable">> => false}}.
 
@@ -79,7 +90,7 @@ streams_initial_config(t_cluster_runtime_enable) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-%% Verify that enabling streams at runtime in a cluster reaches readiness on all nodes.
+%% Verify that enabling and disabling streams at runtime completes on all nodes.
 t_cluster_runtime_enable(Config) ->
     [N1 | _] = Nodes = ?config(cluster_nodes, Config),
 
@@ -99,10 +110,55 @@ t_cluster_runtime_enable(Config) ->
     ?assertEqual(
         [{ok, started} || _ <- Nodes],
         erpc:multicall(Nodes, emqx_streams_controller, status, [])
+    ),
+
+    %% Disable streams without waiting for database shutdown in the config handler.
+    {ok, _} = erpc:call(
+        N1,
+        emqx_streams_config,
+        update_config,
+        [#{<<"enable">> => false}],
+        5_000
+    ),
+
+    %% A new target must be accepted while shutdown is still in progress.
+    {ok, _} = erpc:call(
+        N1,
+        emqx_streams_config,
+        update_config,
+        [#{<<"enable">> => true}],
+        5_000
+    ),
+
+    TransitionTimeout = 30_000,
+    ?assertEqual(
+        [{ok, started} || _ <- Nodes],
+        erpc:multicall(Nodes, emqx_streams_controller, wait_status, [TransitionTimeout])
+    ),
+
+    %% Disable once more and wait for asynchronous shutdown on all nodes.
+    {ok, _} = erpc:call(
+        N1,
+        emqx_streams_config,
+        update_config,
+        [#{<<"enable">> => false}],
+        5_000
+    ),
+
+    ?assertEqual(
+        [{ok, stopped} || _ <- Nodes],
+        erpc:multicall(Nodes, emqx_streams_controller, wait_status, [TransitionTimeout])
+    ),
+
+    ?assertEqual(
+        [{ok, stopped} || _ <- Nodes],
+        erpc:multicall(Nodes, emqx_streams_controller, status, [])
     ).
 
 %% Verify that Streams subsystem may be started in runtime.
 t_config(_Config) ->
+    #{id := MetricsWorker} = emqx_streams_metrics:child_spec(),
+    #{id := GCScheduler} = emqx_streams_gc:child_spec(),
     %% We started with disabled Streams subsystem, so stream API should be unavailable.
     ?assertMatch(
         {ok, 503, #{<<"code">> := <<"SERVICE_UNAVAILABLE">>, <<"message">> := <<"Not enabled">>}},
@@ -115,6 +171,9 @@ t_config(_Config) ->
         api_put([message_streams, config], #{<<"enable">> => true})
     ),
     started = emqx_streams_controller:wait_status(5000),
+    ?assert(is_pid(whereis(MetricsWorker))),
+    ?assert(is_pid(whereis(GCScheduler))),
+    ok = emqx_streams_controller:start_streams(),
 
     %% Verify that stream API is now available.
     ?assertMatch(
@@ -128,6 +187,9 @@ t_config(_Config) ->
         api_put([message_streams, config], #{<<"enable">> => false})
     ),
     stopped = emqx_streams_controller:wait_status(5000),
+    ?assertEqual(undefined, whereis(MetricsWorker)),
+    ?assertEqual(undefined, whereis(GCScheduler)),
+    ok = emqx_streams_controller:stop_streams(),
 
     %% Start Streams subsystem via API again.
     ?assertMatch(
@@ -135,6 +197,8 @@ t_config(_Config) ->
         api_put([message_streams, config], #{<<"enable">> => true})
     ),
     started = emqx_streams_controller:wait_status(5000),
+    ?assert(is_pid(whereis(MetricsWorker))),
+    ?assert(is_pid(whereis(GCScheduler))),
 
     %% Create a stream.
     _ = emqx_streams_test_utils:ensure_stream_created(#{
@@ -167,6 +231,119 @@ t_auto_with_streams(_Config) ->
 %% Verify that auto does not start Streams when there are no streams.
 t_auto_no_streams(_Config) ->
     stopped = emqx_streams_controller:wait_status(5000).
+
+%% Verify that disable waits for startup before stopping.
+t_reverse_start(_Config) ->
+    TestPid = self(),
+    ok = meck:new(emqx_streams_message_db, [passthrough, no_history, no_link]),
+    on_exit(fun() -> meck:unload(emqx_streams_message_db) end),
+    ok = meck:expect(emqx_streams_message_db, wait_readiness, fun(infinity) ->
+        TestPid ! {readiness_waiting, self()},
+        receive
+            continue -> ok
+        end
+    end),
+
+    ok = emqx_streams_controller:start_streams(),
+    Worker =
+        receive
+            {readiness_waiting, Pid} -> Pid
+        after 5_000 ->
+            ct:fail(readiness_not_reached)
+        end,
+    ok = emqx_streams_controller:stop_streams(),
+    starting = emqx_streams_controller:status(),
+    Worker ! continue,
+    stopped = emqx_streams_controller:wait_status(5_000),
+
+    true = meck:validate(emqx_streams_message_db).
+
+%% Verify that enable changes the target while database shutdown is blocked.
+t_reverse_stop(_Config) ->
+    started = emqx_streams_controller:wait_status(5_000),
+    TestPid = self(),
+    ok = meck:new(emqx_streams_message_db, [passthrough, no_history, no_link]),
+    on_exit(fun() -> meck:unload(emqx_streams_message_db) end),
+    ok = meck:expect(emqx_streams_message_db, close, fun() ->
+        TestPid ! {shutdown_waiting, self()},
+        receive
+            continue -> ok
+        end
+    end),
+
+    ok = emqx_streams_controller:stop_streams(),
+    Worker =
+        receive
+            {shutdown_waiting, Pid} -> Pid
+        after 5_000 ->
+            ct:fail(shutdown_not_reached)
+        end,
+    ok = emqx_streams_controller:start_streams(),
+    stopping = emqx_streams_controller:status(),
+    Worker ! continue,
+    started = emqx_streams_controller:wait_status(10_000),
+
+    true = meck:validate(emqx_streams_message_db).
+
+%% Verify that a worker crash starts the operation required by the latest target.
+t_reconcile_worker_crash(_Config) ->
+    TestPid = self(),
+    ok = meck:new(emqx_streams_message_db, [passthrough, no_history, no_link]),
+    on_exit(fun() -> meck:unload(emqx_streams_message_db) end),
+    ok = meck:expect(emqx_streams_message_db, open, fun() ->
+        TestPid ! {open_waiting, self()},
+        receive
+            crash -> meck:exception(error, test_worker_crash)
+        end
+    end),
+
+    ControllerPid = whereis(emqx_streams_controller),
+    ok = emqx_streams_controller:start_streams(),
+    Worker1 =
+        receive
+            {open_waiting, Pid1} -> Pid1
+        after 5_000 ->
+            ct:fail(open_not_reached)
+        end,
+    Worker1 ! crash,
+    Worker2 =
+        receive
+            {open_waiting, Pid2} -> Pid2
+        after 5_000 ->
+            ct:fail(start_not_retried)
+        end,
+    ?assertNotEqual(Worker1, Worker2),
+    ?assertEqual(ControllerPid, whereis(emqx_streams_controller)),
+
+    ok = emqx_streams_controller:stop_streams(),
+    Worker2 ! crash,
+    stopped = emqx_streams_controller:wait_status(5_000),
+    ?assertEqual(ControllerPid, whereis(emqx_streams_controller)),
+
+    true = meck:validate(emqx_streams_message_db).
+
+%% Verify that a restarted controller resumes an interrupted shutdown.
+t_restart_during_stop(_Config) ->
+    started = emqx_streams_controller:wait_status(5_000),
+    ok = meck:new(emqx_streams_message_db, [passthrough, no_history, no_link]),
+    on_exit(fun() -> meck:unload(emqx_streams_message_db) end),
+    ok = meck:expect(emqx_streams_message_db, close, fun() -> timer:sleep(infinity) end),
+
+    ControllerPid = whereis(emqx_streams_controller),
+    ?assertWaitEvent(
+        {ok, _} = emqx:update_config([streams], #{<<"enable">> => false}),
+        #{?snk_kind := streams_controller_worker_start, operation := stop, status := stopping},
+        5_000
+    ),
+    stopping = emqx_streams_controller:status(),
+
+    ?assertWaitEvent(
+        exit(ControllerPid, kill),
+        #{?snk_kind := streams_controller_init_cleanup, previous_status := stopping},
+        5_000
+    ),
+
+    true = meck:validate(emqx_streams_message_db).
 
 %% Verify that Streams subsystem start is idempotent and does not break Streams functioning.
 t_idempotency(_Config) ->
@@ -205,11 +382,16 @@ t_idempotency(_Config) ->
     ),
     stopped = emqx_streams_controller:wait_status(5000),
 
-    %% Kill and verify that Streams subsystem is successfully stopped even if it was not started.
+    %% Kill the controller and verify that Streams stay stopped without another stop operation.
     ControllerPid1 = whereis(emqx_streams_controller),
-    ?assertWaitEvent(
-        exit(ControllerPid1, kill),
-        #{?snk_kind := streams_controller_stop_streams_done},
-        5000
+    exit(ControllerPid1, kill),
+    ?retry(
+        100,
+        50,
+        begin
+            NewControllerPid = whereis(emqx_streams_controller),
+            ?assert(is_pid(NewControllerPid)),
+            ?assertNotEqual(ControllerPid1, NewControllerPid)
+        end
     ),
     stopped = emqx_streams_controller:wait_status(5000).

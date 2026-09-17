@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -553,3 +554,40 @@ producer_request_count(ProducerPid) ->
     {_StateName, ProducerState} = sys:get_state(ProducerPid),
     Requests = element(14, ProducerState),
     map_size(Requests).
+
+-doc """
+`namespace' was renamed to `rocketmq_namespace'.  The old name collided with the
+EMQX namespace reported by the connector API: both encoded to the JSON key
+"namespace", the response carried it twice, and clients keep the last
+occurrence.  `namespace' is kept as an alias.
+
+Checks that a config using the old name is still accepted and is normalised to
+the new one, and that the response reports the two namespaces separately.
+""".
+t_rocketmq_namespace_alias(TCConfig) ->
+    ConnectorName = get_config(connector_name, TCConfig),
+    OwnNamespace = <<"rmq-cn-fzh4bmq240a">>,
+    %% Created with the legacy key.
+    {201, _} = create_connector_api(TCConfig, #{<<"namespace">> => OwnNamespace}),
+    %% Stored under the canonical name, with the alias dropped.
+    RawConf = emqx:get_raw_config([connectors, ?CONNECTOR_TYPE, ConnectorName], #{}),
+    ?assertMatch(#{<<"rocketmq_namespace">> := OwnNamespace}, RawConf),
+    ?assertNot(maps:is_key(<<"namespace">>, RawConf)),
+    %% The response keeps the two namespaces apart: `namespace' is the EMQX
+    %% namespace, `null' outside a managed namespace.
+    {200, Got} = emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(?CONNECTOR_TYPE, ConnectorName)
+    ),
+    ?assertMatch(
+        #{<<"namespace">> := null, <<"rocketmq_namespace">> := OwnNamespace},
+        Got
+    ),
+    %% The value still reaches the connector runtime state.
+    ConnResId = emqx_connector_resource:resource_id(
+        ?global_ns, ?CONNECTOR_TYPE, ConnectorName
+    ),
+    ?assertMatch(
+        {ok, _, #{state := #{namespace := OwnNamespace}}},
+        emqx_resource:get_instance(ConnResId)
+    ),
+    ok.

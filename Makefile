@@ -13,7 +13,7 @@ include env.sh
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= 2.3.0-beta.7
+export EMQX_DASHBOARD_VERSION ?= 2.3.1-alpha.1
 
 .PHONY: print-dashboard-version
 print-dashboard-version:
@@ -108,6 +108,12 @@ ct: $(REBAR) merge-config render-test-env
 	@env ERL_FLAGS="-kernel prevent_overlapping_partitions false" $(MIX) ct --cover-export-name $(CT_COVER_EXPORT_PREFIX)-ct
 
 ## only check bpapi for enterprise profile because it's a super-set.
+## Compares each committed BPAPI baseline against the newest released tag on its
+## line. Needs git tags, not a build; CI runs it in the sanity-checks job.
+.PHONY: check-bpapi-baselines
+check-bpapi-baselines:
+	./scripts/check-bpapi-baselines.exs
+
 .PHONY: static_checks
 static_checks: $(ELIXIR_COMMON_DEPS)
 	@# the cluster-rpc check reads plugin beams from the shared build tree
@@ -340,8 +346,8 @@ fmt: $(REBAR)
                     -name 'rebar.config' -o \
                     -name '*.eterm' -o \
                     -name '*.escript' \) \
-                    -not -path '*/apps/emqx_bridge_bigtable/src/generated/*' \
                     -not -path '*/apps/emqx_bridge_zerobus/src/generated/*' \
+                    -not -path '*/apps/emqx_gcp_protos/src/generated/*' \
                     -not -path '*/apps/emqx_exhook/src/pb/*' \
                     -not -path '*/_build/*' \
                     -not -path '*/deps/*' \

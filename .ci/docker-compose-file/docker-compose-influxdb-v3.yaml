@@ -34,8 +34,8 @@ services:
     networks:
       - emqx_bridge
     volumes:
-      - ./certs/server.crt:/etc/influxdb/cert.pem
-      - ./certs/server.key:/etc/influxdb/key.pem
+      - ./certs/cert.pem:/etc/influxdb/cert.pem
+      - ./certs/key.pem:/etc/influxdb/key.pem
       - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
       - ./influxdb/setup-v3.sh:/tmp/setup-v3.sh
     environment:

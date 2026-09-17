@@ -12,9 +12,9 @@ COPY apps/emqx_ldap/test/data/emqx.io.ldif /usr/local/etc/openldap/schema/emqx.i
 COPY apps/emqx_ldap/test/data/emqx.groups.ldif /usr/local/etc/openldap/schema/emqx.groups.ldif
 
 ## pem
-COPY .ci/docker-compose-file/certs/ca.crt /usr/local/etc/openldap/cacert.pem
-COPY .ci/docker-compose-file/certs/server.crt /usr/local/etc/openldap/cert.pem
-COPY .ci/docker-compose-file/certs/server.key /usr/local/etc/openldap/key.pem
+COPY .ci/docker-compose-file/certs/cacert.pem /usr/local/etc/openldap/cacert.pem
+COPY .ci/docker-compose-file/certs/cert.pem /usr/local/etc/openldap/cert.pem
+COPY .ci/docker-compose-file/certs/key.pem /usr/local/etc/openldap/key.pem
 
 RUN mkdir -p /usr/local/etc/openldap/data \
     && slapadd -l /usr/local/etc/openldap/schema/emqx.io.ldif -f /usr/local/etc/openldap/slapd.conf

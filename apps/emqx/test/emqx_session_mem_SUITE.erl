@@ -9,6 +9,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_session_mem.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -702,6 +703,50 @@ test_retry_dequeue(QoS, _TCConfig) ->
     Session5 = emqx_session_mem:set_field(quota, limiter_client(ListenerId), Session4),
     {ok, [], _Session6} =
         emqx_session_mem:handle_timeout(clientinfo(), ?RETRY_DEQUEUE_TIMER, Session5).
+
+-doc """
+The session keeps the compact limiter placeholder while no delivery limit is configured.
+""".
+t_delivery_quota_lazy_stays_placeholder(_TCConfig) ->
+    ListenerId = 'tcp:lazy_no_limit',
+    create_limiters(ListenerId, #{}),
+    ?on_exit(delete_limiters(ListenerId)),
+    Session0 = session(#{listener => ListenerId}, #{}),
+    ?assertMatch(#session{quota = {lazy, ListenerId}}, Session0),
+    Delivers = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_1, <<"t2">>)], Session0),
+    {ok, [_Pub1, _Pub2], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
+    ?assertMatch(#session{quota = {lazy, ListenerId}}, Session1).
+
+-doc """
+A delivery limit configured after session creation applies without reconnect:
+the placeholder materializes into a container on the next delivery.
+""".
+t_delivery_quota_lazy_hot_update(_TCConfig) ->
+    ListenerId = 'tcp:lazy_hot_update',
+    create_limiters(ListenerId, #{}),
+    ?on_exit(delete_limiters(ListenerId)),
+    Session0 = session(#{listener => ListenerId}, #{}),
+    ?assertMatch(#session{quota = {lazy, ListenerId}}, Session0),
+    %% Configure a tight rate at runtime.
+    {ok, MessagesRate} = emqx_limiter_schema:to_rate("2/1s"),
+    ok = emqx_limiter:update_listener_limiters(ListenerId, #{
+        delivery_messages_rate => MessagesRate
+    }),
+    Delivers = enrich(
+        [
+            delivery(?QOS_1, <<"t1">>),
+            delivery(?QOS_1, <<"t2">>),
+            delivery(?QOS_1, <<"t3">>),
+            delivery(?QOS_1, <<"t4">>)
+        ],
+        Session0
+    ),
+    %% Only two messages come out; the rest wait for the retry timer.
+    {Effect, [_Pub1, _Pub2], Session1} =
+        emqx_session_mem:deliver(clientinfo(), Delivers, [], Session0),
+    ?assertMatch({set_timer, ?RETRY_DEQUEUE_TIMER, _}, Effect),
+    ?assertMatch(#session{quota = #{}}, Session1).
 
 -doc """
 Verifies that delivery limits do not compromise message ordering.

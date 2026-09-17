@@ -1891,9 +1891,7 @@ t_commit_failure(Config) ->
 t_convert_connector_tls_certs(Config) ->
     ConnectorName = emqx_bridge_v2_testlib:get_value(connector_name, Config),
     ReadCert = fun(File) ->
-        Dir = code:lib_dir(emqx),
-        Path = filename:join([Dir, <<"etc">>, <<"certs">>, File]),
-        {ok, Contents} = file:read_file(Path),
+        {ok, Contents} = file:read_file(emqx_common_test_helpers:test_cert(File)),
         Contents
     end,
     DataDir = emqx:data_dir(),

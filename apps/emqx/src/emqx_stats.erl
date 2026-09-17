@@ -92,6 +92,9 @@
         'sessions.count',
         %% Maximum Number of Concurrent Sessions
         'sessions.max',
+        %% Count of sessions whose client has disconnected but whose
+        %% session expiry interval has not yet elapsed
+        'disconnected_sessions.count',
         %% Count of Sessions in the cluster
         'cluster_sessions.count',
         %% Maximum Number of Sessions in the cluster
@@ -174,6 +177,7 @@ names() ->
         emqx_cluster_sessions_max,
         emqx_sessions_count,
         emqx_sessions_max,
+        emqx_disconnected_sessions_count,
         emqx_channels_count,
         emqx_channels_max,
         emqx_topics_count,

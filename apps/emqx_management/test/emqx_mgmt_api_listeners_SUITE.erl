@@ -16,7 +16,8 @@ all() ->
         {group, with_defaults_in_file},
         {group, without_defaults_in_file},
         {group, max_connections},
-        {group, hardened}
+        {group, hardened},
+        {group, mixed_version_cluster}
     ].
 
 groups() ->
@@ -30,11 +31,17 @@ groups() ->
     HardenedTests = [
         t_resolved_address_hardened_bare_port
     ],
+    MixedVersionClusterTests = [
+        t_list_listeners_mixed_version_cluster
+    ],
     [
-        {with_defaults_in_file, AllTests -- (MaxConnTests ++ HardenedTests)},
-        {without_defaults_in_file, AllTests -- (MaxConnTests ++ ZoneTests ++ HardenedTests)},
+        {with_defaults_in_file,
+            AllTests -- (MaxConnTests ++ HardenedTests ++ MixedVersionClusterTests)},
+        {without_defaults_in_file,
+            AllTests -- (MaxConnTests ++ ZoneTests ++ HardenedTests ++ MixedVersionClusterTests)},
         {max_connections, MaxConnTests},
-        {hardened, HardenedTests}
+        {hardened, HardenedTests},
+        {mixed_version_cluster, MixedVersionClusterTests}
     ].
 
 init_per_suite(Config) ->
@@ -70,7 +77,17 @@ init_per_group(hardened, Config) ->
             %% profile into later groups.
             emqx_common_test_helpers:clear_security_profile(),
             erlang:raise(Class, Reason, Stacktrace)
-    end.
+    end;
+init_per_group(mixed_version_cluster = Group, Config) ->
+    Apps = [emqx, emqx_conf, emqx_management],
+    Nodes = emqx_cth_cluster:start(
+        [
+            {mgmt_api_listeners_current, #{role => core, apps => Apps}},
+            {mgmt_api_listeners_legacy, #{role => core, apps => Apps}}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
+    ),
+    [{cluster_nodes, Nodes} | Config].
 
 init_group_apps(Config, CTConfig) ->
     Apps = emqx_cth_suite:start(
@@ -86,6 +103,8 @@ init_group_apps(Config, CTConfig) ->
 end_per_group(hardened, Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_common_test_helpers:clear_security_profile();
+end_per_group(mixed_version_cluster, Config) ->
+    emqx_cth_cluster:stop(?config(cluster_nodes, Config));
 end_per_group(_Group, Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
@@ -167,6 +186,140 @@ t_list_listeners(Config) when is_list(Config) ->
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
     ok.
 
+t_listener_id_length(Config) when is_list(Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["listeners"]),
+    OriginPath = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:default"]),
+    OriginListener = request(get, OriginPath, [], []),
+    OriginListener1 = maps:remove(<<"id">>, OriginListener),
+    Port = integer_to_binary(?PORT),
+    AllowedName = binary:copy(<<"a">>, 64),
+    AllowedId = <<"tcp:", AllowedName/binary>>,
+    AllowedPath = emqx_mgmt_api_test_util:api_path(["listeners", AllowedId]),
+    AllowedConf = OriginListener1#{
+        <<"name">> => AllowedName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    Created = request(post, Path, [], AllowedConf),
+    ?assertEqual(AllowedId, maps:get(<<"id">>, Created)),
+    AllowedGet = request(get, AllowedPath, [], []),
+    ?assertEqual(AllowedId, maps:get(<<"id">>, AllowedGet)),
+    ?assertEqual([], delete(AllowedPath)),
+
+    UnicodeName = binary:copy(<<"你"/utf8>>, 20),
+    UnicodeConf = OriginListener1#{
+        <<"name">> => UnicodeName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    UnicodeResult = request(post, Path, [], UnicodeConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, UnicodeResult),
+    {error, {_, _, UnicodeBody}} = UnicodeResult,
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> :=
+                <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>
+        },
+        emqx_utils_json:decode(UnicodeBody)
+    ),
+
+    InvalidName = <<"_leading_underscore">>,
+    InvalidConf = OriginListener1#{
+        <<"name">> => InvalidName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    InvalidResult = request(post, Path, [], InvalidConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, InvalidResult),
+    {error, {{_, 400, _}, _, InvalidBody}} = InvalidResult,
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> :=
+                <<"Listener name must start with a letter or digit and contain only letters, digits, '-' and '_'">>
+        },
+        emqx_utils_json:decode(InvalidBody)
+    ),
+
+    UniqueSuffix = integer_to_binary(erlang:unique_integer([positive])),
+    ColonName = <<"tcp:invalid_", UniqueSuffix/binary>>,
+    ColonId = <<"tcp:", ColonName/binary>>,
+    ?assertError(badarg, binary_to_existing_atom(ColonId)),
+    ColonConf = OriginListener1#{
+        <<"name">> => ColonName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    ColonResult = request(post, Path, [], ColonConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, ColonResult),
+    ?assertError(badarg, binary_to_existing_atom(ColonId)),
+    ?assertError(badarg, binary_to_existing_atom(ColonName)),
+    DeprecatedColonPath = emqx_mgmt_api_test_util:api_path(["listeners", ColonId]),
+    DeprecatedColonConf = ColonConf#{<<"id">> => ColonId},
+    DeprecatedColonResult = request(
+        post,
+        DeprecatedColonPath,
+        [],
+        DeprecatedColonConf,
+        #{return_all => true}
+    ),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, DeprecatedColonResult),
+    ?assertError(badarg, binary_to_existing_atom(ColonId)),
+    ?assertError(badarg, binary_to_existing_atom(ColonName)),
+
+    TooLongName = binary:copy(<<"b">>, 65),
+    TooLongConf = OriginListener1#{
+        <<"name">> => TooLongName,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    Result = request(post, Path, [], TooLongConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, Result),
+    {error, {{_, 400, _}, _, Body}} = Result,
+    #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := Message} =
+        emqx_utils_json:decode(Body),
+    ?assertEqual(<<"Listener name must not exceed 64 bytes">>, Message),
+    TooLongId = <<"tcp:", TooLongName/binary>>,
+    DeprecatedPath = emqx_mgmt_api_test_util:api_path(["listeners", TooLongId]),
+    DeprecatedConf = TooLongConf#{<<"id">> => TooLongId},
+    DeprecatedResult = request(post, DeprecatedPath, [], DeprecatedConf, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _, _}}, DeprecatedResult),
+    ok.
+
+t_legacy_listener_id_update(Config) when is_list(Config) ->
+    assert_legacy_listener_id_update(binary:copy(<<"legacy">>, 11)).
+
+t_existing_id_atom_does_not_create_name_atom(Config) when is_list(Config) ->
+    UniqueSuffix = integer_to_binary(erlang:unique_integer([positive])),
+    Name = <<"missing_", UniqueSuffix/binary>>,
+    Id = <<"tcp:", Name/binary>>,
+    _ = binary_to_atom(Id),
+    ?assertError(badarg, binary_to_existing_atom(Name)),
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", Id]),
+    Result = request(delete, Path, [], [], #{return_all => true}),
+    ?assertMatch({error, {{_, 404, _}, _, _}}, Result),
+    ?assertError(badarg, binary_to_existing_atom(Name)),
+    ok.
+
+assert_legacy_listener_id_update(Name) ->
+    NameAtom = binary_to_atom(Name),
+    Id = <<"tcp:", Name/binary>>,
+    Path = emqx_mgmt_api_test_util:api_path(["listeners", Id]),
+    %% Seed the configuration as if loaded from a pre-upgrade installation.
+    Raw = #{<<"enable">> => false, <<"bind">> => ?PORT},
+    emqx_config:put_raw([listeners, tcp, NameAtom], Raw),
+    emqx_config:put([listeners, tcp, NameAtom], #{
+        enable => false, bind => maps:get(<<"bind">>, Raw)
+    }),
+    try
+        Existing = request(get, Path, [], []),
+        Updated = request(put, Path, [], Existing#{<<"max_connections">> => 123}),
+        ?assertMatch(#{<<"max_connections">> := 123}, Updated)
+    after
+        ?assertEqual([], delete(Path))
+    end,
+    ?assertMatch(
+        {error, {_, 400, _}},
+        request(post, Path, [], Raw#{<<"id">> => Id, <<"type">> => <<"tcp">>})
+    ),
+    ok.
+
 t_tcp_crud_listeners_by_id(Config) when is_list(Config) ->
     ListenerId = <<"tcp:default">>,
     NewListenerId = <<"tcp:new">>,
@@ -234,6 +387,87 @@ t_api_listeners_list_not_ready(Config) when is_list(Config) ->
         emqx_cth_cluster:stop(Nodes)
     end.
 
+-doc """
+The 6.3 listener handlers accept the legacy response shape returned by a
+6.2 node during a rolling upgrade. Both nodes run the real aggregation and
+RPC paths. The legacy node's real `do_list_listeners/0` response is intercepted
+and stripped of the 6.3-only fields. The current node remains unmocked. The
+legacy node remains in the aggregate, but its node status omits those fields.
+""".
+t_list_listeners_mixed_version_cluster(Config) when is_list(Config) ->
+    [Node, NodeLegacy] = ?config(cluster_nodes, Config),
+    ok = erpc:call(NodeLegacy, fun() ->
+        ok = meck:new(emqx_mgmt_api_listeners, [passthrough, no_link]),
+        ok = meck:expect(emqx_mgmt_api_listeners, do_list_listeners, fun() ->
+            Response = #{<<"listeners">> := Listeners} = meck:passthrough([]),
+            Response#{
+                <<"listeners">> := [
+                    maps:with(
+                        [
+                            <<"id">>,
+                            <<"type">>,
+                            <<"enable">>,
+                            <<"running">>,
+                            <<"max_connections">>,
+                            <<"current_connections">>,
+                            <<"acceptors">>,
+                            <<"bind">>
+                        ],
+                        Listener
+                    )
+                 || Listener <- Listeners
+                ]
+            }
+        end)
+    end),
+    try
+        {200, [ById]} = erpc:call(
+            Node,
+            emqx_mgmt_api_listeners,
+            list_listeners,
+            [get, #{query_string => #{<<"type">> => ssl}}]
+        ),
+        ?assertMatch(
+            #{
+                id := 'ssl:default',
+                number := 2,
+                node_status := [
+                    #{node := NodeLegacy, status := StatusLegacy},
+                    #{node := Node, status := Status}
+                ]
+            } when
+                is_map_key(resolved_address, Status) andalso
+                    is_map_key(resolved_address_from, Status) andalso
+                    not is_map_key(resolved_address, StatusLegacy) andalso
+                    not is_map_key(resolved_address_from, StatusLegacy),
+            ById
+        ),
+        {200, ByTypes} = erpc:call(
+            Node,
+            emqx_mgmt_api_listeners,
+            listener_type_status,
+            [get, #{}]
+        ),
+        [ByType] = [Listener || Listener = #{type := <<"ssl">>} <- ByTypes],
+        ?assertMatch(
+            #{
+                type := <<"ssl">>,
+                ids := ['ssl:default'],
+                node_status := [
+                    #{node := NodeLegacy, status := StatusLegacy},
+                    #{node := Node, status := Status}
+                ]
+            } when
+                is_map_key(resolved_address, Status) andalso
+                    is_map_key(resolved_address_from, Status) andalso
+                    not is_map_key(resolved_address, StatusLegacy) andalso
+                    not is_map_key(resolved_address_from, StatusLegacy),
+            ByType
+        )
+    after
+        _ = catch erpc:call(NodeLegacy, meck, unload, [emqx_mgmt_api_listeners])
+    end.
+
 t_clear_certs(Config) when is_list(Config) ->
     ListenerId = <<"ssl:default">>,
     NewListenerId = <<"ssl:clear">>,
@@ -249,18 +483,18 @@ t_clear_certs(Config) when is_list(Config) ->
 
     %% create, make sure the cert files are created
     NewConf = emqx_utils_maps:deep_put(
-        [<<"ssl_options">>, <<"certfile">>], ConfTemp, cert_file("certfile")
+        [<<"ssl_options">>, <<"certfile">>], ConfTemp, cert_file("cert.pem")
     ),
     NewConf2 = emqx_utils_maps:deep_put(
-        [<<"ssl_options">>, <<"keyfile">>], NewConf, cert_file("keyfile")
+        [<<"ssl_options">>, <<"keyfile">>], NewConf, cert_file("key.pem")
     ),
     _ = request(post, NewPath, [], NewConf2),
     ListResult1 = list_pem_dir("ssl", "clear"),
     ?assertMatch({ok, [_, _]}, ListResult1),
 
-    %% update
+    %% update, with any other key: a changed key must be written anew
     UpdateConf = emqx_utils_maps:deep_put(
-        [<<"ssl_options">>, <<"keyfile">>], NewConf2, cert_file("keyfile2")
+        [<<"ssl_options">>, <<"keyfile">>], NewConf2, cert_file("client-key.pem")
     ),
     _ = request(put, NewPath, [], UpdateConf),
     _ = emqx_tls_certfile_gc:force(),
@@ -619,13 +853,12 @@ list_pem_dir(Type, Name) ->
     Dir = filename:join([emqx:mutable_certs_dir(), ListenerDir]),
     file:list_dir(Dir).
 
-data_file(Name) ->
-    Dir = code:lib_dir(emqx),
-    {ok, Bin} = file:read_file(filename:join([Dir, "test", "data", Name])),
-    Bin.
-
+%% Contents of a file from the generated test certificate set. The case
+%% checks that contents given inline end up as files under the managed
+%% certificate directory; which certificate it is does not matter.
 cert_file(Name) ->
-    data_file(filename:join(["certs", Name])).
+    {ok, Bin} = file:read_file(emqx_common_test_helpers:test_cert(Name)),
+    Bin.
 
 default_listeners_hocon_text() ->
     Sc = #{roots => emqx_schema:listeners()},

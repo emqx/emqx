@@ -8,12 +8,17 @@
 Controller for the Message Queue application.
 Enables and disables its integration into the EMQX.
 
-Startup is split into two phases to avoid blocking config propagation:
-- `starting`: DB opened, metrics started.
-- `started`: DB readiness confirmed, hooks and services started.
+Lifecycle operations run in a linked worker so the controller can accept
+target changes while startup or shutdown is in progress.
+
+The controller does not cancel the current lifecycle operation when the target
+changes. It lets the operation complete before it starts the operation for the
+new target. Therefore, `status/0` may briefly report a state opposite to the
+latest target.
 """.
 
 -include("emqx_mq_internal.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(gen_server).
 
@@ -32,24 +37,22 @@ Startup is split into two phases to avoid blocking config propagation:
 
 -export([
     init/1,
-    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
     terminate/2
 ]).
 
--type status() :: started | starting | stopped.
+-type status() :: started | starting | stopping | stopped.
 
 -record(state, {
-    status :: status() | undefined,
-    target_status :: status()
+    target_status :: started | stopped,
+    worker = undefined :: undefined | map(),
+    waiters = [] :: [gen_server:from()]
 }).
 
--record(start_mqs, {}).
--record(stop_mqs, {}).
+-record(set_target, {status :: started | stopped}).
 -record(wait_status, {}).
--record(control_mqs, {}).
 
 -define(STATUS_PT_KEY, ?MODULE).
 
@@ -73,16 +76,16 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -doc """
-Returns as soon as controller enters `starting` phase.
+Requests the controller to enter the `starting` phase.
 Call `wait_status/1` to know when subsystem is fully `started`.
 """.
--spec start_mqs() -> starting.
+-spec start_mqs() -> ok.
 start_mqs() ->
-    gen_server:call(?MODULE, #start_mqs{}, infinity).
+    gen_server:call(?MODULE, #set_target{status = started}, infinity).
 
--spec stop_mqs() -> stopped | {error, cannot_stop_mqs_with_existing_queues}.
+-spec stop_mqs() -> ok | {error, cannot_stop_mqs_with_existing_queues}.
 stop_mqs() ->
-    gen_server:call(?MODULE, #stop_mqs{}, infinity).
+    gen_server:call(?MODULE, #set_target{status = stopped}, infinity).
 
 -spec status() -> status().
 status() ->
@@ -94,8 +97,7 @@ status() ->
 
 -spec wait_status(timeout()) -> status().
 wait_status(Timeout) ->
-    ok = gen_server:call(?MODULE, #wait_status{}, Timeout),
-    status().
+    gen_server:call(?MODULE, #wait_status{}, Timeout).
 
 %%------------------------------------------------------------------------------
 %% Gen Server callbacks
@@ -103,143 +105,154 @@ wait_status(Timeout) ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    case need_start() of
-        true ->
-            TargetStatus = started;
-        false ->
-            TargetStatus = stopped
-    end,
-    State = #state{
-        status = undefined,
-        target_status = TargetStatus
-    },
-    {ok, State, {continue, #control_mqs{}}}.
-
-handle_continue(#control_mqs{}, State) ->
-    NewState = control_mqs(State),
-    case status_reached(NewState) of
-        true ->
-            {noreply, NewState};
-        false ->
-            {noreply, NewState, {continue, #control_mqs{}}}
+    PreviousStatus = status(),
+    ok = clear_status(),
+    case {need_start(), PreviousStatus} of
+        {true, _} ->
+            {ok, start_operation(start, #state{target_status = started})};
+        {false, stopped} ->
+            {ok, #state{target_status = stopped}};
+        {false, _} ->
+            State = start_operation(stop, #state{target_status = stopped}),
+            ?tp(mq_controller_init_cleanup, #{previous_status => PreviousStatus}),
+            {ok, State}
     end.
 
-handle_call(#start_mqs{}, _From, State) ->
-    NewState = control_mqs(State#state{target_status = started}),
-    NewStatus = NewState#state.status,
-    case status_reached(NewState) of
+handle_call(#set_target{status = started}, _From, State) ->
+    NewState = set_target(started, State),
+    {reply, ok, NewState};
+handle_call(#set_target{status = stopped}, _From, State) ->
+    case can_be_stopped() of
         true ->
-            {reply, NewStatus, NewState};
-        false ->
-            {reply, NewStatus, NewState, {continue, #control_mqs{}}}
-    end;
-handle_call(#stop_mqs{}, _From, State) ->
-    maybe
-        true ?= can_be_stopped(),
-        NewState = control_mqs(State#state{target_status = stopped}),
-        NewStatus = NewState#state.status,
-        case status_reached(NewState) of
-            true ->
-                {reply, NewStatus, NewState};
-            false ->
-                {reply, NewStatus, NewState, {continue, #control_mqs{}}}
-        end
-    else
+            NewState = set_target(stopped, State),
+            {reply, ok, NewState};
         false ->
             {reply, {error, cannot_stop_mqs_with_existing_queues}, State}
     end;
-handle_call(#wait_status{}, _From, State) ->
-    {reply, ok, State};
+handle_call(#wait_status{}, _From, State = #state{target_status = Status, worker = undefined}) ->
+    {reply, Status, State};
+handle_call(#wait_status{}, From, State) ->
+    {noreply, State#state{waiters = [From | State#state.waiters]}};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.
 
 handle_cast(_Message, State) ->
     {noreply, State}.
 
+handle_info(
+    {'EXIT', Pid, normal},
+    State = #state{worker = #{pid := Pid, operation := Operation}}
+) ->
+    Status = operation_result(Operation),
+    ok = set_status(Status),
+    {noreply, operation_complete(Status, State#state{worker = undefined})};
+handle_info(
+    {'EXIT', Pid, Reason},
+    State = #state{
+        target_status = TargetStatus,
+        worker = #{pid := Pid, operation := Operation}
+    }
+) ->
+    ?SLOG(warning, #{
+        msg => "mq_lifecycle_worker_crashed",
+        operation => Operation,
+        reason => Reason,
+        target_status => TargetStatus
+    }),
+    NewState = start_operation(target_operation(TargetStatus), State#state{worker = undefined}),
+    {noreply, NewState};
 handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(Reason, State) ->
     ?tp(info, mq_controller_terminate, #{reason => Reason}),
-    control_mqs(State#state{target_status = stopped}).
+    ok = stop_worker(State),
+    _ = do_stop_mqs(),
+    clear_status().
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-control_mqs(#state{target_status = stopped, status = _Started} = State) ->
-    do_stop_mqs(State);
-control_mqs(#state{target_status = _Started, status = stopped} = State) ->
-    do_start_mqs(State);
-control_mqs(#state{target_status = _Started, status = undefined} = State) ->
-    do_start_mqs(State);
-control_mqs(#state{target_status = started, status = starting} = State) ->
-    do_ready_mqs(State);
-control_mqs(#state{target_status = Status, status = Status} = State) ->
-    State.
+%% Already in the desired state, no need to do anything
+set_target(TargetStatus, State = #state{target_status = TargetStatus, worker = undefined}) ->
+    State;
+%% Not in desired state and no transition in progress, start transition
+set_target(TargetStatus, State = #state{worker = undefined}) ->
+    start_operation(target_operation(TargetStatus), State#state{target_status = TargetStatus});
+%% Transition in progress, update target status
+set_target(TargetStatus, State) ->
+    State#state{target_status = TargetStatus}.
 
-status_reached(#state{status = Status, target_status = TargetStatus}) ->
-    Status =:= TargetStatus.
+operation_complete(Status, State = #state{target_status = Status}) ->
+    reply_waiters(Status, State);
+operation_complete(_Status, State = #state{target_status = TargetStatus}) ->
+    start_operation(target_operation(TargetStatus), State).
 
-%% Phase 1 (starting): Open DB, start metrics.
-do_start_mqs(State) ->
+target_operation(started) -> start;
+target_operation(stopped) -> stop.
+
+start_operation(Operation, State = #state{worker = undefined}) ->
+    Status = operation_status(Operation),
+    ok = set_status(Status),
+    Pid = spawn_link(fun() ->
+        ?tp(mq_controller_worker_start, #{operation => Operation, status => Status}),
+        ok = run_operation(Operation)
+    end),
+    State#state{
+        worker = #{pid => Pid, operation => Operation}
+    }.
+
+operation_status(start) -> starting;
+operation_status(stop) -> stopping.
+
+operation_result(start) -> started;
+operation_result(stop) -> stopped.
+
+run_operation(start) -> do_start_mqs();
+run_operation(stop) -> do_stop_mqs().
+
+reply_waiters(Status, State = #state{waiters = Waiters}) ->
+    lists:foreach(fun(From) -> gen_server:reply(From, Status) end, Waiters),
+    State#state{waiters = []}.
+
+stop_worker(#state{worker = undefined}) ->
+    ok;
+stop_worker(#state{worker = #{pid := Pid}}) ->
+    exit(Pid, shutdown),
+    receive
+        {'EXIT', Pid, _Reason} -> ok
+    after 1_000 ->
+        exit(Pid, kill)
+    end,
+    ok.
+
+do_start_mqs() ->
     ?tp(debug, mq_controller_start_mqs, #{}),
-    ok = set_status(starting),
-
-    %% Open DB
     ok = emqx_mq_message_db:open(),
     ok = emqx_mq_state_storage:open_db(),
-
-    %% Start services that don't require DB readiness
     ok = emqx_mq_sup:start_metrics(),
-
-    %% Defer DB-dependent components to the next phase
-    State#state{status = starting}.
-
-%% Phase 2 (started): Wait for DB readiness, then start DB-dependent components.
-do_ready_mqs(State = #state{}) ->
     ?tp(debug, mq_controller_wait_ready, #{}),
-
-    %% Block until DB is ready (allows config to propagate to cluster first)
     ok = emqx_mq_message_db:wait_readiness(infinity),
     ok = emqx_mq_state_storage:wait_readiness(infinity),
-
-    %% Start components that require DB readiness
     ok = emqx_mq_quota_buffer:start(?MQ_QUOTA_BUFFER, quota_buffer_options()),
     ok = emqx_mq_sup:start_gc_scheduler(),
-
-    %% Hook into EMQX
-    %% Claim handling of `$queue` topics to ourselves
     ok = emqx_topic:enable_queue_alias_to_share(false),
     ok = emqx_mq:register_hooks(),
-
-    ok = set_status(started),
     ?tp(debug, mq_controller_start_mqs_done, #{}),
+    ok.
 
-    State#state{status = started}.
-
-do_stop_mqs(State = #state{status = Status}) ->
+do_stop_mqs() ->
     ?tp(debug, mq_controller_stop_mqs, #{}),
-
-    case Status of
-        started ->
-            ok = emqx_topic:enable_queue_alias_to_share(true),
-            ok = emqx_mq:unregister_hooks(),
-            _ = emqx_mq_quota_buffer:stop(?MQ_QUOTA_BUFFER),
-            ok = emqx_mq_sup:stop_gc_scheduler();
-        _ ->
-            %% Not fully started: only metrics and DB were started
-            ok
-    end,
-
+    ok = emqx_topic:enable_queue_alias_to_share(true),
+    ok = emqx_mq:unregister_hooks(),
+    _ = emqx_mq_quota_buffer:stop(?MQ_QUOTA_BUFFER),
+    ok = emqx_mq_sup:stop_gc_scheduler(),
     ok = emqx_mq_sup:stop_metrics(),
     _ = emqx_mq_message_db:close(),
     _ = emqx_mq_state_storage:close_db(),
-
-    ok = clear_status(),
     ?tp(debug, mq_controller_stop_mqs_done, #{}),
-
-    State#state{status = stopped}.
+    ok.
 
 need_start() ->
     case emqx_mq_config:enabled() of

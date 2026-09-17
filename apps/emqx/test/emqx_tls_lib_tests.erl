@@ -18,6 +18,68 @@
 -define(bundle, <<"some_bundle">>).
 -define(bundle2, <<"some_bundle2">>).
 
+%% A TLS server that cannot get the node's certificate must not start. `ssl'
+%% would accept a listener with no certificate and fail every handshake
+%% afterwards with an alert that names no cause, so the failure has to be raised
+%% where the reason is still known.
+ensure_default_certs_without_a_bundle_test() ->
+    meck:new(emqx_default_cert, [passthrough, no_link, no_history]),
+    meck:expect(emqx_default_cert, ensure_localhost_bundle, fun() -> {error, no_bundle} end),
+    try
+        ?assertMatch(
+            {error, #{error := <<"no_default_tls_certificate">>, reason := no_bundle}},
+            emqx_tls_lib:ensure_default_certs(#{})
+        ),
+        %% A configuration that names its own certificate never asks for one.
+        ?assertEqual(
+            {ok, #{certfile => <<"/x/cert.pem">>}},
+            emqx_tls_lib:ensure_default_certs(#{certfile => <<"/x/cert.pem">>})
+        )
+    after
+        meck:unload(emqx_default_cert)
+    end.
+
+%% Inspecting a configuration is not serving it: a node with no bundle is
+%% expected here, and the configuration is left as it is.
+default_certs_if_present_without_a_bundle_test() ->
+    meck:new(emqx_default_cert, [passthrough, no_link, no_history]),
+    meck:expect(emqx_default_cert, localhost_bundle, fun() -> {error, no_bundle} end),
+    try
+        ?assertEqual(#{}, emqx_tls_lib:default_certs_if_present(#{}))
+    after
+        meck:unload(emqx_default_cert)
+    end.
+
+is_cert_configured_test_() ->
+    Configured = fun(V) -> emqx_tls_lib:is_cert_configured(V) end,
+    [
+        {"nothing at all", ?_assertNot(Configured(#{}))},
+        {"a file path counts", ?_assert(Configured(#{certfile => <<"/x/cert.pem">>}))},
+        {"binary keys count, since raw config reaches here too",
+            ?_assert(Configured(#{<<"keyfile">> => <<"/x/key.pem">>}))},
+        {"a single managed bundle counts, not just an array",
+            ?_assert(Configured(#{managed_certs => #{bundle_name => <<"b">>}}))},
+        {"an array of bundles counts",
+            ?_assert(Configured(#{managed_certs => [#{bundle_name => <<"b">>}]}))},
+        %% Values the schema will not produce, but a request can.
+        {"unset keys do not count",
+            ?_assertNot(Configured(#{certfile => undefined, keyfile => undefined}))},
+        {"empty values do not count", ?_assertNot(Configured(#{certfile => <<>>, keyfile => ""}))},
+        {"an empty bundle array does not count", ?_assertNot(Configured(#{managed_certs => []}))},
+        {"an emptied bundle object does not count",
+            ?_assertNot(Configured(#{managed_certs => #{}}))},
+        {"null, how a request clears a value, does not count",
+            ?_assertNot(Configured(#{<<"managed_certs">> => null}))},
+        %% `cacertfile' verifies peers; it is not a certificate of this server's
+        %% own, so it must not suppress the default one.
+        {"a cacertfile alone does not count",
+            ?_assertNot(Configured(#{cacertfile => <<"/x/ca.pem">>}))},
+        {"an mTLS listener with only a cacertfile still wants the default cert",
+            ?_assertNot(
+                Configured(#{cacertfile => <<"/x/ca.pem">>, verify => verify_peer})
+            )}
+    ].
+
 ensure_tls13_ciphers_added_test() ->
     Ciphers = emqx_tls_lib:integral_ciphers(['tlsv1.3'], [?TLS_12_CIPHER]),
     ?assert(lists:member(?TLS_12_CIPHER, Ciphers)),

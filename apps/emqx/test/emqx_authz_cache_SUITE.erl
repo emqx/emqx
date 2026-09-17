@@ -45,11 +45,17 @@ t_clean_authz_cache(_) ->
     %% wait for async publish to be processed and cached
     ct:sleep(100),
     ClientPid = find_client_pid(ClientId),
-    Caches = list_cache(ClientPid),
-    ct:log("authz caches: ~p", [Caches]),
-    ?assert(length(Caches) > 0),
+    ?retry(
+        20,
+        100,
+        begin
+            Caches = list_cache(ClientPid),
+            ct:log("authz caches: ~p", [Caches]),
+            ?assert(length(Caches) > 0)
+        end
+    ),
     erlang:send(ClientPid, clean_authz_cache),
-    ?assertEqual([], list_cache(ClientPid)),
+    ?retry(20, 100, ?assertEqual([], list_cache(ClientPid))),
     emqtt:stop(Client).
 
 t_drain_authz_cache(_) ->

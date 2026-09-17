@@ -116,14 +116,25 @@ defmodule Mix.Tasks.Emqx.Ct do
       node_name: node_name
     } = context
 
+    group_paths =
+      opts
+      |> Map.fetch!(:group_paths)
+      |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end)
+
+    group =
+      case group_paths do
+        [[group]] ->
+          group
+
+        _ ->
+          group_paths
+      end
+
     :ct.run_test(
       abort_if_missing_suites: true,
       auto_compile: false,
       suite: opts |> Map.fetch!(:suites) |> Enum.map(&to_charlist/1),
-      group:
-        opts
-        |> Map.fetch!(:group_paths)
-        |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
+      group: group,
       testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
       readable: ~c"true",
       name: node_name,
@@ -487,10 +498,20 @@ defmodule Mix.Tasks.Emqx.Ct do
   # Static list of modules generated from .xrl (Leex) and .yrl (Yecc) files
   @generated_modules MapSet.new([
                        # Generated from .xrl files
+                       "emqx_bridge_clickhouse_sql_lexer",
+                       "emqx_bridge_sqlserver_sql_lexer",
+                       "emqx_bridge_tdengine_sql_lexer",
+                       "emqx_doris_sql_lexer",
                        "emqx_ldap_filter_lexer",
+                       "emqx_mysql_sql_lexer",
                        "emqx_variform_scan",
                        # Generated from .yrl files
+                       "emqx_bridge_clickhouse_sql_parser",
+                       "emqx_bridge_sqlserver_sql_parser",
+                       "emqx_bridge_tdengine_sql_parser",
+                       "emqx_doris_sql_parser",
                        "emqx_ldap_filter_parser",
+                       "emqx_mysql_sql_parser",
                        "emqx_variform_parser"
                      ])
 

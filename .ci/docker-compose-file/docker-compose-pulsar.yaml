@@ -8,9 +8,9 @@ services:
     networks:
       emqx_bridge:
     volumes:
-      - ../../apps/emqx/etc/certs/cert.pem:/etc/certs/server.pem
-      - ../../apps/emqx/etc/certs/key.pem:/etc/certs/key.pem
-      - ../../apps/emqx/etc/certs/cacert.pem:/etc/certs/ca.pem
+      - ./certs/cert.pem:/etc/certs/server.pem
+      - ./certs/key.pem:/etc/certs/key.pem
+      - ./certs/cacert.pem:/etc/certs/ca.pem
     restart: always
     command:
       - bash

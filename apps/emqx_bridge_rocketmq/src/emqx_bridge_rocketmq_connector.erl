@@ -46,10 +46,14 @@ roots() ->
 fields(config) ->
     [
         {servers, servers()},
-        {namespace,
+        {rocketmq_namespace,
             mk(
                 binary(),
-                #{required => false, desc => ?DESC(namespace)}
+                #{
+                    required => false,
+                    aliases => [namespace],
+                    desc => ?DESC(rocketmq_namespace)
+                }
             )},
         {topic,
             mk(
@@ -116,7 +120,7 @@ on_start(
     ),
     ClientId = client_id(InstanceId),
     ACLInfo = acl_info(AccessKey, SecretKey, SecurityToken),
-    Namespace = maps:get(namespace, Config, <<>>),
+    Namespace = maps:get(rocketmq_namespace, Config, <<>>),
     ClientCfg0 = #{acl_info => ACLInfo, namespace => Namespace},
     SSLOpts = emqx_tls_lib:to_client_opts(SSLOptsMap),
     ClientCfg = emqx_utils_maps:put_if(ClientCfg0, ssl_opts, SSLOpts, SSLOpts =/= []),

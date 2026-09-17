@@ -443,6 +443,34 @@ t_send_request_api_exception(_) ->
     end,
     ok.
 
+-doc """
+`POST /gateways/coap/clients/:clientid/request` rejects a body that omits a
+declared field with 400, and does not leak an Erlang stack trace.
+""".
+t_send_request_missing_field(_) ->
+    Uri = emqx_mgmt_api_test_util:uri(["gateways", "coap", "clients", "client1", "request"]),
+    Full = #{
+        token => <<"atoken">>,
+        payload => <<"simple echo this">>,
+        timeout => <<"10s">>,
+        content_type => <<"text/plain">>,
+        method => <<"get">>
+    },
+    lists:foreach(
+        fun(Field) ->
+            RequestBody = maps:remove(Field, Full),
+            {ok, Status, Body} = emqx_mgmt_api_test_util:request(post, Uri, RequestBody),
+            ?assertEqual(400, Status, #{omitted_field => Field, body => Body}),
+            ?assertEqual(
+                nomatch,
+                binary:match(Body, <<"INTERNAL_ERROR">>),
+                #{omitted_field => Field, body => Body}
+            )
+        end,
+        maps:keys(Full)
+    ),
+    ok.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

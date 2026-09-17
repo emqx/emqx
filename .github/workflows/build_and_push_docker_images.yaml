@@ -94,18 +94,21 @@ jobs:
           echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
 
-      - name: Verify that size of docker image is less than 160 MB
+      - name: Verify that size of docker image is less than 170 MB
         run: |
           SIZE=$(docker save $_EMQX_DOCKER_IMAGE_TAG | gzip -c | wc -c)
           echo "Image size: ${SIZE}"
-          test "${SIZE}" -lt 160000000
+          test "${SIZE}" -lt 170000000
 
       - name: smoke test
         timeout-minutes: 5
         run: |
-          CID=$(docker run -d -p 18083:18083 $_EMQX_DOCKER_IMAGE_TAG)
+          CID=$(docker run -d -p 18083:18083 \
+            -e EMQX_NODE__COOKIE='ci-smoke-test-cookie' \
+            -e EMQX_DASHBOARD__DEFAULT_PASSWORD='CiSm0kePass1' \
+            $_EMQX_DOCKER_IMAGE_TAG)
           HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
-          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+          EMQX_SMOKE_PASSWORD='CiSm0kePass1' ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
           docker rm -f $CID
           ./scripts/test/cluster-smoke-test.sh $_EMQX_DOCKER_IMAGE_TAG
 
@@ -119,7 +122,7 @@ jobs:
 
       - name: test node_dump
         run: |
-          CID=$(docker run -d -P $_EMQX_DOCKER_IMAGE_TAG)
+          CID=$(docker run -d -P -e EMQX_NODE__COOKIE='ci-smoke-test-cookie' $_EMQX_DOCKER_IMAGE_TAG)
           docker exec -t -u root -w /root $CID bash -c 'apt-get -y update && apt-get -y install net-tools'
           docker exec -t -u root $CID node_dump
           docker rm -f $CID
@@ -226,7 +229,7 @@ jobs:
           echo "PKG_VSN=$PKG_VSN" | tee -a $GITHUB_ENV
           echo "FILENAME=$FILENAME" | tee -a $GITHUB_ENV
 
-      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

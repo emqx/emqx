@@ -67,6 +67,7 @@
 
 -define(MQ_GC_REGULAR, gc_regular).
 -define(MQ_GC_LASTVALUE, gc_lastvalue).
+-define(MQ_GC_SCHEDULER, emqx_mq_gc).
 
 -define(DEFAULT_MQ_LIMITS,
     (#{
@@ -81,6 +82,8 @@
 
 -define(MQ_QUOTA_BUFFER, mq_message_quota_buffer).
 -define(DEFAULT_QUOTA_BUFFER_POOL_SIZE, 10).
+
+-define(MQ_METRICS_WORKER, mq_metrics).
 
 -define(LEGACY_QUEUE_NAME(TF), <<"/", (TF)/binary>>).
 

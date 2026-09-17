@@ -1,0 +1,43 @@
+# Files that may hold a private key. `scripts/check-private-keys.py` fails on
+# any other file with a PEM private key block or a keystore extension, and on
+# an entry here that no longer holds one.
+#
+# Test suites generate the keys they need at run time; the script names the
+# helpers. Add a file here only when its key cannot be generated, and say why.
+
+# JWT authentication tests sign tokens with this RSA key; `public_key.pem`
+# beside it is the matching public key.
+apps/emqx_auth/test/data/private_key.pem
+
+# Signs the test licenses; `pub.pem` and `emqx.lic` beside it pair with it.
+apps/emqx_license/test/data/pvt.key
+
+# Fixed PKI of the CRL suite: the committed CRLs in the same directory revoke
+# these certificates by serial number.
+apps/emqx/test/emqx_crl_cache_SUITE_data/client-no-dist-points.key.pem
+apps/emqx/test/emqx_crl_cache_SUITE_data/client-revoked.key.pem
+apps/emqx/test/emqx_crl_cache_SUITE_data/client.key.pem
+apps/emqx/test/emqx_crl_cache_SUITE_data/client1.key.pem
+apps/emqx/test/emqx_crl_cache_SUITE_data/client2.key.pem
+apps/emqx/test/emqx_crl_cache_SUITE_data/client3.key.pem
+apps/emqx/test/emqx_crl_cache_SUITE_data/server.key.pem
+
+# Fixed PKI of the OCSP suite: `index.txt` in the same directory names these
+# certificates for the OCSP responder.
+apps/emqx/test/emqx_ocsp_cache_SUITE_data/client.key
+apps/emqx/test/emqx_ocsp_cache_SUITE_data/ocsp-issuer.key
+apps/emqx/test/emqx_ocsp_cache_SUITE_data/server.key
+
+# Schema examples of a service account file: a truncated placeholder, not a key.
+apps/emqx_bridge_gcp_pubsub/src/emqx_bridge_gcp_pubsub_consumer_schema.erl
+apps/emqx_bridge_gcp_pubsub/src/emqx_bridge_gcp_pubsub_producer_schema.erl
+
+# A truncated placeholder, to test that a malformed key is rejected.
+apps/emqx_bridge_gcp_pubsub/test/emqx_bridge_gcp_pubsub_producer_SUITE.erl
+apps/emqx_connector_jwt/test/emqx_connector_jwt_worker_SUITE.erl
+
+# Inline key content: the tests check how given content is stored in managed
+# files, not which key it is.
+apps/emqx/test/emqx_tls_certfile_gc_SUITE.erl
+apps/emqx/test/emqx_tls_lib_tests.erl
+apps/emqx_gateway/test/emqx_gateway_conf_SUITE.erl

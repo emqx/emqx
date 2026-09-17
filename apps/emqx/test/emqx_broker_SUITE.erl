@@ -80,7 +80,8 @@ init_per_group(quic, Config) ->
                 "\n max_connections = 1024000"
                 "\n idle_timeout = 15s"
                 "\n ssl_options.verify = verify_peer"
-                "\n }"}
+                "\n }" ++
+                    emqx_common_test_helpers:listener_test_certs("listeners.quic.test")}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -575,12 +576,15 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     %% emqx_cm_connected_client_count_dec events
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
     %% connecting again, this time, retry until server is not busy
+    %% BackInTime must stay 0 here: this clientid was just reused by the
+    %% takeover storm, so a look-back window can match a stale inc event from
+    %% one of those discarded channels instead of this reconnect's own event.
+    %% Only the forward timeout needs widening.
     {{ok, _}, {ok, [_]}} =
         wait_for_events(
             fun() -> start_connect_client(Opts, ConnFun) end,
             [emqx_cm_connected_client_count_inc],
-            1000,
-            1000
+            5000
         ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
     %% abnormal exit of channel process

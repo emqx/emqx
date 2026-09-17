@@ -525,7 +525,7 @@ ssl_section(Port) ->
     ].
 
 cert_path(Name) ->
-    filename:join([code:lib_dir(emqx), "etc", "certs", Name]).
+    emqx_common_test_helpers:test_cert(Name).
 
 should_skip(TestCase, Config) ->
     Target = target_from(Config),

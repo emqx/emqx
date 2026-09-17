@@ -68,7 +68,7 @@ on_gateway_update(
 ) ->
     OldModConfig = mod_cfg(OldConfig),
     OldListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
-        GwName, OldConfig, OldModConfig, Ctx
+        GwName, OldConfig, OldModConfig, Ctx, #{generate_default_certs => false}
     ),
     NewModConfig = mod_cfg(Config),
     NewListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(

@@ -1175,8 +1175,8 @@ start_cluster(Config) ->
     %% down the session or the shared sub leader. In particular the retry
     %% window (`commit_retries' * `commit_retry_interval') has to outlast a
     %% DS leader re-election, which the tests trigger by killing a node.
-    %% The ping budgets must outlast a session busy with a QoS1 storm, or the
-    %% leader kicks a live borrower and redelivery misses the drain window.
+    %% The ping budgets must outlast a session busy with a QoS1 delivery
+    %% storm, or the leader kicks a live borrower.
     Conf = #{
         <<"durable_sessions">> => #{
             <<"commit_timeout">> => 15_000,

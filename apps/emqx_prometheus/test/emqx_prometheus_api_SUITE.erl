@@ -507,6 +507,49 @@ t_listener_shutdown_count(_Config) ->
     AssertExpectedLines(?LINE, ExpectedLines2, PromClientStatsUnagg),
     ok.
 
+-doc """
+Check that `emqx_client_accept_result` exports every esockd accept result of
+the TCP listener in all data modes, and that a connected client is counted as
+accepted.
+""".
+t_listener_accept_result(_Config) ->
+    %% Disconnect normally: a closed socket would add to the `tcp_closed`
+    %% shutdown count that `t_listener_shutdown_count` checks.
+    {ok, C} = emqtt_connect(fresh_clientid(?FUNCTION_NAME)),
+    ok = emqtt:disconnect(C),
+    Results = lists:sort([
+        <<"accepted">>,
+        <<"closed_sys_limit">>,
+        <<"closed_max_limit">>,
+        <<"closed_overloaded">>,
+        <<"closed_rate_limited">>,
+        <<"closed_early">>,
+        <<"closed_forbidden">>,
+        <<"closed_other_reasons">>
+    ]),
+    NodeLabel = iolist_to_binary(["node=\"", atom_to_binary(node()), "\","]),
+    lists:foreach(
+        fun({Mode, Prefix}) ->
+            Counts = accept_result_counts(get_stats(prometheus, Mode), Prefix),
+            ?assertEqual(Results, lists:sort(maps:keys(Counts)), #{mode => Mode}),
+            ?assert(maps:get(<<"accepted">>, Counts) >= 1, #{mode => Mode})
+        end,
+        [
+            {?PROM_DATA_MODE__NODE, <<>>},
+            {?PROM_DATA_MODE__ALL_NODES_AGGREGATED, <<>>},
+            {?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, NodeLabel}
+        ]
+    ).
+
+accept_result_counts(Output, Prefix) ->
+    Re = [
+        "^emqx_client_accept_result\\{",
+        Prefix,
+        "listener_type=\"tcp\",listener_name=\"default\",result=\"(\\w+)\"\\} (\\d+)$"
+    ],
+    {match, Matches} = re:run(Output, Re, [global, multiline, {capture, all_but_first, binary}]),
+    maps:from_list([{R, binary_to_integer(N)} || [R, N] <- Matches]).
+
 t_latency_metrics(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),

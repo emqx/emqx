@@ -161,7 +161,10 @@ t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
     FNameEmqx44 = "emqx-export-4.4.24-retainer-mqttsub.tar.gz",
     BackupFile = filename:join(?config(data_dir, Config), FNameEmqx44),
     Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
-    ?assertEqual(Exp, emqx_mgmt_data_backup:import_local(BackupFile)),
+    ?assertEqual(
+        Exp,
+        emqx_mgmt_data_backup:import_local(BackupFile, #{allow_security_profile_mismatch => true})
+    ),
     RawConfAfterImport = emqx:get_raw_config([]),
     %% verify that MQTT sources are imported
     ?assertMatch(
@@ -192,7 +195,10 @@ t_import_retained_messages(Config) ->
     FName = "emqx-export-ce-retained-msgs-test.tar.gz",
     BackupFile = filename:join(?config(data_dir, Config), FName),
     Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
-    ?assertEqual(Exp, emqx_mgmt_data_backup:import_local(BackupFile)),
+    ?assertEqual(
+        Exp,
+        emqx_mgmt_data_backup:import_local(BackupFile, #{allow_security_profile_mismatch => true})
+    ),
     %% verify that retainer messages are imported
     ?assertMatch(
         {ok, [#message{payload = <<"Hi 1!!!">>}]},
@@ -310,7 +316,9 @@ t_export_cloud_subset(Config) ->
         N1,
         ?assertEqual(
             {ok, #{db_errors => #{}, config_errors => #{}}},
-            emqx_mgmt_data_backup:import_local(BackupFileName)
+            emqx_mgmt_data_backup:import_local(BackupFileName, #{
+                allow_security_profile_mismatch => true
+            })
         )
     ),
     ok.
@@ -319,7 +327,10 @@ t_cluster_hocon_export_import(Config) ->
     RawConfBeforeImport = emqx:get_raw_config([]),
     BootstrapFile = filename:join(?config(data_dir, Config), ?BOOTSTRAP_BACKUP),
     Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
-    ?assertEqual(Exp, emqx_mgmt_data_backup:import_local(BootstrapFile)),
+    ?assertEqual(
+        Exp,
+        emqx_mgmt_data_backup:import_local(BootstrapFile, #{allow_security_profile_mismatch => true})
+    ),
     RawConfAfterImport = emqx:get_raw_config([]),
     ?assertNotEqual(RawConfBeforeImport, RawConfAfterImport),
     {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
@@ -413,7 +424,9 @@ t_namespaced_import_isolation(Config) ->
     ok = emqx_mgmt_data_backup:upload(Attacker, <<"ns.tar.gz">>, AttackerContent),
     ?assertMatch(
         {ok, _},
-        emqx_mgmt_data_backup:import(<<"ns.tar.gz">>, #{namespace => Attacker})
+        emqx_mgmt_data_backup:import(<<"ns.tar.gz">>, #{
+            namespace => Attacker, allow_security_profile_mismatch => true
+        })
     ),
     %% the victim's backup survives and nothing is planted into its directory
     ?assert(filelib:is_regular(VictimFile)),
@@ -744,7 +757,9 @@ t_security_profile_hardened_to_hardened(_Config) ->
 
 -doc "Importing a `legacy'-profile backup into a `hardened' node is refused without the override.".
 t_security_profile_legacy_to_hardened_rejected(_Config) ->
-    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    {ok, #{filename := FileName}} = emqx_common_test_helpers:with_security_profile(
+        legacy, fun() -> emqx_mgmt_data_backup:export() end
+    ),
     emqx_common_test_helpers:with_security_profile(hardened, fun() ->
         ExpReason = {security_profile_mismatch, <<"legacy">>},
         ?assertEqual(
@@ -756,7 +771,9 @@ t_security_profile_legacy_to_hardened_rejected(_Config) ->
 
 -doc "`allow_security_profile_mismatch' lets a `legacy'-profile backup import into `hardened'.".
 t_security_profile_legacy_to_hardened_override(_Config) ->
-    {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
+    {ok, #{filename := FileName}} = emqx_common_test_helpers:with_security_profile(
+        legacy, fun() -> emqx_mgmt_data_backup:export() end
+    ),
     emqx_common_test_helpers:with_security_profile(hardened, fun() ->
         ?assertMatch(
             {ok, _},
@@ -834,7 +851,9 @@ t_bad_config(Config) ->
         ],
         [compressed]
     ),
-    Res = emqx_mgmt_data_backup:import_local(BadConfigFileName),
+    Res = emqx_mgmt_data_backup:import_local(BadConfigFileName, #{
+        allow_security_profile_mismatch => true
+    }),
     ?assertMatch({error, #{kind := validation_error}}, Res).
 
 %% Regression test: when the imported cluster.hocon contains only a sub-set of
@@ -865,7 +884,9 @@ t_import_cluster_hocon_partial_node(Config) ->
     ),
     ?assertEqual(
         {ok, #{db_errors => #{}, config_errors => #{}}},
-        emqx_mgmt_data_backup:import_local(BackupFileName)
+        emqx_mgmt_data_backup:import_local(BackupFileName, #{
+            allow_security_profile_mismatch => true
+        })
     ).
 
 -doc """
@@ -897,7 +918,10 @@ t_namespaced_import_skips_global_roots(Config) ->
     ?check_trace(
         begin
             ImportRes = emqx_mgmt_data_backup:import_local(
-                BackupFileName, #{namespace => Namespace}
+                BackupFileName, #{
+                    namespace => Namespace,
+                    allow_security_profile_mismatch => true
+                }
             ),
             ?assertEqual(
                 undefined,
@@ -1116,7 +1140,10 @@ t_import_on_cluster(Config) ->
     ?assertEqual([], emqx:get_config([authentication])),
     BootstrapFile = filename:join(?config(data_dir, Config), ?BOOTSTRAP_BACKUP),
     ExpImportRes = {ok, #{db_errors => #{}, config_errors => #{}}},
-    ?assertEqual(ExpImportRes, emqx_mgmt_data_backup:import_local(BootstrapFile)),
+    ?assertEqual(
+        ExpImportRes,
+        emqx_mgmt_data_backup:import_local(BootstrapFile, #{allow_security_profile_mismatch => true})
+    ),
     ImportedAuthnConf = emqx:get_config([authentication]),
     ?assertMatch([_ | _], ImportedAuthnConf),
     {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),

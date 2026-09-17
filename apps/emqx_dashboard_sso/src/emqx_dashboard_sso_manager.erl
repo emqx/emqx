@@ -323,6 +323,14 @@ start_resource_if_enabled(ResourceId, {ok, _} = Result, #{enable := true, backen
     case emqx_resource:start(ResourceId, ?DEFAULT_START_OPTS) of
         ok ->
             ok;
+        timeout ->
+            ?SLOG(error, #{
+                msg => "start_backend_failed",
+                resource_id => ResourceId,
+                reason => timeout
+            }),
+            update_last_error(Backend, timeout),
+            ok;
         {error, Reason} ->
             SafeReason = emqx_utils:redact(Reason),
             ?SLOG(error, #{

@@ -801,10 +801,7 @@ create_channel(ConnResId, ChanResId, ChanConfig, #{?transport := {?grpc, _}} = C
     }),
     clear_health(ChanResId, PoolSize),
     maybe
-        {ok, #{
-            writer_pool := WriterPool,
-            recv_pool := RecvPool
-        }} ?=
+        {ok, #{writer_pool := WriterPool}} ?=
             emqx_bridge_zerobus_action_sup:ensure_action_started(
                 ConnResId, ChanResId, Opts
             ),
@@ -812,11 +809,7 @@ create_channel(ConnResId, ChanResId, ChanConfig, #{?transport := {?grpc, _}} = C
             ?catalog => Catalog,
             ?schema => Schema,
             ?table => Table,
-            ?transport =>
-                {?grpc, #{
-                    ?writer_pool => WriterPool,
-                    ?recv_pool => RecvPool
-                }},
+            ?transport => {?grpc, #{?writer_pool => WriterPool}},
             ?health_check_timeout => HCTimeout,
             ?request_ttl => RequestTTL,
             ?record => Record
@@ -844,12 +837,6 @@ destroy_channel_allocated_resources(ConnResId, ChanResId) ->
             ->
                 #{?action_res_id := ResId, ?pool_size := PoolSize} = Data,
                 emqx_bridge_zerobus_action_sup:ensure_action_stopped(ConnResId, ResId),
-                lists:foreach(
-                    fun(Idx) ->
-                        emqx_bridge_zerobus_stream_writer_worker:unregister_stream(ResId, Idx)
-                    end,
-                    lists:seq(1, PoolSize)
-                ),
                 clear_health(ResId, PoolSize),
                 deallocate(ConnResId, Key);
             (_, _) ->

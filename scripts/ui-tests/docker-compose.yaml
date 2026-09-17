@@ -4,6 +4,7 @@ services:
     hostname: emqx
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: admin
+      EMQX_NODE__COOKIE: ci-smoke-test-cookie
 
   selenium:
     shm_size: '2gb'

@@ -177,6 +177,33 @@ default_mqtt_tcp_backend() ->
         {win32, _} -> gen_tcp
     end.
 
+managed_certs_null_clears_test_() ->
+    Sc = #{
+        roots => [mqtt_ssl_listener],
+        fields => #{mqtt_ssl_listener => emqx_schema:fields("mqtt_ssl_listener")}
+    },
+    Opts = #{atom_key => true, required => false},
+    Check = fun(ManagedCerts) ->
+        Conf = #{
+            <<"mqtt_ssl_listener">> => #{
+                <<"bind">> => <<"0.0.0.0:9883">>,
+                <<"ssl_options">> => #{<<"managed_certs">> => ManagedCerts}
+            }
+        },
+        #{mqtt_ssl_listener := #{ssl_options := SSL}} = hocon_tconf:check_plain(Sc, Conf, Opts),
+        maps:get(managed_certs, SSL, absent)
+    end,
+    [
+        %% How an update request asks a listener to stop using managed
+        %% certificates: the key cannot be dropped by a deep merge, so the
+        %% request names `null' and the schema check removes it.
+        {"null clears the field", ?_assertEqual(absent, Check(null))},
+        {"a bundle is kept",
+            ?_assertMatch(
+                [#{bundle_name := <<"b">>}], Check([#{<<"bundle_name">> => <<"b">>}])
+            )}
+    ].
+
 fail_if_no_peer_cert_test_() ->
     Sc = #{
         roots => [mqtt_ssl_listener],
@@ -483,6 +510,10 @@ server_ssl_opts_managed_certs_ocsp_validation_test() ->
     },
     InvalidListener = #{
         <<"ssl_options">> => #{
+            %% Explicit, because OCSP stapling requires a server certificate and
+            %% nothing is defaulted any more. Without it this configuration is
+            %% rejected for that instead, before reaching the rule under test.
+            <<"certfile">> => <<"/path/to/cert.pem">>,
             <<"managed_certs">> => [#{<<"bundle_name">> => <<"b">>}],
             <<"ocsp">> => #{
                 <<"enable_ocsp_stapling">> => true,

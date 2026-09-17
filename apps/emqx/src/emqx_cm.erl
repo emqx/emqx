@@ -233,7 +233,7 @@ do_get_chan_info(ClientId, ChanPid) ->
 -spec get_chan_info(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:infos()).
 get_chan_info(ClientId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:get_chan_info(ClientId, ChanPid)).
+    wrap_rpc(emqx_cm_proto_v3:get_chan_info(ClientId, ChanPid)).
 
 %% @doc Update infos of the channel.
 -spec set_chan_info(emqx_types:clientid(), emqx_types:channel_attrs()) -> boolean().
@@ -263,7 +263,7 @@ do_get_chan_stats(ClientId, ChanPid) ->
 -spec get_chan_stats(emqx_types:clientid(), chan_pid()) ->
     option(emqx_types:stats()).
 get_chan_stats(ClientId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:get_chan_stats(ClientId, ChanPid)).
+    wrap_rpc(emqx_cm_proto_v3:get_chan_stats(ClientId, ChanPid)).
 
 %% @doc Set channel's stats.
 -spec set_chan_stats(emqx_types:clientid(), emqx_types:stats()) -> boolean().
@@ -464,12 +464,12 @@ takeover_kick(ClientId, Pid) ->
             takeover_kick_session(ClientId, Pid)
     end.
 
-%% @doc RPC Target @ `emqx_cm_proto_v{1..3}:takeover_session/2`
+%% @doc RPC Target @ `emqx_cm_proto_v3:takeover_session/2`
 %% Used only by `emqx_session_mem'
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     emqx_cm_takeover:begin_rpc_legacy(ClientId, ChanPid).
 
-%% @doc RPC target @ `emqx_cm_proto_v{1..3}:takeover_finish/2`
+%% @doc RPC target @ `emqx_cm_proto_v3:takeover_finish/2`
 %% Used only by `emqx_session_mem'
 takeover_finish(ConnMod, ChanPid) ->
     emqx_cm_takeover:finish_rpc_legacy(ConnMod, ChanPid).
@@ -550,7 +550,7 @@ discard_session(ClientId, ChanPid) ->
 kick_session(ClientId, ChanPid) ->
     kick_session(kick, ClientId, ChanPid).
 
-%% @doc RPC Target @ emqx_cm_proto_v2:kick_session/3
+%% @doc RPC Target @ emqx_cm_proto_v3:kick_session/3
 -spec do_kick_session(kick | discard, emqx_types:clientid(), chan_pid()) -> ok.
 do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
     case do_get_chann_conn_mod(ClientId, ChanPid) of
@@ -591,7 +591,7 @@ ensure_stale_unregistered(ClientId, ChanPid) ->
 %% Action).
 kick_session(Action, ClientId, ChanPid) ->
     try
-        wrap_rpc(emqx_cm_proto_v2:kick_session(Action, ClientId, ChanPid))
+        wrap_rpc(emqx_cm_proto_v3:kick_session(Action, ClientId, ChanPid))
     catch
         Error:Reason ->
             %% This should mostly be RPC failures.
@@ -785,7 +785,7 @@ lookup_client_and_format({username, Username}, FormatFun) ->
     ]).
 
 do_lookup_client_and_format(Node, Key, FormatFun) ->
-    case unwrap_rpc(emqx_cm_proto_v1:lookup_client(Node, Key)) of
+    case unwrap_rpc(emqx_cm_proto_v3:lookup_client(Node, Key)) of
         {error, Err} ->
             {error, Err};
         L ->
@@ -946,12 +946,37 @@ do_clean_down(ClientId, ChanPid) ->
     ok = ?tp(debug, emqx_cm_clean_down, #{client_id => ClientId}).
 
 stats_fun() ->
-    lists:foreach(fun update_stats/1, ?CHAN_STATS).
+    %% `ets:info/2' on the channel tables is not a plain read: they are
+    %% `ordered_set' tables with `write_concurrency', so their size counters are
+    %% decentralized and every read is a snapshot handed over to thread
+    %% progress.  Read each distinct table size once per tick and derive all
+    %% stats from it.
+    Tables = lists:usort([Tab || {Tab, _Stat, _MaxStat} <- ?CHAN_STATS]),
+    Sizes = maps:from_list([{Tab, ets:info(Tab, size)} || Tab <- Tables]),
+    lists:foreach(fun(Entry) -> update_stats(Entry, Sizes) end, ?CHAN_STATS),
+    update_disconnected_sessions_stat(Sizes),
+    ok.
 
-update_stats({Tab, Stat, MaxStat}) ->
-    case ets:info(Tab, size) of
+update_stats({Tab, Stat, MaxStat}, Sizes) ->
+    case maps:get(Tab, Sizes) of
         undefined -> ok;
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
+    end.
+
+%% A session is "disconnected" once its client has gone away but its
+%% `session_expiry_interval' has not yet elapsed: the connection process is
+%% still alive and its `?CHAN_CONN_TAB' row is still registered, while its
+%% `?CHAN_LIVE_TAB' row has already been removed.  The live table is normally
+%% a subset of the connection table, so the count is the difference of the two
+%% sizes read above.  The difference is clamped at zero because during a session
+%% takeover the connection row is deleted before the live row, which would
+%% otherwise report a transiently negative value.
+update_disconnected_sessions_stat(Sizes) ->
+    case {maps:get(?CHAN_CONN_TAB, Sizes), maps:get(?CHAN_LIVE_TAB, Sizes)} of
+        {ConnCount, LiveCount} when is_integer(ConnCount), is_integer(LiveCount) ->
+            emqx_stats:setstat('disconnected_sessions.count', max(0, ConnCount - LiveCount));
+        _ ->
+            ok
     end.
 
 %% This function is mostly called locally, but also exported for RPC (from older versions).

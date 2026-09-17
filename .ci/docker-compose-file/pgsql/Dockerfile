@@ -2,9 +2,9 @@ ARG BUILD_FROM=public.ecr.aws/docker/library/postgres:13@sha256:fa69de30d02652cf
 FROM ${BUILD_FROM}
 ARG POSTGRES_USER=postgres
 COPY --chown=$POSTGRES_USER ./pgsql/pg_hba_tls.conf /var/lib/postgresql/pg_hba.conf
-COPY --chown=$POSTGRES_USER certs/server.key /var/lib/postgresql/server.key
-COPY --chown=$POSTGRES_USER certs/server.crt /var/lib/postgresql/server.crt
-COPY --chown=$POSTGRES_USER certs/ca.crt /var/lib/postgresql/root.crt
+COPY --chown=$POSTGRES_USER certs/key.pem /var/lib/postgresql/server.key
+COPY --chown=$POSTGRES_USER certs/cert.pem /var/lib/postgresql/server.crt
+COPY --chown=$POSTGRES_USER certs/cacert.pem /var/lib/postgresql/root.crt
 RUN chmod 600 /var/lib/postgresql/pg_hba.conf
 RUN chmod 600 /var/lib/postgresql/server.key
 RUN chmod 600 /var/lib/postgresql/server.crt

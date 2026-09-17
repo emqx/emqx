@@ -6,15 +6,15 @@ receivers:
         auth:
           authenticator: basicauth/server
         tls:
-          ca_file: /etc/certs/ca.crt
-          cert_file: /etc/certs/server.crt
-          key_file: /etc/certs/server.key
+          ca_file: /etc/certs/cacert.pem
+          cert_file: /etc/certs/cert.pem
+          key_file: /etc/certs/key.pem
       http:
         endpoint: 0.0.0.0:4318
 #        tls:
-#          ca_file: /etc/certs/ca.crt
-#          cert_file: /etc/certs/server.crt
-#          key_file: /etc/certs/server.key
+#          ca_file: /etc/certs/cacert.pem
+#          cert_file: /etc/certs/cert.pem
+#          key_file: /etc/certs/key.pem
 
 exporters:
   otlp:

@@ -65,15 +65,16 @@ cookie_not_in_vm_args_test() ->
     ?assertEqual(undefined, proplists:get_value('-setcookie', VMArgs)),
     ok.
 
-%% `node.dirty_io_schedulers = auto' (the default) tracks the resolved
-%% `node.schedulers' value, floored at 2 and capped at the historical fixed
-%% default of 8 -- see `resolve_dirty_io_schedulers/2'.
+%% `node.dirty_io_schedulers = auto' (the default) resolves to the historical
+%% fixed default of 8 when the resolved `node.schedulers' value is above 2,
+%% and to 4 otherwise -- see `resolve_dirty_io_schedulers/2'.
 dirty_io_schedulers_test() ->
     ensure_acl_conf(),
     Cases = [
         %% {node.schedulers, node.dirty_io_schedulers, expected "+SDio"}
-        {2, auto, "2"},
-        {1, auto, "2"},
+        {1, auto, "4"},
+        {2, auto, "4"},
+        {3, auto, "8"},
         {20, auto, "8"},
         {2, 5, "5"}
     ],
@@ -462,9 +463,6 @@ listeners_test(Profile) ->
         <<"wss">> := #{<<"default">> := DefaultWss, <<"new">> := NewWss},
         <<"ssl">> := #{<<"default">> := Ssl}
     } = Listeners,
-    DefaultCacertFile = <<"${EMQX_ETC_DIR}/certs/cacert.pem">>,
-    DefaultCertFile = <<"${EMQX_ETC_DIR}/certs/cert.pem">>,
-    DefaultKeyFile = <<"${EMQX_ETC_DIR}/certs/key.pem">>,
     TcpBind = expected_default_listener_bind(Profile, 1883),
     WsBind = expected_default_listener_bind(Profile, 8083),
     SslBind = expected_configured_listener_bind(Profile, 9999),
@@ -485,44 +483,41 @@ listeners_test(Profile) ->
         },
         Ws
     ),
-    ?assertMatch(
-        #{
-            <<"bind">> := SslBind,
-            <<"ssl_options">> := #{
-                <<"cacertfile">> := DefaultCacertFile,
-                <<"certfile">> := DefaultCertFile,
-                <<"keyfile">> := DefaultKeyFile
-            }
-        },
-        Ssl
-    ),
+    %% No certificate defaults: a listener that configures none serves the
+    %% node's own generated bundle instead of a shipped example certificate.
+    ?assertMatch(#{<<"bind">> := SslBind}, Ssl),
+    assert_no_cert_defaults(Ssl),
+    %% What the configuration sets is kept; what it does not set stays unset.
     ?assertMatch(
         #{
             <<"bind">> := DefaultWssBind,
             <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"},
-            <<"ssl_options">> :=
-                #{
-                    <<"cacertfile">> := <<"mytest/certs/cacert.pem">>,
-                    <<"certfile">> := DefaultCertFile,
-                    <<"keyfile">> := DefaultKeyFile
-                }
+            <<"ssl_options">> := #{<<"cacertfile">> := <<"mytest/certs/cacert.pem">>}
         },
         DefaultWss
     ),
+    assert_no_cert_defaults(DefaultWss, [<<"certfile">>, <<"keyfile">>]),
     ?assertMatch(
         #{
             <<"bind">> := NewWssBind,
-            <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"},
-            <<"ssl_options">> :=
-                #{
-                    <<"cacertfile">> := DefaultCacertFile,
-                    <<"certfile">> := DefaultCertFile,
-                    <<"keyfile">> := DefaultKeyFile
-                }
+            <<"websocket">> := #{<<"mqtt_path">> := "/my-mqtt"}
         },
         NewWss
     ),
+    assert_no_cert_defaults(NewWss),
     ok.
+
+assert_no_cert_defaults(Listener) ->
+    assert_no_cert_defaults(Listener, [<<"cacertfile">>, <<"certfile">>, <<"keyfile">>]).
+
+assert_no_cert_defaults(Listener, Keys) ->
+    SslOpts = maps:get(<<"ssl_options">>, Listener, #{}),
+    lists:foreach(
+        fun(Key) ->
+            ?assertNot(maps:is_key(Key, SslOpts), #{key => Key, ssl_options => SslOpts})
+        end,
+        Keys
+    ).
 
 %% Schema defaults are static bare ports; the profile and the default
 %% address are applied at listener start, not in the schema.

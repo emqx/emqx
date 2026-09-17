@@ -26,7 +26,9 @@ services:
     networks:
       - emqx_bridge
     volumes:
-      - ./greptimedb/certs:/etc/greptime/certs
+      - ./certs/cacert.pem:/etc/greptime/certs/ca.crt:ro
+      - ./certs/cert.pem:/etc/greptime/certs/server.crt:ro
+      - ./certs/key.pem:/etc/greptime/certs/server.key:ro
       - ./greptimedb/tls.toml:/etc/greptimedb/tls.toml
     command:
       standalone start

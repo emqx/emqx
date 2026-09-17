@@ -69,7 +69,8 @@ on_add_channel(
     ChannelConfig1 = emqx_utils_maps:unindent(parameters, ChannelConfig0),
     SQL = maps:get(sql, ChannelConfig1),
     NeedsBatch = needs_batch_query(ChannelConfig1),
-    case emqx_mysql:parse_prepare_sql(ChannelId, SQL, NeedsBatch) of
+    ParseOpts = maps:with([sql_compiler], ChannelConfig1),
+    case emqx_mysql:parse_prepare_sql(ChannelId, SQL, NeedsBatch, ParseOpts) of
         {ok, QueryTemplates} ->
             ChannelConfig2 = maps:merge(ChannelConfig1, QueryTemplates),
             ChannelConfig = set_prepares(ChannelConfig2, ConnectorState),

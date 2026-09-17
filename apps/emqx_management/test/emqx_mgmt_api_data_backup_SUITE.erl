@@ -161,6 +161,7 @@ refused without it, and succeeds with it.
 t_import_security_profile_mismatch(Config) ->
     [N1 | _] = ?config(cluster, Config),
     Auth = ?config(auth, Config),
+    ok = ?ON(N1, emqx_common_test_helpers:set_security_profile(legacy)),
     {ok, RespBody} = export_backup(?NODE1_PORT, Auth),
     #{<<"filename">> := FileName} = emqx_utils_json:decode(RespBody),
     ok = ?ON(N1, emqx_common_test_helpers:set_security_profile(hardened)),
@@ -187,6 +188,7 @@ field.
 t_import_security_profile_mismatch_cli(Config) ->
     [N1 | _] = ?config(cluster, Config),
     Auth = ?config(auth, Config),
+    ok = ?ON(N1, emqx_common_test_helpers:set_security_profile(legacy)),
     {ok, RespBody} = export_backup(?NODE1_PORT, Auth),
     #{<<"filename">> := FileName} = emqx_utils_json:decode(RespBody),
     ok = ?ON(N1, emqx_mgmt_cli:load()),
@@ -549,12 +551,37 @@ t_download_api_key_with_sensitive_tables_forbidden(Config) ->
     ok.
 
 %% If the archive cannot be inspected, API-key download must fail closed.
+%% Import is refused while the running nodes report different major.minor
+%% versions: the backplane contract is frozen per minor release.
+t_import_refused_on_mixed_version_cluster(_Config) ->
+    ok = meck:new(emqx_management_proto_v5, [passthrough, no_link, no_history]),
+    ok = meck:new(emqx, [passthrough, no_link, no_history]),
+    try
+        meck:expect(emqx, running_nodes, fun() -> ['a@127.0.0.1', 'b@127.0.0.1'] end),
+        meck:expect(emqx_management_proto_v5, node_info, fun(['a@127.0.0.1', 'b@127.0.0.1']) ->
+            [{ok, #{version => <<"6.0.4">>}}, {ok, #{version => <<"6.1.5">>}}]
+        end),
+        {Status, Body} = emqx_mgmt_api_data_backup:data_import(post, #{
+            body => #{<<"filename">> => <<"whatever.tar.gz">>},
+            query_string => #{},
+            auth_meta => #{auth_type => jwt_token}
+        }),
+        ?assertEqual(400, Status),
+        ?assertMatch(#{code := 'BAD_REQUEST'}, Body),
+        #{message := Msg} = Body,
+        ?assertNotEqual(nomatch, binary:match(Msg, <<"6.0">>)),
+        ?assertNotEqual(nomatch, binary:match(Msg, <<"6.1">>))
+    after
+        meck:unload(emqx_management_proto_v5),
+        meck:unload(emqx)
+    end.
+
 t_download_api_key_inspection_error_fails_closed(_Config) ->
     Filename = <<"emqx-export-inspection-error.tar.gz">>,
-    ok = meck:new(emqx_mgmt_data_backup_proto_v2, [passthrough, no_link, no_history]),
+    ok = meck:new(emqx_mgmt_data_backup_proto_v4, [passthrough, no_link, no_history]),
     try
         meck:expect(
-            emqx_mgmt_data_backup_proto_v2,
+            emqx_mgmt_data_backup_proto_v4,
             peek_sensitive_table_sets,
             fun(Node, Filename0, infinity) ->
                 ?assertEqual(node(), Node),
@@ -570,7 +597,7 @@ t_download_api_key_inspection_error_fails_closed(_Config) ->
         ?assertEqual(404, Status),
         ?assertMatch(#{code := 'NOT_FOUND'}, Body)
     after
-        meck:unload(emqx_mgmt_data_backup_proto_v2)
+        meck:unload(emqx_mgmt_data_backup_proto_v4)
     end.
 
 %% Dashboard viewers (read-only role) must be rejected with 403 when
@@ -675,6 +702,29 @@ t_global_admin_scoped_namespace(Config) ->
     ?assertMatch({200, _}, download_backup(?NODE1_PORT, DashboardAuth, N1File, Ns1)),
     ?assertMatch({204, _}, delete_backup(?NODE1_PORT, DashboardAuth, N1File, Ns1)),
     ?assertEqual([], list_filenames(?NODE1_PORT, DashboardAuth, Ns1)),
+    ok.
+
+%% Audit records for a data-backup operation must identify the target
+%% namespace, whether it is the actor's own (implicit, no query param, as for
+%% the namespaced admin's export below) or opted into via `?namespace=' (as
+%% for the global admin's namespaced import/upload/delete elsewhere in this
+%% suite). Same class of gap as emqx/emqx#18653 / #18664: `?namespace=' is a
+%% query parameter, and namespace resolution for POST /data/export has no
+%% query override at all -- it never appeared anywhere in the audit log
+%% before this fix.
+t_export_import_audit_records_namespace(Config) ->
+    DashboardAuth = ?config(dashboard_auth, Config),
+    Ns1Auth = ?config(ns_admin_auth, Config),
+    StartAt = erlang:system_time(microsecond),
+
+    {200, _} = export_backup2(?NODE1_PORT, DashboardAuth, #{}),
+    {200, _} = export_backup2(?NODE1_PORT, Ns1Auth, #{}),
+
+    Entries = wait_for_audit_entries(
+        ?NODE1_PORT, DashboardAuth, <<"/data/export">>, StartAt, 2, 2000
+    ),
+    Namespaces = lists:sort([namespace_of(E) || E <- Entries]),
+    ?assertEqual(lists:sort([<<"global">>, <<"ns1">>]), Namespaces),
     ok.
 
 %% A namespaced administrator cannot escape its namespace by supplying the
@@ -930,7 +980,10 @@ write_tmp_tar(Bin) ->
 
 import_backup_full(NodeApiPort, Auth, BackupName) ->
     Path = emqx_mgmt_api_test_util:api_path(?api_base_url(NodeApiPort), ["data", "import"]),
-    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    Body = #{
+        <<"filename">> => unicode:characters_to_binary(BackupName),
+        <<"allow_security_profile_mismatch">> => true
+    },
     emqx_mgmt_api_test_util:simple_request(post, Path, Body, Auth).
 
 %% Import a backup, optionally scoped to a namespace via the `namespace' query
@@ -1234,7 +1287,10 @@ import_backup(NodeApiPort, Auth, BackupName) ->
 
 import_backup(NodeApiPort, Auth, BackupName, Node) ->
     Path = ["data", "import"],
-    Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
+    Body = #{
+        <<"filename">> => unicode:characters_to_binary(BackupName),
+        <<"allow_security_profile_mismatch">> => true
+    },
     Body1 =
         case Node of
             undefined -> Body;
@@ -1272,6 +1328,38 @@ upload_backup(NodeApiPort, Auth, BackupFilePath) ->
         Err ->
             Err
     end.
+
+%% The audit write happens after the HTTP response is already sent (see
+%% minirest_handler:init/2), so poll for a bit rather than assume the record
+%% is there the instant the request returns.
+wait_for_audit_entries(_NodeApiPort, _Auth, _OperationId, _StartAt, _ExpectedCount, RemainMs) when
+    RemainMs =< 0
+->
+    ct:fail(audit_entries_not_found_in_time);
+wait_for_audit_entries(NodeApiPort, Auth, OperationId, StartAt, ExpectedCount, RemainMs) ->
+    Entries = audit_entries_since(NodeApiPort, Auth, OperationId, StartAt),
+    case length(Entries) >= ExpectedCount of
+        true ->
+            Entries;
+        false ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_audit_entries(
+                NodeApiPort, Auth, OperationId, StartAt, ExpectedCount, RemainMs - SleepMs
+            )
+    end.
+
+audit_entries_since(NodeApiPort, Auth, OperationId, StartAt) ->
+    QueryList = [
+        {<<"operation_id">>, OperationId},
+        {<<"gte_created_at">>, integer_to_binary(StartAt)},
+        {<<"limit">>, <<"100">>}
+    ],
+    {ok, Res} = request(get, NodeApiPort, ["audit"], QueryList, [], Auth),
+    #{<<"data">> := Data} = emqx_utils_json:decode(Res),
+    Data.
+
+namespace_of(#{<<"http_request">> := #{<<"namespace">> := Ns}}) -> Ns.
 
 request(Method, NodePort, PathParts, Auth) ->
     request(Method, NodePort, PathParts, [], [], Auth).
@@ -1419,11 +1507,19 @@ wait_for_dashboard_auth(ReplNode, Token, Retries) ->
     end.
 
 apps_spec(APIPort, TC) ->
-    common_apps_spec() ++
+    common_apps_spec(TC) ++
         app_spec_dashboard(APIPort) ++
         test_case_specific_apps_spec(TC).
 
-common_apps_spec() ->
+common_apps_spec(t_export_import_audit_records_namespace) ->
+    [
+        emqx,
+        {emqx_conf, #{
+            config => #{log => #{audit => #{enable => true, level => info}}}
+        }},
+        emqx_management
+    ];
+common_apps_spec(_TC) ->
     [
         emqx,
         emqx_conf,
@@ -1449,6 +1545,12 @@ app_spec_dashboard(APIPort) ->
         }}
     ].
 
+test_case_specific_apps_spec(TC) when
+    TC =:= t_export_import_audit_records_namespace
+->
+    [
+        emqx_audit
+    ];
 test_case_specific_apps_spec(TC) when
     TC =:= t_upload_ee_backup;
     TC =:= t_import_ee_backup;

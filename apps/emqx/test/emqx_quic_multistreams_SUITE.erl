@@ -135,7 +135,10 @@ groups() ->
             t_conn_resume,
             t_conn_without_ctrl_stream,
             t_probe_client_conn,
-            t_client_probe_conn
+            t_client_probe_conn,
+            t_data_stream_race_ctrl_stream,
+            t_keep_alive,
+            t_keep_alive_idle_ctrl_stream
         ]}
     ].
 
@@ -203,142 +206,6 @@ init_per_group(_, Config) ->
 
 end_per_group(_, Config) ->
     Config.
-
-t_quic_sock(Config) ->
-    Port = 4567,
-    SslOpts = [
-        {cert, certfile(Config)},
-        {key, keyfile(Config)},
-        {idle_timeout_ms, 10000},
-        % QUIC_SERVER_RESUME_AND_ZERORTT
-        {server_resumption_level, 2},
-        {peer_bidi_stream_count, 10},
-        {alpn, ["mqtt"]}
-    ],
-    Server = quic_server:start_link(Port, SslOpts),
-    timer:sleep(500),
-    {ok, Sock} = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [{alpn, ["mqtt"]}, {active, false}],
-        3000
-    ),
-    send_and_recv_with(Sock),
-    ok = emqtt_quic:close(Sock),
-    quic_server:stop(Server).
-
-t_quic_sock_fail(_Config) ->
-    Port = 4567,
-    Error1 =
-        {error,
-            {transport_down, #{
-                error => 2,
-                status => connection_refused
-            }}},
-    Error2 = {error, {transport_down, #{error => 1, status => unreachable}}},
-    case
-        emqtt_quic:connect(
-            "localhost",
-            Port,
-            [{alpn, ["mqtt"]}, {active, false}],
-            3000
-        )
-    of
-        Error1 ->
-            ok;
-        Error2 ->
-            ok;
-        Other ->
-            ct:fail("unexpected return ~p", [Other])
-    end.
-
-t_0_rtt(Config) ->
-    Port = 4568,
-    SslOpts = [
-        {cert, certfile(Config)},
-        {key, keyfile(Config)},
-        {idle_timeout_ms, 10000},
-        % QUIC_SERVER_RESUME_AND_ZERORTT
-        {server_resumption_level, 2},
-        {peer_bidi_stream_count, 10},
-        {alpn, ["mqtt"]}
-    ],
-    Server = quic_server:start_link(Port, SslOpts),
-    timer:sleep(500),
-    {ok, {quic, Conn, _Stream} = Sock} = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [
-            {alpn, ["mqtt"]},
-            {active, false},
-            {quic_event_mask, 1}
-        ],
-        3000
-    ),
-    send_and_recv_with(Sock),
-    ok = emqtt_quic:close(Sock),
-    NST =
-        receive
-            {quic, nst_received, Conn, Ticket} ->
-                Ticket
-        end,
-    {ok, Sock2} = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [
-            {alpn, ["mqtt"]},
-            {active, false},
-            {nst, NST}
-        ],
-        3000
-    ),
-    send_and_recv_with(Sock2),
-    ok = emqtt_quic:close(Sock2),
-    quic_server:stop(Server).
-
-t_0_rtt_fail(Config) ->
-    Port = 4569,
-    SslOpts = [
-        {cert, certfile(Config)},
-        {key, keyfile(Config)},
-        {idle_timeout_ms, 10000},
-        % QUIC_SERVER_RESUME_AND_ZERORTT
-        {server_resumption_level, 2},
-        {peer_bidi_stream_count, 10},
-        {alpn, ["mqtt"]}
-    ],
-    Server = quic_server:start_link(Port, SslOpts),
-    timer:sleep(500),
-    {ok, {quic, Conn, _Stream} = Sock} = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [
-            {alpn, ["mqtt"]},
-            {active, false},
-            {quic_event_mask, 1}
-        ],
-        3000
-    ),
-    send_and_recv_with(Sock),
-    ok = emqtt_quic:close(Sock),
-    <<_Head:16, Left/binary>> =
-        receive
-            {quic, nst_received, Conn, Ticket} when is_binary(Ticket) ->
-                Ticket
-        end,
-
-    Error = {error, {not_found, invalid_parameter}},
-    Error = emqtt_quic:connect(
-        "localhost",
-        Port,
-        [
-            {alpn, ["mqtt"]},
-            {active, false},
-            {nst, Left}
-        ],
-        3000
-    ),
-    quic_server:stop(Server).
 
 t_multi_streams_sub(Config) ->
     PubQos = ?config(pub_qos, Config),
@@ -2439,26 +2306,6 @@ retry_get_chan_info(ClientId, SockType) ->
             {Session, ConnectedAt, ChanInfo}
         end
     ).
-
-send_and_recv_with(Sock) ->
-    {ok, {IP, _}} = emqtt_quic:sockname(Sock),
-    ?assert(lists:member(tuple_size(IP), [4, 8])),
-    ok = emqtt_quic:send(Sock, <<"ping">>),
-    emqtt_quic:setopts(Sock, [{active, false}]),
-    {ok, <<"pong">>} = emqtt_quic:recv(Sock, 0),
-    ok = emqtt_quic:setopts(Sock, [{active, 100}]),
-    {ok, Stats} = emqtt_quic:getstat(Sock, [send_cnt, recv_cnt]),
-    %% connection level counters, not stream level
-    [{send_cnt, _}, {recv_cnt, _}] = Stats.
-
-certfile(Config) ->
-    filename:join([test_dir(Config), "certs", "test.crt"]).
-
-keyfile(Config) ->
-    filename:join([test_dir(Config), "certs", "test.key"]).
-
-test_dir(Config) ->
-    filename:dirname(filename:dirname(proplists:get_value(data_dir, Config))).
 
 recv_pub(Count) ->
     recv_pub(Count, [], 100).

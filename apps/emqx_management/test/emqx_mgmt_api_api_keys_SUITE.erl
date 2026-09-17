@@ -19,6 +19,7 @@
     t_ee_authorize_admin,
     t_ee_authorize_admin_cannot_manage_mfa,
     t_ee_authorize_admin_cannot_manage_mfa_module_level,
+    t_is_api_key_allowed,
     t_ee_authorize_publisher,
     %% Schema validation: publisher role can only hold publish scope
     t_ee_publisher_only_publish_scope,
@@ -51,7 +52,14 @@
     t_ee_ns_key_create_rejects_publish_scope,
     t_ee_ns_key_update_rejects_publish_in_changed_scopes,
     t_ee_ns_admin_legacy_publish_scopes_roundtrip,
-    t_ee_ns_admin_legacy_publish_only_scopes_stay_set
+    t_ee_ns_admin_legacy_publish_only_scopes_stay_set,
+    %% Namespaced-key scope allowlist parity with the dashboard user rule (#412)
+    t_ee_ns_key_create_rejects_out_of_allowlist_scopes,
+    t_ee_ns_key_update_rejects_out_of_allowlist_scopes,
+    %% Role change to publisher validates against the persisted scopes
+    %% when the body omits `scopes' (H7)
+    t_ee_publisher_role_change_with_persisted_admin_scopes_is_rejected,
+    t_ee_publisher_role_change_with_compatible_persisted_scopes_succeeds
 ]).
 
 -define(APP, emqx_app).
@@ -76,6 +84,8 @@ groups() ->
         {parallel, [parallel], ?EE_CASES},
         {sequence, [], [
             t_bootstrap_file,
+            t_bootstrap_file_override,
+            t_bootstrap_file_dup_override,
             t_bootstrap_file_with_role,
             t_bootstrap_file_with_scopes,
             t_bootstrap_file_with_scopes_invalid,
@@ -90,6 +100,12 @@ groups() ->
             t_bootstrap_file_2_segment_seeds_default_scopes,
             t_bootstrap_file_3_segment_publisher_seeds_publish_scope,
             t_bootstrap_file_ns_admin_seeds_ns_default_scopes,
+            t_bootstrap_file_ns_admin_drops_out_of_allowlist_scopes,
+            t_bootstrap_file_override,
+            t_bootstrap_file_dup_override,
+            t_bootstrap_file_same_secret_keeps_hash,
+            t_bootstrap_file_rotated_secret_rehashes,
+            t_bootstrap_file_same_secret_updates_metadata,
             t_create_failed
         ]}
     ].
@@ -245,7 +261,7 @@ t_bootstrap_file_override(_) ->
         ]},
         emqx_mgmt_auth:trans(MatchFun, [<<"test-1">>])
     ),
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"duplicated-secret-1">>)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, <<"test-1">>, <<"duplicated-secret-1">>)),
 
     ?assertMatch(
         {ok, [
@@ -256,7 +272,7 @@ t_bootstrap_file_override(_) ->
         ]},
         emqx_mgmt_auth:trans(MatchFun, [<<"test-2">>])
     ),
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"duplicated-secret-2">>)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, <<"test-2">>, <<"duplicated-secret-2">>)),
     ok.
 
 t_bootstrap_file_dup_override(_) ->
@@ -281,19 +297,10 @@ t_bootstrap_file_dup_override(_) ->
     MatchFun = fun(ApiKey) -> mnesia:match_object(#?APP{api_key = ApiKey, _ = '_'}) end,
 
     ?assertEqual({ok, ok}, emqx_mgmt_auth:trans(WriteFun, [SameAppWithDiffName])),
-    %% as erlang term order
-    ?assertMatch(
-        {ok, [
-            #?APP{
-                name = <<"name-1">>,
-                api_key = <<"test-1">>
-            },
-            #?APP{
-                name = <<"from_bootstrap_file_18926f94712af04e">>,
-                api_key = <<"test-1">>
-            }
-        ]},
-        emqx_mgmt_auth:trans(MatchFun, [TestApiKey])
+    %% `match_object' does not order its result, so compare the names as a set.
+    ?assertEqual(
+        [<<"from_bootstrap_file_18926f94712af04e">>, <<"name-1">>],
+        app_names(emqx_mgmt_auth:trans(MatchFun, [TestApiKey]))
     ),
 
     update_file(File),
@@ -301,20 +308,111 @@ t_bootstrap_file_dup_override(_) ->
     %% Similar to loading bootstrap file at node startup
     %% the duplicated apikey in mnesia will be cleaned up
     ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
-    ?assertMatch(
-        {ok, [
-            #?APP{
-                name = <<"from_bootstrap_file_18926f94712af04e">>,
-                api_key = <<"test-1">>
-            }
-        ]},
-        emqx_mgmt_auth:trans(MatchFun, [<<"test-1">>])
+    ?assertEqual(
+        [<<"from_bootstrap_file_18926f94712af04e">>],
+        app_names(emqx_mgmt_auth:trans(MatchFun, [<<"test-1">>]))
     ),
 
     %% the last apikey in bootstrap file will override the all in mnesia and the previous one(s) in bootstrap file
-    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
 
     ok.
+
+-doc """
+A bootstrap file re-read with an unchanged secret keeps the stored hash
+byte-identical, so a node joining a mixed-version cluster does not rewrite the
+shared record in a format the older nodes cannot verify.
+""".
+t_bootstrap_file_same_secret_keeps_hash(_) ->
+    TestPath = <<"/api/v5/status">>,
+    ApiKey = <<"keep-hash-1">>,
+    Secret = <<"secret-1">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, <<ApiKey/binary, ":", Secret/binary>>),
+    update_file(File),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+
+    %% Replace the hash with the pre-6.3 layout an older node writes.
+    LegacyHash = legacy_hash(<<"abcd">>, Secret),
+    ok = set_secret_hash(ApiKey, LegacyHash),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, ApiKey, Secret)),
+
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+    ?assertEqual(LegacyHash, read_secret_hash(ApiKey)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, ApiKey, Secret)),
+    ok.
+
+-doc """
+A bootstrap file re-read with a rotated secret replaces the stored hash with the
+current format, the old secret stops working and the new one works.
+""".
+t_bootstrap_file_rotated_secret_rehashes(_) ->
+    TestPath = <<"/api/v5/status">>,
+    ApiKey = <<"rotate-hash-1">>,
+    Secret = <<"secret-1">>,
+    NewSecret = <<"secret-2">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, <<ApiKey/binary, ":", Secret/binary>>),
+    update_file(File),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+    ok = set_secret_hash(ApiKey, legacy_hash(<<"abcd">>, Secret)),
+
+    ok = file:write_file(File, <<ApiKey/binary, ":", NewSecret/binary>>),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+
+    ?assertMatch(<<"$1$", _/binary>>, read_secret_hash(ApiKey)),
+    ?assertMatch({error, _}, auth_authorize(TestPath, ApiKey, Secret)),
+    ?assertMatch({ok, _}, auth_authorize(TestPath, ApiKey, NewSecret)),
+    ok.
+
+-doc """
+A role change in the bootstrap file takes effect on a re-read even though the
+secret is unchanged and the stored hash is kept.
+""".
+t_bootstrap_file_same_secret_updates_metadata(_) ->
+    ApiKey = <<"keep-hash-meta-1">>,
+    Secret = <<"secret-1">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, <<ApiKey/binary, ":", Secret/binary, ":viewer">>),
+    update_file(File),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+    ?assertEqual(<<"viewer">>, read_bootstrap_role(ApiKey)),
+    Hash = read_secret_hash(ApiKey),
+
+    ok = file:write_file(File, <<ApiKey/binary, ":", Secret/binary, ":administrator">>),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file(File)),
+
+    ?assertEqual(Hash, read_secret_hash(ApiKey)),
+    ?assertEqual(<<"administrator">>, read_bootstrap_role(ApiKey)),
+    ok.
+
+app_names({ok, Apps}) ->
+    lists:sort([Name || #?APP{name = Name} <- Apps]).
+
+%% The pre-6.3 hash layout: 4 salt characters followed by sha256(Salt ++ Secret).
+legacy_hash(Salt, Secret) ->
+    <<Salt/binary, (crypto:hash(sha256, <<Salt/binary, Secret/binary>>))/binary>>.
+
+read_app_by_api_key(ApiKey) ->
+    MatchFun = fun(Key) -> mnesia:match_object(#?APP{api_key = Key, _ = '_'}) end,
+    {ok, [App]} = emqx_mgmt_auth:trans(MatchFun, [ApiKey]),
+    App.
+
+read_secret_hash(ApiKey) ->
+    (read_app_by_api_key(ApiKey))#?APP.api_secret_hash.
+
+set_secret_hash(ApiKey, Hash) ->
+    App = read_app_by_api_key(ApiKey),
+    WriteFun = fun(A) -> mnesia:write(A) end,
+    {ok, ok} = emqx_mgmt_auth:trans(WriteFun, [App#?APP{api_secret_hash = Hash}]),
+    ok.
+
+read_bootstrap_role(ApiKey) ->
+    {value, #{role := Role}} = lists:search(
+        fun(#{api_key := Key}) -> Key =:= ApiKey end,
+        emqx_mgmt_auth:list()
+    ),
+    Role.
 
 t_bootstrap_file_with_role(_) ->
     Search = fun(Name) ->
@@ -906,6 +1004,32 @@ t_bootstrap_file_ns_admin_seeds_ns_default_scopes(_) ->
     ),
     ok.
 
+-doc """
+A namespaced bootstrap line granting scopes outside `?NS_ADMIN_ALLOWED_SCOPES'
+(`audit`, `gateways`, `publish`) has those scopes dropped; an allowlisted
+scope in the same line is kept (emqx-dev-team-tasks#412).
+""".
+t_bootstrap_file_ns_admin_drops_out_of_allowlist_scopes(_) ->
+    File = "./bootstrap_api_keys.txt",
+    Bin = iolist_to_binary([
+        "from_bootstrap_file_ns_over_grant:secret-ns-over-grant:ns:nsboot2::administrator:",
+        ?SCOPE_AUDIT,
+        ",",
+        ?SCOPE_GATEWAYS,
+        ",",
+        ?SCOPE_PUBLISH,
+        ",",
+        ?SCOPE_CONNECTIONS,
+        "\n"
+    ]),
+    ok = file:write_file(File, Bin),
+    update_file(File),
+    ?assertEqual(
+        [?SCOPE_CONNECTIONS],
+        read_bootstrap_scopes(<<"from_bootstrap_file_ns_over_grant">>)
+    ),
+    ok.
+
 t_create_failed(_Config) ->
     BadRequest = {error, {"HTTP/1.1", 400, "Bad Request"}},
 
@@ -1236,6 +1360,32 @@ t_ee_authorize_admin_cannot_manage_mfa_module_level(_Config) ->
             )
         end,
         [DeleteMfaHandler, PostMfaHandler | SelfHandlers]
+    ),
+    ok.
+
+-doc """
+`emqx_mgmt_auth:is_api_key_allowed/1` is the single predicate the auth-error
+message code (emqx_dashboard.erl) consults to decide whether to hint at API
+keys. It must agree with authorize/4's own denylist for every handler shape
+on the list, and allow anything else.
+""".
+t_is_api_key_allowed(_Config) ->
+    NotAllowed = [
+        #{module => emqx_dashboard_api, function => user},
+        #{module => emqx_dashboard_api, function => users},
+        #{module => emqx_dashboard_api, function => logout},
+        #{module => emqx_dashboard_api, function => change_pwd},
+        #{module => emqx_dashboard_api, function => change_mfa},
+        #{module => emqx_mgmt_api_api_keys, function => list}
+    ],
+    lists:foreach(
+        fun(HandlerInfo) ->
+            ?assertNot(emqx_mgmt_auth:is_api_key_allowed(HandlerInfo), HandlerInfo)
+        end,
+        NotAllowed
+    ),
+    ?assert(
+        emqx_mgmt_auth:is_api_key_allowed(#{module => emqx_mgmt_api_nodes, function => nodes})
     ),
     ok.
 
@@ -1792,6 +1942,68 @@ t_ee_ns_admin_legacy_publish_only_scopes_stay_set(_Config) ->
     ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_PUBLISH]}}, read_app(Name)),
     ?assertEqual(unset, emqx_mgmt_auth:write_scope_intent(NsRole, ?NS_ADMIN_COMMON_SCOPES)),
     delete_app(Name).
+
+-doc """
+POST with an explicit scope list containing `gateways` or `audit` for a
+namespaced role is rejected with 400, mirroring the dashboard login-user
+rule (`?NS_ADMIN_ALLOWED_SCOPES`, emqx-dev-team-tasks#412). An allowlisted
+scope is still accepted.
+""".
+t_ee_ns_key_create_rejects_out_of_allowlist_scopes(_Config) ->
+    NsAdmin = <<"ns:scopes_ns6::administrator">>,
+    assert_400(
+        create_app(<<"EE-NS-GATEWAYS-REJECT">>, #{role => NsAdmin, scopes => [?SCOPE_GATEWAYS]})
+    ),
+    assert_400(
+        create_app(<<"EE-NS-AUDIT-REJECT">>, #{role => NsAdmin, scopes => [?SCOPE_AUDIT]})
+    ),
+    assert_400(
+        create_app(<<"EE-NS-MIXED-REJECT">>, #{
+            role => NsAdmin, scopes => [?SCOPE_CONNECTIONS, ?SCOPE_AUDIT]
+        })
+    ),
+    Name = <<"EE-NS-ALLOWLISTED-OK">>,
+    ?assertMatch(
+        {ok, _},
+        create_app(Name, #{role => NsAdmin, scopes => [?SCOPE_CONNECTIONS]})
+    ),
+    delete_app(Name).
+
+-doc """
+PUT with a changed scope list adding `gateways` or `audit` on a namespaced
+key is rejected with 400 and leaves the record unchanged, even when the
+persisted list already carries the disallowed scope from before this
+allowlist existed (grandfathered legacy record) — changing the list is
+the opportunity to shed the disallowed scopes. A verbatim round-trip of
+the legacy list is still accepted (backward compat).
+""".
+t_ee_ns_key_update_rejects_out_of_allowlist_scopes(_Config) ->
+    Name = <<"EE-NS-UPDATE-NEW-AUDIT">>,
+    NsRole = <<"ns:scopes_ns7::administrator">>,
+    {ok, _} = create_app(Name, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS]}),
+    assert_400(
+        update_app(Name, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS, ?SCOPE_AUDIT]})
+    ),
+    ?assertMatch({ok, #{<<"scopes">> := [?SCOPE_CONNECTIONS]}}, read_app(Name)),
+    %% A legacy key whose persisted list already carries `audit`/`gateways`
+    %% (minted before this allowlist existed) must shed them when changing
+    %% the list, but a verbatim round-trip is grandfathered.
+    Legacy = <<"EE-NS-UPDATE-LEGACY-AUDIT">>,
+    LegacyScopes = [?SCOPE_AUDIT, ?SCOPE_GATEWAYS, ?SCOPE_CONNECTIONS],
+    {ok, _} = emqx_mgmt_auth:create(Legacy, true, infinity, <<"legacy">>, NsRole, LegacyScopes),
+    ?assertMatch({ok, #{<<"scopes">> := LegacyScopes}}, read_app(Legacy)),
+    {ok, RoundTripped} = update_app(Legacy, #{role => NsRole, scopes => LegacyScopes}),
+    ?assertEqual(LegacyScopes, maps:get(<<"scopes">>, RoundTripped)),
+    assert_400(
+        update_app(Legacy, #{
+            role => NsRole, scopes => [?SCOPE_AUDIT, ?SCOPE_GATEWAYS, ?SCOPE_MONITORING]
+        })
+    ),
+    ?assertMatch({ok, #{<<"scopes">> := LegacyScopes}}, read_app(Legacy)),
+    {ok, Updated} = update_app(Legacy, #{role => NsRole, scopes => [?SCOPE_CONNECTIONS]}),
+    ?assertEqual([?SCOPE_CONNECTIONS], maps:get(<<"scopes">>, Updated)),
+    delete_app(Name),
+    delete_app(Legacy).
 
 assert_400_publisher_only(Result) ->
     %% request_api/5 returns {error, {"HTTP/1.1", 400, "Bad Request"}}

@@ -45,9 +45,23 @@ end_per_group(_Profile, Config) ->
     emqx_cth_suite:stop(?config(apps, Config)),
     emqx_common_test_helpers:clear_security_profile().
 
+-doc "The default profile is `hardened` when the env var is unset or empty, since 7.0.".
 t_unset_default(_) ->
     emqx_common_test_helpers:clear_security_profile(),
-    ?assertEqual(legacy, emqx_security_profile:profile()).
+    ?assertEqual(hardened, emqx_security_profile:profile()),
+    os:putenv(?PROFILE_ENV_VAR, ""),
+    emqx_security_profile:clear_profile(),
+    ?assertEqual(hardened, emqx_security_profile:profile()),
+    emqx_common_test_helpers:clear_security_profile().
+
+-doc "Setting the env var to `legacy` still selects the legacy profile.".
+t_env_var_selects_profile(_) ->
+    emqx_common_test_helpers:with_security_profile("legacy", fun() ->
+        ?assertEqual(legacy, emqx_security_profile:profile())
+    end),
+    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
+        ?assertEqual(hardened, emqx_security_profile:profile())
+    end).
 
 t_profile(Config) ->
     Profile = ?config(security_profile, Config),

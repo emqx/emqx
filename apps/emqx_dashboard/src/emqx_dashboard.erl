@@ -26,6 +26,9 @@
 -export([authorize/2]).
 -export([get_namespace/1]).
 
+%% Exported for tests.
+-export([ensure_ssl_cert/1]).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
@@ -76,6 +79,7 @@ start_listeners(Listeners) ->
     %% Before starting the listeners, we do not generate the full dispatch upfront,
     %% because the listeners may fail to start and the generation may appear useless.
     InitDispatch = init_dispatch(),
+    {Listeners1, CertErrListeners} = ensure_ssl_cert_or_drop(Listeners),
     {OkListeners, ErrListeners} =
         lists:foldl(
             fun({Name, Protocol, Bind, RanchOptions, ProtoOpts}, {OkAcc, ErrAcc}) ->
@@ -98,8 +102,8 @@ start_listeners(Listeners) ->
                         {OkAcc, [Name | ErrAcc]}
                 end
             end,
-            {[], []},
-            listeners(ensure_ssl_cert(Listeners))
+            {[], CertErrListeners},
+            listeners(Listeners1)
         ),
     ok = emqx_dashboard_dispatch:regenerate_dispatch(OkListeners),
     case ErrListeners of
@@ -312,13 +316,7 @@ authorize(Req, HandlerInfo) ->
                 false ->
                     return_unauthorized(
                         <<"AUTHORIZATION_HEADER_ERROR">>,
-                        <<
-                            "Missing authorization header. "
-                            "Use Basic auth with API key/secret, "
-                            "or Bearer token from POST /api/v5/login. "
-                            "API keys can be bootstrapped from config "
-                            "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
-                        >>
+                        authorization_header_error_message(HandlerInfo)
                     )
             end
     end.
@@ -336,15 +334,45 @@ cookie_authorize(Req, HandlerInfo) ->
         _ ->
             return_unauthorized(
                 <<"AUTHORIZATION_HEADER_ERROR">>,
-                <<
-                    "Missing authorization header. "
-                    "Use Basic auth with API key/secret, "
-                    "or Bearer token from POST /api/v5/login. "
-                    "API keys can be bootstrapped from config "
-                    "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
-                >>
+                authorization_header_error_message(HandlerInfo)
             )
     end.
+
+%% @doc Whether HandlerInfo's endpoint accepts API keys decides which auth-error
+%% messages may mention API keys — an endpoint that rejects them must not send a
+%% caller looking for one, and vice versa.
+with_api_key_hint(HandlerInfo, LoginOnlyMessage, ApiKeyAllowedMessage) ->
+    case emqx_mgmt_auth:is_api_key_allowed(HandlerInfo) of
+        true -> ApiKeyAllowedMessage;
+        false -> LoginOnlyMessage
+    end.
+
+authorization_header_error_message(HandlerInfo) ->
+    with_api_key_hint(
+        HandlerInfo,
+        <<"Missing authorization header. Get a bearer token from POST /api/v5/login.">>,
+        <<
+            "Missing authorization header. Use Basic auth with an API key, "
+            "or get a bearer token from POST /api/v5/login."
+        >>
+    ).
+
+token_timeout_message(HandlerInfo) ->
+    with_api_key_hint(
+        HandlerInfo,
+        <<"Token expired. Get a new token by POST /api/v5/login.">>,
+        <<"Token expired. Get a new token by POST /api/v5/login, or use an API key with Basic auth.">>
+    ).
+
+bad_token_message(HandlerInfo) ->
+    with_api_key_hint(
+        HandlerInfo,
+        <<"Invalid bearer token. Get a new token by POST /api/v5/login.">>,
+        <<
+            "Invalid bearer token. Get a new token by POST /api/v5/login, "
+            "or use an API key with Basic auth."
+        >>
+    ).
 
 return_unauthorized(Code, Message) ->
     {401,
@@ -406,30 +434,42 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
             },
             {ok, AuthnMeta};
         {error, token_timeout} ->
-            {401, 'TOKEN_TIME_OUT', <<
-                "Token expired. "
-                "Consider using API key (Basic auth) instead of bearer tokens "
-                "to avoid expiration. "
-                "Otherwise get a new token by POST /api/v5/login"
-            >>};
+            {401, 'TOKEN_TIME_OUT', token_timeout_message(HandlerInfo)};
         {error, not_found} ->
-            {401, 'BAD_TOKEN', <<
-                "Invalid bearer token. "
-                "Use API key (Basic auth) for persistent access, "
-                "or get a new bearer token by POST /api/v5/login. "
-                "API keys can be bootstrapped from config "
-                "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
-            >>};
+            {401, 'BAD_TOKEN', bad_token_message(HandlerInfo)};
         {error, {unauthorized_role, Msg}} when is_binary(Msg) ->
             {403, 'UNAUTHORIZED_ROLE', Msg}
     end.
 
-ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->
-    SslOpt1 = maps:from_list(emqx_tls_lib:to_server_opts(tls, SslOpts)),
-    Https1 = maps:remove(ssl_options, Https0),
-    Listeners#{https => maps:merge(Https1, SslOpt1)};
+%% Leaves out the HTTPS listener when it cannot be given a certificate, rather
+%% than letting the failure stop the others: plain HTTP still starts, and the
+%% dashboard reports HTTPS as the listener that failed.
+ensure_ssl_cert_or_drop(Listeners) ->
+    case ensure_ssl_cert(Listeners) of
+        {ok, Listeners1} ->
+            {Listeners1, []};
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "dashboard_https_listener_not_started",
+                reason => Reason
+            }),
+            {maps:remove(https, Listeners), [listener_name(https)]}
+    end.
+
+%% `listeners/1' drops a listener bound to port 0, so it never starts and needs no
+%% certificate. Generating one here would create a key for a server that does not
+%% run, and again after every restart once an operator deleted it.
+ensure_ssl_cert(Listeners = #{https := #{bind := 0}}) ->
+    {ok, Listeners};
+ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts0}}) ->
+    maybe
+        {ok, SslOpts} ?= emqx_tls_lib:ensure_default_certs(SslOpts0),
+        SslOpt1 = maps:from_list(emqx_tls_lib:to_server_opts(tls, SslOpts)),
+        Https1 = maps:remove(ssl_options, Https0),
+        {ok, Listeners#{https => maps:merge(Https1, SslOpt1)}}
+    end;
 ensure_ssl_cert(Listeners) ->
-    Listeners.
+    {ok, Listeners}.
 
 static_dispatch(SwaggerSupport) ->
     StaticFiles = ["/editor.worker.js", "/json.worker.js", "/version"],

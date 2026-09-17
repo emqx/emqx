@@ -664,6 +664,7 @@ t_rebalance_chaotic_converges(Config) ->
     %% allocation will converge to the target state.
     NMsgs = 400,
     Nodes = [N1, N2, N3] = ?config(nodes, Config),
+    NodeStream = emqx_utils_stream:repeat(emqx_utils_stream:list(Nodes)),
     Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
     NClients = 5,
     {Stream0, TopicStreams} = emqx_ds_test_helpers:interleaved_topic_messages(
@@ -723,7 +724,14 @@ t_rebalance_chaotic_converges(Config) ->
             ),
 
             %% Store the messages + chaotically change the membership.
-            emqx_ds_raft_test_helpers:apply_stream(?DB, Nodes, Stream),
+            emqx_ds_raft_test_helpers:apply_stream(?DB, NodeStream, Stream, 0, #{
+                %% race condition flakiness: since the membership is changing during this
+                %% test, it may happen that the otx leader changes just as we attempt to
+                %% dirty append a message.  this is classified as an unrecoverable error
+                %% which is usually not retried by the test helpers, hence this option to
+                %% avoid retrying all the application's test suites in CI.
+                should_retry_not_the_leader => true
+            }),
 
             %% Wait for the last transition to complete.
             ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
@@ -1107,7 +1115,10 @@ t_drop_generation(Config) ->
         end
     ).
 
-t_crash_restart_recover(init, Config) ->
+%% Disabled: the name has no t_ prefix, so all/0 does not collect it.
+%% Before enabling it again: 1. Use TTV layout instead of MQTT wrapper.
+%% 2. It should be a property-based test?
+disabled__t_crash_restart_recover(init, Config) ->
     Apps = [appspec(ra), appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
     Specs = emqx_cth_cluster:mk_nodespecs(
         [
@@ -1119,10 +1130,10 @@ t_crash_restart_recover(init, Config) ->
     ),
     Nodes = emqx_cth_cluster:start(Specs),
     [{nodes, Nodes}, {nodespecs, Specs} | Config];
-t_crash_restart_recover('end', Config) ->
+disabled__t_crash_restart_recover('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(nodes, Config)).
 
-t_crash_restart_recover(Config) ->
+disabled__t_crash_restart_recover(Config) ->
     %% This testcase verifies that in the event of abrupt site failure message data is
     %% correctly preserved.
     Nodes = [N1, N2, N3] = ?config(nodes, Config),
@@ -1435,12 +1446,7 @@ consume_shard(Node, DB, Shard, TopicFilter, StartTime) ->
 suite() -> [{timetrap, {seconds, 120}}].
 
 all() ->
-    Broken = [
-        %% 1. Use TTV layout instead of MQTT wrapper. 2. It
-        %% should be a property-based test?
-        t_crash_restart_recover
-    ],
-    emqx_common_test_helpers:all(?MODULE) -- Broken.
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(TCName, Config0) ->
     Config1 = [{work_dir, emqx_cth_suite:work_dir(TCName, Config0)} | Config0],

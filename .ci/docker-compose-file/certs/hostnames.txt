@@ -1,0 +1,37 @@
+# Subject alternative names of the server certificate `scripts/ct/gen-compose-certs.sh`
+# generates: every hostname a TLS service answers to on the compose network, plus
+# `toxiproxy`, which fronts several of them. One name per line; `#` starts a comment.
+# Add the hostname of a new TLS service here. A name with an underscore is not a
+# valid DNS label and no client verifies one; services whose container name has an
+# underscore (datalayers_tls, influxdb_tls, nats_tls, ...) are reached through
+# `toxiproxy`.
+authn-server
+elasticsearch
+haproxy
+jaeger.emqx.net
+ldap
+minio-tls
+mongo-tls
+mongo1
+mongo2
+mongo3
+mysql-tls
+nats
+node1.emqx.io
+node2.emqx.io
+otel-collector-tls.emqx.net
+otel-collector.emqx.net
+pgsql-tls
+pulsar
+rabbitmq
+redis-cluster-tls-1
+redis-cluster-tls-2
+redis-cluster-tls-3
+redis-cluster-tls-4
+redis-cluster-tls-5
+redis-cluster-tls-6
+redis-sentinel-tls
+redis-sentinel-tls-master
+redis-sentinel-tls-slave
+redis-tls
+toxiproxy

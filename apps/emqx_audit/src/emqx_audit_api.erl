@@ -236,7 +236,11 @@ fields(http_request) ->
         {bindings, ?HOCON(map(), #{})},
         {body, ?HOCON(map(), #{})},
         {headers, ?HOCON(map(), #{})},
-        {method, ?HOCON(?ENUM([post, put, delete]), #{})}
+        {method, ?HOCON(?ENUM([post, put, delete]), #{})},
+        %% Present only for endpoints that declare query parameters.
+        {query_string, ?HOCON(map(), #{required => false})},
+        %% Present only for endpoints that resolve a target namespace.
+        {namespace, ?HOCON(binary(), #{required => false})}
     ].
 
 audit(get, #{query_string := QueryString}) ->

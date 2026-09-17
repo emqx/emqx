@@ -57,6 +57,7 @@ persistent_session_testcases() ->
         t_persistent_sessions4,
         t_persistent_sessions5,
         t_persistent_sessions_exact_clientid_query,
+        t_persistent_sessions_filters,
         t_persistent_sessions_subscriptions1,
         t_list_clients_v2,
         t_list_clients_v2_limit,
@@ -603,6 +604,77 @@ t_persistent_sessions_exact_clientid_query(Config) ->
     C2 = connect_client(#{port => Port1, clientid => ClientId}),
     disconnect_and_destroy_session(C2).
 
+-doc """
+Tests that `GET /clients` filters also apply to disconnected durable sessions,
+which are appended to the result after the ETS scan (#15682).
+""".
+t_persistent_sessions_filters(Config) ->
+    [N1, _N2] = ?config(cluster_nodes, Config),
+    Port1 = get_mqtt_port(N1, tcp),
+    Auth = ?config(api_auth_header, Config),
+
+    ?assertMatch({ok, {?HTTP200, _, #{<<"data">> := []}}}, list_request(Config)),
+
+    ?check_trace(
+        begin
+            ConnectedId = ?CLIENTID(<<"connected">>),
+            DisconnectedId = ?CLIENTID(<<"disconnected">>),
+            C1 = connect_client(#{
+                port => Port1, clientid => ConnectedId, username => <<"u-connected">>
+            }),
+            C2 = connect_client(#{
+                port => Port1, clientid => DisconnectedId, username => <<"u-disconnected">>
+            }),
+            ok = stop_and_commit(C2),
+            %% Wait until the disconnected durable session is listed.
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {ok, {?HTTP200, _, #{<<"data">> := [_, _]}}},
+                    list_request(Config)
+                )
+            ),
+            %% The reported bug: `conn_state=connected` returned disconnected
+            %% durable sessions too.
+            ?assertEqual([ConnectedId], get_clients(Auth, "conn_state=connected")),
+            ?assertEqual([DisconnectedId], get_clients(Auth, "conn_state=disconnected")),
+            %% The other filters share the same code path: disconnected durable
+            %% sessions were appended to the result regardless of any filter.
+            ?assertEqual([ConnectedId], get_clients(Auth, "clientid=" ++ b2l(ConnectedId))),
+            ?assertEqual(
+                [DisconnectedId], get_clients(Auth, "clientid=" ++ b2l(DisconnectedId))
+            ),
+            ?assertEqual([ConnectedId], get_clients(Auth, "username=u-connected")),
+            ?assertEqual([DisconnectedId], get_clients(Auth, "username=u-disconnected")),
+            ?assertEqual([ConnectedId], get_clients(Auth, "like_username=u-conn")),
+            ?assertEqual([DisconnectedId], get_clients(Auth, "like_username=u-disconn")),
+            ?assertEqual([], get_clients(Auth, "username=no-such-user")),
+            ?assertEqual([], get_clients(Auth, "ip_address=1.2.3.4")),
+            %% A `gte_' + `lte_' pair produces one query clause with both bounds.
+            FutureMs = integer_to_list(erlang:system_time(millisecond) + 60_000),
+            ?assertEqual(
+                lists:sort([ConnectedId, DisconnectedId]),
+                lists:sort(
+                    get_clients(Auth, "gte_created_at=0&lte_created_at=" ++ FutureMs)
+                )
+            ),
+            ?assertEqual([], get_clients(Auth, "gte_created_at=1&lte_created_at=2")),
+            %% `conn_state=connected` skips the durable-session tail query, so the
+            %% count stays exact.
+            ?assertMatch(
+                {ok, {?HTTP200, _, #{<<"meta">> := #{<<"count">> := 1}}}},
+                list_request("conn_state=connected", Config)
+            ),
+            ok = disconnect_and_destroy_session(C1),
+            ok = erpc:call(N1, emqx_persistent_session_ds, destroy_session, [DisconnectedId])
+        end,
+        []
+    ),
+    ok.
+
+b2l(B) -> binary_to_list(B).
+
 %% Check that the output of `/clients/:clientid/subscriptions' has the expected keys.
 t_persistent_sessions_subscriptions1(Config) ->
     [N1, _N2] = ?config(cluster_nodes, Config),
@@ -1020,6 +1092,76 @@ t_query_multiple_clients_urlencode(Config) ->
     ExpectedClients = lists:sort([C || {C, _} <- ClientIdsUsers]),
     ?assertEqual(ExpectedClients, lists:sort(get_clients(Auth, ClientsQs))),
     ?assertEqual(ExpectedClients, lists:sort(get_clients(Auth, UsersQs))).
+
+-doc """
+Tests that `GET /clients?conn_state=...` filters clients by connection state (#15682).
+""".
+t_query_clients_conn_state(Config) ->
+    ConnectedId = ?CLIENTID(<<"connected">>),
+    DisconnectedId = ?CLIENTID(<<"disconnected">>),
+    C1 = connect_client(#{port => 1883, clientid => ConnectedId, expiry => 120}),
+    C2 = connect_client(#{port => 1883, clientid => DisconnectedId, expiry => 120}),
+    ok = emqtt:disconnect(C2),
+    Auth = ?config(api_auth_header, Config),
+    %% Wait until the disconnected client is listed as disconnected.
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok,
+                {?HTTP200, _, #{
+                    <<"data">> := [_, _],
+                    <<"meta">> := #{<<"count">> := 2}
+                }}},
+            list_request(Config)
+        )
+    ),
+    ?assertEqual([ConnectedId], get_clients(Auth, "conn_state=connected")),
+    ?assertEqual([DisconnectedId], get_clients(Auth, "conn_state=disconnected")),
+    %% The count metadata must reflect the filter.
+    ?assertMatch(
+        {ok, {?HTTP200, _, #{<<"meta">> := #{<<"count">> := 1}}}},
+        list_request("conn_state=connected", Config)
+    ),
+    ok = disconnect_and_destroy_session(C1),
+    DisconnectedPath = emqx_mgmt_api_test_util:api_path(["clients", DisconnectedId]),
+    {ok, {?HTTP204, _, _}} = request(delete, DisconnectedPath, [], Config),
+    ok.
+
+-doc """
+Tests that `GET /clients` filters clients by `clean_start`, `proto_ver` and
+`ip_address`.  Regression coverage for the query-string parsing path shared
+with `conn_state` (#15682).
+""".
+t_query_clients_more_filters(Config) ->
+    V5Id = ?CLIENTID(<<"v5">>),
+    V4Id = ?CLIENTID(<<"v4">>),
+    C1 = connect_client(#{port => 1883, clientid => V5Id, clean_start => true}),
+    {ok, C2} = emqtt:start_link(#{clientid => V4Id, proto_ver => v4, clean_start => false}),
+    {ok, _} = emqtt:connect(C2),
+    Auth = ?config(api_auth_header, Config),
+    ?retry(
+        100,
+        20,
+        ?assertMatch(
+            {ok, {?HTTP200, _, #{<<"meta">> := #{<<"count">> := 2}}}},
+            list_request(Config)
+        )
+    ),
+    ?assertEqual([V5Id], get_clients(Auth, "clean_start=true")),
+    ?assertEqual([V4Id], get_clients(Auth, "clean_start=false")),
+    ?assertEqual([V5Id], get_clients(Auth, "proto_ver=5")),
+    ?assertEqual([V4Id], get_clients(Auth, "proto_ver=4")),
+    ?assertEqual(
+        lists:sort([V5Id, V4Id]),
+        lists:sort(get_clients(Auth, "ip_address=127.0.0.1"))
+    ),
+    ?assertEqual([], get_clients(Auth, "ip_address=1.2.3.4")),
+    ok = disconnect_and_destroy_session(C1),
+    ok = emqtt:disconnect(C2),
+    V4Path = emqx_mgmt_api_test_util:api_path(["clients", V4Id]),
+    {ok, {?HTTP204, _, _}} = request(delete, V4Path, [], Config),
+    ok.
 
 t_query_clients_with_fields(Config) ->
     TCBin = atom_to_binary(?FUNCTION_NAME),
@@ -1500,18 +1642,18 @@ payloads_bytes(Count) ->
     lists:sum([byte_size(integer_to_binary(Seq)) || Seq <- lists:seq(1, Count)]).
 
 test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
-    Qs0 = io_lib:format("payload=~s", [PayloadEncoding]),
+    Qs0 = io_lib:format("payload=~s&limit=~p", [PayloadEncoding, Count]),
 
-    {Msgs, StartPos, Pos} = ?retry(500, 10, begin
+    {Msgs, StartPos, FinalMsgPos} = ?retry(500, 10, begin
         {ok, MsgsResp} = emqx_mgmt_api_test_util:request_api(get, Path, Qs0, AuthHeader),
         #{<<"meta">> := Meta, <<"data">> := Msgs} = emqx_utils_json:decode(MsgsResp),
-        #{<<"start">> := StartPos, <<"position">> := Pos} = Meta,
+        #{<<"start">> := StartPos, <<"position">> := Position} = Meta,
 
         ?assertEqual(StartPos, msg_pos(hd(Msgs), IsMqueue)),
-        ?assertEqual(Pos, msg_pos(lists:last(Msgs), IsMqueue)),
+        ?assertEqual(<<"end_of_data">>, Position),
         ?assertEqual(length(Msgs), Count),
 
-        {Msgs, StartPos, Pos}
+        {Msgs, StartPos, msg_pos(lists:last(Msgs), IsMqueue)}
     end),
 
     lists:foreach(
@@ -1539,7 +1681,12 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     %% so we cover both cases:
     %% - when total payload size exceeds the limit,
     %% - when the first message payload already exceeds the limit but is still returned in the response.
-    QsPayloadLimit = io_lib:format("payload=~s&max_payload_bytes=1", [PayloadEncoding]),
+    %% Use a small page limit so that intermediate requests exercise both source-page
+    %% lookahead and max_payload_bytes truncation.
+    PayloadPageLimit = 2,
+    QsPayloadLimit = io_lib:format("payload=~s&max_payload_bytes=1&limit=~p", [
+        PayloadEncoding, PayloadPageLimit
+    ]),
     {ok, LimitedMsgsResp} = emqx_mgmt_api_test_util:request_api(
         get, Path, QsPayloadLimit, AuthHeader
     ),
@@ -1553,11 +1700,13 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     %% returned message, not at the last message walked before the cut, so that paging
     %% skips no message.
     ?assertEqual(TruncatedPos, msg_pos(hd(FirstMsgOnly), IsMqueue)),
+    ?assertNotEqual(<<"end_of_data">>, TruncatedPos),
     %% Page through the remaining messages one message per page.
     lists:foldl(
         fun(Seq, PosIn) ->
             PageQs = io_lib:format(
-                "payload=~s&max_payload_bytes=1&position=~s", [PayloadEncoding, PosIn]
+                "payload=~s&max_payload_bytes=1&limit=~p&position=~s",
+                [PayloadEncoding, PayloadPageLimit, PosIn]
             ),
             {ok, PageResp} = emqx_mgmt_api_test_util:request_api(get, Path, PageQs, AuthHeader),
             #{<<"meta">> := #{<<"position">> := PosOut}, <<"data">> := PageMsgs} =
@@ -1567,7 +1716,12 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
                 integer_to_binary(Seq),
                 decode_payload(maps:get(<<"payload">>, hd(PageMsgs)), PayloadEncoding)
             ),
-            ?assertEqual(PosOut, msg_pos(hd(PageMsgs), IsMqueue)),
+            ExpectedPos =
+                case Seq =:= Count of
+                    true -> <<"end_of_data">>;
+                    false -> msg_pos(hd(PageMsgs), IsMqueue)
+                end,
+            ?assertEqual(ExpectedPos, PosOut),
             PosOut
         end,
         TruncatedPos,
@@ -1584,6 +1738,7 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
                 <<"data">> := MsgsPage
             } = emqx_utils_json:decode(MsgsRespPage),
 
+            ?assertNotEqual(<<"end_of_data">>, NextPos),
             ?assertEqual(NextPos, msg_pos(lists:last(MsgsPage), IsMqueue)),
             %% Start position is the same in every response and points to the first msg
             ?assertEqual(StartPos, ThisStart),
@@ -1607,11 +1762,12 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
     LastPartialPage = Count div 19 + 1,
     LastQs = io_lib:format("payload=~s&position=~s&limit=~p", [PayloadEncoding, LastPos, Limit]),
     {ok, MsgsRespLastP} = emqx_mgmt_api_test_util:request_api(get, Path, LastQs, AuthHeader),
-    #{<<"meta">> := #{<<"position">> := LastPartialPos}, <<"data">> := MsgsLastPage} = emqx_utils_json:decode(
+    #{<<"meta">> := #{<<"position">> := <<"end_of_data">>}, <<"data">> := MsgsLastPage} = emqx_utils_json:decode(
         MsgsRespLastP
     ),
-    %% The same as the position of all messages returned in one request
-    ?assertEqual(Pos, LastPartialPos),
+    ExpectedLastPageSize = Count rem Limit,
+    ?assertEqual(ExpectedLastPageSize, length(MsgsLastPage)),
+    ?assert(length(MsgsLastPage) =< Limit),
 
     ?assertEqual(
         integer_to_binary(LastPartialPage * Limit - Limit + 1),
@@ -1621,15 +1777,16 @@ test_messages(Path, Topic, Count, AuthHeader, PayloadEncoding, IsMqueue) ->
         integer_to_binary(Count),
         decode_payload(maps:get(<<"payload">>, lists:last(MsgsLastPage)), PayloadEncoding)
     ),
+    ?assertEqual(FinalMsgPos, msg_pos(lists:last(MsgsLastPage), IsMqueue)),
 
     ExceedQs = io_lib:format("payload=~s&position=~s&limit=~p", [
-        PayloadEncoding, LastPartialPos, Limit
+        PayloadEncoding, FinalMsgPos, Limit
     ]),
     {ok, MsgsEmptyResp} = emqx_mgmt_api_test_util:request_api(get, Path, ExceedQs, AuthHeader),
     ?assertMatch(
         #{
             <<"data">> := [],
-            <<"meta">> := #{<<"position">> := LastPartialPos, <<"start">> := StartPos}
+            <<"meta">> := #{<<"position">> := <<"end_of_data">>, <<"start">> := StartPos}
         },
         emqx_utils_json:decode(MsgsEmptyResp)
     ),

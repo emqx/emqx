@@ -16,8 +16,8 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: mqtt
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: abcdefg
     volumes:
-      - ./certs/server.crt:/etc/influxdb/cert.pem
-      - ./certs/server.key:/etc/influxdb/key.pem
+      - ./certs/cert.pem:/etc/influxdb/cert.pem
+      - ./certs/key.pem:/etc/influxdb/key.pem
       - "./influxdb/setup-v1.sh:/docker-entrypoint-initdb.d/setup-v1.sh"
     command:
       - influxd

@@ -240,6 +240,8 @@ info(alias_maximum, #channel{alias_maximum = Limits}) ->
     Limits;
 info(timers, #channel{timers = Timers}) ->
     Timers;
+info(quota, #channel{quota = Quota}) ->
+    Quota;
 info(session_state, #channel{session = Session}) ->
     Session;
 info(impl, #channel{session = Session}) ->
@@ -277,7 +279,7 @@ caps(#channel{clientinfo = #{zone := Zone}}) ->
 -spec init(emqx_types:conninfo(), opts()) -> channel().
 init(
     ConnInfo = #{
-        peername := {PeerHost, _PeerPort} = PeerName,
+        peername := {PeerHost, PeerPort} = PeerName,
         sockname := {_Host, SockPort}
     },
     #{
@@ -300,6 +302,7 @@ init(
             listener => ListenerId,
             protocol => Protocol,
             peerhost => PeerHost,
+            peerport => PeerPort,
             %% We copy peername to clientinfo because some event contexts only have access
             %% to client info (e.g.: authn/authz).
             peername => PeerName,
@@ -640,12 +643,17 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel0) ->
     of
         {ok, NConnPkt, Channel1 = #channel{clientinfo = ClientInfo}} ->
             ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
-            case authenticate(?CONNECT_PACKET(NConnPkt), Channel1) of
+            %% NOTE: Set alias_maximum before authentication, because enhanced
+            %% authentication completes in `handle_in(?AUTH_PACKET(...))', which
+            %% reaches `post_process_connect/2' without the connect packet.
+            Channel2 = Channel1#channel{
+                alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
+            },
+            case authenticate(?CONNECT_PACKET(NConnPkt), Channel2) of
                 {ok, Properties, Channel3} ->
                     Channel = Channel3#channel{
                         %% NOTE: Only store will_msg after successful authn.
-                        will_msg = emqx_packet:will_msg(NConnPkt),
-                        alias_maximum = init_alias_maximum(NConnPkt, ClientInfo)
+                        will_msg = emqx_packet:will_msg(NConnPkt)
                     },
                     post_process_connect(Properties, Channel);
                 {continue, Properties, Channel} ->
@@ -666,7 +674,7 @@ post_process_connect(
     }
 ) ->
     Channel = Channel0#channel{
-        quota = create_limiter(ClientInfo)
+        quota = adjust_limiter(ClientInfo)
     },
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo, MaybeWillMsg) of
         {ok, #{session := Session, present := false}} ->
@@ -688,9 +696,17 @@ post_process_connect(
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
     end.
 
-create_limiter(#{zone := Zone, listener := ListenerId} = ClientInfo) ->
-    Limiter = emqx_limiter:create_channel_client_container(Zone, ListenerId),
-    emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], Limiter).
+%% A hook callback may install a limiter container at connect time
+%% (e.g. multi-tenant limiters). Otherwise the field stays `undefined`
+%% and the container is built on first use; see ensure_quota/1.
+adjust_limiter(ClientInfo) ->
+    emqx_hooks:run_fold('channel.limiter_adjustment', [ClientInfo], undefined).
+
+ensure_quota(#channel{quota = undefined, clientinfo = ClientInfo} = Channel) ->
+    #{zone := Zone, listener := ListenerId} = ClientInfo,
+    Channel#channel{quota = emqx_limiter:create_channel_client_container(Zone, ListenerId)};
+ensure_quota(Channel) ->
+    Channel.
 
 handle_zone_change(
     _Output,
@@ -705,7 +721,7 @@ handle_zone_change(_Output, Channel) ->
 recreate_limiter(#channel{quota = undefined} = Channel) ->
     Channel;
 recreate_limiter(#channel{clientinfo = ClientInfo} = Channel) ->
-    Channel#channel{quota = create_limiter(ClientInfo)}.
+    Channel#channel{quota = adjust_limiter(ClientInfo)}.
 
 handle_session_zone_change(#channel{session = undefined} = Channel) ->
     Channel;
@@ -764,12 +780,18 @@ handle_publish_error(QoS, _Topic, PacketId, RC = ?RC_QUOTA_EXCEEDED, Channel) ->
     ok = inc_metrics('packets.publish.quota_exceeded', Channel),
     case QoS of
         ?QOS_0 ->
+            %% QoS 0 publishes have no way to signal the failure back to the
+            %% client, so they are silently dropped.
             ok = inc_metrics('messages.dropped', Channel),
             ok = inc_metrics('messages.dropped.quota_exceeded', Channel),
             {ok, Channel};
         ?QOS_1 ->
+            %% QoS 1 publishes are rejected with a PUBACK reason code.
+            ok = inc_metrics('messages.rejected.quota_exceeded', Channel),
             handle_out(puback, {PacketId, RC}, Channel);
         ?QOS_2 ->
+            %% QoS 2 publishes are rejected with a PUBREC reason code.
+            ok = inc_metrics('messages.rejected.quota_exceeded', Channel),
             handle_out(pubrec, {PacketId, RC}, Channel)
     end;
 handle_publish_error(_QoS, Topic, _PacketId, RC, Channel) ->
@@ -1432,11 +1454,18 @@ A counter name must come from a bounded set. Errors reported as an atom are
 already such a set, fixed by the parser, so the atom names its own counter.
 Errors reported as a map carry detail derived from the offending packet, so they
 share `Default'; the specific cause remains in the shutdown reason and in the
-trace. Oversized frames keep their own counter in every connection state, being
-a distinct operational signal rather than a malformed packet.
+trace.
+
+The causes listed below are the exception: each names a configured limit the
+client went over, not a property of the packet's content, so the set of names
+stays bounded and each is a distinct operational signal rather than a malformed
+packet. An operator reading the counters can tell "clients are hitting a limit
+you set" from "clients are sending garbage".
 """.
 frame_error_kind(Reason, _Default) when is_atom(Reason) -> Reason;
 frame_error_kind(#{cause := frame_too_large}, _Default) -> frame_too_large;
+frame_error_kind(#{cause := connect_packet_too_large}, _Default) -> connect_packet_too_large;
+frame_error_kind(#{cause := too_many_user_properties}, _Default) -> too_many_user_properties;
 frame_error_kind(_Reason, Default) -> Default.
 
 %%--------------------------------------------------------------------
@@ -2945,8 +2974,9 @@ packing_alias(Packet, Channel) ->
 %% Check quota state
 
 check_quota_exceeded(
-    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), #channel{quota = Quota} = Chann
+    ?PUBLISH_PACKET(_QoS, Topic, _PacketId, Payload), Chann0
 ) ->
+    #channel{quota = Quota} = Chann = ensure_quota(Chann0),
     Result = emqx_limiter_client_container:try_consume(
         Quota, [{bytes, erlang:byte_size(Payload)}, {messages, 1}]
     ),
@@ -2966,8 +2996,9 @@ check_quota_exceeded(
     end.
 
 check_subscribe_quota_exceeded(
-    #subscribe_operation{topic_filters = TopicFilters}, #channel{quota = Limiter0} = Chann
+    #subscribe_operation{topic_filters = TopicFilters}, Chann0
 ) ->
+    #channel{quota = Limiter0} = Chann = ensure_quota(Chann0),
     Result = emqx_limiter_client_container:try_consume(
         Limiter0, [{subscribes, 1}]
     ),

@@ -143,12 +143,13 @@ t_parse_incoming_first_packet_hints(_) ->
             {0, 0, [], _NState},
             emqx_socket_connection:parse_incoming(<<>>, mk_connstate(channel(idle)))
         ),
-        %% SUBSCRIBE with remaining_len=0 in idle state: enriched with hints.
+        %% SUBSCRIBE as the first packet: rejected before CONNECT, enriched with hints.
         ?assertMatch(
             {0, 0,
                 [
                     {frame_error, #{
-                        cause := zero_remaining_len,
+                        cause := unexpected_packet_before_connect,
+                        header_type := 'SUBSCRIBE',
                         packet_type := 'SUBSCRIBE',
                         resemble_protocol := _
                     }}
@@ -166,7 +167,7 @@ t_parse_incoming_first_packet_hints(_) ->
             {0, 0, [{frame_error, bad_subqos}], _NState},
             emqx_socket_connection:parse_incoming(
                 <<?SUBSCRIBE:4, 2:4, 16#06, 16#00, 16#01, 16#00, 16#01, $t, 16#03>>,
-                mk_connstate(channel(connected))
+                connstate_after_connect(channel(connected))
             )
         ),
         ok = meck:expect(emqx_frame, parse, fun(_, _) ->
@@ -193,6 +194,14 @@ mk_connstate() ->
 
 mk_connstate(Channel) ->
     emqx_socket_connection:set_field(channel, Channel, mk_connstate()).
+
+%% Connection state whose parser has already accepted a CONNECT, so that the
+%% packets after it are parsed as usual.
+connstate_after_connect(Channel) ->
+    Connect = iolist_to_binary(emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{}))),
+    {0, 1, [_], State} =
+        emqx_socket_connection:parse_incoming(Connect, mk_connstate(Channel)),
+    State.
 
 channel(ConnState) ->
     ConnInfo = #{

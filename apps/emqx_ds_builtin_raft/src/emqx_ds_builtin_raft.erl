@@ -737,15 +737,17 @@ otx_get_latest_generation(DB, Shard) ->
     emqx_ds_storage_layer:generation_current({DB, Shard}).
 
 otx_become_leader(DB, Shard) ->
+    Timeout = ra_timeout(DB),
     maybe
         {ok, Leader} ?= local_raft_leader(DB, Shard),
         ok ?= check_min_rfsm_version(Leader, 1),
+        %% Establish presence:
+        {ok, TxSerial, _TxLastTimestamp} ?= announce_otx_leader_pid(Leader, 5_000, self()),
         %% Propagate my schema:
         SiteSchema = emqx_dsch:get_db_schema(DB),
         Command = emqx_ds_builtin_raft_machine:update_schema(SiteSchema, emqx_ds:timestamp_us()),
-        {ok, _TxLastTimestamp, Leader} ?= ra:process_command(Leader, Command, ra_timeout(DB)),
-        %% Establish presence:
-        {ok, TxSerial, TxLastTimestamp} ?= announce_otx_leader_pid(Leader, 5_000, self()),
+        {ok, {ok, TxLastTimestamp}, _Leader} ?= ra:process_command(Leader, Command, Timeout),
+        %% Announce to the cluster:
         register_global_otx_leader(DB, Shard),
         emqx_ds_builtin_raft_liveness:notify_shard_up(DB, Shard),
         {ok, TxSerial, TxLastTimestamp}
