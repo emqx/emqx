@@ -63,6 +63,27 @@ emqx_mgmt_api_certs {
         label: "Total"
     }
 
+    global_trusts_delete {
+        desc: """~
+            Remove one CA certificate from the `ca` file of a global namespace bundle.
+            When no certificate is left, the `ca` file is deleted.
+            Deleting the last certificate fails while a configuration refers to the bundle.~"""
+        label: "Remove Trusted CA Certificate"
+    }
+
+    param_path_fingerprint {
+        desc: """~
+            SHA-256 fingerprint of the certificate in hexadecimal, for example the output of
+            `openssl x509 -noout -fingerprint -sha256`. Colons between bytes are optional.~"""
+        label: "Certificate Fingerprint"
+    }
+
+    trusted_cert_not_found {
+        desc: """~
+            Bundle or certificate not found.~"""
+        label: "Not Found"
+    }
+
     global_bundle_delete {
         desc: """~
             Delete a global namespace bundle, or a single file in it when the `kind` query parameter is set.
