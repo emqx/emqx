@@ -12,9 +12,12 @@
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 -if(?EMQX_RELEASE_EDITION == ee).
+%% The `role' request field only exists in the enterprise edition, so cases that
+%% exercise an explicitly requested role are kept in this edition only.
 -define(EE_CASES, [
     t_ee_create,
     t_ee_update,
+    t_update_partial_without_role,
     t_ee_authorize_viewer,
     t_ee_authorize_admin,
     t_ee_authorize_admin_cannot_manage_mfa,
@@ -48,6 +51,8 @@
     t_ee_api_key_unaffected_by_colliding_username_scopes
 ]).
 -else.
+%% In this edition `role' is neither accepted nor reported; note that `PUT' still
+%% reaches the update path here, covered by `t_update' and `t_authorize'.
 -define(EE_CASES, []).
 -endif.
 
@@ -70,6 +75,7 @@ groups() ->
         {parallel, [parallel], [
             t_create,
             t_update,
+            t_update_legacy_undefined_expiry,
             t_delete,
             t_authorize,
             t_create_unexpired_app,
@@ -1013,13 +1019,114 @@ t_update(_Config) ->
     ),
     Unexpired1 = maps:without([expired_at], Change),
     {ok, Update2} = update_app(Name, Unexpired1),
-    ?assertEqual(<<"infinity">>, maps:get(<<"expired_at">>, Update2)),
+    %% omitting `expired_at' keeps the stored expiry, it must not make the key immortal
+    ?assertEqual(
+        calendar:rfc3339_to_system_time(binary_to_list(ExpiredAt)),
+        calendar:rfc3339_to_system_time(binary_to_list(maps:get(<<"expired_at">>, Update2)))
+    ),
     Unexpired2 = Change#{expired_at => <<"infinity">>},
     {ok, Update3} = update_app(Name, Unexpired2),
     ?assertEqual(<<"infinity">>, maps:get(<<"expired_at">>, Update3)),
 
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, update_app(<<"Not-Exist">>, Change)),
     ok.
+
+%% Releases before 5.0.0 stored `expired_at = undefined' to mean "never expires", and
+%% such records survive an upgrade (and a backup restore) unchanged. They must not take
+%% the API down: both reading and a partial update have to keep working.
+t_update_legacy_undefined_expiry(_Config) ->
+    Name = <<"EMQX-API-LEGACY-EXPIRY-KEY">>,
+    {ok, _} = create_app(Name),
+    ok = set_stored_expired_at(Name, undefined),
+
+    {ok, #{<<"expired_at">> := <<"infinity">>}} = read_app(Name),
+    {ok, #{<<"expired_at">> := <<"infinity">>}} = update_app(Name, #{enable => false}),
+    {ok, #{<<"expired_at">> := <<"infinity">>}} = read_app(Name),
+    ok.
+
+%% Overwrite the stored expiry directly to emulate a record written by an old release.
+%% Only the `expired_at' slot is touched, so the stored `extra' payload survives as-is.
+set_stored_expired_at(Name, ExpiredAt) ->
+    {ok, ok} = emqx_mgmt_auth:trans(
+        fun() ->
+            [App0] = mnesia:read(?APP, Name, write),
+            mnesia:write(App0#?APP{expired_at = ExpiredAt})
+        end,
+        []
+    ),
+    ok.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+
+%% A partial update must only touch the fields it carries: omitting `role' keeps the
+%% stored role instead of escalating the key to the default (administrator) role, while
+%% an explicitly supplied role must still be able to change it.
+t_update_partial_without_role(_Config) ->
+    Name = <<"EMQX-API-PARTIAL-UPDATE-KEY">>,
+    %% an expiry given at creation time must be honoured, not silently dropped.
+    %% `create_app/2' overwrites `expired_at', so use the pass-through helper here.
+    SentExpiry = to_rfc3339(erlang:system_time(second) + 30000),
+    {ok, Created} = create_unexpired_app(Name, #{
+        role => ?ROLE_API_VIEWER, expired_at => SentExpiry
+    }),
+    {ok, #{<<"role">> := Role0, <<"expired_at">> := ExpiredAt0}} = read_app(Name),
+    ?assertEqual(?ROLE_API_VIEWER, Role0),
+    ?assertEqual(
+        calendar:rfc3339_to_system_time(binary_to_list(SentExpiry)),
+        calendar:rfc3339_to_system_time(binary_to_list(ExpiredAt0))
+    ),
+    ?assertEqual(maps:get(<<"expired_at">>, Created), ExpiredAt0),
+
+    Partial = #{enable => false},
+    {ok, Update1} = update_app(Name, Partial),
+    ?assertEqual(Role0, maps:get(<<"role">>, Update1)),
+    ?assertEqual(false, maps:get(<<"enable">>, Update1)),
+    %% the response must not merely echo the old values, the stored ones must be intact
+    ?assertEqual(ExpiredAt0, maps:get(<<"expired_at">>, Update1)),
+    {ok, Update1Read} = read_app(Name),
+    ?assertEqual(Role0, maps:get(<<"role">>, Update1Read)),
+    ?assertEqual(ExpiredAt0, maps:get(<<"expired_at">>, Update1Read)),
+
+    {ok, Update2} = update_app(Name, Partial#{desc => <<"NoteVersion2"/utf8>>}),
+    ?assertEqual(Role0, maps:get(<<"role">>, Update2)),
+    ?assertEqual(<<"NoteVersion2"/utf8>>, maps:get(<<"desc">>, Update2)),
+    ?assertEqual(ExpiredAt0, maps:get(<<"expired_at">>, Update2)),
+
+    %% `expired_at' is absent from `Partial', so the key must not be made immortal by
+    %% this update; asking for a new expiry explicitly must still work.
+    {ok, Update3} = update_app(Name, Partial#{expired_at => <<"infinity">>}),
+    ?assertEqual(<<"infinity">>, maps:get(<<"expired_at">>, Update3)),
+    NewExpiry = to_rfc3339(erlang:system_time(second) + 20000),
+    {ok, Update4} = update_app(Name, #{expired_at => NewExpiry}),
+    ?assertEqual(
+        calendar:rfc3339_to_system_time(binary_to_list(NewExpiry)),
+        calendar:rfc3339_to_system_time(binary_to_list(maps:get(<<"expired_at">>, Update4)))
+    ),
+
+    %% omitting `role' must not escalate, but asking for one explicitly must still work
+    {ok, Update5} = update_app(Name, #{role => ?ROLE_API_SUPERUSER}),
+    ?assertEqual(?ROLE_API_SUPERUSER, maps:get(<<"role">>, Update5)),
+    {ok, #{<<"role">> := ?ROLE_API_SUPERUSER}} = read_app(Name),
+
+    %% an unknown role is still rejected by the schema validator ...
+    ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_app(Name, #{role => <<"bad_role">>})),
+    {ok, #{<<"role">> := ?ROLE_API_SUPERUSER}} = read_app(Name),
+
+    %% ... and by `emqx_mgmt_auth:update/5' itself, which is the clause this change
+    %% touches; also check the "no role asked for" case at the storage layer.
+    ?assertEqual(
+        {error, <<"Role does not exist">>},
+        emqx_mgmt_auth:update(Name, true, infinity, undefined, <<"bad_role">>)
+    ),
+    {ok, ViaApi} = emqx_mgmt_auth:update(Name, undefined, undefined, undefined, undefined),
+    ?assertEqual(?ROLE_API_SUPERUSER, maps:get(role, ViaApi)),
+    ?assertEqual(<<"NoteVersion2"/utf8>>, maps:get(desc, ViaApi)),
+
+    %% a key that does not exist is still reported as missing
+    ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, update_app(<<"Not-Exist">>, Partial)),
+    ok.
+
+-endif.
 
 t_delete(_Config) ->
     Name = <<"EMQX-API-DELETE-KEY">>,
