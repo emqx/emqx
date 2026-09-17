@@ -209,6 +209,61 @@ t_mountpoint_after_authn(_) ->
     end,
     ok.
 
+t_clientid_override_not_retained(_) ->
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{
+                clientid_override => <<"trusted-id">>,
+                client_attrs => #{<<"tenant">> => <<"tenant-1">>}
+            }}
+        end
+    ),
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(
+        coap,
+        OldConf#{<<"mountpoint">> => <<"coap/${client_attrs.tenant}/${clientid}/">>}
+    ),
+    try
+        Action = fun(Channel) ->
+            Token = connection(Channel),
+            timer:sleep(100),
+            #{clientinfo := ClientInfo} = emqx_gateway_cm:get_chan_info(coap, <<"client1">>),
+            ?assertEqual(<<"client1">>, maps:get(clientid, ClientInfo)),
+            ?assertEqual(false, maps:is_key(clientid_override, ClientInfo)),
+            ?assertEqual(<<"coap/tenant-1/client1/">>, maps:get(mountpoint, ClientInfo)),
+            disconnection(Channel, Token),
+            ok
+        end,
+        do(Action)
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end,
+    ok.
+
+t_connection_token_not_logged(_) ->
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
+        do(fun(Channel) ->
+            Token = connection(Channel),
+            put(coap_session_token, Token),
+            disconnection(Channel, Token)
+        end)
+    end),
+    TokenBin = list_to_binary(get(coap_session_token)),
+    PacketLogs = [
+        iolist_to_binary(Packet)
+     || #{msg := Msg, packet := Packet} <- Reports,
+        Msg =:= "send_packet" orelse Msg =:= "packet_received"
+    ],
+    ?assertNotEqual([], PacketLogs),
+    lists:foreach(
+        fun(Packet) ->
+            ?assertEqual(nomatch, binary:match(Packet, TokenBin))
+        end,
+        PacketLogs
+    ).
+
 t_connection_with_short_param_name(_) ->
     Action = fun(Channel) ->
         %% connection
