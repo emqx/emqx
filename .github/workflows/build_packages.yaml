@@ -104,7 +104,7 @@ jobs:
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: success()
       with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
+        name: package-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
         path: _packages/${{ matrix.profile }}/
         retention-days: 7
 
@@ -190,7 +190,7 @@ jobs:
           --pkgtype pkg
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.with_elixir == 'yes' && '-elixir' || '' }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}
+        name: package-${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.with_elixir == 'yes' && '-elixir' || '' }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}
         path: _packages/${{ matrix.profile }}/
         retention-days: 7
 
@@ -208,7 +208,9 @@ jobs:
     steps:
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        pattern: "${{ matrix.profile }}-*"
+        # Only package artifacts. A broader `<profile>-*` pattern also matched the docker
+        # workflow artifacts and published them to S3.
+        pattern: "package-${{ matrix.profile }}-*"
         path: packages/${{ matrix.profile }}
         merge-multiple: true
     - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
