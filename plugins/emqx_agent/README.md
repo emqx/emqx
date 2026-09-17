@@ -45,27 +45,35 @@ For example, invoking `message__publish@alerts` with request ID `req-42` uses:
 - `$cap/message__publish/alerts/request/req-42` as the request topic
 - `$cap/message__publish/alerts/response/req-42` as the response topic
 
-The caller publishes this request payload to the request topic:
+Assume the `alerts` instance has the topic prefix `factory/line-1/alerts/` and a payload schema that accepts the object below. The caller publishes this request payload to the request topic:
 
-```json
+```jsonc
 // PUBLISH $cap/message__publish/alerts/request/req-42
 {
   "args": {
-    "topic": "factory/line-1/alerts",
+    "topic": "temperature",
     "payload": {"severity": "warning", "reason": "temperature_high"}
   },
   "iid": "pipeline-instance-id",
+  "sid": "session-id",
   "trace_id": "trace-id"
 }
 ```
 
 After publishing the MQTT message, the tool publishes this response payload to the response topic:
 
-```json
+```jsonc
 // PUBLISH $cap/message__publish/alerts/response/req-42
 {
-  "status": "ok",
-  "result": {"published": true}
+  "req_id": "req-42",
+  "trace_id": "trace-id",
+  "iid": "pipeline-instance-id",
+  "sid": "session-id",
+  "tool": {"type": "message__publish", "id": "alerts"},
+  "response": {
+    "status": "ok",
+    "result": {"topic": "factory/line-1/alerts/temperature"}
+  }
 }
 ```
 
@@ -115,7 +123,7 @@ Image extraction supports two modes:
 - `autodiscover_images`: scans response payloads for `data:image/...;base64,...` values.
 - `images`: explicitly selects image locations with paths such as `.image_url` or `.` for the root value.
 
-Binary image responses can also be extracted when the response content type is an image media type such as `image/png`.
+When an HTTP tool uses `payload_type: "binary"`, binary image responses can also be extracted when the response content type is an image media type such as `image/png`.
 
 #### Autodiscovery example
 
@@ -129,15 +137,19 @@ Assume an HTTP tool returns JSON with an inline data URI:
 }
 ```
 
-With `autodiscover_images` enabled, the tool response contains the sanitized result plus extracted attachments:
+With `autodiscover_images` enabled, the tool reply's `response` object contains the sanitized result plus extracted attachments:
 
 ```json
 {
   "status": "ok",
   "result": {
-    "inspection_status": "accepted",
-    "image_url": "Image .image_url",
-    "comment": "front camera frame"
+    "body": {
+      "inspection_status": "accepted",
+      "image_url": "Image .image_url",
+      "comment": "front camera frame"
+    },
+    "status_code": 200,
+    "headers": {"content-type": "application/json"}
   },
   "attachments": [
     {
@@ -150,7 +162,7 @@ With `autodiscover_images` enabled, the tool response contains the sanitized res
 }
 ```
 
-The `result` field is then passed to an LLM as the tool response, and `attachments` are passed as additional multimodal data.
+The response without `attachments` is then passed to an LLM as the tool response, and `attachments` are passed as additional multimodal data.
 
 #### Explicit path example
 
@@ -174,16 +186,20 @@ For this response:
 }
 ```
 
-Only `.inspection.photo` is extracted; `thumbnail` stays as ordinary payload data. The full tool response looks like this:
+Only `.inspection.photo` is extracted; `thumbnail` stays as ordinary payload data. The complete `response` object looks like this:
 
 ```json
 {
   "status": "ok",
   "result": {
-    "inspection": {
-      "photo": "Image .inspection.photo",
-      "thumbnail": "data:image/jpeg;base64,/9j/2wBD..."
-    }
+    "body": {
+      "inspection": {
+        "photo": "Image .inspection.photo",
+        "thumbnail": "data:image/jpeg;base64,/9j/2wBD..."
+      }
+    },
+    "status_code": 200,
+    "headers": {"content-type": "application/json"}
   },
   "attachments": [
     {
@@ -198,7 +214,7 @@ Only `.inspection.photo` is extracted; `thumbnail` stays as ordinary payload dat
 
 #### Binary response example
 
-If an HTTP endpoint returns raw PNG bytes with `Content-Type: image/png`, the binary is treated as the root "value":
+If an HTTP tool configured with `payload_type: "binary"` receives raw PNG bytes with `Content-Type: image/png`, the binary is treated as the root "value":
 
 ```text
 Content-Type: image/png
@@ -211,7 +227,11 @@ The root payload is represented as `Image .` and the PNG bytes are attached sepa
 ```json
 {
   "status": "ok",
-  "result": "Image .",
+  "result": {
+    "body": "Image .",
+    "status_code": 200,
+    "headers": {"content-type": "image/png"}
+  },
   "attachments": [
     {
       "id": ".",
@@ -250,7 +270,7 @@ Session traffic uses two topic schemas:
 - `$sess/in/<sid>` -- inbound frames to the session.
 - `$sess/out/<sid>` -- outbound frames from the session.
 
-Each session is identified by a cluster-unique `sid` (session ID).
+Each session is identified by a `sid` (session ID). Persistent session IDs are derived from the step's key expression. Nonpersistent session IDs are derived from the pipeline instance and step.
 
 Inbound frames on `$sess/in/<sid>`:
 
@@ -270,7 +290,7 @@ Outbound frames on `$sess/out/<sid>`:
 | `final` | Finish the current LLM turn and return the result plus usage counters. |
 | `error` | Report a session-side failure, such as an unavailable provider or history compaction error. |
 
-Every outbound frame includes `sid`, `iid`, `trace_id`, and accumulated `usage`. Model reasoning/thinking chunks are kept inside the session today; only published stream chunks appear as `intermediate` frames.
+Every outbound frame includes `sid`, `iid`, `trace_id`, and accumulated `usage`. Model reasoning/thinking chunks are not published or retained; content chunks are published as `intermediate` frames.
 
 Enabling persistence means the session does not stop after `final` is published. It continues to exist and may receive further requests, forming a multi-turn conversation.
 
@@ -391,7 +411,7 @@ The script creates the builder AI provider, a PostgreSQL connection, builder met
 /api/v5/plugin_api/emqx_agent/builder/ui
 ```
 
-Both scripts recreate their demo assets and may delete existing Agent demo resources before provisioning. To remove demo resources explicitly, run:
+The Apple Box initializer recreates its named demo assets. The Pipeline Builder initializer and the teardown script delete all configured Agent pipelines, tools, and connections, including resources unrelated to the demos. To run the teardown script:
 
 ```bash
 python3 plugins/emqx_agent/demo_teardown.py
@@ -408,10 +428,16 @@ make plugin-emqx_agent
 Run this plugin's Common Test suites:
 
 ```bash
-make plugins/emqx_agent-ct
+./scripts/ct/run.sh --app plugins/emqx_agent
 ```
 
-LLM-backed demo suites require a capable LLM. They run only when `OPENAI_API_KEY` is set and are otherwise skipped.
+The command above does not forward host API key environment variables, so LLM-backed demo suites are skipped. To run them with the default provider, pass `OPENAI_API_KEY` into the container command:
+
+```bash
+./scripts/ct/run.sh --app plugins/emqx_agent -- env OPENAI_API_KEY="$OPENAI_API_KEY" make plugins/emqx_agent-ct
+```
+
+For another provider, also pass `EMQX_AGENT_TEST_LLM_PROVIDER` and its API key.
 
 ## Development
 
