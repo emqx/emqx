@@ -16,4 +16,13 @@
 -define(CONFIG_TAB, emqx_mt_config).
 -define(TOMBSTONE_TAB, emqx_mt_tombstone).
 
+%% Mria table to store various configurations for explicitly created namespaces.
+%% They is simply the namespace name (a binary).
+%% Currently, we limit the maximum number of configurable namespaces.
+-record(?CONFIG_TAB, {
+    key :: emqx_mt:tns(),
+    configs :: emqx_mt_config:root_config(),
+    extra = #{} :: map()
+}).
+
 -endif.
