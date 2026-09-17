@@ -974,7 +974,7 @@ sign_token(Username, Password, MfaToken) ->
 -spec verify_token(_, Token :: binary()) ->
     Result ::
         {ok, binary()}
-        | {error, token_timeout | not_found | unauthorized_role}.
+        | {error, token_timeout | not_found | {unauthorized_role, Username :: binary()}}.
 verify_token(Req, Token) ->
     emqx_dashboard_token:verify(Req, Token).
 

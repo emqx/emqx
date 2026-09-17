@@ -294,7 +294,7 @@ t_ws_non_check_origin(_) ->
 t_websocket_handle_binary(_) ->
     {ok, _} = ?ws_conn:websocket_handle({binary, <<>>}, st()),
     {ok, _} = ?ws_conn:websocket_handle({binary, [<<>>]}, st()),
-    {[{binary, Frame}], _} = ?ws_conn:websocket_handle({binary, <<192, 0>>}, st()),
+    {[{binary, Frame}], _} = ?ws_conn:websocket_handle({binary, <<192, 0>>}, st_after_connect()),
     ?assertEqual(
         iolist_to_binary(Frame),
         iolist_to_binary(emqx_frame:serialize(?PACKET(?PINGRESP)))
@@ -307,7 +307,7 @@ t_websocket_handle_packet_order(_) ->
     ],
     <<Frag1:2/bytes, Frag2/bytes>> =
         iolist_to_binary([emqx_frame:serialize(P, ?MQTT_PROTO_V5) || P <- Publishes]),
-    {ok, St1} = ?ws_conn:websocket_handle({binary, Frag1}, st()),
+    {ok, St1} = ?ws_conn:websocket_handle({binary, Frag1}, st_after_connect()),
     {[{binary, Frame1}, {binary, Frame2}], _} = ?ws_conn:websocket_handle({binary, Frag2}, St1),
     ?assertEqual(
         iolist_to_binary(Frame1),
@@ -439,7 +439,7 @@ t_handle_timeout_emit_stats(_) ->
     ?assertEqual(undefined, ?ws_conn:info(stats_timer, St)).
 
 t_parse_incoming(_) ->
-    {Packets, St} = ?ws_conn:parse_incoming(<<48, 3>>, [], st()),
+    {Packets, St} = ?ws_conn:parse_incoming(<<48, 3>>, [], st_after_connect()),
     {Packets1, _} = ?ws_conn:parse_incoming(<<0, 1, 116>>, Packets, St),
     Packet = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>),
     ?assertEqual([Packet], Packets1).
@@ -449,13 +449,29 @@ t_parse_incoming_order(_) ->
     Packet2 = ?PUBLISH_PACKET(?QOS_0, <<"t2">>, undefined, <<>>),
     Bin1 = emqx_frame:serialize(Packet1),
     Bin2 = emqx_frame:serialize(Packet2),
-    {Packets1, _} = ?ws_conn:parse_incoming(erlang:iolist_to_binary([Bin1, Bin2]), [], st()),
+    {Packets1, _} = ?ws_conn:parse_incoming(
+        erlang:iolist_to_binary([Bin1, Bin2]), [], st_after_connect()
+    ),
     ?assertEqual([Packet1, Packet2], Packets1).
 
 t_parse_incoming_frame_error(_) ->
-    {Packets, _St} = ?ws_conn:parse_incoming(<<3, 2, 1, 0>>, [], st()),
+    {Packets, _St} = ?ws_conn:parse_incoming(<<3, 2, 1, 0>>, [], st_after_connect()),
     ?assertMatch(
         [{frame_error, #{header_type := _, cause := malformed_packet}}],
+        Packets
+    ).
+
+-doc """
+A non-CONNECT first packet is rejected from its fixed header, before the
+announced body is buffered.
+""".
+t_parse_incoming_before_connect(_) ->
+    %% PUBLISH fixed header announcing a 268435455 byte body.
+    Publish = <<(?PUBLISH bsl 4), 16#FF, 16#FF, 16#FF, 16#7F>>,
+    St0 = st(#{channel => channel(#{conn_state => idle})}),
+    {Packets, _St} = ?ws_conn:parse_incoming(Publish, [], St0),
+    ?assertMatch(
+        [{frame_error, #{cause := unexpected_packet_before_connect, header_type := 'PUBLISH'}}],
         Packets
     ).
 
@@ -496,6 +512,15 @@ conninfo() ->
     }.
 
 st() -> st(#{}).
+
+%% Connection state whose parser has already accepted a CONNECT, so that the
+%% packets after it are parsed as usual.
+st_after_connect() -> st_after_connect(#{}).
+st_after_connect(InitFields) ->
+    Connect = iolist_to_binary(emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{}))),
+    {[_], St} = ?ws_conn:parse_incoming(Connect, [], st(InitFields)),
+    St.
+
 st(InitFields) when is_map(InitFields) ->
     {ok, St, _} = ?ws_conn:websocket_init([
         conninfo(),

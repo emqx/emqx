@@ -13,6 +13,7 @@
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 -include("emqx_schema.hrl").
+-include("emqx_mqtt.hrl").
 -include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -3860,6 +3861,14 @@ mqtt_general() ->
                     validator => fun ?MODULE:validate_max_packet_size/1,
                     converter => fun ?MODULE:convert_max_packet_size/2,
                     desc => ?DESC(mqtt_max_packet_size)
+                }
+            )},
+        {"max_connect_user_properties",
+            sc(
+                hoconsc:union([non_neg_integer(), infinity]),
+                #{
+                    default => ?DEFAULT_MAX_CONNECT_USER_PROPERTIES,
+                    desc => ?DESC(mqtt_max_connect_user_properties)
                 }
             )},
         {"max_clientid_len",

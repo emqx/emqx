@@ -25,6 +25,10 @@
 %% Unpack plugin tar/delete unpacked content
 -export([
     ensure_installed_from_tar/2,
+    install_state/2,
+    is_extraction_complete/1,
+    is_in_use/1,
+    prepare_replacement/1,
     purge_installed/1,
     is_installed/1
 ]).
@@ -64,6 +68,11 @@
     info_file_path/1,
     plugin_dir/1
 ]).
+
+%% What the plugin's install directory currently holds
+-type install_state() :: installed | incomplete | absent.
+
+-export_type([install_state/0]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -219,11 +228,130 @@ install_from_local_tar(NameVsn, InstallValidator) ->
 
 -spec ensure_installed_from_tar(name_vsn(), fun(() -> ok | {error, term()})) -> ok | {error, map()}.
 ensure_installed_from_tar(NameVsn, InstallValidator) ->
+    case install_state(NameVsn, InstallValidator) of
+        installed ->
+            ok;
+        absent ->
+            install_from_local_tar(NameVsn, InstallValidator);
+        incomplete ->
+            recover_incomplete_installation(NameVsn, InstallValidator)
+    end.
+
+%% @doc Classify what the plugin's install directory currently holds.
+%%
+%% `installed' means that the metadata is readable *and* that every application
+%% declared by the package has been extracted.  A directory holding only the
+%% leftovers of an interrupted or failed installation (no readable
+%% `release.json', or a manifest without the application files it declares) is
+%% `incomplete'; `absent' means that there is no directory at all.
+-spec install_state(name_vsn(), fun(() -> ok | {error, term()})) -> install_state().
+install_state(NameVsn, InstallValidator) ->
     case is_installed(NameVsn) of
-        true ->
-            InstallValidator();
         false ->
-            install_from_local_tar(NameVsn, InstallValidator)
+            absent;
+        true ->
+            case InstallValidator() of
+                ok ->
+                    case is_extraction_complete(NameVsn) of
+                        true -> installed;
+                        false -> incomplete
+                    end;
+                {error, _Reason} ->
+                    incomplete
+            end
+    end.
+
+%% @doc Whether every application declared by the plugin's `release.json' has
+%% been extracted into the install directory.
+%%
+%% A readable `release.json' alone does not prove that the unpack finished: the
+%% extraction may have been interrupted after the manifest had been written, so
+%% the applications it declares (and the beam files those applications declare)
+%% are checked as well.
+-spec is_extraction_complete(name_vsn()) -> boolean().
+is_extraction_complete(NameVsn) ->
+    case apps_not_extracted(NameVsn) of
+        {ok, []} -> true;
+        _ -> false
+    end.
+
+%% @doc The applications declared by the plugin's `release.json' whose files
+%% have not been extracted.  `error' when the metadata can not be read.
+-spec apps_not_extracted(name_vsn()) -> {ok, [name_vsn()]} | error.
+apps_not_extracted(NameVsn) ->
+    case read_info(NameVsn) of
+        {ok, #{<<"rel_apps">> := Apps}} when is_list(Apps) ->
+            {ok, [App || App <- Apps, not is_app_extracted(NameVsn, App)]};
+        _ ->
+            error
+    end.
+
+%% @doc Whether one of the plugin's applications is running on this node.
+-spec is_in_use(name_vsn()) -> boolean().
+is_in_use(NameVsn) ->
+    emqx_plugins_apps:running_apps_from(plugin_dir(NameVsn)) =/= [].
+
+%% @doc Check that the plugin's install directory can be replaced, and unload
+%% the applications that are still loaded from it.
+%%
+%% An error is returned when one of the plugin's applications is running: the
+%% files of a running plugin must not be deleted, the plugin would keep running
+%% from replaced or missing code.  The applications that are merely loaded are
+%% unloaded, so that the package which is unpacked afterwards is loaded cleanly
+%% instead of the old modules staying in the code server.
+-spec prepare_replacement(name_vsn()) -> ok | {error, map()}.
+prepare_replacement(NameVsn) ->
+    PluginDir = plugin_dir(NameVsn),
+    case emqx_plugins_apps:running_apps_from(PluginDir) of
+        [] ->
+            case emqx_plugins_apps:stop_and_unload_loaded(PluginDir) of
+                {ok, _} ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "failed_to_unload_plugin_apps",
+                        name_vsn => NameVsn,
+                        reason => Reason
+                    })
+            end;
+        Running ->
+            ?SLOG(warning, #{
+                msg => "refusing_to_replace_running_plugin",
+                name_vsn => NameVsn,
+                running_apps => Running
+            }),
+            {error, #{
+                msg => "plugin_is_in_use",
+                name_vsn => NameVsn,
+                running_apps => Running,
+                hint => <<"stop the plugin first">>
+            }}
+    end.
+
+recover_incomplete_installation(NameVsn, InstallValidator) ->
+    case prepare_replacement(NameVsn) of
+        ok ->
+            %% The install dir only holds leftovers of an interrupted or failed
+            %% installation: that is not an installation, so purge it and unpack
+            %% the package into a clean directory instead of letting stale files
+            %% shadow the new content.
+            ?SLOG(warning, #{
+                msg => "purging_incomplete_plugin_installation",
+                name_vsn => NameVsn,
+                reason => incomplete_installation_reason(NameVsn)
+            }),
+            case purge_installed(NameVsn) of
+                ok ->
+                    install_from_local_tar(NameVsn, InstallValidator);
+                {error, PurgeError} ->
+                    {error, #{
+                        msg => "failed_to_purge_plugin_dir",
+                        name_vsn => NameVsn,
+                        reason => PurgeError
+                    }}
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
 -spec is_installed(name_vsn()) -> boolean().
@@ -449,6 +577,45 @@ app_dir(AppName, Apps) ->
             {error, not_found}
     end.
 
+%% Check that the files of the given application are all on disk: its resource
+%% file must be there, and so must the beam files it declares.
+is_app_extracted(NameVsn, AppNameVsn) ->
+    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
+    EbinDir = filename:join([plugin_dir(NameVsn), bin(AppNameVsn), "ebin"]),
+    case app_modules(EbinDir, AppName) of
+        {ok, Modules} ->
+            lists:all(
+                fun(Module) ->
+                    Beam = atom_to_list(Module) ++ ".beam",
+                    filelib:is_regular(filename:join(EbinDir, Beam))
+                end,
+                Modules
+            );
+        error ->
+            false
+    end.
+
+app_modules(EbinDir, AppName) ->
+    AppFile = filename:join(EbinDir, atom_to_list(AppName) ++ ".app"),
+    case file:consult(AppFile) of
+        {ok, [{application, _AppName, Props}]} when is_list(Props) ->
+            case proplists:get_value(modules, Props, []) of
+                Modules when is_list(Modules) -> {ok, Modules};
+                _ -> error
+            end;
+        _ ->
+            error
+    end.
+
+%% Why an installation is not complete, for the logs: the metadata is not
+%% readable at all, or the files of the given applications are missing.
+incomplete_installation_reason(NameVsn) ->
+    case apps_not_extracted(NameVsn) of
+        {ok, []} -> metadata_not_readable;
+        {ok, Apps} -> {apps_not_extracted, Apps};
+        error -> metadata_not_readable
+    end.
+
 normalize_dir(Dir) ->
     %% Get rid of possible trailing slash
     filename:join([Dir, ""]).
@@ -467,6 +634,7 @@ delete_file_if_exists(File) ->
     end.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+bin(B) when is_binary(B) -> B;
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8).
 
 -ifdef(TEST).
