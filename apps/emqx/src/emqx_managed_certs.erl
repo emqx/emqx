@@ -404,7 +404,8 @@ write_files_staged(Dir, Namespace, BundleName, Files) ->
         fun(Kind, Contents) ->
             Path = filename:join(Dir, filename:basename(filename(Namespace, BundleName, Kind))),
             Tmp = tmp_filename(Path),
-            {Path, Tmp, file:write_file(Tmp, Contents)}
+            %% `sync': the content must be on disk before the rename makes it visible.
+            {Path, Tmp, file:write_file(Tmp, Contents, [sync])}
         end,
         Files
     ),
