@@ -58,6 +58,9 @@ is_sensitive_key(<<"bind_password">>) -> true;
 is_sensitive_key(client_jwks) -> true;
 is_sensitive_key("client_jwks") -> true;
 is_sensitive_key(<<"client_jwks">>) -> true;
+is_sensitive_key(client_secret) -> true;
+is_sensitive_key("client_secret") -> true;
+is_sensitive_key(<<"client_secret">>) -> true;
 is_sensitive_key(id_token) -> true;
 is_sensitive_key("id_token") -> true;
 is_sensitive_key(<<"id_token">>) -> true;
@@ -429,6 +432,7 @@ redact_test_() ->
         access_token,
         api_secret,
         aws_secret_access_key,
+        client_secret,
         passcode,
         passwd,
         password,
