@@ -44,6 +44,27 @@
 
 -export_type([channel/0, replies/0, stomp_frame/0]).
 
+-define(TRANS_TIMEOUT, 60000).
+%% Transactions accumulate whole frames until they are committed or aborted, so
+%% per-channel state must be bounded or a single client could pin unbounded
+%% memory in the channel process.
+-define(MAX_TRANSACTIONS, 100).
+-define(MAX_TRANSACTION_ACTIONS, 1000).
+-define(MAX_TRANSACTION_BYTES, 16777216).
+
+-record(trans, {
+    started_at :: integer(),
+    actions = [] :: [{function(), [term()]}],
+    bytes = 0 :: non_neg_integer()
+}).
+
+-record(trans_limit, {
+    max_transactions = ?MAX_TRANSACTIONS :: non_neg_integer(),
+    max_actions = ?MAX_TRANSACTION_ACTIONS :: non_neg_integer(),
+    max_bytes = ?MAX_TRANSACTION_BYTES :: non_neg_integer(),
+    timeout = ?TRANS_TIMEOUT :: non_neg_integer()
+}).
+
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),
@@ -63,8 +84,12 @@
     subscriptions = [],
     %% Timer
     timers :: #{atom() => disable | undefined | reference()},
-    %% Transaction
-    transaction :: #{binary() => list()}
+    %% Transactions, keyed by transaction id
+    transaction = #{} :: #{binary() => #trans{}},
+    %% Total bytes retained by all in-progress transactions
+    transaction_bytes = 0 :: non_neg_integer(),
+    %% Per-channel transaction bounds
+    trans_limit :: #trans_limit{}
 }).
 
 -opaque channel() :: #channel{}.
@@ -85,8 +110,6 @@
     clean_trans_timer => clean_trans,
     connection_expire_timer => connection_expire
 }).
-
--define(TRANS_TIMEOUT, 60000).
 
 -define(DEFAULT_OVERRIDE,
     %% Generate clientid by default
@@ -150,7 +173,17 @@ init(
         clientinfo_override = Override,
         timers = #{},
         transaction = #{},
+        trans_limit = trans_limit(Option),
         conn_state = idle
+    }.
+
+trans_limit(Option) ->
+    Opts = maps:get(transaction, Option, #{}),
+    #trans_limit{
+        max_transactions = maps:get(max_transactions, Opts, ?MAX_TRANSACTIONS),
+        max_actions = maps:get(max_actions_per_transaction, Opts, ?MAX_TRANSACTION_ACTIONS),
+        max_bytes = maps:get(max_retained_bytes, Opts, ?MAX_TRANSACTION_BYTES),
+        timeout = maps:get(timeout, Opts, ?TRANS_TIMEOUT)
     }.
 
 setting_peercert_infos(NoSSL, ClientInfo) when
@@ -595,19 +628,28 @@ handle_in(Frame = ?PACKET(?CMD_NACK, Headers), Channel) ->
 %% ^@
 handle_in(
     ?PACKET(?CMD_BEGIN, Headers),
-    Channel = #channel{transaction = Trans}
+    Channel = #channel{transaction = Trans, trans_limit = Limit}
 ) ->
     TxId = header(<<"transaction">>, Headers),
-    case maps:get(TxId, Trans, undefined) of
-        undefined ->
-            StartedAt = erlang:system_time(millisecond),
-            NChannel = ensure_clean_trans_timer(
-                Channel#channel{
-                    transaction = Trans#{TxId => {StartedAt, []}}
-                }
-            ),
-            handle_out(receipt, receipt_id(Headers), NChannel);
-        _ ->
+    case {TxId, maps:get(TxId, Trans, undefined)} of
+        {undefined, _} ->
+            ErrMsg = "Transaction id is required",
+            handle_out(error, {receipt_id(Headers), ErrMsg}, Channel);
+        {_, undefined} ->
+            case maps:size(Trans) >= Limit#trans_limit.max_transactions of
+                true ->
+                    ErrFrame = error_frame(receipt_id(Headers), "Too many transactions"),
+                    shutdown(too_many_transactions, ErrFrame, Channel);
+                false ->
+                    StartedAt = erlang:system_time(millisecond),
+                    NChannel = ensure_clean_trans_timer(
+                        Channel#channel{
+                            transaction = Trans#{TxId => #trans{started_at = StartedAt}}
+                        }
+                    ),
+                    handle_out(receipt, receipt_id(Headers), NChannel)
+            end;
+        {_, _} ->
             ErrMsg = ["Transaction ", TxId, " already started"],
             handle_out(error, {receipt_id(Headers), ErrMsg}, Channel)
     end;
@@ -634,12 +676,9 @@ handle_in(?PACKET(?CMD_COMMIT, Headers), Channel) ->
 %% transaction:tx1
 %%
 %% ^@
-handle_in(
-    ?PACKET(?CMD_ABORT, Headers),
-    Channel = #channel{transaction = Trans}
-) ->
+handle_in(?PACKET(?CMD_ABORT, Headers), Channel) ->
     with_transaction(Headers, Channel, fun(Id, _Actions) ->
-        NChannel = Channel#channel{transaction = maps:remove(Id, Trans)},
+        NChannel = remove_trans(Id, Channel),
         handle_out(receipt, receipt_id(Headers), NChannel)
     end);
 handle_in(
@@ -676,15 +715,23 @@ with_transaction(Headers, Channel = #channel{transaction = Trans}, Fun) ->
     Id = header(<<"transaction">>, Headers),
     ReceiptId = receipt_id(Headers),
     case maps:get(Id, Trans, undefined) of
-        {_, Actions} ->
+        #trans{actions = Actions} ->
             Fun(Id, Actions);
         _ ->
             ErrMsg = ["Transaction ", Id, " not found"],
             handle_out(error, {ReceiptId, ErrMsg}, Channel)
     end.
 
-remove_trans(Id, Channel = #channel{transaction = Trans}) ->
-    Channel#channel{transaction = maps:remove(Id, Trans)}.
+remove_trans(Id, Channel = #channel{transaction = Trans, transaction_bytes = Total}) ->
+    case maps:get(Id, Trans, undefined) of
+        #trans{bytes = Bytes} ->
+            Channel#channel{
+                transaction = maps:remove(Id, Trans),
+                transaction_bytes = Total - Bytes
+            };
+        _ ->
+            Channel
+    end.
 
 trans_pipeline([], Outgoings, Channel) ->
     {ok, Outgoings, Channel};
@@ -1131,15 +1178,32 @@ handle_timeout(
     NHrtBt = emqx_stomp_heartbeat:reset(outgoing, NewVal, HrtBt),
     NChannel = Channel#channel{heartbeat = NHrtBt},
     {ok, {outgoing, emqx_stomp_frame:make(?CMD_HEARTBEAT)}, reset_timer(outgoing_timer, NChannel)};
-handle_timeout(_TRef, clean_trans, Channel = #channel{transaction = Trans}) ->
+handle_timeout(
+    _TRef,
+    clean_trans,
+    Channel = #channel{transaction = Trans, trans_limit = Limit}
+) ->
     Now = erlang:system_time(millisecond),
-    NTrans = maps:filter(
-        fun(_, {StartedAt, _}) ->
-            StartedAt + ?TRANS_TIMEOUT < Now
+    Timeout = Limit#trans_limit.timeout,
+    %% Keep only unexpired transactions, and recompute the retained byte total
+    %% from what survives.
+    {NTrans, NBytes} = maps:fold(
+        fun(Id, Tx = #trans{started_at = StartedAt, bytes = Bytes}, {Acc, Total}) ->
+            case StartedAt + Timeout > Now of
+                true -> {Acc#{Id => Tx}, Total + Bytes};
+                false -> {Acc, Total}
+            end
         end,
+        {#{}, 0},
         Trans
     ),
-    {ok, ensure_clean_trans_timer(Channel#channel{transaction = NTrans})};
+    %% The fired timer reference must be cleared before re-arming, otherwise
+    %% `ensure_timer/2' sees a stale reference and never schedules another run.
+    NChannel = clean_timer(
+        clean_trans_timer,
+        Channel#channel{transaction = NTrans, transaction_bytes = NBytes}
+    ),
+    {ok, ensure_clean_trans_timer(NChannel)};
 handle_timeout(_TRef, connection_expire, Channel) ->
     %% No session take over implemented, just shut down
     shutdown(expired, Channel).
@@ -1268,11 +1332,34 @@ receipt_id(Headers) ->
 %%--------------------------------------------------------------------
 %% Trans
 
-add_action(TxId, Action, ReceiptId, Channel = #channel{transaction = Trans}) ->
+add_action(
+    TxId,
+    Action,
+    ReceiptId,
+    Channel = #channel{transaction = Trans, trans_limit = Limit}
+) ->
     case maps:get(TxId, Trans, undefined) of
-        {_StartedAt, Actions} ->
-            NTrans = Trans#{TxId => {_StartedAt, [Action | Actions]}},
-            {ok, Channel#channel{transaction = NTrans}};
+        #trans{} = Tx ->
+            Bytes = action_bytes(Action),
+            NBytes = Channel#channel.transaction_bytes + Bytes,
+            case
+                length(Tx#trans.actions) >= Limit#trans_limit.max_actions orelse
+                    NBytes > Limit#trans_limit.max_bytes
+            of
+                true ->
+                    ErrFrame = error_frame(ReceiptId, "Transaction limit exceeded"),
+                    shutdown(transaction_limit_exceeded, ErrFrame, Channel);
+                false ->
+                    NTx = Tx#trans{
+                        actions = [Action | Tx#trans.actions],
+                        bytes = Tx#trans.bytes + Bytes
+                    },
+                    NTrans = Trans#{TxId => NTx},
+                    {ok, Channel#channel{
+                        transaction = NTrans,
+                        transaction_bytes = NBytes
+                    }}
+            end;
         _ ->
             ErrFrame = error_frame(
                 ReceiptId,
@@ -1280,6 +1367,16 @@ add_action(TxId, Action, ReceiptId, Channel = #channel{transaction = Trans}) ->
             ),
             {ok, {outgoing, ErrFrame}, Channel}
     end.
+
+%% Bytes retained by a buffered SEND/ACK/NACK frame.
+action_bytes({_Fun, [Frame = #stomp_frame{}]}) ->
+    frame_bytes(Frame);
+action_bytes(_Action) ->
+    0.
+
+frame_bytes(#stomp_frame{headers = Headers, body = Body}) ->
+    iolist_size(Body) +
+        lists:sum([iolist_size(Name) + iolist_size(Val) || {Name, Val} <- Headers]).
 
 %%--------------------------------------------------------------------
 %% Transaction Handle
@@ -1355,8 +1452,8 @@ interval(incoming_timer, #channel{heartbeat = HrtBt}) ->
     emqx_stomp_heartbeat:interval(incoming, HrtBt);
 interval(outgoing_timer, #channel{heartbeat = HrtBt}) ->
     emqx_stomp_heartbeat:interval(outgoing, HrtBt);
-interval(clean_trans_timer, _) ->
-    ?TRANS_TIMEOUT.
+interval(clean_trans_timer, #channel{trans_limit = Limit}) ->
+    Limit#trans_limit.timeout.
 
 %%--------------------------------------------------------------------
 %% Helper functions

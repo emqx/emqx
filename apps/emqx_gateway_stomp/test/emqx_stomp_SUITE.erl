@@ -74,6 +74,7 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     snabbkaffe:stop(),
+    reset_stomp_transaction(),
     ok.
 
 default_config() ->
@@ -88,6 +89,28 @@ update_stomp_with_mountpoint(Mountpoint) ->
         stomp,
         Conf#{<<"mountpoint">> => Mountpoint}
     ).
+
+update_stomp_transaction(TransConf) ->
+    RawConfig = emqx_config:get_raw([gateway, stomp]),
+    RawConfig1 = emqx_utils_maps:deep_put([<<"transaction">>], RawConfig, TransConf),
+    {ok, _} = emqx_gateway_conf:update_gateway(stomp, RawConfig1),
+    ok.
+
+default_transaction_conf() ->
+    #{
+        <<"max_transactions">> => 100,
+        <<"max_actions_per_transaction">> => 1000,
+        <<"max_retained_bytes">> => 16777216,
+        <<"timeout">> => <<"60s">>
+    }.
+
+reset_stomp_transaction() ->
+    Defaults = default_transaction_conf(),
+    RawConfig = emqx_config:get_raw([gateway, stomp]),
+    case maps:get(<<"transaction">>, RawConfig, Defaults) of
+        Defaults -> ok;
+        _ -> update_stomp_transaction(Defaults)
+    end.
 
 %%--------------------------------------------------------------------
 %% Test Cases
@@ -968,6 +991,23 @@ t_frame_error_too_long_body(_) ->
         end,
     test_frame_error(Frame, Assert).
 
+%% The declared `content-length` exceeds max_body_length, so the frame must be
+%% rejected without the client ever sending the body.
+t_frame_error_declared_body_too_long(_) ->
+    Frame = [
+        <<"SEND\ndestination:/queue/foo\ncontent-length:1000000\n\n">>
+    ],
+    Assert =
+        fun(Sock) ->
+            {ok, ErrorFrame} = recv_a_frame(Sock),
+            ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+            ?assertMatch(
+                match, re:run(ErrorFrame#stomp_frame.body, "too_long_body", [{capture, none}])
+            ),
+            ?assertMatch({error, closed}, gen_tcp:recv(Sock, 0))
+        end,
+    test_frame_error(Frame, Assert).
+
 test_frame_error(Frame, AssertFun) ->
     with_connection(fun(Sock) ->
         send_connection_frame(Sock, <<"guest">>, <<"guest">>),
@@ -975,6 +1015,134 @@ test_frame_error(Frame, AssertFun) ->
         gen_tcp:send(Sock, Frame),
         AssertFun(Sock)
     end).
+
+%% A transaction that is never committed must be dropped once it expires, and
+%% the cleanup must keep running for transactions opened later.
+t_transaction_expires(_) ->
+    ok = update_stomp_transaction(#{<<"timeout">> => <<"1s">>}),
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+
+        ok = begin_frame(Sock, <<"tx1">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+        ok = send_transactional_frame(
+            Sock,
+            <<"SEND">>,
+            [transaction_header(<<"tx1">>), {<<"destination">>, <<"/queue/foo">>}],
+            <<"hello">>
+        ),
+
+        %% The buffered SEND is silently discarded when the transaction expires.
+        ct:sleep(1500),
+        ok = send_transactional_frame(Sock, <<"COMMIT">>, [transaction_header(<<"tx1">>)]),
+        {ok, ErrorFrame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+        ?assertMatch(
+            match, re:run(ErrorFrame#stomp_frame.body, "not found", [{capture, none}])
+        ),
+
+        %% The same must hold for a transaction opened after the first sweep.
+        ok = begin_frame(Sock, <<"tx2">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+        ct:sleep(1500),
+        ok = send_transactional_frame(Sock, <<"COMMIT">>, [transaction_header(<<"tx2">>)]),
+        {ok, ErrorFrame2} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame2)
+    end).
+
+t_transaction_max_transactions(_) ->
+    ok = update_stomp_transaction(#{<<"max_transactions">> => 2}),
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+
+        ok = begin_frame(Sock, <<"tx1">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+        ok = begin_frame(Sock, <<"tx2">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+
+        ok = begin_frame(Sock, <<"tx3">>),
+        {ok, ErrorFrame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+        ?assertMatch(
+            match,
+            re:run(ErrorFrame#stomp_frame.body, "Too many transactions", [{capture, none}])
+        ),
+        ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0))
+    end).
+
+t_transaction_max_actions(_) ->
+    ok = update_stomp_transaction(#{<<"max_actions_per_transaction">> => 2}),
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+
+        ok = begin_frame(Sock, <<"tx1">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+
+        lists:foreach(
+            fun(N) ->
+                Body = integer_to_binary(N),
+                ok = send_transactional_frame(
+                    Sock,
+                    <<"SEND">>,
+                    [transaction_header(<<"tx1">>), {<<"destination">>, <<"/queue/foo">>}],
+                    Body
+                )
+            end,
+            lists:seq(1, 3)
+        ),
+
+        {ok, ErrorFrame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+        ?assertMatch(
+            match,
+            re:run(ErrorFrame#stomp_frame.body, "Transaction limit exceeded", [{capture, none}])
+        ),
+        ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0))
+    end).
+
+t_transaction_max_retained_bytes(_) ->
+    ok = update_stomp_transaction(#{<<"max_retained_bytes">> => 100}),
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+
+        ok = begin_frame(Sock, <<"tx1">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+
+        ok = send_transactional_frame(
+            Sock,
+            <<"SEND">>,
+            [transaction_header(<<"tx1">>), {<<"destination">>, <<"/queue/foo">>}],
+            binary:copy(<<"x">>, 512)
+        ),
+
+        {ok, ErrorFrame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+        ?assertMatch(
+            match,
+            re:run(ErrorFrame#stomp_frame.body, "Transaction limit exceeded", [{capture, none}])
+        ),
+        ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0))
+    end).
+
+transaction_header(TxId) ->
+    {<<"transaction">>, TxId}.
+
+begin_frame(Sock, TxId) ->
+    send_transactional_frame(
+        Sock,
+        <<"BEGIN">>,
+        [transaction_header(TxId), {<<"receipt">>, <<"begin-", TxId/binary>>}]
+    ).
+
+send_transactional_frame(Sock, Command, Headers) ->
+    gen_tcp:send(Sock, serialize(Command, Headers)).
+
+send_transactional_frame(Sock, Command, Headers, Body) ->
+    gen_tcp:send(Sock, serialize(Command, Headers, Body)).
 
 t_rest_clientid_info(_) ->
     with_connection(fun(Sock) ->
