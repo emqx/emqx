@@ -6,6 +6,12 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
 
 ### Fixed
 
+- Per-device admission is a single atomic check-and-reserve on the owning index
+  shard instead of a separate check and reservation. Two concurrent requests for
+  the same device can no longer both pass a stale check and push it past
+  `max_pending_deliveries_per_device`. A request that does hit the cap still
+  reports the over-limit devices and drops the reservations of its other legs,
+  and the cap stays best-effort while a shard is unavailable.
 - The pending-delivery recount no longer drops the reservations of requests
   that are still waiting in an intake queue, and a round is abandoned
   altogether if any shard cannot be probed, so the global cap can no longer be
@@ -17,6 +23,10 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
 - Deleting a message that is shared by a large number of deliveries runs in
   bounded chunks with the message rows removed last, instead of one unbounded
   transaction that held the index shard for the whole sweep.
+- A delete whose index removal fails on one shard no longer discards the
+  entries the reachable shards removed in the same round, and the retry
+  re-issues only the shards that failed. A leg that still fails after the retry
+  may leave `canceled` undercounted, which the orphan sweep reconciles later.
 - A delivery whose completion transaction aborts during a rebuild is retried by
   the periodic cleanup, so a fully acknowledged delivery can no longer sit with
   an empty index until the next rebuild or expiry.
@@ -88,13 +98,16 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
 
 ### Documentation
 
-- Documented the two metric scopes: `in`/`enqueued`/`wanted`/`intake_depth` are
-  counted on the node that accepted and committed the API request (a replicant
-  reports 0 for them because it forwards to a core), while
-  `delivered`/`acked`/`queued`/`inflight` are counted where the device was
-  served. `wanted` counts every device of each batch the node committed, so the
-  ledger identity holds for `sum()` over nodes rather than per node. The
-  Prometheus HELP text states the same.
+- Documented the three metric scopes: `in`/`enqueued`/`intake_rejected`/
+  `promote_error`/`wanted`/`intake_depth` are counted on the node that accepted
+  and committed the API request (a replicant reports 0 for them because it
+  forwards to a core); `delivered`/`redelivered`/`acked`/`auto_acked` are
+  counted on the node whose pull shard served the device; and
+  `queued`/`inflight`/`ttl_expired`/`canceled` are counted on the **core** that
+  owns the device's index shard, or that runs the delete/cleanup for it.
+  `wanted` counts every device of each batch the node committed, so the ledger
+  identity holds for `sum()` over nodes rather than per node. The Prometheus
+  HELP text states the same.
 - Documented the acknowledgement counter window: an ack is counted when it is
   matched, up to one marker flush (50ms) before it becomes durable.
 - Corrected `API.md`, `FEATURES.md`, `USAGE.md`, `README.md` and

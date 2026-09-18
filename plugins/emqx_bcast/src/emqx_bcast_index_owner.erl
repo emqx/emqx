@@ -493,6 +493,32 @@ remove_batch(Entries) ->
             )
     ]).
 
+%% Error-aware variant, used by the management cascade delete only. Every leg
+%% that removed entries reports how many, including in a round that also had
+%% failures: the caller counts each round immediately and retries only the
+%% failed shards (removing an entry that is already gone is a no-op). Reporting
+%% the failures alone would lose whatever was removed before them and leave the
+%% canceled ledger permanently short by exactly that many.
+remove_batch_groups([]) ->
+    {ok, 0, []};
+remove_batch_groups(Groups) ->
+    Results = parallel_map(
+        fun({Shard, Sub}) ->
+            try route(Shard, {remove_batch, Sub}, ?SYNC_TIMEOUT_MS) of
+                {ok, Removed} when is_integer(Removed) -> {ok, Removed};
+                Other -> {error, Other}
+            catch
+                Error:Reason -> {error, {Error, Reason}}
+            end
+        end,
+        Groups
+    ),
+    Removed = lists:sum([N || {ok, N} <- Results]),
+    case [{Group, Reason} || {Group, {error, Reason}} <- lists:zip(Groups, Results)] of
+        [] -> {ok, Removed, []};
+        Failures -> {error, Removed, Failures}
+    end.
+
 claim(Entries) ->
     claim(Entries, node()).
 
@@ -633,12 +659,18 @@ admit(PK, DNs) ->
     case reserve_global(Len, GlobalMax) of
         ok ->
             Groups = group_devices(PK, DNs),
-            Over = parallel_check_devices(PK, Groups, PerDeviceMax),
+            Results = parallel_admit_devices(PK, Groups, PerDeviceMax),
+            %% Only a definite over-limit is an error. A leg whose shard is
+            %% dormant, unreachable or timed out keeps the degrade-to-accept
+            %% behaviour: its result is unknown, so it is neither rejected nor
+            %% rolled back (the periodic stale-reservation sweep reclaims any
+            %% reservation it may have made).
+            Over = lists:append([Ds || {error, {over_limit, Ds}} <- Results]),
             case Over of
                 [] ->
-                    parallel_reserve_devices(PK, Groups),
                     ok;
                 _ ->
+                    rollback_confirmed(PK, Groups, Results),
                     release_global(Len),
                     {error, {quota_exceeded, Over}}
             end;
@@ -701,11 +733,57 @@ release_global_local(Len) ->
     _ = ets:update_counter(?TAB_QUOTA_ETS, global, {2, -Len}),
     ok.
 
-%% Per-device quota checks across all shards in parallel (shard
-%% gen_server calls). A dormant or failing shard degrades to "no
-%% over-limit devices" (admission pressure defers to the bounded intake
-%% queue), matching the old coordinator's degrade-to-accept behavior
-%% during owner takeover.
+%% One atomic check-and-reserve call per shard: an active shard either
+%% reserves every device of its subset or reports the over-limit ones, so two
+%% concurrent requests can no longer both pass a stale check. A dormant or
+%% unavailable shard keeps the degrade-to-accept behaviour (admission pressure
+%% defers to the bounded intake queue), matching the old coordinator during
+%% owner takeover: it answers {ok, 0} without reserving rather than rejecting.
+parallel_admit_devices(PK, Groups, PerDeviceMax) ->
+    parallel_map(
+        fun({Shard, Sub}) ->
+            try route(Shard, {admit_devices, PK, Sub, PerDeviceMax}, ?SYNC_TIMEOUT_MS) of
+                {badrpc, Reason} ->
+                    log_admit_leg_unknown(PK, Shard, badrpc, Reason),
+                    {error, unknown};
+                Result ->
+                    Result
+            catch
+                %% An unreachable or timed-out shard leaves its share of the
+                %% per-device cap unenforced for this request, so the
+                %% degradation has to be observable.
+                Error:Reason ->
+                    log_admit_leg_unknown(PK, Shard, Error, Reason),
+                    {error, unknown}
+            end
+        end,
+        Groups
+    ).
+
+log_admit_leg_unknown(PK, Shard, Error, Reason) ->
+    ?SLOG(error, #{
+        msg => "bcast_admit_devices_failed",
+        product_key => PK,
+        shard => Shard,
+        exception => Error,
+        reason => Reason
+    }).
+
+%% Drop the reserve rows of the legs that confirmed a reservation. Uses the
+%% shard-local rollback (no global change) because the caller releases the
+%% whole global reservation separately. Only a leg that reports having reserved
+%% something is rolled back: a dormant shard answers {ok, 0} without reserving,
+%% and a rollback sent to it could land after it activates and decrement a
+%% reservation taken by a concurrent request. A failed or timed-out leg is
+%% unknown, so it is left to the periodic stale-reservation sweep.
+rollback_confirmed(PK, Groups, Results) ->
+    parallel_foreach(
+        fun({Shard, Sub}) ->
+            _ = route(Shard, {rollback_devices, PK, Sub}, ?SYNC_TIMEOUT_MS)
+        end,
+        [Group || {Group, {ok, N}} <- lists:zip(Groups, Results), N > 0]
+    ).
+
 parallel_check_devices(PK, Groups, Max) ->
     lists:append(
         parallel_map(
@@ -744,15 +822,6 @@ parallel_check_devices(PK, Groups, Max) ->
 %% Per-device reservations/releases keep going through the shard
 %% gen_servers (parallel): reserve rows are read-modify-write and must be
 %% serialized with append_entry's reserve_dec on the same shard process.
-parallel_reserve_devices(PK, Groups) ->
-    parallel_foreach(
-        fun({Shard, Sub}) ->
-            _ = route(Shard, {reserve_devices, PK, Sub}, ?SYNC_TIMEOUT_MS),
-            ok
-        end,
-        Groups
-    ).
-
 parallel_release_devices(PK, Groups) ->
     parallel_foreach(
         fun({Shard, Sub}) ->
@@ -868,21 +937,81 @@ bump_delete_epoch(MsgId) ->
     end.
 
 %% Delete the per-delivery rows in bounded chunks, one shard call per chunk,
-%% removing and counting that chunk's index entries right after its rows are
-%% gone. Never leaves a deleted row's index entry behind, so the operation is
-%% resumable: the remaining rows are still discoverable by dirty_deliveries_of/1.
+%% reconciling that chunk's index entries right after its rows are gone. The
+%% operation is resumable (the remaining rows are still discoverable by
+%% dirty_deliveries_of/1) and reconciled on a best-effort basis: a chunk whose
+%% index removal keeps failing is logged and left to the orphan sweep, so the
+%% canceled counter can undercount in that rare case rather than block the
+%% delete.
 delete_delivery_chunks([]) ->
     ok;
 delete_delivery_chunks(Deliveries) ->
     {Chunk, Rest} = lists:split(min(mgmt_delete_chunk(), length(Deliveries)), Deliveries),
     DeliveryIds = [D#bcast_msg.delivery_id || D <- Chunk],
-    case route(0, {delete_delivery_rows, DeliveryIds}, ?SYNC_TIMEOUT_MS) of
+    case delete_rows_idempotent(DeliveryIds) of
         ok ->
-            maybe_count_canceled(remove_batch(delivery_index_entries(Chunk))),
+            reconcile_chunk_index(Chunk),
             delete_delivery_chunks(Rest);
         {error, _} = Error ->
             Error
     end.
+
+%% Deleting already-deleted rows is a no-op, so an uncertain or failed leg can
+%% simply be issued again: a timeout may mean the commit landed and only the
+%% reply was lost.
+delete_rows_idempotent(DeliveryIds) ->
+    case try_delete_rows(DeliveryIds) of
+        ok ->
+            ok;
+        First ->
+            ?SLOG(warning, #{
+                msg => "bcast_delete_rows_retry",
+                chunk_size => length(DeliveryIds),
+                result => First
+            }),
+            try_delete_rows(DeliveryIds)
+    end.
+
+try_delete_rows(DeliveryIds) ->
+    try route(0, {delete_delivery_rows, DeliveryIds}, ?SYNC_TIMEOUT_MS) of
+        ok -> ok;
+        {error, _} = Error -> Error
+    catch
+        Error:Reason -> {error, {Error, Reason}}
+    end.
+
+%% Drop this chunk's index entries and count them. Every round counts what it
+%% removed, including a round that also failed, and only the shards that failed
+%% are re-issued. One retry, then the failure is logged and left to the periodic
+%% orphan sweep.
+reconcile_chunk_index(Chunk) ->
+    reconcile_index_groups(group_entries(delivery_index_entries(Chunk)), 1).
+
+reconcile_index_groups(Groups, Attempt) ->
+    case remove_batch_groups(Groups) of
+        {ok, Removed, []} ->
+            maybe_count_canceled(Removed),
+            ok;
+        {error, Removed, Failures} ->
+            maybe_count_canceled(Removed),
+            log_reconcile_failure(Attempt, Failures),
+            case Attempt of
+                1 -> reconcile_index_groups([Group || {Group, _} <- Failures], 2);
+                _ -> ok
+            end
+    end.
+
+log_reconcile_failure(1, Failures) ->
+    ?SLOG(warning, #{
+        msg => "bcast_delete_index_remove_retry",
+        failures => [{Shard, Reason} || {{Shard, _Sub}, Reason} <- Failures]
+    });
+log_reconcile_failure(_, Failures) ->
+    ?SLOG(error, #{
+        msg => "bcast_delete_index_remove_failed",
+        failures => [{Shard, Reason} || {{Shard, _Sub}, Reason} <- Failures],
+        note => "left to the orphan sweep; canceled may undercount"
+    }).
 
 %% Chunk size of the management cascade delete. Overridable so tests can
 %% exercise the multi-chunk path without creating hundreds of deliveries.
@@ -1273,6 +1402,21 @@ handle_call({admit, PK, DNs}, _From, State = #{active := true}) ->
 handle_call({release_admit, PK, DNs}, _From, State = #{active := true}) ->
     {Reply, State2} = safe_state(fun() -> {ok, dispatch_release(PK, DNs, State)} end, State),
     {reply, Reply, State2};
+handle_call({admit_devices, PK, DNs, Max}, _From, State = #{active := true}) ->
+    case check_devices_local(PK, DNs, Max, State) of
+        [] ->
+            State2 = lists:foldl(fun(DN, St) -> reserve_inc(St, {PK, DN}) end, State, DNs),
+            {reply, {ok, length(DNs)}, State2};
+        Over ->
+            {reply, {error, {over_limit, Over}}, State}
+    end;
+handle_call({rollback_devices, PK, DNs}, _From, State = #{active := true}) ->
+    State2 = lists:foldl(
+        fun(DN, St) -> element(1, reserve_dec(St, {PK, DN})) end,
+        State,
+        DNs
+    ),
+    {reply, ok, State2};
 handle_call({check_devices, PK, DNs, Max}, _From, State = #{active := true}) ->
     {reply, check_devices_local(PK, DNs, Max, State), State};
 handle_call({reserve_devices, PK, DNs}, _From, State = #{active := true}) ->
@@ -1351,6 +1495,12 @@ handle_call({sample_local}, _From, State) ->
 %% Dormant (not yet the owner, or takeover in progress): fail calls so
 %% callers retry; reads degrade to empty so management stays responsive.
 handle_call({admit, _PK, _DNs}, _From, State) ->
+    {reply, ok, State};
+handle_call({admit_devices, _PK, _DNs, _Max}, _From, State) ->
+    %% Dormant shard: accept without reserving, as the old check/reserve pair
+    %% did (a dormant shard has nothing to enforce).
+    {reply, {ok, 0}, State};
+handle_call({rollback_devices, _PK, _DNs}, _From, State) ->
     {reply, ok, State};
 handle_call({pending_count}, _From, State) ->
     {reply, 0, State};
@@ -3019,14 +3169,18 @@ release_client_claims_local(PK, DN, Tag, State) ->
 %% cast per shard per flush, not one spawn per release.
 release_claims_async(Claims) ->
     lists:foreach(
-        fun({Shard, Sub}) -> cast_shard(Shard, {release_batch, [{claim, E} || E <- Sub]}) end,
+        fun({Shard, Sub}) ->
+            cast_shard(Shard, {release_batch, [{claim, PK, DN, Did} || {PK, DN, Did} <- Sub]})
+        end,
         group_entries([{PK, DN, Did} || {PK, DN, Did} <- Claims])
     ),
     ok.
 
 release_client_claims_async(Tags) ->
     lists:foreach(
-        fun({Shard, Sub}) -> cast_shard(Shard, {release_batch, [{tag, E} || E <- Sub]}) end,
+        fun({Shard, Sub}) ->
+            cast_shard(Shard, {release_batch, [{tag, PK, DN, Tag} || {PK, DN, Tag} <- Sub]})
+        end,
         group_entries([{PK, DN, Tag} || {PK, DN, Tag} <- Tags])
     ),
     ok.

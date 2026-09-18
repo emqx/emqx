@@ -161,7 +161,7 @@ durable commit point, `ttl_expired`/`canceled` close the ledger):
 | `max_message_size_broadcast` | `65536` | Max PubBroadcast payload (bytes, 64 KiB) |
 | `max_message_size_batch` | `10240` | Max BatchPub payload binary (bytes, 10 KiB) |
 | `max_pending_deliveries` | `10000000` | Global cap on pending QoS=1 deliveries; requests exceeding it are rejected with 429 QuotaExceeded |
-| `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); requests targeting a device over the cap are rejected with 429 QuotaExceeded and the over-limit device list |
+| `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); a request targeting a device over the cap is rejected with 429 QuotaExceeded and the over-limit device list. The cap is **best-effort**: check and reservation are atomic on an active shard, but while a shard is unavailable (startup/takeover) the request is accepted without per-device accounting |
 | `delivery_pool_size` | `0` | Worker count for each delivery pool (the per-node claim pool and the core-side server pool). 0 means one worker per scheduler. Changing it restarts the pools |
 
 ### Legacy settings (no runtime effect)

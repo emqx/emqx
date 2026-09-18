@@ -3996,8 +3996,13 @@ t_delete_message_chunk_failure_is_resumable(_Config) ->
         try
             %% The chunk deletes run in shard 0, so only transactions issued
             %% from an index shard process are counted.
+            %% Fail BOTH attempts of the second chunk, so the chunk stays
+            %% unreconciled instead of being absorbed by the retry.
             meck:expect(mnesia, transaction, fun(Fun, Retries) ->
-                case in_index_shard() andalso atomics:add_get(Cnt, 1, 1) =:= 2 of
+                case
+                    in_index_shard() andalso
+                        lists:member(atomics:add_get(Cnt, 1, 1), [2, 3])
+                of
                     true -> {aborted, injected};
                     false -> meck:passthrough([Fun, Retries])
                 end
@@ -4034,3 +4039,234 @@ t_delete_message_chunk_failure_is_resumable(_Config) ->
     after
         application:unset_env(emqx_bcast, mgmt_delete_chunk)
     end.
+
+-doc "A transient failure of one chunk's row delete is absorbed by the single\n"
+"idempotent retry, so a delete whose reply was lost (or that hit a conflict)\n"
+"still completes.".
+t_delete_message_chunk_retry_absorbs_transient_abort(_Config) ->
+    PK = <<"PCHUNKRETRY">>,
+    DNS = same_shard_dns(PK, 7, 3),
+    Payload = <<"chunk retry">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    ok = emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+    DeliveryIds = [
+        begin
+            Did = emqx_bcast_utils:gen_guid(),
+            {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN], 1),
+            Did
+        end
+     || DN <- DNS
+    ],
+    CanceledBefore = metric(<<"batch_pub_qos1_canceled">>),
+    application:set_env(emqx_bcast, mgmt_delete_chunk, 1),
+    try
+        Cnt = atomics:new(1, []),
+        meck:new(mnesia, [passthrough, no_link]),
+        try
+            %% Fail only the FIRST attempt of the second chunk.
+            meck:expect(mnesia, transaction, fun(Fun, Retries) ->
+                case in_index_shard() andalso atomics:add_get(Cnt, 1, 1) =:= 2 of
+                    true -> {aborted, injected};
+                    false -> meck:passthrough([Fun, Retries])
+                end
+            end),
+            ?assertEqual(ok, emqx_bcast_storage:delete_message(ApiMsgId))
+        after
+            meck:unload(mnesia)
+        end,
+        lists:foreach(
+            fun(Did) -> ?assertEqual([], mnesia:dirty_read(bcast_msg, Did)) end,
+            DeliveryIds
+        ),
+        ?assertEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+        ?assertEqual(CanceledBefore + 3, metric(<<"batch_pub_qos1_canceled">>)),
+        lists:foreach(
+            fun(DN) ->
+                ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN}))
+            end,
+            DNS
+        )
+    after
+        application:unset_env(emqx_bcast, mgmt_delete_chunk)
+    end.
+
+-doc "Concurrent admission of the same device cannot exceed the per-device cap:\n"
+"an active shard checks and reserves in one call, so the requests cannot all\n"
+"pass a stale check.".
+t_admit_same_device_concurrent_respects_cap(_Config) ->
+    PK = <<"PADMITSAME">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    Max = emqx_bcast_config:get(max_pending_deliveries_per_device),
+    Attempts = Max + 20,
+    Parent = self(),
+    [
+        spawn(fun() -> Parent ! {admitted, emqx_bcast_index_owner:admit(PK, [DN])} end)
+     || _ <- lists:seq(1, Attempts)
+    ],
+    Outcomes = [
+        receive
+            {admitted, R} -> R
+        end
+     || _ <- lists:seq(1, Attempts)
+    ],
+    Accepted = length([ok || ok <- Outcomes]),
+    ?assertEqual(Max, Accepted),
+    lists:foreach(
+        fun(_) -> _ = emqx_bcast_index_owner:release_admit(PK, [DN]) end,
+        lists:seq(1, Accepted)
+    ).
+
+-doc "An unavailable shard keeps the degrade-to-accept behaviour: the request is\n"
+"admitted without per-device accounting on that shard instead of failing.".
+t_admit_unavailable_shard_still_accepts(_Config) ->
+    PK = <<"PADMITDEGRADE">>,
+    [DN] = same_shard_dns(PK, 8, 1),
+    Suspended = list_to_atom("emqx_bcast_index_owner_8"),
+    ?assert(is_pid(whereis(Suspended))),
+    ok = sys:suspend(Suspended),
+    try
+        ?assertEqual(ok, emqx_bcast_index_owner:admit(PK, [DN]))
+    after
+        ok = sys:resume(Suspended)
+    end,
+    %% The shard answers again after the resume.
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+-doc "A definite over-limit leg is reported as a quota error and the reservation\n"
+"made by the other, confirmed leg is rolled back.".
+t_admit_over_limit_rolls_back_other_legs(_Config) ->
+    PK = <<"PADMITRB">>,
+    [Full] = same_shard_dns(PK, 7, 1),
+    [Free] = same_shard_dns(PK, 8, 1),
+    Max = emqx_bcast_config:get(max_pending_deliveries_per_device),
+    lists:foreach(
+        fun(_) -> ok = emqx_bcast_index_owner:admit(PK, [Full]) end, lists:seq(1, Max)
+    ),
+    %% Free is on another shard, which confirms its reservation before the
+    %% over-limit leg on Full's shard rejects the request.
+    ?assertEqual(
+        {error, {quota_exceeded, [Full]}}, emqx_bcast_index_owner:admit(PK, [Free, Full])
+    ),
+    %% Free's capacity is intact: the rollback dropped the reservation the
+    %% failed request had already taken. A leaked reservation would leave only
+    %% Max - 1 slots, so the last of these admits would be rejected.
+    lists:foreach(
+        fun(_) -> ?assertEqual(ok, emqx_bcast_index_owner:admit(PK, [Free])) end, lists:seq(1, Max)
+    ),
+    lists:foreach(
+        fun(_) ->
+            _ = emqx_bcast_index_owner:release_admit(PK, [Full]),
+            _ = emqx_bcast_index_owner:release_admit(PK, [Free])
+        end,
+        lists:seq(1, Max)
+    ).
+
+-doc "An index shard that cannot be reached in a delete round must not discard\n"
+"what the reachable shard removed in the same round: the entries removed before\n"
+"the failure are counted, while the unreachable shard is left unresolved.".
+t_delete_message_cross_shard_retry_counts_each_round(_Config) ->
+    PK = <<"PCHUNKXSHARD">>,
+    [DN7] = same_shard_dns(PK, 7, 1),
+    [DN8] = same_shard_dns(PK, 8, 1),
+    Payload = <<"cross shard retry">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    ok = emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+    %% One delivery, two devices on two different index shards: the chunk's
+    %% index removal fans out to both shards in the same round.
+    Did = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN7, DN8], 1),
+    ?assertEqual(7, emqx_bcast_index_owner:shard_of({PK, DN7})),
+    ?assertEqual(8, emqx_bcast_index_owner:shard_of({PK, DN8})),
+    CanceledBefore = metric(<<"batch_pub_qos1_canceled">>),
+    application:set_env(emqx_bcast, mgmt_delete_chunk, 10),
+    Suspended = list_to_atom("emqx_bcast_index_owner_7"),
+    try
+        %% Shard 7 never answers, so every round of its leg fails while shard 8
+        %% removes its entry in the first round.
+        ok = sys:suspend(Suspended),
+        ?assertEqual(ok, emqx_bcast_storage:delete_message(ApiMsgId)),
+        %% Shard 8's removal is counted even though the same round failed on
+        %% shard 7. Shard 7 remains unresolved at assertion time: the suspended
+        %% call is still queued and may run on resume, so its entry is not
+        %% asserted either way here.
+        ?assertEqual(CanceledBefore + 1, metric(<<"batch_pub_qos1_canceled">>)),
+        ?assertEqual([], mnesia:dirty_read(bcast_msg, Did)),
+        ?assertEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+        ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN8}))
+    after
+        ok = sys:resume(Suspended),
+        application:unset_env(emqx_bcast, mgmt_delete_chunk)
+    end.
+
+-doc "The public async claim release must reach the index shard in the shape its\n"
+"handle_cast/2 expects. A nested {claim, {PK, DN, Did}} crashed the shard with\n"
+"function_clause, so shard survival and a real release are both asserted.".
+t_release_claims_async_releases_and_keeps_shard_alive(_Config) ->
+    PK = <<"PRELASYNC">>,
+    DN = <<"DRELASYNC">>,
+    Tag = 424242,
+    _ = create_tagged_claim(PK, DN, Tag),
+    {ok, [{Did, _}]} = emqx_bcast_storage:get_device_delivery_entries({PK, DN}),
+    %% Capture the shard identity BEFORE the release. Reading it afterwards
+    %% would hide a crash-and-restart: the supervisor replaces the pid, and a
+    %% rebuild can also put the entry back to `stored` on its own.
+    PrePid = index_shard_pid(PK, DN),
+    ?assertEqual(ok, emqx_bcast_index_owner:release_claims_async([{PK, DN, Did}])),
+    assert_same_index_shard(PK, DN, PrePid),
+    ?assertEqual(
+        true,
+        wait_until(
+            fun() ->
+                case emqx_bcast_storage:get_device_delivery_entries({PK, DN}) of
+                    {ok, [{_, stored}]} -> true;
+                    _ -> false
+                end
+            end,
+            100
+        )
+    ),
+    cleanup_row(PK, DN).
+
+-doc "The public async tag release must reach the index shard in the shape its\n"
+"handle_cast/2 expects, releasing the tagged claim instead of crashing.".
+t_release_client_claims_async_releases_and_keeps_shard_alive(_Config) ->
+    PK = <<"PRELASYNCTAG">>,
+    DN = <<"DRELASYNCTAG">>,
+    Tag = 434343,
+    _ = create_tagged_claim(PK, DN, Tag),
+    PrePid = index_shard_pid(PK, DN),
+    ?assertEqual(ok, emqx_bcast_index_owner:release_client_claims_async([{PK, DN, Tag}])),
+    assert_same_index_shard(PK, DN, PrePid),
+    ?assertEqual(
+        true,
+        wait_until(
+            fun() ->
+                case emqx_bcast_storage:get_device_delivery_entries({PK, DN}) of
+                    {ok, [{_, stored}]} -> true;
+                    _ -> false
+                end
+            end,
+            100
+        )
+    ),
+    cleanup_row(PK, DN).
+
+index_shard_pid(PK, DN) ->
+    Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
+    Pid = whereis(index_shard_name(Shard)),
+    ?assert(is_pid(Pid)),
+    Pid.
+
+%% Both public releases are asynchronous casts, so the shard is polled: the
+%% sys:get_state/1 barrier makes it process the cast first, and a different
+%% pid afterwards means it crashed and was restarted by the supervisor.
+assert_same_index_shard(PK, DN, PrePid) ->
+    Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
+    Name = index_shard_name(Shard),
+    _ = sys:get_state(Name),
+    ?assertEqual(PrePid, whereis(Name)).
+
+index_shard_name(Shard) ->
+    list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)).
