@@ -344,5 +344,13 @@ ensure_core_copies() ->
     try
         emqx_bcast:ensure_core_copies()
     catch
-        _:_ -> ok
+        Error:Reason ->
+            %% This is the periodic driver of the copy-type check. Swallowing
+            %% the failure here hid every problem it ran into.
+            ?SLOG(error, #{
+                msg => "bcast_ensure_core_copies_failed",
+                exception => Error,
+                reason => Reason
+            }),
+            ok
     end.

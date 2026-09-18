@@ -131,6 +131,10 @@
 %% work per 60s tick, so a huge expiry backlog is drained across ticks
 %% instead of one cleanup run holding the tables for minutes.
 -define(CLEANUP_BUDGET, 10000).
+%% Per-call bound for the management cascade delete: one message can be
+%% shared by an unbounded number of deliveries (content de-duplication), so
+%% the sweep is chunked and driven from the calling process.
+-define(MGMT_DELETE_CHUNK, 100).
 
 %% Upper bound on deliveries healed (all target devices acked but the atomic
 %% counter never reached zero) by a single rebuild drive. The healed ids ride
@@ -162,6 +166,11 @@
 -define(TAB_QUOTA_LOCAL, bcast_quota_local).
 %% Reconcile cadence for shipping local quota deltas to the owner.
 -define(QUOTA_SYNC_MS, 1000).
+%% Periodic self-healing recount of the authoritative pending row (owner shard
+%% 0 only). A drive recounts from live shard pendings but hot-path increments
+%% can race the probes; re-running the recount at this cadence bounds any
+%% residual drift so the quota can never stay permanently high or low.
+-define(QUOTA_RECOUNT_MS, 60000).
 
 %% Ack-counter decrement batching cadence: counted acks accumulate
 %% per-delivery acked device lists in the shard's ack_buf and are applied
@@ -257,10 +266,16 @@ init([Shard]) ->
         %% owner; reconcile deltas from an older epoch are rejected after a
         %% recount (see quota_update_remote/2)
         quota_epoch => 0,
+        %% shard 0 only: at most one self-healing recount in flight, so a slow
+        %% probe round cannot pile up behind the timer
+        quota_recount_running => false,
         %% batched ack-counter decrements pending flush: #{Did => [DeviceName]}
         ack_buf => #{},
         %% flush timer ref; undefined when idle (nothing buffered)
-        ack_flush_ref => undefined
+        ack_flush_ref => undefined,
+        %% deliveries whose marker-based completion aborted its transaction:
+        %% #{Did => true}, retried by the periodic cleanup tick
+        pending_completions => #{}
     },
     State1 = start_gc_timer(State),
     %% Every node keeps a local quota shadow and (on shard 0) a reconcile
@@ -278,6 +293,7 @@ init([Shard]) ->
             %% table is only (re)initialized once this node actually is the
             %% quota owner; the local shadow exists on every node.
             erlang:send_after(?QUOTA_SYNC_MS, self(), quota_sync),
+            erlang:send_after(?QUOTA_RECOUNT_MS, self(), quota_recount),
             self() ! maybe_activate,
             {ok, State1};
         _ ->
@@ -419,9 +435,16 @@ local_quota_total() ->
 %% cumulative deltas are never re-shipped to a freshly zeroed owner row).
 reset_quota_local() ->
     try ets:insert(?TAB_QUOTA_LOCAL, {global, 0}) of
-        _ -> ok
+        _ ->
+            ok
     catch
-        _:_ -> ok
+        Error:Reason ->
+            ?SLOG(error, #{
+                msg => "bcast_quota_local_reset_failed",
+                exception => Error,
+                reason => Reason
+            }),
+            ok
     end.
 
 %%--------------------------------------------------------------------
@@ -700,7 +723,18 @@ parallel_check_devices(PK, Groups, Max) ->
                     Over when is_list(Over) -> Over;
                     _ -> []
                 catch
-                    _:_ -> []
+                    Error:Reason ->
+                        %% A failed probe must not look like "no device is
+                        %% over its cap": log it, the per-device quota is
+                        %% unenforced for this request.
+                        ?SLOG(error, #{
+                            msg => "bcast_check_devices_failed",
+                            product_key => PK,
+                            shard => Shard,
+                            exception => Error,
+                            reason => Reason
+                        }),
+                        []
                 end
             end,
             Groups
@@ -757,18 +791,127 @@ delete_message(ApiId) ->
         [] ->
             {error, not_found};
         [#bcast_message_api_id{msg_id = MsgId}] ->
-            Deliveries = mnesia:dirty_match_object(
-                ?TAB_MSG_REC, #bcast_msg{msg_id = MsgId, _ = '_'}
-            ),
-            maybe_count_canceled(
-                remove_batch([
-                    {D#bcast_msg.product_key, DN, D#bcast_msg.delivery_id}
-                 || D <- Deliveries,
-                    DN <- D#bcast_msg.device_names
-                ])
-            ),
+            Deliveries = dirty_deliveries_of(MsgId),
             DeliveryIds = [D#bcast_msg.delivery_id || D <- Deliveries],
-            route(0, {delete_message_rows, ApiId, DeliveryIds}, ?SYNC_TIMEOUT_MS)
+            ?SLOG(info, #{
+                msg => "bcast_message_delete_requested",
+                api_msg_id => ApiId,
+                msg_id => MsgId,
+                deliveries => length(DeliveryIds),
+                node => node()
+            }),
+            %% Cascade delete, chunked and driven from THIS process (the
+            %% management request), not as one unbounded transaction inside
+            %% shard 0. Content de-duplication means one message can be shared
+            %% by an unbounded number of deliveries, and a single transaction
+            %% over all of them would hold the shard's mailbox and the hot
+            %% meta/counter rows for the whole sweep, then retry the entire
+            %% batch 20 times on conflict.
+            %%
+            %% Each chunk commits its Mnesia rows AND its index/ledger effect
+            %% together before the next chunk starts: the index entries of a
+            %% chunk are removed and counted as soon as that chunk's rows are
+            %% gone. A failure in a later chunk (or in the message-row delete)
+            %% therefore leaves the earlier chunks fully accounted for, and a
+            %% retry only has to finish the chunks whose rows are still there.
+            %%
+            %% The message/api rows are deleted LAST so the message stays
+            %% readable while its deliveries are reclaimed (the delivering
+            %% node reads the payload from bcast_message at send time). The
+            %% remaining window - a delivery committed by an in-flight intake
+            %% entry while the sweep runs - is closed by the re-enumeration
+            %% below, and every entry admitted before the delete is refused at
+            %% promotion by the delete-epoch check (see bump_delete_epoch/1).
+            case bump_delete_epoch(MsgId) of
+                ok ->
+                    case delete_delivery_chunks(Deliveries) of
+                        ok ->
+                            case route(0, {delete_message_meta_rows, ApiId}, ?SYNC_TIMEOUT_MS) of
+                                ok ->
+                                    delete_message_stragglers(MsgId);
+                                {error, _} = Error ->
+                                    Error
+                            end;
+                        {error, _} = Error ->
+                            Error
+                    end;
+                {error, _} = Error ->
+                    Error
+            end
+    end.
+
+%% Bump this content hash's delete epoch on every core BEFORE any row is
+%% removed, so every entry admitted earlier is dropped at promotion and the
+%% delete cannot be undone. An unreachable core aborts the delete (an entry
+%% parked there could otherwise re-create the message after the delete
+%% returned success); see emqx_bcast:bump_msg_epoch_everywhere/1 for the
+%% accepted trade-off when the fan-out succeeds but a later step fails. A
+%% message row that is already gone - a previous attempt got past the row
+%% deletes - has nothing left to resurrect, so the bump is skipped and the
+%% sweep resumes.
+bump_delete_epoch(MsgId) ->
+    case mnesia:dirty_read(?TAB_MSG, MsgId) of
+        [#bcast_message{content_hash = Hash}] ->
+            case emqx_bcast:bump_msg_epoch_everywhere(Hash) of
+                ok ->
+                    ok;
+                {error, Reason} = Error ->
+                    ?SLOG(error, #{
+                        msg => "bcast_delete_epoch_bump_failed",
+                        msg_id => MsgId,
+                        reason => Reason
+                    }),
+                    Error
+            end;
+        [] ->
+            ok
+    end.
+
+%% Delete the per-delivery rows in bounded chunks, one shard call per chunk,
+%% removing and counting that chunk's index entries right after its rows are
+%% gone. Never leaves a deleted row's index entry behind, so the operation is
+%% resumable: the remaining rows are still discoverable by dirty_deliveries_of/1.
+delete_delivery_chunks([]) ->
+    ok;
+delete_delivery_chunks(Deliveries) ->
+    {Chunk, Rest} = lists:split(min(mgmt_delete_chunk(), length(Deliveries)), Deliveries),
+    DeliveryIds = [D#bcast_msg.delivery_id || D <- Chunk],
+    case route(0, {delete_delivery_rows, DeliveryIds}, ?SYNC_TIMEOUT_MS) of
+        ok ->
+            maybe_count_canceled(remove_batch(delivery_index_entries(Chunk))),
+            delete_delivery_chunks(Rest);
+        {error, _} = Error ->
+            Error
+    end.
+
+%% Chunk size of the management cascade delete. Overridable so tests can
+%% exercise the multi-chunk path without creating hundreds of deliveries.
+mgmt_delete_chunk() ->
+    application:get_env(emqx_bcast, mgmt_delete_chunk, ?MGMT_DELETE_CHUNK).
+
+dirty_deliveries_of(MsgId) ->
+    mnesia:dirty_match_object(?TAB_MSG_REC, #bcast_msg{msg_id = MsgId, _ = '_'}).
+
+delivery_index_entries(Deliveries) ->
+    [
+        {D#bcast_msg.product_key, DN, D#bcast_msg.delivery_id}
+     || D <- Deliveries,
+        DN <- D#bcast_msg.device_names
+    ].
+
+%% Bounded window close: after the message row is deleted no further delivery
+%% for it can commit, so one re-enumeration drains the enumerate/delete gap.
+%% Its own failure is propagated: the rows survived, so dropping their index
+%% entries here would hide the failure behind a successful delete.
+delete_message_stragglers(MsgId) ->
+    case dirty_deliveries_of(MsgId) of
+        [] ->
+            ok;
+        Deliveries ->
+            %% Same per-chunk accounting as the main sweep: a failure here
+            %% leaves the already-deleted chunks reconciled and the rest
+            %% discoverable.
+            delete_delivery_chunks(Deliveries)
     end.
 
 %% Run cleanup coordination in the CALLER (cleanup gen_server),
@@ -780,6 +923,17 @@ cleanup_expired() ->
     %% (delivery_id, msg_id, product_key, device_names) instead of the full
     %% ~47KB bcast_msg row per expired delivery.
     Expired = scan_expired_deliveries(Now),
+    case length(Expired) of
+        0 ->
+            ok;
+        ExpiredCount ->
+            ?SLOG(info, #{
+                msg => "bcast_expired_deliveries_reclaimed",
+                count => ExpiredCount,
+                now => Now,
+                node => node()
+            })
+    end,
     %% Messages have no shard state: delete directly in the caller.
     cleanup_expired_messages_local(Now),
     %% Index removal routes per shard in parallel (remove_batch/1).
@@ -1148,13 +1302,16 @@ handle_call({pending_count_for, Key}, _From, State = #{active := true}) ->
     {reply, pending_count_for_local(Key, State), State};
 handle_call({delete_delivery_rows, Did, MsgId}, _From, State = #{active := true}) ->
     {reply, safe(fun() -> delete_delivery_rows_local(Did, MsgId) end), State};
-handle_call({delete_message_rows, ApiId, DeliveryIds}, _From, State = #{active := true}) ->
-    {reply, safe(fun() -> delete_message_rows_local(ApiId, DeliveryIds) end), State};
+handle_call({delete_delivery_rows, DeliveryIds}, _From, State = #{active := true}) ->
+    {reply, safe(fun() -> delete_delivery_rows_local(DeliveryIds) end), State};
+handle_call({delete_message_meta_rows, ApiId}, _From, State = #{active := true}) ->
+    {reply, safe(fun() -> delete_message_meta_rows_local(ApiId) end), State};
 handle_call({cleanup_local}, _From, State = #{active := true}) ->
     State2 = cleanup_orphan_index_local(State),
     State2b = reclaim_down_holders(State2),
     State3 = cleanup_stale_reservations(State2b),
-    {reply, ok, State3};
+    State4 = retry_pending_completions(State3),
+    {reply, ok, State4};
 handle_call({rebuild_index}, _From, State = #{active := true}) ->
     {Reply, State2} = safe_state(fun() -> drive_activation(State, force) end, State),
     {reply, Reply, State2};
@@ -1174,7 +1331,7 @@ handle_call({activate, Proj, Completed}, _From, State) ->
     {Reply, State1, Completed1} = run_activation(Proj, State, Completed),
     {reply, {activated, Reply, Completed1}, State1};
 handle_call({shard_status}, _From, State) ->
-    {reply, {maps:get(active, State), total_pending(State)}, State};
+    {reply, {maps:get(active, State), total_pending(State), total_reserves(State)}, State};
 handle_call({reset_local}, _From, State = #{shard := 0}) ->
     %% Only the quota owner's shard 0 resets the global counter (the table
     %% lives there); a peer core's shard 0 must not clobber it.
@@ -1288,6 +1445,27 @@ handle_info(
     {NewLast, NewEpoch} = quota_sync(Last, Epoch),
     erlang:send_after(?QUOTA_SYNC_MS, self(), quota_sync),
     {noreply, State#{quota_last_synced => NewLast, quota_epoch => NewEpoch}};
+handle_info(
+    quota_recount, State = #{shard := 0, quota_recount_running := Running}
+) ->
+    erlang:send_after(?QUOTA_RECOUNT_MS, self(), quota_recount),
+    %% Run the recount in a throwaway process: the probes are synchronous
+    %% gen_server calls that can queue behind a busy shard's mailbox, and
+    %% shard 0 must not stall its own claim/ack partition for them. At most
+    %% one recount is in flight so a slow probe round cannot pile up.
+    case is_owner() andalso not Running of
+        true ->
+            Parent = self(),
+            _ = spawn(fun() ->
+                _ = safe(fun() -> periodic_recount() end),
+                Parent ! quota_recount_done
+            end),
+            {noreply, State#{quota_recount_running => true}};
+        false ->
+            {noreply, State}
+    end;
+handle_info(quota_recount_done, State = #{shard := 0}) ->
+    {noreply, State#{quota_recount_running => false}};
 handle_info(maybe_gc, State) ->
     {noreply, maybe_fullsweep(State)};
 handle_info(ack_flush, State) ->
@@ -1434,8 +1612,11 @@ drive_one_shard(Shard, Proj, _Mode, Shard, State, Completed) ->
     end;
 drive_one_shard(Shard, Proj, ensure, _MyShard, State, Completed) ->
     case probe_shard(Shard) of
-        {active, Pending} ->
-            {Pending, State, Completed};
+        {active, Pending, Reserves} ->
+            %% Reservations are part of this shard's pending budget: the
+            %% drive hands the total to recount_quota/1, so leaving them out
+            %% would erase every not-yet-promoted admission reservation.
+            {Pending + Reserves, State, Completed};
         dormant ->
             activate_sibling(Shard, Proj, State, Completed);
         {error, _} = Error ->
@@ -1446,9 +1627,12 @@ drive_one_shard(Shard, Proj, force, _MyShard, State, Completed) ->
 
 probe_shard(Shard) ->
     try route(Shard, {shard_status}, ?SYNC_TIMEOUT_MS) of
-        {true, Pending} when is_integer(Pending) -> {active, Pending};
-        {false, _} -> dormant;
-        _ -> {error, sibling_unavailable}
+        {true, Pending, Reserves} when is_integer(Pending), is_integer(Reserves) ->
+            {active, Pending, Reserves};
+        {false, _, _} ->
+            dormant;
+        _ ->
+            {error, sibling_unavailable}
     catch
         _:_ -> {error, sibling_unavailable}
     end.
@@ -1469,6 +1653,44 @@ activate_sibling(Shard, Proj, State, Completed) ->
         {error, _} = Error -> {Error, State, Completed};
         {Count, Completed1} when is_integer(Count) -> {Count, State, Completed1}
     end.
+
+%% Owner shard 0 only, run in a spawned process. Self-healing recount: the
+%% same probe + recount + baseline-sync as a drive, on a timer so quota drift
+%% caused by increments racing a recount is bounded instead of permanent.
+%% Read-only probes and two ETS writes; no mnesia transaction, so it does not
+%% touch the ack hot path, and shard 0 is not blocked by the probes.
+periodic_recount() ->
+    case probe_all_shards() of
+        {ok, Counts} ->
+            Epoch = recount_quota(Counts),
+            sync_quota_baselines(Epoch),
+            ok;
+        {error, {shard_unavailable, Shard}} ->
+            %% A shard that cannot be probed (timeout, restart, not yet
+            %% activated) has an unknown pending + reserved count. Recounting
+            %% from a partial sum would understate the global cap until the
+            %% next successful round, so skip this one and retry next tick.
+            ?SLOG(debug, #{msg => "bcast_quota_recount_skipped", shard => Shard}),
+            ok
+    end.
+
+%% Probe every shard for its pending + reserved device counts. Any shard that
+%% is not active makes the whole round unusable: counting it as 0 would
+%% understate the global cap.
+probe_all_shards() ->
+    lists:foldl(
+        fun
+            (_Shard, {error, _} = Error) ->
+                Error;
+            (Shard, {ok, Acc}) ->
+                case probe_shard(Shard) of
+                    {active, Pending, Reserves} -> {ok, [Pending + Reserves | Acc]};
+                    _ -> {error, {shard_unavailable, Shard}}
+                end
+        end,
+        {ok, []},
+        lists:seq(0, ?SHARD_COUNT - 1)
+    ).
 
 %% Set the authoritative quota row to the true global pending: the sum of
 %% every shard's live pending (probed for active shards, rebuild counts
@@ -1658,16 +1880,22 @@ activate_partition(Proj, State, Completed) ->
                                                 {St, maps:put(DeliveryId, true, Done)};
                                             {error, _} ->
                                                 %% Completion aborted after its
-                                                %% retries: keep every entry
-                                                %% indexed so the ack path retries
-                                                %% instead of leaking the rows
-                                                %% until TTL.
-                                                {
-                                                    append_delivery_entries(
-                                                        St, ProductKey, DeliveryId, MyDNs
-                                                    ),
-                                                    Done
-                                                }
+                                                %% retries: leave the delivery out
+                                                %% of the index and out of the skip
+                                                %% set, and remember the id so the
+                                                %% periodic cleanup tick retries the
+                                                %% completion. A later shard in this
+                                                %% drive retries it too, but that
+                                                %% does not cover a delivery whose
+                                                %% last - or only - owning shard is
+                                                %% this one, and the positive counter
+                                                %% is not a usable retry marker
+                                                %% (cleanup only scans counters
+                                                %% =< 0). Re-indexing the already
+                                                %% acked devices here would leave
+                                                %% ghost entries for a delivery that
+                                                %% another shard completes.
+                                                {add_pending_completion(St, DeliveryId), Done}
                                         end
                                 end
                         end
@@ -1728,7 +1956,7 @@ request_partition_activation(Shard) ->
 %% behind a long full drive) is skipped without re-scanning.
 activate_one_shard(Shard) ->
     case route(Shard, {shard_status}, ?SYNC_TIMEOUT_MS) of
-        {true, _} ->
+        {true, _, _} ->
             ok;
         _ ->
             Proj = scan_sorted_deliveries_projection(),
@@ -1923,6 +2151,13 @@ sample_state(State) ->
 
 total_pending(State) ->
     maps:fold(fun(_Key, N, Acc) -> Acc + N end, 0, maps:get(counts, State)).
+
+%% Devices reserved by admission but not yet promoted into the index. They
+%% already consume the global pending budget (admit reserves them before the
+%% request enters the intake queue), so a recount that only sums index
+%% pendings would erase every reservation still waiting in an intake queue.
+total_reserves(State) ->
+    maps:fold(fun(_Key, {N, _Ts}, Acc) -> Acc + N end, 0, maps:get(reserves, State)).
 
 maybe_count_canceled(0) ->
     ok;
@@ -2683,6 +2918,38 @@ complete_delivery(Did) ->
             {error, Reason}
     end.
 
+%% Remember a delivery whose marker-based completion aborted, so the periodic
+%% cleanup tick retries it. Needed because the leftover positive
+%% remaining-ack counter cannot be told apart from a delivery that is still
+%% being acked, and scan_completed_deliveries/1 only looks at counters =< 0.
+%% Without it a fully acked delivery whose completion aborted on the last (or
+%% only) shard owning its devices stays with an empty index until the next
+%% rebuild or TTL.
+add_pending_completion(State, DeliveryId) ->
+    Pending = maps:get(pending_completions, State, #{}),
+    State#{pending_completions => maps:put(DeliveryId, true, Pending)}.
+
+%% Retry the aborted completions on this shard. complete_delivery/1 is
+%% idempotent and reports ok when the rows are already gone, so an entry is
+%% kept only while the transaction keeps aborting.
+retry_pending_completions(State) ->
+    case maps:get(pending_completions, State, #{}) of
+        Pending when map_size(Pending) =:= 0 ->
+            State;
+        Pending ->
+            Kept = maps:fold(
+                fun(Did, true, Acc) ->
+                    case complete_delivery(Did) of
+                        ok -> Acc;
+                        {error, _} -> maps:put(Did, true, Acc)
+                    end
+                end,
+                #{},
+                Pending
+            ),
+            State#{pending_completions => Kept}
+    end.
+
 %%--------------------------------------------------------------------
 %% Releases
 %%--------------------------------------------------------------------
@@ -2981,22 +3248,38 @@ delete_delivery_rows_local(Did, _MsgId) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-delete_message_rows_local(ApiId, DeliveryIds) ->
+%% One chunk of per-delivery rows, deleted in a bounded transaction. Lock
+%% order acked -> meta -> counter -> rec, matching complete_delivery/1 and
+%% every other delete path.
+delete_delivery_rows_local(DeliveryIds) ->
     case
         mnesia:transaction(
             fun() ->
                 lists:foreach(
                     fun(Did) ->
-                        %% Lock order acked -> meta -> counter -> rec,
-                        %% matching complete_delivery/1 and every other
-                        %% delete path.
                         mnesia:delete({?TAB_MSG_ACKED, Did}),
                         mnesia:delete({?TAB_MSG_META, Did}),
                         mnesia:delete({?TAB_MSG_META_CNT, Did}),
                         mnesia:delete({?TAB_MSG_REC, Did})
                     end,
                     DeliveryIds
-                ),
+                )
+            end,
+            20
+        )
+    of
+        {atomic, _} -> ok;
+        {aborted, Reason} -> {error, Reason}
+    end.
+
+%% The message rows, deleted last and in one short transaction: until this
+%% commits the message is still readable, so in-flight deliveries keep their
+%% payload, and afterwards the promotion-time reuse check refuses to
+%% re-create it.
+delete_message_meta_rows_local(ApiId) ->
+    case
+        mnesia:transaction(
+            fun() ->
                 case mnesia:read(?TAB_MSG_API_ID, ApiId, write) of
                     [#bcast_message_api_id{msg_id = MsgId}] ->
                         case mnesia:read(?TAB_MSG, MsgId, write) of
@@ -3146,11 +3429,24 @@ chunks(List, N) ->
 %% meta/rec transaction aborted after the dirty counter delete).
 cleanup_completed_deliveries() ->
     Completed = scan_completed_deliveries(?CLEANUP_BUDGET),
+    %% Delete the <=0 counter row (the retry marker) only after the delete
+    %% transaction commits. On abort the marker survives, so the next tick
+    %% re-discovers the rows instead of leaking them to TTL.
+    Deleted = delete_completed_deliveries_batched(Completed),
+    case Deleted of
+        [] ->
+            ok;
+        _ ->
+            ?SLOG(info, #{
+                msg => "bcast_completed_deliveries_reclaimed",
+                count => length(Deleted),
+                node => node()
+            })
+    end,
     lists:foreach(
         fun(Did) -> _ = mnesia:dirty_delete({?TAB_MSG_META_CNT, Did}) end,
-        Completed
+        Deleted
     ),
-    delete_completed_deliveries_batched(Completed),
     ok.
 
 %% Coordinate the counter-linger sweep across every running core: the cleanup
@@ -3197,31 +3493,37 @@ scan_completed_deliveries(Budget) ->
         {Rows, _Continuation} -> Rows
     end.
 
+%% Returns the Dids whose delete transaction committed; an aborted chunk's
+%% counter rows are left in place for the next tick to re-discover.
 delete_completed_deliveries_batched(Dids) ->
-    lists:foreach(
-        fun(Chunk) ->
-            case
-                mnesia:transaction(
-                    fun() -> lists:foreach(fun delete_one_completed_delivery_tx/1, Chunk) end,
-                    20
-                )
-            of
-                {atomic, _} ->
-                    ok;
-                {aborted, Reason} ->
-                    %% The next cleanup tick re-scans the completed rows.
-                    ?SLOG(warning, #{
-                        msg => "bcast_completed_delete_tx_aborted",
-                        reason => Reason,
-                        chunk_size => length(Chunk)
-                    })
-            end
-        end,
-        chunks(Dids, 100)
-    ).
+    lists:append([
+        case
+            mnesia:transaction(
+                fun() -> lists:foreach(fun delete_one_completed_delivery_tx/1, Chunk) end,
+                20
+            )
+        of
+            {atomic, _} ->
+                Chunk;
+            {aborted, Reason} ->
+                %% The counter row was NOT deleted for this chunk, so the next
+                %% cleanup tick re-scans it.
+                ?SLOG(warning, #{
+                    msg => "bcast_completed_delete_tx_aborted",
+                    reason => Reason,
+                    chunk_size => length(Chunk)
+                }),
+                []
+        end
+     || Chunk <- chunks(Dids, 100)
+    ]).
 
-%% The counter was already deleted dirty by cleanup_completed_deliveries/0;
-%% delete only meta -> rec here (lock order matching complete_delivery/1).
+%% Delete the transactional rows of one completed delivery. The remaining-ack
+%% counter row (bcast_msg_meta_counter) is deliberately NOT touched here:
+%% cleanup_completed_deliveries/0 dirty-deletes it only after this transaction
+%% has committed, so an aborted transaction leaves the <=0 counter row behind
+%% as the retry marker for the next cleanup tick.
+%% Lock order acked -> meta -> rec, matching complete_delivery/1.
 delete_one_completed_delivery_tx(Did) ->
     mnesia:delete({?TAB_MSG_ACKED, Did}),
     case mnesia:wread({?TAB_MSG_META, Did}) of
@@ -3256,7 +3558,7 @@ cleanup_expired_messages_local(Now) ->
                             _ = '_'
                         },
                         [{'<', '$4', Now}],
-                        [{{'$1', '$2', '$3'}}]
+                        [{{'$1', '$2', '$3', '$4'}}]
                     }
                 ],
                 ?CLEANUP_BUDGET
@@ -3265,8 +3567,30 @@ cleanup_expired_messages_local(Now) ->
             '$end_of_table' -> [];
             {Rows, _Continuation} -> Rows
         end,
+    %% Log the TTL sweep explicitly, with the expiry it acted on: without
+    %% this a payload row disappearing because it expired looks identical to
+    %% a row disappearing for any other reason.
+    case Expired of
+        [] ->
+            ok;
+        _ ->
+            ?SLOG(info, #{
+                msg => "bcast_messages_expired",
+                count => length(Expired),
+                now => Now,
+                sample => lists:sublist(Expired, 5),
+                node => node()
+            })
+    end,
     lists:foreach(
-        fun({MsgId, ContentHash, ApiMsgId}) ->
+        fun({MsgId, ContentHash, ApiMsgId, ExpiresAt}) ->
+            ?SLOG(debug, #{
+                msg => "bcast_message_expired",
+                msg_id => MsgId,
+                api_msg_id => ApiMsgId,
+                expires_at => ExpiresAt,
+                now => Now
+            }),
             mnesia:dirty_delete({?TAB_MSG, MsgId}),
             mnesia:dirty_delete({?TAB_MSG_HASH, ContentHash}),
             mnesia:dirty_delete({?TAB_MSG_API_ID, ApiMsgId}),

@@ -201,32 +201,100 @@ promote_batch_tx(Entries) ->
             Entries
         )
     ),
-    lists:append([promote_group_tx(Group) || {_Hash, Group} <- Groups]).
+    ByDid = maps:from_list(lists:append([promote_group_tx(Group) || {_Hash, Group} <- Groups])),
+    %% Re-emit the results in the caller's entry order: hash grouping reorders
+    %% entries while the promoter zips the results against its own list, so a
+    %% misaligned `deleted` result would drop an entry whose message still
+    %% exists and keep one whose message was deleted.
+    [
+        maps:get(maps:get(delivery_id, Entry), ByDid, {error, missing_promote_result})
+     || Entry <- Entries
+    ].
 
-%% Promote one hash-group: one message create/refresh for the whole
-%% group, then one delivery + meta row per entry. Runs inside the
-%% promote_batch transaction.
+%% Promote one hash-group: drop the entries that a Delete Message already
+%% superseded, then one message create/refresh for the survivors and one
+%% delivery + meta row per survivor. Runs inside the promote_batch
+%% transaction.
+%%
+%% Order matters: the hash row's write lock is taken FIRST and the delete
+%% epoch is only read afterwards. A Delete removes the message/hash rows in a
+%% transaction that needs this same lock and bumps the epoch before it, so
+%% reading the epoch under the lock means a promotion can no longer slip
+%% between "epoch read" and "hash row looked up" and re-create a message the
+%% delete just removed.
+%%
+%% The decisions are per ENTRY, never per group:
+%%   - an entry admitted before a delete carries an older epoch than the
+%%     current one and is dropped, while an entry admitted after it (a
+%%     legitimate new publish of the same content) is promoted;
+%%   - when the message row is gone, only entries that may CREATE a message
+%%     (inline content) are promoted. An explicit MessageId entry is a
+%%     reference to an existing message, so it is dropped rather than written
+%%     back just because a sibling inline entry re-created the message.
+%%
+%% Returns {DeliveryId, Result} pairs so the caller can re-align them with
+%% its own entry list (the grouping reorders entries).
 promote_group_tx(Entries) ->
-    {First, _Rest} =
-        case Entries of
-            [F | R] -> {F, R};
-            [] -> {undefined, []}
-        end,
-    case First of
-        undefined ->
+    case Entries of
+        [] ->
             [];
-        _ ->
-            {_Status, ResolvedApiMsgId, ResolvedMsgId} = write_message_group_tx(First),
-            GroupResults = [
-                promote_entry_delivery_tx(Entry, ResolvedApiMsgId, ResolvedMsgId)
-             || Entry <- Entries
-            ],
-            GroupResults
+        [First | _] ->
+            Hash = maps:get(hash, First),
+            HashRow = mnesia:wread({?TAB_MSG_HASH, Hash}),
+            Current = emqx_bcast:msg_epoch(Hash),
+            {Live, Stale} = lists:partition(
+                fun(Entry) -> maps:get(epoch, Entry, 0) >= Current end,
+                Entries
+            ),
+            Dropped = [{delivery_id(Entry), deleted} || Entry <- Stale],
+            case Live of
+                [] ->
+                    Dropped;
+                _ ->
+                    {Creators, Reusers} = lists:partition(
+                        fun(Entry) -> maps:get(can_create, Entry, true) end,
+                        Live
+                    ),
+                    case {message_row_exists(HashRow), Creators} of
+                        {true, _} ->
+                            Dropped ++ promote_entries(Live);
+                        {false, []} ->
+                            Dropped ++ dropped_results(Live);
+                        {false, _} ->
+                            Dropped ++ dropped_results(Reusers) ++ promote_entries(Creators)
+                    end
+            end
     end.
+
+dropped_results(Entries) ->
+    [{delivery_id(Entry), deleted} || Entry <- Entries].
+
+%% One message create/refresh for the group, then one delivery + meta row per
+%% entry. The message rows are keyed by the content hash, so a single
+%% create/refresh covers the whole group.
+promote_entries([First | _] = Entries) ->
+    {_Status, ResolvedApiMsgId, ResolvedMsgId} = write_message_group_tx(First),
+    [
+        {delivery_id(Entry), promote_entry_delivery_tx(Entry, ResolvedApiMsgId, ResolvedMsgId)}
+     || Entry <- Entries
+    ].
+
+%% Does the message row the hash points at still exist? Runs inside the
+%% promote_batch transaction, after the hash row's write lock is held.
+message_row_exists([#bcast_message_hash{msg_id = ExistingMsgId}]) ->
+    mnesia:wread({?TAB_MSG, ExistingMsgId}) =/= [];
+message_row_exists([]) ->
+    false.
+
+delivery_id(Entry) ->
+    maps:get(delivery_id, Entry).
 
 %% Hash resolve + one message create/refresh for the whole group; the
 %% message row carries the payload and the TTL refresh, while delivery rows
 %% stay per entry. delivery_count is no longer maintained (TTL-only GC).
+%%
+%% Only entries allowed to create reach this with a missing row, so creating
+%% it here is the intended new publish, not a resurrection.
 write_message_group_tx(Entry) ->
     Payload = maps:get(payload, Entry),
     Hash = maps:get(hash, Entry),

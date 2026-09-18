@@ -42,6 +42,17 @@
 -define(TAB_QUOTA_ETS, bcast_quota_ets).
 -define(TAB_DEV_REGISTRY, bcast_device_registry).
 
+%% Node-local delete epoch per content hash. A Delete Message bumps it on
+%% every core, and each intake entry records the epoch it was admitted
+%% under: promotion drops an entry whose epoch is older than the current
+%% one. Node-local is sufficient because the intake queue is itself
+%% node-local and volatile - an entry is only ever promoted on the core
+%% that admitted it, and a restart loses it - so no durable state is needed.
+%% Promotion reads the epoch only AFTER taking the hash row's write lock, so
+%% a delete that removes the rows cannot interleave between the read and the
+%% hash lookup.
+-define(TAB_MSG_EPOCH, bcast_msg_epoch).
+
 %% mria rlog shard hosting the storage tables: writes happen on core
 %% nodes (transactions), replicants receive async copies for local reads.
 -define(BCAST_SHARD, emqx_bcast_shard).
@@ -187,6 +198,14 @@
     public,
     set,
     {keypos, #bcast_device_registry.key},
+    {read_concurrency, true},
+    {write_concurrency, true}
+]).
+
+-define(BCAST_MSG_EPOCH_OPTS, [
+    named_table,
+    public,
+    set,
     {read_concurrency, true},
     {write_concurrency, true}
 ]).

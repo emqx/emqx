@@ -80,7 +80,7 @@ handle_local(post, [<<"metrics">>, <<"reset">>], _Request) ->
                  || {N, ok} <- Results
                 ]
             }};
-        {error, Results} ->
+        {error, {pending_deliveries, Results}} ->
             Blocked = [
                 #{<<"Node">> => atom_to_binary(N, utf8), <<"Reason">> => format_reset_reason(R)}
              || {N, {error, R}} <- Results
@@ -91,6 +91,26 @@ handle_local(post, [<<"metrics">>, <<"reset">>], _Request) ->
                     <<"PendingDeliveries">>,
                     <<"Cannot reset metrics while pending (queued/in-flight) deliveries exist">>,
                     #{<<"BlockedNodes">> => Blocked}
+                )};
+        {error, {partial_reset, Results}} ->
+            %% Phase two can still fail on a node that turned busy after the
+            %% check, or on an RPC error. Report that instead of claiming
+            %% success: the nodes reset before the failure are already zeroed,
+            %% so the caller has to know the reset was partial.
+            Reset = [
+                #{<<"Node">> => atom_to_binary(N, utf8)}
+             || {N, ok} <- Results
+            ],
+            Failed = [
+                #{<<"Node">> => atom_to_binary(N, utf8), <<"Reason">> => format_reset_reason(R)}
+             || {N, {error, R}} <- Results
+            ],
+            {ok, 500, #{},
+                error_response(
+                    RequestId,
+                    <<"PartialReset">>,
+                    <<"Metrics reset failed on at least one node; the listed reset nodes are already zeroed">>,
+                    #{<<"ResetNodes">> => Reset, <<"FailedNodes">> => Failed}
                 )}
     end;
 handle_local(Method, [<<"messages">> | _] = Path, Request) ->

@@ -76,8 +76,8 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 | `ProductKey` | String | Yes | Target product identifier |
 | `DeviceName` | [String] | Yes | Target device list, max 10,000 (configurable), must not contain duplicates |
 | `MessageContent` | String | Conditional | Base64-encoded, max 10 KiB binary (API input limit: 13,656 characters). Mutually exclusive with `MessageId` |
-| `MessageId` | String | Conditional | UUID v4 format. Mutually exclusive with `MessageContent` |
-| `Qos` | Integer | No | 0 (default, online only) or 1 (online + offline storage, TTL = `msg_ttl`, default 15 days) |
+| `MessageId` | String | Conditional | UUID string: v4 for RegisterMessage / QoS=0 / PubBroadcast, hash-derived for QoS=1 inline content. Mutually exclusive with `MessageContent` |
+| `Qos` | Integer | No | 0 (default, online only) or 1 (online + offline storage). QoS=1 state lives in `ram_copies` tables: it survives a single core failure but **not** a full cluster restart; entries expire after `msg_ttl` (default 15 days) |
 | `TopicShortName` | String | No | Custom topic suffix |
 | `TopicTemplateName` | String | No | Custom topic template. Higher priority than `TopicShortName` |
 
@@ -186,8 +186,9 @@ On error (HTTP 400), the body matches the general error shape:
 
 Endpoints for inspecting and deleting registered messages and deliveries.
 These are separate from the `POST /pub` data plane and use the same
-authentication. Registered messages are immutable: they can only be
-created (via RegisterMessage or BatchPub) and deleted, never updated.
+authentication. A registered message's payload is immutable: messages can
+only be created (via RegisterMessage or BatchPub), have their TTL refreshed,
+or be deleted; the payload itself is never updated.
 No endpoint returns payload content.
 
 ### List Messages
@@ -305,6 +306,7 @@ unknown.
 | `QuotaExceeded` | 429 | Pending delivery quota exceeded. For per-device over-limit the body includes a `Devices` array listing the devices over their cap |
 | `Busy` | 429 | BatchPub QoS=1 intake queue is full; retry later |
 | `PendingDeliveries` | 409 | Metrics reset refused because at least one node still has queued or in-flight deliveries; the body lists the `BlockedNodes` |
+| `PartialReset` | 500 | Metrics reset failed on at least one node during the reset phase; the body lists the already zeroed `ResetNodes` and the `FailedNodes` with reasons |
 | `InternalError` | 500 | Internal server error |
 
 ---
@@ -328,22 +330,46 @@ endpoint.
 ### QoS=1 delivery ledger (counters)
 
 The unit of the delivery ledger is one **logical delivery**: one BatchPub
-request targeted at one device. All ledger counters are node-local and
-updated by asynchronous workers, so they lag the API response; to get
-cluster totals scrape **every node** and sum the values. `wanted` is
-incremented on the node that runs the promoter committing the request
-(core node); delivered/acked/ttl_expired/canceled count on the node where
-the event happened.
+request targeted at one device. All counters are node-local, updated by
+asynchronous workers, and lag the API response; scrape **every node** and
+sum the values for cluster totals. Each node only ever serves its own
+registry — it never fetches another node's numbers — but the counters come
+in **three scopes** that are counted on *different* nodes:
 
-| Metric | Description |
-|--------|-------------|
-| `bcast_batch_pub_qos1_wanted` | Logical deliveries durably committed to mria (promotion). Ledger base; incremented once per committed device, NOT at API acceptance |
-| `bcast_batch_pub_qos1_delivered` | Actual PUBLISH sends (includes redeliveries and the QoS0-subscription auto path) |
-| `bcast_batch_pub_qos1_redelivered` | Sends whose core claim attempt number was >= 2 (same logical delivery attempted before: lease expiry, disconnect, unsubscribe, claim-race release) |
-| `bcast_batch_pub_qos1_acked` | PUBACKs matched to a pending delivery (duplicates are not counted) |
-| `bcast_batch_pub_qos1_auto_acked` | Logical deliveries completed because the subscription QoS is 0 |
-| `bcast_batch_pub_qos1_ttl_expired` | Logical deliveries abandoned because the delivery TTL expired before confirmation |
-| `bcast_batch_pub_qos1_canceled` | Logical deliveries removed by management delete or reset before confirmation |
+- **Intake scope** — counted on the node that accepted and committed the API
+  request (the core that ran the intake queue and the promoter):
+  `in`, `enqueued`, `intake_rejected`, `promote_error`, `wanted`,
+  `intake_depth`. A **replicant forwards BatchPub to a core** for admission,
+  so it reports **0** for every counter in this scope — in particular
+  `wanted` on a replicant is always 0. `wanted` counts **every device of
+  each batch that node committed**, not only the devices attached to it: it
+  is that node's commit (intake) share, not its delivery share.
+- **Device scope** — counted on the node whose pull shard served the client:
+  `delivered`, `redelivered`, `acked`, `auto_acked`. In a core/replicant
+  deployment these live on the replicants holding the connections.
+- **Index scope (cores)** — counted on the core that owns the device's index
+  shard, or that runs the delete/cleanup for it: `queued`, `inflight`,
+  `ttl_expired`, `canceled`. Index owner shards are distributed over the
+  **core** nodes (`shard_owner/1` round-robins `core_nodes()`), so a
+  replicant reports 0 for the shard gauges even while it serves devices.
+
+Because of that split, the ledger identity below holds for **`sum()` over
+all nodes**, not for a single node unless the same node also delivered every
+device it committed. Under a load-balanced deployment the scopes cover
+comparable shares and the per-node numbers look consistent. If API traffic is
+pinned to one node, or the API load balancer distributes differently from the
+MQTT one, that node's `wanted` can exceed its own `delivered`/`acked` by the
+ratio of the shares. That is expected and is not a leak.
+
+| Metric | Scope | Description |
+|--------|-------|-------------|
+| `bcast_batch_pub_qos1_wanted` | intake | Logical deliveries durably committed to mria (promotion). Ledger base; incremented once per committed device of every batch this node accepted, NOT at API acceptance |
+| `bcast_batch_pub_qos1_delivered` | device | Actual PUBLISH sends by this node (includes redeliveries and the QoS0-subscription auto path) |
+| `bcast_batch_pub_qos1_redelivered` | device | Sends whose core claim attempt number was >= 2 (same logical delivery attempted before: lease expiry, disconnect, unsubscribe, claim-race release) |
+| `bcast_batch_pub_qos1_acked` | device | PUBACKs matched to a pending delivery. Matching an ack removes the device from the index, so a duplicate PUBACK is not matched twice while the index shard survives. If the shard dies in the up-to-50 ms window before that ack's marker is durable, the rebuild re-indexes the device and the redelivered duplicate's PUBACK is counted once more — delivery itself stays at-least-once |
+| `bcast_batch_pub_qos1_auto_acked` | device | Logical deliveries completed because the subscription QoS is 0 |
+| `bcast_batch_pub_qos1_ttl_expired` | index | Logical deliveries abandoned because the delivery TTL expired before confirmation; counted on the core that reclaims them |
+| `bcast_batch_pub_qos1_canceled` | index | Logical deliveries removed by management delete or reset before confirmation; counted on the core that runs the removal |
 
 **Ledger identity (eventually consistent):**
 
@@ -363,10 +389,13 @@ restart/reset.
 
 | Metric | Description |
 |--------|-------------|
-| `bcast_batch_pub_qos1_in` | BatchPub QoS=1 API requests |
-| `bcast_batch_pub_qos1_enqueued` | QoS=1 requests accepted into the intake queue |
-| `bcast_batch_pub_qos1_intake_rejected` | QoS=1 requests rejected because the intake queue is full |
-| `bcast_batch_pub_qos1_promote_error` | QoS=1 promotion batch failures (retries exhausted) |
+| `bcast_batch_pub_qos1_in` | BatchPub QoS=1 API requests accepted by this node |
+| `bcast_batch_pub_qos1_enqueued` | QoS=1 requests accepted into this node's intake queue |
+| `bcast_batch_pub_qos1_intake_rejected` | QoS=1 requests rejected because this node's intake queue is full |
+| `bcast_batch_pub_qos1_promote_error` | QoS=1 promotion batch failures on this node (retries exhausted) |
+
+All four are **intake scope**: a replicant forwards BatchPub to a core for
+admission and reports 0 for them.
 
 Within a node's lifetime `in = enqueued + intake_rejected + quota
 rejections`; quota (429 QuotaExceeded) rejections are not exported
@@ -388,23 +417,29 @@ separately — they are the derivable residual.
 ### Gauges
 
 Sampled at scrape time from live state; sum over nodes for cluster totals
-(index shards run on core nodes, replicants report 0).
+(index shards run on core nodes, so replicants report 0 for the shard
+gauges).
 
-| Metric | Description |
-|--------|-------------|
-| `bcast_intake_depth` | QoS=1 intake queue depth (requests awaiting promotion, node-local) |
-| `bcast_batch_pub_qos1_queued` | Committed logical deliveries queued but not yet claimed |
-| `bcast_batch_pub_qos1_inflight` | Claimed logical deliveries not yet terminal (awaiting ack/release/expiry) |
+| Metric | Scope | Description |
+|--------|-------|-------------|
+| `bcast_intake_depth` | intake | QoS=1 intake queue depth on this node (requests awaiting promotion) |
+| `bcast_batch_pub_qos1_queued` | index | Committed logical deliveries queued on this node's shards but not yet claimed |
+| `bcast_batch_pub_qos1_inflight` | index | Claimed logical deliveries on this node's shards not yet terminal (awaiting ack/release/expiry) |
 
 ### Metrics reset
 
 `POST /api/v5/plugin_api/emqx_bcast/metrics/reset`
 
 Resets the metric registry to zero on **every** running node (a partial
-reset would permanently break cross-node sums). Refuses with
+reset would permanently break cross-node sums). The whole cluster is checked
+first and only reset when every node is idle; refuses with
 `409 PendingDeliveries` while any node still holds queued or in-flight
-deliveries: counters and delivery state are separate, and the ledger
-identity only holds for events observed after a reset. Intended for
+deliveries. A node that becomes busy in the small check-to-reset window still
+refuses; because the reset phase is inspected per node, that case is reported
+as `500 PartialReset` listing the nodes that were already zeroed
+(`ResetNodes`) and the ones that refused (`FailedNodes`) — it is never
+reported as a success. Counters and delivery state are separate, and the
+ledger identity only holds for events observed after a reset. Intended for
 maintenance windows and test tooling.
 
 ### Prometheus Configuration

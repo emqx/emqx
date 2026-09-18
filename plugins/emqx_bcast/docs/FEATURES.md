@@ -26,7 +26,7 @@ unmounted delivery topics.
 - Offline devices do not receive the message; nothing is stored.
 - Fanned out cluster-wide: every node delivers to its locally connected
   devices.
-- Broadcast topic templates must not contain `${deviceName}`.
+- Broadcast topic templates may use `${productKey}` and `${deviceName}`; wildcards are rejected.
 
 ### BatchPub
 
@@ -76,9 +76,11 @@ unmounted delivery topics.
 
 ## Offline Replay
 
-- Pending QoS=1 deliveries are indexed per device in core Mnesia.
-  Replicant nodes keep no delivery storage; a device reconnecting to any
-  node pulls its pending messages from a core node after subscribing.
+- Pending QoS=1 deliveries are stored in core Mnesia; the per-device
+  pending index is a derived cache in the core index shards, rebuilt from
+  Mnesia on restart. Replicant nodes keep no delivery storage; a device
+  reconnecting to any node pulls its pending messages from a core node
+  after subscribing.
 - Core nodes keep the authoritative Mnesia copies, so records survive
   the loss of the node that received the API call.
 

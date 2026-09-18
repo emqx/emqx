@@ -26,7 +26,10 @@
     on_session_unsubscribed/3,
     on_session_resumed/2,
     on_client_ping/3,
-    on_message_acked/2
+    on_message_acked/2,
+    msg_epoch/1,
+    bump_msg_epoch/1,
+    bump_msg_epoch_everywhere/1
 ]).
 
 -include("emqx_bcast.hrl").
@@ -156,7 +159,37 @@ unhook() ->
 init_tables() ->
     ok = create_mnesia_tables(),
     ok = create_ets_tables(),
-    ok = ensure_core_copies().
+    ok = ensure_core_copies(),
+    ok = log_table_baseline().
+
+%% Startup baseline. These tables are ram_copies, so a node or plugin
+%% restart starts them empty and mria re-loads them afterwards; logging the
+%% per-table size (with the copy type) makes that - and any later reset -
+%% visible in the logs instead of looking like rows vanishing.
+log_table_baseline() ->
+    ?SLOG(info, #{
+        msg => "bcast_tables_ready",
+        node => node(),
+        is_core => is_core(),
+        tables => table_sizes()
+    }),
+    ok.
+
+table_sizes() ->
+    [
+        {Tab, mnesia:table_info(Tab, size), mnesia:table_info(Tab, ram_copies)}
+     || Tab <- [
+            ?TAB_MSG,
+            ?TAB_MSG_API_ID,
+            ?TAB_MSG_HASH,
+            ?TAB_MSG_REG,
+            ?TAB_MSG_REC,
+            ?TAB_MSG_META,
+            ?TAB_MSG_META_CNT,
+            ?TAB_MSG_ACKED
+        ],
+        lists:member(Tab, mnesia:system_info(tables))
+    ].
 
 create_mnesia_tables() ->
     case is_core() of
@@ -331,11 +364,61 @@ create_mnesia_table(Tab, RecordName, Attributes, Type) ->
     end.
 
 create_ets_tables() ->
-    %% emqx_bcast_sup already owns and creates this table in its init/1;
+    %% emqx_bcast_sup already owns and creates device registry in its init/1;
     %% register_device deliberately has no create-on-demand fallback, so a
     %% channel process can never become the owner and destroy the registry.
     emqx_bcast_utils:ensure_ets(?TAB_DEV_REGISTRY, ?BCAST_DEV_REGISTRY_OPTS),
+    emqx_bcast_utils:ensure_ets(?TAB_MSG_EPOCH, ?BCAST_MSG_EPOCH_OPTS),
     ok.
+
+%% Node-local delete epoch of one content hash. Admission stamps the epoch
+%% it observed on the intake entry; promotion drops an entry whose stamped
+%% epoch is older than the current one. That is what makes Delete Message
+%% linearize against entries that were already sitting in an intake queue,
+%% including a hash group that mixes entries admitted before and after the
+%% delete (the decision is per entry, not per group).
+-spec msg_epoch(binary()) -> non_neg_integer().
+msg_epoch(Hash) ->
+    try ets:lookup_element(?TAB_MSG_EPOCH, Hash, 2) of
+        N when is_integer(N) -> N
+    catch
+        _:_ -> 0
+    end.
+
+-spec bump_msg_epoch(binary()) -> non_neg_integer().
+bump_msg_epoch(Hash) ->
+    ets:update_counter(?TAB_MSG_EPOCH, Hash, {2, 1}, {Hash, 0}).
+
+%% Bump the epoch on every running core before a message's rows are removed.
+%% An unreachable core could still promote an entry admitted before the
+%% delete, so the delete is aborted instead of proceeding without it.
+%%
+%% Accepted trade-off: this fan-out is not atomic with the row removal. If a
+%% later step of the delete fails, the delete reports an error with every row
+%% still present, but the epochs are already advanced, so the promoter drops
+%% the entries admitted before it for that hash as stale and releases their
+%% admission. Orphan repair and TTL do NOT recover those intake entries -
+%% they only reconcile residual index and storage rows. The exposure is
+%% bounded by the delete's own duration and only affects requests that were
+%% in flight against that content at that moment.
+-spec bump_msg_epoch_everywhere(binary()) -> ok | {error, term()}.
+bump_msg_epoch_everywhere(Hash) ->
+    Nodes = lists:usort([node() | core_nodes()]),
+    case [N || N <- Nodes, not bump_msg_epoch_on(N, Hash)] of
+        [] -> ok;
+        Failed -> {error, {epoch_bump_failed, Failed}}
+    end.
+
+bump_msg_epoch_on(Node, Hash) when Node =:= node() ->
+    _ = bump_msg_epoch(Hash),
+    true;
+bump_msg_epoch_on(Node, Hash) ->
+    try emqx_rpc:call(?MODULE, Node, ?MODULE, bump_msg_epoch, [Hash], ?BCAST_RPC_CALL_TIMEOUT_MS) of
+        {badrpc, _} -> false;
+        _ -> true
+    catch
+        _:_ -> false
+    end.
 
 %% Every core node needs a local ram copy of the storage tables so that
 %% transactions (create, claim, ack) execute locally instead of being
@@ -360,23 +443,60 @@ ensure_core_copies() ->
                 ?TAB_MSG_META_CNT,
                 ?TAB_MSG_ACKED
             ],
-            lists:foreach(
-                fun(Tab) ->
-                    case lists:member(node(), mnesia:table_info(Tab, ram_copies)) of
-                        true ->
-                            ok;
-                        false ->
-                            case lists:member(node(), mnesia:table_info(Tab, disc_copies)) of
-                                true ->
-                                    catch mnesia:change_table_copy_type(Tab, node(), ram_copies);
-                                false ->
-                                    catch mnesia:add_table_copy(Tab, node(), ram_copies)
-                            end
-                    end
-                end,
-                Tables
-            ),
+            lists:foreach(fun ensure_core_copy/1, Tables),
             ok
+    end.
+
+%% Bring one table's local copy to ram_copies. Both operations drop and
+%% re-load the local copy, so the attempt and the outcome are logged: a bare
+%% catch used to swallow every failure, leaving the table empty or missing
+%% on this node with no trace - which looks exactly like rows vanishing.
+ensure_core_copy(Tab) ->
+    case lists:member(node(), mnesia:table_info(Tab, ram_copies)) of
+        true ->
+            ok;
+        false ->
+            SizeBefore = mnesia:table_info(Tab, size),
+            {Op, Do} =
+                case lists:member(node(), mnesia:table_info(Tab, disc_copies)) of
+                    true ->
+                        {change_table_copy_type, fun() ->
+                            mnesia:change_table_copy_type(Tab, node(), ram_copies)
+                        end};
+                    false ->
+                        {add_table_copy, fun() ->
+                            mnesia:add_table_copy(Tab, node(), ram_copies)
+                        end}
+                end,
+            ?SLOG(warning, #{
+                msg => "bcast_table_copy_type_change",
+                table => Tab,
+                operation => Op,
+                size_before => SizeBefore,
+                node => node()
+            }),
+            try Do() of
+                Result ->
+                    ?SLOG(info, #{
+                        msg => "bcast_table_copy_type_changed",
+                        table => Tab,
+                        operation => Op,
+                        result => Result,
+                        size_after => mnesia:table_info(Tab, size)
+                    }),
+                    ok
+            catch
+                Error:Reason ->
+                    ?SLOG(error, #{
+                        msg => "bcast_table_copy_type_change_failed",
+                        table => Tab,
+                        operation => Op,
+                        size_before => SizeBefore,
+                        exception => Error,
+                        reason => Reason
+                    }),
+                    ok
+            end
     end.
 
 %%--------------------------------------------------------------------

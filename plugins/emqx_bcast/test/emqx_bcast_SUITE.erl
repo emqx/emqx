@@ -3563,3 +3563,474 @@ shard_heap(S) ->
         {total_heap_size, H} -> H;
         _ -> -1
     end.
+
+-doc "A rebuild reconciliation whose completion transaction aborts must not\n"
+"re-index the already-acked devices: that would leave a ghost pending entry\n"
+"for a delivery another shard completes, and the closing quota recount would\n"
+"count it. The next shard in the same drive retries the completion instead.".
+t_rebuild_completion_abort_leaves_no_ghost(_Config) ->
+    PK = <<"PGHOST">>,
+    [DN1] = same_shard_dns(PK, 7, 1),
+    [DN2] = same_shard_dns(PK, 8, 1),
+    ?assertNotEqual(
+        emqx_bcast_index_owner:shard_of({PK, DN1}),
+        emqx_bcast_index_owner:shard_of({PK, DN2})
+    ),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"ghost completion">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN1, DN2], 2
+    ),
+    %% The crash-window state: every device has a persisted ack marker while
+    %% the remaining-ack counter is still positive.
+    ok = mnesia:dirty_write(#bcast_msg_acked{delivery_id = DeliveryId, device_names = [DN1, DN2]}),
+    ok = mnesia:dirty_write(#bcast_msg_meta_counter{delivery_id = DeliveryId, counter = 2}),
+    TestProc = self(),
+    Cnt = atomics:new(1, []),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, transaction, fun(Fun, Retries) ->
+            case in_index_shard() of
+                true ->
+                    case atomics:add_get(Cnt, 1, 1) of
+                        1 ->
+                            TestProc ! completion_aborted,
+                            {aborted, injected};
+                        _ ->
+                            meck:passthrough([Fun, Retries])
+                    end;
+                false ->
+                    meck:passthrough([Fun, Retries])
+            end
+        end),
+        ok = emqx_bcast_index_owner:rebuild_index()
+    after
+        meck:unload(mnesia)
+    end,
+    receive
+        completion_aborted -> ok
+    after 2000 ->
+        ?assert(false)
+    end,
+    %% A later shard completed the delivery, and the aborted shard left no
+    %% ghost entry behind.
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 200)),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN1})),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN2})).
+
+-doc "Completed-delivery cleanup must keep the <=0 counter row when its delete\n"
+"transaction aborts, so the next cleanup tick re-discovers the rows instead\n"
+"of leaking them to TTL.".
+t_cleanup_completed_abort_keeps_retry_marker(_Config) ->
+    PK = <<"PCABT">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"cleanup abort">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    %% A completion whose counter reached zero but whose meta/rec transaction
+    %% never landed: the counter row is the retry marker.
+    ok = mnesia:dirty_write(#bcast_msg_meta_counter{delivery_id = DeliveryId, counter = 0}),
+    Cnt = atomics:new(1, []),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, transaction, fun(Fun, Retries) ->
+            case atomics:add_get(Cnt, 1, 1) of
+                1 -> {aborted, injected};
+                _ -> meck:passthrough([Fun, Retries])
+            end
+        end),
+        ok = emqx_bcast_index_owner:cleanup_completed_deliveries()
+    after
+        meck:unload(mnesia)
+    end,
+    %% The marker survived the abort, so the rows are still discoverable.
+    ?assertMatch(
+        [#bcast_msg_meta_counter{}], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)
+    ),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    %% The next tick (no injection) reclaims everything.
+    ok = emqx_bcast_index_owner:cleanup_completed_deliveries(),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_meta, DeliveryId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)).
+
+-doc "The periodic self-healing recount corrects a drifted authoritative\n"
+"pending row from the live shard pendings, so quota can never stay\n"
+"permanently high or low.".
+t_quota_recount_self_heals(_Config) ->
+    ?assert(emqx_bcast_index_owner:is_owner()),
+    PK = <<"PQH">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"quota heal">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    Before = emqx_bcast_index_owner:pending_count(),
+    ?assert(Before >= 1),
+    true = ets:insert(bcast_quota_ets, {global, Before + 12345}),
+    ?assertEqual(Before + 12345, emqx_bcast_index_owner:pending_count()),
+    list_to_atom("emqx_bcast_index_owner_0") ! quota_recount,
+    ?assert(
+        wait_until(
+            fun() -> emqx_bcast_index_owner:pending_count() =:= Before end, 200
+        )
+    ).
+
+-doc "Delete Message closes the enumerate/delete window: a delivery committed\n"
+"after the enumeration but before the delete transaction is caught by the\n"
+"post-delete re-enumeration instead of being orphaned.".
+t_delete_message_catches_straggler(_Config) ->
+    PK = <<"PSTRAG">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    {ApiMsgId, MsgGuid} = create_test_msg(<<"straggler">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    Cnt = atomics:new(1, []),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, dirty_match_object, fun
+            (bcast_msg, Pat) ->
+                case atomics:add_get(Cnt, 1, 1) of
+                    1 -> [];
+                    _ -> meck:passthrough([bcast_msg, Pat])
+                end;
+            (Tab, Pat) ->
+                meck:passthrough([Tab, Pat])
+        end),
+        ok = emqx_bcast_storage:delete_message(ApiMsgId)
+    after
+        meck:unload(mnesia)
+    end,
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_api_id, ApiMsgId)),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+-doc "The periodic recount must keep the admission reservations of requests\n"
+"still waiting in an intake queue; recomputing from index pendings only\n"
+"would erase them from the global cap permanently.".
+t_quota_recount_keeps_unpromoted_reservations(_Config) ->
+    ?assert(emqx_bcast_index_owner:is_owner()),
+    PK = <<"PQRES">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    Before = emqx_bcast_index_owner:pending_count(),
+    %% Reserve without promoting: exactly the state of an accepted request
+    %% that is still sitting in an intake queue.
+    ok = emqx_bcast_index_owner:admit(PK, [DN]),
+    try
+        %% Drift the authoritative row, so the assertion below cannot pass
+        %% unless the recount really ran.
+        true = ets:insert(bcast_quota_ets, {global, Before + 999}),
+        list_to_atom("emqx_bcast_index_owner_0") ! quota_recount,
+        ?assert(
+            wait_until(
+                fun() -> emqx_bcast_index_owner:pending_count() =:= Before + 1 end, 200
+            )
+        )
+    after
+        _ = emqx_bcast_index_owner:release_admit(PK, [DN])
+    end,
+    ?assert(
+        wait_until(fun() -> emqx_bcast_index_owner:pending_count() =:= Before end, 200)
+    ).
+
+-doc "A recount round must be abandoned when any shard cannot be probed: a\n"
+"partial sum would understate the global cap until the next good round.".
+t_quota_recount_skips_when_shard_unavailable(_Config) ->
+    ?assert(emqx_bcast_index_owner:is_owner()),
+    PK = <<"PQSKIP">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"quota skip">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    Before = emqx_bcast_index_owner:pending_count(),
+    Bogus = Before + 4242,
+    true = ets:insert(bcast_quota_ets, {global, Bogus}),
+    Suspended = list_to_atom("emqx_bcast_index_owner_1"),
+    ?assert(is_pid(whereis(Suspended))),
+    ok = sys:suspend(Suspended),
+    try
+        list_to_atom("emqx_bcast_index_owner_0") ! quota_recount,
+        %% Longer than the shard probe timeout: the round must give up
+        %% without touching the authoritative row.
+        timer:sleep(6000),
+        ?assertEqual(Bogus, emqx_bcast_index_owner:pending_count())
+    after
+        ok = sys:resume(Suspended)
+    end,
+    %% With every shard reachable again the next round heals the row.
+    list_to_atom("emqx_bcast_index_owner_0") ! quota_recount,
+    ?assert(
+        wait_until(fun() -> emqx_bcast_index_owner:pending_count() =:= Before end, 200)
+    ).
+
+-doc "A Delete Message that already returned success must not be undone by an\n"
+"intake entry admitted before it: the entry's delete epoch is older than the\n"
+"current one, so promotion drops it instead of re-creating the message.".
+t_promote_rejects_entry_from_before_delete(_Config) ->
+    PK = <<"PDELREUSE">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    Payload = <<"reuse after delete">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    ok = emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+    Now = emqx_bcast_utils:now_sec(),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    %% The entry shape of a request admitted while the message still existed:
+    %% it carries the epoch that was current at admission.
+    Entry = #{
+        payload => Payload,
+        hash => Hash,
+        api_msg_id => ApiMsgId,
+        msg_id => MsgGuid,
+        epoch => emqx_bcast:msg_epoch(Hash),
+        delivery_id => DeliveryId,
+        product_key => PK,
+        topic_template => <<"tpl">>,
+        devices => [DN],
+        created_at => Now,
+        expires_at => Now + 3600
+    },
+    ok = emqx_bcast_storage:delete_message(ApiMsgId),
+    ?assertEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+    ?assertEqual({ok, [deleted]}, emqx_bcast_storage:promote_batch([Entry])),
+    %% The delete stands: nothing was re-created.
+    ?assertEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_hash, Hash)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_api_id, ApiMsgId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+-doc "A hash group that mixes an entry admitted before a Delete Message with a\n"
+"legitimate new request for the same content must decide per entry: drop the\n"
+"stale one and promote the new one, in either grouping order.".
+t_promote_mixed_group_decides_per_entry(_Config) ->
+    PK = <<"PMIXED">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    Now = emqx_bcast_utils:now_sec(),
+    Promote = fun(Idx, Reverse) ->
+        Payload = <<"mixed group ", (integer_to_binary(Idx))/binary>>,
+        Hash = crypto:hash(sha256, Payload),
+        {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+        ok = emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+        MakeEntry = fun() ->
+            #{
+                payload => Payload,
+                hash => Hash,
+                api_msg_id => ApiMsgId,
+                msg_id => MsgGuid,
+                epoch => emqx_bcast:msg_epoch(Hash),
+                delivery_id => emqx_bcast_utils:gen_guid(),
+                product_key => PK,
+                topic_template => <<"tpl">>,
+                devices => [DN],
+                created_at => Now,
+                expires_at => Now + 3600
+            }
+        end,
+        %% Admitted before the delete ...
+        Stale = MakeEntry(),
+        ok = emqx_bcast_storage:delete_message(ApiMsgId),
+        ?assertEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+        %% ... and a legitimate new request for the same content after it.
+        Fresh = MakeEntry(),
+        StaleId = maps:get(delivery_id, Stale),
+        FreshId = maps:get(delivery_id, Fresh),
+        Entries =
+            case Reverse of
+                true -> [Fresh, Stale];
+                false -> [Stale, Fresh]
+            end,
+        {ok, Results} = emqx_bcast_storage:promote_batch(Entries),
+        ByDid = maps:from_list(
+            lists:zip([maps:get(delivery_id, E) || E <- Entries], Results)
+        ),
+        ?assertEqual(deleted, maps:get(StaleId, ByDid)),
+        ?assertEqual(ok, maps:get(FreshId, ByDid)),
+        %% The new request created the message and its delivery row; the stale
+        %% entry did neither, so the delete was not undone.
+        ?assertNotEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+        ?assertEqual([], mnesia:dirty_read(bcast_msg, StaleId)),
+        ?assertNotEqual([], mnesia:dirty_read(bcast_msg, FreshId))
+    end,
+    Promote(1, false),
+    Promote(2, true).
+
+-doc "When the message row is gone but no delete epoch was bumped (a TTL\n"
+"reclaim), only an entry that may create the message is promoted: an\n"
+"explicit MessageId entry is dropped even though a sibling inline entry\n"
+"re-creates the message in the same group.".
+t_promote_missing_message_only_creates_for_inline(_Config) ->
+    PK = <<"PCANCREATE">>,
+    [DN] = same_shard_dns(PK, 7, 1),
+    Payload = <<"can create">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    ok = emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+    Now = emqx_bcast_utils:now_sec(),
+    MakeEntry = fun(CanCreate) ->
+        #{
+            payload => Payload,
+            hash => Hash,
+            api_msg_id => ApiMsgId,
+            msg_id => MsgGuid,
+            epoch => emqx_bcast:msg_epoch(Hash),
+            can_create => CanCreate,
+            delivery_id => emqx_bcast_utils:gen_guid(),
+            product_key => PK,
+            topic_template => <<"tpl">>,
+            devices => [DN],
+            created_at => Now,
+            expires_at => Now + 3600
+        }
+    end,
+    Inline = MakeEntry(true),
+    Reuse = MakeEntry(false),
+    InlineId = maps:get(delivery_id, Inline),
+    ReuseId = maps:get(delivery_id, Reuse),
+    %% Simulate a TTL reclaim: the message rows are gone and no delete epoch
+    %% was bumped, so both entries still carry the current epoch.
+    ok = mnesia:dirty_delete({bcast_message, MsgGuid}),
+    ok = mnesia:dirty_delete({bcast_message_hash, Hash}),
+    ok = mnesia:dirty_delete({bcast_message_api_id, ApiMsgId}),
+    {ok, Results} = emqx_bcast_storage:promote_batch([Reuse, Inline]),
+    ByDid = maps:from_list(lists:zip([ReuseId, InlineId], Results)),
+    ?assertEqual(deleted, maps:get(ReuseId, ByDid)),
+    ?assertEqual(ok, maps:get(InlineId, ByDid)),
+    %% The inline entry re-created the message; the explicit MessageId entry
+    %% was not written back alongside it.
+    ?assertNotEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, ReuseId)),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_msg, InlineId)).
+
+-doc "A reset that fails on a node during the reset phase is reported as a\n"
+"partial reset, not as a success: the nodes reset before it are already\n"
+"zeroed.".
+t_metrics_reset_reports_partial_failure(_Config) ->
+    meck:new(emqx_bcast_index_owner, [passthrough, no_link]),
+    meck:new(prometheus_registry, [passthrough, no_link]),
+    try
+        %% Phase one passes on every node; phase two fails on this one.
+        meck:expect(emqx_bcast_index_owner, gauge_sample, fun() -> {0, 0} end),
+        meck:expect(prometheus_registry, clear, fun(_) -> error(injected_reset_failure) end),
+        ?assertMatch(
+            {error, {partial_reset, [{_, {error, _}}]}},
+            emqx_bcast_metrics:reset_cluster()
+        ),
+        %% The API reports the partial reset instead of a success that omits
+        %% the failed node.
+        {ok, Status, _Headers, Body} = emqx_bcast_api:handle_local(
+            post, [<<"metrics">>, <<"reset">>], #{}
+        ),
+        ?assertEqual(500, Status),
+        ?assertEqual(false, maps:get(<<"Success">>, Body)),
+        ?assertEqual(<<"PartialReset">>, maps:get(<<"Code">>, Body)),
+        ?assertEqual([], maps:get(<<"ResetNodes">>, Body)),
+        ?assertMatch([#{<<"Node">> := _, <<"Reason">> := _}], maps:get(<<"FailedNodes">>, Body))
+    after
+        meck:unload(prometheus_registry),
+        meck:unload(emqx_bcast_index_owner)
+    end.
+
+-doc "The cascade delete of a message shared by many deliveries runs in\n"
+"bounded chunks with the message rows removed last, so no single transaction\n"
+"covers an unbounded number of deliveries.".
+t_delete_message_cascade_is_chunked(_Config) ->
+    PK = <<"PCHUNK">>,
+    DNS = same_shard_dns(PK, 7, 3),
+    Payload = <<"chunked cascade">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    ok = emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+    DeliveryIds = [
+        begin
+            Did = emqx_bcast_utils:gen_guid(),
+            {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN], 1),
+            Did
+        end
+     || DN <- DNS
+    ],
+    %% Force one delivery per chunk so the multi-chunk path is exercised.
+    application:set_env(emqx_bcast, mgmt_delete_chunk, 1),
+    try
+        ok = emqx_bcast_storage:delete_message(ApiMsgId)
+    after
+        application:unset_env(emqx_bcast, mgmt_delete_chunk)
+    end,
+    lists:foreach(
+        fun(Did) -> ?assertEqual([], mnesia:dirty_read(bcast_msg, Did)) end,
+        DeliveryIds
+    ),
+    ?assertEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_hash, Hash)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_api_id, ApiMsgId)),
+    lists:foreach(
+        fun(DN) -> ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})) end,
+        DNS
+    ).
+
+-doc "A failure in the middle of the chunked cascade delete leaves every\n"
+"already-deleted chunk reconciled - rows, index entries and the canceled\n"
+"counter - so a retry only has to finish the chunks whose rows are still\n"
+"there.".
+t_delete_message_chunk_failure_is_resumable(_Config) ->
+    PK = <<"PCHUNKFAIL">>,
+    DNS = same_shard_dns(PK, 7, 3),
+    Payload = <<"chunk failure">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
+    ok = emqx_bcast_storage:create_message(ApiMsgId, MsgGuid, Hash, Payload),
+    DeliveryIds = [
+        begin
+            Did = emqx_bcast_utils:gen_guid(),
+            {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN], 1),
+            Did
+        end
+     || DN <- DNS
+    ],
+    CanceledBefore = metric(<<"batch_pub_qos1_canceled">>),
+    %% One delivery per chunk, so the second chunk is the one that fails.
+    application:set_env(emqx_bcast, mgmt_delete_chunk, 1),
+    try
+        Cnt = atomics:new(1, []),
+        meck:new(mnesia, [passthrough, no_link]),
+        try
+            %% The chunk deletes run in shard 0, so only transactions issued
+            %% from an index shard process are counted.
+            meck:expect(mnesia, transaction, fun(Fun, Retries) ->
+                case in_index_shard() andalso atomics:add_get(Cnt, 1, 1) =:= 2 of
+                    true -> {aborted, injected};
+                    false -> meck:passthrough([Fun, Retries])
+                end
+            end),
+            ?assertMatch({error, _}, emqx_bcast_storage:delete_message(ApiMsgId))
+        after
+            meck:unload(mnesia)
+        end,
+        %% Exactly one chunk landed: its row is gone and its index entry was
+        %% removed and counted, while the other rows and the message rows are
+        %% still there so the delete can be retried.
+        Applied = [Did || Did <- DeliveryIds, mnesia:dirty_read(bcast_msg, Did) =:= []],
+        ?assertEqual(1, length(Applied)),
+        ?assertEqual(CanceledBefore + 1, metric(<<"batch_pub_qos1_canceled">>)),
+        ?assertEqual(
+            2, length([Did || Did <- DeliveryIds, mnesia:dirty_read(bcast_msg, Did) =/= []])
+        ),
+        ?assertNotEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+        %% The retry finishes the remaining chunks.
+        ok = emqx_bcast_storage:delete_message(ApiMsgId),
+        lists:foreach(
+            fun(Did) -> ?assertEqual([], mnesia:dirty_read(bcast_msg, Did)) end,
+            DeliveryIds
+        ),
+        ?assertEqual([], mnesia:dirty_read(bcast_message, MsgGuid)),
+        ?assertEqual([], mnesia:dirty_read(bcast_message_api_id, ApiMsgId)),
+        ?assertEqual(CanceledBefore + 3, metric(<<"batch_pub_qos1_canceled">>)),
+        lists:foreach(
+            fun(DN) ->
+                ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN}))
+            end,
+            DNS
+        )
+    after
+        application:unset_env(emqx_bcast, mgmt_delete_chunk)
+    end.

@@ -88,7 +88,15 @@ The message reaches all online devices of product `P1`. Offline devices do not r
 
 ### Scenario 3: QoS=1 with Offline Replay
 
-QoS=1 messages are persisted for `msg_ttl` (default 15 days). When an offline device reconnects, the plugin automatically replays pending messages in FIFO order.
+QoS=1 messages are stored for `msg_ttl` (default 15 days) and survive a single
+core failure: the delivery state lives in mria `ram_copies` tables replicated
+across the cores. A **full cluster restart** does not preserve them — storage is
+in memory by design, so replay from the producer rather than relying on the
+cluster to come back with its backlog. Changing `msg_ttl` only affects messages
+stored after the change; it is not applied retroactively to rows already in the
+tables.
+
+When an offline device reconnects, the plugin automatically replays pending messages in FIFO order.
 
 ```bash
 # Device list includes both online and offline devices
@@ -155,6 +163,19 @@ durable commit point, `ttl_expired`/`canceled` close the ledger):
 | `max_pending_deliveries` | `10000000` | Global cap on pending QoS=1 deliveries; requests exceeding it are rejected with 429 QuotaExceeded |
 | `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); requests targeting a device over the cap are rejected with 429 QuotaExceeded and the over-limit device list |
 | `delivery_pool_size` | `0` | Worker count for each delivery pool (the per-node claim pool and the core-side server pool). 0 means one worker per scheduler. Changing it restarts the pools |
+
+### Legacy settings (no runtime effect)
+
+These keys are still declared in the config schema and shipped in the defaults
+so that existing configuration files keep validating. Their values are accepted
+and normalized for compatibility, but they have **no runtime effect** and there
+is no way to change behaviour through them.
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `msg_warn_threshold` | `100000` | Accepted and normalized, but no behaviour consumer. Superseded by the pending-delivery quota metrics |
+| `force_upgrade_qos` | `true` | No-op. QoS is taken from the request (`Qos` field) and the subscription |
+| `delivery_queue_max` | `10000` | No-op. The intake queue depth is fixed at 20000; use `max_pending_deliveries` for backpressure |
 
 ---
 

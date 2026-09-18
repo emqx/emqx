@@ -166,6 +166,25 @@ drop_batch(Entries, Reason) ->
         Entries
     ).
 
+%% Entries dropped because their message was deleted after the request was
+%% accepted. Nothing durable was written for them and no ledger counter was
+%% touched, so only the admission reservation has to be released.
+release_deleted_admits([]) ->
+    ok;
+release_deleted_admits(Entries) ->
+    ?SLOG(info, #{
+        msg => "bcast_promoter_dropped_deleted_message",
+        entries => length(Entries)
+    }),
+    lists:foreach(
+        fun(E) ->
+            _ = emqx_bcast_index_owner:release_admit(
+                maps:get(product_key, E), maps:get(devices, E)
+            )
+        end,
+        Entries
+    ).
+
 process_batch(Batch, Failures) ->
     Entries = [Entry || {_Seq, Entry} <- Batch],
     case emqx_bcast_storage:promote_batch(Entries) of
@@ -178,6 +197,17 @@ process_batch(Batch, Failures) ->
                 Entry
              || {Result, Entry} <- lists:zip(Results, Entries), Result =:= already_promoted
             ],
+            %% Entries whose message was removed by Delete Message after the
+            %% request was accepted. No delivery row and no index entry was
+            %% written for them, so they must not be appended and must not
+            %% count as wanted. Their admission reservation is released here -
+            %% exactly like a dropped batch - or it would linger until the
+            %% stale-reservation sweep.
+            Deleted = [
+                Entry
+             || {Result, Entry} <- lists:zip(Results, Entries), Result =:= deleted
+            ],
+            ok = release_deleted_admits(Deleted),
             %% The batch was already dequeued by the atomic take; the append
             %% completes the promotion. On failure the worker retries the
             %% same batch (idempotent: already_promoted + append dedup).

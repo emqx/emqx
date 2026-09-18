@@ -6,69 +6,103 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
 
 ### Fixed
 
-- Reworked the QoS1 ack flush so its cost scales with the flush tick count
-  instead of the fanout device count: it no longer re-reads and scans a
-  delivery's whole ack-marker set on every flush (O(acked) per flush,
-  O(n^2) over a delivery's ack lifetime), and the markers are now
-  persisted as one row per delivery per flush tick carrying that tick's
-  device names instead of one replicated row per acked device (a bs=1000
-  delivery used to write 1000 rows and delete 1000 on completion).
-  Duplicate suppression still happens when the ack is counted, and index
-  rebuilds union the per-tick rows.
-- The default `config.hocon` now ships every field declared in the config
-  schema, including the legacy `msg_warn_threshold`, `force_upgrade_qos`
-  and `delivery_queue_max`. A fresh install previously served a config
-  missing those fields, and the dashboard rejected it during its Avro
-  conversion with `Found a null value at msg_warn_threshold`.
-- Index rebuild skips devices that already acknowledged (persisted
-  `bcast_msg_acked` markers), so a rebuilt index cannot resurrect a device
-  and redeliver a duplicate whose ack would decrement the completion
-  counter a second time.
-- An index rebuild also reconciles a delivery whose remaining-ack counter
-  drifted above zero: as soon as every target device has a persisted
-  marker the delivery is completed. A shard that died between the marker
-  write and the counter decrement is therefore repaired by the next
-  rebuild instead of leaking its rows until TTL expiry.
-- Rebuild ordering is tie-broken by `msg_id` within the same second, so
-  per-device FIFO stays deterministic across restarts.
-- Ack-in-flight marks expire after 30s when the core-applied confirmation
-  is lost, instead of holding the per-device window closed forever.
-- The ack flush now writes the acked markers and decrements the
-  per-delivery remaining-ack counter with lock-free dirty operations
-  instead of a transaction. That counter row is shared by every device
-  shard and replicated to every core, so the transaction serialized all of
-  them on a single write lock and mnesia restarted the shard with a 1ms
-  sleep on each conflict - which collapsed fanout throughput while every
-  other shard operation queued behind it. The marker is written before the
-  counter, so a crash between the two can only leave the counter too high;
-  it can never resurrect an already-acked device or let a replayed ack
-  decrement a live delivery twice. Such a delivery is reconciled by the
-  next index rebuild, which completes it as soon as every target device
-  has a persisted marker, and otherwise by TTL expiry. Completion (once
-  per delivery) still deletes the remaining rows transactionally.
-- A pool restart releases the restart guard on every shard, including
-  shards with no in-flight marks (previously those stayed in
-  `pools_restarting` until the 30s watchdog, stalling flush and blocking
-  later restarts).
-- Index activation keeps healthy active shards intact across a leader
-  restart, and individually restarted shards re-activate instead of
-  staying dormant.
-- Promoter batch crashes converge through bounded retries instead of
-  stopping the drain loop.
-- Delivery-window commits use a guarded field update instead of rewriting
-  the whole per-request row.
-- Configured topic templates are validated at config load: wildcards or
-  unknown placeholders fall back to the default with a warning instead of
-  breaking every publish at runtime.
-- The per-device quota clamp logs a warning when the configured value is
-  rewritten, so the effective value is visible.
+- The pending-delivery recount no longer drops the reservations of requests
+  that are still waiting in an intake queue, and a round is abandoned
+  altogether if any shard cannot be probed, so the global cap can no longer be
+  understated while intake is backlogged.
+- Deleting a message can no longer be undone: a BatchPub admitted against the
+  deleted message is dropped at promotion instead of re-creating it, and a
+  failure to delete a late-committed delivery is now reported instead of
+  returning success.
+- Deleting a message that is shared by a large number of deliveries runs in
+  bounded chunks with the message rows removed last, instead of one unbounded
+  transaction that held the index shard for the whole sweep.
+- A delivery whose completion transaction aborts during a rebuild is retried by
+  the periodic cleanup, so a fully acknowledged delivery can no longer sit with
+  an empty index until the next rebuild or expiry.
+- A cluster-wide metrics reset that fails on a node during the reset phase is
+  reported as `500 PartialReset` listing the reset and the failed nodes,
+  instead of a success that silently omitted the failure.
+- The plugin now remembers which devices have acknowledged a delivery. After a
+  restart or a core switchover it rebuilds the pending queues from that record,
+  so it no longer re-sends to devices that already acknowledged, and a
+  duplicate acknowledgement can no longer complete a delivery too early and
+  leave the remaining devices without the message.
+- If a node crashes between recording an acknowledgement and updating the
+  remaining-ack count, the delivery could stay unfinished and its data linger
+  until expiry. The next queue rebuild now finishes such deliveries; if that
+  attempt fails, the delivery stays queued so it is retried.
+- A queue rebuild no longer re-adds deliveries it already finished in the same
+  pass, and finishes at most 10,000 of them per rebuild so recovery stays
+  bounded; the rest wait for the next rebuild or expiry.
+- A device waiting for the core to confirm its acknowledgement no longer gets
+  stuck forever: the wait expires after 30 seconds and the message is
+  redelivered.
+- Index shards that restart now recover on their own instead of staying idle,
+  and a core restart only rebuilds the shards that were actually down.
+- Restarting the delivery pools (when `delivery_pool_size` changes) no longer
+  leaves some shards blocked, which used to pause delivery and block later
+  restarts.
+- A crash while promoting a batch is now retried a few times instead of killing
+  the worker and dropping the whole batch; after the retry limit the batch is
+  dropped cleanly and its quota is released.
+- Committing a delivery result no longer overwrites unrelated state written at
+  the same time (subscriptions, session info, acknowledgement status).
+- Deleting a message (which deletes its deliveries) no longer deadlocks against
+  a device acknowledgement happening at the same time.
+- Pending-delivery quota accounting is more accurate after a rebuild; a late
+  update from another node can no longer be counted twice.
+- A fresh install now ships a default config that includes every field the
+  config schema declares, so the Dashboard config page no longer fails with
+  `Found a null value at msg_warn_threshold`.
+- Topic templates in the config are validated when the config loads: an invalid
+  template falls back to the default with a warning instead of failing every
+  publish at runtime.
+- The per-device pending-delivery cap now logs a warning when the configured
+  value is clamped to 10-200, so the effective value is visible.
+- Metrics scraping samples shards concurrently, so one busy shard no longer
+  slows the whole scrape.
+- Pending-delivery quota now self-heals on a timer, so a rebuild that races
+  live traffic can no longer leave the quota permanently too high or too low.
+- Deleting a message no longer leaves an orphaned delivery behind when a
+  BatchPub reuses the same message at the same time.
+- Cluster-wide metrics reset now checks every node before resetting any, so a
+  busy node no longer leaves the cluster partially reset.
+- A rebuild no longer leaves stray index entries for a delivery whose
+  completion has to be retried, and completed-delivery cleanup retries after
+  an aborted deletion instead of leaking the rows until expiry.
 
 ### Changed
 
-- Dropped the never-documented `intake_queue_depth` config surface: the
-  intake queue depth is a hardcoded internal bound.
-- Ledger gauges are sampled concurrently, so a scrape no longer
-  serializes over every index shard.
+- Maintenance paths that used to fail silently now report what they did. The
+  local table copy-type change (and its failures) is logged, as is the periodic
+  check that drives it; the TTL sweep logs which messages and completed
+  deliveries it reclaimed together with the expiry it acted on; management
+  message deletion logs the message and its delivery count; and startup logs
+  the per-table size and copy type. Degraded admission after an owner failure,
+  a failed per-device quota probe and a failed local quota reset are reported
+  at error level. Any table change that is *not* one of these paths is
+  therefore visibly external.
+- Removed the `intake_queue_depth` setting, which never took effect and could
+  not be set through the config API anyway.
+
+### Documentation
+
+- Documented the two metric scopes: `in`/`enqueued`/`wanted`/`intake_depth` are
+  counted on the node that accepted and committed the API request (a replicant
+  reports 0 for them because it forwards to a core), while
+  `delivered`/`acked`/`queued`/`inflight` are counted where the device was
+  served. `wanted` counts every device of each batch the node committed, so the
+  ledger identity holds for `sum()` over nodes rather than per node. The
+  Prometheus HELP text states the same.
+- Documented the acknowledgement counter window: an ack is counted when it is
+  matched, up to one marker flush (50ms) before it becomes durable.
+- Corrected `API.md`, `FEATURES.md`, `USAGE.md`, `README.md` and
+  `DEVELOPMENT.md`: QoS=0 BatchPub sends only to the nodes hosting the target
+  devices (only PubBroadcast reaches every node); `delivery_pool_size` sizes two
+  pools (ack workers are limited by the scheduler count); clarified the
+  `MessageId` format, the QoS=1 completion condition and where
+  `InvalidTopicTemplate` applies.
 
 ## 0.4.0
 
