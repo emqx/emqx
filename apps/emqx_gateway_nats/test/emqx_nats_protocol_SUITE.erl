@@ -796,6 +796,21 @@ t_publish_exceed_max_payload(Config) ->
 
     emqx_nats_client:stop(Client).
 
+%% The declared payload size is already over the limit, and the payload is never
+%% sent: the gateway must reject the frame instead of waiting for it.
+t_publish_declared_exceed_max_payload(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+
+    ok = emqx_nats_client:send_invalid_frame(Client, <<"PUB foo 100000000\r\n">>),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
+
+    emqx_nats_client:stop(Client).
+
 t_hpub_exceed_max_payload(Config) ->
     ClientOpts = maps:merge(
         ?config(client_opts, Config),

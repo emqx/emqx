@@ -637,6 +637,14 @@ handle_in(Msg, Channel) ->
 
 handle_frame_error(Reason, Channel = #channel{conn_state = idle}) ->
     shutdown(to_atom_shutdown_reason(Reason), Channel);
+handle_frame_error(
+    {payload_too_large, _} = Reason,
+    Channel = #channel{conn_state = _ConnState}
+) ->
+    %% Reported when the parser refuses to buffer an oversized frame. Keeps the
+    %% standard NATS error message, but now closes before buffering the payload.
+    Frame = error_frame(<<"Maximum Payload Violation">>),
+    shutdown(to_atom_shutdown_reason(Reason), Frame, Channel);
 handle_frame_error(Reason, Channel = #channel{conn_state = _ConnState}) ->
     ErrMsg = io_lib:format("Frame error: ~0p", [Reason]),
     Frame = error_frame(ErrMsg),
