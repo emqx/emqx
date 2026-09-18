@@ -1773,15 +1773,19 @@ t_sock_closed_incomplete_qos2_transmission(_) ->
 
 -doc """
 The configured user-property limit is applied to new TCP, TLS, and WebSocket
-connections. CONNECT and will property blocks are counted separately. Limit
-shutdowns use their own listener counter.
+connections. CONNECT and will property blocks are counted separately. The
+rejection is counted on the listener.
 """.
 t_connect_user_property_limit(_) ->
     OldLimit = emqx_config:get_zone_conf(default, [mqtt, max_connect_user_properties]),
     Limit = 2,
     try
         emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], Limit),
-        CountBefore = listener_shutdown_count(too_many_user_properties),
+        %% The limit is hit while the CONNECT packet is parsed, so the
+        %% shutdown is counted as `invalid_connect_packet': a map-shaped frame
+        %% error keeps its cause in the shutdown reason, and shares the counter
+        %% of its connection state (see `emqx_channel:frame_error_kind/2').
+        CountBefore = listener_shutdown_count(invalid_connect_packet),
         lists:foreach(
             fun(Transport) ->
                 assert_connect_accepted(Transport, Limit, Limit),
@@ -1791,7 +1795,7 @@ t_connect_user_property_limit(_) ->
             [tcp, tls, ws]
         ),
         ?WAIT(
-            ?assert(listener_shutdown_count(too_many_user_properties) >= CountBefore + 2),
+            ?assert(listener_shutdown_count(invalid_connect_packet) >= CountBefore + 2),
             5
         ),
         emqx_config:put_zone_conf(default, [mqtt, max_connect_user_properties], infinity),

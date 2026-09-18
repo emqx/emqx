@@ -572,7 +572,7 @@ t_install_orphan_package_requires_allow(Config) ->
     ?assertEqual(absent, emqx_plugins:install_state(NameVsn)),
     ?assertMatch({true, [_]}, emqx_plugins:is_package_present(NameVsn)),
     %% Once allowed, the very same upload installs the package.
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
     ?assertMatch(#{<<"name">> := <<"invalid_plugin">>}, describe_plugin(NameVsn)),
@@ -592,7 +592,7 @@ t_install_over_complete_install_dir(_Config) ->
         _ = emqx_plugins:delete_package(NameVsn),
         _ = disallow_installation(NameVsn)
     end),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     %% the applications declared by the package have all been unpacked
     ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
@@ -631,7 +631,7 @@ t_install_over_manifest_only_install_dir(_Config) ->
     #{<<"code">> := <<"FORBIDDEN">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
     ?assertNotEqual(nomatch, binary:match(Msg, <<"plugins allow">>)),
     %% Once allowed, the very same upload unpacks the package.
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     ?assertMatch(#{<<"name">> := <<"my_emqx_plugin">>}, describe_plugin(NameVsn)),
     ?assertMatch([_ | _], emqx_plugins_test_helpers:plugin_app_files(NameVsn)),
@@ -654,7 +654,7 @@ t_install_running_plugin_broken_metadata(Config) ->
         _ = emqx_plugins:delete_package(NameVsn),
         _ = disallow_installation(NameVsn)
     end),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     ok = emqx_plugins:ensure_started(NameVsn),
     ?assert(plugin_is_running(NameVsn)),
@@ -667,10 +667,10 @@ t_install_running_plugin_broken_metadata(Config) ->
     TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
     {ok, InstalledPackage} = file:read_file(TarFile),
     {ok, InstalledChecksum} = file:read_file(TarFile ++ ".md5sum"),
-    ok = allow_installation(NameVsn),
     %% an upload which is refused must not destroy it: it may be the only
     %% local copy the broken installation can be repaired from
     RefusedPackage = create_modified_package(Config, PackagePath),
+    ok = allow_package(RefusedPackage),
     {ok, {{_, 400, _}, _, Body}} = install_plugin(RefusedPackage),
     #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
     ?assertNotEqual(nomatch, binary:match(Msg, <<"plugin_is_in_use">>)),
@@ -705,7 +705,7 @@ t_install_refuses_unreadable_installed_package(Config) ->
         _ = emqx_plugins:delete_package(NameVsn),
         _ = disallow_installation(NameVsn)
     end),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
     TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
@@ -718,8 +718,9 @@ t_install_refuses_unreadable_installed_package(Config) ->
     ?assertEqual(incomplete, emqx_plugins:install_state(NameVsn)),
     ok = file:delete(ChecksumFile),
     ok = file:make_dir(ChecksumFile),
-    ok = allow_installation(NameVsn),
-    {ok, {{_, 400, _}, _, Body}} = install_plugin(create_modified_package(Config, PackagePath)),
+    RefusedPackage = create_modified_package(Config, PackagePath),
+    ok = allow_package(RefusedPackage),
+    {ok, {{_, 400, _}, _, Body}} = install_plugin(RefusedPackage),
     #{<<"code">> := <<"BAD_PLUGIN_INFO">>, <<"message">> := Msg} = emqx_utils_json:decode(Body),
     ?assertNotEqual(nomatch, binary:match(Msg, <<"failed_to_backup_plugin_package">>)),
     %% the message tells the user what to do
@@ -747,7 +748,7 @@ t_install_on_complete_installation_keeps_package(Config) ->
         _ = emqx_plugins:delete_package(NameVsn),
         _ = disallow_installation(NameVsn)
     end),
-    ok = allow_installation(NameVsn),
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
     TarFile = emqx_plugins_fs:tar_file_path(NameVsn),
@@ -805,6 +806,9 @@ t_install_state_ignores_other_version_running(Config) ->
     %% code purged the complete installation and then failed with
     %% `plugin_tarball_not_found'
     ok = emqx_plugins:delete_package(NameVsn2),
+    %% the CLI install path is gated as well; the grant binds the package that
+    %% was unpacked, which is still readable at its source path
+    ok = allow_package(Pkg2),
     Output = cli_ensure_installed(NameVsn2),
     ?assertNotEqual(nomatch, binary:match(Output, <<"plugin_already_installed">>)),
     %% the complete installation has been kept
