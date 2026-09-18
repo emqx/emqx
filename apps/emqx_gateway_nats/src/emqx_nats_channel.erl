@@ -638,24 +638,24 @@ handle_in(Msg, Channel) ->
 handle_frame_error(Reason, Channel = #channel{conn_state = idle}) ->
     shutdown(to_atom_shutdown_reason(Reason), Channel);
 handle_frame_error(
-    {payload_too_large, _} = Reason,
+    {frame_too_large, #{position := Position}} = Reason,
     Channel = #channel{conn_state = _ConnState}
 ) ->
-    %% Reported when the parser refuses to buffer an oversized frame. Keeps the
-    %% standard NATS error message, but now closes before buffering the payload.
-    Frame = error_frame(<<"Maximum Payload Violation">>),
-    shutdown(to_atom_shutdown_reason(Reason), Frame, Channel);
-handle_frame_error(
-    {headers_too_large, _} = Reason,
-    Channel = #channel{conn_state = _ConnState}
-) ->
-    %% The header section exceeded its limit, which is not a payload problem.
-    Frame = error_frame(<<"Maximum Headers Violation">>),
+    %% The parser refuses to buffer a frame beyond the configured budget, and
+    %% reports which part of the frame exceeded it.
+    Frame = error_frame(frame_too_large_message(Position)),
     shutdown(to_atom_shutdown_reason(Reason), Frame, Channel);
 handle_frame_error(Reason, Channel = #channel{conn_state = _ConnState}) ->
     ErrMsg = io_lib:format("Frame error: ~0p", [Reason]),
     Frame = error_frame(ErrMsg),
     shutdown(to_atom_shutdown_reason(Reason), Frame, Channel).
+
+frame_too_large_message(control_line) ->
+    <<"Maximum Control Line Exceeded">>;
+frame_too_large_message(headers) ->
+    <<"Maximum Headers Violation">>;
+frame_too_large_message(_) ->
+    <<"Maximum Payload Violation">>.
 
 to_atom_shutdown_reason(R) when is_atom(R) ->
     R;
