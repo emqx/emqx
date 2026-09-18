@@ -1548,6 +1548,9 @@ init_zone_specific_state(Zone, Opts, #state{conf = Conf} = State0) ->
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
         %% zone will **not** take effect after the override.
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+        max_connect_user_properties => emqx_config:get_zone_conf(
+            Zone, [mqtt, max_connect_user_properties]
+        ),
         %% Any packet received before CONNECT is rejected by the parser.
         expect_connect => true
     },

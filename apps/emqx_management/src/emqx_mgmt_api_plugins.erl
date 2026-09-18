@@ -558,24 +558,25 @@ upload_install(post, #{}) ->
     }}.
 
 do_upload_install(NameVsn, Bin) ->
-    case describe_api_plugin(NameVsn, #{}) of
-        {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
-            case emqx_plugins:is_package_present(NameVsn) of
-                false ->
-                    install_package_on_nodes(NameVsn, Bin);
-                {true, TarGzs} ->
-                    %% TODO
-                    %% What if a tar file is present but is not unpacked, i.e.
-                    %% the plugin is not fully installed?
-                    {400, #{
-                        code => 'ALREADY_INSTALLED',
-                        message => iolist_to_binary(io_lib:format("~p already installed", [TarGzs]))
-                    }}
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
+            %% A complete installation.  Only an installation that the API does
+            %% not show (installed, but neither configured nor running, or one
+            %% whose metadata became unreadable meanwhile) is (re)installed
+            %% from the upload.
+            case describe_api_plugin(NameVsn, #{}) of
+                {ok, _} -> already_installed(NameVsn);
+                {error, _} -> install_package_on_nodes(NameVsn, Bin)
             end;
-        {error, stale_plugin} ->
-            install_package_on_nodes(NameVsn, Bin);
-        {ok, _} ->
-            already_installed(NameVsn)
+        _IncompleteOrAbsent ->
+            %% The plugin is not installed on this node: either nothing is
+            %% there, or the install dir only holds leftovers of a previous
+            %% attempt (an orphan `.tar.gz', a half-unpacked directory, or an
+            %% unreadable `release.json').  None of that is an installation,
+            %% so the upload is treated as a fresh install attempt: it must
+            %% pass the allow gate in `install_package_on_nodes/2', which also
+            %% purges the leftovers before unpacking the uploaded package.
+            install_package_on_nodes(NameVsn, Bin)
     end.
 
 already_installed(NameVsn) ->
@@ -845,14 +846,38 @@ install_package(FileName, Bin) ->
     install_package_v4(NameVsn, Bin).
 
 install_package_v4(NameVsn, Bin) ->
-    case emqx_plugins:write_package(NameVsn, Bin) of
-        ok ->
-            install_written_package_v4(NameVsn);
-        {error, Reason} ->
-            {error, Reason}
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
+            %% The installation is already complete, and a complete
+            %% installation is not unpacked again (`ensure_installed_from_tar/2'
+            %% returns without touching the package), so writing the upload
+            %% would pair the new package with the files of the previous one.
+            %% Keep both as they are: a cluster install runs this callback on
+            %% every node, including the ones which hold the installation
+            %% already (the node which answers the request decides whether the
+            %% upload is refused, see `do_upload_install/2').
+            emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
+        _IncompleteOrAbsent ->
+            install_replacing_package(NameVsn, Bin)
     end.
 
-install_written_package_v4(NameVsn) ->
+%% Replace the package of an absent or incomplete installation with the
+%% uploaded one.
+%%
+%% The package which is replaced is snapshotted before anything is written: an
+%% installation attempt which is refused (for example because the plugin is
+%% still running) or which fails must not destroy the only local copy of the
+%% installed package, it may be the only way to repair the installation later.
+%% When the snapshot itself can not be taken, the upload is refused instead of
+%% overwriting a package which could not be put back.
+install_replacing_package(NameVsn, Bin) ->
+    maybe
+        {ok, PreviousPackage} ?= emqx_plugins:backup_package(NameVsn),
+        ok ?= emqx_plugins:write_package(NameVsn, Bin),
+        install_written_package_v4(NameVsn, PreviousPackage)
+    end.
+
+install_written_package_v4(NameVsn, PreviousPackage) ->
     case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
         {error, #{reason := ?plugin_not_found}} = NotFound ->
             NotFound;
@@ -861,10 +886,22 @@ install_written_package_v4(NameVsn) ->
                 msg => "failed_to_install_plugin",
                 reason => Reason
             }),
-            _ = emqx_plugins:delete_package(NameVsn),
+            restore_previous_package(NameVsn, PreviousPackage),
             Error;
         Result ->
             Result
+    end.
+
+restore_previous_package(NameVsn, PreviousPackage) ->
+    case emqx_plugins:restore_package(NameVsn, PreviousPackage) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_restore_plugin_package",
+                name_vsn => NameVsn,
+                reason => Reason
+            })
     end.
 
 %% For RPC plugin get
@@ -1343,6 +1380,42 @@ readable_error_msg(#{
         "invalid_plugin_config_schema: Plugin package configuration schema is invalid. "
         "Rebuild or reinstall a corrected plugin package and retry."
     >>;
+readable_error_msg(#{
+    msg := "plugin_is_in_use",
+    name_vsn := NameVsn
+}) ->
+    iolist_to_binary([
+        "plugin_is_in_use: Plugin ",
+        NameVsn,
+        " is still running from the installation that can not be replaced. "
+        "Stop the plugin (`emqx ctl plugins stop ",
+        NameVsn,
+        "`) and retry the upload."
+    ]);
+readable_error_msg(#{
+    msg := "failed_to_unload_plugin_apps",
+    name_vsn := NameVsn
+}) ->
+    iolist_to_binary([
+        "failed_to_unload_plugin_apps: The applications of plugin ",
+        NameVsn,
+        " could not be unloaded from the installation that can not be replaced. "
+        "Stop the plugin (`emqx ctl plugins stop ",
+        NameVsn,
+        "`) and retry the upload."
+    ]);
+readable_error_msg(#{
+    msg := "incomplete_plugin_package",
+    name_vsn := NameVsn,
+    missing_apps := MissingApps
+}) ->
+    iolist_to_binary([
+        "incomplete_plugin_package: The package of plugin ",
+        NameVsn,
+        " does not contain the applications declared by its release.json (",
+        lists:join(", ", MissingApps),
+        "). Rebuild or reinstall a corrected plugin package and retry."
+    ]);
 readable_error_msg(#{
     msg := "conflicting_plugin_version_running",
     active_versions := ActiveVersions
