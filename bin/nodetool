@@ -36,8 +36,23 @@ main(Args) ->
             ok = add_libs_dir(),
             Key = cleanup_key(Key0),
             check_license(#{key => Key});
+        ["fsync" | Files] ->
+            lists:foreach(fun sync_file/1, Files);
         _ ->
             do(Args)
+    end.
+
+sync_file(Path) ->
+    maybe
+        {open, {ok, FD}} ?= {open, file:open(Path, [read, raw, binary])},
+        {sync, ok} ?= {sync, file:sync(FD)},
+        {close, ok} ?= {close, file:close(FD)}
+    else
+        {Operation, {error, Reason}} ->
+            io:format(standard_error, "Failed to ~p file ~ts: ~ts~n", [
+                Operation, Path, file:format_error(Reason)
+            ]),
+            halt(1)
     end.
 
 %% the key is a string (list) representation of a binary, so we need
