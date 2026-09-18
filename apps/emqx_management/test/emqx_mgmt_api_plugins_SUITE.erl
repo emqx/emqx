@@ -685,6 +685,9 @@ t_install_running_plugin_broken_metadata(Config) ->
     %% the upload then replaces the broken installation
     ok = emqx_plugins:ensure_stopped(NameVsn),
     ?assertNot(plugin_is_running(NameVsn)),
+    %% the grant of the refused upload bound that package, so this one takes
+    %% its own
+    ok = allow_package(PackagePath),
     ok = install_plugin(PackagePath),
     ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
     ok.
