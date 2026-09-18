@@ -83,8 +83,14 @@ log_meta(Importance, Meta, Req) ->
                 ],
                 Meta
             ),
-            emqx_utils:redact(maps:merge(Meta2, Meta1))
+            Meta3 = redact_audit_failure(Meta2),
+            emqx_utils:redact(maps:merge(Meta3, Meta1))
     end.
+
+redact_audit_failure(#{operation_id := <<"/login/verify">>, failure := _} = Meta) ->
+    Meta#{failure => <<"******">>};
+redact_audit_failure(Meta) ->
+    Meta.
 
 duration_ms(#{req_start := ReqStart, req_end := ReqEnd}) ->
     erlang:convert_time_unit(ReqEnd - ReqStart, native, millisecond).
@@ -172,6 +178,8 @@ non_empty_map(_) -> undefined.
 %% cannot safely infer. Redact by the credential-bearing operation boundary
 %% before the generic key-name redaction runs.
 redact_request_body(#{operation_id := <<"/license">>}, _Body) ->
+    <<"******">>;
+redact_request_body(#{operation_id := <<"/login/verify">>}, _Body) ->
     <<"******">>;
 redact_request_body(#{operation_id := <<"/sso/mfa/", _/binary>>}, Body) ->
     redact_sso_mfa_body(Body);
