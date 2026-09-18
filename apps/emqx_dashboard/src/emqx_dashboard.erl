@@ -24,6 +24,7 @@
 
 %% Authorization
 -export([authorize/2]).
+-export([parse_authorization_header/1]).
 -export([get_namespace/1]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -299,7 +300,7 @@ audit_log_fun() ->
 
 -spec authorize(request(), handler_info()) -> {ok, auth_meta()} | {integer(), term(), term()}.
 authorize(Req, HandlerInfo) ->
-    case cowboy_req:parse_header(<<"authorization">>, Req) of
+    case parse_authorization_header(Req) of
         {basic, Username, Password} ->
             api_key_authorize(Req, HandlerInfo, Username, Password);
         {bearer, Token} ->
@@ -315,6 +316,20 @@ authorize(Req, HandlerInfo) ->
                         authorization_header_error_message(HandlerInfo)
                     )
             end
+    end.
+
+-doc """
+Parse the `Authorization` header of a request.
+Return `undefined` when the header is absent or when Cowboy cannot parse it.
+""".
+-spec parse_authorization_header(request()) ->
+    {basic, binary(), binary()} | {bearer, binary()} | {digest, list()} | undefined.
+parse_authorization_header(Req) ->
+    try
+        cowboy_req:parse_header(<<"authorization">>, Req)
+    catch
+        exit:{request_error, {header, <<"authorization">>}, _} ->
+            undefined
     end.
 
 is_plugin_api(Req) ->

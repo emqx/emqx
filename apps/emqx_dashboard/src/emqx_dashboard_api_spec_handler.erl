@@ -186,7 +186,7 @@ full_swagger_json() ->
 %% guard the rest of the dashboard so the credential checks stay in one
 %% place.
 authenticate(Req) ->
-    case cowboy_req:parse_header(<<"authorization">>, Req) of
+    case emqx_dashboard:parse_authorization_header(Req) of
         {basic, Username, Password} ->
             case emqx_mgmt_auth:authorize(handler_info(Req), Req, Username, Password) of
                 {ok, _ActorContext} -> ok;

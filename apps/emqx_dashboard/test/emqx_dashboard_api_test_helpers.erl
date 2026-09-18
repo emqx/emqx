@@ -16,6 +16,7 @@
     request/6,
     multipart_formdata_request/3,
     multipart_formdata_request/4,
+    raw_get/2,
     host/0,
     uri/0,
     uri/1,
@@ -96,6 +97,38 @@ request(Username, Password, Method, Url, Body0, Headers) ->
 
 maybe_encode(Body) when is_binary(Body) -> Body;
 maybe_encode(Body) -> emqx_utils_json:encode(Body).
+
+-doc """
+Send a GET request to the dashboard listener over a plain TCP socket and
+return `{StatusCode, Body}`. Each header is sent exactly as given, so a
+request can carry the same header more than once, which `httpc` does not do.
+""".
+raw_get(Path, Headers) ->
+    {ok, Socket} = gen_tcp:connect("127.0.0.1", 18083, [binary, {active, false}]),
+    try
+        HeaderLines = [[Name, ": ", Value, "\r\n"] || {Name, Value} <- Headers],
+        ok = gen_tcp:send(Socket, [
+            "GET ",
+            Path,
+            " HTTP/1.1\r\n",
+            "Host: 127.0.0.1\r\n",
+            "Connection: close\r\n",
+            HeaderLines,
+            "\r\n"
+        ]),
+        Response = recv_all(Socket, <<>>),
+        [Head, Body] = binary:split(Response, <<"\r\n\r\n">>),
+        [<<"HTTP/1.1 ", Code:3/binary, _/binary>> | _] = binary:split(Head, <<"\r\n">>),
+        {binary_to_integer(Code), Body}
+    after
+        gen_tcp:close(Socket)
+    end.
+
+recv_all(Socket, Acc) ->
+    case gen_tcp:recv(Socket, 0, 5000) of
+        {ok, Data} -> recv_all(Socket, <<Acc/binary, Data/binary>>);
+        {error, closed} -> Acc
+    end.
 
 host() ->
     ?HOST.
