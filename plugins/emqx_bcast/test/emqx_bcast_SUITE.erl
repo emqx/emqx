@@ -328,8 +328,8 @@ t_claim_no_more_cleans_stale_index(_Config) ->
     %% while its index entry and quota count survived. The drain hot path
     %% reads the small bcast_msg_meta row, so a vanished delivery = vanished meta.
     ok = mnesia:dirty_delete(bcast_msg_meta, DeliveryId),
-    ?assertEqual(
-        [{DN, no_more}],
+    ?assertMatch(
+        [{DN, {no_more, _}}],
         emqx_bcast_storage:claim_want_next_batch([
             #{clientid => DN, product_key => PK, topics => []}
         ])
@@ -372,7 +372,7 @@ t_claim_no_deadlock_on_dropped_head(_Config) ->
             }
     end),
     receive
-        {claim_result, Pid, [{DN, no_more}]} ->
+        {claim_result, Pid, [{DN, {no_more, _}}]} ->
             ok;
         {claim_result, Pid, Other} ->
             ct:fail("unexpected claim result: ~p", [Other]);
@@ -658,8 +658,10 @@ t_claim_mixed_queue_residual_nonhead_terminates(_Config) ->
     %% Remove B: its queue residual stays (dids gone) as a lazy residual.
     ok = emqx_bcast_storage:remove_index_entries(PK, [DN], DB),
     %% Claim with a mismatched topic: both entries are skipped; the claim
-    %% must terminate (not wedge) with A left in the queue.
-    [{DN, no_more}] = emqx_bcast_storage:claim_want_next_batch([
+    %% must terminate (not wedge) with A left in the queue. A carries the
+    %% residual, which is what lets the pull side tell "not claimable yet"
+    %% from "drained" and re-arm the client instead of stranding it.
+    [{DN, {no_more, 1}}] = emqx_bcast_storage:claim_want_next_batch([
         #{clientid => DN, product_key => PK, topics => [{<<"nomatch">>, 1}]}
     ]),
     %% A is still claimable with the matching topic.
@@ -1022,6 +1024,62 @@ t_counted_ack_crash_window_between_marker_and_decrement(_Config) ->
     %% The next rebuild reconciles it from the acked markers: every target
     %% device has one, which proves the delivery is finished.
     ok = emqx_bcast_index_owner:rebuild_index(),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
+
+-doc "A delivery committed by a build without ack markers leaves none behind, so\n"
+"a rebuild re-indexes every target device and its legacy remaining-ack counter\n"
+"must be restored to the full target first (regression). Left at the legacy\n"
+"value, the first duplicate ack from a re-delivered already-acked device drove\n"
+"that counter to zero and completed the delivery while the never-acked devices\n"
+"had no index entry left to deliver from - their payload row was gone.".
+t_legacy_delivery_counter_restored_on_rebuild(_Config) ->
+    PK = <<"PLEGACY">>,
+    A = <<"DLEGACY_A">>,
+    B = <<"DLEGACY_B">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"legacy delivery">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    Now = emqx_bcast_utils:now_sec(),
+    %% Exactly what a pre-marker build leaves behind for a delivery whose
+    %% device A acked: bcast_msg.counter counts the acks received, the atomic
+    %% counter row holds the remaining acks, bcast_msg_meta holds the full
+    %% target, and there is no bcast_msg_acked row at all.
+    ok = mnesia:dirty_write(#bcast_msg{
+        delivery_id = DeliveryId,
+        msg_id = MsgGuid,
+        product_key = PK,
+        topic_template = <<"tpl">>,
+        target_ack_count = 2,
+        counter = 1,
+        device_names = [A, B],
+        created_at = Now,
+        expires_at = Now + 86400
+    }),
+    ok = mnesia:dirty_write(#bcast_msg_meta{
+        delivery_id = DeliveryId,
+        msg_id = MsgGuid,
+        topic_template = <<"tpl">>,
+        counter = 2
+    }),
+    ok = mnesia:dirty_write(#bcast_msg_meta_counter{delivery_id = DeliveryId, counter = 1}),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    %% Both devices are back in the index, so the counter has to expect an ack
+    %% from both of them again.
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, A})),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
+    ?assertMatch(
+        [#bcast_msg_meta_counter{counter = 2}],
+        mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)
+    ),
+    %% A's re-delivered duplicate ack must not complete the delivery: B has
+    %% not acked yet, and completing here would drop the payload row.
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    timer:sleep(200),
+    ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
+    %% B's ack is the one that completes it.
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    timer:sleep(200),
     ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
 
 -doc "The ack flush is lock-free: one dirty marker write plus one dirty counter\n"
@@ -2223,6 +2281,14 @@ row_claim_of(PK, DN) ->
         undefined -> undefined
     end.
 
+%% Deferred-claim mark of a client row: an integer while the sweep still owes
+%% the client a retry, undefined once it retried (or was never marked).
+rearm_at_of(PK, DN) ->
+    case row_lookup(PK, DN) of
+        #bcast_client_state{rearm_at = T} -> T;
+        undefined -> undefined
+    end.
+
 row_window_empty(PK, DN) ->
     case row_lookup(PK, DN) of
         #bcast_client_state{inflight = []} -> true;
@@ -2501,6 +2567,97 @@ t_ping_does_not_claim_idle_client(_Config) ->
     %% no state row is created by a bare keepalive ping
     ?assertEqual([], ets:lookup(state_tab(PK, DN), {PK, DN})),
     emqx_bcast:unregister_device(PK, DN, self()).
+
+-doc "A claim refused by the per-shard round cap must not become a lost\n"
+"wakeup: the promoter trigger is one-shot and the stale-claim sweep only\n"
+"revisits rows that still hold a claim, so a refused round that is dropped\n"
+"leaves the client idle (claim = undefined, empty window) with its backlog\n"
+"stranded until TTL. The refused client is marked on its own row instead, so\n"
+"the mark cannot be dropped when the backpressure episode is large, and the\n"
+"periodic sweep retries it.".
+t_pull_claim_refused_at_cap_is_retried_by_sweep(_Config) ->
+    PK = <<"PCAPRETRY">>,
+    DN = <<"DCAPRETRY">>,
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    Cnt = emqx_bcast_pull_shard:tab(Shard, bcast_pull_counters),
+    _ = emqx_bcast:register_device(PK, DN, self()),
+    %% Saturate the cap so the subscribe claim has to be refused.
+    true = ets:insert(Cnt, {claim, 2000}),
+    emqx_bcast_pull_shard:cast_client(PK, DN, {subscribe, DN, self(), PK}),
+    _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
+    %% Refused, but remembered on the row itself: no round was opened, and the
+    %% client carries the deferred-claim mark the sweep will revisit. The row
+    %% is created here on purpose - a refused round writes none, so a mark in a
+    %% separate table would be the only trace of the client, and that table
+    %% could fill up and drop it.
+    ?assert(is_integer(rearm_at_of(PK, DN))),
+    ?assertEqual(undefined, row_claim_of(PK, DN)),
+    ?assert(row_window_empty(PK, DN)),
+    %% Headroom returns; the next sweep retries the marked claim, which opens a
+    %% round and clears the mark. With the refusal dropped instead, the mark
+    %% would never appear and the client would stay idle until TTL.
+    true = ets:insert(Cnt, {claim, 0}),
+    ?assert(wait_until(fun() -> rearm_at_of(PK, DN) =:= undefined end, 240)),
+    cleanup_row(PK, DN),
+    emqx_bcast:unregister_device(PK, DN, self()).
+
+-doc "The pre-commit subscribe hook arms the client before its filter is\n"
+"committed, so a claim round that reaches the core inside that window sees no\n"
+"matching subscription and comes back no_more, clearing the round. The\n"
+"post-commit topic_added hook is the first point where the filter is visible,\n"
+"so it must re-arm an idle client - otherwise that client's queued backlog\n"
+"waits for TTL.".
+t_pull_topic_added_rearms_idle_client(_Config) ->
+    PK = <<"PTOPICARM">>,
+    DN = <<"DTOPICARM">>,
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    _ = emqx_bcast:register_device(PK, DN, self()),
+    %% The stranded state a no_more round leaves behind: a row with an empty
+    %% window, no claim round and no cached filter.
+    ets:insert(state_tab(PK, DN), #bcast_client_state{
+        key = {PK, DN},
+        product_key = PK,
+        clientid = DN,
+        pid = self(),
+        topics = []
+    }),
+    emqx_bcast_pull_shard:cast_client(PK, DN, {topic_added, DN, self(), PK, <<"tpl">>, 1}),
+    _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
+    %% The round is opened again now that the filter is cached.
+    ?assertNotEqual(undefined, row_claim_of(PK, DN)),
+    cleanup_row(PK, DN),
+    emqx_bcast:unregister_device(PK, DN, self()).
+
+-doc "A claim round answered no_more must re-arm the client when the core\n"
+"reports that entries are still waiting: no_more is not only the drained\n"
+"answer, it is also what the core says while the entries are there and\n"
+"merely not claimable yet (subscription not visible to the core when the\n"
+"round ran, replication lag, a blocked head cycling). A drained answer\n"
+"(residual 0) must not queue anything, or every device that finishes its\n"
+"backlog would add a pointless retry.".
+t_pull_no_more_residual_rearms_only_when_entries_remain(_Config) ->
+    PK = <<"PNOMORER">>,
+    DN1 = <<"DNOMORER1">>,
+    DN2 = <<"DNOMORER2">>,
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN1),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    %% Residual > 0: the round is cleared and the client row marked for the
+    %% bounded sweep retry.
+    Tag1 = 424242,
+    seed_claim_row(PK, DN1, Tag1, erlang:system_time(millisecond), Shard),
+    gen_server:cast(Name, {deliver_results, [{DN1, {no_more, 1}}], [{DN1, Tag1, PK}]}),
+    _ = sys:get_state(Name),
+    ?assertEqual(undefined, row_claim_of(PK, DN1)),
+    ?assert(is_integer(rearm_at_of(PK, DN1))),
+    %% Residual 0: the drained answer, which must not mark the client.
+    Tag2 = 424243,
+    seed_claim_row(PK, DN2, Tag2, erlang:system_time(millisecond), Shard),
+    gen_server:cast(Name, {deliver_results, [{DN2, {no_more, 0}}], [{DN2, Tag2, PK}]}),
+    _ = sys:get_state(Name),
+    ?assertEqual(undefined, row_claim_of(PK, DN2)),
+    ?assertEqual(undefined, rearm_at_of(PK, DN2)),
+    cleanup_row(PK, DN1),
+    cleanup_row(PK, DN2).
 
 -doc "The QoS0 auto-ack path counts delivered/auto_acked locally and never\n"
 "touches acked (no client PUBACK); the pull ack entry point forwards it and\n"

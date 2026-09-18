@@ -558,11 +558,13 @@ ack_batch_results(Acks) ->
 normalize_ack_result({counted, _RemQueued}) -> counted;
 normalize_ack_result(Other) -> Other.
 
--spec claim_want_next_batch([map()]) -> [{binary(), map() | no_more}] | {error, term()}.
+-spec claim_want_next_batch([map()]) ->
+    [{binary(), map() | {no_more, non_neg_integer()}}] | {error, term()}.
 claim_want_next_batch(Entries) ->
     claim_want_next_batch(Entries, node()).
 
--spec claim_want_next_batch([map()], node()) -> [{binary(), map() | no_more}] | {error, term()}.
+-spec claim_want_next_batch([map()], node()) ->
+    [{binary(), map() | {no_more, non_neg_integer()}}] | {error, term()}.
 claim_want_next_batch(Entries, Origin) ->
     try emqx_bcast_index_owner:claim(Entries, Origin) of
         Results -> Results
