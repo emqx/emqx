@@ -17,6 +17,9 @@
     is_message/1
 ]).
 
+%% Redact credentials from a CoAP message before it is logged.
+-export([redact/1]).
+
 -include("emqx_coap.hrl").
 -include_lib("emqx/include/types.hrl").
 
@@ -485,7 +488,11 @@ class_code_to_method({5, 05}) -> {error, proxying_not_supported};
 class_code_to_method(_) -> undefined.
 
 format(Msg) ->
-    io_lib:format("~p", [emqx_utils:redact(redact_for_log(Msg))]).
+    io_lib:format("~p", [redact(Msg)]).
+
+-spec redact(term()) -> term().
+redact(Msg) ->
+    emqx_utils:redact(redact_for_log(Msg)).
 
 redact_for_log(Msg = #coap_message{payload = Payload}) ->
     Msg#coap_message{

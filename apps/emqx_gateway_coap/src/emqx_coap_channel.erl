@@ -413,7 +413,7 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
                     %% Connection mode policy: reject requests without token/clientid.
                     ?SLOG(debug, #{
                         msg => "token_required_in_conn_mode",
-                        message => emqx_utils:redact(Msg)
+                        message => emqx_coap_frame:redact(Msg)
                     }),
                     missing_token_or_clientid_reply(Msg, Channel);
                 _ ->

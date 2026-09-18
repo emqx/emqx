@@ -251,18 +251,15 @@ t_connection_token_not_logged(_) ->
         end)
     end),
     TokenBin = list_to_binary(get(coap_session_token)),
-    PacketLogs = [
-        iolist_to_binary(Packet)
-     || #{msg := Msg, packet := Packet} <- Reports,
-        Msg =:= "send_packet" orelse Msg =:= "packet_received"
+    ?assertNotEqual([], Reports),
+    %% No debug log may carry the token. Checking every report also covers the
+    %% raw datagram dumps, which would otherwise defeat frame-level redaction.
+    Leaks = [
+        Report
+     || Report <- Reports,
+        binary:match(term_to_binary(Report), TokenBin) =/= nomatch
     ],
-    ?assertNotEqual([], PacketLogs),
-    lists:foreach(
-        fun(Packet) ->
-            ?assertEqual(nomatch, binary:match(Packet, TokenBin))
-        end,
-        PacketLogs
-    ).
+    ?assertEqual([], Leaks).
 
 t_connection_with_short_param_name(_) ->
     Action = fun(Channel) ->
@@ -772,6 +769,38 @@ t_request_with_partial_token_params(_) ->
         ?assertMatch({error, bad_request, _}, do_request(Channel, URI2, Req2)),
         true
     end).
+
+%% A request rejected in connection mode must not leak credentials sent with the
+%% short query aliases (`t', `p') into the debug log.
+t_rejected_request_does_not_log_short_credentials(_) ->
+    Secret = <<"short-password-value">>,
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
+        with_connection(fun(Channel, _Token) ->
+            URI = compose_uri(
+                ?PS_PREFIX ++ "/short_credential",
+                #{"p" => Secret},
+                false
+            ),
+            ?assertMatch(
+                {error, bad_request, _},
+                do_request(Channel, URI, make_req(post, <<"x">>))
+            ),
+            put(coap_rejected_secret, Secret),
+            true
+        end)
+    end),
+    %% The rejection path must have been exercised.
+    ?assertNotEqual(
+        [],
+        [R || R = #{msg := "token_required_in_conn_mode"} <- Reports]
+    ),
+    RejectedSecret = get(coap_rejected_secret),
+    Leaks = [
+        Report
+     || Report <- Reports,
+        binary:match(term_to_binary(Report), RejectedSecret) =/= nomatch
+    ],
+    ?assertEqual([], Leaks).
 
 t_token_takeover_across_udp_sessions(_) ->
     {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),

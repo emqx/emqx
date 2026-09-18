@@ -67,3 +67,20 @@ serialize_unwraps_wrapped_secret_payload_test() ->
     {ok, Decoded, <<>>, _} = emqx_coap_frame:parse(Bin, #{}),
     %% The token is redacted in logs but still delivered on the wire.
     ?assertEqual(Token, Decoded#coap_message.payload).
+
+%% `redact/1' is the alias-aware redaction reused outside of `format/1', e.g. by
+%% the channel when it logs a rejected request.
+redact_masks_short_uri_query_credentials_test() ->
+    Query = #{
+        <<"c">> => <<"client1">>,
+        <<"p">> => <<"password-value">>,
+        <<"t">> => <<"session-token-value">>
+    },
+    Msg = emqx_coap_message:request(
+        con, post, <<>>, #{uri_path => [<<"ps">>, <<"topic">>], uri_query => Query}
+    ),
+    #coap_message{options = #{uri_query := Redacted}} = emqx_coap_frame:redact(Msg),
+    ?assertEqual(<<"******">>, maps:get(<<"p">>, Redacted)),
+    ?assertEqual(<<"******">>, maps:get(<<"t">>, Redacted)),
+    %% Keys are kept as sent and non-sensitive values stay readable.
+    ?assertEqual(<<"client1">>, maps:get(<<"c">>, Redacted)).
