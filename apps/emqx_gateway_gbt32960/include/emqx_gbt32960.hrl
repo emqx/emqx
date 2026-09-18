@@ -64,6 +64,9 @@
 %%--------------------------------------------------------------------
 -define(ACK_SUCCESS, 16#01).
 -define(ACK_ERROR, 16#02).
+%% Defined by GB/T 32960 6.3.2 but not emitted: the authentication result cannot
+%% be mapped to these semantics. Duplicate VIN is not an authentication outcome,
+%% and failures only carry a generic reason such as not_authorized.
 -define(ACK_VIN_REPEAT, 16#03).
 -define(ACK_VIN_NOT_EXIST, 16#04).
 -define(ACK_SIG_ERROR, 16#05).
