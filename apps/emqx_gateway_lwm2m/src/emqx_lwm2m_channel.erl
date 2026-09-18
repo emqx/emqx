@@ -419,9 +419,9 @@ do_takeover(_DesireId, Msg, Channel) ->
 
 do_connect(Req, Result, Channel = #channel{clientinfo = OwnerInfo}, Iter) ->
     %% The pipeline below overwrites the channel clientinfo with the identity
-    %% carried by this request, so remember the endpoint already bound to this
-    %% connection before running it.
-    Owner = owner_identity(OwnerInfo),
+    %% carried by this request, so remember the endpoint name already bound to
+    %% this connection before running it.
+    Owner = maps:get(endpoint_name, OwnerInfo, undefined),
     case
         emqx_utils:pipeline(
             [
@@ -446,16 +446,14 @@ do_connect(Req, Result, Channel = #channel{clientinfo = OwnerInfo}, Iter) ->
                 undefined ->
                     process_connect(ensure_connected(NChannel), Req, Result, Iter);
                 _ ->
-                    Requester = owner_identity(NewClientInfo),
-                    case Requester =:= Owner of
-                        true ->
+                    %% The endpoint name identifies the client and must not
+                    %% change, otherwise the previous endpoint's session state
+                    %% and pending commands would be reused by another device.
+                    case maps:get(endpoint_name, NewClientInfo, undefined) of
+                        Owner ->
                             NewResult = emqx_lwm2m_session:reregister(Req, WithContext, Session),
                             iter(Iter, maps:merge(Result, NewResult), NChannel);
-                        false ->
-                            %% Re-registration must keep the endpoint already
-                            %% bound to this connection; otherwise the previous
-                            %% endpoint's session state and pending commands
-                            %% would be reused for a different device.
+                        Requester ->
                             ?SLOG(warning, #{
                                 msg => "reject_reregister_with_different_identity",
                                 owner => Owner,
@@ -481,11 +479,6 @@ do_connect(Req, Result, Channel = #channel{clientinfo = OwnerInfo}, Iter) ->
                 Channel
             )
     end.
-
-%% The LwM2M endpoint name is the client identity, and it must stay the same
-%% across re-registration on one connection.
-owner_identity(ClientInfo) ->
-    maps:get(endpoint_name, ClientInfo, undefined).
 
 check_lwm2m_version(
     #coap_message{options = Opts},
