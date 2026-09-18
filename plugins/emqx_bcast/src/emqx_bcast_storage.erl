@@ -206,10 +206,21 @@ promote_batch_tx(Entries) ->
     %% entries while the promoter zips the results against its own list, so a
     %% misaligned `deleted` result would drop an entry whose message still
     %% exists and keep one whose message was deleted.
-    [
-        maps:get(maps:get(delivery_id, Entry), ByDid, {error, missing_promote_result})
-     || Entry <- Entries
-    ].
+    [promoted_result(Entry, ByDid) || Entry <- Entries].
+
+%% A missing promote result means the result alignment lost an entry: that
+%% delivery is neither appended nor counted as wanted, and its admission
+%% reservation is only reclaimed by the stale-reservation sweep. It must never
+%% happen, so it is an error rather than a silent drop.
+promoted_result(Entry, ByDid) ->
+    Did = maps:get(delivery_id, Entry),
+    case maps:find(Did, ByDid) of
+        {ok, Result} ->
+            Result;
+        error ->
+            ?SLOG(error, #{msg => "bcast_promote_result_missing", delivery_id => Did}),
+            {error, missing_promote_result}
+    end.
 
 %% Promote one hash-group: drop the entries that a Delete Message already
 %% superseded, then one message create/refresh for the survivors and one

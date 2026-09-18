@@ -2285,6 +2285,7 @@ row_claim_of(PK, DN) ->
 %% the client a retry, undefined once it retried (or was never marked).
 rearm_at_of(PK, DN) ->
     case row_lookup(PK, DN) of
+        #bcast_client_state{rearm_at = {T, _Origin}} -> T;
         #bcast_client_state{rearm_at = T} -> T;
         undefined -> undefined
     end.
@@ -3732,6 +3733,84 @@ t_index_shard_deactivates_when_ownership_moves(_Config) ->
     %% Ownership comes back: the dormant shard rebuilds itself.
     ?assert(wait_until(fun() -> shard_active(Shard) end, 200)).
 
+-doc "A flush that dies between the marker write and the counter decrement must\n"
+"not resurrect an already-acked device. The marker is the durable record a\n"
+"rebuild consults, so the remaining-ack count may stay too high (the delivery\n"
+"finishes late, or is reclaimed by the TTL) but never too low - a low count\n"
+"would re-deliver the message and decrement a second time. Both tables live in\n"
+"one mria shard (mria_config:shard_rlookup/1), so the decrement cannot reach a\n"
+"replica ahead of the marker, and this pins the write order the design relies\n"
+"on.".
+t_ack_marker_survives_lost_counter_decrement(_Config) ->
+    PK = <<"PMARKERWIN">>,
+    A = <<"DMARKERWIN_A">>,
+    B = <<"DMARKERWIN_B">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"marker window">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, A})),
+    %% The crash window: the ack flush persisted A's marker and died before
+    %% decrementing the remaining-ack count, which therefore still says 2.
+    ok = mnesia:dirty_write(#bcast_msg_acked{delivery_id = DeliveryId, device_names = [A]}),
+    ?assertMatch(
+        [#bcast_msg_meta_counter{counter = 2}],
+        mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)
+    ),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    %% A stays out of the rebuilt index: no duplicate delivery, and its
+    %% replayed ack finds nothing to count a second time.
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
+    not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
+    %% B's ack is durable and its decrement applied; the count is still above
+    %% zero because A's decrement was lost, so the delivery is not finished
+    %% here - the next rebuild reconciles it from the markers.
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    timer:sleep(200),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
+
+-doc "The ack flush must persist the device marker before it decrements the\n"
+"remaining-ack count: the marker is what a rebuild consults, so a crash\n"
+"between the two writes may leave the count too high but must never leave it\n"
+"decremented with the marker missing. This pins the order itself, which the\n"
+"same-shard mria replication then preserves for every core.".
+t_ack_flush_writes_marker_before_counter(_Config) ->
+    PK = <<"PORDER">>,
+    A = <<"DORDER_A">>,
+    B = <<"DORDER_B">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"write order">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    TestProc = self(),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, dirty_update_counter, fun(Tab, Key, Incr) ->
+            case {Tab, Key} of
+                {bcast_msg_meta_counter, DeliveryId} ->
+                    TestProc !
+                        {marker_durable_before_decrement,
+                            mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= []};
+                _ ->
+                    ok
+            end,
+            meck:passthrough([Tab, Key, Incr])
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        receive
+            {marker_durable_before_decrement, Durable} -> ?assert(Durable)
+        after 5000 ->
+            ?assert(false)
+        end
+    after
+        meck:unload(mnesia)
+    end.
 shard_active(S) ->
     try
         maps:get(

@@ -402,6 +402,7 @@ quota_sync(LastSynced, Epoch) ->
 %% computed before a recount carries the old epoch and is rejected with the
 %% owner's epoch so the sender can adopt it and drop the already-counted
 %% delta.
+-spec quota_update_remote(integer(), term()) -> ok | {stale, term()}.
 quota_update_remote(Delta, Epoch) ->
     case quota_epoch() of
         Epoch ->
@@ -2111,10 +2112,11 @@ append_delivery_entries(St, ProductKey, DeliveryId, DNs) ->
         DNs
     ).
 
-%% Warn once per drive when the heal budget is spent, so a systemic ack-counter
-%% drift is visible instead of silently deferred to TTL.
+%% Report once per drive when the heal budget is spent. Only a systemic
+%% ack-counter drift can reach this cap, and reaching it defers already-acked
+%% deliveries to the TTL, so this is an error rather than a warning.
 maybe_log_heal_cap(Completed) when map_size(Completed) >= ?MAX_HEAL_PER_DRIVE ->
-    ?SLOG(warning, #{
+    ?SLOG(error, #{
         msg => "bcast_rebuild_heal_cap_reached",
         healed => map_size(Completed),
         cap => ?MAX_HEAL_PER_DRIVE
@@ -2779,7 +2781,7 @@ finish_claim_scan(State, Key, _Q, []) ->
     %% entries - the subscription was not visible to the core yet, the
     %% delivery is still replicating, or a blocked head has to cycle - so
     %% report the residual instead of a bare no_more: the pull side re-arms
-    %% the client through its bounded retry queue when it is non-zero, and
+    %% the client through the deferred-claim mark when it is non-zero, and
     %% treats 0 as the normal drained state.
     {no_more, maps:get(Key, maps:get(counts, State), 0), State};
 finish_claim_scan(State, Key, Q, Acc) ->
