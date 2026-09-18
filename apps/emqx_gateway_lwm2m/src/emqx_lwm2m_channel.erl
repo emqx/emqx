@@ -417,7 +417,11 @@ do_takeover(_DesireId, Msg, Channel) ->
     Reset = emqx_coap_message:reset(Msg),
     call_session(handle_out, Reset, Channel).
 
-do_connect(Req, Result, Channel, Iter) ->
+do_connect(Req, Result, Channel = #channel{clientinfo = OwnerInfo}, Iter) ->
+    %% The pipeline below overwrites the channel clientinfo with the identity
+    %% carried by this request, so remember the identity already bound to this
+    %% connection before running it.
+    Owner = owner_identity(OwnerInfo),
     case
         emqx_utils:pipeline(
             [
@@ -435,24 +439,52 @@ do_connect(Req, Result, Channel, Iter) ->
         {ok, _Input,
             #channel{
                 session = Session,
+                clientinfo = NewClientInfo,
                 with_context = WithContext
             } = NChannel} ->
             case emqx_lwm2m_session:info(reg_info, Session) of
                 undefined ->
                     process_connect(ensure_connected(NChannel), Req, Result, Iter);
                 _ ->
-                    NewResult = emqx_lwm2m_session:reregister(Req, WithContext, Session),
-                    iter(Iter, maps:merge(Result, NewResult), NChannel)
+                    Requester = owner_identity(NewClientInfo),
+                    case Requester =:= Owner of
+                        true ->
+                            NewResult = emqx_lwm2m_session:reregister(Req, WithContext, Session),
+                            iter(Iter, maps:merge(Result, NewResult), NChannel);
+                        false ->
+                            %% Re-registration must keep the owner already bound
+                            %% to this connection; otherwise the previous
+                            %% identity's session state and pending commands
+                            %% would be reused for a different device.
+                            ?SLOG(warning, #{
+                                msg => "reject_reregister_with_different_identity",
+                                owner => emqx_utils:redact(Owner),
+                                requester => emqx_utils:redact(Requester)
+                            }),
+                            Payload =
+                                <<"Re-registration with a different identity is not allowed">>,
+                            %% Reply on the original channel so the foreign
+                            %% identity is not retained by the live connection.
+                            iter(
+                                Iter,
+                                reply({error, unauthorized}, Payload, Req, Result),
+                                Channel
+                            )
+                    end
             end;
-        {error, ReasonCode, NChannel} ->
+        {error, ReasonCode, _NChannel} ->
             ErrMsg = io_lib:format("Login Failed: ~ts", [ReasonCode]),
             Payload = erlang:list_to_binary(lists:flatten(ErrMsg)),
             iter(
                 Iter,
                 reply({error, bad_request}, Payload, Req, Result),
-                NChannel
+                Channel
             )
     end.
+
+%% The identity that must stay stable across re-registration on one connection.
+owner_identity(ClientInfo) ->
+    maps:with([clientid, username, endpoint_name], ClientInfo).
 
 check_lwm2m_version(
     #coap_message{options = Opts},

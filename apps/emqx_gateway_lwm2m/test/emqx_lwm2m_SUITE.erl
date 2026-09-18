@@ -70,6 +70,7 @@ groups() ->
             case07_register_alternate_path_01,
             case07_register_alternate_path_02,
             case08_reregister,
+            case11_reregister_foreign_identity_rejected,
             case09_auto_observe
         ]},
         {test_grp_1_read, [RepeatOpt], [
@@ -895,6 +896,59 @@ case08_reregister(Config) ->
 
     %% verify the lwm2m client is still online
     ?assertEqual(ReadResult, test_recv_mqtt_response(ReportTopic)).
+
+%% A REGISTER that authenticates as a different device must not be accepted on a
+%% connection that already has a session, otherwise the previous device's
+%% session state and pending commands would be reused by the new identity.
+case11_reregister_foreign_identity_rejected(Config) ->
+    UdpSock = ?config(sock, Config),
+    EpnA = "urn:oma:lwm2m:oma:3",
+    EpnB = "urn:oma:lwm2m:oma:4",
+    MsgId = 40,
+    SubTopicA = list_to_binary("lwm2m/" ++ EpnA ++ "/dn/#"),
+    SubTopicB = list_to_binary("lwm2m/" ++ EpnB ++ "/dn/#"),
+    ReportTopicA = list_to_binary("lwm2m/" ++ EpnA ++ "/up/resp"),
+    ReportTopicB = list_to_binary("lwm2m/" ++ EpnB ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), ReportTopicA, qos0),
+    emqtt:subscribe(?config(emqx_c, Config), ReportTopicB, qos0),
+    timer:sleep(200),
+
+    %% Device A registers on this connection.
+    register_device(UdpSock, EpnA, MsgId),
+    #coap_message{type = ack, method = {ok, created}} = test_recv_coap_response(UdpSock),
+    timer:sleep(100),
+    true = lists:member(SubTopicA, test_mqtt_broker:get_subscrbied_topics()),
+    ?assertMatch(
+        #{
+            <<"msgType">> := <<"register">>,
+            <<"data">> := #{<<"ep">> := <<"urn:oma:lwm2m:oma:3">>}
+        },
+        emqx_utils_json:decode(test_recv_mqtt_response(ReportTopicA))
+    ),
+
+    %% Device B registers on the same connection: it must be rejected and must
+    %% not inherit A's session.
+    register_device(UdpSock, EpnB, MsgId + 1),
+    #coap_message{type = ack, method = Method} = test_recv_coap_response(UdpSock),
+    ?assertEqual({error, unauthorized}, Method),
+    ?assertEqual(timeout_test_recv_mqtt_response, test_recv_mqtt_response(ReportTopicB)),
+    timer:sleep(100),
+    false = lists:member(SubTopicB, test_mqtt_broker:get_subscrbied_topics()),
+    %% A is still registered and owns the connection.
+    true = lists:member(SubTopicA, test_mqtt_broker:get_subscrbied_topics()).
+
+register_device(UdpSock, Epn, MsgId) ->
+    test_send_coap_request(
+        UdpSock,
+        post,
+        sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
+        #coap_content{
+            content_format = <<"text/plain">>,
+            payload = <<"</lwm2m/1/0>,</lwm2m/2/0>">>
+        },
+        [],
+        MsgId
+    ).
 
 case09_auto_observe(Config) ->
     UdpSock = ?config(sock, Config),
