@@ -870,6 +870,293 @@ t_batch_pub_concurrent_qos1_e2e(_Config) ->
     ?assertEqual(N, length(Msgs)),
     disconnect(C1).
 
+-doc "max_device_count controls the BatchPub device-list validation: with\n"
+"the limit set to 1 a two-device publish is rejected with 400, and after\n"
+"restoring the default the same publish is accepted.".
+t_config_max_device_count_e2e(_Config) ->
+    try
+        ok = emqx_bcast_config:update(#{<<"max_device_count">> => 1}),
+        {ok, 400, _, _} = api_call(#{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => <<"default">>,
+            <<"DeviceName">> => [<<"e2e_cfg_mdc_1">>, <<"e2e_cfg_mdc_2">>],
+            <<"MessageContent">> => b64(<<"cfg-mdc">>),
+            <<"Qos">> => 0
+        })
+    after
+        init_test_config()
+    end,
+    {ok, 200, _, Resp} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_cfg_mdc_1">>, <<"e2e_cfg_mdc_2">>],
+        <<"MessageContent">> => b64(<<"cfg-mdc">>),
+        <<"Qos">> => 0
+    }),
+    ?assert(maps:get(<<"Success">>, Resp)).
+
+-doc "max_message_size_batch controls the BatchPub payload size validation:\n"
+"with the limit below the payload size the publish is rejected with\n"
+"MessageTooLarge, and after restoring the default it is accepted.".
+t_config_max_message_size_batch_e2e(_Config) ->
+    Payload = crypto:strong_rand_bytes(16),
+    try
+        ok = emqx_bcast_config:update(#{<<"max_message_size_batch">> => 8}),
+        {ok, 400, _, Body} = api_call(#{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => <<"default">>,
+            <<"DeviceName">> => [<<"e2e_cfg_mms_1">>],
+            <<"MessageContent">> => b64(Payload),
+            <<"Qos">> => 0
+        }),
+        ?assertEqual(<<"MessageTooLarge">>, maps:get(<<"Code">>, Body))
+    after
+        init_test_config()
+    end,
+    {ok, 200, _, Resp} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_cfg_mms_1">>],
+        <<"MessageContent">> => b64(Payload),
+        <<"Qos">> => 0
+    }),
+    ?assert(maps:get(<<"Success">>, Resp)).
+
+-doc "max_message_size_broadcast controls the PubBroadcast payload size\n"
+"validation: with the limit below the payload size the publish is rejected\n"
+"with MessageTooLarge, and after restoring the default it is accepted.".
+t_config_max_message_size_broadcast_e2e(_Config) ->
+    Payload = crypto:strong_rand_bytes(16),
+    try
+        ok = emqx_bcast_config:update(#{<<"max_message_size_broadcast">> => 8}),
+        {ok, 400, _, Body} = api_call(#{
+            <<"Action">> => <<"PubBroadcast">>,
+            <<"ProductKey">> => <<"default">>,
+            <<"MessageContent">> => b64(Payload)
+        }),
+        ?assertEqual(<<"MessageTooLarge">>, maps:get(<<"Code">>, Body))
+    after
+        init_test_config()
+    end,
+    {ok, 200, _, Resp} = api_call(#{
+        <<"Action">> => <<"PubBroadcast">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"MessageContent">> => b64(Payload)
+    }),
+    ?assert(maps:get(<<"Success">>, Resp)).
+
+-doc "max_pending_deliveries controls the global pending-delivery quota:\n"
+"with the limit set to 0 a QoS=1 publish is rejected with 429, and after\n"
+"restoring the default the same publish is accepted.".
+t_config_max_pending_deliveries_e2e(_Config) ->
+    try
+        ok = emqx_bcast_config:update(#{<<"max_pending_deliveries">> => 0}),
+        {ok, 429, _, _} = api_call(#{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => <<"default">>,
+            <<"DeviceName">> => [<<"e2e_cfg_mpd_1">>],
+            <<"MessageContent">> => b64(<<"cfg-mpd">>),
+            <<"Qos">> => 1
+        })
+    after
+        init_test_config()
+    end,
+    {ok, 200, _, Resp} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [<<"e2e_cfg_mpd_1">>],
+        <<"MessageContent">> => b64(<<"cfg-mpd">>),
+        <<"Qos">> => 1
+    }),
+    ?assert(maps:get(<<"Success">>, Resp)).
+
+-doc "max_pending_deliveries_per_device controls the per-device pending\n"
+"quota: with the limit set to 10 the eleventh pending QoS=1 delivery for\n"
+"one offline device is rejected with 429.".
+t_config_max_pending_deliveries_per_device_e2e(_Config) ->
+    try
+        ok = emqx_bcast_config:update(#{
+            <<"max_pending_deliveries_per_device">> => 10
+        }),
+        lists:foreach(
+            fun(I) ->
+                {ok, 200, _, Resp} = api_call(#{
+                    <<"Action">> => <<"BatchPub">>,
+                    <<"ProductKey">> => <<"default">>,
+                    <<"DeviceName">> => [<<"e2e_cfg_ppd_1">>],
+                    <<"MessageContent">> => b64(crypto:strong_rand_bytes(8)),
+                    <<"Qos">> => 1
+                }),
+                ?assert(maps:get(<<"Success">>, Resp), #{i => I})
+            end,
+            lists:seq(1, 10)
+        ),
+        {ok, 429, _, Body} = api_call(#{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => <<"default">>,
+            <<"DeviceName">> => [<<"e2e_cfg_ppd_1">>],
+            <<"MessageContent">> => b64(crypto:strong_rand_bytes(8)),
+            <<"Qos">> => 1
+        }),
+        ?assertEqual(<<"QuotaExceeded">>, maps:get(<<"Code">>, Body))
+    after
+        init_test_config()
+    end.
+
+-doc "batch_topic supplies the default BatchPub topic template: with a\n"
+"custom template configured, a publish without TopicTemplateName is\n"
+"delivered to the custom topic, and after restoring the default it is\n"
+"delivered to the default topic again.".
+t_config_batch_topic_e2e(_Config) ->
+    DN = <<"e2e_cfg_bt_1">>,
+    C = connect(DN),
+    CustomTopic = <<"/default/", DN/binary, "/custom/get">>,
+    try
+        ok = emqx_bcast_config:update(#{
+            <<"batch_topic">> => <<"/${productKey}/${deviceName}/custom/get">>
+        }),
+        sub(C, CustomTopic),
+        wait_subscribed(DN, CustomTopic),
+        {ok, 200, _, Resp1} = api_call(#{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => <<"default">>,
+            <<"DeviceName">> => [DN],
+            <<"MessageContent">> => b64(<<"cfg-bt-custom">>),
+            <<"Qos">> => 0
+        }),
+        ?assert(maps:get(<<"Success">>, Resp1)),
+        [Msg1] = recv(1),
+        ?assertEqual(CustomTopic, maps:get(topic, Msg1))
+    after
+        init_test_config()
+    end,
+    {ok, 200, _, Resp2} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => b64(<<"cfg-bt-default">>),
+        <<"Qos">> => 0
+    }),
+    ?assert(maps:get(<<"Success">>, Resp2)),
+    %% After restoring the default template the device is not subscribed to
+    %% the default topic, so nothing is delivered.
+    ?assertEqual([], recv(1)),
+    disconnect(C).
+
+-doc "broadcast_topic supplies the default PubBroadcast topic template:\n"
+"with a custom template configured, a publish without TopicTemplateName\n"
+"reaches devices subscribed to the custom broadcast topic.".
+t_config_broadcast_topic_e2e(_Config) ->
+    DN = <<"e2e_cfg_bct_1">>,
+    C = connect(DN),
+    CustomTopic = <<"/cfg/broadcast/default">>,
+    try
+        ok = emqx_bcast_config:update(#{
+            <<"broadcast_topic">> => <<"/cfg/broadcast/${productKey}">>
+        }),
+        sub(C, CustomTopic),
+        wait_subscribed(DN, CustomTopic),
+        {ok, 200, _, Resp} = api_call(#{
+            <<"Action">> => <<"PubBroadcast">>,
+            <<"ProductKey">> => <<"default">>,
+            <<"MessageContent">> => b64(<<"cfg-bct-custom">>)
+        }),
+        ?assert(maps:get(<<"Success">>, Resp)),
+        [Msg] = recv(1),
+        ?assertEqual(CustomTopic, maps:get(topic, Msg))
+    after
+        init_test_config()
+    end,
+    disconnect(C).
+
+-doc "msg_ttl and cleanup_interval control the pending-delivery lifetime:\n"
+"with a 1s TTL and a 1s cleanup sweep, a QoS=1 delivery to an offline\n"
+"device expires and is counted in the ttl_expired metric. The cleanup\n"
+"reschedule happens on config update without a node restart.".
+t_config_msg_ttl_cleanup_e2e(_Config) ->
+    T0 = metric(<<"batch_pub_qos1_ttl_expired">>),
+    try
+        ok = emqx_bcast_config:update(#{
+            <<"msg_ttl">> => <<"1s">>,
+            <<"cleanup_interval">> => <<"1s">>
+        }),
+        {ok, 200, _, Resp} = api_call(#{
+            <<"Action">> => <<"BatchPub">>,
+            <<"ProductKey">> => <<"default">>,
+            <<"DeviceName">> => [<<"e2e_cfg_ttl_1">>],
+            <<"MessageContent">> => b64(<<"cfg-ttl">>),
+            <<"Qos">> => 1
+        }),
+        ?assert(maps:get(<<"Success">>, Resp)),
+        ?assert(
+            wait_until(
+                fun() -> metric(<<"batch_pub_qos1_ttl_expired">>) >= T0 + 1 end,
+                100
+            )
+        )
+    after
+        init_test_config()
+    end.
+
+-doc "delivery_pool_size controls the delivery pool worker count via the\n"
+"plugin on_config_changed callback: changing the value restarts the pull\n"
+"pools with the new size, and changing it back restores the original\n"
+"size.".
+t_config_delivery_pool_size_e2e(_Config) ->
+    Baseline = pool_worker_count(bcast_pull_worker_pool_sup),
+    Target = Baseline + 1,
+    TargetBin = integer_to_binary(Target),
+    BaselineBin = integer_to_binary(Baseline),
+    try
+        ok = emqx_bcast_app:on_config_changed(#{}, #{<<"delivery_pool_size">> => Target}),
+        ?assert(
+            wait_until(
+                fun() ->
+                    pool_worker_count(bcast_pull_worker_pool_sup) =:= Target andalso
+                        pool_worker_count(bcast_pull_server_pool_sup) =:= Target
+                end,
+                100
+            ),
+            #{target => TargetBin}
+        )
+    after
+        ok = emqx_bcast_app:on_config_changed(#{}, #{<<"delivery_pool_size">> => Baseline}),
+        %% The previous restart's per-shard completion cast may still be in
+        %% flight, in which case the reentry guard skips this restart; retry
+        %% the pool restart directly until the size converges.
+        restore_pool_size(Baseline, 25),
+        init_test_config()
+    end,
+    ?assert(
+        wait_until(
+            fun() ->
+                pool_worker_count(bcast_pull_worker_pool_sup) =:= Baseline andalso
+                    pool_worker_count(bcast_pull_server_pool_sup) =:= Baseline
+            end,
+            100
+        ),
+        #{baseline => BaselineBin}
+    ).
+
+pool_worker_count(PoolSupId) ->
+    {_, Pid, _, _} = lists:keyfind(PoolSupId, 1, supervisor:which_children(emqx_bcast_sup)),
+    length(supervisor:which_children(Pid)).
+
+restore_pool_size(_Size, 0) ->
+    ok;
+restore_pool_size(Size, Retries) ->
+    case
+        pool_worker_count(bcast_pull_worker_pool_sup) =:= Size andalso
+            pool_worker_count(bcast_pull_server_pool_sup) =:= Size
+    of
+        true ->
+            ok;
+        false ->
+            ct:sleep(200),
+            _ = emqx_bcast_sup:restart_pools(Size),
+            restore_pool_size(Size, Retries - 1)
+    end.
+
 collect_deliveries(Expected, Acc, 0) ->
     lists:sublist(Acc, Expected);
 collect_deliveries(Expected, Acc, Attempts) ->

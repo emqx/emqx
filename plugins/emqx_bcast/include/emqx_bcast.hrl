@@ -20,6 +20,7 @@
 -define(TAB_MSG_REC, bcast_msg).
 -define(TAB_MSG_META, bcast_msg_meta).
 -define(TAB_MSG_META_CNT, bcast_msg_meta_counter).
+-define(TAB_MSG_ACKED, bcast_msg_acked).
 -define(TAB_MSG_IDX, bcast_msg_index).
 -define(TAB_QUOTA, bcast_quota).
 
@@ -27,6 +28,12 @@
 %% cache: entries live here between the HTTP 200 and the mria promotion).
 -define(TAB_INT_Q, bcast_intake_queue).
 -define(TAB_INT_SEQ, bcast_intake_seq).
+
+%% Bounded node-local intake queue depth. Hardcoded on purpose: it is not
+%% part of the avro config schema, so a value here could never be changed
+%% through the plugin config API - keeping it in the config surface only
+%% pretended it was configurable.
+-define(INTAKE_QUEUE_DEPTH, 20000).
 
 %% Shared global pending-count row held by emqx_bcast_index_owner (the
 %% quota owner's node; update_counter from every shard). The per-device
@@ -131,6 +138,21 @@
     counter :: non_neg_integer()
 }).
 
+%% Persistent ack markers for incomplete deliveries: one bag row per
+%% delivery per shard flush tick, carrying the device names acked in that
+%% tick. Consulted on index rebuilds so an already-acked device is not
+%% resurrected as pending (a resurrected entry would deliver a duplicate
+%% whose ack then decrements the completion counter a second time).
+%% One row per tick instead of one row per device matters at fanout scale:
+%% a bs=1000 delivery written per-device would produce 1000 replicated
+%% rows (and 1000 deletes on completion) instead of one per flush tick.
+%% Bag table keyed by delivery_id; all rows of a delivery are deleted with
+%% the delivery row on completion, expiry or management delete.
+-record(bcast_msg_acked, {
+    delivery_id :: binary(),
+    device_names = [] :: [binary()]
+}).
+
 -record(bcast_msg_index, {
     key :: {ProductKey :: binary(), DeviceName :: binary()},
     deliveries :: [bcast_index_entry()],
@@ -192,8 +214,12 @@
     %% directly on trigger/refill and cleared on commit/release.
     claim = undefined :: undefined | {pos_integer(), non_neg_integer()},
     %% committed-but-unacked deliveries in send order:
-    %% [{DeliveryId, AckInFlight}] with length <= 1 (window=1)
-    inflight = [] :: [{binary(), boolean()}],
+    %% [{DeliveryId, false | {true, TsMillis}}] with length <= 1
+    %% (window=1). The ack-in-flight mark carries the mark timestamp so
+    %% the periodic sweep can expire one whose core-applied confirmation
+    %% was lost (dropped cast, core crash between the ack application and
+    %% the confirmation) instead of holding the window closed forever.
+    inflight = [] :: [{binary(), false | {true, non_neg_integer()}}],
     %% cached subscription filters [{TopicFilter, Qos}], maintained by the
     %% session.subscribed / session.unsubscribed / session.resumed hooks so
     %% the claim path reads them from this row instead of calling

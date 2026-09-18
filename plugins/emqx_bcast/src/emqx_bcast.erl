@@ -165,22 +165,24 @@ create_mnesia_tables() ->
         true ->
             ok = migrate_legacy_tables(),
             Tables = [
-                {?TAB_MSG, bcast_message, record_info(fields, bcast_message)},
-                {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id)},
-                {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash)},
-                {?TAB_MSG_REG, bcast_message_reg, record_info(fields, bcast_message_reg)},
-                {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg)},
-                {?TAB_MSG_META, bcast_msg_meta, record_info(fields, bcast_msg_meta)},
+                {?TAB_MSG, bcast_message, record_info(fields, bcast_message), set},
+                {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id),
+                    set},
+                {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash), set},
+                {?TAB_MSG_REG, bcast_message_reg, record_info(fields, bcast_message_reg), set},
+                {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg), set},
+                {?TAB_MSG_META, bcast_msg_meta, record_info(fields, bcast_msg_meta), set},
                 {?TAB_MSG_META_CNT, bcast_msg_meta_counter,
-                    record_info(fields, bcast_msg_meta_counter)}
+                    record_info(fields, bcast_msg_meta_counter), set},
+                {?TAB_MSG_ACKED, bcast_msg_acked, record_info(fields, bcast_msg_acked), bag}
             ],
             lists:foreach(
-                fun({Tab, RecordName, Attributes}) ->
-                    ok = create_mnesia_table(Tab, RecordName, Attributes)
+                fun({Tab, RecordName, Attributes, Type}) ->
+                    ok = create_mnesia_table(Tab, RecordName, Attributes, Type)
                 end,
                 Tables
             ),
-            ok = mria:wait_for_tables([Tab || {Tab, _, _} <- Tables]),
+            ok = mria:wait_for_tables([Tab || {Tab, _, _, _} <- Tables]),
             ok = initialize_quota_count()
     end.
 
@@ -193,7 +195,9 @@ migrate_legacy_tables() ->
         {?TAB_MSG, bcast_message, record_info(fields, bcast_message), fun fix_legacy_message/1},
         {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg), fun fix_legacy_delivery/1},
         {?TAB_MSG_IDX, bcast_msg_index, record_info(fields, bcast_msg_index),
-            fun fix_legacy_index/1}
+            fun fix_legacy_index/1},
+        {?TAB_MSG_ACKED, bcast_msg_acked, record_info(fields, bcast_msg_acked),
+            fun fix_legacy_acked/1}
     ],
     lists:foreach(
         fun({Tab, RecordName, ExpectedAttrs, FixFun}) ->
@@ -254,6 +258,14 @@ fix_legacy_index({bcast_msg_index, Key, Deliveries, _OldCount}) when is_list(Del
 fix_legacy_index(Record) ->
     Record.
 
+%% 0.4.1 dev builds stored one ack marker row per device
+%% ({bcast_msg_acked, Did, DeviceName}); the table now stores one row per
+%% delivery per flush tick ({bcast_msg_acked, Did, [DeviceName]}).
+fix_legacy_acked({bcast_msg_acked, Did, DN}) when is_binary(DN) ->
+    {bcast_msg_acked, Did, [DN]};
+fix_legacy_acked(Record) ->
+    Record.
+
 normalize_legacy_index_entries([{DeliveryId, _State} = Entry | Rest]) when is_binary(DeliveryId) ->
     [Entry | normalize_legacy_index_entries(Rest)];
 normalize_legacy_index_entries([DeliveryId | Rest]) when is_binary(DeliveryId) ->
@@ -297,11 +309,11 @@ initialize_quota_count() ->
 %% into memory on both core nodes (SLO: in-memory acceptance; the
 %% subscriber's PUBACK is the final confirmation). Nothing is written to
 %% disk, so a full cluster restart drops pending deliveries.
-create_mnesia_table(Tab, RecordName, Attributes) ->
+create_mnesia_table(Tab, RecordName, Attributes, Type) ->
     try
         mria:create_table(Tab, [
             {rlog_shard, ?BCAST_SHARD},
-            {type, set},
+            {type, Type},
             {storage, ram_copies},
             {record_name, RecordName},
             {attributes, Attributes}
@@ -345,7 +357,8 @@ ensure_core_copies() ->
                 ?TAB_MSG_REG,
                 ?TAB_MSG_REC,
                 ?TAB_MSG_META,
-                ?TAB_MSG_META_CNT
+                ?TAB_MSG_META_CNT,
+                ?TAB_MSG_ACKED
             ],
             lists:foreach(
                 fun(Tab) ->
@@ -440,8 +453,9 @@ lookup_devices_by_product(ProductKey) ->
 
 %%--------------------------------------------------------------------
 %% Client hooks: all hooks only cast into local pools (never block the
-%% channel process), except the process-dictionary subscription cache which
-%% is deliberately process-local.
+%% channel process). The per-client subscription filters live in the pull
+%% shard's client-state row (fed by the subscribe/unsubscribe/resume casts
+%% below).
 %%--------------------------------------------------------------------
 
 -spec on_client_connected(map(), term()) -> {ok, map()}.

@@ -1,9 +1,76 @@
 # Changelog
 
-All notable changes to the emqx_bcast plugin since version `0.1.0` are
-documented here.
+All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
 ## Unreleased
+
+### Fixed
+
+- Reworked the QoS1 ack flush so its cost scales with the flush tick count
+  instead of the fanout device count: it no longer re-reads and scans a
+  delivery's whole ack-marker set on every flush (O(acked) per flush,
+  O(n^2) over a delivery's ack lifetime), and the markers are now
+  persisted as one row per delivery per flush tick carrying that tick's
+  device names instead of one replicated row per acked device (a bs=1000
+  delivery used to write 1000 rows and delete 1000 on completion).
+  Duplicate suppression still happens when the ack is counted, and index
+  rebuilds union the per-tick rows.
+- The default `config.hocon` now ships every field declared in the config
+  schema, including the legacy `msg_warn_threshold`, `force_upgrade_qos`
+  and `delivery_queue_max`. A fresh install previously served a config
+  missing those fields, and the dashboard rejected it during its Avro
+  conversion with `Found a null value at msg_warn_threshold`.
+- Index rebuild skips devices that already acknowledged (persisted
+  `bcast_msg_acked` markers), so a rebuilt index cannot resurrect a device
+  and redeliver a duplicate whose ack would decrement the completion
+  counter a second time.
+- An index rebuild also reconciles a delivery whose remaining-ack counter
+  drifted above zero: as soon as every target device has a persisted
+  marker the delivery is completed. A shard that died between the marker
+  write and the counter decrement is therefore repaired by the next
+  rebuild instead of leaking its rows until TTL expiry.
+- Rebuild ordering is tie-broken by `msg_id` within the same second, so
+  per-device FIFO stays deterministic across restarts.
+- Ack-in-flight marks expire after 30s when the core-applied confirmation
+  is lost, instead of holding the per-device window closed forever.
+- The ack flush now writes the acked markers and decrements the
+  per-delivery remaining-ack counter with lock-free dirty operations
+  instead of a transaction. That counter row is shared by every device
+  shard and replicated to every core, so the transaction serialized all of
+  them on a single write lock and mnesia restarted the shard with a 1ms
+  sleep on each conflict - which collapsed fanout throughput while every
+  other shard operation queued behind it. The marker is written before the
+  counter, so a crash between the two can only leave the counter too high;
+  it can never resurrect an already-acked device or let a replayed ack
+  decrement a live delivery twice. Such a delivery is reconciled by the
+  next index rebuild, which completes it as soon as every target device
+  has a persisted marker, and otherwise by TTL expiry. Completion (once
+  per delivery) still deletes the remaining rows transactionally.
+- A pool restart releases the restart guard on every shard, including
+  shards with no in-flight marks (previously those stayed in
+  `pools_restarting` until the 30s watchdog, stalling flush and blocking
+  later restarts).
+- Index activation keeps healthy active shards intact across a leader
+  restart, and individually restarted shards re-activate instead of
+  staying dormant.
+- Promoter batch crashes converge through bounded retries instead of
+  stopping the drain loop.
+- Delivery-window commits use a guarded field update instead of rewriting
+  the whole per-request row.
+- Configured topic templates are validated at config load: wildcards or
+  unknown placeholders fall back to the default with a warning instead of
+  breaking every publish at runtime.
+- The per-device quota clamp logs a warning when the configured value is
+  rewritten, so the effective value is visible.
+
+### Changed
+
+- Dropped the never-documented `intake_queue_depth` config surface: the
+  intake queue depth is a hardcoded internal bound.
+- Ledger gauges are sampled concurrently, so a scrape no longer
+  serializes over every index shard.
+
+## 0.4.0
 
 ### Metrics contract (0.4.0) - breaking
 
@@ -34,22 +101,27 @@ delivery ledger; dashboards and alerts must be updated.
 
 ### Changed
 
+- BatchPub QoS=1 acceptance is asynchronous: the request is enqueued into
+  a bounded node-local intake queue and `200` is returned immediately.
+  Acceptance is in-memory (entries queued when a node crashes may be lost
+  by contract); the promoter's mria commit is the durability point.
+  Promotion failures are retried and counted as
+  `bcast_batch_pub_qos1_promote_error`, not returned on the API response.
 - Reworked the delivery pipeline into the core/replicant pull model:
   authoritative storage stays on core nodes, while each node pulls
   deliveries for its locally connected devices through dedicated
-  `pull_pool`, `ack_pool`, and `pull_server_pool` processes. Direct
+  `pull_shard`, `ack_shard` and `pull_server_pool` processes. Direct
   process-to-process delivery was replaced by the want_next claim flow.
-- BatchPub QoS=1 storage now completes before the API returns; only the
-  per-node trigger broadcast is asynchronous. A `200` means the delivery is
-  durable, and storage failures are returned to the caller as `500`.
-- Storage tables now keep a disc copy on every core node; transactions
-  (create, claim, ack) execute locally instead of being shipped to a
-  single owner.
-- Storage tables are created through `mria` as `ram_copies` (no disk
-  persistence): QoS=1 SLO is in-memory acceptance on the core pair, with
-  the subscriber PUBACK as the final confirmation. A full cluster restart
-  drops pending deliveries; existing disc copies are converted to ram
-  copies automatically on upgrade.
+- The per-device pending index lives in the sharded in-memory state of
+  `emqx_bcast_index_owner` (48 shards, rebuilt from `bcast_msg` on
+  activation/takeover); the legacy `bcast_msg_index`/`bcast_quota` mnesia
+  tables are retained for migration only and are no longer written.
+- Storage tables are created through `mria` as `ram_copies` and replicated
+  to every core node, so transactions (create, claim, ack) execute locally
+  instead of being shipped to a single owner. QoS=1 SLO is in-memory
+  acceptance on the core pair, with the subscriber PUBACK as the final
+  confirmation: a full cluster restart drops pending deliveries. Existing
+  disc copies are converted to ram copies automatically on upgrade.
 - QoS=1 delivery and ack metrics are node-local: `bcast_batch_pub_qos1_delivered`
   and `bcast_batch_pub_qos1_acked` increment on the node that delivers/acks,
   so aggregating across all nodes gives the correct totals.
@@ -71,5 +143,6 @@ delivery ledger; dashboards and alerts must be updated.
   trigger want_next as intended instead of erroring.
 - QoS=1 acks are now driven by a single `message.acked` hook, so every
   delivery is accounted for exactly once.
-- The `delivery_count` field on the message record replaces a full-table
-  scan on delivery completion, removing an O(n) step from the ack path.
+- The message record's `delivery_count` field is no longer maintained:
+  messages are garbage-collected by TTL, and the management `DeliveryCount`
+  is computed on demand from the message's outstanding delivery rows.
