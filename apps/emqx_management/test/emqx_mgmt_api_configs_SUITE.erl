@@ -21,6 +21,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(REDACTED, <<"******">>).
+-define(SENTINEL, <<"sec431-sentinel">>).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -342,6 +345,48 @@ t_get_configs_in_different_accept(_Config) ->
     ?assertMatch({200, "application/json", _}, Request(<<"application/json">>)),
     %% returns error if it set to other type
     ?assertMatch({400, "application/json", _}, Request(<<"application/xml">>)).
+
+%% Guards that the administrator can still export the cleartext HOCON dump and
+%% feed it back through `PUT /configs' without corrupting the secrets. This is
+%% the counterpart of `emqx_dashboard_rbac_SUITE:t_configs_plaintext_permission/1',
+%% which denies that dump to viewers (EE only).
+t_get_configs_admin_plaintext_roundtrip(_Config) ->
+    {ok, _} = put_sentinel(),
+    try
+        %% Single root dump, which avoids the read-only roots of the full dump and
+        %% is replayable as is: this is the administrator export/reload path.
+        {ok, Sysmon} = get_configs_with_binary("sysmon"),
+        SysmonBin = iolist_to_binary(hocon_pp:do(Sysmon, #{})),
+        ?assertNotEqual(nomatch, binary:match(SysmonBin, ?SENTINEL)),
+        ?assertEqual({ok, <<>>}, update_configs_with_binary(SysmonBin)),
+        ?assertEqual(?SENTINEL, read_conf([<<"sysmon">>, <<"top">>, <<"db_password">>])),
+
+        %% The full dump is cleartext too, so the administrator can still export it.
+        %% It is deliberately not replayed here: on dev-58 a full `PUT /configs'
+        %% fails on pre-existing merge limitations of the `authentication' and
+        %% `authorization' roots, which are unrelated to this change (see PLANS.md
+        %% 9.2).
+        {ok, Full} = get_configs_with_binary(undefined),
+        FullBin = iolist_to_binary(hocon_pp:do(Full, #{})),
+        ?assertNotEqual(nomatch, binary:match(FullBin, ?SENTINEL)),
+
+        %% The JSON variant of the same endpoint stays redacted.
+        {ok, JsonConf} = get_configs_with_json(),
+        ?assertEqual(
+            ?REDACTED,
+            emqx_utils_maps:deep_get([<<"sysmon">>, <<"top">>, <<"db_password">>], JsonConf)
+        ),
+        ?assertEqual(nomatch, binary:match(emqx_utils_json:encode(JsonConf), ?SENTINEL)),
+        ok
+    after
+        emqx_conf:remove([sysmon, top, db_password], #{override_to => cluster})
+    end.
+
+%% A sentinel in a `sensitive => true' field, used to tell cleartext from redacted.
+put_sentinel() ->
+    emqx_conf:update([sysmon, top, db_password], ?SENTINEL, #{
+        rawconf_with_defaults => true, override_to => cluster
+    }).
 
 t_create_webhook_v1_bridges_api({'init', Config}) ->
     lists:foreach(
