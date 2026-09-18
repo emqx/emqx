@@ -905,9 +905,17 @@ assert_files_exist(Files) ->
     ?assertEqual([], Missing).
 
 %% The JSON the CLI prints for `emqx_plugins_cli_utils:ensure_installed/2'.
+%% The CLI install path is gated by an `allow' grant.  These cases cover what
+%% the path does once the gate is open, so the grant is mocked here.
 cli_ensure_installed(NameVsn) ->
     LogFun = fun(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)) end,
-    emqx_plugins_cli_utils:ensure_installed(NameVsn, LogFun).
+    ok = meck:new(emqx_plugins, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins, is_allowed_installation, fun(_NameVsn) -> true end),
+        emqx_plugins_cli_utils:ensure_installed(NameVsn, LogFun)
+    after
+        meck:unload(emqx_plugins)
+    end.
 
 %% Create what a completed unpack of `NameVsn' leaves on disk: the metadata,
 %% the application resource file and one beam file per declared module.
