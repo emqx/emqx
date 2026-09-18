@@ -635,12 +635,15 @@ assert_bridge_start(Kind, Type, Name) ->
 probe_bridge_api(Config) ->
     probe_bridge_api(Config, _Overrides = #{}).
 
-probe_bridge_api(Config, Overrides) ->
-    BridgeType = ?config(bridge_type, Config),
-    BridgeName = ?config(bridge_name, Config),
-    BridgeConfig0 = ?config(bridge_config, Config),
-    BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    probe_bridge_api(BridgeType, BridgeName, BridgeConfig).
+probe_bridge_api(TCConfig, Overrides) ->
+    #{
+        kind := Kind,
+        type := Type,
+        name := Name,
+        config := KindConfig0
+    } = get_common_values_with_configs(TCConfig),
+    KindConfig = emqx_utils_maps:deep_merge(KindConfig0, Overrides),
+    probe_bridge_api(Kind, Type, Name, KindConfig).
 
 probe_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
     probe_bridge_api(action, BridgeType, BridgeName, BridgeConfig).
