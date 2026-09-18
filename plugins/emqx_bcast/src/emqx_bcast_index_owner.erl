@@ -1567,6 +1567,9 @@ handle_info(maybe_activate, State = #{active := false, shard := 0}) ->
                 node => node(),
                 shard_count => ?SHARD_COUNT
             }),
+            %% Keep polling after activation so the ownership check below
+            %% runs for this shard too.
+            erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
             {noreply, S2#{active => true}};
         retry ->
             erlang:send_after(?OWNER_POLL_MS, self(), maybe_activate),
@@ -1587,7 +1590,38 @@ handle_info(maybe_activate, State = #{active := false, shard := Shard}) when
     erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
     {noreply, State};
 handle_info(maybe_activate, State) ->
-    {noreply, State};
+    %% An active shard must give up its partition once it is no longer the
+    %% owner. Ownership is derived from the live core set (shard_owner/1), so
+    %% a core joining or leaving remaps most shards; without this check the
+    %% former owner keeps an active shard whose index stops being updated and
+    %% is never reclaimed, and when ownership comes back - another core
+    %% leaving, or a partition healing - that stale index serves live traffic
+    %% again: entries appended while it was not the owner are missing, and
+    %% acknowledgements it already applied are counted a second time, which
+    %% decrements the remaining-ack count twice and can complete a delivery
+    %% while never-acked devices no longer hold an entry.
+    Shard = maps:get(shard, State),
+    case shard_owner(Shard) =:= node() of
+        true ->
+            erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
+            {noreply, State};
+        false ->
+            Owner = shard_owner(Shard),
+            ?SLOG(warning, #{
+                msg => "bcast_index_owner_deactivated",
+                node => node(),
+                shard => Shard,
+                owner => Owner
+            }),
+            %% Dropping the heap index is safe: it is a projection of the
+            %% committed rows, and the next activation rebuilds it. Only
+            %% uncommitted admission reservations are lost, and the periodic
+            %% quota recount reclaims those. Re-arm the poll: the dormant
+            %% clauses above re-activate this shard if the node becomes the
+            %% owner again.
+            erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
+            {noreply, (reset_state(State))#{active => false}}
+    end;
 handle_info(
     quota_sync, State = #{shard := 0, quota_last_synced := Last, quota_epoch := Epoch}
 ) ->

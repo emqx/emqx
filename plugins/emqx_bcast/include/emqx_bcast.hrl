@@ -243,7 +243,15 @@
     %% session.subscribed / session.unsubscribed / session.resumed hooks so
     %% the claim path reads them from this row instead of calling
     %% emqx_broker:subscriptions/1 per claim.
-    topics = [] :: [{binary(), non_neg_integer()}]
+    topics = [] :: [{binary(), non_neg_integer()}],
+    %% Set when a claim round could not be submitted (the per-shard round cap
+    %% is saturated) or when the core reported live entries while the window
+    %% came back empty, and the client therefore needs another visit from the
+    %% periodic sweep. It lives on the row instead of a separate queue so a
+    %% deferral can never be dropped: every client that can be refused already
+    %% owns this row, so the worst case is one extra word per client, while a
+    %% bounded queue loses the wakeup as soon as it fills up.
+    rearm_at = undefined :: undefined | non_neg_integer()
 }).
 
 -endif.
