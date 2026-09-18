@@ -32,7 +32,7 @@
     on_format_query_result/1
 ]).
 
--export([connect/1, do_get_status/1]).
+-export([connect/1, do_get_status/2]).
 
 -export([
     namespace/0,
@@ -392,7 +392,8 @@ on_start(
         protocol_version := ProtocolVsn,
         server := Server,
         pool_size := PoolSize,
-        ssl := SSL
+        ssl := SSL,
+        resource_opts := #{health_check_timeout := HCTimeout}
     } = Config
 ) ->
     State0 = init_connector_state(Config),
@@ -452,6 +453,7 @@ on_start(
             ?tp(iotdb_bridge_started, #{driver => thrift, instance_id => InstanceId}),
 
             {ok, State0#{
+                health_check_timeout => HCTimeout,
                 driver => thrift,
                 iotdb_version => ProtocolVsn,
                 channels => #{}
@@ -491,8 +493,12 @@ on_get_status(ConnResId, #{driver := restapi} = ConnState) ->
         ok ?= check_auth_restapi(ConnResId, ConnState),
         check_ping_restapi(ConnResId, ConnState)
     end;
-on_get_status(ConnResId, #{driver := thrift} = _ConnState) ->
-    Opts = #{check_fn => fun ?MODULE:do_get_status/1},
+on_get_status(ConnResId, #{driver := thrift} = ConnState) ->
+    #{health_check_timeout := HCTimeout} = ConnState,
+    Opts = #{
+        timeout => HCTimeout,
+        check_fn => {?MODULE, do_get_status, [HCTimeout]}
+    },
     emqx_resource_pool:common_health_check_workers(ConnResId, Opts).
 
 check_ping_restapi(ConnResId, ConnState) ->
@@ -548,8 +554,8 @@ check_auth_restapi(ConnResId, ConnState) ->
             {?status_disconnected, Error}
     end.
 
-do_get_status(Conn) ->
-    case iotdb:ping(Conn) of
+do_get_status(Conn, HCTimeout) ->
+    case iotdb:ping(Conn, HCTimeout) of
         {ok, _} ->
             ok;
         {error, Reason} ->

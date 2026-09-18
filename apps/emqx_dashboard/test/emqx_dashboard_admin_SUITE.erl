@@ -644,7 +644,8 @@ namespaced_get_denylist() ->
             method => get,
             module => emqx_ft_storage_exporter_fs_api,
             function => '/file_transfer/file'
-        }
+        },
+        #{method => get, module => emqx_audit_api, function => audit}
     ].
 
 -doc """

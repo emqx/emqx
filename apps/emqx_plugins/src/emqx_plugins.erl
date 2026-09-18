@@ -68,6 +68,7 @@
     ensure_installed/0,
     ensure_installed/1,
     ensure_installed/2,
+    install_state/1,
 
     get_package_from_node/2,
     get_config_from_node/2,
@@ -80,6 +81,8 @@
     delete_state/1,
     purge/1,
     write_package/2,
+    backup_package/1,
+    restore_package/2,
     is_package_present/1,
     purge_other_versions/1,
     delete_package/1,
@@ -359,12 +362,28 @@ ensure_installed() ->
 %% * Configure the plugin
 -spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
-    case read_plugin_info(NameVsn, #{}) of
-        {ok, #{running_status := RunningSt}} ->
-            configure(NameVsn, ?normal, RunningSt);
-        {error, _} ->
-            ok = purge(NameVsn),
-            install_and_configure(NameVsn, ?normal, stopped)
+    case install_state(NameVsn) of
+        installed ->
+            maybe
+                {ok, #{running_status := RunningSt}} ?= read_plugin_info(NameVsn, #{}),
+                configure(NameVsn, ?normal, RunningSt)
+            end;
+        _IncompleteOrAbsent ->
+            reinstall(NameVsn)
+    end.
+
+%% @doc Replace whatever the install dir holds with the package found in the
+%% install dir (or copied from another node).
+%%
+%% The leftovers of an interrupted or failed installation are purged first, so
+%% that they do not shadow the newly unpacked files.  Refuse when the plugin is
+%% still in use: purging the files of a loaded plugin would leave it running
+%% from replaced or missing code.
+reinstall(NameVsn) ->
+    maybe
+        ok ?= emqx_plugins_fs:prepare_replacement(NameVsn),
+        ok ?= purge(NameVsn),
+        install_and_configure(NameVsn, ?normal, stopped)
     end.
 
 ensure_installed(NameVsn, ?fresh_install = Mode) ->
@@ -373,6 +392,31 @@ ensure_installed(NameVsn, ?fresh_install = Mode) ->
     %% Currently, external layers (API, CLI) are responsible for
     %% not allowing to install a plugin that is already installed.
     install_and_configure(NameVsn, Mode, stopped).
+
+%% @doc Classify the plugin's installation on this node.
+%%
+%% Unlike `describe/2', an install directory that only holds leftovers of an
+%% interrupted or failed installation is reported as `incomplete' instead of
+%% `installed'.
+%%
+%% Only what is on disk is inspected: the classification is used to decide
+%% whether an upload may replace the installation *before* the upload is
+%% allowed, so it must not change the configuration schema of a plugin, and it
+%% must not be influenced by an application that happens to be loaded from
+%% another version of the same plugin.
+-spec install_state(name_vsn()) -> emqx_plugins_fs:install_state().
+install_state(NameVsn) ->
+    case emqx_plugins_fs:install_state(NameVsn) of
+        installed ->
+            %% Readable metadata is part of being installed: the callers (API,
+            %% CLI) describe the installation through its `release.json'.
+            case read_plugin_info(NameVsn, #{}) of
+                {ok, _} -> installed;
+                {error, _Reason} -> incomplete
+            end;
+        NotInstalled ->
+            NotInstalled
+    end.
 
 %% @doc Ensure files and directories for the given plugin are being deleted.
 %% If a plugin is running, or enabled, an error is returned.
@@ -390,9 +434,11 @@ ensure_uninstalled(NameVsn) ->
                 hint => "disable_the_plugin_first"
             }};
         {ok, Plugin} ->
-            ok = emqx_plugins_apps:unload(Plugin),
-            ok = purge(NameVsn),
-            ensure_delete_state(NameVsn);
+            maybe
+                ok ?= emqx_plugins_apps:unload(Plugin),
+                ok ?= purge(NameVsn),
+                ensure_delete_state(NameVsn)
+            end;
         {error, _Reason} ->
             ensure_delete_state(NameVsn)
     end.
@@ -424,11 +470,22 @@ ensure_disabled(NameVsn) ->
 %% will cause deletion of loaded beams.
 %% It should not be a problem, because shared lib should
 %% reside in all the plugin install dirs.
--spec purge(name_vsn()) -> ok.
+-spec purge(name_vsn()) -> ok | {error, map()}.
 purge(NameVsn) ->
     ?SLOG(debug, #{msg => "purge_plugin", name_vsn => NameVsn}),
     ok = delete_cached_config(NameVsn),
-    emqx_plugins_fs:purge_installed(NameVsn).
+    case emqx_plugins_fs:purge_installed(NameVsn) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            %% The leftovers can not be removed, so the installation can not be
+            %% replaced: report it instead of failing with a `badmatch'.
+            {error, #{
+                msg => "failed_to_purge_plugin_dir",
+                name_vsn => NameVsn,
+                reason => Reason
+            }}
+    end.
 
 -spec delete_state(name_vsn()) -> ok.
 delete_state(NameVsn) ->
@@ -438,6 +495,21 @@ delete_state(NameVsn) ->
 -spec write_package(name_vsn(), binary()) -> ok | {error, map()}.
 write_package(NameVsn, Bin) ->
     emqx_plugins_fs:write_tar(NameVsn, Bin).
+
+%% @doc Remember the package file that is installed now, so that it can be put
+%% back when a replacement of the installation fails.
+%%
+%% A package file which is there but can not be read is an error: a snapshot
+%% which records it as absent would make the restore delete it.
+-spec backup_package(name_vsn()) -> {ok, emqx_plugins_fs:package_backup()} | {error, map()}.
+backup_package(NameVsn) ->
+    emqx_plugins_fs:backup_package(NameVsn).
+
+%% @doc Put the package file back as it was before a failed installation
+%% attempt: a file which was not there is deleted.
+-spec restore_package(name_vsn(), emqx_plugins_fs:package_backup()) -> ok | {error, term()}.
+restore_package(NameVsn, Backup) ->
+    emqx_plugins_fs:restore_package(NameVsn, Backup).
 
 %% @doc Check if the package file is present.
 -spec is_package_present(name_vsn()) -> false | {true, [file:filename()]}.
@@ -587,7 +659,25 @@ do_ensure_stopped(NameVsn) ->
         {ok, Plugin} ->
             emqx_plugins_apps:stop(Plugin);
         {error, Reason} ->
-            {error, Reason}
+            %% The metadata can not be read, so the applications to stop can not
+            %% be taken from it.  Use the ones that are loaded from the plugin's
+            %% install directory instead, so that a plugin with an unreadable
+            %% `release.json' can still be stopped before its installation is
+            %% replaced.
+            PluginDir = emqx_plugins_fs:plugin_dir(NameVsn),
+            case emqx_plugins_apps:stop_and_unload_loaded(PluginDir) of
+                {ok, []} ->
+                    {error, Reason};
+                {ok, Apps} ->
+                    ?SLOG(info, #{
+                        msg => "stopped_plugin_without_readable_metadata",
+                        name_vsn => NameVsn,
+                        apps => Apps
+                    }),
+                    ok;
+                {error, _} = Error ->
+                    Error
+            end
     end.
 
 -spec get_config(name_vsn()) -> plugin_config_map().

@@ -73,7 +73,6 @@
 -define(aggregated_http_pool(RES_ID), {aggregated_http_pool, RES_ID}).
 -define(aggregated_delivery_sup(RES_ID), {aggregated_delivery_sup, RES_ID}).
 
--define(HC_TIMEOUT, 15_000).
 %% Seconds
 -define(AUTO_RECONNECT_INTERVAL, 2).
 
@@ -89,10 +88,12 @@
     private_key_password => emqx_schema_secret:secret(),
     dsn := binary(),
     pool_size := pos_integer(),
-    proxy := none | proxy_config()
+    proxy := none | proxy_config(),
+    resource_opts := map()
 }.
 -type connector_state() :: #{
     account := account(),
+    health_check_timeout := timeout(),
     server := #{host := binary(), port := emqx_schema:port_number()},
     installed_actions := #{action_resource_id() => action_state()}
 }.
@@ -212,13 +213,15 @@ on_start(ConnResId, ConnConfig) ->
         account := Account,
         dsn := DSN,
         pool_size := PoolSize,
-        proxy := ProxyConfig
+        proxy := ProxyConfig,
+        resource_opts := #{health_check_timeout := HCTimeout}
     } = ConnConfig,
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?SERVER_OPTS),
     Username = maps:get(username, ConnConfig, undefined),
     Authn = mk_odbc_authn_opt(ConnConfig),
     PoolOpts = lists:flatten([
         Authn,
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
         {dsn, DSN},
         {account, Account},
@@ -231,6 +234,7 @@ on_start(ConnResId, ConnConfig) ->
         ok ->
             State = #{
                 account => Account,
+                health_check_timeout => HCTimeout,
                 server => #{host => Host, port => Port},
                 ssl => maps:get(ssl, ConnConfig, #{}),
                 installed_actions => #{}
@@ -249,8 +253,8 @@ on_stop(ConnResId, _ConnState) ->
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | ?status_disconnected.
-on_get_status(ConnResId, _ConnState) ->
-    health_check_connector(ConnResId).
+on_get_status(ConnResId, ConnState) ->
+    health_check_connector(ConnResId, ConnState).
 
 -spec on_add_channel(
     connector_resource_id(),
@@ -367,10 +371,11 @@ connect(Opts) ->
 disconnect(ConnectionPid) ->
     odbc:disconnect(ConnectionPid).
 
-health_check_connector(ConnResId) ->
+health_check_connector(ConnResId, ConnState) ->
+    #{health_check_timeout := HCTimeout} = ConnState,
     Opts = #{
         check_fn => fun ?MODULE:do_health_check_connector/1,
-        timeout => ?HC_TIMEOUT
+        timeout => HCTimeout
     },
     emqx_resource_pool:common_health_check_workers(ConnResId, Opts).
 
