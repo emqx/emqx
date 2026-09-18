@@ -12,7 +12,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 %% `ecpool_worker' API
--export([connect/1, health_check/2, clear_optvar/2]).
+-export([connect/1, health_check/3, clear_optvar/2]).
 
 %% `gen_server' API
 -export([
@@ -96,7 +96,6 @@
 -define(ensure_subscription, ensure_subscription).
 -define(patch_subscription, patch_subscription).
 
--define(HEALTH_CHECK_TIMEOUT, 10_000).
 %% Must be scoped by the source resource id: worker indices repeat across pools, and a
 %% bare-index key would let one pool (e.g. a probe's) clear or overwrite another's flag.
 -define(OPTVAR_SUB_OK(SOURCE_RES_ID, WORKER_ID),
@@ -183,9 +182,9 @@ get_subscription(WorkerPid) ->
 %% `ecpool' health check
 %%-------------------------------------------------------------------------------------------------
 
--spec health_check(binary(), integer()) -> subscription_ok | topic_not_found | timeout.
-health_check(SourceResId, WorkerId) ->
-    case optvar:read(?OPTVAR_SUB_OK(SourceResId, WorkerId), ?HEALTH_CHECK_TIMEOUT) of
+-spec health_check(binary(), integer(), timeout()) -> subscription_ok | topic_not_found | timeout.
+health_check(SourceResId, WorkerId, HCTimeout) ->
+    case optvar:read(?OPTVAR_SUB_OK(SourceResId, WorkerId), HCTimeout) of
         {ok, Status} ->
             Status;
         timeout ->

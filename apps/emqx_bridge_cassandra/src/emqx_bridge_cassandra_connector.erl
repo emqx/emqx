@@ -107,7 +107,8 @@ on_start(
         servers := Servers0,
         keyspace := Keyspace,
         pool_size := PoolSize,
-        ssl := SSL
+        ssl := SSL,
+        resource_opts := #{health_check_timeout := HCTimeout}
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -144,7 +145,12 @@ on_start(
         end,
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
-            {ok, #{pool_name => InstId, channels => #{}}};
+            State = #{
+                health_check_timeout => HCTimeout,
+                pool_name => InstId,
+                channels => #{}
+            },
+            {ok, State};
         {error, Reason} ->
             ?tp(
                 cassandra_connector_start_failed,
@@ -357,8 +363,13 @@ exec_cql_batch_query(InstId, PoolName, Async, CQLs) ->
 exec(PoolName, Query) ->
     ecpool:pick_and_do(PoolName, Query, no_handover).
 
-on_get_status(_InstId, #{pool_name := PoolName}) ->
+on_get_status(_InstId, ConnState) ->
+    #{
+        pool_name := PoolName,
+        health_check_timeout := HCTimeout
+    } = ConnState,
     Opts = #{
+        timeout => HCTimeout,
         check_fn => fun ?MODULE:do_get_status/1,
         is_success_fn => fun
             ({ok, _}) -> false;

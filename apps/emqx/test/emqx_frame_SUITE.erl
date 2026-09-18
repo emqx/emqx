@@ -661,7 +661,34 @@ t_parse_connect_too_many_user_properties(_) ->
         emqx_frame:parse(
             make_v5_connect_with_will_frame(user_properties(2), user_properties(2)), PState
         )
-    ).
+    ),
+    %% The whole-frame parser applies the same limit.
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 2},
+        emqx_frame:parse_complete(make_v5_connect_frame(user_properties(3)), PState)
+    ),
+    %% The count error wins before a malformed excess pair is decoded.
+    MalformedExcess = <<(user_properties(2))/binary, 16#26, 0>>,
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 2},
+        emqx_frame:parse(make_v5_connect_frame(MalformedExcess), PState)
+    ),
+    %% A limit of zero rejects the first pair, and accepts a CONNECT without any.
+    Zero = emqx_frame:initial_parse_state(#{max_connect_user_properties => 0}),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(make_v5_connect_frame(<<>>), Zero)),
+    ?ASSERT_FRAME_THROW(
+        #{cause := too_many_user_properties, limit := 0},
+        emqx_frame:parse(make_v5_connect_frame(user_properties(1)), Zero)
+    ),
+    %% The option is for CONNECT only: it does not bound the properties of
+    %% other packet types.
+    NonConnectOpts = #{version => ?MQTT_PROTO_V5, max_connect_user_properties => 0},
+    Props = #{'User-Property' => user_property_pairs(20)},
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, Props, <<"payload">>),
+    ?assertEqual(Publish, parse_serialize(Publish, NonConnectOpts)),
+    TopicFilters = [{<<"t">>, #{rh => 0, qos => ?QOS_0, rap => 0, nl => 0}}],
+    Subscribe = ?SUBSCRIBE_PACKET(1, Props, TopicFilters),
+    ?assertEqual(Subscribe, parse_serialize(Subscribe, NonConnectOpts)).
 
 -doc """
 The default parse state does not limit the number of 'User-Property' pairs, so
@@ -672,6 +699,10 @@ t_parse_connect_user_properties_unlimited_by_default(_) ->
         {_Packet, <<>>, _},
         emqx_frame:parse(make_v5_connect_frame(user_properties(1000)))
     ).
+
+%% N user-property pairs as the parser returns them.
+user_property_pairs(N) ->
+    [{<<>>, integer_to_binary(I)} || I <- lists:seq(1, N)].
 
 %% N user properties on the wire, each with an empty key and an indexed value.
 user_properties(N) ->

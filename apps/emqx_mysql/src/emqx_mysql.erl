@@ -72,6 +72,7 @@
 
 -type state() ::
     #{
+        health_check_timeout := timeout(),
         pool_name := binary(),
         query_templates := map()
     }.
@@ -141,9 +142,20 @@ on_start(
             {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
             {pool_size, PoolSize}
         ]),
+    HCTimeout =
+        case Config of
+            #{resource_opts := #{health_check_timeout := HCTimeout0}} ->
+                HCTimeout0;
+            #{} ->
+                emqx_resource_pool:health_check_timeout()
+        end,
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
-            State = #{pool_name => InstId, query_templates => #{}},
+            State = #{
+                pool_name => InstId,
+                query_templates => #{},
+                health_check_timeout => HCTimeout
+            },
             {ok, State};
         {error, Reason} ->
             ?tp(
@@ -232,8 +244,13 @@ on_format_query_result({ok, DataList}) ->
 on_format_query_result(Result) ->
     Result.
 
-on_get_status(_InstId, #{pool_name := PoolName} = _State) ->
+on_get_status(_InstId, ConnState) ->
+    #{
+        pool_name := PoolName,
+        health_check_timeout := HCTimeout
+    } = ConnState,
     Opts = #{
+        timeout => HCTimeout,
         check_fn => fun ?MODULE:do_get_status/1,
         is_success_fn => fun
             ({ok, _, _}) -> false;
