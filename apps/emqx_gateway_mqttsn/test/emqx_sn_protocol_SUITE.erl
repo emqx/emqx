@@ -1534,9 +1534,11 @@ t_publish_negqos_idle_allows_authn_in_hardened_profile(_) ->
         >>
     ),
     ok = emqx_gateway_test_utils:enable_gateway_auth(<<"mqttsn">>),
+    %% An idle negative-QoS publish authenticates with the credentials from
+    %% `clientinfo_override', so the user must carry that password.
     ok = emqx_gateway_test_utils:add_gateway_auth_user(<<"mqttsn">>, #{
         user_id => <<"user1">>,
-        password => <<"pw123">>,
+        password => list_to_binary(?CLIENTINFO_OVERRIDE_PASSWORD),
         is_superuser => false
     }),
     try
