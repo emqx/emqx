@@ -578,7 +578,7 @@ claim_want_next_batch(Entries) ->
     [{binary(), map() | {no_more, non_neg_integer()}}] | {error, term()}.
 claim_want_next_batch(Entries, Origin) ->
     try emqx_bcast_index_owner:claim(Entries, Origin) of
-        Results -> Results
+        Results -> downgrade_unless_residual_capable(Results, Entries)
     catch
         Error:Reason ->
             ?SLOG(error, #{
@@ -588,6 +588,24 @@ claim_want_next_batch(Entries, Origin) ->
             }),
             {error, Reason}
     end.
+
+%% The {no_more, Residual} answer only exists for a shard that announced it
+%% understands it in its claim request. A shard from an earlier build has no
+%% clause for that shape and crashes on it, so answer it with the bare no_more
+%% it expects; it then loses the residual-driven re-arm and behaves exactly as
+%% it did before the upgrade.
+downgrade_unless_residual_capable(Results, Entries) ->
+    Capable = maps:from_keys(
+        [maps:get(clientid, E) || E <- Entries, maps:get(residual, E, false)],
+        true
+    ),
+    [
+        case {maps:is_key(DN, Capable), Result} of
+            {false, {no_more, _}} -> {DN, no_more};
+            _ -> {DN, Result}
+        end
+     || {DN, Result} <- Results
+    ].
 
 -spec release_claim(product_key(), device_name(), delivery_id()) -> ok.
 release_claim(ProductKey, DeviceName, Did) ->

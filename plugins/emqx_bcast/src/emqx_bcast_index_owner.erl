@@ -1519,8 +1519,21 @@ handle_cast({release_batch, Releases}, State = #{active := true}) ->
     %% release): idempotent per entry, claim lease is the backstop.
     State2 = lists:foldl(
         fun
-            ({claim, PK, DN, Did}, St) -> release_claim_local(PK, DN, Did, St);
-            ({tag, PK, DN, Tag}, St) -> release_client_claims_local(PK, DN, Tag, St)
+            ({claim, PK, DN, Did}, St) ->
+                release_claim_local(PK, DN, Did, St);
+            ({tag, PK, DN, Tag}, St) ->
+                release_client_claims_local(PK, DN, Tag, St);
+            %% A peer that has not been upgraded yet still sends the nested
+            %% shape - the very shape whose fold clause crashed its own index
+            %% shards. Release it here instead of crashing this shard, and
+            %% never crash on a shape this build does not know.
+            ({claim, {PK, DN, Did}}, St) ->
+                release_claim_local(PK, DN, Did, St);
+            ({tag, {PK, DN, Tag}}, St) ->
+                release_client_claims_local(PK, DN, Tag, St);
+            (Other, St) ->
+                ?SLOG(warning, #{msg => "bcast_release_batch_unknown_entry", entry => Other}),
+                St
         end,
         State,
         Releases

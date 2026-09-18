@@ -1255,7 +1255,12 @@ claim_row(Shard, Row, State) ->
                 clientid => Row1#bcast_client_state.clientid,
                 product_key => Row1#bcast_client_state.product_key,
                 pid => Row1#bcast_client_state.pid,
-                claim_tag => Tag
+                claim_tag => Tag,
+                %% This shard understands the {no_more, Residual} answer, so
+                %% the core may send it instead of the bare no_more. A shard
+                %% from an older build does not send this key, and the core
+                %% then answers it with the shape it understands.
+                residual => true
             },
             %% Arm the flush here so every claim path (trigger, subscribe,
             %% refill, release, retry) submits its pending entries; the
