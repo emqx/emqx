@@ -646,15 +646,33 @@ check_declared_size(Size, #{max_payload := Max}) when is_integer(Size), Size >= 
 check_declared_size(_Size, _State) ->
     error(invalid_args).
 
-%% HPUB/HMSG declare `headers_size total_size`; both must fit the payload budget
-%% and the headers must fit inside the total.
+%% HPUB/HMSG declare `headers_size total_size`; the header section has its own
+%% limit so that an oversized header section is not reported as a payload error,
+%% and it must fit inside the total.
 check_declared_headers_size(HeadersSize, TotalSize, State) ->
+    ok = check_declared_headers_section(HeadersSize, State),
     ok = check_declared_size(TotalSize, State),
-    ok = check_declared_size(HeadersSize, State),
     case HeadersSize =< TotalSize of
         true -> ok;
         false -> error(invalid_args)
     end.
+
+check_declared_headers_section(HeadersSize, #{max_payload := Max}) when
+    is_integer(HeadersSize), HeadersSize >= 0
+->
+    case HeadersSize > Max of
+        true ->
+            error(
+                {headers_too_large, #{
+                    max_payload_size => Max,
+                    headers_size => HeadersSize
+                }}
+            );
+        false ->
+            ok
+    end;
+check_declared_headers_section(_Size, _State) ->
+    error(invalid_args).
 
 validate_non_wildcard_subject(Subject) ->
     case emqx_nats_topic:validate_nats_subject(Subject) of

@@ -929,12 +929,23 @@ t_declared_payload_too_large_rejected(_Config) ->
         emqx_nats_frame:parse(<<"PUB foo 1000000\r\n">>, State)
     ).
 
--doc "HPUB with oversized declared sizes is rejected before it is buffered.".
+-doc "HPUB with an oversized header section is rejected as a header error.".
 t_declared_headers_too_large_rejected(_Config) ->
-    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 16}),
+    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 1024}),
+    ?assertError(
+        {headers_too_large, _},
+        emqx_nats_frame:parse(<<"HPUB foo 2000 2000\r\n">>, State)
+    ).
+
+-doc """
+HPUB whose header section fits but whose total exceeds max_payload_size is
+reported as a payload error.
+""".
+t_declared_payload_of_hpub_too_large_rejected(_Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 1024}),
     ?assertError(
         {payload_too_large, _},
-        emqx_nats_frame:parse(<<"HPUB foo 1000000 1000000\r\n">>, State)
+        emqx_nats_frame:parse(<<"HPUB foo 8 2000\r\n">>, State)
     ).
 
 -doc "HPUB declaring more headers than the total size is rejected as invalid.".

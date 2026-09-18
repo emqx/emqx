@@ -645,6 +645,13 @@ handle_frame_error(
     %% standard NATS error message, but now closes before buffering the payload.
     Frame = error_frame(<<"Maximum Payload Violation">>),
     shutdown(to_atom_shutdown_reason(Reason), Frame, Channel);
+handle_frame_error(
+    {headers_too_large, _} = Reason,
+    Channel = #channel{conn_state = _ConnState}
+) ->
+    %% The header section exceeded its limit, which is not a payload problem.
+    Frame = error_frame(<<"Maximum Headers Violation">>),
+    shutdown(to_atom_shutdown_reason(Reason), Frame, Channel);
 handle_frame_error(Reason, Channel = #channel{conn_state = _ConnState}) ->
     ErrMsg = io_lib:format("Frame error: ~0p", [Reason]),
     Frame = error_frame(ErrMsg),
