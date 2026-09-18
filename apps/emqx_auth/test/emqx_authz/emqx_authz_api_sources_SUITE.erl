@@ -506,6 +506,66 @@ t_api(_) ->
     ),
     ok.
 
+t_oauth2_client_secret_redacted(_) ->
+    Secret = <<"authz-topsecret">>,
+    Redacted = emqx_utils_redact:redacted_value(),
+    Source = (?SOURCE_HTTP)#{
+        <<"oauth2">> => #{
+            <<"enable">> => true,
+            <<"grant_type">> => <<"client_credentials">>,
+            <<"token_endpoint">> => <<"http://127.0.0.1:1/token">>,
+            <<"client_id">> => <<"cid">>,
+            <<"client_secret">> => Secret
+        }
+    },
+    %% Other test cases in this suite may leave sources configured: start from
+    %% a clean slate so the list assertion below is deterministic.
+    {ok, 200, ExistingBody} = request(get, uri(["authorization", "sources"]), []),
+    lists:foreach(
+        fun(#{<<"type">> := Type}) ->
+            {ok, 204, _} = request(
+                delete,
+                uri(["authorization", "sources", binary_to_list(Type)]),
+                []
+            )
+        end,
+        get_sources(ExistingBody)
+    ),
+    {ok, 204, _} = request(post, uri(["authorization", "sources"]), Source),
+
+    {ok, 200, ListBody} = request(get, uri(["authorization", "sources"]), []),
+    [ListSource] = get_sources(ListBody),
+    ?assertEqual(Redacted, oauth2_client_secret(ListSource)),
+    ?assertEqual(nomatch, binary:match(ListBody, Secret)),
+
+    {ok, 200, GetBody} = request(get, uri(["authorization", "sources", "http"]), []),
+    GetSource = emqx_utils_json:decode(GetBody),
+    ?assertEqual(Redacted, oauth2_client_secret(GetSource)),
+    ?assertEqual(nomatch, binary:match(GetBody, Secret)),
+
+    %% The mask only happens at the API boundary; storage keeps the real secret.
+    RawSources = emqx:get_raw_config([authorization, sources]),
+    ?assertEqual([Secret], [oauth2_client_secret(S) || S <- RawSources]),
+
+    %% Re-submitting the redacted GET body must restore the stored secret.
+    {ok, 204, _} = request(
+        put, uri(["authorization", "sources", "http"]), GetSource#{<<"enable">> => false}
+    ),
+    {ok, 200, GetBody1} = request(get, uri(["authorization", "sources", "http"]), []),
+    GetSource1 = emqx_utils_json:decode(GetBody1),
+    ?assertEqual(false, maps:get(<<"enable">>, GetSource1)),
+    ?assertEqual(Redacted, oauth2_client_secret(GetSource1)),
+    ?assertEqual(nomatch, binary:match(GetBody1, Secret)),
+    RawSources1 = emqx:get_raw_config([authorization, sources]),
+    ?assertEqual([Secret], [oauth2_client_secret(S) || S <- RawSources1]),
+
+    %% Leave no source behind for the following cases.
+    {ok, 204, _} = request(delete, uri(["authorization", "sources", "http"]), []),
+    ok.
+
+oauth2_client_secret(Conf) ->
+    maps:get(<<"client_secret">>, maps:get(<<"oauth2">>, Conf)).
+
 t_source_move(_) ->
     {ok, _} = emqx_authz:update(replace, [
         ?SOURCE_HTTP, ?SOURCE_MONGODB, ?SOURCE_MYSQL, ?SOURCE_POSTGRESQL, ?SOURCE_REDIS

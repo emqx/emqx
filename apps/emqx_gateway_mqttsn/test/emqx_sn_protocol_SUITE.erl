@@ -54,6 +54,10 @@
 
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
+%% Sentinel used to assert that `clientinfo_override.password' is not leaked to
+%% the logs on connection startup failures.
+-define(CLIENTINFO_OVERRIDE_PASSWORD, "clientinfo-override-sentinel-pw").
+
 -define(CONF_DEFAULT, <<
     "gateway.mqttsn {\n"
     "  gateway_id = 1\n"
@@ -69,7 +73,9 @@
     "  ]\n"
     "  clientinfo_override {\n"
     "    username = \"user1\"\n"
-    "    password = \"pw123\"\n"
+    "    password = \""
+    ?CLIENTINFO_OVERRIDE_PASSWORD
+    "\"\n"
     "  }\n"
     "  listeners.udp.default {\n"
     "    bind = 1884\n"
@@ -502,6 +508,73 @@ t_asleep_pingreq_dtls_mtls_identity(Config) ->
         gen_udp:close(UdpSocket),
         _ = catch emqx_gateway_cm:kick_session(mqttsn, ClientId)
     end.
+
+%% A failing DTLS handshake makes the connection process terminate abnormally,
+%% and the connection arguments (which carry `clientinfo_override') are printed
+%% verbatim in the supervisor offender report. The override password is a
+%% credential, so it must never show up in the logs.
+%% Regression test for https://github.com/emqx/emqx-dev-team-tasks/issues/442
+t_dtls_handshake_failure_does_not_log_clientinfo_override_password(Config) ->
+    Sentinel = list_to_binary(?CLIENTINFO_OVERRIDE_PASSWORD),
+    HandlerId = dtls_secret_log_capture,
+    ok = logger:add_handler(HandlerId, ?MODULE, #{
+        level => info,
+        config => #{owner => self()},
+        filters => [],
+        filter_default => log
+    }),
+    PrevLevel = emqx_logger:get_primary_log_level(),
+    ok = emqx_logger:set_primary_log_level(info),
+    try
+        %% The `mtls' listener requires a client certificate, so connecting without
+        %% one fails the handshake on the server side.
+        NoCertOpts = dtls_client_opts(Config, []),
+        _ =
+            case ssl:connect(?HOST, 1886, NoCertOpts, 1000) of
+                {ok, Socket} -> ssl:close(Socket);
+                _ -> ok
+            end,
+        Events = receive_log_events(
+            fun(Event) -> log_event_mentions(Event, <<"ssl_error">>) end, 5000
+        ),
+        %% Sanity check: the handshake failure reports were actually emitted.
+        ?assert(lists:any(fun(Event) -> log_event_mentions(Event, <<"ssl_error">>) end, Events)),
+        ?assertEqual([], [Event || Event <- Events, log_event_mentions(Event, Sentinel)])
+    after
+        ok = emqx_logger:set_primary_log_level(PrevLevel),
+        _ = logger:remove_handler(HandlerId)
+    end.
+
+receive_log_events(Matcher, Timeout) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    receive_log_events(Matcher, Deadline, []).
+
+receive_log_events(Matcher, Deadline, Acc) ->
+    Wait = max(0, Deadline - erlang:monotonic_time(millisecond)),
+    receive
+        {captured_log, Event} ->
+            case Matcher(Event) of
+                true -> drain_log_events([Event | Acc]);
+                false -> receive_log_events(Matcher, Deadline, [Event | Acc])
+            end
+    after Wait ->
+        drain_log_events(Acc)
+    end.
+
+drain_log_events(Acc) ->
+    receive
+        {captured_log, Event} -> drain_log_events([Event | Acc])
+    after 500 ->
+        lists:reverse(Acc)
+    end.
+
+log_event_mentions(Event, Needle) ->
+    Rendered = unicode:characters_to_binary(io_lib:format("~0p", [Event])),
+    binary:match(Rendered, Needle) =/= nomatch.
+
+%% Logger handler callback.
+log(LogEvent, #{config := #{owner := Owner}}) ->
+    Owner ! {captured_log, LogEvent}.
 
 t_asleep_pingreq_resume_uses_live_channel_state(_) ->
     ClientId = <<"asleep-resume-live-state">>,
@@ -1461,9 +1534,11 @@ t_publish_negqos_idle_allows_authn_in_hardened_profile(_) ->
         >>
     ),
     ok = emqx_gateway_test_utils:enable_gateway_auth(<<"mqttsn">>),
+    %% An idle negative-QoS publish authenticates with the credentials from
+    %% `clientinfo_override', so the user must carry that password.
     ok = emqx_gateway_test_utils:add_gateway_auth_user(<<"mqttsn">>, #{
         user_id => <<"user1">>,
-        password => <<"pw123">>,
+        password => list_to_binary(?CLIENTINFO_OVERRIDE_PASSWORD),
         is_superuser => false
     }),
     try
