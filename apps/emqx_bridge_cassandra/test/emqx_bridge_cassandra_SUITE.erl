@@ -645,7 +645,8 @@ t_write_failure(TCConfig) ->
             case Result of
                 {async_return, {error, {resource_error, _}}} ->
                     ok;
-                {async_return, {error, {recoverable_error, disconnected}}} ->
+                {async_return, {error, {recoverable_error, #{}}}} ->
+                    %% from ecpool_worker:client/1
                     ok;
                 {error, {resource_error, _}} ->
                     ok;

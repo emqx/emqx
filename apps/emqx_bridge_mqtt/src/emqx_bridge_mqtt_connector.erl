@@ -517,8 +517,10 @@ classify_reply(Reply = #{reason_code := ?RC_PACKET_IDENTIFIER_IN_USE}) ->
 classify_reply(Reply = #{reason_code := _}) ->
     {unrecoverable_error, Reply}.
 
-classify_error(disconnected = Reason) ->
-    {recoverable_error, Reason};
+classify_error({disconnected, #{reason := Reason} = Error}) ->
+    %% from ecpool_worker:client/1
+    {Kind, _} = classify_error(Reason),
+    {Kind, Error};
 classify_error(ecpool_empty) ->
     {recoverable_error, disconnected};
 classify_error({disconnected, _RC, _} = Reason) ->
@@ -550,22 +552,24 @@ on_get_status(_ResourceId, State) ->
             combine_status(Statuses, State)
     catch
         exit:timeout ->
-            ?status_connecting
+            {?status_connecting, health_check_timeout}
     end.
 
 get_status({_Pool, Worker}) ->
     case ecpool_worker:client(Worker) of
         {ok, Client} ->
             emqx_bridge_mqtt_ingress:status(Client);
-        {error, _} ->
-            ?status_disconnected
+        {error, {disconnected, Reason}} ->
+            {?status_disconnected, Reason}
     end.
 
 combine_status(Statuses, ConnState) ->
     %% NOTE
-    %% Natural order of statuses: [connected, connecting, disconnected]
+    %% Natural order of statuses:
+    %% [connected, connecting, {connecting, _}, disconnected, {disconnected, _}]
     %% * `disconnected` wins over any other status
     %% * `connecting` wins over `connected`
+    %% * status with reason wins overs those without
     #{?available_clientid_info := AvailableClientidInfo} = ConnState,
     ExpectedNoClientids =
         case AvailableClientidInfo of
@@ -595,7 +599,7 @@ combine_status(Statuses, ConnState) ->
             {?status_disconnected,
                 {unhealthy_target, <<"Connector has no assigned static clientids">>}};
         [] ->
-            ?status_disconnected
+            {?status_disconnected, no_workers_alive}
     end.
 
 mk_ingress_config(

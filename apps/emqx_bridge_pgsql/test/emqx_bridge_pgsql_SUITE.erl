@@ -534,7 +534,8 @@ t_write_timeout(TCConfig) when is_list(TCConfig) ->
             case Error of
                 {resource_error, _} ->
                     ok;
-                {recoverable_error, disconnected} ->
+                {recoverable_error, {disconnected, _}} ->
+                    %% from ecpool_worker:client/1
                     ok;
                 _ ->
                     ct:fail("unexpected error: ~p", [Error])
