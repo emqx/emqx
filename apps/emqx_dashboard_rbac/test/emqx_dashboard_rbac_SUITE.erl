@@ -422,7 +422,7 @@ accept_header(no_accept) -> [];
 accept_header(Accept) -> [{"accept", Accept}].
 
 admin_auth_header() ->
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(
         ?DEFAULT_SUPERUSER, ?DEFAULT_SUPERUSER_PASS
     ),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
@@ -431,7 +431,7 @@ viewer_auth_header() ->
     {ok, _} = emqx_dashboard_admin:add_user(
         ?VIEWER_USER, ?VIEWER_PASS, ?ROLE_VIEWER, ?ADD_DESCRIPTION
     ),
-    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(?VIEWER_USER, ?VIEWER_PASS),
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(?VIEWER_USER, ?VIEWER_PASS),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 create_api_key(Name, Role) ->
