@@ -2281,14 +2281,6 @@ row_claim_of(PK, DN) ->
         undefined -> undefined
     end.
 
-%% Deferred-claim mark of a client row: an integer while the sweep still owes
-%% the client a retry, undefined once it retried (or was never marked).
-rearm_at_of(PK, DN) ->
-    case row_lookup(PK, DN) of
-        #bcast_client_state{rearm_at = T} -> T;
-        undefined -> undefined
-    end.
-
 row_window_empty(PK, DN) ->
     case row_lookup(PK, DN) of
         #bcast_client_state{inflight = []} -> true;
@@ -2572,32 +2564,29 @@ t_ping_does_not_claim_idle_client(_Config) ->
 "wakeup: the promoter trigger is one-shot and the stale-claim sweep only\n"
 "revisits rows that still hold a claim, so a refused round that is dropped\n"
 "leaves the client idle (claim = undefined, empty window) with its backlog\n"
-"stranded until TTL. The refused client is marked on its own row instead, so\n"
-"the mark cannot be dropped when the backpressure episode is large, and the\n"
-"periodic sweep retries it.".
+"stranded until TTL. The refused client is queued instead and the periodic\n"
+"sweep retries it.".
 t_pull_claim_refused_at_cap_is_retried_by_sweep(_Config) ->
     PK = <<"PCAPRETRY">>,
     DN = <<"DCAPRETRY">>,
     Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
     Cnt = emqx_bcast_pull_shard:tab(Shard, bcast_pull_counters),
+    Rearm = emqx_bcast_pull_shard:tab(Shard, bcast_pull_rearm),
     _ = emqx_bcast:register_device(PK, DN, self()),
     %% Saturate the cap so the subscribe claim has to be refused.
     true = ets:insert(Cnt, {claim, 2000}),
     emqx_bcast_pull_shard:cast_client(PK, DN, {subscribe, DN, self(), PK}),
     _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
-    %% Refused, but remembered on the row itself: no round was opened, and the
-    %% client carries the deferred-claim mark the sweep will revisit. The row
-    %% is created here on purpose - a refused round writes none, so a mark in a
-    %% separate table would be the only trace of the client, and that table
-    %% could fill up and drop it.
-    ?assert(is_integer(rearm_at_of(PK, DN))),
-    ?assertEqual(undefined, row_claim_of(PK, DN)),
-    ?assert(row_window_empty(PK, DN)),
-    %% Headroom returns; the next sweep retries the marked claim, which opens a
-    %% round and clears the mark. With the refusal dropped instead, the mark
-    %% would never appear and the client would stay idle until TTL.
+    %% Refused, but remembered: no round was opened (the row is only written
+    %% once a round is accepted), and the client is queued for a retry.
+    ?assertMatch([{{PK, DN}, _}], ets:lookup(Rearm, {PK, DN})),
+    ?assertEqual([], ets:lookup(state_tab(PK, DN), {PK, DN})),
+    %% Headroom returns; the next sweep retries the queued claim, which
+    %% writes the client row. With the refusal dropped instead, no row would
+    %% ever appear and the client would stay idle until TTL.
     true = ets:insert(Cnt, {claim, 0}),
-    ?assert(wait_until(fun() -> rearm_at_of(PK, DN) =:= undefined end, 240)),
+    ?assert(wait_until(fun() -> ets:lookup(state_tab(PK, DN), {PK, DN}) =/= [] end, 240)),
+    ?assertEqual([], ets:lookup(Rearm, {PK, DN})),
     cleanup_row(PK, DN),
     emqx_bcast:unregister_device(PK, DN, self()).
 
@@ -2641,21 +2630,23 @@ t_pull_no_more_residual_rearms_only_when_entries_remain(_Config) ->
     DN2 = <<"DNOMORER2">>,
     Shard = emqx_bcast_pull_shard:shard_of(PK, DN1),
     Name = emqx_bcast_pull_shard:shard_name(Shard),
-    %% Residual > 0: the round is cleared and the client row marked for the
+    Rearm = emqx_bcast_pull_shard:tab(Shard, bcast_pull_rearm),
+    %% Residual > 0: the round is cleared and the client queued for the
     %% bounded sweep retry.
     Tag1 = 424242,
     seed_claim_row(PK, DN1, Tag1, erlang:system_time(millisecond), Shard),
     gen_server:cast(Name, {deliver_results, [{DN1, {no_more, 1}}], [{DN1, Tag1, PK}]}),
     _ = sys:get_state(Name),
     ?assertEqual(undefined, row_claim_of(PK, DN1)),
-    ?assert(is_integer(rearm_at_of(PK, DN1))),
-    %% Residual 0: the drained answer, which must not mark the client.
+    ?assertMatch([{{PK, DN1}, _}], ets:lookup(Rearm, {PK, DN1})),
+    true = ets:delete(Rearm, {PK, DN1}),
+    %% Residual 0: the drained answer, which must not queue the client.
     Tag2 = 424243,
     seed_claim_row(PK, DN2, Tag2, erlang:system_time(millisecond), Shard),
     gen_server:cast(Name, {deliver_results, [{DN2, {no_more, 0}}], [{DN2, Tag2, PK}]}),
     _ = sys:get_state(Name),
     ?assertEqual(undefined, row_claim_of(PK, DN2)),
-    ?assertEqual(undefined, rearm_at_of(PK, DN2)),
+    ?assertEqual([], ets:lookup(Rearm, {PK, DN2})),
     cleanup_row(PK, DN1),
     cleanup_row(PK, DN2).
 
