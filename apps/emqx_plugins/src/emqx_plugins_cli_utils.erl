@@ -293,12 +293,14 @@ ensure_installed(NameVsn, LogFun) ->
     end.
 
 do_ensure_installed(NameVsn) ->
-    case emqx_plugins:describe(NameVsn, #{}) of
-        {ok, _} ->
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
             {error, #{
                 msg => "plugin_already_installed", name_vsn => NameVsn
             }};
-        {error, _} ->
+        _IncompleteOrAbsent ->
+            %% Nothing usable is installed: leftovers of an interrupted
+            %% installation are replaced by the package.
             case check_local_tar_sha256(NameVsn) of
                 ok ->
                     emqx_plugins:ensure_installed(NameVsn, ?fresh_install);

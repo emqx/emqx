@@ -454,9 +454,16 @@ tx_stream_delete_expired_data(Stream, Index) ->
     Topic = stream_message_topic(Stream, '#'),
     emqx_ds:tx_del_topic(Topic, 0, DeleteTill).
 
--spec regular_db_slab_info() -> #{emqx_ds:slab() => emqx_ds:slab_info()}.
+-spec regular_db_slab_info() ->
+    {ok, #{emqx_ds:slab() => emqx_ds:slab_info()}}
+    | {error, [{emqx_ds:shard(), emqx_ds:error(_)}]}.
 regular_db_slab_info() ->
-    emqx_ds:list_slabs(?STREAMS_MESSAGE_REGULAR_DB).
+    case emqx_ds:list_slabs(?STREAMS_MESSAGE_REGULAR_DB, #{}) of
+        {SlabInfo, []} ->
+            {ok, SlabInfo};
+        {_SlabInfo, Errors} ->
+            {error, Errors}
+    end.
 
 -spec initial_generations(emqx_streams_types:stream()) ->
     #{emqx_ds:slab() => emqx_ds:generation()}.

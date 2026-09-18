@@ -654,8 +654,8 @@ t_clientinfo_override_with_empty_clientid(Config) ->
     ok = emqx_nats_client:connect(Client),
     {ok, [_]} = emqx_nats_client:receive_message(Client),
 
-    wait_for_client_info(Config),
-    [ClientInfo] = find_client_by_username(<<"test_user">>),
+    %% The gateway registers the client after CONNECT asynchronously.
+    [ClientInfo] = ?retry(100, 50, [_] = find_client_by_username(<<"test_user">>)),
     ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
     ?assertNotEqual(<<>>, maps:get(clientid, ClientInfo)),
 
@@ -677,8 +677,8 @@ t_clientinfo_override_with_prefix_and_empty_clientid(Config) ->
     ok = emqx_nats_client:connect(Client),
     {ok, [_]} = emqx_nats_client:receive_message(Client),
 
-    wait_for_client_info(Config),
-    [ClientInfo] = find_client_by_username(<<"test_user">>),
+    %% The gateway registers the client after CONNECT asynchronously.
+    [ClientInfo] = ?retry(100, 50, [_] = find_client_by_username(<<"test_user">>)),
     ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
     ?assertEqual(<<"prefix-">>, maps:get(clientid, ClientInfo)),
 
@@ -779,13 +779,3 @@ find_client_by_username(Username) ->
         end,
         ClientInfos
     ).
-
-wait_for_client_info(Config) ->
-    case ?config(group_name, Config) of
-        ws ->
-            timer:sleep(1000);
-        wss ->
-            timer:sleep(1000);
-        _ ->
-            ok
-    end.
