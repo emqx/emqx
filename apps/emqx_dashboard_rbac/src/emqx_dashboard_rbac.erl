@@ -116,7 +116,7 @@ check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/users/", SubPath/binary>>, Username, _)
         [Username, <<"mfa">>] -> true;
         _ -> false
     end;
-check_rbac(?ROLE_VIEWER, <<"DELETE">>, <<"/users/", SubPath/binary>>, Username) ->
+check_rbac(?ROLE_VIEWER, <<"DELETE">>, <<"/users/", SubPath/binary>>, Username, _) ->
     case binary:split(SubPath, <<"/">>, [global]) of
         [Username, <<"mfa">>] -> true;
         _ -> false
