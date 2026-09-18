@@ -28,6 +28,8 @@
 -export([
     '/certs/global/list'/2,
     '/certs/global/name/:name'/2,
+    '/certs/global/name/:name/trusts'/2,
+    '/certs/global/name/:name/trusts/:fingerprint'/2,
     '/certs/ns/:namespace/list'/2,
     '/certs/ns/:namespace/name/:name'/2,
     '/certs/pem_cache_clean'/2
@@ -57,6 +59,8 @@ paths() ->
     [
         "/certs/global/list",
         "/certs/global/name/:name",
+        "/certs/global/name/:name/trusts",
+        "/certs/global/name/:name/trusts/:fingerprint",
         "/certs/ns/:namespace/list",
         "/certs/ns/:namespace/name/:name",
         "/certs/pem_cache_clean"
@@ -117,6 +121,41 @@ schema("/certs/global/name/:name") ->
                 #{
                     204 => <<"">>,
                     400 => bad_request(?DESC("bad_request")),
+                    500 => internal_error(?DESC("internal_error"))
+                }
+        }
+    };
+schema("/certs/global/name/:name/trusts") ->
+    #{
+        'operationId' => '/certs/global/name/:name/trusts',
+        post => #{
+            tags => ?TAGS,
+            description => ?DESC("global_trusts_merge"),
+            parameters => [param_path_bundle_name()],
+            'requestBody' => hoconsc:mk(ref(trusts_in), #{
+                converter => fun upload_files_request_body_converter/2
+            }),
+            responses =>
+                #{
+                    200 => ref(trusts_merge_out),
+                    400 => bad_request(?DESC("bad_request")),
+                    404 => not_found(?DESC("bundle_not_found")),
+                    500 => internal_error(?DESC("internal_error"))
+                }
+        }
+    };
+schema("/certs/global/name/:name/trusts/:fingerprint") ->
+    #{
+        'operationId' => '/certs/global/name/:name/trusts/:fingerprint',
+        delete => #{
+            tags => ?TAGS,
+            description => ?DESC("global_trusts_delete"),
+            parameters => [param_path_bundle_name(), param_path_fingerprint()],
+            responses =>
+                #{
+                    200 => ref(trusts_delete_out),
+                    400 => bad_request(?DESC("bad_request")),
+                    404 => not_found(?DESC("trusted_cert_not_found")),
                     500 => internal_error(?DESC("internal_error"))
                 }
         }
@@ -212,6 +251,15 @@ fields(files_in) ->
         {Kind, mk(binary(), #{required => false})}
      || Kind <- Kinds
     ];
+fields(trusts_in) ->
+    [{?FILE_KIND_CA, mk(binary(), #{required => true, desc => ?DESC("trusts_merge_in")})}];
+fields(trusts_merge_out) ->
+    [
+        {added, mk(non_neg_integer(), #{desc => ?DESC("trusts_merge_added")})},
+        {total, mk(non_neg_integer(), #{desc => ?DESC("trusts_merge_total")})}
+    ];
+fields(trusts_delete_out) ->
+    [{total, mk(non_neg_integer(), #{desc => ?DESC("trusts_merge_total")})}];
 fields(bundle_out) ->
     [{name, mk(binary(), #{})}];
 fields(file_out) ->
@@ -239,6 +287,18 @@ param_path_bundle_name() ->
                 example => <<"bundle1">>,
                 validator => fun emqx_resource:validate_name/1,
                 desc => ?DESC("param_path_bundle_name")
+            }
+        )}.
+
+param_path_fingerprint() ->
+    {fingerprint,
+        mk(
+            binary(),
+            #{
+                in => path,
+                required => true,
+                example => <<"9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08">>,
+                desc => ?DESC("param_path_fingerprint")
             }
         )}.
 
@@ -271,8 +331,7 @@ upload_files_request_body_converter(#{} = Input, _HoconOpts) ->
             %% multipart/form-data
             lists:foldl(
                 fun({Type, Data0}, Acc) ->
-                    [{_Filename, Contents}] = maps:to_list(maps:remove(type, Data0)),
-                    Acc#{Type => Contents}
+                    Acc#{Type => multipart_contents(Type, Data0)}
                 end,
                 #{},
                 InputList
@@ -282,6 +341,16 @@ upload_files_request_body_converter(#{} = Input, _HoconOpts) ->
     end;
 upload_files_request_body_converter(Input, _HoconOpts) ->
     Input.
+
+%% Throwing here makes `hocon' report the message as the validation error. Returning the
+%% value instead would put the uploaded file, a private key among them, in the response.
+multipart_contents(Type, Data) ->
+    case maps:to_list(maps:remove(type, Data)) of
+        [{_Filename, Contents}] ->
+            Contents;
+        _ ->
+            throw(<<"send exactly one file for `", (bin(Type))/binary, "`">>)
+    end.
 
 upload_files_request_body_validator(#{} = Input) when map_size(Input) == 0 ->
     {error, <<"must include at least one file kind">>};
@@ -314,6 +383,14 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
         _ ->
             handle_delete_bundle(?global_ns, BundleName)
     end.
+
+'/certs/global/name/:name/trusts'(post, #{bindings := #{name := BundleName}} = Req) ->
+    #{body := #{?FILE_KIND_CA := PEM}} = Req,
+    handle_merge_ca_certs(?global_ns, BundleName, PEM).
+
+'/certs/global/name/:name/trusts/:fingerprint'(delete, Req) ->
+    #{bindings := #{name := BundleName, fingerprint := Fingerprint}} = Req,
+    handle_delete_ca_cert(?global_ns, BundleName, Fingerprint).
 
 '/certs/ns/:namespace/list'(get, #{bindings := #{namespace := Namespace}} = _Req) ->
     handle_list_bundles(Namespace).
@@ -448,20 +525,22 @@ validate_no_dependencies(Namespace, BundleName) ->
         [] ->
             ok;
         [_ | _] = Refs ->
-            Msg0 = ?ERROR_MSG(
-                ?BAD_REQUEST,
-                <<"Cannot delete file or bundle while configurations are depending on it">>
-            ),
-            RefsByNs = lists:foldl(
-                fun({Ns, Path}, Acc) ->
-                    maps:update_with(Ns, fun(Ps) -> [Path | Ps] end, [Path], Acc)
-                end,
-                #{},
-                Refs
-            ),
-            Msg = Msg0#{referencing_configs => RefsByNs},
-            {error, {400, Msg}}
+            {error, referenced_response(Refs)}
     end.
+
+referenced_response(Refs) ->
+    Msg0 = ?ERROR_MSG(
+        ?BAD_REQUEST,
+        <<"Cannot delete file or bundle while configurations are depending on it">>
+    ),
+    RefsByNs = lists:foldl(
+        fun({Ns, Path}, Acc) ->
+            maps:update_with(Ns, fun(Ps) -> [Path | Ps] end, [Path], Acc)
+        end,
+        #{},
+        Refs
+    ),
+    {400, Msg0#{referencing_configs => RefsByNs}}.
 
 handle_upload_files(Namespace, BundleName, Files) ->
     %% Special case: if an ACME account key exists, we forbid uploading key and chain
@@ -483,6 +562,54 @@ handle_upload_files(Namespace, BundleName, Files) ->
                 {error, Errors} ->
                     ?INTERNAL_ERROR(Errors)
             end
+    end.
+
+handle_merge_ca_certs(Namespace, BundleName, PEM) ->
+    case emqx_managed_certs:merge_ca_certs(Namespace, BundleName, PEM) of
+        {ok, Result} ->
+            ?OK(Result);
+        {error, bundle_not_found} ->
+            ?NOT_FOUND(<<"Bundle not found">>);
+        {error, bad_namespace} ->
+            ?BAD_REQUEST(bad_namespace_msg());
+        {error, {bad_ca_certs, Msg}} ->
+            ?BAD_REQUEST(Msg);
+        {error, {read_ca_file, Reason}} ->
+            ?INTERNAL_ERROR(emqx_utils:explain_posix(Reason));
+        {error, Errors} ->
+            ?INTERNAL_ERROR(Errors)
+    end.
+
+handle_delete_ca_cert(Namespace, BundleName, Fingerprint0) ->
+    maybe
+        {ok, Fingerprint} ?= parse_fingerprint(Fingerprint0),
+        {ok, Result} ?= emqx_managed_certs:delete_ca_cert(Namespace, BundleName, Fingerprint),
+        ?OK(Result)
+    else
+        {error, bad_fingerprint} ->
+            ?BAD_REQUEST(<<"Fingerprint must be a SHA-256 digest in hexadecimal">>);
+        {error, bundle_not_found} ->
+            ?NOT_FOUND(<<"Bundle not found">>);
+        {error, cert_not_found} ->
+            ?NOT_FOUND(<<"Certificate not found">>);
+        {error, {referenced, Refs}} ->
+            referenced_response(Refs);
+        {error, bad_namespace} ->
+            ?BAD_REQUEST(bad_namespace_msg());
+        {error, {read_ca_file, Reason}} ->
+            ?INTERNAL_ERROR(emqx_utils:explain_posix(Reason));
+        {error, Errors} ->
+            ?INTERNAL_ERROR(Errors)
+    end.
+
+%% Also accepts the `openssl x509 -fingerprint' form, which separates bytes with colons.
+parse_fingerprint(Hex0) ->
+    Hex = binary:replace(Hex0, <<":">>, <<>>, [global]),
+    try binary:decode_hex(Hex) of
+        <<Digest:32/binary>> -> {ok, Digest};
+        _ -> {error, bad_fingerprint}
+    catch
+        error:badarg -> {error, bad_fingerprint}
     end.
 
 ns_bundle_filter(Req, #{method := post} = _Meta) ->
