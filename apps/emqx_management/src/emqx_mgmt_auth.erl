@@ -187,6 +187,11 @@ read(Name) ->
 update(Name, Enable, ExpiredAt, Desc, Role) ->
     update(Name, Enable, ExpiredAt, Desc, Role, undefined).
 
+%% An absent role means the caller did not ask for a role change, so there is nothing
+%% to validate: `do_update/6' keeps the stored one, like it does for `desc' and
+%% `enable'.
+update(Name, Enable, ExpiredAt, Desc, undefined, Scopes) ->
+    trans(fun ?MODULE:do_update/6, [Name, Enable, ExpiredAt, Desc, undefined, Scopes]);
 update(Name, Enable, ExpiredAt, Desc, Role0, Scopes) ->
     case parse_role(Role0) of
         {ok, ParsedRole} ->
@@ -195,13 +200,21 @@ update(Name, Enable, ExpiredAt, Desc, Role0, Scopes) ->
             Error
     end.
 
-do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespace}, Scopes) ->
+do_update(Name, Enable, ExpiredAt, Desc, Role0, Scopes) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
-        [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
+        [App0 = #?APP{enable = Enable0, expired_at = ExpiredAt0, extra = Extra0}] ->
             #{desc := Desc0} = Extra1 = normalize_extra(Extra0),
             PreviousNamespace = maps:get(?namespace, Extra1, ?global_ns),
+            %% A field left out of the request is `undefined' and keeps its stored value,
+            %% so a partial update cannot silently change more than it was asked to.
+            %% An `undefined' role means no role change was requested: keep the stored
+            %% role and, with it, the stored namespace.
+            #{?role := Role, ?namespace := Namespace} = ensure_not_undefined(
+                Role0,
+                #{?role => get_role(Extra1), ?namespace => PreviousNamespace}
+            ),
             case PreviousNamespace /= Namespace of
                 true ->
                     %% Namespace is part of the RBAC boundary.  Require delete/recreate
@@ -219,7 +232,7 @@ do_update(Name, Enable, ExpiredAt, Desc, #{?role := Role, ?namespace := Namespac
             Extra3 = maybe_set_scopes(Extra2, Scopes),
             App =
                 App0#?APP{
-                    expired_at = ExpiredAt,
+                    expired_at = ensure_not_undefined(ExpiredAt, ExpiredAt0),
                     enable = ensure_not_undefined(Enable, Enable0),
                     extra = Extra3
                 },
@@ -251,6 +264,11 @@ format(App = #{expired_at := ExpiredAt, created_at := CreateAt}) ->
         created_at => format_epoch(CreateAt)
     }).
 
+%% `undefined' is how releases before 5.0.0 encoded "never expires" (`is_expired/1'
+%% and `authorize/4' still treat it that way), so format it like `infinity' instead of
+%% crashing on records carried over from such a release or restored from a backup.
+format_epoch(undefined) ->
+    <<"infinity">>;
 format_epoch(infinity) ->
     <<"infinity">>;
 format_epoch(Epoch) ->
