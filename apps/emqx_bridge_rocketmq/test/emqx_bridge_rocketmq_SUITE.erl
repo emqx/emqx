@@ -226,6 +226,27 @@ start_client(Opts0) ->
     {ok, _} = emqtt:connect(C),
     C.
 
+%% Make the name server answer every route request with "no route", as it does for a topic
+%% that does not exist on a broker without auto-create. The CI broker auto-creates topics,
+%% so this cannot be provoked with a real topic name.
+mock_topic_not_found() ->
+    ok = meck:new(rocketmq_client, [passthrough, no_link, no_history]),
+    on_exit(fun() -> catch meck:unload(rocketmq_client) end),
+    ok = meck:expect(rocketmq_client, get_routeinfo_by_topic, fun(_Pid, Topic) ->
+        Header = #{
+            <<"code">> => 17,
+            <<"remark">> => <<"No topic route info in name server for the topic: ", Topic/binary>>
+        },
+        {ok, {Header, undefined}}
+    end).
+
+unmock_topic_not_found() ->
+    ok = meck:unload(rocketmq_client).
+
+get_action_metrics(TCConfig) ->
+    {200, #{<<"metrics">> := Metrics}} = emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig),
+    Metrics.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -238,7 +259,12 @@ t_start_stop(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_start_stop(TCConfig, "rocketmq_connector_stop").
 
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
-    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{failure_status => ?status_connecting}).
+    %% Once the proxy is down, the client reconnects inline after the passive close and
+    %% fails, so the connector is `disconnected'. The resource manager then restarts the
+    %% connector, whose first connect attempt reports `connecting'.
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{
+        failure_status => [?status_connecting, ?status_disconnected]
+    }).
 
 t_rule_action() ->
     [{matrix, true}].
@@ -589,5 +615,134 @@ t_rocketmq_namespace_alias(TCConfig) ->
     ?assertMatch(
         {ok, _, #{state := #{namespace := OwnNamespace}}},
         emqx_resource:get_instance(ConnResId)
+    ),
+    ok.
+
+-doc """
+When the action topic has no placeholders and the name server has no route for it, the action
+reports `disconnected` with a message that names the topic, and a message routed to it is held
+in the buffer rather than dropped. Once the topic exists, the next health check reconnects the
+action and the held message is delivered.
+""".
+t_topic_not_found_static_topic(TCConfig) ->
+    ok = mock_topic_not_found(),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    %% Async, so the publisher does not block on the held message; a long TTL, so the
+    %% message is still held when the topic appears.
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"topic">> => <<"Topic2">>},
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"request_ttl">> => <<"60s">>
+        }
+    }),
+    ?retry(
+        200,
+        50,
+        ?assertMatch(
+            #{
+                status := ?status_disconnected,
+                error := <<"Topic \"Topic2\" not found", _/binary>>
+            },
+            emqx_bridge_v2_testlib:health_check_channel(TCConfig)
+        )
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"Topic \"Topic2\" not found", _/binary>>
+        }},
+        emqx_bridge_v2_testlib:simplify_result(emqx_bridge_v2_testlib:get_action_api(TCConfig))
+    ),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    {ok, _} = emqtt:publish(C, Topic, <<"hey">>, [{qos, 1}]),
+    %% The message is held, not dropped or failed.
+    ?retry(
+        200,
+        50,
+        ?assertMatch(
+            #{<<"matched">> := 1, <<"dropped">> := 0, <<"failed">> := 0, <<"success">> := 0},
+            get_action_metrics(TCConfig)
+        )
+    ),
+    %% The topic now exists (the broker auto-creates it): the action recovers and the held
+    %% message is delivered.
+    ok = unmock_topic_not_found(),
+    ?retry(
+        200,
+        50,
+        ?assertMatch(
+            #{status := ?status_connected},
+            emqx_bridge_v2_testlib:health_check_channel(TCConfig)
+        )
+    ),
+    ?retry(
+        200,
+        100,
+        ?assertMatch(
+            #{<<"matched">> := 1, <<"dropped">> := 0, <<"failed">> := 0, <<"success">> := 1},
+            get_action_metrics(TCConfig)
+        )
+    ),
+    ok.
+
+-doc """
+When the action topic is a template, a rendered topic that has no route cannot be checked
+ahead of time. The message is dropped with an `unrecoverable_error` that names the topic, the
+error is not a `case_clause`, and the action stays connected.
+""".
+t_topic_not_found_templated_topic(TCConfig) ->
+    ok = mock_topic_not_found(),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{<<"topic">> => <<"Missing${payload}">>}
+    }),
+    ?retry(
+        200,
+        50,
+        ?assertMatch(
+            #{status := ?status_connected},
+            emqx_bridge_v2_testlib:health_check_channel(TCConfig)
+        )
+    ),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                emqtt:publish(C, Topic, <<"T1">>, [{qos, 1}]),
+                #{?snk_kind := rocketmq_connector_query_return},
+                10_000
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        error :=
+                            {unrecoverable_error,
+                                {topic_not_found, #{
+                                    topic := <<"MissingT1">>, remark := <<_/binary>>
+                                }}}
+                    }
+                ],
+                ?of_kind(rocketmq_connector_query_return, Trace)
+            ),
+            ok
+        end
+    ),
+    ?retry(
+        200,
+        50,
+        ?assertMatch(
+            #{<<"matched">> := 1, <<"failed">> := 1, <<"success">> := 0},
+            get_action_metrics(TCConfig)
+        )
+    ),
+    ?assertMatch(
+        #{status := ?status_connected},
+        emqx_bridge_v2_testlib:health_check_channel(TCConfig)
     ),
     ok.
