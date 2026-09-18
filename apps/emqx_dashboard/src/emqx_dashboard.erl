@@ -427,22 +427,14 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
 %% audit meta here. Only the routing bindings are added - no headers, no body.
 %%
 %% `update_log_meta/1' merges into the per-request meta that minirest
-%% initialises before it calls this authorizer. Tests call `authorize/2'
-%% directly, without that meta; `badmap' then means there is no request to
-%% audit, which must not change the authorization result.
+%% initialises before it calls this authorizer. It does nothing when there is
+%% no request to audit, for example when a test calls `authorize/2' directly.
 audit_rbac_denied(Req, AuthType, Source) ->
-    _ =
-        try
-            minirest_handler:update_log_meta(#{
-                auth_type => AuthType,
-                source => Source,
-                bindings => cowboy_req:bindings(Req)
-            })
-        catch
-            error:{badmap, undefined} ->
-                ok
-        end,
-    ok.
+    minirest_handler:update_log_meta(#{
+        auth_type => AuthType,
+        source => Source,
+        bindings => cowboy_req:bindings(Req)
+    }).
 
 ensure_ssl_cert(Listeners = #{https := Https0 = #{ssl_options := SslOpts}}) ->
     SslOpt1 = maps:from_list(emqx_tls_lib:to_server_opts(tls, SslOpts)),
