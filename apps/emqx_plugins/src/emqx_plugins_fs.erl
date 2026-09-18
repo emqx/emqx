@@ -10,8 +10,19 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+%% Packages are unpacked below this hidden directory of the install directory
+%% before they are published (see `staging_root/0').
+-define(STAGING_DIR, ".emqx-plugin-staging").
+
+%% A directory which does not exist, used to resolve the paths of tar entries
+%% without depending on the state of the install directory.
+-define(PATH_PROBE_DIR, "/nonexistent-emqx-plugin-staging").
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+%% Exported for the tests: they install package content which is not on disk and
+%% look at the staging directory directly.
+-export([install_from_tar_content/3, staging_root/0]).
 -endif.
 
 %% Tarfile operations
@@ -68,7 +79,9 @@
     install_dir/0,
     tar_file_path/1,
     info_file_path/1,
-    plugin_dir/1
+    plugin_dir/1,
+    %% Called by the plugins application when it starts.
+    cleanup_stale_staging/0
 ]).
 
 %% What the plugin's install directory currently holds
@@ -252,25 +265,100 @@ read_package_file(Path) ->
 %% Plugin package extraction
 %%--------------------------------------------------------------------
 
+%% Install the package of `NameVsn' from the install directory.
+%%
+%% The package is unpacked into a staging directory and only published with a
+%% single `file:rename/2': the installation directory of a plugin only ever
+%% holds a tree which was written by one rename, every entry of the package
+%% stays below the package's own name-vsn, and a package which is refused (a
+%% wrong package root, an unsafe entry, an incomplete or an invalid package)
+%% leaves nothing behind.  No entry of one package can ever touch the directory
+%% of another plugin.
+%%
+%% NOTE: the caller has to hold the publish lock of the name-vsn
+%% (`with_publish_lock/2'): this is only one step of a sequence which has to be
+%% serialized per plugin, see `ensure_installed_from_tar/2'.
 install_from_local_tar(NameVsn, InstallValidator) ->
-    TarGz = tar_file_path(NameVsn),
-    case erl_tar:extract(TarGz, [compressed, memory]) of
-        {ok, TarContent} ->
-            case write_tar_file_content(install_dir(), TarContent) of
-                ok ->
-                    case validate_unpacked(NameVsn, InstallValidator) of
-                        ok ->
-                            ok;
-                        {error, Reason} ->
-                            ?SLOG(warning, #{
-                                msg => "failed_to_read_after_install", reason => Reason
-                            }),
-                            ok = delete_tar_file_content(install_dir(), TarContent),
-                            {error, Reason}
+    %% The name is checked before it is used to build the package path:
+    %% `tar_file_path/1' must not look for a package outside the install dir.
+    with_valid_package_name(NameVsn, fun() ->
+        case read_tar_content(NameVsn) of
+            {ok, TarContent} ->
+                do_install_from_tar_content(NameVsn, TarContent, InstallValidator);
+            {error, Reason} ->
+                {error, Reason}
+        end
+    end).
+
+%% Every path which is built from the name of a plugin (the package file, the
+%% plugin directory, its staging directories) must go through this check first:
+%% a name which is not a single path component must not be able to point any of
+%% them outside the install directory.
+with_valid_package_name(NameVsn, Fun) ->
+    case check_package_root_name(NameVsn) of
+        ok ->
+            Fun();
+        {error, Reason} = Error ->
+            ?SLOG(warning, Reason),
+            Error
+    end.
+
+%% Install from the content of a package which was already read into memory.
+%%
+%% This is the entry point of the tests, so it takes the publish lock itself: a
+%% caller of this function must get the same serialization as a caller of
+%% `ensure_installed_from_tar/2', or two installations of the same plugin could
+%% write and publish their staging trees at the same time.
+-ifdef(TEST).
+install_from_tar_content(NameVsn, TarContent, InstallValidator) ->
+    with_publish_lock(NameVsn, fun() ->
+        do_install_from_tar_content(NameVsn, TarContent, InstallValidator)
+    end).
+-endif.
+
+%% Unpack `TarContent' into a staging directory and publish it.
+%%
+%% The caller has to hold the publish lock: from the package root check to the
+%% rollback of a rejected tree, every step reads or writes the same plugin
+%% directory and the same staging directories, so it must not interleave with
+%% the attempt of another process.
+do_install_from_tar_content(NameVsn, TarContent, InstallValidator) ->
+    case check_package_entries(NameVsn, TarContent) of
+        {ok, SafeEntries} ->
+            case make_staging_dir(NameVsn) of
+                {ok, StagingDir} ->
+                    try
+                        install_staged_package(NameVsn, StagingDir, SafeEntries, InstallValidator)
+                    after
+                        %% Only this attempt's staging directory is removed,
+                        %% and never by the top level directory of an entry: a
+                        %% failed attempt leaves the install directory exactly
+                        %% as it was.
+                        ok = remove_staging_dir(StagingDir)
                     end;
                 {error, Reason} ->
                     {error, Reason}
             end;
+        {error, Reason} = Error ->
+            %% A package root which does not match the authorized name, or an
+            %% entry which escapes it, is a security event.
+            ?SLOG(warning, Reason),
+            Error
+    end.
+
+install_staged_package(NameVsn, StagingDir, SafeEntries, InstallValidator) ->
+    case write_tar_file_content(StagingDir, SafeEntries) of
+        ok ->
+            do_publish_validated_package(NameVsn, StagingDir, InstallValidator);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+read_tar_content(NameVsn) ->
+    TarGz = tar_file_path(NameVsn),
+    case erl_tar:extract(TarGz, [compressed, memory]) of
+        {ok, TarContent} ->
+            {ok, TarContent};
         {error, {_, enoent}} ->
             {error, #{
                 msg => "failed_to_extract_plugin_package",
@@ -291,6 +379,12 @@ install_from_local_tar(NameVsn, InstallValidator) ->
 %% which does not contain the files its own metadata declares would be reported
 %% as installed, and the next state check would classify it as incomplete
 %% again.
+%%
+%% NOTE: the caller's validation runs first, on the published tree, and a
+%% failure is rolled back by the caller (`validate_published_package/3').  The
+%% order matters: checking the structure first would report a package with a
+%% broken application resource file as `incomplete_plugin_package' instead of
+%% the `bad_plugin_app_file' its validator reports.
 validate_unpacked(NameVsn, InstallValidator) ->
     maybe
         ok ?= InstallValidator(),
@@ -314,6 +408,24 @@ validate_unpacked(NameVsn, InstallValidator) ->
 
 -spec ensure_installed_from_tar(name_vsn(), fun(() -> ok | {error, term()})) -> ok | {error, map()}.
 ensure_installed_from_tar(NameVsn, InstallValidator) ->
+    %% `install_state/1' and `purge_installed/1' build the plugin directory from
+    %% the name as well: a name which is not a single path component must not
+    %% reach them either (leftovers are purged before the package is read).
+    %%
+    %% What the state says is acted upon under the same per-name-vsn lock as the
+    %% publication (`with_publish_lock/2').  A concurrent attempt which has
+    %% already published its tree but has not validated it yet holds that lock,
+    %% and the tree it has temporarily put in place is not an installation: it
+    %% can still be rolled back.  Reading the state outside of the lock would
+    %% return `ok' here for such a tree, and the caller would be told that a
+    %% plugin is installed which the other attempt then removes.
+    with_valid_package_name(NameVsn, fun() ->
+        with_publish_lock(NameVsn, fun() ->
+            do_ensure_installed_from_tar(NameVsn, InstallValidator)
+        end)
+    end).
+
+do_ensure_installed_from_tar(NameVsn, InstallValidator) ->
     case install_state(NameVsn) of
         installed ->
             ok;
@@ -610,62 +722,410 @@ create_tar(NameVsn, TarGzName) ->
             {error, plugin_not_found}
     end.
 
-write_tar_file_content(BaseDir, TarContent) ->
-    %% Validate every entry up front. A single zip-slip entry must not
-    %% leave half-written legitimate entries behind on disk.
-    case unsafe_entries(BaseDir, TarContent) of
+%%--------------------------------------------------------------------
+%% Package content validation
+%%--------------------------------------------------------------------
+
+%% Every entry of the package must be below the authorized name-vsn, and the
+%% name-vsn itself must be a single path component.  Returns the entries with
+%% their paths normalized (a leading `./' and redundant `..' are resolved), so
+%% that the write phase only ever joins a plain relative path.
+%%
+%% This is a pure function, checked before anything is written: that is what
+%% stops one plugin package from writing into (or deleting) the directory of
+%% another plugin.
+check_package_entries(NameVsn, TarContent) ->
+    case check_package_root_name(NameVsn) of
+        ok ->
+            case
+                lists:foldl(
+                    fun(Entry, Acc) -> classify_entry(NameVsn, Entry, Acc) end,
+                    {ok, []},
+                    TarContent
+                )
+            of
+                {ok, Safe} -> {ok, lists:reverse(Safe)};
+                {error, _} = Error -> Error
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+classify_entry(_NameVsn, _Entry, {error, _} = Error) ->
+    Error;
+classify_entry(NameVsn, {Name, Bin}, {ok, Acc}) ->
+    case safe_entry_path(NameVsn, Name) of
+        {ok, SafeName} ->
+            {ok, [{SafeName, Bin} | Acc]};
+        {error, Reason} ->
+            {error, Reason#{name_vsn => NameVsn, entry => Name}}
+    end.
+
+%% The authorized name must be one path component, and it must not name a
+%% directory which is not a plugin's own: `filename:split/1' does not normalize,
+%% so `"."' and `".."' have to be excluded by hand, and `?STAGING_DIR' is the
+%% directory the staging attempts live in (a plugin installed under that name
+%% would be its own staging root).
+%%
+%% The name also has to be in its normalized form already: `filename:join/1'
+%% resolves a trailing or a duplicated separator, so `"foo-1.0/"' would build
+%% the paths of `"foo-1.0"' while being a different lock key and a different
+%% package file name (`"foo-1.0/.tar.gz"').  Two spellings which the file system
+%% can not tell apart must not reach the code which builds paths from the name.
+check_package_root_name(NameVsn) ->
+    Name = wrap_to_list(NameVsn),
+    case filename:split(Name) of
+        [Root] when Root =/= ".", Root =/= "..", Root =/= ?STAGING_DIR ->
+            case filename:join([Name]) of
+                Name -> ok;
+                _ -> bad_package_name(NameVsn)
+            end;
+        _ ->
+            bad_package_name(NameVsn)
+    end.
+
+bad_package_name(NameVsn) ->
+    {error, #{
+        msg => "bad_plugin_package_name",
+        name_vsn => NameVsn,
+        hint => "the package name must be a single path component"
+    }}.
+
+%% Whether a tar entry stays below the package root, and where it resolves to:
+%% a path which escapes the package is unsafe, and so is one which resolves back
+%% to the package root itself (a plain file would be written over the
+%% directory).
+%%
+%% The path is resolved against a fixed directory which does not exist, so that
+%% the decision does not depend on the state of the install directory: nothing
+%% of the package is on disk yet, and the archive is read into memory (which
+%% does not materialize directory or symlink entries), so there is no symbolic
+%% link on the way which could be followed.
+safe_entry_path(NameVsn, Name) ->
+    case filelib:safe_relative_path(Name, ?PATH_PROBE_DIR) of
+        unsafe ->
+            {error, #{msg => "unsafe_tar_entry_path"}};
         [] ->
-            lists:foreach(
-                fun({Name, Bin}) ->
-                    Filename = filename:join(BaseDir, Name),
-                    ok = filelib:ensure_dir(Filename),
-                    ok = file:write_file(Filename, Bin)
-                end,
-                TarContent
-            );
-        [_ | _] = Unsafe ->
+            {error, #{msg => "unsafe_tar_entry_path", reason => resolves_to_install_root}};
+        Safe ->
+            NameVsnBin = emqx_plugins_utils:bin(NameVsn),
+            [Root | _] = filename:split(Safe),
+            case emqx_plugins_utils:bin(Root) =:= NameVsnBin of
+                false ->
+                    {error, #{msg => "plugin_package_entry_outside_root"}};
+                true ->
+                    case emqx_plugins_utils:bin(Safe) =:= NameVsnBin of
+                        true ->
+                            {error, #{
+                                msg => "unsafe_tar_entry_path",
+                                reason => resolves_to_package_root
+                            }};
+                        false ->
+                            {ok, Safe}
+                    end
+            end
+    end.
+
+%% Write the entries of a package below BaseDir.  The entries have already been
+%% normalized and checked by `check_package_entries/2'.  Any failure is returned
+%% instead of crashing the caller with a `badmatch'; the caller removes the
+%% staging directory it wrote into.
+write_tar_file_content(BaseDir, TarContent) ->
+    lists:foldl(
+        fun
+            (_Entry, {error, _} = Error) ->
+                Error;
+            ({Name, Bin}, ok) ->
+                Filename = filename:join(BaseDir, Name),
+                case filelib:ensure_dir(Filename) of
+                    ok ->
+                        case file:write_file(Filename, Bin) of
+                            ok -> ok;
+                            {error, Reason} -> write_failed(Name, Reason)
+                        end;
+                    {error, Reason} ->
+                        write_failed(Name, Reason)
+                end
+        end,
+        ok,
+        TarContent
+    ).
+
+write_failed(Name, Reason) ->
+    {error, #{
+        msg => "failed_to_write_plugin_package",
+        entry => Name,
+        reason => Reason
+    }}.
+
+%%--------------------------------------------------------------------
+%% Staging directory
+%%--------------------------------------------------------------------
+
+%% Packages are unpacked below one hidden directory of the install directory:
+%% `file:rename/2' is only atomic on the same file system, so the staging
+%% directory can not be somewhere else such as `emqx:data_dir()'.
+staging_root() ->
+    wrap_to_list(filename:join(install_dir(), ?STAGING_DIR)).
+
+%% The staging directory of one installation attempt.  Its first level is the
+%% exact name-vsn (not a prefix of it: `foo-1.0' and `foo-1.0-extra-2.0' must not
+%% see each other), the second level makes the attempt unique, so that a
+%% directory left behind by a crashed process is never reused.
+make_staging_dir(NameVsn) ->
+    StagingDir = filename:join([staging_root(), NameVsn, unique()]),
+    %% `filelib:ensure_dir/1' creates the staging directory of the name-vsn,
+    %% `file:make_dir/1' creates the attempt directory itself: an attempt
+    %% directory which is already there (an id collision) is an error, not a
+    %% directory two installations would share.
+    Result =
+        case filelib:ensure_dir(StagingDir) of
+            ok -> file:make_dir(StagingDir);
+            {error, _} = Error -> Error
+        end,
+    case Result of
+        ok ->
+            {ok, StagingDir};
+        {error, Reason} ->
             {error, #{
-                msg => "unsafe_tar_entry_path",
-                hint => "tar entries must stay under the install dir",
-                entries => Unsafe
+                msg => "failed_to_create_plugin_staging_dir",
+                dir => StagingDir,
+                reason => Reason
             }}
     end.
 
-delete_tar_file_content(BaseDir, TarContent) ->
-    %% Defense in depth: never follow a tar entry path that escapes
-    %% BaseDir, even on the cleanup path.
-    SafeEntries = [E || {Name, _} = E <- TarContent, is_safe_entry(BaseDir, Name)],
-    lists:foreach(
-        fun({Name, _}) ->
-            Filename = filename:join(BaseDir, Name),
-            maybe
-                true ?= filelib:is_file(Filename),
-                {ok, TopDirOrFile} ?= top_dir(BaseDir, Filename),
-                ok ?= file:del_dir_r(TopDirOrFile)
-            end
-        end,
-        SafeEntries
+%% Remove this attempt's staging directory.  Cleanup is best effort: it never
+%% changes the result of the installation.
+%%
+%% Only this attempt's directory is removed: the (shared) staging directory of
+%% the name-vsn and the staging root are not touched, so a concurrent
+%% installation of the same plugin can not lose its attempt directory to this
+%% cleanup.  What is left of them is swept when the application starts.
+remove_staging_dir(StagingDir) ->
+    _ = file:del_dir_r(StagingDir),
+    ok.
+
+%% @doc Remove the staging directories left behind on this node.
+%%
+%% Called once while the plugins application starts, before anything can be
+%% installed: at that point no installation is using them, so they can be swept
+%% by name.  A running installation does not sweep staging directories, because
+%% an installation of the same plugin may be writing its own attempt at the
+%% same time.
+-spec cleanup_stale_staging() -> ok.
+cleanup_stale_staging() ->
+    case filelib:wildcard(filename:join(staging_root(), "*")) of
+        [] ->
+            ok;
+        Dirs ->
+            Count = length([ok || Dir <- Dirs, file:del_dir_r(Dir) =:= ok]),
+            _ = file:del_dir(staging_root()),
+            ?SLOG(warning, #{
+                msg => "cleaned_stale_plugin_staging",
+                dir => staging_root(),
+                count => Count
+            }),
+            ok
+    end.
+
+unique() ->
+    lists:flatten(
+        io_lib:format("~s-~b-~b", [
+            os:getpid(),
+            erlang:system_time(millisecond),
+            erlang:unique_integer([positive, monotonic])
+        ])
     ).
 
-unsafe_entries(BaseDir, TarContent) ->
-    [Name || {Name, _} <- TarContent, not is_safe_entry(BaseDir, Name)].
+%%--------------------------------------------------------------------
+%% The per-plugin install lock, and publishing a staged package
+%%--------------------------------------------------------------------
 
-is_safe_entry(BaseDir, Name) ->
-    case filelib:safe_relative_path(Name, BaseDir) of
-        unsafe -> false;
-        _ -> true
+%% Run `Fun' while holding the publish lock of the name-vsn.
+%%
+%% The install path of a plugin (`ensure_installed_from_tar/2' and everything
+%% below it) runs under one lock per name-vsn: the state check (a tree which a
+%% concurrent attempt has published but not validated yet is not an
+%% installation), and the whole sequence of an attempt which reaches publication
+%% (move the installed tree away, rename the staged tree into place, validate
+%% it, roll back or discard the replaced tree).  A rollback outside of the lock
+%% could remove a tree which a concurrent installation of the same plugin has
+%% just published, and a state check outside of it could report such a tree as
+%% an installation.
+%%
+%% NOTE: the lock only orders the callers of this install path against each
+%% other.  `purge_installed/1' and `write_tar/2' are also called directly by the
+%% uninstall and upload paths of `emqx_plugins' / `emqx_mgmt_api_plugins'
+%% without taking it, so those are not ordered against an installation of the
+%% same plugin; serializing the whole plugin lifecycle is out of scope here.
+%%
+%% NOTE: the state check runs `prepare_replacement/1' (which stops and unloads
+%% the applications of an `incomplete' installation) under this lock as well.
+%%
+%% NOTE: `global' locks on the first element of the id, so the name-vsn must be
+%% part of it; a bare `?MODULE' would serialize every plugin against every other
+%% one.  Installing is a per-node operation (a cluster installation is an RPC to
+%% each node), so the lock is taken on this node only, instead of the whole
+%% cluster lock `global:trans/2' takes by default.
+with_publish_lock(NameVsn, Fun) ->
+    case
+        global:trans(
+            %% `name_vsn()' is a string or a binary depending on where it came
+            %% from, and both name the same directory: the lock key has to be
+            %% normalized, or two callers installing the same plugin would not
+            %% see each other and one rollback could remove the other's tree.
+            {{?MODULE, publish, emqx_plugins_utils:bin(NameVsn)}, self()},
+            Fun,
+            [node()]
+        )
+    of
+        aborted ->
+            {error, #{
+                msg => "plugin_package_publish_lock_aborted",
+                name_vsn => NameVsn
+            }};
+        Result ->
+            Result
     end.
 
-top_dir(BaseDir0, DirOrFile) ->
-    BaseDir = normalize_dir(BaseDir0),
-    case filename:dirname(DirOrFile) of
-        RockBottom when RockBottom =:= "/" orelse RockBottom =:= "." ->
-            {error, {out_of_bounds, DirOrFile}};
-        BaseDir ->
-            {ok, DirOrFile};
-        Parent ->
-            top_dir(BaseDir, Parent)
+do_publish_validated_package(NameVsn, StagingDir, InstallValidator) ->
+    Target = plugin_dir(NameVsn),
+    Staged = filename:join(StagingDir, NameVsn),
+    case move_away(NameVsn, Target) of
+        {ok, Previous} ->
+            case file:rename(Staged, Target) of
+                ok ->
+                    validate_published_package(NameVsn, Previous, InstallValidator);
+                {error, Reason} ->
+                    restore_previous(NameVsn, Target, Previous),
+                    {error, #{
+                        msg => "failed_to_publish_plugin_package",
+                        name_vsn => NameVsn,
+                        reason => Reason
+                    }}
+            end;
+        {error, Reason} ->
+            {error, #{
+                msg => "failed_to_replace_plugin_package",
+                name_vsn => NameVsn,
+                reason => Reason
+            }}
     end.
+
+%% The staged tree is already published, so the caller's validation runs on it.
+%%
+%% The validator is the caller's code: whatever it does (it may raise, it talks
+%% to the config schema store), the installation which was there before must not
+%% be lost.  Removing only this attempt's staging directory would leave the tree
+%% which failed the validation in place and the previous one in a directory
+%% which the next boot sweeps.
+%%
+%% NOTE: because the tree is published before it is validated, a node which dies
+%% between the `file:rename/2' of `do_publish_validated_package/3' and the end of
+%% this function leaves a tree at the plugin's install directory which is
+%% complete but which never passed the caller's validation.  The sweep at boot
+%% (`cleanup_stale_staging/0') only removes the staging root, and `install_state/1'
+%% then classifies the tree as `installed', so the validator does not run again
+%% and the tree can be loaded.  This window is the same one the previous in-place
+%% unpack had between its last write and its validation: making a published tree
+%% authoritative across a restart needs a persisted in-progress marker which
+%% `install_state/1' consults, and that changes what the CLI and the HTTP API
+%% report for an installation which is being validated.  Out of scope here.
+validate_published_package(NameVsn, Previous, InstallValidator) ->
+    try validate_unpacked(NameVsn, InstallValidator) of
+        ok ->
+            ?SLOG(info, #{
+                msg => "plugin_package_published",
+                name_vsn => NameVsn,
+                previous => Previous
+            }),
+            discard_replaced(NameVsn, Previous);
+        {error, Reason} ->
+            %% The files of the previous installation are put back, but the side
+            %% effects of a validator which failed (a deleted config schema) are
+            %% not.
+            ?SLOG(warning, #{
+                msg => "rolled_back_plugin_install",
+                name_vsn => NameVsn,
+                reason => Reason
+            }),
+            unpublish_staged_package(NameVsn, Previous),
+            {error, Reason}
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "rolled_back_plugin_install_after_validator_crash",
+                name_vsn => NameVsn,
+                class => Class,
+                reason => Reason
+            }),
+            unpublish_staged_package(NameVsn, Previous),
+            erlang:raise(Class, Reason, Stacktrace)
+    end.
+
+%% Move the installed tree of the plugin (if any) into the staging directory.
+%%
+%% A target which is not a directory (a leftover file, a broken symlink) is
+%% moved away just the same: `file:rename/2' refuses a non-empty target
+%% directory, so the target has to be gone before the new tree is renamed into
+%% place.
+move_away(NameVsn, Target) ->
+    case file:read_link_info(Target) of
+        {error, enoent} ->
+            {ok, none};
+        {error, Reason} ->
+            {error, Reason};
+        {ok, _} ->
+            Replaced = filename:join([staging_root(), NameVsn, "replaced-" ++ unique()]),
+            case filelib:ensure_dir(Replaced) of
+                ok ->
+                    case file:rename(Target, Replaced) of
+                        ok -> {ok, {replaced, Replaced}};
+                        {error, Reason} -> {error, Reason}
+                    end;
+                {error, Reason} ->
+                    {error, Reason}
+            end
+    end.
+
+restore_previous(_NameVsn, _Target, none) ->
+    ok;
+restore_previous(NameVsn, Target, {replaced, Path}) ->
+    _ = file:del_dir_r(Target),
+    case file:rename(Path, Target) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_restore_replaced_plugin_package",
+                name_vsn => NameVsn,
+                path => Path,
+                reason => Reason
+            }),
+            ok
+    end.
+
+discard_replaced(_NameVsn, none) ->
+    ok;
+discard_replaced(NameVsn, {replaced, Path}) ->
+    case file:del_dir_r(Path) of
+        ok ->
+            ok;
+        {error, enoent} ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "failed_to_discard_replaced_plugin_package",
+                name_vsn => NameVsn,
+                path => Path,
+                reason => Reason
+            }),
+            ok
+    end.
+
+unpublish_staged_package(NameVsn, Previous) ->
+    _ = file:del_dir_r(plugin_dir(NameVsn)),
+    restore_previous(NameVsn, plugin_dir(NameVsn), Previous).
 
 app_dir(AppName, Apps) ->
     case
@@ -734,10 +1194,6 @@ incomplete_installation_reason(NameVsn) ->
         error -> metadata_not_readable
     end.
 
-normalize_dir(Dir) ->
-    %% Get rid of possible trailing slash
-    filename:join([Dir, ""]).
-
 wrap_to_list(Path) ->
     binary_to_list(iolist_to_binary(Path)).
 
@@ -752,38 +1208,122 @@ delete_file_if_exists(File) ->
     end.
 
 -ifdef(TEST).
-normalize_dir_test_() ->
+check_package_root_name_test_() ->
     [
-        ?_assertEqual("foo", normalize_dir("foo")),
-        ?_assertEqual("foo", normalize_dir("foo/")),
-        ?_assertEqual("/foo", normalize_dir("/foo")),
-        ?_assertEqual("/foo", normalize_dir("/foo/"))
-    ].
-
-top_dir_test_() ->
-    [
-        ?_assertEqual({ok, "base/foo"}, top_dir("base", filename:join(["base", "foo", "bar"]))),
-        ?_assertEqual(
-            {ok, "/base/foo"}, top_dir("/base", filename:join(["/", "base", "foo", "bar"]))
-        ),
-        ?_assertEqual(
-            {ok, "/base/foo"}, top_dir("/base/", filename:join(["/", "base", "foo", "bar"]))
-        ),
-        ?_assertMatch({error, {out_of_bounds, _}}, top_dir("/base", filename:join(["/", "base"]))),
+        ?_assertEqual(ok, check_package_root_name("attacker-1.0")),
+        ?_assertEqual(ok, check_package_root_name(<<"attacker-1.0">>)),
         ?_assertMatch(
-            {error, {out_of_bounds, _}}, top_dir("/base", filename:join(["/", "foo", "bar"]))
+            {error, #{msg := "bad_plugin_package_name"}}, check_package_root_name("../evil-1.0")
+        ),
+        ?_assertMatch(
+            {error, #{msg := "bad_plugin_package_name"}}, check_package_root_name("a/b-1.0")
+        ),
+        ?_assertMatch({error, #{msg := "bad_plugin_package_name"}}, check_package_root_name("")),
+        ?_assertMatch({error, #{msg := "bad_plugin_package_name"}}, check_package_root_name(".")),
+        ?_assertMatch({error, #{msg := "bad_plugin_package_name"}}, check_package_root_name("..")),
+        %% the staging directory is not a plugin
+        ?_assertMatch(
+            {error, #{msg := "bad_plugin_package_name"}}, check_package_root_name(?STAGING_DIR)
+        ),
+        ?_assertMatch(
+            {error, #{msg := "bad_plugin_package_name"}}, check_package_root_name(<<"a/b">>)
+        ),
+        %% a spelling which `filename:join/1' would resolve to another name
+        %% addresses the same directory with a different lock key and package
+        %% file, so it must not be accepted as a package name
+        ?_assertMatch(
+            {error, #{msg := "bad_plugin_package_name"}}, check_package_root_name("attacker-1.0/")
+        ),
+        ?_assertMatch(
+            {error, #{msg := "bad_plugin_package_name"}},
+            check_package_root_name(<<"attacker-1.0//">>)
         )
     ].
 
-is_safe_entry_test_() ->
-    %% Use cwd as a real existing directory; safe_relative_path/2 needs that.
-    {ok, Cwd} = file:get_cwd(),
+check_package_entries_test_() ->
     [
-        ?_assert(is_safe_entry(Cwd, "evil-1.0.0/release.json")),
-        ?_assert(is_safe_entry(Cwd, "deep/nested/path.txt")),
-        ?_assertNot(is_safe_entry(Cwd, "../escape")),
-        ?_assertNot(is_safe_entry(Cwd, "../../../tmp/pwned")),
-        ?_assertNot(is_safe_entry(Cwd, "evil/../../../tmp/pwned")),
-        ?_assertNot(is_safe_entry(Cwd, "/abs/path"))
+        ?_assertEqual(
+            {ok, [{"attacker-1.0/a", <<"1">>}, {"attacker-1.0/b", <<"2">>}]},
+            check_package_entries("attacker-1.0", [
+                {"attacker-1.0/a", <<"1">>}, {"./attacker-1.0/b", <<"2">>}
+            ])
+        ),
+        %% a duplicate entry is written twice, which is not an error
+        ?_assertEqual(
+            {ok, [{"attacker-1.0/a", <<"1">>}, {"attacker-1.0/a", <<"2">>}]},
+            check_package_entries("attacker-1.0", [
+                {"attacker-1.0/a", <<"1">>}, {"attacker-1.0/a", <<"2">>}
+            ])
+        ),
+        ?_assertMatch(
+            {error, #{
+                msg := "plugin_package_entry_outside_root",
+                name_vsn := "attacker-1.0",
+                entry := "victim-1.0/x"
+            }},
+            check_package_entries("attacker-1.0", [
+                {"attacker-1.0/a", <<"1">>}, {"victim-1.0/x", <<"2">>}
+            ])
+        ),
+        ?_assertMatch(
+            {error, #{msg := "bad_plugin_package_name"}},
+            check_package_entries("../evil-1.0", [])
+        )
+    ].
+
+safe_entry_path_test_() ->
+    [
+        ?_assertEqual(
+            {ok, "attacker-1.0/lib/x.beam"},
+            safe_entry_path("attacker-1.0", "attacker-1.0/lib/x.beam")
+        ),
+        %% a leading `./' and a redundant `..' are resolved, not rejected
+        ?_assertEqual({ok, "attacker-1.0/x"}, safe_entry_path("attacker-1.0", "./attacker-1.0/x")),
+        ?_assertEqual(
+            {ok, "attacker-1.0/b"}, safe_entry_path("attacker-1.0", "attacker-1.0/a/../b")
+        ),
+        %% `safe_entry_path/2' reports the bare reason; the caller adds the
+        %% name-vsn and the entry to it (`check_package_entries_test_' covers
+        %% that enriched error)
+        ?_assertMatch(
+            {error, #{msg := "plugin_package_entry_outside_root"}},
+            safe_entry_path("attacker-1.0", "victim-1.0/x")
+        ),
+        ?_assertMatch(
+            {error, #{msg := "plugin_package_entry_outside_root"}},
+            safe_entry_path("attacker-1.0", "evil-1.0.0/release.json")
+        ),
+        ?_assertMatch(
+            {error, #{msg := "plugin_package_entry_outside_root"}},
+            safe_entry_path("attacker-1.0", "attacker-1.0/../victim-1.0/x")
+        ),
+        %% unsafe paths carry no `reason', as they did before
+        ?_assertEqual(
+            {error, #{msg => "unsafe_tar_entry_path"}}, safe_entry_path("attacker-1.0", "../escape")
+        ),
+        ?_assertEqual(
+            {error, #{msg => "unsafe_tar_entry_path"}},
+            safe_entry_path("attacker-1.0", "evil/../../../tmp/pwned")
+        ),
+        ?_assertEqual(
+            {error, #{msg => "unsafe_tar_entry_path"}}, safe_entry_path("attacker-1.0", "/abs/path")
+        ),
+        ?_assertEqual(
+            {error, #{msg => "unsafe_tar_entry_path", reason => resolves_to_install_root}},
+            safe_entry_path("attacker-1.0", "dir/..")
+        ),
+        ?_assertEqual(
+            {error, #{msg => "unsafe_tar_entry_path", reason => resolves_to_install_root}},
+            safe_entry_path("attacker-1.0", ".")
+        ),
+        ?_assertEqual(
+            {error, #{msg => "unsafe_tar_entry_path", reason => resolves_to_install_root}},
+            safe_entry_path("attacker-1.0", "")
+        ),
+        %% an entry which resolves back to the package root would overwrite it
+        ?_assertEqual(
+            {error, #{msg => "unsafe_tar_entry_path", reason => resolves_to_package_root}},
+            safe_entry_path("attacker-1.0", "attacker-1.0/dir/..")
+        )
     ].
 -endif.

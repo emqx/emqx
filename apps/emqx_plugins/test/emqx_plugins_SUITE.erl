@@ -1018,8 +1018,10 @@ remove_tar_entry(NameVsn, Filename) ->
     ),
     erl_tar:create(Tar, NewTarContent, [compressed]).
 
-%% test that we even cleanup content that doesn't match the expected name-vsn
-%% pattern
+%% The entries of the package do not match the name-vsn the package is
+%% installed as: the package is refused before a single byte is written, so the
+%% (leftover) directory of the other plugin it names is not touched either.  It
+%% is not this package's business to clean up another plugin's directory.
 t_tar_vsn_content_mismatch({init, Config}) ->
     WorkDir = proplists:get_value(install_dir, Config),
     NameVsn = "bad_tar-0.2",
@@ -1033,16 +1035,21 @@ t_tar_vsn_content_mismatch({init, Config}) ->
 t_tar_vsn_content_mismatch({'end', Config}) ->
     NameVsn = ?config(name_vsn, Config),
     ok = emqx_plugins:delete_package(NameVsn),
+    _ = emqx_plugins:purge("foo-0.2"),
     ok;
 t_tar_vsn_content_mismatch(Config) ->
     TarGz = ?config(tar_gz, Config),
     NameVsn = ?config(name_vsn, Config),
     ?assert(filelib:is_regular(TarGz)),
-    %% failed to install, it also cleans up content of the bad .tar.gz file even
-    %% if in other directory
-    ?assertMatch({error, _}, emqx_plugins:ensure_installed(NameVsn)),
+    ?assertMatch(
+        {error, #{msg := "plugin_package_entry_outside_root"}},
+        emqx_plugins:ensure_installed(NameVsn)
+    ),
     ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir(NameVsn))),
-    ?assertEqual({error, enoent}, file:read_file_info(emqx_plugins_fs:plugin_dir("foo-0.2"))),
+    %% the leftover directory of the other plugin is left exactly as it was
+    FooDir = emqx_plugins_fs:plugin_dir("foo-0.2"),
+    ?assert(filelib:is_dir(FooDir)),
+    ?assertEqual([], filelib:wildcard(filename:join(FooDir, "**"))),
     %% the tar.gz file is still around
     ?assert(filelib:is_regular(TarGz)),
     ok.
@@ -1249,6 +1256,86 @@ t_elixir_plugin(Config) ->
     ),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
+    ok.
+
+%% Real packages (the template, its legacy release and the Elixir plugin) are
+%% unpacked through the staging directory.  The package root of all of them is
+%% their name-vsn (the legacy release even repeats entries), so none of them may
+%% be refused, and neither a staging directory nor a ghost plugin may be left
+%% behind.
+t_install_real_packages_are_staged({init, Config}) ->
+    ShDir = emqx_plugins_fs:install_dir(),
+    Overrides = [
+        #{
+            release_name => ?EMQX_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_PLUGIN_TEMPLATE_URL,
+            vsn => ?EMQX_PLUGIN_TEMPLATE_VSN,
+            tag => ?EMQX_PLUGIN_TEMPLATE_TAG
+        },
+        #{
+            release_name => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_RELEASE_NAME,
+            git_url => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
+            vsn => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN,
+            tag => ?EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG
+        }
+        | [
+            Legacy#{git_url => ?EMQX_PLUGIN_TEMPLATE_URL}
+         || Legacy <- ?EMQX_PLUGIN_TEMPLATES_LEGACY
+        ]
+    ],
+    Packages = [
+        get_demo_plugin_package(Opts#{shdir => ShDir})
+     || Opts <- Overrides
+    ],
+    %% `list_name_vsn/0' returns the names as strings (the install directory is
+    %% a hocon string), the package helper as binaries
+    NameVsns = [
+        bin(filename:basename(Package, ?PACKAGE_SUFFIX))
+     || #{package := Package} <- Packages
+    ],
+    [{packages, Packages}, {name_vsns, NameVsns} | Config];
+t_install_real_packages_are_staged({'end', _Config}) ->
+    ok;
+t_install_real_packages_are_staged(Config) ->
+    Packages = ?config(packages, Config),
+    NameVsns = ?config(name_vsns, Config),
+    lists:foreach(
+        fun(#{package := Package}) ->
+            NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+            ok = emqx_plugins:ensure_installed(NameVsn),
+            ?assertEqual(installed, emqx_plugins:install_state(NameVsn)),
+            %% `release.json' is the first level of the package: a package which
+            %% put it anywhere else would have been refused
+            ?assert(filelib:is_regular(emqx_plugins_fs:info_file_path(NameVsn))),
+            ?assertEqual([], staging_attempts(NameVsn)),
+            ?assert(lists:member(bin(NameVsn), NameVsns))
+        end,
+        Packages
+    ),
+    %% no `release.json' below the install dir belongs to a staged package
+    InstallDirDepth = length(filename:split(emqx_plugins_fs:install_dir())),
+    ?assertEqual(
+        [],
+        [
+            File
+         || File <- filelib:wildcard(
+                to_list(filename:join(emqx_plugins_fs:install_dir(), "**"))
+            ),
+            filename:basename(File) =:= "release.json",
+            length(filename:split(File)) =/= InstallDirDepth + 2
+        ]
+    ),
+    %% and the staging directory is never listed as a plugin
+    ?assertEqual(
+        lists:sort(NameVsns),
+        lists:sort([bin(NameVsn) || NameVsn <- emqx_plugins_fs:list_name_vsn()])
+    ),
+    lists:foreach(
+        fun(#{package := Package}) ->
+            ok = emqx_plugins:ensure_uninstalled(filename:basename(Package, ?PACKAGE_SUFFIX))
+        end,
+        Packages
+    ),
     ok.
 
 t_load_config_from_cli({init, Config}) ->
@@ -1844,6 +1931,16 @@ bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
 
+%% The installation attempts of `NameVsn' still on disk: `[]' means that the
+%% attempt cleaned up after itself.
+staging_attempts(NameVsn) ->
+    %% `filename:join/1' returns a binary as soon as one part is a binary, and
+    %% `filelib:wildcard/1' only takes a string.
+    filelib:wildcard(to_list(filename:join([emqx_plugins_fs:staging_root(), NameVsn, "*"]))).
+
+to_list(Path) when is_binary(Path) -> unicode:characters_to_list(Path);
+to_list(Path) -> Path.
+
 %%--------------------------------------------------------------------
 %% allow_installation TTL + sha256 binding
 %%--------------------------------------------------------------------
@@ -2063,6 +2160,18 @@ group_t_cluster_install(Config) ->
     ?assertEqual([], erpc:call(N1, emqx_plugins, list, [])),
     ?assertEqual([], erpc:call(N2, emqx_plugins, list, [])),
 
+    %% A directory of another plugin, to show that the installation of one
+    %% plugin never touches the directory of another one.
+    Markers = [
+        ?ON(Node, begin
+            Marker = filename:join([emqx_plugins_fs:install_dir(), "sibling-1.0", "marker.txt"]),
+            ok = filelib:ensure_dir(Marker),
+            ok = file:write_file(Marker, <<"keep me">>),
+            Marker
+        end)
+     || Node <- [N1, N2]
+    ],
+
     %% Install on both nodes via RPC (simulates --cluster)
     Results = emqx_plugins_proto_v5:install_package([N1, N2], NameVsn, TarBin),
     ?assertMatch([{ok, ok}, {ok, ok}], lists:sort(Results)),
@@ -2075,6 +2184,33 @@ group_t_cluster_install(Config) ->
     ?assertMatch(
         [#{config_status := disabled}],
         erpc:call(N2, emqx_plugins, list, [])
+    ),
+
+    %% The synchronized package went through the staging directory on both
+    %% nodes: no attempt is left behind ...
+    lists:foreach(
+        fun(Node) ->
+            ?assertEqual(
+                [],
+                ?ON(
+                    Node,
+                    filelib:wildcard(
+                        to_list(
+                            filename:join([emqx_plugins_fs:staging_root(), NameVsn, "*"])
+                        )
+                    )
+                )
+            )
+        end,
+        [N1, N2]
+    ),
+    %% ... and the directory of the other plugin is untouched
+    ?assertEqual(
+        [{ok, <<"keep me">>}, {ok, <<"keep me">>}],
+        [
+            ?ON(Node, file:read_file(Marker))
+         || {Node, Marker} <- lists:zip([N1, N2], Markers)
+        ]
     ),
 
     %% Cleanup
