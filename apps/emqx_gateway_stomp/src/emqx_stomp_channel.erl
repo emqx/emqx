@@ -58,13 +58,6 @@
     bytes = 0 :: non_neg_integer()
 }).
 
--record(trans_limit, {
-    max_transactions = ?MAX_TRANSACTIONS :: non_neg_integer(),
-    max_actions = ?MAX_TRANSACTION_ACTIONS :: non_neg_integer(),
-    max_bytes = ?MAX_TRANSACTION_BYTES :: non_neg_integer(),
-    timeout = ?TRANS_TIMEOUT :: non_neg_integer()
-}).
-
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),
@@ -87,9 +80,7 @@
     %% Transactions, keyed by transaction id
     transaction = #{} :: #{binary() => #trans{}},
     %% Total bytes retained by all in-progress transactions
-    transaction_bytes = 0 :: non_neg_integer(),
-    %% Per-channel transaction bounds
-    trans_limit :: #trans_limit{}
+    transaction_bytes = 0 :: non_neg_integer()
 }).
 
 -opaque channel() :: #channel{}.
@@ -173,18 +164,13 @@ init(
         clientinfo_override = Override,
         timers = #{},
         transaction = #{},
-        trans_limit = trans_limit(Option),
         conn_state = idle
     }.
 
-trans_limit(Option) ->
-    Opts = maps:get(transaction, Option, #{}),
-    #trans_limit{
-        max_transactions = maps:get(max_transactions, Opts, ?MAX_TRANSACTIONS),
-        max_actions = maps:get(max_actions_per_transaction, Opts, ?MAX_TRANSACTION_ACTIONS),
-        max_bytes = maps:get(max_retained_bytes, Opts, ?MAX_TRANSACTION_BYTES),
-        timeout = maps:get(timeout, Opts, ?TRANS_TIMEOUT)
-    }.
+%% Transaction bounds are read from the config where they are used instead of
+%% being copied into every channel.
+trans_limit(Key, Default) ->
+    emqx_conf:get([gateway, stomp, transaction, Key], Default).
 
 setting_peercert_infos(NoSSL, ClientInfo) when
     NoSSL =:= nossl;
@@ -628,7 +614,7 @@ handle_in(Frame = ?PACKET(?CMD_NACK, Headers), Channel) ->
 %% ^@
 handle_in(
     ?PACKET(?CMD_BEGIN, Headers),
-    Channel = #channel{transaction = Trans, trans_limit = Limit}
+    Channel = #channel{transaction = Trans}
 ) ->
     TxId = header(<<"transaction">>, Headers),
     case {TxId, maps:get(TxId, Trans, undefined)} of
@@ -636,7 +622,8 @@ handle_in(
             ErrMsg = "Transaction id is required",
             handle_out(error, {receipt_id(Headers), ErrMsg}, Channel);
         {_, undefined} ->
-            case maps:size(Trans) >= Limit#trans_limit.max_transactions of
+            MaxTransactions = trans_limit(max_transactions, ?MAX_TRANSACTIONS),
+            case maps:size(Trans) >= MaxTransactions of
                 true ->
                     ErrFrame = error_frame(receipt_id(Headers), "Too many transactions"),
                     shutdown(too_many_transactions, ErrFrame, Channel);
@@ -1181,10 +1168,10 @@ handle_timeout(
 handle_timeout(
     _TRef,
     clean_trans,
-    Channel = #channel{transaction = Trans, trans_limit = Limit}
+    Channel = #channel{transaction = Trans}
 ) ->
     Now = erlang:system_time(millisecond),
-    Timeout = Limit#trans_limit.timeout,
+    Timeout = trans_limit(timeout, ?TRANS_TIMEOUT),
     %% Keep only unexpired transactions, and recompute the retained byte total
     %% from what survives.
     {NTrans, NBytes} = maps:fold(
@@ -1336,15 +1323,17 @@ add_action(
     TxId,
     Action,
     ReceiptId,
-    Channel = #channel{transaction = Trans, trans_limit = Limit}
+    Channel = #channel{transaction = Trans}
 ) ->
     case maps:get(TxId, Trans, undefined) of
         #trans{} = Tx ->
             Bytes = action_bytes(Action),
             NBytes = Channel#channel.transaction_bytes + Bytes,
+            MaxActions = trans_limit(max_actions_per_transaction, ?MAX_TRANSACTION_ACTIONS),
+            MaxBytes = trans_limit(max_retained_bytes, ?MAX_TRANSACTION_BYTES),
             case
-                length(Tx#trans.actions) >= Limit#trans_limit.max_actions orelse
-                    NBytes > Limit#trans_limit.max_bytes
+                length(Tx#trans.actions) >= MaxActions orelse
+                    NBytes > MaxBytes
             of
                 true ->
                     ErrFrame = error_frame(ReceiptId, "Transaction limit exceeded"),
@@ -1452,8 +1441,8 @@ interval(incoming_timer, #channel{heartbeat = HrtBt}) ->
     emqx_stomp_heartbeat:interval(incoming, HrtBt);
 interval(outgoing_timer, #channel{heartbeat = HrtBt}) ->
     emqx_stomp_heartbeat:interval(outgoing, HrtBt);
-interval(clean_trans_timer, #channel{trans_limit = Limit}) ->
-    Limit#trans_limit.timeout.
+interval(clean_trans_timer, _Channel) ->
+    trans_limit(timeout, ?TRANS_TIMEOUT).
 
 %%--------------------------------------------------------------------
 %% Helper functions
