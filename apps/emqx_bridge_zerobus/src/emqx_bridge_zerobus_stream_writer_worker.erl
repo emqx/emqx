@@ -490,8 +490,6 @@ handle_ingest_record_batch_async(_Records, ReplyFnAndArgs, #{?stream := ?undefin
     {?continue, State0};
 handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
     #{
-        ?action_res_id := ActionResId,
-        ?idx := Idx,
         ?callers := Callers0,
         ?stream := Stream,
         ?seq := Seq0
@@ -510,7 +508,6 @@ handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
         {?continue, State}
     else
         {error, {exit, noproc, _} = _Reason} ->
-            set_health(ActionResId, Idx, {?status_connecting, ~"reopening stream"}),
             emqx_resource:apply_reply_fun(
                 ReplyFnAndArgs, {error, {recoverable_error, stream_closed}}
             ),
@@ -523,7 +520,6 @@ handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
             Reason == bad_stream
         ->
             ?tp("zerobus_writer_send_error", #{reason => Reason}),
-            set_health(ActionResId, Idx, {?status_connecting, ~"reopening stream"}),
             emqx_resource:apply_reply_fun(
                 ReplyFnAndArgs, {error, {recoverable_error, stream_closed}}
             ),
@@ -531,7 +527,6 @@ handle_ingest_record_batch_async(Records, ReplyFnAndArgs, State0) ->
             {?reopen, State2};
         {error, Reason} ->
             ?tp("zerobus_writer_send_error", #{reason => Reason}),
-            set_health(ActionResId, Idx, {?status_connecting, ~"reopening stream"}),
             emqx_resource:apply_reply_fun(
                 ReplyFnAndArgs, {error, {recoverable_error, {stream_closed, Reason}}}
             ),
