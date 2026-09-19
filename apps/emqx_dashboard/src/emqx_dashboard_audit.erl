@@ -87,10 +87,18 @@ log_meta(Importance, Meta, Req) ->
             emqx_utils:redact(maps:merge(Meta3, Meta1))
     end.
 
-redact_audit_failure(#{operation_id := <<"/login/verify">>, failure := _} = Meta) ->
-    Meta#{failure => <<"******">>};
+%% A `/login/verify` request body is credential material. A structured failure
+%% message can embed the rejected request value, so keep only the error code
+%% and drop the message.
+redact_audit_failure(#{operation_id := <<"/login/verify">>, failure := Failure} = Meta) ->
+    Meta#{failure => redact_scram_failure(Failure)};
 redact_audit_failure(Meta) ->
     Meta.
+
+redact_scram_failure(#{code := Code}) ->
+    #{code => Code, message => <<"******">>};
+redact_scram_failure(_Failure) ->
+    <<"******">>.
 
 duration_ms(#{req_start := ReqStart, req_end := ReqEnd}) ->
     erlang:convert_time_unit(ReqEnd - ReqStart, native, millisecond).
