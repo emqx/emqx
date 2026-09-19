@@ -529,19 +529,36 @@ t_authorizer_crash(Config) ->
     ?assertEqual(ExpectedResult, Result),
     ?assertEqual(ExpectedCalls, Calls).
 
-t_authz_backend_failure_policy_override(_) ->
+-doc """
+Checks that each `ignore_backend_failures` value decides the authorization
+backend-failure outcome in the current security profile.
+""".
+t_authz_backend_failure_setting(Config) ->
     on_exit(fun() ->
-        {ok, _} = emqx:update_config([authorization, ignore_backend_failures], false)
+        {ok, _} = emqx:update_config([authorization, ignore_backend_failures], per_security_profile)
     end),
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        {ok, _} = emqx:update_config([authorization, ignore_backend_failures], false),
-        ?assertEqual(deny, emqx_authz_utils:authz_backend_failure_policy()),
-        ?assertEqual({matched, deny}, emqx_authz_utils:backend_failure_result()),
-
-        {ok, _} = emqx:update_config([authorization, ignore_backend_failures], true),
-        ?assertEqual(ignore, emqx_authz_utils:authz_backend_failure_policy()),
-        ?assertEqual(ignore, emqx_authz_utils:backend_failure_result())
-    end).
+    ProfileDefault =
+        case ?config(security_profile, Config) of
+            legacy -> ignore;
+            hardened -> deny
+        end,
+    lists:foreach(
+        fun({Value, Policy}) ->
+            {ok, _} = emqx:update_config([authorization, ignore_backend_failures], Value),
+            Expected =
+                case Policy of
+                    ignore -> {allow, [http, redis]};
+                    deny -> {deny, [http]}
+                end,
+            ?assertEqual(
+                {Value, Policy}, {Value, emqx_authz_utils:authz_backend_failure_policy()}
+            ),
+            ?assertEqual(
+                {Value, Expected}, {Value, authorize_with_crashing_http_and_allowing_redis()}
+            )
+        end,
+        [{per_security_profile, ProfileDefault}, {true, ignore}, {false, deny}]
+    ).
 
 t_get_enabled_authzs_none_enabled(_Config) ->
     ?assertEqual([], emqx_authz:get_enabled_authzs()).
@@ -1083,7 +1100,12 @@ authorize_with_crashing_http_and_allowing_redis() ->
     end.
 
 profile_cases() ->
-    [t_authorizer_crash, t_alias_prefix, t_non_existing_attr].
+    [
+        t_authorizer_crash,
+        t_authz_backend_failure_setting,
+        t_alias_prefix,
+        t_non_existing_attr
+    ].
 
 expected_backup_code(Config) ->
     case ?config(security_profile, Config) of

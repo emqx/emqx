@@ -707,21 +707,39 @@ t_authn_backend_failure(Config) when is_list(Config) ->
 t_authn_backend_failure({'end', _Config}) ->
     cleanup_backend_failure_chain().
 
-t_authn_backend_failure_policy_override({'init', Config}) ->
+-doc """
+Checks that each `ignore_backend_failures` value decides the authentication
+backend-failure outcome in the current security profile.
+""".
+t_authn_backend_failure_setting({'init', Config}) ->
+    setup_backend_failure_chain(),
     Config;
-t_authn_backend_failure_policy_override(Config) when is_list(Config) ->
-    emqx_common_test_helpers:with_security_profile("hardened", fun() ->
-        {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], false),
-        ?assertEqual(deny, emqx_authn_utils:authn_backend_failure_policy()),
-        ?assertEqual({error, not_authorized}, emqx_authn_utils:backend_failure_result()),
-
-        {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], true),
-        ?assertEqual(ignore, emqx_authn_utils:authn_backend_failure_policy()),
-        ?assertEqual(ignore, emqx_authn_utils:backend_failure_result())
-    end);
-t_authn_backend_failure_policy_override({'end', _Config}) ->
-    {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], false),
-    emqx_common_test_helpers:clear_security_profile().
+t_authn_backend_failure_setting(Config) when is_list(Config) ->
+    ClientInfo = backend_failure_clientinfo(),
+    Ignored = {ok, #{is_superuser => true}},
+    Denied = {error, not_authorized},
+    ProfileDefault =
+        case ?config(security_profile) of
+            legacy -> ignore;
+            hardened -> deny
+        end,
+    lists:foreach(
+        fun({Value, Policy}) ->
+            {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], Value),
+            Expected =
+                case Policy of
+                    ignore -> Ignored;
+                    deny -> Denied
+                end,
+            ?assertEqual(
+                {Value, Policy}, {Value, emqx_authn_utils:authn_backend_failure_policy()}
+            ),
+            ?assertEqual({Value, Expected}, {Value, emqx_access_control:authenticate(ClientInfo)})
+        end,
+        [{per_security_profile, ProfileDefault}, {true, ignore}, {false, deny}]
+    );
+t_authn_backend_failure_setting({'end', _Config}) ->
+    cleanup_backend_failure_chain().
 
 -doc """
 Under the hardened profile, a JWT authenticator with precondition
@@ -786,7 +804,8 @@ profile_cases() ->
         t_combine_authn_and_callback,
         t_authn_not_configured_missing_chain,
         t_authn_not_configured_empty_chain,
-        t_authn_backend_failure
+        t_authn_backend_failure,
+        t_authn_backend_failure_setting
     ].
 
 assert_authn_profile_result(Config, Result) ->
@@ -865,7 +884,9 @@ cleanup_backend_failure_chain() ->
     ok = ?AUTHN:delete_chain('tcp:default'),
     ok = ?AUTHN:deregister_provider({password_based, built_in_database}),
     ok = ?AUTHN:deregister_provider({password_based, mysql}),
-    {ok, _} = emqx:update_config([authentication_settings, ignore_backend_failures], false),
+    {ok, _} = emqx:update_config(
+        [authentication_settings, ignore_backend_failures], per_security_profile
+    ),
     ok.
 
 hook(Priority) ->
