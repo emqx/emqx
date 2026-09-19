@@ -213,7 +213,7 @@ to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx, RtOpts) ->
             ListenerConfigNoTransportOpts = filter_out_transport_opts(ListenerConfig),
 
             %% Merge all non-transport configurations into a single map. It will be passed to the callback module.
-            CallbackConfig = emqx_utils_maps:merge(
+            CallbackConfig0 = emqx_utils_maps:merge(
                 [
                     GwConfig1,
                     ListenerConfigNoTransportOpts,
@@ -221,6 +221,12 @@ to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx, RtOpts) ->
                     #{ctx => Ctx, listener => {GwName, Type, Name}}
                 ]
             ),
+            %% `authentication' carries credentials and is only consumed by
+            %% `emqx_gateway_insta_sup' from the gateway configuration, never by the
+            %% connection process. Wrap it so the esockd connection supervisor does
+            %% not print it in offender reports (e.g. on failed DTLS handshakes).
+            %% Keeping the key keeps listener configuration diffing unchanged.
+            CallbackConfig = protect_authentication(CallbackConfig0),
 
             %% Some common configuration entries
             ListenerId = listener_id(GwName, Type, Name),
@@ -545,3 +551,11 @@ default_tcp_options() ->
         {nodelay, true},
         {backlog, 512}
     ].
+
+%% Wrap the authentication chain in an opaque secret so it is never rendered by
+%% term formatting. The connection process does not read it.
+protect_authentication(Conf) ->
+    case maps:find(authentication, Conf) of
+        {ok, Authn} -> Conf#{authentication => emqx_secret:wrap(Authn)};
+        error -> Conf
+    end.

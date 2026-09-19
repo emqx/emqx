@@ -107,6 +107,22 @@ t_unauthenticated_invalid_bearer(_Config) ->
     Body = emqx_utils_json:decode(list_to_binary(RawBody)),
     ?assertMatch(#{<<"openapi">> := <<"3.0.0">>}, Body).
 
+-doc "Verify an `Authorization` header that Cowboy cannot parse also produces the 401 stub.".
+t_unauthenticated_malformed_auth_header(_Config) ->
+    lists:foreach(
+        fun(Headers) ->
+            {401, RawBody} = emqx_dashboard_api_test_helpers:raw_get("/api-spec.json", Headers),
+            Body = emqx_utils_json:decode(RawBody),
+            ?assertMatch(#{<<"openapi">> := <<"3.0.0">>}, Body, #{headers => Headers})
+        end,
+        [
+            [{"Authorization", "Bearer"}],
+            [{"Authorization", "Bearer a b"}],
+            [{"Authorization", "~~~"}],
+            [{"Authorization", "Bearer a"}, {"Authorization", "Bearer b"}]
+        ]
+    ).
+
 -doc "Verify /api-spec.md returns markdown with expected content-type and body.".
 t_index_markdown(_Config) ->
     {200, Headers, Body} = do_get_raw("/api-spec.md"),

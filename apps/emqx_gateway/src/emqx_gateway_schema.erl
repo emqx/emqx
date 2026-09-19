@@ -91,11 +91,8 @@ fields(clientinfo_override) ->
     [
         {username, sc(binary(), #{desc => ?DESC(gateway_common_clientinfo_override_username)})},
         {password,
-            sc(binary(), #{
-                desc => ?DESC(gateway_common_clientinfo_override_password),
-                sensitive => true,
-                format => <<"password">>,
-                converter => fun emqx_schema:password_converter/2
+            emqx_schema_secret:mk(#{
+                desc => ?DESC(gateway_common_clientinfo_override_password)
             })},
         {clientid, sc(binary(), #{desc => ?DESC(gateway_common_clientinfo_override_clientid)})}
     ];
