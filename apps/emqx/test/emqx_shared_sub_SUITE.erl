@@ -1433,6 +1433,8 @@ setup_node(Node, Port) ->
 
     %% warm it up, also assert the peer ndoe name
     Node = emqx_rpc:call(Node, erlang, node, []),
+    %% Join before starting the apps: a join restarts the app stack,
+    %% which would take the peer's listeners down after they came up.
     ok = rpc:call(Node, mria, join, [node()]),
 
     %% Here we start the node and make it join the cluster
