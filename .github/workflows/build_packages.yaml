@@ -73,15 +73,34 @@ permissions:
   contents: read
 
 jobs:
+  # scripts/rel/build_matrix.py is the single source of truth for the platforms
+  # offered as emqx.com downloads (it also drives print-download-links.py).
+  # The linux and mac jobs below read their os/arch dimensions from these
+  # outputs via fromJSON, so the build matrix cannot drift from the
+  # download-links matrix.
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      linux_os: ${{ steps.matrix.outputs.linux_os }}
+      linux_arch: ${{ steps.matrix.outputs.linux_arch }}
+      linux_exclude: ${{ steps.matrix.outputs.linux_exclude }}
+      mac_os: ${{ steps.matrix.outputs.mac_os }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.inputs.ref }}
+    - name: compute package matrix
+      id: matrix
+      run: ./scripts/rel/build_matrix.py --github >> "$GITHUB_OUTPUT"
+
   mac:
+    needs: prepare-matrix
     strategy:
       fail-fast: false
       matrix:
         profile:
           - ${{ inputs.profile }}
-        os:
-          - macos-14
-          - macos-15
+        os: ${{ fromJSON(needs.prepare-matrix.outputs.mac_os) }}
         otp:
           - ${{ inputs.otp_vsn }}
     runs-on: ${{ matrix.os }}
@@ -109,15 +128,15 @@ jobs:
         retention-days: 7
 
   test-mac:
-    needs: mac
+    needs:
+      - prepare-matrix
+      - mac
     strategy:
       fail-fast: false
       matrix:
         profile:
           - ${{ inputs.profile }}
-        os:
-          - macos-14
-          - macos-15
+        os: ${{ fromJSON(needs.prepare-matrix.outputs.mac_os) }}
         otp:
           - ${{ inputs.otp_vsn }}
 
@@ -142,27 +161,16 @@ jobs:
         ./emqx/bin/emqx stop || cat emqx/log/erlang.log.1
 
   linux:
+    needs: prepare-matrix
     runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     strategy:
       fail-fast: false
       matrix:
         profile:
           - ${{ inputs.profile }}
-        os:
-          - ubuntu24.04
-          - ubuntu22.04
-          - ubuntu20.04
-          - debian13
-          - debian12
-          - debian11
-          - el10
-          - el9
-          - el8
-          - amzn2
-          - amzn2023
-        arch:
-          - amd64
-          - arm64
+        os: ${{ fromJSON(needs.prepare-matrix.outputs.linux_os) }}
+        arch: ${{ fromJSON(needs.prepare-matrix.outputs.linux_arch) }}
+        exclude: ${{ fromJSON(needs.prepare-matrix.outputs.linux_exclude) }}
         with_elixir:
           - 'no'
         otp:
