@@ -289,7 +289,7 @@ feedvar(Override, Packet, ConnInfo, ClientInfo) ->
     },
     maps:map(
         fun(_K, V) ->
-            Tokens = emqx_placeholder:preproc_tmpl(V),
+            Tokens = emqx_placeholder:preproc_tmpl(emqx_secret:unwrap(V)),
             emqx_placeholder:proc_tmpl(Tokens, Envs)
         end,
         Override

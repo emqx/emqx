@@ -51,7 +51,7 @@ subscribe_channel(WorkerPid, Name, IngressConfig, WorkerIdx, PoolSize) ->
     case ecpool_worker:client(WorkerPid) of
         {ok, Client} ->
             subscribe_channel_helper(Client, Name, IngressConfig, WorkerIdx, PoolSize);
-        {error, Reason} ->
+        {error, {disconnected, Reason}} ->
             error({client_not_found, Reason})
     end.
 
@@ -238,7 +238,7 @@ unsubscribe_channel(
                 SubscriptionIdToHandlerIndex,
                 TopicToHandlerIndex
             );
-        {error, Reason} ->
+        {error, {disconnected, Reason}} ->
             error({client_not_found, Reason})
     end.
 
@@ -456,11 +456,11 @@ status(Pid) ->
             Socket when Socket /= undefined ->
                 ?status_connected;
             undefined ->
-                ?status_connecting
+                {?status_connecting, connection_not_established}
         end
     catch
         exit:{noproc, _} ->
-            ?status_disconnected
+            {?status_disconnected, client_down}
     end.
 
 %%

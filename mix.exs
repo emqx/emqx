@@ -201,7 +201,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx2", override: true}
 
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
-  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.6.3", override: true}
+  def common_dep(:ecpool), do: {:ecpool, github: "emqx/ecpool", tag: "0.7.0", override: true}
   def common_dep(:replayq), do: {:replayq, github: "emqx/replayq", tag: "0.5.0", override: true}
   def common_dep(:jsx), do: {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true}
   # in conflict by emqtt and hocon
@@ -265,7 +265,7 @@ defmodule EMQXUmbrella.MixProject do
       ## without this, snabbkaffe is compiled with `-define(snk_kind, '$kind')`, which
       ## will basically make events in tests never match any predicates.
       github: "kafka4beam/snabbkaffe",
-      tag: "1.0.10",
+      tag: "1.0.11",
       override: true,
       system_env: emqx_app_system_env()
     }
@@ -283,13 +283,13 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
-    do: {:kafka_protocol, "4.3.2", override: true}
+    do: {:kafka_protocol, "4.3.7", override: true}
 
   def common_dep(:brod), do: {:brod, "4.5.5"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
-  def common_dep(:crc32cer), do: {:crc32cer, "1.1.2", override: true}
+  def common_dep(:crc32cer), do: {:crc32cer, "1.1.4", override: true}
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.9.1"}
 
   def common_dep(:erlavro),

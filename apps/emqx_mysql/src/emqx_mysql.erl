@@ -580,13 +580,13 @@ on_sql_query(InstId, SQLFunc, SQLOrKey, Params, Timeout, #{pool_name := PoolName
                 #{sql_func => SQLFunc, sql_or_key => SQLOrKey, data => Params}
             ),
             do_sql_query(SQLFunc, Conn, SQLOrKey, Params, Timeout, LogMeta);
-        {error, disconnected} ->
+        {error, {disconnected, Reason}} ->
             ?tp(
                 error,
                 "mysql_connector_do_sql_query_failed",
-                LogMeta#{reason => worker_is_disconnected}
+                LogMeta#{reason => Reason}
             ),
-            {error, {recoverable_error, disconnected}}
+            {error, {recoverable_error, Reason}}
     end.
 
 do_sql_query(SQLFunc, Conn, SQLOrKey, Params, Timeout, LogMeta) ->

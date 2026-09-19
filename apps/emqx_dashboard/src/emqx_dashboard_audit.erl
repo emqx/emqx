@@ -104,7 +104,7 @@ from(#{code := Code} = Meta, Req) when Code =:= 401 orelse Code =:= 403 ->
         {ok, #{code := 'BAD_API_KEY_OR_SECRET'}} ->
             rest_api;
         _ ->
-            case cowboy_req:parse_header(<<"authorization">>, Req) of
+            case emqx_dashboard:parse_authorization_header(Req) of
                 {basic, _, _} -> rest_api;
                 _ -> dashboard
             end

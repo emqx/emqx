@@ -268,8 +268,9 @@ handle_send_result({ok, Reply}) ->
 handle_send_result({error, Reason}) ->
     {error, classify_error(Reason)}.
 
-handle_ecpool_result({error, disconnected}) ->
-    {error, {recoverable_error, disconnected}};
+handle_ecpool_result({error, {disconnected, Reason}}) ->
+    %% from ecpool_worker:client/1
+    {error, {recoverable_error, Reason}};
 handle_ecpool_result({error, ecpool_empty}) ->
     {error, {recoverable_error, disconnected}};
 handle_ecpool_result(Result) ->
@@ -313,7 +314,7 @@ on_get_status(ResourceId, #{pool_name := PoolName} = _State) ->
             enrich_status(combine_status(Statuses), DisconnectReasons)
     catch
         exit:timeout ->
-            ?status_connecting
+            {?status_connecting, health_check_timeout}
     end.
 
 enrich_status(?status_connected, _) ->
@@ -321,13 +322,19 @@ enrich_status(?status_connected, _) ->
 enrich_status(?status_disconnected, [LastDisconnectReason | _]) ->
     %% NOTE: Picking only the first one for the sake of simplicity.
     {?status_disconnected, LastDisconnectReason};
+enrich_status({?status_disconnected, #{} = Details}, [LastDisconnectReason = #{} | _]) ->
+    %% `LastDisconnectreason` has a more friendly, massaged reason code, and `Details`
+    %% from ecpool_worker has the time since the status was observed.  We want to keep the
+    %% former format.
+    Reason = maps:merge(Details, LastDisconnectReason),
+    {?status_disconnected, Reason};
 enrich_status(Status, _) ->
     Status.
 
 get_status({_Name, Worker}) ->
     case ecpool_worker:client(Worker) of
         {ok, Client} -> status(Client);
-        {error, _} -> ?status_disconnected
+        {error, {disconnected, Reason}} -> {?status_disconnected, Reason}
     end.
 
 status(Pid) ->
@@ -336,23 +343,25 @@ status(Pid) ->
             Socket when Socket /= undefined ->
                 ?status_connected;
             undefined ->
-                ?status_disconnected
+                {?status_disconnected, connection_not_established}
         end
     catch
         exit:{noproc, _} ->
-            ?status_disconnected
+            {?status_disconnected, client_down}
     end.
 
 combine_status(Statuses) ->
     %% NOTE
-    %% Natural order of statuses: [connected, connecting, disconnected]
+    %% Natural order of statuses:
+    %% [connected, connecting, {connecting, _}, disconnected, {disconnected, _}]
     %% * `disconnected` wins over any other status
     %% * `connecting` wins over `connected`
+    %% * status with reason wins overs those without
     case lists:reverse(lists:usort(Statuses)) of
         [Status | _] ->
             Status;
         [] ->
-            ?status_disconnected
+            {?status_disconnected, ~"no_workers_alive"}
     end.
 
 %%--------------------------------------------------------------------
@@ -450,7 +459,6 @@ handle_disconnect(Reason, ResourceId, WorkerId, EventCtx) ->
     end.
 
 report_disconnect(ResourceId, WorkerId, Info) ->
-    clear_disconnect_reason(ResourceId, WorkerId),
     emqx_resource:allocate_resource(ResourceId, ?MODULE, ?DISCONNECT_REASON(WorkerId), Info).
 
 report_disconnect(ResourceId, WorkerId, Level, EventCtx, Info) ->
