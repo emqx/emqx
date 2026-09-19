@@ -1,0 +1,10 @@
+-- This schema specifies binary encoding of shard backup metadata.
+
+DSBackupInfo DEFINITIONS AUTOMATIC TAGS ::=
+BEGIN
+  ShardInfo ::= SEQUENCE {
+    vsn INTEGER,
+    committedSerial OPTION INTEGER,
+    timestamp OPTION INTEGER
+  }
+END

@@ -124,6 +124,7 @@ server state.
     drop_db_schema/1,
     update_db_schema/2,
 
+    list_dbs_for_backup/0,
     open_db/2,
     close_db/1,
     update_db_config/2,
@@ -280,6 +281,7 @@ Name of the disk log, as in `disk_log:open([{name, Name}, ...])`
 
 -type db_runtime_config() :: #{
     db_group => emqx_ds:db_group(),
+    backup_priority => integer(),
     atom() => _
 }.
 
@@ -306,6 +308,7 @@ Name of the disk log, as in `disk_log:open([{name, Name}, ...])`
     db :: emqx_ds:db(), backend :: emqx_ds:backend(), schema :: db_schema()
 }).
 -record(call_update_db_config, {db :: emqx_ds:db(), conf :: db_runtime_config()}).
+-record(call_list_dbs_for_backup, {}).
 -record(dispatch_pending, {scope :: pending_scope()}).
 
 -define(SERVER, ?MODULE).
@@ -324,7 +327,8 @@ Backends should re-register themselves on restart of DS application.
 -doc "State of an open DB used internally by the server.".
 -record(dbs, {
     rtconf :: db_runtime_config(),
-    gvars :: ets:tid()
+    gvars :: ets:tid(),
+    backup_priority :: integer()
 }).
 -type dbs() :: #dbs{}.
 
@@ -574,6 +578,13 @@ update_db_schema(DB, NewSchema = #{backend := Backend}) when is_atom(Backend) ->
 drop_db_schema(DB) ->
     gen_server:call(?SERVER, #sop_drop_db{db = DB}).
 
+-doc """
+List DBs, sorted by their backup priority.
+""".
+-spec list_dbs_for_backup() -> [emqx_ds:db()].
+list_dbs_for_backup() ->
+    gen_server:call(?SERVER, #call_list_dbs_for_backup{}, infinity).
+
 -spec open_db(emqx_ds:db(), db_runtime_config()) -> ok | {error, _}.
 open_db(DB, RuntimeConfig) ->
     gen_server:call(?SERVER, #call_open_db{db = DB, conf = RuntimeConfig}).
@@ -765,6 +776,8 @@ handle_call(#call_add_pending{scope = Scope, cmd = Command, data = Data}, _From,
     end;
 handle_call(#call_list_pending{scope = Scope}, _From, S) ->
     {reply, do_list_pending(Scope, S), S};
+handle_call(#call_list_dbs_for_backup{}, _From, S) ->
+    {reply, do_list_dbs_for_backup(), S};
 handle_call(#sop_del_pending{id = Id}, _From, S) ->
     {reply, ok, do_del_pending(Id, S)};
 handle_call(SchemaOp, _From, S0) when
@@ -843,9 +856,10 @@ do_open_db(DB, RuntimeConf, S0 = #s{dbs = DBs}) ->
         GVars = ets:new(db_gvars, [
             set, public, {read_concurrency, true}, {write_concurrency, false}
         ]),
+        {ok, BUPp} ?= get_backup_priority(RuntimeConf),
         S = S0#s{
             dbs = DBs#{
-                DB => #dbs{rtconf = RuntimeConf, gvars = GVars}
+                DB => #dbs{rtconf = RuntimeConf, gvars = GVars, backup_priority = BUPp}
             }
         },
         set_db_runtime(DB, CBM, GVars, RuntimeConf),
@@ -1093,6 +1107,29 @@ do_update_cluster(Op, S0 = #s{sch = Pstate}) ->
             modify_schema(Ops, S0)
     end.
 
+do_list_dbs_for_backup() ->
+    case get_site_schema() of
+        ?empty_schema ->
+            [];
+        #{dbs := DBSchema} ->
+            L = lists:sort(
+                maps:fold(
+                    fun(DB, _, Acc) ->
+                        maybe
+                            #{runtime := #{backup_priority := Prio}} ?= get_db_runtime(DB),
+                            true ?= is_integer(Prio),
+                            [{-Prio, DB} | Acc]
+                        else
+                            _ -> Acc
+                        end
+                    end,
+                    [],
+                    DBSchema
+                )
+            ),
+            element(2, lists:unzip(L))
+    end.
+
 notify_cluster_change(Op, DBs) ->
     %% Create a pending event from the cluster update operation for
     %% every open DB.
@@ -1223,7 +1260,8 @@ pure_mutate(#sop_delete_peer{peer = Site}, S) ->
         end
     );
 pure_mutate(
-    #sop_add_pending{id = MaybeId, p = Pending}, S0 = #{pending := Pend0, pending_ctr := NextId}
+    #sop_add_pending{id = MaybeId, p = Pending},
+    S0 = #{pending := Pend0, pending_ctr := NextId}
 ) ->
     case MaybeId of
         new ->
@@ -1454,3 +1492,14 @@ file_backup(Filename) ->
             io_lib:format("~s.BAK.~p", [Filename, os:system_time(millisecond)])
         )
     ).
+
+get_backup_priority(#{backup_priority := BUPp}) ->
+    case is_integer(BUPp) of
+        true ->
+            {ok, BUPp};
+        false ->
+            {error, {invalid_backup_priority, BUPp}}
+    end;
+get_backup_priority(#{}) ->
+    %% Do not backup:
+    {ok, false}.
