@@ -1052,7 +1052,7 @@ sign_token(Username, Password, MfaToken) ->
 
 -spec verify_token(emqx_dashboard:request(), emqx_dashboard:handler_info(), Token :: binary()) ->
     {ok, emqx_dashboard_rbac:actor_context()}
-    | {error, token_timeout | not_found | {unauthorized_role, binary()}}.
+    | {error, token_timeout | not_found | {unauthorized_role, binary(), dashboard_username()}}.
 verify_token(Req, HandlerInfo, Token) ->
     emqx_dashboard_token:verify(Req, HandlerInfo, Token).
 
