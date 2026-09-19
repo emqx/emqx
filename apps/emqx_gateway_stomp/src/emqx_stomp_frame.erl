@@ -267,20 +267,25 @@ content_len(#parser_state{headers = Headers}) ->
 
 new_frame(#parser_state{cmd = Cmd, headers = Headers, acc = Acc, limit = Limit}) ->
     ok = check_max_headers(Headers, Limit),
-    ok = check_max_body(Acc, Limit),
+    ok = check_max_body_size(byte_size(Acc), Limit),
     #stomp_frame{command = Cmd, headers = Headers, body = Acc}.
 
 %% Command and header bytes are bounded as they are accumulated so that an
 %% unterminated command/header cannot grow the parser state without limit.
 acc_header(Chunk, State = #parser_state{limit = Limit, acc = Acc}) ->
-    NAcc = concat(Chunk, Acc),
-    ok = check_max_header_size(NAcc, Limit),
-    State#parser_state{acc = NAcc}.
+    ok = check_max_header_size(acc_size(Chunk, Acc), Limit),
+    State#parser_state{acc = concat(Chunk, Acc)}.
 
 acc_body(Chunk, State = #parser_state{limit = Limit, acc = Acc}) ->
-    NAcc = concat(Chunk, Acc),
-    ok = check_max_body(NAcc, Limit),
-    State#parser_state{acc = NAcc}.
+    ok = check_max_body_size(acc_size(Chunk, Acc), Limit),
+    State#parser_state{acc = concat(Chunk, Acc)}.
+
+%% The size the accumulator would reach is computed before concatenating, so an
+%% oversized chunk is rejected without first allocating a copy of it.
+acc_size(Chunk, Acc) when is_binary(Chunk) ->
+    byte_size(Acc) + byte_size(Chunk);
+acc_size(_Ch, Acc) ->
+    byte_size(Acc) + 1.
 
 concat(Chunk, Acc) when is_binary(Chunk) ->
     <<Acc/binary, Chunk/binary>>;
@@ -301,10 +306,7 @@ check_max_headers(Headers, Limit) ->
     ok = check_max_header_num(Headers, Limit),
     lists:foreach(
         fun({Name, Val}) ->
-            check_max_header_size(
-                <<Name/binary, Val/binary>>,
-                Limit
-            )
+            check_max_header_size(byte_size(Name) + byte_size(Val), Limit)
         end,
         Headers
     ).
@@ -323,8 +325,7 @@ check_max_header_num(Headers, #frame_limit{max_header_num = MaxNum}) ->
             ok
     end.
 
-check_max_header_size(Acc, #frame_limit{max_header_length = MaxLen}) ->
-    Len = byte_size(Acc),
+check_max_header_size(Len, #frame_limit{max_header_length = MaxLen}) ->
     case Len > MaxLen of
         true ->
             error(
@@ -336,9 +337,6 @@ check_max_header_size(Acc, #frame_limit{max_header_length = MaxLen}) ->
         false ->
             ok
     end.
-
-check_max_body(Acc, Limit) ->
-    check_max_body_size(byte_size(Acc), Limit).
 
 check_max_body_size(Len, #frame_limit{max_body_length = MaxLen}) ->
     case Len > MaxLen of
