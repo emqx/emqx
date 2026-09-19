@@ -217,6 +217,20 @@ redact_dashboard_secret_fields_test() ->
         })
     ).
 
+redact_nats_authentication_material_test() ->
+    ?assertEqual(
+        #{
+            <<"credentials_file">> => <<"******">>,
+            <<"nkey_seed">> => <<"******">>,
+            <<"password">> => <<"******">>
+        },
+        redact(#{
+            <<"credentials_file">> => <<"SECRET_CREDS">>,
+            <<"nkey_seed">> => <<"SECRET_SEED">>,
+            <<"password">> => <<"SECRET_PASSWORD">>
+        })
+    ).
+
 redact_sso_mfa_secret_fields_test() ->
     ?assertEqual(
         #{
