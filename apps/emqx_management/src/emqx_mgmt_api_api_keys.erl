@@ -58,7 +58,7 @@ schema("/api_key") ->
             description => ?DESC(create_new_api_key),
             tags => ?TAGS,
             security => [#{'bearerAuth' => []}],
-            'requestBody' => delete([created_at, api_key, api_secret], fields(app)),
+            'requestBody' => delete([created_at, api_key, api_secret], fields(app_create)),
             responses => #{
                 200 => hoconsc:ref(app_response),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST']),
@@ -145,8 +145,13 @@ fields(app) ->
                 #{
                     desc => ?DESC("expired_at_desc"),
                     example => <<"2021-12-05T02:01:34.186Z">>,
-                    required => false,
-                    default => infinity
+                    %% No `default' on purpose, matching `role' below: a schema default is
+                    %% filled into the request body before it reaches the handler, which
+                    %% would make an omitted `expired_at' indistinguishable from an
+                    %% explicit one and let a partial update silently rewrite the key's
+                    %% expiry. A key created without it still never expires; the create
+                    %% path's default is declared by `fields(app_create)'.
+                    required => false
                 }
             )},
         {created_at,
@@ -176,6 +181,20 @@ fields(app) ->
                 }
             )}
     ] ++ app_extend_fields();
+%% The `POST' request body documents the values the create path applies to a field the
+%% caller left out, so `expired_at' and `role' keep their `default' here.
+%%
+%% It must not be shared with the update path: a declared `default' is filled into the
+%% request body *before* the handler sees it, so on an update an omitted field would
+%% overwrite the stored value with the default. That is exactly what used to escalate a
+%% `viewer' key to `administrator' and made an expiring key immortal. `PUT' therefore
+%% uses `fields(app)', which declares no defaults.
+fields(app_create) ->
+    Defaults = create_defaults(),
+    [
+        {Field, maybe_add_default(Schema, maps:find(Field, Defaults))}
+     || {Field, Schema} <- fields(app)
+    ];
 %% Response shape: `scopes' MAY be the binary sentinel <<"unset">> in addition
 %% to the array-of-binaries form, surfaced when the record holds no explicit
 %% `scopes' field (legacy record or unset-equivalent write).
@@ -291,6 +310,16 @@ fields(scopes_response) ->
             )}
     ].
 
+%% Values the create path applies to a field the caller left out: a key created
+%% without `expired_at' never expires, and one created without `role' gets the
+%% default role. Neither is declared on `fields(app)' because that list is also the
+%% `PUT' request body, where a declared default would overwrite the stored value.
+create_defaults() ->
+    #{expired_at => infinity, role => ?ROLE_API_DEFAULT}.
+
+maybe_add_default(Schema, {ok, Default}) -> Schema#{default => Default};
+maybe_add_default(Schema, error) -> Schema.
+
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
 
 validate_name(Name) ->
@@ -324,7 +353,7 @@ api_key(post, #{body := App} = Req) ->
     %% with 400. That is the framework-wide behaviour of list-form request
     %% bodies and is deliberately kept here.
     #{<<"name">> := Name} = App,
-    ExpiredAt = ensure_expired_at(App),
+    ExpiredAt = new_expired_at(App),
     Desc = unicode:characters_to_binary(maps:get(<<"desc">>, App, <<>>), unicode),
     Enable = maps:get(<<"enable">>, App, true),
     Role0 = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
@@ -441,10 +470,16 @@ api_key_by_name(delete, #{bindings := #{name := Name}} = Req) ->
     end;
 api_key_by_name(put, #{bindings := #{name := Name}, body := Body} = Req) ->
     CallerNs = emqx_dashboard:get_namespace(Req),
-    Role0 = maps:get(<<"role">>, Body, ?ROLE_API_DEFAULT),
     Namespace = maps:get(<<"namespace">>, Body, undefined),
     case read_in_namespace(CallerNs, Name) of
-        {ok, _App} ->
+        {ok, Stored} ->
+            %% `role' deliberately has no schema default: the request body is filled with
+            %% schema defaults before it reaches this handler, which would make "omitted"
+            %% indistinguishable from an explicit value and silently escalate the key.
+            %% An omitted `role' means "keep the stored role", so the effective role is
+            %% read off the stored record — the scope and namespace validation below need
+            %% the key's real role rather than `undefined'.
+            Role0 = maps:get(<<"role">>, Body, stored_role(Stored)),
             case resolve_effective_role(Role0, Namespace) of
                 {ok, Role} ->
                     %% A move into another namespace is rejected with 400 by
@@ -461,7 +496,7 @@ api_key_by_name(put, #{bindings := #{name := Name}, body := Body} = Req) ->
 
 update_api_key(Name, Role, Body) ->
     Enable = maps:get(<<"enable">>, Body, undefined),
-    ExpiredAt = ensure_expired_at(Body),
+    ExpiredAt = update_expired_at(Body),
     Desc = maps:get(<<"desc">>, Body, undefined),
     RawScopes = maps:get(<<"scopes">>, Body, undefined),
     Intent = emqx_mgmt_auth:write_scope_intent(Role, RawScopes),
@@ -560,8 +595,28 @@ persisted_scopes(Name) ->
         _ -> undefined
     end.
 
-ensure_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
-ensure_expired_at(_) -> infinity.
+%% The create path has no previous value to keep, so a key created without `expired_at'
+%% simply never expires.
+new_expired_at(#{<<"expired_at">> := ExpiredAt}) when is_integer(ExpiredAt) -> ExpiredAt;
+new_expired_at(#{<<"expired_at">> := infinity}) -> infinity;
+new_expired_at(_) -> infinity.
+
+%% An update that does not mention `expired_at' must not extend the lifetime of the
+%% key, so an omitted field stays `undefined' and keeps the stored value, just like
+%% `desc', `enable' and `role'. `infinity' is an explicit request to clear the expiry
+%% and must therefore be passed through rather than treated as absent.
+update_expired_at(#{<<"expired_at">> := ExpiredAt}) when
+    is_integer(ExpiredAt); ExpiredAt =:= infinity
+->
+    ExpiredAt;
+update_expired_at(_) ->
+    undefined.
+
+%% The role string that denotes the stored role, used when a `PUT' does not carry one.
+%% A namespaced key keeps its `ns:<namespace>::<role>' form so that an explicit
+%% `namespace' field can still be compared against it.
+stored_role(#{role := Role, namespace := Namespace}) ->
+    emqx_dashboard_rbac:serialize_role(#{?role => Role, ?namespace => Namespace}).
 
 %% Resolve the effective role string from the request `role' field and the
 %% optional top-level `namespace' field.
@@ -721,7 +776,11 @@ app_extend_fields() ->
         {role,
             hoconsc:mk(binary(), #{
                 desc => ?DESC(role),
-                default => ?ROLE_API_DEFAULT,
+                %% No `default' on purpose: a declared default is filled into the request
+                %% body before the handler sees it, so an omitted `role' on `PUT' would
+                %% silently reassign (and potentially escalate) the key's role. The
+                %% create path's default is supplied by `fields(app_create)'.
+                required => false,
                 example => ?ROLE_API_DEFAULT,
                 validator => fun(Role) ->
                     maybe
