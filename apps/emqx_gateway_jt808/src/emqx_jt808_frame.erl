@@ -31,6 +31,12 @@
 -define(NO_FRAGMENT, 0).
 -define(HAS_FRAGMENT, 1).
 
+%% Mirrors the `frame.max_length` schema default.
+-define(DEFAULT_MAX_LENGTH, 8192).
+
+%% Cap the amount of discarded data included in a log report.
+-define(MAX_LOGGED_DISCARDED_BYTES, 256).
+
 -type frame() :: map().
 
 -type phase() :: searching_head_hex7e | {escaping_hex7d, binary()}.
@@ -38,7 +44,8 @@
 -type parser_state() :: #{
     data => binary(),
     phase => phase(),
-    opts => map()
+    opts => map(),
+    max_length => non_neg_integer()
 }.
 
 -export_type([frame/0]).
@@ -49,7 +56,12 @@
 
 -spec initial_parse_state(map()) -> parser_state().
 initial_parse_state(Opts) ->
-    #{data => <<>>, phase => searching_head_hex7e, opts => Opts}.
+    #{
+        data => <<>>,
+        phase => searching_head_hex7e,
+        opts => Opts,
+        max_length => maps:get(max_length, Opts, ?DEFAULT_MAX_LENGTH)
+    }.
 
 -spec serialize_opts() -> emqx_gateway_frame:serialize_options().
 serialize_opts() ->
@@ -100,77 +112,93 @@ escape_head_hex7e(<<16#7e, Rest/binary>>, State = #{phase := searching_head_hex7
     escape_frame(Rest, State);
 escape_head_hex7e(Packet, State = #{phase := searching_head_hex7e}) ->
     %% First byte is not 0x7e, find and discard bytes until 0x7e or end of data
-    case find_head_hex7e(Packet, <<>>) of
+    case find_head_hex7e(Packet) of
         {found, Discarded, Rest} ->
-            %% Log discarded bytes as warning
-            ?SLOG(warning, #{
-                msg => discarded_invalid_data,
-                reason => missing_frame_header,
-                discarded_bytes => byte_size(Discarded),
-                discarded_data => Discarded
-            }),
+            log_discarded_data(Discarded),
             escape_frame(Rest, State);
         {not_found, Discarded} ->
             %% No 0x7e found, log and wait for more data
-            ?SLOG(warning, #{
-                msg => discarded_invalid_data,
-                reason => missing_frame_header,
-                discarded_bytes => byte_size(Discarded),
-                discarded_data => Discarded
-            }),
+            log_discarded_data(Discarded),
             {more, State}
     end;
 escape_head_hex7e(<<16#02, Rest/binary>>, State = #{data := Acc, phase := escaping_hex7d}) ->
     %% corner case: 0x7d has been received in the end of last frame segment
-    escape_frame(Rest, State#{data => <<Acc/binary, 16#7e>>});
+    escape_frame(Rest, State#{data => append_byte(16#7e, Acc, max_length(State))});
 escape_head_hex7e(<<16#01, Rest/binary>>, State = #{data := Acc, phase := escaping_hex7d}) ->
     %% corner case: 0x7d has been received in the end of last frame segment
-    escape_frame(Rest, State#{data => <<Acc/binary, 16#7d>>});
+    escape_frame(Rest, State#{data => append_byte(16#7d, Acc, max_length(State))});
 escape_head_hex7e(Rest, State = #{data := _Acc, phase := escaping_hex7d}) ->
     %% continue parsing to escape 0x7d
     escape_frame(Rest, State).
 
-%% @doc Find the first 0x7E byte in the packet, collecting discarded bytes
-find_head_hex7e(<<>>, Discarded) ->
-    {not_found, Discarded};
-find_head_hex7e(<<16#7e, Rest/binary>>, Discarded) ->
-    {found, Discarded, Rest};
-find_head_hex7e(<<Byte:8, Rest/binary>>, Discarded) ->
-    find_head_hex7e(Rest, <<Discarded/binary, Byte>>).
+%% @doc Find the first 0x7E byte in the packet, returning the skipped prefix
+find_head_hex7e(Packet) ->
+    case binary:match(Packet, <<16#7e>>) of
+        {Pos, 1} ->
+            {found, binary:part(Packet, 0, Pos),
+                binary:part(Packet, Pos + 1, byte_size(Packet) - Pos - 1)};
+        nomatch ->
+            {not_found, Packet}
+    end.
+
+log_discarded_data(Discarded) ->
+    ?SLOG(warning, #{
+        msg => discarded_invalid_data,
+        reason => missing_frame_header,
+        discarded_bytes => byte_size(Discarded),
+        discarded_data => truncate_discarded_data(Discarded)
+    }).
+
+truncate_discarded_data(Bin) when byte_size(Bin) =< ?MAX_LOGGED_DISCARDED_BYTES ->
+    Bin;
+truncate_discarded_data(Bin) ->
+    <<Prefix:?MAX_LOGGED_DISCARDED_BYTES/binary, _/binary>> = Bin,
+    <<Prefix/binary, "...">>.
+
+max_length(State) ->
+    maps:get(max_length, State, ?DEFAULT_MAX_LENGTH).
 
 escape_frame(Rest, State = #{data := Acc}) ->
     Opts = maps:get(opts, State, #{}),
-    case do_escape_frame(Rest, Acc) of
+    MaxLength = max_length(State),
+    case do_escape_frame(Rest, Acc, MaxLength) of
         {ok, Msg, NRest} ->
             {ok, parse_message(Msg, Opts), NRest, State#{
                 data => <<>>, phase => searching_head_hex7e
             }};
         {more_data_follow, NRest} ->
-            {more, #{data => NRest, phase => escaping_hex7d}}
+            {more, State#{data => NRest, phase => escaping_hex7d}}
     end.
 
-do_escape_frame(<<16#7d, 16#02, Rest/binary>>, Acc) ->
-    do_escape_frame(Rest, <<Acc/binary, 16#7e>>);
-do_escape_frame(<<16#7d, 16#01, Rest/binary>>, Acc) ->
-    do_escape_frame(Rest, <<Acc/binary, 16#7d>>);
-do_escape_frame(<<16#7d, _Other:8, _Rest/binary>>, _Acc) ->
+do_escape_frame(<<16#7d, 16#02, Rest/binary>>, Acc, MaxLength) ->
+    do_escape_frame(Rest, append_byte(16#7e, Acc, MaxLength), MaxLength);
+do_escape_frame(<<16#7d, 16#01, Rest/binary>>, Acc, MaxLength) ->
+    do_escape_frame(Rest, append_byte(16#7d, Acc, MaxLength), MaxLength);
+do_escape_frame(<<16#7d, _Other:8, _Rest/binary>>, _Acc, _MaxLength) ->
     %% only 0x02 and 0x01 is allowed to follow 0x7d
     error(invalid_message);
-do_escape_frame(<<16#7d>>, Acc) ->
+do_escape_frame(<<16#7d>>, Acc, _MaxLength) ->
     %% corner case: last byte of the frame segment is 0x7d,
     %% 0x01 or 0x02 is expected in next frame segment
     {more_data_follow, Acc};
-do_escape_frame(<<16#7e, _Rest/binary>>, <<>>) ->
+do_escape_frame(<<16#7e, _Rest/binary>>, <<>>, _MaxLength) ->
     %% empty message
     error(invalid_message);
-do_escape_frame(<<16#7e, Rest/binary>>, Acc) ->
+do_escape_frame(<<16#7e, Rest/binary>>, Acc, _MaxLength) ->
     %% end of a normal message
     Msg = check(Acc),
     {ok, Msg, Rest};
-do_escape_frame(<<Byte:8, Rest/binary>>, Acc) ->
-    do_escape_frame(Rest, <<Acc/binary, Byte:8>>);
-do_escape_frame(<<>>, Acc) ->
+do_escape_frame(<<Byte:8, Rest/binary>>, Acc, MaxLength) ->
+    do_escape_frame(Rest, append_byte(Byte, Acc, MaxLength), MaxLength);
+do_escape_frame(<<>>, Acc, _MaxLength) ->
     {more_data_follow, Acc}.
+
+append_byte(Byte, Acc, MaxLength) when byte_size(Acc) < MaxLength ->
+    <<Acc/binary, Byte:8>>;
+append_byte(_Byte, Acc, MaxLength) ->
+    %% Refuse to keep buffering an unterminated frame: the configured
+    %% `frame.max_length` is an admission bound, not a post-parse check.
+    error({frame_too_large, #{max_length => MaxLength, received_size => byte_size(Acc)}}).
 
 parse_message(Binary, Opts) ->
     case parse_message_header(Binary) of

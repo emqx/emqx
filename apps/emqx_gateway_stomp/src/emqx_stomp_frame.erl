@@ -157,11 +157,16 @@ parse(command, <<?CR, ?LF, Rest/binary>>, State) ->
 parse(command, <<?CR, _Rest/binary>>, _State) ->
     error(linefeed_expected);
 parse(command, <<Ch:8, Rest/binary>>, State) ->
-    parse(command, Rest, acc(Ch, State));
+    parse(command, Rest, acc_header(Ch, State));
 parse(command, <<>>, State) ->
     {more, #{phase => command, state => State}};
-parse(headers, <<?LF, Rest/binary>>, State) ->
-    parse(body, Rest, State, content_len(State#parser_state{acc = <<>>}));
+parse(headers, <<?LF, Rest/binary>>, State0) ->
+    State = State0#parser_state{acc = <<>>},
+    Len = content_len(State),
+    %% Reject an oversized declared body before buffering it, otherwise a client
+    %% could make the parser wait for an arbitrarily large payload.
+    ok = check_declared_body_length(Len, State#parser_state.limit),
+    parse(body, Rest, State, Len);
 parse(headers, <<?CR>>, State) ->
     {more, #{phase => headers, pre => <<?CR>>, state => State}};
 parse(headers, <<?CR, ?LF, Rest/binary>>, State) ->
@@ -181,13 +186,13 @@ parse(hdname, <<?COLON, Rest/binary>>, State = #parser_state{acc = Acc}) ->
 parse(hdname, <<?BSL, Rest/binary>>, State = #parser_state{cmd = Cmd}) when
     ?NO_HEADER_ESCAPE(Cmd)
 ->
-    parse(hdname, Rest, acc(?BSL, State));
+    parse(hdname, Rest, acc_header(?BSL, State));
 parse(hdname, <<?BSL>>, State) ->
     {more, #{phase => hdname, pre => <<?BSL>>, state => State}};
 parse(hdname, <<?BSL, Ch:8, Rest/binary>>, State) ->
-    parse(hdname, Rest, acc(unescape(Ch), State));
+    parse(hdname, Rest, acc_header(unescape(Ch), State));
 parse(hdname, <<Ch:8, Rest/binary>>, State) ->
-    parse(hdname, Rest, acc(Ch, State));
+    parse(hdname, Rest, acc_header(Ch, State));
 parse(hdname, <<>>, State) ->
     {more, #{phase => hdname, state => State}};
 parse(
@@ -195,8 +200,12 @@ parse(
     <<?LF, Rest/binary>>,
     State = #parser_state{headers = Headers, hdname = Name, acc = Acc}
 ) ->
+    NHeaders = add_header(Name, Acc, Headers),
+    %% Bound the number of headers while buffering, not only once the frame is
+    %% complete, so a flood of headers cannot grow the accumulator.
+    ok = check_max_header_num(NHeaders, State#parser_state.limit),
     NState = State#parser_state{
-        headers = add_header(Name, Acc, Headers),
+        headers = NHeaders,
         hdname = undefined,
         acc = <<>>
     },
@@ -210,13 +219,13 @@ parse(hdvalue, <<?CR, _Rest/binary>>, _State) ->
 parse(hdvalue, <<?BSL, Rest/binary>>, State = #parser_state{cmd = Cmd}) when
     ?NO_HEADER_ESCAPE(Cmd)
 ->
-    parse(hdvalue, Rest, acc(?BSL, State));
+    parse(hdvalue, Rest, acc_header(?BSL, State));
 parse(hdvalue, <<?BSL>>, State) ->
     {more, #{phase => hdvalue, pre => <<?BSL>>, state => State}};
 parse(hdvalue, <<?BSL, Ch:8, Rest/binary>>, State) ->
-    parse(hdvalue, Rest, acc(unescape(Ch), State));
+    parse(hdvalue, Rest, acc_header(unescape(Ch), State));
 parse(hdvalue, <<Ch:8, Rest/binary>>, State) ->
-    parse(hdvalue, Rest, acc(Ch, State));
+    parse(hdvalue, Rest, acc_header(Ch, State));
 parse(hdvalue, <<>>, State) ->
     {more, #{phase => hdvalue, state => State}}.
 
@@ -226,22 +235,22 @@ parse(body, <<>>, State, Length) ->
 parse(body, Bin, State, none) ->
     case binary:split(Bin, <<?NULL>>) of
         [Chunk, Rest] ->
-            {ok, new_frame(acc(Chunk, State)), Rest, new_state(State)};
+            {ok, new_frame(acc_body(Chunk, State)), Rest, new_state(State)};
         [Chunk] ->
             {more, #{
                 phase => body,
                 length => none,
-                state => acc(Chunk, State)
+                state => acc_body(Chunk, State)
             }}
     end;
 parse(body, Bin, State, Len) when byte_size(Bin) >= (Len + 1) ->
     <<Chunk:Len/binary, ?NULL, Rest/binary>> = Bin,
-    {ok, new_frame(acc(Chunk, State)), Rest, new_state(State)};
+    {ok, new_frame(acc_body(Chunk, State)), Rest, new_state(State)};
 parse(body, Bin, State, Len) ->
     {more, #{
         phase => body,
         length => Len - byte_size(Bin),
-        state => acc(Bin, State)
+        state => acc_body(Bin, State)
     }}.
 
 add_header(Name, Value, Headers) ->
@@ -258,13 +267,30 @@ content_len(#parser_state{headers = Headers}) ->
 
 new_frame(#parser_state{cmd = Cmd, headers = Headers, acc = Acc, limit = Limit}) ->
     ok = check_max_headers(Headers, Limit),
-    ok = check_max_body(Acc, Limit),
+    ok = check_max_body_size(byte_size(Acc), Limit),
     #stomp_frame{command = Cmd, headers = Headers, body = Acc}.
 
-acc(Chunk, State = #parser_state{acc = Acc}) when is_binary(Chunk) ->
-    State#parser_state{acc = <<Acc/binary, Chunk/binary>>};
-acc(Ch, State = #parser_state{acc = Acc}) ->
-    State#parser_state{acc = <<Acc/binary, Ch:8>>}.
+%% Command and header bytes are bounded as they are accumulated so that an
+%% unterminated command/header cannot grow the parser state without limit.
+acc_header(Chunk, State = #parser_state{limit = Limit, acc = Acc}) ->
+    ok = check_max_header_size(acc_size(Chunk, Acc), Limit),
+    State#parser_state{acc = concat(Chunk, Acc)}.
+
+acc_body(Chunk, State = #parser_state{limit = Limit, acc = Acc}) ->
+    ok = check_max_body_size(acc_size(Chunk, Acc), Limit),
+    State#parser_state{acc = concat(Chunk, Acc)}.
+
+%% The size the accumulator would reach is computed before concatenating, so an
+%% oversized chunk is rejected without first allocating a copy of it.
+acc_size(Chunk, Acc) when is_binary(Chunk) ->
+    byte_size(Acc) + byte_size(Chunk);
+acc_size(_Ch, Acc) ->
+    byte_size(Acc) + 1.
+
+concat(Chunk, Acc) when is_binary(Chunk) ->
+    <<Acc/binary, Chunk/binary>>;
+concat(Ch, Acc) ->
+    <<Acc/binary, Ch:8>>.
 
 %% \r (octet 92 and 114) translates to carriage return (octet 13)
 %% \n (octet 92 and 110) translates to line feed (octet 10)
@@ -276,45 +302,43 @@ unescape($c) -> ?COLON;
 unescape($\\) -> ?BSL;
 unescape(Ch) -> error({cannot_unescape, <<?BSL, Ch>>}).
 
-check_max_headers(
-    Headers,
-    #frame_limit{
-        max_header_num = MaxNum,
-        max_header_length = MaxLen
-    }
-) ->
+check_max_headers(Headers, Limit) ->
+    ok = check_max_header_num(Headers, Limit),
+    lists:foreach(
+        fun({Name, Val}) ->
+            check_max_header_size(byte_size(Name) + byte_size(Val), Limit)
+        end,
+        Headers
+    ).
+
+check_max_header_num(Headers, #frame_limit{max_header_num = MaxNum}) ->
     HeadersLen = length(Headers),
     case HeadersLen > MaxNum of
         true ->
             error(
                 {too_many_headers, #{
                     max_header_num => MaxNum,
-                    received_headers_num => length(Headers)
+                    received_headers_num => HeadersLen
                 }}
             );
         false ->
             ok
-    end,
-    lists:foreach(
-        fun({Name, Val}) ->
-            Len = byte_size(Name) + byte_size(Val),
-            case Len > MaxLen of
-                true ->
-                    error(
-                        {too_long_header, #{
-                            max_header_length => MaxLen,
-                            found_header_length => Len
-                        }}
-                    );
-                false ->
-                    ok
-            end
-        end,
-        Headers
-    ).
+    end.
 
-check_max_body(Acc, #frame_limit{max_body_length = MaxLen}) ->
-    Len = byte_size(Acc),
+check_max_header_size(Len, #frame_limit{max_header_length = MaxLen}) ->
+    case Len > MaxLen of
+        true ->
+            error(
+                {too_long_header, #{
+                    max_header_length => MaxLen,
+                    found_header_length => Len
+                }}
+            );
+        false ->
+            ok
+    end.
+
+check_max_body_size(Len, #frame_limit{max_body_length = MaxLen}) ->
     case Len > MaxLen of
         true ->
             error(
@@ -326,6 +350,11 @@ check_max_body(Acc, #frame_limit{max_body_length = MaxLen}) ->
         false ->
             ok
     end.
+
+check_declared_body_length(none, _Limit) ->
+    ok;
+check_declared_body_length(Len, Limit) ->
+    check_max_body_size(Len, Limit).
 
 %%--------------------------------------------------------------------
 %% Serialize funcs
