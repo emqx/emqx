@@ -25,3 +25,9 @@ The default local test certificates currently use these identities:
 
 The server certificate includes SAN entries for `localhost`, `127.0.0.1`, and `::1`
 for better compatibility with local TLS clients.
+
+`etc/ssl_dist.conf` (used when `cluster.proto_dist` is `inet_tls` or `inet6_tls`)
+uses them the same way: `cert.pem` is the certificate a node presents when it acts
+as a server and `client-cert.pem` when it acts as a client, both trusted through
+`cacert.pem`. Replace all of them together with certificates from one CA, or the
+nodes will not be able to verify each other any more.

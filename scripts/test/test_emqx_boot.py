@@ -42,12 +42,13 @@ def emqx_rel_path(profile):
     return rel_path
 
 
-def run_emqx_console(emqx_bin_path, env_overrides, timeout=10):
+def run_emqx_console(emqx_bin_path, env_overrides, timeout=10, stdin=None):
     env = os.environ.copy()
     env.update(env_overrides)
     return subprocess.run(
         [str(emqx_bin_path), "console"],
         env=env,
+        stdin=stdin,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -362,6 +363,211 @@ def test_env_file_invalid_security_profile_fails_fast(emqx_bin_path, env_file):
     output = result.stdout + result.stderr
     assert result.returncode != 0
     assert "Invalid security profile: bogus" in output
+
+
+@pytest.fixture
+def dist_tls_optfile(tmp_path):
+    """An inet_tls option file that still disables peer verification."""
+    path = tmp_path / "ssl_dist.conf"
+    path.write_text(
+        "[{server, [{verify, verify_none}]},\n"
+        " {client, [{verify, verify_none}]}].\n"
+    )
+    return path
+
+
+def test_hardened_profile_refuses_unverified_dist_tls(
+    emqx_bin_path, env_file, dist_tls_optfile
+):
+    """A hardened node must not start when the option file spells out
+    '{verify, verify_none}': the shell gate refuses it before the VM starts."""
+    env_file.write_text("EMQX_SECURITY_PROFILE=hardened\n")
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_NODE__COOKIE": "a-cookie-that-is-not-the-default",
+            "EMQX_CLUSTER__PROTO_DIST": "inet_tls",
+            "EMQX_SSL_DIST_OPTFILE": str(dist_tls_optfile),
+        },
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "does not verify peer certificates" in output
+    assert "EMQX_SSL_DIST_OPTFILE" in output
+    assert "Cannot continue with disabled TLS peer verification" in output
+
+
+def assert_stops_on_unverified_dist_tls(result):
+    """The console must exit, and the Erlang check must have logged the
+    diagnostic at error level before stopping the node."""
+    assert result.returncode != 0, "Expected the node to stop, not to boot"
+    logs = json_outputs(result.stdout.splitlines())
+    reported = [
+        line
+        for line in logs
+        if line.get("msg") == "erlang_distribution_tls_peer_verification_not_enforced"
+    ]
+    assert reported, result.stdout + result.stderr
+    log = reported[0]
+    assert log["level"] == "error", log
+    assert "verify_none" in repr(log["problems"]), log["problems"]
+
+
+def test_hardened_profile_stops_on_half_migrated_dist_tls(
+    emqx_bin_path, env_file, tmp_path
+):
+    """A 'server' entry that omits 'verify' falls back to OTP's server default,
+    which does not verify peers. The shell gate cannot see that, so the node has
+    to be stopped by the check that reads the options the VM actually applied."""
+    optfile = tmp_path / "ssl_dist.conf"
+    optfile.write_text(
+        "[{server, [{certfile, \"a\"}, {keyfile, \"b\"}, {cacertfile, \"c\"}]},\n"
+        " {client, [{certfile, \"d\"}, {keyfile, \"e\"}, {cacertfile, \"c\"},\n"
+        "           {verify, verify_peer}]}].\n"
+    )
+    env_file.write_text("EMQX_SECURITY_PROFILE=hardened\n")
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_LOG__CONSOLE__FORMATTER": "json",
+            "EMQX_NODE__COOKIE": "a-cookie-that-is-not-the-default",
+            "EMQX_CLUSTER__PROTO_DIST": "inet_tls",
+            "EMQX_SSL_DIST_OPTFILE": str(optfile),
+        },
+        timeout=60,
+    )
+    assert_stops_on_unverified_dist_tls(result)
+
+
+def test_hardened_profile_stops_on_empty_dist_tls_optfile(emqx_bin_path, env_file, tmp_path):
+    """An option file that is supplied but empty leaves the server on OTP's
+    verify_none default, so the node must stop even though the file has no
+    option to point at. It is not the same as having no option file at all.
+
+    OTP parses the file with erl_parse:parse_exprs/1, which wants the closing
+    dot, so the empty option set is written as '[].'.
+    """
+    optfile = tmp_path / "ssl_dist.conf"
+    optfile.write_text("[].\n")
+    env_file.write_text("EMQX_SECURITY_PROFILE=hardened\n")
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_LOG__CONSOLE__FORMATTER": "json",
+            "EMQX_NODE__COOKIE": "a-cookie-that-is-not-the-default",
+            "EMQX_CLUSTER__PROTO_DIST": "inet_tls",
+            "EMQX_SSL_DIST_OPTFILE": str(optfile),
+        },
+        timeout=60,
+    )
+    assert_stops_on_unverified_dist_tls(result)
+
+
+def test_hardened_profile_accepts_overridden_dist_tls_verify_none(
+    emqx_bin_path, env_file, emqx_rel_path, tmp_path
+):
+    """A 'verify_none' that a later 'verify_peer' overrides is safe: OTP resolves
+    a repeated key last-wins, so the shell gate has to leave this file to the
+    check that reads the options the VM applied, and the node must start."""
+    certs = emqx_rel_path / "etc" / "certs"
+    optfile = tmp_path / "ssl_dist.conf"
+    optfile.write_text(
+        "[{server, [{certfile, \"%s\"}, {keyfile, \"%s\"}, {cacertfile, \"%s\"},\n"
+        "           {verify, verify_none}, {verify, verify_peer}]},\n"
+        " {client, [{certfile, \"%s\"}, {keyfile, \"%s\"}, {cacertfile, \"%s\"},\n"
+        "           {verify, verify_none}, {verify, verify_peer}]}].\n"
+        % (
+            certs / "cert.pem",
+            certs / "key.pem",
+            certs / "cacert.pem",
+            certs / "client-cert.pem",
+            certs / "client-key.pem",
+            certs / "cacert.pem",
+        )
+    )
+    env_file.write_text("EMQX_SECURITY_PROFILE=hardened\n")
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_NODE__COOKIE": "a-cookie-that-is-not-the-default",
+            "EMQX_CLUSTER__PROTO_DIST": "inet_tls",
+            "EMQX_SSL_DIST_OPTFILE": str(optfile),
+        },
+        timeout=60,
+        stdin=subprocess.DEVNULL,
+    )
+    output = result.stdout + result.stderr
+    assert "is running now!" in output, output
+    assert "does not verify peer certificates" not in output
+    assert "erlang_distribution_tls_peer_verification_not_enforced" not in output
+
+
+def test_legacy_profile_only_warns_about_unverified_dist_tls(
+    emqx_bin_path, env_file, dist_tls_optfile
+):
+    """Under the legacy profile the same option file only logs a warning."""
+    env_file.write_text("EMQX_SECURITY_PROFILE=legacy\n")
+    with open_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_NODE__COOKIE": "a-cookie-that-is-not-the-default",
+            "EMQX_CLUSTER__PROTO_DIST": "inet_tls",
+            "EMQX_SSL_DIST_OPTFILE": str(dist_tls_optfile),
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ) as emqx:
+        try:
+            outputs = wait_until_stdout(emqx, "does not verify peer certificates", 15)
+            assert outputs
+        finally:
+            emqx.terminate()
+            emqx.wait(timeout=10)
+
+
+def test_verified_dist_tls_starts_under_hardened_profile(emqx_bin_path, env_file):
+    """The shipped option file verifies peers, so a hardened node boots.
+
+    'is running now!' is printed once boot completes, which is after
+    emqx_machine has run its TLS check, so reaching it proves the check did not
+    stop the node. The console gets an empty stdin so that it exits by itself
+    after boot instead of waiting on a terminal.
+    """
+    env_file.write_text("EMQX_SECURITY_PROFILE=hardened\n")
+    result = run_emqx_console(
+        emqx_bin_path,
+        {
+            "EMQX_NODE__COOKIE": "a-cookie-that-is-not-the-default",
+            "EMQX_CLUSTER__PROTO_DIST": "inet_tls",
+        },
+        timeout=60,
+        stdin=subprocess.DEVNULL,
+    )
+    output = result.stdout + result.stderr
+    assert "is running now!" in output, output
+    assert "does not verify peer certificates" not in output
+    assert "erlang_distribution_tls_peer_verification_not_enforced" not in output
+
+
+def test_rendered_ssl_dist_conf_verifies_peers(emqx_rel_path):
+    """A release reads the rendered option file, not the template: assert on the
+    file that ships, and on the certificates it names."""
+    conf = emqx_rel_path / "etc" / "ssl_dist.conf"
+    assert conf.exists(), conf
+    # Comments mention the options too, so look at the code only.
+    code = "\n".join(line.split("%", 1)[0] for line in conf.read_text().splitlines())
+    assert "verify_none" not in code
+    assert code.count("{verify, verify_peer}") == 2, code
+    assert "{fail_if_no_peer_cert, true}" in code
+    for name in [
+        "cert.pem",
+        "key.pem",
+        "cacert.pem",
+        "client-cert.pem",
+        "client-key.pem",
+    ]:
+        assert (emqx_rel_path / "etc" / "certs" / name).exists(), name
 
 
 def test_corrupted_cluster_override_conf(emqx_bin_path, emqx_rel_path):

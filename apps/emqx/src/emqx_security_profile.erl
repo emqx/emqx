@@ -56,6 +56,7 @@ Returns policy depending on the current security profile.
     (dashboard_unchanged_default_credentials) -> allow | deny;
     (access_control_hook_failure) -> ignore | interrupt;
     (outbound_tls_verify) -> verify_none | verify_peer;
+    (dist_tls_unverified) -> warn | deny;
     (authn_jwt_missing) -> ignore | deny;
     (internal_subscription_checks) -> boolean();
     (authz_context) -> legacy | restricted;
@@ -102,6 +103,11 @@ policy(outbound_tls_verify) ->
     case profile() of
         legacy -> verify_none;
         hardened -> verify_peer
+    end;
+policy(dist_tls_unverified) ->
+    case profile() of
+        legacy -> warn;
+        hardened -> deny
     end;
 policy(authn_jwt_missing) ->
     case profile() of

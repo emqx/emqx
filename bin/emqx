@@ -64,6 +64,56 @@ redact_cookie_args() {
     printf '%s' "${out% }"
 }
 
+## Warn about, or refuse to start with, an inet_tls distribution optfile that
+## disables peer verification without ever enabling it.
+##
+## This is the fast pre-erl path: it only refuses a file that spells out
+## 'verify_none' and never mentions 'verify_peer', which is unambiguously
+## unverified. It cannot judge a 'verify' that is computed when the file is
+## read, an entry that omits 'verify' and falls back to an OTP default, a
+## 'verify_peer' that a later duplicate overrides, or a '-ssl_dist_opt'
+## argument, so the authoritative check is the one emqx_machine runs against the
+## options the VM actually applies (and it stops the node under a non-legacy
+## security profile).
+maybe_check_dist_tls_verify() {
+    set +x
+    local optfile="${SSL_DIST_OPTFILE:-}"
+    if [[ "$IS_BOOT_COMMAND" != 'yes' || -z "$optfile" ]]; then
+        # Not a boot command, or no TLS distribution.
+        true
+    elif [ ! -f "$optfile" ]; then
+        # The VM will fail with error({bad_ssl_dist_optfile, File}); say which
+        # variable to look at instead of leaving only that message.
+        logerr "Erlang distribution over TLS option file not found: $optfile"
+        logerr "Set EMQX_SSL_DIST_OPTFILE to an existing file to start this node."
+    else
+        # Comments are stripped before the search, so that a whole-line or
+        # trailing comment mentioning the option is not mistaken for the option
+        # itself. A '%' inside a string literal truncates the line here as well.
+        # Reading into a variable rather than piping into 'grep -q' avoids the
+        # SIGPIPE/pipefail interaction.
+        #
+        # A file that also mentions 'verify_peer' is not refused here: OTP
+        # resolves a repeated key last-wins, so '{verify, verify_none},
+        # {verify, verify_peer}' is verified, and only emqx_machine can tell
+        # which of the two the VM applies.
+        local active_lines=''
+        active_lines="$(sed -e 's/%.*//' "$optfile" || true)"
+        if [[ "$active_lines" == *verify_none* && "$active_lines" != *verify_peer* ]]; then
+            logwarn "Erlang distribution over TLS does not verify peer certificates:"
+            logwarn "$optfile disables peer verification for at least one of its 'server'/'client' entries."
+            logwarn "The CA configured there is not enforced: any peer presenting any certificate can connect."
+            logwarn "Use '{verify, verify_peer}' for both entries, with a 'cacertfile' every node trusts,"
+            logwarn "and a 'certfile'/'keyfile' pair in the 'client' entry to present when the peer asks for it."
+            logwarn "Point EMQX_SSL_DIST_OPTFILE to a custom optfile to keep your own settings."
+            if [ "$EMQX_SECURITY_PROFILE" != "legacy" ]; then
+                die "Cannot continue with disabled TLS peer verification and EMQX_SECURITY_PROFILE set to '$EMQX_SECURITY_PROFILE'."
+            fi
+        fi
+    fi
+    if [ "$DEBUG" -gt 0 ]; then set -x; fi
+}
+
 THIS_SCRIPT="$0"
 
 usage() {
@@ -650,6 +700,7 @@ if [ "$EKKA_PROTO_DIST_MOD" = 'inet_tls' ] || [ "$EKKA_PROTO_DIST_MOD" = 'inet6_
                 true
                 ;;
         esac
+        maybe_check_dist_tls_verify
     fi
     EPMD_ARGS="${EPMD_ARGS} -ssl_dist_optfile $SSL_DIST_OPTFILE"
 fi
