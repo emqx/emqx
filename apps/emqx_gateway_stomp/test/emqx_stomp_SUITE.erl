@@ -1128,6 +1128,46 @@ t_transaction_max_retained_bytes(_) ->
         ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0))
     end).
 
+%% `transaction` is required for BEGIN; without it the frame is rejected
+%% instead of opening a transaction keyed on `undefined`.
+t_transaction_begin_requires_id(_) ->
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+
+        ok = send_transactional_frame(Sock, <<"BEGIN">>, [{<<"receipt">>, <<"begin">>}]),
+        {ok, ErrorFrame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+        ?assertMatch(
+            match,
+            re:run(ErrorFrame#stomp_frame.body, "Transaction id is required", [{capture, none}])
+        ),
+        %% The connection is still usable: the rejection is not fatal.
+        ok = begin_frame(Sock, <<"tx1">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock))
+    end).
+
+t_transaction_duplicate_begin_rejected(_) ->
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),
+
+        ok = begin_frame(Sock, <<"tx1">>),
+        ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
+
+        ok = send_transactional_frame(
+            Sock,
+            <<"BEGIN">>,
+            [transaction_header(<<"tx1">>), {<<"receipt">>, <<"begin-again">>}]
+        ),
+        {ok, ErrorFrame} = recv_a_frame(Sock),
+        ?assertMatch(#stomp_frame{command = <<"ERROR">>}, ErrorFrame),
+        ?assertMatch(
+            match,
+            re:run(ErrorFrame#stomp_frame.body, "already started", [{capture, none}])
+        )
+    end).
+
 transaction_header(TxId) ->
     {<<"transaction">>, TxId}.
 
