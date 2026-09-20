@@ -63,6 +63,9 @@ permissions:
 jobs:
   docker:
     runs-on: ${{ format('aws-ubuntu22.04-{0}', matrix.arch) }}
+    # Both matrix legs build the same commit, so they write the same PKG_VSN.
+    outputs:
+      PKG_VSN: ${{ steps.build.outputs.PKG_VSN }}
     defaults:
       run:
         shell: bash
@@ -89,7 +92,7 @@ jobs:
       - name: Enable Docker containerd image store
         run: bash scripts/enable-docker-containerd.sh
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
 
       # Pulling DHI base images requires authentication even for publish=false.
       # Docker Hub and dhi.io have separate registry credentials on the runner.
@@ -102,6 +105,7 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Build docker image
+        id: build
         env:
           DOCKER_PUSH: false
           DOCKER_BUILD_NOCACHE: true
@@ -112,6 +116,9 @@ jobs:
           RUN_FROM: ${{ inputs.pr_build && !inputs.publish && 'debian:13-slim' || '' }}
           DEPS_FROM: ${{ inputs.pr_build && !inputs.publish && 'debian:13-slim' || '' }}
         run: |
+          PKG_VSN="$(./pkg-vsn.sh "${PROFILE}")"
+          export PKG_VSN
+          echo "PKG_VSN=${PKG_VSN}" >> "$GITHUB_OUTPUT"
           ./build ${PROFILE} docker
           echo "Built tags:"
           echo "==========="
@@ -208,7 +215,7 @@ jobs:
       - name: Start staging registry
         run: docker run -d --name image-staging-registry -p 5000:5000 registry:2
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
         with:
           driver-opts: network=host
 
@@ -269,15 +276,23 @@ jobs:
         with:
           name: "${{ matrix.profile }}-docker-${{ matrix.arch }}"
 
-      - name: Extract version from docker image
+      - name: Check version and rename tarball
+        env:
+          PKG_VSN: ${{ needs.docker.outputs.PKG_VSN }}
+          PROFILE: ${{ matrix.profile }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          FILENAME="${{ matrix.profile }}-docker-${{ matrix.arch }}.tar.gz"
-          IMAGE_TAG=$(tar -xzOf "$FILENAME" manifest.json | jq -er '.[0].RepoTags[0]')
-          PKG_VSN=$(echo "$IMAGE_TAG" | sed 's/.*://')
-          echo "PKG_VSN=$PKG_VSN" | tee -a $GITHUB_ENV
-          echo "FILENAME=$FILENAME" | tee -a $GITHUB_ENV
+          set -euo pipefail
+          if ! [[ "${PKG_VSN}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc|M[0-9]+)\.[0-9]+)?(-g[0-9a-f]+)?$ ]]; then
+            echo "::error::Invalid PKG_VSN '${PKG_VSN}' from the docker job"
+            exit 1
+          fi
+          FILENAME="${PROFILE}-${PKG_VSN}-docker-${ARCH}.tar.gz"
+          mv "${PROFILE}-docker-${ARCH}.tar.gz" "${FILENAME}"
+          echo "PKG_VSN=${PKG_VSN}" | tee -a "$GITHUB_ENV"
+          echo "FILENAME=${FILENAME}" | tee -a "$GITHUB_ENV"
 
-      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -290,6 +305,6 @@ jobs:
         run: |
           set -xeuo pipefail
 
-          export s3dir="emqx-ee/e$PKG_VSN"
+          export s3dir="emqx-ee/$PKG_VSN"
           aws s3 cp "$FILENAME" "s3://$AWS_S3_BUCKET/$s3dir/"
           aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/$s3dir/*docker*"

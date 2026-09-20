@@ -273,7 +273,7 @@ do_on_query(Fun, LogInfo, #{pool_name := PoolName} = _State) ->
                     }),
                     {error, Reason}
             end;
-        {error, disconnected} ->
-            ?tp(warning, "omp_mysql_connector_query_failed", LogInfo#{reason => disconnected}),
-            {error, {unrecoverable_error, disconnected}}
+        {error, {disconnected, Reason}} ->
+            ?tp(warning, "omp_mysql_connector_query_failed", LogInfo#{reason => Reason}),
+            {error, {unrecoverable_error, Reason}}
     end.

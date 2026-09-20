@@ -806,6 +806,44 @@ t_basic_auth_on_login_only_endpoint_still_rejected(_Config) ->
     _ = emqx_common_test_http:delete_default_app(),
     ok.
 
+-doc """
+An `Authorization` header that Cowboy cannot parse gets the same 401
+`AUTHORIZATION_HEADER_ERROR` JSON response as a missing header, and the
+request process does not crash.
+""".
+t_malformed_auth_header(_Config) ->
+    lists:foreach(
+        fun(Headers) ->
+            Reports = emqx_cth_log_capture:capture(error, fun() ->
+                {Code, Body} = emqx_dashboard_api_test_helpers:raw_get(
+                    ?BASE_PATH ++ "/nodes", Headers
+                ),
+                ?assertEqual(401, Code, #{headers => Headers}),
+                ?assertMatch(
+                    #{<<"code">> := <<"AUTHORIZATION_HEADER_ERROR">>},
+                    json(Body),
+                    #{headers => Headers}
+                )
+            end),
+            ?assertEqual(
+                [],
+                [R || #{label := {proc_lib, crash}} = R <- Reports],
+                #{headers => Headers}
+            )
+        end,
+        malformed_auth_headers()
+    ).
+
+malformed_auth_headers() ->
+    [
+        [{"Authorization", "Bearer"}],
+        [{"Authorization", "Bearer a b"}],
+        [{"Authorization", "Bearer tok,en"}],
+        [{"Authorization", "Basic !!!"}],
+        [{"Authorization", "~~~"}],
+        [{"Authorization", "Bearer a"}, {"Authorization", "Bearer b"}]
+    ].
+
 bearer_header(Token) ->
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 

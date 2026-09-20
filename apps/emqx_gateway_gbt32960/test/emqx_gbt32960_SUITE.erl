@@ -1984,3 +1984,58 @@ t_case28_terminal_ctrl_ack_fe(_Config) ->
     timer:sleep(200),
     {<<"gbt32960/1G1BL52P7TR115520/upstream/response">>, _PubedMsg} = get_published_msg(),
     ok.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Per-frame VIN enforcement and re-login rejection (#164, #373)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% A data frame whose header VIN differs from the VIN authenticated at login
+%% must be rejected and never reach the broker carrying a spoofed `Vin`.
+t_vin_mismatch_info_report_rejected(_Config) ->
+    {ok, Socket} = login_first(),
+    Time = <<16, 1, 1, 2, 59, 0>>,
+    VehicleState =
+        <<1:?BYTE, 1:?BYTE, 1:?BYTE, 2000:?WORD, 999999:?DWORD, 5000:?WORD, 15000:?WORD, 50:?BYTE,
+            1:?BYTE, 5:?BYTE, 6000:?WORD, 90:?BYTE, 0:?BYTE>>,
+    %% A well-formed info report, except the header claims another vehicle.
+    Data = <<Time/binary, 16#01, VehicleState/binary>>,
+    Packet = encode(?CMD_INFO_REPORT, <<"2G1BL52P7TR115520">>, Data),
+    ok = gen_tcp:send(Socket, Packet),
+    ?assertEqual({error, timeout}, receive_published_msg(500)),
+    assert_socket_closed(Socket).
+
+%% Every command carries its own VIN, so the check must not be limited to info
+%% reports. A heartbeat claiming a foreign VIN is rejected as well.
+t_vin_mismatch_heartbeat_rejected(_Config) ->
+    {ok, Socket} = login_first(),
+    Packet = encode(?CMD_HEARTBEAT, <<"2G1BL52P7TR115520">>, <<>>),
+    ok = gen_tcp:send(Socket, Packet),
+    assert_socket_closed(Socket).
+
+%% A vehicle login is only valid as the first frame of a connection. Re-login on
+%% an established channel is rejected instead of switching identity while
+%% keeping the previous vehicle's session state.
+t_relogin_rejected(_Config) ->
+    {ok, Socket} = login_first(),
+    Time = <<12, 12, 29, 12, 19, 20>>,
+    Data = <<Time/binary, 1:?WORD, "12345678901234567890", 1, 1, "C">>,
+    Packet = encode(?CMD_VIHECLE_LOGIN, <<"1G1BL52P7TR115520">>, Data),
+    ok = gen_tcp:send(Socket, Packet),
+    ?assertEqual({error, timeout}, receive_published_msg(500)),
+    assert_socket_closed(Socket).
+
+%% Re-login asserting another vehicle's VIN must neither register nor take over
+%% that vehicle's identity.
+t_relogin_with_other_vin_rejected(_Config) ->
+    {ok, Socket} = login_first(),
+    OtherVin = <<"2G1BL52P7TR115520">>,
+    Time = <<12, 12, 29, 12, 19, 20>>,
+    Data = <<Time/binary, 1:?WORD, "12345678901234567890", 1, 1, "C">>,
+    Packet = encode(?CMD_VIHECLE_LOGIN, OtherVin, Data),
+    ok = gen_tcp:send(Socket, Packet),
+    ?assertEqual({error, timeout}, receive_published_msg(500)),
+    assert_socket_closed(Socket),
+    ?assertEqual(undefined, emqx_gateway_cm:get_chan_info(gbt32960, OtherVin)).
+
+assert_socket_closed(Socket) ->
+    ?assertEqual({error, closed}, gen_tcp:recv(Socket, 0, 2000)).

@@ -300,6 +300,36 @@ t_authn_redacts_secret(_) ->
     {204, _} = request(delete, "/gateways/stomp/authentication"),
     ok.
 
+t_authn_oauth2_client_secret_redacted(_) ->
+    Secret = <<"gateway-topsecret">>,
+    init_gw("stomp"),
+    AuthConf = http_oauth2_authn_conf(Secret),
+    {201, PostResp} = request(post, "/gateways/stomp/authentication", AuthConf),
+    assert_authn_oauth2_secret_redacted(PostResp, Secret),
+
+    {200, GetResp} = request(get, "/gateways/stomp/authentication"),
+    assert_authn_oauth2_secret_redacted(GetResp, Secret),
+    ?assertMatch(
+        #{<<"oauth2">> := #{<<"client_secret">> := Secret}},
+        emqx:get_raw_config([gateway, stomp, authentication])
+    ),
+
+    RedactedUpdate = maps:without(
+        [id, chain_name],
+        GetResp#{enable => false}
+    ),
+    {200, PutResp} = request(put, "/gateways/stomp/authentication", RedactedUpdate),
+    assert_authn_oauth2_secret_redacted(PutResp, Secret),
+    ?assertMatch(
+        #{
+            <<"oauth2">> := #{<<"client_secret">> := Secret},
+            <<"enable">> := false
+        },
+        emqx:get_raw_config([gateway, stomp, authentication])
+    ),
+    {204, _} = request(delete, "/gateways/stomp/authentication"),
+    ok.
+
 t_authn_data_mgmt(_) ->
     init_gw("stomp"),
     AuthConf = #{
@@ -703,6 +733,82 @@ t_listeners_authn_redacts_secret(_) ->
     {204, _} = request(delete, Path),
     ok.
 
+t_listeners_authn_oauth2_client_secret_redacted(_) ->
+    Secret = <<"gateway-listener-topsecret">>,
+    GwConf = #{
+        name => <<"stomp">>,
+        listeners => [
+            #{
+                name => <<"def">>,
+                type => <<"tcp">>,
+                bind => <<"127.0.0.1:61613">>
+            }
+        ]
+    },
+    ConfResp = init_gw("stomp", GwConf),
+    assert_confs(GwConf, ConfResp),
+
+    AuthConf = http_oauth2_authn_conf(Secret),
+    Path = "/gateways/stomp/listeners/stomp:tcp:def/authentication",
+    {204, _} = request(delete, Path),
+    {201, PostResp} = request(post, Path, AuthConf),
+    assert_authn_oauth2_secret_redacted(PostResp, Secret),
+
+    {200, GetResp} = request(get, Path),
+    assert_authn_oauth2_secret_redacted(GetResp, Secret),
+    ?assertMatch(
+        #{<<"oauth2">> := #{<<"client_secret">> := Secret}},
+        emqx:get_raw_config([gateway, stomp, listeners, tcp, def, authentication])
+    ),
+
+    RedactedUpdate = maps:without(
+        [id, chain_name],
+        GetResp#{enable => false}
+    ),
+    {200, PutResp} = request(put, Path, RedactedUpdate),
+    assert_authn_oauth2_secret_redacted(PutResp, Secret),
+    ?assertMatch(
+        #{
+            <<"oauth2">> := #{<<"client_secret">> := Secret},
+            <<"enable">> := false
+        },
+        emqx:get_raw_config([gateway, stomp, listeners, tcp, def, authentication])
+    ),
+
+    %% The listener GET embeds the authentication config as well.
+    {200, ListenerResp} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
+    ?assertMatch(
+        #{authentication := #{oauth2 := #{client_secret := ?REDACTED}}},
+        ListenerResp
+    ),
+    ?assertEqual(nomatch, binary:match(term_to_binary(ListenerResp), Secret)),
+
+    %% Updating the listener must restore the embedded (redacted) secret.
+    ListenerUpdate = ListenerResp#{bind => <<"127.0.0.1:61614">>},
+    {200, UpdatedListenerResp} = request(
+        put,
+        "/gateways/stomp/listeners/stomp:tcp:def",
+        ListenerUpdate
+    ),
+    ?assertMatch(
+        #{
+            bind := <<"127.0.0.1:61614">>,
+            authentication := #{oauth2 := #{client_secret := ?REDACTED}}
+        },
+        UpdatedListenerResp
+    ),
+    ?assertMatch(
+        #{
+            <<"bind">> := <<"127.0.0.1:61614">>,
+            <<"authentication">> := #{
+                <<"oauth2">> := #{<<"client_secret">> := Secret}
+            }
+        },
+        emqx:get_raw_config([gateway, stomp, listeners, tcp, def])
+    ),
+    {204, _} = request(delete, Path),
+    ok.
+
 t_listeners_authn_data_mgmt(_) ->
     GwConf = #{
         name => <<"stomp">>,
@@ -940,6 +1046,26 @@ jwt_authn_conf(Secret) ->
 
 assert_authn_secret_redacted(Conf) ->
     ?assertEqual(?REDACTED, maps:get(secret, Conf)).
+
+http_oauth2_authn_conf(Secret) ->
+    #{
+        mechanism => <<"password_based">>,
+        backend => <<"http">>,
+        method => <<"post">>,
+        url => <<"http://127.0.0.1:1/auth">>,
+        oauth2 => #{
+            enable => true,
+            grant_type => <<"client_credentials">>,
+            token_endpoint => <<"http://127.0.0.1:1/token">>,
+            client_id => <<"cid">>,
+            client_secret => Secret
+        },
+        enable => true
+    }.
+
+assert_authn_oauth2_secret_redacted(Conf, Secret) ->
+    ?assertEqual(?REDACTED, maps:get(client_secret, maps:get(oauth2, Conf))),
+    ?assertEqual(nomatch, binary:match(term_to_binary(Conf), Secret)).
 
 assert_gw_unloaded(Gateway) ->
     ?assertEqual(<<"unloaded">>, maps:get(status, Gateway)).
