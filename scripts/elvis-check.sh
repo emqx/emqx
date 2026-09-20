@@ -34,9 +34,10 @@ else
 fi
 
 
-IGNORE_COMMENTS='(^[^\s?%])'
+## Check every changed .erl file, including comment-only changes.
+## Elvis rules such as `line_length` apply to comment lines too.
 git_diff() {
-    git diff --ignore-blank-lines -G "$IGNORE_COMMENTS" --name-only --diff-filter=ACMRTUXB "$compare_base"...HEAD
+    git diff --ignore-blank-lines --name-only --diff-filter=ACMRTUXB "$compare_base"...HEAD
 }
 
 if command -v parallel 1>/dev/null 2>/dev/null ; then
