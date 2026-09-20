@@ -239,7 +239,7 @@ is_client_jwks_file_key(K) ->
 %% object holds key material. `none' (the default) must stay readable. A
 %% configured object stays a union member instead of collapsing to a bare
 %% string: only `file' (the key material) is masked, so the redacted value
-%% still passes schema validation on the update path and `deobfuscate/2` can
+%% still passes schema validation on the update path and `deobfuscate/2' can
 %% restore it.
 redact_v(K, V) when ?IS_KEY_CLIENT_JWKS(K), ?IS_VAL_NONE(V) ->
     V;
