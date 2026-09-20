@@ -637,10 +637,24 @@ handle_in(Msg, Channel) ->
 
 handle_frame_error(Reason, Channel = #channel{conn_state = idle}) ->
     shutdown(to_atom_shutdown_reason(Reason), Channel);
+handle_frame_error(
+    {frame_too_large, #{position := Position}} = Reason,
+    Channel = #channel{conn_state = _ConnState}
+) ->
+    %% Reports which part of the frame exceeded the configured budget.
+    Frame = error_frame(frame_too_large_message(Position)),
+    shutdown(to_atom_shutdown_reason(Reason), Frame, Channel);
 handle_frame_error(Reason, Channel = #channel{conn_state = _ConnState}) ->
     ErrMsg = io_lib:format("Frame error: ~0p", [Reason]),
     Frame = error_frame(ErrMsg),
     shutdown(to_atom_shutdown_reason(Reason), Frame, Channel).
+
+frame_too_large_message(control_line) ->
+    <<"Maximum Control Line Exceeded">>;
+frame_too_large_message(headers) ->
+    <<"Maximum Headers Violation">>;
+frame_too_large_message(_) ->
+    <<"Maximum Payload Violation">>.
 
 to_atom_shutdown_reason(R) when is_atom(R) ->
     R;

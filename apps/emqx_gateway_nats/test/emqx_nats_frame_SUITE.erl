@@ -916,3 +916,62 @@ t_serialize_invalid_subject_sub(Config) ->
         {invalid_subject, consecutive_dots},
         emqx_nats_frame:serialize_pkt(Frame, SOpts)
     ).
+
+%%--------------------------------------------------------------------
+%% Admission Limits
+%%--------------------------------------------------------------------
+
+-doc "A declared payload beyond max_payload_size is rejected before it is buffered.".
+t_declared_payload_too_large_rejected(_Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 16}),
+    ?assertError(
+        {frame_too_large, #{position := payload}},
+        emqx_nats_frame:parse(<<"PUB foo 1000000\r\n">>, State)
+    ).
+
+-doc """
+HPUB with an oversized header section is rejected, and the error says which part
+of the frame was too long.
+""".
+t_declared_headers_too_large_rejected(_Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 1024}),
+    ?assertError(
+        {frame_too_large, #{position := headers}},
+        emqx_nats_frame:parse(<<"HPUB foo 2000 2000\r\n">>, State)
+    ).
+
+-doc """
+HPUB whose header section fits but whose total exceeds max_payload_size is
+reported as a payload position.
+""".
+t_declared_payload_of_hpub_too_large_rejected(_Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 1024}),
+    ?assertError(
+        {frame_too_large, #{position := payload}},
+        emqx_nats_frame:parse(<<"HPUB foo 8 2000\r\n">>, State)
+    ).
+
+-doc "HPUB declaring more headers than the total size is rejected as invalid.".
+t_declared_headers_larger_than_total_rejected(_Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 1024}),
+    ?assertError(
+        invalid_args,
+        emqx_nats_frame:parse(<<"HPUB foo 100 10\r\n">>, State)
+    ).
+
+-doc "An unterminated control line is bounded by max_payload_size.".
+t_unterminated_args_rejected(_Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 16}),
+    ?assertError(
+        {frame_too_large, #{position := control_line}},
+        emqx_nats_frame:parse(<<"PUB ", (binary:copy(<<"a">>, 64))/binary>>, State)
+    ).
+
+-doc """
+A payload within max_payload_size is still buffered across chunks and parsed.
+""".
+t_payload_within_limit_accepted(_Config) ->
+    State = emqx_nats_frame:initial_parse_state(#{max_payload_size => 64}),
+    {more, State1} = emqx_nats_frame:parse(<<"PUB foo 5\r\nhe">>, State),
+    {ok, Frame, <<>>, _} = emqx_nats_frame:parse(<<"llo\r\n">>, State1),
+    ?assertEqual(<<"hello">>, emqx_nats_frame:payload(Frame)).

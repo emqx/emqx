@@ -3406,6 +3406,18 @@ t_ignore_unsupported_frames_default(_Config) ->
 
     ok = gen_tcp:close(Socket).
 
+%% An unterminated frame longer than frame.max_length disconnects the client.
+t_oversized_frame_disconnects(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    %% Start a frame and never terminate it; the frame exceeds the default
+    %% frame.max_length of 8192 bytes.
+    ok = gen_tcp:send(Socket, <<16#7e, (binary:copy(<<0>>, 9000))/binary>>),
+    ?assertEqual({error, closed}, gen_tcp:recv(Socket, 0, 2000)),
+    ok.
+
 t_ignore_unsupported_frames_set_to_false(_Config) ->
     RawConfig = emqx_config:get_raw([gateway, jt808]),
     RawConfig1 = emqx_utils_maps:deep_put(
