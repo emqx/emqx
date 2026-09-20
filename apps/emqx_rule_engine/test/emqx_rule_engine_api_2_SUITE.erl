@@ -2200,6 +2200,87 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
 
     ok.
 
+%% Verifies that the rule engine SQL kv_store_* functions are scoped to the
+%% namespace bound to the API key used to exercise `/rule_test'.
+t_namespaced_kv_store(TCConfig0) when is_list(TCConfig0) ->
+    Node = node(),
+    {ok, APIKey} = erpc:call(Node, emqx_common_test_http, create_default_app, []),
+    TCConfig = [{node, Node}, {api_key, APIKey} | TCConfig0],
+    TCConfigGlobal = [{auth_header, emqx_common_test_http:auth_header(APIKey)} | TCConfig],
+    NS1 = <<"kv_ns1">>,
+    NS2 = <<"kv_ns2">>,
+    TCConfigNS1 = [{auth_header, ensure_namespaced_api_key(NS1, TCConfig)} | TCConfig],
+    TCConfigNS2 = [{auth_header, ensure_namespaced_api_key(NS2, TCConfig)} | TCConfig],
+    Key = <<"k">>,
+    try
+        ok = rule_test_kv_del(Key, TCConfigNS1),
+        ok = rule_test_kv_del(Key, TCConfigNS2),
+        ok = rule_test_kv_del(Key, TCConfigGlobal),
+
+        ok = rule_test_kv_put(Key, <<"ns1">>, TCConfigNS1),
+        ?assertEqual(<<"ns1">>, rule_test_kv_get(Key, TCConfigNS1)),
+        ?assertEqual(undefined, rule_test_kv_get(Key, TCConfigNS2)),
+        ?assertEqual(undefined, rule_test_kv_get(Key, TCConfigGlobal)),
+
+        ok = rule_test_kv_put(Key, <<"global">>, TCConfigGlobal),
+        ?assertEqual(<<"global">>, rule_test_kv_get(Key, TCConfigGlobal)),
+        ?assertEqual(<<"ns1">>, rule_test_kv_get(Key, TCConfigNS1)),
+        ?assertEqual(undefined, rule_test_kv_get(Key, TCConfigNS2)),
+        ok
+    after
+        ok = rule_test_kv_del(Key, TCConfigNS1),
+        ok = rule_test_kv_del(Key, TCConfigNS2),
+        ok = rule_test_kv_del(Key, TCConfigGlobal)
+    end.
+
+rule_test_kv_put(Key, Val, TCConfig) ->
+    SQL = <<
+        "select kv_store_put('",
+        Key/binary,
+        "', '",
+        Val/binary,
+        "') as r from \"t/kv_store\""
+    >>,
+    {200, _} = rule_test(#{<<"sql">> => SQL, <<"context">> => rule_test_context()}, TCConfig),
+    ok.
+
+rule_test_kv_get(Key, TCConfig) ->
+    SQL = <<"select kv_store_get('", Key/binary, "') as v from \"t/kv_store\"">>,
+    {200, Body} = rule_test(#{<<"sql">> => SQL, <<"context">> => rule_test_context()}, TCConfig),
+    %% Missing values are serialized as the string <<"undefined">> by the API.
+    case maps:get(<<"v">>, Body, null) of
+        null -> undefined;
+        <<"undefined">> -> undefined;
+        Val -> Val
+    end.
+
+rule_test_kv_del(Key, TCConfig) ->
+    SQL = <<"select kv_store_del('", Key/binary, "') as r from \"t/kv_store\"">>,
+    {200, _} = rule_test(#{<<"sql">> => SQL, <<"context">> => rule_test_context()}, TCConfig),
+    ok.
+
+rule_test_context() ->
+    #{
+        <<"clientid">> => <<"c_emqx">>,
+        <<"event_type">> => <<"message_publish">>,
+        <<"payload">> => <<"{}">>,
+        <<"qos">> => 0,
+        <<"topic">> => <<"t/kv_store">>,
+        <<"username">> => <<"u_emqx">>
+    }.
+
+rule_test(Params, TCConfig) ->
+    Node = get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["rule_test"]),
+            body => Params,
+            auth_header => AuthHeader
+        })
+    end).
+
 -doc """
 Verifies that rules referencing actions are restricted to their namespaces.
 """.
