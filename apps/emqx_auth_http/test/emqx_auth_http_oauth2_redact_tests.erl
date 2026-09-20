@@ -79,10 +79,16 @@ client_secret(Conf) ->
     maps:get(<<"client_secret">>, maps:get(<<"oauth2">>, Conf)).
 
 %% `emqx_authn_schema' and `emqx_authz_schema' receive their provider schema
-%% modules from `emqx_conf' at application start; replicate that injection so
-%% these pure tests can build the full schema without booting the node.
+%% modules from `emqx_conf_schema:roots/0' when the schema is built; these
+%% pure tests build the schema without booting the node, so they inject the
+%% providers themselves. Only the two providers under test are injected: the
+%% assertions are about the HTTP backends, and naming them here keeps the test
+%% independent of which other providers the product ships.
 inject_schemas() ->
-    ok = emqx_schema_hooks:inject_from_modules(emqx_conf_schema_inject:schemas()).
+    ok = emqx_schema_hooks:inject_from_modules([
+        {emqx_authn_schema, [emqx_authn_http_schema]},
+        {emqx_authz_schema, [emqx_authz_http_schema]}
+    ]).
 
 cleanup_schemas() ->
     ok = emqx_schema_hooks:erase_injections().
