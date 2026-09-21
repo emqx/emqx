@@ -7,6 +7,10 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
+%% `run_batch/2` deliberately turns any batch sync failure into the error value,
+%% so that the syncer can log it and retry.
+-elvis([{elvis_style, no_catch_expressions, disable}]).
+
 -behaviour(gen_server).
 
 -export([start_link/1]).
