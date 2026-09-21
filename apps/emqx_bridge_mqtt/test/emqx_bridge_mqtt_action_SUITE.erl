@@ -1727,3 +1727,308 @@ t_scheme_ssl_consistent_connects(TCConfig) ->
         ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
     ),
     ok.
+
+-doc """
+A connection the peer closed without an MQTT-level reason must not be explained as
+a listener capacity problem: the connector cannot know why the remote closed it.
+""".
+t_closed_connection_reason_is_not_a_guess(TCConfig) ->
+    {Port, Broker} = start_closing_broker(),
+    on_exit(fun() -> stop_closing_broker(Broker) end),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"server">> => broker_address(Port),
+        <<"proto_ver">> => <<"v4">>
+    }),
+    ?retry(500, 20, begin
+        {200, #{<<"status">> := Status, <<"status_reason">> := Reason}} =
+            get_connector_api(TCConfig),
+        ?assertEqual(<<"disconnected">>, Status),
+        ?assertEqual(
+            nomatch,
+            re:run(Reason, <<"maximum capacity">>, [{capture, none}]),
+            #{status_reason => Reason}
+        ),
+        ?assertEqual(
+            nomatch,
+            re:run(Reason, <<"connection attempt was unsuccessful">>, [{capture, none}]),
+            #{status_reason => Reason}
+        )
+    end),
+    ok.
+
+-doc """
+The remote end stops forwarding traffic in both directions while keeping the
+connection open, so the broker never answers the PINGREQ.  The connector must go
+`disconnected' within a couple of health check intervals, keep the messages
+published meanwhile queued instead of handing them to the dead connection, and
+deliver them once the connection works again.
+
+The black hole is a test-owned TCP relay: a full connection close would not create
+a silent hang, and the relay keeps the case independent of external services.
+""".
+t_health_check_hung_remote(TCConfig) ->
+    BrokerPort = get_tcp_mqtt_port(node()),
+    {RelayPort, Relay} = start_relay(BrokerPort),
+    on_exit(fun() -> stop_relay(Relay) end),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"server">> => broker_address(RelayPort),
+        <<"proto_ver">> => <<"v4">>,
+        %% The connector is recreated while the relay is frozen; a short connect
+        %% timeout keeps those attempts from delaying the recovery after the thaw.
+        <<"connect_timeout">> => <<"1s">>,
+        <<"resource_opts">> => #{
+            %% The silence is noticed on the next check plus the probe budget, and the
+            %% interval also sets how long the probe's verdict stays on the resource
+            %% before the manager retries it.
+            <<"health_check_interval">> => <<"2s">>,
+            <<"health_check_timeout">> => <<"2s">>
+        }
+    }),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"topic">> => <<"remote/${topic}">>,
+            <<"payload">> => <<"${payload}">>,
+            <<"qos">> => <<"${qos}">>
+        },
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"async">>,
+            <<"request_ttl">> => <<"5m">>
+        }
+    }),
+    #{topic := LocalTopic} = simple_create_rule_api(TCConfig),
+    RemoteTopic = <<"remote/", LocalTopic/binary>>,
+    emqx:subscribe(RemoteTopic),
+    ?retry(
+        500,
+        20,
+        ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_connector_api(TCConfig))
+    ),
+    emqx:publish(emqx_message:make(LocalTopic, <<"before">>)),
+    ?assertReceive({deliver, RemoteTopic, #message{payload = <<"before">>}}, 5_000),
+
+    %% The remote end goes silent: everything is dropped, the connection stays up.
+    ok = freeze_relay(Relay),
+    try
+        %% The connector must report the verdict of its own probe.  Were the probe
+        %% left unbounded, the framework would abort `on_get_status/2' at
+        %% `health_check_timeout' first and the reason would be its generic
+        %% `resource_health_check_timed_out' instead.
+        ?retry(
+            100,
+            100,
+            begin
+                {200, #{<<"status">> := <<"disconnected">>, <<"status_reason">> := Reason}} =
+                    get_connector_api(TCConfig),
+                ?assertEqual(<<"pingresp_timeout">>, Reason, #{status_reason => Reason})
+            end
+        ),
+        %% The action must follow the connector, otherwise its buffer workers keep
+        %% feeding a connection that cannot deliver anything.
+        ?retry(
+            200,
+            25,
+            ?assertMatch({200, #{<<"status">> := <<"disconnected">>}}, get_action_api(TCConfig))
+        ),
+        ?retry(200, 25, ?assert(is_resource_down_alarm(connector_resource_id(TCConfig)))),
+        %% The message may not be reported as sent, failed or dropped while the
+        %% connection is unusable: it is held by the worker for a retry (either in
+        %% its queue or in its inflight window) until the remote comes back.
+        emqx:publish(emqx_message:make(LocalTopic, <<"during_hang">>)),
+        ?retry(200, 10, begin
+            Metrics = action_metrics(TCConfig),
+            ?assertEqual(1, maps:get(<<"success">>, Metrics, -1), #{metrics => Metrics}),
+            ?assertEqual(0, maps:get(<<"failed">>, Metrics, -1), #{metrics => Metrics}),
+            ?assertEqual(0, maps:get(<<"dropped">>, Metrics, -1), #{metrics => Metrics})
+        end),
+        ct:sleep(3_000),
+        ?assertNotReceive({deliver, RemoteTopic, #message{payload = <<"during_hang">>}})
+    after
+        ok = thaw_relay(Relay)
+    end,
+    %% Once the connection is usable again the queued message must be delivered: it
+    %% may not have been dropped as expired, nor counted as a failure, while the
+    %% remote was silent.
+    ?assertReceive({deliver, RemoteTopic, #message{payload = <<"during_hang">>}}, 15_000),
+    ?retry(
+        1000,
+        20,
+        begin
+            {200, #{<<"status">> := <<"connected">>}} = get_connector_api(TCConfig),
+            Metrics = action_metrics(TCConfig),
+            ?assert(maps:get(<<"matched">>, Metrics, 0) >= 2, #{metrics => Metrics}),
+            ?assert(maps:get(<<"success">>, Metrics, 0) >= 2, #{metrics => Metrics}),
+            ?assertEqual(0, maps:get(<<"failed">>, Metrics, -1), #{metrics => Metrics}),
+            ?assertEqual(0, maps:get(<<"dropped.expired">>, Metrics, -1), #{metrics => Metrics})
+        end
+    ),
+    ok.
+
+action_metrics(TCConfig) ->
+    case get_action_metrics_api(TCConfig) of
+        {200, #{<<"metrics">> := Metrics}} ->
+            Metrics;
+        Other ->
+            error({unexpected_action_metrics, Other})
+    end.
+
+%%------------------------------------------------------------------------------
+%% Test fixtures
+%%------------------------------------------------------------------------------
+
+broker_address(Port) ->
+    iolist_to_binary(["127.0.0.1:", integer_to_list(Port)]).
+
+%% A stand-in for a remote TCP endpoint that accepts a connection and drops it right
+%% away, so the client fails with a bare connection error.
+start_closing_broker() ->
+    {ok, ListenSocket} = gen_tcp:listen(0, [
+        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
+    ]),
+    {ok, Port} = inet:port(ListenSocket),
+    Pid = spawn(fun() -> closing_broker_accept_loop(ListenSocket) end),
+    {Port, {ListenSocket, Pid}}.
+
+stop_closing_broker({ListenSocket, Pid}) ->
+    _ = catch gen_tcp:close(ListenSocket),
+    exit(Pid, kill),
+    ok.
+
+closing_broker_accept_loop(ListenSocket) ->
+    case gen_tcp:accept(ListenSocket) of
+        {ok, Socket} ->
+            _ = spawn(fun() -> gen_tcp:close(Socket) end),
+            closing_broker_accept_loop(ListenSocket);
+        {error, _Reason} ->
+            ok
+    end.
+
+%% A TCP relay towards the broker that the test can freeze.  While frozen, bytes are
+%% dropped in both directions but the sockets stay open, which is what a black-holed
+%% network looks like to the client.
+start_relay(UpstreamPort) ->
+    {ok, ListenSocket} = gen_tcp:listen(0, [
+        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
+    ]),
+    {ok, Port} = inet:port(ListenSocket),
+    Pid = spawn(fun() -> relay_coordinator(ListenSocket, UpstreamPort) end),
+    {Port, {ListenSocket, Pid}}.
+
+stop_relay({ListenSocket, Pid}) ->
+    _ = catch gen_tcp:close(ListenSocket),
+    exit(Pid, kill),
+    ok.
+
+freeze_relay(Relay) ->
+    relay_set_frozen(Relay, true).
+
+thaw_relay(Relay) ->
+    relay_set_frozen(Relay, false).
+
+relay_set_frozen({_ListenSocket, Pid}, Frozen) ->
+    Pid ! {frozen, Frozen},
+    ok.
+
+relay_coordinator(ListenSocket, UpstreamPort) ->
+    process_flag(trap_exit, true),
+    Coordinator = self(),
+    _ = spawn_link(fun() -> relay_acceptor(ListenSocket, UpstreamPort, Coordinator) end),
+    relay_coordinator_loop(UpstreamPort, false, []).
+
+relay_coordinator_loop(UpstreamPort, Frozen, Connections) ->
+    receive
+        {connection, Pid} ->
+            %% Keep the state consistent for connections accepted while frozen.
+            Pid ! {frozen, Frozen},
+            relay_coordinator_loop(UpstreamPort, Frozen, [Pid | Connections]);
+        {frozen, NewFrozen} ->
+            [
+                Pid ! {frozen, NewFrozen}
+             || Pid <- Connections
+            ],
+            relay_coordinator_loop(UpstreamPort, NewFrozen, Connections);
+        {'EXIT', _Pid, _Reason} ->
+            relay_coordinator_loop(UpstreamPort, Frozen, Connections)
+    end.
+
+relay_acceptor(ListenSocket, UpstreamPort, Coordinator) ->
+    case gen_tcp:accept(ListenSocket) of
+        {ok, Downstream} ->
+            %% The accepted socket receives data in the process that controls it, so
+            %% hand it over before that process listens on it.  The connection process
+            %% is not linked to this one: a client that goes away while it is being
+            %% set up must not stop the relay from accepting later connections.
+            Pid = spawn(fun() -> relay_connection_start(UpstreamPort) end),
+            case gen_tcp:controlling_process(Downstream, Pid) of
+                ok ->
+                    Pid ! {downstream, Downstream},
+                    Coordinator ! {connection, Pid};
+                {error, _Reason} ->
+                    _ = gen_tcp:close(Downstream)
+            end,
+            relay_acceptor(ListenSocket, UpstreamPort, Coordinator);
+        {error, _Reason} ->
+            ok
+    end.
+
+relay_connection_start(UpstreamPort) ->
+    case relay_wait_for(downstream) of
+        undefined ->
+            ok;
+        Downstream ->
+            %% The coordinator reports the state of the relay as soon as it knows
+            %% about this connection, so a connection accepted while frozen never
+            %% forwards anything.
+            Frozen =
+                case relay_wait_for(frozen) of
+                    undefined -> false;
+                    Value -> Value
+                end,
+            relay_connection(Downstream, UpstreamPort, Frozen)
+    end.
+
+relay_wait_for(Tag) ->
+    receive
+        {Tag, Value} -> Value
+    after 5_000 -> undefined
+    end.
+
+relay_connection(Downstream, UpstreamPort, Frozen) ->
+    case gen_tcp:connect({127, 0, 0, 1}, UpstreamPort, [binary, {active, true}], 5_000) of
+        {ok, Upstream} ->
+            ok = inet:setopts(Downstream, [{active, true}]),
+            relay_loop(Downstream, Upstream, Frozen);
+        {error, _Reason} ->
+            ok = gen_tcp:close(Downstream)
+    end.
+
+relay_loop(Downstream, Upstream, Frozen) ->
+    receive
+        {tcp, Downstream, Data} ->
+            _ = relay_forward(Upstream, Data, Frozen),
+            relay_loop(Downstream, Upstream, Frozen);
+        {tcp, Upstream, Data} ->
+            _ = relay_forward(Downstream, Data, Frozen),
+            relay_loop(Downstream, Upstream, Frozen);
+        {frozen, NewFrozen} ->
+            relay_loop(Downstream, Upstream, NewFrozen);
+        {tcp_closed, _Socket} ->
+            ok;
+        {tcp_error, _Socket, _Reason} ->
+            ok
+    end.
+
+relay_forward(_To, _Data, true) ->
+    ok;
+relay_forward(To, Data, false) ->
+    gen_tcp:send(To, Data).
+
+is_resource_down_alarm(ResId) ->
+    lists:any(
+        fun
+            (#{name := Name, details := Details}) when is_map(Details) ->
+                Name =:= ResId andalso maps:get(reason, Details, undefined) =:= resource_down;
+            (_) ->
+                false
+        end,
+        emqx_alarm:get_alarms(activated)
+    ).
