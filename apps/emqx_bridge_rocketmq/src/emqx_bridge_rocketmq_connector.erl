@@ -211,16 +211,13 @@ on_remove_channel(
     {ok, NewState}.
 
 on_get_channel_status(
-    InstanceId,
+    _InstanceId,
     ChannelId,
-    #{installed_channels := Channels, client_id := ClientId} = State
+    #{installed_channels := Channels, client_id := ClientId} = _State
 ) ->
     case maps:find(ChannelId, Channels) of
         {ok, ChannelState} ->
-            case on_get_status(InstanceId, State) of
-                ?status_connected -> check_topic_status(ClientId, ChannelState);
-                Other -> Other
-            end;
+            check_topic_status(ClientId, ChannelState);
         error ->
             ?status_disconnected
     end.
@@ -306,14 +303,14 @@ on_get_status(_InstanceId, #{client_id := ClientId}) ->
     case rocketmq_client_sup:find_client(ClientId) of
         {ok, Pid} ->
             status_result(rocketmq_client:get_connection_state(Pid));
-        _ ->
-            ?status_connecting
+        {error, Reason} ->
+            {?status_connecting, Reason}
     end.
 
 status_result(connected) -> ?status_connected;
-status_result(connecting) -> ?status_connecting;
+status_result(connecting) -> {?status_connecting, ~"still connecting"};
 status_result({disconnected, Reason}) -> {?status_disconnected, format_reason(Reason)};
-status_result({error, _}) -> ?status_connecting.
+status_result({error, Reason}) -> {?status_connecting, format_reason(Reason)}.
 
 format_reason({tcp_connect_error, {Host, Port, Why}}) ->
     iolist_to_binary(io_lib:format("TCP connect to ~s:~p failed: ~0p", [Host, Port, Why]));

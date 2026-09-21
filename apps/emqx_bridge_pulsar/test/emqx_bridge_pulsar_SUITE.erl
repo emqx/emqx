@@ -747,7 +747,11 @@ t_producer_process_crash(TCConfig) ->
                 _Sleep0 = 50,
                 _Attempts0 = 50,
                 ?assertEqual(
-                    #{error => <<"Not connected for unknown reason">>, status => connecting},
+                    #{
+                        error =>
+                            ~"health check timed out while waiting for producers to be connected",
+                        status => ?status_connecting
+                    },
                     emqx_bridge_v2_testlib:force_health_check(
                         emqx_bridge_v2_testlib:get_common_values(TCConfig)
                     )
