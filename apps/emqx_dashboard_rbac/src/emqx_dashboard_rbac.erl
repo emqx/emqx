@@ -51,6 +51,7 @@
 -define(FT_API(METHOD, FN), ?API(emqx_ft_api, METHOD, FN)).
 -define(FT_FS_API(METHOD, FN), ?API(emqx_ft_storage_exporter_fs_api, METHOD, FN)).
 -define(AUDIT_API(METHOD, FN), ?API(emqx_audit_api, METHOD, FN)).
+-define(PLUGINS_API(METHOD, FN), ?API(emqx_mgmt_api_plugins, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -269,6 +270,18 @@ do_check_rbac(#{?namespace := Namespace}, _, ?AUDIT_API(get, audit)) when
     %% request bodies and arguments. Reading it would expose activity outside the
     %% caller's namespace.
     {error, <<"The audit log is not available to namespaced users">>};
+do_check_rbac(ActorContext, _, ?PLUGINS_API(get, Fn)) when
+    (Fn == plugin_config orelse Fn == download_plugin_config)
+->
+    case ActorContext of
+        #{?namespace := Namespace} when is_binary(Namespace) ->
+            %% The plugin configuration is global; it is not scoped by namespace.
+            {error, <<"Plugin configuration is not available to namespaced users">>};
+        _ ->
+            %% The remaining global principals (for example viewers) may not read the
+            %% plugin configuration either.
+            {error, <<"Plugin configuration is only available to the global administrator">>}
+    end;
 do_check_rbac(#{?role := ?ROLE_SUPERUSER}, _, #{method := get}) ->
     %% Namespaced administrator; It's fine for such admins to `GET` anything, even outside
     %% their namespace.  Namespaces are mostly to avoid accidentally mutating the wrong
