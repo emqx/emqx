@@ -30,3 +30,10 @@ Common file roles, whichever way they are provided:
 - `keyfile`: the private key for `certfile`.
 
 Configuration examples under `etc/examples/` show these options in context.
+
+`etc/ssl_dist.conf` (used when `cluster.proto_dist` is `inet_tls` or `inet6_tls`)
+names the files it expects under this directory: `cert.pem` is the certificate a
+node presents when it acts as a server and `client-cert.pem` when it acts as a
+client, and every node verifies its peers against `cacert.pem`. Provide all of
+them, issued by one CA, or the nodes will not be able to verify each other.
+
