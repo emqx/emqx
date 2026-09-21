@@ -393,9 +393,9 @@ test_mfa(VerifyFn) ->
     %% `/users/:username/mfa' is purely administrative: it manages
     %% another user, and the self case lives at `/current_user/mfa'.
     %% A viewer is denied on every target, its own account included.
-    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, Viewer1)),
-    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, Viewer2)),
-    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(Viewer1Token, SuperUser)),
+    ?assertMatch({error, {unauthorized_role, _, _}}, VerifyFn(Viewer1Token, Viewer1)),
+    ?assertMatch({error, {unauthorized_role, _, _}}, VerifyFn(Viewer1Token, Viewer2)),
+    ?assertMatch({error, {unauthorized_role, _, _}}, VerifyFn(Viewer1Token, SuperUser)),
     %% A global administrator reaches every target. (The handler then
     %% refuses the self target and points at /current_user/mfa; that is a
     %% handler decision, not an RBAC one, and is asserted over HTTP in
@@ -407,10 +407,10 @@ test_mfa(VerifyFn) ->
     %% account included. Resetting a tenant user's MFA is the vector this
     %% keeps closed; the namespaced admin's own MFA is at /current_user/mfa.
     ?assertMatch(
-        {error, {unauthorized_role, _}},
+        {error, {unauthorized_role, _, _}},
         VerifyFn(NamespacedSuperToken, NamespacedSuperUser)
     ),
-    ?assertMatch({error, {unauthorized_role, _}}, VerifyFn(NamespacedSuperToken, Viewer1)),
+    ?assertMatch({error, {unauthorized_role, _, _}}, VerifyFn(NamespacedSuperToken, Viewer1)),
     ok.
 
 %%--------------------------------------------------------------------

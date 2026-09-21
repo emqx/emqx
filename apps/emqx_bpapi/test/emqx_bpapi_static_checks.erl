@@ -189,10 +189,6 @@
     %% unless every running node reports the same major.minor version, so the
     %% two contracts are never reached from one another.
     {emqx_mgmt_data_backup, 2},
-    %% The 5.9 and 5.10 lines dropped `v2_wait_for_ready_v7/5' from
-    %% `emqx_bridge_proto_v7' after 5.8 froze it. 5.x only; 6.x deleted the
-    %% whole API.
-    {emqx_bridge, 7},
     %% 6.3.0 dropped `start/1' and `stop/1' from `emqx_prometheus_proto_v2' and
     %% their targets `emqx_prometheus:do_start/0' and `do_stop/0' (a314325677).
     %% The 5.8, 5.9 and 5.10 lines still declare the wrappers but no code on any
@@ -342,16 +338,20 @@ do_check_api_immutability(Rel1, Rel2, APIs2, Key = {API, Version}, Val) ->
                         [API, Version, Rel2, Rel1]
                     )
             end;
-        OldVal ->
+        Rel2Val ->
             setnok(),
             logger:error(
                 "API ~p v~p was changed between ~p and ~p. Backplane API should be immutable.",
                 [API, Version, Rel1, Rel2]
             ),
-            D21 = maps:get(calls, Val) -- maps:get(calls, OldVal),
-            D12 = maps:get(calls, OldVal) -- maps:get(calls, Val),
-            logger:error("Added calls:~n  ~p", [D21]),
-            logger:error("Removed calls:~n  ~p", [D12])
+            %% `Val' is the entry of the older release `Rel1', so name each list
+            %% after the release that has it. Labelling them added and removed
+            %% states the two the wrong way round, and a wrong label here sent one
+            %% reader looking for the change on the wrong branch.
+            Only1 = maps:get(calls, Val) -- maps:get(calls, Rel2Val),
+            Only2 = maps:get(calls, Rel2Val) -- maps:get(calls, Val),
+            logger:error("Calls only in ~p:~n  ~p", [Rel1, Only1]),
+            logger:error("Calls only in ~p:~n  ~p", [Rel2, Only2])
     end.
 
 filter_calls(Calls) ->
