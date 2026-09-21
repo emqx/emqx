@@ -184,12 +184,11 @@ So after a release cut, also freeze the merge-base commit of that tag on every
 `dev-6*` branch upstream of it, and commit the result there. Without this the
 originating branch keeps treating the API as unreleased and lets it be edited.
 
-## The 5.x baselines are not maintained
+## The 5.x baselines
 
-The 5.x lines are independently maintained and diverge from each other, so they
-are frozen where they are and not refreshed. Comparisons among them can report
-differences that say nothing about a 6.x branch; those belong in
-`?DIVERGED_APIS` with the reason recorded, not in a fix on a 5.x branch.
+The 5.x baselines are frozen from the tips of `dev-58`, `dev-59` and `dev-510`.
+Refresh one only from the tip of its own line, and only to add API versions that
+the line has released. A 5.x baseline here must match the file on that line.
 
 # Two release lines claiming the same version
 
@@ -215,6 +214,17 @@ Never reuse the number with different contents. Once both sides ship, neither ca
 be corrected, and the only remaining option is the one below.
 
 ## When it already happened
+
+First check whether the two contracts can be made one. When one line's version is
+a subset of the other's, add what it lacks to the line that lacks it, so both
+ship the same contract from then on. Do that on the lowest branch that lacks it
+and let the sync chain carry it, then refresh that line's baseline. This works
+when the missing part is additive and the older line still takes patch releases.
+`emqx_bridge_proto_v7` was fixed this way: 5.8 lacked one function that 5.9 and
+5.10 had, so 5.8 gained it.
+
+Exempt the pair only when convergence is impossible, such as when both sides have
+released a different definition of the same function.
 
 `?DIVERGED_APIS` in `emqx_bpapi_static_checks` lists `{API, Version}` pairs that
 two lines gave the same number with different contents. Both sides have shipped,
