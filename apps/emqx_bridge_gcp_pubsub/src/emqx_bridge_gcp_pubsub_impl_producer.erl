@@ -440,12 +440,17 @@ to_pubsub_request(Payloads) ->
 publish_path(#{project_id := ProjectId}, #{pubsub_topic := PubSubTopic}) ->
     <<"/v1/projects/", ProjectId/binary, "/topics/", PubSubTopic/binary, ":publish">>.
 
+handle_result({error, {error, _} = InnerError}, Request, QueryMode, ConnResId) ->
+    %% apparently, on rare occasions, the error comes nested like this.
+    %% probably a race when calling gun/receiving results??
+    handle_result(InnerError, Request, QueryMode, ConnResId);
 handle_result({error, Reason}, _Request, QueryMode, ConnResId) when
     Reason =:= econnrefused;
     %% this comes directly from `gun'...
     element(1, Reason) =:= closed;
     Reason =:= closed;
     Reason =:= closing;
+    Reason =:= closed;
     %% The normal reason happens when the HTTP connection times out before
     %% the request has been fully processed
     Reason =:= normal;
