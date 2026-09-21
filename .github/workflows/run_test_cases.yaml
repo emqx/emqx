@@ -263,10 +263,20 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.profile }}-release
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ matrix.profile }}-rel
       - name: extract artifact
         run: |
           unzip -o -q ${{ matrix.profile }}-release.zip
+          unzip -o -q ${{ matrix.profile }}-rel.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: verify release is present
+        run: |
+          if [ ! -x "_build/${PROFILE}/rel/emqx/bin/emqx" ]; then
+            echo "::error::_build/${PROFILE}/rel/emqx is missing from the downloaded artifacts"
+            exit 1
+          fi
       - name: install pytest
         run: |
           apt-get update && apt-get install -y python3-venv
