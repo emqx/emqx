@@ -114,6 +114,47 @@ end_per_testcase(Case, Config) ->
 %% PubSub Test
 %%--------------------------------------------------------------------
 
+%% Verify that a publish hook can report persistence through `message_persisted` message header
+t_message_persisted({init, Config}) ->
+    Config;
+t_message_persisted({'end', _Config}) ->
+    emqx_hooks:del('message.publish', {?MODULE, mark_message_persisted});
+t_message_persisted(_Config) ->
+    Topic = <<"t_message_persisted">>,
+    Msg = emqx_message:make(?MODULE, 1, Topic, <<"payload">>),
+
+    %% An absent or false header does not count as persistence.
+    ?assertEqual([], emqx_broker:publish(Msg)),
+    ?assertEqual([], emqx_broker:publish(emqx_message:set_header(message_persisted, false, Msg))),
+
+    %% Hook-reported persistence prevents a no-subscriber drop.
+    ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_persisted, []}, ?HP_LOWEST),
+    Dropped = emqx_metrics:val('messages.dropped.no_subscribers'),
+    ?assertEqual([persisted], emqx_broker:publish(Msg)),
+    ?assertEqual(Dropped, emqx_metrics:val('messages.dropped.no_subscribers')),
+
+    %% Persisted messages still reach matching subscribers.
+    ok = emqx_broker:subscribe(Topic),
+    ?assertMatch([{_, Topic, _}, persisted], emqx_broker:publish(Msg)),
+    receive
+        {deliver, Topic, #message{payload = <<"payload">>}} -> ok
+    after 1000 ->
+        ct:fail(message_not_delivered)
+    end,
+    ok = emqx_broker:unsubscribe(Topic),
+
+    %% Publish rejection takes precedence over the persistence header.
+    Blocked = emqx_message:set_header(allow_publish, false, Msg),
+    ?assertEqual([], emqx_broker:publish(Blocked)),
+    ?assertMatch({blocked, _}, emqx_broker:publish(Blocked, #{hook_prohibition_as_error => true})),
+
+    %% A disconnect request also takes precedence over the persistence header.
+    Disconnect = emqx_message:set_header(should_disconnect, true, Msg),
+    ?assertEqual(disconnect, emqx_broker:publish(Disconnect)).
+
+mark_message_persisted(Message) ->
+    {ok, emqx_message:set_header(message_persisted, true, Message)}.
+
 t_stats_fun({init, Config}) ->
     ok = emqx_stats:reset(),
     Config;
@@ -225,9 +266,9 @@ t_nosub_pub({init, Config}) ->
 t_nosub_pub({'end', _Config}) ->
     ok;
 t_nosub_pub(Config) when is_list(Config) ->
-    ?assertEqual(0, emqx_metrics:val('messages.dropped')),
+    Dropped = emqx_metrics:val('messages.dropped'),
     emqx_broker:publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
-    ?assertEqual(1, emqx_metrics:val('messages.dropped')).
+    ?assertEqual(Dropped + 1, emqx_metrics:val('messages.dropped')).
 
 t_shared_subscribe({init, Config}) ->
     emqx_broker:subscribe(
