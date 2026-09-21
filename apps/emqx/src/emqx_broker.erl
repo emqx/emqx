@@ -288,12 +288,15 @@ do_publish(#message{topic = Topic} = Msg) ->
     do_forward_external(Delivery, RouteRes).
 
 persist_publish(Msg) ->
-    case emqx_persistent_message:persist(Msg) of
-        ok ->
+    case {emqx_persistent_message:persist(Msg), Msg} of
+        {ok, _} ->
             [persisted];
-        {skipped, _} ->
+        %% Persisted by some subsystem via hook
+        {{skipped, _}, #message{headers = #{message_persisted := true}}} ->
+            [persisted];
+        {{skipped, _}, _} ->
             [];
-        {error, Recoverable, Reason} ->
+        {{error, Recoverable, Reason}, _} ->
             ?SLOG(debug, #{
                 msg => "failed_to_persist_message", is_recoverable => Recoverable, reason => Reason
             }),
