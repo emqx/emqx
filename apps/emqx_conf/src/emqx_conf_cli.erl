@@ -701,13 +701,14 @@ check_config(Conf0, Opts) ->
     end.
 
 -doc """
-In `merge` mode, the loaded config stays raw, so that the merge does not
-overwrite stored values with defaults. Each root that is merged with
-`merge_conf/2` is validated as the merge result.
+In `merge` mode, the loaded config is normalized but not filled with
+defaults, so that the merge does not overwrite stored values. Each root
+that is merged with `merge_conf/2` is validated as the merge result.
 In `replace` mode, omitted fields are filled with defaults.
 """.
-check_config_for_mode(Conf, #{mode := merge}) ->
+check_config_for_mode(Conf0, #{mode := merge}) ->
     maybe
+        {ok, Conf} ?= normalize_config(Conf0),
         ok ?= check_config_schema(maps:map(fun config_to_check_for_merge/2, Conf)),
         {ok, Conf}
     end;
@@ -716,6 +717,19 @@ check_config_for_mode(Conf0, _Opts) ->
     maybe
         ok ?= check_config_schema(Conf),
         {ok, Conf}
+    end.
+
+normalize_config(Conf) ->
+    Fold = fun({Key, Value}, {Acc, Errors}) ->
+        try emqx_config:normalize_raw_conf(#{Key => Value}) of
+            Normalized -> {maps:merge(Acc, Normalized), Errors}
+        catch
+            throw:{_SchemaMod, Reason} -> {Acc, [{Key, Reason} | Errors]}
+        end
+    end,
+    case lists:foldl(Fold, {#{}, []}, maps:to_list(Conf)) of
+        {Normalized, []} -> {ok, Normalized};
+        {_, Errors} -> {error, Errors}
     end.
 
 config_to_check_for_merge(Key, NewConf) ->

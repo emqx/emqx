@@ -390,7 +390,8 @@ t_async_load_config_cli(Config) when is_list(Config) ->
 
 -doc """
 Loading a connector with `--merge` keeps the stored fields that the loaded
-connector omits, and applies the loaded fields.
+connector omits, and applies the loaded fields. The loaded connector may
+omit required fields that the stored connector holds.
 """.
 t_merge_keeps_omitted_connector_fields({init, Config}) ->
     mock_resource(),
@@ -417,13 +418,11 @@ t_merge_keeps_omitted_connector_fields(Config) when is_list(Config) ->
     ),
     ?assertMatch(
         ok,
-        Load(#{
-            <<"bootstrap_hosts">> => <<"127.0.0.1:9092">>,
-            <<"description">> => <<"merged">>
-        })
+        Load(#{<<"description">> => <<"merged">>})
     ),
     ?assertMatch(
         #{
+            <<"bootstrap_hosts">> := <<"127.0.0.1:9092">>,
             <<"connect_timeout">> := <<"7s">>,
             <<"socket_opts">> := #{<<"sndbuf">> := <<"512KB">>},
             <<"description">> := <<"merged">>
