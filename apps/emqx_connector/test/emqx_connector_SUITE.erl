@@ -387,3 +387,47 @@ t_async_load_config_cli(Config) when is_list(Config) ->
     ct:timetrap(5_000),
     ?assertMatch(ok, emqx_conf_cli:load_config(?global_ns, ConfigToLoadBin, #{mode => merge})),
     ok.
+
+-doc """
+Loading a connector with `--merge` keeps the stored fields that the loaded
+connector omits, and applies the loaded fields.
+""".
+t_merge_keeps_omitted_connector_fields({init, Config}) ->
+    mock_resource(),
+    Config;
+t_merge_keeps_omitted_connector_fields({'end', _Config}) ->
+    emqx_bridge_v2_testlib:delete_all_connectors(),
+    meck:unload(),
+    ok;
+t_merge_keeps_omitted_connector_fields(Config) when is_list(Config) ->
+    Type = <<"kafka_producer">>,
+    Name = <<"merge_keeps_omitted_fields">>,
+    Load = fun(Conf) ->
+        RawConf = #{<<"connectors">> => #{Type => #{Name => Conf}}},
+        Bin = iolist_to_binary(hocon_pp:do(RawConf, #{})),
+        emqx_conf_cli:load_config(?global_ns, Bin, #{mode => merge})
+    end,
+    #{<<"socket_opts">> := SocketOpts} = ConnectorConf = connector_config(),
+    ?assertMatch(
+        ok,
+        Load(ConnectorConf#{
+            <<"connect_timeout">> => <<"7s">>,
+            <<"socket_opts">> => SocketOpts#{<<"sndbuf">> => <<"512KB">>}
+        })
+    ),
+    ?assertMatch(
+        ok,
+        Load(#{
+            <<"bootstrap_hosts">> => <<"127.0.0.1:9092">>,
+            <<"description">> => <<"merged">>
+        })
+    ),
+    ?assertMatch(
+        #{
+            <<"connect_timeout">> := <<"7s">>,
+            <<"socket_opts">> := #{<<"sndbuf">> := <<"512KB">>},
+            <<"description">> := <<"merged">>
+        },
+        emqx_conf:get_raw([connectors, Type, Name])
+    ),
+    ok.

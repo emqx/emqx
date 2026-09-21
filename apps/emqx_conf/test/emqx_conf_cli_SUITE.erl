@@ -258,6 +258,120 @@ t_update_cluster_readonly(Config) ->
         emqx_conf_cli:conf(["load", ConfFile])
     ).
 
+-doc """
+Loading one listener field with `--merge` keeps the other stored fields of
+that listener, and applies the loaded field.
+""".
+t_merge_keeps_omitted_listener_fields(Config) ->
+    Path = [listeners, tcp, merge_test],
+    Listener = #{
+        <<"enable">> => false,
+        <<"bind">> => <<"127.0.0.1:31883">>,
+        <<"parse_unit">> => <<"chunk">>,
+        <<"acceptors">> => 4,
+        <<"max_connections">> => 100
+    },
+    ok = load_conf(merge, listener_conf(Listener), Config),
+    ok = load_conf(
+        merge,
+        listener_conf(#{<<"tcp_options">> => #{<<"active_n">> => 50}}),
+        Config
+    ),
+    ?assertMatch(
+        #{
+            bind := {{127, 0, 0, 1}, 31883},
+            parse_unit := chunk,
+            acceptors := 4,
+            max_connections := 100,
+            tcp_options := #{active_n := 50}
+        },
+        emqx_conf:get(Path)
+    ),
+    {ok, _} = emqx_conf:remove(Path, #{override_to => cluster}),
+    ok.
+
+-doc """
+Loading one `mqtt` field with `--merge` keeps the other stored `mqtt` fields.
+Loading the same file with `--replace` resets the omitted fields to defaults.
+""".
+t_merge_keeps_omitted_mqtt_fields(Config) ->
+    MqttInit = emqx_conf:get_raw([mqtt]),
+    ok = load_conf(
+        merge,
+        #{<<"mqtt">> => #{<<"idle_timeout">> => <<"30s">>, <<"max_inflight">> => 64}},
+        Config
+    ),
+    OneField = #{<<"mqtt">> => #{<<"max_packet_size">> => <<"2MB">>}},
+    ok = load_conf(merge, OneField, Config),
+    ?assertMatch(
+        #{idle_timeout := 30_000, max_inflight := 64, max_packet_size := 2_097_152},
+        emqx_conf:get([mqtt])
+    ),
+    ok = load_conf(replace, OneField, Config),
+    ?assertMatch(
+        #{idle_timeout := 15_000, max_inflight := 32, max_packet_size := 2_097_152},
+        emqx_conf:get([mqtt])
+    ),
+    ok = load_conf(replace, #{<<"mqtt">> => MqttInit}, Config),
+    ok.
+
+-doc """
+Loading one `authorization` field with `--merge` keeps the other stored
+`authorization` fields and the stored sources.
+""".
+t_merge_keeps_omitted_authz_fields(Config) ->
+    AuthzInit = emqx_conf:get_raw([authorization]),
+    [FileSource] = maps:get(<<"sources">>, AuthzInit),
+    Authz = AuthzInit#{
+        <<"deny_action">> => <<"disconnect">>,
+        <<"cache">> => #{<<"max_size">> => 64},
+        <<"sources">> => [FileSource#{<<"enable">> => false}]
+    },
+    ok = load_conf(replace, #{<<"authorization">> => Authz}, Config),
+    ok = load_conf(merge, #{<<"authorization">> => #{<<"no_match">> => <<"deny">>}}, Config),
+    ?assertMatch(
+        #{
+            no_match := deny,
+            deny_action := disconnect,
+            cache := #{max_size := 64},
+            sources := [#{type := file, enable := false}]
+        },
+        emqx_conf:get([authorization])
+    ),
+    ok = load_conf(replace, #{<<"authorization">> => AuthzInit}, Config),
+    ok.
+
+-doc """
+Loading an authenticator with `--merge` keeps the stored fields that the
+loaded authenticator omits, and applies the loaded fields.
+""".
+t_merge_keeps_omitted_authn_fields(Config) ->
+    AuthNInit = emqx_conf:get_raw([authentication]),
+    Redis = #{
+        <<"backend">> => <<"redis">>,
+        <<"mechanism">> => <<"password_based">>,
+        <<"enable">> => false,
+        <<"redis_type">> => <<"single">>,
+        <<"server">> => <<"127.0.0.1:6379">>,
+        <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt">>
+    },
+    ok = load_conf(replace, #{<<"authentication">> => [Redis#{<<"pool_size">> => 4}]}, Config),
+    NewCmd = <<"HMGET mqtt_user:${clientid} password_hash salt">>,
+    ok = load_conf(merge, #{<<"authentication">> => [Redis#{<<"cmd">> => NewCmd}]}, Config),
+    ?assertMatch(
+        [#{<<"pool_size">> := 4, <<"cmd">> := NewCmd}],
+        emqx_conf:get_raw([authentication])
+    ),
+    ok = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config),
+    ok.
+
+load_conf(Mode, Conf, Config) ->
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, hocon_pp:do(Conf, #{}), Config),
+    emqx_conf_cli:conf(["load", "--" ++ atom_to_list(Mode), ConfFile]).
+
+listener_conf(Listener) ->
+    #{<<"listeners">> => #{<<"tcp">> => #{<<"merge_test">> => Listener}}}.
+
 base_conf() ->
     #{
         <<"cluster">> => emqx_conf:get_raw([cluster]),
