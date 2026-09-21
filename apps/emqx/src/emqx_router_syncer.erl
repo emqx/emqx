@@ -411,7 +411,12 @@ stash_stats(Stash) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-batch_test() ->
+%% EUnit shares one process between all plain test cases of a run, so run this case in a
+%% process of its own: the mailbox then holds exactly the replies it produced (#19101).
+batch_test_() ->
+    {spawn, ?_test(tc_batch())}.
+
+tc_batch() ->
     Dest = node(),
     Ctx = fun(N) -> [{N, self()}] end,
     Stash = stash_add(
