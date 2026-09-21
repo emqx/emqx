@@ -543,12 +543,39 @@ check_config(Conf0, Opts) ->
     maybe
         {ok, Conf1} ?= check_keys_is_not_readonly(Conf0, Opts),
         {ok, Conf2} ?= check_cluster_keys(Conf1, Opts),
-        Conf3 = emqx_config:fill_defaults(Conf2),
-        ok ?= check_config_schema(Conf3),
-        {ok, Conf3}
+        check_config_for_mode(Conf2, Opts)
     else
         Error -> Error
     end.
+
+%% In `merge` mode, the loaded config stays raw, so that the merge does not
+%% overwrite stored values with defaults. Each root that is merged with
+%% `merge_conf/2` is validated as the merge result.
+%% In `replace` mode, omitted fields are filled with defaults.
+check_config_for_mode(Conf, #{mode := merge}) ->
+    maybe
+        ok ?= check_config_schema(maps:map(fun config_to_check_for_merge/2, Conf)),
+        {ok, Conf}
+    end;
+check_config_for_mode(Conf0, _Opts) ->
+    Conf = emqx_config:fill_defaults(Conf0),
+    maybe
+        ok ?= check_config_schema(Conf),
+        {ok, Conf}
+    end.
+
+config_to_check_for_merge(Key, NewConf) ->
+    case is_merged_by_handler(Key) of
+        true -> NewConf;
+        false -> merge_conf(Key, NewConf)
+    end.
+
+%% These roots are merged by their config handlers, not by `merge_conf/2`.
+is_merged_by_handler(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY) -> true;
+is_merged_by_handler(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY) -> true;
+is_merged_by_handler(?SCHEMA_VALIDATION_CONF_ROOT_BIN) -> true;
+is_merged_by_handler(?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN) -> true;
+is_merged_by_handler(_) -> false.
 
 check_keys_is_not_readonly(Conf, Opts) ->
     IgnoreReadonly = maps:get(ignore_readonly, Opts, false),
@@ -697,7 +724,7 @@ split_high_priority_conf([Key | Keys], Conf0, Acc) ->
     end.
 
 merge_conf(Key, NewConf) ->
-    OldConf = emqx_conf:get_raw([Key]),
+    OldConf = emqx_conf:get_raw([Key], #{}),
     do_merge_conf(OldConf, NewConf).
 
 do_merge_conf(OldConf = #{}, NewConf = #{}) ->
