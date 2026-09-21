@@ -48,6 +48,7 @@
     scopes_of/1,
     effective_scopes_of/1,
     effective_scopes_of_admin/1,
+    ensure_namespaced_scopes_allowed/0,
     role_default_scopes/1,
     set_user_scopes/2,
     clear_user_scopes/1,
@@ -419,11 +420,11 @@ clear_login_lock2(Username) ->
 %%
 %%   scopes :: [binary()]
 %%     Login user's scope list. undefined (key absent) means "fall
-%%     back to role default":
-%%       * administrator → ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES
-%%                          (full catalog including login-only scopes)
-%%       * viewer/publisher → ?GENERIC_SCOPES
-%%                          (all management scopes, no login-only)
+%%     back to role default" (see role_default_scopes/2):
+%%       * global administrator → ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES
+%%       * global viewer        → ?GENERIC_SCOPES
+%%       * namespaced administrator → ?NS_ADMIN_ALLOWED_SCOPES
+%%       * namespaced viewer        → ?NS_VIEWER_ALLOWED_SCOPES
 %%     Explicit [] means "all mapped paths denied, unmapped paths
 %%     still allowed" (consistent with API key empty scope semantics).
 
@@ -469,8 +470,8 @@ scopes_of(Username) ->
 %% in their extra map (the "lazy migration" case for users created
 %% before this feature).
 %%
-%%   administrator + no explicit scopes -> all scopes (common + login-only)
-%%   viewer        + no explicit scopes -> common scopes only
+%%   any role      + no explicit scopes -> role_default_scopes/2 for the
+%%                                         role and the user's namespace
 %%   any role      + explicit []         -> []
 %%   any role      + explicit [X, ...]   -> [X, ...]
 %%
@@ -484,27 +485,76 @@ effective_scopes_of(Username) ->
     end.
 
 -spec effective_scopes_of_admin(emqx_admin()) -> [binary()].
-effective_scopes_of_admin(#?ADMIN{username = Username, role = Role}) ->
+effective_scopes_of_admin(#?ADMIN{username = Username, role = Role} = Admin) ->
     case scopes_of(Username) of
-        undefined -> role_default_scopes(Role);
+        undefined -> role_default_scopes(Role, namespace_of(Admin));
         Scopes when is_list(Scopes) -> Scopes
     end.
 
+-doc """
+Return the default scope list for a role string as the user API receives
+it: a bare role (`viewer`) or a namespaced role (`ns:<ns>::viewer`).
+""".
+-spec role_default_scopes(binary()) -> [binary()].
 role_default_scopes(Role) ->
-    %% Parse the role to distinguish global administrator from
-    %% namespaced administrator and non-admin roles.
     case emqx_dashboard_rbac:parse_dashboard_role(Role) of
-        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := ?global_ns}} ->
-            ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
-        {ok, #{?role := ?ROLE_SUPERUSER, ?namespace := _}} ->
-            %% Namespaced administrator: restricted subset.
-            %% RBAC blocks namespaced admins from mutating system,
-            %% license, gateways, etc. — giving those scopes would
-            %% be misleading.
-            ?NS_ADMIN_ALLOWED_SCOPES;
+        {ok, #{?role := BaseRole, ?namespace := Namespace}} ->
+            role_default_scopes(BaseRole, Namespace);
         _ ->
             ?GENERIC_SCOPES
     end.
+
+-doc """
+Return the default scope list for a base role and a namespace. The admin
+record stores the base role and keeps the namespace in `extra`, so callers
+that start from a record must pass both.
+""".
+role_default_scopes(?ROLE_SUPERUSER, ?global_ns) ->
+    ?GENERIC_SCOPES ++ ?LOGIN_ONLY_SCOPES;
+role_default_scopes(?ROLE_SUPERUSER, Namespace) when is_binary(Namespace) ->
+    ?NS_ADMIN_ALLOWED_SCOPES;
+role_default_scopes(_Role, Namespace) when is_binary(Namespace) ->
+    ?NS_VIEWER_ALLOWED_SCOPES;
+role_default_scopes(_Role, _Namespace) ->
+    ?GENERIC_SCOPES.
+
+-doc """
+Remove the scopes a namespaced role may not hold from every namespaced
+user's explicit scope list. When the remaining list equals the role
+default, clear the list so the user follows the role default. Runs at
+boot and is idempotent.
+""".
+-spec ensure_namespaced_scopes_allowed() -> ok.
+ensure_namespaced_scopes_allowed() ->
+    lists:foreach(fun ensure_namespaced_scopes_allowed/1, ets:tab2list(?ADMIN)).
+
+ensure_namespaced_scopes_allowed(#?ADMIN{username = Username, role = Role} = Admin) ->
+    case {namespace_of(Admin), scopes_of(Username)} of
+        {Namespace, Scopes} when is_binary(Namespace), is_list(Scopes) ->
+            Default = role_default_scopes(Role, Namespace),
+            case [S || S <- Scopes, lists:member(S, Default)] of
+                Scopes ->
+                    ok;
+                Kept ->
+                    narrow_namespaced_scopes(Username, Scopes, Kept, Default)
+            end;
+        _ ->
+            ok
+    end.
+
+narrow_namespaced_scopes(Username, Scopes, Kept, Default) ->
+    Res =
+        case lists:usort(Kept) =:= lists:usort(Default) of
+            true -> clear_user_scopes(Username);
+            false -> set_user_scopes(Username, Kept)
+        end,
+    ?SLOG(info, #{
+        msg => "namespaced_user_scopes_narrowed",
+        username => Username,
+        removed_scopes => Scopes -- Kept,
+        result => Res
+    }),
+    ok.
 
 -spec set_user_scopes(dashboard_username(), [binary()]) ->
     {ok, ok} | {error, term()}.
@@ -1185,7 +1235,7 @@ add_sso_user(Backend, Username0, Role0, Desc) when is_binary(Username0) ->
             %% same mria transaction so a fresh SSO row never appears in
             %% the "no scopes key" state — that state is reserved for legacy
             %% records upgraded from versions before the scope feature shipped.
-            Extra = (parsed_role_to_extra(ParsedRole))#{scopes => role_default_scopes(Role)},
+            Extra = (parsed_role_to_extra(ParsedRole))#{scopes => role_default_scopes(Role0)},
             do_add_user(Username, <<>>, Role, Desc, Extra);
         {error, _} = Error ->
             Error
