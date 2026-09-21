@@ -366,6 +366,41 @@ t_merge_keeps_omitted_authn_fields(Config) ->
     ok = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config),
     ok.
 
+%% Loading a field under its alias name with `--merge` overrides the stored
+%% value under the canonical name.
+t_merge_alias_over_stored_field(Config) ->
+    Path = [listeners, tcp, merge_test],
+    Listener = #{<<"enable">> => true, <<"bind">> => <<"127.0.0.1:31884">>},
+    ok = load_conf(merge, listener_conf(Listener), Config),
+    ?assertMatch(#{enable := true}, emqx_conf:get(Path)),
+    ok = load_conf(merge, listener_conf(#{<<"enabled">> => false}), Config),
+    ?assertMatch(#{enable := false}, emqx_conf:get(Path)),
+    ?assertNot(maps:is_key(<<"enabled">>, emqx_conf:get_raw(Path))),
+    {ok, _} = emqx_conf:remove(Path, #{override_to => cluster}),
+    ok.
+
+%% Loading `authentication` as a single object with `--merge` merges it
+%% into the stored authenticator list.
+t_merge_authn_object_form(Config) ->
+    AuthNInit = emqx_conf:get_raw([authentication]),
+    Redis = #{
+        <<"backend">> => <<"redis">>,
+        <<"mechanism">> => <<"password_based">>,
+        <<"enable">> => false,
+        <<"redis_type">> => <<"single">>,
+        <<"server">> => <<"127.0.0.1:6379">>,
+        <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt">>
+    },
+    ok = load_conf(replace, #{<<"authentication">> => [Redis#{<<"pool_size">> => 4}]}, Config),
+    NewCmd = <<"HMGET mqtt_user:${clientid} password_hash salt">>,
+    ok = load_conf(merge, #{<<"authentication">> => Redis#{<<"cmd">> => NewCmd}}, Config),
+    ?assertMatch(
+        [#{<<"pool_size">> := 4, <<"cmd">> := NewCmd}],
+        emqx_conf:get_raw([authentication])
+    ),
+    ok = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config),
+    ok.
+
 load_conf(Mode, Conf, Config) ->
     ConfFile = prepare_conf_file(?FUNCTION_NAME, hocon_pp:do(Conf, #{}), Config),
     emqx_conf_cli:conf(["load", "--" ++ atom_to_list(Mode), ConfFile]).
