@@ -40,7 +40,9 @@ emqx_mgmt_api_certs {
             Add CA certificates to the `ca` file of an existing global namespace bundle.
             Certificates already in the file are skipped.
             The current file content is kept, and the new certificates are appended to it.
-            Other files in the bundle are not changed.~"""
+            Other files in the bundle are not changed.
+            Requests which change the same bundle at the same time are not serialized, and one of them may be dropped.
+            To confirm the result, repeat the request: it reports `added: 0` when the file already holds every certificate.~"""
         label: "Add Trusted CA Certificates"
     }
 
@@ -67,7 +69,9 @@ emqx_mgmt_api_certs {
         desc: """~
             Remove one CA certificate from the `ca` file of a global namespace bundle.
             When no certificate is left, the `ca` file is deleted.
-            Deleting the last certificate fails while a configuration refers to the bundle.~"""
+            Deleting the last certificate fails while a configuration refers to the bundle.
+            Requests which change the same bundle at the same time are not serialized, and one of them may be dropped.
+            To confirm the result, repeat the request: it returns `404` when the certificate is already gone.~"""
         label: "Remove Trusted CA Certificate"
     }
 
