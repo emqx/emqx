@@ -20,6 +20,12 @@ all() ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
+            {emqx, #{
+                before_start => fun(App, AppOpts) ->
+                    ok = emqx_config:add_allowed_namespaced_config_root(<<"mqtt">>),
+                    emqx_cth_suite:inhibit_config_loader(App, AppOpts)
+                end
+            }},
             emqx_conf,
             emqx_auth_redis,
             emqx_schema_registry,
@@ -423,6 +429,37 @@ t_merge_union_member_without_selector(Config) ->
 
 schema_conf(Schema) ->
     #{<<"schema_registry">> => #{<<"schemas">> => #{<<"merge_test">> => Schema}}}.
+
+-doc """
+Loading with `--merge` into a namespace merges over that namespace's
+stored config, not over the global config, and leaves the global config
+unchanged.
+""".
+t_merge_namespaced_over_namespaced_config(Config) ->
+    Ns = <<"merge_ns">>,
+    MqttInit = emqx_conf:get_raw([mqtt]),
+    ok = emqx_common_test_helpers:seed_defaults_for_all_roots_namespaced_cluster(emqx_schema, Ns),
+    ok = load_conf(merge, #{<<"mqtt">> => #{<<"max_inflight">> => 64}}, Config),
+    ok = load_ns_conf(Ns, merge, #{<<"mqtt">> => #{<<"idle_timeout">> => <<"30s">>}}),
+    ok = load_ns_conf(Ns, merge, #{<<"mqtt">> => #{<<"max_packet_size">> => <<"2MB">>}}),
+    ?assertMatch(
+        #{
+            <<"idle_timeout">> := <<"30s">>,
+            <<"max_packet_size">> := <<"2MB">>,
+            <<"max_inflight">> := 32
+        },
+        emqx_config:get_raw_namespaced([mqtt], Ns)
+    ),
+    ?assertMatch(
+        #{idle_timeout := 15_000, max_packet_size := 1_048_576, max_inflight := 64},
+        emqx_conf:get([mqtt])
+    ),
+    ok = load_conf(replace, #{<<"mqtt">> => MqttInit}, Config),
+    ok.
+
+load_ns_conf(Ns, Mode, Conf) ->
+    Bin = iolist_to_binary(hocon_pp:do(Conf, #{})),
+    emqx_conf_cli:load_config(Ns, Bin, #{mode => Mode}).
 
 load_conf(Mode, Conf, Config) ->
     ConfFile = prepare_conf_file(?FUNCTION_NAME, hocon_pp:do(Conf, #{}), Config),
