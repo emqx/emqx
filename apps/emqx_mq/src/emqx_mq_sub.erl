@@ -9,7 +9,7 @@ The module represents a subscription to a Message Queue consumer.
 It handles interactions between a channel and a consumer.
 
 It has states:
-* `#finding_mq{}` - no MQ found, we are waiting for it to be created.
+* `#finding_mq{}` - no matching authorized MQ found, we are waiting for it to change.
 * `#connecting{}` - MQ found, the subscription is trying to connect to the consumer.
 * `#connected{}` - the subscription is established and the consumer is connected.
 
@@ -27,6 +27,8 @@ It uses timers:
 
 -include("emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -export([
     name_topic/1,
@@ -36,6 +38,7 @@ It uses timers:
 
 -export([
     handle_connect/3,
+    handle_reconnect/2,
     handle_ack/3,
     handle_info/2,
     handle_disconnect/1
@@ -54,7 +57,8 @@ It uses timers:
 ]).
 
 -record(finding_mq, {
-    find_mq_retry_tref :: reference() | undefined
+    find_mq_retry_tref :: reference() | undefined,
+    denied_mq_id :: emqx_mq_types:mqid() | undefined
 }).
 -record(connecting, {
     mq :: emqx_mq_types:mq(),
@@ -119,10 +123,12 @@ inspect(#{status := Status} = Sub) ->
     Info#{status => status_inspect(Status)}.
 
 -spec handle_connect(
-    emqx_types:clientinfo(), emqx_mq_types:mq_name(), emqx_mq_types:mq_topic() | undefined
+    emqx_types:clientinfo(),
+    emqx_mq_types:mq_name(),
+    emqx_mq_types:mq_topic() | undefined
 ) ->
     t().
-handle_connect(#{clientid := ClientId}, Name, MQTopic) ->
+handle_connect(#{clientid := ClientId} = ClientInfo, Name, MQTopic) ->
     SubscriberRef = alias(),
     Sub = #{
         clientid => ClientId,
@@ -130,62 +136,12 @@ handle_connect(#{clientid := ClientId}, Name, MQTopic) ->
         name => Name,
         subscriber_ref => SubscriberRef
     },
-    case emqx_mq_registry:find(Name) of
-        {ok, #{topic_filter := FoundMQTopic} = MQ} when
-            FoundMQTopic =:= MQTopic orelse MQTopic =:= undefined
-        ->
-            case emqx_mq_consumer:connect(MQ, SubscriberRef, ClientId) of
-                {error, Reason} ->
-                    %% MQ found but something went wrong with the consumer.
-                    %% Retry to find the queue later.
-                    RetryInterval = connect_retry_interval(Reason),
-                    case Reason of
-                        R when R =:= already_registered orelse R =:= no_mq ->
-                            ?tp_debug(mq_sub_handle_connect_error, #{
-                                reason => Reason,
-                                mq => MQTopic,
-                                subscriber_ref => SubscriberRef,
-                                clientid => ClientId,
-                                retry_interval => RetryInterval
-                            });
-                        _ ->
-                            ?tp(error, mq_sub_handle_connect_error, #{
-                                reason => Reason,
-                                mq => MQTopic,
-                                subscriber_ref => SubscriberRef,
-                                clientid => ClientId,
-                                retry_interval => RetryInterval
-                            })
-                    end,
-                    Status = #finding_mq{
-                        find_mq_retry_tref = send_after(
-                            Sub, RetryInterval, #find_mq_retry{}
-                        )
-                    },
-                    Sub#{status => Status};
-                {ok, ConsumerRef} ->
-                    %% MQ and its consumer found, let's connect and wait for the consumer to be ready.
-                    Status = #connecting{
-                        mq = MQ,
-                        consumer_ref = ConsumerRef,
-                        connect_timeout_tref = send_after(
-                            Sub, consumer_timeout(MQ), #consumer_connect_timeout{}
-                        )
-                    },
-                    Sub#{status => Status}
-            end;
-        _ ->
-            %% No queue found, or currently the queue is associated with a different topic filter.
-            %% NOTE
-            %% We may register the subscription finders somewhere
-            %% and react on queue creation immediately.
-            Status = #finding_mq{
-                find_mq_retry_tref = send_after(
-                    Sub, find_mq_retry_interval(), #find_mq_retry{}
-                )
-            },
-            Sub#{status => Status}
-    end.
+    find_mq(ClientInfo, Sub).
+
+-spec handle_reconnect(emqx_types:clientinfo(), t()) -> t().
+handle_reconnect(ClientInfo, Sub) ->
+    ok = handle_disconnect(Sub),
+    find_mq(ClientInfo, Sub#{subscriber_ref => alias()}).
 
 -spec handle_ack(t(), emqx_types:message(), emqx_mq_types:ack()) -> ok.
 handle_ack(
@@ -330,6 +286,95 @@ messages_v1(SubscriberRef, ConsumerRef, Messages) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+find_mq(ClientInfo, #{name := Name, topic_filter := MQTopic} = Sub) ->
+    case emqx_mq_registry:find(Name) of
+        {ok, #{topic_filter := FoundMQTopic} = MQ} when
+            FoundMQTopic =:= MQTopic orelse MQTopic =:= undefined
+        ->
+            case authorize_mq(ClientInfo, Sub, MQ) of
+                allow ->
+                    connect_to_mq(Sub, MQ);
+                deny ->
+                    #{id := Id} = MQ,
+                    retry_find_mq(Sub, Id)
+            end;
+        _ ->
+            retry_find_mq(Sub)
+    end.
+
+authorize_mq(_ClientInfo, #{status := #finding_mq{denied_mq_id = Id}}, #{id := Id}) ->
+    ?tp_debug(mq_sub_target_topic_authz_cached, #{id => Id}),
+    deny;
+authorize_mq(ClientInfo, _Sub, #{id := Id, topic_filter := TargetTopic}) ->
+    case emqx_mq_config:target_topic_authz() of
+        false ->
+            allow;
+        true ->
+            Result = emqx_access_control:authorize(
+                ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_1), TargetTopic
+            ),
+            ?tp_debug(mq_sub_target_topic_authorized, #{
+                id => Id, topic_filter => TargetTopic, result => Result
+            }),
+            Result
+    end.
+
+retry_find_mq(#{status := #finding_mq{denied_mq_id = Id}} = Sub) ->
+    retry_find_mq(Sub, Id);
+retry_find_mq(Sub) ->
+    retry_find_mq(Sub, undefined).
+
+retry_find_mq(Sub, DeniedMQId) ->
+    Status = #finding_mq{
+        find_mq_retry_tref = send_after(Sub, find_mq_retry_interval(), #find_mq_retry{}),
+        denied_mq_id = DeniedMQId
+    },
+    Sub#{status => Status}.
+
+connect_to_mq(
+    #{subscriber_ref := SubscriberRef, clientid := ClientId, topic_filter := MQTopic} = Sub, MQ
+) ->
+    case emqx_mq_consumer:connect(MQ, SubscriberRef, ClientId) of
+        {error, Reason} ->
+            %% MQ found but something went wrong with the consumer.
+            %% Retry to find the queue later.
+            RetryInterval = connect_retry_interval(Reason),
+            case Reason of
+                R when R =:= already_registered orelse R =:= no_mq ->
+                    ?tp_debug(mq_sub_handle_connect_error, #{
+                        reason => Reason,
+                        mq => MQTopic,
+                        subscriber_ref => SubscriberRef,
+                        clientid => ClientId,
+                        retry_interval => RetryInterval
+                    });
+                _ ->
+                    ?tp(error, mq_sub_handle_connect_error, #{
+                        reason => Reason,
+                        mq => MQTopic,
+                        subscriber_ref => SubscriberRef,
+                        clientid => ClientId,
+                        retry_interval => RetryInterval
+                    })
+            end,
+            Status = #finding_mq{
+                find_mq_retry_tref = send_after(
+                    Sub, RetryInterval, #find_mq_retry{}
+                )
+            },
+            Sub#{status => Status};
+        {ok, ConsumerRef} ->
+            %% MQ and its consumer found, let's connect and wait for the consumer to be ready.
+            Status = #connecting{
+                mq = MQ,
+                consumer_ref = ConsumerRef,
+                connect_timeout_tref = send_after(
+                    Sub, consumer_timeout(MQ), #consumer_connect_timeout{}
+                )
+            },
+            Sub#{status => Status}
+    end.
 
 handle_connected(#{status := #connecting{mq = MQ}} = Sub0, ConsumerRef) ->
     ?tp_debug(handle_connected, #{sub => inspect(Sub0), consumer_ref => ConsumerRef}),

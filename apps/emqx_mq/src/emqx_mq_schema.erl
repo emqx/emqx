@@ -36,6 +36,7 @@ fields(mq) ->
                 required => true,
                 desc => ?DESC(enable)
             })},
+        {target_topic_authz, mk(boolean(), #{default => false, desc => ?DESC(target_topic_authz)})},
         {gc_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>, required => true, desc => ?DESC(gc_interval)
