@@ -174,13 +174,18 @@ resource_type() ->
 
 on_start(ResourceId, #{name := ClusterName, pool_size := PoolSize} = ClusterConf) ->
     PoolName = ResourceId,
+    %% The health check probes these clients, so they are not configured with
+    %% `emqtt''s own keepalive, which would be a second liveness mechanism with its
+    %% own timing.  A keepalive imposed by the peer's `Server-Keep-Alive' still
+    %% applies.
+    ClientOpts = (emqx_cluster_link_config:mk_emqtt_options(ClusterConf))#{keepalive => 0},
     Options = [
         {name, PoolName},
         {pool_size, PoolSize},
         {pool_type, hash},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S},
         {target_cluster, ClusterName},
-        {client_opts, emqx_cluster_link_config:mk_emqtt_options(ClusterConf)}
+        {client_opts, ClientOpts}
     ],
     ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
@@ -355,12 +360,14 @@ is_connection_error(_) ->
 on_get_status(ResourceId, #{pool_name := PoolName} = _State) ->
     Workers = ecpool:workers(PoolName),
     DisconnectReasons = last_disconnect_reasons(ResourceId),
-    try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
+    PingTimeout = health_check_ping_timeout(ResourceId),
+    try emqx_utils:pmap(fun get_status/1, Workers, PingTimeout) of
         Statuses ->
             enrich_status(combine_status(Statuses), DisconnectReasons)
     catch
         exit:timeout ->
-            ?status_connecting
+            %% The probe was not answered within the budget.
+            {?status_disconnected, pingresp_timeout}
     end.
 
 enrich_status(?status_connected, _) ->
@@ -377,17 +384,53 @@ get_status({_Name, Worker}) ->
         {error, _} -> ?status_disconnected
     end.
 
+%% The local client state cannot tell a working connection from a black-holed one,
+%% where the socket stays open but nothing gets through; only a round trip to the
+%% remote broker can.  Ask it with a PINGREQ and wait for the PINGRESP.
 status(Pid) ->
     try
-        case proplists:get_value(socket, emqtt:info(Pid)) of
-            Socket when Socket /= undefined ->
-                ?status_connected;
-            undefined ->
-                ?status_disconnected
+        case emqtt:status(Pid) of
+            connected ->
+                ping_status(Pid);
+            _EmqttState ->
+                %% A client that is not connected cannot be probed; its pool worker
+                %% is reconnecting it.
+                ?status_connecting
         end
     catch
-        exit:{noproc, _} ->
+        exit:_Reason ->
             ?status_disconnected
+    end.
+
+%% `emqtt:ping/1' is declared as returning `pong', but it also replies
+%% `{error, Reason}' when the PINGRESP does not arrive or the PINGREQ cannot be
+%% sent, so dialyzer has to be told that those replies are reachable.
+-dialyzer({nowarn_function, [ping_status/1]}).
+ping_status(Pid) ->
+    case emqtt:ping(Pid) of
+        pong ->
+            ?status_connected;
+        {error, _Reason} ->
+            ?status_disconnected
+    end.
+
+%% Budget of the health check's PINGREQ round trip: half of the configured
+%% `health_check_timeout', so that the probe reports a status of its own before the
+%% framework aborts the whole check at that timeout.
+health_check_ping_timeout(ResourceId) ->
+    ?MSG_RES_ID(ClusterName) = ResourceId,
+    case emqx_cluster_link_config:get_link(ClusterName) of
+        #{resource_opts := ResourceOpts} ->
+            half_health_check_timeout(ResourceOpts);
+        _ ->
+            %% The link is going away; the outcome of the check does not matter.
+            ?HEALTH_CHECK_TIMEOUT
+    end.
+
+half_health_check_timeout(ResourceOpts) ->
+    case maps:get(health_check_timeout, ResourceOpts, ?HEALTHCHECK_TIMEOUT) of
+        infinity -> infinity;
+        Timeout -> Timeout div 2
     end.
 
 combine_status(Statuses) ->
