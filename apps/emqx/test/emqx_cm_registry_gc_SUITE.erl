@@ -12,6 +12,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_cm.hrl").
 
 %%--------------------------------------------------------------------
@@ -35,6 +36,8 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     catch meck:unload(),
+    %% a failed case may leave the keeper suspended
+    catch sys:resume(emqx_cm_registry_keeper),
     %% drain any tombstones written by failed assertions
     mnesia:clear_table(?CHAN_REG_TAB),
     ok.
@@ -231,6 +234,150 @@ t_replicant_does_not_act_on_remote(_) ->
     ),
     ok.
 
+-doc """
+A scheduled sweep resumes after the key stored as its cursor is deleted
+during the pause between two chunks. It continues from a recently scanned
+key and still deletes every dead row.
+""".
+t_resumes_after_cursor_deleted_between_chunks(_) ->
+    Dead = dead_local_pid(),
+    {AliveIds, DeadIds} = write_mixed_rows(<<"between-chunks-">>, 150, Dead),
+    Keeper = whereis(emqx_cm_registry_keeper),
+    Cursor = run_first_chunk_and_suspend(Keeper),
+    ok = mria:dirty_delete(?CHAN_REG_TAB, Cursor),
+    ?check_trace(
+        begin
+            {_, {ok, _}} = ?wait_async_action(
+                ok = sys:resume(Keeper),
+                #{?snk_kind := cm_registry_gc_finished},
+                5000
+            ),
+            ?assertEqual(Keeper, whereis(emqx_cm_registry_keeper)),
+            ?assertEqual([], [Id || Id <- DeadIds, all_pids(Id) =/= []]),
+            ?assertEqual(
+                [],
+                [Id || Id <- AliveIds, Id =/= Cursor, all_pids(Id) =:= []]
+            ),
+            %% a finished sweep erases its resume keys
+            ?assertMatch(#{resume_count := 0}, sys:get_state(Keeper)),
+            {dictionary, Dict} = erlang:process_info(Keeper, dictionary),
+            ?assertEqual(
+                [],
+                [K || {{emqx_cm_registry_keeper, resume_key, _} = K, _} <- Dict]
+            )
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(cm_registry_gc_cursor_lost, Trace))
+        end
+    ),
+    ok.
+
+-doc """
+When the cursor key and every recorded resume key are gone, the keeper
+ends the current sweep instead of crashing. The next sweep starts from the
+first key and deletes the rows the ended sweep did not reach.
+""".
+t_ends_sweep_when_no_resume_key_left(_) ->
+    Dead = dead_local_pid(),
+    %% Every row is dead, so the sweep deletes every key it scans and
+    %% records no resume key.
+    {[], DeadIds} = write_mixed_rows(<<"no-resume-">>, 150, Dead, _AliveEvery = 0),
+    Keeper = whereis(emqx_cm_registry_keeper),
+    Cursor = run_first_chunk_and_suspend(Keeper),
+    ?assertMatch(#{resume_count := 0}, sys:get_state(Keeper)),
+    ok = mria:dirty_delete(?CHAN_REG_TAB, Cursor),
+    ?check_trace(
+        begin
+            {_, {ok, _}} = ?wait_async_action(
+                ok = sys:resume(Keeper),
+                #{?snk_kind := cm_registry_gc_cursor_lost},
+                5000
+            ),
+            ?assertMatch(#{next_clientid := undefined}, sys:get_state(Keeper)),
+            ?assertEqual(Keeper, whereis(emqx_cm_registry_keeper)),
+            ?assertNotEqual([], [Id || Id <- DeadIds, all_pids(Id) =/= []]),
+            _ = emqx_cm_registry_keeper:force_sweep_stale_pids(),
+            ?assertEqual([], [Id || Id <- DeadIds, all_pids(Id) =/= []])
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(cm_registry_gc_chunk_failed, Trace))
+        end
+    ),
+    ok.
+
+-doc """
+The sweep continues when another process deletes a key after the sweep
+reads its rows and before the sweep looks up the next key.
+""".
+t_resumes_when_row_deleted_between_read_and_next(_) ->
+    Dead = dead_local_pid(),
+    {AliveIds, DeadIds} = write_mixed_rows(<<"read-next-">>, 40, Dead),
+    Order = walk_order(),
+    %% The target follows an alive key, so a resume key exists when the
+    %% target is deleted.
+    [_FirstAlive, Target | After] = lists:dropwhile(
+        fun(Id) -> not lists:member(Id, AliveIds) end, Order
+    ),
+    ?assertNotEqual([], [Id || Id <- After, lists:member(Id, DeadIds)]),
+    ok = meck:new(mnesia, [passthrough, no_link, no_history]),
+    ok = meck:expect(mnesia, dirty_read, fun(Tab, Key) ->
+        Rows = meck:passthrough([Tab, Key]),
+        case Tab =:= ?CHAN_REG_TAB andalso Key =:= Target of
+            true -> ok = mria:dirty_delete(Tab, Key);
+            false -> ok
+        end,
+        Rows
+    end),
+    ?check_trace(
+        begin
+            _ = emqx_cm_registry_keeper:force_sweep_stale_pids(),
+            ?assertEqual([], [Id || Id <- DeadIds, all_pids(Id) =/= []]),
+            ?assertEqual(
+                [],
+                [Id || Id <- AliveIds, Id =/= Target, all_pids(Id) =:= []]
+            )
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(cm_registry_gc_cursor_lost, Trace))
+        end
+    ),
+    ok.
+
+-doc """
+An unexpected error in a scheduled chunk does not stop the keeper. The
+keeper logs the error, drops the cursor and schedules the next sweep.
+""".
+t_keeper_survives_chunk_error(_) ->
+    ClientId = <<"chunk-error">>,
+    ok = emqx_cm_registry:register_channel({ClientId, dead_local_pid()}),
+    Keeper = whereis(emqx_cm_registry_keeper),
+    ok = meck:new(emqx_cm_registry, [passthrough, no_link, no_history]),
+    ok = meck:expect(emqx_cm_registry, unregister_channel, fun(_) -> error(injected) end),
+    ?check_trace(
+        begin
+            {_, {ok, _}} = ?wait_async_action(
+                Keeper ! start,
+                #{?snk_kind := cm_registry_gc_chunk_failed, reason := injected},
+                5000
+            ),
+            ?assertEqual(Keeper, whereis(emqx_cm_registry_keeper)),
+            #{next_clientid := undefined, timer_ref := TimerRef} = sys:get_state(Keeper),
+            ?assert(is_integer(erlang:read_timer(TimerRef))),
+            ok = meck:unload(emqx_cm_registry),
+            ?assertMatch(
+                #{deleted_local_dead := 1},
+                emqx_cm_registry_keeper:force_sweep_stale_pids()
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{exception := error, stacktrace := [_ | _]}],
+                ?of_kind(cm_registry_gc_chunk_failed, Trace)
+            )
+        end
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -256,3 +403,43 @@ fake_remote_pid(Node) ->
     <<131, NodeAtom/binary>> = term_to_binary(Node),
     PidBin = <<131, 88, NodeAtom/binary, 1:32/big, 1:32/big, 1:32/big>>,
     binary_to_term(PidBin).
+
+%% Write `N' rows. Every `AliveEvery'-th row points at the test process;
+%% the rest point at `Dead'. Returns `{AliveIds, DeadIds}'.
+write_mixed_rows(Prefix, N, Dead) ->
+    write_mixed_rows(Prefix, N, Dead, 2).
+
+write_mixed_rows(Prefix, N, Dead, AliveEvery) ->
+    lists:foldr(
+        fun(I, {Alive, DeadIds}) ->
+            ClientId = <<Prefix/binary, (integer_to_binary(I))/binary>>,
+            case AliveEvery > 0 andalso I rem AliveEvery =:= 0 of
+                true ->
+                    ok = mria:dirty_write(?CHAN_REG_TAB, #channel{chid = ClientId, pid = self()}),
+                    {[ClientId | Alive], DeadIds};
+                false ->
+                    ok = mria:dirty_write(?CHAN_REG_TAB, #channel{chid = ClientId, pid = Dead}),
+                    {Alive, [ClientId | DeadIds]}
+            end
+        end,
+        {[], []},
+        lists:seq(1, N)
+    ).
+
+walk_order() ->
+    walk_order(mnesia:dirty_first(?CHAN_REG_TAB), []).
+
+walk_order('$end_of_table', Acc) ->
+    lists:reverse(Acc);
+walk_order(Key, Acc) ->
+    walk_order(mnesia:dirty_next(?CHAN_REG_TAB, Key), [Key | Acc]).
+
+%% Run one scheduled chunk, then suspend the keeper before its next chunk.
+%% Messages from one sender arrive in order, so the keeper handles `start'
+%% before the suspend request. Returns the stored cursor.
+run_first_chunk_and_suspend(Keeper) ->
+    Keeper ! start,
+    ok = sys:suspend(Keeper),
+    #{next_clientid := Cursor} = sys:get_state(Keeper),
+    ?assert(is_binary(Cursor)),
+    Cursor.
