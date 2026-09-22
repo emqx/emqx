@@ -21,7 +21,6 @@
 
 %% These apps are always (re)started by emqx_machine:
 -define(BASIC_REBOOT_APPS, [
-    gproc,
     esockd,
     ranch,
     cowboy,
