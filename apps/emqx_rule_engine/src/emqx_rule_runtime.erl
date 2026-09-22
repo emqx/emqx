@@ -15,7 +15,8 @@
 -export([
     apply_rule/3,
     apply_rules/3,
-    eval_action_reply_to/2
+    eval_action_reply_to/2,
+    rule_namespace/0
 ]).
 
 %% Internal exports used by schema validation and message transformation.
@@ -79,19 +80,55 @@ apply_rule(
     Columns,
     RawEnvs
 ) ->
-    %% add metadata before the rule is applied
-    %% but OTEL trace should not be included in metadata
-    ?EXT_TRACE_APPLY_RULE(
-        ?EXT_TRACE_ATTR(rule_attrs(RichedRule)),
-        fun(Envs) ->
-            do_apply_rule(
-                RichedRule,
-                add_metadata(Columns, #{rule_id => RuleId, namespace => Namespace}),
-                add_metadata(Envs, maps:with([trigger, matched], RichedRule))
-            )
-        end,
-        [RawEnvs]
-    ).
+    with_rule_namespace(Namespace, fun() ->
+        %% add metadata before the rule is applied
+        %% but OTEL trace should not be included in metadata
+        ?EXT_TRACE_APPLY_RULE(
+            ?EXT_TRACE_ATTR(rule_attrs(RichedRule)),
+            fun(Envs) ->
+                do_apply_rule(
+                    RichedRule,
+                    add_metadata(Columns, #{rule_id => RuleId, namespace => Namespace}),
+                    add_metadata(Envs, maps:with([trigger, matched], RichedRule))
+                )
+            end,
+            [RawEnvs]
+        )
+    end).
+
+%%------------------------------------------------------------------------------
+%% Rule namespace scoping
+%%------------------------------------------------------------------------------
+
+%% Runs `Fun' with the namespace of the rule being applied exposed to SQL
+%% helper functions that keep per-namespace state (e.g. kv_store_*).  The
+%% previous value is restored afterwards, so that rules belonging to
+%% different namespaces can be applied in the same process (and nested rule
+%% applications triggered by actions keep the right scope).
+with_rule_namespace(Namespace, Fun) ->
+    PrevNamespace = erlang:get(?RULE_NAMESPACE_PD_KEY),
+    erlang:put(?RULE_NAMESPACE_PD_KEY, Namespace),
+    try
+        Fun()
+    after
+        restore_rule_namespace(PrevNamespace)
+    end.
+
+restore_rule_namespace(undefined) ->
+    _ = erlang:erase(?RULE_NAMESPACE_PD_KEY),
+    ok;
+restore_rule_namespace(Namespace) ->
+    _ = erlang:put(?RULE_NAMESPACE_PD_KEY, Namespace),
+    ok.
+
+%% The namespace of the rule being applied in the current process, or the
+%% global namespace when called outside of rule application.
+-spec rule_namespace() -> ?global_ns | binary().
+rule_namespace() ->
+    case erlang:get(?RULE_NAMESPACE_PD_KEY) of
+        undefined -> ?global_ns;
+        Namespace -> Namespace
+    end.
 
 do_apply_rule(
     #{

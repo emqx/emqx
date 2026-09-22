@@ -10,6 +10,7 @@
 
 -export([
     test/1,
+    test/2,
     get_selected_data/3,
     %% Some SQL functions return different results in the test environment
     is_test_runtime_env/0,
@@ -89,7 +90,12 @@ remove_internal_fields(Context) ->
     maps:without([event_type], Context).
 
 -spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, term()}.
-test(#{sql := Sql, context := Context}) ->
+test(Params) ->
+    test(?global_ns, Params).
+
+-spec test(?global_ns | binary(), #{sql := binary(), context := map()}) ->
+    {ok, map() | list()} | {error, term()}.
+test(Namespace, #{sql := Sql, context := Context}) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             Topic = get_in_topic(Context),
@@ -101,7 +107,10 @@ test(#{sql := Sql, context := Context}) ->
             case match_any(Topic, EventTopics) of
                 {ok, Filter} ->
                     test_rule(
-                        enriched_rule(rule(Sql, Select, EventTopics), Topic, Filter), Context
+                        enriched_rule(
+                            rule(Namespace, Sql, Select, EventTopics), Topic, Filter
+                        ),
+                        Context
                     );
                 nomatch ->
                     {error, nomatch}
@@ -119,18 +128,20 @@ test(#{sql := Sql, context := Context}) ->
             {error, Reason}
     end.
 
-test_rule(#{rule := #{id := RuleId, from := EventTopics}} = EnrichedRule, Context) ->
-    FullContext0 = fill_default_values(hd(EventTopics), Context),
-    FullContext = remove_internal_fields(FullContext0),
+test_rule(#{rule := #{from := EventTopics} = Rule} = EnrichedRule, Context) ->
     set_is_test_runtime_env(),
-    try emqx_rule_runtime:apply_rule(EnrichedRule, FullContext, #{}) of
+    try
+        FullContext0 = fill_default_values(hd(EventTopics), Context),
+        FullContext = remove_internal_fields(FullContext0),
+        emqx_rule_runtime:apply_rule(EnrichedRule, FullContext, #{})
+    of
         {ok, Data} ->
             {ok, flatten(Data)};
         {error, Reason} ->
             {error, Reason}
     after
         unset_is_test_runtime_env(),
-        ok = emqx_rule_engine:clear_metrics_for_rule(RuleId)
+        ok = emqx_rule_engine:clear_metrics_for_rule(emqx_rule_engine:rule_resource_id(Rule))
     end.
 
 get_selected_data(Selected, Envs, Args) ->
@@ -203,12 +214,11 @@ maybe_infer_in_topic(Context, 'message.publish') ->
 maybe_infer_in_topic(_Context, Event) ->
     emqx_rule_events:event_topic(Event).
 
-rule(Sql, Select, EventTopics) ->
+rule(Namespace, Sql, Select, EventTopics) ->
     RuleId = iolist_to_binary(["sql_tester:", emqx_utils:gen_id(16)]),
-    ok = emqx_rule_engine:maybe_add_metrics_for_rule(RuleId),
-    #{
+    Rule = #{
         id => RuleId,
-        namespace => ?global_ns,
+        namespace => Namespace,
         sql => Sql,
         from => EventTopics,
         actions => [#{mod => ?MODULE, func => get_selected_data, args => #{}}],
@@ -219,7 +229,9 @@ rule(Sql, Select, EventTopics) ->
         incase => emqx_rule_sqlparser:select_incase(Select),
         conditions => emqx_rule_sqlparser:select_where(Select),
         created_at => erlang:system_time(millisecond)
-    }.
+    },
+    ok = emqx_rule_engine:maybe_add_metrics_for_rule(emqx_rule_engine:rule_resource_id(Rule)),
+    Rule.
 
 enriched_rule(Rule, InTopic, Matched) ->
     #{rule => Rule, trigger => InTopic, matched => Matched}.
