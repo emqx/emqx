@@ -66,13 +66,7 @@ init_per_testcase(_Case, Config) ->
         ]
     ],
     catch emqx_bcast:init_tables(),
-    [
-        catch ets:delete_all_objects(T)
-     || T <- [
-            bcast_device_registry,
-            bcast_subscription
-        ]
-    ],
+    [catch ets:delete_all_objects(T) || T <- [bcast_device_registry]],
     %% Per-shard pull state tables (one per-client state row per shard).
     [
         catch ets:delete_all_objects(emqx_bcast_pull_shard:tab(S, bcast_client_state))
@@ -136,6 +130,40 @@ t_config_defaults(_Config) ->
     ?assert(is_binary(maps:get(broadcast_topic, Cfg))),
     ?assert(is_binary(maps:get(batch_topic, Cfg))).
 
+-doc "Durations accept the forms the rest of EMQX accepts for config\n"
+"durations - compound units and sub-second values - rounded up to whole\n"
+"seconds here, and a bare number still means seconds. An unparseable value\n"
+"falls back to the field default with a warning at config time instead of\n"
+"silently behaving differently at request time.".
+t_config_duration_formats(_Config) ->
+    try
+        ok = emqx_bcast_config:update(#{<<"msg_ttl">> => <<"1h30m">>}),
+        ?assertEqual(5400, emqx_bcast_config:get(msg_ttl)),
+        ok = emqx_bcast_config:update(#{<<"cleanup_interval">> => <<"2m30s">>}),
+        ?assertEqual(150, emqx_bcast_config:get(cleanup_interval)),
+        %% Sub-second rounds up: 500ms must not become a TTL of 0.
+        ok = emqx_bcast_config:update(#{<<"msg_ttl">> => <<"500ms">>}),
+        ?assertEqual(1, emqx_bcast_config:get(msg_ttl)),
+        %% A bare number keeps meaning seconds.
+        ok = emqx_bcast_config:update(#{<<"msg_ttl">> => <<"60">>}),
+        ?assertEqual(60, emqx_bcast_config:get(msg_ttl)),
+        Reports = emqx_cth_log_capture:capture(fun() ->
+            ok = emqx_bcast_config:update(#{<<"msg_ttl">> => <<"1h30">>})
+        end),
+        ?assertEqual(15 * 86400, emqx_bcast_config:get(msg_ttl)),
+        ?assert(
+            lists:any(
+                fun(R) ->
+                    maps:get(field, R, undefined) =:= msg_ttl andalso
+                        maps:get(default, R, undefined) =:= 15 * 86400
+                end,
+                Reports
+            )
+        )
+    after
+        init_test_config()
+    end.
+
 -doc "The runtime config surface matches the avro schema: keys the schema "
 "does not declare (e.g. the hardcoded intake queue depth) must not leak "
 "into the normalized runtime config - they could never be set through "
@@ -170,7 +198,17 @@ t_default_config_covers_schema(_Config) ->
     {ok, HoconBin} = file:read_file(filename:join(Priv, "config.hocon")),
     {ok, DefaultConfig} = hocon:binary(HoconBin),
     Missing = [Field || Field <- SchemaFields, not maps:is_key(Field, DefaultConfig)],
-    ?assertEqual([], Missing).
+    ?assertEqual([], Missing),
+    %% Retired settings that must stay declared. A config stored by an older
+    %% plugin version still carries these names (delivery_queue_max is the one
+    %% an 0.1.1 config sets), and decoding it against a schema that dropped the
+    %% declaration is rejected, which would leave the plugin unable to load
+    %% after an upgrade. They are declared without $ui, so the dashboard hides
+    %% them, and they have no runtime effect.
+    lists:foreach(
+        fun(Field) -> ?assert(lists:member(Field, SchemaFields)) end,
+        [<<"msg_warn_threshold">>, <<"force_upgrade_qos">>, <<"delivery_queue_max">>]
+    ).
 
 -doc "Out-of-range per-device quota values are clamped to [10, 200]; a "
 "warning tells the operator the configured value was overridden "
@@ -190,6 +228,50 @@ t_config_per_device_quota_clamped_with_warning(_Config) ->
         ?assertEqual(10, emqx_bcast_config:get(max_pending_deliveries_per_device)),
         ok = emqx_bcast_config:update(#{<<"max_pending_deliveries_per_device">> => 50}),
         ?assertEqual(50, emqx_bcast_config:get(max_pending_deliveries_per_device))
+    after
+        init_test_config()
+    end.
+
+-doc "A negative integer limit is a configuration typo with a silent and total\n"
+"effect (max_message_size_batch = -1 rejects every publish), and the plugin\n"
+"config schema - an Avro schema - cannot express bounds. It falls back to the\n"
+"default with a warning, like the per-device quota clamp and a bad duration.\n"
+"Zero is a legitimate \"allow nothing\" bound and is kept.".
+t_config_negative_limits_fall_back_to_default(_Config) ->
+    Fields = [
+        max_device_count,
+        max_message_size_broadcast,
+        max_message_size_batch,
+        max_pending_deliveries
+    ],
+    Defaults = [{Field, emqx_bcast_config:get(Field)} || Field <- Fields],
+    try
+        Reports = emqx_cth_log_capture:capture(fun() ->
+            ok = emqx_bcast_config:update(#{
+                <<"max_device_count">> => -1,
+                <<"max_message_size_broadcast">> => -1,
+                <<"max_message_size_batch">> => -1,
+                <<"max_pending_deliveries">> => -5
+            })
+        end),
+        lists:foreach(
+            fun({Field, Expected}) ->
+                ?assertEqual(Expected, emqx_bcast_config:get(Field))
+            end,
+            Defaults
+        ),
+        ?assert(
+            lists:any(
+                fun(R) ->
+                    maps:get(field, R, undefined) =:= max_message_size_batch andalso
+                        maps:get(configured, R, undefined) =:= -1
+                end,
+                Reports
+            )
+        ),
+        %% Zero stays live: it is a cap of zero deliveries, not a typo.
+        ok = emqx_bcast_config:update(#{<<"max_pending_deliveries">> => 0}),
+        ?assertEqual(0, emqx_bcast_config:get(max_pending_deliveries))
     after
         init_test_config()
     end.
@@ -339,7 +421,10 @@ t_claim_no_more_cleans_stale_index(_Config) ->
     %% skips instead of dropping - the index entry and quota survive.
     ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
     %% The bounded orphan scan is the designated repair path for genuinely
-    %% stale entries (its per-entry validity check has no lag ambiguity).
+    %% stale entries. It applies the same replication-lag rule as the claim
+    %% path, so the repair happens once the entry is past that window: age the
+    %% entry instead of sleeping through it.
+    backdate_index_entry(PK, DN, DeliveryId),
     emqx_bcast_storage:cleanup_expired(),
     ?assertEqual(0, emqx_bcast_storage:pending_delivery_count()),
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
@@ -573,6 +658,9 @@ t_cleanup_expired_repairs_orphan_index(_Config) ->
     ),
     ok = mnesia:dirty_delete(bcast_msg_meta, DeliveryId),
     ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
+    %% The scan shares the claim path's replication-lag rule, so age the entry
+    %% past that window instead of sleeping through it.
+    backdate_index_entry(PK, DN, DeliveryId),
     emqx_bcast_storage:cleanup_expired(),
     ?assertEqual(0, emqx_bcast_storage:pending_delivery_count()),
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
@@ -911,7 +999,11 @@ t_counted_ack_crash_window_between_decrement_and_marker(_Config) ->
         counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
         receive
             {decrement_done, ShardPid} ->
-                ShardPid ! kill_me,
+                %% Kill it for real: the flush guard retries anything raised
+                %% inside the flush, and only a process death models the crash
+                %% this window is about (an untrappable kill that leaves the
+                %% decrement applied and the rest of the flush un-run).
+                exit(ShardPid, kill),
                 put(shard_died, true)
         after 3000 ->
             put(shard_died, false)
@@ -996,7 +1088,10 @@ t_counted_ack_crash_window_between_marker_and_decrement(_Config) ->
         counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
         receive
             {marker_written, ShardPid} ->
-                ShardPid ! kill_me,
+                %% Untrappable kill: the flush guard retries a raise from
+                %% inside the flush, so the crash window has to be a real
+                %% process death (marker written, counter not decremented).
+                exit(ShardPid, kill),
                 put(marker_window_hit, true)
         after 3000 ->
             put(marker_window_hit, false)
@@ -1643,11 +1738,24 @@ t_register_message_dedup(_Config) ->
 t_register_message_refresh_not_found(_Config) ->
     Body = #{
         <<"Action">> => <<"RegisterMessage">>,
-        <<"MessageId">> => <<"nonexistent-uuid">>
+        %% Well-formed but unknown: the shape has to be a UUID for this case,
+        %% otherwise it is an input error (see the case below).
+        <<"MessageId">> => <<"550e8400-e29b-41d4-a716-446655440000">>
     },
     Request = #{body => Body},
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, Resp)).
+
+-doc "A MessageId that is not a UUID cannot name a stored message, so it is\n"
+"rejected as input (400 InvalidMessageId) instead of being reported as an\n"
+"unknown one, which the caller cannot act on.".
+t_register_message_invalid_message_id(_Config) ->
+    Body = #{
+        <<"Action">> => <<"RegisterMessage">>,
+        <<"MessageId">> => <<"nonexistent-uuid">>
+    },
+    {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], #{body => Body}),
+    ?assertEqual(<<"InvalidMessageId">>, maps:get(<<"Code">>, Resp)).
 
 -doc "MessageContent and MessageId together return 400.".
 t_register_message_mutual_exclusion(_Config) ->
@@ -1961,7 +2069,8 @@ t_batch_pub_message_id_wrong_type(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, Resp)).
 
--doc "RegisterMessage with a non-binary MessageId returns 400 MessageNotFound.".
+-doc "RegisterMessage with a non-binary MessageId is an input error (400\n"
+"InvalidMessageId): no value of the wrong type can name a stored message.".
 t_register_message_id_wrong_type(_Config) ->
     Body = #{
         <<"Action">> => <<"RegisterMessage">>,
@@ -1969,7 +2078,7 @@ t_register_message_id_wrong_type(_Config) ->
     },
     Request = #{body => Body},
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
-    ?assertEqual(<<"MessageNotFound">>, maps:get(<<"Code">>, Resp)).
+    ?assertEqual(<<"InvalidMessageId">>, maps:get(<<"Code">>, Resp)).
 
 %%--------------------------------------------------------------------
 %% Pending delivery quota tests
@@ -2110,7 +2219,9 @@ t_broadcast_missing_product_key(_Config) ->
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
     ?assertEqual(<<"InvalidProductKey">>, maps:get(<<"Code">>, Resp)).
 
--doc "PubBroadcast without content returns 400.".
+-doc "PubBroadcast without content is an input error with its own code (400\n"
+"MessageContentRequired): a broadcast has no MessageId to fall back on, and\n"
+"InvalidBase64 is reserved for a payload that failed to decode.".
 t_broadcast_missing_content(_Config) ->
     Body = #{
         <<"Action">> => <<"PubBroadcast">>,
@@ -2118,7 +2229,7 @@ t_broadcast_missing_content(_Config) ->
     },
     Request = #{body => Body},
     {ok, 400, _, Resp} = emqx_bcast_api:handle(post, [<<"pub">>], Request),
-    ?assertEqual(<<"InvalidBase64">>, maps:get(<<"Code">>, Resp)).
+    ?assertEqual(<<"MessageContentRequired">>, maps:get(<<"Code">>, Resp)).
 
 -doc "PubBroadcast with invalid Base64 returns 400 InvalidBase64.".
 t_broadcast_invalid_base64(_Config) ->
@@ -4005,6 +4116,80 @@ t_rebuild_completion_abort_leaves_no_ghost(_Config) ->
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 200)),
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN1})),
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN2})).
+
+-doc "The last-resort orphan scan must not drop an index entry whose delivery\n"
+"row is merely not replicated to this node yet: a fresh entry with an invisible\n"
+"row is the mria-lag case (the claim path keeps it for the same reason), and\n"
+"dropping it removes a committed delivery from the index, so the device never\n"
+"hears about that message again and nothing logs the loss. The same scan still\n"
+"drops a genuine orphan once the entry is older than the replication window.".
+t_orphan_scan_keeps_fresh_entry_with_invisible_row(_Config) ->
+    PK = <<"PORPHANLAG">>,
+    DN = <<"DORPHANLAG">>,
+    Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
+    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)),
+    %% An entry with no delivery/message row behind it, which is what a claim
+    %% sees while a peer core's promotion is still replicating.
+    Did = emqx_bcast_utils:gen_guid(),
+    ok = gen_server:call(Name, {append_batch, [{PK, DN, Did}]}, 5000),
+    ?assertEqual(1, orphan_queue_len(Name, PK, DN)),
+    ok = gen_server:call(Name, {cleanup_local}, 5000),
+    ?assertEqual(1, orphan_queue_len(Name, PK, DN)),
+    %% Older than ?REPLICATION_LAG_MS: the same scan drops it as a real orphan.
+    backdate_index_entry(PK, DN, Did),
+    ok = gen_server:call(Name, {cleanup_local}, 5000),
+    ?assertEqual(0, orphan_queue_len(Name, PK, DN)).
+
+%% Age one index entry past the replication window (and the claim path's and the
+%% orphan scan's tolerance for it), so a test can exercise the "genuinely stale"
+%% branch without sleeping for seconds.
+backdate_index_entry(PK, DN, Did) ->
+    Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
+    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)),
+    Old = erlang:system_time(millisecond) - 60000,
+    _ = sys:replace_state(Name, fun(St) ->
+        St#{dids => maps:update({PK, DN, Did}, Old, maps:get(dids, St))}
+    end),
+    ok.
+
+orphan_queue_len(Name, PK, DN) ->
+    St = sys:get_state(Name),
+    case maps:get({PK, DN}, maps:get(queues, St), undefined) of
+        undefined -> 0;
+        Q -> queue:len(Q)
+    end.
+
+-doc "The ack flush runs inside the shard's handle_info/2, so a failure while\n"
+"applying a buffered ack must not take the shard - and every partition it\n"
+"holds - down: the marker write and the counter decrement are idempotent, so\n"
+"the entry stays buffered and is retried on the next tick.".
+t_ack_flush_failure_retries_instead_of_killing_shard(_Config) ->
+    PK = <<"PACKFLUSH">>,
+    DN = <<"DACKFLUSH">>,
+    Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
+    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)),
+    PrePid = whereis(Name),
+    %% A buffered ack whose device list cannot be measured: a mnesia failure on
+    %% the marker write raises the same way out of the same call.
+    PoisonDid = <<"poison-delivery">>,
+    Poison = #{PoisonDid => not_a_device_list},
+    Reports = emqx_cth_log_capture:capture(fun() ->
+        _ = sys:replace_state(Name, fun(St) -> St#{ack_buf => Poison} end),
+        Name ! ack_flush,
+        _ = sys:get_state(Name)
+    end),
+    ?assertEqual(PrePid, whereis(Name)),
+    %% The guard really ran on the poison (and, being caught, did not take the
+    %% shard down): without it the entry is never applied and nothing is logged.
+    ?assert(
+        lists:any(
+            fun(R) -> maps:get(delivery_id, R, undefined) =:= PoisonDid end,
+            Reports
+        )
+    ),
+    ?assertEqual(Poison, maps:get(ack_buf, sys:get_state(Name))),
+    _ = sys:replace_state(Name, fun(St) -> St#{ack_buf => #{}} end),
+    ok.
 
 -doc "Completed-delivery cleanup must keep the <=0 counter row when its delete\n"
 "transaction aborts, so the next cleanup tick re-discovers the rows instead\n"

@@ -23,7 +23,9 @@ handle(Body, RequestId) ->
 validate(ProductKey, _, _) when not is_binary(ProductKey) orelse ProductKey =:= <<>> ->
     {error, <<"InvalidProductKey">>, <<"ProductKey is required">>};
 validate(_, undefined, _) ->
-    {error, <<"InvalidBase64">>, <<"MessageContent is required">>};
+    %% A distinct code: InvalidBase64 is for a payload that failed to decode,
+    %% and a broadcast has no MessageId alternative to fall back on.
+    {error, <<"MessageContentRequired">>, <<"MessageContent is required">>};
 validate(ProductKey, MessageContent, TopicFullName) ->
     case emqx_bcast_utils:decode_base64(MessageContent) of
         {ok, Payload} ->

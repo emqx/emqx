@@ -3264,8 +3264,12 @@ flush_ack_decrements(State = #{ack_buf := Buf}) ->
         0 ->
             State;
         _ ->
-            apply_ack_buffer(Buf),
-            State#{ack_buf => #{}}
+            %% Entries that could not be applied stay buffered for the next
+            %% tick. Both writes are idempotent, and dropping them would let a
+            %% later index rebuild resurrect a device that already acked: its
+            %% replayed ack decrements the completion counter a second time and
+            %% can complete the delivery while other devices have never acked.
+            State#{ack_buf => apply_ack_buffer(Buf)}
     end.
 
 %% Apply every buffered ack decrement with lock-free dirty operations.
@@ -3278,13 +3282,42 @@ flush_ack_decrements(State = #{ack_buf := Buf}) ->
 %% inside the shard process, blocking claims, appends and acks behind it.
 %% The dirty counter update is atomic and replicated without locks, which
 %% is how the ack path worked before the persistent markers were added.
+%%
+%% Returns the entries that could not be applied, so the caller can retry them.
 apply_ack_buffer(Buf) ->
-    maps:foreach(
-        fun(Did, DNs) -> apply_ack_decrement(Did, DNs) end,
+    maps:fold(
+        fun(Did, DNs, Retry) ->
+            case apply_ack_decrement(Did, DNs) of
+                ok -> Retry;
+                {error, _} -> maps:put(Did, DNs, Retry)
+            end
+        end,
+        #{},
         Buf
     ).
 
+%% The flush runs from handle_info(ack_flush, ...), so anything raised here
+%% used to take the shard process - and every partition it holds - down with
+%% it. Report the failure and hand the entry back to the buffer instead: a
+%% transient mnesia failure (or a replica still being created) then costs one
+%% retry, not a crashed shard.
 apply_ack_decrement(Did, DNs) ->
+    try do_apply_ack_decrement(Did, DNs) of
+        ok ->
+            ok
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "bcast_ack_flush_failed_retry",
+                delivery_id => Did,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            {error, {Class, Reason}}
+    end.
+
+do_apply_ack_decrement(Did, DNs) ->
     %% Duplicate suppression already happened in ack_one_index/2: counting an
     %% ack removes its dids entry, so a replayed PUBACK returns not_found and
     %% never reaches ack_buf. A rebuild additionally skips devices whose
@@ -4095,8 +4128,9 @@ cleanup_orphan_index_local(State) ->
             {Pre, Post} = lists:split(Start, Keys),
             Rotated = Post ++ Pre,
             Chunk = lists:sublist(Rotated, Budget),
+            Now = erlang:system_time(millisecond),
             State1 = lists:foldl(
-                fun(Key, St) -> cleanup_orphan_head(Key, St) end,
+                fun(Key, St) -> cleanup_orphan_head(Key, Now, St) end,
                 State,
                 Chunk
             ),
@@ -4105,20 +4139,33 @@ cleanup_orphan_index_local(State) ->
 
 %% Inspect one device's FIFO head: lazily-deleted residuals and stale
 %% entries are dropped, valid entries are put back in place.
-cleanup_orphan_head(Key = {PK, DN}, State) ->
+%%
+%% A missing local delivery/message row is ambiguous while the entry is
+%% fresh: a concurrent promotion on the peer core may still be replicating its
+%% transaction (mria lag). The claim path already refuses to drop such an entry
+%% (see maybe_drop_stale/6); this last-resort repair has to apply the same rule,
+%% because dropping a committed delivery here takes the message out of the
+%% index for good - the device then hears nothing about it until the message
+%% TTL expires, and nothing logs the loss.
+cleanup_orphan_head(Key = {PK, DN}, Now, State) ->
+    Dids = maps:get(dids, State),
     Q = maps:get(Key, maps:get(queues, State), queue:new()),
     case queue:out(Q) of
         {empty, _} ->
             State;
         {{value, Did}, Q2} ->
             Key3 = {PK, DN, Did},
-            case maps:is_key(Key3, maps:get(dids, State)) of
-                false ->
+            case maps:find(Key3, Dids) of
+                error ->
                     %% Lazy residual: drop.
                     save_queue(State, Key, Q2);
-                true ->
+                {ok, Ts} ->
                     case index_entry_valid(Did) of
                         true ->
+                            save_queue(State, Key, queue:in_r(Did, Q2));
+                        false when Now - Ts < ?REPLICATION_LAG_MS ->
+                            %% Fresh entry, invisible row: keep it at the head
+                            %% and let a later pass re-check it.
                             save_queue(State, Key, queue:in_r(Did, Q2));
                         false ->
                             State1 = remove_did(State, Key, Key3),

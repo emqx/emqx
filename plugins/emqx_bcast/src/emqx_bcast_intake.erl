@@ -60,6 +60,13 @@ init([]) ->
 %% Insert one request. Returns {ok, Seq} or `full` when the bounded queue
 %% is at capacity; the caller turns `full` into HTTP 429 backpressure. The
 %% queue never grows unboundedly.
+%%
+%% The depth check and the insert are separate operations, so concurrent
+%% enqueues can overshoot ?INTAKE_QUEUE_DEPTH by at most (concurrent enqueues -
+%% 1): the bound exists to bound memory and to turn sustained overload into
+%% 429s, not to be exact, and an atomic reservation per request would put a
+%% contended counter on the acceptance path for that. The drain side bounds the
+%% queue anyway (a bounded batch per worker per round).
 -spec enqueue(entry()) -> {ok, non_neg_integer()} | full.
 enqueue(Entry) ->
     MaxDepth = ?INTAKE_QUEUE_DEPTH,

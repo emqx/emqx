@@ -46,6 +46,16 @@
 %% instead of a hard-coded constant, so a bigger machine gets proportionally
 %% more promotion parallelism without a rebuild. The gen_server itself is
 %% worker 0, so the number of spawned siblings is one less.
+%%
+%% The workers poll (take + sleep ?DRAIN_BACKOFF_MS) instead of being woken by
+%% the enqueue path, so acceptance never waits on the promoter and a promoter
+%% crash cannot drop an accepted request. Two consequences are accepted on
+%% purpose: an idle core wakes one process per scheduler every 10ms, and the
+%% first promote after an idle period waits up to that same interval. A
+%% notification-driven drain would remove both, but it changes the drain
+%% protocol (the workers would have to be woken explicitly, and the enqueue
+%% path would take a dependency on promoter liveness), so it is not a change to
+%% make for the idle-wakeup count alone.
 promoter_workers() ->
     max(1, erlang:system_info(schedulers_online)).
 

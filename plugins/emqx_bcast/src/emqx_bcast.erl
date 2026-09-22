@@ -74,14 +74,16 @@ fallback_core_nodes() ->
         _:_ -> [node()]
     end.
 
+%% One of this node's candidate cores, picked at random: used for the cluster
+%% calls that any core can serve (metrics scrape, epoch bump). The per-client
+%% claim routing is deterministic instead - the pull shard groups claim entries
+%% by the shard owner that has to execute them, so a client always lands on the
+%% same core (see emqx_bcast_pull_shard:flush_buffer3/1).
 -spec random_core() -> node().
 random_core() ->
     Nodes = core_nodes(),
     lists:nth(erlang:phash2(erlang:unique_integer(), length(Nodes)) + 1, Nodes).
 
-%% Deterministic core for a client: all want_next claims for the same client
-%% land on the same core, which keeps the per-client claim load stable. The
-%% node list is sorted so the mapping is stable regardless of discovery order.
 -spec rpc_core(module(), atom(), [term()]) -> term().
 rpc_core(Mod, Fun, Args) ->
     rpc_core(Mod, Fun, Args, ?BCAST_RPC_CALL_TIMEOUT_MS).

@@ -238,6 +238,17 @@ Deletes the message record and cascade-deletes all deliveries referencing
 it together with their replay index entries. 404 `MessageNotFound` if
 unknown.
 
+The delete advances the delete generation on every running core before it
+removes any row, so a delivery admitted concurrently with the delete cannot
+rebuild the message afterwards. That makes the request all-or-nothing across
+the cluster: if any running core cannot serve the generation advance — it is
+still on a build that predates it, or its plugin is uninstalled, or the call
+fails — the request answers 500 `InternalError` and **no** row is removed.
+Retry it once every core runs this plugin version. A delete that does succeed
+can still be observed by a device whose delivery was already in flight when it
+ran: the guarantee is that the message is not re-created afterwards, not that
+no copy reaches a client after the call returns.
+
 ### Get Delivery
 
 ```
@@ -260,7 +271,10 @@ GET /api/v5/plugin_api/emqx_bcast/deliveries/:deliveryId
 ```
 
 `PendingCount` is the number of target devices that have not yet
-acknowledged. 404 `DeliveryNotFound` if unknown.
+acknowledged. `MessageId` is `null` when the message record the delivery
+belongs to has already been removed (deleted through the management API, or
+reclaimed when it expired): the delivery row outlives it until its own cleanup.
+404 `DeliveryNotFound` if unknown.
 
 ### Query Deliveries by Device
 
@@ -301,6 +315,8 @@ unknown.
 | `InvalidQos` | 400 | Qos value is not 0 or 1 |
 | `MissingAction` | 400 | Request body does not contain an Action field |
 | `UnknownAction` | 400 | Action value is not recognized |
+| `MessageContentRequired` | 400 | `PubBroadcast` was sent without a `MessageContent` (a broadcast has no `MessageId` to fall back on) |
+| `InvalidMessageId` | 400 | `MessageId` is not a UUID string; it cannot name a stored message, so it is rejected as input rather than reported as not found |
 | `InvalidParams` | 400 | Invalid query parameters on management endpoints: missing `product_key`/`device_name`, `limit` outside 1..1000, or a malformed `cursor` |
 | `DeliveryNotFound` | 404 | DeliveryId does not exist (management endpoints) |
 | `QuotaExceeded` | 429 | Pending delivery quota exceeded. For per-device over-limit the body includes a `Devices` array listing the devices over their cap |

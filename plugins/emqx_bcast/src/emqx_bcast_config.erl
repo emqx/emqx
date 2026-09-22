@@ -62,6 +62,19 @@ config() ->
         _:_ -> normalize(defaults())
     end.
 
+%% The default config carries every field config_schema.avsc declares, including
+%% the three retired names msg_warn_threshold, force_upgrade_qos and
+%% delivery_queue_max. They stay on purpose, here and in the schema:
+%% - a config stored by an older plugin version still carries them, and the
+%%   schema validation that runs while that config is decoded rejects a field
+%%   the schema no longer declares, so the plugin would fail to load after an
+%%   upgrade;
+%% - the dashboard's config page requires every schema field to be present in
+%%   the config it serves, and does not fall back to the avsc default for a
+%%   missing one.
+%% Only msg_warn_threshold reaches the normalized config below, and nothing
+%% reads it: the three are accepted for compatibility and have no runtime
+%% effect (see priv/config.hocon and docs/USAGE.md).
 defaults() ->
     #{
         <<"broadcast_topic">> => <<"/sys/broadcast/${productKey}">>,
@@ -88,12 +101,26 @@ normalize(Config) ->
         cleanup_interval => duration_to_sec(
             cleanup_interval, bin_or(<<"cleanup_interval">>, Config, Defaults)
         ),
-        max_device_count => num_or(<<"max_device_count">>, Config, Defaults),
-        max_message_size_broadcast => num_or(
-            <<"max_message_size_broadcast">>, Config, Defaults
+        max_device_count => non_negative_or(
+            max_device_count,
+            num_or(<<"max_device_count">>, Config, Defaults),
+            maps:get(<<"max_device_count">>, Defaults)
         ),
-        max_message_size_batch => num_or(<<"max_message_size_batch">>, Config, Defaults),
-        max_pending_deliveries => num_or(<<"max_pending_deliveries">>, Config, Defaults),
+        max_message_size_broadcast => non_negative_or(
+            max_message_size_broadcast,
+            num_or(<<"max_message_size_broadcast">>, Config, Defaults),
+            maps:get(<<"max_message_size_broadcast">>, Defaults)
+        ),
+        max_message_size_batch => non_negative_or(
+            max_message_size_batch,
+            num_or(<<"max_message_size_batch">>, Config, Defaults),
+            maps:get(<<"max_message_size_batch">>, Defaults)
+        ),
+        max_pending_deliveries => non_negative_or(
+            max_pending_deliveries,
+            num_or(<<"max_pending_deliveries">>, Config, Defaults),
+            maps:get(<<"max_pending_deliveries">>, Defaults)
+        ),
         max_pending_deliveries_per_device => clamp_per_device(
             num_or(<<"max_pending_deliveries_per_device">>, Config, Defaults)
         ),
@@ -167,6 +194,24 @@ clamp_warn(Configured, Effective) ->
         effective => Effective
     }).
 
+%% A negative limit is a configuration typo with a silent, total effect:
+%% max_message_size_batch = -1 rejects every publish. Zero is left alone - it is
+%% a consistent "allow nothing" bound (a cap of zero deliveries is exactly how
+%% the e2e suite pins the 429 path) - so only negatives fall back. The plugin
+%% config schema cannot catch either case: it is an Avro schema, which has no
+%% minimum. Fall back to the default and say so, the way the per-device quota
+%% clamps an out-of-range value and a bad duration falls back.
+non_negative_or(_Field, Value, _Default) when is_integer(Value), Value >= 0 ->
+    Value;
+non_negative_or(Field, Value, Default) ->
+    ?SLOG(warning, #{
+        msg => "invalid_plugin_config_value",
+        field => Field,
+        configured => Value,
+        default => Default
+    }),
+    Default.
+
 pool_size(0) -> erlang:system_info(schedulers);
 pool_size(N) when is_integer(N), N > 0 -> N;
 pool_size(_) -> erlang:system_info(schedulers).
@@ -197,13 +242,29 @@ duration_to_sec(Field, Value) ->
     }),
     Default.
 
-parse_duration(TTL) ->
-    case re:run(TTL, <<"^(\\d+)([smhd])$">>, [{capture, [1, 2], binary}]) of
-        {match, [N, <<"s">>]} -> {ok, binary_to_integer(N)};
-        {match, [N, <<"m">>]} -> {ok, binary_to_integer(N) * 60};
-        {match, [N, <<"h">>]} -> {ok, binary_to_integer(N) * 3600};
-        {match, [N, <<"d">>]} -> {ok, binary_to_integer(N) * 86400};
+%% Durations are parsed with the parser the rest of EMQX uses for config
+%% durations (hocon_postprocess:duration/1, milliseconds), so the forms users
+%% know from other settings work here too - "1h30m", "500ms", "0.5s" - instead
+%% of only "<digits>[smhd]". The result is rounded UP to whole seconds, which
+%% is the granularity this plugin stores: 500ms must not become 0, or a message
+%% would expire the moment it is written. A bare number keeps meaning seconds,
+%% as it does in the platform's own duration_s type. Anything unparseable (or
+%% zero/negative) falls back to the field default with a warning, at config
+%% load time, rather than silently changing behaviour at request time.
+parse_duration(Value) when is_binary(Value) ->
+    case hocon_postprocess:duration(Value) of
+        Ms when is_number(Ms), Ms > 0 ->
+            {ok, erlang:ceil(Ms / 1000)};
+        _ ->
+            seconds(Value)
+    end.
+
+seconds(Value) ->
+    try binary_to_integer(Value) of
+        Sec when Sec > 0 -> {ok, Sec};
         _ -> error
+    catch
+        _:_ -> error
     end.
 
 field_default(msg_ttl) -> ?DEFAULT_MSG_TTL;

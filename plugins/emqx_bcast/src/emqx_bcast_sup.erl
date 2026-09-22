@@ -26,6 +26,16 @@ restart_pools(PoolSize) ->
                 msg => "bcast_pools_restart_already_in_progress"
             }),
             ok;
+        {error, Reason} ->
+            %% A shard did not answer the snapshot call in time: the restart
+            %% was aborted, so the running pools stay as they are. Report it and
+            %% return, instead of leaving the config callback (the dashboard
+            %% config save) waiting on a shard that may never answer.
+            ?SLOG(warning, #{
+                msg => "bcast_pools_restart_aborted",
+                reason => Reason
+            }),
+            ok;
         {ok, Marks} ->
             Results = [
                 restart_pool_child(ChildId, PoolSize)

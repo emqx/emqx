@@ -36,7 +36,15 @@ validate(MessageContent, _MI) when MessageContent =/= undefined ->
             {error, <<"InvalidBase64">>, <<"Invalid Base64 encoding">>}
     end;
 validate(_MC, MessageId) when MessageId =/= undefined ->
-    {refresh, MessageId}.
+    %% A MessageId that is not a UUID cannot name a stored message, so it is an
+    %% input error rather than a lookup miss: say which one it is, instead of
+    %% letting the caller chase a MessageNotFound it cannot fix.
+    case emqx_bcast_utils:uuid_to_guid(MessageId) of
+        {ok, _} ->
+            {refresh, MessageId};
+        error ->
+            {error, <<"InvalidMessageId">>, <<"MessageId is not a valid UUID">>}
+    end.
 
 get_max_message_size_batch() ->
     emqx_bcast_config:get(max_message_size_batch).

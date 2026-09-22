@@ -79,7 +79,10 @@ resolve_qos0_payload(undefined, MessageId) ->
         {ok, MsgGuid} ->
             case emqx_bcast_storage:lookup_message(MsgGuid) of
                 {ok, Msg} ->
-                    {ok, Msg#bcast_message.payload, MessageId};
+                    %% Echo the stored canonical id, not the caller's string:
+                    %% the caller is supposed to get back an id it can use in a
+                    %% later request, and only this one is the message's.
+                    {ok, Msg#bcast_message.payload, Msg#bcast_message.api_msg_id};
                 {error, not_found} ->
                     {error, <<"MessageNotFound">>, <<"MessageId not found">>}
             end;

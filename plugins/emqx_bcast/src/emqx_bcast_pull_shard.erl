@@ -81,6 +81,12 @@
 -define(TAB_CNT(Shard), tab(Shard, bcast_pull_counters)).
 -define(WORKER_POOL, emqx_bcast_pull_worker_pool).
 -define(POOL_RESTART_WATCHDOG_MS, 30000).
+%% How long begin_pools_restart/0 waits for a shard to snapshot its inflight
+%% marks. The snapshot itself is trivial, so a shard that does not answer
+%% within this budget is busy or wedged, and the restart aborts (the shards
+%% that did begin are told to abort) instead of holding the config callback
+%% that triggered it - the dashboard config save - open indefinitely.
+-define(POOL_RESTART_BEGIN_TIMEOUT_MS, 5000).
 -define(POOL_RESTART_RETRY_MS, 1000).
 
 %% Max pending claim entries one flush tick submits; the remainder stays
@@ -244,12 +250,21 @@ group_devices(ProductKey, DeviceNames) ->
 begin_pools_restart() ->
     Results = [
         begin
-            try gen_server:call(shard_name(Shard), begin_pools_restart, infinity) of
+            try
+                gen_server:call(
+                    shard_name(Shard), begin_pools_restart, ?POOL_RESTART_BEGIN_TIMEOUT_MS
+                )
+            of
                 {ok, Marks} -> {ok, Marks};
                 {error, restart_in_progress} = E -> E
             catch
+                %% No shard process (not started, or gone): nothing to restart.
                 exit:{noproc, _} -> {ok, []};
-                exit:{normal, _} -> {ok, []}
+                exit:{normal, _} -> {ok, []};
+                %% Busy or wedged: abort rather than hold the caller open. The
+                %% shard's own restart watchdog covers the case where it picks
+                %% this call up after the timeout.
+                exit:{timeout, _} -> {error, {shard_timeout, Shard}}
             end
         end
      || Shard <- lists:seq(0, shard_count() - 1)

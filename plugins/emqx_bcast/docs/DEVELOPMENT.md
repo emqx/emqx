@@ -78,6 +78,26 @@ Key contracts:
   durable commit; the ledger identity is
   `wanted = acked + auto_acked + ttl_expired + canceled + queued + inflight`.
 
+## Config compatibility
+
+`priv/config_schema.avsc` and `priv/config.hocon` still declare three settings
+that drive no behaviour: `msg_warn_threshold`, `force_upgrade_qos` and
+`delivery_queue_max`. Their features were removed in the 0.2.0 delivery
+redesign (`msg_warn_threshold` lost its consumer when the pending-delivery
+quota replaced the warning threshold). **Keep the declarations**:
+
+- A config stored by an older plugin version still carries those names, and the
+  schema validation that runs while such a config is decoded rejects a field the
+  schema no longer declares, so the plugin fails to load after an upgrade.
+  `delivery_queue_max` is the one an 0.1.1-era config sets.
+- The dashboard plugin config page requires every field the schema declares to
+  be present in the config it serves, and does not fall back to the avsc default
+  for a missing field, so the defaults file has to ship them as well.
+
+They are declared without `$ui`, which hides them on the config page, and
+`emqx_bcast_config:normalize/1` accepts `msg_warn_threshold` without using it.
+`t_default_config_covers_schema` in `emqx_bcast_SUITE` guards both directions.
+
 ## Tests
 
 ```bash

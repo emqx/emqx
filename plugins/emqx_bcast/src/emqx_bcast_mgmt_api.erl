@@ -71,10 +71,21 @@ handle(get, [<<"deliveries">>], Request) ->
             is_binary(DeviceName),
             DeviceName =/= <<>>
         ->
-            {ok, Deliveries} = emqx_bcast_storage:deliveries_for_device(ProductKey, DeviceName),
-            ok_response(#{
-                <<"Deliveries">> => [delivery_json(D, ApiId) || {D, ApiId} <- Deliveries]
-            });
+            case emqx_bcast_storage:deliveries_for_device(ProductKey, DeviceName) of
+                {ok, Deliveries} ->
+                    ok_response(#{
+                        <<"Deliveries">> => [
+                            delivery_json(D, ApiId)
+                         || {D, ApiId} <- Deliveries
+                        ]
+                    });
+                {error, _} ->
+                    RequestId = emqx_bcast_utils:gen_api_uuid(),
+                    {error, 500, #{},
+                        emqx_bcast_api:error_response(
+                            RequestId, <<"InternalError">>, <<"Storage error">>
+                        )}
+            end;
         _ ->
             RequestId = emqx_bcast_utils:gen_api_uuid(),
             {error, 400, #{},

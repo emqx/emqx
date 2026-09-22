@@ -164,12 +164,21 @@ durable commit point, `ttl_expired`/`canceled` close the ledger):
 | `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); a request targeting a device over the cap is rejected with 429 QuotaExceeded and the over-limit device list. The cap is **best-effort**: check and reservation are atomic on an active shard, but while a shard is unavailable (startup/takeover) the request is accepted without per-device accounting |
 | `delivery_pool_size` | `0` | Worker count for each delivery pool (the per-node claim pool and the core-side server pool). 0 means one worker per scheduler. Changing it restarts the pools |
 
+`msg_ttl` and `cleanup_interval` take the duration forms the rest of EMQX
+accepts — `15d`, `60s`, `1h30m`, `500ms`, `0.5s` — and a bare number means
+seconds. Both are stored as whole seconds, so a value under a second rounds up
+to one. Anything that does not parse falls back to the field default and is
+logged at warning level when the config is loaded, rather than taking effect
+later at request time.
+
 ### Legacy settings (no runtime effect)
 
 These keys are still declared in the config schema and shipped in the defaults
-so that existing configuration files keep validating. Their values are accepted
-and normalized for compatibility, but they have **no runtime effect** and there
-is no way to change behaviour through them.
+so that existing configuration files keep validating: a config that sets a name
+the schema no longer declares fails validation when it is decoded, which leaves
+the plugin unable to load after an upgrade. Their values are accepted and
+normalized for compatibility, but they have **no runtime effect** and there is no
+way to change behaviour through them.
 
 | Parameter | Default | Notes |
 |-----------|---------|-------|
