@@ -451,11 +451,12 @@ only_global_qs_param() ->
             ?BAD_REQUEST(<<"rule id must be a string">>)
     end.
 
-'/rule_test'(post, #{body := Params}) ->
+'/rule_test'(post, #{body := Params} = Req) ->
+    Namespace = emqx_dashboard:get_namespace(Req),
     ?CHECK_PARAMS(
         Params,
         rule_test,
-        case emqx_rule_sqltester:test(CheckedParams) of
+        case emqx_rule_sqltester:test(Namespace, CheckedParams) of
             {ok, Result} ->
                 {200, Result};
             {error, {parse_error, Reason}} ->
