@@ -664,7 +664,9 @@ check_res(_Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
         "The effective configurations:~n"
         "```~n"
         "~ts```~n~n",
-    ActiveMsg = io_lib:format(ActiveMsg0, [hocon_pp:do(#{Key => emqx_conf:get_raw([Key])}, #{})]),
+    ActiveMsg = io_lib:format(ActiveMsg0, [
+        hocon_pp:do(#{Key => emqx_conf:get_raw([Key], #{})}, #{})
+    ]),
     FailedMsg0 =
         "Try to ~ts with:~n"
         "```~n"

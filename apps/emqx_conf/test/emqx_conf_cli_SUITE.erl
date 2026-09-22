@@ -22,6 +22,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_auth_redis,
+            emqx_schema_registry,
             emqx_auth,
             emqx_management
         ],
@@ -403,6 +404,25 @@ t_merge_authn_object_form(Config) ->
     ),
     ok = load_conf(replace, #{<<"authentication">> => AuthNInit}, Config),
     ok.
+
+-doc """
+Loading one field of a union member with `--merge` keeps the stored
+fields that select the member (issue #17552, `schema_registry` schemas).
+""".
+t_merge_union_member_without_selector(Config) ->
+    Path = [schema_registry, schemas, <<"merge_test">>],
+    Schema = #{<<"type">> => <<"json">>, <<"source">> => <<"{}">>},
+    ok = load_conf(merge, schema_conf(Schema), Config),
+    ok = load_conf(merge, schema_conf(#{<<"description">> => <<"updated">>}), Config),
+    ?assertMatch(
+        #{type := json, source := <<"{}">>, description := <<"updated">>},
+        emqx_conf:get(Path)
+    ),
+    {ok, _} = emqx_conf:remove(Path, #{override_to => cluster}),
+    ok.
+
+schema_conf(Schema) ->
+    #{<<"schema_registry">> => #{<<"schemas">> => #{<<"merge_test">> => Schema}}}.
 
 load_conf(Mode, Conf, Config) ->
     ConfFile = prepare_conf_file(?FUNCTION_NAME, hocon_pp:do(Conf, #{}), Config),
