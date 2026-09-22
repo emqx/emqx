@@ -874,7 +874,24 @@ defaults nor required.
 """.
 -spec normalize_raw_conf(raw_config()) -> raw_config().
 normalize_raw_conf(RawConf) ->
-    fill_defaults(RawConf, #{partial => true}).
+    RootNames = get_root_names(),
+    maps:fold(
+        fun(Key, Conf, Acc) ->
+            SubMap = #{Key => Conf},
+            Normalized =
+                case lists:member(Key, RootNames) of
+                    true -> normalize_raw_root(get_schema_mod(Key), SubMap);
+                    false -> SubMap
+                end,
+            maps:merge(Acc, Normalized)
+        end,
+        #{},
+        RawConf
+    ).
+
+normalize_raw_root(SchemaMod, RawConf) ->
+    Opts = #{partial => true, make_serializable => true},
+    hocon_tconf:check_plain(SchemaMod, RawConf, Opts, root_names_from_conf(RawConf)).
 
 -spec fill_defaults(module(), raw_config(), hocon_tconf:opts()) -> map().
 fill_defaults(SchemaMod, RawConf = #{<<"durable_storage">> := Ds}, Opts) ->
