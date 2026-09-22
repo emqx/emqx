@@ -111,7 +111,7 @@ purge_loop('$end_of_table') ->
     ok;
 purge_loop(ClientId) ->
     Rows = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
-    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
+    Next = next_key(ClientId),
     lists:foreach(
         fun(R) -> mria:dirty_delete_object(?CHAN_REG_TAB, R) end,
         Rows
@@ -165,7 +165,18 @@ handle_info(start, State0) ->
             undefined -> reset_sweep_state(State1, _Forced = false);
             _ -> State1
         end,
-    do_run_chunk(Cursor, State2);
+    try
+        do_run_chunk(Cursor, State2)
+    catch
+        Class:Reason:Stacktrace ->
+            ?tp(error, cm_registry_gc_chunk_failed, #{
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            TimerRef = send_delay_start(),
+            {noreply, State2#{next_clientid := undefined, timer_ref := TimerRef}}
+    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -298,7 +309,7 @@ run_chunk_loop(ClientId, 0, State) ->
     {ClientId, State};
 run_chunk_loop(ClientId, Budget, State0) ->
     Rows = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
-    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
+    Next = next_key(ClientId),
     State1 = lists:foldl(
         fun(R, S) -> process_row(ClientId, R, S) end,
         State0,
@@ -311,6 +322,17 @@ run_chunk_loop(ClientId, Budget, State0) ->
             _ -> Budget - 1
         end,
     run_chunk_loop(Next, NewBudget, State2).
+
+%% The registry is a bag table: `mnesia:dirty_next/2' fails when its key
+%% is no longer in the table. When `ClientId' is gone, start over from
+%% the first key.
+next_key(ClientId) ->
+    try
+        mnesia:dirty_next(?CHAN_REG_TAB, ClientId)
+    catch
+        exit:{aborted, {badarg, _}} ->
+            mnesia:dirty_first(?CHAN_REG_TAB)
+    end.
 
 %%--------------------------------------------------------------------
 %% Per-row predicates
