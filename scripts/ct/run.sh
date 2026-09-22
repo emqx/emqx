@@ -381,6 +381,17 @@ if [ "$STOP" = 'no' ] && [ "$PS" = 'no' ]; then
         exit 1
     fi
     set -e
+
+    if [[ " ${CT_DEPS} " == *" nats "* ]]; then
+        # The NATS bridge suite starts short-lived servers with custom configs
+        # (auth, TLS, JetStream, and restart cases), so it needs the server
+        # executable inside the Erlang test container, not only a NATS sidecar.
+        # The host destination below is mounted at /var/lib/secret in Erlang.
+        docker cp nats:/nats-server /tmp/emqx-ci/emqx-shared-secret/nats-server
+        docker exec -u root erlang bash -c \
+            "install -m 0755 /var/lib/secret/nats-server /usr/local/bin/nats-server"
+        docker exec erlang nats-server --version
+    fi
 fi
 
 if [ "$DAMENG_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ] && [ "$PS" = 'no' ]; then

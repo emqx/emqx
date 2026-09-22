@@ -61,6 +61,9 @@ is_sensitive_key(<<"client_jwks">>) -> true;
 is_sensitive_key(client_secret) -> true;
 is_sensitive_key("client_secret") -> true;
 is_sensitive_key(<<"client_secret">>) -> true;
+is_sensitive_key(credentials_file) -> true;
+is_sensitive_key("credentials_file") -> true;
+is_sensitive_key(<<"credentials_file">>) -> true;
 is_sensitive_key(id_token) -> true;
 is_sensitive_key("id_token") -> true;
 is_sensitive_key(<<"id_token">>) -> true;
@@ -76,6 +79,9 @@ is_sensitive_key(<<"mfa_token">>) -> true;
 is_sensitive_key(new_pwd) -> true;
 is_sensitive_key("new_pwd") -> true;
 is_sensitive_key(<<"new_pwd">>) -> true;
+is_sensitive_key(nkey_seed) -> true;
+is_sensitive_key("nkey_seed") -> true;
+is_sensitive_key(<<"nkey_seed">>) -> true;
 is_sensitive_key(old_pwd) -> true;
 is_sensitive_key("old_pwd") -> true;
 is_sensitive_key(<<"old_pwd">>) -> true;
@@ -433,9 +439,11 @@ redact_test_() ->
         api_secret,
         aws_secret_access_key,
         client_secret,
+        credentials_file,
         passcode,
         passwd,
         password,
+        nkey_seed,
         private_key,
         secret,
         secret_key,
