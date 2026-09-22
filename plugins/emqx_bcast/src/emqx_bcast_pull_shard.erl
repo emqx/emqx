@@ -153,7 +153,12 @@
     deferred_retry_count = 0,
     release_timer = undefined,
     release_tags = [],
-    release_claims = []
+    release_claims = [],
+    %% Where the next deferred-claim sweep starts inside the (stable) fold
+    %% order of the row table. Rotating the batch keeps a cap-saturated shard
+    %% from retrying the same head of the set on every pass, which would
+    %% starve every marked client behind ?REARM_SWEEP_MAX.
+    rearm_cursor = 0
 }).
 
 %%--------------------------------------------------------------------
@@ -369,11 +374,22 @@ cached_topics(Shard, #{clientid := ClientId, product_key := ProductKey, pid := P
     case ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}) of
         [#bcast_client_state{topics = []}] ->
             Topics = subscription_topics(Pid),
-            _ = ets:update_element(
-                ?TAB_STATE(Shard),
-                {ProductKey, ClientId},
-                {#bcast_client_state.topics, Topics}
-            ),
+            %% This runs in a claim worker, while the shard owns the table and
+            %% deletes a row on disconnect / takeover. The row can disappear
+            %% between the lookup and this write, and a badarg would kill the
+            %% worker together with every other claim in its batch. The cache
+            %% is only a hint: skipping the write costs one extra subscription
+            %% read on the next claim.
+            _ =
+                try
+                    ets:update_element(
+                        ?TAB_STATE(Shard),
+                        {ProductKey, ClientId},
+                        {#bcast_client_state.topics, Topics}
+                    )
+                catch
+                    error:badarg -> false
+                end,
             Topics;
         [#bcast_client_state{topics = Topics}] ->
             Topics;
@@ -1051,17 +1067,23 @@ bump_claim(Shard, Delta) -> cnt_inc(Shard, claim, Delta).
 %% nothing; the mark lives on the client row and the sweep retries a bounded
 %% batch per pass.
 note_claim_deferred(Shard, ProductKey, ClientId) ->
-    note_claim_deferred(Shard, ProductKey, ClientId, undefined).
+    %% A core that still holds entries while the window came back empty is a
+    %% normal transient (subscription commit or payload replication lag), not
+    %% backpressure, so it is marked as such and only logged at debug level.
+    note_claim_deferred(Shard, ProductKey, ClientId, residual, undefined).
 
-%% `PendingRow` carries the row a refused round was about to write: a round
-%% that is refused never writes its row, so the mark has to create it here or
-%% the deferral would have nowhere to live.
-note_claim_deferred(Shard, ProductKey, ClientId, PendingRow) ->
+%% The origin separates a claim refused by the per-shard round cap (worth
+%% alerting on) from that transient, and `PendingRow` carries the row a
+%% refused round was about to write: a round that is refused never writes its
+%% row, so the mark has to create it here or the deferral would have nowhere
+%% to live.
+note_claim_deferred(Shard, ProductKey, ClientId, Origin, PendingRow) ->
     Tab = ?TAB_STATE(Shard),
     Key = {ProductKey, ClientId},
     Now = erlang:system_time(millisecond),
+    Mark = {Now, Origin},
     case ets:lookup(Tab, Key) of
-        [#bcast_client_state{rearm_at = Last}] when
+        [#bcast_client_state{rearm_at = {Last, _}}] when
             is_integer(Last), Now - Last < ?REARM_MIN_INTERVAL_MS
         ->
             ok;
@@ -1069,10 +1091,10 @@ note_claim_deferred(Shard, ProductKey, ClientId, PendingRow) ->
             %% The flag is on the row, not in a separate queue, so it cannot
             %% be dropped when the backpressure episode is large: the row
             %% already exists for every client that can reach this path.
-            true = ets:update_element(Tab, Key, {#bcast_client_state.rearm_at, Now}),
+            true = ets:update_element(Tab, Key, {#bcast_client_state.rearm_at, Mark}),
             ok;
         [] when PendingRow =/= undefined ->
-            true = ets:insert(Tab, PendingRow#bcast_client_state{rearm_at = Now}),
+            true = ets:insert(Tab, PendingRow#bcast_client_state{rearm_at = Mark}),
             ok;
         [] ->
             %% No row and nothing pending means no window and no claim for
@@ -1097,14 +1119,32 @@ drain_deferred_claims(_Shard, [], State) ->
     State;
 drain_deferred_claims(Shard, RearmRev, State) ->
     Tab = ?TAB_STATE(Shard),
-    Batch = lists:sublist(lists:reverse(RearmRev), ?REARM_SWEEP_MAX),
-    ?SLOG(warning, #{
-        msg => "bcast_claim_deferred_retry",
-        shard => Shard,
-        depth => length(RearmRev),
-        retrying => length(Batch)
-    }),
-    lists:foldl(
+    All = lists:reverse(RearmRev),
+    Depth = length(All),
+    %% Rotate the start of the batch: the fold order over ETS is stable, so
+    %% always taking the head would retry the same clients every pass and
+    %% starve every client behind them while the cap stays saturated.
+    Start = State#state.rearm_cursor rem Depth,
+    {Head, Tail} = lists:split(Start, All),
+    Batch = lists:sublist(Tail ++ Head, ?REARM_SWEEP_MAX),
+    case [K || K <- All, deferred_origin(Tab, K) =:= cap] of
+        [] ->
+            ?SLOG(debug, #{
+                msg => "bcast_claim_deferred_residual_retry",
+                shard => Shard,
+                depth => Depth,
+                retrying => length(Batch)
+            });
+        Caps ->
+            ?SLOG(warning, #{
+                msg => "bcast_claim_deferred_retry",
+                shard => Shard,
+                depth => Depth,
+                cap_refused => length(Caps),
+                retrying => length(Batch)
+            })
+    end,
+    State1 = lists:foldl(
         fun({ProductKey, ClientId}, St) ->
             _ = ets:update_element(
                 Tab, {ProductKey, ClientId}, {#bcast_client_state.rearm_at, undefined}
@@ -1113,7 +1153,15 @@ drain_deferred_claims(Shard, RearmRev, State) ->
         end,
         State,
         Batch
-    ).
+    ),
+    State1#state{rearm_cursor = (Start + length(Batch)) rem Depth}.
+
+%% Origin of a deferred-claim mark, read before the retry clears it.
+deferred_origin(Tab, Key) ->
+    case ets:lookup(Tab, Key) of
+        [#bcast_client_state{rearm_at = {_Ts, Origin}}] -> Origin;
+        _ -> residual
+    end.
 
 ensure_row(ProductKey, ClientId, Pid, Shard) ->
     Key = {ProductKey, ClientId},
@@ -1210,6 +1258,7 @@ claim_row(Shard, Row, State) ->
                 Shard,
                 Row#bcast_client_state.product_key,
                 Row#bcast_client_state.clientid,
+                cap,
                 Row
             ),
             State;
@@ -1222,7 +1271,12 @@ claim_row(Shard, Row, State) ->
                 clientid => Row1#bcast_client_state.clientid,
                 product_key => Row1#bcast_client_state.product_key,
                 pid => Row1#bcast_client_state.pid,
-                claim_tag => Tag
+                claim_tag => Tag,
+                %% This shard understands the {no_more, Residual} answer, so
+                %% the core may send it instead of the bare no_more. A shard
+                %% from an older build does not send this key, and the core
+                %% then answers it with the shape it understands.
+                residual => true
             },
             %% Arm the flush here so every claim path (trigger, subscribe,
             %% refill, release, retry) submits its pending entries; the
@@ -1510,28 +1564,17 @@ commit_delivery_result(Shard, ClientId, {ok, ClaimMaps}, PK, Tag) ->
             %% round by tag (idempotent).
             do_release_client_claims(PK, ClientId, Tag)
     end;
-commit_delivery_result(Shard, ClientId, {no_more, Residual}, PK, Tag) ->
-    %% Core explicitly returned no_more: it did NOT mark any claim inflight,
-    %% so there is nothing to release. Clear the local round mark, and when
-    %% the core reports that the device still holds live entries, remember
-    %% the client for the bounded sweep retry - a bare clear here would leave
-    %% it idle with a backlog (the lost-wakeup shape).
-    _ = clear_row_claim(PK, ClientId, Tag),
-    case Residual of
-        0 ->
-            ok;
-        _ ->
-            _ = note_claim_deferred(Shard, PK, ClientId),
-            ok
-    end;
-commit_delivery_result(_Shard, ClientId, no_more, PK, Tag) ->
-    %% Bare no_more (a simulated or pre-residual round): the core marked no
-    %% claim inflight, so only the local round mark is cleared.
-    _ = clear_row_claim(PK, ClientId, Tag),
-    ok;
-commit_delivery_result(_Shard, _ClientId, {error, _Reason}, _PK, _Tag) ->
-    %% Handled by the release path in split_deliver_results (marks of
-    %% failed rounds are released by tag there); nothing to do here.
+%% Only {ok, _} reaches here: split_deliver_results/3 commits the claimable
+%% part itself and handles no_more / {error, _} in place (clear the round,
+%% release by tag, re-arm the client when entries remain). Keep one defensive
+%% clause so a future caller cannot make a claim round vanish silently.
+commit_delivery_result(_Shard, _ClientId, Other, PK, Tag) ->
+    ?SLOG(warning, #{
+        msg => "bcast_commit_delivery_result_unexpected",
+        product_key => PK,
+        tag => Tag,
+        result => Other
+    }),
     ok.
 %% Prepare every claimed delivery and commit the claimable part into the
 %% window. Failed dids (offline / dead pid / payload lag / sub race)
@@ -2038,7 +2081,7 @@ sweep_stale_marks(State) ->
                     %% round in flight are skipped - their own path re-arms
                     %% them.
                     case {Row#bcast_client_state.rearm_at, Row#bcast_client_state.claim} of
-                        {RearmTs, undefined} when is_integer(RearmTs) ->
+                        {{RearmTs, _Origin}, undefined} when is_integer(RearmTs) ->
                             [
                                 {
                                     Row#bcast_client_state.product_key,
@@ -2164,7 +2207,10 @@ expire_ack_in_flight(Shard, Expired, State) ->
 take_expired_ack_in_flight(PK, DN, Did, Mark) ->
     Tab = ?TAB_STATE(shard_of(PK, DN)),
     Old = [{Did, Mark}],
-    Rest = lists:keydelete(Did, 1, Old),
+    %% The match spec below requires inflight to be exactly this one element:
+    %% window is 1, so with a larger window this function would never match and
+    %% the ack-in-flight mark would be leaked without a trace.
+    Rest = [],
     %% The replacement body must be a double-wrapped tuple: a bare tuple
     %% in a match spec body is parsed as a function call. The field order
     %% mirrors the bcast_client_state record.

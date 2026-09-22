@@ -251,7 +251,7 @@
     %% deferral can never be dropped: every client that can be refused already
     %% owns this row, so the worst case is one extra word per client, while a
     %% bounded queue loses the wakeup as soon as it fills up.
-    rearm_at = undefined :: undefined | non_neg_integer()
+    rearm_at = undefined :: undefined | {non_neg_integer(), cap | residual}
 }).
 
 -endif.

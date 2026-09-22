@@ -90,6 +90,15 @@
 %% only drives on its own restart / owner transitions and does not track
 %% sibling shard liveness).
 -define(ACTIVATE_POLL_MS, 500).
+%% An activation drive that could not finish keeps being retried at
+%% ?OWNER_POLL_MS while it is this young: at boot the sibling shards a drive
+%% cannot reach are the ones the supervisor has not started yet (that is why
+%% activation runs from inside the loop rather than from init/1), and they
+%% appear within milliseconds. A partition still missing after this window does
+%% not come back on its own - a peer running a build without the status call,
+%% or one whose plugin is uninstalled - so the retry drops to the slow poll
+%% instead of probing every shard at 20Hz for the whole upgrade window.
+-define(ACTIVATION_FAST_MS, 1000).
 %% Hot-path leg timeouts: 30s made one stalled shard hold every caller of
 %% the pmap fan-out (claim workers, promoter) for half a minute, which
 %% turned a single stuck partition into a cluster-wide drain stall. 5s is
@@ -319,6 +328,16 @@ ensure_quota_table() ->
         error:badarg -> ok
     end.
 
+%% The authoritative quota row has to exist before shard 0 serves: the reserve
+%% and release paths use ets:update_counter/3, which raises on a missing key.
+%% A completed drive writes the row from the recount; a drive that stopped on
+%% an unreachable sibling never gets there, and the true value is unknown at
+%% that point, so start it at zero and let the periodic recount replace it once
+%% every partition answers again. insert_new never clobbers a live row.
+ensure_quota_row() ->
+    ensure_quota_table(),
+    ets:insert_new(?TAB_QUOTA_ETS, {global, 0}).
+
 %% Node-local quota shadow table: every shard's hot-path quota_update(Delta)
 %% bumps this row (no cross-node RPC). Exists on every core node; shard 0's
 %% reconcile timer ships the accumulated delta to the owner authoritative row.
@@ -402,6 +421,7 @@ quota_sync(LastSynced, Epoch) ->
 %% computed before a recount carries the old epoch and is rejected with the
 %% owner's epoch so the sender can adopt it and drop the already-counted
 %% delta.
+-spec quota_update_remote(integer(), term()) -> ok | {stale, term()}.
 quota_update_remote(Delta, Epoch) ->
     case quota_epoch() of
         Epoch ->
@@ -1518,8 +1538,21 @@ handle_cast({release_batch, Releases}, State = #{active := true}) ->
     %% release): idempotent per entry, claim lease is the backstop.
     State2 = lists:foldl(
         fun
-            ({claim, PK, DN, Did}, St) -> release_claim_local(PK, DN, Did, St);
-            ({tag, PK, DN, Tag}, St) -> release_client_claims_local(PK, DN, Tag, St)
+            ({claim, PK, DN, Did}, St) ->
+                release_claim_local(PK, DN, Did, St);
+            ({tag, PK, DN, Tag}, St) ->
+                release_client_claims_local(PK, DN, Tag, St);
+            %% A peer that has not been upgraded yet still sends the nested
+            %% shape - the very shape whose fold clause crashed its own index
+            %% shards. Release it here instead of crashing this shard, and
+            %% never crash on a shape this build does not know.
+            ({claim, {PK, DN, Did}}, St) ->
+                release_claim_local(PK, DN, Did, St);
+            ({tag, {PK, DN, Tag}}, St) ->
+                release_client_claims_local(PK, DN, Tag, St);
+            (Other, St) ->
+                ?SLOG(warning, #{msg => "bcast_release_batch_unknown_entry", entry => Other}),
+                St
         end,
         State,
         Releases
@@ -1553,28 +1586,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(maybe_activate, State = #{active := false, shard := 0}) ->
-    Result =
-        try maybe_drive_activation(State) of
-            {ok, S1} -> {activated, S1};
-            _ -> retry
-        catch
-            _:_ -> retry
-        end,
-    case Result of
-        {activated, S2} ->
-            ?SLOG(info, #{
-                msg => "bcast_index_owner_activated",
-                node => node(),
-                shard_count => ?SHARD_COUNT
-            }),
-            %% Keep polling after activation so the ownership check below
-            %% runs for this shard too.
-            erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
-            {noreply, S2#{active => true}};
-        retry ->
-            erlang:send_after(?OWNER_POLL_MS, self(), maybe_activate),
-            {noreply, State}
-    end;
+    {noreply, drive_and_apply(State)};
 handle_info(maybe_activate, State = #{active := false, shard := Shard}) when
     Shard =/= 0
 ->
@@ -1603,8 +1615,15 @@ handle_info(maybe_activate, State) ->
     Shard = maps:get(shard, State),
     case shard_owner(Shard) =:= node() of
         true ->
-            erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
-            {noreply, State};
+            case Shard =:= 0 andalso is_map_key(activation_missing, State) of
+                true ->
+                    %% The last drive stopped on a partition it could not reach:
+                    %% retry it while this shard still owns its own partition.
+                    {noreply, drive_and_apply(State)};
+                false ->
+                    erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
+                    {noreply, State}
+            end;
         false ->
             Owner = shard_owner(Shard),
             ?SLOG(warning, #{
@@ -1620,7 +1639,7 @@ handle_info(maybe_activate, State) ->
             %% clauses above re-activate this shard if the node becomes the
             %% owner again.
             erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
-            {noreply, (reset_state(State))#{active => false}}
+            {noreply, (drop_activation_mark(reset_state(State)))#{active => false}}
     end;
 handle_info(
     quota_sync, State = #{shard := 0, quota_last_synced := Last, quota_epoch := Epoch}
@@ -1744,6 +1763,89 @@ maybe_drive_activation(State) ->
             not_owner
     end.
 
+%% Run one activation drive for shard 0 and return the state to carry on with.
+%% The quota owner's shard 0 keeps polling afterwards, so a drive that could not
+%% finish is simply retried by the next poll.
+drive_and_apply(State) ->
+    Result =
+        try maybe_drive_activation(State) of
+            {ok, S1} ->
+                {activated, S1};
+            {_Error, S1} when is_map(S1) ->
+                %% The drive rebuilt every partition it could reach and
+                %% stopped on one it cannot drive at all.
+                case maps:get(active, S1, false) of
+                    true -> {incomplete, S1};
+                    false -> retry
+                end;
+            _ ->
+                retry
+        catch
+            _:_ -> retry
+        end,
+    case Result of
+        {activated, S2} ->
+            ?SLOG(info, #{
+                msg => "bcast_index_owner_activated",
+                node => node(),
+                shard_count => ?SHARD_COUNT
+            }),
+            %% Keep polling after activation so the ownership check runs for
+            %% this shard too.
+            erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
+            drop_activation_mark(S2#{active => true});
+        {incomplete, S2} ->
+            %% Keep the partitions this drive did rebuild - shard 0's own
+            %% included - and serve them: the alternative, staying dormant
+            %% until every core answers, withholds this partition's devices for
+            %% the whole time a peer runs a build without the status call or has
+            %% its plugin uninstalled. The missing partitions are named so the
+            %% operator can see which node the drive is waiting for; the
+            %% unreachable one's own shard asks this leader for a targeted
+            %% activation once it is up, and the periodic recount re-reads the
+            %% quota once every partition answers again.
+            %%
+            %% The quota row has to exist before this shard serves anything:
+            %% the reserve and release paths update_counter it unconditionally,
+            %% and the closing recount is exactly what did not run here.
+            _ = ensure_quota_row(),
+            FastUntil =
+                case maps:get(activation_fast_until, S2, undefined) of
+                    undefined -> erlang:system_time(millisecond) + ?ACTIVATION_FAST_MS;
+                    Until -> Until
+                end,
+            RetryMs = activation_retry_ms(FastUntil),
+            ?SLOG(warning, #{
+                msg => "bcast_index_activation_incomplete",
+                node => node(),
+                shard => 0,
+                missing => maps:get(activation_missing, S2, []),
+                retry_ms => RetryMs
+            }),
+            erlang:send_after(RetryMs, self(), maybe_activate),
+            S2#{activation_fast_until => FastUntil};
+        retry ->
+            erlang:send_after(?OWNER_POLL_MS, self(), maybe_activate),
+            State
+    end.
+
+%% A drive that could not finish is retried at ?OWNER_POLL_MS until
+%% ?ACTIVATION_FAST_MS after it first stopped: what a drive misses at boot is a
+%% sibling the supervisor has not started yet, and that resolves in
+%% milliseconds. A partition still missing after that does not come back on its
+%% own, so the retry drops to the slow poll - the same cadence a dormant
+%% non-leader shard uses to ask for its own partition.
+activation_retry_ms(FastUntil) ->
+    case erlang:system_time(millisecond) < FastUntil of
+        true -> ?OWNER_POLL_MS;
+        false -> ?ACTIVATE_POLL_MS
+    end.
+
+%% Drive bookkeeping belongs to a partition that is being brought up: drop it
+%% when the shard gives the partition up (ownership moved) or finishes.
+drop_activation_mark(State) ->
+    maps:without([activation_missing, activation_fast_until], State).
+
 %% Coordinated (re)activation, run by the quota owner's shard 0.
 %%
 %% ensure mode (automatic drive after boot / leader restart / owner
@@ -1752,6 +1854,19 @@ maybe_drive_activation(State) ->
 %% claims and buffered ack decrements would be lost cluster-wide). Only
 %% dormant shards (fresh boot, crash restart) are rebuilt from the
 %% durable log.
+%%
+%% A drive that reaches a sibling it cannot drive at all stops there: that
+%% sibling stays dormant until it asks for a targeted activation itself, while
+%% the partitions this drive did rebuild - shard 0's own included - stay
+%% active. Waiting for the whole cluster to be reachable instead would withhold
+%% this leader's own partition for the entire time a peer runs an older build
+%% or has its plugin uninstalled.
+%%
+%% The siblings are probed before the projection is scanned, and the scan only
+%% happens when some partition actually has to be rebuilt from it. Retrying a
+%% drive that is missing a partition it cannot reach therefore costs the probes
+%% and no scan, which is what keeps that retry affordable for the length of an
+%% upgrade.
 %%
 %% force mode (manual rebuild_index): every shard is rebuilt.
 %%
@@ -1763,39 +1878,120 @@ maybe_drive_activation(State) ->
 %% not shipped again on top of the recount.
 drive_activation(State, Mode) ->
     MyShard = maps:get(shard, State),
-    %% Scan the authoritative bcast_msg table ONCE (projection-only
-    %% match spec, no full #bcast_msg{} records) and sort once by
-    %% created_at; every shard then activates from the same sorted
-    %% projection instead of each shard scanning + sorting the whole table
-    %% for itself (4x transient heap + 4x sort at takeover).
-    Proj = scan_sorted_deliveries_projection(),
-    {Counts, {State0, Completed0}} = lists:mapfoldl(
-        fun(Shard, {St, Done}) ->
-            {Res, St1, Done1} = drive_one_shard(Shard, Proj, Mode, MyShard, St, Done),
-            {Res, {St1, Done1}}
-        end,
-        {State, #{}},
-        lists:seq(0, ?SHARD_COUNT - 1)
-    ),
-    ok = maybe_log_heal_cap(Completed0),
-    case [Error || {error, _} = Error <- Counts] of
-        [] ->
+    Probes = probe_siblings(MyShard, Mode),
+    case {needs_drive(State, Mode, Probes), unreachable(Probes)} of
+        {false, []} ->
+            %% Nothing to rebuild: every partition answers and is already
+            %% active. The drive still has to close, because the closing
+            %% recount is what creates and re-bases the authoritative quota row
+            %% (it died with shard 0) - and the probes already carry every
+            %% count, so it closes without scanning the authoritative table.
+            Counts = probe_counts(MyShard, Probes, State),
             Epoch = recount_quota(Counts),
             sync_quota_baselines(Epoch),
-            {ok, State0};
-        [Error | _] ->
-            {Error, State0}
+            {ok, drop_activation_mark(State)};
+        {false, Missing} ->
+            %% Nothing to rebuild from the projection, and some partition
+            %% cannot be probed at all: the recount must not run from a partial
+            %% sum, so report the missing partitions without scanning the table.
+            {{error, sibling_unavailable}, State#{activation_missing => Missing}};
+        {true, _} ->
+            %% Scan the authoritative bcast_msg table ONCE (projection-only
+            %% match spec, no full #bcast_msg{} records) and sort once by
+            %% created_at; every shard then activates from the same sorted
+            %% projection instead of each shard scanning + sorting the whole
+            %% table for itself (4x transient heap + 4x sort at takeover).
+            Proj = scan_sorted_deliveries_projection(),
+            Shards = lists:seq(0, ?SHARD_COUNT - 1),
+            {Counts, {State0, Completed0}} = lists:mapfoldl(
+                fun(Shard, {St, Done}) ->
+                    Status = maps:get(Shard, Probes, undefined),
+                    {Res, St1, Done1} = drive_one_shard(
+                        Shard, Proj, Mode, MyShard, Status, St, Done
+                    ),
+                    {Res, {St1, Done1}}
+                end,
+                {State, #{}},
+                Shards
+            ),
+            ok = maybe_log_heal_cap(Completed0),
+            case [Shard || {Shard, {error, _}} <- lists:zip(Shards, Counts)] of
+                [] ->
+                    Epoch = recount_quota(Counts),
+                    sync_quota_baselines(Epoch),
+                    {ok, maps:remove(activation_missing, State0)};
+                Missing ->
+                    %% Name the partitions the drive could not reach. During a
+                    %% rolling upgrade this is the node that still has to be
+                    %% upgraded (or whose plugin is uninstalled), so the
+                    %% operator can see what the drive is waiting for instead
+                    %% of only the fact that it did not finish.
+                    [FirstError | _] = [Error || {error, _} = Error <- Counts],
+                    {FirstError, State0#{activation_missing => Missing}}
+            end
     end.
 
-drive_one_shard(Shard, Proj, _Mode, Shard, State, Completed) ->
-    %% Self: always (re)build our own partition. The drive runs because
-    %% this shard is dormant (boot / restart); force mode also rebuilds.
-    case activate_partition(Proj, State, Completed) of
-        {{error, _} = Error, _State1, _Completed1} -> {Error, State, Completed};
-        {Count, State1, Completed1} -> {Count, State1, Completed1}
+%% Probe the sibling partitions. Self is not probed: this is that process, and
+%% a gen_server cannot call itself. force mode rebuilds every shard from the
+%% projection anyway, so it needs no probes.
+probe_siblings(_MyShard, force) ->
+    #{};
+probe_siblings(MyShard, ensure) ->
+    maps:from_list([
+        {Shard, probe_shard(Shard)}
+     || Shard <- lists:seq(0, ?SHARD_COUNT - 1),
+        Shard =/= MyShard
+    ]).
+
+%% A drive is worth its projection scan only when some partition has to be
+%% rebuilt from it: our own (boot / crash restart / manual rebuild) or a
+%% sibling that answers dormant. A sibling that cannot answer is not driven
+%% from here either way, so a drive whose only remaining work is such a sibling
+%% reports it without scanning.
+needs_drive(_State, force, _Probes) ->
+    true;
+needs_drive(State, ensure, Probes) ->
+    (not maps:get(active, State)) orelse
+        lists:any(fun({_Shard, Status}) -> Status =:= dormant end, maps:to_list(Probes)).
+
+%% Partitions probed this round that did not answer at all.
+unreachable(Probes) ->
+    [Shard || {Shard, {error, _}} <- maps:to_list(Probes)].
+
+%% Counts of every partition in shard order, taken from the probes: used to
+%% close a drive that had nothing to rebuild. Every probed sibling answered
+%% active in that case (the dormant and the unreachable ones are what
+%% needs_drive/3 and unreachable/1 filter out), and our own partition reports
+%% its live pending plus reservations exactly like an active sibling does.
+probe_counts(MyShard, Probes, State) ->
+    [
+        case Shard =:= MyShard of
+            true ->
+                total_pending(State) + total_reserves(State);
+            false ->
+                {active, Pending, Reserves} = maps:get(Shard, Probes),
+                Pending + Reserves
+        end
+     || Shard <- lists:seq(0, ?SHARD_COUNT - 1)
+    ].
+
+drive_one_shard(Shard, Proj, Mode, Shard, _Status, State, Completed) ->
+    %% Self: (re)build our own partition, but only while it is dormant or in
+    %% force mode. A retry after an incomplete drive must not reset a partition
+    %% that is already serving: its in-flight claims and buffered ack
+    %% decrements live in the heap index. An active partition is reported for
+    %% the closing recount instead, exactly like an active sibling.
+    case Mode =:= force orelse not maps:get(active, State) of
+        true ->
+            case activate_partition(Proj, State, Completed) of
+                {{error, _} = Error, _State1, _Completed1} -> {Error, State, Completed};
+                {Count, State1, Completed1} -> {Count, State1#{active => true}, Completed1}
+            end;
+        false ->
+            {total_pending(State) + total_reserves(State), State, Completed}
     end;
-drive_one_shard(Shard, Proj, ensure, _MyShard, State, Completed) ->
-    case probe_shard(Shard) of
+drive_one_shard(Shard, Proj, ensure, _MyShard, Status, State, Completed) ->
+    case Status of
         {active, Pending, Reserves} ->
             %% Reservations are part of this shard's pending budget: the
             %% drive hands the total to recount_quota/1, so leaving them out
@@ -1806,7 +2002,7 @@ drive_one_shard(Shard, Proj, ensure, _MyShard, State, Completed) ->
         {error, _} = Error ->
             {Error, State, Completed}
     end;
-drive_one_shard(Shard, Proj, force, _MyShard, State, Completed) ->
+drive_one_shard(Shard, Proj, force, _MyShard, _Status, State, Completed) ->
     activate_sibling(Shard, Proj, State, Completed).
 
 probe_shard(Shard) ->
@@ -2111,10 +2307,11 @@ append_delivery_entries(St, ProductKey, DeliveryId, DNs) ->
         DNs
     ).
 
-%% Warn once per drive when the heal budget is spent, so a systemic ack-counter
-%% drift is visible instead of silently deferred to TTL.
+%% Report once per drive when the heal budget is spent. Only a systemic
+%% ack-counter drift can reach this cap, and reaching it defers already-acked
+%% deliveries to the TTL, so this is an error rather than a warning.
 maybe_log_heal_cap(Completed) when map_size(Completed) >= ?MAX_HEAL_PER_DRIVE ->
-    ?SLOG(warning, #{
+    ?SLOG(error, #{
         msg => "bcast_rebuild_heal_cap_reached",
         healed => map_size(Completed),
         cap => ?MAX_HEAL_PER_DRIVE
@@ -2779,7 +2976,7 @@ finish_claim_scan(State, Key, _Q, []) ->
     %% entries - the subscription was not visible to the core yet, the
     %% delivery is still replicating, or a blocked head has to cycle - so
     %% report the residual instead of a bare no_more: the pull side re-arms
-    %% the client through its bounded retry queue when it is non-zero, and
+    %% the client through the deferred-claim mark when it is non-zero, and
     %% treats 0 as the normal drained state.
     {no_more, maps:get(Key, maps:get(counts, State), 0), State};
 finish_claim_scan(State, Key, Q, Acc) ->

@@ -206,10 +206,21 @@ promote_batch_tx(Entries) ->
     %% entries while the promoter zips the results against its own list, so a
     %% misaligned `deleted` result would drop an entry whose message still
     %% exists and keep one whose message was deleted.
-    [
-        maps:get(maps:get(delivery_id, Entry), ByDid, {error, missing_promote_result})
-     || Entry <- Entries
-    ].
+    [promoted_result(Entry, ByDid) || Entry <- Entries].
+
+%% A missing promote result means the result alignment lost an entry: that
+%% delivery is neither appended nor counted as wanted, and its admission
+%% reservation is only reclaimed by the stale-reservation sweep. It must never
+%% happen, so it is an error rather than a silent drop.
+promoted_result(Entry, ByDid) ->
+    Did = maps:get(delivery_id, Entry),
+    case maps:find(Did, ByDid) of
+        {ok, Result} ->
+            Result;
+        error ->
+            ?SLOG(error, #{msg => "bcast_promote_result_missing", delivery_id => Did}),
+            {error, missing_promote_result}
+    end.
 
 %% Promote one hash-group: drop the entries that a Delete Message already
 %% superseded, then one message create/refresh for the survivors and one
@@ -567,7 +578,7 @@ claim_want_next_batch(Entries) ->
     [{binary(), map() | {no_more, non_neg_integer()}}] | {error, term()}.
 claim_want_next_batch(Entries, Origin) ->
     try emqx_bcast_index_owner:claim(Entries, Origin) of
-        Results -> Results
+        Results -> downgrade_unless_residual_capable(Results, Entries)
     catch
         Error:Reason ->
             ?SLOG(error, #{
@@ -577,6 +588,24 @@ claim_want_next_batch(Entries, Origin) ->
             }),
             {error, Reason}
     end.
+
+%% The {no_more, Residual} answer only exists for a shard that announced it
+%% understands it in its claim request. A shard from an earlier build has no
+%% clause for that shape and crashes on it, so answer it with the bare no_more
+%% it expects; it then loses the residual-driven re-arm and behaves exactly as
+%% it did before the upgrade.
+downgrade_unless_residual_capable(Results, Entries) ->
+    Capable = maps:from_keys(
+        [maps:get(clientid, E) || E <- Entries, maps:get(residual, E, false)],
+        true
+    ),
+    [
+        case {maps:is_key(DN, Capable), Result} of
+            {false, {no_more, _}} -> {DN, no_more};
+            _ -> {DN, Result}
+        end
+     || {DN, Result} <- Results
+    ].
 
 -spec release_claim(product_key(), device_name(), delivery_id()) -> ok.
 release_claim(ProductKey, DeviceName, Did) ->

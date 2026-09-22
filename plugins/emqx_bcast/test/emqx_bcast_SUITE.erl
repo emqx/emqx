@@ -331,7 +331,7 @@ t_claim_no_more_cleans_stale_index(_Config) ->
     ?assertMatch(
         [{DN, {no_more, _}}],
         emqx_bcast_storage:claim_want_next_batch([
-            #{clientid => DN, product_key => PK, topics => []}
+            #{residual => true, clientid => DN, product_key => PK, topics => []}
         ])
     ),
     %% The entry is fresh (appended moments ago): a concurrent promotion on
@@ -367,7 +367,12 @@ t_claim_no_deadlock_on_dropped_head(_Config) ->
                 claim_result,
                 self(),
                 emqx_bcast_storage:claim_want_next_batch([
-                    #{clientid => DN, product_key => PK, topics => [{<<"nomatch">>, 1}]}
+                    #{
+                        residual => true,
+                        clientid => DN,
+                        product_key => PK,
+                        topics => [{<<"nomatch">>, 1}]
+                    }
                 ])
             }
     end),
@@ -384,7 +389,7 @@ t_claim_no_deadlock_on_dropped_head(_Config) ->
     end,
     %% DeliveryB must still be claimable with the matching topic.
     [{DN, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]).
 
 -doc "register_device / unregister_device use the keyed path and respect\n"
@@ -511,7 +516,7 @@ t_lease_expiry_redelivery_ack_accounting(_Config) ->
     ?assertEqual(1, emqx_bcast_storage:pending_delivery_count_for({PK, DN})),
     %% First claim = first delivery.
     [{DN, {ok, [M1]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
     %% Force the claim lease to expire: the inflight ts is rewritten so the
@@ -519,7 +524,7 @@ t_lease_expiry_redelivery_ack_accounting(_Config) ->
     expire_inflight(PK, DN, DeliveryId),
     %% Second claim: lease expired -> the SAME delivery is claimed again.
     [{DN, {ok, [M2]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     ?assertEqual(maps:get(delivery_id, M1), maps:get(delivery_id, M2)),
     ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
@@ -586,11 +591,11 @@ t_redelivery_duplicate_ack_no_early_complete(_Config) ->
     %% DN1 is claimed (delivered) once, then redelivered after a lease
     %% expiry (the client was too slow to ack).
     [{DN1, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN1, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN1, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     expire_inflight(PK, DN1, DeliveryId),
     [{DN1, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN1, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN1, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     %% The client acks the delivery TWICE (first + redelivered PUBLISH).
     ?assertEqual([counted], emqx_bcast_storage:process_ack_batch([{PK, DN1, DeliveryId}])),
@@ -600,7 +605,7 @@ t_redelivery_duplicate_ack_no_early_complete(_Config) ->
     ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, DN2})),
     ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
     [{DN2, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN2, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN2, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     %% DN2's ack completes the delivery.
     ?assertEqual([counted], emqx_bcast_storage:process_ack_batch([{PK, DN2, DeliveryId}])),
@@ -662,11 +667,11 @@ t_claim_mixed_queue_residual_nonhead_terminates(_Config) ->
     %% residual, which is what lets the pull side tell "not claimable yet"
     %% from "drained" and re-arm the client instead of stranding it.
     [{DN, {no_more, 1}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"nomatch">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"nomatch">>, 1}]}
     ]),
     %% A is still claimable with the matching topic.
     [{DN, {ok, [Map]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     ?assertEqual(DA, maps:get(delivery_id, Map)).
 
@@ -686,11 +691,11 @@ t_quota_never_negative_under_redelivery(_Config) ->
             ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
             %% Claim (deliver) -> lease expiry -> claim again (redelivery).
             [{DN, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
-                #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+                #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
             ]),
             expire_inflight(PK, DN, DeliveryId),
             [{DN, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
-                #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+                #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
             ]),
             %% The client acks both deliveries (duplicate PUBACKs).
             ?assertEqual([counted], emqx_bcast_storage:process_ack_batch([{PK, DN, DeliveryId}])),
@@ -2285,6 +2290,7 @@ row_claim_of(PK, DN) ->
 %% the client a retry, undefined once it retried (or was never marked).
 rearm_at_of(PK, DN) ->
     case row_lookup(PK, DN) of
+        #bcast_client_state{rearm_at = {T, _Origin}} -> T;
         #bcast_client_state{rearm_at = T} -> T;
         undefined -> undefined
     end.
@@ -2427,7 +2433,7 @@ t_metrics_claim_holder_node_down_reclaim(_Config) ->
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
     [{DN, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     %% fake a dead holder on the owning index shard, then run the reclaim pass
     Key = {PK, DN},
@@ -2451,7 +2457,7 @@ t_metrics_claim_holder_node_down_reclaim(_Config) ->
         )
     ),
     [{DN, {ok, [M]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     ?assertEqual(DeliveryId, maps:get(delivery_id, M)).
 
@@ -2580,6 +2586,10 @@ t_pull_claim_refused_at_cap_is_retried_by_sweep(_Config) ->
     DN = <<"DCAPRETRY">>,
     Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
     Cnt = emqx_bcast_pull_shard:tab(Shard, bcast_pull_counters),
+    %% The pid the retry has to survive: a sweep that dies on the mark drops
+    %% the shard's whole row table, which clears the mark as well, so the
+    %% assertion below would pass for the wrong reason without this.
+    PrePid = whereis(emqx_bcast_pull_shard:shard_name(Shard)),
     _ = emqx_bcast:register_device(PK, DN, self()),
     %% Saturate the cap so the subscribe claim has to be refused.
     true = ets:insert(Cnt, {claim, 2000}),
@@ -2598,6 +2608,8 @@ t_pull_claim_refused_at_cap_is_retried_by_sweep(_Config) ->
     %% would never appear and the client would stay idle until TTL.
     true = ets:insert(Cnt, {claim, 0}),
     ?assert(wait_until(fun() -> rearm_at_of(PK, DN) =:= undefined end, 240)),
+    _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
+    ?assertEqual(PrePid, whereis(emqx_bcast_pull_shard:shard_name(Shard))),
     cleanup_row(PK, DN),
     emqx_bcast:unregister_device(PK, DN, self()).
 
@@ -2658,6 +2670,35 @@ t_pull_no_more_residual_rearms_only_when_entries_remain(_Config) ->
     ?assertEqual(undefined, rearm_at_of(PK, DN2)),
     cleanup_row(PK, DN1),
     cleanup_row(PK, DN2).
+
+-doc "The periodic sweep must survive the deferred-claim mark it is draining:\n"
+"the deferred round is refused or refused-empty on the ordinary paths, so this\n"
+"mark is what a backlog relies on after a lost wakeup, and the sweep is the\n"
+"only thing that revisits it. A sweep that raises on the mark kills the shard\n"
+"and drops every row it holds - the client state, its window and the mark - so\n"
+"the retry must leave the same shard process running.".
+t_deferred_claim_sweep_survives_the_mark_it_drains(_Config) ->
+    PK = <<"PSWEEPR">>,
+    DN = <<"DSWEEPR">>,
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    PrePid = whereis(Name),
+    %% A round answered no_more with a residual: entries are still queued at the
+    %% core but were not claimable when the round ran.
+    Tag = 424244,
+    seed_claim_row(PK, DN, Tag, erlang:system_time(millisecond), Shard),
+    gen_server:cast(Name, {deliver_results, [{DN, {no_more, 1}}], [{DN, Tag, PK}]}),
+    _ = sys:get_state(Name),
+    ?assertEqual(undefined, row_claim_of(PK, DN)),
+    ?assert(is_integer(rearm_at_of(PK, DN))),
+    %% The sweep retries the marked client and clears the mark. The device is
+    %% not registered here, so reclaim_online/4 drops it without core traffic;
+    %% the mark is cleared either way, and only a shard that stayed up can
+    %% still hold the row afterwards.
+    ?assert(wait_until(fun() -> rearm_at_of(PK, DN) =:= undefined end, 240)),
+    _ = sys:get_state(Name),
+    ?assertEqual(PrePid, whereis(Name)),
+    cleanup_row(PK, DN).
 
 -doc "The QoS0 auto-ack path counts delivered/auto_acked locally and never\n"
 "touches acked (no client PUBACK); the pull ack entry point forwards it and\n"
@@ -2834,12 +2875,12 @@ t_metrics_claim_attempt_number(_Config) ->
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
     [{DN, {ok, [M1]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     ?assertEqual(1, maps:get(attempt, M1)),
     expire_inflight(PK, DN, DeliveryId),
     [{DN, {ok, [M2]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     ?assertEqual(2, maps:get(attempt, M2)),
     %% Ack removes the entry entirely (attempt state cleaned with it).
@@ -2858,7 +2899,7 @@ t_metrics_gauge_sample(_Config) ->
     ?assertEqual(1, gauge(<<"batch_pub_qos1_queued">>)),
     ?assertEqual(0, gauge(<<"batch_pub_qos1_inflight">>)),
     [{DN, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     refresh_gauges(),
     ?assertEqual(0, gauge(<<"batch_pub_qos1_queued">>)),
@@ -3190,7 +3231,12 @@ t_shard_crash_reactivates_partition(_Config) ->
             fun() ->
                 case
                     emqx_bcast_storage:claim_want_next_batch([
-                        #{clientid => DN1, product_key => PK, topics => [{<<"tpl">>, 1}]}
+                        #{
+                            residual => true,
+                            clientid => DN1,
+                            product_key => PK,
+                            topics => [{<<"tpl">>, 1}]
+                        }
                     ])
                 of
                     [{DN1, {ok, [_]}}] -> true;
@@ -3202,12 +3248,42 @@ t_shard_crash_reactivates_partition(_Config) ->
     ),
     %% The sibling partition was not reset: its entry is still claimable.
     [{DN2, {ok, [M2]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN2, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN2, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     ?assertEqual(Did, maps:get(delivery_id, M2)),
     %% Targeted re-activation did not re-count the rebuilt entry into the
     %% global pending quota.
     ?assertEqual(2, emqx_bcast_storage:pending_delivery_count()).
+
+-doc "A drive that cannot reach a sibling must still serve the partition it\n"
+"rebuilt. Shard ownership and the activation leader both follow the live core\n"
+"set, so the leader is the first partition the drive rebuilds - and a peer that\n"
+"still runs a build without the shard-status call answers nothing at all.\n"
+"Waiting for that peer before activating anything withholds the leader's own\n"
+"partition for as long as the peer stays un-upgraded, so the drive keeps what\n"
+"it did rebuild and leaves the siblings to ask for a targeted activation.\n"
+"This is the rolling-upgrade window: what answers the probe here is a shard\n"
+"that has stopped answering, like a peer whose plugin is uninstalled.".
+t_index_activation_keeps_its_partition_when_a_sibling_is_unreachable(_Config) ->
+    Leader = list_to_atom("emqx_bcast_index_owner_0"),
+    Unreachable = list_to_atom("emqx_bcast_index_owner_7"),
+    ?assert(is_pid(whereis(Leader))),
+    ?assert(is_pid(whereis(Unreachable))),
+    ?assert(shard_active(0)),
+    %% Boot state of the leader: dormant, so the next poll runs a drive.
+    _ = sys:replace_state(Leader, fun(St) -> St#{active => false} end),
+    ?assertNot(shard_active(0)),
+    ok = sys:suspend(Unreachable),
+    try
+        Leader ! maybe_activate,
+        %% The drive rebuilds shard 0's own partition and then stops on the
+        %% sibling that cannot answer. Shard 0 must end up active anyway; the
+        %% probe of the silent sibling costs one ?SYNC_TIMEOUT_MS, so the wait
+        %% is longer than a drive over reachable shards only.
+        ?assert(wait_until(fun() -> shard_active(0) end, 400))
+    after
+        ok = sys:resume(Unreachable)
+    end.
 
 -doc "Restarting the activation leader (shard 0) must not reset sibling\n"
 "shards: their heaps (in-flight claims included) survive the leader's\n"
@@ -3222,7 +3298,7 @@ t_leader_restart_preserves_sibling_shards(_Config) ->
     Did = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN], 1),
     [{DN, {ok, [_]}}] = emqx_bcast_storage:claim_want_next_batch([
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
     ]),
     ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()),
     Name = list_to_atom("emqx_bcast_index_owner_0"),
@@ -3636,7 +3712,7 @@ t_shard_op_capacity_probe(_Config) ->
         ]
     ),
     Entries = [
-        #{clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
+        #{residual => true, clientid => DN, product_key => PK, topics => [{<<"tpl">>, 1}]}
      || DN <- DNs
     ],
     %% ---- drain: Depth rounds of (claim NDev) -> (ack NDev), window=1 ----
@@ -3731,6 +3807,132 @@ t_index_shard_deactivates_when_ownership_moves(_Config) ->
     end,
     %% Ownership comes back: the dormant shard rebuilds itself.
     ?assert(wait_until(fun() -> shard_active(Shard) end, 200)).
+
+-doc "A flush that dies between the marker write and the counter decrement must\n"
+"not resurrect an already-acked device. The marker is the durable record a\n"
+"rebuild consults, so the remaining-ack count may stay too high (the delivery\n"
+"finishes late, or is reclaimed by the TTL) but never too low - a low count\n"
+"would re-deliver the message and decrement a second time. Both tables live in\n"
+"one mria shard (mria_config:shard_rlookup/1), so the decrement cannot reach a\n"
+"replica ahead of the marker, and this pins the write order the design relies\n"
+"on.".
+t_ack_marker_survives_lost_counter_decrement(_Config) ->
+    PK = <<"PMARKERWIN">>,
+    A = <<"DMARKERWIN_A">>,
+    B = <<"DMARKERWIN_B">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"marker window">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, A})),
+    %% The crash window: the ack flush persisted A's marker and died before
+    %% decrementing the remaining-ack count, which therefore still says 2.
+    ok = mnesia:dirty_write(#bcast_msg_acked{delivery_id = DeliveryId, device_names = [A]}),
+    ?assertMatch(
+        [#bcast_msg_meta_counter{counter = 2}],
+        mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)
+    ),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    %% A stays out of the rebuilt index: no duplicate delivery, and its
+    %% replayed ack finds nothing to count a second time.
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
+    not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
+    %% B's ack is durable and its decrement applied; the count is still above
+    %% zero because A's decrement was lost, so the delivery is not finished
+    %% here - the next rebuild reconciles it from the markers.
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    timer:sleep(200),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
+
+-doc "The ack flush must persist the device marker before it decrements the\n"
+"remaining-ack count: the marker is what a rebuild consults, so a crash\n"
+"between the two writes may leave the count too high but must never leave it\n"
+"decremented with the marker missing. This pins the order itself, which the\n"
+"same-shard mria replication then preserves for every core.".
+t_ack_flush_writes_marker_before_counter(_Config) ->
+    PK = <<"PORDER">>,
+    A = <<"DORDER_A">>,
+    B = <<"DORDER_B">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"write order">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    TestProc = self(),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, dirty_update_counter, fun(Tab, Key, Incr) ->
+            case {Tab, Key} of
+                {bcast_msg_meta_counter, DeliveryId} ->
+                    TestProc !
+                        {marker_durable_before_decrement,
+                            mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= []};
+                _ ->
+                    ok
+            end,
+            meck:passthrough([Tab, Key, Incr])
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        receive
+            {marker_durable_before_decrement, Durable} -> ?assert(Durable)
+        after 5000 ->
+            ?assert(false)
+        end
+    after
+        meck:unload(mnesia)
+    end.
+-doc "A peer that has not been upgraded yet releases claims as\n"
+"{claim, {PK, DN, Did}} - the nested shape that crashed the sender's own index\n"
+"shards. The receiver must release it instead of crashing, and must not crash\n"
+"on any shape it does not know.".
+t_release_batch_accepts_legacy_entry_shape(_Config) ->
+    PK = <<"PLEGACYREL">>,
+    DN = <<"DLEGACYREL">>,
+    Did = emqx_bcast_utils:gen_guid(),
+    Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
+    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)),
+    ?assert(wait_until(fun() -> shard_active(Shard) end, 200)),
+    Pid0 = whereis(Name),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"legacy release">>),
+    {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    Claim = fun(Tag) ->
+        [
+            #{
+                residual => true,
+                clientid => DN,
+                product_key => PK,
+                topics => [{<<"tpl">>, 1}],
+                claim_tag => Tag
+            }
+        ]
+    end,
+    Claimable = fun(Tag) ->
+        ?assertMatch([{DN, {ok, [_]}}], emqx_bcast_storage:claim_want_next_batch(Claim(Tag)))
+    end,
+    %% Only the nested claim shape: it must release the entry it names. Each
+    %% shape gets its own phase, because sending both at once would let the
+    %% claim release free the entry and leave the tag clause unguarded.
+    Claimable(4242),
+    gen_server:cast(Name, {release_batch, [{claim, {PK, DN, Did}}]}),
+    _ = sys:get_state(Name),
+    ?assertEqual(Pid0, whereis(Name)),
+    Claimable(4243),
+    %% Only the nested tag shape: it must release the claim currently held
+    %% under that tag.
+    gen_server:cast(Name, {release_batch, [{tag, {PK, DN, 4243}}]}),
+    _ = sys:get_state(Name),
+    ?assertEqual(Pid0, whereis(Name)),
+    Claimable(4244),
+    %% A shape this build does not know is logged, never fatal.
+    gen_server:cast(Name, {release_batch, [{unknown_shape, PK, DN}]}),
+    _ = sys:get_state(Name),
+    ?assertEqual(Pid0, whereis(Name)).
 
 shard_active(S) ->
     try
