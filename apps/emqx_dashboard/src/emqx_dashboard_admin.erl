@@ -1227,7 +1227,7 @@ format_username(Backend) when is_atom(Backend) ->
     {ok, map()} | {error, any()}.
 add_sso_user(Backend, Username0, Role0, Desc) when is_binary(Username0) ->
     case parse_role(Role0) of
-        {ok, #{?role := Role} = ParsedRole} ->
+        {ok, #{?role := Role, ?namespace := Namespace} = ParsedRole} ->
             Username = ?SSO_USERNAME(Backend, Username0),
             %% SSO auto-provisioning has no follow-up `set_user_scopes' step
             %% (LDAP / OIDC / SAML `ensure_user_exists' callers just call
@@ -1235,7 +1235,9 @@ add_sso_user(Backend, Username0, Role0, Desc) when is_binary(Username0) ->
             %% same mria transaction so a fresh SSO row never appears in
             %% the "no scopes key" state — that state is reserved for legacy
             %% records upgraded from versions before the scope feature shipped.
-            Extra = (parsed_role_to_extra(ParsedRole))#{scopes => role_default_scopes(Role0)},
+            Extra = (parsed_role_to_extra(ParsedRole))#{
+                scopes => role_default_scopes(Role, Namespace)
+            },
             do_add_user(Username, <<>>, Role, Desc, Extra);
         {error, _} = Error ->
             Error
