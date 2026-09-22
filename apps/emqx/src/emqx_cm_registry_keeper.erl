@@ -48,6 +48,9 @@
 
 -define(IS_HIST_ENABLED(RETAIN), (RETAIN > 0)).
 
+%% Number of recently scanned keys kept as fallback resume points.
+-define(RESUME_KEYS_MAX, 8).
+
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -111,7 +114,11 @@ purge_loop('$end_of_table') ->
     ok;
 purge_loop(ClientId) ->
     Rows = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
-    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
+    Next =
+        case dirty_next(ClientId) of
+            {ok, Next0} -> Next0;
+            gone -> mnesia:dirty_first(?CHAN_REG_TAB)
+        end,
     lists:foreach(
         fun(R) -> mria:dirty_delete_object(?CHAN_REG_TAB, R) end,
         Rows
@@ -165,7 +172,22 @@ handle_info(start, State0) ->
             undefined -> reset_sweep_state(State1, _Forced = false);
             _ -> State1
         end,
-    do_run_chunk(Cursor, State2);
+    try
+        do_run_chunk(Cursor, State2)
+    catch
+        Class:Reason:Stacktrace ->
+            ?tp(error, cm_registry_gc_chunk_failed, #{
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            TimerRef = send_delay_start(),
+            {noreply, State2#{
+                next_clientid := undefined,
+                resume_keys := new_resume_keys(),
+                timer_ref := TimerRef
+            }}
+    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -185,6 +207,7 @@ new_sweep_state(TimerRef) ->
 zero_state() ->
     #{
         next_clientid => undefined,
+        resume_keys => new_resume_keys(),
         timer_ref => undefined,
         sweep_started_at => undefined,
         gone_nodes => sets:new(),
@@ -206,6 +229,7 @@ ensure_sweep_keys(State) ->
 reset_sweep_state(State, _Forced) ->
     State#{
         sweep_started_at => erlang:monotonic_time(millisecond),
+        resume_keys => new_resume_keys(),
         gone_nodes => sets:new(),
         alive_nodes => sets:new(),
         scanned => 0,
@@ -218,6 +242,7 @@ reset_sweep_state(State, _Forced) ->
 reset_sweep_counters(State) ->
     State#{
         sweep_started_at => undefined,
+        resume_keys => new_resume_keys(),
         gone_nodes => sets:new(),
         alive_nodes => sets:new(),
         scanned => 0,
@@ -274,7 +299,13 @@ do_run_chunk(Cursor, State0) ->
             %% one cleanup_delay/0 away (10 minutes in prod), so the
             %% full GC + compacted heap that hibernate gives us is
             %% worth the wake-up cost.
-            {noreply, State1#{next_clientid := undefined, timer_ref := TimerRef}, hibernate};
+            {noreply,
+                State1#{
+                    next_clientid := undefined,
+                    resume_keys := new_resume_keys(),
+                    timer_ref := TimerRef
+                },
+                hibernate};
         Cid ->
             %% Mid-sweep: free any sub-binaries pinning mnesia row data
             %% from this chunk before we sleep through
@@ -298,19 +329,75 @@ run_chunk_loop(ClientId, 0, State) ->
     {ClientId, State};
 run_chunk_loop(ClientId, Budget, State0) ->
     Rows = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
-    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
+    Next = next_key(ClientId, State0),
     State1 = lists:foldl(
         fun(R, S) -> process_row(ClientId, R, S) end,
         State0,
         Rows
     ),
-    State2 = bump(scanned, State1),
+    State2 = maybe_add_resume_key(ClientId, length(Rows), State0, State1),
+    State3 = bump(scanned, State2),
     NewBudget =
         case Budget of
             infinity -> infinity;
             _ -> Budget - 1
         end,
-    run_chunk_loop(Next, NewBudget, State2).
+    run_chunk_loop(Next, NewBudget, State3).
+
+%% The registry is a bag table: `mnesia:dirty_next/2' fails when its key
+%% is no longer in the table. When `ClientId' is gone, resume from the
+%% newest resume key that is still present. When none is present, end
+%% the current sweep; the next sweep starts from the first key.
+next_key(ClientId, #{resume_keys := {Count, Slots}} = State) ->
+    case dirty_next(ClientId) of
+        {ok, Next} ->
+            Next;
+        gone ->
+            Oldest = max(0, Count - ?RESUME_KEYS_MAX),
+            next_key_from_resume_keys(Count - 1, Oldest, Slots, State)
+    end.
+
+next_key_from_resume_keys(N, Oldest, _Slots, State) when N < Oldest ->
+    Summary = sweep_summary(State),
+    ?tp(info, cm_registry_gc_cursor_lost, Summary),
+    '$end_of_table';
+next_key_from_resume_keys(N, Oldest, Slots, State) ->
+    case dirty_next(element(N rem ?RESUME_KEYS_MAX + 1, Slots)) of
+        {ok, Next} -> Next;
+        gone -> next_key_from_resume_keys(N - 1, Oldest, Slots, State)
+    end.
+
+dirty_next(Key) ->
+    try
+        {ok, mnesia:dirty_next(?CHAN_REG_TAB, Key)}
+    catch
+        exit:{aborted, {badarg, _}} ->
+            gone
+    end.
+
+%% Record `ClientId' as a resume point when the sweep kept at least one of
+%% its rows. A key whose rows were all deleted cannot be a resume point.
+maybe_add_resume_key(ClientId, NumRows, State0, #{resume_keys := {Count, Slots}} = State1) ->
+    case NumRows > num_deleted(State1) - num_deleted(State0) of
+        true ->
+            Slots1 = setelement(Count rem ?RESUME_KEYS_MAX + 1, Slots, ClientId),
+            State1#{resume_keys := {Count + 1, Slots1}};
+        false ->
+            State1
+    end.
+
+%% Ring buffer of the last ?RESUME_KEYS_MAX resume keys: `{Count, Slots}'.
+%% `Count' is the number of keys recorded in the current sweep, and slot
+%% `N rem ?RESUME_KEYS_MAX' of the tuple holds the N-th key.
+new_resume_keys() ->
+    {0, erlang:make_tuple(?RESUME_KEYS_MAX, undefined)}.
+
+num_deleted(#{
+    deleted_hist := Hist,
+    deleted_local_dead := LocalDead,
+    deleted_remote_orphan := RemoteOrphan
+}) ->
+    Hist + LocalDead + RemoteOrphan.
 
 %%--------------------------------------------------------------------
 %% Per-row predicates
