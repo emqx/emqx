@@ -335,7 +335,7 @@ format_gateway(
             emqx_utils_calendar:epoch_to_rfc3339(CreatedAt),
             StopOrStart,
             emqx_utils_calendar:epoch_to_rfc3339(Timestamp),
-            Config
+            emqx_utils:redact(Config)
         ]
     ).
 
