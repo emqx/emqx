@@ -993,6 +993,8 @@ transform_result(Result) ->
         %% the request has been fully processed
         {error, {shutdown, Reason}} ->
             transform_result({error, Reason});
+        {error, {error, Reason}} ->
+            transform_result({error, Reason});
         {error, {ehttpc_worker_down, _} = Reason} ->
             %% The reason carries the `gen_server:call' arguments of the request
             %% that was in flight when the worker died, which include the raw
