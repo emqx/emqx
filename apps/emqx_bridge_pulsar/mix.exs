@@ -5,7 +5,7 @@ defmodule EMQXBridgePulsar.MixProject do
   def project do
     [
       app: :emqx_bridge_pulsar,
-      version: "6.3.0",
+      version: "6.3.1",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -31,7 +31,7 @@ defmodule EMQXBridgePulsar.MixProject do
     UMP.deps([
       :crc32cer,
       :snappyer,
-      {:pulsar, github: "emqx/pulsar-client-erl", tag: "2.1.2", manager: :rebar3},
+      {:pulsar, github: "emqx/pulsar-client-erl", tag: "2.1.3", manager: :rebar3},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
