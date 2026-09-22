@@ -40,6 +40,30 @@ facilitating channel's connections to the Message Queues. They are stored in the
 * The hook looks up in the MQ registry if there are any Message Queues whose topic filter matches the message topic.
 * If yes, the hook writes the message to the corresponding Message Queues.
 
+### Direct publishing
+
+Publish to `$queue/name` to write directly to a named queue.
+Publish to `$queue/name/topic` to also supply the queue's topic filter.
+The supplied topic must equal the queue's topic filter.
+When the queue does not exist, a topic suffix is required for creation.
+Creation uses the `mq.auto_create` settings.
+When auto-creation is disabled, the queue must already exist.
+
+Direct publishes only write to the named queue.
+They do not route to regular subscribers or other queues and streams.
+Stored messages retain the full publish topic, including the `$queue/` prefix.
+
+For MQTT 5, QoS 1 PUBACK and QoS 2 PUBREC report the persistence result:
+
+| Result | Reason code |
+| --- | --- |
+| Message stored | Success (`0x00`) |
+| Queue missing, creation failed, or storage failed | Implementation specific error (`0x83`) |
+| Invalid name, empty topic suffix, or conflicting topic | Topic Name invalid (`0x90`) |
+
+QoS 0 has no publish acknowledgment.
+MQTT 3.x acknowledgments cannot carry error reason codes.
+
 ### Subscribing/Consuming
 
 * A client subscribes to some topic.

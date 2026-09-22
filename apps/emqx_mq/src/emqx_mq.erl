@@ -14,6 +14,7 @@
 
 -export([
     on_message_publish/1,
+    on_message_puback/4,
     on_session_created/2,
     on_session_subscribed/3,
     on_session_unsubscribed/3,
@@ -38,6 +39,8 @@ register_hooks() ->
     %% Idempotent hooks registration
     _ = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
     _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
+    _ = emqx_hooks:add('message.puback', {?MODULE, on_message_puback, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('message.pubrec', {?MODULE, on_message_puback, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
@@ -52,6 +55,8 @@ register_hooks() ->
 unregister_hooks() ->
     emqx_hooks:del('client.authorize', {?MODULE, on_client_authorize}),
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    emqx_hooks:del('message.puback', {?MODULE, on_message_puback}),
+    emqx_hooks:del('message.pubrec', {?MODULE, on_message_puback}),
     emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}),
     emqx_hooks:del('session.created', {?MODULE, on_session_created}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
@@ -65,6 +70,14 @@ unregister_hooks() ->
 %% Hooks callbacks
 %%--------------------------------------------------------------------
 
+on_message_publish(#message{topic = <<"$queue/", NameTopic/binary>>} = Message) ->
+    Result = publish_direct(NameTopic, Message),
+    Headers =
+        case Message#message.qos of
+            ?QOS_0 -> #{allow_publish => false};
+            _ -> #{allow_publish => false, mq_publish_result => Result}
+        end,
+    {stop, emqx_message:set_headers(Headers, Message)};
 on_message_publish(#message{topic = <<"$SYS/", _/binary>>} = Message) ->
     {ok, Message};
 on_message_publish(#message{topic = Topic} = Message) ->
@@ -94,6 +107,11 @@ on_message_publish(#message{topic = Topic} = Message) ->
         MQHandles
     ),
     {ok, Message}.
+
+on_message_puback(_PacketId, #message{headers = #{mq_publish_result := Result}}, _PubRes, _RC) ->
+    {stop, publish_reason_code(Result)};
+on_message_puback(_PacketId, _Message, _PubRes, RC) ->
+    {ok, RC}.
 
 on_delivery_completed(Msg, Info) ->
     _MessageId = emqx_message:get_header(?MQ_HEADER_MESSAGE_ID, Msg, undefined),
@@ -345,6 +363,58 @@ ack_from_rc(_) -> ?MQ_REJECTED.
 
 publish_to_queue(MQHandle, #message{} = Message) ->
     emqx_mq_message_db:insert(MQHandle, Message).
+
+publish_direct(NameTopic, Message) ->
+    case split_name_topic(NameTopic) of
+        {ok, _Name, <<>>} ->
+            {error, invalid_topic};
+        {ok, Name, Topic} ->
+            publish_direct(Name, Topic, Message);
+        {error, _} = Error ->
+            Error
+    end.
+
+publish_direct(Name, Topic, Message) ->
+    maybe
+        {ok, MQ} ?= find_direct_queue(Name, Topic),
+        ok ?= check_direct_topic(MQ, Topic),
+        ok ?= publish_to_queue(MQ, Message),
+        emqx_mq_metrics:inc(ds, inserted_messages),
+        ok
+    end.
+
+find_direct_queue(Name, Topic) ->
+    case emqx_mq_registry:find(Name) of
+        {ok, _} = Found ->
+            Found;
+        not_found when Topic =:= undefined ->
+            {error, queue_not_found};
+        not_found ->
+            case emqx_mq_config:auto_create(Name, Topic) of
+                false ->
+                    {error, queue_not_found};
+                {true, MQ} ->
+                    case emqx_mq_registry:create(MQ) of
+                        {error, {queue_exists, ExistingMQ}} ->
+                            {ok, ExistingMQ};
+                        Result ->
+                            Result
+                    end
+            end
+    end.
+
+check_direct_topic(_MQ, undefined) ->
+    ok;
+check_direct_topic(#{topic_filter := Topic}, Topic) ->
+    ok;
+check_direct_topic(_MQ, _Topic) ->
+    {error, topic_mismatch}.
+
+publish_reason_code(ok) -> ?RC_SUCCESS;
+publish_reason_code({error, topic_mismatch}) -> ?RC_TOPIC_NAME_INVALID;
+publish_reason_code({error, invalid_name}) -> ?RC_TOPIC_NAME_INVALID;
+publish_reason_code({error, invalid_topic}) -> ?RC_TOPIC_NAME_INVALID;
+publish_reason_code({error, _}) -> ?RC_IMPLEMENTATION_SPECIFIC_ERROR.
 
 delivers(SubscriberRef, Messages) ->
     SubTopic = make_sub_topic(SubscriberRef),
