@@ -642,7 +642,7 @@ on_get_status(
             ?status_connected;
         {error, #{reason := cannot_find_kafka_client}} ->
             %% Kafka client is starting
-            ?status_connecting;
+            {?status_connecting, cannot_find_kafka_client};
         {error, Reason} ->
             {?status_connecting, Reason}
     end.

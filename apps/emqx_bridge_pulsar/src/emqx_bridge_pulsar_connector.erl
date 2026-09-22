@@ -195,19 +195,14 @@ on_stop(ConnResId, _State) ->
 -spec on_get_status(resource_id(), state()) -> connected | connecting.
 on_get_status(_ConnResId, State = #{}) ->
     #{client_id := ClientId} = State,
-    try pulsar_client_manager:get_status(ClientId, 5_000) of
-        true -> ?status_connected;
-        false -> ?status_connecting
-    catch
-        exit:{timeout, _} ->
-            ?status_connecting;
-        exit:{noproc, _} ->
-            ?status_connecting
-    end;
-on_get_status(_ConnResId, _State) ->
-    %% If a health check happens just after a concurrent request to
-    %% create the bridge is not quite finished, `State = undefined'.
-    ?status_connecting.
+    %% todo: should honor health check timeout; yet, the default will likely cause http
+    %% request timeouts when creating/updating/probing...
+    case pulsar_client_manager:get_status_details(ClientId, 5_000) of
+        ok ->
+            ?status_connected;
+        {error, Reason} ->
+            {?status_connecting, Reason}
+    end.
 
 on_get_channel_status(_ConnResId, ActionResId, #{channels := Channels}) ->
     case maps:find(ActionResId, Channels) of
@@ -583,7 +578,7 @@ get_producer_status(Producers) ->
     do_get_producer_status(Producers, 0).
 
 do_get_producer_status(_Producers, TimeSpent) when TimeSpent > ?HEALTH_CHECK_RETRY_TIMEOUT ->
-    ?status_connecting;
+    {?status_connecting, ~"health check timed out while waiting for producers to be connected"};
 do_get_producer_status(Producers, TimeSpent) ->
     try pulsar_producers:all_connected(Producers) of
         true ->
@@ -592,10 +587,10 @@ do_get_producer_status(Producers, TimeSpent) ->
             Sleep = 200,
             timer:sleep(Sleep),
             do_get_producer_status(Producers, TimeSpent + Sleep)
-        %% producer crashed with badarg. will recover later
     catch
         error:badarg ->
-            ?status_connecting
+            %% producer crashed with badarg. will recover later
+            {?status_connecting, ~"producers restarting"}
     end.
 
 partition_strategy(key_dispatch) -> first_key_dispatch;

@@ -90,11 +90,8 @@ on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
     NewState = State#{channels => maps:remove(ChannelId, Channels)},
     {ok, NewState}.
 
-on_get_channel_status(InstanceId, _ChannelId, State) ->
-    case on_get_status(InstanceId, State) of
-        ?status_connected -> ?status_connected;
-        _ -> ?status_connecting
-    end.
+on_get_channel_status(_InstanceId, _ChannelId, _State) ->
+    ?status_connected.
 
 on_get_channels(InstanceId) ->
     emqx_bridge_v2:get_channels_for_connector(InstanceId).
@@ -206,11 +203,14 @@ on_batch_query_async(InstId, [{Channel, _} | _] = BatchData, {ReplyFun, Args}, S
     end.
 
 on_get_status(_InstId, #{client := Client}) ->
-    case greptimedb:is_alive(Client) of
+    ReturnReason = true,
+    case greptimedb:is_alive(Client, ReturnReason) of
         true ->
             ?status_connected;
         false ->
-            ?status_disconnected
+            {?status_disconnected, ~"health check call failed"};
+        {false, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 %% -------------------------------------------------------------------------------------------------

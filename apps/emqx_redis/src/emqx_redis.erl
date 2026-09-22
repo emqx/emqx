@@ -340,12 +340,12 @@ on_get_status(_InstId, #{type := cluster, pool_name := PoolName}) ->
             %% In this case, we can directly consider it as a disconnect and then proceed to reconnect.
             case eredis_cluster_monitor:get_all_pools(PoolName) of
                 [] ->
-                    ?status_disconnected;
+                    {?status_disconnected, ~"no pools available"};
                 [_ | _] ->
                     do_cluster_status_check(PoolName)
             end;
         false ->
-            ?status_disconnected
+            {?status_disconnected, ~"pool does not exist"}
     end;
 on_get_status(_InstId, #{pool_name := PoolName}) ->
     HealthCheckResoults = emqx_resource_pool:health_check_workers(

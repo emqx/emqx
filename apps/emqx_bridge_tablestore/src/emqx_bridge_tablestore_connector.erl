@@ -64,8 +64,8 @@ on_remove_channel(_InstId, #{channels := Channels} = State, ChannelId) ->
         channels => maps:remove(ChannelId, Channels)
     }}.
 
-on_get_channel_status(InstId, _ChannelId, State) ->
-    on_get_status(InstId, State).
+on_get_channel_status(_InstId, _ChannelId, _State) ->
+    ?status_connected.
 
 on_get_channels(InstId) ->
     emqx_bridge_influxdb_connector:on_get_channels(InstId).
@@ -104,7 +104,7 @@ on_stop(_InstId, #{client_ref := ClientRef} = State) ->
 on_get_status(_InstId, #{client_ref := ClientRef, probe_table_name := ProbeTableName}) ->
     case probe_ots(ClientRef, ProbeTableName) of
         ok -> ?status_connected;
-        _ -> ?status_connecting
+        {error, Reason} -> {?status_connecting, Reason}
     end.
 
 on_query(_InstId, {ChannelId, Message}, #{client_ref := ClientRef, channels := Channels}) ->

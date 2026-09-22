@@ -127,7 +127,7 @@ on_stop(ConnResId, _ConnState) ->
 on_get_status(ConnResId, #{?conn_config := ConnConfig} = _ConnState) ->
     case disk_log:info(ConnResId) of
         {error, no_such_log} ->
-            ?status_disconnected;
+            {?status_disconnected, no_such_log};
         LogInfo when is_list(LogInfo) ->
             check_period_and_file_status(ConnResId, ConnConfig, LogInfo)
     end.

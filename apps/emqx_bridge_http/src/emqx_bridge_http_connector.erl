@@ -645,7 +645,7 @@ on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout} = State
         ok ->
             check_oauth2_status(InstId, State);
         {error, still_connecting} ->
-            ?status_connecting;
+            {?status_connecting, still_connecting};
         {error, Reason} ->
             {?status_disconnected, Reason}
     end.
@@ -717,11 +717,11 @@ default_health_checker(Worker, Timeout) ->
     end.
 
 on_get_channel_status(
-    InstId,
+    _InstId,
     _ChannelId,
-    State
+    _State
 ) ->
-    on_get_status(InstId, State, fun default_health_checker/2).
+    ?status_connected.
 
 on_format_query_result({ok, Status, Headers, Body}) ->
     #{
@@ -992,6 +992,8 @@ transform_result(Result) ->
         %% The normal reason happens when the HTTP connection times out before
         %% the request has been fully processed
         {error, {shutdown, Reason}} ->
+            transform_result({error, Reason});
+        {error, {error, Reason}} ->
             transform_result({error, Reason});
         {error, {ehttpc_worker_down, _} = Reason} ->
             %% The reason carries the `gen_server:call' arguments of the request
