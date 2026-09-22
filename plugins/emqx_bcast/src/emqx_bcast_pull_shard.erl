@@ -100,6 +100,12 @@
 %% backlog that wedged the pool under load is bounded by design.
 -define(CLAIM_ROUND_CAP, 2000).
 
+%% How many deferred clients one sweep pass retries. The deferrals live on
+%% the client rows themselves (one flag per client), so there is no queue to
+%% overflow and no entry can be dropped; the bound here only keeps a single
+%% sweep pass short, and the log below reports the depth of the pass.
+-define(REARM_SWEEP_MAX, 256).
+
 %% Retry cadence when the worker pool is unavailable (flush gate).
 -define(FLUSH_RETRY_BACKOFF_MS, 1000).
 
@@ -651,7 +657,13 @@ handle_cast({topic_added, ClientId, Pid, ProductKey, TopicFilter, Qos}, State) -
                 }
             )
     end,
-    {noreply, State};
+    %% The pre-commit subscribe hook arms the client before the filter is
+    %% committed, so a claim round that reaches the core in that window sees
+    %% no matching subscription and answers no_more. The post-commit filter
+    %% is the first point where the subscription is visible, so arm an idle
+    %% client here: maybe_claim/4 is a no-op unless the client has no claim
+    %% round and an empty window, which is exactly the stranded state.
+    {noreply, maybe_claim(ProductKey, ClientId, Pid, State)};
 handle_cast({topic_removed, ClientId, Pid, ProductKey, TopicFilter}, State) ->
     %% session.unsubscribed fired (post-commit): drop the cached filter.
     Shard = State#state.shard,
@@ -1021,6 +1033,88 @@ cnt_put(Shard, Key, Value) ->
 
 bump_claim(Shard, Delta) -> cnt_inc(Shard, claim, Delta).
 
+%% Minimum spacing between two enqueues of the same client. The sweep drain
+%% deletes an entry before it retries it, so a client whose retry failed is
+%% re-queued by that retry rather than by a duplicate here; the interval only
+%% keeps a burst of refusals for one client from rewriting the row and, more
+%% importantly, bounds a client whose entries stay unclaimable (for example a
+%% device that never subscribes to the delivery topic) to one probe per
+%% interval instead of a spin.
+-define(REARM_MIN_INTERVAL_MS, 5000).
+
+%% Mark the client as needing another claim attempt: its round was refused by
+%% the per-shard cap, or the core answered that nothing was claimable while
+%% the client still holds live entries. Both leave the client idle
+%% (claim = undefined, window empty), which is exactly the state the
+%% stale-claim sweep does NOT revisit, so without this the backlog would sit
+%% until TTL. Runs on those failure paths only, so the steady state pays
+%% nothing; the mark lives on the client row and the sweep retries a bounded
+%% batch per pass.
+note_claim_deferred(Shard, ProductKey, ClientId) ->
+    note_claim_deferred(Shard, ProductKey, ClientId, undefined).
+
+%% `PendingRow` carries the row a refused round was about to write: a round
+%% that is refused never writes its row, so the mark has to create it here or
+%% the deferral would have nowhere to live.
+note_claim_deferred(Shard, ProductKey, ClientId, PendingRow) ->
+    Tab = ?TAB_STATE(Shard),
+    Key = {ProductKey, ClientId},
+    Now = erlang:system_time(millisecond),
+    case ets:lookup(Tab, Key) of
+        [#bcast_client_state{rearm_at = Last}] when
+            is_integer(Last), Now - Last < ?REARM_MIN_INTERVAL_MS
+        ->
+            ok;
+        [#bcast_client_state{}] ->
+            %% The flag is on the row, not in a separate queue, so it cannot
+            %% be dropped when the backpressure episode is large: the row
+            %% already exists for every client that can reach this path.
+            true = ets:update_element(Tab, Key, {#bcast_client_state.rearm_at, Now}),
+            ok;
+        [] when PendingRow =/= undefined ->
+            true = ets:insert(Tab, PendingRow#bcast_client_state{rearm_at = Now}),
+            ok;
+        [] ->
+            %% No row and nothing pending means no window and no claim for
+            %% this {PK, ClientId} (unsubscribed or taken over between the
+            %% failed round and this mark), so there is no client left to
+            %% wake up.
+            ?SLOG(debug, #{
+                msg => "bcast_claim_deferred_no_row",
+                product_key => ProductKey,
+                clientid => ClientId
+            }),
+            ok
+    end.
+
+%% Retry a bounded batch of deferred claims. Runs once per sweep, so a client
+%% whose claim was refused or came back empty is re-armed within one sweep
+%% interval instead of waiting for a trigger that will never come. The sweep
+%% fold hands us every flagged row it saw; a client that is still not
+%% claimable is flagged again by its next refusal, and a client whose registry
+%% entry is gone is dropped by reclaim_online/4 without any core traffic.
+drain_deferred_claims(_Shard, [], State) ->
+    State;
+drain_deferred_claims(Shard, RearmRev, State) ->
+    Tab = ?TAB_STATE(Shard),
+    Batch = lists:sublist(lists:reverse(RearmRev), ?REARM_SWEEP_MAX),
+    ?SLOG(warning, #{
+        msg => "bcast_claim_deferred_retry",
+        shard => Shard,
+        depth => length(RearmRev),
+        retrying => length(Batch)
+    }),
+    lists:foldl(
+        fun({ProductKey, ClientId}, St) ->
+            _ = ets:update_element(
+                Tab, {ProductKey, ClientId}, {#bcast_client_state.rearm_at, undefined}
+            ),
+            reclaim_online(ProductKey, ClientId, Shard, St)
+        end,
+        State,
+        Batch
+    ).
+
 ensure_row(ProductKey, ClientId, Pid, Shard) ->
     Key = {ProductKey, ClientId},
     case ets:member(?TAB_STATE(Shard), Key) of
@@ -1106,9 +1200,18 @@ claim_next(ClientId, Pid, ProductKey, State) ->
 claim_row(Shard, Row, State) ->
     case claim_round_count(Shard) >= ?CLAIM_ROUND_CAP of
         true ->
-            %% Claim-round cap reached (core server pool backpressure):
-            %% leave the client idle; a later trigger/refill re-claims it
-            %% once the sweep releases stale rounds and frees headroom.
+            %% Claim-round cap reached (core server pool backpressure): this
+            %% round cannot be submitted now. Remember the client so the sweep
+            %% retries it once the cap has headroom - leaving it idle with no
+            %% follow-up is a lost wakeup, because the promoter trigger is
+            %% one-shot and an idle row (empty window) is never re-armed by
+            %% the stale-claim sweep.
+            _ = note_claim_deferred(
+                Shard,
+                Row#bcast_client_state.product_key,
+                Row#bcast_client_state.clientid,
+                Row
+            ),
             State;
         false ->
             Tag = next_claim_tag(),
@@ -1278,7 +1381,7 @@ clear_row_claim(ProductKey, ClientId, Tag) ->
 %% Deliver-result dispatch (gen_server side)
 %%--------------------------------------------------------------------
 
-%% Results: [{ClientId, {ok, [ClaimMap]} | no_more | {error, _}}].
+%% Results: [{ClientId, {ok, [ClaimMap]} | {no_more, Residual} | no_more | {error, _}}].
 %% Fresh claim results are committed by ONE worker task per batch (the
 %% gen_server is out of the per-message drain path). Marks whose result
 %% is missing/error/stale have their claim released first
@@ -1286,7 +1389,7 @@ clear_row_claim(ProductKey, ClientId, Tag) ->
 %% completion, so a failed round cannot strand the backlog.
 dispatch_deliver_results(Results, Marks, State) ->
     Shard = State#state.shard,
-    {FreshResults, ReleaseMarks} = split_deliver_results(Results, Marks),
+    {FreshResults, ReleaseMarks} = split_deliver_results(Shard, Results, Marks),
     State1 =
         case ReleaseMarks of
             [] ->
@@ -1407,10 +1510,23 @@ commit_delivery_result(Shard, ClientId, {ok, ClaimMaps}, PK, Tag) ->
             %% round by tag (idempotent).
             do_release_client_claims(PK, ClientId, Tag)
     end;
+commit_delivery_result(Shard, ClientId, {no_more, Residual}, PK, Tag) ->
+    %% Core explicitly returned no_more: it did NOT mark any claim inflight,
+    %% so there is nothing to release. Clear the local round mark, and when
+    %% the core reports that the device still holds live entries, remember
+    %% the client for the bounded sweep retry - a bare clear here would leave
+    %% it idle with a backlog (the lost-wakeup shape).
+    _ = clear_row_claim(PK, ClientId, Tag),
+    case Residual of
+        0 ->
+            ok;
+        _ ->
+            _ = note_claim_deferred(Shard, PK, ClientId),
+            ok
+    end;
 commit_delivery_result(_Shard, ClientId, no_more, PK, Tag) ->
-    %% Core explicitly returned no_more: it did NOT mark any claim
-    %% inflight, so there is nothing to release. Only the local claim
-    %% round mark is cleared.
+    %% Bare no_more (a simulated or pre-residual round): the core marked no
+    %% claim inflight, so only the local round mark is cleared.
     _ = clear_row_claim(PK, ClientId, Tag),
     ok;
 commit_delivery_result(_Shard, _ClientId, {error, _Reason}, _PK, _Tag) ->
@@ -1480,12 +1596,16 @@ commit_window_update(Shard, PK, ClientId, Tag, OldInflight, Added) ->
                 pid = '$1',
                 claim = {Tag, '_'},
                 inflight = OldInflight,
-                topics = '$2'
+                topics = '$2',
+                %% Name every other field explicitly: an unmentioned record
+                %% field expands to its default in the pattern, so a row with
+                %% a deferred-claim mark would silently stop matching here.
+                rearm_at = '$3'
             },
             [],
             [
                 {{bcast_client_state, {{PK, ClientId}}, PK, ClientId, '$1', undefined, InflightExpr,
-                    '$2'}}
+                    '$2', '$3'}}
             ]
         }
     ],
@@ -1646,7 +1766,7 @@ deliver_entry_committed(
 %% once the window entries are committed, keeping the window intact
 %% across the async worker hop. Every other mark goes through the
 %% release-then-reclaim path.
-split_deliver_results(Results, Marks) ->
+split_deliver_results(Shard, Results, Marks) ->
     ResultsByClient = deliver_results_map(Results),
     lists:foldl(
         fun({ClientId, Tag, ProductKey} = Mark, {FreshAcc, ReleaseAcc}) ->
@@ -1654,9 +1774,29 @@ split_deliver_results(Results, Marks) ->
             case {mark_current(ProductKey, ClientId, Tag), Result} of
                 {true, {ok, _} = OkResult} ->
                     {[{ClientId, OkResult, Mark} | FreshAcc], ReleaseAcc};
+                {true, {no_more, Residual}} ->
+                    %% The core found nothing claimable for this client. That
+                    %% is the normal drained answer, but it is also what the
+                    %% core says while the entries are there and merely not
+                    %% claimable yet (the subscription was not visible to the
+                    %% core when the round ran, the delivery is still
+                    %% replicating, a blocked head has to cycle). Clearing the
+                    %% round without re-arming would leave the client idle
+                    %% with a backlog until TTL, so hand the client to the
+                    %% bounded sweep retry when the core reports a residual.
+                    _ = clear_row_claim(ProductKey, ClientId, Tag),
+                    case Residual of
+                        0 ->
+                            ok;
+                        _ ->
+                            _ = note_claim_deferred(Shard, ProductKey, ClientId),
+                            ok
+                    end,
+                    {FreshAcc, ReleaseAcc};
                 {true, no_more} ->
-                    %% Nothing claimed at core; only the local round mark
-                    %% is cleared (no release RPC needed).
+                    %% Bare no_more (a simulated or pre-residual round):
+                    %% nothing claimed at core, only the local round mark is
+                    %% cleared (no release RPC needed).
                     _ = clear_row_claim(ProductKey, ClientId, Tag),
                     {FreshAcc, ReleaseAcc};
                 {true, {error, _}} ->
@@ -1884,12 +2024,30 @@ sweep_stale_marks(State) ->
     Shard = State#state.shard,
     Now = erlang:system_time(millisecond),
     try
-        {Claimed, StaleRev, ExpiredRev} = ets:foldl(
-            fun(#bcast_client_state{} = Row, {C, Acc, ExpAcc}) ->
+        {Claimed, StaleRev, ExpiredRev, RearmRev} = ets:foldl(
+            fun(#bcast_client_state{} = Row, {C, Acc, ExpAcc, RAcc}) ->
                 C1 =
                     case Row#bcast_client_state.claim of
                         undefined -> C;
                         _ -> C + 1
+                    end,
+                RAcc1 =
+                    %% Idle rows carrying a deferred-claim mark: the sweep is
+                    %% the only thing that revisits them, so it hands the
+                    %% whole set to drain_deferred_claims/3 below. Rows with a
+                    %% round in flight are skipped - their own path re-arms
+                    %% them.
+                    case {Row#bcast_client_state.rearm_at, Row#bcast_client_state.claim} of
+                        {RearmTs, undefined} when is_integer(RearmTs) ->
+                            [
+                                {
+                                    Row#bcast_client_state.product_key,
+                                    Row#bcast_client_state.clientid
+                                }
+                                | RAcc
+                            ];
+                        _ ->
+                            RAcc
                     end,
                 Acc1 =
                     case Row#bcast_client_state.claim of
@@ -1925,42 +2083,44 @@ sweep_stale_marks(State) ->
                     ExpAcc,
                     Row#bcast_client_state.inflight
                 ),
-                {C1, Acc1, ExpAcc1}
+                {C1, Acc1, ExpAcc1, RAcc1}
             end,
-            {0, [], []},
+            {0, [], [], []},
             ?TAB_STATE(Shard)
         ),
         cnt_put(Shard, claim, Claimed),
         State1 = expire_ack_in_flight(Shard, lists:reverse(ExpiredRev), State),
-        case StaleRev of
-            [] ->
-                State1;
-            _ ->
-                Live = [
-                    Mark
-                 || Mark = {C, Tag, PK} <- lists:reverse(StaleRev),
-                    clear_row_claim(PK, C, Tag) =:= ok
-                ],
-                case Live of
-                    [] ->
-                        State1;
-                    _ ->
-                        ?SLOG(warning, #{
-                            msg => "bcast_stale_claim_released",
-                            marks => length(Live)
-                        }),
-                        case
-                            submit_to_worker(fun() ->
-                                do_release_tags_confirm(Shard, Live)
-                            end)
-                        of
-                            ok ->
-                                State1;
-                            {error, _} ->
-                                State1
-                        end
-                end
-        end
+        State2 =
+            case StaleRev of
+                [] ->
+                    State1;
+                _ ->
+                    Live = [
+                        Mark
+                     || Mark = {C, Tag, PK} <- lists:reverse(StaleRev),
+                        clear_row_claim(PK, C, Tag) =:= ok
+                    ],
+                    case Live of
+                        [] ->
+                            State1;
+                        _ ->
+                            ?SLOG(warning, #{
+                                msg => "bcast_stale_claim_released",
+                                marks => length(Live)
+                            }),
+                            case
+                                submit_to_worker(fun() ->
+                                    do_release_tags_confirm(Shard, Live)
+                                end)
+                            of
+                                ok ->
+                                    State1;
+                                {error, _} ->
+                                    State1
+                            end
+                    end
+            end,
+        drain_deferred_claims(Shard, RearmRev, State2)
     catch
         error:badarg ->
             State
@@ -2019,10 +2179,11 @@ take_expired_ack_in_flight(PK, DN, Did, Mark) ->
                 pid = '$1',
                 claim = '$2',
                 inflight = Old,
-                topics = '$3'
+                topics = '$3',
+                rearm_at = '$4'
             },
             [],
-            [{{bcast_client_state, {{PK, DN}}, PK, DN, '$1', '$2', Rest, '$3'}}]
+            [{{bcast_client_state, {{PK, DN}}, PK, DN, '$1', '$2', Rest, '$3', '$4'}}]
         }
     ],
     try

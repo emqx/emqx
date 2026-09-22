@@ -1567,6 +1567,9 @@ handle_info(maybe_activate, State = #{active := false, shard := 0}) ->
                 node => node(),
                 shard_count => ?SHARD_COUNT
             }),
+            %% Keep polling after activation so the ownership check below
+            %% runs for this shard too.
+            erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
             {noreply, S2#{active => true}};
         retry ->
             erlang:send_after(?OWNER_POLL_MS, self(), maybe_activate),
@@ -1587,7 +1590,38 @@ handle_info(maybe_activate, State = #{active := false, shard := Shard}) when
     erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
     {noreply, State};
 handle_info(maybe_activate, State) ->
-    {noreply, State};
+    %% An active shard must give up its partition once it is no longer the
+    %% owner. Ownership is derived from the live core set (shard_owner/1), so
+    %% a core joining or leaving remaps most shards; without this check the
+    %% former owner keeps an active shard whose index stops being updated and
+    %% is never reclaimed, and when ownership comes back - another core
+    %% leaving, or a partition healing - that stale index serves live traffic
+    %% again: entries appended while it was not the owner are missing, and
+    %% acknowledgements it already applied are counted a second time, which
+    %% decrements the remaining-ack count twice and can complete a delivery
+    %% while never-acked devices no longer hold an entry.
+    Shard = maps:get(shard, State),
+    case shard_owner(Shard) =:= node() of
+        true ->
+            erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
+            {noreply, State};
+        false ->
+            Owner = shard_owner(Shard),
+            ?SLOG(warning, #{
+                msg => "bcast_index_owner_deactivated",
+                node => node(),
+                shard => Shard,
+                owner => Owner
+            }),
+            %% Dropping the heap index is safe: it is a projection of the
+            %% committed rows, and the next activation rebuilds it. Only
+            %% uncommitted admission reservations are lost, and the periodic
+            %% quota recount reclaims those. Re-arm the poll: the dormant
+            %% clauses above re-activate this shard if the node becomes the
+            %% owner again.
+            erlang:send_after(?ACTIVATE_POLL_MS, self(), maybe_activate),
+            {noreply, (reset_state(State))#{active => false}}
+    end;
 handle_info(
     quota_sync, State = #{shard := 0, quota_last_synced := Last, quota_epoch := Epoch}
 ) ->
@@ -2193,20 +2227,92 @@ backfill_meta_from_projection(Proj) ->
         ?TAB_MSG_META,
         [{#bcast_msg_meta{delivery_id = '$1', counter = '$2', _ = '_'}, [], [{{'$1', '$2'}}]}]
     ),
-    ExistingCnt = ets:select(
-        ?TAB_MSG_META_CNT,
-        [{#bcast_msg_meta_counter{delivery_id = '$1', _ = '_'}, [], ['$1']}]
+    %% id -> counter: the value (not just the presence) tells a stale legacy
+    %% counter apart from a delivery this build is still acking.
+    CntByDid = maps:from_list(
+        ets:select(
+            ?TAB_MSG_META_CNT,
+            [
+                {
+                    #bcast_msg_meta_counter{delivery_id = '$1', counter = '$2'},
+                    [],
+                    [{{'$1', '$2'}}]
+                }
+            ]
+        )
     ),
-    CntSet = maps:from_keys(ExistingCnt, true),
     TargetByDid = maps:from_list([
         {DeliveryId, TargetAckCount}
      || {DeliveryId, _MsgId, _PK, _Tpl, TargetAckCount, _Counter, _DNs, _CreatedAt} <- Proj
     ]),
+    MarkedDids = marker_did_set(),
+    %% Deliveries whose acks are not attributable to devices: no persisted
+    %% marker means the delivery was committed by a build that had no marker
+    %% table (0.4.0 and earlier). Its remaining-ack counter was decremented by
+    %% acks this build cannot map back to devices, while the rebuild
+    %% re-indexes every target device of it (activate_partition/3 has no
+    %% marker to skip a device with), so the counter has to be the full
+    %% target again. Left at the legacy value, the first duplicate ack from a
+    %% re-delivered already-acked device drives the stale counter to zero and
+    %% completes the delivery while never-acked devices have already been
+    %% dropped from the index: their messages are lost, not merely delayed.
+    %%
+    %% This only ever raises a counter, which delays a completion at worst and
+    %% can never cause one, so the repair stays safe even if it interleaves
+    %% with a live ack flush. It is a no-op for deliveries this build
+    %% committed that have no acks yet, whose counter already equals the
+    %% target, so a takeover with a large never-acked backlog writes nothing.
+    Legacy = [
+        {Did, Target}
+     || {Did, _MsgId, _PK, _Tpl, Target, _Counter, _DNs, _CreatedAt} <- Proj,
+        not maps:is_key(Did, MarkedDids),
+        maps:get(Did, CntByDid, -1) =/= Target
+    ],
+    LegacySet = maps:from_keys([Did || {Did, _} <- Legacy], true),
     MissingCnt = [
         {Did, backfill_remaining(Did, Cnt, TargetByDid)}
      || {Did, Cnt} <- ExistingMeta,
-        not maps:is_key(Did, CntSet)
+        not maps:is_key(Did, CntByDid),
+        not maps:is_key(Did, LegacySet)
     ],
+    ok = write_meta_counters(MissingCnt),
+    write_meta_counters(Legacy).
+
+%% bcast_msg_meta.counter is the remaining-ack count, but since 0.4.0 it is
+%% only ever written with the full target and never decremented (the atomic
+%% bcast_msg_meta_counter is authoritative). When persisted ack markers exist,
+%% derive the remaining from them; keep the conservative minimum so a delivery
+%% whose counter row was lost can never be completed early. Callers must not
+%% route a delivery without markers here: the rebuild re-indexes every device
+%% of such a delivery, so its counter belongs at the full target and is
+%% restored by backfill_meta_from_projection/1. The zero-marker clause below
+%% is only a defensive fallback.
+backfill_remaining(Did, MetaCounter, TargetByDid) ->
+    case maps:size(acked_device_set(Did)) of
+        0 ->
+            max(0, MetaCounter);
+        Acked ->
+            Target = maps:get(Did, TargetByDid, MetaCounter),
+            min(max(0, MetaCounter), max(0, Target - Acked))
+    end.
+
+%% Deliveries that own at least one persisted ack marker, as a set. One scan
+%% of the marker table instead of a dirty read per delivery: the table is
+%% keyed by delivery id, so this walks the deliveries that still have pending
+%% acks rather than the whole batch.
+marker_did_set() ->
+    maps:from_keys(
+        ets:select(
+            ?TAB_MSG_ACKED,
+            [{#bcast_msg_acked{delivery_id = '$1', _ = '_'}, [], ['$1']}]
+        ),
+        true
+    ).
+
+%% Write remaining-ack counter rows in batched transactions (100 rows/tx). An
+%% aborted chunk is logged and skipped rather than failing the activation: the
+%% next takeover retries the repair.
+write_meta_counters(Rows) ->
     lists:foreach(
         fun(Chunk) ->
             case
@@ -2235,24 +2341,8 @@ backfill_meta_from_projection(Proj) ->
                     })
             end
         end,
-        chunks(MissingCnt, 100)
-    ),
-    ok.
-
-%% bcast_msg_meta.counter is the remaining-ack count, but since 0.4.0 it is
-%% only ever written with the full target and never decremented (the atomic
-%% bcast_msg_meta_counter is authoritative). When persisted ack markers exist,
-%% derive the remaining from them; keep the conservative minimum so a delivery
-%% whose counter row was lost can never be completed early. Rows with no
-%% markers predate the marker table and their META.counter was maintained.
-backfill_remaining(Did, MetaCounter, TargetByDid) ->
-    case maps:size(acked_device_set(Did)) of
-        0 ->
-            max(0, MetaCounter);
-        Acked ->
-            Target = maps:get(Did, TargetByDid, MetaCounter),
-            min(max(0, MetaCounter), max(0, Target - Acked))
-    end.
+        chunks(Rows, 100)
+    ).
 
 %% Device-name set of the persisted ack markers of a delivery (one dirty
 %% read per delivery, only for deliveries that own at least one device of
@@ -2529,16 +2619,20 @@ quota_update_local(Delta) ->
 %%--------------------------------------------------------------------
 
 %% Claim up to the per-device window of entries for a client. Returns
-%% {Result, NewState} where Result is {ok, [ClaimMap]} | no_more. The
-%% FIFO head is popped; claimable entries are moved to inflights (out of
-%% the queue); unclaimable ones (topic mismatch, replication-lag, lazily
-%% deleted) are either skipped back to the tail or dropped. The scan is
-%% budget-bounded so one device with a long blocked head cannot hold the
-%% shard (see claim_scan).
+%% {Result, NewState} where Result is {ok, [ClaimMap]} | {no_more, Residual}.
+%% Residual is how many live entries the device still holds in this shard,
+%% so the pull side can tell "drained" (0) from "entries are there but not
+%% claimable right now" (subscription cache not visible to the core yet,
+%% replication lag, blocked head cycling). The FIFO head is popped;
+%% claimable entries are moved to inflights (out of the queue);
+%% unclaimable ones (topic mismatch, replication-lag, lazily deleted) are
+%% either skipped back to the tail or dropped. The scan is budget-bounded
+%% so one device with a long blocked head cannot hold the shard (see
+%% claim_scan).
 claim_one(#{clientid := DN, product_key := PK} = E, State) ->
     try do_claim_one(E, PK, DN, State) of
         {ok, Result, St} -> {{ok, Result}, St};
-        {no_more, St} -> {no_more, St}
+        {no_more, Residual, St} -> {{no_more, Residual}, St}
     catch
         Error:Reason:Stacktrace ->
             ?SLOG(error, #{
@@ -2560,14 +2654,16 @@ do_claim_one(E, PK, DN, State) ->
     Capacity = window_size() - InflightCount,
     case Capacity =< 0 of
         true ->
-            {no_more, State1};
+            %% The window already holds a delivery: nothing to hand out and
+            %% nothing to re-arm, so the residual is reported as 0.
+            {no_more, 0, State1};
         false ->
             Q = maps:get(Key, maps:get(queues, State1), queue:new()),
             case claim_scan(State1, Key, Q, Topics, PK, DN, Tag, Capacity, 0, undefined, []) of
                 {ok, Maps, St} ->
                     {ok, lists:reverse(Maps), St};
-                {no_more, St} ->
-                    {no_more, St}
+                {no_more, Residual, St} ->
+                    {no_more, Residual, St}
             end
     end.
 
@@ -2678,8 +2774,14 @@ claim_scan_step(State, Key, Q, Topics, PK, DN, Tag, Capacity, Budget, CycleAncho
             end
     end.
 
-finish_claim_scan(State, _Key, _Q, []) ->
-    {no_more, State};
+finish_claim_scan(State, Key, _Q, []) ->
+    %% Nothing was claimable in this pass. The device may still hold live
+    %% entries - the subscription was not visible to the core yet, the
+    %% delivery is still replicating, or a blocked head has to cycle - so
+    %% report the residual instead of a bare no_more: the pull side re-arms
+    %% the client through its bounded retry queue when it is non-zero, and
+    %% treats 0 as the normal drained state.
+    {no_more, maps:get(Key, maps:get(counts, State), 0), State};
 finish_claim_scan(State, Key, Q, Acc) ->
     {ok, Acc, save_queue(State, Key, Q)}.
 
