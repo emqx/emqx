@@ -728,7 +728,7 @@ t_010_local_fallback(Config) when is_list(Config) ->
         emqx:publish(Message1),
         {true, UsedSubPid1} = last_message(<<"hello1">>, [ConnPid1]),
 
-        [{share, Topic, {ok, _}}] = rpc:call(Node, emqx, publish, [Message2]),
+        {ok, [{share, Topic, {ok, _}}], #message{}} = rpc:call(Node, emqx, publish, [Message2]),
         {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1], 10_000),
         ?assertEqual(UsedSubPid1, UsedSubPid2)
     after
@@ -908,10 +908,10 @@ t_dispatch_qos2(Config) when is_list(Config) ->
     ok = sys:suspend(ConnPid1),
 
     %% One message is inflight
-    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message1)),
-    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message2)),
-    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message3)),
-    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message4)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message1)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message2)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message3)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message4)),
 
     %% assert client 2 receives two messages, they are eiter 1,3 or 2,4 depending
     %% on if it's picked as the first one for round_robin
@@ -975,10 +975,10 @@ t_dispatch_qos0(Config) when is_list(Config) ->
 
     ok = sys:suspend(ConnPid1),
 
-    ?assertMatch([_], emqx:publish(Message1)),
-    ?assertMatch([_], emqx:publish(Message2)),
-    ?assertMatch([_], emqx:publish(Message3)),
-    ?assertMatch([_], emqx:publish(Message4)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message1)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message2)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message3)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message4)),
 
     MsgRec1 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P1}}, P1),
     MsgRec2 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P2}}, P2),
@@ -1016,18 +1016,18 @@ t_session_takeover(Config) when is_list(Config) ->
     Message3 = emqx_message:make(<<"dummypub">>, 2, Topic, <<"hello3">>),
     Message4 = emqx_message:make(<<"dummypub">>, 2, Topic, <<"hello4">>),
     %% Make sure client1 is functioning
-    ?assertMatch([_], emqx:publish(Message1)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message1)),
     {true, _} = last_message(<<"hello1">>, [ConnPid1]),
     %% Kill client1
     emqtt:stop(ConnPid1),
     %% publish another message (should end up in client1's session)
-    ?assertMatch([_], emqx:publish(Message2)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message2)),
     %% connect client2 (with the same clientid)
 
     %% should trigger session take over
     {ok, _} = emqtt:connect(ConnPid2),
-    ?assertMatch([_], emqx:publish(Message3)),
-    ?assertMatch([_], emqx:publish(Message4)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message3)),
+    ?assertMatch({ok, [_], #message{}}, emqx:publish(Message4)),
     %% Messages published around the takeover are delivered by session
     %% redelivery, which can take longer than the default 1s under CI load.
     {true, _} = last_message(<<"hello2">>, [ConnPid2], 5_000),
@@ -1071,10 +1071,10 @@ t_session_kicked(Config) when is_list(Config) ->
     ok = sys:suspend(ConnPid1),
 
     %% One message is inflight
-    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message1)),
-    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message2)),
-    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message3)),
-    ?assertMatch([{_, _, {ok, 1}}], emqx:publish(Message4)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message1)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message2)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message3)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx:publish(Message4)),
 
     %% assert client 2 receives two messages, they are eiter 1,3 or 2,4 depending
     %% on if it's picked as the first one for round_robin

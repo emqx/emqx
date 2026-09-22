@@ -1098,7 +1098,7 @@ frame2message(
 process_pub_frame(Frame, Channel) ->
     Msg = frame2message(Frame, Channel),
     ReplyToSubject = emqx_nats_frame:reply_to(Frame),
-    PubResult = emqx_broker:publish(Msg),
+    {_Status, PubResult, _PublishedMsg} = emqx_broker:publish(Msg),
     Replies = no_responders_fastfails(PubResult, ReplyToSubject, Channel),
     handle_out(ok, Replies, Channel).
 

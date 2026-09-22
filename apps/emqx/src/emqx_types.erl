@@ -82,6 +82,7 @@
     deliver/0,
     delivery/0,
     publish_result/0,
+    publish_routes/0,
     deliver_result/0
 ]).
 
@@ -250,17 +251,19 @@
 -type deliver() :: {deliver, topic(), message()}.
 -type delivery() :: #delivery{}.
 -type deliver_result() :: ok | {ok, non_neg_integer()} | {error, term()}.
--type publish_result() ::
+-type publish_routes() ::
     [
         {node(), topic(), deliver_result()}
         | {share, topic(), deliver_result()}
         | {emqx_external_broker:dest(), topic(), deliver_result()}
         | persisted
-    ]
+    ].
+-type publish_result() ::
+    {ok, publish_routes(), message()}
     %% If schema validation failure action is set to `disconnect'.
-    | disconnect
+    | {error, disconnect, message()}
     %% If caller specifies `hook_prohibition_as_error => true'.
-    | {blocked, message()}.
+    | {error, blocked, message()}.
 -type mem_session_route() :: #route{
     topic :: binary(),
     dest :: node() | {binary(), node()}

@@ -773,16 +773,15 @@ packet_to_message(Packet, #channel{
     ).
 
 do_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
-    Result = emqx_broker:publish(Msg),
-    case Result of
-        disconnect ->
+    case emqx_broker:publish(Msg) of
+        {error, disconnect, _PublishedMsg} ->
             handle_out(disconnect, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel);
         _ ->
             {ok, Channel}
     end;
 do_publish(PacketId, Msg = #message{qos = ?QOS_1}, Channel) ->
     PubRes = emqx_broker:publish(Msg),
-    RC = puback_reason_code(PacketId, Msg, PubRes),
+    RC = puback_reason_code(PacketId, PubRes),
     case RC of
         undefined ->
             {ok, Channel};
@@ -797,10 +796,22 @@ do_publish(
     Channel = #channel{clientinfo = ClientInfo, session = Session}
 ) ->
     case emqx_session:publish(ClientInfo, PacketId, Msg, Session) of
-        {ok, disconnect, _NSession} ->
+        {ok, {error, disconnect, _PublishedMsg}, _NSession} ->
             handle_out(disconnect, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel);
-        {ok, PubRes, NSession} ->
-            RC = pubrec_reason_code(PubRes),
+        {ok, {ok, PubRes, PublishedMsg}, NSession0} ->
+            RC = emqx_hooks:run_fold(
+                'message.pubrec', [PacketId, PublishedMsg, PubRes], pubrec_reason_code(PubRes)
+            ),
+            NSession =
+                case {RC >= ?RC_UNSPECIFIED_ERROR, Channel} of
+                    {true, ?IS_MQTT_V5} ->
+                        {ok, ReleasedSession} = emqx_session:pubrel(
+                            ClientInfo, PacketId, NSession0
+                        ),
+                        ReleasedSession;
+                    _ ->
+                        NSession0
+                end,
             NChannel0 = Channel#channel{session = NSession},
             NChannel1 = ensure_timer(expire_awaiting_rel, NChannel0),
             handle_out(pubrec, {PacketId, RC}, NChannel1);
@@ -819,11 +830,11 @@ do_finish_publish(PacketId, _PubRes, RC, Channel) ->
 pubrec_reason_code([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
 pubrec_reason_code([_ | _]) -> ?RC_SUCCESS.
 
-puback_reason_code(PacketId, Msg, [] = PubRes) ->
+puback_reason_code(PacketId, {ok, [] = PubRes, Msg}) ->
     emqx_hooks:run_fold('message.puback', [PacketId, Msg, PubRes], ?RC_NO_MATCHING_SUBSCRIBERS);
-puback_reason_code(PacketId, Msg, [_ | _] = PubRes) ->
+puback_reason_code(PacketId, {ok, [_ | _] = PubRes, Msg}) ->
     emqx_hooks:run_fold('message.puback', [PacketId, Msg, PubRes], ?RC_SUCCESS);
-puback_reason_code(_PacketId, _Msg, disconnect) ->
+puback_reason_code(_PacketId, {error, disconnect, _Msg}) ->
     disconnect.
 
 %%--------------------------------------------------------------------

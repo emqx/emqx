@@ -1156,8 +1156,8 @@ wait_subscription(Ctx = #{client := CPids}) ->
 publish_msg(Ctx, Msg) ->
     ok = timer:sleep(rand:uniform(?SLEEP)),
     case emqx:publish(Msg#message{timestamp = emqx_message:timestamp_now()}) of
-        [] -> publish_msg(Ctx, Msg);
-        [_ | _] -> Ctx
+        {ok, [], _PublishedMsg} -> publish_msg(Ctx, Msg);
+        {ok, [_ | _], _PublishedMsg} -> Ctx
     end.
 
 just_wait(Ctx, Sleep) ->

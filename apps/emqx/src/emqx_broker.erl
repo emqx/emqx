@@ -92,8 +92,8 @@
 ).
 
 -type publish_opts() :: #{
-    %% Whether to return a disinguishing value `{blocked, #message{}}' when a hook from
-    %% `'message.publish''` returns `allow_publish => false'.  Defaults to `false'.
+    %% Return `{error, blocked, Message}' when a publish hook sets `allow_publish => false'.
+    %% Defaults to `false'.
     hook_prohibition_as_error => boolean(),
     %% do not call message.publish hook point if true
     bypass_hook => boolean()
@@ -266,19 +266,19 @@ publish(#message{} = Msg, Opts) ->
     emqx_message:is_sys(Msg) orelse inc_metrics('messages.publish', Msg),
     case maps:get(bypass_hook, Opts, false) of
         true ->
-            do_publish(Msg);
+            {ok, do_publish(Msg), Msg};
         false ->
             eval_hook_and_publish(Msg, Opts)
     end.
 
 eval_hook_and_publish(Msg, Opts) ->
     case emqx_hooks:run_fold('message.publish', [], emqx_message:clean_dup(Msg)) of
-        #message{headers = #{should_disconnect := true}, topic = Topic} ->
+        #message{headers = #{should_disconnect := true}, topic = Topic} = Message ->
             ?TRACE("MQTT", "msg_publish_not_allowed_disconnect", #{
                 message => emqx_message:to_log_map(Msg),
                 topic => Topic
             }),
-            disconnect;
+            {error, disconnect, Message};
         #message{headers = #{allow_publish := false}, topic = Topic} = Message ->
             ?TRACE("MQTT", "msg_not_routed_to_subscribers", #{
                 message => emqx_message:to_log_map(Msg),
@@ -286,20 +286,13 @@ eval_hook_and_publish(Msg, Opts) ->
             }),
             case maps:get(hook_prohibition_as_error, Opts, false) of
                 true ->
-                    {blocked, Message};
+                    {error, blocked, Message};
                 false ->
-                    []
+                    {ok, [], Message}
             end;
         Msg1 = #message{} ->
-            do_publish(Msg1);
-        Msgs when is_list(Msgs) ->
-            do_publish_many(Msgs)
+            {ok, do_publish(Msg1), Msg1}
     end.
-
-do_publish_many([]) ->
-    [];
-do_publish_many([Msg | T]) ->
-    do_publish(Msg) ++ do_publish_many(T).
 
 do_publish(#message{topic = Topic} = Msg) ->
     PersistRes = persist_publish(Msg),
@@ -338,7 +331,7 @@ safe_publish(#message{} = Msg, Opts) ->
                 },
                 #{topic => Msg#message.topic}
             ),
-            []
+            {ok, [], Msg}
     end.
 
 -compile({inline, [delivery/1]}).
@@ -368,7 +361,7 @@ route_result({TF, Group}) ->
     #{group => Group, route => TF}.
 
 -spec do_route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
-    emqx_types:publish_result().
+    emqx_types:publish_routes().
 do_route([], #delivery{message = Msg}, _PersistRes = []) ->
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
     ok = inc_dropped_cnt(Msg),

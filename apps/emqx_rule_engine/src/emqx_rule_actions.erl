@@ -277,12 +277,10 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps, DirectDispatch) ->
             bypass_hook => DirectDispatch, hook_prohibition_as_error => true
         })
     of
-        Routes when is_list(Routes) ->
+        {ok, _Routes, _PublishedMsg} ->
             emqx_metrics:inc_msg(Msg),
             ok;
-        disconnect ->
-            error;
-        {blocked, _Msg} ->
+        {error, _Reason, _PublishedMsg} ->
             error
     end.
 
