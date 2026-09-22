@@ -119,20 +119,62 @@ on_session_resumed(ClientInfo, _SessionInfo) ->
     Ctx = emqx_hooks:context('session.resumed'),
     ok = save_support_info(Ctx, ClientInfo).
 
+%% TODO: Apply target_topic_authz to direct publishes after
+%% https://github.com/emqx/emqx/pull/19159 is merged.
 on_client_authorize(
-    _ClientInfo, #{action_type := subscribe} = _Action, <<"$s/", _/binary>> = _Topic, Result
+    ClientInfo, #{action_type := subscribe} = Action, <<"$s/", _/binary>> = FullTopic, Result
 ) ->
-    deny_if_streams_not_supported(Result);
+    authorize_subscription(ClientInfo, Action, FullTopic, Result);
 on_client_authorize(
-    _ClientInfo, #{action_type := subscribe} = _Action, <<"$stream/", _/binary>> = _Topic, Result
+    ClientInfo, #{action_type := subscribe} = Action, <<"$stream/", _/binary>> = FullTopic, Result
 ) ->
-    deny_if_streams_not_supported(Result);
-on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
+    authorize_subscription(ClientInfo, Action, FullTopic, Result);
+on_client_authorize(_ClientInfo, _Action, _FullTopic, Result) ->
     {ok, Result}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+authorize_subscription(ClientInfo, Action, FullTopic, Result) ->
+    case deny_if_streams_not_supported(Result) of
+        {ok, Result} -> maybe_authorize_target(ClientInfo, Action, FullTopic, Result);
+        {stop, _} = Deny -> Deny
+    end.
+
+maybe_authorize_target(ClientInfo, Action, FullTopic, Result) ->
+    case emqx_streams_config:target_topic_authz() of
+        false ->
+            {ok, Result};
+        true ->
+            case subscription_target(FullTopic) of
+                {ok, TargetTopic} ->
+                    %% $stream prefix is stripped here, so we do not have infinite recursion
+                    case emqx_access_control:authorize(ClientInfo, Action, TargetTopic) of
+                        allow -> {ok, Result};
+                        deny -> {stop, #{result => deny, from => streams}}
+                    end;
+                error ->
+                    {stop, #{result => deny, from => streams, is_cacheable => false}}
+            end
+    end.
+
+subscription_target(FullTopic) ->
+    case emqx_streams_extsub_handler:subscription_target(FullTopic) of
+        {ok, Name, RequestedTargetTopic} ->
+            case emqx_streams_registry:find(Name) of
+                {ok, #{topic_filter := TargetTopic}} when
+                    RequestedTargetTopic =:= undefined; RequestedTargetTopic =:= TargetTopic
+                ->
+                    {ok, TargetTopic};
+                not_found when is_binary(RequestedTargetTopic), RequestedTargetTopic =/= <<>> ->
+                    {ok, RequestedTargetTopic};
+                _ ->
+                    error
+            end;
+        {error, _} ->
+            error
+    end.
 
 publish_to_stream(Stream, #message{} = Message) ->
     emqx_streams_message_db:insert(Stream, Message).

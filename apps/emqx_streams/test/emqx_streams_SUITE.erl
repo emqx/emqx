@@ -113,6 +113,10 @@ init_per_group(_Group, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
+init_per_testcase(t_target_topic_authz_recreate, Config) ->
+    CacheEnabled = emqx:get_config([authorization, cache, enable]),
+    emqx_config:put([authorization, cache, enable], false),
+    init_per_testcase(default, [{authz_cache_enabled, CacheEnabled} | Config]);
 init_per_testcase(_CaseName, Config) ->
     ok = emqx_streams_test_utils:cleanup_streams(),
     ok = snabbkaffe:start_trace(),
@@ -124,10 +128,14 @@ init_per_testcase(_CaseName, Config) ->
         end,
     [{ext_sub_max_unacked, ExtSubMaxUnacked}, {limits, LimitOpts} | Config].
 
+end_per_testcase(t_target_topic_authz_recreate, Config) ->
+    emqx_config:put([authorization, cache, enable], ?config(authz_cache_enabled, Config)),
+    end_per_testcase(default, Config);
 end_per_testcase(_CaseName, Config) ->
     _ = emqx_hooks:del('message.publish', {?MODULE, test_schema_validation}),
     _ = emqx_hooks:del('message.publish', {?MODULE, test_message_transformation}),
     emqx_common_test_helpers:call_janitor(),
+    ok = emqx_hooks:del('client.authorize', {?MODULE, target_topic_authorize}),
     ok = snabbkaffe:stop(),
     ok = emqx_streams_test_utils:cleanup_streams(),
     ok = emqx_streams_test_utils:reset_config(),
@@ -330,6 +338,129 @@ direct_publish(C, Suffix, QoS) ->
     Key = integer_to_binary(erlang:unique_integer([positive, monotonic])),
     Properties = #{'User-Property' => [{<<"stream-key">>, Key}]},
     emqtt:publish(C, <<"$stream/", Suffix/binary>>, Properties, Key, [{qos, QoS}]).
+
+%% A recreated stream requires target authorization, and a denial persists until its ID changes.
+t_target_topic_authz_recreate(_Config) ->
+    set_target_topic_authz(true),
+    emqx_config:put([streams, check_stream_status_interval], 100),
+    ok = emqx_hooks:put(
+        'client.authorize', {?MODULE, target_topic_authorize, [self(), deny]}, ?HP_AUTHZ
+    ),
+    Name = <<"authz_recreate">>,
+    create_authz_stream(Name, <<"allowed/#">>),
+    C = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub(C, <<"$stream/authz_recreate">>, [
+        {<<"stream-offset">>, <<"earliest">>}
+    ]),
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"allowed/">>}),
+    {ok, [_]} = emqx_streams_test_utils:emqtt_drain(1, 1000),
+
+    %% Reattach by name to a replacement whose target is denied.
+    ok = emqx_streams_registry:delete(Name),
+    #{id := DeniedId} = create_authz_stream(Name, <<"denied/#">>),
+    receive
+        {target_authz, <<"denied/#">>} -> ok
+    after 5000 ->
+        ct:fail(target_authorization_not_checked)
+    end,
+
+    %% Allow the target in the authorizer, but retain the cached denial for this stream.
+    ?assertWaitEvent(
+        emqx_hooks:put(
+            'client.authorize', {?MODULE, target_topic_authorize, [self(), allow]}, ?HP_AUTHZ
+        ),
+        #{?snk_kind := streams_target_topic_authz_cached, id := DeniedId},
+        5000
+    ),
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"denied/">>}),
+    ?assertEqual({ok, []}, emqx_streams_test_utils:emqtt_drain(0, 500)),
+    receive
+        {target_authz, <<"denied/#">>} -> ct:fail(denied_stream_reauthorized)
+    after 0 -> ok
+    end,
+
+    %% A new stream ID invalidates the denial even when the target filter is unchanged.
+    ok = emqx_streams_registry:delete(Name),
+    #{id := NewId} = create_authz_stream(Name, <<"denied/#">>),
+    ?assertNotEqual(DeniedId, NewId),
+    emqx_streams_test_utils:populate(1, #{
+        topic_prefix => <<"denied/">>, payload_prefix => <<"replacement-">>
+    }),
+    {ok, [#{payload := <<"replacement-0">>}]} = emqx_streams_test_utils:emqtt_drain(1, 2000),
+    receive
+        {target_authz, <<"denied/#">>} -> ok
+    after 0 -> ct:fail(replacement_not_authorized)
+    end,
+    ok = emqtt:disconnect(C).
+
+%% Both the stream subscription topic and its target filter must allow the subscription.
+t_target_topic_authz_permissions(_Config) ->
+    target_topic_authz_setup(),
+    set_target_topic_authz(true),
+    create_authz_stream(<<"allowed">>, <<"allowed/#">>),
+    create_authz_stream(<<"denied">>, <<"denied/#">>),
+    create_authz_stream(<<"blocked">>, <<"allowed/#">>),
+    C = emqx_streams_test_utils:emqtt_connect([]),
+    check_authz_sub(C, <<"$stream/allowed">>, ?QOS_1),
+    check_authz_sub(C, <<"$stream/denied">>, ?RC_NOT_AUTHORIZED),
+    check_authz_sub(C, <<"$stream/blocked">>, ?RC_NOT_AUTHORIZED),
+    check_authz_sub(C, <<"$stream/allowed/allowed/#">>, ?QOS_1),
+    check_authz_sub(C, <<"$stream/denied/denied/#">>, ?RC_NOT_AUTHORIZED),
+    check_authz_sub(C, <<"$stream/denied/allowed/#">>, ?RC_NOT_AUTHORIZED),
+    check_authz_sub(C, <<"$s/earliest/denied/#">>, ?RC_NOT_AUTHORIZED),
+    ok = emqtt:disconnect(C).
+
+%% Flag changes preserve cached decisions and apply to new clients.
+t_target_topic_authz_cached_subscription(_Config) ->
+    target_topic_authz_setup(),
+    ?assertEqual(false, emqx_streams_config:target_topic_authz()),
+    create_authz_stream(<<"denied">>, <<"denied/#">>),
+    C = emqx_streams_test_utils:emqtt_connect([]),
+    FullTopic = <<"$stream/denied">>,
+    check_authz_sub(C, FullTopic, ?QOS_1),
+    {ok, _, _} = emqtt:unsubscribe(C, FullTopic),
+    set_target_topic_authz(true),
+    check_authz_sub(C, FullTopic, ?QOS_1),
+    C1 = emqx_streams_test_utils:emqtt_connect([]),
+    check_authz_sub(C1, FullTopic, ?RC_NOT_AUTHORIZED),
+    set_target_topic_authz(false),
+    check_authz_sub(C1, FullTopic, ?RC_NOT_AUTHORIZED),
+    C2 = emqx_streams_test_utils:emqtt_connect([]),
+    check_authz_sub(C2, FullTopic, ?QOS_1),
+    ok = emqtt:disconnect(C),
+    ok = emqtt:disconnect(C1),
+    ok = emqtt:disconnect(C2).
+
+%% A denied target must not create a stream, and an unresolved name must fail closed.
+t_target_topic_authz_auto_create(_Config) ->
+    target_topic_authz_setup(),
+    set_target_topic_authz(true),
+    {ok, _} = emqx:update_config([streams, auto_create], #{
+        <<"regular">> => #{}, <<"lastvalue">> => false
+    }),
+    C = emqx_streams_test_utils:emqtt_connect([]),
+    check_authz_sub(C, <<"$stream/missing">>, ?RC_NOT_AUTHORIZED),
+    create_authz_stream(<<"missing">>, <<"allowed/#">>),
+    check_authz_sub(C, <<"$stream/missing">>, ?QOS_1),
+    check_authz_sub(C, <<"$stream/new/denied/#">>, ?RC_NOT_AUTHORIZED),
+    ?assertEqual(not_found, emqx_streams_registry:find(<<"new">>)),
+    check_authz_sub(C, <<"$stream/new/allowed/#">>, ?QOS_1),
+    ?assertMatch({ok, _}, emqx_streams_registry:find(<<"new">>)),
+    check_authz_sub(C, <<"$s/earliest/allowed/#">>, ?QOS_1),
+    ok = emqtt:disconnect(C).
+
+%% The queue flag does not affect stream subscriptions or ordinary publishes.
+t_target_topic_authz_independent_flags(_Config) ->
+    target_topic_authz_setup(),
+    OldFlag = emqx:get_config([mq, target_topic_authz], false),
+    emqx_config:put([mq, target_topic_authz], true),
+    create_authz_stream(<<"denied">>, <<"denied/#">>),
+    C = emqx_streams_test_utils:emqtt_connect([]),
+    check_authz_sub(C, <<"$stream/denied">>, ?QOS_1),
+    set_target_topic_authz(true),
+    ?assertMatch({ok, _}, emqtt:publish(C, <<"denied/1">>, <<"payload">>, 1)),
+    ok = emqtt:disconnect(C),
+    emqx_config:put([mq, target_topic_authz], OldFlag).
 
 %% Very basic test, publish some messages to the stream and look into the DB
 %% to verify that the messages are stored.
@@ -1310,6 +1441,42 @@ test_message_transformation(#message{topic = <<"governed/transform">>} = Message
     {ok, Message#message{payload = <<"redacted">>}};
 test_message_transformation(Message) ->
     {ok, Message}.
+
+target_topic_authorize(
+    ClientInfo, #{action_type := subscribe} = Action, TargetTopic, Result, TestPid, Permission
+) ->
+    TestPid ! {target_authz, TargetTopic},
+    case Permission of
+        allow -> {stop, #{result => allow, from => test}};
+        deny -> target_topic_authorize(ClientInfo, Action, TargetTopic, Result)
+    end;
+target_topic_authorize(ClientInfo, Action, FullTopic, Result, _TestPid, _Permission) ->
+    target_topic_authorize(ClientInfo, Action, FullTopic, Result).
+
+target_topic_authz_setup() ->
+    emqx_hooks:put('client.authorize', {?MODULE, target_topic_authorize, []}, ?HP_AUTHZ).
+
+target_topic_authorize(_ClientInfo, #{action_type := subscribe, qos := 1}, FullTopic, _Result) ->
+    Permission =
+        case FullTopic of
+            <<"denied/", _/binary>> -> deny;
+            <<"$stream/blocked">> -> deny;
+            _ -> allow
+        end,
+    {stop, #{result => Permission, from => test}};
+target_topic_authorize(_ClientInfo, #{action_type := publish}, _FullTopic, _Result) ->
+    {stop, #{result => allow, from => test}}.
+
+set_target_topic_authz(Enabled) ->
+    Raw = emqx:get_raw_config([streams]),
+    {ok, _} = emqx:update_config([streams], Raw#{<<"target_topic_authz">> => Enabled}),
+    ok.
+
+check_authz_sub(C, FullTopic, Code) ->
+    ?assertMatch({ok, _, [Code]}, emqtt:subscribe(C, {FullTopic, 1})).
+
+create_authz_stream(Name, TargetTopic) ->
+    emqx_streams_test_utils:ensure_stream_created(#{name => Name, topic_filter => TargetTopic}).
 
 validate_headers(Msgs) when is_list(Msgs) ->
     lists:foreach(fun validate_msg_headers/1, Msgs).

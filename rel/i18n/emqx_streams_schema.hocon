@@ -1,5 +1,12 @@
 emqx_streams_schema {
 
+target_topic_authz {
+    desc: """~
+        Require subscribe authorization for the stream's topic filter in addition to the stream subscription topic.
+        Name-only subscriptions require an existing stream when enabled."""
+    label: "Target Topic Authorization"
+}
+
 enable {
     desc: """~
         Enable Message Streams feature. If set to `auto`, the Message Streams will be disabled

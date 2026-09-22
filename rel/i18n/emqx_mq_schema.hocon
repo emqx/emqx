@@ -1,4 +1,11 @@
 emqx_mq_schema {
+    target_topic_authz {
+        desc: """~
+            Require subscribe authorization for the queue's topic filter in addition to the full queue subscription topic.
+            Name-only subscriptions require an existing queue when enabled."""
+        label: "Target Topic Authorization"
+    }
+
     gc_interval {
         desc: """~
             The interval at which the Message Queues will clean up expired messages."""
