@@ -35,10 +35,9 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_auth_redis,
-            emqx_schema_registry,
             emqx_auth,
             emqx_management
-        ],
+        ] ++ ee_apps(),
         #{
             %% N.B.: This is needed to avoid `emqx_cth_suite' default behavior of setting
             %% `authorization.sources = []'.
@@ -52,6 +51,23 @@ end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
     ok.
+
+init_per_testcase(t_merge_union_member_without_selector, Config) ->
+    case emqx_release:edition() of
+        ee -> Config;
+        ce -> {skip, no_schema_registry}
+    end;
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    ok.
+
+ee_apps() ->
+    case emqx_release:edition() of
+        ee -> [emqx_schema_registry];
+        ce -> []
+    end.
 
 t_load_config(Config) ->
     Authz = authorization,
