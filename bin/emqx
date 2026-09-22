@@ -721,27 +721,35 @@ check_config() {
         --log-env-overrides
 }
 
-# Keep only the most recent generated config files and remove their counterparts.
+# Remove empty generated config files, then keep only the most recent history.
 prune_generated_configs() {
     local max_history="${1:-3}"
-    local app_files=("$CONFIGS_DIR"/app.*.config)
-    local app_file
+    local app_files
     local vm_args_files
-    local vm_args_file
+    local config_file
     local timestamp
     local delete_count
     local i
 
+    ## Empty outputs are unusable and must not consume history slots.
+    for config_file in "$CONFIGS_DIR"/app.*.config "$CONFIGS_DIR"/vm.*.args; do
+        if [ -f "$config_file" ] && [ ! -s "$config_file" ]; then
+            if ! rm -f -- "$config_file"; then
+                logerr "Could not delete empty generated config file: $config_file"
+            fi
+        fi
+    done
+
     ## An unmatched glob is normally retained literally by bash. Also handle
     ## callers that export nullglob through BASHOPTS.
+    app_files=("$CONFIGS_DIR"/app.*.config)
     if [ "${#app_files[@]}" -gt 0 ] && [ -e "${app_files[0]}" ]; then
         delete_count=$((${#app_files[@]} - max_history))
         for ((i = 0; i < delete_count; i++)); do
-            app_file="${app_files[$i]}"
-            timestamp="${app_file#"$CONFIGS_DIR/app."}"
+            config_file="${app_files[$i]}"
+            timestamp="${config_file#"$CONFIGS_DIR/app."}"
             timestamp="${timestamp%.config}"
-            vm_args_file="$CONFIGS_DIR/vm.$timestamp.args"
-            if ! rm -f -- "$app_file" "$vm_args_file"; then
+            if ! rm -f -- "$config_file" "$CONFIGS_DIR/vm.$timestamp.args"; then
                 logerr "Could not delete old generated config pair: $timestamp"
             fi
         done
@@ -751,11 +759,10 @@ prune_generated_configs() {
     if [ "${#vm_args_files[@]}" -gt 0 ] && [ -e "${vm_args_files[0]}" ]; then
         delete_count=$((${#vm_args_files[@]} - max_history))
         for ((i = 0; i < delete_count; i++)); do
-            vm_args_file="${vm_args_files[$i]}"
-            timestamp="${vm_args_file#"$CONFIGS_DIR/vm."}"
+            config_file="${vm_args_files[$i]}"
+            timestamp="${config_file#"$CONFIGS_DIR/vm."}"
             timestamp="${timestamp%.args}"
-            app_file="$CONFIGS_DIR/app.$timestamp.config"
-            if ! rm -f -- "$vm_args_file" "$app_file"; then
+            if ! rm -f -- "$config_file" "$CONFIGS_DIR/app.$timestamp.config"; then
                 logerr "Could not delete old generated config pair: $timestamp"
             fi
         done
