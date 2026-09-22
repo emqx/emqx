@@ -52,6 +52,11 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
+init_per_testcase(t_cluster_sync_valid_name = TestCase, Config0) ->
+    Config = [{api_port, 48085} | Config0],
+    Cluster = [Node1 | _] = cluster(TestCase, Config),
+    {ok, API} = init_api(Node1),
+    [{api, API}, {cluster, Cluster} | Config];
 init_per_testcase(t_cluster_update_order = TestCase, Config0) ->
     Config = [{api_port, 18085} | Config0],
     Cluster = [Node1 | _] = cluster(TestCase, Config),
@@ -85,6 +90,7 @@ init_per_testcase(TestCase, Config) ->
     Config.
 
 end_per_testcase(TestCase, Config) when
+    TestCase =:= t_cluster_sync_valid_name;
     TestCase =:= t_cluster_update_order;
     TestCase =:= t_cluster_rejects_invalid_local_config_on_start;
     TestCase =:= t_cluster_rolls_back_partial_start_failure
@@ -162,6 +168,33 @@ t_sync_plugin_keeps_name_textual(_Config) ->
         )
     ),
     ?assertError(badarg, binary_to_existing_atom(Name, utf8)).
+
+t_cluster_sync_valid_name(Config) ->
+    [Initiator | _] = Nodes = ?config(cluster, Config),
+    PackagePath = get_demo_plugin_package(),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ?ON(Initiator, ok = allow_installation(NameVsn)),
+    ok = install_plugin_into_cluster(Config, PackagePath),
+    ?assertEqual(
+        [{ok, installed}, {ok, installed}],
+        erpc:multicall(
+            Nodes, emqx_plugins, install_state, [NameVsn], 5000
+        )
+    ),
+    #{host := Host, auth := Auth} = get_host_and_auth(Config),
+    Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins", "cluster_sync"]),
+    ?assertMatch(
+        {ok, {{_, 204, _}, _, _}},
+        emqx_mgmt_api_test_util:request_api(
+            post, Path, "", Auth, #{<<"name">> => list_to_binary(NameVsn)}, #{return_all => true}
+        )
+    ),
+    ?assertEqual(
+        [{ok, installed}, {ok, installed}],
+        erpc:multicall(
+            Nodes, emqx_plugins, install_state, [NameVsn], 5000
+        )
+    ).
 
 t_plugins(_Config) ->
     PackagePath = get_demo_plugin_package(),
