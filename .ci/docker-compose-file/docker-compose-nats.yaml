@@ -9,6 +9,7 @@ services:
     volumes:
       - ./nats/nats.conf:/etc/nats/nats.conf
       - ./certs:/etc/nats/certs:ro
+      - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
     command:
       - "-c"
       - "/etc/nats/nats.conf"
