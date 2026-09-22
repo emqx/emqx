@@ -594,9 +594,19 @@ forget_allow_after_install(_NameVsn, _Other) ->
 
 do_install_package_on_nodes(NameVsn, Bin) ->
     Nodes = emqx:running_nodes(),
-    {Responses, BadNodes} =
-        emqx_mgmt_api_plugins_proto_v4:install_package(Nodes, NameVsn, Bin),
-    GoodNodes = Nodes -- BadNodes,
+    case install_lock_unsupported_nodes(Nodes) of
+        [] -> do_install_package_on_all_nodes(Nodes, NameVsn, Bin);
+        Missing -> installation_lock_unsupported_response(Missing)
+    end.
+
+%% Upload the package to the nodes in order, and stop at the first node which
+%% can not take the cluster wide installation lock (or which can not be reached):
+%% see `call_nodes_until_refused/2'.
+do_install_package_on_all_nodes(Nodes, NameVsn, Bin) ->
+    {CalledNodes, Responses, BadNodes} = call_nodes_until_refused(Nodes, fun(Node) ->
+        emqx_mgmt_api_plugins_proto_v4:install_package([Node], NameVsn, Bin)
+    end),
+    GoodNodes = CalledNodes -- BadNodes,
     NodeErrors = [
         {Node, Response}
      || {Node, Response} <- lists:zip(GoodNodes, Responses),
@@ -643,10 +653,31 @@ do_install_package_on_nodes(NameVsn, Bin) ->
 %% Whether an upload failed for a reason which is not the package: the node
 %% could not be reached, or the cluster wide installation lock was not
 %% available.  Those are reported as server errors; anything else is a package
-%% the caller has to fix.
-is_server_error({badrpc, _}) -> true;
-is_server_error({error, #{msg := "failed_to_acquire_plugin_install_lock"}}) -> true;
-is_server_error(_) -> false.
+%% the caller has to fix.  The predicate is shared with the other callers which
+%% fan an installation out over the nodes (`emqx_plugins:installation_refused/1').
+is_server_error(Result) -> emqx_plugins:installation_refused(Result).
+
+%% The nodes which can not take the cluster wide installation lock: a node
+%% without it would install without serializing against the other installations.
+%% An operation which may install a package is refused while any of them is
+%% running, instead of installing on the upgraded nodes only.
+install_lock_unsupported_nodes(Nodes) ->
+    [Node || Node <- Nodes, not emqx_plugins:node_supports_install_lock(Node)].
+
+installation_lock_unsupported_response(Nodes) ->
+    ?SLOG(error, #{msg => "plugin_install_lock_unsupported", nodes => Nodes}),
+    {500, #{
+        code => 'INTERNAL_ERROR',
+        message => installation_lock_unsupported_message(Nodes)
+    }}.
+
+installation_lock_unsupported_message(Nodes) ->
+    iolist_to_binary([
+        <<"Plugin installation requires the cluster wide installation lock on every node, ">>,
+        <<"but it is not supported by: ">>,
+        lists:join(", ", [atom_to_binary(Node) || Node <- Nodes]),
+        <<". Retry when every node runs a version which supports it.">>
+    ]).
 
 plugin(get, #{bindings := #{name := NameVsn}}) ->
     Nodes = emqx:running_nodes(),
@@ -802,6 +833,14 @@ do_sync_plugin(NameVsn) ->
                 {_Res, []} -> {204};
                 {_Res, BadNodes} -> {400, plugin_sync_failed_msg(BadNodes)}
             end;
+        {error, #{msg := "failed_to_acquire_plugin_install_lock"} = Reason} ->
+            %% The installation state could not be read, so this is not a
+            %% missing plugin: report the transient failure as a server error.
+            internal_error_response(
+                "plugin_sync_install_lock_unavailable",
+                #{name_vsn => NameVsn, reason => Reason},
+                <<"the cluster wide installation lock is not available, retry later">>
+            );
         {error, {plugin_error, _Reason}} ->
             {404, plugin_not_found_msg()}
     end.
@@ -815,21 +854,26 @@ install_package(FileName, Bin) ->
 
 install_package_v4(NameVsn, Bin) ->
     emqx_plugins_utils:with_valid_name(NameVsn, fun() ->
-        case emqx_plugins:install_state(NameVsn) of
-            installed ->
-                %% The installation is already complete, and a complete
-                %% installation is not unpacked again (`ensure_installed_from_tar/2'
-                %% returns without touching the package), so writing the upload
-                %% would pair the new package with the files of the previous one.
-                %% Keep both as they are: a cluster install runs this callback on
-                %% every node, including the ones which hold the installation
-                %% already (the node which answers the request decides whether the
-                %% upload is refused, see `do_upload_install/2').
-                emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
-            _IncompleteOrAbsent ->
-                install_replacing_package(NameVsn, Bin)
-        end
+        emqx_plugins:with_installation_lock(NameVsn, fun() ->
+            install_package_locked(NameVsn, Bin)
+        end)
     end).
+
+install_package_locked(NameVsn, Bin) ->
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
+            %% The installation is already complete, and a complete
+            %% installation is not unpacked again (`ensure_installed_from_tar/2'
+            %% returns without touching the package), so writing the upload
+            %% would pair the new package with the files of the previous one.
+            %% Keep both as they are: a cluster install runs this callback on
+            %% every node, including the ones which hold the installation
+            %% already (the node which answers the request decides whether the
+            %% upload is refused, see `do_upload_install/2').
+            emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
+        _IncompleteOrAbsent ->
+            install_replacing_package(NameVsn, Bin)
+    end.
 
 %% Replace the package of an absent or incomplete installation with the
 %% uploaded one.
@@ -840,23 +884,39 @@ install_package_v4(NameVsn, Bin) ->
 %% installed package, it may be the only way to repair the installation later.
 %% When the snapshot itself can not be taken, the upload is refused instead of
 %% overwriting a package which could not be put back.
+%%
+%% The snapshot, the write and the unpack run under the cluster wide
+%% installation lock: the unpack reads the package file back, and a concurrent
+%% upload of the same name-vsn which wrote it in between would be installed
+%% instead of this one.
 install_replacing_package(NameVsn, Bin) ->
+    case emqx_plugins:backup_package(NameVsn) of
+        {ok, PreviousPackage} ->
+            try write_and_install_replacement(NameVsn, Bin) of
+                {error, #{reason := plugin_not_found}} = NotFound ->
+                    NotFound;
+                {error, Reason} = Error ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_install_plugin",
+                        reason => Reason
+                    }),
+                    restore_previous_package(NameVsn, PreviousPackage),
+                    Error;
+                Result ->
+                    Result
+            catch
+                Class:Reason:Stacktrace ->
+                    restore_previous_package(NameVsn, PreviousPackage),
+                    erlang:raise(Class, Reason, Stacktrace)
+            end;
+        {error, _} = Error ->
+            Error
+    end.
+
+write_and_install_replacement(NameVsn, Bin) ->
     maybe
-        {ok, PreviousPackage} ?= emqx_plugins:backup_package(NameVsn),
-        ok = emqx_plugins:write_package(NameVsn, Bin),
-        case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
-            {error, #{reason := plugin_not_found}} = NotFound ->
-                NotFound;
-            {error, Reason} = Error ->
-                ?SLOG(error, #{
-                    msg => "failed_to_install_plugin",
-                    reason => Reason
-                }),
-                restore_previous_package(NameVsn, PreviousPackage),
-                Error;
-            Result ->
-                Result
-        end
+        ok ?= emqx_plugins:write_package(NameVsn, Bin),
+        emqx_plugins:ensure_installed(NameVsn, ?fresh_install)
     end.
 
 restore_previous_package(NameVsn, PreviousPackage) ->
@@ -914,9 +974,24 @@ ensure_cluster_action(Name, start) ->
     ensure_start_packages_on_nodes(Nodes, Name).
 
 ensure_start_packages_on_nodes(Nodes, Name) ->
-    {Responses, BadNodes} =
-        emqx_mgmt_api_plugins_proto_v5:ensure_start_package(Nodes, Name),
-    GoodNodes = Nodes -- BadNodes,
+    case install_lock_unsupported_nodes(Nodes) of
+        [] ->
+            do_ensure_start_packages_on_nodes(Nodes, Name);
+        Missing ->
+            {error, {plugin_start_install_lock_unsupported, Missing}}
+    end.
+
+%% Prepare the package of the plugin on the nodes in order, and stop at the
+%% first node which can not take the cluster wide installation lock (or which
+%% can not be reached): see `call_nodes_until_refused/2'.  Preparing the rest
+%% after one node was refused would leave the package on some nodes only, and
+%% the start which follows would then fail on the node which was left out while
+%% a retry still has to prepare the other ones.
+do_ensure_start_packages_on_nodes(Nodes, Name) ->
+    {CalledNodes, Responses, BadNodes} = call_nodes_until_refused(Nodes, fun(Node) ->
+        emqx_mgmt_api_plugins_proto_v5:ensure_start_package([Node], Name)
+    end),
+    GoodNodes = CalledNodes -- BadNodes,
     NodeErrors = [
         {Node, Response}
      || {Node, Response} <- lists:zip(GoodNodes, Responses),
@@ -959,7 +1034,18 @@ validate_and_start_on_nodes(Nodes, Name) ->
 
 start_on_nodes(Name, NodeStates) ->
     Nodes = [Node || {Node, _RunningStatus} <- NodeStates],
-    {Responses, BadNodes} = emqx_mgmt_api_plugins_proto_v5:ensure_started(Nodes, Name),
+    case install_lock_unsupported_nodes(Nodes) of
+        [] ->
+            do_start_on_nodes(Name, NodeStates, Nodes);
+        Missing ->
+            %% Nothing has been started yet, so there is nothing to roll back.
+            {error, {plugin_start_install_lock_unsupported, Missing}}
+    end.
+
+do_start_on_nodes(Name, NodeStates, Nodes) ->
+    {Responses, BadNodes} = call_nodes_in_order(Nodes, fun(Node) ->
+        emqx_mgmt_api_plugins_proto_v5:ensure_started([Node], Name)
+    end),
     GoodNodes = Nodes -- BadNodes,
     Errors = [
         {Node, Response}
@@ -1056,8 +1142,14 @@ do_update_plugin_config_v4(NameVsn, AvroJsonMap) ->
 -spec ensure_existed(name_vsn()) -> ok | {error, term()}.
 ensure_existed(NameVsn) ->
     case emqx_plugins:ensure_installed(NameVsn) of
-        ok -> ok;
-        {error, _} -> {error, {plugin_error, <<"Plugin Not Found">>}}
+        ok ->
+            ok;
+        {error, #{msg := "failed_to_acquire_plugin_install_lock"}} = LockError ->
+            %% The installation state could not be read, so this does not say
+            %% that the plugin is missing.
+            LockError;
+        {error, _} ->
+            {error, {plugin_error, <<"Plugin Not Found">>}}
     end.
 
 %% for RPC plugin sync
@@ -1068,6 +1160,48 @@ sync_plugin_cluster(Node, NameVsn) when Node =:= node() ->
 sync_plugin_cluster(Node, NameVsn) ->
     _ = emqx_plugins:purge_other_versions(NameVsn),
     emqx_plugins:get_package_from_node(Node, NameVsn).
+
+%% Operations that may install a package share the cluster installation lock.
+call_nodes_in_order(Nodes, Call) ->
+    {ResponseLists, BadNodeLists} = lists:unzip([Call(Node) || Node <- Nodes]),
+    {lists:append(ResponseLists), lists:append(BadNodeLists)}.
+
+%% Like `call_nodes_in_order/2', but stop at the first node whose call is
+%% refused for a reason which is not the package: a node which can not be
+%% reached, or one which can not take the cluster wide installation lock.
+%%
+%% The nodes which were not visited keep the package they had.  Uploading to the
+%% remaining nodes after one of them refused the lock would leave the cluster
+%% with two different packages, and a retry of the upload could then be refused
+%% as already installed by a node which was updated (`do_upload_install/2')
+%% while the node which was left out could not be repaired through this API any
+%% more.  Stopping keeps the operation all-or-nothing for the nodes which were
+%% not reached: the caller retries when the lock is free again.
+%%
+%% Returns the nodes which were called (so that the caller does not read the
+%% responses of the nodes which were not), the responses of the reachable ones
+%% and the unreachable ones.
+call_nodes_until_refused(Nodes, Call) ->
+    call_nodes_until_refused(Nodes, Call, [], [], []).
+
+call_nodes_until_refused([], _Call, Called, Responses, BadNodes) ->
+    refused_result(Called, Responses, BadNodes);
+call_nodes_until_refused([Node | Rest], Call, Called, Responses, BadNodes) ->
+    {NodeResponses, NodeBadNodes} = Call(Node),
+    Called1 = [Node | Called],
+    Responses1 = [NodeResponses | Responses],
+    BadNodes1 = [NodeBadNodes | BadNodes],
+    case NodeBadNodes =/= [] orelse lists:any(fun is_server_error/1, NodeResponses) of
+        true -> refused_result(Called1, Responses1, BadNodes1);
+        false -> call_nodes_until_refused(Rest, Call, Called1, Responses1, BadNodes1)
+    end.
+
+refused_result(Called, Responses, BadNodes) ->
+    {
+        lists:reverse(Called),
+        lists:append(lists:reverse(Responses)),
+        lists:append(lists:reverse(BadNodes))
+    }.
 
 %%--------------------------------------------------------------------
 %% Helper functions
@@ -1107,6 +1241,15 @@ operation_response(
         "plugin_start_unavailable",
         #{phase => Phase, node_errors => NodeErrors, bad_nodes => BadNodes},
         format_node_errors(NodeErrors ++ [{Node, {badnode, Node}} || Node <- BadNodes])
+    );
+operation_response(
+    start,
+    {error, {plugin_start_install_lock_unsupported, Nodes}}
+) ->
+    internal_error_response(
+        "plugin_start_install_lock_unsupported",
+        #{nodes => Nodes},
+        installation_lock_unsupported_message(Nodes)
     );
 operation_response(
     start,

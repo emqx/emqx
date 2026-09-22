@@ -30,6 +30,10 @@
     }
 ]).
 
+%% How many installation lock acquisitions the test refuses before it lets the
+%% start proceed.
+-define(LOCK_REFUSALS, 2).
+
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_RELEASE_NAME, "elixir_plugin_template").
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
     "https://github.com/emqx/emqx-elixir-plugin/releases/download/"
@@ -482,6 +486,69 @@ t_enable_disable(Config) ->
     ?assertMatch({error, _}, emqx_plugins:ensure_enabled(NameVsn)),
     ?assertMatch({error, _}, emqx_plugins:ensure_disabled(NameVsn)),
     ok.
+
+%% Enabling an installed plugin through the cluster configuration starts it even
+%% when another installation holds the cluster wide installation lock for a
+%% moment.  The configuration entry is stored by this update and is not applied
+%% again, so a start which was dropped here would leave the plugin loaded and
+%% stopped while its configuration says enabled.
+t_config_enable_waits_for_the_install_lock({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_config_enable_waits_for_the_install_lock({'end', Config}) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn);
+t_config_enable_waits_for_the_install_lock(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ok = emqx_plugins:ensure_disabled(NameVsn),
+    ?assertNot(plugin_is_running(NameVsn)),
+    %% The configuration callback and the retry of the refused start do not run
+    %% in this process, so the refusals are counted with a shared counter.
+    Refusals = atomics:new(1, []),
+    ok = meck:new(emqx_plugins_install_serializer, [passthrough]),
+    try
+        ok = meck:expect(emqx_plugins_install_serializer, run, fun(NV, Fun) ->
+            case atomics:add_get(Refusals, 1, 1) of
+                N when N =< ?LOCK_REFUSALS ->
+                    {error, #{
+                        msg => "failed_to_acquire_plugin_install_lock",
+                        reason => installation_in_progress
+                    }};
+                _Taken ->
+                    meck:passthrough([NV, Fun])
+            end
+        end),
+        %% A `[plugins]' root update: this is the configuration entry which
+        %% enables the plugin, and it is applied once.
+        Enable =
+            #{
+                <<"states">> => [
+                    #{<<"name_vsn">> => bin(NameVsn), <<"enable">> => true}
+                ]
+            },
+        {ok, _} = emqx_conf:update([plugins], Enable, #{override_to => cluster}),
+        ok = wait_until_running(NameVsn, 200)
+    after
+        ok = meck:unload(emqx_plugins_install_serializer)
+    end,
+    %% every refusal was retried, and the plugin is running
+    ?assert(atomics:get(Refusals, 1) >= ?LOCK_REFUSALS),
+    ?assert(plugin_is_running(NameVsn)),
+    ok.
+
+wait_until_running(_NameVsn, 0) ->
+    error(plugin_did_not_start);
+wait_until_running(NameVsn, Attempts) ->
+    case plugin_is_running(NameVsn) of
+        true ->
+            ok;
+        false ->
+            timer:sleep(50),
+            wait_until_running(NameVsn, Attempts - 1)
+    end.
 
 %% The applications of the plugin that are running from its install directory.
 %% `emqx_plugins_apps:running_status/1' with a name-vsn compares the release vsn
@@ -2173,9 +2240,13 @@ group_t_cluster_install(Config) ->
      || Node <- [N1, N2]
     ],
 
-    %% Install on both nodes via RPC (simulates --cluster)
-    Results = emqx_plugins_proto_v5:install_package([N1, N2], NameVsn, TarBin),
-    ?assertMatch([{ok, ok}, {ok, ok}], lists:sort(Results)),
+    Output = ?ON(N1, begin
+        ok = emqx_plugins_fs:write_tar(NameVsn, TarBin),
+        emqx_plugins_cli_utils:ensure_installed_cluster(NameVsn, fun(Format, Args) ->
+            iolist_to_binary(io_lib:format(Format, Args))
+        end)
+    end),
+    ?assertMatch(#{<<"result">> := <<"ok">>}, emqx_utils_json:decode(Output)),
 
     %% Both nodes should have the plugin
     ?assertMatch(
@@ -2225,8 +2296,7 @@ group_t_cluster_install(Config) ->
 
 %% The installation lock is held on the cluster's coordinator and is not keyed
 %% on the plugin: while one node is between publishing its staged tree and
-%% validating it, an installation on another node waits for the same lock
-%% instead of publishing its own tree.
+%% validating it, an installation on another node receives a busy result.
 group_t_cluster_install_serialized({init, Config}) ->
     Specs = emqx_cth_cluster:mk_nodespecs(
         [
@@ -2262,62 +2332,69 @@ group_t_cluster_install_serialized(Config) ->
     ?assertEqual(Coordinator, ?ON(N2, mria_membership:coordinator())),
     [Other] = [N || N <- [N1, N2], N =/= Coordinator],
 
-    %% One installation is stopped inside its validator: it has published its
-    %% tree and still holds the cluster wide lock.
-    Holder = ?ON(Coordinator, begin
+    %% Recreate the coordinator child on demand through the remote entry point.
+    ?ON(Coordinator, begin
+        ok = supervisor:terminate_child(emqx_plugins_sup, emqx_plugins_install_serializer),
+        ok = supervisor:delete_child(emqx_plugins_sup, emqx_plugins_install_serializer)
+    end),
+    Holder = ?ON(Other, begin
         ok = emqx_plugins_fs:write_tar(NameVsn, Package),
         spawn(fun() ->
             Result = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
                 TestPid ! {entered, self()},
                 receive
                     release -> ok
-                end,
-                ok
+                end
             end),
             TestPid ! {result, self(), Result}
         end)
     end),
-    receive
-        {entered, Holder} -> ok
-    after 10_000 -> error(installation_on_the_coordinator_did_not_start)
-    end,
-
-    %% An installation on the other node must wait for that lock: it is queued
-    %% on the coordinator's serializer and does not reach its validator while
-    %% the first installation holds the lock.
-    Waiter = ?ON(Other, begin
-        ok = emqx_plugins_fs:write_tar(NameVsn, Package),
-        spawn(fun() ->
-            Result = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
-                TestPid ! {entered, self()},
-                ok
-            end),
-            TestPid ! {result, self(), Result}
-        end)
-    end),
-    ok = wait_until_queued(Coordinator, Waiter),
-    %% The waiter is queued and the holder only releases the lock below, so
-    %% within this window the waiter can not have been granted: it must not be
-    %% in its validator.
-    receive
-        {entered, Waiter} ->
-            error(installation_ran_while_another_one_held_the_cluster_lock)
-    after 200 ->
-        ok
-    end,
-
-    Holder ! release,
-    receive
-        {result, Holder, ok} -> ok
-    after 10_000 -> error(installation_on_the_coordinator_failed)
-    end,
-    receive
-        {entered, Waiter} -> ok
-    after 10_000 -> error(installation_on_the_other_node_never_started)
-    end,
-    receive
-        {result, Waiter, ok} -> ok
-    after 10_000 -> error(installation_on_the_other_node_failed)
+    try
+        receive
+            {entered, Holder} -> ok
+        after 10_000 -> error(remote_installation_did_not_start)
+        end,
+        ?assertEqual(
+            #{owner => Holder, waiting => []},
+            ?ON(Coordinator, emqx_plugins_install_serializer:lock_status())
+        ),
+        ?ON(Coordinator, ok = emqx_plugins_fs:write_tar(NameVsn, Package)),
+        ?assertMatch(
+            {error, #{reason := installation_in_progress}},
+            ?ON(
+                Coordinator,
+                emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                    error(unexpected_validator)
+                end)
+            )
+        ),
+        ?assertMatch(
+            {error, #{reason := installation_in_progress}},
+            ?ON(
+                Other,
+                emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() ->
+                    error(unexpected_validator)
+                end)
+            )
+        ),
+        Holder ! release,
+        receive
+            {result, Holder, ok} -> ok
+        after 10_000 -> error(remote_installation_failed)
+        end,
+        ?assertEqual(
+            #{owner => undefined, waiting => []},
+            ?ON(Coordinator, emqx_plugins_install_serializer:lock_status())
+        ),
+        ?assertEqual(
+            ok,
+            ?ON(
+                Coordinator,
+                emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end)
+            )
+        )
+    after
+        exit(Holder, kill)
     end,
 
     %% Both nodes hold a complete installation, and neither left a staging
@@ -2375,21 +2452,3 @@ serialized_test_package(NameVsn, PrivDir) ->
     {ok, Bin} = file:read_file(Path),
     ok = file:delete(Path),
     Bin.
-
-%% Wait until the coordinator's serializer has the given caller in its queue.
-%% This only synchronizes the test: what the caller does is asserted through the
-%% messages it sends.
-wait_until_queued(Node, Pid) ->
-    wait_until_queued(Node, Pid, 200).
-
-wait_until_queued(_Node, Pid, 0) ->
-    error({caller_not_queued, Pid});
-wait_until_queued(Node, Pid, Attempts) ->
-    Status = ?ON(Node, emqx_plugins_install_serializer:lock_status()),
-    case lists:member(Pid, maps:get(waiting, Status)) of
-        true ->
-            ok;
-        false ->
-            timer:sleep(50),
-            wait_until_queued(Node, Pid, Attempts - 1)
-    end.
