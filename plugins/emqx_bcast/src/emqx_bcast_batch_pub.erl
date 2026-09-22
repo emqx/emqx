@@ -110,13 +110,21 @@ do_qos1(DeviceNames, ProductKey, TopicTemplate, MessageContent, MessageId, Reque
 do_qos1_intake({content, Payload, Hash}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
     {ApiMsgId, MsgGuid} = resolve_content_ids(Hash),
     enqueue_request(
-        Payload, Hash, ApiMsgId, MsgGuid, DeviceNames, ProductKey, TopicTemplate, RequestId
+        Payload, Hash, ApiMsgId, MsgGuid, true, DeviceNames, ProductKey, TopicTemplate, RequestId
     );
 do_qos1_intake({reuse, ApiMsgId, MsgGuid}, DeviceNames, ProductKey, TopicTemplate, RequestId) ->
     case emqx_bcast_storage:lookup_message(MsgGuid) of
         {ok, #bcast_message{payload = Payload, content_hash = Hash}} ->
             enqueue_request(
-                Payload, Hash, ApiMsgId, MsgGuid, DeviceNames, ProductKey, TopicTemplate, RequestId
+                Payload,
+                Hash,
+                ApiMsgId,
+                MsgGuid,
+                false,
+                DeviceNames,
+                ProductKey,
+                TopicTemplate,
+                RequestId
             );
         {error, not_found} ->
             {ok, 400, #{},
@@ -125,8 +133,25 @@ do_qos1_intake({reuse, ApiMsgId, MsgGuid}, DeviceNames, ProductKey, TopicTemplat
                 )}
     end.
 
+resolve_content_ids(Hash) ->
+    case emqx_bcast_storage:lookup_message_by_hash(Hash) of
+        {ok, #bcast_message{api_msg_id = ExistingApiMsgId, msg_id = ExistingMsgId}} ->
+            {ExistingApiMsgId, ExistingMsgId};
+        {error, not_found} ->
+            emqx_bcast_id:generate_message_id_from_hash(Hash)
+    end.
+
+%% Every entry carries the content hash's delete epoch as observed at
+%% admission; promotion drops entries whose epoch is older than the current
+%% one, which is how a Delete Message that already returned success
+%% linearizes against requests admitted before it - regardless of how those
+%% entries are grouped or ordered at promotion time.
+%%
+%% `CanCreate` says whether the entry may create the message when its row is
+%% gone: inline content may (it is a new publish), an explicit MessageId may
+%% not (it references a message that then no longer exists).
 enqueue_request(
-    Payload, Hash, ApiMsgId, MsgGuid, DeviceNames, ProductKey, TopicTemplate, RequestId
+    Payload, Hash, ApiMsgId, MsgGuid, CanCreate, DeviceNames, ProductKey, TopicTemplate, RequestId
 ) ->
     emqx_bcast_metrics:qos1_in(),
     Now = emqx_bcast_utils:now_sec(),
@@ -136,6 +161,8 @@ enqueue_request(
         hash => Hash,
         api_msg_id => ApiMsgId,
         msg_id => MsgGuid,
+        epoch => emqx_bcast:msg_epoch(Hash),
+        can_create => CanCreate,
         delivery_id => emqx_bcast_utils:gen_guid(),
         product_key => ProductKey,
         topic_template => TopicTemplate,
@@ -147,8 +174,7 @@ enqueue_request(
     %% loader otherwise burns a full 1000-device admit (+release) per
     %% rejected request, saturating the index shards the promoters need
     %% for appends (measured: shard 0 backed up at 1600 rejected req/s).
-    %% Arity-2 get: stale config maps (e.g. older suites) may lack the key.
-    MaxDepth = emqx_bcast_config:get(intake_queue_depth, 20000),
+    MaxDepth = ?INTAKE_QUEUE_DEPTH,
     case emqx_bcast_intake:depth() >= MaxDepth of
         true ->
             emqx_bcast_metrics:intake_rejected(),
@@ -197,16 +223,18 @@ quota_admit(ProductKey, DeviceNames) ->
             %% acceptance; the bounded queue provides the backpressure.
             ok
     catch
-        _:_ ->
+        Error:Reason ->
+            %% Admission is degraded to plain acceptance on any owner
+            %% failure, which silently disables the pending-delivery quota
+            %% for this request - log it.
+            ?SLOG(error, #{
+                msg => "bcast_quota_admit_degraded",
+                product_key => ProductKey,
+                devices => length(DeviceNames),
+                exception => Error,
+                reason => Reason
+            }),
             ok
-    end.
-
-resolve_content_ids(Hash) ->
-    case emqx_bcast_storage:lookup_message_by_hash(Hash) of
-        {ok, #bcast_message{api_msg_id = ExistingApiMsgId, msg_id = ExistingMsgId}} ->
-            {ExistingApiMsgId, ExistingMsgId};
-        {error, not_found} ->
-            emqx_bcast_id:generate_message_id_from_hash(Hash)
     end.
 
 quota_exceeded_response(RequestId, []) ->

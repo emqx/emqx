@@ -88,7 +88,15 @@ The message reaches all online devices of product `P1`. Offline devices do not r
 
 ### Scenario 3: QoS=1 with Offline Replay
 
-QoS=1 messages are persisted for `msg_ttl` (default 15 days). When an offline device reconnects, the plugin automatically replays pending messages in FIFO order.
+QoS=1 messages are stored for `msg_ttl` (default 15 days) and survive a single
+core failure: the delivery state lives in mria `ram_copies` tables replicated
+across the cores. A **full cluster restart** does not preserve them — storage is
+in memory by design, so replay from the producer rather than relying on the
+cluster to come back with its backlog. Changing `msg_ttl` only affects messages
+stored after the change; it is not applied retroactively to rows already in the
+tables.
+
+When an offline device reconnects, the plugin automatically replays pending messages in FIFO order.
 
 ```bash
 # Device list includes both online and offline devices
@@ -101,7 +109,7 @@ curl -su "$API_KEY" \
 - `online_device` -- the core broadcasts a trigger, the node serving the device pulls the delivery and waits for PUBACK
 - `offline_device` -- stored in core Mnesia, pulled and delivered when the device reconnects and subscribes
 
-The delivery record is automatically deleted once all devices have acknowledged. A `200` response means the request was accepted and the QoS=1 delivery record is stored before the response returns; actual delivery completes asynchronously. BatchPub QoS=1 is at-least-once, so clients should tolerate duplicate delivery around reconnect/takeover windows.
+The delivery record is automatically deleted once all devices have acknowledged. A `200` response means the request was accepted into the node-local intake queue; the promoter commits the QoS=1 message and delivery rows to mria asynchronously (that mria commit is the durability point, and a QoS=1 request queued but not yet committed can be lost if its node crashes), and actual delivery completes after that. BatchPub QoS=1 is at-least-once, so clients should tolerate duplicate delivery around reconnect/takeover windows.
 
 ### Scenario 4: QoS=0 Fire-and-Forget
 
@@ -153,8 +161,21 @@ durable commit point, `ttl_expired`/`canceled` close the ledger):
 | `max_message_size_broadcast` | `65536` | Max PubBroadcast payload (bytes, 64 KiB) |
 | `max_message_size_batch` | `10240` | Max BatchPub payload binary (bytes, 10 KiB) |
 | `max_pending_deliveries` | `10000000` | Global cap on pending QoS=1 deliveries; requests exceeding it are rejected with 429 QuotaExceeded |
-| `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); requests targeting a device over the cap are rejected with 429 QuotaExceeded and the over-limit device list |
-| `delivery_pool_size` | `0` | Number of async workers for each of the three pools (pull, ack and pull-server). 0 means one worker per scheduler. Changing it restarts the pools |
+| `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); a request targeting a device over the cap is rejected with 429 QuotaExceeded and the over-limit device list. The cap is **best-effort**: check and reservation are atomic on an active shard, but while a shard is unavailable (startup/takeover) the request is accepted without per-device accounting |
+| `delivery_pool_size` | `0` | Worker count for each delivery pool (the per-node claim pool and the core-side server pool). 0 means one worker per scheduler. Changing it restarts the pools |
+
+### Legacy settings (no runtime effect)
+
+These keys are still declared in the config schema and shipped in the defaults
+so that existing configuration files keep validating. Their values are accepted
+and normalized for compatibility, but they have **no runtime effect** and there
+is no way to change behaviour through them.
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `msg_warn_threshold` | `100000` | Accepted and normalized, but no behaviour consumer. Superseded by the pending-delivery quota metrics |
+| `force_upgrade_qos` | `true` | No-op. QoS is taken from the request (`Qos` field) and the subscription |
+| `delivery_queue_max` | `10000` | No-op. The intake queue depth is fixed at 20000; use `max_pending_deliveries` for backpressure |
 
 ---
 

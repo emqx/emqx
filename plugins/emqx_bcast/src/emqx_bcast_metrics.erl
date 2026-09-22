@@ -20,7 +20,7 @@
 ]).
 -export([broadcast_in/0, broadcast_error/0]).
 -export([register_in/0, register_refresh/0, register_error/0]).
--export([collect/0, reset/0, reset_guarded/0, reset_cluster/0]).
+-export([collect/0, reset/0, check_guarded/0, reset_guarded/0, reset_cluster/0]).
 
 -include("emqx_bcast.hrl").
 
@@ -33,7 +33,33 @@
 %%
 %% QoS1 delivery ledger (counted in "logical delivery" units, i.e. one
 %% (BatchPub request x target device); counters are node-local, aggregate
-%% the cluster with sum()):
+%% the cluster with sum()).
+%%
+%% The counters come in three scopes. Each node only ever reports its own
+%% registry - nothing is fetched from another node - but the scopes are
+%% counted on different nodes, so one node's numbers describe three
+%% different sets:
+%%
+%%   intake scope - counted on the node that ACCEPTED and COMMITTED the API
+%%   request (the core that ran the intake queue and the promoter):
+%%     in, enqueued, intake_rejected, promote_error, wanted, intake_depth
+%%   A replicant forwards the API request to a core for admission, so it
+%%   reports 0 for every counter in this scope. wanted counts EVERY device
+%%   of each batch this node committed - not only the devices whose clients
+%%   are attached here. It is this node's commit (intake) share, NOT its
+%%   delivery share.
+%%
+%%   device scope - counted on the node whose pull shard served the client:
+%%     delivered, redelivered, acked, auto_acked
+%%   In a core/replicant deployment these live on the replicants holding
+%%   the connections.
+%%
+%%   index scope - counted on the core that owns the device's index shard
+%%   or runs the delete/cleanup for it:
+%%     queued, inflight, ttl_expired, canceled
+%%   Index owner shards are distributed over the CORE nodes
+%%   (shard_owner/1 round-robins core_nodes()), so a replicant reports 0
+%%   for the shard gauges even while it serves devices.
 %%
 %%   batch_pub_qos1_wanted    durable ledger base: incremented once per
 %%                            logical delivery at the mria commit point
@@ -43,6 +69,15 @@
 %%                            and the QoS0-subscription auto path)
 %%   batch_pub_qos1_redelivered sends whose claim attempt number >= 2
 %%   batch_pub_qos1_acked     PUBACKs matched to a pending delivery
+%%
+%% acked is counted where the PUBACK is matched, which is up to one marker
+%% flush interval (50ms) before that ack becomes durable. A duplicate PUBACK
+%% is never counted twice while the index shard survives, because matching an
+%% ack removes the device from the index. If the shard dies inside that
+%% window the ack is not durable, the rebuild re-indexes the device, and the
+%% redelivered duplicate is counted once more: the delivery itself is still
+%% at-least-once, and no acked device is resurrected as pending once the
+%% marker lands (the marker is written before the counter decrement).
 %%   batch_pub_qos1_auto_acked  QoS1 deliveries completed because the
 %%                            subscription QoS is 0 (no device PUBACK)
 %%   batch_pub_qos1_ttl_expired logical deliveries abandoned because the
@@ -57,6 +92,15 @@
 %% the batch_pub_qos1_{in,enqueued,intake_rejected,promote_error}
 %% counters; quota rejections are not counted (derivable as in - enqueued
 %% - intake_rejected within a node lifetime).
+%%
+%% Because wanted is intake scoped while the terminal counters are delivery
+%% scoped, that identity holds for sum() over all nodes - NOT for a single
+%% node unless the same node also delivered the devices it committed. Under
+%% a load-balanced deployment the two scopes cover comparable shares and
+%% the per-node numbers look consistent. If API traffic is pinned to one
+%% node, or the API load balancer distributes differently from the MQTT
+%% one, that node's wanted can exceed its own delivered/acked by the ratio
+%% of the two shares. That is expected and is not a leak.
 
 -spec init() -> ok.
 init() ->
@@ -72,21 +116,37 @@ declare_counters() ->
         {"batch_pub_qos0_in", "BatchPub QoS=0 API requests"},
         {"batch_pub_qos0_targeted", "QoS=0 devices targeted"},
         {"qos0_delivery_count", "QoS=0 one-shot deliveries to online clients"},
-        {"batch_pub_qos1_in", "BatchPub QoS=1 API requests"},
-        {"batch_pub_qos1_wanted", "QoS=1 logical deliveries durably committed (ledger base)"},
-        {"batch_pub_qos1_delivered", "QoS=1 PUBLISH sends to clients (includes redeliveries)"},
+        {"batch_pub_qos1_in",
+            "BatchPub QoS=1 API requests accepted by this node "
+            "(intake scope; a replicant forwards to a core and reports 0)"},
+        {"batch_pub_qos1_wanted",
+            "QoS=1 logical deliveries this node durably committed, counting every device of "
+            "each batch it accepted - this node's commit share, not its delivery share "
+            "(intake scope; replicants report 0; sum() over nodes is the cluster ledger base)"},
+        {"batch_pub_qos1_delivered",
+            "QoS=1 PUBLISH sends by this node to its attached clients "
+            "(device scope; includes redeliveries)"},
         {"batch_pub_qos1_redelivered",
-            "QoS=1 PUBLISH sends of an already-attempted logical delivery (attempt >= 2)"},
-        {"batch_pub_qos1_acked", "QoS=1 PUBACKs matched to a pending delivery"},
-        {"batch_pub_qos1_auto_acked", "QoS=1 deliveries completed because subscription QoS is 0"},
+            "QoS=1 PUBLISH sends of an already-attempted logical delivery "
+            "(attempt >= 2; device scope)"},
+        {"batch_pub_qos1_acked",
+            "QoS=1 PUBACKs matched to a pending delivery (device scope; counted when the ack "
+            "is matched, up to the 50ms marker flush before it is durable)"},
+        {"batch_pub_qos1_auto_acked",
+            "QoS=1 deliveries completed because subscription QoS is 0 (device scope)"},
         {"batch_pub_qos1_ttl_expired",
-            "QoS=1 logical deliveries abandoned at TTL expiry without confirmation"},
+            "QoS=1 logical deliveries abandoned at TTL expiry without confirmation "
+            "(index scope; counted on the core that reclaims them)"},
         {"batch_pub_qos1_canceled",
-            "QoS=1 logical deliveries removed by management delete/reset without confirmation"},
-        {"batch_pub_qos1_enqueued", "QoS=1 requests accepted into the intake queue"},
+            "QoS=1 logical deliveries removed by management delete/reset without confirmation "
+            "(index scope; counted on the core that runs the removal)"},
+        {"batch_pub_qos1_enqueued",
+            "QoS=1 requests accepted into this node's intake queue "
+            "(intake scope; replicants report 0)"},
         {"batch_pub_qos1_intake_rejected",
-            "QoS=1 requests rejected because the intake queue is full"},
-        {"batch_pub_qos1_promote_error", "QoS=1 promotion batch failures (retries exhausted)"},
+            "QoS=1 requests rejected because this node's intake queue is full (intake scope)"},
+        {"batch_pub_qos1_promote_error",
+            "QoS=1 promotion batch failures on this node, retries exhausted (intake scope)"},
         {"broadcast_pub_in", "PubBroadcast API requests"},
         {"broadcast_pub_error", "PubBroadcast errors"},
         {"register_message_in", "RegisterMessage API requests"},
@@ -111,11 +171,15 @@ declare_gauges() ->
             {help, list_to_binary(H)}
         ])
      || {N, H} <- [
-            {"intake_depth", "QoS1 intake queue depth (requests awaiting promotion, node-local)"},
+            {"intake_depth",
+                "QoS1 intake queue depth on this node: requests awaiting promotion "
+                "(intake scope; replicants report 0)"},
             {"batch_pub_qos1_queued",
-                "QoS1 committed logical deliveries queued but not yet claimed (local shards; sum() over nodes)"},
+                "QoS1 committed logical deliveries queued but not yet claimed on this node's "
+                "shards (index scope; cores only; sum() over nodes)"},
             {"batch_pub_qos1_inflight",
-                "QoS1 claimed logical deliveries not yet terminal (local shards; sum() over nodes)"}
+                "QoS1 claimed logical deliveries not yet terminal on this node's shards "
+                "(index scope; cores only; sum() over nodes)"}
         ]
     ],
     ok.
@@ -194,37 +258,74 @@ reset() ->
     init(),
     ok.
 
-%% Guarded local reset: refuse to reset while this node still holds
+%% Local readiness check: refuse to reset while this node still holds
 %% committed but not-yet-terminal logical deliveries (queued or in-flight),
-%% because the ledger identity (wanted = terminal outcomes + live) only
-%% holds for events observed after a reset.
--spec reset_guarded() -> ok | {error, {pending_deliveries, non_neg_integer(), non_neg_integer()}}.
-reset_guarded() ->
+%% because the ledger identity (wanted = terminal outcomes + live) only holds
+%% for events observed after a reset.
+-spec check_guarded() -> ok | {error, {pending_deliveries, non_neg_integer(), non_neg_integer()}}.
+check_guarded() ->
     {Queued, Inflight} = emqx_bcast_index_owner:gauge_sample(),
     case Queued + Inflight of
-        0 -> reset();
+        0 -> ok;
         _ -> {error, {pending_deliveries, Queued, Inflight}}
     end.
 
+-spec reset_guarded() -> ok | {error, {pending_deliveries, non_neg_integer(), non_neg_integer()}}.
+reset_guarded() ->
+    case check_guarded() of
+        ok -> reset();
+        {error, _} = Error -> Error
+    end.
+
 %% Cluster-wide guarded reset. The registry is per-node, so a partial reset
-%% would leave a permanent gap in cross-node sums. Every running node is
-%% reset, each guarded by its own local pending state; a node that reports
-%% pending deliveries blocks the reset (returns an error for that node and
-%% is left untouched). There is a small check-to-reset race with live
-%% traffic on each node; the guard re-checks inside reset_guarded/0 on the
-%% node itself and the operation is intended for maintenance windows.
+%% would leave a permanent gap in cross-node sums. Two phases: first check
+%% every running node is idle, then reset them all, so a busy node cannot
+%% leave the cluster partially reset. A node that becomes busy in the small
+%% window between the check and the reset still refuses (reset_guarded/0
+%% re-checks on the node); every node of the second phase is inspected too,
+%% so such a node is reported as a failure instead of being silently dropped
+%% from an "ok" result. The operation is intended for maintenance windows.
 -spec reset_cluster() ->
-    {ok, [{node(), ok}]} | {error, [{node(), ok | {error, term()}}]}.
+    {ok, [{node(), ok}]}
+    | {error, {pending_deliveries, [{node(), ok | {error, term()}}]}}
+    | {error, {partial_reset, [{node(), ok | {error, term()}}]}}.
 reset_cluster() ->
     Nodes = lists:usort([node() | emqx:running_nodes()]),
-    Results = [{Node, rpc_reset_guarded(Node)} || Node <- Nodes],
-    case [R || {_, {error, _} = R} <- Results] of
-        [] -> {ok, Results};
-        _ -> {error, Results}
+    Checks = [{Node, rpc_check_guarded(Node)} || Node <- Nodes],
+    case [R || {_, {error, _} = R} <- Checks] of
+        [] ->
+            Results = [{Node, rpc_reset_guarded(Node)} || Node <- Nodes],
+            case [R || {_, {error, _} = R} <- Results] of
+                [] -> {ok, Results};
+                _ -> {error, {partial_reset, Results}}
+            end;
+        _ ->
+            {error, {pending_deliveries, Checks}}
+    end.
+
+%% The local node is wrapped exactly like a remote one: a crash in the local
+%% check/reset must be reported as a per-node error, not propagate and abort
+%% the whole cluster operation half way through.
+rpc_check_guarded(Node) when Node =:= node() ->
+    try check_guarded() of
+        Result -> Result
+    catch
+        Error:Reason -> {error, {Error, Reason}}
+    end;
+rpc_check_guarded(Node) ->
+    try emqx_rpc:call(?MODULE, Node, ?MODULE, check_guarded, [], ?BCAST_RPC_CALL_TIMEOUT_MS) of
+        {badrpc, Reason} -> {error, {badrpc, Reason}};
+        Result -> Result
+    catch
+        Error:Reason -> {error, {Error, Reason}}
     end.
 
 rpc_reset_guarded(Node) when Node =:= node() ->
-    reset_guarded();
+    try reset_guarded() of
+        Result -> Result
+    catch
+        Error:Reason -> {error, {Error, Reason}}
+    end;
 rpc_reset_guarded(Node) ->
     try emqx_rpc:call(?MODULE, Node, ?MODULE, reset_guarded, [], ?BCAST_RPC_CALL_TIMEOUT_MS) of
         {badrpc, Reason} -> {error, {badrpc, Reason}};

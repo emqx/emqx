@@ -231,6 +231,10 @@ route_deliver_results(Origin, Shard, Results, Marks) ->
     end.
 
 spawn_ack_worker(Acks, Origin) ->
+    %% A raw spawn, deliberately not the worker pool: concurrency is
+    %% bounded by the ack_cap accounting at the call sites and the worker
+    %% always reports completion ({ack_batch_done}), so a pool queue would
+    %% only add a hop.
     Parent = self(),
     _ = spawn(fun() ->
         try
@@ -340,5 +344,13 @@ ensure_core_copies() ->
     try
         emqx_bcast:ensure_core_copies()
     catch
-        _:_ -> ok
+        Error:Reason ->
+            %% This is the periodic driver of the copy-type check. Swallowing
+            %% the failure here hid every problem it ran into.
+            ?SLOG(error, #{
+                msg => "bcast_ensure_core_copies_failed",
+                exception => Error,
+                reason => Reason
+            }),
+            ok
     end.
