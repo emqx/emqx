@@ -85,7 +85,7 @@ redact_common_token_aliases_test() ->
     ?assertEqual(
         #{
             access_token => <<"******">>,
-            client_jwks => "******",
+            client_jwks => #{type => file, file => <<"******">>},
             <<"refresh_token">> => <<"******">>,
             "id_token" => "******"
         },
@@ -94,6 +94,58 @@ redact_common_token_aliases_test() ->
             client_jwks => #{type => file, file => <<"private-jwk">>},
             <<"refresh_token">> => <<"refresh-token">>,
             "id_token" => "id-token"
+        })
+    ).
+
+redact_client_jwks_configured_test() ->
+    %% A configured (file) client JWKS holds key material and must stay redacted,
+    %% in both the checked-config shape (atom keys, file already saved to a path)
+    %% and the raw-request shape (binary keys, `file' still holding the content).
+    %% `type' is not sensitive and survives redaction unchanged, so the value
+    %% stays a valid `client_file_jwks' union member and revalidates on update.
+    ?assertEqual(
+        #{
+            client_jwks => #{type => file, file => <<"******">>},
+            <<"client_jwks">> => #{<<"type">> => <<"file">>, <<"file">> => <<"******">>}
+        },
+        redact(#{
+            client_jwks => #{type => file, file => <<"/path/to/client_jwks">>},
+            <<"client_jwks">> => #{
+                <<"type">> => <<"file">>,
+                <<"file">> => <<"{\"keys\":[{\"kty\":\"oct\",\"k\":\"c2VjcmV0\"}]}">>
+            }
+        })
+    ).
+
+deobfuscate_client_jwks_test() ->
+    %% Resubmitting the redacted `file' leaf restores the stored JWKS; `type'
+    %% is not sensitive and passes through unchanged.
+    Old = #{
+        <<"client_jwks">> => #{<<"type">> => <<"file">>, <<"file">> => <<"/path/to/client_jwks">>}
+    },
+    New = #{
+        <<"client_jwks">> => #{<<"type">> => <<"file">>, <<"file">> => <<"******">>}
+    },
+    ?assertEqual(Old, emqx_utils_redact:deobfuscate(New, Old)),
+
+    %% An explicit `none' is a real value, not a placeholder: it must remove
+    %% the stored JWKS rather than being treated as "unchanged".
+    Removed = #{<<"client_jwks">> => <<"none">>},
+    ?assertEqual(Removed, emqx_utils_redact:deobfuscate(Removed, Old)).
+
+no_redact_client_jwks_none_test() ->
+    %% `client_jwks' is a union of `none' and a JWKS object; `none' means no
+    %% client JWKS is configured and must not be masked.
+    ?assertEqual(
+        #{
+            client_jwks => none,
+            <<"client_jwks">> => <<"none">>,
+            "client_jwks" => "none"
+        },
+        redact(#{
+            client_jwks => none,
+            <<"client_jwks">> => <<"none">>,
+            "client_jwks" => "none"
         })
     ).
 

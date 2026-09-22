@@ -548,24 +548,26 @@ upload_install(post, #{}) ->
     }}.
 
 do_upload_install(NameVsn, Bin) ->
-    case describe_api_plugin(NameVsn, #{}) of
-        {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
-            case emqx_plugins:is_package_present(NameVsn) of
-                false ->
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
+            case describe_api_plugin(NameVsn, #{}) of
+                {error, stale_plugin} ->
+                    %% The files are installed, but the plugin is neither
+                    %% configured nor running, so the API does not list it.
+                    %% The upload is treated as a fresh install.
                     install_package_on_nodes(NameVsn, Bin);
-                {true, TarGzs} ->
-                    %% TODO
-                    %% What if a tar file is present but is not unpacked, i.e.
-                    %% the plugin is not fully installed?
-                    {400, #{
-                        code => 'ALREADY_INSTALLED',
-                        message => iolist_to_binary(io_lib:format("~p already installed", [TarGzs]))
-                    }}
+                _ ->
+                    already_installed(NameVsn)
             end;
-        {error, stale_plugin} ->
-            install_package_on_nodes(NameVsn, Bin);
-        {ok, _} ->
-            already_installed(NameVsn)
+        _IncompleteOrAbsent ->
+            %% The plugin is not installed on this node: either nothing is
+            %% there, or the install dir only holds leftovers of a previous
+            %% attempt (an orphan `.tar.gz', a half-unpacked directory, or an
+            %% unreadable `release.json').  None of that is an installation,
+            %% so the upload is treated as a fresh install attempt: it must
+            %% pass the allow gate in `install_package_on_nodes/2', which also
+            %% purges the leftovers before unpacking the uploaded package.
+            install_package_on_nodes(NameVsn, Bin)
     end.
 
 already_installed(NameVsn) ->
@@ -625,15 +627,26 @@ do_install_package_on_nodes(NameVsn, Bin) ->
                 end,
                 Filtered
             ),
-            Reason =
-                case hd(Filtered) of
-                    {error, #{msg := Reason0}} -> Reason0;
-                    {error, #{reason := Reason0}} -> Reason0
-                end,
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
-                message => iolist_to_binary([bin(Reason), ": ", NameVsn])
+                message => install_error_message(NameVsn, hd(Filtered))
             }}
+    end.
+
+%% The error of the first node that failed to install the package.  Errors
+%% carrying a hint (e.g. how to proceed when the plugin is in use) show it to
+%% the user.
+install_error_message(NameVsn, {error, Error}) ->
+    Reason =
+        case Error of
+            #{msg := Msg} -> Msg;
+            #{reason := Reason0} -> Reason0
+        end,
+    case Error of
+        #{hint := Hint} ->
+            iolist_to_binary([bin(Reason), ": ", NameVsn, ". ", bin(Hint)]);
+        _ ->
+            iolist_to_binary([bin(Reason), ": ", NameVsn])
     end.
 
 plugin(get, #{bindings := #{name := NameVsn}}) ->
@@ -801,16 +814,61 @@ install_package(FileName, Bin) ->
     install_package_v4(NameVsn, Bin).
 
 install_package_v4(NameVsn, Bin) ->
-    ok = emqx_plugins:write_package(NameVsn, Bin),
-    case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
-        {error, #{reason := plugin_not_found}} = NotFound ->
-            NotFound;
-        {error, Reason} = Error ->
-            ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
-            _ = emqx_plugins:delete_package(NameVsn),
-            Error;
-        Result ->
-            Result
+    case emqx_plugins:install_state(NameVsn) of
+        installed ->
+            %% The installation is already complete, and a complete
+            %% installation is not unpacked again (`ensure_installed_from_tar/2'
+            %% returns without touching the package), so writing the upload
+            %% would pair the new package with the files of the previous one.
+            %% Keep both as they are: a cluster install runs this callback on
+            %% every node, including the ones which hold the installation
+            %% already (the node which answers the request refuses the upload,
+            %% see `upload_install/2').
+            emqx_plugins:ensure_installed(NameVsn, ?fresh_install);
+        _IncompleteOrAbsent ->
+            install_replacing_package(NameVsn, Bin)
+    end.
+
+%% Replace the package of an absent or incomplete installation with the
+%% uploaded one.
+%%
+%% The package which is replaced is snapshotted before anything is written: an
+%% installation attempt which is refused (for example because the plugin is
+%% still running) or which fails must not destroy the only local copy of the
+%% installed package, it may be the only way to repair the installation later.
+%% When the snapshot itself can not be taken, the upload is refused instead of
+%% overwriting a package which could not be put back.
+install_replacing_package(NameVsn, Bin) ->
+    maybe
+        {ok, PreviousPackage} ?= emqx_plugins:backup_package(NameVsn),
+        ok = emqx_plugins:write_package(NameVsn, Bin),
+        case emqx_plugins:ensure_installed(NameVsn, ?fresh_install) of
+            {error, #{reason := plugin_not_found}} = NotFound ->
+                NotFound;
+            {error, Reason} = Error ->
+                %% Keep the specific error in the log: the generic `msg' below
+                %% replaces it.
+                ?SLOG(error, Reason#{
+                    msg => "failed_to_install_plugin",
+                    reason_msg => maps:get(msg, Reason, undefined)
+                }),
+                restore_previous_package(NameVsn, PreviousPackage),
+                Error;
+            Result ->
+                Result
+        end
+    end.
+
+restore_previous_package(NameVsn, PreviousPackage) ->
+    case emqx_plugins:restore_package(NameVsn, PreviousPackage) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_restore_plugin_package",
+                name_vsn => NameVsn,
+                reason => Reason
+            })
     end.
 
 %% For RPC plugin get

@@ -150,24 +150,37 @@ update(Name, Enable, ExpiredAt, Desc, Role) ->
     update(Name, Enable, ExpiredAt, Desc, Role, undefined).
 
 update(Name, Enable, ExpiredAt, Desc, Role, Scopes) ->
-    case valid_role(Role) of
+    case validate_update_role(Role) of
         ok ->
             trans(fun ?MODULE:do_update/6, [Name, Enable, ExpiredAt, Desc, Role, Scopes]);
         Error ->
             Error
     end.
 
+%% An absent role means the caller did not ask for a role change, so there is nothing
+%% to validate: `do_update/6' keeps the stored one, like it does for `desc' and `enable'.
+validate_update_role(undefined) -> ok;
+validate_update_role(Role) -> valid_role(Role).
+
 do_update(Name, Enable, ExpiredAt, Desc, Role, Scopes) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
-        [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
+        [App0 = #?APP{enable = Enable0, expired_at = ExpiredAt0, extra = Extra0}] ->
             #{desc := Desc0} = Extra = normalize_extra(Extra0),
-            Extra1 = Extra#{desc := ensure_not_undefined(Desc, Desc0), role := Role},
+            %% A field left out of the request is `undefined' and keeps its stored value,
+            %% so a partial update cannot silently change more than it was asked to.
+            Extra1 = Extra#{
+                desc := ensure_not_undefined(Desc, Desc0),
+                %% `get_role/1' rather than `maps:get/2' reads the stored role and,
+                %% like `find_by_api_key/1', falls back to the default role for
+                %% records whose `extra' map carries no `role' key.
+                role := ensure_not_undefined(Role, get_role(Extra))
+            },
             Extra2 = maybe_set_scopes(Extra1, Scopes),
             App =
                 App0#?APP{
-                    expired_at = ExpiredAt,
+                    expired_at = ensure_not_undefined(ExpiredAt, ExpiredAt0),
                     enable = ensure_not_undefined(Enable, Enable0),
                     extra = Extra2
                 },
@@ -190,6 +203,11 @@ format(App = #{expired_at := ExpiredAt, created_at := CreateAt}) ->
         created_at => format_epoch(CreateAt)
     }).
 
+%% `undefined' is how releases before 5.0.0 encoded "never expires" (`is_expired/1'
+%% and `authorize/4' still treat it that way), so format it like `infinity' instead of
+%% crashing on records carried over from such a release or restored from a backup.
+format_epoch(undefined) ->
+    <<"infinity">>;
 format_epoch(infinity) ->
     <<"infinity">>;
 format_epoch(Epoch) ->

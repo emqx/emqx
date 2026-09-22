@@ -94,6 +94,8 @@ user_scopes_request.desc:
 
 When omitted on creation, the server materializes the role default — administrator gets all management scopes plus the four login-only scopes; viewer gets all management scopes; publisher (where applicable) gets the `publish` scope only. Send an explicit empty list `[]` to create a deny-all user (only anonymous endpoints such as `/status` remain reachable).
 
+On create and update this field also accepts the literal string `unset`, and a scope list matching the role's default set is treated the same way. Both store no explicit scope list, so the user keeps the role default and follows it as the default changes. This lets a client read a user with `GET`, change another field, and send the whole body back unchanged.
+
 Login users may hold any of the API key catalog scopes plus the four login-only scopes: `user_management`, `mfa_management`, `sso_management`, `api_key_management`. Of these four, three are administrator-only (`user_management`, `sso_management`, `api_key_management`); `mfa_management` may also be assigned to non-administrator users — for non-admin holders it acts as a self-exemption key allowing the user to bypass force_mfa and admin_required locks on their own MFA only."""
 
 user_scopes_response.desc:
