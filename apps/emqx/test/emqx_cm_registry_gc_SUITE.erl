@@ -259,12 +259,7 @@ t_resumes_after_cursor_deleted_between_chunks(_) ->
                 [Id || Id <- AliveIds, Id =/= Cursor, all_pids(Id) =:= []]
             ),
             %% a finished sweep erases its resume keys
-            ?assertMatch(#{resume_count := 0}, sys:get_state(Keeper)),
-            {dictionary, Dict} = erlang:process_info(Keeper, dictionary),
-            ?assertEqual(
-                [],
-                [K || {{emqx_cm_registry_keeper, resume_key, _} = K, _} <- Dict]
-            )
+            ?assertMatch(#{resume_keys := {0, _}}, sys:get_state(Keeper))
         end,
         fun(Trace) ->
             ?assertEqual([], ?of_kind(cm_registry_gc_cursor_lost, Trace))
@@ -284,7 +279,7 @@ t_ends_sweep_when_no_resume_key_left(_) ->
     {[], DeadIds} = write_mixed_rows(<<"no-resume-">>, 150, Dead, _AliveEvery = 0),
     Keeper = whereis(emqx_cm_registry_keeper),
     Cursor = run_first_chunk_and_suspend(Keeper),
-    ?assertMatch(#{resume_count := 0}, sys:get_state(Keeper)),
+    ?assertMatch(#{resume_keys := {0, _}}, sys:get_state(Keeper)),
     ok = mria:dirty_delete(?CHAN_REG_TAB, Cursor),
     ?check_trace(
         begin
