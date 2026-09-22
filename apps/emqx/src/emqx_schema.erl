@@ -4079,6 +4079,16 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_max_packet_size)
                 }
             )},
+        {"max_connect_packet_size",
+            sc(
+                bytesize(),
+                #{
+                    default => <<"1MB">>,
+                    validator => fun ?MODULE:validate_max_packet_size/1,
+                    converter => fun ?MODULE:convert_max_packet_size/2,
+                    desc => ?DESC(mqtt_max_connect_packet_size)
+                }
+            )},
         {"max_connect_user_properties",
             sc(
                 hoconsc:union([infinity, non_neg_integer()]),

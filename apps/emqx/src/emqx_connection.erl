@@ -370,6 +370,7 @@ init_state(
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+        max_connect_size => emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
         max_connect_user_properties => emqx_config:get_zone_conf(
             Zone, [mqtt, max_connect_user_properties]
         ),
