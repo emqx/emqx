@@ -8,6 +8,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(TOPIC1, <<"api_topic1">>).
@@ -110,6 +111,30 @@ t_publish_api(_) ->
     ResponseMap2 = decode_json(Response2),
     ?assertEqual([<<"id">>], lists:sort(maps:keys(ResponseMap2))),
     ?assertEqual(ok, element(1, receive_assert(?TOPIC2, 0, Payload))).
+
+t_message_persisted({init, Config}) ->
+    ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_persisted, [self()]}, ?HP_LOWEST),
+    Config;
+t_message_persisted({'end', _Config}) ->
+    emqx_hooks:del('message.publish', {?MODULE, mark_message_persisted});
+t_message_persisted(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["publish"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Body = #{topic => <<"t_message_persisted">>, payload => <<"offline">>, qos => 1},
+    {ok, {Status, _Headers, Response}} = emqx_mgmt_api_test_util:request_api(
+        post, Path, "", Auth, Body, #{return_all => true}
+    ),
+    ?assertMatch({_, 200, _}, Status),
+    receive
+        {persisted_message_id, Id} ->
+            ?assertEqual(#{<<"id">> => emqx_guid:to_hexstr(Id)}, decode_json(Response))
+    after 1000 ->
+        ct:fail(publish_hook_not_called)
+    end.
+
+mark_message_persisted(Message, TestPid) ->
+    TestPid ! {persisted_message_id, emqx_message:id(Message)},
+    {ok, emqx_message:set_header(message_persisted, true, Message)}.
 
 t_publish_no_subscriber({init, Config}) ->
     Config;
