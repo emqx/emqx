@@ -653,7 +653,9 @@ update_config_local(Key, NewConf, #{mode := merge} = Opts) ->
 update_config_local(Key, Value, #{mode := replace} = Opts) ->
     check_res(node(), Key, emqx:update_config([Key], Value, ?LOCAL_OPTIONS), Value, Opts).
 
-check_res(Key, Res, Conf, Opts) -> check_res(?global_ns, Key, Res, Conf, Opts).
+check_res(Key, Res, Conf, Opts) ->
+    check_res(?global_ns, Key, Res, Conf, Opts).
+
 check_res(Namespace, Key, Res, Conf, Opts) ->
     check_res(Namespace, cluster, Key, Res, Conf, Opts).
 check_res(_Namespace, Node, Key, {ok, _}, _Conf, Opts) ->
