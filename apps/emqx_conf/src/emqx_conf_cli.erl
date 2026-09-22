@@ -664,7 +664,9 @@ check_res(_Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
         "The effective configurations:~n"
         "```~n"
         "~ts```~n~n",
-    ActiveMsg = io_lib:format(ActiveMsg0, [hocon_pp:do(#{Key => emqx_conf:get_raw([Key])}, #{})]),
+    ActiveMsg = io_lib:format(ActiveMsg0, [
+        hocon_pp:do(#{Key => emqx_conf:get_raw([Key], #{})}, #{})
+    ]),
     FailedMsg0 =
         "Try to ~ts with:~n"
         "```~n"
@@ -695,12 +697,55 @@ check_config(Conf0, Opts) ->
     maybe
         {ok, Conf1} ?= check_keys_is_not_readonly(Conf0, Opts),
         {ok, Conf2} ?= check_cluster_keys(Conf1, Opts),
-        Conf3 = emqx_config:fill_defaults(Conf2),
-        ok ?= check_config_schema(Conf3),
-        {ok, Conf3}
+        check_config_for_mode(Conf2, Opts)
     else
         Error -> Error
     end.
+
+-doc """
+In `merge` mode, the loaded config is normalized but not filled with
+defaults, so that the merge does not overwrite stored values. Each root
+that is merged with `merge_conf/2` is validated as the merge result.
+In `replace` mode, omitted fields are filled with defaults.
+""".
+check_config_for_mode(Conf0, #{mode := merge}) ->
+    maybe
+        {ok, Conf} ?= normalize_config(Conf0),
+        ok ?= check_config_schema(maps:map(fun config_to_check_for_merge/2, Conf)),
+        {ok, Conf}
+    end;
+check_config_for_mode(Conf0, _Opts) ->
+    Conf = emqx_config:fill_defaults(Conf0),
+    maybe
+        ok ?= check_config_schema(Conf),
+        {ok, Conf}
+    end.
+
+normalize_config(Conf) ->
+    Fold = fun(Key, Value, {Acc, Errors}) ->
+        try emqx_config:normalize_raw_conf(#{Key => Value}) of
+            Normalized -> {maps:merge(Acc, Normalized), Errors}
+        catch
+            throw:{_SchemaMod, Reason} -> {Acc, [{Key, Reason} | Errors]}
+        end
+    end,
+    case maps:fold(Fold, {#{}, []}, Conf) of
+        {Normalized, []} -> {ok, Normalized};
+        {_, Errors} -> {error, Errors}
+    end.
+
+config_to_check_for_merge(Key, NewConf) ->
+    case is_merged_by_handler(Key) of
+        true -> NewConf;
+        false -> merge_conf(Key, NewConf)
+    end.
+
+%% These roots are merged by their config handlers, not by `merge_conf/2`.
+is_merged_by_handler(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY) -> true;
+is_merged_by_handler(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY) -> true;
+is_merged_by_handler(?SCHEMA_VALIDATION_CONF_ROOT_BIN) -> true;
+is_merged_by_handler(?MESSAGE_TRANSFORMATION_CONF_ROOT_BIN) -> true;
+is_merged_by_handler(_) -> false.
 
 check_keys_is_not_readonly(Conf, Opts) ->
     IgnoreReadonly = maps:get(ignore_readonly, Opts, false),
@@ -854,7 +899,7 @@ split_high_priority_conf([Key | Keys], Conf0, Acc) ->
     end.
 
 merge_conf(Key, NewConf) ->
-    OldConf = emqx_conf:get_raw([Key]),
+    OldConf = emqx_conf:get_raw([Key], #{}),
     do_merge_conf(OldConf, NewConf).
 
 do_merge_conf(OldConf = #{}, NewConf = #{}) ->
