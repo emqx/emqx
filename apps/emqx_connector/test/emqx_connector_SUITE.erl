@@ -409,6 +409,8 @@ t_merge_keeps_omitted_connector_fields(Config) when is_list(Config) ->
         emqx_conf_cli:load_config(?global_ns, Bin, #{mode => merge})
     end,
     #{<<"socket_opts">> := SocketOpts} = ConnectorConf = connector_config(),
+    %% Create the connector with two non-default values: `connect_timeout'
+    %% (default 5s) and the nested `socket_opts.sndbuf' (default 1MB).
     ?assertMatch(
         ok,
         Load(ConnectorConf#{
@@ -416,10 +418,14 @@ t_merge_keeps_omitted_connector_fields(Config) when is_list(Config) ->
             <<"socket_opts">> => SocketOpts#{<<"sndbuf">> => <<"512KB">>}
         })
     ),
+    %% Merge a fragment that sets only `description'. It omits the two
+    %% non-default values above and the required `bootstrap_hosts'.
     ?assertMatch(
         ok,
         Load(#{<<"description">> => <<"merged">>})
     ),
+    %% The omitted fields keep their stored values, including the nested
+    %% one; the merged field is applied.
     ?assertMatch(
         #{
             <<"bootstrap_hosts">> := <<"127.0.0.1:9092">>,

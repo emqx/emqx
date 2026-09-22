@@ -722,14 +722,14 @@ check_config_for_mode(Conf0, _Opts) ->
     end.
 
 normalize_config(Conf) ->
-    Fold = fun({Key, Value}, {Acc, Errors}) ->
+    Fold = fun(Key, Value, {Acc, Errors}) ->
         try emqx_config:normalize_raw_conf(#{Key => Value}) of
             Normalized -> {maps:merge(Acc, Normalized), Errors}
         catch
             throw:{_SchemaMod, Reason} -> {Acc, [{Key, Reason} | Errors]}
         end
     end,
-    case lists:foldl(Fold, {#{}, []}, maps:to_list(Conf)) of
+    case maps:fold(Fold, {#{}, []}, Conf) of
         {Normalized, []} -> {ok, Normalized};
         {_, Errors} -> {error, Errors}
     end.
