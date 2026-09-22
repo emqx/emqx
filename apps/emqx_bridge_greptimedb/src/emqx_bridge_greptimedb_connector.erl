@@ -31,7 +31,7 @@
     on_get_status/2,
     on_format_query_result/1
 ]).
--export([reply_callback/2]).
+-export([reply_callback/2, batch_reply_callback/3]).
 
 -export([
     roots/0,
@@ -146,8 +146,6 @@ on_query(InstId, {Channel, Message}, State) ->
             {error, ErrorPoints}
     end.
 
-%% Once a Batched Data trans to points failed.
-%% This batch query failed
 on_batch_query(InstId, [{Channel, _} | _] = BatchData, State) ->
     #{
         channels := #{Channel := #{write_syntax := SyntaxLines}},
@@ -161,12 +159,22 @@ on_batch_query(InstId, [{Channel, _} | _] = BatchData, State) ->
                 #{points => Points, batch => true, mode => sync}
             ),
             do_query(InstId, Channel, Client, Points);
-        {error, Reason} ->
+        {ok, Points, BatchResults} ->
             ?tp(
                 greptimedb_connector_send_query_error,
-                #{batch => true, mode => sync, error => Reason}
+                #{batch => true, mode => sync, error => points_trans_failed}
             ),
-            {error, {unrecoverable_error, Reason}}
+            case Points of
+                [] ->
+                    merge_batch_result(ok, BatchResults);
+                _ ->
+                    ?tp(
+                        greptimedb_connector_send_query,
+                        #{points => Points, batch => true, mode => sync}
+                    ),
+                    Result = do_query(InstId, Channel, Client, Points),
+                    merge_batch_result(Result, BatchResults)
+            end
     end.
 
 on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
@@ -204,12 +212,27 @@ on_batch_query_async(InstId, [{Channel, _} | _] = BatchData, {ReplyFun, Args}, S
                 #{points => Points, batch => true, mode => async}
             ),
             do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
-        {error, Reason} ->
+        {ok, Points, BatchResults} ->
             ?tp(
                 greptimedb_connector_send_query_error,
-                #{batch => true, mode => async, error => Reason}
+                #{batch => true, mode => async, error => points_trans_failed}
             ),
-            {error, {unrecoverable_error, Reason}}
+            ReplyFunAndArgs = {ReplyFun, Args},
+            case Points of
+                [] ->
+                    emqx_resource:apply_reply_fun(
+                        ReplyFunAndArgs, merge_batch_result(ok, BatchResults)
+                    ),
+                    ok;
+                _ ->
+                    ?tp(
+                        greptimedb_connector_send_query,
+                        #{points => Points, batch => true, mode => async}
+                    ),
+                    do_async_batch_query(
+                        InstId, Channel, Client, Points, BatchResults, ReplyFunAndArgs
+                    )
+            end
     end.
 
 on_get_status(_InstId, #{client := Client}) ->
@@ -506,21 +529,51 @@ do_async_query(InstId, Channel, Client, Points, ReplyFunAndArgs) ->
     WrappedReplyFunAndArgs = {fun ?MODULE:reply_callback/2, [ReplyFunAndArgs]},
     ok = greptimedb:async_write_batch(Client, Points, WrappedReplyFunAndArgs).
 
-reply_callback(ReplyFunAndArgs, {error, {unauth, _, _}}) ->
+do_async_batch_query(InstId, Channel, Client, Points, BatchResults, ReplyFunAndArgs) ->
+    ?SLOG(info, #{
+        msg => "greptimedb_write_point_async",
+        connector => InstId,
+        points => Points
+    }),
+    emqx_trace:rendered_action_template(Channel, #{points => Points}),
+    WrappedReplyFunAndArgs = {
+        fun ?MODULE:batch_reply_callback/3, [ReplyFunAndArgs, BatchResults]
+    },
+    ok = greptimedb:async_write_batch(Client, Points, WrappedReplyFunAndArgs).
+
+reply_callback(ReplyFunAndArgs, Result0) ->
+    Result = classify_query_result(Result0),
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
+
+batch_reply_callback(ReplyFunAndArgs, BatchResults, Result0) ->
+    Result = classify_query_result(Result0),
+    emqx_resource:apply_reply_fun(
+        ReplyFunAndArgs, merge_batch_result(Result, BatchResults)
+    ).
+
+classify_query_result({error, {unauth, _, _}}) ->
     ?tp(greptimedb_connector_do_query_failure, #{error => <<"authorization failure">>}),
-    Result = {error, {unrecoverable_error, <<"authorization failure">>}},
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
-reply_callback(ReplyFunAndArgs, {error, Reason} = Error) ->
+    {error, {unrecoverable_error, <<"authorization failure">>}};
+classify_query_result({error, Reason} = Error) ->
     case is_unrecoverable_error(Error) of
         true ->
-            Result = {error, {unrecoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+            {error, {unrecoverable_error, Reason}};
         false ->
-            Result = {error, {recoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+            {error, {recoverable_error, Reason}}
     end;
-reply_callback(ReplyFunAndArgs, Result) ->
-    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
+classify_query_result(Result) ->
+    Result.
+
+merge_batch_result({error, _} = Error, _BatchResults) ->
+    Error;
+merge_batch_result(Result, BatchResults) ->
+    lists:map(
+        fun
+            (valid) -> Result;
+            ({error, _} = Error) -> Error
+        end,
+        BatchResults
+    ).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans
@@ -587,17 +640,18 @@ proc_quoted(V, Data, TransOpts) ->
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Data Trans
 parse_batch_data(InstId, DbName, BatchData, SyntaxLines) ->
-    {Points, Errors} = lists:foldl(
-        fun({_, Data}, {ListOfPoints, ErrAccIn}) ->
+    {Points, BatchResults, Errors} = lists:foldl(
+        fun({_, Data}, {ListOfPoints, BatchResultsAcc, ErrAccIn}) ->
             case data_to_points(Data, DbName, SyntaxLines) of
                 {ok, Points} ->
-                    {[Points | ListOfPoints], ErrAccIn};
+                    {[Points | ListOfPoints], [valid | BatchResultsAcc], ErrAccIn};
                 {error, ErrorPoints} ->
                     log_error_points(InstId, ErrorPoints),
-                    {ListOfPoints, ErrAccIn + 1}
+                    Error = {error, {unrecoverable_error, points_trans_failed}},
+                    {ListOfPoints, [Error | BatchResultsAcc], ErrAccIn + 1}
             end
         end,
-        {[], 0},
+        {[], [], 0},
         BatchData
     ),
     case Errors of
@@ -610,7 +664,7 @@ parse_batch_data(InstId, DbName, BatchData, SyntaxLines) ->
                 connector => InstId,
                 reason => points_trans_failed
             }),
-            {error, points_trans_failed}
+            {ok, lists:flatten(Points), lists:reverse(BatchResults)}
     end.
 
 -spec data_to_points(
@@ -878,29 +932,55 @@ integer_point_validation_test() ->
         {error, [{error, {invalid_integer_value, 470.5}}]},
         data_to_points(InvalidData, <<"public">>, SyntaxLines)
     ),
-    ?assertEqual(
-        {error, points_trans_failed},
+    {ok, ValidPoints, BatchResults} =
         parse_batch_data(
             <<"connector:test">>,
             <<"public">>,
             [{channel, ValidData}, {channel, InvalidData}],
             SyntaxLines
-        )
+        ),
+    ?assertMatch([_], ValidPoints),
+    InvalidResult = {error, {unrecoverable_error, points_trans_failed}},
+    ?assertEqual([valid, InvalidResult], BatchResults),
+    ?assertEqual(
+        [{ok, written}, InvalidResult],
+        merge_batch_result({ok, written}, BatchResults)
     ),
+    ?assertEqual(
+        {error, {recoverable_error, timeout}},
+        merge_batch_result({error, {recoverable_error, timeout}}, BatchResults)
+    ),
+    Self = self(),
+    ReplyFunAndArgs = {fun(Result) -> Self ! Result end, []},
+    ok = batch_reply_callback(ReplyFunAndArgs, BatchResults, {ok, written}),
+    receive
+        CallbackResult ->
+            ?assertEqual([{ok, written}, InvalidResult], CallbackResult)
+    after 1_000 ->
+        error(callback_timeout)
+    end,
+    AllInvalidBatch = [{channel, InvalidData}, {channel, InvalidData}],
     State = #{
         channels => #{channel => #{write_syntax => SyntaxLines}},
         client => unused,
         dbname => <<"public">>
     },
     ?assertEqual(
-        {error, {unrecoverable_error, points_trans_failed}},
+        [InvalidResult, InvalidResult],
+        on_batch_query(<<"connector:test">>, AllInvalidBatch, State)
+    ),
+    ?assertEqual(
+        ok,
         on_batch_query_async(
-            <<"connector:test">>,
-            [{channel, ValidData}, {channel, InvalidData}],
-            {fun(_) -> ok end, []},
-            State
+            <<"connector:test">>, AllInvalidBatch, ReplyFunAndArgs, State
         )
     ),
+    receive
+        AllInvalidResult ->
+            ?assertEqual([InvalidResult, InvalidResult], AllInvalidResult)
+    after 1_000 ->
+        error(callback_timeout)
+    end,
     ?assertEqual(
         {error, {non_utf8_string_value, [470.5, <<"x">>]}},
         value_type([470.5, <<"x">>])

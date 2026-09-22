@@ -898,6 +898,101 @@ t_boolean_variants(Config) ->
     ),
     ok.
 
+t_partially_invalid_batch(Config) ->
+    case ?config(batch_size, Config) of
+        1 ->
+            {skip, requires_batching};
+        _ ->
+            do_t_partially_invalid_batch(Config)
+    end.
+
+do_t_partially_invalid_batch(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} =
+        create_bridge(
+            Config,
+            #{
+                <<"resource_opts">> => #{
+                    <<"batch_size">> => 3,
+                    <<"worker_pool_size">> => 1
+                },
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} value=${payload.value}i">>
+            }
+        ),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    ClientIds = [emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- lists:seq(1, 3)],
+    [ClientId0, ClientId1, ClientId2] = ClientIds,
+    Values = [101, 20.5, 303],
+    Batch =
+        lists:zipwith(
+            fun(ClientId, Value) ->
+                #{
+                    <<"clientid">> => ClientId,
+                    <<"topic">> => Topic,
+                    <<"payload">> => #{<<"value">> => Value},
+                    <<"timestamp">> => erlang:system_time(millisecond)
+                }
+            end,
+            ClientIds,
+            Values
+        ),
+    InvalidResult = {error, {unrecoverable_error, points_trans_failed}},
+    ?check_trace(
+        begin
+            Results = emqx_utils:pmap(fun(Data) -> send_message(Config, Data) end, Batch, infinity),
+            case QueryMode of
+                sync ->
+                    ?assertEqual(
+                        [{ok, {affected_rows, 2}}, InvalidResult, {ok, {affected_rows, 2}}],
+                        Results
+                    );
+                async ->
+                    ?assertEqual([ok, ok, ok], Results)
+            end,
+            ?retry(
+                500,
+                20,
+                begin
+                    ?assertMatch(
+                        #{<<"value">> := 101},
+                        query_by_clientid(ClientId0, Config)
+                    ),
+                    ?assertEqual(#{}, query_by_clientid(ClientId1, Config)),
+                    ?assertMatch(
+                        #{<<"value">> := 303},
+                        query_by_clientid(ClientId2, Config)
+                    )
+                end
+            ),
+            ResourceId = resource_id(Config),
+            ?retry(
+                100,
+                20,
+                begin
+                    #{counters := Counters} = emqx_resource:get_metrics(ResourceId),
+                    ?assertMatch(
+                        #{matched := 3, success := 2, failed := 1},
+                        Counters
+                    )
+                end
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{batch := true, points := [_, _]}],
+                ?of_kind(greptimedb_connector_send_query, Trace)
+            ),
+            ?assertMatch(
+                [#{batch := true, error := points_trans_failed}],
+                ?of_kind(greptimedb_connector_send_query_error, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
 t_bad_timestamp(Config) ->
     GreptimedbType = ?config(greptimedb_type, Config),
     GreptimedbName = ?config(greptimedb_name, Config),
