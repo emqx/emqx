@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include("emqx_audit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
@@ -558,6 +559,264 @@ t_sso_mfa_body_redacted_by_position(_) ->
     ok.
 
 -doc """
+SCRAM verification request bodies contain authentication material and are
+redacted as a whole before the event reaches either persistence sink.
+""".
+t_scram_verify_body_redacted(_) ->
+    Now = erlang:monotonic_time(),
+    Meta = #{
+        method => post,
+        code => 200,
+        operation_id => <<"/login/verify">>,
+        headers => #{},
+        bindings => #{},
+        body => #{
+            <<"challenge_id">> => <<"scram-challenge-id">>,
+            <<"combined_nonce">> => <<"client-and-server-nonce">>,
+            <<"client_proof">> => <<"client-proof">>,
+            <<"mfa_token">> => <<"123456">>
+        },
+        req_start => Now,
+        req_end => Now
+    },
+    Req = #{headers => #{}, peer => {{127, 0, 0, 1}, 18083}},
+    #{http_request := #{body := <<"******">>}} =
+        emqx_dashboard_audit:log_meta(60, Meta, Req),
+    #{http_request := #{body := <<"******">>}} =
+        emqx_dashboard_audit:log_meta(60, Meta#{body => [<<"not-a-map">>]}, Req),
+    FailureMeta = Meta#{
+        code => 400,
+        failure => #{code => 'BAD_REQUEST', message => <<"review-synthetic-proof">>}
+    },
+    #{
+        http_request := #{body := <<"******">>},
+        failure := #{code := 'BAD_REQUEST', message := <<"******">>}
+    } = emqx_dashboard_audit:log_meta(60, FailureMeta, Req),
+    %% A failure that is not a structured map is still redacted as a whole.
+    #{failure := <<"******">>} =
+        emqx_dashboard_audit:log_meta(
+            60, FailureMeta#{failure => <<"review-synthetic-proof">>}, Req
+        ),
+    ok.
+
+-doc """
+A successful SCRAM login must redact the submitted client proof before the
+audit event is stored. Neither the raw Mnesia record nor GET /audit may retain
+any field from the verification request body.
+""".
+t_scram_client_proof_redacted(_) ->
+    Username = <<"scram_audit_user">>,
+    Password = <<"scramAuditP@ss1">>,
+    ClientNonce = <<"auditClientNonce1234567890">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, Password, ?ROLE_SUPERUSER, <<"SCRAM audit test user">>
+    ),
+    try
+        StartAt = erlang:system_time(microsecond),
+        {ok, 200, Challenge} = request_api_without_auth(
+            post,
+            emqx_mgmt_api_test_util:api_path(["login", "challenge"]),
+            #{username => Username, client_nonce => ClientNonce}
+        ),
+        ChallengeId = maps:get(<<"challenge_id">>, Challenge),
+        ServerNonce = maps:get(<<"server_nonce">>, Challenge),
+        CombinedNonce = <<ClientNonce/binary, ServerNonce/binary>>,
+        Proof = emqx_dashboard_scram:client_proof(
+            Username,
+            ClientNonce,
+            ServerNonce,
+            base64:decode(maps:get(<<"salt">>, Challenge)),
+            maps:get(<<"iterations">>, Challenge),
+            Password
+        ),
+        EncodedProof = base64:encode(Proof),
+        {ok, 200, #{<<"token">> := _}} = request_api_without_auth(
+            post,
+            emqx_mgmt_api_test_util:api_path(["login", "verify"]),
+            #{
+                challenge_id => ChallengeId,
+                combined_nonce => CombinedNonce,
+                client_proof => EncodedProof
+            }
+        ),
+        AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+        AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+        Query = lists:flatten(
+            io_lib:format(
+                "from=dashboard&source=~ts&operation_id=/login/verify&gte_created_at=~B&limit=1",
+                [Username, StartAt]
+            )
+        ),
+        Response = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+        #{
+            <<"data">> := [
+                #{
+                    <<"source">> := Username,
+                    <<"operation_id">> := <<"/login/verify">>,
+                    <<"operation_type">> := <<"login">>,
+                    <<"operation_result">> := <<"success">>,
+                    <<"http_status_code">> := 200,
+                    <<"http_method">> := <<"post">>,
+                    <<"http_request">> := #{<<"body">> := ApiBody}
+                }
+            ]
+        } = emqx_utils_json:decode(Response),
+        assert_scram_audit_body(ApiBody, EncodedProof, ChallengeId, CombinedNonce),
+        #?AUDIT{http_request = #{body := StoredBody}} =
+            find_stored_audit_entry(Username, StartAt),
+        assert_scram_audit_body(StoredBody, EncodedProof, ChallengeId, CombinedNonce)
+    after
+        _ = emqx_dashboard_admin:remove_user(Username)
+    end.
+
+-doc """
+A rejected SCRAM proof is answered by the handler, which does not populate the
+audit `failure' field. The redaction of that field therefore cannot hide the
+handler's error diagnostics: the outcome is carried by operation_result and
+http_status_code, while the submitted body stays redacted.
+""".
+t_scram_bad_proof_redacts_body_without_failure(_) ->
+    Username = <<"scram_bad_proof_user">>,
+    Password = <<"scramAuditP@ss1">>,
+    ClientNonce = <<"auditBadProofNonce1234567890">>,
+    {ok, _} = emqx_dashboard_admin:add_user(
+        Username, Password, ?ROLE_SUPERUSER, <<"SCRAM bad proof test user">>
+    ),
+    try
+        StartAt = erlang:system_time(microsecond),
+        {ok, 200, Challenge} = request_api_without_auth(
+            post,
+            emqx_mgmt_api_test_util:api_path(["login", "challenge"]),
+            #{username => Username, client_nonce => ClientNonce}
+        ),
+        ChallengeId = maps:get(<<"challenge_id">>, Challenge),
+        ServerNonce = maps:get(<<"server_nonce">>, Challenge),
+        CombinedNonce = <<ClientNonce/binary, ServerNonce/binary>>,
+        Proof = emqx_dashboard_scram:client_proof(
+            Username,
+            ClientNonce,
+            ServerNonce,
+            base64:decode(maps:get(<<"salt">>, Challenge)),
+            maps:get(<<"iterations">>, Challenge),
+            Password
+        ),
+        %% Flip one byte so the proof no longer matches the stored credential.
+        <<First, Rest/binary>> = Proof,
+        BadProof = base64:encode(<<(First bxor 16#FF), Rest/binary>>),
+        {ok, 401, _} = request_api_without_auth(
+            post,
+            emqx_mgmt_api_test_util:api_path(["login", "verify"]),
+            #{
+                challenge_id => ChallengeId,
+                combined_nonce => CombinedNonce,
+                client_proof => BadProof
+            }
+        ),
+        AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+        AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+        Query = lists:flatten(
+            io_lib:format(
+                "source=~ts&operation_id=/login/verify&gte_created_at=~B&limit=1",
+                [Username, StartAt]
+            )
+        ),
+        Response = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+        #{<<"data">> := [AuditEntry]} = emqx_utils_json:decode(Response),
+        ?assertMatch(
+            #{
+                <<"source">> := Username,
+                <<"operation_id">> := <<"/login/verify">>,
+                <<"operation_result">> := <<"failure">>,
+                <<"http_status_code">> := 401,
+                <<"failure">> := <<>>
+            },
+            AuditEntry
+        ),
+        ApiBody = maps:get(<<"body">>, maps:get(<<"http_request">>, AuditEntry)),
+        assert_scram_audit_body(ApiBody, BadProof, ChallengeId, CombinedNonce)
+    after
+        _ = emqx_dashboard_admin:remove_user(Username)
+    end.
+
+-doc """
+A malformed SCRAM verification request must not copy the submitted proof into
+the validation failure stored in the audit record.
+""".
+t_scram_malformed_proof_redacted(_) ->
+    Marker = <<"review-synthetic-proof">>,
+    StartAt = erlang:system_time(microsecond),
+    {ok, 400, _} = request_api_without_auth(
+        post,
+        emqx_mgmt_api_test_util:api_path(["login", "verify"]),
+        #{
+            challenge_id => <<"malformed-challenge">>,
+            combined_nonce => <<"malformed-nonce">>,
+            client_proof => #{proof => Marker}
+        }
+    ),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Query = lists:flatten(
+        io_lib:format("operation_id=/login/verify&gte_created_at=~B&limit=1", [StartAt])
+    ),
+    Response = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+    #{<<"data">> := [AuditEntry]} = emqx_utils_json:decode(Response),
+    ?assertEqual(nomatch, binary:match(emqx_utils_json:encode(AuditEntry), Marker)),
+    ?assertMatch(
+        #{
+            <<"operation_id">> := <<"/login/verify">>,
+            <<"operation_result">> := <<"failure">>,
+            <<"http_status_code">> := 400,
+            %% minirest collapses the schema-validation error to an empty map,
+            %% so the whole failure is replaced by the redaction marker.
+            <<"failure">> := <<"******">>
+        },
+        AuditEntry
+    ),
+    ApiBody = maps:get(<<"body">>, maps:get(<<"http_request">>, AuditEntry)),
+    ?assertNotEqual(nomatch, binary:match(ApiBody, <<"******">>), ApiBody),
+    Stored =
+        #?AUDIT{failure = <<"******">>, http_request = #{body := StoredBody}} =
+        find_stored_audit_entry(<<>>, StartAt),
+    ?assertEqual(nomatch, binary:match(term_to_binary(Stored), Marker)),
+    ?assertEqual(nomatch, binary:match(StoredBody, Marker)),
+    ok.
+
+-doc """
+An unparsable SCRAM verification body reaches the parse-failure branch, whose
+audit failure is a structured map. The error code must survive redaction while
+the message is replaced, and the raw payload must not be persisted.
+""".
+t_scram_invalid_json_keeps_error_code(_) ->
+    RawBody = <<"{not-json-proof">>,
+    StartAt = erlang:system_time(microsecond),
+    {ok, 400, _} = request_api_with_raw_body(
+        emqx_mgmt_api_test_util:api_path(["login", "verify"]),
+        RawBody
+    ),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Query = lists:flatten(
+        io_lib:format("operation_id=/login/verify&gte_created_at=~B&limit=1", [StartAt])
+    ),
+    Response = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
+    #{<<"data">> := [AuditEntry]} = emqx_utils_json:decode(Response),
+    ?assertMatch(
+        #{
+            <<"operation_id">> := <<"/login/verify">>,
+            <<"operation_result">> := <<"failure">>,
+            <<"http_status_code">> := 400,
+            <<"failure">> := #{
+                <<"code">> := <<"BAD_REQUEST">>,
+                <<"message">> := <<"******">>
+            }
+        },
+        AuditEntry
+    ),
+    ?assertEqual(nomatch, binary:match(emqx_utils_json:encode(AuditEntry), RawBody)),
+    ok.
+
+-doc """
 The three public SSO MFA endpoints must not persist their temporary tokens or
 TOTP codes in the audit record returned by GET /audit.
 """.
@@ -694,6 +953,44 @@ ns_api_key_auth_header(Name, Role) ->
         Name, ApiKey, ApiSecret, true, ExpiresAt, <<"audit test key">>, Role
     ),
     emqx_common_test_http:auth_header(binary_to_list(ApiKey), binary_to_list(ApiSecret)).
+
+request_api_without_auth(Method, Url, Body) ->
+    FlatUrl = binary_to_list(iolist_to_binary(Url)),
+    case emqx_common_test_http:request_api(Method, FlatUrl, [], no_auth_header, Body) of
+        {ok, Code, ResponseBody} ->
+            {ok, Code, emqx_utils_json:decode(ResponseBody)};
+        Error ->
+            Error
+    end.
+
+%% `emqx_common_test_http' always JSON-encodes the body, so a raw payload is
+%% needed to exercise the server-side JSON parse failure.
+request_api_with_raw_body(Url, RawBody) ->
+    FlatUrl = binary_to_list(iolist_to_binary(Url)),
+    Request = {FlatUrl, [], "application/json", RawBody},
+    case httpc:request(post, Request, [], [{body_format, binary}]) of
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, ResponseBody}} ->
+            {ok, Code, emqx_utils_json:decode(ResponseBody)};
+        Error ->
+            Error
+    end.
+
+assert_scram_audit_body(Body, EncodedProof, ChallengeId, CombinedNonce) ->
+    ?assertEqual(nomatch, binary:match(Body, EncodedProof), Body),
+    ?assertNotEqual(nomatch, binary:match(Body, <<"******">>), Body),
+    ?assertEqual(nomatch, binary:match(Body, ChallengeId), Body),
+    ?assertEqual(nomatch, binary:match(Body, CombinedNonce), Body),
+    ok.
+
+find_stored_audit_entry(Username, StartAt) ->
+    Records = mnesia:dirty_match_object(
+        ?AUDIT,
+        #?AUDIT{source = Username, operation_id = <<"/login/verify">>, _ = '_'}
+    ),
+    case [Record || #?AUDIT{created_at = CreatedAt} = Record <- Records, CreatedAt >= StartAt] of
+        [Record | _] -> Record;
+        [] -> ct:fail(scram_audit_entry_not_found_in_mnesia)
+    end.
 
 wait_for_dirty_write_log_done(MaxMs) ->
     Size = mnesia:table_info(emqx_audit, size),
