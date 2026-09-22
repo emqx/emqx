@@ -156,6 +156,9 @@ mk_emqtt_options(#{server := Server, ssl := #{enable := EnableSsl} = Ssl} = Link
         port => Port,
         clientid => ClientId,
         proto_ver => v5,
+        %% Force `emqtt' client to always send PINGREQs for keepalive probes, regardless
+        %% of connection activity between consecutive probes.
+        force_ping => true,
         tcp_opts => TcpOpts,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))

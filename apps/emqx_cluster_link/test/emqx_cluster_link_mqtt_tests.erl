@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_cluster_link_mqtt_tests).
 
@@ -152,3 +152,78 @@ no_such_pool_is_recoverable_test() ->
 
 forwarded_message() ->
     (emqx_message:make(<<"t/link">>, <<"payload">>))#message{extra = <<"pick-key">>}.
+
+%% Resource id of the message forwarding pool of the link named `remote'.
+-define(RES_ID, <<"emqx_cluster_link_mqtt:msg:", "remote">>).
+
+%% A connected client is reported as `connected' only when the remote answers the
+%% probe's PINGREQ.  Every way of not getting an answer -- `emqtt''s own timeout
+%% reply, no answer at all within the round's budget, a dead client -- has to come
+%% back as `connecting' (or `disconnected' when the client itself is gone), so that
+%% the resource manager keeps a silent link retriable instead of turning an
+%% unanswered probe into an unexpected result, which it treats as a disconnected
+%% resource.
+health_check_probe_test_() ->
+    {foreach, fun setup/0, fun teardown/1, [
+        fun answered_probe_is_connected/0,
+        fun unanswered_probe_is_connecting/0,
+        fun unsent_probe_is_disconnected/0,
+        fun probe_outliving_the_budget_is_connecting/0,
+        fun client_down_is_disconnected/0,
+        fun not_connected_client_is_connecting/0
+    ]}.
+
+setup() ->
+    ok = meck:new(emqx_cluster_link_config, [passthrough]),
+    ok = meck:new(emqx_resource, [passthrough]),
+    ok = meck:new(ecpool, [passthrough]),
+    ok = meck:new(ecpool_worker, [passthrough]),
+    ok = meck:new(emqtt, [passthrough]),
+    meck:expect(emqx_cluster_link_config, get_link, fun(_Name) ->
+        #{resource_opts => #{health_check_interval => 1000, health_check_timeout => 60_000}}
+    end),
+    meck:expect(emqx_resource, get_allocated_resources_list, fun(_ResId) -> [] end),
+    meck:expect(ecpool, workers, fun(_Pool) -> [{worker, self()}] end),
+    meck:expect(ecpool_worker, client, fun(_Worker) -> {ok, self()} end),
+    ok.
+
+teardown(_) ->
+    lists:foreach(
+        fun meck:unload/1,
+        [emqtt, ecpool_worker, ecpool, emqx_resource, emqx_cluster_link_config]
+    ).
+
+answered_probe_is_connected() ->
+    expect_connected_client(pong),
+    ?assertEqual(connected, health_check()).
+
+unanswered_probe_is_connecting() ->
+    %% `emqtt' gave up on the PINGRESP while the socket was still there.
+    expect_connected_client({error, ack_timeout}),
+    ?assertEqual(connecting, health_check()).
+
+unsent_probe_is_disconnected() ->
+    expect_connected_client({error, closed}),
+    ?assertEqual(disconnected, health_check()).
+
+probe_outliving_the_budget_is_connecting() ->
+    %% `emqtt:ping/1' waits forever, so a remote that never answers is given up on by
+    %% the health check's own budget (1 s here, see `resource_opts' above).
+    meck:expect(emqtt, status, fun(_Pid) -> connected end),
+    meck:expect(emqtt, ping, fun(_Pid) -> timer:sleep(5000) end),
+    ?assertEqual(connecting, health_check()).
+
+client_down_is_disconnected() ->
+    meck:expect(emqtt, status, fun(_Pid) -> exit(noproc) end),
+    ?assertEqual(disconnected, health_check()).
+
+not_connected_client_is_connecting() ->
+    meck:expect(emqtt, status, fun(_Pid) -> reconnect end),
+    ?assertEqual(connecting, health_check()).
+
+expect_connected_client(PingReply) ->
+    meck:expect(emqtt, status, fun(_Pid) -> connected end),
+    meck:expect(emqtt, ping, fun(_Pid) -> PingReply end).
+
+health_check() ->
+    emqx_cluster_link_mqtt:on_get_status(?RES_ID, #{pool_name => test_pool}).

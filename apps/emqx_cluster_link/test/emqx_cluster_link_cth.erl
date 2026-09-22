@@ -165,3 +165,124 @@ get_bind_port({_Host, Port}) ->
     Port;
 get_bind_port(Port) when is_integer(Port) ->
     Port.
+
+%%
+
+-doc """
+Start a TCP relay towards `UpstreamPort` that the test can freeze.
+
+While frozen, bytes are dropped in both directions but the sockets stay open, which is
+what a black-holed network looks like to an MQTT client that already has a connection.
+""".
+start_relay(UpstreamPort) ->
+    {ok, ListenSocket} = gen_tcp:listen(0, [
+        binary, {active, false}, {reuseaddr, true}, {ip, {127, 0, 0, 1}}
+    ]),
+    {ok, Port} = inet:port(ListenSocket),
+    Pid = spawn(fun() -> relay_coordinator(ListenSocket, UpstreamPort) end),
+    {Port, {ListenSocket, Pid}}.
+
+stop_relay(undefined) ->
+    ok;
+stop_relay({ListenSocket, Pid}) ->
+    _ = catch gen_tcp:close(ListenSocket),
+    exit(Pid, kill),
+    ok.
+
+freeze_relay(Relay) ->
+    relay_set_frozen(Relay, true).
+
+thaw_relay(Relay) ->
+    relay_set_frozen(Relay, false).
+
+relay_set_frozen({_ListenSocket, Pid}, Frozen) ->
+    Pid ! {frozen, Frozen},
+    ok.
+
+relay_coordinator(ListenSocket, UpstreamPort) ->
+    process_flag(trap_exit, true),
+    Coordinator = self(),
+    _ = spawn_link(fun() -> relay_acceptor(ListenSocket, UpstreamPort, Coordinator) end),
+    relay_coordinator_loop(false, []).
+
+relay_coordinator_loop(Frozen, Connections) ->
+    receive
+        {connection, Pid} ->
+            %% Keep the state consistent for connections accepted while frozen.
+            Pid ! {frozen, Frozen},
+            relay_coordinator_loop(Frozen, [Pid | Connections]);
+        {frozen, NewFrozen} ->
+            [
+                Pid ! {frozen, NewFrozen}
+             || Pid <- Connections
+            ],
+            relay_coordinator_loop(NewFrozen, Connections);
+        {'EXIT', _Pid, _Reason} ->
+            relay_coordinator_loop(Frozen, Connections)
+    end.
+
+relay_acceptor(ListenSocket, UpstreamPort, Coordinator) ->
+    case gen_tcp:accept(ListenSocket) of
+        {ok, Downstream} ->
+            Pid = spawn_link(fun() -> relay_connection_start(UpstreamPort) end),
+            %% The accepted socket receives data in the process that controls it, so
+            %% hand it over before that process listens on it.
+            ok = gen_tcp:controlling_process(Downstream, Pid),
+            Pid ! {downstream, Downstream},
+            Coordinator ! {connection, Pid},
+            relay_acceptor(ListenSocket, UpstreamPort, Coordinator);
+        {error, _Reason} ->
+            ok
+    end.
+
+relay_connection_start(UpstreamPort) ->
+    case relay_wait_for(downstream) of
+        undefined ->
+            ok;
+        Downstream ->
+            %% The coordinator reports the state of the relay as soon as it knows
+            %% about this connection, so a connection accepted while frozen never
+            %% forwards anything.
+            Frozen =
+                case relay_wait_for(frozen) of
+                    undefined -> false;
+                    Value -> Value
+                end,
+            relay_connection(Downstream, UpstreamPort, Frozen)
+    end.
+
+relay_wait_for(Tag) ->
+    receive
+        {Tag, Value} -> Value
+    after 5_000 -> undefined
+    end.
+
+relay_connection(Downstream, UpstreamPort, Frozen) ->
+    case gen_tcp:connect({127, 0, 0, 1}, UpstreamPort, [binary, {active, true}], 5_000) of
+        {ok, Upstream} ->
+            ok = inet:setopts(Downstream, [{active, true}]),
+            relay_loop(Downstream, Upstream, Frozen);
+        {error, _Reason} ->
+            ok = gen_tcp:close(Downstream)
+    end.
+
+relay_loop(Downstream, Upstream, Frozen) ->
+    receive
+        {tcp, Downstream, Data} ->
+            _ = relay_forward(Upstream, Data, Frozen),
+            relay_loop(Downstream, Upstream, Frozen);
+        {tcp, Upstream, Data} ->
+            _ = relay_forward(Downstream, Data, Frozen),
+            relay_loop(Downstream, Upstream, Frozen);
+        {frozen, NewFrozen} ->
+            relay_loop(Downstream, Upstream, NewFrozen);
+        {tcp_closed, _Socket} ->
+            ok;
+        {tcp_error, _Socket, _Reason} ->
+            ok
+    end.
+
+relay_forward(_To, _Data, true) ->
+    ok;
+relay_forward(To, Data, false) ->
+    gen_tcp:send(To, Data).
