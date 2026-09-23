@@ -1319,12 +1319,16 @@ jwt_permissions_authorize(
     Subject
 ) when is_map(JWTPerms) ->
     JWTPermAction = action_to_jwt_permission(Action),
-    do_jwt_permissions_authorize(
-        JWTPermAction,
-        Topic,
-        Subject,
-        jwt_rule_filters(JWTPerms, JWTPermAction)
-    );
+    try
+        do_jwt_permissions_authorize(
+            JWTPermAction,
+            Topic,
+            Subject,
+            jwt_rule_filters(JWTPerms, JWTPermAction)
+        )
+    catch
+        error:{invalid_subject, _Reason} -> deny
+    end;
 jwt_permissions_authorize(_ClientInfo, _Action, _Topic, _Subject) ->
     ignore.
 
@@ -1466,23 +1470,7 @@ default_jwt_rule_filters() ->
     }.
 
 normalize_rule_filters(Rules) ->
-    lists:filtermap(
-        fun(Rule) ->
-            case safe_nats_subject_to_filter(Rule) of
-                {ok, RuleFilter} -> {true, RuleFilter};
-                error -> false
-            end
-        end,
-        Rules
-    ).
-
-safe_nats_subject_to_filter(Subject) ->
-    try
-        {ok, nats_subject_to_filter(Subject)}
-    catch
-        _:_ ->
-            error
-    end.
+    lists:map(fun nats_subject_to_filter/1, Rules).
 
 nats_subject_to_filter(Subject) ->
     emqx_nats_topic:nats_to_mqtt(Subject).

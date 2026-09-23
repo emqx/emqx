@@ -247,6 +247,14 @@ t_jwt_before_emqx_authz_after_ingress(_) ->
         ct:fail(emqx_authorize_hook_not_called)
     end.
 
+t_invalid_jwt_permission_fails_closed(_) ->
+    Topic = <<"orders/created">>,
+    Msg = emqx_message:make(<<"client">>, Topic, <<"payload">>),
+    ClientInfo = nats_authz_clientinfo(#{
+        publish => #{allow => [<<"orders.>">>], deny => [<<"orders/#">>]}
+    }),
+    ?assertEqual(deny, emqx_nats_channel:authorize_publish(ClientInfo, Msg)).
+
 t_subscribe_duplicate_sid(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),

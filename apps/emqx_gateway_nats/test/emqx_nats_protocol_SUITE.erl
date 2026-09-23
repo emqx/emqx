@@ -548,6 +548,7 @@ target_caps(emqx, _Group) ->
         jwt_account_expiry,
         jwt_acl_intersection,
         mixed_auth_priority,
+        mqtt_subject_translation,
         security_profile
     ];
 target_caps(nats, Group) ->
@@ -589,6 +590,10 @@ required_caps(t_jwt_account_expire_disconnect) ->
     [jwt_account_expiry];
 required_caps(t_jwt_permissions_intersection_with_acl) ->
     [jwt_auth, jwt_acl_intersection];
+required_caps(t_jwt_mqtt_reserved_permission_rejected) ->
+    [jwt_auth, mqtt_subject_translation];
+required_caps(t_mqtt_reserved_subject_rejected) ->
+    [mqtt_subject_translation];
 required_caps(t_nkey_auth_priority_over_jwt) ->
     [jwt_auth];
 required_caps(t_nkey_auth_fallback_to_jwt) ->
@@ -1394,6 +1399,37 @@ t_subscribe_invalid_subject(Config) ->
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     assert_protocol_error(Msgs),
 
+    emqx_nats_client:stop(Client).
+
+t_mqtt_reserved_subject_rejected(Config) ->
+    lists:foreach(
+        fun(Subject) ->
+            assert_raw_subject_rejected(Config, fun(Client) ->
+                send_raw_sub(Client, Subject, <<"sid-1">>)
+            end),
+            assert_raw_subject_rejected(Config, fun(Client) ->
+                send_raw_pub(Client, Subject, <<"payload">>)
+            end)
+        end,
+        [
+            <<"foo.+">>,
+            <<"foo.#">>,
+            <<"foo/bar">>,
+            <<"$share.group.foo">>,
+            <<"$queue.foo">>,
+            <<"$exclusive.foo">>
+        ]
+    ).
+
+assert_raw_subject_rejected(Config, Send) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = Send(Client),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
     emqx_nats_client:stop(Client).
 
 t_publish(Config) ->
@@ -2281,6 +2317,28 @@ t_jwt_permissions_intersection_with_acl(Config) ->
     assert_permissions_violation(SubDenied, subscribe, <<"foo.topic">>),
     ok = emqx_nats_client:subscribe(Client, <<"bar.topic">>, <<"sid-allow">>),
     recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
+t_jwt_mqtt_reserved_permission_rejected(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_mqtt_reserved_permission_rejected('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_mqtt_reserved_permission_rejected(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"sub">> => #{<<"deny">> => [<<"foo/#">>]},
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
     emqx_nats_client:stop(Client).
 
 t_publish_authz(init, Config) ->
