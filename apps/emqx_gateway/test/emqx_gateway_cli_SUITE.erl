@@ -162,7 +162,7 @@ t_redact(_) ->
         ]
     ).
 
-t_cli_output_redacts_credentials(Config) ->
+t_gateway_lookup_redacts_credentials(Config) ->
     BindPasswordFile = filename:join(?config(priv_dir, Config), "ldap-bind-password"),
     ok = file:write_file(BindPasswordFile, ?LDAP_BIND_PASSWORD),
     BindPasswordFileURI = iolist_to_binary(["file://", BindPasswordFile]),
@@ -185,12 +185,12 @@ t_cli_output_redacts_credentials(Config) ->
     ],
     lists:foreach(
         fun({Authentication, Secrets, VisibleValues}) ->
-            assert_cli_output_redacts_credentials(Authentication, Secrets, VisibleValues)
+            assert_gateway_lookup_redacts_credentials(Authentication, Secrets, VisibleValues)
         end,
         Cases
     ).
 
-assert_cli_output_redacts_credentials(Authentication, Secrets, VisibleValues) ->
+assert_gateway_lookup_redacts_credentials(Authentication, Secrets, VisibleValues) ->
     Conf = #{
         <<"idle_timeout">> => <<"30s">>,
         <<"mountpoint">> => <<"mqttsn/">>,
@@ -209,9 +209,6 @@ assert_cli_output_redacts_credentials(Authentication, Secrets, VisibleValues) ->
     ?assertEqual("ok\n", acc_print()),
     try
         emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
-        assert_safe_gateway_output(acc_print(), Secrets, VisibleValues),
-
-        emqx_conf_cli:conf(["show", "gateway"]),
         assert_safe_gateway_output(acc_print(), Secrets, VisibleValues)
     after
         emqx_gateway_cli:gateway(["unload", "mqttsn"]),

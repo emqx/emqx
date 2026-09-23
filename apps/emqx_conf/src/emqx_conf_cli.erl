@@ -382,7 +382,8 @@ print(Json) ->
     emqx_ctl:print("~ts~n", [emqx_utils_json:best_effort_json(Json)]).
 
 print_hocon(Hocon) when is_map(Hocon) ->
-    emqx_ctl:print("~ts~n", [hocon_pp:do(emqx_utils:redact(Hocon), #{})]);
+    %% Keep secrets intact because `conf show` output is intended to be usable as a configuration backup.
+    emqx_ctl:print("~ts~n", [hocon_pp:do(Hocon, #{})]);
 print_hocon(undefined) ->
     emqx_ctl:print("No value~n", []);
 print_hocon({error, Error}) ->
