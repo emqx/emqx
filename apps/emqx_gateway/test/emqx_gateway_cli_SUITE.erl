@@ -28,6 +28,12 @@
     "}\n"
 ).
 
+-define(AUTH_SECRET, <<"gateway-cli-auth-secret-sentinel">>).
+-define(HTTP_AUTHORIZATION, <<"Bearer gateway-cli-http-sentinel">>).
+-define(LDAP_PASSWORD, <<"gateway-cli-ldap-password-sentinel">>).
+-define(LDAP_BIND_PASSWORD, <<"gateway-cli-ldap-bind-password-sentinel">>).
+-define(OVERRIDE_PASSWORD, <<"gateway-cli-password-sentinel">>).
+
 -import(emqx_gateway_test_utils, [sn_client_connect/1, sn_client_disconnect/1]).
 
 %%--------------------------------------------------------------------
@@ -38,7 +44,15 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, emqx_gateway],
+        [
+            emqx,
+            emqx_conf,
+            emqx_auth,
+            emqx_auth_jwt,
+            emqx_auth_http,
+            emqx_auth_ldap,
+            emqx_gateway
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
@@ -147,6 +161,111 @@ t_redact(_) ->
             lists:suffix("_audit_args", atom_to_list(Cmd))
         ]
     ).
+
+t_gateway_lookup_redacts_credentials(Config) ->
+    BindPasswordFile = filename:join(?config(priv_dir, Config), "ldap-bind-password"),
+    ok = file:write_file(BindPasswordFile, ?LDAP_BIND_PASSWORD),
+    BindPasswordFileURI = iolist_to_binary(["file://", BindPasswordFile]),
+    Cases = [
+        {
+            jwt_authentication(),
+            [?AUTH_SECRET, ?OVERRIDE_PASSWORD],
+            [<<"hmac-based">>]
+        },
+        {
+            http_authentication(),
+            [?HTTP_AUTHORIZATION, ?OVERRIDE_PASSWORD],
+            [<<"gateway-cli-visible-header">>]
+        },
+        {
+            ldap_authentication(BindPasswordFileURI),
+            [?LDAP_PASSWORD, ?LDAP_BIND_PASSWORD, ?OVERRIDE_PASSWORD],
+            [<<"gateway-cli-ldap-base">>, <<"bind_password">>]
+        }
+    ],
+    lists:foreach(
+        fun({Authentication, Secrets, VisibleValues}) ->
+            assert_gateway_lookup_redacts_credentials(Authentication, Secrets, VisibleValues)
+        end,
+        Cases
+    ).
+
+assert_gateway_lookup_redacts_credentials(Authentication, Secrets, VisibleValues) ->
+    Conf = #{
+        <<"idle_timeout">> => <<"30s">>,
+        <<"mountpoint">> => <<"mqttsn/">>,
+        <<"clientinfo_override">> => #{<<"password">> => ?OVERRIDE_PASSWORD},
+        <<"authentication">> => Authentication,
+        <<"listeners">> => [
+            #{
+                <<"type">> => <<"udp">>,
+                <<"name">> => <<"ct">>,
+                <<"bind">> => <<"1884">>
+            }
+        ]
+    },
+    JSON = binary_to_list(emqx_utils_json:encode(Conf)),
+    emqx_gateway_cli:gateway(["load", "mqttsn", JSON]),
+    ?assertEqual("ok\n", acc_print()),
+    try
+        emqx_gateway_cli:gateway(["lookup", "mqttsn"]),
+        assert_safe_gateway_output(acc_print(), Secrets, VisibleValues)
+    after
+        emqx_gateway_cli:gateway(["unload", "mqttsn"]),
+        _ = acc_print(),
+        ok = emqx_authn_chains:delete_chain(emqx_gateway_utils:global_chain(mqttsn))
+    end.
+
+assert_safe_gateway_output(Output0, Secrets, VisibleValues) ->
+    Output = iolist_to_binary(Output0),
+    ?assertNotEqual(nomatch, binary:match(Output, <<"mqttsn/">>)),
+    ?assertNotEqual(nomatch, binary:match(Output, <<"******">>)),
+    lists:foreach(
+        fun(Secret) -> ?assertEqual(nomatch, binary:match(Output, Secret)) end,
+        Secrets
+    ),
+    lists:foreach(
+        fun(Value) -> ?assertNotEqual(nomatch, binary:match(Output, Value)) end,
+        VisibleValues
+    ).
+
+jwt_authentication() ->
+    #{
+        <<"mechanism">> => <<"jwt">>,
+        <<"use_jwks">> => false,
+        <<"algorithm">> => <<"hmac-based">>,
+        <<"secret">> => ?AUTH_SECRET,
+        <<"secret_base64_encoded">> => false
+    }.
+
+http_authentication() ->
+    #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"http">>,
+        <<"enable">> => false,
+        <<"method">> => <<"get">>,
+        <<"url">> => <<"http://127.0.0.1:1/auth">>,
+        <<"headers">> => #{
+            <<"Authorization">> => ?HTTP_AUTHORIZATION,
+            <<"X-Test-Header">> => <<"gateway-cli-visible-header">>
+        }
+    }.
+
+ldap_authentication(BindPassword) ->
+    #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"ldap">>,
+        <<"enable">> => false,
+        <<"server">> => <<"127.0.0.1:1">>,
+        <<"base_dn">> => <<"ou=gateway-cli-ldap-base,dc=emqx,dc=io">>,
+        <<"filter">> => <<"(uid=${username})">>,
+        <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
+        <<"password">> => ?LDAP_PASSWORD,
+        <<"method">> => #{
+            <<"type">> => <<"bind">>,
+            <<"bind_password">> => BindPassword
+        }
+    }.
 
 t_gateway_list(_) ->
     emqx_gateway_cli:gateway(["list"]),

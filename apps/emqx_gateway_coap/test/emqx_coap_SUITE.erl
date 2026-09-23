@@ -66,6 +66,9 @@ end_per_testcase(t_connection_with_expire, Config) ->
     snabbkaffe:stop(),
     Config;
 end_per_testcase(_, Config) ->
+    %% Cases that stub `emqx_access_control:authenticate/1' must not leave
+    %% the stub behind: the cases that follow authenticate for real.
+    catch meck:unload(emqx_access_control),
     Config.
 
 default_config() ->
@@ -229,6 +232,58 @@ t_mountpoint_after_authn(_) ->
         {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
     end,
     ok.
+
+t_clientid_override_not_retained(_) ->
+    ok = meck:expect(
+        emqx_access_control,
+        authenticate,
+        fun(_) ->
+            {ok, #{
+                clientid_override => <<"trusted-id">>,
+                client_attrs => #{<<"tenant">> => <<"tenant-1">>}
+            }}
+        end
+    ),
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(
+        coap,
+        OldConf#{<<"mountpoint">> => <<"coap/${client_attrs.tenant}/${clientid}/">>}
+    ),
+    try
+        Action = fun(Channel) ->
+            Token = connection(Channel),
+            timer:sleep(100),
+            #{clientinfo := ClientInfo} = emqx_gateway_cm:get_chan_info(coap, <<"client1">>),
+            ?assertEqual(<<"client1">>, maps:get(clientid, ClientInfo)),
+            ?assertEqual(false, maps:is_key(clientid_override, ClientInfo)),
+            ?assertEqual(<<"coap/tenant-1/client1/">>, maps:get(mountpoint, ClientInfo)),
+            disconnection(Channel, Token),
+            ok
+        end,
+        do(Action)
+    after
+        {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end,
+    ok.
+
+t_connection_token_not_logged(_) ->
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
+        do(fun(Channel) ->
+            Token = connection(Channel),
+            put(coap_session_token, Token),
+            disconnection(Channel, Token)
+        end)
+    end),
+    TokenBin = list_to_binary(get(coap_session_token)),
+    ?assertNotEqual([], Reports),
+    %% No debug log may carry the token. Checking every report also covers the
+    %% raw datagram dumps, which would otherwise defeat frame-level redaction.
+    Leaks = [
+        Report
+     || Report <- Reports,
+        binary:match(term_to_binary(Report), TokenBin) =/= nomatch
+    ],
+    ?assertEqual([], Leaks).
 
 t_connection_with_short_param_name(_) ->
     Action = fun(Channel) ->
@@ -537,47 +592,34 @@ t_request_without_token_times_out(_) ->
     do(Action).
 
 t_request_with_partial_token_params(_) ->
-    Action = fun(Channel) ->
-        Token = connection(Channel),
+    with_connection(fun(Channel, Token) ->
         URI1 = compose_uri(
             ?PS_PREFIX ++ "/only_clientid",
-            #{
-                "clientid" => <<"client1">>
-            },
+            #{"clientid" => <<"client1">>},
             false
         ),
-        Req1 = make_req(get, <<>>, [{observe, 0}]),
-        {error, bad_request, _} = do_request(Channel, URI1, Req1),
+        Req1 = make_req(post, <<"x">>),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI1, Req1)),
 
         URI2 = compose_uri(
             ?PS_PREFIX ++ "/only_token",
-            #{
-                "token" => list_to_binary(Token)
-            },
+            #{"token" => list_to_binary(Token)},
             false
         ),
-        Req2 = make_req(get, <<>>, [{observe, 0}]),
-        {error, bad_request, _} = do_request(Channel, URI2, Req2),
-        disconnection(Channel, Token)
-    end,
-    do(Action).
+        Req2 = make_req(post, <<"x">>),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI2, Req2)),
+        true
+    end).
 
 t_token_takeover_across_udp_sessions(_) ->
     {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     Token = connection(Channel1),
     timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
     er_coap_channel:close(Channel1),
     er_coap_udp_socket:close(Sock1),
-
     timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
 
     {ok, Sock2, Channel2} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     URI = compose_uri(
@@ -589,13 +631,8 @@ t_token_takeover_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    {ok, changed, _} = do_request(Channel2, URI, Req),
-    timer:sleep(100),
-    ?assertEqual(
-        1,
-        length(emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))
-    ),
-
+    ?assertMatch({ok, changed, _}, do_request(Channel2, URI, Req)),
+    ?assertEqual(1, length(emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>))),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
@@ -606,10 +643,7 @@ t_invalid_token_rejected_across_udp_sessions(_) ->
     er_coap_channel:close(Channel1),
     er_coap_udp_socket:close(Sock1),
     timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
 
     {ok, Sock2, Channel2} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     URI = compose_uri(
@@ -621,10 +655,7 @@ t_invalid_token_rejected_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    case do_request(Channel2, URI, Req) of
-        {error, unauthorized, _} -> ok;
-        {error, uauthorized, _} -> ok
-    end,
+    ?assertMatch({error, unauthorized, _}, do_request(Channel2, URI, Req)),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
@@ -635,10 +666,7 @@ t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
     er_coap_channel:close(Channel1),
     er_coap_udp_socket:close(Sock1),
     timer:sleep(100),
-    ?assertNotEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+    ?assertNotEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
 
     {ok, Sock2, Channel2} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     URI = compose_uri(
@@ -650,10 +678,7 @@ t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
         false
     ),
     Req = make_req(post, <<"x">>),
-    case do_request(Channel2, URI, Req) of
-        {error, unauthorized, _} -> ok;
-        {error, uauthorized, _} -> ok
-    end,
+    ?assertMatch({error, unauthorized, _}, do_request(Channel2, URI, Req)),
     disconnection(Channel2, Token),
     er_coap_channel:close(Channel2),
     er_coap_udp_socket:close(Sock2).
@@ -1899,6 +1924,38 @@ t_invalid_if_none_match_bad_option(_) ->
     Resp = er_coap_message_parser:decode(Bin),
     ?assertMatch(#coap_message{method = {error, bad_option}}, Resp),
     ok.
+
+%% A request rejected in connection mode must not leak credentials sent with the
+%% short query aliases (`t', `p') into the debug log.
+t_rejected_request_does_not_log_short_credentials(_) ->
+    Secret = <<"short-password-value">>,
+    Reports = emqx_cth_log_capture:capture(debug, fun() ->
+        with_connection(fun(Channel, _Token) ->
+            URI = compose_uri(
+                ?PS_PREFIX ++ "/short_credential",
+                #{"p" => Secret},
+                false
+            ),
+            ?assertMatch(
+                {error, bad_request, _},
+                do_request(Channel, URI, make_req(post, <<"x">>))
+            ),
+            put(coap_rejected_secret, Secret),
+            true
+        end)
+    end),
+    %% The rejection path must have been exercised.
+    ?assertNotEqual(
+        [],
+        [R || R = #{msg := "token_required_in_conn_mode"} <- Reports]
+    ),
+    RejectedSecret = get(coap_rejected_secret),
+    Leaks = [
+        Report
+     || Report <- Reports,
+        binary:match(term_to_binary(Report), RejectedSecret) =/= nomatch
+    ],
+    ?assertEqual([], Leaks).
 
 t_proxy_conn_reuse_bound_clientid_when_missing(_) ->
     Peer = {{127, 0, 0, 1}, 12345},
