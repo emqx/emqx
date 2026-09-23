@@ -291,10 +291,15 @@ reset_guarded() ->
     | {error, {partial_reset, [{node(), ok | {error, term()}}]}}.
 reset_cluster() ->
     Nodes = lists:usort([node() | emqx:running_nodes()]),
-    Checks = [{Node, rpc_check_guarded(Node)} || Node <- Nodes],
+    %% Both phases run the nodes' calls in parallel, each bounded by the
+    %% framework's budget for this request (emqx_bcast_utils:api_budget_ms/0):
+    %% the endpoint kills the callback at that point, and a reset that went on
+    %% touching the cluster while the caller was told nothing is worse than
+    %% refusing. Sequentially this cost one per-node timeout per node, per phase.
+    Checks = lists:zip(Nodes, parallel_node_map(fun rpc_check_guarded/1, Nodes)),
     case [R || {_, {error, _} = R} <- Checks] of
         [] ->
-            Results = [{Node, rpc_reset_guarded(Node)} || Node <- Nodes],
+            Results = lists:zip(Nodes, parallel_node_map(fun rpc_reset_guarded/1, Nodes)),
             case [R || {_, {error, _} = R} <- Results] of
                 [] -> {ok, Results};
                 _ -> {error, {partial_reset, Results}}
@@ -302,6 +307,26 @@ reset_cluster() ->
         _ ->
             {error, {pending_deliveries, Checks}}
     end.
+
+%% Independent per-node calls, collected in node order. Deliberately not the
+%% shard's parallel_map/2: this runs in a request process, which does not trap
+%% exits, and a dying leg must not take it down.
+parallel_node_map(Fun, Nodes) ->
+    Parent = self(),
+    Refs = [
+        begin
+            Ref = make_ref(),
+            _ = spawn(fun() -> Parent ! {Ref, catch Fun(Node)} end),
+            Ref
+        end
+     || Node <- Nodes
+    ],
+    [
+        receive
+            {Ref, Result} -> Result
+        end
+     || Ref <- Refs
+    ].
 
 %% The local node is wrapped exactly like a remote one: a crash in the local
 %% check/reset must be reported as a per-node error, not propagate and abort
@@ -313,7 +338,7 @@ rpc_check_guarded(Node) when Node =:= node() ->
         Error:Reason -> {error, {Error, Reason}}
     end;
 rpc_check_guarded(Node) ->
-    try emqx_rpc:call(?MODULE, Node, ?MODULE, check_guarded, [], ?BCAST_RPC_CALL_TIMEOUT_MS) of
+    try emqx_rpc:call(?MODULE, Node, ?MODULE, check_guarded, [], api_node_timeout()) of
         {badrpc, Reason} -> {error, {badrpc, Reason}};
         Result -> Result
     catch
@@ -327,9 +352,12 @@ rpc_reset_guarded(Node) when Node =:= node() ->
         Error:Reason -> {error, {Error, Reason}}
     end;
 rpc_reset_guarded(Node) ->
-    try emqx_rpc:call(?MODULE, Node, ?MODULE, reset_guarded, [], ?BCAST_RPC_CALL_TIMEOUT_MS) of
+    try emqx_rpc:call(?MODULE, Node, ?MODULE, reset_guarded, [], api_node_timeout()) of
         {badrpc, Reason} -> {error, {badrpc, Reason}};
         Result -> Result
     catch
         Error:Reason -> {error, {Error, Reason}}
     end.
+
+api_node_timeout() ->
+    emqx_bcast_utils:api_rpc_timeout_ms().

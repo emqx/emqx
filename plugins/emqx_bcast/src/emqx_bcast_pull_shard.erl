@@ -2178,9 +2178,49 @@ sweep_stale_marks(State) ->
                             end
                     end
             end,
-        drain_deferred_claims(Shard, RearmRev, State2)
+        safe_drain_deferred_claims(Shard, RearmRev, State2)
     catch
         error:badarg ->
+            State;
+        %% Anything else used to take the shard down - and with it the client
+        %% state of its whole partition, including every deferred-claim mark
+        %% this sweep exists to revisit. The sweep runs every
+        %% ?CLAIM_STALE_SWEEP_MS and re-reads the table, so reporting the
+        %% failure and keeping the state is enough to carry on; a `badarg` is
+        %% the same transient ETS/mnesia hiccup the call sites treat as "not
+        %% now", the rest is a bug that would otherwise be invisible in a
+        %% shard that silently restarted.
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "bcast_sweep_stale_marks_failed",
+                shard => Shard,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            State
+    end.
+
+%% The deferred-claim drain is the last phase of the sweep, so its failure must
+%% not throw away what the sweep already applied: the claim counter it
+%% reconciled, the stale rounds it released, the marks it expired. The state
+%% handed in carries those; on failure the drain is skipped for this pass and
+%% the marks it would have retried stay marked (its own refusal path re-arms
+%% them, and the next sweep comes back to them).
+safe_drain_deferred_claims(Shard, RearmRev, State) ->
+    try drain_deferred_claims(Shard, RearmRev, State) of
+        State1 ->
+            State1
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "bcast_deferred_claim_drain_failed",
+                shard => Shard,
+                deferred => length(RearmRev),
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
             State
     end.
 

@@ -21,7 +21,9 @@
     maybe_batch_flush/3,
     maybe_batch_flush/5,
     cancel_timer/1,
-    ensure_ets/2
+    ensure_ets/2,
+    api_budget_ms/0,
+    api_rpc_timeout_ms/0
 ]).
 
 -include("emqx_bcast.hrl").
@@ -30,6 +32,41 @@
 %% pull/ack shards pass their own faster cadence through maybe_batch_flush/4.
 -define(FLUSH_MS, 10).
 -define(FLUSH_COUNT, 100).
+
+%% The plugin framework runs an API callback under its own budget
+%% (plugins.api_endpoint.timeout, 5s by default) and, when that expires, kills
+%% the callback and answers 503 - while the plugin's request keeps running
+%% without anyone to answer. Every RPC the plugin issues inside a request has to
+%% finish before that, so the plugin answers for itself (with a reason, and
+%% after rolling back what it reserved). Maintenance RPCs that no request waits
+%% for are not bound by it.
+-define(FALLBACK_API_BUDGET_MS, 5000).
+%% Room left for building and sending the answer after the last RPC returns.
+-define(API_BUDGET_MARGIN_MS, 1500).
+
+-spec api_budget_ms() -> pos_integer().
+api_budget_ms() ->
+    Default = api_gateway_budget_ms(),
+    try emqx:get_config([plugins, api_endpoint, timeout], Default) of
+        Budget when is_integer(Budget), Budget > 0 -> Budget;
+        _ -> Default
+    catch
+        _:_ -> Default
+    end.
+
+%% The framework falls back to the pre-rename path for this setting, so this
+%% does too.
+api_gateway_budget_ms() ->
+    try emqx:get_config([plugins, api_gateway, timeout], ?FALLBACK_API_BUDGET_MS) of
+        Budget when is_integer(Budget), Budget > 0 -> Budget;
+        _ -> ?FALLBACK_API_BUDGET_MS
+    catch
+        _:_ -> ?FALLBACK_API_BUDGET_MS
+    end.
+
+-spec api_rpc_timeout_ms() -> pos_integer().
+api_rpc_timeout_ms() ->
+    max(500, api_budget_ms() - ?API_BUDGET_MARGIN_MS).
 
 -spec gen_guid() -> binary().
 gen_guid() ->

@@ -16,6 +16,7 @@
 -define(TAB_MSG, bcast_message).
 -define(TAB_MSG_API_ID, bcast_message_api_id).
 -define(TAB_MSG_HASH, bcast_message_hash).
+-define(TAB_MSG_ORDER, bcast_message_order).
 -define(TAB_MSG_REG, bcast_message_reg).
 -define(TAB_MSG_REC, bcast_msg).
 -define(TAB_MSG_META, bcast_msg_meta).
@@ -57,9 +58,19 @@
 %% nodes (transactions), replicants receive async copies for local reads.
 -define(BCAST_SHARD, emqx_bcast_shard).
 
+%% Budgets for the plugin's own RPCs.
+%%
+%% A request that arrives through the plugin API endpoint runs under the
+%% framework's budget (plugins.api_endpoint.timeout, 5s by default): when it
+%% expires the framework kills the callback and answers 503, while the plugin
+%% keeps working with nobody to answer. Every RPC issued *inside* a request
+%% therefore has to finish well before that - emqx_bcast_utils:api_rpc_timeout_ms/0
+%% derives it from the live setting, and the API forward, the admission legs and
+%% the cluster-wide metrics reset use it. The macros below are for work no
+%% request is waiting on (maintenance sweeps, table waits, copy-type checks),
+%% where a slow cluster may take seconds and nothing is lost by waiting.
 -define(BCAST_RPC_CALL_TIMEOUT_MS, 15000).
 -define(BCAST_TABLE_WAIT_MS, 15000).
--define(BCAST_API_RPC_TIMEOUT_MS, 30000).
 -define(BCAST_ENSURE_COPIES_MS, 30000).
 
 %% Core-local storage tables (mria ram_copies, no disk persistence;
@@ -104,6 +115,15 @@
 -record(bcast_message_hash, {
     hash :: binary(),
     msg_id :: binary()
+}).
+
+%% One row per message, ordered by {created_at, msg_id}: the management list
+%% pages through this instead of scanning and sorting the whole message table
+%% (payloads included) on every request. The key carries everything the page
+%% needs to order by; the message row itself is then read by msg_id.
+-record(bcast_message_order, {
+    key :: {non_neg_integer(), binary()},
+    placeholder = undefined
 }).
 
 %% Set of messages explicitly pre-registered via RegisterMessage (or a

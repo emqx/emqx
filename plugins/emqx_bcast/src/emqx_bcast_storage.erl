@@ -116,13 +116,7 @@ create_message(ApiMsgId, MsgId, Hash, Payload) ->
         created_at = Now,
         expires_at = Now + TTL
     },
-    HashRecord = #bcast_message_hash{hash = Hash, msg_id = MsgId},
-    ApiIdRecord = #bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId},
-    {atomic, ok} = transaction(fun() ->
-        mnesia:write(Record),
-        mnesia:write(HashRecord),
-        mnesia:write(ApiIdRecord)
-    end),
+    {atomic, ok} = transaction(fun() -> write_message_rows_tx(Record) end),
     ok.
 
 -spec lookup_message_by_hash(binary()) -> {ok, #bcast_message{}} | {error, not_found}.
@@ -329,16 +323,14 @@ write_message_group_tx(Entry) ->
     end.
 
 write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL) ->
-    mnesia:write(#bcast_message{
+    write_message_rows_tx(#bcast_message{
         msg_id = MsgId,
         api_msg_id = ApiMsgId,
         content_hash = Hash,
         payload = Payload,
         created_at = Now,
         expires_at = Now + TTL
-    }),
-    mnesia:write(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
-    mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}).
+    }).
 
 %% Delivery + meta rows for one entry, using the group-resolved message.
 promote_entry_delivery_tx(Entry, _ResolvedApiMsgId, ResolvedMsgId) ->
@@ -624,47 +616,80 @@ release_client_claims(ProductKey, DeviceName, ClaimTag) ->
 %% Keyset pagination over messages ordered by (created_at, msg_id)
 %% descending. The cursor is an opaque token encoding the last seen
 %% (created_at, msg_id); messages are immutable so the order is stable
-%% between pages.
+%% between pages. The page is read from the order index
+%% (?TAB_MSG_ORDER, kept in step with the message rows), so a page costs its
+%% own size - scanning and sorting the whole message table per request does not
+%% scale and eventually outlives the API budget.
 -spec list_messages(pos_integer(), undefined | {non_neg_integer(), msg_id()}) ->
     {[#bcast_message{}], undefined | {non_neg_integer(), msg_id()}}.
 list_messages(Limit, Cursor) ->
-    All = mnesia:dirty_match_object(?TAB_MSG, #bcast_message{_ = '_'}),
-    %% Sort by {created_at, msg_id} so messages created in the same second
-    %% have a deterministic order (msg_id is unique).
-    Sorted = lists:reverse(
-        lists:sort(
-            [
-                {M#bcast_message.created_at, M#bcast_message.msg_id, M}
-             || M <- All
-            ]
-        )
-    ),
-    case Cursor of
-        undefined ->
-            Page = lists:sublist(Sorted, Limit),
-            {page_messages(Page), maybe_cursor(Page, Limit)};
-        {LastCreated, LastMsgId} ->
-            After = [
-                Entry
-             || Entry = {Created, MsgId, _M} <- Sorted,
-                {Created, MsgId} < {LastCreated, LastMsgId}
-            ],
-            Page = lists:sublist(After, Limit),
-            {page_messages(Page), maybe_cursor(Page, Limit)}
+    ok = prime_message_order_if_empty(),
+    Keys = order_page(Cursor, Limit),
+    Messages = [
+        M
+     || Key <- Keys,
+        {ok, M} <- [message_of_order_key(Key)]
+    ],
+    {Messages, maybe_cursor(Cursor, Keys, Limit)}.
+
+%% The newest keys that are strictly older than the cursor, at most Limit of
+%% them. The index is ordered, so this is O(page): no scan, no sort.
+order_page(Cursor, Limit) ->
+    Start =
+        case Cursor of
+            undefined -> ets:last(?TAB_MSG_ORDER);
+            {Created, MsgId} -> ets:prev(?TAB_MSG_ORDER, {Created, MsgId})
+        end,
+    order_keys(Start, Limit, []).
+
+order_keys('$end_of_table', _Limit, Acc) ->
+    lists:reverse(Acc);
+order_keys(_Key, 0, Acc) ->
+    lists:reverse(Acc);
+order_keys(Key, Limit, Acc) ->
+    order_keys(ets:prev(?TAB_MSG_ORDER, Key), Limit - 1, [Key | Acc]).
+
+message_of_order_key({_Created, MsgId}) ->
+    case mnesia:dirty_read(?TAB_MSG, MsgId) of
+        [#bcast_message{} = M] -> {ok, M};
+        [] -> {error, not_found}
     end.
 
-page_messages(Page) ->
-    [M || {_Created, _MsgId, M} <- Page].
+%% The order index is derived state (the message table is authoritative), so it
+%% is rebuilt from the messages when it is empty - a node starting with an
+%% empty ram_copies table, or a node that was not running when the messages
+%% were created. Only missing keys are ever written, and the tables stay in
+%% step through create/delete from then on.
+prime_message_order_if_empty() ->
+    case ets:info(?TAB_MSG_ORDER, size) of
+        0 ->
+            case ets:info(?TAB_MSG, size) of
+                0 ->
+                    ok;
+                _ ->
+                    lists:foreach(
+                        fun(M) ->
+                            mnesia:dirty_write(#bcast_message_order{
+                                key = {M#bcast_message.created_at, M#bcast_message.msg_id}
+                            })
+                        end,
+                        mnesia:dirty_match_object(?TAB_MSG, #bcast_message{_ = '_'})
+                    )
+            end;
+        _ ->
+            ok
+    end.
 
-%% A cursor is only meaningful when the page is full: a short page means
-%% there is nothing after it.
-maybe_cursor(Page, Limit) when length(Page) < Limit ->
+%% A cursor is only meaningful when the page handed out `Limit` keys: fewer
+%% means the index is exhausted. It is built from the keys that were read, not
+%% from the messages that resolved, so a key whose message row is already gone
+%% cannot end pagination early.
+maybe_cursor(_Cursor, Keys, Limit) when length(Keys) < Limit ->
     undefined;
-maybe_cursor([], _Limit) ->
+maybe_cursor(_Cursor, [], _Limit) ->
     undefined;
-maybe_cursor(Page, _Limit) ->
-    {Created, MsgId, _M} = lists:last(Page),
-    {Created, MsgId}.
+maybe_cursor(_Cursor, Keys, _Limit) ->
+    lists:last(Keys).
 
 -spec get_message_by_api_id(api_msg_id()) ->
     {ok, #bcast_message{}, non_neg_integer()} | {error, not_found}.
@@ -686,9 +711,11 @@ get_message_by_api_id(ApiMsgId) ->
     end.
 
 %% Outstanding delivery rows for a message (one bcast_msg row per pending
-%% delivery-request). Replaces the former transactional delivery_count.
+%% delivery-request). Replaces the former transactional delivery_count, and
+%% reads through the secondary index on msg_id (emqx_bcast:ensure_query_indexes/0)
+%% so the cost is the message's own deliveries, not the whole delivery table.
 outstanding_delivery_count(MsgId) ->
-    length(mnesia:dirty_match_object(?TAB_MSG_REC, #bcast_msg{msg_id = MsgId, _ = '_'})).
+    length(mnesia:dirty_index_read(?TAB_MSG_REC, MsgId, #bcast_msg.msg_id)).
 
 -spec delete_message(api_msg_id()) -> ok | {error, term()}.
 delete_message(ApiMsgId) ->
@@ -782,16 +809,31 @@ write_message_inc_tx(Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
     end.
 
 write_new_message_inc_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL) ->
-    mnesia:write(#bcast_message{
+    write_message_rows_tx(#bcast_message{
         msg_id = MsgId,
         api_msg_id = ApiMsgId,
         content_hash = Hash,
         payload = Payload,
         created_at = Now,
         expires_at = Now + TTL
-    }),
+    }).
+
+%% One place that writes a message's rows: the record, both of its lookups and
+%% the management order index. The order row goes in the same transaction, so a
+%% page can never see a message without an order key or the other way round.
+write_message_rows_tx(
+    #bcast_message{
+        msg_id = MsgId,
+        api_msg_id = ApiMsgId,
+        content_hash = Hash,
+        created_at = CreatedAt
+    } = Record
+) ->
+    mnesia:write(Record),
     mnesia:write(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
-    mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}).
+    mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}),
+    mnesia:write(#bcast_message_order{key = {CreatedAt, MsgId}}),
+    ok.
 
 write_message_tx(true, Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
     Record = #bcast_message{
@@ -804,7 +846,8 @@ write_message_tx(true, Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
     },
     mnesia:write(Record),
     mnesia:write(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
-    mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId});
+    mnesia:write(#bcast_message_api_id{api_msg_id = ApiMsgId, msg_id = MsgId}),
+    mnesia:write(#bcast_message_order{key = {Now, MsgId}});
 write_message_tx(false, _Payload, _Hash, _ApiMsgId, MsgId, Now, TTL) ->
     case mnesia:wread({?TAB_MSG, MsgId}) of
         [#bcast_message{} = Existing] ->

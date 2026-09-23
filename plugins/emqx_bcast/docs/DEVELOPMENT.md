@@ -98,6 +98,38 @@ They are declared without `$ui`, which hides them on the config page, and
 `emqx_bcast_config:normalize/1` accepts `msg_warn_threshold` without using it.
 `t_default_config_covers_schema` in `emqx_bcast_SUITE` guards both directions.
 
+## API request budget
+
+Plugin endpoints are served through `/plugin_api/:plugin/[...]`, and the
+framework runs each callback under its own budget:
+`plugins.api_endpoint.timeout`, **5 seconds by default**. When that expires the
+framework kills the callback and answers `503` — while the plugin's request may
+still be running with nobody to answer it, and with any quota reservation it
+took left behind until the stale-reservation sweep.
+
+So an RPC the plugin issues *inside a request* has to finish well before that
+budget, and the plugin has to answer for itself:
+
+- `emqx_bcast_utils:api_budget_ms/0` reads the live setting (with the legacy
+  `plugins.api_gateway.timeout` fallback the framework uses) and
+  `api_rpc_timeout_ms/0` derives the per-call budget from it, leaving room to
+  build the answer.
+- The replicant-to-core API forward, the admission legs (global reserve plus the
+  per-device shard calls) and the cluster-wide metrics reset use it. A reset
+  also runs its per-node calls together, so its cost is one per-node timeout
+  rather than one per node, per phase.
+- Everything no request waits for — maintenance sweeps, table waits, copy-type
+  checks — is not bound by it and uses the plugin's own budgets
+  (`?BCAST_RPC_CALL_TIMEOUT_MS` and friends in `include/emqx_bcast.hrl`), where
+  a slow cluster may take seconds and nothing is lost by waiting.
+
+Management reads follow the same rule and read through indexes rather than
+scanning: `bcast_msg` carries a secondary index on `msg_id` for a message's
+outstanding deliveries, and `bcast_message_order` orders the message list by
+`{created_at, msg_id}` so a page costs its own size. `t_admission_fits_the_endpoint_budget`,
+`t_metrics_reset_fits_the_endpoint_budget` and `t_management_reads_use_indexes`
+guard this.
+
 ## Tests
 
 ```bash

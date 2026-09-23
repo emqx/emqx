@@ -59,6 +59,7 @@ init_per_testcase(_Case, Config) ->
             bcast_msg_meta_counter,
             bcast_msg_acked,
             bcast_message,
+            bcast_message_order,
             bcast_message_hash,
             bcast_message_api_id,
             bcast_msg_index,
@@ -87,6 +88,12 @@ init_per_testcase(_Case, Config) ->
     %% tables; reset them explicitly so no state leaks between tests.
     catch emqx_bcast_intake:reset(),
     catch emqx_bcast_index_owner:reset(),
+    %% The activation leader's record of the peers whose probe timed out is
+    %% about the outside world, not about this node's index, so the index reset
+    %% above leaves it alone. A case that hangs shards would therefore hold them
+    %% back in every following case's drive; start each case with no peer held
+    %% back.
+    catch forget_probe_backoff(),
     %% Full metric registry reset: per-test isolation so ledger/gauge
     %% assertions can compare absolute values, not just deltas.
     catch emqx_bcast_metrics:reset(),
@@ -210,6 +217,58 @@ t_default_config_covers_schema(_Config) ->
         [<<"msg_warn_threshold">>, <<"force_upgrade_qos">>, <<"delivery_queue_max">>]
     ).
 
+-doc "The schema has to declare the numeric bounds the plugin actually applies.\n"
+"Declaring them is what keeps a dashboard form from offering a value the\n"
+"plugin would silently override (or ignore, for a negative limit), but the\n"
+"decode path does not enforce them - the attributes are inert to the Avro\n"
+"decoder - so the runtime check stays the authority. The retired settings stay\n"
+"declared without bounds: a config stored by an older version may carry any\n"
+"value for them, and a bound could only reject that config.".
+t_config_schema_declares_int_bounds(_Config) ->
+    Priv = code:priv_dir(emqx_bcast),
+    {ok, SchemaBin} = file:read_file(filename:join(Priv, "config_schema.avsc")),
+    Schema = emqx_utils_json:decode(SchemaBin),
+    Fields = maps:from_list([
+        {maps:get(<<"name">>, F), F}
+     || F <- maps:get(<<"fields">>, Schema)
+    ]),
+    %% Zero is a documented "allow nothing" bound for these limits, so zero is
+    %% the declared floor; a negative value is a typo the runtime ignores.
+    lists:foreach(
+        fun(Name) ->
+            ?assertEqual(0, maps:get(<<"minimum">>, maps:get(Name, Fields), undefined))
+        end,
+        [
+            <<"max_device_count">>,
+            <<"max_message_size_broadcast">>,
+            <<"max_message_size_batch">>,
+            <<"max_pending_deliveries">>,
+            <<"delivery_pool_size">>
+        ]
+    ),
+    %% The per-device cap is clamped to this window at runtime.
+    PerDevice = maps:get(<<"max_pending_deliveries_per_device">>, Fields),
+    ?assertEqual(10, maps:get(<<"minimum">>, PerDevice, undefined)),
+    ?assertEqual(200, maps:get(<<"maximum">>, PerDevice, undefined)),
+    lists:foreach(
+        fun(Name) ->
+            Retired = maps:get(Name, Fields),
+            ?assertEqual(undefined, maps:get(<<"minimum">>, Retired, undefined)),
+            ?assertEqual(undefined, maps:get(<<"maximum">>, Retired, undefined))
+        end,
+        [<<"msg_warn_threshold">>, <<"delivery_queue_max">>]
+    ),
+    %% The declared window is the one the plugin applies: a value below the
+    %% floor is raised to it, a value above the ceiling is brought down to it.
+    try
+        ok = emqx_bcast_config:update(#{<<"max_pending_deliveries_per_device">> => 0}),
+        ?assertEqual(10, emqx_bcast_config:get(max_pending_deliveries_per_device)),
+        ok = emqx_bcast_config:update(#{<<"max_pending_deliveries_per_device">> => 1000000}),
+        ?assertEqual(200, emqx_bcast_config:get(max_pending_deliveries_per_device))
+    after
+        init_test_config()
+    end.
+
 -doc "Out-of-range per-device quota values are clamped to [10, 200]; a "
 "warning tells the operator the configured value was overridden "
 "instead of silently rewriting it.".
@@ -233,10 +292,11 @@ t_config_per_device_quota_clamped_with_warning(_Config) ->
     end.
 
 -doc "A negative integer limit is a configuration typo with a silent and total\n"
-"effect (max_message_size_batch = -1 rejects every publish), and the plugin\n"
-"config schema - an Avro schema - cannot express bounds. It falls back to the\n"
-"default with a warning, like the per-device quota clamp and a bad duration.\n"
-"Zero is a legitimate \"allow nothing\" bound and is kept.".
+"effect (max_message_size_batch = -1 rejects every publish). It falls back to\n"
+"the default with a warning, like the per-device quota clamp and a bad\n"
+"duration: the schema declares the bounds but does not enforce them, because\n"
+"the Avro decoder that reads a stored config ignores them. Zero is a\n"
+"legitimate \"allow nothing\" bound and is kept.".
 t_config_negative_limits_fall_back_to_default(_Config) ->
     Fields = [
         max_device_count,
@@ -1211,12 +1271,9 @@ t_ack_flush_uses_no_transaction(_Config) ->
             meck:passthrough([Fun, Retries])
         end),
         counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-        ?assert(
-            wait_until(
-                fun() -> mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= [] end,
-                100
-            )
-        )
+        %% The flush lands the marker first and the counter second, so wait on
+        %% the counter: seeing the marker does not mean the decrement happened.
+        ?assert(wait_until(fun() -> ack_counter(DeliveryId) =:= 1 end, 100))
     after
         meck:unload(mnesia)
     end,
@@ -1225,6 +1282,7 @@ t_ack_flush_uses_no_transaction(_Config) ->
     after 0 -> ok
     end,
     %% The flush still landed: marker plus a counter that only owes B.
+    ?assert(mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= []),
     [#bcast_msg_meta_counter{counter = 1}] = mnesia:dirty_read(
         bcast_msg_meta_counter, DeliveryId
     ),
@@ -2811,6 +2869,53 @@ t_deferred_claim_sweep_survives_the_mark_it_drains(_Config) ->
     ?assertEqual(PrePid, whereis(Name)),
     cleanup_row(PK, DN).
 
+-doc "The periodic sweep guards only error:badarg, so anything else it can run\n"
+"into - a term in the row table that is not a client state, a bug in the\n"
+"deferred-claim retry it ends with - takes the shard down together with the\n"
+"client state of its whole partition, and every mark in it. The sweep has to\n"
+"report the failure and leave its shard serving: the state it already applied\n"
+"stays, and the next pass (with the bad row gone) drains what this one could\n"
+"not.".
+t_sweep_survives_an_unexpected_error(_Config) ->
+    PK = <<"PSWEEPGUARD">>,
+    DN = <<"DSWEEPGUARD">>,
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    Tab = emqx_bcast_pull_shard:tab(Shard, bcast_client_state),
+    PrePid = whereis(Name),
+    %% The fold matches client states, so any other term in this table reaches
+    %% the sweep as a function_clause. Keyed apart from the client below, so it
+    %% is only the fold that trips over it.
+    BogusKey = {<<"PSWEEPGUARDBOGUS">>, <<"DSWEEPGUARDBOGUS">>},
+    true = ets:insert(Tab, {bcast_client_state, BogusKey}),
+    %% A deferred-claim mark for the sweep to drain once the bad row is gone.
+    Tag = 424245,
+    seed_claim_row(PK, DN, Tag, erlang:system_time(millisecond), Shard),
+    gen_server:cast(Name, {deliver_results, [{DN, {no_more, 1}}], [{DN, Tag, PK}]}),
+    _ = sys:get_state(Name),
+    ?assertEqual(undefined, row_claim_of(PK, DN)),
+    ?assert(is_integer(rearm_at_of(PK, DN))),
+    Reports = emqx_cth_log_capture:capture(fun() ->
+        Name ! sweep_stale_claims,
+        %% Barrier: the sweep has finished when the shard answers this.
+        _ = catch sys:get_state(Name)
+    end),
+    ?assertEqual(PrePid, whereis(Name)),
+    ?assert(
+        lists:any(
+            fun(R) -> maps:get(msg, R, undefined) =:= "bcast_sweep_stale_marks_failed" end,
+            Reports
+        )
+    ),
+    %% Alive is not enough: with the bad row gone the mark this pass could not
+    %% drain must still be drained by a later one, which only a working sweep
+    %% and an intact row table can do.
+    true = ets:delete(Tab, BogusKey),
+    ?assert(wait_until(fun() -> rearm_at_of(PK, DN) =:= undefined end, 240)),
+    _ = sys:get_state(Name),
+    ?assertEqual(PrePid, whereis(Name)),
+    cleanup_row(PK, DN).
+
 -doc "The QoS0 auto-ack path counts delivered/auto_acked locally and never\n"
 "touches acked (no client PUBACK); the pull ack entry point forwards it and\n"
 "the core-applied confirmation (or its absence) decides advancement.".
@@ -3067,6 +3172,41 @@ t_metrics_reset_guarded(_Config) ->
 %%--------------------------------------------------------------------
 %% Management API tests
 %%--------------------------------------------------------------------
+
+-doc "Management reads must not scan a whole table per request: the message\n"
+"detail GET counts one message's deliveries, and the message list orders all\n"
+"messages. Both grow with usage and, left as scans, eventually outlive the API\n"
+"budget and answer 503. The count reads through a secondary index on the\n"
+"delivery table's msg_id, and the list pages through an ordered index of\n"
+"{created_at, msg_id} that follows the message rows.".
+t_management_reads_use_indexes(_Config) ->
+    {ApiMsgId, MsgGuid} = create_test_msg(<<"indexed management read">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, <<"PIDX">>, <<"tpl">>, [<<"DIDX">>], 1
+    ),
+    %% One message's deliveries are counted through the index, not by walking
+    %% the whole delivery table.
+    ?assert(lists:member(3, mnesia:table_info(bcast_msg, index))),
+    ?assertEqual(
+        [DeliveryId],
+        [
+            D#bcast_msg.delivery_id
+         || D <- mnesia:dirty_index_read(bcast_msg, MsgGuid, #bcast_msg.msg_id)
+        ]
+    ),
+    {ok, _Msg, 1} = emqx_bcast_storage:get_message_by_api_id(ApiMsgId),
+    %% The list is ordered by an index kept in step with the message rows: it
+    %% is written in the same transaction that creates a message ...
+    {ok, Stored} = emqx_bcast_storage:lookup_message(MsgGuid),
+    CreatedAt = Stored#bcast_message.created_at,
+    ?assertEqual(
+        [#bcast_message_order{key = {CreatedAt, MsgGuid}}],
+        mnesia:dirty_read(bcast_message_order, {CreatedAt, MsgGuid})
+    ),
+    %% ... and removed with it.
+    ok = emqx_bcast_index_owner:delete_message(ApiMsgId),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_order, {CreatedAt, MsgGuid})).
 
 -doc "list messages paginates with a cursor and no payload leak.".
 t_mgmt_list_messages_pagination(_Config) ->
@@ -3428,6 +3568,65 @@ t_leader_restart_preserves_sibling_shards(_Config) ->
     %% The quota row was recounted from live shard state after the leader
     %% restart destroyed the quota table: neither zeroed nor doubled.
     ?assertEqual(1, emqx_bcast_storage:pending_delivery_count()).
+
+-doc "The activation leader is the core that owns partition 0, and only its own\n"
+"shard 0 drives activation. A dormant shard 0 that is not the owner has to keep\n"
+"polling: nothing else can wake it (a dormant shard 0 ignores the\n"
+"{activate_shard, ...} casts the other partitions send it), so without the poll\n"
+"the node that becomes the new owner never activates its own partition, and no\n"
+"partition whose ownership moved can be rebuilt anywhere.".
+t_leader_poll_survives_not_being_the_owner(_Config) ->
+    Leader = list_to_atom("emqx_bcast_index_owner_0"),
+    LeaderPid = whereis(Leader),
+    ?assert(shard_active(0)),
+    Polls = atomics:new(1, []),
+    meck:new(emqx_bcast, [passthrough, no_link]),
+    try
+        %% Another core owns partition 0 for the length of this block, and every
+        %% ownership question the leader itself asks is counted: that is how its
+        %% poll is observed.
+        meck:expect(
+            emqx_bcast,
+            core_nodes,
+            fun() ->
+                case self() =:= LeaderPid of
+                    true ->
+                        _ = atomics:add(Polls, 1, 1),
+                        ['aaa@nohost' | meck:passthrough([])];
+                    false ->
+                        meck:passthrough([])
+                end
+            end
+        ),
+        %% Wake the leader while it is not the owner: it cannot drive this time,
+        %% and it has to leave that attempt with a poll still armed.
+        _ = sys:replace_state(Leader, fun(St) -> St#{active => false} end),
+        Leader ! maybe_activate,
+        _ = sys:get_state(Leader, 120000),
+        ?assertNot(shard_active(0)),
+        %% Let every poll that was armed while this node still was the owner
+        %% fire (they are ?ACTIVATE_POLL_MS apart), then measure the polls that
+        %% come after: only a poll armed during this not-owner period keeps
+        %% arriving, and without it the leader falls silent for good.
+        timer:sleep(800),
+        Before = atomics:get(Polls, 1),
+        ?assert(wait_until(fun() -> atomics:get(Polls, 1) - Before >= 5 end, 40))
+    after
+        meck:unload(emqx_bcast)
+    end,
+    %% Ownership is back (that core left). The poll armed while this node was
+    %% not the owner is the only thing that can bring partition 0 back, so this
+    %% is the assertion a missing re-arm fails.
+    ?assert(wait_until(fun() -> shard_active(0) end, 400)),
+    ?assert(shard_active(0)),
+    %% And the partition serves again.
+    PK = <<"PLEADERPOLL">>,
+    [DN] = same_shard_dns(PK, 0, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"leader poll">>),
+    Did = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(Did, MsgGuid, PK, <<"tpl">>, [DN], 1),
+    ?assertEqual({ok, [Did]}, emqx_bcast_storage:get_device_deliveries({PK, DN})),
+    cleanup_row(PK, DN).
 
 -doc "A forced full rebuild (rebuild_index) flushes buffered ack\n"
 "decrements before resetting shard state: a decrement dropped with the\n"
@@ -4159,6 +4358,386 @@ orphan_queue_len(Name, PK, DN) ->
         Q -> queue:len(Q)
     end.
 
+-doc "MEASUREMENT, not a correctness test: how much a full index rebuild (the\n"
+"activation leader's 'drive') blocks the index shard it runs in, and what that\n"
+"costs a claim aimed at the same shard.\n"
+"\n"
+"Background: rebuild_index/0 is a synchronous gen_server call to index shard 0,\n"
+"which then - inside its own process - scans the delivery table once and walks\n"
+"all 48 shards to have them load their slice. While that runs, shard 0 cannot\n"
+"answer anything else, so a claim for a device whose index lives in shard 0\n"
+"waits for it. This case measures that wait and the rebuild's own duration for\n"
+"a configurable backlog size.\n"
+"\n"
+"Numbers are printed with ct:pal as one BCAST_REBUILD_MEASUREMENT term. Backlog\n"
+"size comes from BCAST_REBUILD_MEASURE_DELIVERIES (default 1000, 0 = no rows).".
+t_rebuild_blocking_measurement(_Config) ->
+    K = list_to_integer(os:getenv("BCAST_REBUILD_MEASURE_DELIVERIES", "1000")),
+    TargetPK = <<"PMEASURET">>,
+    ProbePK = <<"PMEASUREP">>,
+    %% The probe device must hash to shard 0 (the shard the drive runs in) and
+    %% must have no queued entries, so a probe measures queueing only.
+    [ProbeDN] = same_shard_dns(ProbePK, 0, 1),
+    Targets = same_shard_dns(TargetPK, 0, 20),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"rebuild measurement">>),
+    Setup0 = mono_us(),
+    lists:foreach(
+        fun(I) ->
+            DN = lists:nth((I rem length(Targets)) + 1, Targets),
+            Did = emqx_bcast_utils:gen_guid(),
+            {ok, _} = emqx_bcast_storage:create_delivery(
+                Did, MsgGuid, TargetPK, <<"tpl">>, [DN], 1
+            )
+        end,
+        lists:seq(1, K)
+    ),
+    SetupUs = mono_us() - Setup0,
+    %% Warm up, then measure the idle baseline.
+    _ = probe_status(0),
+    _ = probe_claim(ProbePK, ProbeDN),
+    Baseline = [probe_claim(ProbePK, ProbeDN) || _ <- lists:seq(1, 50)],
+    %% One rebuild while probing from this process.
+    {During, DriveUs} = measure_drive(fun() -> rebuild_once() end),
+    %% Same, with one sibling shard unable to answer: every unreachable shard
+    %% costs the drive one ?SYNC_TIMEOUT_MS wait.
+    Unreachable = index_shard_name(7),
+    ok = sys:suspend(Unreachable),
+    {_During2, DriveUnreachableUs} =
+        try
+            measure_drive(fun() -> rebuild_once() end)
+        after
+            ok = sys:resume(Unreachable)
+        end,
+    ct:pal(
+        "BCAST_REBUILD_MEASUREMENT ~p",
+        [
+            #{
+                deliveries => K,
+                setup_ms => SetupUs div 1000,
+                baseline_us_sorted => lists:sort(Baseline),
+                during_us_sorted => lists:sort(During),
+                during_probe_count => length(During),
+                drive_ms => DriveUs div 1000,
+                drive_with_one_unreachable_peer_ms => DriveUnreachableUs div 1000
+            }
+        ]
+    ),
+    %% A drive this short can finish before a throttled probe lands; only a
+    %% drive long enough to be measured has to have been probed.
+    ?assert(length(During) > 0 orelse DriveUs < 5000),
+    ?assert(DriveUs > 0).
+
+-doc "A rebuild must not hold the index shard that coordinates it. The whole drive\n"
+"runs inside shard 0's process today: it probes, scans the message table and\n"
+"drives all 48 partitions there, so a claim aimed at shard 0 waits for the whole\n"
+"drive. The orchestration belongs in a process of its own; shard 0 should only\n"
+"wait for its own 1/48 of the load and the closing bookkeeping. (Relative\n"
+"assertion: the probe samples the very shard the drive owns, in the same run, so\n"
+"a loaded host cannot make it flaky.)".
+t_rebuild_does_not_block_the_coordinating_shard(_Config) ->
+    K = 3000,
+    %% Spread the backlog over every partition, so the coordinator's own slice is
+    %% the same 1/48 as any other partition loads.
+    Pairs = lists:append([
+        begin
+            PK = <<"PCOORD", (integer_to_binary(S))/binary>>,
+            [{PK, DN} || DN <- same_shard_dns(PK, S, 2)]
+        end
+     || S <- lists:seq(0, 47)
+    ]),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"coordinated rebuild">>),
+    lists:foreach(
+        fun(I) ->
+            {PK, DN} = lists:nth((I rem length(Pairs)) + 1, Pairs),
+            Did = emqx_bcast_utils:gen_guid(),
+            {ok, _} = emqx_bcast_storage:create_delivery(
+                Did, MsgGuid, PK, <<"tpl">>, [DN], 1
+            )
+        end,
+        lists:seq(1, K)
+    ),
+    %% Warm up: the first call into the shard pays for its own table lookups.
+    _ = probe_status(0),
+    {Latencies, DriveUs} = measure_drive(fun() -> rebuild_once() end),
+    MaxProbeUs = lists:max(Latencies),
+    ct:pal(
+        "BCAST_COORDINATOR_BLOCKING ~p",
+        [#{deliveries => K, drive_ms => DriveUs div 1000, max_probe_us => MaxProbeUs}]
+    ),
+    ?assert(length(Latencies) > 0),
+    ?assert(DriveUs > 0),
+    %% Before: the probe waits for the whole drive. After: only for the
+    %% coordinator's own slice, so half the drive is a generous bound.
+    ?assert(MaxProbeUs < DriveUs div 2).
+
+-doc "Only one drive may run at a time. Two drives would scan the table twice,\n"
+"load the same partitions twice and re-base the authoritative quota row twice,\n"
+"and the second one would race the first one's bookkeeping. A rebuild that\n"
+"arrives while a drive is in flight joins that drive instead: it answers when\n"
+"the drive reports, and the leader logs that it coalesced.".
+t_rebuild_is_single_flight(_Config) ->
+    Unreachable = index_shard_name(7),
+    ok = sys:suspend(Unreachable),
+    try
+        Parent = self(),
+        _ = spawn(fun() ->
+            ok = emqx_bcast_index_owner:rebuild_index(),
+            Parent ! first_rebuild_done
+        end),
+        %% Barrier: the leader has recorded the drive it started.
+        ?assert(wait_until(fun() -> drive_in_flight() =/= undefined end, 200)),
+        Flight = drive_in_flight(),
+        ?assert(is_map(Flight)),
+        %% A rebuild that arrives while that drive runs joins it instead of
+        %% starting a drive of its own: the leader waits for the same drive, and
+        %% both callers are answered when it reports.
+        _ = spawn(fun() ->
+            ok = emqx_bcast_index_owner:rebuild_index(),
+            Parent ! second_rebuild_done
+        end),
+        ?assert(wait_until(fun() -> drive_waiters() >= 2 end, 100)),
+        ?assertEqual(Flight, drive_in_flight()),
+        receive
+            first_rebuild_done -> ok
+        after 10000 -> ?assert(false)
+        end,
+        receive
+            second_rebuild_done -> ok
+        after 10000 -> ?assert(false)
+        end,
+        %% The drive those three calls shared is over, and the leader is idle.
+        ?assertEqual(undefined, drive_in_flight())
+    after
+        ok = sys:resume(Unreachable)
+    end.
+
+-doc "The drive coordinator is a process of its own, so it can die: the leader\n"
+"has to survive that (it holds the partition's clients, and the index of every\n"
+"device on it), stop waiting for that drive, and come back on the next poll\n"
+"instead of leaving the cluster without its partition for good.".
+t_rebuild_survives_its_coordinator_dying(_Config) ->
+    PK = <<"PCOORDKILL">>,
+    DN = <<"DCOORDKILL">>,
+    Unreachable = index_shard_name(7),
+    Leader = index_shard_name(0),
+    PrePid = whereis(Leader),
+    ok = sys:suspend(Unreachable),
+    try
+        _ = sys:replace_state(Leader, fun(St) -> St#{active => false} end),
+        Leader ! maybe_activate,
+        ?assert(wait_until(fun() -> drive_in_flight() =/= undefined end, 200)),
+        #{pid := Coordinator} = drive_in_flight(),
+        exit(Coordinator, kill),
+        %% The leader survives (it holds the partition's clients and their
+        %% index) and stops waiting for the dead coordinator.
+        ?assertEqual(PrePid, whereis(Leader)),
+        ?assert(wait_until(fun() -> drive_in_flight() =:= undefined end, 200)),
+        %% With the peer reachable again the next drive finishes: the partition
+        %% is serving and its devices are indexed.
+        ok = sys:resume(Unreachable),
+        ?assert(wait_until(fun() -> shard_active(0) end, 400)),
+        ?assertEqual(PrePid, whereis(Leader)),
+        ?assert(shard_active(7)),
+        {_ApiMsgId, MsgGuid} = create_test_msg(<<"coordinator died">>),
+        DeliveryId = emqx_bcast_utils:gen_guid(),
+        {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1),
+        ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, DN})),
+        cleanup_row(PK, DN)
+    after
+        ok = sys:resume(Unreachable)
+    end.
+
+-doc "A manual rebuild is one shot: when a peer cannot be reached it reports the\n"
+"failure, but it must not leave the automatic retry armed - shard 0 would then\n"
+"keep re-driving and re-probing the unreachable peer with its call timeout for\n"
+"as long as that peer stays unreachable, which is exactly the cost the retry\n"
+"bound exists to avoid. Found by the measurement case above.".
+t_manual_rebuild_does_not_arm_the_retry(_Config) ->
+    Unreachable = index_shard_name(7),
+    ok = sys:suspend(Unreachable),
+    try
+        %% The rebuild call itself times out while the drive waits on the
+        %% unreachable peer; the point is the state it leaves behind.
+        _ =
+            try
+                emqx_bcast_index_owner:rebuild_index()
+            catch
+                _:_ -> timeout
+            end,
+        %% sys:get_state/1 is the barrier: shard 0 answers it only once the
+        %% drive has finished.
+        State = sys:get_state(index_shard_name(0)),
+        ?assertNot(is_map_key(activation_missing, State))
+    after
+        ok = sys:resume(Unreachable)
+    end.
+
+-doc "A drive must not spend one call timeout per unreachable peer. The probes\n"
+"belong together and with a probe-sized timeout, so N unreachable partitions\n"
+"cost about one wait instead of N, and index shard 0 stays free to answer the\n"
+"claims of its own partition. (Regression: the probes ran one at a time with the\n"
+"5s activation timeout, so 8 hung peers held shard 0 for ~40s.)".
+t_rebuild_with_unreachable_peers_is_bounded(_Config) ->
+    Peers = [index_shard_name(S) || S <- [1, 2, 3, 4, 5, 6, 7, 8]],
+    [ok = sys:suspend(P) || P <- Peers],
+    try
+        T0 = mono_us(),
+        _ =
+            try
+                emqx_bcast_index_owner:rebuild_index()
+            catch
+                _:_ -> timeout
+            end,
+        %% Barrier: shard 0 answers this only once the drive has finished.
+        _ = sys:get_state(index_shard_name(0), 120000),
+        ElapsedMs = (mono_us() - T0) div 1000,
+        ct:pal("BCAST_DRIVE_UNREACHABLE_MS ~p", [ElapsedMs]),
+        %% 8 x 5s before the fix, about one probe timeout after it; the bound is
+        %% generous so a loaded CI host cannot make it flaky.
+        ?assert(ElapsedMs < 5000)
+    after
+        [ok = sys:resume(P) || P <- Peers]
+    end.
+
+-doc "An unreachable peer must not be waited on again in the round after the one\n"
+"that discovered it: the timeouts are what make a drive expensive, and a "
+"recovered peer asks for its own activation anyway. (Relative assertion: both\n"
+"rounds rebuild the same reachable partitions, only the first pays the peer.)".
+t_rebuild_does_not_wait_for_a_known_peer_again(_Config) ->
+    Unreachable = index_shard_name(7),
+    %% The assertion below is a difference between two rounds, so the peer must
+    %% not already be held back when the first one starts.
+    ok = forget_probe_backoff(),
+    ok = sys:suspend(Unreachable),
+    try
+        FirstMs = rebuild_round_ms(),
+        SecondMs = rebuild_round_ms(),
+        ct:pal("BCAST_DRIVE_ROUNDS_MS ~p", [{FirstMs, SecondMs}]),
+        ?assert(FirstMs - SecondMs > 500)
+    after
+        ok = sys:resume(Unreachable)
+    end.
+
+forget_probe_backoff() ->
+    %% sys:replace_state/2 answers the new state, not ok.
+    _ = sys:replace_state(index_shard_name(0), fun(St) -> maps:remove(bad_peers, St) end),
+    ok.
+
+rebuild_round_ms() ->
+    T0 = mono_us(),
+    _ =
+        try
+            emqx_bcast_index_owner:rebuild_index()
+        catch
+            _:_ -> timeout
+        end,
+    _ = sys:get_state(index_shard_name(0), 120000),
+    (mono_us() - T0) div 1000.
+
+-doc "A drive that could not reach a peer must not keep re-driving until that\n"
+"peer answers. Recovered partitions are driven by their own activation request,\n"
+"and the authoritative quota row is re-based by the periodic recount - not by a\n"
+"drive that happens to close at some arbitrary later moment. (Mechanism behind\n"
+"t_migrate_legacy_mnesia_layout failing: the leader kept retrying a suspended\n"
+"peer and completed a whole drive the moment it came back.).".
+t_drive_does_not_rebase_quota_when_a_peer_recovers(_Config) ->
+    Unreachable = index_shard_name(7),
+    ok = sys:suspend(Unreachable),
+    try
+        %% Automatic drive (as after a restart) with a peer that cannot answer.
+        _ = sys:replace_state(index_shard_name(0), fun(St) -> St#{active => false} end),
+        index_shard_name(0) ! maybe_activate,
+        %% The leader runs the drive in a coordinator process of its own now, so
+        %% the barrier is "no drive in flight" rather than "the shard answered
+        %% the message": the peer has to stay unreachable until the drive that
+        %% found it is over.
+        _ = sys:get_state(index_shard_name(0), 120000),
+        ?assert(wait_until(fun() -> drive_in_flight() =:= undefined end, 400)),
+        %% The drive could not close, so put a sentinel in the authoritative row
+        %% and let the peer come back.
+        true = ets:insert(bcast_quota_ets, {global, 4242}),
+        ok = sys:resume(Unreachable),
+        timer:sleep(2000),
+        ?assertEqual(4242, emqx_bcast_storage:pending_delivery_count())
+    after
+        ok = sys:resume(Unreachable)
+    end.
+
+rebuild_once() ->
+    _ = emqx_bcast_index_owner:rebuild_index(),
+    ok.
+
+%% The drive the activation leader is running, if any: the leader starts it in a
+%% coordinator process and records it in its state, and it answers its mailbox
+%% long before the drive finishes. A case that has to know the drive is over
+%% (rather than "the shard answered") waits on this.
+drive_in_flight() ->
+    maps:get(drive_in_flight, sys:get_state(index_shard_name(0)), undefined).
+
+%% How many callers are waiting for the drive in flight.
+drive_waiters() ->
+    length(maps:get(drive_waiters, sys:get_state(index_shard_name(0)), [])).
+
+%% Rebuild in another process; probe from this one at a fixed rate until it
+%% finishes. The drive call itself may time out (it is a 5s gen_server call and
+%% a drive can take longer), so the outcome is caught: a failed call must still
+%% end the probing, or the harness spins forever.
+measure_drive(DriveFun) ->
+    Parent = self(),
+    Start = mono_us(),
+    _ = spawn(fun() ->
+        _ =
+            try
+                DriveFun()
+            catch
+                _:_ -> timeout
+            end,
+        Parent ! {drive_done, mono_us()}
+    end),
+    {Latencies, Done} = probe_until_done([]),
+    {lists:reverse(Latencies), Done - Start}.
+
+%% ~1000 probes/second: fast enough to see the queueing, slow enough that the
+%% probe itself is not the load being measured. The first probe is sent
+%% immediately so a short drive still gets sampled.
+probe_until_done(Acc) ->
+    probe_until_done(Acc, true).
+
+probe_until_done(Acc, true) ->
+    %% First probe goes out immediately, then the loop throttles.
+    case drive_done() of
+        {done, T} -> {Acc, T};
+        no -> probe_until_done([probe_status(0) | Acc], false)
+    end;
+probe_until_done(Acc, false) ->
+    receive
+        {drive_done, T} -> {Acc, T}
+    after 1 -> probe_until_done([probe_status(0) | Acc], false)
+    end.
+
+drive_done() ->
+    receive
+        {drive_done, T} -> {done, T}
+    after 0 -> no
+    end.
+
+%% A real claim through the storage API for a device with no backlog: it answers
+%% {no_more, 0} and touches no state, so it measures the shard's availability.
+probe_claim(PK, DN) ->
+    T0 = mono_us(),
+    [{_DN, _Result}] = emqx_bcast_storage:claim_want_next_batch([
+        #{residual => true, clientid => DN, product_key => PK, topics => []}
+    ]),
+    mono_us() - T0.
+
+%% The cheapest call into a shard: a state read with no side effects.
+probe_status(Shard) ->
+    T0 = mono_us(),
+    _ = gen_server:call(index_shard_name(Shard), {shard_status}, 30000),
+    mono_us() - T0.
+
+mono_us() -> erlang:monotonic_time(microsecond).
+
 -doc "The ack flush runs inside the shard's handle_info/2, so a failure while\n"
 "applying a buffered ack must not take the shard - and every partition it\n"
 "holds - down: the marker write and the counter decrement are idempotent, so\n"
@@ -4504,6 +5083,43 @@ t_metrics_reset_reports_partial_failure(_Config) ->
         meck:unload(emqx_bcast_index_owner)
     end.
 
+-doc "A cluster-wide metrics reset has to finish inside the plugin framework's\n"
+"own budget too: the endpoint kills the callback after\n"
+"plugins.api_endpoint.timeout (5s by default) and answers 503, and a reset that\n"
+"went on to touch half the cluster while the caller was told nothing is worse\n"
+"than refusing. Two phases over N nodes used to cost N x 15s.".
+t_metrics_reset_fits_the_endpoint_budget(_Config) ->
+    meck:new(emqx, [passthrough, no_link]),
+    meck:new(emqx_rpc, [passthrough, no_link]),
+    try
+        meck:expect(emqx, running_nodes, fun() -> [node(), 'stalled@nohost'] end),
+        %% A node that never answers, but honours the timeout it was given.
+        meck:expect(
+            emqx_rpc,
+            call,
+            fun(Mod, Node, M, F, A, Timeout) ->
+                case Node of
+                    'stalled@nohost' ->
+                        timer:sleep(Timeout + 50),
+                        {badrpc, timeout};
+                    _ ->
+                        meck:passthrough([Mod, Node, M, F, A, Timeout])
+                end
+            end
+        ),
+        T0 = mono_us(),
+        Result = emqx_bcast_metrics:reset_cluster(),
+        ElapsedMs = (mono_us() - T0) div 1000,
+        ct:pal("BCAST_RESET_MS ~p", [ElapsedMs]),
+        %% The stalled node fails the check phase, so nothing is reset - and
+        %% that verdict arrives inside the budget.
+        ?assertMatch({error, {pending_deliveries, _}}, Result),
+        ?assert(ElapsedMs < emqx_bcast_utils:api_budget_ms())
+    after
+        meck:unload(emqx_rpc),
+        meck:unload(emqx)
+    end.
+
 -doc "The cascade delete of a message shared by many deliveries runs in\n"
 "bounded chunks with the message rows removed last, so no single transaction\n"
 "covers an unbounded number of deliveries.".
@@ -4705,6 +5321,27 @@ t_admit_unavailable_shard_still_accepts(_Config) ->
     end,
     %% The shard answers again after the resume.
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, DN})).
+
+-doc "Admission has to answer before the plugin framework's own budget expires\n"
+"(plugins.api_endpoint.timeout, 5s by default): past it the framework kills the\n"
+"callback and answers 503, while a reservation the plugin already took is only\n"
+"reclaimed by the 60s stale-reservation sweep. The per-shard legs have to fit\n"
+"that budget, which is a lot less than the 5s a hot-path leg may use.".
+t_admission_fits_the_endpoint_budget(_Config) ->
+    PK = <<"PADMITBUDGET">>,
+    [DN] = same_shard_dns(PK, 5, 1),
+    ok = sys:suspend(index_shard_name(5)),
+    try
+        T0 = mono_us(),
+        Result = emqx_bcast_index_owner:admit(PK, [DN]),
+        ElapsedMs = (mono_us() - T0) div 1000,
+        ct:pal("BCAST_ADMIT_MS ~p", [ElapsedMs]),
+        %% An unreachable shard still degrades to acceptance, as before.
+        ?assertEqual(ok, Result),
+        ?assert(ElapsedMs < emqx_bcast_utils:api_budget_ms())
+    after
+        ok = sys:resume(index_shard_name(5))
+    end.
 
 -doc "A definite over-limit leg is reported as a quota error and the reservation\n"
 "made by the other, confirmed leg is rolled back.".

@@ -184,6 +184,7 @@ table_sizes() ->
             ?TAB_MSG,
             ?TAB_MSG_API_ID,
             ?TAB_MSG_HASH,
+            ?TAB_MSG_ORDER,
             ?TAB_MSG_REG,
             ?TAB_MSG_REC,
             ?TAB_MSG_META,
@@ -204,6 +205,8 @@ create_mnesia_tables() ->
                 {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id),
                     set},
                 {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash), set},
+                {?TAB_MSG_ORDER, bcast_message_order, record_info(fields, bcast_message_order),
+                    ordered_set},
                 {?TAB_MSG_REG, bcast_message_reg, record_info(fields, bcast_message_reg), set},
                 {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg), set},
                 {?TAB_MSG_META, bcast_msg_meta, record_info(fields, bcast_msg_meta), set},
@@ -218,7 +221,32 @@ create_mnesia_tables() ->
                 Tables
             ),
             ok = mria:wait_for_tables([Tab || {Tab, _, _, _} <- Tables]),
+            ok = ensure_query_indexes(),
             ok = initialize_quota_count()
+    end.
+
+%% Management reads must not scan a whole table per request. The message
+%% detail GET counts the outstanding deliveries of one message, and a full scan
+%% of the delivery table for that does not scale - it is the kind of read that
+%% eventually outlives the API budget and answers 503. The secondary index is
+%% local to this node (the table is ram_copies) and is rebuilt from the rows on
+%% every start, so it needs no migration.
+ensure_query_indexes() ->
+    case mnesia:add_table_index(?TAB_MSG_REC, msg_id) of
+        ok ->
+            ok;
+        %% mnesia reports the existing index by position (and, on some paths,
+        %% by attribute name): both mean the index is already there.
+        {aborted, {already_exists, ?TAB_MSG_REC, _Index}} ->
+            ok;
+        Other ->
+            ?SLOG(warning, #{
+                msg => "bcast_table_index_failed",
+                table => ?TAB_MSG_REC,
+                index => msg_id,
+                reason => Other
+            }),
+            ok
     end.
 
 %% 0.1.x (and early 0.2.0) installed tables with an older attribute layout.

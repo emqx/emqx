@@ -50,6 +50,7 @@
       "name": "max_device_count",
       "type": "int",
       "default": 10000,
+      "minimum": 0,
       "$ui": {
         "component": "input-number",
         "flex": 12,
@@ -61,6 +62,7 @@
       "name": "max_message_size_broadcast",
       "type": "int",
       "default": 65536,
+      "minimum": 0,
       "$ui": {
         "component": "input-number",
         "flex": 12,
@@ -72,6 +74,7 @@
       "name": "max_message_size_batch",
       "type": "int",
       "default": 10240,
+      "minimum": 0,
       "$ui": {
         "component": "input-number",
         "flex": 12,
@@ -83,6 +86,7 @@
       "name": "max_pending_deliveries",
       "type": "int",
       "default": 10000000,
+      "minimum": 0,
       "$ui": {
         "component": "input-number",
         "flex": 12,
@@ -94,6 +98,8 @@
       "name": "max_pending_deliveries_per_device",
       "type": "int",
       "default": 100,
+      "minimum": 10,
+      "maximum": 200,
       "$ui": {
         "component": "input-number",
         "flex": 12,
@@ -115,6 +121,7 @@
       "name": "delivery_pool_size",
       "type": "int",
       "default": 0,
+      "minimum": 0,
       "$ui": {
         "component": "input-number",
         "flex": 12,

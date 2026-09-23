@@ -60,7 +60,15 @@ init_per_testcase(_Case, Config) ->
     %% registered messages) must not leak into the assertions of this one.
     [
         mnesia:clear_table(T)
-     || T <- [bcast_msg, bcast_message, bcast_message_hash, bcast_message_api_id, bcast_msg_index]
+     || T <-
+            [
+                bcast_msg,
+                bcast_message,
+                bcast_message_order,
+                bcast_message_hash,
+                bcast_message_api_id,
+                bcast_msg_index
+            ]
     ],
     emqx_bcast_metrics:init(),
     Config.

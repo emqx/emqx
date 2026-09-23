@@ -197,10 +197,14 @@ clamp_warn(Configured, Effective) ->
 %% A negative limit is a configuration typo with a silent, total effect:
 %% max_message_size_batch = -1 rejects every publish. Zero is left alone - it is
 %% a consistent "allow nothing" bound (a cap of zero deliveries is exactly how
-%% the e2e suite pins the 429 path) - so only negatives fall back. The plugin
-%% config schema cannot catch either case: it is an Avro schema, which has no
-%% minimum. Fall back to the default and say so, the way the per-device quota
-%% clamps an out-of-range value and a bad duration falls back.
+%% the e2e suite pins the 429 path) - so only negatives fall back. The schema
+%% declares the same bounds (config_schema.avsc, pinned by
+%% t_config_schema_declares_int_bounds) so the config page cannot offer a value
+%% the plugin would ignore, but declaring them is not enforcing them: the
+%% attributes are inert to the Avro decoder that reads this config, so a value
+%% that arrives from a stored file still lands here. Fall back to the default
+%% and say so, the way the per-device quota clamps an out-of-range value and a
+%% bad duration falls back.
 non_negative_or(_Field, Value, _Default) when is_integer(Value), Value >= 0 ->
     Value;
 non_negative_or(Field, Value, Default) ->

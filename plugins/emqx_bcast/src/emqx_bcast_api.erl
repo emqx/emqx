@@ -42,7 +42,10 @@ handle(Method, Path, Request) ->
                             ?MODULE,
                             handle_local,
                             [Method, Path, Request],
-                            ?BCAST_API_RPC_TIMEOUT_MS
+                            %% Bounded by the framework's own budget for this
+                            %% callback: answering "the core did not answer" is
+                            %% better than being killed mid-flight.
+                            emqx_bcast_utils:api_rpc_timeout_ms()
                         )
                     of
                         {badrpc, Reason} ->
