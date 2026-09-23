@@ -26,7 +26,11 @@ def emqx_bin_path(profile):
     workspace_root = Path(__file__).parent.parent.parent
     bin_path = workspace_root / "_build" / profile / "rel" / "emqx" / "bin" / "emqx"
     if not bin_path.exists():
-        pytest.skip(f"EMQX binary not found at {bin_path}")
+        pytest.fail(
+            f"EMQX binary not found at {bin_path}: the release artifact "
+            "(e.g. <profile>-rel) must provide _build/<profile>/rel/emqx. "
+            "Failing instead of skipping so a missing release cannot turn this job green."
+        )
     return bin_path
 
 
@@ -36,7 +40,11 @@ def emqx_rel_path(profile):
     workspace_root = Path(__file__).parent.parent.parent
     rel_path = workspace_root / "_build" / profile / "rel" / "emqx"
     if not rel_path.exists():
-        pytest.skip(f"EMQX release not found at {rel_path}")
+        pytest.fail(
+            f"EMQX release not found at {rel_path}: the release artifact "
+            "(e.g. <profile>-rel) must provide _build/<profile>/rel/emqx. "
+            "Failing instead of skipping so a missing release cannot turn this job green."
+        )
     return rel_path
 
 

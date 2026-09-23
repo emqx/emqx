@@ -41,6 +41,7 @@
 -type options() :: #{
     strict_mode => boolean(),
     max_size => 1..?MAX_PACKET_SIZE,
+    max_connect_size => 1..?MAX_PACKET_SIZE,
     max_connect_user_properties => non_neg_integer() | infinity,
     version => emqx_types:proto_ver(),
     expect_connect => boolean()
@@ -49,6 +50,8 @@
 -record(options, {
     strict_mode :: boolean(),
     max_size :: 1..?MAX_PACKET_SIZE,
+    %% Size limit for a CONNECT packet, on top of `max_size'.
+    max_connect_size :: 1..?MAX_PACKET_SIZE,
     %% Limit on the number of 'User-Property' pairs in a CONNECT packet.
     %% Applies to the CONNECT properties and the will properties separately.
     max_connect_user_properties :: non_neg_integer() | infinity,
@@ -74,6 +77,7 @@
 -define(DEFAULT_OPTIONS, #{
     strict_mode => false,
     max_size => ?MAX_PACKET_SIZE,
+    max_connect_size => ?MAX_PACKET_SIZE,
     max_connect_user_properties => infinity,
     version => ?MQTT_PROTO_V4,
     expect_connect => false
@@ -128,6 +132,7 @@ initial_parse_state(Options) when is_map(Options) ->
     #options{
         strict_mode = maps:get(strict_mode, Effective),
         max_size = maps:get(max_size, Effective),
+        max_connect_size = maps:get(max_connect_size, Effective),
         max_connect_user_properties = maps:get(max_connect_user_properties, Effective),
         version = maps:get(version, Effective),
         expect_connect = maps:get(expect_connect, Effective)
@@ -189,7 +194,8 @@ parse_complete(
         <<0:8>> ->
             parse_bodyless_packet(Header);
         _ ->
-            {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            {RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            ok = validate_frame_len(RemLen, Header, Options),
             parse_packet_complete(Rest2, Header, Options)
     end.
 
@@ -299,13 +305,26 @@ parse_remaining_len(
     Header,
     Multiplier,
     Value,
-    Options = #options{max_size = MaxSize}
+    Options
 ) ->
     FrameLen = Value + Len * Multiplier,
-    case FrameLen > MaxSize of
-        true -> ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
-        false -> parse_body_frame(Rest, Header, FrameLen, <<>>, Options)
-    end.
+    ok = validate_frame_len(FrameLen, Header, Options),
+    parse_body_frame(Rest, Header, FrameLen, <<>>, Options).
+
+%% A CONNECT packet is held to `max_connect_size' as well as `max_size'. Both
+%% limits are checked on the Remaining Length.
+validate_frame_len(
+    FrameLen,
+    #mqtt_packet_header{type = ?CONNECT},
+    #options{max_connect_size = MaxConnectSize}
+) when FrameLen > MaxConnectSize ->
+    ?PARSE_ERR(#{
+        cause => connect_packet_too_large, limit => MaxConnectSize, received => FrameLen
+    });
+validate_frame_len(FrameLen, _Header, #options{max_size = MaxSize}) when FrameLen > MaxSize ->
+    ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
+validate_frame_len(_FrameLen, _Header, _Options) ->
+    ok.
 
 -compile({inline, [parse_bodyless_packet/1]}).
 

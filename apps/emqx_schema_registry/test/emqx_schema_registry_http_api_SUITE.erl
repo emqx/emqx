@@ -20,6 +20,15 @@
 %%------------------------------------------------------------------------------
 
 -define(REDACTED, <<"******">>).
+-define(MASKED_EXTERNAL_HTTP_CONF, #{
+    <<"parameters">> := #{
+        <<"headers">> := #{
+            <<"Authorization">> := <<"******">>,
+            <<"X-Plain">> := <<"plain-value">>
+        },
+        <<"ssl">> := #{<<"password">> := <<"******">>}
+    }
+}).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -50,6 +59,7 @@ only_once_testcases() ->
         t_external_registry_crud_confluent,
         t_smoke_test_external_registry_confluent,
         t_external_http_serde,
+        t_external_http_serde_redaction,
         t_json_schema_2019_09,
         t_json_schema_2020_12,
         t_json_schema_draft04_unicode_ref,
@@ -193,6 +203,12 @@ try_decode_error_message(#{<<"message">> := Msg0} = Res0) ->
     end;
 try_decode_error_message(Res) ->
     Res.
+
+raw_response(Method, Path) ->
+    Header = emqx_common_test_http:default_auth_header(),
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    {ok, Code, Body} = emqx_mgmt_api_test_util:request_api(Method, Path, [], Header, [], Opts),
+    {Code, Body}.
 
 clear_schemas() ->
     maps:foreach(
@@ -1117,6 +1133,94 @@ t_external_http_serde_ssl(_Config) ->
         create_schema(Params),
         #{data_dir => DataDir}
     ),
+    ok.
+
+%% The external_http serde configuration may carry credentials in
+%% `parameters.headers' and in `parameters.ssl.password': they must be masked in
+%% the responses, and submitting a masked body back must keep the stored values.
+t_external_http_serde_redaction(_Config) ->
+    {ok, Port} = start_external_http_serde_server(),
+    SchemaName = <<"my_external_http_serde_redaction">>,
+    HeaderSecret = <<"Bearer sr-header-secret">>,
+    TLSSecret = <<"sr-tls-secret">>,
+    Headers = #{
+        <<"Authorization">> => HeaderSecret,
+        <<"X-Plain">> => <<"plain-value">>
+    },
+    Params0 = mk_external_http_create_params(#{name => SchemaName, port => Port}),
+    Params = Params0#{
+        <<"parameters">> := (maps:get(<<"parameters">>, Params0))#{
+            <<"headers">> => Headers,
+            <<"ssl">> => #{<<"enable">> => false, <<"password">> => TLSSecret}
+        }
+    },
+
+    ?assertMatch(
+        {201, ?MASKED_EXTERNAL_HTTP_CONF},
+        create_schema(Params)
+    ),
+
+    {200, RawSchema} = raw_response(get, uri(["schema_registry", SchemaName])),
+    ?assertEqual(nomatch, binary:match(RawSchema, HeaderSecret)),
+    ?assertEqual(nomatch, binary:match(RawSchema, TLSSecret)),
+    {200, SchemaResp} = get_schema(SchemaName),
+    ?assertMatch(?MASKED_EXTERNAL_HTTP_CONF, SchemaResp),
+
+    {200, RawList} = raw_response(get, uri(["schema_registry"])),
+    ?assertEqual(nomatch, binary:match(RawList, HeaderSecret)),
+    ?assertEqual(nomatch, binary:match(RawList, TLSSecret)),
+    [Listed] = [
+        Schema
+     || Schema <- emqx_utils_json:decode(RawList),
+        maps:get(<<"name">>, Schema) =:= SchemaName
+    ],
+    ?assertMatch(?MASKED_EXTERNAL_HTTP_CONF, Listed),
+
+    %% Re-submitting the masked body must not overwrite the stored values.
+    PutBody = maps:without([<<"name">>, <<"status">>, <<"node_status">>], SchemaResp),
+    ?assertMatch({200, ?MASKED_EXTERNAL_HTTP_CONF}, update_schema(SchemaName, PutBody)),
+    ?assertEqual(
+        Headers,
+        emqx:get_raw_config([schema_registry, schemas, SchemaName, parameters, headers])
+    ),
+    ?assertEqual(
+        TLSSecret,
+        emqx:get_raw_config([schema_registry, schemas, SchemaName, parameters, ssl, password])
+    ),
+
+    %% The restored header is the one actually sent by the embedded HTTP connector.
+    Tab = ets:new(serde_request_headers, [public, set]),
+    emqx_utils_http_test_server:set_handler(
+        fun(Req, State) ->
+            true = ets:insert(Tab, {authorization, cowboy_req:header(<<"authorization">>, Req)}),
+            external_http_handler(Req, State)
+        end
+    ),
+    SQL = sql(
+        <<"select schema_encode('${.name}', payload) as encoded from \"t\" ">>,
+        #{name => SchemaName}
+    ),
+    Context = publish_context({json, #{<<"f1">> => #{<<"bah">> => 123}}}),
+    ?assertMatch({200, #{<<"encoded">> := _}}, dryrun_rule(SQL, Context)),
+    ?assertEqual([{authorization, HeaderSecret}], ets:lookup(Tab, authorization)),
+
+    %% A failed update must neither crash nor echo the values it restored.
+    BadParams = maps:update_with(
+        <<"parameters">>,
+        fun(Parameters) -> Parameters#{<<"url">> => <<"no-scheme-url">>} end,
+        PutBody
+    ),
+    {error, {{_, 400, _}, _ErrHeaders, ErrBody}} = emqx_mgmt_api_test_util:request_api(
+        put,
+        uri(["schema_registry", SchemaName]),
+        [],
+        emqx_common_test_http:default_auth_header(),
+        BadParams,
+        #{return_all => true}
+    ),
+    ?assertEqual(nomatch, binary:match(iolist_to_binary(ErrBody), HeaderSecret)),
+    ?assertEqual(nomatch, binary:match(iolist_to_binary(ErrBody), TLSSecret)),
+
     ok.
 
 t_protobuf_bundle(Config) ->

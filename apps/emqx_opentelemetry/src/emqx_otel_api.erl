@@ -9,6 +9,8 @@
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
+-import(emqx_utils, [redact/1]).
+
 -export([
     api_spec/0,
     paths/0,
@@ -61,13 +63,19 @@ schema("/opentelemetry") ->
 %%--------------------------------------------------------------------
 
 config(get, _Params) ->
-    {200, get_raw()};
+    {200, redact(get_config())};
 config(put, #{body := Body}) ->
-    case emqx_otel_config:update(Body) of
+    %% Restore the values that the GET response masked, so that submitting them
+    %% back does not overwrite the stored configuration.
+    case emqx_otel_config:update(emqx_utils:deobfuscate(Body, get_stored_config())) of
         {ok, NewConfig} ->
-            {200, NewConfig};
+            {200, redact(NewConfig)};
         {error, Reason} ->
-            Message = list_to_binary(io_lib:format("Update config failed ~p", [Reason])),
+            %% The update request has been deobfuscated, so redact the error
+            %% details before echoing them back.
+            Message = list_to_binary(
+                io_lib:format("Update config failed ~p", [redact(Reason)])
+            ),
             {400, ?BAD_REQUEST, Message}
     end.
 
@@ -75,13 +83,18 @@ config(put, #{body := Body}) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-get_raw() ->
+get_config() ->
+    filled_config(#{obfuscate_sensitive_values => true}).
+
+%% Old configuration with defaults, without obfuscation: the base used to
+%% restore the values masked by the GET response.
+get_stored_config() ->
+    filled_config(#{}).
+
+filled_config(Opts) ->
     Path = <<"opentelemetry">>,
     #{Path := Conf} =
-        emqx_config:fill_defaults(
-            #{Path => emqx_conf:get_raw([Path])},
-            #{obfuscate_sensitive_values => true}
-        ),
+        emqx_config:fill_defaults(#{Path => emqx_conf:get_raw([Path])}, Opts),
     Conf.
 
 otel_config_schema() ->

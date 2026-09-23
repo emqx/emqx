@@ -514,8 +514,10 @@ handle_msg(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "received_udp_proxy_data", data => Data}),
     Oct = iolist_size(Data),
+    %% The raw datagram may carry credentials (e.g. CoAP query parameters);
+    %% `packet_received' logs the parsed packet with frame-level redaction.
+    ?SLOG(debug, #{msg => "received_udp_proxy_data", size => Oct}),
     inc_counter(incoming_bytes, Oct),
     Ctx = ChannMod:info(ctx, Channel),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.received', Oct),
@@ -856,13 +858,13 @@ parse_incoming(
         channel = Channel
     }
 ) ->
+    Oct = iolist_size(Data),
+    %% Raw data may carry credentials; `packet_received' logs the parsed packet
+    %% with frame-level redaction.
     ?SLOG(debug, #{
         msg => "received_data",
-        size => iolist_size(Data),
-        type => "hex",
-        bin => binary_to_list(binary:encode_hex(Data))
+        size => Oct
     }),
-    Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     Ctx = ChannMod:info(ctx, Channel),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.received', Oct),
@@ -1008,14 +1010,14 @@ send(
         channel = Channel
     }
 ) ->
+    Oct = iolist_size(IoData),
+    %% The serialized datagram may carry credentials (e.g. the CoAP session
+    %% token); `send_packet' logs the parsed packet with frame-level redaction.
     ?SLOG(debug, #{
         msg => "send_data",
-        size => iolist_size(IoData),
-        type => "hex",
-        iodata => IoData
+        size => Oct
     }),
     Ctx = ChannMod:info(ctx, Channel),
-    Oct = iolist_size(IoData),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
     case esockd_send(IoData, State) of
