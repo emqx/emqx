@@ -13,6 +13,8 @@
 -define(CHECK_INTERVAL, timer:seconds(5)).
 -define(REFRESH_INTERVAL, timer:minutes(2)).
 -define(EXPIRY_ALARM_CHECK_INTERVAL, timer:hours(24)).
+%% How long before the expiry date the `license_expiry' alarm is raised.
+-define(EXPIRY_ALARM_DAYS, 30).
 
 -define(OK(EXPR),
     try
@@ -356,14 +358,56 @@ apply_limits(Limits) ->
     ets:insert(?LICENSE_TAB, {limits, Limits}).
 
 expiry_early_alarm(License) ->
-    case days_left(License) < 30 of
+    DaysLeft = days_left(License),
+    case DaysLeft < ?EXPIRY_ALARM_DAYS of
         true ->
             {Y, M, D} = emqx_license_parser:expiry_date(License),
             Date = iolist_to_binary(io_lib:format("~B~2..0B~2..0B", [Y, M, D])),
-            ?OK(emqx_alarm:activate(license_expiry, #{expiry_at => Date}));
+            Details = #{expiry_at => Date, days_left => DaysLeft},
+            ?OK(raise_expiry_alarm(Details, expiry_message(DaysLeft, Y, M, D)));
         false ->
             ?OK(emqx_alarm:ensure_deactivated(license_expiry))
     end.
+
+%% `emqx_alarm:activate/3' keeps the message and the details of an alarm which
+%% is already activated, and this check runs once a day for as long as the
+%% license is inside the alarm window. Refresh the details on every check so
+%% `days_left' follows the calendar, and re-raise when the message itself
+%% changes, which happens when the license is replaced or when it expires while
+%% the alarm is up.
+raise_expiry_alarm(Details, Message) ->
+    case current_expiry_alarm_message() of
+        Message ->
+            emqx_alarm:update_details(license_expiry, Details);
+        undefined ->
+            emqx_alarm:activate(license_expiry, Details, Message);
+        _Outdated ->
+            _ = emqx_alarm:ensure_deactivated(license_expiry),
+            emqx_alarm:activate(license_expiry, Details, Message)
+    end.
+
+current_expiry_alarm_message() ->
+    case [Msg || #{name := license_expiry, message := Msg} <- emqx_alarm:get_alarms(activated)] of
+        [Message] -> Message;
+        [] -> undefined
+    end.
+
+%% The alarm is raised ?EXPIRY_ALARM_DAYS before the license expires, so its
+%% message has to say whether the license is expiring or has expired. Without
+%% it the message is the alarm name, `license_expiry', which reads as expired.
+%% The message carries no day count: it is compared against the active alarm's
+%% message to decide whether to re-raise, so a value which changes daily would
+%% re-raise the alarm every day. `days_left' is in the details instead.
+expiry_message(DaysLeft, Y, M, D) when DaysLeft < 0 ->
+    format_expiry_message("The license expired on ~ts.", Y, M, D);
+expiry_message(0, Y, M, D) ->
+    format_expiry_message("The license expires today, ~ts.", Y, M, D);
+expiry_message(_DaysLeft, Y, M, D) ->
+    format_expiry_message("The license expires on ~ts.", Y, M, D).
+
+format_expiry_message(Format, Y, M, D) ->
+    Date = io_lib:format("~B-~2..0B-~2..0B", [Y, M, D]),
+    iolist_to_binary(io_lib:format(Format, [Date])).
 
 print_warnings(State) ->
     ok = print_community_warning(State),
