@@ -58,6 +58,7 @@ groups() ->
             t_parse_duplicate_connect_property_lenient,
             t_parse_repeated_user_property_strict,
             t_parse_connect_user_property_limit,
+            t_parse_connect_packet_too_large,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
             t_serialize_parse_connect_with_malformed_will,
@@ -650,6 +651,36 @@ user_property_pairs(N) ->
     [{<<>>, integer_to_binary(I)} || I <- lists:seq(1, N)].
 
 %% N duplicate-key user properties on the wire, each with an indexed value.
+-doc """
+A CONNECT above `max_connect_size' is refused from its Remaining Length by the
+stream parser, before the body arrives, and by the whole-frame parser. A
+CONNECT within the limit parses, and other packet types are not held to it.
+""".
+t_parse_connect_packet_too_large(_) ->
+    Limit = 512,
+    PState = emqx_frame:initial_parse_state(#{max_connect_size => Limit}),
+    Frame = make_v5_connect_frame(user_properties(200)),
+    ?assert(byte_size(Frame) > Limit),
+    %% Only the fixed header: the stream parser refuses it without the body.
+    <<Header:3/binary, _/binary>> = Frame,
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse(Header, PState)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse(Frame, PState)
+    ),
+    ?ASSERT_FRAME_THROW(
+        #{cause := connect_packet_too_large, limit := Limit},
+        emqx_frame:parse_complete(Frame, PState)
+    ),
+    Small = make_v5_connect_frame(user_properties(1)),
+    ?assertMatch({_Packet, <<>>, _}, emqx_frame:parse(Small, PState)),
+    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, binary:copy(<<"x">>, 2048)),
+    PublishBin = iolist_to_binary(emqx_frame:serialize(Publish)),
+    ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin, PState)).
+
 user_properties(N) ->
     iolist_to_binary([
         begin

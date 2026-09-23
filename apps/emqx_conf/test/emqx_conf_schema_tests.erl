@@ -857,6 +857,18 @@ test_unsupported_role(ce) ->
         hocon_tconf:check_plain(emqx_conf_schema, Conf, #{required => false}, [node])
     ).
 
+rpc_insecure_fallback_is_ignored_test() ->
+    ensure_acl_conf(),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
+    Conf = <<BaseConf/binary, "\nrpc.insecure_fallback = true\n">>,
+    {ok, ConfMap} = hocon:binary(Conf, #{format => richmap}),
+    ConfList = hocon_tconf:generate(emqx_conf_schema, ConfMap),
+    GenRpcEnv = proplists:get_value(gen_rpc, ConfList),
+    ?assertEqual(
+        undefined,
+        proplists:get_value(insecure_auth_fallback_allowed, GenRpcEnv)
+    ).
+
 node_role_conf(Role0) ->
     Role = atom_to_binary(Role0),
     Hocon = <<"node { role =", Role/binary, ", cookie = \"cookie\", data_dir = \".\" }">>,
