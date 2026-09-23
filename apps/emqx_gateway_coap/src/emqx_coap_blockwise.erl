@@ -540,83 +540,86 @@ handle_server_block1(_, Msg, _PeerKey, State) ->
 do_handle_server_block1(Num, More, Size, Msg, PeerKey, State) ->
     Key = server_block1_key(PeerKey, Msg),
     ServerMap = maps:get(server_rx_block1, State),
-    MaxBody = max_body_size(State),
-    Payload = Msg#coap_message.payload,
     case {Num, maps:get(Key, ServerMap, undefined)} of
         {0, _Prev} ->
-            Total = byte_size(Payload),
-            case
-                Total > MaxBody orelse Total > max_total_size(State) orelse
-                    size1_too_large(Msg, State)
-            of
-                true ->
-                    {error, too_large_block1_reply(Msg, State), State};
-                false ->
-                    case More of
-                        true ->
-                            Tx = #{
-                                payload => Payload,
-                                next_num => 1,
-                                size => Size,
-                                req => Msg,
-                                expires_at => expires_at(State)
-                            },
-                            Continue = continue_reply(Msg, Num, Size),
-                            case try_put(server_rx_block1, Key, Tx, State) of
-                                {ok, State1} ->
-                                    {continue, Continue, State1};
-                                {error, too_many_exchanges} ->
-                                    {error, busy_block1_reply(Msg), State};
-                                {error, total_size_exhausted} ->
-                                    {error, too_large_block1_reply(Msg, State), State}
-                            end;
-                        false ->
-                            {complete, clear_block1(Msg), State#{
-                                server_rx_block1 => maps:remove(Key, ServerMap)
-                            }}
-                    end
-            end;
+            handle_first_server_block1(More, Size, Msg, Key, ServerMap, State);
         {_Num, undefined} ->
             {error, error_reply({error, request_entity_incomplete}, Msg), State};
         {_Num, Tx = #{next_num := Expected, size := TxSize, payload := Acc}} ->
-            case Num =:= Expected andalso Size =:= TxSize of
-                false ->
-                    {
-                        error,
-                        error_reply({error, request_entity_incomplete}, Msg),
-                        State#{server_rx_block1 => maps:remove(Key, ServerMap)}
-                    };
-                true ->
-                    NewPayload = <<Acc/binary, Payload/binary>>,
-                    case byte_size(NewPayload) > MaxBody of
-                        true ->
-                            {
-                                error,
-                                too_large_block1_reply(Msg, State),
-                                State#{server_rx_block1 => maps:remove(Key, ServerMap)}
-                            };
-                        false ->
-                            Tx2 = Tx#{
-                                payload => NewPayload,
-                                next_num => Expected + 1,
-                                expires_at => expires_at(State)
-                            },
-                            case try_put(server_rx_block1, Key, Tx2, State) of
-                                {ok, State1} when More ->
-                                    {continue, continue_reply(Msg, Num, Size), State1};
-                                {ok, State1} ->
-                                    Full = clear_block1(Msg#coap_message{payload = NewPayload}),
-                                    {complete, Full, State1#{
-                                        server_rx_block1 => maps:remove(
-                                            Key, maps:get(server_rx_block1, State1)
-                                        )
-                                    }};
-                                {error, _Reason} ->
-                                    {error, too_large_block1_reply(Msg, State), State#{
-                                        server_rx_block1 => maps:remove(Key, ServerMap)
-                                    }}
-                            end
-                    end
+            handle_next_server_block1(Num, More, Size, Msg, Key, Tx, Expected, TxSize, Acc, State)
+    end.
+
+handle_first_server_block1(More, Size, Msg, Key, ServerMap, State) ->
+    Payload = Msg#coap_message.payload,
+    Total = byte_size(Payload),
+    case
+        Total > max_body_size(State) orelse Total > max_total_size(State) orelse
+            size1_too_large(Msg, State)
+    of
+        true ->
+            {error, too_large_block1_reply(Msg, State), State};
+        false when not More ->
+            {complete, clear_block1(Msg), State#{
+                server_rx_block1 => maps:remove(Key, ServerMap)
+            }};
+        false ->
+            Tx = #{
+                payload => Payload,
+                next_num => 1,
+                size => Size,
+                req => Msg,
+                expires_at => expires_at(State)
+            },
+            case try_put(server_rx_block1, Key, Tx, State) of
+                {ok, State1} ->
+                    {continue, continue_reply(Msg, 0, Size), State1};
+                {error, too_many_exchanges} ->
+                    {error, busy_block1_reply(Msg), State};
+                {error, total_size_exhausted} ->
+                    {error, too_large_block1_reply(Msg, State), State}
+            end
+    end.
+
+handle_next_server_block1(Num, More, Size, Msg, Key, Tx, Expected, TxSize, Acc, State) ->
+    ServerMap = maps:get(server_rx_block1, State),
+    case Num =:= Expected andalso Size =:= TxSize of
+        false ->
+            {error, error_reply({error, request_entity_incomplete}, Msg), State#{
+                server_rx_block1 => maps:remove(Key, ServerMap)
+            }};
+        true ->
+            Payload = Msg#coap_message.payload,
+            NewPayload = <<Acc/binary, Payload/binary>>,
+            append_server_block1(Num, More, Size, Msg, Key, Tx, NewPayload, State)
+    end.
+
+append_server_block1(Num, More, Size, Msg, Key, Tx, NewPayload, State) ->
+    ServerMap = maps:get(server_rx_block1, State),
+    case byte_size(NewPayload) > max_body_size(State) of
+        true ->
+            {error, too_large_block1_reply(Msg, State), State#{
+                server_rx_block1 => maps:remove(Key, ServerMap)
+            }};
+        false ->
+            Tx2 = Tx#{
+                payload => NewPayload,
+                next_num => Num + 1,
+                expires_at => expires_at(State)
+            },
+            case try_put(server_rx_block1, Key, Tx2, State) of
+                {ok, State1} when More ->
+                    {continue, continue_reply(Msg, Num, Size), State1};
+                {ok, State1} ->
+                    Full = clear_block1(Msg#coap_message{payload = NewPayload}),
+                    {complete, Full, State1#{
+                        server_rx_block1 => maps:remove(
+                            Key, maps:get(server_rx_block1, State1)
+                        )
+                    }};
+                {error, _Reason} ->
+                    {error, too_large_block1_reply(Msg, State), State#{
+                        server_rx_block1 => maps:remove(Key, ServerMap)
+                    }}
             end
     end.
 
