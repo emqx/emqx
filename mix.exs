@@ -484,7 +484,8 @@ defmodule EMQXUmbrella.MixProject do
           :assemble,
           &create_RELEASES/1,
           &copy_files(&1, release_type, package_type, edition_type),
-          &compile_escript(&1, "nodetool"),
+          &copy_escript(&1, "nodetool", "nodetool.escript"),
+          &compile_escript(&1, "nodetool.escript", "nodetool"),
           &strip_dependency_beams/1,
           &cleanup_release_package/1
         ]
@@ -894,10 +895,9 @@ defmodule EMQXUmbrella.MixProject do
     release
   end
 
-  defp compile_escript(release, escript_name) do
-    release = copy_escript(release, escript_name)
-    path = Path.join([release.path, "bin", escript_name])
-    {:ok, sections} = :escript.extract(String.to_charlist(path), [:compile_source])
+  defp compile_escript(release, source_name, target_name) do
+    source_path = Path.join([release.path, "bin", source_name])
+    {:ok, sections} = :escript.extract(String.to_charlist(source_path), [:compile_source])
 
     sections =
       Enum.map(sections, fn
@@ -905,15 +905,16 @@ defmodule EMQXUmbrella.MixProject do
         section -> section
       end)
 
-    :ok = :escript.create(String.to_charlist(path), sections)
-    File.chmod!(path, 0o755)
+    compiled_path = Path.join([release.path, "bin", target_name])
+    :ok = :escript.create(String.to_charlist(compiled_path), sections)
+    File.chmod!(compiled_path, 0o755)
 
     release
   end
 
-  defp copy_escript(release, escript_name) do
+  defp copy_escript(release, source_name, target_name) do
     [shebang | lines] =
-      "bin/#{escript_name}"
+      "bin/#{source_name}"
       |> File.read!()
       |> String.split("\n")
 
@@ -935,8 +936,9 @@ defmodule EMQXUmbrella.MixProject do
           end)
       end
 
-    path = Path.join([release.path, "bin", escript_name])
+    path = Path.join([release.path, "bin", target_name])
     File.write!(path, Enum.join([shebang | lines], "\n"))
+    File.chmod!(path, 0o755)
 
     release
   end
