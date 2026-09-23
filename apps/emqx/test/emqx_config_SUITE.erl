@@ -587,6 +587,7 @@ zone_global_defaults() ->
             #{
                 await_rel_timeout => 300000,
                 exclusive_subscription => false,
+                hibernate_after => 5000,
                 idle_timeout => 15000,
                 ignore_loop_deliver => false,
                 keepalive_backoff => 0.75,

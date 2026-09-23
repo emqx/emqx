@@ -1355,6 +1355,17 @@ Note: Please set the parameter with caution as long idle time will lead to resou
 mqtt_idle_timeout.label:
 """Idle Timeout"""
 
+mqtt_hibernate_after.desc:
+"""Put an established connection into hibernation after this period without any activity.
+Hibernation runs a garbage collection and shrinks the process heap to the data still in use. This saves about 5 KB per idle connection.
+The connection wakes up on the next packet, message or timer.
+Raise this value when clients send data at intervals close to it. Each hibernation costs one garbage collection, and the heap grows again on wake-up.
+Set `infinity` to never hibernate.
+This setting does not affect how long a new connection may wait before it sends its CONNECT packet. That limit is `idle_timeout`."""
+
+mqtt_hibernate_after.label:
+"""Hibernate After"""
+
 fields_mqtt_quic_listener_conn_flow_control_window.desc:
 """Connection-wide flow control window. Default: 16777216"""
 
