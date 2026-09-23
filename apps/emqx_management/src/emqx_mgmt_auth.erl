@@ -460,6 +460,8 @@ maybe_set_scopes(Extra, Scopes) when is_list(Scopes) ->
 %%     dashboard-user default (`?NS_ADMIN_ALLOWED_SCOPES') minus the
 %%     login-only scopes, exactly as the global administrator default is
 %%     `?GENERIC_SCOPES' without the login-only scopes.
+%%   * namespaced viewer -> `?NS_VIEWER_ALLOWED_SCOPES', the same as the
+%%     namespaced dashboard-viewer default.
 %%   * publisher              -> `[<<"publish">>]' (the only scope the
 %%     publisher role is ever permitted to hold; runtime RBAC also
 %%     hard-restricts publisher to `/publish*' regardless of the stored
@@ -476,6 +478,8 @@ role_default_scopes(?ROLE_API_PUBLISHER, _Namespace) ->
     [?SCOPE_PUBLISH];
 role_default_scopes(?ROLE_API_SUPERUSER, Namespace) when is_binary(Namespace) ->
     ?NS_ADMIN_COMMON_SCOPES;
+role_default_scopes(_Role, Namespace) when is_binary(Namespace) ->
+    ?NS_VIEWER_ALLOWED_SCOPES;
 role_default_scopes(_Role, _Namespace) ->
     ?GENERIC_SCOPES.
 
