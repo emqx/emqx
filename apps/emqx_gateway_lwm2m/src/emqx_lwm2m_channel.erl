@@ -862,10 +862,11 @@ process_reply(
 
 schedule_blockwise_timer(#channel{timers = Timers, session = Session} = Channel, Immediate) ->
     OldRef = maps:get(blockwise_expire, Timers, undefined),
-    case OldRef of
-        undefined -> ok;
-        _ -> erlang:cancel_timer(OldRef)
-    end,
+    _ =
+        case OldRef of
+            undefined -> ok;
+            _ -> erlang:cancel_timer(OldRef)
+        end,
     Timers1 = maps:remove(blockwise_expire, Timers),
     case emqx_lwm2m_session:has_pending(Session) of
         false ->

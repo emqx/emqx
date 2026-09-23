@@ -442,11 +442,19 @@ t_channel_blockwise_followup_error(_) ->
     },
     {ok, [{outgoing, [Reply0]}], Channel2} = emqx_coap_channel:handle_in(Req0, Channel1),
     ?assertMatch({0, true, 16}, emqx_coap_message:get_option(block2, Reply0, undefined)),
-    FollowBad = Req0#coap_message{
+    FollowNegotiated = Req0#coap_message{
         id = 701,
-        options = (Req0#coap_message.options)#{block2 => {1, false, 32}}
+        options = (Req0#coap_message.options)#{block2 => {0, false, 32}}
     },
-    {ok, [{outgoing, [ReplyErr]}], _Channel3} = emqx_coap_channel:handle_in(FollowBad, Channel2),
+    {ok, [{outgoing, [Reply1]}], Channel3} = emqx_coap_channel:handle_in(
+        FollowNegotiated, Channel2
+    ),
+    ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block2, Reply1, undefined)),
+    FollowBad = FollowNegotiated#coap_message{
+        id = 702,
+        options = (Req0#coap_message.options)#{block2 => {1, false, 24}}
+    },
+    {ok, [{outgoing, [ReplyErr]}], _Channel4} = emqx_coap_channel:handle_in(FollowBad, Channel3),
     ?assertEqual({error, bad_option}, ReplyErr#coap_message.method).
 
 t_channel_blockwise_server_in_error(_) ->
