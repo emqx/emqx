@@ -143,7 +143,7 @@ on_query(InstId, {Channel, Message}, State) ->
                 #{batch => false, mode => sync, error => ErrorPoints}
             ),
             log_error_points(InstId, ErrorPoints),
-            {error, ErrorPoints}
+            unrecoverable_transformation_error(ErrorPoints)
     end.
 
 on_batch_query(InstId, [{Channel, _} | _] = BatchData, State) ->
@@ -190,13 +190,13 @@ on_query_async(InstId, {Channel, Message}, {ReplyFun, Args}, State) ->
                 #{points => Points, batch => false, mode => async}
             ),
             do_async_query(InstId, Channel, Client, Points, {ReplyFun, Args});
-        {error, ErrorPoints} = Err ->
+        {error, ErrorPoints} ->
             ?tp(
                 greptimedb_connector_send_query_error,
                 #{batch => false, mode => async, error => ErrorPoints}
             ),
             log_error_points(InstId, ErrorPoints),
-            Err
+            unrecoverable_transformation_error(ErrorPoints)
     end.
 
 on_batch_query_async(InstId, [{Channel, _} | _] = BatchData, {ReplyFun, Args}, State) ->
@@ -575,6 +575,9 @@ merge_batch_result(Result, BatchResults) ->
         BatchResults
     ).
 
+unrecoverable_transformation_error(ErrorPoints) ->
+    {error, {unrecoverable_error, ErrorPoints}}.
+
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans
 
@@ -928,9 +931,9 @@ integer_point_validation_test() ->
         #{value_data => {i64_value, 470}},
         maps:get(<<"e2e_delay">>, Fields)
     ),
+    InvalidErrorPoints = [{error, {invalid_integer_value, 470.5}}],
     ?assertEqual(
-        {error, [{error, {invalid_integer_value, 470.5}}]},
-        data_to_points(InvalidData, <<"public">>, SyntaxLines)
+        {error, InvalidErrorPoints}, data_to_points(InvalidData, <<"public">>, SyntaxLines)
     ),
     {ok, ValidPoints, BatchResults} =
         parse_batch_data(
@@ -965,6 +968,17 @@ integer_point_validation_test() ->
         client => unused,
         dbname => <<"public">>
     },
+    SingleInvalidResult = {error, {unrecoverable_error, InvalidErrorPoints}},
+    ?assertEqual(
+        SingleInvalidResult,
+        on_query(<<"connector:test">>, {channel, InvalidData}, State)
+    ),
+    ?assertEqual(
+        SingleInvalidResult,
+        on_query_async(
+            <<"connector:test">>, {channel, InvalidData}, ReplyFunAndArgs, State
+        )
+    ),
     ?assertEqual(
         [InvalidResult, InvalidResult],
         on_batch_query(<<"connector:test">>, AllInvalidBatch, State)

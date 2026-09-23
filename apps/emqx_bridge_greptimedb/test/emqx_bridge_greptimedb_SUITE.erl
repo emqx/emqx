@@ -1069,9 +1069,10 @@ t_bad_timestamp(Config) ->
                     );
                 {sync, false} ->
                     ?assertEqual(
-                        {error, [
-                            {error, {bad_timestamp, <<"bad_timestamp">>}}
-                        ]},
+                        {error,
+                            {unrecoverable_error, [
+                                {error, {bad_timestamp, <<"bad_timestamp">>}}
+                            ]}},
                         Return
                     );
                 {sync, true} ->
