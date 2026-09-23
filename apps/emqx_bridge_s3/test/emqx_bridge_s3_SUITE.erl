@@ -12,6 +12,8 @@
 -include_lib("snabbkaffe/include/test_macros.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 %% See `emqx_bridge_s3.hrl`.
 -define(ACTION_TYPE, <<"s3">>).
 -define(CONNECTOR_TYPE, <<"s3">>).
@@ -75,6 +77,8 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 connector_config(Name, _Config) ->
@@ -131,6 +135,11 @@ action_config(Name, ConnectorId) ->
                 <<"worker_pool_size">> => <<"4">>
             }
         }
+    ).
+
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
     ).
 
 t_start_stop(Config) ->
@@ -254,3 +263,38 @@ t_query_retry_recoverable(Config) ->
         #{content := Payload},
         maps:from_list(erlcloud_s3:get_object(Bucket, Topic, AwsConfig))
     ).
+
+-doc """
+Smoke test for handling non-successful HTTP responses without any bodies.
+
+Before the fix, `emqx_s3_utils:map_error_details` would crash on the `undefined` body.
+""".
+t_http_error_no_body(TCConfig) ->
+    on_exit(fun() -> ok = emqx_utils_http_test_server:stop() end),
+    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/", false),
+    emqx_utils_http_test_server:set_handler(
+        fun(Req, State) ->
+            Rep =
+                cowboy_req:reply(
+                    307,
+                    #{
+                        <<"content-type">> => <<"application/xml">>,
+                        <<"location">> => <<"https://xxx.s3-sa-east-1.amazonaws.com/xxx">>
+                    },
+                    <<"">>,
+                    Req
+                ),
+            {ok, Rep, State}
+        end
+    ),
+    ?assertMatch(
+        {201, #{
+            ~"status" := ~"disconnected",
+            ~"status_reason" := ~"AWS error: response status 307 and no body"
+        }},
+        create_connector_api(TCConfig, #{
+            ~"host" => ~"127.0.0.1",
+            ~"port" => Port
+        })
+    ),
+    ok.
