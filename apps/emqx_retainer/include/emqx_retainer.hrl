@@ -5,6 +5,7 @@
 -define(EMQX_RETAINER_HRL, true).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 
 -define(APP, emqx_retainer).
 -define(TAB_MESSAGE, emqx_retainer_message).
@@ -17,5 +18,7 @@
 -define(PUBLISHER_LIMITER_NAME, publisher).
 
 -define(DISPATCHER_POOL, emqx_retainer_dispatcher).
+
+-define(DS, ?RETAINED_MESSAGES_DB).
 
 -endif.
