@@ -34,6 +34,7 @@ groups() ->
             t_handler_scopes_no_cache,
             t_classify_handler,
             t_multi_scope_handler,
+            t_authorize_denied_handler,
             t_validate_scopes,
             t_validate_scopes_bad_input,
             t_is_denied_scope,
@@ -47,7 +48,6 @@ groups() ->
             t_authorize_with_scopes,
             t_authorize_no_scopes,
             t_authorize_empty_scopes,
-            t_authorize_denied_handler,
             t_check_scopes_unmapped_handler
         ]},
         {api_tests, [parallel], [
@@ -575,7 +575,8 @@ A handler that maps to `?SCOPE_DENIED' is rejected for every API key,
 with or without an explicit scope list. The sentinel is declared by
 the SSO public-flow modules (OIDC callback, SAML ACS, SSO MFA setup),
 which are not in this test app's dependency graph, so a synthetic
-cache injects one.
+cache injects one. The synthetic cache replaces the shared one for the
+duration of the case, so the case must not run in a parallel group.
 """.
 t_authorize_denied_handler(_Config) ->
     DeniedHandler = #{method => get, module => test_denied_module, function => test_denied},
