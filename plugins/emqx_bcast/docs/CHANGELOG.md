@@ -2,6 +2,33 @@
 
 All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
+## Unreleased
+
+A follow-up to 0.4.1 for the subscription hooks.
+
+### Fixed
+
+- **A client reconnect can no longer turn a QoS=1 delivery into a QoS 0 one.**
+  EMQX records a subscription in two steps — the subscriber's topic list first,
+  its options second — and a read in between returns the topic without any
+  options. The plugin read a missing QoS as `0`, so a delivery claimed inside
+  that window was published at QoS 0 and self-acknowledged: the device was never
+  asked for a PUBACK, and that one message had no retransmission behind it. A
+  missing QoS is now read as "not QoS 0": the plugin keeps the QoS it last knew
+  for that filter, and a resumed session no longer clears the filters it knew
+  when a re-sync comes back without options. Seen in an 800k-device backlog run
+  as 1 of 8,000,000 messages (3 of 16,000,000 over two runs), where
+  `messages.qos0.sent` and `batch_pub_qos1_auto_acked` both showed that number
+  while `batch_pub_qos0_in` stayed 0.
+- The plugin no longer uses the pre-commit `client.subscribe` and
+  `client.unsubscribe` hooks. They ran before the change they describe was
+  visible: the subscribe hook opened a claim round that could only come back
+  empty, and the unsubscribe hook released every unacknowledged delivery and
+  dropped the client's cached filters, so unsubscribing from one filter could
+  make an in-flight message be delivered again. The post-commit
+  `session.subscribed` / `session.unsubscribed` hooks cache and drop filters and
+  re-arm the client, and `session.resumed` re-syncs a restored session.
+
 ## 0.4.1
 
 A reliability release for QoS=1 batch publish and broadcast. Durable

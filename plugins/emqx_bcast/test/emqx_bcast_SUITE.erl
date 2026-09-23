@@ -2419,6 +2419,13 @@ ack_counter(Did) ->
 state_tab(PK, DN) ->
     emqx_bcast_pull_shard:tab(emqx_bcast_pull_shard:shard_of(PK, DN), bcast_client_state).
 
+%% The filters cached on a client row (empty when there is no row).
+row_topics_of(PK, DN) ->
+    case catch ets:lookup(state_tab(PK, DN), {PK, DN}) of
+        [Row] -> element(8, Row);
+        _ -> []
+    end.
+
 seed_window(PK, DN, DeliveryId, true) ->
     seed_window(PK, DN, DeliveryId, {true, erlang:system_time(millisecond)});
 seed_window(PK, DN, DeliveryId, AckInFlight) ->
@@ -2630,13 +2637,81 @@ t_metrics_claim_holder_node_down_reclaim(_Config) ->
     ]),
     ?assertEqual(DeliveryId, maps:get(delivery_id, M)).
 
+-doc "A subscription whose options the caller did not provide is not a QoS 0\n"
+"subscription. EMQX records a subscription in two steps (the subscriber's topic\n"
+"list first, the options second), so a read can see a topic with empty options;\n"
+"recording that as QoS 0 sends the device's QoS=1 deliveries out as QoS 0, with\n"
+"no PUBACK and no retransmission. The cached filter must keep what it knew.".
+t_session_subscribed_without_qos_is_not_qos0(_Config) ->
+    PK = <<"PUNKQOS">>,
+    DN = <<"DUNKQOS">>,
+    Filter = <<"/PUNKQOS/DUNKQOS/user/get">>,
+    ClientInfo = #{clientid => DN, client_attrs => #{<<"tns">> => PK}},
+    _ = emqx_bcast:register_device(PK, DN, self()),
+    %% The row as a QoS=1 subscription leaves it.
+    ets:insert(state_tab(PK, DN), #bcast_client_state{
+        key = {PK, DN},
+        product_key = PK,
+        clientid = DN,
+        pid = self(),
+        topics = [{Filter, 1}]
+    }),
+    ok = emqx_bcast:on_session_subscribed(ClientInfo, Filter, #{}),
+    ok = emqx_bcast:on_session_subscribed(ClientInfo, Filter, #{nl => 0}),
+    _ = sys:get_state(emqx_bcast_pull_shard:shard_name(emqx_bcast_pull_shard:shard_of(PK, DN))),
+    ?assertEqual([{Filter, 1}], row_topics_of(PK, DN)),
+    %% A well-formed subscribe still updates the cache.
+    ok = emqx_bcast:on_session_subscribed(ClientInfo, Filter, #{qos => 0}),
+    _ = sys:get_state(emqx_bcast_pull_shard:shard_name(emqx_bcast_pull_shard:shard_of(PK, DN))),
+    ?assertEqual([{Filter, 0}], row_topics_of(PK, DN)),
+    cleanup_row(PK, DN),
+    emqx_bcast:unregister_device(PK, DN, self()).
+
+-doc "A resumed session re-syncs its cached filters from EMQX's tables. A read\n"
+"that catches the broker between its two writes (the topic is listed, the\n"
+"options are not) must not drop the client's known-good filters: the last QoS\n"
+"the plugin knew is the best answer, and an empty cache would stall the device's\n"
+"backlog until its next subscribe.".
+t_resume_resync_keeps_filters_when_qos_is_unknown(_Config) ->
+    PK = <<"PRESYNC">>,
+    DN = <<"DRESYNC">>,
+    Filter = <<"/PRESYNC/DRESYNC/user/get">>,
+    Name = emqx_bcast_pull_shard:shard_name(emqx_bcast_pull_shard:shard_of(PK, DN)),
+    _ = emqx_bcast:register_device(PK, DN, self()),
+    ets:insert(state_tab(PK, DN), #bcast_client_state{
+        key = {PK, DN},
+        product_key = PK,
+        clientid = DN,
+        pid = self(),
+        topics = [{Filter, 1}]
+    }),
+    meck:new(emqx_broker, [passthrough, no_link]),
+    try
+        %% The tearing shape: the topic is there, its options are not.
+        meck:expect(emqx_broker, subscriptions, fun(_Pid) -> [{Filter, #{}}] end),
+        gen_server:cast(Name, {resume, DN, self(), PK}),
+        _ = sys:get_state(Name),
+        ?assertEqual([{Filter, 1}], row_topics_of(PK, DN)),
+        %% When the options are visible again the resync takes over.
+        meck:expect(emqx_broker, subscriptions, fun(_Pid) -> [{Filter, #{qos => 0}}] end),
+        gen_server:cast(Name, {resume, DN, self(), PK}),
+        _ = sys:get_state(Name),
+        ?assertEqual([{Filter, 0}], row_topics_of(PK, DN))
+    after
+        meck:unload(emqx_broker)
+    end,
+    cleanup_row(PK, DN),
+    emqx_bcast:unregister_device(PK, DN, self()).
+
 -doc "While an ack is in flight (ack-in-flight marker set), a subscribe\n"
 "trigger for that client must not stage a want_next (pull returns no_more).".
 t_pull_ack_in_flight_gates_subscribe_trigger(_Config) ->
     PK = <<"PGATE_S">>,
     DN = <<"DGATE_S">>,
     seed_window(PK, DN, emqx_bcast_utils:gen_guid(), true),
-    emqx_bcast_pull_shard:cast_client(PK, DN, {subscribe, DN, self(), PK}),
+    %% A matching filter now exists (production path: session.subscribed), so
+    %% only the ack-in-flight gate can keep the round from being opened.
+    emqx_bcast_pull_shard:cast_client(PK, DN, {topic_added, DN, self(), PK, <<"#">>, 1}),
     timer:sleep(100),
     %% nothing claimed while the window is full (window=1) and the
     %% delivery is ack-in-flight
@@ -2762,7 +2837,7 @@ t_pull_claim_refused_at_cap_is_retried_by_sweep(_Config) ->
     _ = emqx_bcast:register_device(PK, DN, self()),
     %% Saturate the cap so the subscribe claim has to be refused.
     true = ets:insert(Cnt, {claim, 2000}),
-    emqx_bcast_pull_shard:cast_client(PK, DN, {subscribe, DN, self(), PK}),
+    emqx_bcast_pull_shard:cast_client(PK, DN, {topic_added, DN, self(), PK, <<"#">>, 1}),
     _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
     %% Refused, but remembered on the row itself: no round was opened, and the
     %% client carries the deferred-claim mark the sweep will revisit. The row

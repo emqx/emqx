@@ -412,18 +412,48 @@ cached_topics(Shard, #{clientid := ClientId, product_key := ProductKey, pid := P
             subscription_topics(Pid)
     end.
 
+%% Filters to keep for a resumed session. When the live read yields nothing
+%% usable - the options of every filter are missing, which is the shape a read
+%% during the broker's two-step subscription record takes - the filters this
+%% client already had are kept instead of being replaced by an empty list: the
+%% last known QoS is the best answer available, and dropping to "no filters"
+%% would stall the device's backlog until its next subscribe.
+resynced_topics(Pid, PrevTopics) ->
+    case subscription_topics(Pid) of
+        [] -> PrevTopics;
+        Topics -> Topics
+    end.
+
 %% [{TopicFilter, Qos}] from EMQX's own subscription tables for a channel
 %% pid. Used only to re-sync the cache on session resume, when the restored
 %% subscriptions do not re-fire session.subscribed.
+%%
+%% A subscription whose options are not visible yet (EMQX writes the topic list
+%% first and the options second, and emqx_broker:subscriptions/1 fills the gap
+%% with an empty map) is skipped rather than read as QoS 0 - see
+%% emqx_bcast_utils:sub_qos/1 for why that matters.
 subscription_topics(Pid) ->
     case is_process_alive(Pid) of
         false ->
             [];
         true ->
-            [
-                {Filter, maps:get(qos, SubOpts, 0)}
-             || {Filter, SubOpts} <- emqx_broker:subscriptions(Pid)
-            ]
+            lists:filtermap(
+                fun({Filter, SubOpts}) ->
+                    case emqx_bcast_utils:sub_qos(SubOpts) of
+                        {ok, Qos} ->
+                            {true, {Filter, Qos}};
+                        unknown ->
+                            ?SLOG(warning, #{
+                                msg => "bcast_subscription_qos_unknown",
+                                pid => Pid,
+                                topic => Filter,
+                                subopts => SubOpts
+                            }),
+                            false
+                    end
+                end,
+                emqx_broker:subscriptions(Pid)
+            )
     end.
 
 %% Add or replace one cached subscription filter (keyed on the filter).
@@ -665,9 +695,6 @@ handle_cast({client_connected, ClientId, Pid, ProductKey}, State) ->
 handle_cast({client_disconnected, ClientId, Pid, ProductKey}, State) ->
     cleanup_client(ClientId, Pid, ProductKey, State),
     {noreply, State};
-handle_cast({subscribe, ClientId, Pid, ProductKey}, State) ->
-    emqx_bcast:register_device(ProductKey, ClientId, Pid),
-    {noreply, maybe_claim(ProductKey, ClientId, Pid, State)};
 handle_cast({topic_added, ClientId, Pid, ProductKey, TopicFilter, Qos}, State) ->
     %% session.subscribed fired (post-commit): cache the filter so the
     %% claim path no longer reads emqx_broker:subscriptions/1 per claim.
@@ -716,29 +743,15 @@ handle_cast({resume, ClientId, Pid, ProductKey}, State) ->
         [#bcast_client_state{} = Row] ->
             row_put(
                 Shard,
-                Row#bcast_client_state{pid = Pid, topics = subscription_topics(Pid)}
+                Row#bcast_client_state{
+                    pid = Pid,
+                    topics = resynced_topics(Pid, Row#bcast_client_state.topics)
+                }
             );
         [] ->
             ensure_row(ProductKey, ClientId, Pid, Shard)
     end,
     {noreply, maybe_claim(ProductKey, ClientId, Pid, State)};
-handle_cast({unsubscribe, ClientId, _Pid, ProductKey}, State) ->
-    %% The client is no longer subscribed: release every unacked delivery
-    %% instead of leaving it in the window until the 60s lease or a
-    %% disconnect. The core entries go back to stored and can be claimed
-    %% again if the client resubscribes.
-    Shard = State#state.shard,
-    case ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}) of
-        [#bcast_client_state{} = Row] ->
-            Release = [
-                {ProductKey, ClientId, Did}
-             || {Did, false} <- Row#bcast_client_state.inflight
-            ],
-            State1 = release_claims_later(State, Release),
-            {noreply, row_delete(State1, Row)};
-        [] ->
-            {noreply, State}
-    end;
 handle_cast({ping, ClientId, Pid, ProductKey}, State) ->
     %% Keepalive pings refresh the device registry only; they must NOT
     %% claim a want_next. At 800k online devices every keepalive would

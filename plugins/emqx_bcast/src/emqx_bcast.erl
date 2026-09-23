@@ -20,8 +20,6 @@
     lookup_devices_by_product/1,
     on_client_connected/2,
     on_client_disconnected/3,
-    on_client_subscribe/3,
-    on_client_unsubscribe/3,
     on_session_subscribed/3,
     on_session_unsubscribed/3,
     on_session_resumed/2,
@@ -131,8 +129,6 @@ rpc_core_cast(Mod, Fun, Args) ->
 hook() ->
     ok = emqx_hooks:put('client.connected', {?MODULE, on_client_connected, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('client.disconnected', {?MODULE, on_client_disconnected, []}, ?HP_HIGHEST),
-    ok = emqx_hooks:put('client.subscribe', {?MODULE, on_client_subscribe, []}, ?HP_HIGHEST),
-    ok = emqx_hooks:put('client.unsubscribe', {?MODULE, on_client_unsubscribe, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_HIGHEST),
     ok = emqx_hooks:put(
         'session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_HIGHEST
@@ -145,8 +141,6 @@ hook() ->
 unhook() ->
     ok = emqx_hooks:del('client.connected', {?MODULE, on_client_connected}),
     ok = emqx_hooks:del('client.disconnected', {?MODULE, on_client_disconnected}),
-    ok = emqx_hooks:del('client.subscribe', {?MODULE, on_client_subscribe}),
-    ok = emqx_hooks:del('client.unsubscribe', {?MODULE, on_client_unsubscribe}),
     ok = emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     ok = emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     ok = emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
@@ -633,42 +627,34 @@ on_client_disconnected(ClientInfo, _Reason, _ConnInfo) ->
     end),
     ok.
 
--spec on_client_subscribe(map(), term(), term()) -> term().
-on_client_subscribe(ClientInfo, _Properties, TopicFilters) ->
-    safe_hook(fun() ->
-        #{clientid := ClientId} = ClientInfo,
-        Pid = self(),
-        ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_shard:cast_client(
-            ProductKey, ClientId, {subscribe, ClientId, Pid, ProductKey}
-        )
-    end),
-    TopicFilters.
-
--spec on_client_unsubscribe(map(), term(), term()) -> term().
-on_client_unsubscribe(ClientInfo, _Properties, TopicFilters) ->
-    safe_hook(fun() ->
-        #{clientid := ClientId} = ClientInfo,
-        Pid = self(),
-        ProductKey = get_product_key(ClientInfo),
-        emqx_bcast_pull_shard:cast_client(
-            ProductKey, ClientId, {unsubscribe, ClientId, Pid, ProductKey}
-        )
-    end),
-    TopicFilters.
-
 -spec on_session_subscribed(map(), emqx_types:topic() | emqx_types:share(), map()) -> ok.
 on_session_subscribed(ClientInfo, TopicFilter, SubOpts) ->
     safe_hook(fun() ->
         #{clientid := ClientId} = ClientInfo,
         Pid = self(),
         ProductKey = get_product_key(ClientInfo),
-        Qos = maps:get(qos, SubOpts, 0),
-        emqx_bcast_pull_shard:cast_client(
-            ProductKey,
-            ClientId,
-            {topic_added, ClientId, Pid, ProductKey, TopicFilter, Qos}
-        )
+        %% A subscription whose options the caller did not provide is not a
+        %% QoS 0 subscription: see emqx_bcast_utils:sub_qos/1. Leave the cached
+        %% filter as it is (the claim path then keeps using the last QoS it
+        %% knew) instead of recording a 0 that would send a QoS=1 delivery out
+        %% as QoS 0.
+        case emqx_bcast_utils:sub_qos(SubOpts) of
+            {ok, Qos} ->
+                emqx_bcast_pull_shard:cast_client(
+                    ProductKey,
+                    ClientId,
+                    {topic_added, ClientId, Pid, ProductKey, TopicFilter, Qos}
+                );
+            unknown ->
+                ?SLOG(warning, #{
+                    msg => "bcast_subscription_qos_unknown",
+                    clientid => ClientId,
+                    product_key => ProductKey,
+                    topic => TopicFilter,
+                    subopts => SubOpts
+                }),
+                ok
+        end
     end),
     ok.
 

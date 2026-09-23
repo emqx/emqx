@@ -23,7 +23,8 @@
     cancel_timer/1,
     ensure_ets/2,
     api_budget_ms/0,
-    api_rpc_timeout_ms/0
+    api_rpc_timeout_ms/0,
+    sub_qos/1
 ]).
 
 -include("emqx_bcast.hrl").
@@ -67,6 +68,25 @@ api_gateway_budget_ms() ->
 -spec api_rpc_timeout_ms() -> pos_integer().
 api_rpc_timeout_ms() ->
     max(500, api_budget_ms() - ?API_BUDGET_MARGIN_MS).
+
+%% The QoS of a subscription, or `unknown` when the caller did not say.
+%%
+%% EMQX records a subscription in two steps - it inserts the subscriber's topic
+%% list first and the subscription options second - so a reader can legitimately
+%% see a topic whose options are not there yet (`emqx_broker:subscriptions/1`
+%% fills the gap with `#{}`). Reading that as QoS 0 would throw away the
+%% delivery guarantee of a QoS=1 batch: the plugin would publish that message at
+%% QoS 0 and self-acknowledge it, so the device is never asked for a PUBACK and
+%% the message is never retransmitted. Callers must treat `unknown` as "not QoS
+%% 0" - keep what they knew before rather than cache a 0.
+-spec sub_qos(map()) -> {ok, 0..2} | unknown.
+sub_qos(SubOpts) when is_map(SubOpts) ->
+    case maps:find(qos, SubOpts) of
+        {ok, Qos} when Qos =:= 0; Qos =:= 1; Qos =:= 2 -> {ok, Qos};
+        _ -> unknown
+    end;
+sub_qos(_Other) ->
+    unknown.
 
 -spec gen_guid() -> binary().
 gen_guid() ->
