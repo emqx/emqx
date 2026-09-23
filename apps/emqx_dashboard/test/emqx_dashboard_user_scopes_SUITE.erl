@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 %%
 %% Coverage for dashboard login user scope checking
-%% (emqx_dashboard_rbac:check_login_user_scopes/2) and the MFA
+%% (emqx_dashboard_rbac:check_login_user_scopes/3) and the MFA
 %% self-lock matrix (emqx_dashboard_api:authorize_mfa_change/3).
 %%
 %% MFA self-lock decision matrix:
@@ -1390,7 +1390,7 @@ t_self_disable_does_not_touch_admin_override(_Config) ->
     ok = emqx_dashboard_admin:disable_mfa(<<"u">>, _ByAdmin = false),
     ?assertEqual(?ADMIN_MFA_REQUIRED, emqx_dashboard_admin:admin_override_of(<<"u">>)).
 
-%% NOTE: scope-deny path coverage for emqx_dashboard_rbac:check_login_user_scopes/2
+%% NOTE: scope-deny path coverage for emqx_dashboard_rbac:check_login_user_scopes/3
 %% lives in apps/emqx_dashboard_rbac/test/emqx_dashboard_rbac_SUITE.erl,
 %% because emqx_dashboard does not depend on emqx_dashboard_rbac and the
 %% predicate is not loadable from this SUITE's app graph.

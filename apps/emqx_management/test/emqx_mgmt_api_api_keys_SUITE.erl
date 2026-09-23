@@ -634,22 +634,22 @@ t_bootstrap_file_lenient_order_independence(_) ->
 
 t_bootstrap_file_scope_runtime_check(_) ->
     File = "./bootstrap_api_keys.txt",
-    %% Sanity-check that the path-to-scope cache is populated for the
-    %% endpoints we exercise below — otherwise `path_to_scopes/1' returns
-    %% `undefined' and `check_path_in_scopes/2' would silently allow
-    %% access regardless of the scope list, turning this test green for
-    %% the wrong reason.
+    %% Sanity-check that the scope cache is populated for the handlers
+    %% we exercise below — otherwise `handler_scopes/1' returns
+    %% `undefined' and `check_scopes/2' would silently allow access
+    %% regardless of the scope list, turning this test green for the
+    %% wrong reason.
     ?assertEqual(
         [?SCOPE_CONNECTIONS],
-        emqx_mgmt_api_key_scopes:path_to_scopes(<<"/banned">>)
+        emqx_mgmt_api_key_scopes:handler_scopes({emqx_mgmt_api_banned, banned})
     ),
     ?assertEqual(
         [?SCOPE_PUBLISH],
-        emqx_mgmt_api_key_scopes:path_to_scopes(<<"/publish">>)
+        emqx_mgmt_api_key_scopes:handler_scopes({emqx_mgmt_api_publish, publish})
     ),
     ?assertEqual(
         [?SCOPE_SYSTEM],
-        emqx_mgmt_api_key_scopes:path_to_scopes(<<"/status">>)
+        emqx_mgmt_api_key_scopes:handler_scopes({emqx_mgmt_api_status, get_status})
     ),
 
     %% A single key scoped to `connections`. Endpoints that map to OTHER scopes
@@ -721,16 +721,15 @@ t_bootstrap_file_scope_runtime_check(_) ->
         {error, {unauthorized_role, _}},
         auth_authorize(StatusPath, <<"scope-empty">>, <<"secret-3">>)
     ),
-    %% Unmapped path: there should not be any in the management app at the
-    %% time this suite starts, but if `path_to_scopes/1' returns `undefined'
-    %% for a path the key with `scopes=[]' is allowed to reach it. We test
-    %% that contract directly:
+    %% Unmapped handler: there should not be any in the management app
+    %% at the time this suite starts, but if `handler_scopes/1' returns
+    %% `undefined' for a handler the key with `scopes=[]' is allowed to
+    %% reach it. We test that contract directly:
     ?assertEqual(
         ok,
         emqx_mgmt_auth:check_scopes(
             #{role => ?ROLE_API_SUPERUSER, scopes => []},
-            <<"/an_unmapped_path_for_test">>,
-            <<"GET">>
+            #{method => get, module => no_such_api_module, function => no_such_function}
         )
     ),
     ok.
@@ -739,19 +738,26 @@ auth_authorize(Path, Key, Secret) ->
     FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
     FakeReq = #{method => <<"GET">>, path => FakePath},
     %% minirest provides HandlerInfo as a map with path/method/module/function.
-    %% Strip the /api/v5 prefix so the path matches paths/0 route templates.
+    %% The scope check keys on `module' and `function', the handler
+    %% cowboy dispatched to; `path' is the route template minirest
+    %% would carry for it.
     RelPath =
         case emqx_dashboard_swagger:get_relative_uri(Path) of
             {ok, Rel} -> binary_to_list(Rel);
             _ -> binary_to_list(Path)
         end,
+    {Module, Function} = handler_for(RelPath),
     HandlerInfo = #{
         method => get,
-        module => emqx_mgmt_api_status,
-        function => get_status,
+        module => Module,
+        function => Function,
         path => RelPath
     },
     emqx_mgmt_auth:authorize(HandlerInfo, FakeReq, Key, Secret).
+
+handler_for("/status") -> {emqx_mgmt_api_status, get_status};
+handler_for("/banned") -> {emqx_mgmt_api_banned, banned};
+handler_for("/publish") -> {emqx_mgmt_api_publish, publish}.
 
 update_file(File) ->
     ?assertMatch({ok, _}, emqx:update_config([<<"api_key">>], #{<<"bootstrap_file">> => File})).
@@ -1590,7 +1596,7 @@ t_ee_publisher_update_rejects_explicit_non_publish(_Config) ->
 %% scopes, even when the API key's generated `api_key' string happens
 %% to collide with a dashboard username. Prior to the fix,
 %% emqx_dashboard_rbac:check_rbac/3 unconditionally invoked
-%% check_login_user_scopes/2 after the role check, so a colliding
+%% check_login_user_scopes/3 after the role check, so a colliding
 %% admin record's empty extra.scopes would falsely deny the API key.
 %%
 %% Construction: create the API key first, then back-add a dashboard

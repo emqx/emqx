@@ -15,8 +15,6 @@
 %% `emqx_plugins` does not depend on `emqx_dashboard` at compile time,
 %% so the role constant is spelled out rather than included.
 -define(ADMIN_ROLE, <<"administrator">>).
--define(GATEWAY_TEMPLATE, <<"/plugin_api/:plugin/[...]">>).
--define(GATEWAY_PATH, <<"/plugin_api/fake/ping">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -28,7 +26,7 @@ init_per_suite(Config) ->
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard(),
             %% Needed by the login-user scope tests, which call
-            %% `emqx_dashboard_rbac:check_login_user_scopes/2' directly.
+            %% `emqx_dashboard_rbac:check_login_user_scopes/3' directly.
             emqx_dashboard_rbac
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -150,21 +148,17 @@ t_plugin_api_path_remainder_is_percent_decoded(_Config) ->
 %%--------------------------------------------------------------------
 
 -doc """
-The gateway route declares both `plugin_api' and `system', and the
-route template and a concrete request path must resolve to the same
-pair. The API-key check looks the template up; the login-user check
-looks a concrete path up. If the two disagree the scope gate is
-enforced on only one of them.
+The gateway declares both `plugin_api' and `system', and the scope
+cache resolves the gateway handler to that pair. The handler is the
+`{module, function}' minirest puts in every request's `HandlerInfo',
+so both the API-key check and the login-user check look up the same
+key and cannot disagree about the endpoint.
 """.
 t_gateway_declares_both_scopes(_Config) ->
     ?assertEqual([?SCOPE_PLUGIN_API, ?SCOPE_SYSTEM], emqx_plugins_api_endpoint:scopes()),
-    Expected = [?SCOPE_PLUGIN_API, ?SCOPE_SYSTEM],
-    ?assertEqual(Expected, emqx_mgmt_api_key_scopes:path_to_scopes(?GATEWAY_TEMPLATE)),
-    ?assertEqual(Expected, emqx_mgmt_api_key_scopes:path_to_scopes(?GATEWAY_PATH)),
-    %% The catch-all covers an empty and a multi-segment remainder too.
-    ?assertEqual(Expected, emqx_mgmt_api_key_scopes:path_to_scopes(<<"/plugin_api/fake">>)),
     ?assertEqual(
-        Expected, emqx_mgmt_api_key_scopes:path_to_scopes(<<"/plugin_api/fake/a/b/c">>)
+        [?SCOPE_PLUGIN_API, ?SCOPE_SYSTEM],
+        emqx_mgmt_api_key_scopes:handler_scopes(gateway_handler())
     ).
 
 -doc """
@@ -198,8 +192,8 @@ t_gateway_denied_without_either_scope(_Config) ->
     end).
 
 -doc """
-The login-user scope check runs on concrete request paths through
-`emqx_dashboard_rbac', separately from the API-key check. Both the new
+The login-user scope check runs through `emqx_dashboard_rbac',
+separately from the API-key check. Both the new
 scope and the legacy `system' scope must grant the gateway there, and
 neither may grant it to a user holding some other scope.
 """.
@@ -214,7 +208,9 @@ t_gateway_login_user_scopes(_Config) ->
             with_login_user(Username, Scopes, fun() ->
                 ?assertEqual(
                     Expected,
-                    emqx_dashboard_rbac:check_login_user_scopes(Username, ?GATEWAY_PATH),
+                    emqx_dashboard_rbac:check_login_user_scopes(
+                        Username, gateway_req(), gateway_handler()
+                    ),
                     #{username => Username, scopes => Scopes}
                 )
             end)
@@ -226,7 +222,9 @@ t_gateway_login_user_scopes(_Config) ->
     with_login_user(<<"plugin_api_user2">>, [?SCOPE_PLUGIN_API], fun() ->
         ?assertNot(
             emqx_dashboard_rbac:check_login_user_scopes(
-                <<"plugin_api_user2">>, <<"/configs">>
+                <<"plugin_api_user2">>,
+                #{bindings => #{}},
+                #{method => get, module => emqx_mgmt_api_configs, function => configs}
             )
         )
     end).
@@ -237,6 +235,14 @@ t_gateway_login_user_scopes(_Config) ->
 
 gateway_url() ->
     ?SERVER ++ "/plugin_api/fake/ping".
+
+%% The gateway's HandlerInfo as minirest passes it to the authorize
+%% callback, and a request with the binding cowboy decodes for it.
+gateway_handler() ->
+    #{method => get, module => emqx_plugins_api_endpoint, function => gateway}.
+
+gateway_req() ->
+    #{bindings => #{plugin => <<"fake">>}}.
 
 mock_plugin_ok() ->
     meck:expect(

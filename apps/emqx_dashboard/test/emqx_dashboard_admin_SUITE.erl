@@ -197,9 +197,17 @@ umbrella_apps() ->
         end
     ].
 
+%% Every authorized handler of the loaded API modules. Routes declared
+%% `security => []' never reach the authorize callback, so they are no
+%% permission surface and are left out. Test-only minirest modules
+%% (`*_SUITE') are left out too: they declare no scopes.
 all_handlers() ->
     AllMethods = [get, post, put, delete],
-    Mods = minirest_api:find_api_modules(umbrella_apps()),
+    Mods = [
+        Mod
+     || Mod <- minirest_api:find_api_modules(umbrella_apps()),
+        not lists:suffix("_SUITE", atom_to_list(Mod))
+    ],
     lists:flatmap(
         fun(Mod) ->
             Paths = Mod:paths(),
@@ -208,7 +216,9 @@ all_handlers() ->
                     #{'operationId' := Fn} = Sc = Mod:schema(Path),
                     [
                         #{method => M, module => Mod, function => Fn}
-                     || M <- maps:keys(Sc), lists:member(M, AllMethods)
+                     || M <- maps:keys(Sc),
+                        lists:member(M, AllMethods),
+                        maps:get(security, maps:get(M, Sc), undefined) =/= []
                     ]
                 end,
                 Paths

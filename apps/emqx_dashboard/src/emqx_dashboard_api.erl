@@ -52,7 +52,7 @@ api_spec() ->
 %% API key auth is rejected at the minirest layer for these paths
 %% (security => [#{bearerAuth => []}] excludes basic auth). The scope
 %% map below applies to dashboard LOGIN users -- checked in
-%% emqx_dashboard_rbac:check_login_user_scopes/2.
+%% emqx_dashboard_rbac:check_login_user_scopes/3.
 %%
 %% ?SCOPE_PUBLIC marks paths that are intentionally unscoped:
 %%   * /login -- pre-login (security => []).
