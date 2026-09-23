@@ -28,7 +28,8 @@
     t_direct_publish_topic_mismatch,
     t_direct_publish_persist_error,
     t_direct_publish_create_race,
-    t_direct_publish_invalid_topic
+    t_direct_publish_invalid_topic,
+    t_direct_publish_target_topic_authz
 ]).
 
 all() ->
@@ -281,6 +282,71 @@ t_direct_publish_invalid_topic(Config) ->
     ),
     ok = emqtt:disconnect(C).
 
+%% Direct publishes require permission on both topics and must not create denied queues.
+t_direct_publish_target_topic_authz(Config) ->
+    ok = emqx_hooks:put(
+        'client.authorize', {?MODULE, direct_publish_authorize, []}, ?HP_AUTHZ
+    ),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_hooks:del('client.authorize', {?MODULE, direct_publish_authorize})
+    end),
+    DenyAction = emqx:get_config([authorization, deny_action]),
+    emqx_config:put([authorization, deny_action], ignore),
+    emqx_common_test_helpers:on_exit(fun() ->
+        emqx_config:put([authorization, deny_action], DenyAction)
+    end),
+    MQ = direct_publish_queue(<<"denied">>, <<"denied/topic">>, Config),
+    _ = direct_publish_queue(<<"allowed">>, <<"allowed/topic">>, Config),
+    _ = direct_publish_queue(<<"blocked">>, <<"allowed/topic">>, Config),
+    C0 = direct_publish_client(),
+    ?assertMatch({ok, #{reason_code := ?RC_SUCCESS}}, direct_publish(C0, <<"denied">>, 1)),
+    ok = emqtt:disconnect(C0),
+    set_target_topic_authz(true),
+    direct_publish_auto_create(true, Config),
+    C = direct_publish_client(),
+    ?assertEqual(ok, direct_publish(C, <<"denied">>, 0)),
+    lists:foreach(
+        fun(QoS) ->
+            lists:foreach(
+                fun(Suffix) ->
+                    ?assertMatch(
+                        {ok, #{reason_code := ?RC_NOT_AUTHORIZED}}, direct_publish(C, Suffix, QoS)
+                    )
+                end,
+                [
+                    <<"denied">>,
+                    <<"denied/denied/topic">>,
+                    <<"blocked">>,
+                    <<"new/denied/topic">>,
+                    <<"missing">>
+                ]
+            ),
+            ?assertMatch(
+                {ok, #{reason_code := ?RC_SUCCESS}}, direct_publish(C, <<"allowed">>, QoS)
+            ),
+            ?assertMatch(
+                {ok, #{reason_code := ?RC_SUCCESS}},
+                direct_publish(C, <<"allowed/allowed/topic">>, QoS)
+            )
+        end,
+        [1, 2]
+    ),
+    ?assertEqual(not_found, emqx_mq_registry:find(<<"new">>)),
+    ?assertEqual(1, length(emqx_mq_message_db:dirty_read_all(MQ))),
+    ?assertMatch(
+        {ok, #{reason_code := ?RC_SUCCESS}}, direct_publish(C, <<"new/allowed/topic">>, 1)
+    ),
+    ok = emqtt:disconnect(C).
+
+direct_publish_authorize(_ClientInfo, #{action_type := publish}, Topic, _Result) ->
+    Permission =
+        case Topic of
+            <<"denied/", _/binary>> -> deny;
+            <<"$queue/blocked">> -> deny;
+            _ -> allow
+        end,
+    {stop, #{result => Permission, from => test}}.
+
 direct_publish_client() ->
     {ok, C} = emqtt:start_link([{proto_ver, v5}]),
     {ok, _} = emqtt:connect(C),
@@ -383,8 +449,8 @@ t_target_topic_authz_permissions(_Config) ->
     check_authz_sub(C, <<"$q/denied/#">>, ?RC_NOT_AUTHORIZED),
     ok = emqtt:disconnect(C).
 
-%% Flag changes preserve cached decisions and apply to new clients.
-t_target_topic_authz_cached_subscription(_Config) ->
+%% Flag changes apply to subsequent subscriptions from existing and new clients.
+t_target_topic_authz_subscription_flag_change(_Config) ->
     target_topic_authz_setup(),
     ?assertEqual(false, emqx_mq_config:target_topic_authz()),
     create_authz_queue(<<"denied">>, <<"denied/#">>),
@@ -393,11 +459,11 @@ t_target_topic_authz_cached_subscription(_Config) ->
     check_authz_sub(C, FullTopic, ?QOS_1),
     {ok, _, _} = emqtt:unsubscribe(C, FullTopic),
     set_target_topic_authz(true),
-    check_authz_sub(C, FullTopic, ?QOS_1),
+    check_authz_sub(C, FullTopic, ?RC_NOT_AUTHORIZED),
     C1 = emqx_mq_test_utils:emqtt_connect([]),
     check_authz_sub(C1, FullTopic, ?RC_NOT_AUTHORIZED),
     set_target_topic_authz(false),
-    check_authz_sub(C1, FullTopic, ?RC_NOT_AUTHORIZED),
+    check_authz_sub(C1, FullTopic, ?QOS_1),
     C2 = emqx_mq_test_utils:emqtt_connect([]),
     check_authz_sub(C2, FullTopic, ?QOS_1),
     ok = emqtt:disconnect(C),

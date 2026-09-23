@@ -1,8 +1,9 @@
 emqx_mq_schema {
     target_topic_authz {
         desc: """~
-            Require subscribe authorization for the queue's topic filter in addition to the full queue subscription topic.
-            Name-only subscriptions require an existing queue when enabled."""
+            Require authorization for the queue's topic filter in addition to the full queue topic.
+            Check subscribe permission for subscriptions and publish permission for direct publishes.
+            Name-only subscriptions and direct publishes require an existing queue when enabled."""
         label: "Target Topic Authorization"
     }
 

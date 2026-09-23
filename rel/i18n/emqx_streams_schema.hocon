@@ -2,8 +2,9 @@ emqx_streams_schema {
 
 target_topic_authz {
     desc: """~
-        Require subscribe authorization for the stream's topic filter in addition to the stream subscription topic.
-        Name-only subscriptions require an existing stream when enabled."""
+        Require authorization for the stream's topic filter in addition to the full stream topic.
+        Check subscribe permission for subscriptions and publish permission for direct publishes.
+        Name-only subscriptions and direct publishes require an existing stream when enabled."""
     label: "Target Topic Authorization"
 }
 

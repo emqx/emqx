@@ -111,8 +111,10 @@ on_session_resumed(_ClientInfo, SessionInfo) ->
     ?tp_mq_client(mq_on_session_resumed, #{client_info => _ClientInfo, session_info => SessionInfo}),
     ok = set_mq_supported(SessionResumedCtx, SessionInfo).
 
-%% TODO: Apply target_topic_authz to direct publishes after
-%% https://github.com/emqx/emqx/pull/19159 is merged.
+on_client_authorize(
+    ClientInfo, #{action_type := publish} = Action, <<"$queue/", _/binary>> = FullTopic, Result
+) ->
+    maybe_authorize_target(ClientInfo, Action, FullTopic, Result);
 on_client_authorize(
     ClientInfo, #{action_type := subscribe} = Action, <<"$q/", _/binary>> = FullTopic, Result
 ) ->

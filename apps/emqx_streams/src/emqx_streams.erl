@@ -119,8 +119,10 @@ on_session_resumed(ClientInfo, _SessionInfo) ->
     Ctx = emqx_hooks:context('session.resumed'),
     ok = save_support_info(Ctx, ClientInfo).
 
-%% TODO: Apply target_topic_authz to direct publishes after
-%% https://github.com/emqx/emqx/pull/19159 is merged.
+on_client_authorize(
+    ClientInfo, #{action_type := publish} = Action, <<"$stream/", _/binary>> = FullTopic, Result
+) ->
+    maybe_authorize_target(ClientInfo, Action, FullTopic, Result);
 on_client_authorize(
     ClientInfo, #{action_type := subscribe} = Action, <<"$s/", _/binary>> = FullTopic, Result
 ) ->
