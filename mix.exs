@@ -484,7 +484,7 @@ defmodule EMQXUmbrella.MixProject do
           :assemble,
           &create_RELEASES/1,
           &copy_files(&1, release_type, package_type, edition_type),
-          &copy_escript(&1, "nodetool"),
+          &compile_escript(&1, "nodetool"),
           &strip_dependency_beams/1,
           &cleanup_release_package/1
         ]
@@ -894,13 +894,30 @@ defmodule EMQXUmbrella.MixProject do
     release
   end
 
+  defp compile_escript(release, escript_name) do
+    release = copy_escript(release, escript_name)
+    path = Path.join([release.path, "bin", escript_name])
+    {:ok, sections} = :escript.extract(String.to_charlist(path), [:compile_source])
+
+    sections =
+      Enum.map(sections, fn
+        {:source, beam} -> {:beam, beam}
+        section -> section
+      end)
+
+    :ok = :escript.create(String.to_charlist(path), sections)
+    File.chmod!(path, 0o755)
+
+    release
+  end
+
   defp copy_escript(release, escript_name) do
     [shebang | lines] =
       "bin/#{escript_name}"
       |> File.read!()
       |> String.split("\n")
 
-    # the elixir version of escript + start.boot required the boot_var
+    # The Elixir version of escript + start.boot requires the boot_var
     # RELEASE_LIB to be defined.
     rel_args = "-boot_var RELEASE_LIB $RUNNER_ROOT_DIR/lib"
 
