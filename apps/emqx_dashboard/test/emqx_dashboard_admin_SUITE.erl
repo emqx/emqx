@@ -11,6 +11,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -607,12 +608,18 @@ t_namespaced_user_permissions(_TCConfig) ->
     {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
     AllHandlers = [_ | _] = all_handlers(),
     Denied = namespaced_get_denylist(),
+    %% The scope layer is a separate gate on top of RBAC. A namespaced
+    %% administrator holds `?NS_ADMIN_ALLOWED_SCOPES', so handlers
+    %% scoped outside it (gateways, sso_management, ...) are denied
+    %% there by design. Keep the handlers that layer lets through;
+    %% RBAC is what this case checks.
     GetHandlers =
         [_ | _] =
         [
             FHI
          || #{method := get} = FHI <- AllHandlers,
-            not lists:member(maps:with([method, module, function], FHI), Denied)
+            not lists:member(maps:with([method, module, function], FHI), Denied),
+            held_by_namespaced_admin(FHI)
         ],
     FakeReq = #{path => <<"/api/v5/clients">>},
     Failures =
@@ -632,6 +639,18 @@ t_namespaced_user_permissions(_TCConfig) ->
         ct:fail({should_have_been_allowed, Failures})
     end,
     ok.
+
+held_by_namespaced_admin(HandlerInfo) ->
+    case emqx_mgmt_api_key_scopes:classify_handler(HandlerInfo) of
+        {scopes, Declared} ->
+            emqx_mgmt_api_key_scopes:any_scope_granted(Declared, ?NS_ADMIN_ALLOWED_SCOPES);
+        public ->
+            true;
+        %% An unmapped handler is denied to a user with an explicit
+        %% scope list. Keep it so the gap shows up here as a failure.
+        not_found ->
+            true
+    end.
 
 %% Keep in sync with the namespaced-deny clauses in
 %% `emqx_dashboard_rbac:do_check_rbac/3' for these modules.  Adding a new
