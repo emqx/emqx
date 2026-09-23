@@ -282,7 +282,7 @@ find_mq(ClientInfo, #{name := Name, topic_filter := MQTopic} = Sub) ->
 authorize_mq(_ClientInfo, #{status := #finding_mq{denied_mq_id = Id}}, #{id := Id}) ->
     ?tp_debug(mq_sub_target_topic_authz_cached, #{id => Id}),
     deny;
-authorize_mq(ClientInfo, _Sub, #{id := Id, topic_filter := TargetTopic}) ->
+authorize_mq(ClientInfo, _Sub, #{id := _Id, topic_filter := TargetTopic}) ->
     case emqx_mq_config:target_topic_authz() of
         false ->
             allow;
@@ -291,7 +291,7 @@ authorize_mq(ClientInfo, _Sub, #{id := Id, topic_filter := TargetTopic}) ->
                 ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_1), TargetTopic
             ),
             ?tp_debug(mq_sub_target_topic_authorized, #{
-                id => Id, topic_filter => TargetTopic, result => Result
+                id => _Id, topic_filter => TargetTopic, result => Result
             }),
             Result
     end.
