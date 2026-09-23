@@ -2,7 +2,7 @@
 
 All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
-## Unreleased
+## 0.4.2
 
 A follow-up to 0.4.1 for the subscription hooks, for the promoter's index-append
 retry, and for the ordering and accounting windows the review round found around
