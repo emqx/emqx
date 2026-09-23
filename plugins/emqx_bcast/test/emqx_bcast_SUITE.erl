@@ -1109,18 +1109,19 @@ t_counted_ack_crash_window_between_decrement_and_marker(_Config) ->
         wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)
     ).
 
--doc "Deterministic reproduction of the crash window the lock-free ack flush\n"
-"leaves open: mock mnesia:dirty_write so the index shard is killed right\n"
-"after the acked marker lands and BEFORE the counter is decremented. The\n"
-"marker is durable, so the restart + rebuild must not resurrect the\n"
-"already-acked device and its replayed ack must not be counted a second\n"
-"time, while the remaining device's ack must still be enough to complete\n"
-"the delivery.".
+-doc "Reproduction of the crash window the part report leaves open: mock\n"
+"mnesia:dirty_write so the index shard is killed right after the acked marker\n"
+"lands and BEFORE the counter is decremented. The marker is durable, so the\n"
+"restart + rebuild must not resurrect the already-acked device and its\n"
+"replayed ack must not be counted a second time; the marker-based reconcile\n"
+"brings the counter back in step, so the remaining device's ack completes the\n"
+"delivery exactly once - nothing lost, nothing delivered twice.".
 t_counted_ack_crash_window_between_marker_and_decrement(_Config) ->
     PK = <<"PWIN2">>,
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"crash between marker and counter">>),
-    A = <<"DWIN2_A">>,
-    B = <<"DWIN2_B">>,
+    %% One device per part: A's own ack finishes its part (the marker write),
+    %% B's is the one still owed.
+    {A, B} = two_different_shards(PK),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(
         DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
@@ -1175,16 +1176,14 @@ t_counted_ack_crash_window_between_marker_and_decrement(_Config) ->
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
     not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
     ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
+    %% The rebuild reconciled the counter from the durable marker: exactly B's
+    %% acknowledgement is still owed.
+    ?assert(wait_until(fun() -> ack_counter(DeliveryId) =:= 1 end, 100)),
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
-    %% The delivery is now fully acked, yet its rows survive: the killed
-    %% flush lost A's counter decrement, and nothing on the hot path
-    %% reconciles the counter.
-    timer:sleep(200),
-    ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
-    %% The next rebuild reconciles it from the acked markers: every target
-    %% device has one, which proves the delivery is finished.
-    ok = emqx_bcast_index_owner:rebuild_index(),
-    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
+    %% Both devices are now accounted for, so the delivery completes exactly
+    %% once - and A was never re-indexed, so it was not delivered twice.
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
+    ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})).
 
 -doc "A delivery committed by a build without ack markers leaves none behind, so\n"
 "a rebuild re-indexes every target device and its legacy remaining-ack counter\n"
@@ -4163,6 +4162,11 @@ t_shard_op_capacity_probe(_Config) ->
 %% All device names that phash2 into the target shard.
 same_shard_dns(PK, Target, N) ->
     same_shard_dns(PK, Target, N, 1, []).
+
+%% Two device names whose index shards differ, so each device forms a delivery
+%% part of its own (the ack path books per shard, per delivery).
+two_different_shards(PK) ->
+    {hd(same_shard_dns(PK, 0, 1)), hd(same_shard_dns(PK, 1, 1))}.
 same_shard_dns(_PK, _Target, 0, _I, Acc) ->
     lists:reverse(Acc);
 same_shard_dns(PK, Target, Need, I, Acc) ->
@@ -4823,37 +4827,58 @@ probe_status(Shard) ->
 
 mono_us() -> erlang:monotonic_time(microsecond).
 
--doc "The ack flush runs inside the shard's handle_info/2, so a failure while\n"
-"applying a buffered ack must not take the shard - and every partition it\n"
-"holds - down: the marker write and the counter decrement are idempotent, so\n"
-"the entry stays buffered and is retried on the next tick.".
-t_ack_flush_failure_retries_instead_of_killing_shard(_Config) ->
-    PK = <<"PACKFLUSH">>,
-    DN = <<"DACKFLUSH">>,
+-doc "The part report writes Mnesia rows from inside the shard process, so a\n"
+"failure while reporting must not take the shard - and every partition it\n"
+"holds - down: the part stays in the accounting and the periodic cleanup tick\n"
+"retries it (and drops it once the delivery is gone).".
+t_ack_part_report_failure_retries_instead_of_killing_shard(_Config) ->
+    PK = <<"PACKPART">>,
+    DN = <<"DACKPART">>,
     Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
-    Name = list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)),
+    Name = index_shard_name(Shard),
+    ?assert(wait_until(fun() -> shard_active(Shard) end, 200)),
     PrePid = whereis(Name),
-    %% A buffered ack whose device list cannot be measured: a mnesia failure on
-    %% the marker write raises the same way out of the same call.
+    %% A finished part whose report cannot read the delivery row.
     PoisonDid = <<"poison-delivery">>,
-    Poison = #{PoisonDid => not_a_device_list},
-    Reports = emqx_cth_log_capture:capture(fun() ->
-        _ = sys:replace_state(Name, fun(St) -> St#{ack_buf => Poison} end),
-        Name ! ack_flush,
-        _ = sys:get_state(Name)
-    end),
+    _ = sys:replace_state(
+        Name,
+        fun(St) ->
+            St#{part_pending => #{PoisonDid => 0}, part_applied => #{PoisonDid => 1}}
+        end
+    ),
+    meck:new(mnesia, [passthrough, no_link]),
+    Reports =
+        try
+            meck:expect(mnesia, dirty_read, fun
+                (bcast_msg, Did) when Did =:= PoisonDid -> error(injected_report_failure);
+                (Tab, Key) -> meck:passthrough([Tab, Key])
+            end),
+            emqx_cth_log_capture:capture(fun() ->
+                ok = gen_server:call(Name, {cleanup_local}, 30000)
+            end)
+        after
+            meck:unload(mnesia)
+        end,
+    %% The failure was contained (the shard is the same process) and logged
+    %% with the delivery it belonged to.
     ?assertEqual(PrePid, whereis(Name)),
-    %% The guard really ran on the poison (and, being caught, did not take the
-    %% shard down): without it the entry is never applied and nothing is logged.
     ?assert(
         lists:any(
             fun(R) -> maps:get(delivery_id, R, undefined) =:= PoisonDid end,
             Reports
         )
     ),
-    ?assertEqual(Poison, maps:get(ack_buf, sys:get_state(Name))),
-    _ = sys:replace_state(Name, fun(St) -> St#{ack_buf => #{}} end),
-    ok.
+    %% The part is still owed a report: the failure kept the accounting.
+    State1 = sys:get_state(Name),
+    ?assertEqual(0, maps:get(PoisonDid, maps:get(part_pending, State1))),
+    ?assertEqual(1, maps:get(PoisonDid, maps:get(part_applied, State1))),
+    %% The next cleanup tick retries it; the delivery does not exist, so the
+    %% part is dropped instead of leaking.
+    ok = gen_server:call(Name, {cleanup_local}, 30000),
+    State2 = sys:get_state(Name),
+    ?assertNot(maps:is_key(PoisonDid, maps:get(part_pending, State2))),
+    ?assertNot(maps:is_key(PoisonDid, maps:get(part_applied, State2))),
+    ?assertEqual(PrePid, whereis(Name)).
 
 -doc "Completed-delivery cleanup must keep the <=0 counter row when its delete\n"
 "transaction aborts, so the next cleanup tick re-discovers the rows instead\n"

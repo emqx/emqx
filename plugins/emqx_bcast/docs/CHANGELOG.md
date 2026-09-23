@@ -93,18 +93,24 @@ being acknowledged.
 
 ### Changed
 
-- **Acknowledgement bookkeeping is flushed at most every 500ms instead of every
-  50ms.** Every flush writes one acked-device marker row and one remaining-ack
-  decrement per delivery that acknowledged in that tick, and both tables are
-  kept on every core, so the load those writes put on each core's Mnesia
-  transaction manager is proportional to the flush rate. At fanout scale the
-  50ms cadence alone reached roughly the acknowledgement rate, and the Mnesia
-  queues behind it slowed every Mnesia user on the node - this plugin's own
-  delivery and completion included. The write is still marker first, then the
-  decrement, and both stay idempotent: an acknowledgement that is not durable
-  yet when a node dies is delivered again (at-least-once), never counted twice,
-  and never completes a delivery early. What moves by up to 500ms is when a
-  delivery can complete and how long an acknowledgement may stay unconfirmed.
+- **Acknowledgement bookkeeping is per delivery part, not per flush tick.** One
+  shard owns the devices one delivery has on that shard: an acknowledgement only
+  moves that shard's local counters, and the two Mnesia writes (the acked-device
+  marker, then the remaining-ack decrement) happen once, when the part has
+  nothing left to acknowledge. Both tables are kept on every core, so the
+  previous per-tick flush made the cross-core write rate follow the
+  acknowledgement rate - at fanout scale the 50ms tick alone reached roughly
+  that rate per node, towards three peers, and the Mnesia queues behind it
+  slowed every Mnesia user on the node, this plugin's own delivery and
+  completion included. The write count is now bounded by parts, not by time:
+  deliveries x shards for a whole run, however long the drain takes. The marker
+  is still written before the decrement and only once per part, so a part that
+  already reported is never counted twice, and a delivery completes as soon as
+  its last part reports (no flush interval in between). Acknowledgements that
+  arrive before their part completes are not written at all: a node that dies
+  then only causes those devices to be delivered again (at-least-once), because
+  the decrement for that part has not happened either and the acknowledgement is
+  never counted twice.
 
 ### Known issues
 

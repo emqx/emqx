@@ -191,32 +191,25 @@
 %% residual drift so the quota can never stay permanently high or low.
 -define(QUOTA_RECOUNT_MS, 60000).
 
-%% Ack-counter decrement batching cadence: counted acks accumulate
-%% per-delivery acked device lists in the shard's ack_buf and are applied
-%% per tick with two lock-free dirty writes (marker persistence, then
-%% counter decrement) instead of one rlog write per ack. The old
-%% one-rlog-write-per-ack path saturated mria's rlog and aborted the
-%% completion transaction under load, leaking the bcast_msg /
-%% bcast_msg_meta / bcast_msg_meta_counter rows.
-%% Ack bookkeeping flush cadence. Every flush tick writes one acked-marker row
-%% and one counter decrement per delivery that received acks in that tick, and
-%% both tables are copied to every core: the per-tick writes are what every
-%% peer's mnesia_tm has to apply, so the pressure is proportional to
-%% `1 / cadence`. At 50ms with 8k deliveries the two writes per (delivery, tick)
-%% reached roughly the acknowledgement rate itself (~70k/s per node), each one
-%% replicated to three peers, and the peer queues grew into the hundreds of
-%% thousands - which stalls every mnesia user on the node, this plugin's
-%% completions and EMQX's own registry included.
+%% Ack bookkeeping is per delivery *part*: one shard, one delivery. Counted
+%% acks only update this shard's local counters (`part_pending` /
+%% `part_applied` in the shard state); the two durable writes - the acked
+%% marker and the remaining-ack decrement - happen once, when this shard's part
+%% has nothing left to acknowledge. Both tables are copied to every core, so
+%% the earlier per-tick flush made the cross-core write rate follow the
+%% acknowledgement rate (at 8k deliveries the 50ms tick alone reached ~70k/s
+%% per node towards three peers, and the peer transaction-manager queues grew
+%% into the hundreds of thousands, stalling every Mnesia user on the node).
+%% Now the write count is bounded by parts, not by time: #deliveries x #shards
+%% writes for a whole run, independent of how long the drain takes.
 %%
-%% 500ms keeps the ordering guarantee (marker first, then the decrement) and
-%% only moves the crash window and the completion of a delivery up to 500ms
-%% later. An acknowledgement that is not yet durable when a node dies is
-%% redelivered - at-least-once, never counted twice, and never completing a
-%% delivery early. Writing the marker per device instead would trade this away:
-%% that shape makes the write count scale with the fanout (one row per device
-%% per delivery) instead of with the tick, which is why the row carries the
-%% tick's device list to begin with.
--define(ACK_DEC_FLUSH_MS, 500).
+%% The marker is still written before the decrement, and a part writes its
+%% marker only if it is not there yet - so a part that already reported is
+%% never counted a second time, whatever happened to the shard in between.
+%% Acks that arrive before the part completes are not written at all: a node
+%% that dies before a part completes only causes those devices to be delivered
+%% again (at-least-once), which is exactly what the uncounted counter expects,
+%% because the decrement for that part has not happened either.
 
 -spec start_link(integer()) -> gen_server:start_ret().
 start_link(Shard) ->
@@ -306,10 +299,11 @@ init([Shard]) ->
         %% shard 0 only: at most one self-healing recount in flight, so a slow
         %% probe round cannot pile up behind the timer
         quota_recount_running => false,
-        %% batched ack-counter decrements pending flush: #{Did => [DeviceName]}
-        ack_buf => #{},
-        %% flush timer ref; undefined when idle (nothing buffered)
-        ack_flush_ref => undefined,
+        %% per-delivery part accounting (see the note above ?SHARD_COUNT):
+        %% entries this shard still owes an ack for, and the acks it has
+        %% applied for them since the part was last reported
+        part_pending => #{},
+        part_applied => #{},
         %% deliveries whose marker-based completion aborted its transaction:
         %% #{Did => true}, retried by the periodic cleanup tick
         pending_completions => #{},
@@ -1423,18 +1417,7 @@ handle_call({ack_index, Acks}, _From, State = #{active := true}) ->
         {Results, {State2, Delta}} = lists:mapfoldl(
             fun(Ack, {St, D}) ->
                 {R, St2, D2} = ack_one_index(Ack, St),
-                St3 =
-                    case R of
-                        {counted, _RemQueued} ->
-                            %% Batch the ack in ack_buf; the flush applies
-                            %% the marker and the counter decrement as two
-                            %% lock-free dirty writes instead of one rlog
-                            %% write per ack.
-                            buffer_ack_decrement(Ack, St2);
-                        not_found ->
-                            St2
-                    end,
-                {R, {St3, D + D2}}
+                {R, {St2, D + D2}}
             end,
             {State, 0},
             Acks
@@ -1524,7 +1507,9 @@ handle_call({cleanup_local}, _From, State = #{active := true}) ->
     State2b = reclaim_down_holders(State2),
     State3 = cleanup_stale_reservations(State2b),
     State4 = retry_pending_completions(State3),
-    {reply, ok, State4};
+    %% Retry the parts that finished but whose report failed.
+    State5 = retry_unreported_parts(State4),
+    {reply, ok, State5};
 handle_call({rebuild_index}, From, State = #{active := true}) ->
     %% A manual rebuild used to run inside this call, so its caller could
     %% rebuild and then look at the result. Keep that contract - answer when the
@@ -1775,8 +1760,6 @@ handle_info(quota_recount_done, State = #{shard := 0}) ->
     {noreply, State#{quota_recount_running => false}};
 handle_info(maybe_gc, State) ->
     {noreply, maybe_fullsweep(State)};
-handle_info(ack_flush, State) ->
-    {noreply, flush_ack_decrements(State#{ack_flush_ref => undefined})};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -2640,10 +2623,12 @@ run_activation(Proj, State, Completed) ->
 
 activate_partition(Proj, State, Completed) ->
     try
-        %% Flush buffered ack decrements BEFORE the reset: dropping ack_buf
-        %% with the reset would strand the meta counter above zero and leak
-        %% the delivery rows until TTL expiry.
-        State0 = flush_ack_decrements(State#{ack_flush_ref => undefined}),
+        %% Report the parts this shard finished BEFORE the reset drops the
+        %% accounting: an unreported part would strand the remaining-ack
+        %% counter above zero and leak the delivery rows until TTL expiry. The
+        %% parts that are not finished yet are simply recomputed by the
+        %% re-append below.
+        State0 = retry_unreported_parts(State),
         State1 = reset_state(State0),
         Shard = maps:get(shard, State),
         {State2, Completed1} = lists:foldl(
@@ -3021,8 +3006,8 @@ reset_state(State) ->
         reserves => #{},
         peak => 0,
         orphan_cursor => 0,
-        ack_buf => #{},
-        ack_flush_ref => undefined
+        part_pending => #{},
+        part_applied => #{}
     }.
 
 %% Live gauges for this shard's partition: queued = live pending minus
@@ -3152,7 +3137,8 @@ append_entry(State, Key = {PK, DN}, Did) ->
             State1 = put_in(queues, Key, queue:in(Did, Q), State),
             State2 = put_in(dids, Key3, Ts, State1),
             State3 = incr_in(counts, Key, State2),
-            {State4, Decr} = reserve_dec(State3, Key),
+            State3b = bump_part_pending(Did, 1, State3),
+            {State4, Decr} = reserve_dec(State3b, Key),
             {State4, 1 - Decr}
     end.
 
@@ -3674,13 +3660,18 @@ ack_one_index({PK, DN, Did}, State) ->
             {not_found, State, 0};
         true ->
             State1 = remove_did(State, Key, Key3),
+            %% This part's accounting: one ack applied, one entry fewer to
+            %% wait for. The durable writes happen when the part reaches
+            %% zero, not per ack.
+            {Applied, State2} = note_part_ack(Did, State1),
+            State3 = maybe_report_part(Did, Applied, State2),
             %% The qos1_acked metric is counted by pull_shard on the
             %% take_pending match (it owns the dedup of duplicate
             %% PUBACKs); the owner does not count it again. The result
             %% carries whether the device still has queued (non-inflight)
             %% entries so the pull side can refill its window without an
             %% empty claim round.
-            {{counted, queued_remaining(State1, Key)}, State1, -1}
+            {{counted, queued_remaining(State3, Key)}, State3, -1}
     end.
 
 %% Queued (not in-flight) entries left for the device after an ack.
@@ -3689,83 +3680,125 @@ queued_remaining(State, Key) ->
     Inflight = maps:size(maps:get(Key, maps:get(inflights, State), #{})),
     Count - Inflight > 0.
 
-%% Counted acks accumulate per-delivery acked device lists in ack_buf and
-%% are applied in bulk by flush_ack_decrements/1 with two lock-free dirty
-%% writes per delivery: the marker first, then the counter decrement.
-%% Duplicate suppression is done in ack_one_index/2 (counting an ack
-%% removes its dids entry), so the flush only ever sees first acks. A
-%% crash between the two writes can only leave the counter too high: an
-%% already-acked device is never resurrected on the next rebuild, and a
-%% replayed ack cannot decrement a live delivery twice. Such a delivery is
-%% reconciled by the next index rebuild, otherwise by TTL expiry.
-%% bcast_msg_meta remains the info row used by claim and management queries.
-buffer_ack_decrement({_PK, DN, Did}, State) ->
-    Buf0 = maps:get(ack_buf, State, #{}),
-    Buf1 = maps:update_with(Did, fun(DNs) -> [DN | DNs] end, [DN], Buf0),
-    State1 = State#{ack_buf => Buf1},
-    case maps:size(Buf0) of
+%% Ack bookkeeping, per delivery *part* (one shard, one delivery). Counted
+%% acks only move this shard's local counters; the durable pair of writes (the
+%% acked marker, then the remaining-ack decrement) happens once, when the part
+%% has nothing left to acknowledge. Duplicate suppression is done in
+%% ack_one_index/2 (counting an ack removes its dids entry), so an entry is
+%% counted at most once per incarnation of the shard.
+%%
+%% Cross-incarnation safety: the marker row carries the *whole* device list
+%% this shard holds for the delivery, in the committed row's order, so the same
+%% part reported again is bit-identical (bag inserts are idempotent) and the
+%% decrement is skipped when the row is already there. A part that never
+%% completes writes nothing, and its acks are not counted either - the counter
+%% has not been decremented for them - so a node that dies mid-part only causes
+%% those devices to be delivered again, which is what the untouched counter
+%% expects.
+bump_part_pending(Did, Delta, State) ->
+    Pending = maps:get(Did, maps:get(part_pending, State), 0),
+    State#{part_pending => (maps:get(part_pending, State))#{Did => Pending + Delta}}.
+
+%% One counted ack: one more applied, one fewer to wait for.
+note_part_ack(Did, State) ->
+    Applied = maps:get(Did, maps:get(part_applied, State), 0) + 1,
+    State1 = State#{
+        part_applied => (maps:get(part_applied, State))#{Did => Applied}
+    },
+    case maps:get(Did, maps:get(part_pending, State1), 0) of
         0 ->
-            %% First buffered entry: arm the flush timer.
-            arm_ack_flush(State1);
+            {Applied, State1};
         _ ->
-            State1
+            {Applied, bump_part_pending(Did, -1, State1)}
     end.
 
-arm_ack_flush(State) ->
-    Ref = erlang:send_after(?ACK_DEC_FLUSH_MS, self(), ack_flush),
-    State#{ack_flush_ref => Ref}.
-
-flush_ack_decrements(State = #{ack_buf := Buf}) ->
-    case maps:size(Buf) of
+maybe_report_part(Did, Applied, State) when Applied > 0 ->
+    case maps:get(Did, maps:get(part_pending, State), 0) of
         0 ->
-            State;
+            case report_part_done(maps:get(shard, State), Did, Applied) of
+                ok -> drop_part_accounting(Did, State);
+                {error, _} -> State
+            end;
         _ ->
-            %% Entries that could not be applied stay buffered for the next
-            %% tick. Both writes are idempotent, and dropping them would let a
-            %% later index rebuild resurrect a device that already acked: its
-            %% replayed ack decrements the completion counter a second time and
-            %% can complete the delivery while other devices have never acked.
-            State#{ack_buf => apply_ack_buffer(Buf)}
-    end.
+            State
+    end;
+maybe_report_part(_Did, _Applied, State) ->
+    State.
 
-%% Apply every buffered ack decrement with lock-free dirty operations.
-%%
-%% A transaction here is what made the ack path collapse: the per-delivery
-%% counter row is shared by every device shard (and replicated to every
-%% core), so a transactional decrement serialized on that one row's write
-%% lock. Under fanout that produced continuous lock conflicts, and
-%% mnesia_tm restarted the whole chunk with a timer:sleep/1 backoff - all
-%% inside the shard process, blocking claims, appends and acks behind it.
-%% The dirty counter update is atomic and replicated without locks, which
-%% is how the ack path worked before the persistent markers were added.
-%%
-%% Returns the entries that could not be applied, so the caller can retry them.
-apply_ack_buffer(Buf) ->
+drop_part_accounting(Did, State) ->
+    State#{
+        part_pending => maps:remove(Did, maps:get(part_pending, State)),
+        part_applied => maps:remove(Did, maps:get(part_applied, State))
+    }.
+
+%% Finished parts whose report failed are retried by the periodic cleanup tick
+%% (and before an activation resets the accounting): leaving them unreported
+%% would strand the remaining-ack counter above zero and leak the delivery rows
+%% until TTL expiry.
+retry_unreported_parts(State) ->
     maps:fold(
-        fun(Did, DNs, Retry) ->
-            case apply_ack_decrement(Did, DNs) of
-                ok -> Retry;
-                {error, _} -> maps:put(Did, DNs, Retry)
+        fun(Did, Pending, Acc) ->
+            case Pending of
+                0 ->
+                    Applied = maps:get(Did, maps:get(part_applied, Acc), 0),
+                    maybe_report_part(Did, Applied, Acc);
+                _ ->
+                    Acc
             end
         end,
-        #{},
-        Buf
+        State,
+        maps:get(part_pending, State, #{})
     ).
 
-%% The flush runs from handle_info(ack_flush, ...), so anything raised here
-%% used to take the shard process - and every partition it holds - down with
-%% it. Report the failure and hand the entry back to the buffer instead: a
-%% transient mnesia failure (or a replica still being created) then costs one
-%% retry, not a crashed shard.
-apply_ack_decrement(Did, DNs) ->
-    try do_apply_ack_decrement(Did, DNs) of
-        ok ->
-            ok
+%% One durable pair of writes for a finished part: the marker first, so a
+%% crash between the two can only leave the counter too high (the delivery then
+%% completes late or is reclaimed by TTL, but an acked device is never
+%% resurrected and a replayed ack cannot decrement a live delivery twice), then
+%% the decrement, then the completion check.
+report_part_done(Shard, Did, Applied) ->
+    try part_devices(Shard, Did) of
+        not_found ->
+            %% The delivery is gone (completed or deleted): the acks are moot.
+            ok;
+        {ok, Devices} ->
+            Marker = #bcast_msg_acked{delivery_id = Did, device_names = Devices},
+            case mnesia:dirty_match_object(Marker) of
+                [_] ->
+                    %% This part already reported in an earlier incarnation of
+                    %% the shard: the marker is idempotent, the decrement is
+                    %% not, so stop here.
+                    ok;
+                [] ->
+                    mnesia:dirty_write(Marker),
+                    case mnesia:dirty_update_counter(?TAB_MSG_META_CNT, Did, -Applied) of
+                        New when New =< 0 ->
+                            %% Counter reached zero (or the row is already
+                            %% gone): the delivery is finished. A completion
+                            %% that aborts here is retried by the periodic
+                            %% sweep, which scans for counters at or below
+                            %% zero.
+                            case complete_delivery(Did) of
+                                {error, Reason} ->
+                                    ?SLOG(warning, #{
+                                        msg => "bcast_ack_completion_failed",
+                                        delivery_id => Did,
+                                        reason => Reason
+                                    }),
+                                    ok;
+                                _ ->
+                                    ok
+                            end;
+                        _ ->
+                            ok
+                    end
+            end
     catch
         Class:Reason:Stacktrace ->
             ?SLOG(warning, #{
-                msg => "bcast_ack_flush_failed_retry",
+                msg => "bcast_ack_part_report_failed",
                 delivery_id => Did,
+                shard => Shard,
+                applied => Applied,
                 exception => Class,
                 reason => Reason,
                 stacktrace => Stacktrace
@@ -3773,47 +3806,15 @@ apply_ack_decrement(Did, DNs) ->
             {error, {Class, Reason}}
     end.
 
-do_apply_ack_decrement(Did, DNs) ->
-    %% Duplicate suppression already happened in ack_one_index/2: counting an
-    %% ack removes its dids entry, so a replayed PUBACK returns not_found and
-    %% never reaches ack_buf. A rebuild additionally skips devices whose
-    %% marker is persisted (acked_device_set/1), so a replayed ack after a
-    %% restart is not_found too. Every DN here is therefore a first ack.
-    %%
-    %% Markers are persisted as ONE row per delivery per flush tick carrying
-    %% this tick's device names, not one row per device: at bs=1000 a
-    %% per-device marker would write 1000 replicated rows (and delete 1000
-    %% on completion) for every delivery, making the ack cost scale with the
-    %% fanout throughput instead of the flush tick count.
-    Applied = length(DNs),
-    case Applied of
-        0 ->
-            ok;
-        _ ->
-            %% Marker FIRST, then the counter. The marker is the durable
-            %% record consulted by index rebuilds, so writing it before the
-            %% counter means a crash between the two dirty operations can
-            %% only leave the counter too high: such a delivery completes
-            %% late or is reclaimed by TTL, but an acked device is never
-            %% resurrected and a replayed ack can never decrement a live
-            %% delivery twice. The reverse order would allow exactly that.
-            %% Both writes are dirty ops on mria-replicated tables; mria
-            %% applies them to every core in submission order, so a core
-            %% crash cannot surface the decrement without the marker. (mria
-            %% replicates by hooking mnesia's post_commit event, so a plain
-            %% `mnesia:dirty_*` is shipped exactly like `mria:dirty_*` would
-            %% be - see `emqx_bcast_storage:transaction/1`.)
-            mnesia:dirty_write(#bcast_msg_acked{delivery_id = Did, device_names = DNs}),
-            case mnesia:dirty_update_counter(?TAB_MSG_META_CNT, Did, -Applied) of
-                New when New =< 0 ->
-                    %% Counter reached zero, or the row is already gone (the
-                    %% delivery completed or was deleted between the ack and
-                    %% this flush): drop the completion rows, and with them
-                    %% the marker just written.
-                    complete_delivery(Did);
-                _ ->
-                    ok
-            end
+%% The devices of this delivery the shard owns, in the committed delivery row's
+%% order: deterministic, so a re-report after a restart writes the identical
+%% marker row.
+part_devices(Shard, Did) ->
+    case mnesia:dirty_read(?TAB_MSG_REC, Did) of
+        [#bcast_msg{product_key = PK, device_names = DNs}] ->
+            {ok, [DN || DN <- DNs, shard_of({PK, DN}) =:= Shard]};
+        [] ->
+            not_found
     end.
 
 %% Completion runs once per delivery, not once per ack, so deleting the
