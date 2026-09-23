@@ -1239,8 +1239,9 @@ t_legacy_delivery_counter_restored_on_rebuild(_Config) ->
     ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
     %% B's ack is the one that completes it.
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
-    timer:sleep(200),
-    ?assertEqual([], mnesia:dirty_read(bcast_msg, DeliveryId)).
+    ?assert(
+        wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)
+    ).
 
 -doc "The ack flush is lock-free: one dirty marker write plus one dirty counter\n"
 "decrement per delivery, and no mnesia transaction. A transaction there would\n"

@@ -150,10 +150,6 @@
 %% work per 60s tick, so a huge expiry backlog is drained across ticks
 %% instead of one cleanup run holding the tables for minutes.
 -define(CLEANUP_BUDGET, 10000).
-%% Expired-message deletes run in transactions that re-check the row, so they
-%% are chunked: one tick spends a bounded number of transactions, and the rest
-%% is picked up by the next tick.
--define(EXPIRED_MSG_TX_CHUNK, 100).
 %% Per-call bound for the management cascade delete: one message can be
 %% shared by an unbounded number of deliveries (content de-duplication), so
 %% the sweep is chunked and driven from the calling process.
@@ -202,7 +198,25 @@
 %% one-rlog-write-per-ack path saturated mria's rlog and aborted the
 %% completion transaction under load, leaking the bcast_msg /
 %% bcast_msg_meta / bcast_msg_meta_counter rows.
--define(ACK_DEC_FLUSH_MS, 50).
+%% Ack bookkeeping flush cadence. Every flush tick writes one acked-marker row
+%% and one counter decrement per delivery that received acks in that tick, and
+%% both tables are copied to every core: the per-tick writes are what every
+%% peer's mnesia_tm has to apply, so the pressure is proportional to
+%% `1 / cadence`. At 50ms with 8k deliveries the two writes per (delivery, tick)
+%% reached roughly the acknowledgement rate itself (~70k/s per node), each one
+%% replicated to three peers, and the peer queues grew into the hundreds of
+%% thousands - which stalls every mnesia user on the node, this plugin's
+%% completions and EMQX's own registry included.
+%%
+%% 500ms keeps the ordering guarantee (marker first, then the decrement) and
+%% only moves the crash window and the completion of a delivery up to 500ms
+%% later. An acknowledgement that is not yet durable when a node dies is
+%% redelivered - at-least-once, never counted twice, and never completing a
+%% delivery early. Writing the marker per device instead would trade this away:
+%% that shape makes the write count scale with the fanout (one row per device
+%% per delivery) instead of with the tick, which is why the row carries the
+%% tick's device list to begin with.
+-define(ACK_DEC_FLUSH_MS, 500).
 
 -spec start_link(integer()) -> gen_server:start_ret().
 start_link(Shard) ->
@@ -4540,76 +4554,49 @@ cleanup_expired_messages_local(Now) ->
 %% with its hash and API-id rows would leave the delivery behind that refresh
 %% without a message body.
 %%
-%% So the deletes run in transactions that re-read the row under a write lock,
-%% and they take the hash lock first - the order every message writer uses
-%% (`write_message_inc_tx/6`, `write_message_rows_tx/1`) - so a refresh either
-%% wins (this pass skips the row) or loses (and the refresh re-creates every
-%% row this pass removes). Returns the deleted rows, so the caller can log
-%% them, and the number left to the refresh.
+%% The deletes stay lock-free on purpose. This runs on the cleanup tick of the
+%% leader core, and a transaction here would take write locks on the message
+%% and hash rows that promotion needs first, then hold them while its commit
+%% queues behind whatever mnesia_tm is already carrying - the same
+%% lock-then-wait shape that collapsed broadcast throughput before (see
+%% docs/2026-09-11-perf-rootcause-ack-flush.md). Instead every delete is an
+%% equality delete of a record read a moment earlier: a row that changed in
+%% between simply does not match and stays, and the derived rows carry this
+%% message's own ids, so a refresh that wrote new ones cannot be hit either.
+%% Returns the deleted rows, so the caller can log them, and the number left
+%% to the refresh.
 -spec delete_expired_messages(
     [{binary(), binary(), binary(), integer(), integer()}], integer()
 ) -> {[{binary(), binary(), binary(), integer(), integer()}], non_neg_integer()}.
 delete_expired_messages(Expired, Now) ->
-    lists:foldl(
-        fun(Chunk, {Deleted, Refreshed}) ->
-            {ChunkDeleted, ChunkRefreshed} = delete_expired_message_chunk(Chunk, Now),
-            {Deleted ++ ChunkDeleted, Refreshed + ChunkRefreshed}
+    {DeletedRev, Refreshed} = lists:foldl(
+        fun(Row, {Deleted, Left}) ->
+            case delete_expired_message(Row, Now) of
+                true -> {[Row | Deleted], Left};
+                false -> {Deleted, Left + 1}
+            end
         end,
         {[], 0},
-        chunks(Expired, ?EXPIRED_MSG_TX_CHUNK)
-    ).
+        Expired
+    ),
+    {lists:reverse(DeletedRev), Refreshed}.
 
-delete_expired_message_chunk(Rows, Now) ->
-    case
-        mnesia:transaction(
-            fun() ->
-                lists:foldl(
-                    fun(
-                        Row = {MsgId, Hash, ApiMsgId, ExpiresAt, CreatedAt},
-                        {Deleted, Refreshed}
-                    ) ->
-                        case
-                            delete_expired_message_row(
-                                MsgId, Hash, ApiMsgId, ExpiresAt, CreatedAt, Now
-                            )
-                        of
-                            true -> {[Row | Deleted], Refreshed};
-                            false -> {Deleted, Refreshed + 1}
-                        end
-                    end,
-                    {[], 0},
-                    Rows
-                )
-            end,
-            20
-        )
-    of
-        {atomic, {Deleted, Refreshed}} ->
-            {lists:reverse(Deleted), Refreshed};
-        {aborted, Reason} ->
-            %% Leave the rows to the next tick rather than deleting them with a
-            %% weaker guarantee.
-            ?SLOG(warning, #{
-                msg => "bcast_expired_messages_tx_aborted",
-                reason => Reason,
-                chunk_size => length(Rows)
-            }),
-            {[], length(Rows)}
-    end.
-
-delete_expired_message_row(MsgId, Hash, ApiMsgId, ExpiresAt, CreatedAt, Now) ->
-    %% Lock order: the hash row first, then the message row.
-    _ = mnesia:wread({?TAB_MSG_HASH, Hash}),
+delete_expired_message({MsgId, Hash, ApiMsgId, ExpiresAt, CreatedAt}, Now) ->
     %% The exact expiry the scan saw: a refresh that extended the row in the
-    %% meantime changed it, and the row must then be left alone.
-    case mnesia:wread({?TAB_MSG, MsgId}) of
-        [#bcast_message{expires_at = ExpiresAt}] when ExpiresAt =< Now ->
-            mnesia:delete({?TAB_MSG, MsgId}),
-            mnesia:delete({?TAB_MSG_HASH, Hash}),
-            mnesia:delete({?TAB_MSG_API_ID, ApiMsgId}),
-            mnesia:delete({?TAB_MSG_REG, MsgId}),
-            %% The management order index is derived from the message rows.
-            mnesia:delete({?TAB_MSG_ORDER, {CreatedAt, MsgId}}),
+    %% meantime changed it, and the equality delete below then matches nothing.
+    case mnesia:dirty_read(?TAB_MSG, MsgId) of
+        [#bcast_message{expires_at = ExpiresAt} = Row] when ExpiresAt =< Now ->
+            %% Derived rows first, each identified by this message's own keys,
+            %% then the message row last - the order the management cascade
+            %% delete uses, so a rebuild never sees an order or hash row whose
+            %% message is already gone.
+            _ = mnesia:dirty_delete_object(#bcast_message_hash{hash = Hash, msg_id = MsgId}),
+            _ = mnesia:dirty_delete_object(#bcast_message_api_id{
+                api_msg_id = ApiMsgId, msg_id = MsgId
+            }),
+            _ = mnesia:dirty_delete_object(#bcast_message_reg{msg_id = MsgId}),
+            _ = mnesia:dirty_delete_object(#bcast_message_order{key = {CreatedAt, MsgId}}),
+            _ = mnesia:dirty_delete_object(Row),
             true;
         _ ->
             false

@@ -78,14 +78,33 @@ being acknowledged.
   unconditional, so a concurrent create/refresh of the same content (a
   `RegisterMessage`, a `BatchPub` that resolves to the same hash) could have its
   payload, hash and API-id rows removed with it, leaving the delivery of the
-  refreshed message without a body. The deletes now run in transactions that
-  re-read the row (hash lock first, the order every message writer uses) and
-  skip a row that is no longer the expired one the scan saw.
+  refreshed message without a body. Each delete is now an equality delete of a
+  record read a moment earlier, so a row that changed in between does not match
+  and stays, and the derived rows carry this message's own ids, so a refresh
+  that wrote new ones cannot be hit either. It stays lock-free on purpose: a
+  transaction here would take the message and hash write locks that promotion
+  needs first and hold them while its commit queues behind the Mnesia
+  transaction manager.
 - **A slow role lookup during startup no longer pins a core into the
   non-core layout.** The role probe retries briefly before it answers, so a
   node whose plugin loads before mria publishes its role does not skip every
   core-only table and worker for the rest of its life; a role that never
   resolves still falls back to replicant, and the request path never waits.
+
+### Changed
+
+- **Acknowledgement bookkeeping is flushed at most every 500ms instead of every
+  50ms.** Every flush writes one acked-device marker row and one remaining-ack
+  decrement per delivery that acknowledged in that tick, and both tables are
+  kept on every core, so the load those writes put on each core's Mnesia
+  transaction manager is proportional to the flush rate. At fanout scale the
+  50ms cadence alone reached roughly the acknowledgement rate, and the Mnesia
+  queues behind it slowed every Mnesia user on the node - this plugin's own
+  delivery and completion included. The write is still marker first, then the
+  decrement, and both stay idempotent: an acknowledgement that is not durable
+  yet when a node dies is delivered again (at-least-once), never counted twice,
+  and never completes a delivery early. What moves by up to 500ms is when a
+  delivery can complete and how long an acknowledgement may stay unconfirmed.
 
 ### Known issues
 
