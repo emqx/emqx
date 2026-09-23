@@ -208,8 +208,7 @@ deliver(Messages, Pid, Topic, Limiter) ->
             NMessages = filter_delivery(Messages, Topic),
             case BatchSize of
                 0 ->
-                    deliver_to_client(NMessages, Pid, Topic),
-                    {ok, Limiter};
+                    deliver_in_batches(NMessages, all, Pid, Topic, Limiter);
                 _ ->
                     deliver_in_batches(NMessages, BatchSize, Pid, Topic, Limiter)
             end
@@ -253,6 +252,8 @@ check_clientid_banned(Msg) ->
             false
     end.
 
+take(all, List) ->
+    {length(List), List, []};
 take(N, List) ->
     take(N, List, 0, []).
 
