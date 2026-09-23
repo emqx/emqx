@@ -120,7 +120,7 @@ forward(Routes, Delivery) ->
 on_message_publish(#message{topic = <<?ROUTE_TOPIC_PREFIX, _/binary>>} = Msg) ->
     case handle_route_op_msg(Msg) of
         ok ->
-            {stop, []};
+            {stop, emqx_message:set_header(allow_publish, false, Msg)};
         error ->
             %% Disconnect so that upstream agent starts anew
             Headers = #{
@@ -129,13 +129,15 @@ on_message_publish(#message{topic = <<?ROUTE_TOPIC_PREFIX, _/binary>>} = Msg) ->
             },
             {stop, emqx_message:set_headers(Headers, Msg)}
     end;
-on_message_publish(#message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload}) ->
+on_message_publish(
+    #message{topic = <<?MSG_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload} = Msg
+) ->
     case emqx_cluster_link_mqtt:decode_forwarded_msg(Payload) of
         #message{} = ForwardedMsg ->
-            {stop, maybe_filter_incoming_msg(ForwardedMsg, ClusterName)};
+            {stop, maybe_filter_incoming_msg(ForwardedMsg, ClusterName, Msg)};
         _Err ->
             %% Just ignore it. It must be already logged by the decoder
-            {stop, []}
+            {stop, emqx_message:set_header(allow_publish, false, Msg)}
     end;
 on_message_publish(_Msg) ->
     ok.
@@ -296,11 +298,11 @@ update_actor_state(ActorSt) ->
 with_sender_name(#message{extra = Extra} = Msg, ClusterName) when is_map(Extra) ->
     Msg#message{extra = Extra#{link_origin => ClusterName}}.
 
-maybe_filter_incoming_msg(#message{topic = T} = Msg, ClusterName) ->
+maybe_filter_incoming_msg(#message{topic = T} = Msg, ClusterName, TransportMsg) ->
     %% Should prevent irrelevant messages from being dispatched in case
     %% the remote routing state lags behind the local config changes.
     #{enable := Enable, topics := Topics} = emqx_cluster_link_config:link(ClusterName),
     case Enable andalso emqx_topic:match_any(T, Topics) of
         true -> with_sender_name(Msg, ClusterName);
-        false -> []
+        false -> emqx_message:set_header(allow_publish, false, TransportMsg)
     end.

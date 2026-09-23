@@ -174,6 +174,53 @@ t_publish_no_subscriber(_) ->
     ?assertMatch(#{<<"reason_code">> := ?RC_NO_MATCHING_SUBSCRIBERS}, ResponseMap),
     ok.
 
+%% Check that a publish-hook disconnect returns a structured error for single and bulk requests.
+t_publish_hook_disconnect({init, Config}) ->
+    ok = emqx_hooks:add('message.publish', {?MODULE, disconnect_publish, []}, ?HP_LOWEST),
+    Config;
+t_publish_hook_disconnect({'end', _Config}) ->
+    emqx_hooks:del('message.publish', {?MODULE, disconnect_publish});
+t_publish_hook_disconnect(_Config) ->
+    %% Check the single-message HTTP status and broker error reason.
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Message = #{topic => <<"hook/disconnect">>, payload => <<"hello">>},
+    ExpectedError = #{
+        <<"reason_code">> => ?RC_IMPLEMENTATION_SPECIFIC_ERROR,
+        <<"message">> => <<"disconnect">>
+    },
+    {error, {Summary, _Headers, ResponseBody}} = emqx_mgmt_api_test_util:request_api(
+        post,
+        emqx_mgmt_api_test_util:api_path(["publish"]),
+        "",
+        Auth,
+        Message,
+        #{return_all => true}
+    ),
+    ?assertMatch({_, 503, _}, Summary),
+    ?assertEqual(ExpectedError, decode_json(ResponseBody)),
+    %% Check that a bulk request preserves both the failure and a normal publish result.
+    {error, {BulkSummary, _BulkHeaders, BulkBody}} = emqx_mgmt_api_test_util:request_api(
+        post,
+        emqx_mgmt_api_test_util:api_path(["publish", "bulk"]),
+        "",
+        Auth,
+        [Message, #{topic => <<"hook/no-subscriber">>, payload => <<"hello">>}],
+        #{return_all => true}
+    ),
+    ?assertMatch({_, 503, _}, BulkSummary),
+    ?assertMatch(
+        [ExpectedError, #{<<"reason_code">> := ?RC_NO_MATCHING_SUBSCRIBERS}],
+        decode_json(BulkBody)
+    ).
+
+disconnect_publish(Message) ->
+    case emqx_message:topic(Message) of
+        <<"hook/disconnect">> ->
+            {stop, emqx_message:set_header(should_disconnect, true, Message)};
+        _ ->
+            {ok, Message}
+    end.
+
 t_publish_bad_topic({init, Config}) ->
     Config;
 t_publish_bad_topic({'end', _Config}) ->

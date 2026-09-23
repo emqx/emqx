@@ -22,6 +22,7 @@ The read part is integrated via registering an ExtSub handler.
 
 -export([
     on_message_publish_stream/1,
+    on_message_puback/4,
     on_session_created/2,
     on_session_resumed/2,
     on_client_authorize/4
@@ -46,6 +47,8 @@ register_stream_hooks() ->
     _ = emqx_hooks:add(
         'message.publish', {?MODULE, on_message_publish_stream, []}, ?HP_RETAINER + 1
     ),
+    _ = emqx_hooks:add('message.puback', {?MODULE, on_message_puback, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('message.pubrec', {?MODULE, on_message_puback, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
     _ = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
@@ -58,6 +61,8 @@ register_stream_hooks() ->
 -spec unregister_stream_hooks() -> ok.
 unregister_stream_hooks() ->
     _ = emqx_hooks:del('message.publish', {?MODULE, on_message_publish_stream}),
+    _ = emqx_hooks:del('message.puback', {?MODULE, on_message_puback}),
+    _ = emqx_hooks:del('message.pubrec', {?MODULE, on_message_puback}),
     _ = emqx_hooks:del('client.authorize', {?MODULE, on_client_authorize}),
     _ = emqx_hooks:del('session.created', {?MODULE, on_session_created}),
     _ = emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
@@ -65,6 +70,14 @@ unregister_stream_hooks() ->
     ok.
 %%
 
+on_message_publish_stream(#message{topic = <<"$stream/", NameTopic/binary>>} = Message) ->
+    Result = publish_direct(NameTopic, Message),
+    Headers =
+        case Message#message.qos of
+            ?QOS_0 -> #{allow_publish => false};
+            _ -> #{allow_publish => false, streams_publish_result => Result}
+        end,
+    {stop, emqx_message:set_headers(Headers, Message)};
 on_message_publish_stream(#message{topic = Topic} = Message) ->
     ?tp_debug(streams_on_message_publish_stream, #{topic => Topic}),
     Streams = emqx_streams_registry:match(Topic),
@@ -93,6 +106,11 @@ on_message_publish_stream(#message{topic = Topic} = Message) ->
     ),
     {ok, Message}.
 
+on_message_puback(_PacketId, #message{headers = #{streams_publish_result := Result}}, _PubRes, _RC) ->
+    {stop, publish_reason_code(Result)};
+on_message_puback(_PacketId, _Message, _PubRes, RC) ->
+    {ok, RC}.
+
 on_session_created(ClientInfo, _SessionInfo) ->
     Ctx = emqx_hooks:context('session.created'),
     ok = save_support_info(Ctx, ClientInfo).
@@ -118,6 +136,59 @@ on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
 
 publish_to_stream(Stream, #message{} = Message) ->
     emqx_streams_message_db:insert(Stream, Message).
+
+publish_direct(NameTopic, Message) ->
+    case binary:split(NameTopic, <<"/">>) of
+        [_Name, <<>>] ->
+            {error, invalid_topic};
+        [Name, Topic] ->
+            publish_direct(Name, Topic, Message);
+        [Name] ->
+            publish_direct(Name, undefined, Message)
+    end.
+
+publish_direct(Name, Topic, Message) ->
+    maybe
+        ok ?= emqx_streams_schema:validate_name(Name),
+        {ok, Stream} ?= find_direct_stream(Name, Topic),
+        ok ?= check_direct_topic(Stream, Topic),
+        ok ?= publish_to_stream(Stream, Message),
+        emqx_streams_metrics:inc(ds, inserted_messages),
+        ok
+    end.
+
+find_direct_stream(Name, Topic) ->
+    case emqx_streams_registry:find(Name) of
+        {ok, _} = Found ->
+            Found;
+        not_found when Topic =:= undefined ->
+            {error, stream_not_found};
+        not_found ->
+            case emqx_streams_config:auto_create(Name, Topic) of
+                false ->
+                    {error, stream_not_found};
+                {true, Stream} ->
+                    case emqx_streams_registry:create(Stream) of
+                        {error, stream_exists} ->
+                            find_direct_stream(Name, undefined);
+                        Result ->
+                            Result
+                    end
+            end
+    end.
+
+check_direct_topic(_Stream, undefined) ->
+    ok;
+check_direct_topic(#{topic_filter := Topic}, Topic) ->
+    ok;
+check_direct_topic(_Stream, _Topic) ->
+    {error, topic_mismatch}.
+
+publish_reason_code(ok) -> ?RC_SUCCESS;
+publish_reason_code({error, topic_mismatch}) -> ?RC_TOPIC_NAME_INVALID;
+publish_reason_code({error, invalid_name}) -> ?RC_TOPIC_NAME_INVALID;
+publish_reason_code({error, invalid_topic}) -> ?RC_TOPIC_NAME_INVALID;
+publish_reason_code({error, _}) -> ?RC_IMPLEMENTATION_SPECIFIC_ERROR.
 
 save_support_info(#{conn_info_fn := ConnInfoFn} = _Ctx, ClientInfo) ->
     Protocol = maps:get(protocol, ClientInfo, undefined),

@@ -1910,7 +1910,7 @@ t_deliver_packet_too_large(Config) ->
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(ClientPid, Topic, ?QOS_1),
     Payload = lists:duplicate(MaxSize, $X),
     Message = emqx_message:make(<<?MODULE_STRING>>, ?QOS_1, Topic, Payload),
-    ?assertMatch([{_, _, {ok, 1}}], emqx_broker:publish(Message)),
+    ?assertMatch({ok, [{_, _, {ok, 1}}], #message{}}, emqx_broker:publish(Message)),
     ?assertNotReceive({publish, #{topic := Topic}}),
     %% Verify stats were updated:
     ?assertMatch(
