@@ -129,9 +129,9 @@ t_message_persisted(_Config) ->
 
     %% Hook-reported persistence prevents a no-subscriber drop.
     ok = emqx_hooks:add('message.publish', {?MODULE, mark_message_persisted, []}, ?HP_LOWEST),
-    Dropped = emqx_metrics:val('messages.dropped.no_subscribers'),
+    Dropped = emqx_metrics:val_global('messages.dropped.no_subscribers'),
     ?assertEqual([persisted], emqx_broker:publish(Msg)),
-    ?assertEqual(Dropped, emqx_metrics:val('messages.dropped.no_subscribers')),
+    ?assertEqual(Dropped, emqx_metrics:val_global('messages.dropped.no_subscribers')),
 
     %% Persisted messages still reach matching subscribers.
     ok = emqx_broker:subscribe(Topic),
