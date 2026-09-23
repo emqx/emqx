@@ -10,6 +10,7 @@
     nats_to_mqtt/1,
     nats_to_mqtt_publish/1,
     mqtt_to_nats/1,
+    mqtt_to_nats_publish/1,
     validate_nats_subject/1
 ]).
 
@@ -73,6 +74,20 @@ mqtt_to_nats(Topic) ->
             %% Convert MQTT '+' to NATS '*'
             Parts = binary:split(Topic, <<"/">>, [global]),
             iolist_to_binary(lists:join(<<".">>, [convert_mqtt_wildcard(Part) || Part <- Parts]))
+    end.
+
+-spec mqtt_to_nats_publish(binary()) -> {ok, binary()} | {error, invalid_topic}.
+mqtt_to_nats_publish(Topic) ->
+    %% A dot inside an MQTT level would become another NATS token.
+    case binary:match(Topic, <<".">>) of
+        nomatch ->
+            Subject = mqtt_to_nats(Topic),
+            case validate_nats_subject(Subject) of
+                {ok, false} -> {ok, Subject};
+                _ -> {error, invalid_topic}
+            end;
+        _ ->
+            {error, invalid_topic}
     end.
 
 %% @doc Convert NATS wildcard to MQTT wildcard

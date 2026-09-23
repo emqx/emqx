@@ -1066,26 +1066,34 @@ handle_deliver(
                     case find_sub_by_topic(SubTopic, SubsAcc) of
                         #{sid := SId, max_msgs := MaxMsgs} when MaxMsgs > 0 ->
                             Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
-                            metrics_inc('messages.delivered', Channel),
                             NMessage = run_hooks_without_metrics(
                                 Ctx,
                                 'message.delivered',
                                 [ClientInfo],
                                 Message1
                             ),
-                            MsgContent = #{
-                                subject => emqx_nats_topic:mqtt_to_nats(
+                            case
+                                emqx_nats_topic:mqtt_to_nats_publish(
                                     emqx_message:topic(NMessage)
-                                ),
-                                sid => SId,
-                                reply_to => ReplyTo,
-                                payload => emqx_message:payload(NMessage)
-                            },
-                            Frame = #nats_frame{
-                                operation = ?OP_MSG,
-                                message = MsgContent
-                            },
-                            {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+                                )
+                            of
+                                {ok, Subject} ->
+                                    metrics_inc('messages.delivered', Channel),
+                                    MsgContent = #{
+                                        subject => Subject,
+                                        sid => SId,
+                                        reply_to => ReplyTo,
+                                        payload => emqx_message:payload(NMessage)
+                                    },
+                                    Frame = #nats_frame{
+                                        operation = ?OP_MSG,
+                                        message = MsgContent
+                                    },
+                                    {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+                                {error, invalid_topic} ->
+                                    metrics_inc('delivery.dropped', Channel),
+                                    {FrameAcc, SubsAcc}
+                            end;
                         #{max_msgs := 0} ->
                             metrics_inc('delivery.dropped', Channel),
                             metrics_inc('delivery.dropped.max_msgs', Channel),

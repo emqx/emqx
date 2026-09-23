@@ -592,6 +592,8 @@ required_caps(t_jwt_permissions_intersection_with_acl) ->
     [jwt_auth, jwt_acl_intersection];
 required_caps(t_jwt_mqtt_reserved_permission_rejected) ->
     [jwt_auth, mqtt_subject_translation];
+required_caps(t_jwt_mqtt_ambiguous_delivery_dropped) ->
+    [jwt_auth, mqtt_subject_translation];
 required_caps(t_mqtt_reserved_subject_rejected) ->
     [mqtt_subject_translation];
 required_caps(t_nkey_auth_priority_over_jwt) ->
@@ -2339,6 +2341,35 @@ t_jwt_mqtt_reserved_permission_rejected(Config) ->
     ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_jwt_mqtt_ambiguous_delivery_dropped(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_mqtt_ambiguous_delivery_dropped('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_mqtt_ambiguous_delivery_dropped(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    JWT = build_test_jwt(#{
+        <<"nats">> => #{
+            <<"sub">> => #{<<"allow">> => [<<"foo.*">>]},
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    }),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo.*">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/a.b">>, <<"ambiguous">>)),
+    assert_no_message(Client, <<"foo.a.b">>, 1000),
+    emqx:publish(emqx_message:make(<<"mqtt-client">>, <<"foo/bar">>, <<"valid">>)),
+    {ok, [Message]} = emqx_nats_client:receive_message(Client),
+    ?assertEqual(?OP_MSG, emqx_nats_frame:type(Message)),
+    ?assertEqual(<<"foo.bar">>, emqx_nats_frame:subject(Message)),
+    ?assertEqual(<<"valid">>, emqx_nats_frame:payload(Message)),
     emqx_nats_client:stop(Client).
 
 t_publish_authz(init, Config) ->
