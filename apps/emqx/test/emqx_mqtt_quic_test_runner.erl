@@ -5,7 +5,7 @@
 
 -export([ensure/0]).
 
--define(RELEASE_TAG, "v0.2.1").
+-define(RELEASE_TAG, "v0.3.0").
 -define(RELEASE_BASE_URL, "https://github.com/qzhuyan/mqtt_quic_tests/releases/download/").
 
 ensure() ->
@@ -18,8 +18,13 @@ ensure() ->
 
 ensure_override(Exe) ->
     case filelib:is_regular(Exe) of
-        true -> Exe;
-        false -> ct:fail("MQTT_QUIC_TEST_BIN is not a regular file: ~s", [Exe])
+        true ->
+            case os:find_executable(filename:absname(Exe)) of
+                false -> ct:fail("MQTT_QUIC_TEST_BIN is not executable: ~s", [Exe]);
+                _ -> Exe
+            end;
+        false ->
+            ct:fail("MQTT_QUIC_TEST_BIN is not a regular file: ~s", [Exe])
     end.
 
 ensure_release_runner() ->
@@ -39,12 +44,12 @@ release_asset({unix, linux}, SystemArchitecture) ->
         x86_64 ->
             {
                 "mqtt_quic_test-linux-x86_64-musl",
-                "2033a1868f869730d6ee2c7cc3d81ebd77a562a31ceba5fee6754079e39b95da"
+                "1937945ccb935d2c054fb904a0031ceb70ce76e545d17da57f2989bd2e92d445"
             };
         aarch64 ->
             {
                 "mqtt_quic_test-linux-aarch64-musl",
-                "4a4886fcc54420e8cabf6ae8139995d94f52fc529005601da88e5475bf0b7585"
+                "9764b3d4f33c41bdd78478d5e38aa8471d263c906ef7a893dce52399712738ee"
             }
     end;
 release_asset({unix, darwin}, SystemArchitecture) ->
@@ -52,16 +57,17 @@ release_asset({unix, darwin}, SystemArchitecture) ->
         x86_64 ->
             {
                 "mqtt_quic_test-macos-x86_64",
-                "afe5b984f2be0b57b4cdf2a7da0d9e6d2e27de30335eb5f197cdcd76e7a73e70"
+                "6e9a9f1a3dfa7c89d3ab4705e384fbb08a77e6427a6262cd9884cf8b05806a0f"
             };
         aarch64 ->
             {
                 "mqtt_quic_test-macos-aarch64",
-                "322e0f8e2c58bfcfab73c6a4dc44b3cc1f0b0c2304cf3bb01f865d6307426e36"
+                "70c8e8c14824074a2931daa3e3fdcaef7e4ce8a6f87b018c3c26992342791a06"
             }
     end;
 release_asset(OsType, SystemArchitecture) ->
-    ct:fail("mqtt_quic_test v0.2.1 has no asset for ~p (~s)", [
+    ct:fail("mqtt_quic_test ~s has no asset for ~p (~s)", [
+        ?RELEASE_TAG,
         OsType,
         SystemArchitecture
     ]).
@@ -81,7 +87,8 @@ cpu_arch(SystemArchitecture0) ->
         {false, true} ->
             aarch64;
         _ ->
-            ct:fail("mqtt_quic_test v0.2.1 does not support architecture ~s", [
+            ct:fail("mqtt_quic_test ~s does not support architecture ~s", [
+                ?RELEASE_TAG,
                 SystemArchitecture
             ])
     end.
@@ -92,6 +99,13 @@ cache_root() ->
     filename:join([ProjectRoot, "_build", "test", "mqtt_quic_test"]).
 
 find_project_root(Dir) ->
+    try emqx_common_test_helpers:proj_root() of
+        ProjectRoot -> ProjectRoot
+    catch
+        error:undef -> find_project_root_from(Dir)
+    end.
+
+find_project_root_from(Dir) ->
     case filelib:is_regular(filename:join(Dir, "rebar.config")) of
         true ->
             Dir;
@@ -99,7 +113,7 @@ find_project_root(Dir) ->
             Parent = filename:dirname(Dir),
             case Parent =:= Dir of
                 true -> ct:fail("cannot locate the EMQX project root from ~s", [Dir]);
-                false -> find_project_root(Parent)
+                false -> find_project_root_from(Parent)
             end
     end.
 

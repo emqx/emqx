@@ -156,13 +156,7 @@ init_per_group(quic_flowsdk, Config0) ->
         }
     },
     CTHOpts = CTHOpts0#{emqx_opts := EMQXOpts},
-    ExtraApps = [
-        {mria, #{
-            override_env => [{db_backend, mnesia}],
-            before_start => fun use_mria_mnesia_backend/0
-        }}
-    ],
-    Config = emqx_common_test_helpers:start_apps_ds(Config0, ExtraApps, CTHOpts),
+    Config = emqx_common_test_helpers:start_apps_ds(Config0, _ExtraApps = [], CTHOpts),
     [
         {port, get_listener_port(quic, test)},
         {conn_type, quic_flowsdk}
@@ -183,9 +177,6 @@ end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic_flows
 end_per_group(_, _Config) ->
     catch emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     ok.
-
-use_mria_mnesia_backend() ->
-    persistent_term:put({mria, db_backend}, mnesia).
 
 init_per_testcase(TestCase, Config) ->
     Config1 = preconfig_per_testcase(TestCase, Config),
