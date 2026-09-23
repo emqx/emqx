@@ -65,6 +65,9 @@ end_per_testcase(t_connection_with_expire, Config) ->
     snabbkaffe:stop(),
     Config;
 end_per_testcase(_, Config) ->
+    %% Cases that stub `emqx_access_control:authenticate/1' must not leave
+    %% the stub behind: the cases that follow authenticate for real.
+    catch meck:unload(emqx_access_control),
     Config.
 
 default_config() ->
