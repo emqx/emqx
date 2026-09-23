@@ -607,22 +607,33 @@ sub_match(Pid, Topic) ->
 ) ->
     ok.
 do_deliver_qos0_and_ack(ClientId, Pid, Topic, Payload, DeliveryId, ProductKey, Attempts) ->
-    Msg = emqx_message:make(ClientId, ?QOS_0, Topic, Payload),
-    Pid ! #deliver{topic = Topic, message = Msg},
-    %% The QoS0-subscription delivery is an actual PUBLISH send too, so it
-    %% counts toward delivered (and redelivered when attempt >= 2) exactly
-    %% like the QoS1 send path; auto_acked records the self-confirmation.
-    emqx_bcast_metrics:qos1_delivered(),
-    case Attempts >= 2 of
-        true -> emqx_bcast_metrics:qos1_redelivered();
-        false -> ok
-    end,
-    emqx_bcast_metrics:qos1_auto_acked(),
-    %% Route through the same pull {ack} entry point: the core-applied
-    %% confirmation unblocks the next delivery.
-    emqx_bcast_pull_shard:cast_client(
-        ProductKey, ClientId, {ack, ClientId, DeliveryId, ProductKey}
-    ).
+    case session_holds_channel(ClientId, Pid) of
+        true ->
+            Msg = emqx_message:make(ClientId, ?QOS_0, Topic, Payload),
+            Pid ! #deliver{topic = Topic, message = Msg},
+            %% The QoS0-subscription delivery is an actual PUBLISH send too, so
+            %% it counts toward delivered (and redelivered when attempt >= 2)
+            %% exactly like the QoS1 send path; auto_acked records the
+            %% self-confirmation.
+            emqx_bcast_metrics:qos1_delivered(),
+            case Attempts >= 2 of
+                true -> emqx_bcast_metrics:qos1_redelivered();
+                false -> ok
+            end,
+            emqx_bcast_metrics:qos1_auto_acked(),
+            %% Route through the same pull {ack} entry point: the core-applied
+            %% confirmation unblocks the next delivery.
+            emqx_bcast_pull_shard:cast_client(
+                ProductKey, ClientId, {ack, ClientId, DeliveryId, ProductKey}
+            );
+        false ->
+            %% The session was taken over (or disconnected) between the claim
+            %% and this send. Sending to the stale pid and self-confirming would
+            %% count the delivery as delivered and take it out of the index, so
+            %% the current session would never receive it: release the claim
+            %% instead and let the new session be handed this delivery.
+            fail_pending_delivery(ClientId, DeliveryId, ProductKey)
+    end.
 
 -spec do_release_claim(binary(), binary(), binary()) -> ok.
 do_release_claim(ProductKey, ClientId, DeliveryId) ->

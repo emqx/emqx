@@ -3002,9 +3002,18 @@ t_metrics_auto_ack_path_counts_local(_Config) ->
     A0 = metric(<<"batch_pub_qos1_auto_acked">>),
     ACK0 = metric(<<"batch_pub_qos1_acked">>),
     R0 = metric(<<"batch_pub_qos1_redelivered">>),
-    ok = emqx_bcast_pull_shard:do_deliver_qos0_and_ack(
-        DN, self(), <<"tpl">>, <<"auto payload">>, Did, PK, 1
-    ),
+    %% The send path only fires for the channel that currently holds the client
+    %% (see t_qos0_auto_ack_skips_a_stale_channel); this case is about the
+    %% counters, so make this process the holder.
+    ok = meck:new(emqx_cm, [passthrough, no_link]),
+    try
+        ok = meck:expect(emqx_cm, lookup_channels, fun(_ClientId) -> [self()] end),
+        ok = emqx_bcast_pull_shard:do_deliver_qos0_and_ack(
+            DN, self(), <<"tpl">>, <<"auto payload">>, Did, PK, 1
+        )
+    after
+        meck:unload(emqx_cm)
+    end,
     ?assert(wait_metric(<<"batch_pub_qos1_delivered">>, D0 + 1)),
     ?assert(wait_metric(<<"batch_pub_qos1_auto_acked">>, A0 + 1)),
     ?assertEqual(ACK0, metric(<<"batch_pub_qos1_acked">>)),
@@ -5555,3 +5564,120 @@ assert_same_index_shard(PK, DN, PrePid) ->
 
 index_shard_name(Shard) ->
     list_to_atom("emqx_bcast_index_owner_" ++ integer_to_list(Shard)).
+
+%%--------------------------------------------------------------------
+%% Review follow-ups: storage-table list, QoS0 self-ack holder check,
+%% expiry delete re-check, role probe retry.
+%%--------------------------------------------------------------------
+
+-doc "Every storage table must be in the list that repairs a core's local\n"
+"copy. A core that starts (or restarts its plugin) after the table already\n"
+"exists in the cluster schema gets no copy from `mria:create_table` -\n"
+"`already_exists` - and the repair pass is what gives it one; the management\n"
+"message list reads the order index from that local copy.".
+t_storage_tables_cover_the_copy_repair_list(_Config) ->
+    Tables = emqx_bcast:storage_tables(),
+    ?assert(lists:member(bcast_message_order, Tables)),
+    ?assert(lists:member(bcast_msg, Tables)),
+    [
+        ?assert(lists:member(node(), mnesia:table_info(Tab, ram_copies)))
+     || Tab <- Tables
+    ],
+    %% The management list pages through the local order table.
+    ?assertNotEqual(undefined, ets:info(bcast_message_order)).
+
+-doc "A QoS0-subscription delivery is self-confirmed (auto-acked), so it must\n"
+"not be sent to a channel the client no longer owns: a takeover between the\n"
+"claim and the send would count the delivery as delivered and take it out of\n"
+"the index, and the current session would never receive it. The claim is\n"
+"released instead.".
+t_qos0_auto_ack_skips_a_stale_channel(_Config) ->
+    PK = <<"PQOS0STALE">>,
+    DN = <<"DQOS0STALE">>,
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    Did = emqx_bcast_utils:gen_guid(),
+    Stale = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    %% The window entry the auto-ack would complete.
+    ets:insert(emqx_bcast_pull_shard:tab(Shard, bcast_client_state), #bcast_client_state{
+        key = {PK, DN},
+        product_key = PK,
+        clientid = DN,
+        pid = Stale,
+        claim = {erlang:unique_integer([positive]), erlang:system_time(millisecond)},
+        inflight = [{Did, false}]
+    }),
+    %% The client's channel moved to another pid: emqx_cm no longer lists this
+    %% one as the holder.
+    ok = meck:new(emqx_cm, [passthrough, no_link]),
+    try
+        ok = meck:expect(emqx_cm, lookup_channels, fun(_ClientId) -> [] end),
+        ok = emqx_bcast_pull_shard:do_deliver_qos0_and_ack(
+            DN, Stale, <<"t/stale">>, <<"payload">>, Did, PK, 1
+        ),
+        ?assertEqual([], element(2, erlang:process_info(Stale, messages))),
+        %% The shard released the window entry instead of self-confirming it,
+        %% so the delivery stays claimable for the current session.
+        _ = sys:get_state(Name),
+        ?assertEqual([], (row_lookup(PK, DN))#bcast_client_state.inflight)
+    after
+        meck:unload(emqx_cm),
+        exit(Stale, kill)
+    end.
+
+-doc "The expiry scan is a snapshot: a create or re-send that extended the\n"
+"same message between the scan and the delete must not be deleted with it,\n"
+"or the delivery of the refreshed message is left without a payload. A row\n"
+"that is still the scanned expired row is deleted with all of its derived\n"
+"rows.".
+t_cleanup_expired_message_keeps_a_refreshed_row(_Config) ->
+    Payload = <<"expired then refreshed">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgId} = emqx_bcast_id:generate_message_id(),
+    ok = emqx_bcast_storage:create_message(ApiMsgId, MsgId, Hash, Payload),
+    [Row] = mnesia:dirty_read(bcast_message, MsgId),
+    CreatedAt = Row#bcast_message.created_at,
+    Now = emqx_bcast_utils:now_sec(),
+    %% What a scan that ran just before the refresh collected: expiry 0.
+    Scanned = {MsgId, Hash, ApiMsgId, 0, CreatedAt},
+    %% A concurrent create/re-send refreshed the row (its new TTL) in between.
+    ok = mnesia:dirty_write(Row#bcast_message{expires_at = Now + 3600}),
+    ?assertEqual({[], 1}, emqx_bcast_index_owner:delete_expired_messages([Scanned], Now)),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_message, MsgId)),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_message_hash, Hash)),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_message_api_id, ApiMsgId)),
+    %% A row that is still exactly the scanned expired row is deleted whole.
+    ok = mnesia:dirty_write(Row#bcast_message{expires_at = 0}),
+    ?assertEqual({[Scanned], 0}, emqx_bcast_index_owner:delete_expired_messages([Scanned], Now)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message, MsgId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_hash, Hash)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_api_id, ApiMsgId)),
+    ?assertEqual([], mnesia:dirty_read(bcast_message_order, {CreatedAt, MsgId})).
+
+-doc "The role lookup can miss while mria is still publishing it. The startup\n"
+"probe (`init_role/0`) retries before it commits to the non-core layout, and\n"
+"a role that never resolves still falls back to replicant - the safe side.\n"
+"Per-request `is_core/0` keeps the immediate fallback (it does not sleep).".
+t_role_probe_retries_before_giving_up(_Config) ->
+    ok = meck:new(mria_config, [passthrough, no_link]),
+    try
+        Calls = counters:new(1, [atomics]),
+        ok = meck:expect(mria_config, whoami, fun() ->
+            _ = counters:add(Calls, 1, 1),
+            case counters:get(Calls, 1) of
+                1 -> error(mria_not_ready);
+                _ -> core
+            end
+        end),
+        ?assert(emqx_bcast:init_role()),
+        %% A permanent miss still answers replicant, so the node does not
+        %% create tables or serve writes it cannot serve.
+        ok = meck:expect(mria_config, whoami, fun() -> error(mria_not_ready) end),
+        ?assertNot(emqx_bcast:init_role())
+    after
+        meck:unload(mria_config)
+    end.

@@ -4,7 +4,36 @@ All notable changes to the emqx_bcast plugin since version `0.1.0` are documente
 
 ## Unreleased
 
-A follow-up to 0.4.1 for the subscription hooks.
+A follow-up to 0.4.1 for the subscription hooks. **No breaking API change, no
+configuration change and no change to what the Prometheus counters mean.**
+Verified end to end on a 10,000,000-message QoS=1 backlog run: deliveries and
+acknowledgements both reached 10,000,000, so nothing was left delivered without
+being acknowledged.
+
+### Upgrade notes
+
+- **Behaviour change: unsubscribing no longer drops a client's in-flight
+  messages.** 0.4.1 released every unacknowledged delivery of that client on
+  `UNSUBSCRIBE` and deleted its cached filters, so unsubscribing from one filter
+  could make an in-flight message of another be delivered again. The plugin now
+  follows the session (`session.unsubscribed`): the filter leaves the cache and
+  the deliveries already handed to the client keep draining until the client
+  acknowledges them or they expire with `msg_ttl`. To stop delivery to a device,
+  use the management `DeleteMessage` API.
+- Nothing else needs preparing: no new table, no new config field, and every
+  hook this release changes is registered by the plugin itself on start.
+
+### Compatibility
+
+- **API and metrics:** unchanged. No endpoint, parameter, error code or
+  Prometheus counter name or meaning differs from 0.4.1.
+- **Mixed cluster:** the release changes only which hooks a node registers and
+  how it reads a subscription's QoS, so nodes still on 0.4.1 keep working next
+  to it — the 0.4.1 node still arms a client before the subscription is
+  committed (a claim round that can only come back empty), and the 0.4.2 node
+  only records a QoS it actually knows. No state is written in a new way, so the
+  order of an in-place upgrade does not matter.
+- **Rollback:** safe. This release adds no persistent state.
 
 ### Fixed
 
@@ -28,6 +57,56 @@ A follow-up to 0.4.1 for the subscription hooks.
   make an in-flight message be delivered again. The post-commit
   `session.subscribed` / `session.unsubscribed` hooks cache and drop filters and
   re-arm the client, and `session.resumed` re-syncs a restored session.
+- **A core that starts after the storage tables already exist keeps a local
+  copy of the management order index.** The copy-repair pass carried its own
+  table list, which made it repair eight of the nine storage tables: a core
+  whose plugin started after the table was created in the cluster schema was
+  left without its local copy of `bcast_message_order`, and the message list on
+  that core fails on it (the list pages through the local table). The pass now
+  derives its list from the table definitions, so a table cannot be created
+  without also being repaired.
+- **A QoS=1 delivery to a QoS=0 subscription no longer self-confirms itself on a
+  stale channel.** That path sends the message and immediately acknowledges it
+  (no PUBACK is expected), but unlike the other delivery paths it did not
+  re-check that the client still owns the channel pid it was claimed for. A
+  takeover between the claim and the send therefore delivered to the old
+  channel, counted the delivery as delivered, and removed it from the index —
+  the current session never received it. It now releases the claim instead, so
+  the new session is handed the delivery.
+- **A message extended by a re-send is no longer deleted by an expiry scan that
+  ran before it.** The TTL scan is a snapshot; the deletes that follow it were
+  unconditional, so a concurrent create/refresh of the same content (a
+  `RegisterMessage`, a `BatchPub` that resolves to the same hash) could have its
+  payload, hash and API-id rows removed with it, leaving the delivery of the
+  refreshed message without a body. The deletes now run in transactions that
+  re-read the row (hash lock first, the order every message writer uses) and
+  skip a row that is no longer the expired one the scan saw.
+- **A slow role lookup during startup no longer pins a core into the
+  non-core layout.** The role probe retries briefly before it answers, so a
+  node whose plugin loads before mria publishes its role does not skip every
+  core-only table and worker for the rest of its life; a role that never
+  resolves still falls back to replicant, and the request path never waits.
+
+### Known issues
+
+- **Clients reconnecting in large numbers.** Every connect and disconnect writes
+  the replicated channel registry on every core, so a core's Mnesia transaction
+  manager can fall behind and slow down every Mnesia user on that node,
+  including this plugin's claim and acknowledgement bookkeeping. Nothing is
+  lost; the drain rate drops.
+- **A large device population draining its backlog.** Every message is its own
+  claim round, so the core-side claim pool works in very small tasks and its
+  workers queue in the hundreds. This delays claims instead of losing
+  deliveries.
+- **A high API request rate with few devices per request.** Acknowledgement
+  bookkeeping is replicated to every core, so its cost follows the request rate
+  rather than the number of messages.
+- **A core that keeps its share of the index shards while it cannot serve them**
+  (it runs without this plugin, or stays unreachable for a long time). Every
+  append batch then fails on that core's legs and the promoter retries the same
+  batch without a limit, which pins one worker per stuck batch; enough of them
+  stop the intake queue from draining while the API still accepts requests.
+  Batches that were committed are delivered once the core is back.
 
 ## 0.4.1
 

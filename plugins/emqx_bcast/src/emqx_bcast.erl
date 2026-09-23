@@ -7,8 +7,10 @@
     hook/0,
     unhook/0,
     init_tables/0,
+    init_role/0,
     ensure_core_copies/0,
     is_core/0,
+    storage_tables/0,
     core_nodes/0,
     random_core/0,
     rpc_core/3,
@@ -33,26 +35,55 @@
 -include("emqx_bcast.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+%% Startup role probe: mria may publish the node's role a moment after the
+%% plugin is loaded, so `init_role/0` retries briefly before it commits to a
+%% layout. Only the startup path waits; the per-request callers of `is_core/0`
+%% keep the immediate fallback.
+-define(ROLE_PROBE_ATTEMPTS, 5).
+-define(ROLE_PROBE_RETRY_MS, 200).
+
 %%--------------------------------------------------------------------
 %% Role helpers
 %%--------------------------------------------------------------------
 
 -spec is_core() -> boolean().
 is_core() ->
+    probe_role().
+
+%% Resolve the role at the start of the plugin's startup path. The role is
+%% fixed for the lifetime of the node, but a transient miss must not be read as
+%% a stable "replicant": that layout skips every core-only table and worker,
+%% and a node that owns index shards would leave those partitions without an
+%% owner until the plugin is restarted.
+-spec init_role() -> boolean().
+init_role() ->
+    probe_role(?ROLE_PROBE_ATTEMPTS).
+
+probe_role() ->
+    probe_role(1).
+
+probe_role(Attempts) ->
     try
         mria_config:whoami() =/= replicant
     catch
         Error:Reason ->
-            %% mria is not ready yet: assume replicant (read-only) until the
-            %% role can be determined. The previous default of true could
-            %% create storage tables, start core-only workers and serve
-            %% writes on a replicant during startup.
-            ?SLOG(warning, #{
-                msg => "bcast_role_check_failed_default_replicant",
-                exception => Error,
-                reason => Reason
-            }),
-            false
+            case Attempts > 1 of
+                true ->
+                    timer:sleep(?ROLE_PROBE_RETRY_MS),
+                    probe_role(Attempts - 1);
+                false ->
+                    %% mria is still not answering: assume replicant
+                    %% (read-only) until the role can be determined. The
+                    %% previous default of true could create storage tables,
+                    %% start core-only workers and serve writes on a replicant
+                    %% during startup.
+                    ?SLOG(warning, #{
+                        msg => "bcast_role_check_failed_default_replicant",
+                        exception => Error,
+                        reason => Reason
+                    }),
+                    false
+            end
     end.
 
 -spec core_nodes() -> [node()].
@@ -153,6 +184,7 @@ unhook() ->
 
 -spec init_tables() -> ok.
 init_tables() ->
+    _ = init_role(),
     ok = create_mnesia_tables(),
     ok = create_ets_tables(),
     ok = ensure_core_copies(),
@@ -174,19 +206,37 @@ log_table_baseline() ->
 table_sizes() ->
     [
         {Tab, mnesia:table_info(Tab, size), mnesia:table_info(Tab, ram_copies)}
-     || Tab <- [
-            ?TAB_MSG,
-            ?TAB_MSG_API_ID,
-            ?TAB_MSG_HASH,
-            ?TAB_MSG_ORDER,
-            ?TAB_MSG_REG,
-            ?TAB_MSG_REC,
-            ?TAB_MSG_META,
-            ?TAB_MSG_META_CNT,
-            ?TAB_MSG_ACKED
-        ],
+     || Tab <- storage_tables(),
         lists:member(Tab, mnesia:system_info(tables))
     ].
+
+%% The plugin's storage tables, in creation order: the single source of truth
+%% for what is created (`create_mnesia_tables/0`), what the startup baseline
+%% logs (`table_sizes/0`) and what gets a local copy repaired on every core
+%% (`ensure_core_copies/0`). Keeping one list means a new table cannot be
+%% created without also being repaired: `mria:create_table` answers
+%% `already_exists` on a core that starts after the table exists in the cluster
+%% schema, and that core only gets its local copy from the repair pass.
+-spec mnesia_table_specs() -> [{atom(), atom(), [atom()], atom()}].
+mnesia_table_specs() ->
+    [
+        {?TAB_MSG, bcast_message, record_info(fields, bcast_message), set},
+        {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id), set},
+        {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash), set},
+        {?TAB_MSG_ORDER, bcast_message_order, record_info(fields, bcast_message_order),
+            ordered_set},
+        {?TAB_MSG_REG, bcast_message_reg, record_info(fields, bcast_message_reg), set},
+        {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg), set},
+        {?TAB_MSG_META, bcast_msg_meta, record_info(fields, bcast_msg_meta), set},
+        {?TAB_MSG_META_CNT, bcast_msg_meta_counter, record_info(fields, bcast_msg_meta_counter),
+            set},
+        {?TAB_MSG_ACKED, bcast_msg_acked, record_info(fields, bcast_msg_acked), bag}
+    ].
+
+%% Table names only, in creation order (see `mnesia_table_specs/0`).
+-spec storage_tables() -> [atom()].
+storage_tables() ->
+    [Tab || {Tab, _, _, _} <- mnesia_table_specs()].
 
 create_mnesia_tables() ->
     case is_core() of
@@ -194,20 +244,7 @@ create_mnesia_tables() ->
             ok;
         true ->
             ok = migrate_legacy_tables(),
-            Tables = [
-                {?TAB_MSG, bcast_message, record_info(fields, bcast_message), set},
-                {?TAB_MSG_API_ID, bcast_message_api_id, record_info(fields, bcast_message_api_id),
-                    set},
-                {?TAB_MSG_HASH, bcast_message_hash, record_info(fields, bcast_message_hash), set},
-                {?TAB_MSG_ORDER, bcast_message_order, record_info(fields, bcast_message_order),
-                    ordered_set},
-                {?TAB_MSG_REG, bcast_message_reg, record_info(fields, bcast_message_reg), set},
-                {?TAB_MSG_REC, bcast_msg, record_info(fields, bcast_msg), set},
-                {?TAB_MSG_META, bcast_msg_meta, record_info(fields, bcast_msg_meta), set},
-                {?TAB_MSG_META_CNT, bcast_msg_meta_counter,
-                    record_info(fields, bcast_msg_meta_counter), set},
-                {?TAB_MSG_ACKED, bcast_msg_acked, record_info(fields, bcast_msg_acked), bag}
-            ],
+            Tables = mnesia_table_specs(),
             lists:foreach(
                 fun({Tab, RecordName, Attributes, Type}) ->
                     ok = create_mnesia_table(Tab, RecordName, Attributes, Type)
@@ -457,16 +494,7 @@ ensure_core_copies() ->
         false ->
             ok;
         true ->
-            Tables = [
-                ?TAB_MSG,
-                ?TAB_MSG_API_ID,
-                ?TAB_MSG_HASH,
-                ?TAB_MSG_REG,
-                ?TAB_MSG_REC,
-                ?TAB_MSG_META,
-                ?TAB_MSG_META_CNT,
-                ?TAB_MSG_ACKED
-            ],
+            Tables = storage_tables(),
             lists:foreach(fun ensure_core_copy/1, Tables),
             ok
     end.

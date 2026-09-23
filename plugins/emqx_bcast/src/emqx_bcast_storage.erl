@@ -863,4 +863,18 @@ write_message_tx(false, _Payload, _Hash, _ApiMsgId, MsgId, Now, TTL) ->
 transaction(Fun) ->
     %% Retry on lock clashes. mnesia re-runs the fun from scratch on a
     %% retry, so transaction semantics are preserved.
+    %%
+    %% A plain `mnesia:transaction/2` is the right call for these tables, not
+    %% `mria:transaction/3`: mria replicates at the *mnesia* level rather than
+    %% through its own write API. `mria_rlog:init/0` registers a mnesia
+    %% `post_commit` hook, every commit fires it - transactions and dirty
+    %% operations alike (`mnesia_tm:do_dirty/2 -> do_commit/2 ->
+    %% mnesia_hook:do_post_commit/2`) - and the hook routes the commit to the
+    %% owning shard's replication log (`mria_rlog:intercept_trans/2` ->
+    %% `mria_rlog_server:dispatch/3`). Core-to-core copies travel on mnesia's
+    %% own upstream, because every core holds a local ram copy of the table
+    %% (`emqx_bcast:ensure_core_copies/0`). `mria:transaction/3` would
+    %% therefore not replicate anything this call does not; what it adds is the
+    %% "no writes outside this shard" assertion, which the plugin's single
+    %% shard never trips.
     mnesia:transaction(Fun, 20).
