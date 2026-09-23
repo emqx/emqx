@@ -1351,6 +1351,17 @@ handle_frame_error(
         _ ->
             shutdown(ShutdownCount, Channel)
     end;
+%% A CONNECT larger than `max_connect_packet_size'. Counted on its own, so an
+%% operator can tell clients hitting a configured limit from clients sending
+%% garbage.
+handle_frame_error(
+    Reason = #{cause := connect_packet_too_large},
+    Channel = #channel{conn_state = idle}
+) ->
+    shutdown(
+        shutdown_count(connect_packet_too_large, Reason, Channel),
+        Channel
+    );
 %% Frame error before CONNECT is parsed (conn_state still idle).
 %% This happens when the first packet is not a valid MQTT CONNECT,
 %% e.g. an HTTP request or other non-MQTT protocol sent to the MQTT port.

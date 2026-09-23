@@ -27,6 +27,7 @@ start(_StartType, _StartArgs) ->
         ok ->
             emqx_dashboard_cli:load(),
             {ok, _} = emqx_dashboard_admin:add_default_user(),
+            ok = emqx_dashboard_admin:ensure_namespaced_scopes_allowed(),
             {ok, Sup};
         {error, Reason} ->
             {error, Reason}

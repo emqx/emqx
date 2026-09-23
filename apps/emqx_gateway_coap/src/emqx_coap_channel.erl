@@ -444,7 +444,7 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
                     %% Connection mode policy: reject requests without token/clientid.
                     ?SLOG(debug, #{
                         msg => "token_required_in_conn_mode",
-                        message => emqx_utils:redact(Msg)
+                        message => emqx_coap_frame:redact(Msg)
                     }),
                     missing_token_or_clientid_reply(Msg, Channel);
                 _ ->
@@ -713,7 +713,14 @@ process_connect(Channel, Msg, Result, Iter) ->
             RandVal = rand:uniform(?TOKEN_MAXIMUM),
             Token = erlang:list_to_binary(erlang:integer_to_list(RandVal)),
             NResult = Result#{events => [{event, connected}]},
-            iter(Iter, reply({ok, created}, Token, Msg, NResult), Channel#channel{token = Token});
+            %% The token is a credential: wrap it so that it cannot leak through
+            %% the packet debug logs. `emqx_coap_frame:serialize_pkt/2' unwraps it.
+            SensitiveToken = emqx_secret:wrap(Token),
+            iter(
+                Iter,
+                reply({ok, created}, SensitiveToken, Msg, NResult),
+                Channel#channel{token = Token}
+            );
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_open_session",

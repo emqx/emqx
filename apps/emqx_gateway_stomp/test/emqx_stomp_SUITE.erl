@@ -202,27 +202,34 @@ t_auth_expire(_) ->
 
 t_auth_failed(_) ->
     ok = meck:new(emqx_access_control, [passthrough, no_history]),
-    ok = meck:expect(
-        emqx_access_control,
-        authenticate,
-        fun(_) ->
-            {error, not_authenticated}
-        end
-    ),
+    try
+        ok = meck:expect(
+            emqx_access_control,
+            authenticate,
+            fun(_) ->
+                {error, not_authenticated}
+            end
+        ),
 
-    %% restart gateway to clear the shutdown count history
-    emqx_gateway:stop(stomp),
-    emqx_gateway:start(stomp),
+        %% restart gateway to clear the shutdown count history
+        emqx_gateway:stop(stomp),
+        emqx_gateway:start(stomp),
 
-    with_connection(fun(Sock) ->
-        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>, <<"1000,2000">>),
-        {ok, Frame} = recv_a_frame(Sock),
-        ?assertMatch(#stomp_frame{command = <<"ERROR">>}, Frame),
+        with_connection(fun(Sock) ->
+            ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>, <<"1000,2000">>),
+            {ok, Frame} = recv_a_frame(Sock),
+            ?assertMatch(#stomp_frame{command = <<"ERROR">>}, Frame),
 
-        ListenerId = {'stomp:tcp:default', 61613},
-        ?assertEqual([{not_authenticated, 1}], esockd:get_shutdown_count(ListenerId))
-    end),
-    meck:unload(emqx_access_control).
+            ListenerId = {'stomp:tcp:default', 61613},
+            ?retry(
+                100,
+                20,
+                ?assertEqual([{not_authenticated, 1}], esockd:get_shutdown_count(ListenerId))
+            )
+        end)
+    after
+        meck:unload(emqx_access_control)
+    end.
 
 t_hardened_rejects_pre_connect_send(_) ->
     emqx_common_test_helpers:with_security_profile("hardened", fun() ->
