@@ -846,6 +846,8 @@ value_type([<<"False">>]) ->
     {ok, greptimedb_values:boolean_value(false)};
 value_type([Float]) when is_float(Float) ->
     {ok, Float};
+value_type([Int]) when is_integer(Int) ->
+    {ok, greptimedb_values:float64_value(Int)};
 value_type(Val0) ->
     try unicode:characters_to_binary(Val0, utf8) of
         Val1 when is_binary(Val1) ->
@@ -930,6 +932,10 @@ integer_point_validation_test() ->
     ?assertEqual(
         #{value_data => {i64_value, 470}},
         maps:get(<<"e2e_delay">>, Fields)
+    ),
+    ?assertEqual(
+        {ok, #{value_data => {f64_value, 470}}},
+        value_type([470])
     ),
     InvalidErrorPoints = [{error, {invalid_integer_value, 470.5}}],
     ?assertEqual(

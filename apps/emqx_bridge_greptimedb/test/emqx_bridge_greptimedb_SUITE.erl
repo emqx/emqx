@@ -898,6 +898,52 @@ t_boolean_variants(Config) ->
     ),
     ok.
 
+t_auto_cast_integer_to_float(Config) ->
+    QueryMode = ?config(query_mode, Config),
+    {ok, _} =
+        create_bridge(
+            Config,
+            #{
+                <<"write_syntax">> =>
+                    <<"mqtt,clientid=${clientid} float_value=${payload.float_key}">>
+            }
+        ),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    SendValue =
+        fun(ClientId, Value) ->
+            SentData = #{
+                <<"clientid">> => ClientId,
+                <<"topic">> => Topic,
+                <<"payload">> => #{<<"float_key">> => Value},
+                <<"timestamp">> => erlang:system_time(millisecond)
+            },
+            case QueryMode of
+                sync -> ?assertMatch({ok, _}, send_message(Config, SentData));
+                async -> ?assertEqual(ok, send_message(Config, SentData))
+            end
+        end,
+    FloatClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    SendValue(FloatClientId, 24.5),
+    ?retry(
+        200,
+        20,
+        ?assertMatch(
+            #{<<"float_value">> := 24.5},
+            query_by_clientid(FloatClientId, Config)
+        )
+    ),
+    IntegerClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    SendValue(IntegerClientId, 30),
+    ?retry(
+        200,
+        20,
+        ?assertMatch(
+            #{<<"float_value">> := 30.0},
+            query_by_clientid(IntegerClientId, Config)
+        )
+    ),
+    ok.
+
 t_partially_invalid_batch(Config) ->
     case ?config(batch_size, Config) of
         1 ->
