@@ -7,8 +7,8 @@
 %% nodetool: Helper Script for interacting with live nodes
 %%
 %% The %%! line above sets the emulator flags for every nodetool run.
-%% copy_escript/2 in mix.exs merges the release arguments into that
-%% line when packaging; escript honours only the first %%! line.
+%% compile_escript/2 in mix.exs compiles this script during release assembly
+%% and preserves these flags together with the release arguments.
 %%
 %% -------------------------------------------------------------------
 -mode(compile).
