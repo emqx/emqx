@@ -62,7 +62,7 @@
     %% FIXME: don't store anonymous func
     with_context :: function(),
     %% CoAP block-wise transfer state
-    blockwise :: emqx_coap_blockwise:state()
+    blockwise :: emqx_coap_blockwise:state() | undefined
 }).
 
 -type channel() :: #channel{}.
@@ -157,7 +157,7 @@ init(
         session = emqx_lwm2m_session:new(),
         conn_state = idle,
         with_context = with_context(Ctx, ClientInfo),
-        blockwise = emqx_coap_blockwise:new(emqx_coap_blockwise:default_opts(lwm2m))
+        blockwise = undefined
     }.
 
 lookup_cmd(Channel, Path, Action) ->
@@ -200,6 +200,15 @@ handle_timeout(
     {shutdown, timeout, NChannel};
 handle_timeout(_, {transport, _} = Msg, Channel) ->
     call_session(timeout, Msg, Channel);
+handle_timeout(Ref, blockwise_expire, #channel{timers = Timers} = Channel) ->
+    case maps:get(blockwise_expire, Timers, undefined) of
+        Ref ->
+            call_session(resume_pending, undefined, Channel#channel{
+                timers = maps:remove(blockwise_expire, Timers)
+            });
+        _ ->
+            {ok, Channel}
+    end;
 handle_timeout(_, disconnect, Channel) ->
     {shutdown, normal, Channel};
 handle_timeout(_, connection_expire, Channel) ->
@@ -748,22 +757,23 @@ handle_request_protocol(
     post,
     Msg,
     Result,
-    #channel{blockwise = BW0, conninfo = ConnInfo} = Channel,
+    #channel{conninfo = ConnInfo} = Channel,
     Iter
 ) ->
+    {BW0, Channel0} = take_blockwise(Channel),
     PeerKey = maps:get(peername, ConnInfo, undefined),
     case emqx_coap_blockwise:server_incoming(Msg, PeerKey, BW0) of
         {reply, Reply, BW1} ->
-            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+            iter(Iter, reply(Reply, Result), put_blockwise(BW1, Channel0));
         {error, Reply, BW1} ->
-            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+            iter(Iter, reply(Reply, Result), put_blockwise(BW1, Channel0));
         {continue, Reply, BW1} ->
-            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+            iter(Iter, reply(Reply, Result), put_blockwise(BW1, Channel0));
         {Tag, Msg2, BW1} when Tag =:= pass; Tag =:= complete ->
             do_handle_request_post(
                 Msg2,
                 Result#{request_msg => Msg2},
-                Channel#channel{blockwise = BW1},
+                put_blockwise(BW1, Channel0),
                 Iter
             )
     end;
@@ -817,7 +827,7 @@ process_return({Outs, Session}, Result, Channel, Iter) ->
     iter(
         Iter,
         Result#{out => Outs ++ OldOuts},
-        Channel#channel{session = Session}
+        schedule_blockwise_timer(Channel#channel{session = Session}, false)
     ).
 
 process_out(Outs, Result, Channel, _) ->
@@ -835,19 +845,59 @@ process_out(Outs, Result, Channel, _) ->
 process_reply(
     Reply,
     Result,
-    #channel{session = Session, blockwise = BW0, conninfo = ConnInfo} = Channel,
+    #channel{conninfo = ConnInfo} = Channel,
     _
 ) ->
+    {BW0, #channel{session = Session} = Channel0} = take_blockwise(Channel),
     Req = maps:get(request_msg, Result, undefined),
     PeerKey = maps:get(peername, ConnInfo, undefined),
     {Reply1, BW1} = maybe_prepare_block2_reply(Req, Reply, PeerKey, BW0),
-    Session2 = emqx_lwm2m_session:set_reply(Reply1, Session),
+    Session1 = emqx_lwm2m_session:set_reply(Reply1, Session),
+    Session2 = emqx_lwm2m_session:set_blockwise(BW1, Session1),
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel#channel{
-        session = Session2, blockwise = BW1
+    Channel1 = schedule_blockwise_timer(Channel0#channel{session = Session2}, true),
+    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel1}.
+
+schedule_blockwise_timer(#channel{timers = Timers, session = Session} = Channel, Immediate) ->
+    OldRef = maps:get(blockwise_expire, Timers, undefined),
+    case OldRef of
+        undefined -> ok;
+        _ -> erlang:cancel_timer(OldRef)
+    end,
+    Timers1 = maps:remove(blockwise_expire, Timers),
+    case emqx_lwm2m_session:has_pending(Session) of
+        false ->
+            Channel#channel{timers = Timers1};
+        true ->
+            BW = emqx_lwm2m_session:blockwise(Session),
+            case {Immediate, emqx_coap_blockwise:next_expiry(BW)} of
+                {false, undefined} ->
+                    Channel#channel{timers = Timers1};
+                {_, Expiry} ->
+                    Delay =
+                        case Immediate of
+                            true -> 1;
+                            false -> max(1, Expiry - erlang:monotonic_time(millisecond))
+                        end,
+                    Ref = emqx_utils:start_timer(Delay, blockwise_expire),
+                    Channel#channel{timers = Timers1#{blockwise_expire => Ref}}
+            end
+    end.
+
+take_blockwise(#channel{session = Session, blockwise = undefined} = Channel) ->
+    {emqx_lwm2m_session:blockwise(Session), Channel};
+take_blockwise(#channel{session = Session, blockwise = Legacy} = Channel) ->
+    Current = emqx_lwm2m_session:blockwise(Session),
+    Blockwise = emqx_coap_blockwise:merge(Current, Legacy),
+    {Blockwise, Channel#channel{
+        session = emqx_lwm2m_session:set_blockwise(Blockwise, Session),
+        blockwise = undefined
     }}.
+
+put_blockwise(Blockwise, #channel{session = Session} = Channel) ->
+    Channel#channel{session = emqx_lwm2m_session:set_blockwise(Blockwise, Session)}.
 
 maybe_prepare_block2_reply(Req, Reply, _PeerKey, BW) when
     not is_record(Req, coap_message); not is_record(Reply, coap_message)
@@ -865,7 +915,14 @@ maybe_prepare_block2_reply(Req, Reply, PeerKey, BW0) ->
                 request => Req,
                 reply => Reply
             }),
-            {Reply1, BW1}
+            {Reply1, BW1};
+        {busy, _Reason, BW1} ->
+            Reply1 = emqx_coap_message:set(
+                max_age, 1, emqx_coap_message:piggyback({error, service_unavailable}, Req)
+            ),
+            {Reply1, BW1};
+        {too_large, BW1} ->
+            {emqx_coap_message:piggyback({error, service_unavailable}, Req), BW1}
     end.
 
 process_lifetime(_, Result, Channel, Iter) ->

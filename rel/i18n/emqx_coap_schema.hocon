@@ -51,6 +51,14 @@ coap_blockwise_max_body_size.desc:
 """Maximum final payload size after reassembly.
 If exceeded, the message is rejected to protect memory."""
 
+coap_blockwise_max_concurrent_exchanges.desc:
+"""Maximum number of block-wise exchanges retained by one client session.
+When full, new uploads receive 4.29 and downlink notifications wait in the Observe queue."""
+
+coap_blockwise_max_total_size.desc:
+"""Maximum total payload bytes retained by block-wise exchanges in one client session.
+When full, uploads receive 4.13 and downlink notifications wait if they can fit later."""
+
 coap_blockwise_exchange_lifetime.desc:
 """How long temporary block-wise state is kept.
 Too short can break slow transfers; too long consumes memory longer."""
