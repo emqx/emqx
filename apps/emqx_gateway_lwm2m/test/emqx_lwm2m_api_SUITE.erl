@@ -30,7 +30,8 @@
     test_send_coap_request/6,
     test_recv_mqtt_response/1,
     std_register/5,
-    sprintf/2
+    sprintf/2,
+    cleanup_lwm2m_channels/0
 ]).
 
 %%--------------------------------------------------------------------
@@ -70,6 +71,7 @@ init_per_testcase(_AllTestCase, Config) ->
     [{sock, ClientUdpSock}, {emqx_c, C} | Config].
 
 end_per_testcase(_AllTestCase, Config) ->
+    cleanup_lwm2m_channels(),
     gen_udp:close(?config(sock, Config)),
     emqtt:disconnect(?config(emqx_c, Config)),
     timer:sleep(300).
