@@ -12,6 +12,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
+-include_lib("minirest/include/minirest.hrl").
 
 -import(emqx_dashboard_api_test_helpers, [uri/1]).
 
@@ -886,31 +887,38 @@ add_default_superuser() ->
 %%--------------------------------------------------------------------
 
 %% Run the login-user scope check for `Username' against the handler
-%% that serves an endpoint, with the path bindings cowboy would have
-%% decoded. The check keys on minirest's `module' and `function', so
-%% the endpoint is named by them rather than by a path.
+%% that serves an endpoint. The handler and the path bindings come from
+%% the dashboard's live cowboy router, the table minirest dispatches
+%% on, so the check sees what a real request would carry.
 login_scope_check(Username, Endpoint) ->
-    {HandlerInfo, Bindings} = endpoint(Endpoint),
-    emqx_dashboard_rbac:check_login_user_scopes(
-        Username, #{bindings => Bindings}, HandlerInfo
-    ).
+    {HandlerInfo, Req} = dispatch(endpoint_path(Endpoint)),
+    emqx_dashboard_rbac:check_login_user_scopes(Username, Req, HandlerInfo).
 
-endpoint(users) ->
-    {handler_info(emqx_dashboard_api, users), #{}};
-endpoint({user, Target}) ->
-    {handler_info(emqx_dashboard_api, user), #{username => Target}};
-endpoint({change_pwd, Target}) ->
-    {handler_info(emqx_dashboard_api, change_pwd), #{username => Target}};
-endpoint({change_mfa, Target}) ->
-    {handler_info(emqx_dashboard_api, change_mfa), #{username => Target}};
-endpoint(clients) ->
-    {handler_info(emqx_mgmt_api_clients, clients), #{}};
-endpoint({client, ClientId}) ->
-    {handler_info(emqx_mgmt_api_clients, client), #{clientid => ClientId}};
-endpoint(alarms) ->
-    {handler_info(emqx_mgmt_api_alarms, alarms), #{}};
-endpoint(unmapped) ->
-    {handler_info(no_such_api_module, no_such_function), #{}}.
+endpoint_path(users) -> <<"/users">>;
+endpoint_path({user, Target}) -> <<"/users/", Target/binary>>;
+endpoint_path({change_pwd, Target}) -> <<"/users/", Target/binary, "/change_pwd">>;
+endpoint_path({change_mfa, Target}) -> <<"/users/", Target/binary, "/mfa">>;
+endpoint_path(clients) -> <<"/clients">>;
+endpoint_path({client, ClientId}) -> <<"/clients/", ClientId/binary>>;
+endpoint_path(alarms) -> <<"/alarms">>;
+endpoint_path(unmapped) -> unmapped.
 
-handler_info(Module, Function) ->
-    #{method => get, module => Module, function => Function}.
+%% Match a concrete request path against the dashboard's dispatch table
+%% and build the HandlerInfo minirest passes to the authorize callback
+%% (`minirest_handler:do_authorize/3'), plus a request carrying the
+%% bindings cowboy decoded. No route serves `unmapped', so the router
+%% would answer 404 before any scope check; that handler is synthetic
+%% and exists only to pin the fail-closed rule for an unmapped handler.
+dispatch(unmapped) ->
+    HandlerInfo = #{method => get, module => no_such_api_module, function => no_such_function},
+    {HandlerInfo, #{bindings => #{}}};
+dispatch(RelPath) ->
+    AbsPath = iolist_to_binary(emqx_dashboard_swagger:relative_uri(binary_to_list(RelPath))),
+    Req0 = #{host => <<"localhost">>, path => AbsPath},
+    Env0 = #{dispatch => {persistent_term, 'http:dashboard'}},
+    {ok, Req, #{handler := minirest_handler, handler_opts := State}} =
+        cowboy_router:execute(Req0, Env0),
+    #{path := Template, methods := Methods} = State,
+    [#handler{module = Module, function = Function} | _] = maps:values(Methods),
+    HandlerInfo = #{method => get, module => Module, function => Function, path => Template},
+    {HandlerInfo, Req}.
