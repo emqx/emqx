@@ -1050,8 +1050,7 @@ ensure_disconnected(
 handle_deliver(
     Delivers,
     Channel = #channel{
-        ctx = Ctx,
-        clientinfo = ClientInfo = #{clientid := ClientId, mountpoint := Mountpoint},
+        clientinfo = #{clientid := ClientId},
         subscriptions = Subs
     }
 ) ->
@@ -1062,38 +1061,9 @@ handle_deliver(
                 true ->
                     {FrameAcc, SubsAcc};
                 false ->
-                    ReplyTo = emqx_message:get_header(reply_to, Message),
                     case find_sub_by_topic(SubTopic, SubsAcc) of
                         #{sid := SId, max_msgs := MaxMsgs} when MaxMsgs > 0 ->
-                            Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
-                            NMessage = run_hooks_without_metrics(
-                                Ctx,
-                                'message.delivered',
-                                [ClientInfo],
-                                Message1
-                            ),
-                            case
-                                emqx_nats_topic:mqtt_to_nats_publish(
-                                    emqx_message:topic(NMessage)
-                                )
-                            of
-                                {ok, Subject} ->
-                                    metrics_inc('messages.delivered', Channel),
-                                    MsgContent = #{
-                                        subject => Subject,
-                                        sid => SId,
-                                        reply_to => ReplyTo,
-                                        payload => emqx_message:payload(NMessage)
-                                    },
-                                    Frame = #nats_frame{
-                                        operation = ?OP_MSG,
-                                        message = MsgContent
-                                    },
-                                    {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
-                                {error, invalid_topic} ->
-                                    metrics_inc('delivery.dropped', Channel),
-                                    {FrameAcc, SubsAcc}
-                            end;
+                            deliver_to_subscriber(Message, SId, {FrameAcc, SubsAcc}, Channel);
                         #{max_msgs := 0} ->
                             metrics_inc('delivery.dropped', Channel),
                             metrics_inc('delivery.dropped.max_msgs', Channel),
@@ -1129,6 +1099,34 @@ handle_deliver(
     ),
 
     {ok, [{outgoing, lists:reverse(Frames0)}, {event, updated}], Channel2}.
+
+deliver_to_subscriber(
+    Message,
+    SId,
+    {FrameAcc, SubsAcc},
+    Channel = #channel{
+        ctx = Ctx,
+        clientinfo = ClientInfo = #{mountpoint := Mountpoint}
+    }
+) ->
+    ReplyTo = emqx_message:get_header(reply_to, Message),
+    Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
+    NMessage = run_hooks_without_metrics(Ctx, 'message.delivered', [ClientInfo], Message1),
+    case emqx_nats_topic:mqtt_to_nats_publish(emqx_message:topic(NMessage)) of
+        {ok, Subject} ->
+            metrics_inc('messages.delivered', Channel),
+            MsgContent = #{
+                subject => Subject,
+                sid => SId,
+                reply_to => ReplyTo,
+                payload => emqx_message:payload(NMessage)
+            },
+            Frame = #nats_frame{operation = ?OP_MSG, message = MsgContent},
+            {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+        {error, invalid_topic} ->
+            metrics_inc('delivery.dropped', Channel),
+            {FrameAcc, SubsAcc}
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
