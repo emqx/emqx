@@ -6,7 +6,8 @@
 %%
 %% Every minirest_api module MUST export a `scopes/0` callback that
 %% returns one of these macros (or a map of path => macro for modules
-%% whose endpoints span multiple scopes).
+%% whose endpoints span multiple scopes; the keys are the exact terms
+%% the module's `paths/0` returns).
 %%
 %% A path may also declare a non-empty LIST of these macros, meaning
 %% "a holder of any one of these scopes may call this path". Use a list

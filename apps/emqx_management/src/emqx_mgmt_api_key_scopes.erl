@@ -10,7 +10,9 @@ API Key scope management.
 Each minirest_api module declares its scope via a `scopes/0` callback
 that returns either a scope declaration (all paths share it) or a
 `#{Path => ScopeDeclaration}` map (for modules whose endpoints span
-multiple scopes).
+multiple scopes). A map is keyed by the exact terms `paths/0` returns;
+a key that is not one of them is rejected, and a path that is missing
+from the map is left unmapped. Both warn at collection.
 
 A scope declaration is either a single scope name binary or a
 non-empty list of scope names. A list means the endpoint is reachable
@@ -292,6 +294,7 @@ collect_module_scopes(Module, Acc) ->
             true ->
                 Paths = apply(Module, paths, []),
                 ScopeSpec = apply(Module, scopes, []),
+                ok = check_scope_map_keys(Module, Paths, ScopeSpec),
                 lists:foldl(
                     fun(Path, InnerAcc) ->
                         collect_path(Module, Path, ScopeSpec, InnerAcc)
@@ -325,19 +328,37 @@ collect_path(Module, Path, ScopeSpec, Acc) ->
         error -> Acc
     end.
 
-%% Map form: per-path scope assignment. The sentinel ?SCOPE_PUBLIC marks
-%% paths that are intentionally unscoped (pre-login entry points and
-%% static catalog endpoints). Such paths ARE inserted into the cache,
-%% carrying `[?SCOPE_PUBLIC]', so that lookups can tell "explicitly
-%% public" from "genuinely unmapped". Genuinely missing paths warn.
+%% A map-form scopes/0 is keyed by the exact terms `paths/0' returns.
+%% A key that is not one of them names nothing the router serves: a
+%% typo, or a path that was removed or renamed. Warn on each; the CT
+%% invariant `t_scope_map_keys_are_declared_paths' fails on it.
+check_scope_map_keys(Module, Paths, ScopeMap) when is_map(ScopeMap) ->
+    lists:foreach(
+        fun(Key) ->
+            ?SLOG(warning, #{
+                msg => "scope_map_key_not_a_declared_path",
+                module => Module,
+                key => Key
+            })
+        end,
+        maps:keys(ScopeMap) -- Paths
+    );
+check_scope_map_keys(_Module, _Paths, _Declared) ->
+    ok.
+
+%% Map form: per-path scope assignment, looked up by the exact path
+%% term with no normalization. The sentinel ?SCOPE_PUBLIC marks paths
+%% that are intentionally unscoped (pre-login entry points and static
+%% catalog endpoints). Such paths ARE inserted into the cache, carrying
+%% `[?SCOPE_PUBLIC]', so that lookups can tell "explicitly public" from
+%% "genuinely unmapped". Genuinely missing paths warn.
 declared_scopes(Module, Path, ScopeMap) when is_map(ScopeMap) ->
-    PathBin = path_to_binary(Path),
-    case maps:get(PathBin, ScopeMap, maps:get(Path, ScopeMap, undefined)) of
+    case maps:get(Path, ScopeMap, undefined) of
         undefined ->
             ?SLOG(warning, #{
                 msg => "path_missing_from_scopes_map",
                 module => Module,
-                path => PathBin
+                path => path_to_binary(Path)
             }),
             error;
         Declared ->

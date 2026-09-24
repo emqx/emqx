@@ -60,13 +60,13 @@ api_spec() ->
 %%   * /user_scopes -- static catalog endpoint, no tenant data.
 scopes() ->
     #{
-        <<"/login">> => ?SCOPE_PUBLIC,
-        <<"/logout">> => ?SCOPE_PUBLIC,
-        <<"/user_scopes">> => ?SCOPE_PUBLIC,
-        <<"/users">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username/change_pwd">> => ?SCOPE_USER_MGMT,
-        <<"/users/:username/mfa">> => ?SCOPE_MFA_MGMT
+        "/login" => ?SCOPE_PUBLIC,
+        "/logout" => ?SCOPE_PUBLIC,
+        "/user_scopes" => ?SCOPE_PUBLIC,
+        "/users" => ?SCOPE_USER_MGMT,
+        "/users/:username" => ?SCOPE_USER_MGMT,
+        "/users/:username/change_pwd" => ?SCOPE_USER_MGMT,
+        "/users/:username/mfa" => ?SCOPE_MFA_MGMT
     }.
 
 paths() ->

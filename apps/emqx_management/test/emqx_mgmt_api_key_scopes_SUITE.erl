@@ -41,6 +41,7 @@ groups() ->
             t_all_modules_have_scopes,
             t_all_endpoints_covered_by_scopes,
             t_no_conflicting_declarations,
+            t_scope_map_keys_are_declared_paths,
             t_init_cache_no_missing_path_warnings,
             t_public_handlers_are_unscoped
         ]},
@@ -420,11 +421,32 @@ conflicting_declarations(Module) ->
 
 declared_for(Module, Path) ->
     case safe_scopes(Module) of
-        Map when is_map(Map) ->
-            maps:get(path_to_binary(Path), Map, maps:get(Path, Map, undefined));
-        Scope ->
-            Scope
+        Map when is_map(Map) -> maps:get(Path, Map, undefined);
+        Scope -> Scope
     end.
+
+-doc """
+A map-form scopes/0 is keyed by the exact terms paths/0 returns. A key
+that is not one of them names nothing the router serves: a typo, or a
+path that was removed or renamed, whose scope entry would otherwise
+outlive it unnoticed.
+""".
+t_scope_map_keys_are_declared_paths(_Config) ->
+    Modules = emqx_mgmt_api_key_scopes:find_api_modules(),
+    Stray = lists:flatmap(
+        fun(M) ->
+            case safe_scopes(M) of
+                Map when is_map(Map) -> [{M, K} || K <- maps:keys(Map) -- safe_paths(M)];
+                _ -> []
+            end
+        end,
+        Modules
+    ),
+    ?assertEqual(
+        [],
+        Stray,
+        lists:flatten(io_lib:format("scopes/0 map keys that are not declared paths: ~p", [Stray]))
+    ).
 
 -doc """
 Every map-form scopes/0 callback must list every path returned by
@@ -439,8 +461,7 @@ t_init_cache_no_missing_path_warnings(_Config) ->
         fun(M) ->
             case safe_scopes(M) of
                 Map when is_map(Map) ->
-                    Paths = [path_to_binary(P) || P <- safe_paths(M)],
-                    [{M, P} || P <- Paths, not maps:is_key(P, Map)];
+                    [{M, P} || P <- safe_paths(M), not maps:is_key(P, Map)];
                 _ ->
                     []
             end
@@ -510,8 +531,7 @@ collect_public_handlers(Modules) ->
                         [
                             {M, OperationId}
                          || P <- safe_paths(M),
-                            maps:get(path_to_binary(P), Map, maps:get(P, Map, undefined)) =:=
-                                ?SCOPE_PUBLIC,
+                            maps:get(P, Map, undefined) =:= ?SCOPE_PUBLIC,
                             {ok, OperationId} <- [emqx_mgmt_api_key_scopes:operation_id(M, P)]
                         ];
                     _ ->
