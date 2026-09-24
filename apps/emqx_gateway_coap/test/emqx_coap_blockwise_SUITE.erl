@@ -80,6 +80,8 @@ t_server_session_total_size_limit(_) ->
     Msg2 = block1_start(<<"45">>, <<"2">>),
     Msg3 = block1_start(<<"6">>, <<"3">>),
     {continue, _, BW1} = emqx_coap_blockwise:server_in(Msg1, peer, BW0),
+    [FirstRx] = maps:values(maps:get(server_rx_block1, BW1)),
+    ?assertEqual(false, maps:is_key(req, FirstRx)),
     {continue, _, BW2} = emqx_coap_blockwise:server_in(Msg2, peer, BW1),
     {error, LimitReply, BW2} = emqx_coap_blockwise:server_in(Msg3, peer, BW2),
     ?assertEqual({error, request_entity_too_large}, LimitReply#coap_message.method),
