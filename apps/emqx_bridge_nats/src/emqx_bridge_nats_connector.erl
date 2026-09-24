@@ -182,7 +182,7 @@ connect(Options) ->
     ClientOpts = proplists:get_value(config, Options),
     case enats_client:start_link(ClientOpts#{owner => self(), reconnect => true}) of
         {ok, Client} ->
-            case enats_client:connect(Client, maps:get(connect_timeout, ClientOpts, 5000)) of
+            case enats_client:connect(Client, maps:get(connect_timeout, ClientOpts)) of
                 ok ->
                     {ok, Client};
                 {error, Reason} ->
@@ -205,7 +205,7 @@ publish_batch(Client, #{delivery_mode := DeliveryMode} = Channel, Batch) ->
     end.
 
 publish_core_batch(Client, Channel, Batch) ->
-    IndexedBatch = lists:zip(lists:seq(1, length(Batch)), Batch),
+    IndexedBatch = lists:enumerate(Batch),
     {Valid, Results0} = render_batch(IndexedBatch, Channel, [], #{}),
     publish_core_batch(Client, Channel, Valid, Results0).
 

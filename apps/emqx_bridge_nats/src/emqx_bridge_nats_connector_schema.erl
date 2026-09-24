@@ -78,7 +78,7 @@ fields(connector_config) ->
             )}
     ] ++
         emqx_connector_schema:resource_opts() ++
-        emqx_connector_schema_lib:ssl_fields();
+        emqx_connector_schema_lib:ssl_fields(#{enable_by_default => true});
 fields(auth_user_password) ->
     [
         {mechanism,
